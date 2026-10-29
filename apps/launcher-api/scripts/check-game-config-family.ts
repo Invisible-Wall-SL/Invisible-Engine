@@ -768,9 +768,13 @@ try {
 		(renderPage(config).body.match(/Each room's generator \(<code>/g) ?? []).length;
 	const withGenerator = structuredClone(salmonsLike);
 	withGenerator.arcade!.online!.generator = 'salmonsRiver';
+	const withUnknown = structuredClone(salmonsLike);
+	withUnknown.arcade!.online!.generator = 'lake';
 	check(
-		'3. arcade: a generator is noted by the spawn, character spawns, zone rules and bot spawns',
-		generatedNotices(salmonsLike) === 0 && generatedNotices(withGenerator) === 4,
+		'3. arcade: a known generator is noted by the four values it replaces',
+		generatedNotices(salmonsLike) === 0 &&
+			generatedNotices(withGenerator) === 4 &&
+			generatedNotices(withUnknown) === 0,
 		String(generatedNotices(withGenerator)),
 	);
 	check(

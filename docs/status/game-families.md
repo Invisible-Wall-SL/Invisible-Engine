@@ -110,9 +110,12 @@ P11.2's two PRs. Not deployed.
   `referenceLayouts/salmonsRiver.ts` and exported) in place of the authored node of the same id
   (`river`). Nothing registers it for any other game, and `Game.svelte` is unchanged. The probe gains `online.seed`,
   `online.zones`, `online.fieldDrawn` (whether the swap happened). The scene holding the node
-  gets the generated field's size as its `world`. A layout with no node of that id stops the game
-  on the failure screen (and logs an error) rather than draw the authored river over the room's.
-  When a config names a generator, `/config` notes by the spawn, character spawns, zone rules and
+  gets the generated field's size as its `world`. A layout with no node of that id never draws the
+  authored river over the room's: `joinOnlineRoom` (awaited by `load()`) checks the layout already
+  in hand (`editor-scenes` `preparedEditorDoc`), leaves the room and stops the boot, saying to keep
+  a node with that id or remove `arcade.online.generator`; a layout fetched only at mount leaves
+  the room and shows the same screen.
+  When a config names a known generator, `/config` notes by the spawn, character spawns, zone rules and
   bot spawns that each room's generator replaces them. The publish validates `GAME_SERVER_URL`
   with `new URL()` and a protocol check.
 - **Gates:** new launcher **`check:online-publish`** (5 checks over the real `publishGame.ts`: an
@@ -128,7 +131,8 @@ P11.2's two PRs. Not deployed.
   `check:room-sim` 39 (source scans of the seed wait, the registration and `loadEditorScenes`).
   `check:netcode` 25, `check:online-rules` 23, `check:pipeline-games` 35, `check:runtime-choice`,
   `check:book-of-migration`: pass, unchanged.
-- **Verified by playing:** `salmons-play.mjs` **27 / 27** in each netcode (the 23 plus: pages A and
+- **Verified by playing:** `salmons-play.mjs` **28 / 28** in each netcode (the 23 plus: page D,
+  booted with a layout missing `river`, stops before the game mounts and leaves the room; pages A and
   B, one room, make the river of the room's seed and draw it; page A's salmon started at that
   river's sea, as the server put it; not the authored river; page C, another room, plays another
   river). Its bots are now still bears (a room's river places them, so the old filter of their

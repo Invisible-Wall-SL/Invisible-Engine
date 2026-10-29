@@ -50,6 +50,7 @@ import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-conf
 import {
 	bakedFlowV2Doc,
 	bakedGameConfig,
+	preparedEditorDoc,
 	refuseOnlineBoot,
 	setRoomDocChange,
 } from '../editor-scenes';
@@ -266,6 +267,12 @@ export async function joinOnlineRoom(): Promise<void> {
 	const played =
 		seed === undefined ? { game: resolved, made: undefined } : generatedOnlineGame(resolved, seed);
 	const draw = generator ? FIELD_DRAWINGS[generator] : undefined;
+	const field = played.made && draw?.(played.made);
+	const prepared = preparedEditorDoc();
+	if (field && prepared && !holdsNode(prepared, field.id)) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot(missingFieldNode(field.id));
+	}
 	const current: Session = {
 		room,
 		game: played.game,
@@ -289,7 +296,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		signals: [],
 		serverVariables: undefined,
 		seed,
-		field: played.made && draw?.(played.made),
+		field,
 		fieldDrawn: undefined,
 	};
 	session = current;
@@ -329,12 +336,22 @@ function roomSeed(room: Room): Promise<number | undefined> {
 	});
 }
 
+/** Whether a screen of `doc` has a top-level node `id`, where a generated field is drawn. */
+const holdsNode = (doc: LayoutDoc, id: string) =>
+	doc.scenes.some((scene) => scene.nodes.some((node) => node.id === id));
+
+/** Why a generator game with no node to draw its room's field in does not start. */
+const missingFieldNode = (id: string) =>
+	`the layout has no node "${id}" to draw the room's own field in: keep a node with id ` +
+	`"${id}", or remove arcade.online.generator`;
+
 /**
  * `doc` with the room's own field drawn in place of the authored node of the same id, in every
  * scene, and that scene's world sized to the room's field; `doc` itself when the room plays the
  * field as authored (or there is no room). The loaded doc passes through it (`editor-scenes`
  * `loadEditorScenes`) once a room made its own field. A layout with no node of that id would
- * draw the authored field over the room's own, so the game stops on the failure screen instead.
+ * draw the authored field over the room's own: the join refuses it before the game mounts when the
+ * layout is already in hand, and here (a layout fetched at mount) the device leaves the room.
  */
 function withRoomField(doc: LayoutDoc): LayoutDoc {
 	const current = session;
@@ -342,10 +359,10 @@ function withRoomField(doc: LayoutDoc): LayoutDoc {
 	if (!current || !field) return doc;
 	const size = current.game.field;
 	const holds = (scene: Scene) => scene.nodes.some((node) => node.id === field.id);
-	current.fieldDrawn = doc.scenes.some(holds);
+	current.fieldDrawn = holdsNode(doc, field.id);
 	if (!current.fieldDrawn) {
-		console.error(`[online] the layout has no "${field.id}" node to draw the room's field in`);
-		void refuseOnlineBoot(`the layout has no "${field.id}" node to draw the room's field in`, true);
+		current.room.leave().catch(() => {});
+		void refuseOnlineBoot(missingFieldNode(field.id), true);
 		return doc;
 	}
 	return {

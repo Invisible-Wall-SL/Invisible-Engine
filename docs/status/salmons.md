@@ -46,7 +46,7 @@ the placeholders when they are.
   - **proof**: `check:room-bots` (a salmon swims the river to the source and wins; a bear bot
     catches one; the config validates clean; a room plays its seed's river and replays it; live,
     two rooms of one game play two rivers, each the one its devices make),
-    `scripts/playtest/salmons-play.mjs` (27 / 27 in each netcode: the HUD, the swipe, a round over,
+    `scripts/playtest/salmons-play.mjs` (28 / 28 in each netcode: the HUD, the swipe, a round over,
     and two rooms with two rivers, each page's the server's), and
     the 100-device load test ([status/game-families](game-families.md) P10.16).
 - **The Salmons that players reach today is not built from this repository.** It lives in
@@ -139,7 +139,7 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
 - 2026-10-29 — **P11.2 (c–e): a new river per room, and the publish writes `rooms_url`.** Each
   room makes its own river from the seed it carries, on the server and on every device
   (`onlineGenerators.js`); owner step 3 no longer needs a hand-added `rooms_url`.
-  `salmons-play.mjs` 27 / 27. Detail in [status/game-families](game-families.md) P11.2 (c–e).
+  `salmons-play.mjs` 28 / 28. Detail in [status/game-families](game-families.md) P11.2 (c–e).
 
 - 2026-10-27 — **P10.16: Salmons rebuilt as data on the engine.** The river generator and the
   online config (`engine-mechanics` `salmons.js`), its layout (`engine-layout`

@@ -81,6 +81,10 @@ A seed and the same keys replay the same game.
   checks and is not touched). One seed seeds the bots and the field, so a room replays
   from it. Change the generator, its geometry or the drawing together (`check:room-bots`,
   `salmons-play.mjs`). A config without a generator keeps the same game object.
+  **A generator game's layout must keep the drawing's node id** (`river` for Salmons): S0 art may
+  restyle that node but must not rename or delete it. Without it the device leaves the room and
+  stops on the failure screen ("keep a node with id `river`, or remove
+  `arcade.online.generator`"), checked in `joinOnlineRoom` before the game mounts.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).

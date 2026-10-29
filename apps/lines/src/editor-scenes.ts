@@ -2228,6 +2228,13 @@ export function setRoomDocChange(change: (doc: LayoutDoc) => LayoutDoc): void {
 	roomDocChange = change;
 }
 
+/** The layout this boot will render when it is already in hand (the runtime bundle's, else the
+ *  baked one), before the game mounts; `undefined` when it is still to be fetched. */
+export function preparedEditorDoc(): LayoutDoc | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.doc as LayoutDoc;
+	return hasBakedDoc() ? (bakedBundle.doc as LayoutDoc) : undefined;
+}
+
 export async function loadEditorScenes(): Promise<LayoutDoc> {
 	const doc = await resolveEditorDoc();
 	// The doc's Canvas Size IS the box the Scene Editor laid every `game`-space node out

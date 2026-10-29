@@ -5,6 +5,7 @@
 		ARCADE_ONLINE_DEFAULTS,
 		ARCADE_ONLINE_LIMITS,
 		ARCADE_ONLINE_RULE_DEFAULTS,
+		ONLINE_GENERATOR_IDS,
 		ONLINE_RULES_MODULE_IDS,
 		type ArcadeNetcode,
 		type ArcadeOnline,
@@ -70,7 +71,12 @@
 	const brains = $derived((doc.arcade?.characters ?? []).map((c) => c.id));
 	const rules = $derived(online.rules);
 	const bots = $derived(online.bots);
-	const generator = $derived(online.generator);
+	/** A generator the room knows (the validator flags any other). */
+	const generator = $derived(
+		online.generator && ONLINE_GENERATOR_IDS.includes(online.generator)
+			? online.generator
+			: undefined,
+	);
 	let newBody = $state('');
 	let newZone = $state('');
 	let newBotCharacter = $state('');

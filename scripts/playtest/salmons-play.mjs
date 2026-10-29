@@ -114,6 +114,7 @@ short.arcade.online.rules.round = {
 };
 short.arcade.online.bots.fillTo = 0;
 writeFileSync(join(configs, `${SHORT}.json`), JSON.stringify(normalizeGameConfigDoc(short)));
+writeFileSync(join(configs, 'salmons-noriver.json'), JSON.stringify(normalizeGameConfigDoc(short)));
 
 const HOOK = `(() => {
 	const wire = (window.__AR_WIRE__ = []);
@@ -142,6 +143,31 @@ const snap = await serveSnapshot({
 	dir: snapshot,
 	name: 'Salmons',
 	snapshotId: 'salmons',
+	assetBase: `${server.origin}/${KEY}/`,
+});
+// The same game with a layout that lost its `river` node: page D must stop before it plays.
+const noRiver = join(work, 'runtime-noriver.json');
+writeFileSync(
+	noRiver,
+	JSON.stringify({
+		doc: {
+			...doc,
+			scenes: doc.scenes.map((scene) => ({
+				...scene,
+				nodes: scene.nodes.filter((node) => node.id !== 'river'),
+			})),
+		},
+		componentDefs,
+		componentDefaults: {},
+		config,
+		flowV2: SALMONS_SEED_DOC,
+	}),
+);
+const snapNoRiver = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: noRiver,
+	name: 'Salmons',
+	snapshotId: 'salmons-noriver',
 	assetBase: `${server.origin}/${KEY}/`,
 });
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
@@ -449,6 +475,36 @@ try {
 		next,
 	);
 
+	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
+	const NO_RIVER = 'salmons-noriver';
+	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
+		.rooms;
+	const d = await boot('d', {
+		rooms_name: 'Di',
+		rooms_character: 'salmon',
+		rooms_game: NO_RIVER,
+		editorDocBase: snapNoRiver.origin,
+	});
+	let stopped = null;
+	for (let i = 0; i < 100 && !stopped; i++) {
+		await wait(100);
+		stopped = await d.evaluate('window.__IE_RUNTIME_STALE__?.reason ?? null').catch(() => null);
+	}
+	await wait(1500);
+	const roomsAfter = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
+		.rooms;
+	const mounted = await d.evaluate("!!document.querySelector('canvas')").catch(() => true);
+	verdict(
+		'page D, whose layout lost its river node, stops before the game with what to do, and leaves the room',
+		!!stopped &&
+			stopped.includes('keep a node with id "river"') &&
+			stopped.includes('arcade.online.generator') &&
+			!mounted &&
+			roomsAfter === roomsBefore,
+		{ stopped, mounted, roomsBefore, roomsAfter },
+	);
+	await d.close();
+
 	for (const [name, game] of [
 		['A', a],
 		['B', b],
@@ -468,6 +524,7 @@ try {
 	await rooms.close();
 	await server.close?.();
 	await snap.close?.();
+	await snapNoRiver.close?.();
 	rmSync(work, { recursive: true, force: true });
 }
 

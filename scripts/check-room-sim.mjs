@@ -584,8 +584,17 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(online, /: generatedOnlineGame\(resolved, seed\);/);
 	assert.match(online, /if \(current\.field\) setRoomDocChange\(withRoomField\);/);
 	assert.match(online, /const field = current\?\.field;\s+if \(!current \|\| !field\) return doc;/);
-	// A layout with no node to draw the field in stops the game rather than draw the authored one.
-	assert.match(online, /if \(!current\.fieldDrawn\) \{[\s\S]*?void refuseOnlineBoot\(/);
+	// A layout with no node to draw the field in stops the game rather than draw the authored one:
+	// in the join, before the game mounts, leaving the room first (salmons-play page D plays it),
+	// and for a layout fetched at mount, leaving the room as it refuses.
+	assert.match(
+		online,
+		/if \(field && prepared && !holdsNode\(prepared, field\.id\)\) \{\s+room\.leave\(\)[^;]*;\s+return refuseOnlineBoot\(missingFieldNode\(field\.id\)\);/,
+	);
+	assert.match(
+		online,
+		/if \(!current\.fieldDrawn\) \{\s+current\.room\.leave\(\)[^;]*;\s+void refuseOnlineBoot\(/,
+	);
 	const scenes = readFileSync(join(src, 'editor-scenes.ts'), 'utf8');
 	assert.match(scenes, /return roomDocChange \? roomDocChange\(scenes\) : scenes;/);
 });
