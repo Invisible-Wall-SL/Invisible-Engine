@@ -62,9 +62,16 @@ casts. Open a second tab with `rooms_character=bear` to hunt.
 5. ArrowUp held on page A swims its salmon upstream (against the current), and the camera follows.
 6. Resting in the water, page A's salmon drifts downstream with the current, and page A draws
    it within 20 px of the room's place (its prediction of the drift, a little ahead).
-7. Neither page sends the RGS anything; no page error.
+7. Page A shows the HUD (SCORE, ROUND, TIME) over the river, with the room's round and its own
+   score (variables the room owns).
+8. Page B's J draws the bear's swipe on the press, before the room tells of it; the room then
+   tells, the swipe is not drawn twice, and it is gone after 300 ms.
+9. Page C joins `salmons-short` (the same game with 5 s rounds, no bots): the round ends, the
+   round-over screen comes up counting down, and round 2 hides it again.
+10. No page sends the RGS anything; no page error.
 
-Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`.
+Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
+`04-bear-swipes.png`, `05-round-over.png`.
 
 ## What the gates already prove (not replayed here)
 
@@ -77,7 +84,7 @@ the numbers).
 
 ## Known gaps
 
-- Placeholder looks; no HUD, scores or round-over screen (above).
+- Placeholder looks (the swipe and cast too; a swipe is drawn over its bear).
 - The river is one seed's for every room (§14 #4 asked for a new river per room).
 - Bears and fishermen can walk into the water; salmon are kept off the banks by a push, not a wall.
 - The climb up waterfalls, sandbanks and the fisherman's line (hook, reel, land) are not built: the
