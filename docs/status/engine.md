@@ -302,6 +302,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-29 — **A reel no longer swaps its symbols when the spin takes over from the pre-spin**
+  (branch `claude/reel-handover-jump`). Owner report on `commonoverlayproject`: as each reel's
+  opening acceleration ends it snaps to a different set of symbols before rolling on. Logged in
+  `createReelForSpinning`: the result lands in the same frame the first pre-spin lap ends (and if
+  it lands mid-lap, mid-lap), and `generalSpinWith` laid the result above `prevSymbols` — by then
+  the loop's NEWEST lap, still above the window — placed as if the reel were at rest, so the strip
+  on screen was replaced by that one in a single frame. It now hands over from the strip as drawn
+  (`onScreenTail` in `src/stripHandover.ts`: the cells from the top resting seat down, at their
+  current y), `prevSymbols` is gone, the pre-spin lap handover is synchronous, and the loop stops
+  once the spin has taken over. At rest and at a lap's end the strip lands exactly where it did, so
+  spin timing is unchanged: seeded renders on replayed RGS answers match `main` at rest and on the
+  frame each spin settles. Fixture: `packages/utils-slots/stripHandover.fixture.ts`.
 - 2026-10-28 — **Expanding and growing wilds on lines games** (branch
   `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
   Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and
