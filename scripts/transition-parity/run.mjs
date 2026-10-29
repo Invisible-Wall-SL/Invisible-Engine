@@ -199,10 +199,10 @@ const SIDES = {
 	'screen-to': bundleFile('screen-to', withCue(published, 'custom:tp-to', SCREEN_EFFECTS)),
 	'screen-missing': bundleFile('screen-missing', withCue(published, 'custom:tp-crossfade', [])),
 };
-// The row's sides draw every frame: the still is a render to a texture, and under `draw: 'last'`
-// the determinism clock skips every render but the last, so a still taken between would be blank.
-// Each comparison stays within one mode: the row's sides with each other, `screen-missing` (no
-// still) with the published wipe.
+// The row's sides draw every frame, as a player sees them, through the shell filter on each. (The
+// still, a render to a texture, is taken under `draw: 'last'` too: the determinism clock skips only
+// draws to the screen.) Each comparison stays within one mode: the row's sides with each other,
+// `screen-missing` (no still) with the published wipe.
 const DRAW = { screen: 'every', 'screen-from': 'every', 'screen-to': 'every' };
 // The flow goes on this soon after the cue under the row (the frame the still is taken on, ± 1).
 const SCREEN_CONTINUES_WITHIN = 2;

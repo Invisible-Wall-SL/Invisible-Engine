@@ -25,8 +25,9 @@
  *   `waitFor({ screen, idle, … })`, reading `Game.svelte`'s probe.
  * - **Drawing.** Every frame draws by default. `draw: 'last'` runs the frames without the WebGL
  *   draw and draws once at the end: the same updates, ~100× faster under software GL (a draw is
- *   ~99% of a frame there). Nothing in the game reads a drawn frame back (no render-to-texture);
- *   one that did would read blank in `last`. A harness uses one mode on both sides of a comparison.
+ *   ~99% of a frame there). Only draws to the screen are skipped: a render to a texture (a
+ *   screen transition's still, a break effect's snapshot) runs in every mode, since the game reads
+ *   it back. A harness uses one mode on both sides of a comparison.
  *   Every draw to the screen starts from a cleared canvas (see `clearCanvasBeforeDraws`), as every
  *   frame the browser shows does.
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
@@ -689,20 +690,26 @@ export function installDeterminism(): void {
 	// depends on real time, not on the frames. So each draw to the screen first clears the canvas
 	// the way the browser does, as for every frame a player sees.
 	const wrapped = new WeakSet<object>();
+	// Where a `renderer.render(...)` call draws: its options' `target`, or the legacy second
+	// argument's `renderTexture`; neither ⇒ the screen.
+	const renderTargetOf = (renderer: RendererLike, args: unknown[]) => {
+		const [first, legacy] = args as [
+			{ container?: unknown; target?: object; clear?: unknown } | undefined,
+			{ renderTexture?: object } | undefined,
+		];
+		const isOptions = !!first && 'container' in first;
+		const screen = renderer.view.renderTarget;
+		const target = (isOptions ? first.target : legacy?.renderTexture) || screen;
+		return { screen, target, clear: isOptions ? first.clear : undefined };
+	};
 	const clearCanvasBeforeDraws = () => {
 		const renderer = pixiApp()?.renderer;
 		if (!renderer || wrapped.has(renderer)) return;
 		wrapped.add(renderer);
 		const render = renderer.render;
 		renderer.render = function (this: unknown, ...args: unknown[]) {
-			const [first, legacy] = args as [
-				{ container?: unknown; target?: object; clear?: unknown } | undefined,
-				{ renderTexture?: object } | undefined,
-			];
-			const isOptions = !!first && 'container' in first;
-			const screen = renderer.view.renderTarget;
-			const target = (isOptions ? first.target : legacy?.renderTexture) || screen;
-			const clear = (isOptions ? first.clear : undefined) ?? renderer.background.clearBeforeRender;
+			const { screen, target, clear: asked } = renderTargetOf(renderer, args);
+			const clear = asked ?? renderer.background.clearBeforeRender;
 			if (renderer.backBuffer?.useBackBuffer && target === screen && clear)
 				renderer.renderTarget.bind({ target: screen, clear: true, clearColor: [0, 0, 0, 0] });
 			return render.apply(this, args);
@@ -729,9 +736,15 @@ export function installDeterminism(): void {
 		// This frame's callbacks, by id: one requested during it runs next frame, one cancelled
 		// during it does not run.
 		const ids = [...rafCallbacks.keys()];
+		// Without the draw, a render to the screen is skipped; one to a texture (a still, a snapshot)
+		// still runs, since the game reads it back.
 		const renderer = draw ? undefined : pixiApp()?.renderer;
 		const render = renderer?.render;
-		if (renderer) renderer.render = () => {};
+		if (renderer && render)
+			renderer.render = function (this: unknown, ...args: unknown[]) {
+				const { screen, target } = renderTargetOf(renderer, args);
+				if (target !== screen) return render.apply(this, args);
+			};
 		try {
 			for (const id of ids) {
 				const callback = rafCallbacks.get(id);
