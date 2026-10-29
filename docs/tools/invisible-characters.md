@@ -17,7 +17,7 @@ character for real, with placeholder shapes, so you can try it before you save.
 ## Where the characters are stored
 
 The characters live **inside the game config** (`arcade.characters` in the project's Game Config
-document). So:
+document; their abilities in `arcade.abilities`, the zone forces in `arcade.forces`). So:
 
 - they ship with the config — no extra export: Publish and the bake carry them, and each
   character's look (and every `shootAt` shot component) is shipped even when no scene places it;
@@ -27,7 +27,8 @@ document). So:
   project, the other shows read-only with **Take over**. Two people cannot edit both at once;
 - the page holds the whole game config (paytable included), so it needs the Game Config grant as
   well: a user given this tool without Game Config is refused (403), as `/config` would refuse them;
-- the whole config must be valid to save. Errors outside the characters are listed in a note at the
+- the whole config must be valid to save. Errors outside the characters (and their abilities and
+  zone forces) are listed in a note at the
   top ("fix them in Invisible Game Config") and keep **Save** disabled.
 
 If the project's config is not an arcade config (its family is not set to Arcade in Game Config),
@@ -202,6 +203,33 @@ side-view jump or a flap) or hops.
 A look with no such inputs says so — add them in the component's state machine (Invisible
 Component Editor). An input mapped here that the look no longer has is shown with **Remove**.
 
+### Abilities
+
+A character's buttons that hit other characters (`arcade.abilities`; the online room's own are in
+Game Config → Online → Rules). **Add ability** needs a second character to aim at; it starts as a
+stun on every other character within 100 px, on a free button. Each ability has:
+
+- **Button** `ability1` / `ability2`: a played character uses it while the Flow input map's action
+  of that name is held; on its brain, whenever a target is in reach; Flow's **Use Ability** uses it
+  once.
+- **Effect**: `stun` holds each target still for **Holds**; `catch` puts it out (hidden, touching
+  nothing) for **Holds**, then back where it spawned; `hook` only raises `hit` on the nearest target
+  (there is no line offline).
+- **Reach** (px, centre to centre), **Holds** (ms, default 3000), **Cooldown** (ms, default 1000,
+  at least 100), **Score** (sent to Flow as `points`; blank is 0).
+- **Hits**: the characters it aims at. The last one cannot be unticked.
+
+A target whose stun or catch ends cannot be hit again for a second. A held user cannot use its
+abilities. The same code runs an online room's abilities, so a trace gives the same hits in both.
+
+### Zone forces
+
+The whole game's zones (Game Config → Zones), each with a **Push x** / **Push y** in px/s: a body
+in the zone has it added to its velocity while it moves (a river's current, wind), and taken off
+again. With no character ticked under **Only** it pushes every body, characters or not; ticked, only
+those characters. 0 / 0 removes the force. An online game plays its rules' currents instead (the
+validator warns).
+
 ### Issues
 
 The validator's findings for the selected character are listed at the top of its panel, and the
@@ -255,7 +283,7 @@ path or the positions.
 - A component is one character. Duplicating a character, or picking a look another character has,
   is an error until you change it.
 - Renaming a character does not rename it anywhere else (a Flow graph that names it keeps the old
-  id).
+  id); only its abilities and zone forces follow.
 - A character with no look id cannot be stored, so **＋ Add** always asks for the look first.
 - Keyboard controllers do nothing in the game until the Flow input map has `left` / `right` / `up` /
   `down` actions.
@@ -265,8 +293,12 @@ path or the positions.
 - **The sandbox's walls are boxes.** A level's tiles (tilemap nodes) are not drawn or used here;
   walls you add are solid, one-way or ground-level only by the button you used — drag them, but
   their kind cannot be changed (delete is not offered either: **↺ Walls** starts over).
-- **No abilities or zone forces.** Hit zones, cooldowns, `onHit` and zones that push a character
-  are planned, not built.
+- **Abilities have no hit-zone shape, offset or live frames** (§4.3 named them): an ability is a
+  reach around its user's centre, as online. No animation is played: map one in Flow from `ability`.
+- **The sandbox does not run abilities or zone forces.** Try them in the game.
+- **Only characters can be targets.** A plain spawned body (not a character) is never hit; use a
+  collision pair for it.
+- **No touch gesture for an ability.** Map a key, or call Use Ability from a UI button's flow.
 - **Fast bodies can pass through thin walls** — for a plain (non-falling, non-hopping) character:
   a step faster than the body and the wall together can carry it through a solid. A falling or
   hopping character moves in sub-steps and does not.

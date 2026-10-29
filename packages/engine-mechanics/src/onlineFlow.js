@@ -9,7 +9,7 @@
  */
 
 import { BUTTONS } from './online.js';
-import { STATUS } from './onlineRules.js';
+import { STATUS, abilitySpecs } from './abilities.js';
 
 /** A room event's type → the Flow event it raises (`engine-flow-v2` `ARCADE_ONLINE_EVENTS`). */
 export const ONLINE_FLOW_EVENTS = Object.freeze({
@@ -124,8 +124,6 @@ export function serverValuesOf(state, me, tickHz) {
 /** Whether a player of the room is drawn: one that is out is hidden until it respawns. */
 export const shownInRoom = (player) => player.status !== STATUS.out;
 
-const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
-
 /**
  * The own player's abilities, raised on the press (§6's predicted events): stepped once per input
  * the device sends, it says which of `character`'s abilities that input uses, by the room's own
@@ -142,15 +140,9 @@ const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
  */
 export function createAbilityPredictor(game, character) {
 	const { tickHz } = game.online;
-	const own = game.online.rules.abilities
-		.map((a, i) => ({
-			key: i,
-			button: a.button,
-			bit: BUTTONS[a.button],
-			cooldown: Math.max(1, stepsOf(a.cooldownMs, tickHz)),
-			character: a.character,
-		}))
-		.filter((a) => a.character === character);
+	const own = abilitySpecs(game.online.rules.abilities, tickHz)
+		.filter((a) => a.character === character)
+		.map((a) => ({ ...a, bit: BUTTONS[a.button] }));
 	/** ability key → { until: the input it is ready again at, seq and button: the press that set
 	 *  it }. */
 	const ready = new Map();

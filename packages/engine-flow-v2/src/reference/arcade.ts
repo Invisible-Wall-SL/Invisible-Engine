@@ -20,6 +20,8 @@
  *  - an online room's events (P11.2): `playerJoined` / `playerLeft`, `hit` / `caught`,
  *    `roundStart` / `roundEnd`, and `ability` (the device's own raised on the press). Its scores and
  *    round are variables the room writes (`FlowVariable.server`), which Flow only reads.
+ *  - abilities offline (P11.5): the loop raises `ability`, `hit` and `caught` too, from the same
+ *    code (`engine-mechanics` `abilities.js`), with the instances added; `useAbility` uses one.
  *
  * Time and input (`onTick`, `onTimer`, `onInput`, the timers) and spawning (`spawn`, `despawn`, `$live`)
  * are Flow node kinds every vocabulary has (P10.3, P10.7), so they are not declared here.
@@ -38,6 +40,9 @@ const INT = { t: 'int' } as const;
 
 /** The field edges a body can leave by — `engine-mechanics` `Edge`. */
 export const ARCADE_EDGES = ['left', 'right', 'top', 'bottom'] as const;
+
+/** The ability buttons — `engine-game` `ABILITY_BUTTONS`. */
+export const ARCADE_ABILITY_BUTTONS = ['ability1', 'ability2'] as const;
 
 /** Who drives a character — `engine-game` `CHARACTER_CONTROLS`. */
 export const ARCADE_CHARACTER_CONTROLS = ['controller', 'brain'] as const;
@@ -126,17 +131,37 @@ const LOOP_EVENTS: EventDecl[] = [
 const PLAYER = (description: string) => ({ name: 'player', type: STRING, description });
 const ME = (description: string) => ({ name: 'me', type: BOOL, description });
 const HIT_PAYLOAD = [
-	{ name: 'by', type: STRING, description: 'The player whose ability it was.' },
-	{ name: 'target', type: STRING, description: 'The player it hit.' },
-	{ name: 'effect', type: STRING, description: "The ability's effect (`catch`, `stun`, `tag`)." },
-	{ name: 'mine', type: BOOL, description: 'This device’s player hit it.' },
-	ME('This device’s player was hit.'),
+	{
+		name: 'by',
+		type: STRING,
+		description: 'The player whose ability it was (offline: its instance id).',
+	},
+	{ name: 'target', type: STRING, description: 'The player it hit (offline: its instance id).' },
+	{
+		name: 'effect',
+		type: STRING,
+		description: "The ability's effect (`catch`, `stun`, `hook`, `tag`).",
+	},
+	{
+		name: 'mine',
+		type: BOOL,
+		description: 'This device’s player hit it (offline: a played character).',
+	},
+	ME('This device’s player was hit (offline: a played character).'),
+	{ name: 'byInstance', type: INSTANCE, description: 'Offline: the character that used it.' },
+	{ name: 'targetInstance', type: INSTANCE, description: 'Offline: the character it hit.' },
+	{
+		name: 'points',
+		type: INT,
+		description: "Offline: the ability's Score, for Flow to add (online the room keeps scores).",
+	},
 ];
 
 /**
  * An online room's events (`docs/design/realtime-multiplayer.md` §4, P11.2), raised on the device
- * from the room's `event` messages (`engine-mechanics` `flowSignalsOf`) — never in an offline game.
- * Device Flow presents them; the room decides them. A player is its room id.
+ * from the room's `event` messages (`engine-mechanics` `flowSignalsOf`). Device Flow presents them;
+ * the room decides them. A player is its room id. An offline loop raises `ability`, `hit` and
+ * `caught` itself (P11.5), with the instances.
  */
 const ONLINE_EVENTS: EventDecl[] = [
 	{
@@ -155,13 +180,15 @@ const ONLINE_EVENTS: EventDecl[] = [
 		name: 'hit',
 		payload: HIT_PAYLOAD,
 		category: 'book',
-		description: 'Online: an ability stunned a player (or passed `tag` on).',
+		description:
+			'An ability stunned a character (or passed `tag` on; offline, a `hook` raises it on the nearest target). Online it comes from the room.',
 	},
 	{
 		name: 'caught',
 		payload: HIT_PAYLOAD,
 		category: 'book',
-		description: 'Online: an ability caught a player: it is out, and not drawn, until it respawns.',
+		description:
+			'An ability caught a character: it is out, and not drawn, until it respawns (offline: back where it spawned). Online it comes from the room.',
 	},
 	{
 		name: 'roundStart',
@@ -188,6 +215,7 @@ const ONLINE_EVENTS: EventDecl[] = [
 			{ name: 'x', type: FLOAT, description: 'Where the player is drawn, field px.' },
 			{ name: 'y', type: FLOAT, description: 'Field px.' },
 			{ name: 'mine', type: BOOL, description: 'This device’s player used it.' },
+			{ name: 'instance', type: INSTANCE, description: 'Offline: the character that used it.' },
 			{
 				name: 'predicted',
 				type: BOOL,
@@ -197,7 +225,7 @@ const ONLINE_EVENTS: EventDecl[] = [
 		],
 		category: 'book',
 		description:
-			"Online: a player used an ability (a swipe, a cast). This device's own is raised on the press, so draw it here at once; everyone else's when the room tells.",
+			"A character used an ability (a swipe, a cast). Online, this device's own is raised on the press, so draw it here at once; everyone else's when the room tells. Offline it is raised on the step it is used.",
 	},
 ];
 
@@ -223,6 +251,19 @@ const AIM = [
 ];
 
 const LOOP_ACTIONS: ActionDecl[] = [
+	{
+		name: 'useAbility',
+		params: [
+			...AIM,
+			{
+				name: 'button',
+				type: { t: 'enum', name: 'ArcadeAbilityButton' },
+				description:
+					"The ability's button. The character uses it on the next step, if it is free and the ability is off cooldown (Invisible Characters → Abilities).",
+			},
+		],
+		category: 'command',
+	},
 	{
 		name: 'setCharacterState',
 		params: [
@@ -403,6 +444,7 @@ export const ARCADE_VOCAB: TemplateVocabulary = /* @__PURE__ */ (() => ({
 		...standard.enums.filter((e) => KEPT_ENUMS.has(e.name)),
 		{ name: 'ArcadeEdge', values: [...ARCADE_EDGES] },
 		{ name: 'ArcadeCharacterControl', values: [...ARCADE_CHARACTER_CONTROLS] },
+		{ name: 'ArcadeAbilityButton', values: [...ARCADE_ABILITY_BUTTONS] },
 	],
 	events: [
 		...standard.events.filter((e) => KEPT_EVENTS.has(e.name)),

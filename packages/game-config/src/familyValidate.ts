@@ -150,7 +150,99 @@ function validateArcade(doc: GameConfigDoc): GameConfigIssue[] {
 		});
 	}
 	issues.push(...validateCharacters(characters, bodies, carried));
+	issues.push(...validateOfflineAbilities(doc));
 	issues.push(...validateArcadeOnline(doc, bodies));
+	return issues;
+}
+
+/** The offline abilities and zone forces (P11.5): names that exist, numbers in range; an online
+ *  game plays its rules' instead, so it is warned that these do nothing. */
+function validateOfflineAbilities(doc: GameConfigDoc): GameConfigIssue[] {
+	const abilities = doc.arcade?.abilities ?? [];
+	const forces = doc.arcade?.forces ?? [];
+	if (!abilities.length && !forces.length) return [];
+	const issues: GameConfigIssue[] = [];
+	const characters = new Set((doc.arcade?.characters ?? []).map((c) => c.id));
+	const zones = new Set((doc.arcade?.zones ?? []).map((z) => z.id));
+	const L = ARCADE_ONLINE_LIMITS;
+	const unknown = (list: readonly string[], path: string) => {
+		for (const id of list)
+			if (!characters.has(id))
+				issues.push({ severity: 'error', path, message: `No character is "${id}".` });
+	};
+	if (doc.arcade?.online) {
+		for (const [key, list] of [
+			['abilities', abilities],
+			['forces', forces],
+		] as const) {
+			if (!list.length) continue;
+			issues.push({
+				severity: 'warning',
+				path: `arcade.${key}`,
+				message: `An online game plays its rules' ${key === 'forces' ? 'currents' : 'abilities'} (arcade.online.rules); these do nothing.`,
+			});
+		}
+	}
+	abilities.forEach((ability, i) => {
+		const path = `arcade.abilities[${i}]`;
+		unknown([ability.character], `${path}.character`);
+		unknown(ability.targets, `${path}.targets`);
+		const ranged = [
+			['reach', ability.reach, L.reach],
+			['ms', ability.ms, L.effectMs],
+			['cooldownMs', ability.cooldownMs, L.cooldownMs],
+			['score', ability.score, L.score],
+		] as const;
+		for (const [key, value, range] of ranged) {
+			if (value === undefined || (value >= range.min && value <= range.max)) continue;
+			issues.push({
+				severity: 'warning',
+				path: `${path}.${key}`,
+				message: `${key} is ${value}; it is held to ${range.min}–${range.max}.`,
+			});
+		}
+		if (ability.effect === 'hook') {
+			issues.push({
+				severity: 'warning',
+				path: `${path}.effect`,
+				message:
+					'Offline, a hook only raises `hit` on the nearest target (effect `hook`); there is no line.',
+			});
+		}
+	});
+	if (abilities.length > L.abilities.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.abilities',
+			message: `At most ${L.abilities.max} abilities play; the rest do nothing.`,
+		});
+	}
+	if (forces.length > L.zoneRules.max) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.forces',
+			message: `At most ${L.zoneRules.max} zone forces push; the rest do nothing.`,
+		});
+	}
+	forces.forEach((rule, i) => {
+		const path = `arcade.forces[${i}]`;
+		if (!zones.has(rule.zone)) {
+			issues.push({
+				severity: 'error',
+				path,
+				message: `The force names the zone "${rule.zone}", which arcade.zones does not have.`,
+			});
+		}
+		unknown(rule.characters ?? [], `${path}.characters`);
+		const { x, y } = rule.force;
+		if ([x, y].some((v) => v < L.force.min || v > L.force.max)) {
+			issues.push({
+				severity: 'warning',
+				path: `${path}.force`,
+				message: `A zone's force is held to ${L.force.min}–${L.force.max} px/s.`,
+			});
+		}
+	});
 	return issues;
 }
 

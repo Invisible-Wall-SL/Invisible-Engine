@@ -1050,8 +1050,16 @@ spawning work as in any flow.
 | `leaveBounds` | `instance`, `edge` | A body whose Edges are `pass` was on the field and is now wholly off it, by `edge` (`left`, `right`, `top`, `bottom`). One spawned off the field to come in has not left it. It stays alive until you Despawn it. |
 | `characterState` | `instance`, `character`, `from`, `to` | A character's brain moved to another state on its own (a guard spotted the player: `patrol` → `chase`). `character` is its id in the config. Not raised for **Set Character State**. |
 
-**Online-room signals** (only in a game with `arcade.online`; the room decides them, the flow only
-shows them). A player is its room id; `me` / `mine` say whether it is this device's own:
+**Ability signals offline** (a game whose characters have abilities, Invisible Characters →
+Abilities): `ability`, `hit` and `caught` (the table below) are raised by the play field itself, on
+the step they happen, from the same code an online room runs. `player`, `by` and `target` are then
+instance ids, and three fields are added: `instance` on `ability` (the character that used it), and
+`byInstance`, `targetInstance` and `points` (the ability's Score) on `hit` / `caught`. Add `points`
+to your score variable in the flow: offline the score is the flow's. `mine` / `me` mean a character
+the player drives. A caught character is hidden and back where it spawned when the catch ends.
+
+**Online-room signals** (in a game with `arcade.online`; the room decides them, the flow only
+shows them. `ability`, `hit` and `caught` also fire offline, above). A player is its room id; `me` / `mine` say whether it is this device's own:
 
 | Signal | Payload | When it fires |
 |---|---|---|
@@ -1079,6 +1087,10 @@ every body carrying the tag in **tagged** (`player`):
   not have is ignored), overriding what the brain decided.
 - `setCharacterControl` (`control`) — `controller`: the player drives the character; `brain`: it
   runs on its brain (a bot). A character without that one keeps what it has.
+- `useAbility` (`button`: `ability1` / `ability2`) — the character uses that ability on the next
+  step, if it is free and the ability is off its cooldown. A played character also uses one while
+  the key map's `ability1` / `ability2` action is held, and one on its brain whenever a target is in
+  reach.
 
 **Characters.** A spawned instance whose component is a character's look (Game Config's
 `arcade.characters`) moves by itself: its controller reads the key map's `left` / `right` / `up` /

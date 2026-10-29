@@ -146,6 +146,21 @@ export type ArcadeOnlineAbility = {
 	cooldownMs?: number;
 };
 
+/** An offline ability (`arcade.abilities`, P11.5): the online one's shape, its `character` and
+ *  `targets` naming `arcade.characters` ids. Played by the same code (`engine-mechanics`
+ *  `abilities.js`). */
+export type ArcadeAbility = ArcadeOnlineAbility;
+
+/** An offline zone force (`arcade.forces`, P11.5): px/s added to a body's velocity while it moves
+ *  in the zone, as an online current. */
+export type ArcadeZoneForce = {
+	/** An `arcade.zones` id. */
+	zone: string;
+	force: { x: number; y: number };
+	/** The `arcade.characters` it pushes. Absent ⇒ every body, character or not. */
+	characters?: string[];
+};
+
 /** An online game's rounds: they end at the goal, or on the clock, and the next starts after a pause. */
 export type ArcadeOnlineRound = {
 	/** A round's length. Absent ⇒ until a player reaches the goal. */
@@ -320,6 +335,10 @@ export type ArcadeBlock = {
 	online?: ArcadeOnline;
 	/** The characters: what moves by itself, played or run by a brain (P10.11, §9 #14). */
 	characters?: ArcadeCharacter[];
+	/** The characters' abilities, offline (P11.5). An online game's are its rules'. */
+	abilities?: ArcadeAbility[];
+	/** Zones that push the bodies in them, offline (P11.5). An online game's are its rules'. */
+	forces?: ArcadeZoneForce[];
 };
 
 type FamilyDoc = Pick<GameConfigDoc, 'family' | 'outcome'> | null | undefined;
@@ -348,6 +367,8 @@ export const resolveArcade = (
 	pairs: [string, string][];
 	zones: ArcadeZone[];
 	characters: ArcadeCharacter[];
+	abilities: ResolvedArcadeAbility[];
+	forces: ArcadeZoneForce[];
 } & Pick<ArcadeBlock, 'field'> => ({
 	...(doc?.arcade?.field ? { field: doc.arcade.field } : {}),
 	fixedHz: doc?.arcade?.fixedHz ?? DEFAULT_ARCADE_FIXED_HZ,
@@ -355,11 +376,40 @@ export const resolveArcade = (
 	pairs: doc?.arcade?.pairs ?? [],
 	zones: doc?.arcade?.zones ?? [],
 	characters: doc?.arcade?.characters ?? [],
+	abilities: (doc?.arcade?.abilities ?? [])
+		.slice(0, ARCADE_ONLINE_LIMITS.abilities.max)
+		.map(resolveAbility),
+	forces: (doc?.arcade?.forces ?? []).slice(0, ARCADE_ONLINE_LIMITS.zoneRules.max).map((f) => ({
+		...f,
+		force: resolveForce(f.force),
+	})),
 });
+
+/** An ability with its defaults, held to the limits a room holds it to. */
+export type ResolvedArcadeAbility = Required<Omit<ArcadeOnlineAbility, 'score'>> & {
+	score: number;
+};
+
+function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
+	const d = ARCADE_ONLINE_RULE_DEFAULTS;
+	const L = ARCADE_ONLINE_LIMITS;
+	return {
+		...a,
+		reach: within(a.reach, L.reach),
+		ms: within(a.ms ?? d.effectMs, L.effectMs),
+		score: Math.round(within(a.score ?? 0, L.score)),
+		cooldownMs: within(a.cooldownMs ?? d.cooldownMs, L.cooldownMs),
+	};
+}
+
+function resolveForce(force: { x: number; y: number }): { x: number; y: number } {
+	const L = ARCADE_ONLINE_LIMITS;
+	return { x: within(force.x, L.force), y: within(force.y, L.force) };
+}
 
 export type ResolvedArcadeOnlineRules = {
 	zones: ArcadeOnlineZoneRule[];
-	abilities: (Required<Omit<ArcadeOnlineAbility, 'score'>> & { score: number })[];
+	abilities: ResolvedArcadeAbility[];
 	round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
 	module?: string;
 };
@@ -407,17 +457,9 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 	return {
 		zones: (rules?.zones ?? []).slice(0, L.zoneRules.max).map((z) => ({
 			...z,
-			...(z.force
-				? { force: { x: within(z.force.x, L.force), y: within(z.force.y, L.force) } }
-				: {}),
+			...(z.force ? { force: resolveForce(z.force) } : {}),
 		})),
-		abilities: (rules?.abilities ?? []).slice(0, L.abilities.max).map((a) => ({
-			...a,
-			reach: within(a.reach, L.reach),
-			ms: within(a.ms ?? d.effectMs, L.effectMs),
-			score: Math.round(within(a.score ?? 0, L.score)),
-			cooldownMs: within(a.cooldownMs ?? d.cooldownMs, L.cooldownMs),
-		})),
+		abilities: (rules?.abilities ?? []).slice(0, L.abilities.max).map(resolveAbility),
 		round: {
 			...(seconds !== undefined ? { seconds: within(seconds, L.roundSeconds) } : {}),
 			nextRoundSeconds: within(
@@ -766,6 +808,14 @@ const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
 	return ability;
 };
 
+const normalizeForce = (raw: unknown): ArcadeZoneForce | undefined => {
+	const rule = normalizeZoneRule(raw);
+	if (!rule?.force) return undefined;
+	return rule.characters
+		? { zone: rule.zone, force: rule.force, characters: rule.characters }
+		: { zone: rule.zone, force: rule.force };
+};
+
 /** Normalize an online game's rules, or `undefined` when they say nothing. A zone rule with no
  *  force and no goal, and an ability missing what it needs to hit, are dropped. */
 export function normalizeOnlineRules(raw: unknown): ArcadeOnlineRules | undefined {
@@ -822,5 +872,13 @@ export function normalizeArcade(raw: unknown): ArcadeBlock | undefined {
 	if (online) block.online = online;
 	const characters = normalizeArcadeCharacters(raw.characters);
 	if (characters) block.characters = characters;
+	const abilities = Array.isArray(raw.abilities)
+		? raw.abilities.map(normalizeAbility).filter((a): a is ArcadeAbility => a !== undefined)
+		: [];
+	if (abilities.length) block.abilities = abilities;
+	const forces = Array.isArray(raw.forces)
+		? raw.forces.map(normalizeForce).filter((f): f is ArcadeZoneForce => f !== undefined)
+		: [];
+	if (forces.length) block.forces = forces;
 	return Object.keys(block).length ? block : undefined;
 }

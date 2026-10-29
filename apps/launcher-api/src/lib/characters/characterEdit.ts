@@ -2,8 +2,11 @@ import {
 	ARCADE_ANIM_SOURCES,
 	ARCADE_BEHAVIOURS,
 	ARCADE_BOOL_ANIM_SOURCES,
+	ARCADE_ONLINE_LIMITS,
+	ARCADE_ONLINE_RULE_DEFAULTS,
 	ARCADE_VARIABLE_OPS,
 	DEFAULT_ARCADE_RANDOM_EVERY,
+	type ArcadeAbility,
 	type ArcadeAnimSource,
 	type ArcadeBehaviourKind,
 	type ArcadeBrain,
@@ -15,6 +18,7 @@ import {
 	type ArcadeJump,
 	type ArcadeJumpKind,
 	type ArcadeMovement,
+	type ArcadeZoneForce,
 	type GameConfigDoc,
 	type GameConfigIssue,
 } from 'game-config';
@@ -128,6 +132,8 @@ function list(doc: GameConfigDoc): ArcadeCharacter[] {
 
 function prune(doc: GameConfigDoc): void {
 	if (doc.arcade?.characters && !doc.arcade.characters.length) delete doc.arcade.characters;
+	if (doc.arcade?.abilities && !doc.arcade.abilities.length) delete doc.arcade.abilities;
+	if (doc.arcade?.forces && !doc.arcade.forces.length) delete doc.arcade.forces;
 	if (doc.arcade && !Object.keys(doc.arcade).length) delete doc.arcade;
 }
 
@@ -179,6 +185,13 @@ export function renameCharacter(doc: GameConfigDoc, id: string, next: string): s
 	if (value === id) return null;
 	if (findCharacter(doc, value)) return `A character is already called "${value}".`;
 	character.id = value;
+	const swap = (list: string[]) => list.map((c) => (c === id ? value : c));
+	for (const ability of doc.arcade?.abilities ?? []) {
+		if (ability.character === id) ability.character = value;
+		ability.targets = swap(ability.targets);
+	}
+	for (const force of doc.arcade?.forces ?? [])
+		if (force.characters) force.characters = swap(force.characters);
 	return null;
 }
 
@@ -187,6 +200,19 @@ export function removeCharacter(doc: GameConfigDoc, id: string): void {
 	if (!characters) return;
 	const index = characters.findIndex((c) => c.id === id);
 	if (index >= 0) characters.splice(index, 1);
+	if (doc.arcade?.abilities) {
+		doc.arcade.abilities = doc.arcade.abilities
+			.filter((a) => a.character !== id)
+			.map((a) => ({ ...a, targets: a.targets.filter((t) => t !== id) }))
+			.filter((a) => a.targets.length);
+	}
+	// A force that named only this character is dropped (as an ability with no target), not
+	// widened to push every body.
+	if (doc.arcade?.forces) {
+		doc.arcade.forces = doc.arcade.forces
+			.map((f) => (f.characters ? { ...f, characters: f.characters.filter((c) => c !== id) } : f))
+			.filter((f) => !f.characters || f.characters.length);
+	}
 	prune(doc);
 }
 
@@ -663,3 +689,179 @@ export const brainItemIssues = (
 	at: number,
 ): GameConfigIssue[] =>
 	issues.filter((i) => i.path === `arcade.characters[${index}].brain.${item}[${at}]`);
+
+// ── abilities and zone forces (P11.5) ──────────────────────────────────────────────────────────
+
+/** The ability buttons, as the input map names them. */
+export const ABILITY_BUTTONS = ['ability1', 'ability2'] as const;
+
+/** What a hit does (`game-config` `ArcadeOnlineHitEffect`). */
+export const ABILITY_EFFECTS = ['stun', 'catch', 'hook'] as const;
+
+/** The reach a new ability starts with, px. */
+export const DEFAULT_ABILITY_REACH = 100;
+
+/** Each of `id`'s abilities with its index in `arcade.abilities` (what the validator's paths name). */
+export const abilitiesOf = (
+	doc: GameConfigDoc,
+	id: string,
+): { ability: ArcadeAbility; index: number }[] =>
+	(doc.arcade?.abilities ?? [])
+		.map((ability, index) => ({ ability, index }))
+		.filter(({ ability }) => ability.character === id);
+
+/** Give `id` an ability: a free button, a stun on every other character, within the default reach.
+ *  `undefined` with no other character to aim at (an ability with no target is not stored). */
+export function addAbility(doc: GameConfigDoc, id: string): number | undefined {
+	const targets = charactersOf(doc)
+		.map((c) => c.id)
+		.filter((c) => c !== id);
+	if (!findCharacter(doc, id) || !targets.length) return undefined;
+	const used = new Set(abilitiesOf(doc, id).map(({ ability }) => ability.button));
+	const button = ABILITY_BUTTONS.find((b) => !used.has(b)) ?? 'ability1';
+	doc.arcade ??= {};
+	const list = (doc.arcade.abilities ??= []);
+	list.push({ character: id, button, reach: DEFAULT_ABILITY_REACH, targets, effect: 'stun' });
+	return list.length - 1;
+}
+
+export function removeAbility(doc: GameConfigDoc, index: number): void {
+	doc.arcade?.abilities?.splice(index, 1);
+	prune(doc);
+}
+
+export type AbilityNumberField = 'reach' | 'ms' | 'cooldownMs' | 'score';
+
+/** The value an empty number field means. */
+export const ABILITY_FIELD_DEFAULTS: Record<Exclude<AbilityNumberField, 'reach'>, number> = {
+	ms: ARCADE_ONLINE_RULE_DEFAULTS.effectMs,
+	cooldownMs: ARCADE_ONLINE_RULE_DEFAULTS.cooldownMs,
+	score: 0,
+};
+
+/** Set a number of an ability, as the normalizer stores it: `reach` must be above 0 (a bad value
+ *  is ignored); `ms` and `cooldownMs` are whole and not negative; a blank or 0 score is deleted. */
+export function setAbilityNumber(
+	doc: GameConfigDoc,
+	index: number,
+	key: AbilityNumberField,
+	text: string,
+): void {
+	const ability = doc.arcade?.abilities?.[index];
+	if (!ability) return;
+	const n = text.trim() === '' ? undefined : Number(text);
+	if (key === 'reach') {
+		if (n !== undefined && Number.isFinite(n) && n > 0) ability.reach = n;
+		return;
+	}
+	if (key === 'score') {
+		if (n !== undefined && Number.isFinite(n) && n !== 0) ability.score = n;
+		else delete ability.score;
+		return;
+	}
+	if (n !== undefined && Number.isFinite(n) && n >= 0) ability[key] = Math.round(n);
+	else delete ability[key];
+}
+
+export function setAbilityButton(
+	doc: GameConfigDoc,
+	index: number,
+	button: (typeof ABILITY_BUTTONS)[number],
+): void {
+	const ability = doc.arcade?.abilities?.[index];
+	if (ability) ability.button = button;
+}
+
+export function setAbilityEffect(
+	doc: GameConfigDoc,
+	index: number,
+	effect: (typeof ABILITY_EFFECTS)[number],
+): void {
+	const ability = doc.arcade?.abilities?.[index];
+	if (ability) ability.effect = effect;
+}
+
+/** Aim an ability at a character, or stop. The last target cannot be taken away (an ability with
+ *  none is not stored): returns false when refused. */
+export function setAbilityTarget(
+	doc: GameConfigDoc,
+	index: number,
+	target: string,
+	on: boolean,
+): boolean {
+	const ability = doc.arcade?.abilities?.[index];
+	if (!ability) return false;
+	const has = ability.targets.includes(target);
+	if (on && !has) ability.targets = [...ability.targets, target];
+	if (!on && has) {
+		if (ability.targets.length === 1) return false;
+		ability.targets = ability.targets.filter((t) => t !== target);
+	}
+	return true;
+}
+
+/** The zones of the field and the force each has (`arcade.forces`), if any. */
+export const zoneForcesOf = (
+	doc: GameConfigDoc,
+): { zone: string; force: ArcadeZoneForce | undefined }[] =>
+	(doc.arcade?.zones ?? []).map((z) => ({
+		zone: z.id,
+		force: doc.arcade?.forces?.find((f) => f.zone === z.id),
+	}));
+
+/** Set one axis of a zone's force, px/s; both 0 (or blank) deletes the force. */
+export function setZoneForce(
+	doc: GameConfigDoc,
+	zone: string,
+	axis: 'x' | 'y',
+	text: string,
+): void {
+	if (!(doc.arcade?.zones ?? []).some((z) => z.id === zone)) return;
+	const n = Number(text.trim() || 0);
+	const value = Number.isFinite(n) ? n : 0;
+	doc.arcade ??= {};
+	const forces = (doc.arcade.forces ??= []);
+	let rule = forces.find((f) => f.zone === zone);
+	if (!rule) {
+		rule = { zone, force: { x: 0, y: 0 } };
+		forces.push(rule);
+	}
+	rule.force = { ...rule.force, [axis]: value };
+	if (!rule.force.x && !rule.force.y) forces.splice(forces.indexOf(rule), 1);
+	prune(doc);
+}
+
+/** Make a zone's force push a character, or stop; none ticked pushes every body. */
+export function setZoneForceCharacter(
+	doc: GameConfigDoc,
+	zone: string,
+	character: string,
+	on: boolean,
+): void {
+	const rule = doc.arcade?.forces?.find((f) => f.zone === zone);
+	if (!rule) return;
+	const list = new Set(rule.characters ?? []);
+	if (on) list.add(character);
+	else list.delete(character);
+	if (list.size) rule.characters = [...list];
+	else delete rule.characters;
+}
+
+/** The issues of the ability at `index` of `arcade.abilities`. */
+export const abilityIssues = (issues: GameConfigIssue[], index: number): GameConfigIssue[] =>
+	issues.filter(
+		(i) =>
+			i.path === `arcade.abilities[${index}]` || i.path.startsWith(`arcade.abilities[${index}].`),
+	);
+
+/** The issues of the zone forces, and of the abilities block as a whole. */
+export const forceIssues = (issues: GameConfigIssue[]): GameConfigIssue[] =>
+	issues.filter((i) => i.path.startsWith('arcade.forces') || i.path === 'arcade.abilities');
+
+/** The range a room and the loop hold an ability's numbers to. */
+export const ABILITY_RANGES = {
+	reach: ARCADE_ONLINE_LIMITS.reach,
+	ms: ARCADE_ONLINE_LIMITS.effectMs,
+	cooldownMs: ARCADE_ONLINE_LIMITS.cooldownMs,
+	score: ARCADE_ONLINE_LIMITS.score,
+} as const;

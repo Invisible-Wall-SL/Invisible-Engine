@@ -87,6 +87,7 @@ export {
 	type ArcadeCharacterIo,
 	type CharacterControl,
 } from './src/game/arcadeCharacters';
+export { ABILITY_BUTTONS, ABILITY_SIGNALS, type AbilityButton } from './src/game/arcadeAbilities';
 export {
 	CARD_ENGINE_KEYS,
 	createCardDriver,

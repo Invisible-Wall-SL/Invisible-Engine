@@ -18,6 +18,8 @@
  *     P10.13: gravity, a side-view jump (its height and time, a tap, `up`), a flap, a hop over a
  *     `ground` wall, a one-way platform, all as the stage steps them; a plain top-down run has no
  *     contact readout.
+ *  6. ABILITIES AND ZONE FORCES (P11.5): each edit stores what a save stores; rename and removal
+ *     follow them; the page has both sections.
  *  5. THE REGISTRY. The tool, its roles (Game Config's), its stage and its guide (rule 9).
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -920,6 +922,97 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		'4. the walls a run starts with follow how it moves',
 		[wallsFor(field, jumper), wallsFor(field, hopper), wallsFor(field, guard)],
 		[PLATFORM_WALLS(field), HOP_WALLS(field), DEFAULT_WALLS(field)],
+	);
+}
+
+// ── 6. Abilities and zone forces (P11.5) ──────────────────────────────────────────────────────
+{
+	const doc = base();
+	doc.arcade!.zones = [{ id: 'river', x: 0, y: 0, w: 100, h: 100 }];
+	edit.addCharacter(doc, 'goblin');
+	check('6. no other character, no ability', edit.addAbility(doc, 'goblin') === undefined);
+	edit.addCharacter(doc, 'hero');
+	let at: number | undefined;
+	mirrored('add ability', doc, (d) => (at = edit.addAbility(d, 'goblin')));
+	same('6. a stun on every other character', doc.arcade?.abilities, [
+		{ character: 'goblin', button: 'ability1', reach: 100, targets: ['hero'], effect: 'stun' },
+	]);
+	mirrored('second ability', doc, (d) => edit.addAbility(d, 'goblin'));
+	same('6. a free button', doc.arcade?.abilities?.[1].button, 'ability2');
+	mirrored('effect', doc, (d) => edit.setAbilityEffect(d, at!, 'catch'));
+	mirrored('button', doc, (d) => edit.setAbilityButton(d, at!, 'ability2'));
+	mirrored('reach', doc, (d) => edit.setAbilityNumber(d, at!, 'reach', '150'));
+	mirrored('bad reach kept', doc, (d) => edit.setAbilityNumber(d, at!, 'reach', '-3'));
+	mirrored('ms', doc, (d) => edit.setAbilityNumber(d, at!, 'ms', '750.4'));
+	mirrored('cooldown', doc, (d) => edit.setAbilityNumber(d, at!, 'cooldownMs', '2000'));
+	mirrored('score', doc, (d) => edit.setAbilityNumber(d, at!, 'score', '5'));
+	mirrored('score 0', doc, (d) => edit.setAbilityNumber(d, at!, 'score', '0'));
+	mirrored('blank ms', doc, (d) => edit.setAbilityNumber(d, at!, 'ms', ''));
+	same('6. the edits, as stored', doc.arcade?.abilities?.[0], {
+		character: 'goblin',
+		button: 'ability2',
+		reach: 150,
+		targets: ['hero'],
+		effect: 'catch',
+		cooldownMs: 2000,
+	});
+	check(
+		'6. the last target cannot be taken away',
+		!edit.setAbilityTarget(doc, at!, 'hero', false) &&
+			doc.arcade!.abilities![0].targets.length === 1,
+	);
+	same(
+		'6. abilitiesOf lists its own with their indexes',
+		edit.abilitiesOf(doc, 'goblin').map((a) => a.index),
+		[0, 1],
+	);
+	check(
+		'6. the abilities validate clean',
+		!validateGameConfigDoc(doc).some((i) => i.path.startsWith('arcade.abilities')),
+	);
+	mirrored('zone force', doc, (d) => edit.setZoneForce(d, 'river', 'x', '-80'));
+	mirrored('force character', doc, (d) => edit.setZoneForceCharacter(d, 'river', 'hero', true));
+	same('6. a zone force, as stored', doc.arcade?.forces, [
+		{ zone: 'river', force: { x: -80, y: 0 }, characters: ['hero'] },
+	]);
+	mirrored('rename follows abilities and forces', doc, (d) =>
+		edit.renameCharacter(d, 'hero', 'fish'),
+	);
+	same(
+		'6. renamed in targets and forces',
+		[doc.arcade?.abilities?.[0].targets, doc.arcade?.forces?.[0].characters],
+		[['fish'], ['fish']],
+	);
+	mirrored('remove the target', doc, (d) => edit.removeCharacter(d, 'fish'));
+	check(
+		'6. removing the only target drops its abilities, and a force naming only it',
+		!doc.arcade?.abilities && !doc.arcade?.forces,
+		JSON.stringify(doc.arcade?.forces),
+	);
+	edit.addCharacter(doc, 'hero');
+	mirrored('force for two', doc, (d) => {
+		edit.setZoneForce(d, 'river', 'x', '-80');
+		edit.setZoneForceCharacter(d, 'river', 'hero', true);
+		edit.setZoneForceCharacter(d, 'river', 'goblin', true);
+	});
+	mirrored('remove one of two', doc, (d) => edit.removeCharacter(d, 'hero'));
+	same('6. a force keeps the characters it still names', doc.arcade?.forces?.[0].characters, [
+		'goblin',
+	]);
+	mirrored('force for all', doc, (d) => edit.setZoneForceCharacter(d, 'river', 'goblin', false));
+	check(
+		'6. unticking the last character pushes every body',
+		!!doc.arcade?.forces?.[0] && !doc.arcade.forces[0].characters,
+	);
+	mirrored('zone force off', doc, (d) => edit.setZoneForce(d, 'river', 'x', '0'));
+	check('6. a force of 0 is not stored', !doc.arcade?.forces);
+	const page = readFileSync(
+		new URL('../src/routes/(app)/characters/+page.svelte', import.meta.url),
+		'utf8',
+	);
+	check(
+		'6. the page has the Abilities and Zone forces sections',
+		page.includes('<h2>Abilities</h2>') && page.includes('<h2>Zone forces</h2>'),
 	);
 }
 

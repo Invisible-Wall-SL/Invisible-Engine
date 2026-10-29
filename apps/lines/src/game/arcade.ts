@@ -21,6 +21,7 @@ import {
 } from 'engine-layout';
 import {
 	setCulled,
+	setHiding,
 	setLifts,
 	setWorldCameraView,
 	spawnLayerPoint,
@@ -55,6 +56,10 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * holds a spawn layer — and a hopping character's height is published after each frame for
  * `<SpawnLayer>` to draw as a lift and a shadow.
  *
+ * ABILITIES AND ZONE FORCES (§4.3, P11.5) need nothing more: the loop reads them from the config
+ * and the characters' input (`ability1` / `ability2` in the flow key map); a character an ability
+ * put out is published as culled, with or without a camera.
+ *
  * A slot game never starts it: only `<ArcadeStage />` calls {@link startArcade}, and `Game.svelte`
  * mounts that only for a mechanic that is a play field.
  */
@@ -63,6 +68,8 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 const ARCADE_SEED_PARAM = 'arseed';
 
 let loop: ArcadeLoop | undefined;
+/** The config's characters have abilities, so a caught one is hidden (culled) even with no camera. */
+let hides = false;
 /** The config has a hopping character, so lifts are published. */
 let hops = false;
 let shadowOf: (componentId: string) => { shadow: number; foot: number } = () => ({
@@ -204,6 +211,8 @@ export const startArcade = (designSize: () => { width: number; height: number })
 	const live = spawnStore();
 	if (rules.characters.length) characterIo = createCharacterRuntime(rules.characters);
 	hops = rules.characters.some(hopsOnThePlane);
+	hides = rules.characters.length > 0 && rules.abilities.length > 0;
+	if (hides) setHiding();
 	shadowOf = (componentId) => {
 		const body = rules.bodies[componentId];
 		if (body?.shape === 'box') return { shadow: body.w, foot: body.h / 2 };
@@ -273,7 +282,10 @@ export const tickArcade = (dtMs: number) => {
 		setLifts(lifts);
 	}
 	const camera = loop.camera();
-	if (!camera) return;
+	if (!camera) {
+		if (hides) setCulled(loop.culled());
+		return;
+	}
 	setWorldCameraView(camera);
 	setCulled(loop.culled());
 };

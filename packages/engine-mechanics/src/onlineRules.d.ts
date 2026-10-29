@@ -6,9 +6,10 @@
 import type { Body } from './motion';
 import type { OnlineInput } from './online';
 
-export const STATUS: Readonly<{ free: 0; stunned: 1; out: 2; grounded: 3; hooked: 4 }>;
+import type { STATUS } from './abilities';
+
+export { GRACE_MS, STATUS } from './abilities';
 export const REWIND_MS: 250;
-export const GRACE_MS: 1000;
 export const ONLINE_EVENT: 'event';
 
 export type OnlinePhase = 'waiting' | 'running' | 'ended';

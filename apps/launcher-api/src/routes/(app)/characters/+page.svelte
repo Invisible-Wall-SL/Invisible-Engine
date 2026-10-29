@@ -48,7 +48,14 @@
 	const arcade = $derived(resolveFamily(snapshot) === 'arcade');
 	const issues = $derived(validateGameConfigDoc(snapshot));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
-	const otherErrors = $derived(errors.filter((i) => !i.path.startsWith('arcade.characters')));
+	const otherErrors = $derived(
+		errors.filter(
+			(i) =>
+				!['arcade.characters', 'arcade.abilities', 'arcade.forces'].some((p) =>
+					i.path.startsWith(p),
+				),
+		),
+	);
 	const resolved = $derived(resolveArcade(snapshot));
 	/** The field the sandbox plays on: the config's, or a 1280 × 720 stand-in for the screen's. */
 	const field = $derived(resolved.field ?? { w: 1280, h: 720 });
@@ -60,6 +67,10 @@
 	const mine = $derived(index >= 0 ? edit.characterIssues(issues, index) : []);
 	const look = $derived(data.components.find((c) => c.id === character?.component));
 	const lookBody = $derived(character ? resolved.bodies[character.component] : undefined);
+	const myAbilities = $derived(character ? edit.abilitiesOf(snapshot, character.id) : []);
+	const zoneForces = $derived(edit.zoneForcesOf(snapshot));
+	const online = $derived(!!snapshot.arcade?.online);
+	let abilityError = $state('');
 
 	/** Bumped on every brain edit, so the canvas rebuilds. */
 	let brainVersion = $state(0);
@@ -143,6 +154,11 @@
 			: null,
 	);
 
+	// Another character's abilities are on screen: an old refusal is not about them.
+	$effect(() => {
+		void selectedId;
+		abilityError = '';
+	});
 	$effect(() => {
 		renameText = character?.id ?? '';
 		renameError = '';
@@ -184,7 +200,7 @@
 		const ok = await askConfirm({
 			title: `Delete "${character.id}"?`,
 			message:
-				'Its brain, controller, movement and anim inputs go with it. Its component and its body stay. Nothing is saved until you press Save.',
+				"Its brain, controller, movement, anim inputs and abilities go with it (and it leaves other abilities' targets). Its component and its body stay. Nothing is saved until you press Save.",
 			confirmLabel: 'Delete',
 			danger: true,
 		});
@@ -1076,6 +1092,170 @@
 								</div>
 							</div>
 						{/if}
+					</section>
+
+					<section>
+						<h2>Abilities</h2>
+						<p class="hint">
+							A button that, off its cooldown, hits every character of its targets within its reach:
+							a stun holds them still, a catch puts them out (hidden) and back where they spawned,
+							each for its time; a hook raises <code>hit</code> on the nearest only. Played: hold
+							the Flow input map's <code>ability1</code> / <code>ability2</code>. On its brain: used
+							whenever a target is in reach. Flow: <b>Use Ability</b>. A hit raises
+							<code>hit</code> / <code>caught</code> with the Score as <code>points</code>.
+						</p>
+						{#if online}
+							<p class="warn">
+								This game is online: its room plays the abilities of Game Config → Online → Rules,
+								not these.
+							</p>
+						{/if}
+						{#if abilityError}<p class="err">{abilityError}</p>{/if}
+						{#each myAbilities as { ability, index: ai } (ai)}
+							<div class="inspector">
+								{#if edit.abilityIssues(issues, ai).length}
+									<p class="err">{issueText(edit.abilityIssues(issues, ai))}</p>
+								{/if}
+								<div class="grid">
+									<label
+										>Button
+										<select
+											value={ability.button}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) =>
+													edit.setAbilityButton(
+														d,
+														ai,
+														e.currentTarget.value as (typeof edit.ABILITY_BUTTONS)[number],
+													),
+												)}
+										>
+											{#each edit.ABILITY_BUTTONS as b (b)}<option value={b}>{b}</option>{/each}
+										</select>
+									</label>
+									<label
+										>Effect
+										<select
+											value={ability.effect}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) =>
+													edit.setAbilityEffect(
+														d,
+														ai,
+														e.currentTarget.value as (typeof edit.ABILITY_EFFECTS)[number],
+													),
+												)}
+										>
+											{#each edit.ABILITY_EFFECTS as fx (fx)}<option value={fx}>{fx}</option>{/each}
+										</select>
+									</label>
+									{#each [['reach', 'Reach (px)'], ['ms', 'Holds (ms)'], ['cooldownMs', 'Cooldown (ms)'], ['score', 'Score']] as const as [key, label] (key)}
+										<label
+											>{label}
+											<input
+												type="number"
+												min={edit.ABILITY_RANGES[key].min}
+												max={edit.ABILITY_RANGES[key].max}
+												value={num(ability[key])}
+												placeholder={key === 'reach'
+													? ''
+													: String(edit.ABILITY_FIELD_DEFAULTS[key])}
+												disabled={readOnly}
+												onchange={(e) => {
+													change((d) => edit.setAbilityNumber(d, ai, key, e.currentTarget.value));
+													settle(e.currentTarget, doc.arcade?.abilities?.[ai]?.[key]);
+												}}
+											/>
+										</label>
+									{/each}
+								</div>
+								<p>
+									Hits:
+									{#each characters.filter((c) => c.id !== cid()) as other (other.id)}
+										<label class="inline"
+											><input
+												type="checkbox"
+												checked={ability.targets.includes(other.id)}
+												disabled={readOnly}
+												onchange={(e) => {
+													const on = e.currentTarget.checked;
+													let ok = true;
+													change((d) => (ok = edit.setAbilityTarget(d, ai, other.id, on)));
+													abilityError = ok ? '' : 'An ability needs at least one target.';
+													if (!ok) e.currentTarget.checked = true;
+												}}
+											/>
+											{other.id}</label
+										>
+									{/each}
+								</p>
+								<button
+									type="button"
+									disabled={readOnly}
+									onclick={() => change((d) => edit.removeAbility(d, ai))}>Remove ability</button
+								>
+							</div>
+						{/each}
+						<button
+							type="button"
+							disabled={readOnly || characters.length < 2}
+							title={characters.length < 2 ? 'Add a second character to aim at first.' : ''}
+							onclick={() => change((d) => void edit.addAbility(d, cid()))}>Add ability</button
+						>
+					</section>
+
+					<section>
+						<h2>Zone forces</h2>
+						<p class="hint">
+							A zone (Game Config → Zones) that pushes the bodies in it while they move, px/s: a
+							river's current, wind. With no character ticked it pushes every body. These are the
+							whole game's, not this character's.
+						</p>
+						{#if edit.forceIssues(issues).length}
+							<p class="err">{issueText(edit.forceIssues(issues))}</p>
+						{/if}
+						{#if !zoneForces.length}
+							<p class="hint">The config has no zones. Add them in Invisible Game Config.</p>
+						{/if}
+						{#each zoneForces as { zone, force } (zone)}
+							<div class="grid">
+								<span><code>{zone}</code></span>
+								{#each ['x', 'y'] as const as axis (axis)}
+									<label
+										>Push {axis}
+										<input
+											type="number"
+											value={force ? String(force.force[axis]) : ''}
+											placeholder="0"
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) => edit.setZoneForce(d, zone, axis, e.currentTarget.value))}
+										/>
+									</label>
+								{/each}
+								{#if force}
+									<span>
+										Only:
+										{#each characters as c (c.id)}
+											<label class="inline"
+												><input
+													type="checkbox"
+													checked={force.characters?.includes(c.id) ?? false}
+													disabled={readOnly}
+													onchange={(e) =>
+														change((d) =>
+															edit.setZoneForceCharacter(d, zone, c.id, e.currentTarget.checked),
+														)}
+												/>
+												{c.id}</label
+											>
+										{/each}
+									</span>
+								{/if}
+							</div>
+						{/each}
 					</section>
 
 					<section>

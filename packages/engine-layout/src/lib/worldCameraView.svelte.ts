@@ -92,6 +92,17 @@ export const worldProjection = (): WorldProjection | undefined =>
 /** Whether a spawned instance is out of view and not drawn. */
 export const isCulled = (id: string): boolean => culled.has(id);
 
+const hiding = $state({ on: false });
+
+/** Turn culling on beyond world-camera screens (P11.5: a game whose abilities put characters out,
+ *  hidden through the culled set). Set once, before the first spawn. */
+export const setHiding = (): void => {
+	hiding.on = true;
+};
+
+/** Whether the culled set hides instances on every screen, not only a world-camera one. */
+export const hidingOn = (): boolean => hiding.on;
+
 /** Publish the culled set after a frame (only the changes). */
 export const setCulled = (ids: ReadonlySet<string>): void => {
 	for (const id of culled) if (!ids.has(id)) culled.delete(id);
