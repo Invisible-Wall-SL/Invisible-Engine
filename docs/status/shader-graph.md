@@ -24,7 +24,7 @@ check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
 runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 (transitions in the game) is merged (#1461);
-8e.6 (authoring in the Scene Editor and the Flow) is in review; 8e.5, 8e.7 and 8e.8 are in progress.
+8e.6 (authoring in the Scene Editor and the Flow) is merged (#1468); 8e.5, 8e.7 and 8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -289,11 +289,11 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1–8e.4 are merged; 8e.6 is in review; 8e.5, 8e.7 and 8e.8 are
+    8e.1–8e.8, one PR each (its §15). 8e.1–8e.4 and 8e.6 are merged; 8e.5, 8e.7 and 8e.8 are
     in progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
     8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
     and `postFx` through the layout reader, which today drops them).
-    - **8e.6, authoring in the Scene Editor and the Flow.** In review (2026-10-29).
+    - **8e.6, authoring in the Scene Editor and the Flow.** Merged (#1468, 2026-10-29).
       - **Game Settings → Screen FX** (`editor/EditorScreenFx.svelte`, `$lib/screenFx.ts`): post FX
         entries, the **Anti-aliasing under stage effects** switch, and the transition cue row (the
         wipe, a built-in exit kind or a project effect, with duration and strength). Its status line
@@ -833,7 +833,8 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
 
 ## Recent changes
 - 2026-10-29 — **Step 8e.6: authoring in the Scene Editor and the Flow** (see "Current state").
-  In review.
+  Merged (#1468): CI green; Current games 11 pass, 0 fail, 0 changed screens (after #1471 gave
+  the render shards 45 minutes).
   - **Proof.** `check:screen-fx-editor` 77; `check:element-fx-flow` 31 (both run in CI's Checks
     shards: the `stage` target, reserved ids keep their stored id and get no anchor, a flow naming a
     `reels` placement still passes the shipped-flow gate); `check:doc-readers-unknown-fields` 304;
