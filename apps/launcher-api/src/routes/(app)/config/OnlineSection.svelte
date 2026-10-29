@@ -271,8 +271,8 @@
 	<p class="hint">
 		What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
 		that pushes players (px/s), or the round's <strong>goal</strong>. An <strong>ability</strong> is a
-		button that catches or stuns players of its target characters within its reach. A round ends at the
-		goal or on its clock, and the next starts after a pause.
+		button that catches, stuns or hooks players of its target characters within its reach. A round ends
+		at the goal or on its clock, and the next starts after a pause.
 	</p>
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
@@ -441,6 +441,7 @@
 								>
 									<option value="catch">catch</option>
 									<option value="stun">stun</option>
+									<option value="hook">hook</option>
 								</select></td
 							>
 							<td

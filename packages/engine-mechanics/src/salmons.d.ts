@@ -9,6 +9,12 @@ export type SalmonsRiver = {
 	world: { w: number; h: number };
 	bands: SalmonsBand[];
 	whirlpools: SalmonsWhirlpool[];
+	/** Solid in the water (P11.3). */
+	rocks: SalmonsRect[];
+	/** Ground a salmon until it jumps. */
+	sandbanks: SalmonsRect[];
+	/** Stop a salmon from below until it climbs; across the whole river. */
+	waterfalls: SalmonsRect[];
 	source: SalmonsRect;
 	sea: SalmonsRect;
 	spawn: { x: number; y: number };
@@ -32,6 +38,8 @@ export type SalmonsGeometry = {
 	zoneRules: {
 		zone: string;
 		force?: { x: number; y: number };
+		solid?: true | 'below';
+		kind?: string;
 		goal?: boolean;
 		characters?: string[];
 	}[];

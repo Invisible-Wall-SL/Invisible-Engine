@@ -41,7 +41,7 @@ export function flowSignalsOf(
 
 export type ServerValues = {
 	score: number;
-	status: 'free' | 'stunned' | 'out';
+	status: 'free' | 'stunned' | 'out' | 'grounded' | 'hooked';
 	round: number;
 	phase: string;
 	secondsLeft: number;

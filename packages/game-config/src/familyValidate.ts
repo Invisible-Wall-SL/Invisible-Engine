@@ -6,7 +6,9 @@ import {
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
 	ONLINE_GENERATOR_IDS,
+	ONLINE_LINE_MODULE_IDS,
 	ONLINE_RULES_MODULE_IDS,
+	ONLINE_ZONE_KINDS,
 	resolveArcade,
 	resolveFamily,
 	resolveMatch3,
@@ -522,5 +524,30 @@ function validateOnlineRules(doc: GameConfigDoc): GameConfigIssue[] {
 			message: `No rules module is "${rules.module}" (${ONLINE_RULES_MODULE_IDS.join(', ')}).`,
 		});
 	}
+	const lined = !!rules.module && ONLINE_LINE_MODULE_IDS.includes(rules.module);
+	(rules.abilities ?? []).forEach((ability, i) => {
+		if (ability.effect !== 'hook' || lined) return;
+		issues.push({
+			severity: 'warning',
+			path: `arcade.online.rules.abilities[${i}].effect`,
+			message: `A hook needs a rules module with a line (${ONLINE_LINE_MODULE_IDS.join(', ')}); without one it does nothing.`,
+		});
+	});
+	(rules.zones ?? []).forEach((rule, i) => {
+		if (rule.kind === undefined) return;
+		if (!ONLINE_ZONE_KINDS.includes(rule.kind)) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.online.rules.zones[${i}].kind`,
+				message: `No rules module acts on a zone of kind "${rule.kind}" (${ONLINE_ZONE_KINDS.join(', ')}).`,
+			});
+		} else if (!rules.module) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.online.rules.zones[${i}].kind`,
+				message: `A ${rule.kind} zone does nothing without a rules module.`,
+			});
+		}
+	});
 	return issues;
 }

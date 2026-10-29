@@ -132,7 +132,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		// A spawn outside the field is pulled inside at once, as every later step would.
 		stepPlayer(player.body, undefined, 0, atRest, field);
 	};
-	const rules = createOnlineRules(game, { spawn });
+	const rules = createOnlineRules(game, { spawn, seed });
 
 	const countOf = (characterId: string) =>
 		[...players.values()].filter((p) => p.character.id === characterId).length;
@@ -321,6 +321,8 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 					if (rules.holds(player)) {
 						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 						player.moving = false;
+						// A held player's input still reaches a rules module (a jump off a sandbank).
+						rules.applied(player, input, players.values(), stamp);
 						continue;
 					}
 					const level = levels.get(player.character.id);

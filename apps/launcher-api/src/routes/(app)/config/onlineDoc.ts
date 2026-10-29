@@ -291,7 +291,8 @@ export function setAbilityField(
 	} else if (field === 'button') {
 		if (value === 'ability1' || value === 'ability2') ability.button = value;
 	} else if (field === 'effect') {
-		if (value === 'catch' || value === 'stun') ability.effect = value as ArcadeOnlineHitEffect;
+		if (value === 'catch' || value === 'stun' || value === 'hook')
+			ability.effect = value as ArcadeOnlineHitEffect;
 	} else if (field === 'reach') {
 		const n = positive(value);
 		if (n !== undefined) ability.reach = n;
