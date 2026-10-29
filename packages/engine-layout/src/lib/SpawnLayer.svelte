@@ -18,7 +18,7 @@
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
 	import { liftOf, liftsOn } from './arcadeLifts.svelte';
-	import { inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
+	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
 
@@ -71,8 +71,9 @@
 	);
 
 	// On a world-camera screen (P10.12) an instance the arcade loop finds out of view is not drawn;
-	// it stays mounted, so its state machine runs on. Elsewhere nothing is culled (parity).
-	const culling = inWorldCamera();
+	// it stays mounted, so its state machine runs on. Elsewhere nothing is culled (parity), unless
+	// the game hides characters its abilities put out (P11.5, `setHiding`).
+	const culling = inWorldCamera() || hidingOn();
 
 	// A hopping character (P10.13) is drawn raised by its height over a shadow on the ground. Only a
 	// game whose loop publishes lifts takes this branch; elsewhere the markup is as before.

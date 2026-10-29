@@ -10,6 +10,11 @@
 // recorded traces exactly — the waterfall climb, the sandbank, the line, the golden salmon — and
 // rocks and the river stop a player on the device as in the room.
 //
+// Abilities and zone forces are ONE module (P11.5: engine-mechanics abilities.js): the offline
+// arcade loop (engine-game arcadeLoop.ts) and a room, given the same trace, raise the same uses,
+// hits and catches on the same steps, hold the same characters out, and push a body through a zone
+// to the same place.
+//
 // Run: pnpm check:online-rules (`-- --record` rewrites fixtures/salmons-traces.json after a
 // deliberate change to Salmons' rules or river)
 
@@ -21,7 +26,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { BUTTONS, clampInput, onlineLevel } from '../packages/engine-mechanics/src/online.js';
+import {
+	BUTTONS,
+	clampInput,
+	onlineLevel,
+	stepContext,
+	stepPlayer,
+} from '../packages/engine-mechanics/src/online.js';
 import { createPredictor } from '../packages/engine-mechanics/src/netcode.js';
 import { salmonsConfig, salmonsRiver } from '../packages/engine-mechanics/src/salmons.js';
 import { GOLDEN_WORTH, LINE } from '../packages/engine-mechanics/src/salmonsRules.js';
@@ -44,9 +55,13 @@ import {
 	ONLINE_RULES_MODULE_IDS,
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	resolveArcade,
 } from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
+import { createArcadeLoop } from '../packages/engine-game/src/game/arcadeLoop.ts';
+import * as abilitiesModule from '../packages/engine-mechanics/src/abilities.js';
+import * as onlineRulesModule from '../packages/engine-mechanics/src/onlineRules.js';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
 
@@ -1079,6 +1094,259 @@ await check(
 			assert.equal(devices[id].body.x, player.body.x, `${id}: the device's x is the room's`);
 			assert.equal(devices[id].body.y, player.body.y, `${id}: the device's y is the room's`);
 		}
+	},
+);
+
+// --- 5b. one ability module, both loops (P11.5) -----------------------------------------------
+
+/** A live set for the offline loop: instances placed by hand, in spawn order. */
+const liveSetOf = (instances) => {
+	const byId = new Map(instances.map((i) => [i.id, { ...i, layer: 'field' }]));
+	return {
+		live: () => [...byId.values()],
+		get: (id) => byId.get(id),
+		subscribe(layer, listener) {
+			listener([...byId.values()]);
+			return () => {};
+		},
+		move(moves) {
+			for (const { id, x, y } of moves) Object.assign(byId.get(id) ?? {}, { x, y });
+		},
+		layer: () => ({}),
+		despawn: (id) => byId.delete(id),
+	};
+};
+
+/** The offline loop over `doc`'s arcade block, at the room's rate, with held actions per step. */
+const offlineOf = (doc, instances) => {
+	const held = new Set();
+	const signals = [];
+	const rules = resolveArcade(normalizeGameConfigDoc(doc));
+	const loop = createArcadeLoop({
+		rules,
+		field: () => rules.field,
+		layers: () => ['field'],
+		live: liveSetOf(instances),
+		signal: (name, payload) => signals.push({ step: loop.steps, name, payload }),
+		seed: 1,
+		input: { held: (action) => held.has(action), pointer: () => undefined },
+	});
+	return {
+		loop,
+		signals,
+		step(actions = []) {
+			held.clear();
+			for (const a of actions) held.add(a);
+			assert.equal(loop.frame(1000 / rules.fixedHz), 1, 'one step a frame');
+		},
+	};
+};
+
+await check(
+	'abilities and zone forces are one module: the room calls it, game-config agrees',
+	() => {
+		assert.equal(onlineRulesModule.STATUS, abilitiesModule.STATUS);
+		assert.equal(onlineRulesModule.GRACE_MS, abilitiesModule.GRACE_MS);
+		const source = readFileSync(join(ROOT, 'packages/engine-mechanics/src/onlineRules.js'), 'utf8');
+		assert.match(source, /useAbilities\(player, stamp, abilities/);
+		assert.match(source, /endStatuses\(players, stamp, grace, respawn\)/);
+		assert.doesNotMatch(source, /target\.status = ability\.effect/, 'no second copy of the hit');
+		const online = readFileSync(join(ROOT, 'packages/engine-mechanics/src/online.js'), 'utf8');
+		assert.match(online, /addZoneForces\(body, currents\)/);
+		const loop = readFileSync(
+			join(ROOT, 'packages/engine-game/src/game/arcadeAbilities.ts'),
+			'utf8',
+		);
+		assert.match(loop, /useAbilities\(user, stamp, specs/);
+		assert.match(loop, /endStatuses\(list, stamp, grace/);
+	},
+);
+
+const ABILITY_TRACE = (() => {
+	// The bear presses on these steps (after the room's join grace): a stun on both salmon, a press
+	// on cooldown, a catch of the near one once their grace is over, a stun of the far one, both
+	// buttons on cooldown, and a stun while every salmon is safe after its status.
+	const presses = new Map([
+		[31, ['ability1']],
+		[32, ['ability1']],
+		[80, ['ability2']],
+		[85, ['ability1']],
+		[86, ['ability1', 'ability2']],
+		[110, ['ability1']],
+	]);
+	return { presses, steps: 120 };
+})();
+const TRACE_ABILITIES = [
+	{
+		character: 'bear',
+		button: 'ability1',
+		reach: 60,
+		targets: ['salmon'],
+		effect: 'stun',
+		ms: 500,
+		cooldownMs: 700,
+	},
+	{
+		character: 'bear',
+		button: 'ability2',
+		reach: 40,
+		targets: ['salmon'],
+		effect: 'catch',
+		ms: 600,
+		cooldownMs: 1000,
+		score: 2,
+	},
+];
+const PLACES = { a: { x: 400, y: 300 }, b: { x: 430, y: 300 }, c: { x: 480, y: 300 } };
+
+await check(
+	'offline and online abilities agree: the same trace raises the same events on the same steps',
+	() => {
+		const room = roomOf({ abilities: TRACE_ABILITIES });
+		const players = {
+			a: room.join('a', 'salmon'),
+			b: room.join('b', 'bear'),
+			c: room.join('c', 'salmon'),
+		};
+		for (const [id, at] of Object.entries(PLACES)) Object.assign(players[id].body, at);
+		const onlineTrace = [];
+		const onlineOut = [];
+		const bit = { ability1: BUTTONS.ability1, ability2: BUTTONS.ability2 };
+		for (let step = 1; step <= ABILITY_TRACE.steps; step++) {
+			const pressed = ABILITY_TRACE.presses.get(step) ?? [];
+			const before = room.events.length;
+			room.hold({ b: { buttons: pressed.reduce((m, a) => m | bit[a], 0) } }, 1);
+			for (const e of room.events.slice(before)) {
+				if (e.type === 'ability') onlineTrace.push([step, 'ability', e.by, e.button]);
+				if (e.type === 'hit' || e.type === 'caught')
+					onlineTrace.push([step, e.type, e.by, e.target, e.effect]);
+			}
+			onlineOut.push(
+				[...room.sim.players.values()]
+					.filter((p) => p.status === STATUS.out)
+					.map((p) => p.id)
+					.join(),
+			);
+		}
+
+		const doc = {
+			family: 'arcade',
+			outcome: 'rules',
+			gameName: 'Abilities',
+			arcade: {
+				field: FIELD,
+				fixedHz: TICK,
+				bodies: {
+					salmonLook: { shape: 'circle', r: 10, tags: ['player'] },
+					bearLook: { shape: 'circle', r: 20, tags: ['player'] },
+				},
+				characters: [
+					{ id: 'salmon', component: 'salmonLook' },
+					{ id: 'bear', component: 'bearLook', controller: { kind: 'topDown', speed: 300 } },
+				],
+				abilities: TRACE_ABILITIES,
+			},
+		};
+		assert.deepEqual(validateFamily(normalizeGameConfigDoc(doc)), []);
+		const offline = offlineOf(doc, [
+			{ id: 'a', componentId: 'salmonLook', ...PLACES.a },
+			{ id: 'b', componentId: 'bearLook', ...PLACES.b },
+			{ id: 'c', componentId: 'salmonLook', ...PLACES.c },
+		]);
+		// The room's players start with its join grace and the loop's with none: idle through it.
+		const start = room.sim.steps - ABILITY_TRACE.steps;
+		for (let i = 0; i < start; i++) offline.step();
+		const offlineOut = [];
+		for (let step = 1; step <= ABILITY_TRACE.steps; step++) {
+			offline.step(ABILITY_TRACE.presses.get(step) ?? []);
+			offlineOut.push([...offline.loop.culled()].sort().join());
+		}
+		const offlineTrace = offline.signals.map(({ step, name, payload }) =>
+			name === 'ability'
+				? [step - start, name, payload.player, payload.button]
+				: [step - start, name, payload.by, payload.target, payload.effect],
+		);
+		assert.ok(
+			onlineTrace.some((e) => e[1] === 'caught') && onlineTrace.some((e) => e[1] === 'hit'),
+		);
+		assert.deepEqual(offlineTrace, onlineTrace);
+		assert.deepEqual(offlineOut, onlineOut);
+		const caught = offline.signals.find((s) => s.name === 'caught');
+		assert.equal(caught.payload.points, 2);
+		assert.equal(caught.payload.targetInstance.id, 'a');
+		assert.equal(caught.payload.mine, true);
+	},
+);
+
+await check(
+	'offline and online zone forces agree: a body swims through a current to the same place',
+	() => {
+		const zones = [{ id: 'current', x: 300, y: 200, w: 200, h: 200 }];
+		const force = { x: -120, y: 35 };
+		const level = onlineLevel(zones, [{ zone: 'current', force }], 'salmon', FIELD);
+		const ctx = stepContext(TICK, 1);
+		const body = { id: 's', shape: 'circle', r: 10, x: 250, y: 300, vx: 0, vy: 0 };
+		const doc = {
+			family: 'arcade',
+			outcome: 'rules',
+			gameName: 'Forces',
+			arcade: {
+				field: FIELD,
+				fixedHz: TICK,
+				bodies: { salmonLook: { shape: 'circle', r: 10 } },
+				zones,
+				characters: [
+					{ id: 'salmon', component: 'salmonLook', controller: { kind: 'topDown', speed: 300 } },
+				],
+				forces: [{ zone: 'current', force }],
+			},
+		};
+		assert.deepEqual(validateFamily(normalizeGameConfigDoc(doc)), []);
+		const offline = offlineOf(doc, [{ id: 's', componentId: 'salmonLook', x: 250, y: 300 }]);
+		for (let i = 0; i < 60; i++) {
+			stepPlayer(body, clampInput({ seq: i + 1, moveX: 127 }, FIELD), 300, ctx, FIELD, level);
+			offline.step(['right']);
+			const [own] = offline.loop.bodies();
+			assert.ok(
+				Math.abs(own.x - body.x) < 1e-9 && Math.abs(own.y - body.y) < 1e-9,
+				`step ${i + 1}`,
+			);
+		}
+		assert.ok(body.y > 300 && body.x < 250 + 300 * 2, 'the current pushed it');
+		const [own] = offline.loop.bodies();
+		assert.equal(own.vx, 300, 'the push is taken off after the move');
+	},
+);
+
+await check(
+	'a zone force with characters pushes only them; one with none pushes every body',
+	() => {
+		const zones = [{ id: 'wind', x: 0, y: 0, w: 1000, h: 600 }];
+		const doc = (characters) => ({
+			family: 'arcade',
+			outcome: 'rules',
+			gameName: 'Wind',
+			arcade: {
+				field: FIELD,
+				bodies: { leaf: { shape: 'circle', r: 5 }, kite: { shape: 'circle', r: 5 } },
+				zones,
+				characters: [{ id: 'kite', component: 'kite' }],
+				forces: [{ zone: 'wind', force: { x: 60, y: 0 }, ...(characters ? { characters } : {}) }],
+			},
+		});
+		const at = (d) => {
+			const offline = offlineOf(d, [
+				{ id: 'leaf', componentId: 'leaf', x: 100, y: 100 },
+				{ id: 'kite', componentId: 'kite', x: 100, y: 200 },
+			]);
+			for (let i = 0; i < 60; i++) offline.step();
+			return Object.fromEntries(offline.loop.bodies().map((b) => [b.id, b.x]));
+		};
+		const all = at(doc());
+		assert.ok(all.leaf > 150 && all.kite > 150, JSON.stringify(all));
+		const kites = at(doc(['kite']));
+		assert.equal(kites.leaf, 100);
+		assert.equal(kites.kite, all.kite);
 	},
 );
 

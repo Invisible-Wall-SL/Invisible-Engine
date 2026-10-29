@@ -1,5 +1,6 @@
 import {
 	aabbOf,
+	addZoneForces,
 	createCamera,
 	createFixedStep,
 	createRng,
@@ -12,6 +13,7 @@ import {
 	step,
 	stepCamera,
 	viewRect,
+	zoneForces,
 	zonesOf,
 	type Aabb,
 	type Body,
@@ -24,7 +26,20 @@ import {
 	type StaticIndex,
 } from 'engine-mechanics';
 import type { SpawnedInstance } from 'engine-flow-v2';
-import type { ArcadeBody, ArcadeCharacter, ArcadeZone } from 'game-config';
+import type {
+	ArcadeBody,
+	ArcadeCharacter,
+	ArcadeZone,
+	ArcadeZoneForce,
+	ResolvedArcadeAbility,
+} from 'game-config';
+
+import {
+	ABILITY_BUTTONS,
+	createAbilityStage,
+	type AbilityButton,
+	type AbilityStage,
+} from './arcadeAbilities';
 
 import {
 	CHARACTER_CONTROLS,
@@ -61,6 +76,14 @@ import {
  * `setCharacterState` and hands a playable character to its brain with `setCharacterControl`.
  * From P10.13 a character can fall, jump, flap or hop, and stands on the level's tiles
  * ({@link ArcadeLoopOptions.tiles}); a hop in the air does not `collide` with a `ground` body.
+ *
+ * ABILITIES AND ZONE FORCES (§4.3, P11.5), only when the config has them: `engine-mechanics`
+ * `abilities.js`, the code an online room runs. A zone force adds its push to the velocity of a body
+ * in it for the move (a character of the characters it names, else every body), and takes it off
+ * again; a move that changed the velocity (a wall, a fall) keeps the change. After the move, the
+ * abilities stage (`arcadeAbilities.ts`) uses the characters' abilities and raises `ability`,
+ * `hit` and `caught`; a held character neither decides nor moves, one that is out touches nothing
+ * and is culled. Flow's `useAbility` uses one.
  *
  * THE CAMERA (§4.4, P10.12), only when the play field's screen declares a world or a camera
  * ({@link ArcadeLoopOptions.camera}): after the zones each step moves the camera
@@ -103,6 +126,10 @@ export interface ArcadeRules {
 	zones: ArcadeZone[];
 	/** Absent or empty ⇒ no characters stage (P10.8). */
 	characters?: ArcadeCharacter[];
+	/** The characters' abilities (P11.5). Absent or empty (or no characters) ⇒ no abilities stage. */
+	abilities?: ResolvedArcadeAbility[];
+	/** Zones that push the bodies in them while they move (P11.5). Absent or empty ⇒ none. */
+	forces?: ArcadeZoneForce[];
 }
 
 /** The characters stage's input, paths, variables, look inputs and shots
@@ -155,7 +182,8 @@ export interface ArcadeLoop {
 	attachCamera(options: ArcadeCameraOptions): void;
 	/** The camera after the last step, or `undefined` without one. */
 	camera(): ArcadeCameraState | undefined;
-	/** The bodies out of view by more than {@link ARCADE_CULL_MARGIN} (none without a camera). */
+	/** The bodies out of view by more than {@link ARCADE_CULL_MARGIN} (none without a camera), and
+	 *  the characters an ability put out (P11.5). */
 	culled(): ReadonlySet<string>;
 	/** Where each body is, for the probe and the gates. */
 	bodies(): {
@@ -253,6 +281,10 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	const queue: { name: string; payload: Record<string, unknown> }[] = [];
 	let disposed = false;
 	let characters: CharacterStage | undefined;
+	let abilities: AbilityStage | undefined;
+	const forces = rules.forces?.length ? zoneForces(rules.zones, rules.forces) : undefined;
+	/** The step running, from 1 (an ability's times are in steps). */
+	let stamp = 0;
 	if (options.camera) attachCamera(options.camera);
 
 	const forget = (id: string) => {
@@ -261,6 +293,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		inZones.delete(id);
 		moved.delete(id);
 		characters?.forget(id);
+		abilities?.forget(id);
 		inView.delete(id);
 		seen.delete(id);
 		culled.delete(id);
@@ -278,6 +311,8 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				const body = bodyFor(instance, rules);
 				bodies.set(instance.id, body);
 				characters?.attach(body);
+				const character = abilities && characterByLook.get(body.componentId);
+				if (character) abilities?.attach(body, character);
 				// One spawned off the field (above it, to fall in) has not left it.
 				const edge = outsideEdge(body, field());
 				if (edge) outside.set(body.id, edge);
@@ -312,16 +347,52 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			handle,
 			bodyOf: (id) => bodies.get(id),
 		});
+	const characterByLook = new Map<string, ArcadeCharacter>();
+	for (const character of rules.characters ?? [])
+		if (!characterByLook.has(character.component))
+			characterByLook.set(character.component, character);
+	if (characters && rules.abilities?.length)
+		abilities = createAbilityStage({
+			abilities: rules.abilities,
+			fixedHz: rules.fixedHz,
+			input: options.input,
+			driverOf: (id) => characters?.driverOf(id),
+			raise: (name, payload) => queue.push({ name, payload }),
+			handle,
+		});
 	watchNewLayers();
 
+	/** Push the bodies in a force zone for the move; returns how to take it off again. */
+	const push = (list: readonly LoopBody[]) => {
+		if (!forces) return undefined;
+		const pushed: { body: LoopBody; vx: number; vy: number; px: number; py: number }[] = [];
+		for (const body of list) {
+			const { vx, vy } = body;
+			addZoneForces(body, forces, characterByLook.get(body.componentId)?.id);
+			if (body.vx !== vx || body.vy !== vy) pushed.push({ body, vx, vy, px: body.vx, py: body.vy });
+		}
+		return () => {
+			for (const { body, vx, vy, px, py } of pushed) {
+				body.vx = body.vx === px ? vx : body.vx === 0 ? 0 : body.vx - (px - vx);
+				body.vy = body.vy === py ? vy : body.vy === 0 ? 0 : body.vy - (py - vy);
+			}
+		};
+	};
+
 	const runStep = () => {
-		const list = [...bodies.values()];
+		stamp += 1;
+		const all = [...bodies.values()];
+		const list = abilities ? all.filter((body) => !abilities?.held(body.id)) : all;
 		characters?.decide(list, clock.dt);
+		const unpush = push(list);
 		for (const body of list) if (body.vx || body.vy) moved.add(body.id);
 		const area = field();
 		if (characters) for (const id of characters.move(list, clock.dt, area)) moved.add(id);
 		else step(list, clock.dt, area);
-		for (const body of list) {
+		unpush?.();
+		if (abilities) for (const id of abilities.step(stamp)) moved.add(id);
+		const touchable = abilities ? all.filter((body) => !abilities?.isOut(body.id)) : all;
+		for (const body of all) {
 			if ((body.edges ?? 'clamp') !== 'pass') continue;
 			const edge = outsideEdge(body, area);
 			if (edge && !outside.has(body.id)) {
@@ -330,7 +401,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			} else if (!edge) outside.delete(body.id);
 		}
 		const now = new Map<string, readonly [string, string]>();
-		for (const hit of overlaps(list, rules.pairs)) {
+		for (const hit of overlaps(touchable, rules.pairs)) {
 			if (characters?.passesOver(hit.a, hit.b)) continue;
 			const key = JSON.stringify([hit.a.id, hit.b.id, hit.tagA, hit.tagB]);
 			now.set(key, [hit.a.id, hit.b.id]);
@@ -343,7 +414,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		touching.clear();
 		for (const [key, pair] of now) touching.set(key, pair);
 		if (rules.zones.length) {
-			for (const body of list) {
+			for (const body of all) {
 				const was = inZones.get(body.id) ?? [];
 				const is = zonesOf(body, zoneIndex);
 				for (const zone of is)
@@ -361,7 +432,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 				inZones.set(body.id, is);
 			}
 		}
-		if (camera && cameraOptions) stepView(camera, cameraOptions, list);
+		if (camera && cameraOptions) stepView(camera, cameraOptions, all);
 	};
 
 	const meets = (a: Aabb, b: Aabb, margin = 0) =>
@@ -407,9 +478,12 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 	};
 
 	const cullNow = () => {
-		if (!camera || !cameraOptions) return;
+		if (!camera || !cameraOptions) {
+			if (abilities) culled = new Set(abilities.out());
+			return;
+		}
 		const rect = (cameraOptions.visible ?? viewRect)(camera, cameraOptions.view());
-		const next = new Set<string>();
+		const next = new Set<string>(abilities?.out());
 		for (const body of bodies.values())
 			if (!meets(aabbOf(body), rect, ARCADE_CULL_MARGIN)) next.add(body.id);
 		culled = next;
@@ -479,6 +553,10 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			const y = num(payload.y);
 			if (x !== undefined) camera.autoScroll.x = x;
 			if (y !== undefined) camera.autoScroll.y = y;
+		},
+		useAbility: (payload) => {
+			const button = ABILITY_BUTTONS.find((b) => b === payload.button);
+			if (button) abilities?.use(targets(payload), button as AbilityButton);
 		},
 		setTag: (payload) => {
 			const tag = str(payload.tag);
@@ -564,6 +642,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 			culled = new Set();
 			queue.length = 0;
 			characters?.clear();
+			abilities?.clear();
 		},
 	};
 }

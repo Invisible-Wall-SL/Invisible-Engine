@@ -22,7 +22,8 @@
  * what `scripts/check-room-sim.mjs` pins and what a predicting device replays (`netcode.js`).
  */
 
-import { aabbOf, createStaticIndex, inZone, queryStatic, stepBody, stepSolid } from './motion.js';
+import { addZoneForces, zoneForces } from './abilities.js';
+import { aabbOf, createStaticIndex, queryStatic, stepBody, stepSolid } from './motion.js';
 
 /** A full-tilt move along one axis. */
 export const MOVE_SCALE = 127;
@@ -129,13 +130,7 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 	for (let i = 0; i < ctx.subSteps; i++) {
 		body.vx = vx;
 		body.vy = vy;
-		if (currents) {
-			for (const zone of queryStatic(currents, aabbOf(body))) {
-				if (!inZone(body, zone)) continue;
-				body.vx += zone.fx;
-				body.vy += zone.fy;
-			}
-		}
+		if (currents) addZoneForces(body, currents);
 		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field);
 		else stepBody(body, ctx.subDt, field);
 	}
@@ -212,32 +207,32 @@ export const levelCell = (field) => Math.max(128, Math.ceil(Math.max(field.w, fi
  */
 export function onlineLevel(zones, rules, character, field) {
 	const byId = new Map((zones ?? []).map((zone) => [zone.id, zone]));
-	const currents = [];
+	const cell = levelCell(field);
 	const solids = [];
 	for (const rule of rules ?? []) {
 		const zone = byId.get(rule.zone);
-		if (!zone || !(rule.force || rule.solid)) continue;
+		if (!zone || !rule.solid) continue;
 		if (rule.characters && !rule.characters.includes(character)) continue;
 		const clipped = clipToField(zone, field);
 		if (!clipped) continue;
 		const { id, x, y, w, h } = clipped;
-		if (rule.force) currents.push({ id, x, y, w, h, fx: rule.force.x, fy: rule.force.y });
-		if (rule.solid) {
-			solids.push({
-				id,
-				x,
-				y,
-				w,
-				h,
-				from: rule.solid === true ? 'any' : rule.solid,
-				box: { x0: x, y0: y, x1: x + w, y1: y + h },
-				body: { id, shape: 'box', x: x + w / 2, y: y + h / 2, w, h, solid: true },
-			});
-		}
+		solids.push({
+			id,
+			x,
+			y,
+			w,
+			h,
+			from: rule.solid === true ? 'any' : rule.solid,
+			box: { x0: x, y0: y, x1: x + w, y1: y + h },
+			body: { id, shape: 'box', x: x + w / 2, y: y + h / 2, w, h, solid: true },
+		});
 	}
-	const cell = levelCell(field);
 	return {
-		currents: createStaticIndex(currents, cell),
+		currents: zoneForces(zones, rules, {
+			character,
+			clip: (zone) => clipToField(zone, field),
+			cell,
+		}),
 		solids: createStaticIndex(solids, cell),
 	};
 }

@@ -124,6 +124,8 @@ export interface CharacterStage {
 	setControl(targets: readonly StageBody[], control: CharacterControl): void;
 	/** The brain state a character is in, for the probe and the gates. */
 	stateOf(id: string): string | undefined;
+	/** Who drives a character now: its controller, its brain, or nobody (P11.5's abilities). */
+	driverOf(id: string): CharacterControl | undefined;
 	/** Where a character stands: grounded and its hop height, for the probe and the gates. */
 	contactOf(id: string): { grounded: boolean; onWall: boolean; z: number } | undefined;
 	/** Whether one of a touching pair passes over the other: a hop in the air over a `ground` body. */
@@ -452,6 +454,10 @@ export function createCharacterStage(options: {
 			}
 		},
 		stateOf: (id) => actors.get(id)?.brain?.state,
+		driverOf(id) {
+			const actor = actors.get(id);
+			return actor ? driver(actor) : undefined;
+		},
 		contactOf(id) {
 			const actor = actors.get(id);
 			if (!actor || actor.physics === 'solid') return undefined;

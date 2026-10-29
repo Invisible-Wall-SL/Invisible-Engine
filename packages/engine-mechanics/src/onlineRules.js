@@ -29,20 +29,24 @@
  */
 
 import { BUTTONS, clipToField, levelCell } from './online.js';
+import {
+	GRACE_MS,
+	STATUS,
+	abilitySpecs,
+	endStatuses,
+	freeActor,
+	stepsOf,
+	useAbilities,
+} from './abilities.js';
 import { aabbOf, createStaticIndex, inZone, queryStatic, touching } from './motion.js';
 import { SALMONS_RULES } from './salmonsRules.js';
 
-/** A player's status: free, held still by a stun, or out until it respawns; or held by a rules
- *  module until the module lets it go (P11.3): `grounded` on a sandbank (it can still be hit),
- *  `hooked` on a line. */
-export const STATUS = Object.freeze({ free: 0, stunned: 1, out: 2, grounded: 3, hooked: 4 });
+/** A player's status and its grace are the abilities' ({@link STATUS}, `abilities.js`, P11.5). */
+export { GRACE_MS, STATUS };
 
 /** How far back an ability is tested against what its user saw, at most, ms (§6: lag
  *  compensation). Whole steps, rounded down. */
 export const REWIND_MS = 250;
-
-/** How long a player cannot be hit after a status ends, a respawn or a round's start, ms. */
-export const GRACE_MS = 1000;
 
 /** The message type every room event travels as (`services/game-server` broadcasts each step's
  *  events as one array of it; `apps/lines` `game/online.ts` reads it). */
@@ -55,8 +59,6 @@ const SCORE_LIMIT = 1e9;
 const score = (player, points) => {
 	player.score = Math.max(-SCORE_LIMIT, Math.min(SCORE_LIMIT, player.score + points));
 };
-
-const stepsOf = (ms, tickHz) => Math.max(0, Math.round((ms * tickHz) / 1000));
 
 /**
  * `tag`: one player is "it" (`mark`); touching another free player passes it on (the new one cannot
@@ -121,12 +123,9 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			.filter(Boolean),
 		levelCell(game.field),
 	);
-	const abilities = rules.abilities.map((a, i) => ({
+	const abilities = abilitySpecs(rules.abilities, tickHz).map((a) => ({
 		...a,
-		key: String(i),
 		bit: BUTTONS[a.button],
-		cooldown: Math.max(1, stepsOf(a.cooldownMs, tickHz)),
-		hold: stepsOf(a.ms, tickHz),
 	}));
 	/** Whether a player can win a round: a bot only when the game lets bots win (P10.16). */
 	const canWin = (player) => !player.bot || online.bots?.canWin === true;
@@ -142,8 +141,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 	const worldOf = (every, stamp) => ({ players: [...every], stamp, tickHz, round, seed, emit });
 	/** What `points` for a catch of, or a goal by, `player` are worth (a module may say more). */
 	const worth = (player, points) => (module?.worth ? module.worth(player, points) : points);
-	/** Whether a player can be hit: free, or held by a sandbank. */
-	const hittable = (player) => player.status === STATUS.free || player.status === STATUS.grounded;
 
 	const placeAt = (player, stamp) => {
 		const ring = history.get(player.id);
@@ -152,11 +149,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		return { x: player.body.x, y: player.body.y };
 	};
 
-	const free = (player, stamp) => {
-		player.status = STATUS.free;
-		player.until = 0;
-		player.safeUntil = stamp + grace;
-	};
+	const free = (player, stamp) => freeActor(player, stamp, grace);
 
 	/** Back to the start: its past places are not where it is any more. */
 	const respawn = (player) => {
@@ -249,28 +242,14 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			if (phase !== 'running') return;
 			if (module?.input) module.input(player, input, { stamp, tickHz, round, seed, emit });
 			if (player.status !== STATUS.free) return;
-			let players;
-			for (const ability of abilities) {
-				if (ability.character !== player.character.id || !(input.buttons & ability.bit)) continue;
-				if (stamp < (player.cooldowns[ability.key] ?? 0)) continue;
-				player.cooldowns[ability.key] = stamp + ability.cooldown;
-				emit({ type: 'ability', by: player.id, button: ability.button });
-				players ??= [...every];
-				const seen = Math.max(stamp - 1 - rewind, Math.min(stamp - 1, input.view));
-				let nearest;
-				let nearestAt = Infinity;
-				for (const target of players) {
-					if (target === player || !target.connected || !hittable(target)) continue;
-					if (stamp < target.safeUntil || !ability.targets.includes(target.character.id)) continue;
-					const at = placeAt(target, seen);
-					const d = Math.hypot(at.x - player.body.x, at.y - player.body.y);
-					if (d > ability.reach) continue;
-					if (ability.effect === 'hook') {
-						if (d < nearestAt) [nearest, nearestAt] = [target, d];
-						continue;
-					}
-					target.status = ability.effect === 'catch' ? STATUS.out : STATUS.stunned;
-					target.until = stamp + ability.hold;
+			const seen = Math.max(stamp - 1 - rewind, Math.min(stamp - 1, input.view));
+			useAbilities(player, stamp, abilities, {
+				pressed: (ability) => (input.buttons & ability.bit) !== 0,
+				used: (ability) => emit({ type: 'ability', by: player.id, button: ability.button }),
+				players: () => [...every],
+				present: (target) => target.connected,
+				placeOf: (target) => placeAt(target, seen),
+				hit: (target, ability) => {
 					score(player, worth(target, ability.score));
 					emit({
 						type: ability.effect === 'catch' ? 'caught' : 'hit',
@@ -278,19 +257,16 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 						target: target.id,
 						effect: ability.effect,
 					});
-				}
-				if (nearest && module?.hook) module.hook(player, nearest, ability, worldOf(players, stamp));
-			}
+				},
+				hook: (target, ability, players) => {
+					if (module?.hook) module.hook(player, target, ability, worldOf(players, stamp));
+				},
+			});
 		},
 		/** Once a step, after every player moved: the step is now `stamp`. Returns its events. */
 		afterStep(every, stamp) {
 			const players = [...every];
-			for (const player of players) {
-				if (player.status === STATUS.free || player.status > STATUS.out) continue;
-				if (stamp < player.until) continue;
-				if (player.status === STATUS.out) respawn(player);
-				free(player, stamp);
-			}
+			endStatuses(players, stamp, grace, respawn);
 			if (phase === 'running') {
 				if (goals.shapes.length) {
 					for (const player of players) {

@@ -27,6 +27,11 @@
  *  9. THE SAMPLE IS ONE PIECE: the flow validates clean, the config validates, the layout's path is
  *     the brain's, the guard's look is a valid 1D blend on `speed`, and every piece names the same
  *     components.
+ * 13. ABILITIES (P11.5): a played character uses one on the input map's `ability1`; a brain uses
+ *     one whenever a target is in reach; Flow's `useAbility` uses one once; a stun holds its target
+ *     (it neither steers nor moves); a catch hides it, it touches nothing, and it is back where it
+ *     spawned; the vocabulary declares `useAbility` and its buttons; a config without abilities
+ *     builds no stage (no signal, nothing culled).
  * 10. THE GAME (source-scanned): `apps/lines` gives the loop its characters' input only for a config
  *     with characters, and reads keys through the flow's own key map.
  */
@@ -55,6 +60,7 @@ import {
 	type SpawnedInstance,
 } from 'engine-flow-v2';
 import { CHARACTER_CONTROLS } from 'engine-game/src/game/arcadeCharacters';
+import { ABILITY_BUTTONS, ABILITY_SIGNALS } from 'engine-game/src/game/arcadeAbilities';
 import { createArcadeLoop, type ArcadeRules } from 'engine-game/src/game/arcadeLoop';
 import {
 	ComponentStateMachineRunner,
@@ -173,6 +179,7 @@ const bench = (
 	bodies: Record<string, ArcadeBody>,
 	pairs: [string, string][] = [],
 	field = { w: 1000, h: 800 },
+	extra: Pick<ArcadeRules, 'abilities' | 'forces' | 'zones'> = {},
 ) => {
 	const store = createSpawnStore();
 	const components = [
@@ -181,7 +188,7 @@ const bench = (
 	store.declare({ id: 'f', spawnable: components, placement: 'free', cap: 200 });
 	const io = newIo();
 	const signals: { name: string; payload: Record<string, unknown> }[] = [];
-	const rules: ArcadeRules = { fixedHz: 60, bodies, pairs, zones: [], characters };
+	const rules: ArcadeRules = { fixedHz: 60, bodies, pairs, zones: [], characters, ...extra };
 	const live = {
 		...store,
 		live: store.live,
@@ -1453,6 +1460,163 @@ const offRoute = (b: { x: number; y: number }) => {
 			a.trace === (await run()).trace,
 		);
 	}
+}
+
+// ── 13. abilities (P11.5) ────────────────────────────────────────────────────────────────────
+{
+	const bodies = { bearLook: box(40, 40, ['bear']), fishLook: box(20, 20, ['fish']) };
+	const fish: ArcadeCharacter = {
+		id: 'fish',
+		component: 'fishLook',
+		controller: { kind: 'topDown', speed: 100 },
+	};
+	const bear = (brain: boolean): ArcadeCharacter => ({
+		id: 'bear',
+		component: 'bearLook',
+		...(brain
+			? { brain: { initial: 'wait', states: [{ id: 'wait', behaviour: 'idle' }], transitions: [] } }
+			: { controller: { kind: 'topDown', speed: 100 } }),
+	});
+	const abilities = resolveArcade({
+		arcade: {
+			abilities: [
+				{
+					character: 'bear',
+					button: 'ability1',
+					reach: 80,
+					targets: ['fish'],
+					effect: 'stun',
+					ms: 500,
+				},
+				{
+					character: 'bear',
+					button: 'ability2',
+					reach: 80,
+					targets: ['fish'],
+					effect: 'catch',
+					ms: 500,
+					score: 3,
+				},
+			],
+		},
+	}).abilities;
+
+	// A played bear on `ability1`: the fish (played too, and holding right) is stunned in place.
+	{
+		const b = bench([bear(false), fish], bodies, [], undefined, { abilities });
+		const bearAt = b.spawn('bearLook', 300, 300);
+		const fishAt = b.spawn('fishLook', 350, 300);
+		b.frames(1);
+		const x0 = b.body(fishAt.id).x;
+		b.io.held.add('ability1');
+		b.frames(1);
+		const hit = b.signals.find((s) => s.name === 'hit');
+		check(
+			'13. a played character uses an ability on the input map action; the hit carries both instances',
+			b.signals.some((s) => s.name === 'ability' && s.payload.button === 'ability1') &&
+				hit?.payload.by === bearAt.id &&
+				hit?.payload.target === fishAt.id &&
+				(hit?.payload.targetInstance as SpawnedInstance)?.id === fishAt.id &&
+				hit?.payload.points === 0,
+			json(b.signals.map((s) => s.name)),
+		);
+		b.io.held.clear();
+		b.io.held.add('right');
+		b.frames(20);
+		check('13. a stunned character neither steers nor moves', b.body(fishAt.id).x === x0);
+		b.frames(20);
+		check('13. …and moves again when the stun ends', b.body(fishAt.id).x > x0);
+	}
+
+	// A brain bear uses its abilities whenever a target is in reach; a catch hides and returns.
+	{
+		const b = bench([bear(true), fish], bodies, [['bear', 'fish']], undefined, {
+			abilities: [abilities[1]],
+		});
+		b.spawn('bearLook', 300, 300);
+		const far = b.spawn('fishLook', 600, 300);
+		b.frames(5);
+		check(
+			'13. a brain uses no ability with nobody in reach',
+			!b.signals.some((s) => s.name === 'ability'),
+		);
+		b.loop.effects.moveTo({ instance: far, x: 340, y: 300 });
+		b.frames(1);
+		const caught = b.signals.find((s) => s.name === 'caught');
+		check(
+			'13. a brain uses its ability once a target is in reach: a catch, for its points',
+			b.signals.some((s) => s.name === 'ability') && caught?.payload.points === 3,
+			json(b.signals.map((s) => s.name)),
+		);
+		check(
+			'13. a caught character is culled (hidden) and touches nothing',
+			b.loop.culled().has(far.id) && !b.signals.some((s) => s.name === 'collide'),
+			json(b.signals.map((s) => s.name)),
+		);
+		b.frames(30);
+		check(
+			'13. …and is back where it spawned when the catch ends, safe for a second',
+			!b.loop.culled().has(far.id) && b.body(far.id).x === 600,
+			json(b.body(far.id)),
+		);
+		b.loop.effects.moveTo({ instance: far, x: 340, y: 300 });
+		b.signals.length = 0;
+		b.frames(30);
+		const early = b.signals.filter((s) => s.name === 'caught').length;
+		b.frames(40);
+		check(
+			'13. a freed character is not caught again before its grace ends',
+			early === 0 && b.signals.filter((s) => s.name === 'caught').length === 1,
+			json(b.signals.map((s) => s.name)),
+		);
+	}
+
+	// Flow's `useAbility`, once, by tag; a bad button is ignored.
+	{
+		const b = bench([bear(false), fish], bodies, [], undefined, { abilities });
+		b.spawn('bearLook', 300, 300);
+		b.spawn('fishLook', 350, 300);
+		b.frames(1);
+		b.loop.effects.useAbility({ tagged: 'bear', button: 'ability3' });
+		b.frames(1);
+		const before = b.signals.length;
+		b.loop.effects.useAbility({ tagged: 'bear', button: 'ability2' });
+		b.frames(3);
+		const used = b.signals.slice(before).filter((s) => s.name === 'ability');
+		check(
+			"13. Flow's useAbility uses one once; a bad button does nothing",
+			before === 0 && used.length === 1 && used[0].payload.button === 'ability2',
+			json(b.signals.map((s) => s.name)),
+		);
+	}
+
+	// No abilities: no stage, no signal, nothing culled.
+	{
+		const b = bench([bear(false), fish], bodies);
+		b.spawn('bearLook', 300, 300);
+		b.spawn('fishLook', 350, 300);
+		b.io.held.add('ability1');
+		b.frames(10);
+		b.loop.effects.useAbility({ tagged: 'bear', button: 'ability1' });
+		b.frames(1);
+		check(
+			'13. a config without abilities raises nothing and culls nothing',
+			!b.signals.length && b.loop.culled().size === 0,
+		);
+	}
+
+	const vocab = ARCADE_VOCAB.actions.find((a) => a.name === 'useAbility');
+	check(
+		"13. the vocabulary declares useAbility and its buttons (the loop's)",
+		!!vocab &&
+			json(ARCADE_VOCAB.enums.find((e) => e.name === 'ArcadeAbilityButton')?.values) ===
+				json(ABILITY_BUTTONS) &&
+			['ability', 'hit', 'caught'].every((n) =>
+				ARCADE_VOCAB.events.some(
+					(e) => e.name === n && Object.values(ABILITY_SIGNALS).includes(n as never),
+				),
+			),
+	);
 }
 
 console.log(`\narcade-characters (loop): ${passes} passed, ${fails} failed`);

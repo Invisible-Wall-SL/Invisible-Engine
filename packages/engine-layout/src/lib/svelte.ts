@@ -78,6 +78,7 @@ export {
 	isCulled,
 	registerProjectedWorld,
 	setCulled,
+	setHiding,
 	setWorldCameraView,
 	worldCameraView,
 } from './worldCameraView.svelte';

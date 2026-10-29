@@ -843,16 +843,16 @@ function scene4(): Scene {
 	);
 	const spawnLayer = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	check(
-		'6. <SpawnLayer> culls only under a world camera',
-		/const culling = inWorldCamera\(\);/.test(spawnLayer) &&
+		'6. <SpawnLayer> culls only under a world camera, or in a game whose abilities hide (P11.5)',
+		/const culling = inWorldCamera\(\) \|\| hidingOn\(\);/.test(spawnLayer) &&
 			/\{(?:#|:else )if culling\}[\s\S]*visible=\{!isCulled\(instance\.id\)\}[\s\S]*\{:else\}\s*<Container x=\{places\[instance\.id\]\?\.x \?\? instance\.x\} y=\{places\[instance\.id\]\?\.y \?\? instance\.y\}>/.test(
 				spawnLayer,
 			),
 	);
 	const arcade = read('apps/lines/src/game/arcade.ts');
 	check(
-		'6. the runtime publishes the camera only when the loop has one',
-		/const camera = loop\.camera\(\);\s*if \(!camera\) return;\s*setWorldCameraView\(camera\);\s*setCulled/.test(
+		'6. the runtime publishes the camera only when the loop has one (the culled set alone when abilities hide)',
+		/const camera = loop\.camera\(\);\s*if \(!camera\) \{\s*if \(hides\) setCulled\(loop\.culled\(\)\);\s*return;\s*\}\s*setWorldCameraView\(camera\);\s*setCulled/.test(
 			arcade,
 		) && /if \(!scene\) return;/.test(arcade),
 	);
