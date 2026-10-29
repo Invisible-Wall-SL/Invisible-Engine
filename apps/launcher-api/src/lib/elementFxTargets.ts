@@ -13,10 +13,11 @@ import {
 import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
 /**
- * What a Flow `elementEffect` can aim at in this project: the whole stage, the reels, every screen,
+ * What a Flow `elementEffect` can aim at in this project: the reels, the whole stage, every screen,
  * and every node the game registers an anchor for — a group, a component placement, a coded mount,
  * and any node that carries Element FX of its own (inside a component too, given its defs). The
- * order is the dropdown's: the stage, the reels, screens in doc order, then node ids sorted.
+ * order is the dropdown's: the reels (a new node's default), the stage, screens in doc order, then
+ * node ids sorted.
  */
 export function collectElementFxTargets(
 	scenes: readonly Scene[],
@@ -43,8 +44,8 @@ export function collectElementFxTargets(
 	};
 	for (const scene of scenes) walk(scene.nodes ?? [], false);
 	return [
-		ELEMENT_FX_STAGE_TARGET,
 		ELEMENT_FX_REELS_TARGET,
+		ELEMENT_FX_STAGE_TARGET,
 		...scenes.map((scene) => elementFxScreenTarget(scene.id)),
 		...[...nodes].sort(),
 	];

@@ -206,10 +206,10 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 		{ name: 'CameraEffectKind', values: [...CAMERA_EFFECT_KINDS] },
 		// The Element FX catalog (`constants-shared/elementFx`), shared with the runtime the same way.
 		{ name: ELEMENT_FX_KIND_ENUM, values: [...ELEMENT_FX_KINDS] },
-		// What an `elementEffect` can aim at: the whole stage and the reels here; the launcher adds
-		// each project's screens (`screen:<id>`) and anchored nodes (`withElementFxTargets`). The
-		// runtime takes any name.
-		{ name: ELEMENT_FX_TARGET_ENUM, values: [ELEMENT_FX_STAGE_TARGET, ELEMENT_FX_REELS_TARGET] },
+		// What an `elementEffect` can aim at: the reels (first, so a new node defaults to them) and the
+		// whole stage here; the launcher adds each project's screens (`screen:<id>`) and anchored
+		// nodes (`withElementFxTargets`). The runtime takes any name.
+		{ name: ELEMENT_FX_TARGET_ENUM, values: [ELEMENT_FX_REELS_TARGET, ELEMENT_FX_STAGE_TARGET] },
 		// What a `screenTransition` plays: the built-in exit kinds (`constants-shared/screenTransition`).
 		{ name: SCREEN_TRANSITION_KIND_ENUM, values: [...SCREEN_TRANSITION_KINDS] },
 		// Reel-anticipation confidence (docs/design/reel-anticipation.md): `possible` teases on the

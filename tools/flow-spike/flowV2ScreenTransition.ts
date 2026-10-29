@@ -12,7 +12,8 @@
  *
  * Asserts:
  *   1. The standard vocabulary declares both actions and the `ScreenTransitionKind` enum (the
- *      built-in exit kinds), the `stage` Element FX target first, and the flow validates clean.
+ *      built-in exit kinds) — the match3 and arcade vocabularies too — the `reels` Element FX
+ *      target first (a new node's default) and `stage` after it, and the flow validates clean.
  *   2. Non-blocking, the order of resolution: the transition starts and NOTHING after it runs until
  *      the stub reports the capture; then the Hide and the Show run (the screen changes under the
  *      still) and the chain holds at `waitForScreenTransition` until the stub reports the end.
@@ -246,10 +247,23 @@ const main = async () => {
 			'disintegrate',
 		]);
 		same(
-			'the Element FX targets: the stage first',
+			'the Element FX targets: the reels first (a new node’s default), then the stage',
 			VOCAB.enums.find((e) => e.name === 'ElementFxTarget')?.values,
-			['stage', 'reels'],
+			['reels', 'stage'],
 		);
+		for (const kind of ['match3', 'arcade'] as const) {
+			const vocab = templateVocabulary(kind);
+			same(
+				`${kind}: keeps both actions and the ScreenTransitionKind and ElementFxTarget enums`,
+				[
+					vocab.actions.some((a) => a.name === 'screenTransition'),
+					vocab.actions.some((a) => a.name === 'waitForScreenTransition'),
+					vocab.enums.find((e) => e.name === 'ScreenTransitionKind')?.values,
+					vocab.enums.find((e) => e.name === 'ElementFxTarget')?.values,
+				],
+				[true, true, [...SCREEN_TRANSITION_KINDS], ['reels', 'stage']],
+			);
+		}
 		const errors = validateFlowDoc(docWith(TRANSITION), VOCAB, LIBRARY).filter(
 			(i) => i.severity === 'error',
 		);

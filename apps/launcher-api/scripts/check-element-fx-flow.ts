@@ -9,10 +9,11 @@
  *     stops) on a cue is harvested into the flow's cue list like a rig's own cue, inside components
  *     too; a disabled entry and an unreadable one are not.
  *  2. **The target dropdown lists what the game anchors.** `elementEffect.target` is an enum, and an
- *     enum literal is pick-only, so a target missing here cannot be authored: the whole stage
- *     (first, Invisible Shader Graph 8e), the reels, every screen, and every node the game registers an anchor for (a group, a component placement, a
- *     coded mount, any node carrying Element FX — inside a component too). Not a reel grid, whose
- *     effects play on the reel stack.
+ *     enum literal is pick-only, so a target missing here cannot be authored: the reels (first, so
+ *     a new node defaults to them), the whole stage (Invisible Shader Graph 8e), every screen, and
+ *     every node the game registers an anchor for (a group, a component placement, a coded mount,
+ *     any node carrying Element FX — inside a component too). Not a reel grid, whose effects play
+ *     on the reel stack.
  *  3. **One composition.** `composeFlowV2Vocab` widens the enum with the targets for the editor and
  *     the publish gate alike; with no targets the vocabulary keeps its identity. The project's
  *     custom kinds widen both `ElementFxKind` and `ScreenTransitionKind` (8e).
@@ -134,9 +135,9 @@ eq(
 
 // ── 2. targets ────────────────────────────────────────────────────────────────────────────────
 const targets = collectElementFxTargets(scenes, [pot]);
-eq('2. the stage, the reels, every screen, then anchored nodes sorted', targets, [
-	'stage',
+eq('2. the reels, the stage, every screen, then anchored nodes sorted', targets, [
 	'reels',
+	'stage',
 	'screen:basegame',
 	'screen:freeSpins',
 	'beam',
@@ -148,12 +149,12 @@ eq('2. the stage, the reels, every screen, then anchored nodes sorted', targets,
 check('2. a plain sprite is not a target', !targets.includes('logo'));
 check('2. a reel grid is not (its FX play on the reel stack)', !targets.includes('grid'));
 check('2. a group inside a component is not (no anchor there)', !targets.includes('plain'));
-eq('2. no scenes ⇒ the stage and the reels', collectElementFxTargets([]), ['stage', 'reels']);
+eq('2. no scenes ⇒ the reels and the stage', collectElementFxTargets([]), ['reels', 'stage']);
 
 // ── 3. composition ────────────────────────────────────────────────────────────────────────────
 const base = templateVocabulary('lines');
 const baseTargets = base.enums.find((e) => e.name === ELEMENT_FX_TARGET_ENUM)?.values;
-eq('3. the kind’s vocabulary offers the stage and the reels', baseTargets, ['stage', 'reels']);
+eq('3. the kind’s vocabulary offers the reels, then the stage', baseTargets, ['reels', 'stage']);
 const widened = withElementFxTargets(base, targets);
 eq(
 	'3. widened with the project’s targets',
@@ -162,7 +163,7 @@ eq(
 );
 check(
 	'3. nothing to add ⇒ the same object',
-	withElementFxTargets(base, ['stage', 'reels']) === base,
+	withElementFxTargets(base, ['reels', 'stage']) === base,
 );
 const composed = composeFlowV2Vocab('lines', {
 	sounds: soundOptionsFor(null),
