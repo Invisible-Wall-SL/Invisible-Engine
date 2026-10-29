@@ -32,7 +32,6 @@ import {
 import {
 	Matrix,
 	Rectangle,
-	type Application,
 	type Container,
 	type Filter,
 	type Renderer,
@@ -55,6 +54,7 @@ import {
 	warnStageFxRefused,
 } from './stage';
 import { compileFilter } from '../gpuWarmup';
+import type { StageApp } from '../screenFx/stageFilters';
 
 export interface ElementFxHost {
 	/** Steps every effect. The game's app ticker, or a tool's own. */
@@ -65,18 +65,26 @@ export interface ElementFxHost {
 	timeScale?: () => number;
 	/**
 	 * The app's root. An effect played on it runs in STAGE MODE, as a post FX (`stage.ts`): its pixel
-	 * passes only, over the renderer's viewport, handed to the stage's post FX slot.
+	 * passes only, over the viewport, handed to the stage's post FX slot.
 	 */
 	stage?: Container;
+	/** The viewport stage mode plays over. Unset ⇒ the renderer's screen (a game's app screen). */
+	screen?: Rectangle;
 }
 
 /** The host for a Pixi app, or `undefined` before it exists. */
 export const elementFxHostFor = (
-	app: Application | undefined,
+	app: StageApp | undefined,
 	timeScale?: () => number,
 ): ElementFxHost | undefined =>
 	app?.ticker && app.renderer
-		? { ticker: app.ticker, renderer: app.renderer, timeScale, stage: app.stage }
+		? {
+				ticker: app.ticker,
+				renderer: app.renderer,
+				timeScale,
+				stage: app.stage,
+				screen: app.screen,
+			}
 		: undefined;
 
 export interface ElementFxPlay {
@@ -571,9 +579,11 @@ const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 const isStage = (target: Container, host: ElementFxHost): boolean =>
 	!!host.stage && target === host.stage;
 
-/** The renderer's viewport, kept in `box` while its size holds. */
-const stageViewport = (host: ElementFxHost, box: Rectangle | undefined): Rectangle =>
-	host.renderer ? viewportOf(host.renderer.screen, box) : (box ?? new Rectangle(0, 0, 1, 1));
+/** The viewport, kept in `box` while its size holds. */
+const stageViewport = (host: ElementFxHost, box: Rectangle | undefined): Rectangle => {
+	const screen = host.screen ?? host.renderer?.screen;
+	return screen ? viewportOf(screen, box) : (box ?? new Rectangle(0, 0, 1, 1));
+};
 
 const stageCounts = (runtime: Runtime): { entries: number; filters: number } => ({
 	entries: runtime.effects.length,

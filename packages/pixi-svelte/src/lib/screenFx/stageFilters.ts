@@ -35,11 +35,18 @@ const SLOTS: readonly StageFilterSlot[] = ['transition', 'post', 'camera'];
 export type StagePostFxSlot = (filters: readonly Filter[] | null) => void;
 
 /** Apps whose stage filters keep the canvas's anti-aliasing (`settings.stageFxAntialias`, §16.10). */
-const antialiased = new WeakSet<Application>();
+/**
+ * What the stage's runtime reads of an app: its root, its viewport, its clock and its renderer. A
+ * Pixi `Application` is one; a tool that draws through a renderer it shares (the Scene Editor's ▶
+ * on the stage) gives its own.
+ */
+export type StageApp = Pick<Application, 'stage' | 'screen' | 'ticker' | 'renderer'>;
+
+const antialiased = new WeakSet<StageApp>();
 
 /** Every stage filter draws without MSAA (Pixi's default, as the chromatic wobble always has), or,
  *  where the project asks, with the canvas's own. */
-const antialiasFor = (app: Application): 'inherit' | 'off' =>
+const antialiasFor = (app: StageApp): 'inherit' | 'off' =>
 	antialiased.has(app) ? 'inherit' : 'off';
 
 /** After every NORMAL-priority callback (the camera writes the stage's transform there), before
@@ -49,7 +56,7 @@ export const BEFORE_RENDER = UPDATE_PRIORITY.LOW + 1;
 const NONE: readonly Filter[] = Object.freeze([]);
 
 interface Owner {
-	app: Application;
+	app: StageApp;
 	slots: Record<StageFilterSlot, readonly Filter[]>;
 	/** What was on the stage, and anything put there since that is not a slot's: kept in front. */
 	external: readonly Filter[];
@@ -61,7 +68,7 @@ interface Owner {
 	tick: () => void;
 }
 
-const owners = new WeakMap<Application, Owner>();
+const owners = new WeakMap<StageApp, Owner>();
 
 /**
  * How far inside the viewport's edges the area is drawn, in screen pixels. Mapped back through a
@@ -104,7 +111,7 @@ const apply = (owner: Owner, changed: boolean): void => {
 	}
 };
 
-const claim = (app: Application): Owner => {
+const claim = (app: StageApp): Owner => {
 	const stage = app.stage;
 	const owner: Owner = {
 		app,
@@ -147,7 +154,7 @@ const release = (owner: Owner): void => {
  * list and its area are right at once, for the frame being drawn.
  */
 export function setStageFilters(
-	app: Application,
+	app: StageApp,
 	slot: StageFilterSlot,
 	filters: readonly Filter[],
 ): void {
@@ -171,7 +178,7 @@ export function setStageFilters(
 }
 
 /** What `slot` holds on `app`'s stage; every slot's filters, in order, without one. */
-export const stageFilters = (app: Application, slot?: StageFilterSlot): readonly Filter[] => {
+export const stageFilters = (app: StageApp, slot?: StageFilterSlot): readonly Filter[] => {
 	const owner = owners.get(app);
 	if (!owner) return NONE;
 	return slot ? owner.slots[slot] : SLOTS.flatMap((s) => owner.slots[s]);
@@ -182,7 +189,7 @@ export const stageFilters = (app: Application, slot?: StageFilterSlot): readonly
  * filters after the transition's and before the camera's.
  */
 export const stagePostFxSlot =
-	(app: Application): StagePostFxSlot =>
+	(app: StageApp): StagePostFxSlot =>
 	(filters) =>
 		setStageFilters(app, 'post', filters ?? NONE);
 
@@ -192,7 +199,7 @@ export const stagePostFxSlot =
  * project's `settings.stageFxAntialias` (design §16.10); it reaches the filters on the stage now and
  * every one put there after.
  */
-export function setStageFxAntialias(app: Application, on: boolean): void {
+export function setStageFxAntialias(app: StageApp, on: boolean): void {
 	if (on) antialiased.add(app);
 	else antialiased.delete(app);
 	const owner = owners.get(app);

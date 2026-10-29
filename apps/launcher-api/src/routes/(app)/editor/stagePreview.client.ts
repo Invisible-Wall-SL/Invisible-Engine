@@ -11,20 +11,24 @@ import {
 	playScreenTransition,
 	setStageFxAntialias,
 	type ScreenTransitionHandle,
+	type StageApp,
 } from 'pixi-svelte/screenFx';
-import { Application, Sprite, Texture, UPDATE_PRIORITY } from 'pixi.js';
+import { Rectangle, Sprite, Texture, Ticker, UPDATE_PRIORITY } from 'pixi.js';
 import { OVERLAY_ATTR, type StageRect } from './elementFxPreview.client.svelte';
+import { createPixiSurface, sharedPixiRenderer, type PixiSurface } from './sharedGl.client';
 
 /**
  * ▶ ON THE STAGE (Shader Graph 8e, `shader-graph-screens.md` §9.2): a post FX entry or the
  * `transition` cue's row played over the whole stage the editor shows, through the game's own
  * runtime. The stage is 2D canvases and overlays, not one Pixi app, so the preview is a still of
- * every screen shown, in a Pixi `Application` of its own laid over the frame: that app's root is
- * the stage the runtime knows. A post FX plays in stage mode on it (`playElementFx` on the root,
- * its filters in the stage filter owner's post FX slot, held to the stage's refusals and caps); a
- * transition plays through `playScreenTransition`, which freezes the still it shows and then
- * reveals what the stage draws next. A live still is copied from the stage every frame, so what
- * plays on the screens keeps moving under the effect. One app per preview, gone when it ends.
+ * every screen shown on a Pixi surface laid over the frame, drawn through the editor's shared
+ * renderer (`sharedGl.client.ts`, never a context of its own) and driven as a stage app
+ * (`StageApp`): the surface's root, the frame as its viewport, a ticker of its own. A post FX
+ * plays in stage mode on that root (`playElementFx`, its filters in the stage filter owner's post
+ * FX slot, held to the stage's refusals and caps); a transition plays through
+ * `playScreenTransition`, which freezes the still it shows and then reveals what the stage draws
+ * next. A live still is copied from the stage every frame, so what plays on the screens keeps
+ * moving under the effect. One surface per preview, gone when it ends.
  */
 
 /** How long the last frame stays up after the effect has played out. */
@@ -69,40 +73,49 @@ export interface StageTransition extends StageOverlay {
 }
 
 interface OpenStage {
-	app: Application;
-	sprite: Sprite;
-	texture: Texture;
+	app: StageApp;
+	/** Draw the surface now. */
+	render: () => void;
 	/** Upload the still again after it was drawn over in place. */
 	redrawn: () => void;
+	close: () => void;
 }
 
-/** A Pixi app over `rect` showing `still`, its ticker started; null when WebGL will not come up. */
+/** A stage app over `host` showing `still`, its ticker drawing the surface; null when the shared
+ *  renderer will not come up. */
 async function openStage(options: StageOverlay, host: HTMLElement): Promise<OpenStage | null> {
 	const { rect, still } = options;
-	const app = new Application();
-	try {
-		await app.init({
-			width: rect.w,
-			height: rect.h,
-			resolution: window.devicePixelRatio || 1,
-			autoDensity: true,
-			backgroundAlpha: 0,
-			preference: 'webgl',
-			antialias: options.antialias,
-			autoStart: false,
-			sharedTicker: false,
-		});
-	} catch {
+	const surface: PixiSurface = createPixiSurface(host, window.devicePixelRatio || 1);
+	const renderer = (await surface.ready) ? sharedPixiRenderer() : null;
+	if (!renderer) {
+		surface.destroy();
 		return null;
 	}
-	app.canvas.style.cssText = `position:absolute;left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px;pointer-events:none`;
-	host.appendChild(app.canvas);
 	const texture = Texture.from(still, true);
 	const sprite = new Sprite(texture);
 	sprite.setSize(rect.w, rect.h);
-	app.stage.addChild(sprite);
+	surface.stage.addChild(sprite);
+	const ticker = new Ticker();
+	const app: StageApp = {
+		stage: surface.stage,
+		screen: new Rectangle(0, 0, rect.w, rect.h),
+		ticker,
+		renderer,
+	};
 	setStageFxAntialias(app, options.antialias);
-	return { app, sprite, texture, redrawn: () => texture.source.update() };
+	// After the stage's own pre-render work (the filter owner's, a transition's capture).
+	ticker.add(() => surface.render(), undefined, UPDATE_PRIORITY.LOW);
+	return {
+		app,
+		render: () => surface.render(),
+		redrawn: () => texture.source.update(),
+		close: () => {
+			disposeScreenTransitions(app);
+			ticker.destroy();
+			surface.destroy();
+			texture.destroy(true);
+		},
+	};
 }
 
 /**
@@ -113,9 +126,10 @@ function runOnStage(
 	options: StageOverlay,
 	play: (stage: OpenStage) => { done: Promise<void>; stop: () => void; looping: number } | null,
 ): () => void {
+	const { rect } = options;
 	const host = document.createElement('div');
 	host.setAttribute(OVERLAY_ATTR, '');
-	host.style.cssText = `position:absolute;inset:0;pointer-events:none;z-index:${options.zIndex}`;
+	host.style.cssText = `position:absolute;left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px;pointer-events:none;z-index:${options.zIndex}`;
 	options.mount.appendChild(host);
 	let opened: OpenStage | null = null;
 	let effect: { stop: () => void } | null = null;
@@ -127,10 +141,7 @@ function runOnStage(
 		over = true;
 		clearTimeout(timer);
 		effect?.stop();
-		if (opened) {
-			disposeScreenTransitions(opened.app);
-			opened.app.destroy(true, { children: true, texture: true });
-		}
+		opened?.close();
 		host.remove();
 	};
 	// Deferred: it can be asked from inside a tick, and the app must not be destroyed mid-update.
@@ -145,13 +156,13 @@ function runOnStage(
 
 	void openStage(options, host).then((stage) => {
 		if (over) {
-			stage?.app.destroy(true, { children: true, texture: true });
+			stage?.close();
 			return;
 		}
 		if (!stage) return end();
 		opened = stage;
-		const { app, redrawn } = stage;
-		// Ahead of the effect's own step and of the stage filter owner's: the still as the stage is now.
+		const { app, render, redrawn } = stage;
+		// Before the effect's step and the stage filter owner's: the still as the stage is now.
 		app.ticker.add(
 			() => {
 				if (over) return;
@@ -178,9 +189,9 @@ function runOnStage(
 			undefined,
 			UPDATE_PRIORITY.LOW,
 		);
-		app.render();
+		render();
 		options.onShown();
-		app.start();
+		app.ticker.start();
 	});
 	return stop;
 }

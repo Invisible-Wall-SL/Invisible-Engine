@@ -21,8 +21,8 @@ import {
 	findElementFxSpec,
 	type ElementFxKindId,
 } from 'constants-shared/elementFx';
-import { Rectangle, type Application, type Container, type Filter } from 'pixi.js';
-import { stagePostFxSlot, type StagePostFxSlot } from '../screenFx/stageFilters';
+import { Rectangle, type Container, type Filter } from 'pixi.js';
+import { stagePostFxSlot, type StageApp, type StagePostFxSlot } from '../screenFx/stageFilters';
 import { kindImpl, passesOf } from './custom';
 
 export type { StagePostFxSlot };
@@ -49,7 +49,7 @@ export function bindStagePostFxSlot(stage: Container, slot: StagePostFxSlot): ()
  * while this bind is still the stage's, so a game torn down before its post FX stop leaves no filter
  * on the stage and a newer bind keeps its own.
  */
-export function bindStagePostFx(app: Application): () => void {
+export function bindStagePostFx(app: StageApp): () => void {
 	const slot = stagePostFxSlot(app);
 	const unbind = bindStagePostFxSlot(app.stage, slot);
 	return () => {

@@ -12,14 +12,15 @@
  *     cost × the reference phone's pixels against the post FX budget); the trigger offers Always and
  *     On cue only; put the graph on a cue with a stop cue; Add is off at two entries;
  *  2b. the transition cue row: the wipe by default; the built-in exits, then the project's effects;
- *     set Dissolve out, 900 ms, strength 1.5: its status and its load against the transition budget;
+ *     set Dissolve out, 900 ms, strength 1.5: its status and its load against the transition
+ *     budget;
  *  3. flip "Anti-aliasing under stage effects", with its memory note;
  *  4. save: the doc sent carries all three, sparsely;
  *  5. reopen on that doc as the server stores it (the real `normalizeDoc`): the block reads back
  *     identical (the cue row, rows, triggers, cues, load lines, the greyed kinds, the switch), and
  *     saving it again sends the same settings.
- * Screenshots of the block before the save and after the reopen, and of the stage at rest, under the
- * post FX and midway through the transition, are kept with `--keep <dir>`.
+ * Screenshots of the block before the save and after the reopen, and of the stage at rest, under
+ * the post FX and midway through the transition, are kept with `--keep <dir>`.
  *
  *   pnpm --filter fx-spike screen-fx-editor [--keep <dir>]
  */
@@ -164,14 +165,20 @@ try {
 		});
 		return data;
 	};
-	/** The ▶ overlay on the stage now: there, a WebGL canvas, and how many surfaces it hid. */
+	/** The ▶ overlay on the stage now: there, drawn (a 2D copy of the shared renderer's frame, not
+	 *  a context of its own), and how many surfaces it hid. */
 	const stageOverlayState = `(() => {
 		const stage = document.querySelector('canvas.hud-layer').parentElement;
 		const overlay = stage.querySelector('[data-element-fx-overlay] canvas');
-		const webgl = !!overlay && !overlay.getContext('2d');
+		const ctx = overlay?.getContext('2d');
+		let drawn = false;
+		if (ctx && overlay.width && overlay.height) {
+			const { data } = ctx.getImageData(0, 0, overlay.width, overlay.height);
+			for (let i = 3; i < data.length && !drawn; i += 4 * 97) drawn = data[i] > 0;
+		}
 		return {
 			overlay: !!overlay,
-			webgl,
+			drawn,
 			hiddenSurfaces: [...stage.querySelectorAll('canvas')].filter((c) => c.style.visibility === 'hidden').length,
 		};
 	})()`;
@@ -302,8 +309,8 @@ try {
 	writeFileSync(join(dir, 'stage-resting.png'), Buffer.from(restingStage, 'base64'));
 	writeFileSync(join(dir, 'stage-post-fx.png'), Buffer.from(glowing, 'base64'));
 	check(
-		'Glow plays on a Pixi stage laid over the frame, the surfaces it stands in for hidden',
-		playing.overlay && playing.hiddenSurfaces > 0 && playing.webgl,
+		'Glow plays on a Pixi surface laid over the frame (the shared renderer), the surfaces it stands in for hidden',
+		playing.overlay && playing.drawn && playing.hiddenSurfaces > 0,
 		JSON.stringify(playing),
 	);
 	check(
@@ -392,7 +399,7 @@ try {
 	writeFileSync(join(dir, 'stage-transition.png'), Buffer.from(midShot, 'base64'));
 	check(
 		'the stage freezes and the screen it plays into comes in under the transition',
-		!introShownBefore && introShownDuring && midway.overlay && midway.webgl,
+		!introShownBefore && introShownDuring && midway.overlay && midway.drawn,
 		JSON.stringify({ introShownBefore, introShownDuring, midway }),
 	);
 	check('the stage looks different while it plays', midShot !== restingStage);
