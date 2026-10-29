@@ -23,7 +23,7 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
-runtime) is merged (#1454); 8e.3 (post FX on the stage) is in review; 8e.4–8e.8 are in progress.
+runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4–8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -288,11 +288,11 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is in review; 8e.4–8e.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1 and 8e.2 are merged; 8e.3 is in review; 8e.4–8e.8 are
+    8e.1–8e.8, one PR each (its §15). 8e.1, 8e.2 and 8e.3 are merged; 8e.4–8e.8 are
     in progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
     8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
     and `postFx` through the layout reader, which today drops them).
-    - **8e.3, post FX on the stage.** In review (2026-10-28). A game plays `settings.postFx`.
+    - **8e.3, post FX on the stage.** Merged (#1459, 2026-10-29). A game plays `settings.postFx`.
       - **Stage mode** (`pixi-svelte` `elementFx/stage.ts`). An Element FX entry on the `stage`
         target (`ELEMENT_FX_STAGE_TARGET`, a children-less `Anchor` in `Game.svelte`) fills the
         owner's post FX slot through `bindStagePostFx(app)` instead of the element's filters: no
@@ -776,7 +776,8 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is in review; 8e.4–8e.
   the §10 caps (Open items #1).
 
 ## Recent changes
-- 2026-10-28 — **Step 8e.3: post FX on the stage** (see "Current state"). In review.
+- 2026-10-28 — **Step 8e.3: post FX on the stage** (see "Current state"). Merged
+  (#1459): CI green; Current games 8 pass, 0 fail, 0 changed screens.
   - **Proof.** `check:element-fx` 276 (stage mode: no motion, no measure, filters and area restored
     exactly, the refused kinds, the caps at start, `uPad` over the whole list, a stale unbind);
     fx-spike `screen-fx` 172 claims on WebGL1 and WebGL2 (an Output-alone post FX matches none; the
