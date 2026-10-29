@@ -105,7 +105,10 @@
 	import { screenFxSettings } from '$lib/screenFx';
 	import EditorWorldCamera from './EditorWorldCamera.svelte';
 	import { setSceneWorldOn } from '$lib/editor/worldCameraEdit';
-	import { playElementFxPreview } from './elementFxPreview.client.svelte';
+	import {
+		playElementFxPreview,
+		playScreenTransitionPreview,
+	} from './elementFxPreview.client.svelte';
 	import type { ElementFxEntry } from 'constants-shared/elementFx';
 	import type { ScreenTransitionSpec } from 'constants-shared/screenTransition';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
@@ -1275,14 +1278,22 @@
 		animateVisited = true;
 	}
 
+	/** The screen the transition cue's ▶ plays into (Game Settings → Screen FX). */
+	let transitionPreviewScene = $state<string | null>(null);
 	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off — and, while
 	 *  the Outline isolates a node, every other screen. */
-	const canvasHiddenScenes = $derived(
+	const screensOffStage = $derived(
 		isolating
 			? new Set(scenes.filter((s) => s.id !== activeScene?.id).map((s) => s.id))
 			: offInGameView.size === 0
 				? hiddenScenes
 				: new Set([...hiddenScenes, ...offInGameView]),
+	);
+	/** …less the screen the transition cue's ▶ is playing into, shown for that play. */
+	const canvasHiddenScenes = $derived(
+		transitionPreviewScene && screensOffStage.has(transitionPreviewScene)
+			? new Set([...screensOffStage].filter((id) => id !== transitionPreviewScene))
+			: screensOffStage,
 	);
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
@@ -4473,6 +4484,19 @@
 										onGameSettingChange();
 									}}
 									flowFiresTransition={data.flowFiresTransition}
+									previewTransition={(spec, into) =>
+										playScreenTransitionPreview({
+											spec,
+											antialias: stageFxAntialias,
+											reveal: into
+												? (on) => (transitionPreviewScene = on ? into : null)
+												: undefined,
+										})}
+									offStageScreens={scenes
+										.filter((s) => screensOffStage.has(s.id))
+										.map((s) => ({ id: s.id, name: s.name || s.id }))}
+									previewPostFx={(entry) =>
+										playElementFxPreview({ kind: 'stage', antialias: stageFxAntialias }, entry)}
 									{postFx}
 									onPostFxChange={(next) => {
 										postFx = next;

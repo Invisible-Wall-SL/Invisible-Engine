@@ -50,6 +50,13 @@
 		onAntialiasChange: (on: boolean) => void;
 		/** The `<datalist>` the cue fields suggest from. */
 		cueListId?: string;
+		/** ▶ on a post FX row: play it over the whole stage; false when no stage is showing. */
+		previewPostFx?: (entry: ElementFxEntry) => boolean;
+		/** ▶ on the cue row: play it over the whole stage, into screen `into` (shown for the play)
+		 *  or into the stage as it is; false when no stage is showing. */
+		previewTransition?: (cue: ScreenTransitionSpec, into: string | undefined) => boolean;
+		/** The project's screens the cue row's ▶ can play into: those the stage does not show now. */
+		offStageScreens?: readonly { id: string; name: string }[];
 	}
 
 	const {
@@ -61,7 +68,22 @@
 		antialias,
 		onAntialiasChange,
 		cueListId,
+		previewPostFx,
+		previewTransition,
+		offStageScreens = [],
 	}: Props = $props();
+
+	/** The screen the cue row's ▶ plays into ('' ⇒ the stage as it is). */
+	let previewInto = $state('');
+	/** The cue row's ▶ found no stage to play on. */
+	let cueMissed = $state(false);
+	function playCue(): void {
+		if (!transitionCue || !previewTransition) return;
+		const into = offStageScreens.some((screen) => screen.id === previewInto)
+			? previewInto
+			: undefined;
+		cueMissed = !previewTransition(transitionCue, into);
+	}
 
 	/** The pickers' groups, once the page has registered the project's effects. */
 	const kindGroups = $derived.by(() => {
@@ -177,6 +199,31 @@
 					</label>
 				</div>
 			{/if}
+			{#if transitionCue && previewTransition}
+				<div class="sfx-pair sfx-play">
+					<label class="sfx-field">
+						<span>Preview into</span>
+						<select bind:value={previewInto}>
+							<option value="">The screens shown now</option>
+							{#each offStageScreens as screen (screen.id)}
+								<option value={screen.id}>{screen.name}</option>
+							{/each}
+						</select>
+					</label>
+					<button
+						type="button"
+						class="sfx-icon play"
+						title="Preview on the stage: the stage as shown freezes and the transition plays into the screen picked here (Esc stops it)"
+						aria-label="Preview"
+						onclick={playCue}>▶</button
+					>
+				</div>
+				{#if cueMissed}
+					<p class="sfx-line warn">
+						Nothing on the stage to play it on: open the Screens side first.
+					</p>
+				{/if}
+			{/if}
 			<p class="sfx-line" class:warn={cueLine.warn} data-status={cueLine.status}>{cueLine.text}</p>
 			{#if transitionCue && cueLine.status === 'screen'}
 				{@const load = transitionLoad(transitionCue.kind)}
@@ -200,6 +247,8 @@
 				{kindRefusal}
 				maxEntries={STAGE_FX_LIMITS.entries}
 				rowNote={postFxNote}
+				preview={previewPostFx}
+				missedText="Nothing on the stage to play it on: open the Screens side first."
 				intro="A grade, a vignette, a wave or a shine over the whole game, HUD included, always or on a cue."
 			/>
 			<p class="sfx-note">
@@ -285,6 +334,25 @@
 	.sfx-pair {
 		display: flex;
 		gap: 6px;
+	}
+	.sfx-play {
+		align-items: flex-end;
+	}
+	.sfx-icon {
+		flex: 0 0 auto;
+		background: transparent;
+		border: 1px solid #2a2a33;
+		color: #7ee0c0;
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		border-radius: 6px;
+		font-size: 11px;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.sfx-icon:hover {
+		border-color: #6b5bff;
 	}
 	.sfx-toggle {
 		display: flex;

@@ -241,7 +241,7 @@ export function screenTransitionKindGroups(): ScreenTransitionKindGroup[] {
 
 /** A transition kind's name in a picker: its catalog label, or the stored id when it is unknown. */
 export const screenTransitionKindLabel = (kind: string): string =>
-	findElementFxSpec(kind)?.label ?? kind;
+	(isPlayableElementFxKind(kind) ? findElementFxSpec(kind)?.label : undefined) ?? kind;
 
 /**
  * The `transition` cue's row as the game reads it (`readTransitionCue`), with what it says:

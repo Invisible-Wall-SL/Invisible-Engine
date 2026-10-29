@@ -18,7 +18,8 @@
  *  5. reopen on that doc as the server stores it (the real `normalizeDoc`): the block reads back
  *     identical (the cue row, rows, triggers, cues, load lines, the greyed kinds, the switch), and
  *     saving it again sends the same settings.
- * Screenshots of the block before the save and after the reopen are kept with `--keep <dir>`.
+ * Screenshots of the block before the save and after the reopen, and of the stage at rest, under the
+ * post FX and midway through the transition, are kept with `--keep <dir>`.
  *
  *   pnpm --filter fx-spike screen-fx-editor [--keep <dir>]
  */
@@ -122,10 +123,15 @@ try {
 		title: 'screen fx editor',
 	});
 	console.log(`editor page built (${((Date.now() - began) / 1000).toFixed(1)} s)`);
-	browser = await launchChrome({ name: 'screen-fx-editor', args: ['--window-size=1600,1000'] });
+	browser = await launchChrome({
+		name: 'screen-fx-editor',
+		args: ['--window-size=1600,1000'],
+		logAll: true,
+	});
 	const ev = (expr) => browser.evaluate(expr);
 	const open = async (doc) => {
-		await browser.send('Page.navigate', { url: pathToFileURL(html).href });
+		// `?fxdebug=1`: the game's runtime says what it plays on the stage (▶ below).
+		await browser.send('Page.navigate', { url: `${pathToFileURL(html).href}?fxdebug=1` });
 		await browser.waitFor('document.readyState === "complete"');
 		await ev(
 			doc
@@ -146,6 +152,29 @@ try {
 		})()`);
 		await sleep(200);
 	};
+	/** The stage, as a PNG: what the author sees of it. */
+	const stageShot = async () => {
+		const clip = await ev(`(() => {
+			const r = document.querySelector('canvas.hud-layer').parentElement.getBoundingClientRect();
+			return { x: r.x, y: r.y, width: r.width, height: r.height };
+		})()`);
+		const { data } = await browser.send('Page.captureScreenshot', {
+			format: 'png',
+			clip: { ...clip, scale: 1 },
+		});
+		return data;
+	};
+	/** The ▶ overlay on the stage now: there, a WebGL canvas, and how many surfaces it hid. */
+	const stageOverlayState = `(() => {
+		const stage = document.querySelector('canvas.hud-layer').parentElement;
+		const overlay = stage.querySelector('[data-element-fx-overlay] canvas');
+		const webgl = !!overlay && !overlay.getContext('2d');
+		return {
+			overlay: !!overlay,
+			webgl,
+			hiddenSurfaces: [...stage.querySelectorAll('canvas')].filter((c) => c.style.visibility === 'hidden').length,
+		};
+	})()`;
 	const shot = async (name) => {
 		// The sidebar from the block's top down, as the author sees it scrolled to it.
 		const rect = await ev(`(() => {
@@ -224,10 +253,6 @@ try {
 		state.addDisabled && state.full,
 		JSON.stringify([state.addDisabled, state.full]),
 	);
-	check(
-		'no ▶ yet (phase B)',
-		state.rows.every((r) => !r.play),
-	);
 	const triggerOptions = await ev(
 		`[...sfx.field(sfx.rows()[1], 'Trigger').options].map((o) => o.textContent.trim())`,
 	);
@@ -259,6 +284,46 @@ try {
 	await sleep(100);
 	state = await ev('sfx.state()');
 	check('the graph plays on its cue', state.rows[1].when === 'on cue gradeOn', state.rows[1].when);
+
+	console.log('2a. ▶ plays a post FX over the whole stage, through the game’s runtime');
+	check(
+		'each post FX row has its ▶',
+		state.rows.length === 2 && state.rows.every((r) => r.play),
+		JSON.stringify(state.rows.map((r) => r.play)),
+	);
+	const restingStage = await stageShot();
+	await ev(`sfx.rows()[0].querySelector('.icon.play').click(), true`);
+	await browser
+		.waitFor(`!!document.querySelector('[data-element-fx-overlay] canvas')`, 10_000)
+		.catch(() => {});
+	await sleep(500);
+	const playing = await ev(stageOverlayState);
+	const glowing = await stageShot();
+	writeFileSync(join(dir, 'stage-resting.png'), Buffer.from(restingStage, 'base64'));
+	writeFileSync(join(dir, 'stage-post-fx.png'), Buffer.from(glowing, 'base64'));
+	check(
+		'Glow plays on a Pixi stage laid over the frame, the surfaces it stands in for hidden',
+		playing.overlay && playing.hiddenSurfaces > 0 && playing.webgl,
+		JSON.stringify(playing),
+	);
+	check(
+		'…in the runtime’s stage mode, as a post FX in its slot',
+		browser.pageLog.some((l) =>
+			l.includes('[fxdebug] post fx glow on the stage: on (1/2 entries, 1/4 filters)'),
+		),
+		browser.pageLog.filter((l) => l.includes('fxdebug')).join(' | '),
+	);
+	check('the stage looks different while it plays', glowing !== restingStage);
+	await ev(
+		`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), true`,
+	);
+	await sleep(300);
+	const stopped = await ev(stageOverlayState);
+	check(
+		'Escape ends it: the overlay gone, every surface shown again, the stage as it was',
+		!stopped.overlay && stopped.hiddenSurfaces === 0 && (await stageShot()) === restingStage,
+		JSON.stringify(stopped),
+	);
 
 	console.log('2b. the transition cue row');
 	const cueOptions = await ev(`(() => {
@@ -300,6 +365,49 @@ try {
 			cue.lines[1]?.text ===
 				'Load 1.32 M px × cost 80 = 105.33 M of 263.33 M (the transition budget, cost 200; 1 reads a pixel of 8).',
 		JSON.stringify(cue),
+	);
+
+	console.log('2c. ▶ plays the cue row on the stage, into a screen not shown');
+	const into = await ev(`(() => {
+		const s = sfx.cueField('Preview into');
+		return { options: [...s.options].map((o) => [o.value, o.textContent.trim()]) };
+	})()`);
+	const intro = into.options.find(([, name]) => name === 'Free-spin intro');
+	check(
+		'it plays into the screens shown now, or a screen the stage does not show',
+		into.options[0]?.[1] === 'The screens shown now' && !!intro,
+		JSON.stringify(into.options),
+	);
+	const shownGroup = (id) => ev(`!!document.querySelector('.scene-group[data-scene-id="${id}"]')`);
+	const introShownBefore = await shownGroup(intro?.[0]);
+	await ev(`sfx.pick(sfx.cueField('Preview into'), ${JSON.stringify(intro?.[0] ?? '')}), true`);
+	await ev(`sfx.cueRow().querySelector('.sfx-icon.play').click(), true`);
+	await browser
+		.waitFor(`!!document.querySelector('[data-element-fx-overlay] canvas')`, 10_000)
+		.catch(() => {});
+	await sleep(450);
+	const midway = await ev(stageOverlayState);
+	const introShownDuring = await shownGroup(intro?.[0]);
+	const midShot = await stageShot();
+	writeFileSync(join(dir, 'stage-transition.png'), Buffer.from(midShot, 'base64'));
+	check(
+		'the stage freezes and the screen it plays into comes in under the transition',
+		!introShownBefore && introShownDuring && midway.overlay && midway.webgl,
+		JSON.stringify({ introShownBefore, introShownDuring, midway }),
+	);
+	check('the stage looks different while it plays', midShot !== restingStage);
+	await browser
+		.waitFor(`!document.querySelector('[data-element-fx-overlay]')`, 10_000)
+		.catch(() => {});
+	await sleep(300);
+	const ended = await ev(stageOverlayState);
+	check(
+		'played out, the screen goes back and the stage is as it was',
+		!ended.overlay &&
+			ended.hiddenSurfaces === 0 &&
+			!(await shownGroup(intro?.[0])) &&
+			(await stageShot()) === restingStage,
+		JSON.stringify(ended),
 	);
 
 	console.log('3. the anti-aliasing switch');

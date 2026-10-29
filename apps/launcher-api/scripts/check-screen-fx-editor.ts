@@ -599,15 +599,15 @@ eq(
 		[true, true],
 	);
 	eq(
-		'the block holds the list to the stage: its triggers, no keying, the caps, the kind filter, no ▶ yet',
+		'the block holds the list to the stage: its triggers, no keying, the caps, the kind filter, its ▶',
 		[
 			block.includes('triggers={STAGE_FX_TRIGGERS}'),
 			block.includes('keyable={false}'),
 			block.includes('maxEntries={STAGE_FX_LIMITS.entries}'),
 			block.includes('{kindRefusal}'),
-			/<EditorElementFx[^>]*\bpreview=/.test(block),
+			block.includes('preview={previewPostFx}'),
 		],
-		[true, true, true, true, false],
+		[true, true, true, true, true],
 	);
 	eq(
 		'the cue row: first in the block, the wipe by default, set through the game’s reader, told whether the flow fires transition',
@@ -624,6 +624,35 @@ eq(
 			),
 		],
 		[true, true, true, true, true, true],
+	);
+	const canvas = src('../src/routes/(app)/editor/EditorCanvas.svelte');
+	const stage = src('../src/routes/(app)/editor/stagePreview.client.ts');
+	eq(
+		'▶ on the stage goes through the game’s runtime: post FX in stage mode on an app’s root, the cue row through playScreenTransition, the project’s anti-aliasing passed on',
+		[
+			page.includes("playElementFxPreview({ kind: 'stage', antialias: stageFxAntialias }, entry)"),
+			page.includes('playScreenTransitionPreview({'),
+			canvas.includes("if (target.kind === 'stage') {") &&
+				canvas.includes('playPostFxOnStage({ ...overlay, entry })'),
+			canvas.includes('addScreenTransitionPreviewHandler(previewScreenTransition)'),
+			stage.includes('const unbind = bindStagePostFx(app);') &&
+				/playElementFx\(\s*app\.stage,/.test(stage),
+			/playScreenTransition\(\s*app,/.test(stage),
+			stage.includes('setStageFxAntialias(app, options.antialias);'),
+		],
+		[true, true, true, true, true, true, true],
+	);
+	eq(
+		'the cue row’s ▶ plays into a screen the stage does not show, shown for that play only',
+		[
+			/offStageScreens=\{scenes\s*\.filter\(\(s\) => screensOffStage\.has\(s\.id\)\)/.test(page),
+			page.includes('reveal: into') &&
+				page.includes('(on) => (transitionPreviewScene = on ? into : null)'),
+			/const canvasHiddenScenes = \$derived\(\s*transitionPreviewScene && screensOffStage\.has\(transitionPreviewScene\)/.test(
+				page,
+			),
+		],
+		[true, true, true],
 	);
 	eq(
 		'the list greys a refused kind with its reason, and refuses it on add and on change',
