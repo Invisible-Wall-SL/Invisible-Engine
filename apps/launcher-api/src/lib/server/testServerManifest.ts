@@ -386,6 +386,13 @@ export interface TestServerGameEntry {
 			retrigger: FreeSpinsAward[];
 			random: boolean;
 		};
+		/** The trigger symbol's places on each base and free-spin reel strip, sent only for a trigger
+		 *  below 3 (whose rate `/config` measured on those strips): the lines mock deals the trigger
+		 *  from a random stop of each strip instead of its flat scatter rate. Absent ⇒ the flat rate,
+		 *  exactly as before. See game-config's `freeSpinsTriggerStrips`. */
+		freeSpinsTriggerStrips?: Partial<
+			Record<'basegame' | 'freegame', { length: number; at: number[] }[]>
+		>;
 		/** The Book-of expanding special (lines mock, a `lines` win model only): every symbol it may be
 		 *  drawn as when free spins start, in SERVER names, with its draw weight and the fewest reels
 		 *  it must cover to expand and pay. Absent ⇒ no special. See `projectExpandingSymbol`. */

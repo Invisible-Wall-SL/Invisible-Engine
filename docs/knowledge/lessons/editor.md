@@ -196,12 +196,13 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 
 ### The info bar's symbol size did nothing in game
 
-- **Symptom:** `toast.symbolImageSize` at 130% drew the same symbol as 100%.
-- **Cause:** `InlineImageText` capped the sized height at the box, and a real bar's plaque is
-  shallower than its font, so the 100% symbol already filled it.
-- **Fix:** cap the 100% height, then scale: `min(textHeight, contentHeight) × scale`. Test a size
-  option where the real bar's limits already bind, not only on a free-standing row.
-- **Guard:** `test-inline-image-box.mjs` §7 "130% in a fitted plaque".
+- **Symptom:** `toast.symbolImageSize` at 130%, then 230%, drew a symbol smaller than the words.
+- **Cause:** `InlineImageText` measured the symbol against the text box, and the owner's bar has a
+  32 px box under 75 px words. Capping after the size (first fix) or before it (second) both
+  measured from the box.
+- **Fix:** size from the words alone: `textHeight × scale`. Test with a real project's numbers
+  (read its runtime data), not a box you made up, and see the render before calling it fixed.
+- **Guard:** `test-inline-image-box.mjs` §7 "a box shallower than the words".
 - **PR:** not recorded (2026-10-28) · source: `docs/status/win-text.md`
 
 ### Every game app's build broke while dev stayed green

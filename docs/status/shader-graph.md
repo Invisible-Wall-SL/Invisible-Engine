@@ -23,7 +23,7 @@ merged (#1407); 8d.7 (`/shaders`: Made for particles and the Particles preview) 
 check sets its caps. 8e (screen transitions and post FX) is decided
 ([design](../design/shader-graph-screens.md)) and being built as 8e.1–8e.8; 8e.1 (the screen
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
-runtime) is merged (#1454); 8e.3–8e.8 are in progress.
+runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4–8e.8 are in progress.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -288,10 +288,29 @@ runtime) is merged (#1454); 8e.3–8e.8 are in progress.
   - **8e, screen transitions and post FX.** Decided 2026-10-28
     ([shader-graph-screens.md](../design/shader-graph-screens.md) §16: every recommendation, except
     that anti-aliasing under a stage effect is a project setting, off by default). Built as
-    8e.1–8e.8, one PR each (its §15). 8e.1 and 8e.2 are merged; 8e.3–8e.8 are in
-    progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
+    8e.1–8e.8, one PR each (its §15). 8e.1, 8e.2 and 8e.3 are merged; 8e.4–8e.8 are
+    in progress (each built in phases on its own branch, merging in the order 8e.3, 8e.4, 8e.6, 8e.5,
     8e.7, 8e.8: 8e.5 proves the ship chain end to end only once 8e.4 and 8e.6 put `transitionCue`
     and `postFx` through the layout reader, which today drops them).
+    - **8e.3, post FX on the stage.** Merged (#1459, 2026-10-29). A game plays `settings.postFx`.
+      - **Stage mode** (`pixi-svelte` `elementFx/stage.ts`). An Element FX entry on the `stage`
+        target (`ELEMENT_FX_STAGE_TARGET`, a children-less `Anchor` in `Game.svelte`) fills the
+        owner's post FX slot through `bindStagePostFx(app)` instead of the element's filters: no
+        motion is folded, nothing is measured, and the stage's filters and area come back exactly.
+        Exit, enter, motion-only and break kinds are refused with the reason
+        (`stageFxRefusal`); a stage pass pads by `STAGE_FX_EDGE_PAD` (1 px), and a graph's `uPad`
+        counts the whole stage list, foreign filters included.
+      - **The doc** (`GameSettings.postFx`, `stageFxAntialias`). `readPostFx` (`engine-layout`
+        `postFx.ts`) keeps triggers `always` and `cue`, drops an unregistered custom kind (the game
+        registers its effects first), a refused kind, and anything past `STAGE_FX_LIMITS` (2
+        entries, 4 filters), each with a warning. The runtime checks the same caps as an entry
+        starts (a Flow's entries on `stage` count too). `readStageFxAntialias` drives
+        `setStageFxAntialias` (§16.10, off by default).
+      - **`?fxdebug=1`** logs each post FX as it starts, is refused and ends. The load line waits
+        for 8e.7 (`cost` is absent until then).
+      - **Left:** the layout reader (`normalizeGameSettings`) still drops `postFx` (8e.6 puts it
+        through); reserving the `stage` and `reels` ids in the editor is 8e.6's; the `fxdebug` cost
+        baseline is 8e.7's.
     - **8e.2, the stage filter owner and the transition runtime.** Merged (#1454, 2026-10-28).
       Nothing calls it in a game yet (8e.4).
       - **The owner** (`pixi-svelte/screenFx` `stageFilters.ts`). One owner for `app.stage.filters`
@@ -757,6 +776,19 @@ runtime) is merged (#1454); 8e.3–8e.8 are in progress.
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-10-28 — **Step 8e.3: post FX on the stage** (see "Current state"). Merged
+  (#1459): CI green; Current games 8 pass, 0 fail, 0 changed screens.
+  - **Proof.** `check:element-fx` 276 (stage mode: no motion, no measure, filters and area restored
+    exactly, the refused kinds, the caps at start, `uPad` over the whole list, a stale unbind);
+    fx-spike `screen-fx` 172 claims on WebGL1 and WebGL2 (an Output-alone post FX matches none; the
+    MSAA difference with the setting off is 1.05 % of channel values on WebGL2, 0 with it on; the
+    setting reaches every stage filter; the slot order with a transition and the chroma wobble);
+    `scripts/playtest/post-fx-play.mjs` plays a doc's post FX in a fresh `apps/lines` build
+    headless; svelte-check at baseline (pixi-svelte 14, lines 156, engine-layout 290);
+    `check:all` 599/599.
+  - **Review.** Fixed, each mutation-checked: `uPad` counted only the post FX, not the whole stage
+    list; an unregistered custom kind was kept; an older bind's unbind emptied a newer bind's slot;
+    three unused exports.
 - 2026-10-28 — **Step 8e.2: the stage filter owner and the transition runtime** (see "Current
   state"). Merged (#1454): CI green; Current games 8 pass, 0 fail, 0 changed screens. After review
   it also gained a pad uniform in the screen shell (`uScreenPad`), so a padded post FX no longer

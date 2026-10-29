@@ -519,7 +519,10 @@ taken id is refused beside the button.
 
 To replace the whole config with one of these games, pick it in the banner's preset menu and press
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
-_Free spins_). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
+_Free spins_, and **Fairy Clover** — 5×4, fifty lines, the fairy `W` (an expanding wild) and the
+clover `CL` (a growing wild),
+free spins on two `S`, from Slotmotion's _Fairy's Charm_; its RTP is a placeholder until the maths
+is tuned). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
 (Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
 then **Coin board only (no line game)** (the template with _Base game: Coin board only_, see
 _Coin board_), then the three games above. A new Hold and Win project already has its own config: Game Maker
@@ -885,9 +888,11 @@ whether the game has the free-spins feature at all, and what lands it.
   that is not on the strips is listed with _(not on the strips)_ and is an error:
   it is never dealt, so free spins could never trigger.
 - **How many** (only while on) — the fewest trigger symbols, **anywhere on the
-  board**, that award the feature. Default **3**, and **3 is the least** allowed:
-  free spins retrigger on the same rule, and at one or two a retrigger would come so
-  often that the feature never ended. More than the board has cells is an error too.
+  board**, that award the feature. Default **3**. Free spins retrigger on the same
+  rule, so **1 or 2** is allowed only when the game has **freegame** reel strips and,
+  measured exactly on them, a retrigger adds under **0.5** spins per free spin played
+  (the error names the measured figure); with no freegame strips 3 is the least. More
+  than the board has cells is an error too.
 - **Random amount** (only while on) — _off — each row awards a fixed number_ (the
   default) or _on — a random number between two values_. It applies to both tables
   below.

@@ -874,7 +874,8 @@ export const carrySession = (session, { keepBetShape }) => ({
  *   betModes?: { mode: string, cost: number, kind: 'base' | 'ante' | 'buy' }[],
  *   cascade?: boolean, cascadeDemo?: boolean, quiet?: boolean, forceTrigger?: boolean,
  *   freeSpins?: false, freeSpinsTrigger?: { symbol: string, count: number },
- *   freeSpinsAwards?: { awards: object[], retrigger: object[], random: boolean } }} [opts]
+ *   freeSpinsAwards?: { awards: object[], retrigger: object[], random: boolean },
+ *   freeSpinsTriggerStrips?: { basegame?: object[], freegame?: object[] } }} [opts]
  *   `freeSpins: false` (the project's Game Config turned free spins off) means the feature never
  *   opens: no base spin, forced trigger or bought round enters it, a bought option is refused at
  *   `bet`, and scatters still land and pay their scatter pay. `freeSpinsTrigger` is the project's
@@ -1149,6 +1150,16 @@ export function createMockRgs(opts = {}) {
 		Number.isInteger(authoredTrigger?.count) && authoredTrigger.count >= 1
 			? authoredTrigger.count
 			: FS_TRIGGER_MIN;
+	/** Where the trigger sits on each base / free-spin strip, by game type — only for an authored
+	 *  trigger below 3 with one `{ length, at }` per reel (`spinTriggerStrips`). */
+	const triggerStrips =
+		authoredTrigger && triggerMin < 3 && opts.freeSpinsTriggerStrips
+			? Object.fromEntries(
+					Object.entries(opts.freeSpinsTriggerStrips).filter(
+						([, stops]) => Array.isArray(stops) && stops.length === reelCount,
+					),
+				)
+			: undefined;
 	/** The `trigger` every bonus snapshot carries: the minimum, and the symbol it counts. */
 	const snapshotTrigger = { occurs: [triggerMin], of: triggerSymbol, mode: 'scatter', from: '' };
 	/** The `trigger` a `spinTrigger` carries. The partner's 3-scatter feature lists the three counts
@@ -1652,10 +1663,36 @@ export function createMockRgs(opts = {}) {
 	 *  and the RNG stream is byte-identical to before; stepped ⇒ a short column draws fewer cells,
 	 *  because dealing it a full-height column and letting the client discard the overflow is how the
 	 *  server and the board end up disagreeing about what was scored. */
-	const spinReels = () =>
-		Array.from({ length: reelCount }, (_unused, reel) =>
+	const spinReels = (gameType) => {
+		const stops = triggerStrips?.[gameType];
+		if (stops) return spinTriggerStrips(stops);
+		return Array.from({ length: reelCount }, (_unused, reel) =>
 			Array.from({ length: rowHeights[reel] }, pickCell),
 		);
+	};
+	/**
+	 * A trigger below 3 is dealt as its strips deal it (`opts.freeSpinsTriggerStrips`, game-config's
+	 * `freeSpinsTriggerStrips`): each reel stops at a random cell of its strip, the trigger symbol
+	 * lands where that window holds it, and every other cell is the weighted draw with the trigger
+	 * redrawn. At the flat 4% scatter rate two scatters land on one 5×4 spin in five and a +10
+	 * retrigger keeps nearly every feature running to `MAX_ROUND_FREE_SPINS`; on the strips the
+	 * feature opens and retriggers at the rate `/config` measured. Only such a game sends it.
+	 */
+	const spinTriggerStrips = (stops) =>
+		Array.from({ length: reelCount }, (_unused, reel) => {
+			const { length, at } = stops[reel];
+			const stop = Math.floor(nextRand() * length);
+			return Array.from({ length: rowHeights[reel] }, (_cell, row) =>
+				at.includes((stop + row) % length) ? triggerSymbol : pickOtherThanTrigger(),
+			);
+		});
+	const pickOtherThanTrigger = () => {
+		for (let tries = 0; tries < 32; tries++) {
+			const cell = pickCell();
+			if (cell !== triggerSymbol) return cell;
+		}
+		return LINE_POOL.find((name) => name !== triggerSymbol) ?? LINE_SYMBOLS[0];
+	};
 
 	/**
 	 * Stacked-picture test deal — engineered to showcase ALL crops every spin (the real math rarely
@@ -2168,7 +2205,7 @@ export function createMockRgs(opts = {}) {
 								? spinStrips(strips)
 								: stackedDeal
 									? spinReelsStacked()
-									: spinReels();
+									: spinReels('freegame');
 						if (forceRetrigger && !game && !strips && pendingRound.bonus.played === 0)
 							forceTriggerSymbols(fsReels);
 						const special = pendingRound.bonus.special;
@@ -2291,7 +2328,7 @@ export function createMockRgs(opts = {}) {
 					}
 
 					// ----- BASE SPIN -----
-					const shuffled = stackedDeal ? spinReelsStacked() : spinReels();
+					const shuffled = stackedDeal ? spinReelsStacked() : spinReels('basegame');
 					// A round that enters the feature anyway (bought, `FORCE_TRIGGER`) is never forced to pay,
 					// and does not use up a `WIN_X` entry.
 					// The add-on's `feature` force enters it like `FORCE_TRIGGER`.

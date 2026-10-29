@@ -22,6 +22,7 @@ import holdAndWinPlain from '$lib/data/gameConfig/holdAndWin.plain.json';
 import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJackpots.json';
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
+import linesFairyClover from '$lib/data/gameConfig/lines.fairyClover.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
 import arcadeRulesConfig from '$lib/data/gameConfig/arcade.rules.json';
 import cardRulesConfig from '$lib/data/gameConfig/card.rules.json';
@@ -69,15 +70,18 @@ const CARD_RULES_KEY = 'card.rules';
 export const isGameOutcome = (v: unknown): v is GameOutcome =>
 	typeof v === 'string' && (GAME_OUTCOMES as readonly string[]).includes(v);
 
-/** The LINES presets (`docs/design/book-feature.md` §3.5): whole configs a lines project may start
- *  from, beside the kind's own default. */
-export const LINES_PRESET_IDS = ['bookOfThermopylae'] as const;
+/** The LINES presets: whole configs a lines project may start from, beside the kind's own default —
+ *  the Book of Thermopylae (`docs/design/book-feature.md` §3.5) and Fairy Clover
+ *  (`docs/design/expanding-and-growing-wilds.md`). */
+export const LINES_PRESET_IDS = ['bookOfThermopylae', 'fairyClover'] as const;
 export type LinesPresetId = (typeof LINES_PRESET_IDS)[number];
 const LINES_PRESET_KEY: Record<LinesPresetId, string> = {
 	bookOfThermopylae: 'lines.bookOfThermopylae',
+	fairyClover: 'lines.fairyClover',
 };
 const LINES_PRESET_LABELS: Record<LinesPresetId, string> = {
 	bookOfThermopylae: 'Book of Thermopylae',
+	fairyClover: 'Fairy Clover',
 };
 export const isLinesPresetId = (id: unknown): id is LinesPresetId =>
 	typeof id === 'string' && (LINES_PRESET_IDS as readonly string[]).includes(id);
@@ -100,6 +104,7 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinTemplateKey('off')]: holdAndWinPlainNoJackpots,
 		[HOLD_AND_WIN_COIN_BOARD_KEY]: holdAndWinCoinBoard,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
+		[LINES_PRESET_KEY.fairyClover]: linesFairyClover,
 		[MATCH3_RULES_KEY]: match3RulesConfig,
 		[MATCH3_RGS_KEY]: match3RgsConfig,
 		[ARCADE_RULES_KEY]: arcadeRulesConfig,
@@ -132,7 +137,8 @@ const HOLD_AND_WIN_TEMPLATE_LABELS: Record<HoldAndWinTemplateJackpots, string> =
  * `holdAndWin`: the plain template with jackpots on / off (bonus-games §0), the coin board template
  * (`docs/design/hold-and-win-coin-board.md`), then Pots / Classic sticky / Collector streak
  * (`docs/design/hold-and-win.md` §6).
- * `lines`: the Book of Thermopylae (the Book-of mechanic as a lines config).
+ * `lines`: the Book of Thermopylae (the Book-of mechanic as a lines config) and Fairy Clover (from
+ * Fairy's Charm).
  */
 export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPreset[] {
 	if (gameType === 'lines') {

@@ -6,6 +6,16 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### A rolling symbol popped in once its centre entered the window
+- **Symptom:** spinning reels show a gap at the top and bottom; symbols snap in and out.
+- **Cause:** `SymbolWrap` culled on the seat's centre, so a cell drew only when half inside, and the
+  mask had nothing left to clip.
+- **Fix:** while the cell's reel rolls, draw it on the masked layer once any part of its row
+  overlaps the window, but hold its art on frame 0 until the centre crosses: an animation clock
+  starts at mount, so drawing early without the hold shifts every rig's pose at rest.
+- **Guard:** the current-games harness for rest; watch a spin for the roll itself.
+- **PR:** not recorded (2026-10-28) · source: `docs/status/engine.md`
+
 ### Shipped is not the same as running
 - **Symptom:** a fix "done" on a green build, a merge or a push, while players still ran old code.
 - **Cause:** each hop can silently not happen: an unpushed commit, a Railway watch path or missed

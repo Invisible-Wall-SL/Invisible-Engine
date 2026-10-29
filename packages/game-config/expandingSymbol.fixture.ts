@@ -81,8 +81,9 @@ const PINNED: Record<string, string> = {
 const DEFAULTS = new URL('../../apps/launcher-api/src/lib/data/gameConfig/', import.meta.url);
 const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
-/** The lines PRESETS beside the defaults (book-feature Phase 5a): a new file, not a changed one. */
-const PRESET_FILES = ['lines.bookOfThermopylae.json'];
+/** The lines PRESETS beside the defaults (book-feature Phase 5a, Fairy Clover): new files, not
+ *  changed ones. */
+const PRESET_FILES = ['lines.bookOfThermopylae.json', 'lines.fairyClover.json'];
 /** The match-3 seeds (game-families P10.5 rules, P10.6 RGS), the arcade seed (P10.8) and the card
  *  seed (card-games C3): new files,
  *  and not slots, so they have no expanding symbol to be without; pinned by

@@ -96,7 +96,7 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 **P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (built 2026-10-28; in
 review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
 
-- **Four runtimes.** `lines` (every slot kind; still built `all` until P11.1c), `match3`, `arcade`
+- **Four runtimes.** `lines` (every slot kind; built `all` in P11.1b, `slot` since P11.1c), `match3`, `arcade`
   and `card`, listed once in `packages/constants-shared/runtimes.ts` (`RUNTIMES`, `RUNTIME_IDS`,
   `runtimeIdOfFamily`, `releaseFamiliesOf`). `runtime-release.yml` runs the gates once, then a
   matrix per id: build `apps/lines` with the id's `PUBLIC_IE_FAMILIES` (always explicit), then

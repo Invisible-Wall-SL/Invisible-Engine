@@ -49,7 +49,10 @@ You are the developer for **Invisible Shader Graph**.
     (`stageFilters.ts`: the one owner of `app.stage.filters`, slots transition → post FX → camera;
     `screenTransition.ts`: `playScreenTransition`, the still, both routes, the fallbacks), held by
     fx-spike `screen-fx` and `camera-effects`; the route rule `screenTransitionRoute` in
-    `screenShell.ts`.
+    `screenShell.ts`; post FX: the Element FX runtime's stage mode (`elementFx/stage.ts`,
+    `bindStagePostFx`), `readPostFx` / `readStageFxAntialias` (`engine-layout` `postFx.ts`),
+    `STAGE_FX_LIMITS` in `constants-shared/elementFx.ts`, the `stage` anchor in `Game.svelte`,
+    played by `scripts/playtest/post-fx-play.mjs`.
   - Particle materials (step 8d, `docs/design/shader-graph-particles.md`):
     `packages/constants-shared/particleShell.ts` (the particle vertex shader, `PARTICLE_HEADER`,
     `PARTICLE_SHELL_NAMES`, `particleShellSource`: a compiled body made a particle fragment); the

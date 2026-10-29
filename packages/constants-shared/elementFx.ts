@@ -1915,6 +1915,18 @@ export function elementFxChannels(entries: readonly ElementFxEntry[]): string[] 
 
 /** The target name the flow uses for the reels. */
 export const ELEMENT_FX_REELS_TARGET = 'reels';
+/** The target name for the whole stage: the game's root, where its post FX play. */
+export const ELEMENT_FX_STAGE_TARGET = 'stage';
+
+/**
+ * Post FX: Element FX on the whole stage (Shader Graph 8e, `shader-graph-screens.md` §10). At most
+ * this many entries play on the stage at once, drawing at most this many filters in all (a custom
+ * effect's graph and each of its passes is one). Decided when an entry starts: one past either
+ * does not play.
+ */
+export const STAGE_FX_LIMITS = { entries: 2, filters: 4 } as const;
+/** The triggers a post FX entry may have: none is keyed, and none plays as the stage is shown. */
+export const STAGE_FX_TRIGGERS = ['always', 'cue'] as const satisfies readonly ElementFxTrigger[];
 /** The target name the flow uses for a whole screen. */
 export const elementFxScreenTarget = (sceneId: string): string => `screen:${sceneId}`;
 

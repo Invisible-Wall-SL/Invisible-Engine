@@ -314,6 +314,31 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   once the spin has taken over. At rest and at a lap's end the strip lands exactly where it did, so
   spin timing is unchanged: seeded renders on replayed RGS answers match `main` at rest and on the
   frame each spin settles. Fixture: `packages/utils-slots/stripHandover.fixture.ts`.
+- 2026-10-28 — **Rolling symbols slide under the board edge instead of popping in and out**
+  (branch `claude/trusting-bardeen-1rd4b9`). Owner report: a reel symbol only appeared once its cell
+  was well into the window and snapped out the same way, leaving a visible gap at the top and bottom
+  of every spinning reel. Cause: `SymbolWrap`'s in-frame cull tested the symbol's CENTRE against the
+  window, so a cell was not drawn until half of it was already inside, and `BoardMask` never got
+  to clip anything. Fix: while a cell's reel is ROLLING (`reelState.rolling`, passed by
+  `ReelSymbol`), a symbol on the masked layer is drawn as soon as any part of its row touches the
+  window and the mask clips the rest; the mask is always the tight window while a reel rolls. At
+  rest, and on the unmasked animating layer, the centre test is unchanged, so a resting board draws
+  exactly what it did. (A first cut applied the margin at rest too, and the current-games harness
+  showed changed settled boards on `commonoverlayproject`.) Each cell still mounts once per pass, so
+  the 2026-10-27 spin-CPU work is unchanged. Merged with the filler pool (`ReelPaddingPool`, entry
+  below): a pooled view now takes its next cell half a row before the window edge too; a view's
+  cells are `rows + 2` pitches apart and the widened window is `rows + 1`, so no view needs two.
+  Drawing early must not START early: a rig or flipbook's clock runs from mount, so mounting half a
+  row sooner left every animated symbol further into its loop at rest — `commonoverlayproject`'s
+  settled, win and big-win screens all changed, identically with or without the margin at rest.
+  A cell in the half-row band ABOVE the window (centre not yet inside) is now `held`: `Symbol` holds
+  its rig / flipbook on the first frame and does not make its state's Element FX until the centre
+  crosses — the frame it used to mount on. The FX matter twice: their loops' clocks start at mount,
+  and each FX filter draws its seed from `Math.random` when it is made, which the harness seeds as
+  one sequence for all cosmetic code (`determinism.ts`), so an early filter shifts every later draw.
+  (Holding only the rig / flipbook left the harness diffs pixel-identical.)
+  `check:svelte --only apps/lines` at baseline; not seen in a browser (the sandbox could not load the
+  game's art), so the owner should watch a spin.
 - 2026-10-28 — **Expanding and growing wilds on lines games** (branch
   `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
   Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and

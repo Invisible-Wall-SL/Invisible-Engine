@@ -35,17 +35,15 @@ export function kindFamilyRefusal(gameType: string, config: Config): string | nu
 
 /**
  * The runtime a publish of `config` points its game at, and that runtime's live pointer
- * (`pointerOf`, `runtimePointer` in production). Until a family's first release exists its id has
- * no pointer; the game then goes on {@link FALLBACK_RUNTIME_ID}, which carries every family until
- * P11.1c, so a game is never pointed at a runtime that is not there. `wanted` differs from `id`
- * exactly then.
+ * (`pointerOf`, `runtimePointer` in production). A family runtime with no release is refused
+ * (`unreleased`): since P11.1c `lines` is slot only, so there is nothing a non-slot game could fall
+ * back to. `lines` with no pointer is the pre-pointer flat layout, which publishes as before.
  */
 export async function chooseRuntime<P>(
 	config: Config,
 	pointerOf: (id: RuntimeId) => Promise<P | null>,
-): Promise<{ id: RuntimeId; wanted: RuntimeId; pointer: P | null }> {
-	const wanted = runtimeFor(config);
-	const pointer = await pointerOf(wanted);
-	if (pointer || wanted === FALLBACK_RUNTIME_ID) return { id: wanted, wanted, pointer };
-	return { id: FALLBACK_RUNTIME_ID, wanted, pointer: await pointerOf(FALLBACK_RUNTIME_ID) };
+): Promise<{ id: RuntimeId; pointer: P | null; unreleased: boolean }> {
+	const id = runtimeFor(config);
+	const pointer = await pointerOf(id);
+	return { id, pointer, unreleased: !pointer && id !== FALLBACK_RUNTIME_ID };
 }

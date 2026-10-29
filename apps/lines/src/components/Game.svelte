@@ -7,9 +7,12 @@
 	import { Anchor, App, Container, Text, registerGpuWarmup } from 'pixi-svelte';
 	import {
 		ELEMENT_FX_REELS_TARGET,
+		ELEMENT_FX_STAGE_TARGET,
 		readElementFxEntries,
 		setCustomElementFx,
 	} from 'constants-shared/elementFx';
+	import { bindStagePostFx, stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
+	import { setStageFxAntialias } from 'pixi-svelte/screenFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
@@ -158,6 +161,8 @@
 		hudScenesForMode,
 		potFillShare,
 		HOLD_AND_WIN_BANNER_SHOW_SOURCES,
+		readPostFx,
+		readStageFxAntialias,
 	} from 'engine-layout';
 	import type { ReelGridNode, Scene } from 'engine-layout';
 
@@ -1167,6 +1172,21 @@
 	const reelFx = $derived(
 		readElementFxEntries(findReelGridNode(editorDoc)?.elementFx).filter((e) => !e.disabled),
 	);
+	// Post FX: the doc's Element FX on the whole stage, played by a player at the root.
+	const postFx = $derived(
+		readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount }),
+	);
+	// They (and a Flow's on `stage`) fill the stage filter owner's post FX slot; the project's
+	// `stageFxAntialias` keeps the canvas's anti-aliasing under every stage filter. Both are no-ops
+	// while nothing filters the stage.
+	$effect(() => {
+		const app = stateApp.pixiApplication;
+		if (app) return bindStagePostFx(app);
+	});
+	$effect(() => {
+		const app = stateApp.pixiApplication;
+		if (app) setStageFxAntialias(app, readStageFxAntialias(editorDoc.settings));
+	});
 	// Screen identity resolves by ROLE (engine-layout `sceneByRole`) — not by matching a magic
 	// scene id — so scene ids stay free-form and renameable (the owner's ask). It reads the scene
 	// `role`, falling back to the legacy scene whose id equals the role name (parity for un-migrated
@@ -2522,6 +2542,15 @@
 	<EnableHotkey />
 	<EnableGameActor />
 	<EnablePixiExtension />
+
+	<!-- POST FX: the stage is the `stage` target, and plays the doc's post FX. Neither adds a child,
+	     and a doc without post FX mounts no player. -->
+	<Anchor name={ELEMENT_FX_STAGE_TARGET} />
+	{#key postFx}
+		{#if postFx.length}
+			<ElementFxPlayer entries={postFx} />
+		{/if}
+	{/key}
 
 	<!--
 		Persistent authored background (§ persistent-bg-scene) — CODED PATH ONLY. Without a
