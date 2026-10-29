@@ -147,6 +147,10 @@ export type ArcadeOnlineRound = {
  *  (this package depends on nothing, so `check:online-rules` holds the two lists equal). */
 export const ONLINE_RULES_MODULE_IDS: readonly string[] = Object.freeze(['tag']);
 
+/** The field generators a room can make its field with: the ids of `engine-mechanics`
+ *  `ONLINE_GENERATORS` (`check:room-bots` holds the two lists equal). */
+export const ONLINE_GENERATOR_IDS: readonly string[] = Object.freeze(['salmonsRiver']);
+
 /**
  * The rules an online room runs (§9 #18, P10.15): on the server, as data, with a named rules module
  * (`engine-mechanics` `onlineRules.js` `ONLINE_RULES_MODULES`) for what the data cannot say. A device
@@ -217,6 +221,10 @@ export type ArcadeOnline = {
 	/** Send each device only the players inside this box (field px) centred on its own player
 	 *  (P10.16): what a big room needs to stay within its bandwidth. Absent ⇒ every player. */
 	nearby?: { w: number; h: number };
+	/** A field generator ({@link ONLINE_GENERATOR_IDS}): each room makes its own field from a seed it
+	 *  picks and sends its devices (P11.2 (e)), replacing the field's size, zones, zone rules and
+	 *  spawns. Absent ⇒ every room plays the field as authored. */
+	generator?: string;
 };
 
 /** The netcodes an online arcade game can be played with. */
@@ -341,9 +349,11 @@ export type ResolvedArcadeOnlineBots = {
 };
 
 export type ResolvedArcadeOnline = Required<
-	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby'>
+	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator'>
 > & {
 	spawn: { x: number; y: number };
+	/** Absent ⇒ the field as authored. */
+	generator?: string;
 	/** Absent ⇒ every device is sent every player. */
 	nearby?: { w: number; h: number };
 	rules: ResolvedArcadeOnlineRules;
@@ -434,6 +444,7 @@ export const resolveArcadeOnline = (
 		rules: resolveRules(online.rules),
 		netcode: ARCADE_NETCODES.find((n) => n === online.netcode) ?? d.netcode,
 		bots: resolveBots(online.bots, maxPlayers),
+		...(online.generator ? { generator: online.generator } : {}),
 		...(online.nearby
 			? {
 					nearby: {
@@ -656,6 +667,8 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 		const h = positive(raw.nearby.h);
 		if (w && h) block.nearby = { w, h };
 	}
+	const generator = tagOf(raw.generator);
+	if (generator) block.generator = generator;
 	return block;
 }
 

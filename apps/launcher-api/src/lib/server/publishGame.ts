@@ -47,6 +47,7 @@ import { buildRuntimeBundle } from './runtimeBundle';
 import { unshippedCustomKinds } from './shaderExport';
 import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishCheck';
 import { unplayableFamilyMessage } from './familyGate';
+import { roomsAddressRefusal, withRoomsUrl } from './onlineLaunch';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { runtimePointer, upsertTestServerGame } from './testServerManifest';
@@ -96,7 +97,8 @@ export class PublishBlockedError extends Error {
 		 *  clobber a real game — and neither can `unplayable-family`, `kind-family` (a config of another
 		 *  family than the project's kind), `runtime-unreleased` (its family's runtime has no release)
 		 *  or `flow-wrong-kind` (a flow left from a kind change), a game
-		 *  the runtime cannot play;
+		 *  the runtime cannot play, nor `no-game-server` (an online game while the launcher has no
+		 *  game server address to write into its launch URL);
 		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
 		 *  last two for the owner role only; see the publish endpoint). */
 		readonly reason:
@@ -104,6 +106,7 @@ export class PublishBlockedError extends Error {
 			| 'unplayable-family'
 			| 'kind-family'
 			| 'runtime-unreleased'
+			| 'no-game-server'
 			| 'flow-wrong-kind'
 			| 'unapproved-sounds'
 			| 'invalid-flow'
@@ -214,6 +217,9 @@ async function runPublishGates(
 	// The config's family picks the runtime (`runtimeFor`), so it must be the kind's family too.
 	const kindFamily = kindFamilyRefusal(gameType, config);
 	if (kindFamily) return { refusal: new PublishBlockedError(kindFamily, 'kind-family') };
+	// An online game boots only with its game server's address in the launch URL (`rooms_url`).
+	const noServer = roomsAddressRefusal(config, ENV.GAME_SERVER_URL);
+	if (noServer) return { refusal: new PublishBlockedError(noServer, 'no-game-server') };
 
 	// 1d. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
 	// quoting other prices unnoticed — the info page is built from the authored config, the partner
@@ -291,6 +297,8 @@ export async function publishGame(
 		// could have changed its family.
 		const kindFamily = kindFamilyRefusal(gameType, assembled.config);
 		if (kindFamily) throw new PublishBlockedError(kindFamily, 'kind-family');
+		const noServer = roomsAddressRefusal(assembled.config, ENV.GAME_SERVER_URL);
+		if (noServer) throw new PublishBlockedError(noServer, 'no-game-server');
 		const chosen = await chooseRuntime(assembled.config, runtimePointer);
 		if (chosen.unreleased)
 			throw new PublishBlockedError(
@@ -410,12 +418,16 @@ export async function publishGame(
 		//    against THIS project's published snapshot, gated by the read token, with the
 		//    per-key mock RGS proxy. `editorDocBase` points the runtime back at this
 		//    launcher for its /api/editor/runtime + asset fetches.
-		url =
+		//    An online game also names its game server (`rooms_url`).
+		url = withRoomsUrl(
 			`${base}/${key}/?runtime=1&project=${encodeURIComponent(projectKey)}` +
-			`&k=${encodeURIComponent(readToken)}` +
-			`&editorDocBase=${encodeURIComponent(origin)}` +
-			`&rgs_url=${gamesHost}/api/${key}` +
-			`&sessionID=demo&lang=en&currency=USD&device=desktop`;
+				`&k=${encodeURIComponent(readToken)}` +
+				`&editorDocBase=${encodeURIComponent(origin)}` +
+				`&rgs_url=${gamesHost}/api/${key}` +
+				`&sessionID=demo&lang=en&currency=USD&device=desktop`,
+			bundle.config,
+			ENV.GAME_SERVER_URL,
+		);
 
 		if (await gameExists(key)) {
 			await setGameUrl(key, url);

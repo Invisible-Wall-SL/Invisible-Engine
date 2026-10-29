@@ -351,7 +351,7 @@
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import { Match3Input } from '../families/match3';
-	import { ArcadeStage } from '../families/arcade';
+	import { ArcadeStage, withRoomField } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
@@ -2352,7 +2352,10 @@
 						isBuiltinButtonShape(resolveComponent('button', version).def),
 					),
 				}) === 'ready';
-			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(loadedDoc) : loadedDoc;
+			// An online room that made its own field draws it in place of the authored one (P11.2 (e));
+			// any other game gets `loadedDoc` back.
+			const roomDoc = withRoomField(loadedDoc);
+			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(roomDoc) : roomDoc;
 			if (authoredButtons) {
 				registerComponents(
 					{ [BUTTON_PRESENTATION_DEF.id]: BUTTON_PRESENTATION_DEF },

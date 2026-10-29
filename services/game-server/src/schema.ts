@@ -13,7 +13,8 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * the score, the status (`engine-mechanics` `STATUS`: free, stunned, out) and a rules module's
  * `mark`, and whether it is a bot the server plays (P10.16). Per room the phase, the step every
  * state is stamped with, the round, the step its phase ends at (0 = never) and the last round's
- * winner. The level is never in the state.
+ * winner, and the room's seed, from which a device makes a generated field. The level is never in
+ * the state.
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
  * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
@@ -68,6 +69,9 @@ const roomFields = {
 	round: t.uint32(),
 	endsAt: t.uint32(),
 	winner: t.string(),
+	/** The room's seed (P11.2 (e)): a device makes the room's own field from it with the same
+	 *  generator the server ran (`engine-mechanics` `generatedOnlineGame`). */
+	seed: t.uint32(),
 };
 
 export const RoomState = schema({ ...roomFields, players: t.map(Player) });

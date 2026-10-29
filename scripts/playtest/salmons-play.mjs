@@ -13,7 +13,10 @@
 // `SALMONS_SEED_DOC`) too: the HUD shows the room's score and round (variables the room owns); page
 // B's J draws the bear's swipe on the press, before the room tells of it; and page C, in a room
 // of its own whose rounds last 5 s (`rooms_game=salmons-short`), sees the round-over screen come up
-// at the round's end and go at the next. The playbook is docs/playtest/salmons.md. It builds its own
+// at the round's end and go at the next. P11.2 (e): each room plays a river of its own, made from
+// the seed its state carries — pages A and B (one room) make the same river, page C (another room)
+// a different one, each the river whose sea the server started its salmon at. The playbook is
+// docs/playtest/salmons.md. It builds its own
 // snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
 // camera under that netcode; the pages must report the mode they ran.
@@ -29,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
@@ -38,7 +42,7 @@ import {
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
+import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
 import { openPage } from '../current-games/lib/browser.mjs';
@@ -64,11 +68,17 @@ mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
 
 const river = salmonsRiver();
-// The bots start upstream, at least 2000 px from the sea, so nothing hunts page A's salmon while it
-// swims (the hunt is check:room-bots'): otherwise a bear bot near the sea may catch it mid-check.
+// Each room makes its own river, bots' banks included, so the bots here are bears that stand still:
+// nothing hunts page A's salmon while it swims (the hunt is check:room-bots').
 const authored = salmonsConfig(river);
 const bots = authored.arcade.online.bots;
-bots.spawns = bots.spawns.filter((p) => p.y < river.sea.y - 2000);
+bots.characters = bots.characters.filter((bot) => bot.character === 'bear');
+for (const character of authored.arcade.characters)
+	character.brain = {
+		initial: 'rest',
+		states: [{ id: 'rest', behaviour: 'idle' }],
+		transitions: [],
+	};
 authored.arcade.online.netcode = opt.netcode;
 const config = normalizeGameConfigDoc(authored);
 const doc = salmonsReferenceLayout(river);
@@ -202,6 +212,14 @@ const settle = async (game, ms) => {
 const players = async (game) => (await game.state()).arcade?.bodies ?? [];
 const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
 const shown = (game) => game.flow('f ? f.ordered().map((c) => c.id) : []');
+const zonesOf = (game) => game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]);
+/** What a page made of its room's field, and what the room's seed makes here, in Node. */
+const riverOf = async (page, doc) => {
+	const online = (await page.state()).arcade?.online ?? {};
+	const made =
+		typeof online.seed === 'number' ? generatedOnlineGame(onlineGameOf(doc), online.seed) : null;
+	return { seed: online.seed, field: online.field, zones: online.zones, made };
+};
 const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
 try {
@@ -243,6 +261,30 @@ try {
 	);
 	const ownA = seenA.find((p) => p.id === me);
 	verdict('page A’s salmon starts at the sea', ownA && ownA.y > river.sea.y - 200, ownA);
+	const riverA = await riverOf(a, config);
+	const riverB = await riverOf(b, config);
+	verdict(
+		'pages A and B (one room) make the river of the room’s seed and draw it',
+		riverA.made !== null &&
+			riverA.seed === riverB.seed &&
+			riverA.field === 'river' &&
+			riverB.field === 'river' &&
+			JSON.stringify(riverA.zones) === JSON.stringify(zonesOf(riverA.made.game)) &&
+			JSON.stringify(riverB.zones) === JSON.stringify(riverA.zones),
+		{ seeds: [riverA.seed, riverB.seed], fields: [riverA.field, riverB.field] },
+	);
+	verdict(
+		'…the river the server plays: page A’s salmon started at that river’s sea',
+		!!riverA.made &&
+			!!ownA &&
+			ownA.x === riverA.made.game.online.spawn.x &&
+			ownA.y === riverA.made.game.online.spawn.y,
+		{ ownA, spawn: riverA.made?.game.online.spawn },
+	);
+	verdict(
+		'…and not the authored river',
+		JSON.stringify(riverA.zones) !== JSON.stringify(zonesOf(onlineGameOf(config))),
+	);
 	const cam0 = (await a.state()).arcade?.camera;
 	const frames = (cam, p) =>
 		!!cam &&
@@ -362,6 +404,18 @@ try {
 		await boot('c', { rooms_name: 'Cy', rooms_character: 'salmon', rooms_game: SHORT }),
 	);
 	await settle(c, 600);
+	const riverC = await riverOf(c, normalizeGameConfigDoc(short));
+	verdict(
+		'page C (another room) plays another river, its own room’s',
+		riverC.made !== null &&
+			riverC.seed !== riverA.seed &&
+			riverC.field === 'river' &&
+			JSON.stringify(riverC.zones) === JSON.stringify(zonesOf(riverC.made.game)) &&
+			JSON.stringify(riverC.made.made.bands) !== JSON.stringify(riverA.made?.made.bands),
+		{ seeds: [riverA.seed, riverC.seed] },
+	);
+	writeFileSync(join(out, '05-another-river.png'), await c.page.screenshot());
+	result.shots.push('05-another-river.png');
 	const roundOne = await variable(c, 'round');
 	let over;
 	for (let i = 0; i < 40 && !over; i++) {
@@ -382,8 +436,8 @@ try {
 			over.secondsLeft <= 3,
 		{ roundOne, over },
 	);
-	if (over) writeFileSync(join(out, '05-round-over.png'), await c.page.screenshot());
-	if (over) result.shots.push('05-round-over.png');
+	if (over) writeFileSync(join(out, '06-round-over.png'), await c.page.screenshot());
+	if (over) result.shots.push('06-round-over.png');
 	let next;
 	for (let i = 0; i < 30 && !next; i++) {
 		await settle(c, 300);

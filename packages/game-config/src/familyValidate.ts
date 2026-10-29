@@ -5,6 +5,7 @@ import {
 	ARCADE_ONLINE_BOT_DEFAULTS,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
+	ONLINE_GENERATOR_IDS,
 	ONLINE_RULES_MODULE_IDS,
 	resolveArcade,
 	resolveFamily,
@@ -367,6 +368,13 @@ function validateArcadeOnline(
 			severity: 'warning',
 			path: 'arcade.online.nearby',
 			message: `The box a device is sent players in is held to ${min}–${max} px a side.`,
+		});
+	}
+	if (online.generator && !ONLINE_GENERATOR_IDS.includes(online.generator)) {
+		issues.push({
+			severity: 'error',
+			path: 'arcade.online.generator',
+			message: `No field generator is "${online.generator}" (${ONLINE_GENERATOR_IDS.join(', ')}).`,
 		});
 	}
 	issues.push(...validateOnlineRules(doc));

@@ -320,6 +320,12 @@ export const ENV = {
 	get GAME_SERVER_CONFIG_SECRET() {
 		return (env.GAME_SERVER_CONFIG_SECRET ?? '').trim();
 	},
+	/** The Invisible Game Server's public address, which Publish writes into an online arcade game's
+	 *  launch URL as `rooms_url` (`onlineLaunch.ts`). Defaults to the live service; set to an empty
+	 *  value, online games are refused at publish rather than shipped with no server to play on. */
+	get GAME_SERVER_URL() {
+		return (env.GAME_SERVER_URL ?? 'wss://rooms.invisiblewall.org').trim();
+	},
 	/** Bearer token the Director worker calls `/api/director/adapter/*` with
 	 *  (`docs/director/DECISIONS/0002-tool-adapters.md`). Secret: no code default; trimmed like
 	 *  {@link PIPELINE_CI_TOKEN}. Unset ⇒ every adapter call answers 503, never an open gate. */

@@ -7,5 +7,6 @@ import Off from './Off.svelte';
 export const ArcadeStage: typeof Arcade.ArcadeStage = Off;
 export const joinOnlineRoom: typeof Arcade.joinOnlineRoom = () =>
 	refuseOnlineBoot('this runtime does not play arcade games');
+export const withRoomField: typeof Arcade.withRoomField = (doc) => doc;
 export const flowVocabularies: typeof Arcade.flowVocabularies = {};
 export const flowBoardActions: typeof Arcade.flowBoardActions = [];

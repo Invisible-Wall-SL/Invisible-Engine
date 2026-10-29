@@ -5,13 +5,10 @@
 		ARCADE_BODY_EDGES,
 		resolveCard,
 		ARCADE_FIXED_HZ_RANGE,
-		ARCADE_NETCODES,
-		ARCADE_ONLINE_DEFAULTS,
 		DEFAULT_ARCADE_FIXED_HZ,
 		DEFAULT_MATCH3_MIN_RUN,
 		resolveFamily,
 		resolveOutcome,
-		type ArcadeNetcode,
 		type ConfigFamily,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -41,7 +38,6 @@
 		setGoalField,
 		setMinRun,
 		setMoves,
-		setNetcode,
 		setOutcome,
 		setPairs,
 		setScoreTable,
@@ -49,6 +45,8 @@
 		setZoneField,
 		stripText,
 	} from './familyDoc';
+	import { setPlayedOnline } from './onlineDoc';
+	import OnlineSection from './OnlineSection.svelte';
 
 	/**
 	 * THE GAME FAMILY of `/config` (`docs/design/game-families.md` §2.1, §6.2): the family and
@@ -75,11 +73,6 @@
 		match3: 'Match-3 — swap gems to match runs',
 		arcade: 'Arcade — a play field with moving objects',
 		card: 'Card — a duel against the device',
-	};
-
-	const NETCODE_LABELS: Record<ArcadeNetcode, string> = {
-		engine: 'Engine — our own prediction (default)',
-		colyseus: "Colyseus — the SDK's own prediction",
 	};
 
 	const family = $derived(resolveFamily(doc));
@@ -523,24 +516,29 @@
 					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
 				<a href={resolve('/characters')}>Edit in Invisible Characters</a>
 			</p>
-			{#if doc.arcade?.online}
-				<span class="legend">Online</span>
-				<div class="row">
-					<label
-						>Netcode<select
-							value={doc.arcade.online.netcode ?? ARCADE_ONLINE_DEFAULTS.netcode}
-							onchange={(e) => setNetcode(doc, e.currentTarget.value)}
-						>
-							{#each ARCADE_NETCODES as netcode (netcode)}
-								<option value={netcode}>{NETCODE_LABELS[netcode]}</option>
-							{/each}
-						</select></label
-					>
-				</div>
-			{/if}
+			<span class="legend">Online <em>rooms on the Invisible Game Server</em></span>
+			<label class="inline"
+				><input
+					type="checkbox"
+					checked={doc.arcade?.online !== undefined}
+					onchange={(e) => {
+						const on = e.currentTarget.checked;
+						if (!on && !confirm('Stop playing online? Its room, rules and bots are removed.')) {
+							e.currentTarget.checked = true;
+							return;
+						}
+						setPlayedOnline(doc, on);
+					}}
+				/>Played online</label
+			>
 		</fieldset>
-		{@render issueList('arcade')}
+		{#each issuesFor('arcade').filter((i) => !i.path.startsWith('arcade.online')) as issue (issue.path + issue.message)}
+			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+		{/each}
 	</section>
+	{#if doc.arcade?.online}
+		<OnlineSection bind:doc online={doc.arcade.online} {issuesFor} {readOnly} />
+	{/if}
 {/if}
 
 {#if family === 'card'}

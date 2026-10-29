@@ -20,6 +20,7 @@ import {
 	createPredictor,
 	createRng,
 	createSnapshotClock,
+	generatedOnlineGame,
 	onlineLevel,
 	reconcilerOptions,
 	snapFor,
@@ -34,7 +35,15 @@ import {
 	type SnapshotClock,
 } from 'engine-mechanics';
 import { serverVariablesOf } from 'engine-flow-v2';
-import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
+import {
+	FIELD_DRAWINGS,
+	sceneCamera,
+	sceneWorld,
+	worldCameraScene,
+	type LayoutDoc,
+	type LayoutNode,
+	type Scene,
+} from 'engine-layout';
 import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
@@ -67,6 +76,11 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
  * drawn at once. A player that is out is not drawn until it respawns.
  *
+ * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
+ * the join waits for the room's first state, makes the room's own field from the seed it carries
+ * (`generatedOnlineGame`, the very function the server ran) and draws it in place of the authored
+ * one ({@link withRoomField}, `FIELD_DRAWINGS`).
+ *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
@@ -94,8 +108,13 @@ type RoomState = {
 	round: number;
 	endsAt: number;
 	winner: string;
+	/** The room's seed, from which a generated field is made (P11.2 (e)). */
+	seed: number;
 	players: Map<string, PlayerState>;
 };
+
+/** How long a join waits for the room's first state, which carries the seed of its field. */
+const SEED_WAIT_MS = 5000;
 
 /** How many of the room's events, and of the flow signals raised, the probe keeps. */
 const EVENTS_KEPT = 32;
@@ -124,6 +143,9 @@ type Session = {
 	signals: OnlineFlowSignal[];
 	/** The flow's variables the room writes, read once the flow is up. */
 	serverVariables: { id: string; server: string }[] | undefined;
+	/** The room's seed, and the field made from it, drawn in place of the authored node of its id. */
+	seed: number | undefined;
+	field: LayoutNode | undefined;
 };
 
 let session: Session | undefined;
@@ -228,9 +250,18 @@ export async function joinOnlineRoom(): Promise<void> {
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
+	const generator = resolved.online.generator;
+	const seed = generator ? await roomSeed(room) : undefined;
+	if (generator && seed === undefined) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot('the room did not say which field it plays');
+	}
+	const played =
+		seed === undefined ? { game: resolved, made: undefined } : generatedOnlineGame(resolved, seed);
+	const draw = generator ? FIELD_DRAWINGS[generator] : undefined;
 	const current: Session = {
 		room,
-		game: resolved,
+		game: played.game,
 		clock: createFixedStep({ hz: resolved.online.tickHz }),
 		seq: 0,
 		me: undefined,
@@ -239,7 +270,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		others: createInterpolator({
 			snapPx: snapFor(
 				Math.max(...resolved.online.characters.map((c) => c.speed)) +
-					strongestForce(resolved.online.rules.zones),
+					strongestForce(played.game.online.rules.zones),
 				resolved.online.patchHz,
 			),
 		}),
@@ -250,6 +281,8 @@ export async function joinOnlineRoom(): Promise<void> {
 		abilities: undefined,
 		signals: [],
 		serverVariables: undefined,
+		seed,
+		field: played.made && draw?.(played.made),
 	};
 	session = current;
 	room.onStateChange(() => received(current, performance.now()));
@@ -268,6 +301,36 @@ export async function joinOnlineRoom(): Promise<void> {
 		))
 			raise(current, signal);
 	});
+}
+
+/** The seed the room's first state carries, or `undefined` if none comes in time. */
+function roomSeed(room: Room): Promise<number | undefined> {
+	const now = (room.state as Partial<RoomState> | undefined)?.seed;
+	if (typeof now === 'number') return Promise.resolve(now);
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => resolve(undefined), SEED_WAIT_MS);
+		room.onStateChange.once((state: Partial<RoomState>) => {
+			clearTimeout(timer);
+			resolve(typeof state.seed === 'number' ? state.seed : undefined);
+		});
+	});
+}
+
+/**
+ * `doc` with the room's own field drawn in place of the authored node of the same id, in every
+ * scene; `doc` itself when the room plays the field as authored (or there is no room).
+ */
+export function withRoomField(doc: LayoutDoc): LayoutDoc {
+	const field = session?.field;
+	if (!field) return doc;
+	return {
+		...doc,
+		scenes: doc.scenes.map((scene) =>
+			scene.nodes.some((node) => node.id === field.id)
+				? { ...scene, nodes: scene.nodes.map((node) => (node.id === field.id ? field : node)) }
+				: scene,
+		),
+	};
 }
 
 /** Raise a room event in the flow (an online event). */
@@ -514,6 +577,9 @@ export function onlineProbe() {
 						drawn,
 						viewStep: current.viewStep,
 						netcode: current.game.online.netcode,
+						seed: current.seed ?? null,
+						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
+						field: current.field?.id ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),

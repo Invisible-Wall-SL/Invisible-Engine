@@ -8,12 +8,14 @@
  *     offered none of a slot's sections; its outcome decides the wallet; a match-3 board tumbles and
  *     pops its matches. A slot kind answers the three new flags `true` and every other flag as with
  *     no family at all (the full slot table is pinned by `check:symbols-kind-gating`).
- *  2. THE PICKER MIRRORS THE NORMALIZER. Every `/config` family setter (`familyDoc.ts`) leaves the
- *     doc exactly as a save would store it, so the page never looks dirty for a value a save drops.
+ *  2. THE PICKER MIRRORS THE NORMALIZER. Every `/config` family setter (`familyDoc.ts`, and the
+ *     online room / rules / bots setters in `onlineDoc.ts`) leaves the doc exactly as a save would
+ *     store it, so the page never looks dirty for a value a save drops.
  *  3. THE PAGE SHOWS EACH FAMILY §6.2's SECTIONS. `/config` is rendered on the server for a slot, a
  *     match-3 game decided each way and an arcade game: a non-slot family shows exactly its
  *     sections, and a slot project shows no family picker and no section outside the slot's. Only
- *     an arcade page shows the Characters line (its count and the link to Invisible Characters).
+ *     an arcade page shows the Characters line (its count and the link to Invisible Characters),
+ *     and only an online arcade page its Online room, Online rules and Bots sections.
  *  4. THE FAMILY GATE. Publish and the bake refuse a non-slot config, never a slot one.
  */
 
@@ -33,6 +35,7 @@ import { projectAddOns } from '../src/lib/addOns.ts';
 import { mechanicFor } from 'engine-game/src/game/mechanic';
 import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
+import * as onlineDoc from '../src/routes/(app)/config/onlineDoc.ts';
 import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
 
 let fails = 0;
@@ -372,6 +375,175 @@ step(
 	(d) => familyDoc.setNetcode(d, 'rollback'),
 	(d) => d.arcade?.online !== undefined && !('netcode' in d.arcade.online),
 );
+const online = () => doc.arcade!.online!;
+step('a body and a zone to play on', (d) => {
+	familyDoc.addBody(d, 'salmon');
+	familyDoc.addZone(d);
+	d.arcade!.characters = normalizeGameConfigDoc({
+		family: 'arcade',
+		outcome: 'rules',
+		arcade: { characters: [{ id: 'hunter', component: 'bear' }] },
+	})!.arcade!.characters;
+});
+step(
+	'a room size, and the default one',
+	(d) => {
+		onlineDoc.setRoomInt(d, 'maxPlayers', '100');
+		onlineDoc.setRoomInt(d, 'tickHz', '30');
+		onlineDoc.setRoomInt(d, 'rejoinSeconds', '0');
+		onlineDoc.setRoomInt(d, 'subSteps', '0');
+	},
+	(d) =>
+		d.arcade?.online?.maxPlayers === 100 &&
+		!('tickHz' in online()) &&
+		online().rejoinSeconds === 0 &&
+		!('subSteps' in online()),
+);
+step(
+	'a spawn, a layer and a nearby box; half of one clears it',
+	(d) => {
+		onlineDoc.setRoomSpawn(d, '200', '3000');
+		onlineDoc.setRoomLayer(d, ' river ');
+		onlineDoc.setNearby(d, '2400', '1800');
+		onlineDoc.setRoomLayer(d, 'field');
+		onlineDoc.setNearby(d, '2400', '');
+	},
+	(d) => d.arcade?.online?.spawn?.y === 3000 && !('layer' in online()) && !('nearby' in online()),
+);
+step(
+	'a character needs a body',
+	(d) => onlineDoc.addOnlineCharacter(d, ' '),
+	(d) => d.arcade?.online?.characters.length === 0,
+);
+step(
+	'two characters',
+	(d) => {
+		onlineDoc.addOnlineCharacter(d, 'salmon');
+		onlineDoc.addOnlineCharacter(d, 'salmon');
+		onlineDoc.setOnlineCharacterField(d, 1, 'id', 'character1');
+		onlineDoc.setOnlineCharacterField(d, 0, 'speed', '-4');
+		onlineDoc.setOnlineCharacterField(d, 1, 'max', '6');
+		onlineDoc.setOnlineCharacterField(d, 1, 'spawns', '10, 20; nonsense; 30, 40');
+	},
+	(d) =>
+		d.arcade?.online?.characters.map((c) => c.id).join() === 'character1,character2' &&
+		online().characters[0].speed === 300 &&
+		online().characters[1].max === 6 &&
+		online().characters[1].spawns?.length === 2,
+);
+step(
+	'a zone rule: the goal, then a current, then neither is refused',
+	(d) => {
+		onlineDoc.addZoneRule(d, 'zone1');
+		onlineDoc.setZoneRuleField(d, 0, 'forceY', '-80');
+		onlineDoc.setZoneRuleField(d, 0, 'goal', false);
+		onlineDoc.setZoneRuleField(d, 0, 'forceY', '0');
+		onlineDoc.setZoneRuleField(d, 0, 'characters', 'character1, character1');
+	},
+	(d) =>
+		d.arcade?.online?.rules?.zones?.[0].force?.y === -80 &&
+		!('goal' in online().rules!.zones![0]) &&
+		online().rules!.zones![0].characters?.join() === 'character1',
+);
+step(
+	'an ability and its numbers',
+	(d) => {
+		onlineDoc.addAbility(d);
+		onlineDoc.setAbilityField(d, 0, 'effect', 'stun');
+		onlineDoc.setAbilityField(d, 0, 'reach', '0');
+		onlineDoc.setAbilityField(d, 0, 'targets', '');
+		onlineDoc.setAbilityField(d, 0, 'ms', '1500');
+		onlineDoc.setAbilityField(d, 0, 'score', '0');
+		onlineDoc.setAbilityField(d, 0, 'cooldownMs', '2000');
+		onlineDoc.setAbilityField(d, 0, 'cooldownMs', '');
+	},
+	(d) => {
+		const a = d.arcade?.online?.rules?.abilities?.[0];
+		return (
+			a?.character === 'character1' &&
+			a.targets.join() === 'character2' &&
+			a.effect === 'stun' &&
+			a.reach === 100 &&
+			a.ms === 1500 &&
+			!('score' in a) &&
+			!('cooldownMs' in a)
+		);
+	},
+);
+step(
+	'renaming a character renames what names it',
+	(d) => onlineDoc.setOnlineCharacterField(d, 1, 'id', 'bear'),
+	(d) =>
+		d.arcade?.online?.rules?.abilities?.[0].targets.join() === 'bear' &&
+		online().characters[1].id === 'bear',
+);
+step(
+	'the round and a module',
+	(d) => {
+		onlineDoc.setRoundField(d, 'seconds', '120');
+		onlineDoc.setRoundField(d, 'nextRoundSeconds', '-1');
+		onlineDoc.setRoundField(d, 'goalScore', '5');
+		onlineDoc.setRulesModule(d, 'tag');
+	},
+	(d) =>
+		d.arcade?.online?.rules?.round?.seconds === 120 &&
+		!('nextRoundSeconds' in online().rules!.round!) &&
+		online().rules!.module === 'tag',
+);
+step(
+	'removing every rule removes the rules',
+	(d) => {
+		onlineDoc.removeZoneRule(d, 0);
+		onlineDoc.removeAbility(d, 0);
+		onlineDoc.setRoundField(d, 'seconds', '');
+		onlineDoc.setRoundField(d, 'goalScore', '');
+		onlineDoc.setRulesModule(d, '');
+	},
+	(d) => d.arcade?.online !== undefined && !('rules' in online()),
+);
+step(
+	'a bot needs a character and a brain',
+	(d) => onlineDoc.addBot(d, 'bear', ''),
+	(d) => d.arcade?.online !== undefined && !('bots' in online()),
+);
+step(
+	'a bot and its block',
+	(d) => {
+		onlineDoc.addBot(d, 'bear', 'hunter');
+		onlineDoc.setBotsField(d, 'fillTo', '20');
+		onlineDoc.setBotsField(d, 'fillTo', '8');
+		onlineDoc.setBotsField(d, 'canWin', true);
+		onlineDoc.setBotsField(d, 'spawns', '5, 5');
+		onlineDoc.setBotField(d, 0, 'brain', ' ');
+	},
+	(d) => {
+		const bots = d.arcade?.online?.bots;
+		return (
+			bots?.characters[0]?.brain === 'hunter' &&
+			bots.fillTo === 8 &&
+			bots.canWin === true &&
+			bots.spawns?.[0]?.x === 5
+		);
+	},
+);
+step(
+	'the last bot removes the bots',
+	(d) => {
+		onlineDoc.setBotsField(d, 'canWin', false);
+		onlineDoc.removeBot(d, 0);
+	},
+	(d) => d.arcade?.online !== undefined && !('bots' in online()),
+);
+step(
+	'not played online removes the block',
+	(d) => onlineDoc.setPlayedOnline(d, false),
+	(d) => d.arcade !== undefined && !('online' in d.arcade),
+);
+step(
+	'played online again starts empty',
+	(d) => onlineDoc.setPlayedOnline(d, true),
+	(d) => d.arcade?.online?.characters.length === 0 && Object.keys(online()).length === 1,
+);
 step(
 	'arcade → slot',
 	(d) => familyDoc.setFamily(d, 'slot'),
@@ -408,6 +580,9 @@ const HEADINGS: Record<string, ConfigSection> = {
 	'Big win tiers': 'winLevels',
 	'Match-3': 'match3',
 	Arcade: 'arcade',
+	'Online room': 'arcade',
+	'Online rules': 'arcade',
+	Bots: 'arcade',
 	'Card game': 'card',
 };
 /** The dialogs' titles, rendered closed, and the family picker's own heading. */
@@ -543,6 +718,52 @@ try {
 		...arcade,
 		arcade: { online: { characters: [], netcode: 'colyseus' } },
 	})!;
+	const ONLINE_HEADINGS = ['Online room', 'Online rules', 'Bots'];
+	const headingsOf = (body: string) =>
+		[...body.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1].trim());
+	check(
+		'3. arcade: the online sections only on an online game, after Arcade',
+		!headingsOf(renderPage(arcade).body).some((h) => ONLINE_HEADINGS.includes(h)) &&
+			headingsOf(renderPage(online).body)
+				.join()
+				.includes(['Arcade', ...ONLINE_HEADINGS].join()),
+	);
+	const salmonsLike = normalizeGameConfigDoc({
+		...arcade,
+		arcade: {
+			field: { w: 1422, h: 3200 },
+			bodies: { salmonLook: { shape: 'circle', r: 30 } },
+			zones: [{ id: 'source', x: 0, y: 0, w: 1422, h: 200 }],
+			characters: [{ id: 'bearBrain', component: 'bearLook' }],
+			online: {
+				characters: [{ id: 'salmon', body: 'salmonLook', speed: 260 }],
+				rules: {
+					zones: [{ zone: 'source', goal: true }],
+					abilities: [
+						{
+							character: 'salmon',
+							button: 'ability1',
+							reach: 90,
+							targets: ['salmon'],
+							effect: 'stun',
+						},
+					],
+					round: { seconds: 180 },
+				},
+				bots: { characters: [{ character: 'salmon', brain: 'bearBrain' }], fillTo: 12 },
+			},
+		},
+	})!;
+	const shownOnline = renderPage(salmonsLike).body;
+	check(
+		'3. arcade: an online page shows its room, rules and bots',
+		shownOnline.includes('value="salmon"') &&
+			/Round seconds<input[^>]*value="180"/.test(shownOnline) &&
+			/Fill room to<input[^>]*value="12"/.test(shownOnline) &&
+			/<option value="bearBrain"[^>]*selected/.test(shownOnline) &&
+			/Played online<\/label>/.test(shownOnline) &&
+			/<input type="checkbox"[^>]*checked[^>]*\/?>Played online/.test(shownOnline),
+	);
 	check(
 		'3. arcade: the Netcode picker only on an online game, showing its netcode',
 		!renderPage(arcade).body.includes('Netcode') &&
