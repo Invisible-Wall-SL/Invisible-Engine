@@ -14,6 +14,8 @@
  *     every node the game registers an anchor for (a group, a component placement, a coded mount,
  *     any node carrying Element FX — inside a component too). Not a reel grid, whose effects play
  *     on the reel stack.
+ *  4. **`reels` and `stage` are reserved** (8e): the server's layout reader gives a node with either
+ *     id a free one of its own, at any depth, so a node never catches the Flow's reels or stage.
  *  3. **One composition.** `composeFlowV2Vocab` widens the enum with the targets for the editor and
  *     the publish gate alike; with no targets the vocabulary keeps its identity. The project's
  *     custom kinds widen both `ElementFxKind` and `ScreenTransitionKind` (8e).
@@ -26,6 +28,8 @@ import {
 	templateVocabulary,
 } from 'engine-flow-v2';
 import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
+import { ELEMENT_FX_RESERVED_IDS } from 'constants-shared/elementFx';
+import { normalizeDoc, releaseReservedNodeIds } from '../src/lib/server/editorStorage';
 
 import { collectElementFxTargets, withElementFxTargets } from '../src/lib/elementFxTargets';
 import { readFileSync } from 'node:fs';
@@ -206,6 +210,72 @@ check(
 	'3. the editor composes with the targets',
 	read('../src/routes/(app)/flow-v2/+page.svelte').includes('fxTargets: data.fxTargets ?? [],'),
 );
+
+// ── 4. reserved ids ───────────────────────────────────────────────────────────────────────────
+{
+	const doc = normalizeDoc(
+		{
+			scenes: [
+				{
+					id: 'basegame',
+					name: 'Base',
+					nodes: [
+						{
+							id: 'stage',
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [{ id: 'reels', kind: 'sprite', assetKey: 'a', x: 0, y: 0 }],
+						},
+						{ id: 'stage_node', kind: 'sprite', assetKey: 'a', x: 0, y: 0 },
+						{ id: 'logo', kind: 'sprite', assetKey: 'a', x: 0, y: 0 },
+					],
+				},
+				{
+					id: 'freeSpins',
+					name: 'Free spins',
+					nodes: [{ id: 'reels', kind: 'container', x: 0, y: 0 }],
+				},
+			],
+		},
+		'demo',
+	);
+	const ids = (nodes: readonly { id: string; children?: unknown }[]): string[] =>
+		nodes.flatMap((n) =>
+			n && typeof n === 'object'
+				? [n.id, ...(Array.isArray(n.children) ? ids(n.children) : [])]
+				: [],
+		);
+	eq(
+		'4. a node may not take `reels` or `stage` (any depth, any screen): it gets a free id of its own',
+		doc.scenes.map((scene) => ids(scene.nodes)),
+		[['stage_node2', 'reels_node', 'stage_node', 'logo'], ['reels_node2']],
+	);
+	check(
+		'4. so the dropdown lists the reels and the stage once each, as the targets',
+		collectElementFxTargets(doc.scenes).filter((t) => t === 'reels' || t === 'stage').length === 2,
+	);
+	const plain = [
+		{ id: 'basegame', name: 'Base', nodes: [{ id: 'logo', kind: 'sprite', x: 0, y: 0 }] },
+	] as unknown as Scene[];
+	check('4. a doc with none keeps its scenes as they are', releaseReservedNodeIds(plain) === plain);
+	const malformed = [
+		{
+			id: 'basegame',
+			name: 'Base',
+			nodes: [{ id: 'stage', kind: 'container', x: 0, y: 0, children: [null, 3] }],
+		},
+	] as unknown as Scene[];
+	check(
+		'4. a container holding something that is not a node is still read (the reader never throws)',
+		releaseReservedNodeIds(malformed)[0].nodes[0].id === 'stage_node',
+	);
+	eq(
+		'4. the reserved ids are the reels and the stage',
+		[...ELEMENT_FX_RESERVED_IDS],
+		['reels', 'stage'],
+	);
+}
 
 if (fails) {
 	console.error(`\nelement fx flow: ${fails} check(s) FAILED`);

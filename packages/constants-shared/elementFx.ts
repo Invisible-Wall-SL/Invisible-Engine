@@ -1917,6 +1917,14 @@ export function elementFxChannels(entries: readonly ElementFxEntry[]): string[] 
 export const ELEMENT_FX_REELS_TARGET = 'reels';
 /** The target name for the whole stage: the game's root, where its post FX play. */
 export const ELEMENT_FX_STAGE_TARGET = 'stage';
+/**
+ * The target names no layout node may take as its id: a node's id is its anchor, so a node named
+ * `reels` or `stage` would catch the Flow's effects on the reels or the whole stage (8e).
+ */
+export const ELEMENT_FX_RESERVED_IDS: readonly string[] = [
+	ELEMENT_FX_REELS_TARGET,
+	ELEMENT_FX_STAGE_TARGET,
+];
 
 /**
  * Post FX: Element FX on the whole stage (Shader Graph 8e, `shader-graph-screens.md` §10). At most
