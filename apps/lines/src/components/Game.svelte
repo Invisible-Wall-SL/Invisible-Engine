@@ -351,7 +351,7 @@
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import { Match3Input } from '../families/match3';
-	import { ArcadeStage, withRoomField } from '../families/arcade';
+	import { ArcadeStage } from '../families/arcade';
 	import { CardTable, startCards } from '../families/card';
 	import { gameMechanic } from '../game/mechanic';
 	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
@@ -2380,9 +2380,7 @@
 			// stay coded). `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
 			// board override — is the swapped doc, so no mount path renders a coded node the retires
 			// below have made inert. Off, or held back ⇒ the same doc object (parity).
-			// An online room that made its own field draws it in place of the authored one (P11.2 (e));
-			// any other game gets `rawDoc` back.
-			const overlays = resolveAuthoredOverlays(withRoomField(rawDoc), {
+			const overlays = resolveAuthoredOverlays(rawDoc, {
 				status: resolveAuthoredWinStatus,
 				presentation: authoredWinPresentation,
 			});

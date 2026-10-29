@@ -578,15 +578,14 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(stage, /online \? undefined : useArcadePaths\(/);
 	assert.match(stage, /if \(online \|\| !pixi\) return;\s+return useArcadeInput\(/);
 	// A field per room (P11.2 (e)): only a game that names a generator waits for the room's seed,
-	// makes the room's field with the server's own function and draws it; every other doc passes
-	// through, and a build without arcade passes every doc through untouched.
+	// makes the room's field with the server's own function and has the loaded doc draw it; every
+	// other game's doc loads as it always did.
 	assert.match(online, /const seed = generator \? await roomSeed\(room\) : undefined;/);
 	assert.match(online, /: generatedOnlineGame\(resolved, seed\);/);
+	assert.match(online, /if \(current\.field\) setRoomDocChange\(withRoomField\);/);
 	assert.match(online, /const field = session\?\.field;\s+if \(!field\) return doc;/);
-	const game = readFileSync(join(src, 'components/Game.svelte'), 'utf8');
-	assert.match(game, /const overlays = resolveAuthoredOverlays\(withRoomField\(rawDoc\), \{/);
-	const off = readFileSync(join(src, 'families/off/arcade.ts'), 'utf8');
-	assert.match(off, /withRoomField: typeof Arcade\.withRoomField = \(doc\) => doc;/);
+	const scenes = readFileSync(join(src, 'editor-scenes.ts'), 'utf8');
+	assert.match(scenes, /return roomDocChange \? roomDocChange\(scenes\) : scenes;/);
 });
 
 // --- 2. live: a real Colyseus 0.18 server, real SDK clients -------------------------------------

@@ -47,7 +47,12 @@ import {
 import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
-import { bakedFlowV2Doc, bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import {
+	bakedFlowV2Doc,
+	bakedGameConfig,
+	refuseOnlineBoot,
+	setRoomDocChange,
+} from '../editor-scenes';
 import { typingInto } from './flowKeys';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 
@@ -79,7 +84,7 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
  * (`generatedOnlineGame`, the very function the server ran) and draws it in place of the authored
- * one ({@link withRoomField}, `FIELD_DRAWINGS`).
+ * one ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
@@ -285,6 +290,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		field: played.made && draw?.(played.made),
 	};
 	session = current;
+	if (current.field) setRoomDocChange(withRoomField);
 	room.onStateChange(() => received(current, performance.now()));
 	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
@@ -318,9 +324,10 @@ function roomSeed(room: Room): Promise<number | undefined> {
 
 /**
  * `doc` with the room's own field drawn in place of the authored node of the same id, in every
- * scene; `doc` itself when the room plays the field as authored (or there is no room).
+ * scene; `doc` itself when the room plays the field as authored (or there is no room). The loaded
+ * doc passes through it (`editor-scenes` `loadEditorScenes`) once a room made its own field.
  */
-export function withRoomField(doc: LayoutDoc): LayoutDoc {
+function withRoomField(doc: LayoutDoc): LayoutDoc {
 	const field = session?.field;
 	if (!field) return doc;
 	return {

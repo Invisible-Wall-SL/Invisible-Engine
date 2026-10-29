@@ -7,7 +7,7 @@
 import { ARCADE_LOOP_ACTIONS, ARCADE_VOCAB, type TemplateVocabulary } from 'engine-flow-v2';
 
 export { default as ArcadeStage } from '../components/ArcadeStage.svelte';
-export { joinOnlineRoom, withRoomField } from '../game/online';
+export { joinOnlineRoom } from '../game/online';
 
 /** The family's Flow vocabulary, keyed by `templateId` (`flowV2Runtime`'s registry). */
 export const flowVocabularies: Readonly<Record<string, TemplateVocabulary>> = {

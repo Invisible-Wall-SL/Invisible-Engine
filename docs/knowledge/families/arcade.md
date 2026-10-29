@@ -75,7 +75,9 @@ A seed and the same keys replay the same game.
   `arcade.online.generator` plays, in each room, the field `engine-mechanics`
   `generatedOnlineGame(game, seed)` makes from the room's seed (state `seed`): `createRoomSim` runs
   it on the server, `online.ts` on the device, and `engine-layout` `FIELD_DRAWINGS` draws it in
-  place of the authored node of its id. One seed seeds the bots and the field, so a room replays
+  place of the authored node of its id (registered with `editor-scenes` `setRoomDocChange`, so
+  `loadEditorScenes` returns the room's doc; `Game.svelte` is pinned by the authored-overlay
+  checks and is not touched). One seed seeds the bots and the field, so a room replays
   from it. Change the generator, its geometry or the drawing together (`check:room-bots`,
   `salmons-play.mjs`). A config without a generator keeps the same game object.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the

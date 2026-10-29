@@ -104,10 +104,11 @@ P11.2's two PRs. Not deployed.
   a room replays from it); `arcadeRoom.ts` writes it into the room state's new `seed` (uint32) and
   logs it. Device: `joinOnlineRoom` (only when the config names a generator) waits up to 5 s for the
   room's first state, makes the room's game from its seed with the same function, and refuses the
-  boot if no seed arrives; `withRoomField(doc)` (the arcade seam; the `off` seam returns `doc`)
-  puts the generator's drawing (`engine-layout` `FIELD_DRAWINGS`, `salmonsRiverNode`, moved to
+  boot if no seed arrives; it then registers `withRoomField` with `editor-scenes`
+  (`setRoomDocChange`), so `loadEditorScenes` returns the doc with the generator's drawing
+  (`engine-layout` `FIELD_DRAWINGS`, `salmonsRiverNode`, moved to
   `referenceLayouts/salmonsRiver.ts` and exported) in place of the authored node of the same id
-  (`river`), called once in `Game.svelte` on the loaded doc. The probe gains `online.seed`,
+  (`river`). Nothing registers it for any other game, and `Game.svelte` is unchanged. The probe gains `online.seed`,
   `online.zones`, `online.field`.
 - **Gates:** new launcher **`check:online-publish`** (5 checks over the real `publishGame.ts`: an
   online game with `GAME_SERVER_URL` empty / blank / schemeless / `ftp://` refused
@@ -119,7 +120,7 @@ P11.2's two PRs. Not deployed.
   plays its seed's river and replays it, the device's function gives the server's game, a game
   with no generator is untouched, an unknown generator is an error; live: two rooms of one game get
   two seeds and two rivers, each salmon and bear where its room's river puts it).
-  `check:room-sim` 39 (source scans of the seed wait, `withRoomField` and the `off` seam).
+  `check:room-sim` 39 (source scans of the seed wait, the registration and `loadEditorScenes`).
   `check:netcode` 25, `check:online-rules` 23, `check:pipeline-games` 35, `check:runtime-choice`,
   `check:book-of-migration`: pass, unchanged.
 - **Verified by playing:** `salmons-play.mjs` **27 / 27** in each netcode (the 23 plus: pages A and
@@ -129,20 +130,20 @@ P11.2's two PRs. Not deployed.
   spawns cannot hold them upstream). `online-play.mjs` 19 / 19 and `arcade-play.mjs` OK on the same
   build.
 - **Runtime sizes** (`check:family-runtimes`, gzip -6; (a–b) → this branch): slot 1,303,338 →
-  1,303,401 B (+63), match3 1,311,697 → 1,311,793 B (+96), card 1,316,034 → 1,316,150 B (+116),
-  **arcade 1,401,737 → 1,403,017 B (+1.3 KB gz; 4,107,059 B raw)**. All within
+  1,303,401 B (+63), match3 1,311,697 → 1,311,811 B (+114), card 1,316,034 → 1,316,150 B (+116),
+  **arcade 1,401,737 → 1,403,062 B (+1.3 KB gz; 4,107,131 B raw)**. All within
   `family-runtime-budget.json`. The non-arcade growth is shared config code every runtime boots
-  (`generator` normalized / resolved / validated) and the one `withRoomField` call; the river's
+  (`generator` normalized / resolved / validated) and the `loadEditorScenes` hook; the river's
   generator and drawing reach the arcade runtime only (no `whirlpool` in the slot build).
 - **Slot / match-3 / card / offline-arcade parity:** the publish changes only an online game's URL
   and refusals; `/config` shows the online sections only for an arcade game played online (the
   Played online box is new on every arcade page). On the device, the seed wait and the drawing run
-  only for a config that names a generator, behind `gameMechanic().room`; `withRoomField` returns
-  the same doc otherwise, and is the identity in a build without arcade. A config without
+  only for a config that names a generator, behind `gameMechanic().room`; otherwise nothing is
+  registered and `loadEditorScenes` returns the doc as before. A config without
   `generator` resolves and steps exactly as before (`createRoomSim` keeps the same game object).
   Edited shared modules: `game-config` `family.ts`, `familyValidate.ts`; `engine-mechanics`
   `index.ts`, `salmons.js`; `engine-layout` `referenceLayouts/index.ts`, `salmons.ts`;
-  `apps/lines` `Game.svelte` (one call), the two arcade seams.
+  `apps/lines` `editor-scenes.ts` (the hook).
 - **Chosen here, owner may overturn:** the address's default is the live service (the launcher's
   rule for non-secret URLs) rather than no default; a generator owns the field's geometry and
   replaces the authored zones and spawns wholesale; a device waits 5 s for the seed; the play test's
