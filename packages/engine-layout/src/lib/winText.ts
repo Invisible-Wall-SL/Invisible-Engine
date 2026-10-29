@@ -270,10 +270,9 @@ export type WinTextToast = {
 	 */
 	symbolAsImage?: boolean;
 	/**
-	 * How tall that inline symbol is, as a PERCENT of its 100% height (as tall as the words, or as
-	 * the bar's text box when that is shallower). Info-bar toast only, and only read while
-	 * `symbolAsImage` is on. Above 100 it can stand taller than the box; it never sets the text's
-	 * height.
+	 * How tall that inline symbol is, as a PERCENT of the words' height (100 = as tall as the words,
+	 * the default). Info-bar toast only, and only read while `symbolAsImage` is on. The bar's text
+	 * box does not cap it, and it never sets the text's height.
 	 */
 	symbolImageSize?: number;
 };

@@ -5,7 +5,8 @@
  * Pins, each because getting it wrong is silent until a player loads the game:
  *  - every family maps to its own id, `slot` to `lines`, and each id's build carries its family;
  *  - a project whose kind and config disagree on the family is refused;
- *  - an id with no release yet falls back to `lines`, so a game is never pointed at nothing;
+ *  - a family id with no release is `unreleased` (publish refuses), never `lines`, which is slot
+ *    only and could not play the game;
  *  - the release and rollback workflows offer exactly the ids publish can pick.
  */
 import assert from 'node:assert/strict';
@@ -39,13 +40,12 @@ await check('every family has one runtime; slot (and no config) is lines', () =>
 	assert.deepEqual(new Set(RUNTIMES.map((r) => r.family)), new Set(GAME_FAMILIES));
 });
 
-await check("each id's build carries its family; lines carries every family until P11.1c", () => {
+await check("each id's build carries its family and slot, and nothing else", () => {
 	for (const { id, family } of RUNTIMES) {
 		const built = compiledFamilies(releaseFamiliesOf(id));
 		assert.ok(built.includes(family), `${id} is built without ${family}`);
-		if (id !== 'lines') assert.deepEqual(built, ['slot', family], id);
+		assert.deepEqual(built, id === 'lines' ? ['slot'] : ['slot', family], id);
 	}
-	assert.deepEqual(compiledFamilies(releaseFamiliesOf('lines')), [...GAME_FAMILIES]);
 	assert.throws(() => releaseFamiliesOf('ways'));
 });
 
@@ -67,20 +67,20 @@ await check('an id with a release is used as it is', async () => {
 		asked.push(id);
 		return { version: `${id}@v1` };
 	});
-	assert.deepEqual(got, { id: 'arcade', wanted: 'arcade', pointer: { version: 'arcade@v1' } });
+	assert.deepEqual(got, { id: 'arcade', pointer: { version: 'arcade@v1' }, unreleased: false });
 	assert.deepEqual(asked, ['arcade']);
 });
 
-await check('an id with no release yet falls back to lines, and says so', async () => {
+await check('a family runtime with no release is unreleased, never lines', async () => {
 	const got = await chooseRuntime(configOf('card'), async (id) =>
 		id === 'lines' ? { version: 'lines@v9' } : null,
 	);
-	assert.deepEqual(got, { id: 'lines', wanted: 'card', pointer: { version: 'lines@v9' } });
+	assert.deepEqual(got, { id: 'card', pointer: null, unreleased: true });
 });
 
 await check('lines with no pointer stays lines (a fresh bucket publishes as before)', async () => {
 	const got = await chooseRuntime(configOf('slot'), async () => null);
-	assert.deepEqual(got, { id: 'lines', wanted: 'lines', pointer: null });
+	assert.deepEqual(got, { id: 'lines', pointer: null, unreleased: false });
 });
 
 const choices = (workflow: string) => {

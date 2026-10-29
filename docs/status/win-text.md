@@ -296,6 +296,16 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-28 — **Fix, second round: the symbol is sized from the words, not the box.** Owner
+  report with a screenshot: at 230% the symbol was still smaller than the text. Their Info Bar
+  (`commonoverlayproject`) has `boxHeight: 32` under `fontSize: 75` with no auto-fit, so the words
+  spill well outside the box, and `min(textHeight, contentHeight) × scale` measured the symbol from
+  the ~18 px box content: 230% drew ~41 px beside ~49 px words. Now `textHeight × scale`; the box no
+  longer caps the symbol at all. **This changes 100% too** on any bar whose box is shallower than its
+  words: the symbol grows to the words' height, which is what "sized to the text" always promised.
+  Guard: `test-inline-image-box.mjs` §7 "a box shallower than the words" (the owner's numbers; fails
+  on the old code, 32 vs 48.75). Lesson updated in [`lessons/editor.md`](../knowledge/lessons/editor.md).
+
 - 2026-10-28 — **Fix: the symbol size did nothing on a real info bar.** Owner report: 130% in game
   looked the same as 100%. `InlineImageText` capped the SIZED height at the box
   (`min(textHeight × scale, contentHeight)`), and a real bar's plaque is shallower than its font, so

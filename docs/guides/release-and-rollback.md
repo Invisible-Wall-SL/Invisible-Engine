@@ -17,17 +17,17 @@ release, the rollback and Publish all read it.
 
 | Runtime id | The games on it | Built with |
 | --- | --- | --- |
-| `lines` | every slot kind: lines, Book-of, ways, cluster, scatter, Hold and Win | every family (`all`), until P11.1c strips it to slots only |
+| `lines` | every slot kind: lines, Book-of, ways, cluster, scatter, Hold and Win | slots only |
 | `match3` | match-3 games | slots + match-3 |
 | `arcade` | arcade games, offline and online | slots + arcade |
 | `card` | card games | slots + card |
 
 **Which runtime a game is on is its family**: Publish points a game at the runtime of its Game
 Config's family, and refuses a project whose kind and config disagree. A broken arcade game is on
-`arcade`, a broken ways game on `lines`. Two cases differ. A non-slot game published before its
-runtime's first release is on `lines`, which still carries every family, and the publish log says
-so. A non-slot game not republished since P11.1b is on `lines` too. The game's `X-Runtime-Release`
-header (below) always names the runtime that answered.
+`arcade`, a broken ways game on `lines`. A non-slot game cannot be published before its runtime's
+first release (`runtime-unreleased`: run "Runtime release" for that id). A non-slot game still on
+`lines` from before P11.1c shows "this runtime does not play <family> games": republish it. The
+game's `X-Runtime-Release` header (below) always names the runtime that answered.
 
 Each id has its own pointer, history, failure issue and rollback. Releasing or rolling back one id
 never moves the others.
