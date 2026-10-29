@@ -64,15 +64,22 @@ always draw on top. For each screen you can:
 - Toggle the **eye** to show/hide a screen in the canvas, **duplicate** it, or
   **delete** it (✕, with confirm).
 
-**🎮 In-game view** (canvas toolbar, on by default) makes the canvas draw what the idle game
+The canvas toolbar's **View ▾** button opens one menu of on/off switches, grouped as Preview
+(**FX preview**), Overlays (**Bounds**, **Rulers** with **Snap to guides** under it), Picking
+(**Any screen**), Game (**In-game view** with its game modes under it) and Help (**Keyboard
+shortcuts**, **Reload art**). An option under another is greyed out while its parent is off. The
+number on the button counts the switches that are on. Click outside the menu or press Esc to
+close it.
+
+**In-game view** (the canvas toolbar's **View ▾** menu, on by default) makes the canvas draw what the idle game
 shows: the background, the base game, the HUD and any always-on screen (a Hold and Win
 project's Jackpot bar and Pots), plus the screen you are editing. Menus, takeovers (buy
 feature, buy confirm, bet menu, auto spin), the loading screen, free-spin and Hold and Win
 feature screens, and screens gated by a visibility source stay off the canvas until you
 click them in the list. Their names show in italics.
 
-When the project has game-mode screens (a Hold and Win feature), a **mode menu** sits next
-to the toggle: **Base game** or the mode (e.g. **Hold and Win**). Pick the mode and the
+When the project has game-mode screens (a Hold and Win feature), the mode choices hang under
+the toggle in the View menu: **Base game** or the mode (e.g. **Hold and Win**). Pick the mode and the
 canvas draws what the game shows while that mode plays: the base game's screens plus the
 mode's board, counter, total and letters. They stay on the canvas whichever screen you
 click, the same as the base game's screens. The mode's intro, outro, wheel and jackpot
@@ -534,8 +541,8 @@ It is grouped into:
 - **Effects** — the project's authored **Invisible FX** particle effects; drag
   one in to place it at a position in the scene. The editor renders the effect's
   **live particles** right on the canvas (an overlay, the same way it shows rig
-  rigs live), following pan/zoom — toggle it with the **▶/❚❚ FX** button in the
-  toolbar. A ✨ placeholder chip still marks nodes that aren't rendering live yet
+  rigs live), following pan/zoom — toggle it with **FX preview** in the
+  canvas toolbar's **View ▾** menu. A ✨ placeholder chip still marks nodes that aren't rendering live yet
   (still loading, or a bone-attached effect). Change which effect a placed node
   references from the Properties panel. There you can also **attach the effect to
   a rig**: pick a placed rig node from the "attach to rig" dropdown and the
@@ -682,7 +689,7 @@ itself supports **zoom** (mouse wheel, cursor-anchored) and **pan**
 (Shift / middle / right-drag), with a **Fit** action.
 
 A click normally selects on the active screen only; the other screens on the canvas are just
-backdrop. Turn on **⌖ Any screen** (canvas toolbar) to select anything the canvas draws: a
+backdrop. Turn on **Any screen** (canvas toolbar → **View ▾**) to select anything the canvas draws: a
 click takes the topmost item under the pointer, whichever screen it belongs to, and an item on
 another screen makes that screen the active one with the item selected, ready to drag. Hovering
 such an item outlines it in purple, tagged `Screen › item`. The stacking is the canvas's own:
@@ -693,7 +700,7 @@ off in Animate and on the Components side, and is kept per project.
 
 #### Rulers and guides
 
-**📏 Rulers** (canvas toolbar) shows rulers on the canvas's top and left edges, labelled in
+**Rulers** (canvas toolbar → **View ▾**) shows rulers on the canvas's top and left edges, labelled in
 world (window-frame) pixels at the current zoom and pan. While the rulers are on:
 
 - **Add a guide.** Drag down from the top ruler for a horizontal guide, or right from the left
@@ -701,10 +708,10 @@ world (window-frame) pixels at the current zoom and pan. While the rulers are on
 - **Move a guide.** Drag it on the canvas (the cursor changes over it). Shift-click passes
   through to the object underneath.
 - **Remove a guide.** Drop it back on a ruler. It turns red when releasing will remove it.
-- **⌗ Snap to guides** makes a moved object's edges and centre snap to the guides, on top of the
+- **Snap to guides** (under Rulers in the View menu) makes a moved object's edges and centre snap to the guides, on top of the
   usual snapping to the frame and other objects. Turn it off to keep the guides only as lines.
 
-**📏 Rulers** is off until you turn it on, **⌗ Snap to guides** is on; both are remembered per
+**Rulers** is off until you turn it on, **Snap to guides** is on; both are remembered per
 browser. Esc cancels a guide drag. Guides are saved with the screen (on
 the Components side, with the component) and kept per device layout, so each layout tab has its
 own. Adding, moving or removing a guide is an edit: on a screen undo covers it and it autosaves; on
@@ -758,7 +765,7 @@ and Isolate. Animate leaves out the editing items.
 
 ### Keyboard shortcuts
 
-Press **Shift+/** (or **?** in the canvas bar) for this sheet over the stage. No stage key fires
+Press **Shift+/** (or **Keyboard shortcuts** in the canvas bar's **View ▾** menu) for this sheet over the stage. No stage key fires
 while you type in a field. **Enter** and **Tab** belong to the stage only when nothing else has
 focus (click the stage first); on a focused button, tile or tab they press it or move focus on.
 
@@ -2406,7 +2413,7 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   [Save and reach the game](#6-save-and-reach-the-game).
 - **Art you changed in another tool still shows the old version, or a new region draws blank.**
   The canvas keeps atlas pages, region lists, flipbook clips and art bounds for the session.
-  Click **↻ Reload art** in the canvas toolbar; no page reload needed.
+  Click **Reload art** in the canvas toolbar's **View ▾** menu; no page reload needed.
 - **Undo can't bring back your layout after ＋ Load scenes.** A load replaces every screen and
   starts a fresh undo history, and your next edit saves it over the project. Open **History…**
   and restore the version from just before the load — a load always keeps one.
