@@ -3859,10 +3859,10 @@ console.log('element fx — the wiring');
 		'a node with FX renders in one container that sorts as the node did',
 	);
 	assert(
-		/<Anchor name=\{node\.id\} \/>\s*\{#if transform\.visible && revealed\}\s*<ElementFxPlayer/.test(
+		/\{#if ownAnchor\}<Anchor name=\{node\.id\} \/>\{\/if\}\s*\{#if transform\.visible && revealed\}\s*<ElementFxPlayer/.test(
 			view,
 		),
-		'anchored by node id, playing only while shown',
+		'anchored by node id (a reserved `reels` / `stage` id excepted), playing only while shown',
 	);
 	assert(
 		/\{:else\}\s*\{@render listened\(\)\}\s*\{\/if\}\s*$/.test(view.trim() + '\n'),
