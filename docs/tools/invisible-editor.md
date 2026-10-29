@@ -1500,6 +1500,66 @@ one on for a test project first, then live games one at a time. The Game Maker c
   buttons of the default HUD are not affected) or when the project's own Button component draws
   something else.
 
+### Game Settings → Screen FX
+
+Under **Authored overlays**, **Screen FX** holds what plays over the whole game screen, HUD
+included: a transition between screens, and post FX that run every frame. Keep them light: a phone
+pays for every pixel of the screen. Anyone who saves the Scene Editor can set them (no publisher
+switch), and they ship with the layout on the next **Publish**. Three rows, top to bottom:
+
+**The transition cue plays.** Every `transition` cue (the free-spin entry and exit in the starter
+flows) plays the wipe by default. Pick a transition instead, from **Built-in (exit)** (Dissolve
+out, Burn to ashes, Melt, Shatter (glass), …) or **Custom (Shader Graph)** (the project's own
+[Shader Graph](shader-graph.md) effects), and the game freezes the screen as the cue fires and plays
+the transition over whatever the flow shows next, with no Flow edit.
+
+- **Duration ms** (50 to 5000; blank = the effect's own length) and **Strength** (0 to 4; blank =
+  1) appear once a transition is picked.
+- **The status line** says what the game makes of the row: *Every transition cue plays the wipe*
+  (the row off, or a kind that is no transition); *Every transition cue plays this instead of the
+  wipe* — the flow then goes on about 1.6 s sooner than after the wipe, and the authored
+  Transition pilot (above) is set aside; or, in amber, *Its effect does not ship* (its graph was
+  deleted or does not compile), so the wipe plays. It also warns when the project's saved flow
+  never fires `transition` (so the row never plays); a project with no saved flow runs the coded
+  one, which does.
+- **The load line** gives the transition's cost on the reference phone (390 × 844 at 2×, 1.32 M
+  pixels) against the transition budget (cost 200, 8 reads a pixel), amber when over. A built-in
+  is costed as its Shader Graph twin (Dissolve out 80, Melt 71, Burn to ashes 222 — over); a break
+  shows no load, nor does a Shader Graph effect compiled without its cost.
+- **Preview into** and **▶** play the row on the stage, through the game's own transition runtime:
+  the stage as it shows now freezes, and the transition plays into **The screens shown now** or
+  into a screen the stage does not show (say *Free-spin intro*), which is shown for that play only.
+  Esc, a click or a scroll on the stage stops it. With no stage showing, it says there is nothing
+  on the stage to play it on.
+- The cue carries nothing, so the same transition plays into the free spins and out of them; on
+  the way out the screen is already back on the base game when the cue fires.
+
+Game Maker's card says **Transition cue: screen transition** while it plays, and warns when its
+effect does not ship or the flow never fires `transition`.
+
+**Post FX.** The **Element FX** list, held to the whole stage: a grade, a vignette, a wave or a
+shine over the whole game, HUD included.
+
+- **Triggers:** *Always (loops while shown)* or *On cue*, with an optional **Stop cue**. A post FX
+  cue is offered in [Invisible Flow](flow.md)'s **Cues** list, so a Fire Cue can start and stop it.
+- **At most 2 post FX, drawing 4 filters in all** (a Shader Graph effect is one filter, plus one per
+  built-in pass it adds). **+ Add effect…** is off at two, with *At most 2 here*.
+- **Greyed kinds.** The pickers grey, with the reason, every kind the stage refuses (exit and enter
+  kinds would hide the whole game; a motion-only kind and a break move or cut it, and the stage's
+  transform is the camera's) and every kind that would pass a cap.
+- **Each row** has its load line (the cost × the reference phone's pixels against the post FX
+  budget, cost 60, 4 reads a pixel; *No compiled cost for this kind* for a built-in or a graph
+  compiled without one), or, in amber, *Does not play in the game:* and the game's own reason (a
+  kind the project no longer compiles, a refused kind, a trigger other than Always or On cue, or
+  one past a cap). The rows that play are exactly the ones the game plays.
+- **▶** plays the entry over the whole stage through the game's runtime, as a post FX: on a still
+  of every screen shown, copied from the stage every frame so what plays there keeps moving under
+  it. An *Always* entry loops twice; Esc, a click or a scroll on the stage stops it.
+
+**Anti-aliasing under stage effects.** Off by default. On, transitions, post FX and the camera
+effects keep the canvas's anti-aliasing, at about four times a stage pass's memory. WebGL2 only:
+on WebGL1 it changes nothing. ▶ previews with the switch as it is.
+
 ### Game Settings → Boot splash
 
 The right panel's **Game Settings** section carries this game's own boot splash —
@@ -2431,6 +2491,11 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   (`signal:FX_Intro` plays the Element FX whose cue is `FX_Intro`); one without it does not reach
   Element FX. Check the entry's **Trigger** too: _When shown_ plays when the screen appears, not on
   a cue.
+- **A node called `reels` or `stage` came back as `reels_node` or `stage_node`.** A node's id is
+  what the Flow aims an `elementEffect` at, and `reels` and `stage` belong to the reels and the
+  whole stage. A layout that has a node with either id (from an old save or an import) gives it a
+  free id of its own when it loads or saves; a Flow node or timeline aimed at the old id needs the
+  new one.
 
 ## Known limitations / TODOs
 

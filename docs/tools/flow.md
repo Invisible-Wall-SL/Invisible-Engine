@@ -397,7 +397,10 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
 
 An unknown target or kind does nothing, as an unknown `cameraEffect` kind does. A target that is
 not on screen when the action runs does nothing either. On `stage`, exit, enter, motion-only and
-break kinds do not play, and at most two effects (four filters in all) play there at once.
+break kinds do not play, and at most two effects (four filters in all) play there at once. With
+the target set to `stage`, the **kind** dropdown marks each of those kinds *— does not play on the
+whole stage* (still pickable); picking one shows the reason under the inputs, and Validation lists
+a `stage-fx-refused` warning. A light, distortion or loop kind with a pixel pass plays there.
 
 ### Screen transitions (from one screen to the next)
 
@@ -405,9 +408,11 @@ A **screen transition** plays from the screen that was up to the one the flow sh
 dissolve, a burn, a shatter, or a [Shader Graph](shader-graph.md) effect that reads both screens.
 
 - **`screenTransition`** (Actions):
-  - **kind** — a built-in exit effect (dissolve out, burn to ashes, melt, shatter, …), then the
-    project's own `custom:<id>` effects. A built-in plays on a frozen picture of the old screen as
-    it leaves; a Shader Graph effect that reads the **Screens** node gets both screens.
+  - **kind** — a dropdown in two groups: **Built-in (exit)** (Pop out, Fade out, Melt, Burn to
+    ashes, Dissolve out, Crash, Crumble, Shatter (glass), Crystallize (ice shards), Dissolve to
+    particles), then **Custom (Shader Graph)**, the project's own effects by name. A built-in plays
+    on a frozen picture of the old screen as it leaves; a Shader Graph effect that reads the
+    **Screens** node gets both screens.
   - **durationMs** (50 ms to 5 s), **intensity** (capped at 4), **color** and **reverse** are
     optional.
   - **blocking** — off by default: the old screen is frozen, the flow goes on at once, and the
@@ -416,16 +421,28 @@ dissolve, a burn, a shatter, or a [Shader Graph](shader-graph.md) effect that re
 - **`waitForScreenTransition`** holds the chain until no transition is playing (goes on at once
   when none is).
 
+**The inspector.** Under a `screenTransition`'s inputs, once a kind is picked, the inspector shows
+its load on the reference phone (390 × 844 at 2×): its cost × the phone's 1.32 M pixels against
+the transition budget (cost 200, 8 reads a pixel), amber when over. A built-in is costed as its
+Shader Graph twin (Dissolve out 80, Melt 71, Burn to ashes 222, which is over); a break shows no
+load, and so does a Shader Graph effect compiled without its cost. Then the hint: *Freezes the
+screen and goes on at once. Put the screen change right after this node, then **Wait for
+transition**.* With a Shader Graph kind picked, **Open in Shader Graph ↗** opens its graph in
+[Invisible Shader Graph](shader-graph.md) (if your role has it).
+
 Only one transition plays at a time; a second one ends the first. A slam (the player's stop
 press) cuts a playing transition straight to the new screen. If the effect can't play (not
 shipped, refused, no WebGL), the game fades or cuts instead — it never goes black or stalls.
 
 **The transition cue.** A project can also play one on every `transition` cue (free-spin entry and
-exit) instead of the wipe, set by the layout's `transitionCue` setting (its row in the Scene
-Editor's Game Settings → Screen FX is still to come; until then an editor save drops it). While it
-is on, the authored Transition pilot is set aside, and Game Maker shows a **Transition cue: screen
-transition** chip. On free-spin exit the screen is already back on the base game when the cue
-fires, so that transition plays over the base game, not out of the free spins.
+exit) instead of the wipe, set in the Scene Editor's
+[Game Settings → Screen FX](invisible-editor.md#game-settings--screen-fx) (**The transition cue
+plays**), with no Flow edit. While it is on, the authored Transition pilot is set aside, and Game
+Maker shows a **Transition cue: screen transition** chip. On free-spin exit the screen is already
+back on the base game when the cue fires, so that transition plays over the base game, not out of
+the free spins. With that row on, a flow that never fires `transition` gets an amber note above
+the Validation panel (*… this flow never fires transition, so it never plays*); Game Maker warns
+the same way (**Transition cue: the flow never fires transition**).
 
 ### Containers (screens as z-ordered layers)
 
@@ -1256,6 +1273,13 @@ Publish still ships (and lists the screens in a note); the game logs it to the c
 `ne` to a literal of another kind, so it is always false (`eq`) or always true (`ne`) — see
 [Comparing in a guard](#edit-a-node-the-inspector). It never blocks Publish.
 
+`screen-transition-unwaited` (blue hint) is a `screenTransition` that is not blocking and whose
+chain never reaches a **Wait for transition** (in the graph or in a function it calls): it plays
+under whatever comes next. That can be what you want; if the next beat should wait for it, put a
+`waitForScreenTransition` after the screen change. A blocking one, or one whose **blocking** is
+wired, gets nothing. `stage-fx-refused` (amber) is an `elementEffect` on `stage` whose kind the
+stage refuses (see [Element FX](#element-fx-effects-on-one-element)). Neither blocks Publish.
+
 `symbol-not-in-play` (amber) is a symbol the flow names that the project's Game Config no longer
 has in play (taken off the reels in Invisible Game Config). The flow keeps it as authored, so it
 still loads and runs; the warning names the node and the symbol. It never blocks Publish.
@@ -1303,6 +1327,12 @@ The timeline adds **var** rows (`lives = 2`) and **timer** rows (`spawn ran out`
 rows too, but the panel can't press a key yet (see
 [Known limitations](#known-limitations--todos)). A flow with none of them previews exactly as
 before.
+
+**Screen transitions.** A `screenTransition` row ends with its length (`· 900 ms`, the set
+**durationMs** or the kind's own, ÷ the speed; *its effect's own length* for a Shader Graph kind
+whose length the page does not know), and *holds the chain* when it is blocking, which moves the
+clock by that length. A `waitForScreenTransition` row says how long it holds (`· holds 900 ms`,
+until the last transition ends) or *nothing playing*.
 
 **Spawns.** A Spawn shows as a **spawn** row (`coin → Field · <instance>`), or, when the layer
 refused it, a highlighted row naming why (`refused: the layer is full`). A Despawn shows as a
