@@ -52,6 +52,7 @@
 		'variable-scope': '⤫',
 		'variable-duplicate': '⧉',
 		'variable-shadows-money': '$',
+		'variable-server-owned': '⇅',
 		'tick-async': '⏱',
 		'tick-fast': '⏱',
 		'input-unknown': '⌨',

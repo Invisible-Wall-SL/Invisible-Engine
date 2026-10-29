@@ -51,7 +51,9 @@ import {
 	reconcilerStep,
 	snapFor,
 } from '../packages/engine-mechanics/src/netcode.js';
-import { STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
+import { BUTTONS } from '../packages/engine-mechanics/src/online.js';
+import { createAbilityPredictor } from '../packages/engine-mechanics/src/onlineFlow.js';
+import { GRACE_MS, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createRoomSim, inputsThisStep } from '../services/game-server/src/roomSim.ts';
 import { Player } from '../services/game-server/src/schema.ts';
@@ -867,6 +869,61 @@ for (const netcode of ['engine', 'colyseus'])
 	);
 
 await check(
+	'a predicted swipe is raised on the press, a round trip before the room tells of it',
+	() => {
+		const TICK = 30;
+		const game = gameOf({
+			tickHz: TICK,
+			rules: {
+				abilities: [
+					{
+						character: 'bear',
+						button: 'ability1',
+						reach: 80,
+						targets: ['salmon'],
+						effect: 'stun',
+						ms: 400,
+						score: 1,
+						cooldownMs: 600,
+					},
+				],
+			},
+		});
+		const sim = createRoomSim(game);
+		sim.join('s', { character: 'salmon' });
+		sim.join('b', { character: 'bear' });
+		sim.events();
+		const graceSteps = Math.round((GRACE_MS * TICK) / 1000);
+		for (let i = 0; i < graceSteps; i++) sim.step(() => []);
+		// 150 ms each way: an input reaches the room 5 steps after it is sent, and the room's event
+		// reaches the device 5 steps after that.
+		const LAG = 5;
+		const device = createAbilityPredictor(game, 'bear');
+		const inFlight = [];
+		const drawn = [];
+		const told = [];
+		let seq = 0;
+		for (let step = 0; step < 150; step++) {
+			const buttons = step % 40 < 25 ? BUTTONS.ability1 : 0;
+			seq += 1;
+			inFlight.push({ due: step + LAG, input: clampInput({ seq, buttons, view: 0 }, game.field) });
+			for (const button of device.step(buttons, true)) drawn.push({ step, button });
+			const arriving = inFlight.filter((f) => f.due === step).map((f) => f.input);
+			for (const event of sim.step((id) => (id === 'b' ? arriving : [])))
+				if (event.type === 'ability' && event.by === 'b')
+					told.push({ step: step + LAG, button: event.button });
+		}
+		const roundTrip = told.slice(0, drawn.length).map((t, i) => t.step - drawn[i].step);
+		assert.ok(drawn.length >= 5, `${drawn.length} swipes`);
+		assert.ok(told.length >= drawn.length - 1, 'the room used every swipe drawn but the last');
+		assert.ok(
+			roundTrip.every((d) => d === 2 * LAG),
+			`each swipe was drawn on its press, ${2 * LAG} steps before the room's word: ${roundTrip}`,
+		);
+	},
+);
+
+await check(
 	'the runtime runs this netcode: predicted own player (either netcode), interpolated others, view sent',
 	() => {
 		const source = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
@@ -886,6 +943,34 @@ await check(
 		]) {
 			assert.ok(source.includes(used), `online.ts does not use ${used}`);
 		}
+	},
+);
+
+await check(
+	"the runtime gives Flow the room: its events, its values, the press's abilities; out is hidden",
+	() => {
+		const source = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
+		const body = (name) => {
+			const at = source.indexOf(`function ${name}(`);
+			assert.ok(at >= 0, `online.ts has no ${name}`);
+			return source.slice(at, source.indexOf('\n}\n', at));
+		};
+		const joining = body('joinOnlineRoom');
+		assert.ok(/onMessage\(ONLINE_EVENT[\s\S]*flowSignalsOf\([\s\S]*raise\(/.test(joining));
+		assert.ok(body('raise').includes('getFlowV2()?.dispatch(signal.name, signal.payload)'));
+		assert.ok(body('received').includes('bindServerVariables(current, state)'));
+		assert.ok(body('bindServerVariables').includes('serverValuesOf('));
+		assert.ok(body('bindServerVariables').includes('serverVariablesOf('));
+		// Raised in the fixed step that sends the input, not when the room answers.
+		const tick = body('tickOnline');
+		assert.ok(/handle\.send\(\);[\s\S]*predictAbilities\(current, input\.buttons\)/.test(tick));
+		assert.ok(body('predictAbilities').includes('abilitySignal('));
+		const draw = body('draw');
+		assert.equal(
+			draw.split('shownInRoom(player)').length - 1,
+			2,
+			'an out player is despawned and not spawned',
+		);
 	},
 );
 

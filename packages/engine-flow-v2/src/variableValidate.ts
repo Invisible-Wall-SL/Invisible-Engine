@@ -8,6 +8,8 @@
  *  - `variable-unknown`, `variable-scope` (a mode's variable used outside its mode) and
  *    `variable-type` (a toggle of a number, a threshold on a bool…) on the nodes and `$var` reads;
  *  - `variable-shadows-money` on a variable fed to a money value in an RGS game;
+ *  - `variable-server-owned` on a variable an online room writes (`server`): one naming no room
+ *    value, one not game-scoped, and a Set or Change of it (the online twin of the money rule);
  *  - `tick-async` (a tick chain waits on something) and `tick-fast` (a tick under 100 ms);
  *  - `input-unknown` (an On Input naming an action the key map lacks).
  */
@@ -16,7 +18,13 @@ import { flattenGroups } from './collapse';
 import type { PinContext } from './pins';
 import type { DataSource, FlowDoc, FlowVariable, FunctionLibraryDoc, Graph, Node } from './types';
 import type { FlowIssue } from './validate';
-import { coerceVariableValue, docVariables, type FlowVariableDecl } from './variables';
+import {
+	SERVER_VARIABLE_SOURCES,
+	coerceVariableValue,
+	docVariables,
+	serverSourceFits,
+	type FlowVariableDecl,
+} from './variables';
 
 /** The engine values that are money (§2.2 #3): a variable may not take one's name. */
 export const MONEY_VALUE_NAMES: readonly string[] = ['balance', 'win', 'totalWin', 'bet'];
@@ -119,6 +127,43 @@ export const variableDeclIssues = (doc: FlowDoc, outcome: PinContext['outcome'])
 				at: at(v.id),
 			});
 		}
+		if (v.server !== undefined) issues.push(...serverDeclIssues(v));
+	}
+	return issues;
+};
+
+/** A server-owned variable names a room value it can hold, and is never reset by Flow. */
+const serverDeclIssues = (v: FlowVariableDecl): FlowIssue[] => {
+	const kind = Object.hasOwn(SERVER_VARIABLE_SOURCES, v.server ?? '')
+		? SERVER_VARIABLE_SOURCES[v.server ?? '']
+		: undefined;
+	if (!kind) {
+		return [
+			{
+				code: 'variable-server-owned',
+				severity: 'error',
+				message: `variable '${v.id}' mirrors '${v.server}', which is not a room value (${Object.keys(SERVER_VARIABLE_SOURCES).join(', ')})`,
+				at: at(v.id),
+			},
+		];
+	}
+	const issues: FlowIssue[] = [];
+	if (VARIABLE_TYPES.has(v.type) && !serverSourceFits(v.type, kind)) {
+		issues.push({
+			code: 'variable-type',
+			severity: 'error',
+			message: `variable '${v.id}' is a ${v.type}, but the room's ${v.server} is a ${kind}`,
+			at: at(v.id),
+		});
+	}
+	if (v.scope !== 'game') {
+		issues.push({
+			code: 'variable-server-owned',
+			severity: 'error',
+			message: `variable '${v.id}' mirrors the room's ${v.server}, so its scope is 'game': only the room changes it`,
+			at: at(v.id),
+			...(v.mode ? { mode: v.mode } : {}),
+		});
 	}
 	return issues;
 };
@@ -203,6 +248,14 @@ export const variableNodeIssues = (
 			if (id === undefined) continue;
 			const decl = judge(node, id, undefined);
 			if (!decl) continue;
+			if (decl.server && (node.kind === 'setVariable' || node.kind === 'changeVariable')) {
+				issues.push({
+					code: 'variable-server-owned',
+					severity: 'error',
+					message: `${node.kind === 'setVariable' ? 'set' : 'change'} node '${node.id}' writes '${id}', which the room owns (its ${decl.server}) — Flow may only read it`,
+					at: { on: 'node', node: node.id },
+				});
+			}
 			const numeric = decl.type === 'int' || decl.type === 'float';
 			if (node.kind === 'changeVariable') {
 				const ok = node.op === 'toggle' ? decl.type === 'bool' : numeric;

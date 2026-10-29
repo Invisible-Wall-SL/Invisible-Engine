@@ -5,10 +5,17 @@ import {
 	MOVE_SCALE,
 	ONLINE_EVENT,
 	STATUS,
+	abilitySignal,
 	characterBody,
 	clampInput,
+	createAbilityPredictor,
 	createCamera,
 	createFixedStep,
+	flowSignalsOf,
+	serverValuesOf,
+	shownInRoom,
+	type AbilityPredictor,
+	type OnlineFlowSignal,
 	createInterpolator,
 	createPredictor,
 	createRng,
@@ -26,12 +33,14 @@ import {
 	type Predictor,
 	type SnapshotClock,
 } from 'engine-mechanics';
+import { serverVariablesOf } from 'engine-flow-v2';
 import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
 import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
-import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import { bakedFlowV2Doc, bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
 import { typingInto } from './flowKeys';
+import { getFlowV2 } from './flowV2InterpreterHolder';
 
 /**
  * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §6, §10; P10.14, P10.15) —
@@ -51,6 +60,12 @@ import { typingInto } from './flowKeys';
  * predictor above; `colyseus` is the SDK's own `Predict` reconciler (`engine-rooms/predict`,
  * awaited and called only then), running the same step (`reconcilerStep`). Everyone else is
  * interpolated the same way in both, so `view` means the same.
+ *
+ * FLOW (P11.2): the room's events reach the flow as its online events (`flowSignalsOf`), and the
+ * room's scores and round are written, on each state, into the variables the flow declares the
+ * room owns (`FlowVariable.server`), which its HUD binds as `var:<id>`. The own player's abilities
+ * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
+ * drawn at once. A player that is out is not drawn until it respawns.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
@@ -77,11 +92,12 @@ type RoomState = {
 	step: number;
 	phase: string;
 	round: number;
+	endsAt: number;
 	winner: string;
 	players: Map<string, PlayerState>;
 };
 
-/** How many of the room's events the probe keeps. */
+/** How many of the room's events, and of the flow signals raised, the probe keeps. */
 const EVENTS_KEPT = 32;
 
 type Session = {
@@ -102,6 +118,12 @@ type Session = {
 	drawn: Map<string, string>;
 	refused: Set<string>;
 	events: OnlineEvent[];
+	/** The own player's abilities, raised on the press; made with its first place. */
+	abilities: AbilityPredictor | undefined;
+	/** The flow signals raised, newest last (the probe's). */
+	signals: OnlineFlowSignal[];
+	/** The flow's variables the room writes, read once the flow is up. */
+	serverVariables: { id: string; server: string }[] | undefined;
 };
 
 let session: Session | undefined;
@@ -225,13 +247,43 @@ export async function joinOnlineRoom(): Promise<void> {
 		drawn: new Map(),
 		refused: new Set(),
 		events: [],
+		abilities: undefined,
+		signals: [],
+		serverVariables: undefined,
 	};
 	session = current;
 	room.onStateChange(() => received(current, performance.now()));
 	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
+		const players = stateOf(current.room).players;
+		for (const signal of flowSignalsOf(events, current.room.sessionId, (id) => {
+			const player = players?.get(id);
+			return player && { ...placeOf(current, id, player), character: player.character };
+		}))
+			raise(current, signal);
 	});
+}
+
+/** Raise a room event in the flow (an online event). */
+function raise(current: Session, signal: OnlineFlowSignal) {
+	current.signals.push(signal);
+	current.signals.splice(0, current.signals.length - EVENTS_KEPT);
+	void getFlowV2()?.dispatch(signal.name, signal.payload);
+}
+
+/** Write the room's values into the flow's variables the room owns; the next frame delivers them. */
+function bindServerVariables(current: Session, state: Partial<RoomState>) {
+	const store = getFlowV2()?.state;
+	if (!store) return;
+	current.serverVariables ??= serverVariablesOf(bakedFlowV2Doc() ?? {});
+	if (!current.serverVariables.length) return;
+	const values: Record<string, unknown> = serverValuesOf(
+		state,
+		current.room.sessionId,
+		current.game.online.tickHz,
+	);
+	for (const { id, server } of current.serverVariables) store.write(id, values[server]);
 }
 
 /** The own player's predictor, from its first place in the room. */
@@ -266,12 +318,14 @@ function received(current: Session, nowMs: number) {
 	const players = state.players;
 	if (!players || state.step === undefined) return;
 	current.view.observe(state.step, nowMs);
+	bindServerVariables(current, state);
 	current.others.retain(new Set(players.keys()));
 	players.forEach((player, id) => {
 		if (id !== current.room.sessionId) {
 			current.others.push(id, state.step!, player.x, player.y);
 			return;
 		}
+		current.abilities ??= createAbilityPredictor(current.game, player.character);
 		// The SDK reconciles on its own, from the input acknowledgement each state carries.
 		if (current.sdk) {
 			current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
@@ -325,13 +379,15 @@ function draw(current: Session) {
 	const players = stateOf(current.room).players;
 	if (!players) return;
 	for (const [id, instance] of current.drawn) {
-		if (!players.has(id)) {
+		const player = players.get(id);
+		if (!player || !shownInRoom(player)) {
 			live.despawn(instance);
 			current.drawn.delete(id);
 		}
 	}
 	const moves: { id: string; x: number; y: number }[] = [];
 	players.forEach((player, id) => {
+		if (!shownInRoom(player)) return;
 		const at = placeOf(current, id, player);
 		const instance = current.drawn.get(id);
 		if (instance) {
@@ -375,6 +431,26 @@ function follow(current: Session, dtMs: number) {
 	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY: camera.offsetY });
 }
 
+/** Raise the own player's abilities the input uses, on the press: drawn before the room answers. */
+function predictAbilities(current: Session, buttons: number) {
+	const state = stateOf(current.room);
+	const me = state.players?.get(current.room.sessionId);
+	if (!current.abilities || !me) return;
+	const free = state.phase === 'running' && me.status === STATUS.free;
+	const at = ownPlace(current);
+	for (const button of current.abilities.step(buttons, free))
+		raise(
+			current,
+			abilitySignal(
+				current.room.sessionId,
+				button,
+				current.room.sessionId,
+				at && { ...at, character: me.character },
+				true,
+			),
+		);
+}
+
 /** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
@@ -391,6 +467,7 @@ export function tickOnline(dtMs: number) {
 		Object.assign(handle.data, input);
 		handle.send();
 		current.me?.input(input);
+		predictAbilities(current, input.buttons);
 	});
 	current.me?.frame(dtMs);
 	draw(current);
@@ -404,9 +481,11 @@ export function onlineProbe() {
 	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
 	const drawn: { id: string; x: number; y: number }[] = [];
+	const hidden: string[] = [];
 	state?.players?.forEach((p, id) => {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
-		if (current) drawn.push({ id, ...placeOf(current, id, p) });
+		if (!shownInRoom(p)) hidden.push(id);
+		else if (current) drawn.push({ id, ...placeOf(current, id, p) });
 	});
 	const camera = worldCamera?.camera;
 	return {
@@ -443,6 +522,11 @@ export function onlineProbe() {
 							]),
 						),
 						events: [...current.events],
+						hidden,
+						signals: current.signals.map((s) => ({ ...s })),
+						spawned: spawnStore()
+							.live(current.game.online.layer)
+							.map((instance) => instance.componentId),
 					},
 				}
 			: {}),

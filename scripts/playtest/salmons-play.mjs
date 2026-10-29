@@ -9,7 +9,11 @@
 // each page is sent only the players near its own (the bear on its bank is not sent to the salmon
 // at the sea); page A's camera frames its own salmon; ArrowUp held on page A swims its salmon
 // upstream and the camera follows; at rest page A draws its own salmon where the room has it; nothing
-// reached an RGS; no page error. The playbook is docs/playtest/salmons.md. It builds its own
+// reached an RGS; no page error. With P11.2 it plays Salmons' flow (`engine-flow-v2`
+// `SALMONS_SEED_DOC`) too: the HUD shows the room's score and round (variables the room owns); page
+// B's J draws the bear's swipe on the press, before the room tells of it; and page C, in a room
+// of its own whose rounds last 5 s (`rooms_game=salmons-short`), sees the round-over screen come up
+// at the round's end and go at the next. The playbook is docs/playtest/salmons.md. It builds its own
 // snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
 // camera under that netcode; the pages must report the mode they ran.
@@ -33,6 +37,7 @@ import {
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
@@ -84,11 +89,21 @@ const snapshot = join(work, 'snapshot');
 mkdirSync(join(snapshot, 'deploy'), { recursive: true });
 writeFileSync(
 	join(snapshot, 'runtime.json'),
-	JSON.stringify({ doc, componentDefs, componentDefaults: {}, config }),
+	JSON.stringify({ doc, componentDefs, componentDefaults: {}, config, flowV2: SALMONS_SEED_DOC }),
 );
 const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
+// The same game with 5 s rounds and 3 s between them, for page C's round over.
+const SHORT = 'salmons-short';
+const short = structuredClone(authored);
+short.arcade.online.rules.round = {
+	...short.arcade.online.rules.round,
+	seconds: 5,
+	nextRoundSeconds: 3,
+};
+short.arcade.online.bots.fillTo = 0;
+writeFileSync(join(configs, `${SHORT}.json`), JSON.stringify(normalizeGameConfigDoc(short)));
 
 const HOOK = `(() => {
 	const wire = (window.__AR_WIRE__ = []);
@@ -168,10 +183,11 @@ async function ready(page) {
 		key: (name, type) =>
 			page.page('Input.dispatchKeyEvent', {
 				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-				key: name,
+				key: { KeyJ: 'j' }[name] ?? name,
 				code: name,
-				windowsVirtualKeyCode: { ArrowUp: 38 }[name],
+				windowsVirtualKeyCode: { ArrowUp: 38, KeyJ: 74 }[name],
 			}),
+		flow: (expr) => page.evaluate(`(() => { const f = window.__IE_FLOW_V2__; return ${expr}; })()`),
 	};
 }
 
@@ -185,6 +201,8 @@ const settle = async (game, ms) => {
 };
 const players = async (game) => (await game.state()).arcade?.bodies ?? [];
 const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
+const shown = (game) => game.flow('f ? f.ordered().map((c) => c.id) : []');
+const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
 try {
 	const a = await ready(await boot('a', { rooms_name: 'Ann', rooms_character: 'salmon' }));
@@ -289,9 +307,98 @@ try {
 	writeFileSync(join(out, '03-salmon-upstream.png'), await a.page.screenshot());
 	result.shots.push('03-salmon-upstream.png');
 
+	// The HUD: the room's own values, bound as variables the room owns.
+	const hudA = await shown(a);
+	const roomA = (await a.state()).arcade?.online;
+	const hud = {
+		shown: hudA,
+		score: await variable(a, 'score'),
+		round: await variable(a, 'round'),
+		secondsLeft: await variable(a, 'secondsLeft'),
+		room: { round: roomA?.round, score: roomA?.scores?.[me] },
+	};
+	verdict(
+		'page A shows the HUD over the river, with the room’s round and its own score',
+		hudA.includes('salmonsHud') &&
+			hudA.includes('basegame') &&
+			!hudA.includes('salmonsRoundOver') &&
+			hud.round === roomA?.round &&
+			hud.round >= 1 &&
+			hud.score === roomA?.scores?.[me] &&
+			hud.secondsLeft > 0,
+		hud,
+	);
+
+	// The bear's swipe, drawn on the press.
+	await b.key('KeyJ', 'down');
+	await b.play([{ op: 'step', frames: 3 }]);
+	const pressed = (await b.state()).arcade?.online;
+	await b.key('KeyJ', 'up');
+	const predicted = pressed?.signals.filter((s) => s.name === 'ability' && s.payload.mine);
+	const toldYet = pressed?.events.filter((e) => e.type === 'ability' && e.by === meB);
+	verdict(
+		'page B’s J draws the bear’s swipe on the press, before the room tells of it',
+		predicted?.length === 1 &&
+			predicted[0].payload.predicted === true &&
+			predicted[0].payload.character === 'bear' &&
+			pressed.spawned.includes('salmonsSwipe') &&
+			toldYet.length === 0,
+		{ predicted, spawned: pressed?.spawned, toldYet },
+	);
+	writeFileSync(join(out, '04-bear-swipes.png'), await b.page.screenshot());
+	result.shots.push('04-bear-swipes.png');
+	await settle(b, 800);
+	const after = (await b.state()).arcade?.online;
+	verdict(
+		'…the room then tells of it, the device does not draw it twice, and the swipe is gone',
+		after.events.some((e) => e.type === 'ability' && e.by === meB) &&
+			after.signals.filter((s) => s.name === 'ability' && s.payload.mine).length === 1 &&
+			!after.spawned.includes('salmonsSwipe'),
+		{ events: after.events, spawned: after.spawned },
+	);
+
+	// A round's end and the next round, in a room of 5 s rounds.
+	const c = await ready(
+		await boot('c', { rooms_name: 'Cy', rooms_character: 'salmon', rooms_game: SHORT }),
+	);
+	await settle(c, 600);
+	const roundOne = await variable(c, 'round');
+	let over;
+	for (let i = 0; i < 40 && !over; i++) {
+		await settle(c, 300);
+		if ((await shown(c)).includes('salmonsRoundOver'))
+			over = {
+				shown: await shown(c),
+				secondsLeft: await variable(c, 'secondsLeft'),
+				signals: (await c.state()).arcade?.online?.signals.map((s) => s.name),
+			};
+	}
+	verdict(
+		'page C: the round ends, its flow hears it and shows the round over, counting down',
+		!!over &&
+			roundOne === 1 &&
+			over.signals.includes('roundEnd') &&
+			over.secondsLeft > 0 &&
+			over.secondsLeft <= 3,
+		{ roundOne, over },
+	);
+	if (over) writeFileSync(join(out, '05-round-over.png'), await c.page.screenshot());
+	if (over) result.shots.push('05-round-over.png');
+	let next;
+	for (let i = 0; i < 30 && !next; i++) {
+		await settle(c, 300);
+		if ((await variable(c, 'round')) === 2) next = await shown(c);
+	}
+	verdict(
+		'…and the next round hides it again',
+		!!next && !next.includes('salmonsRoundOver') && next.includes('salmonsHud'),
+		next,
+	);
+
 	for (const [name, game] of [
 		['A', a],
 		['B', b],
+		['C', c],
 	]) {
 		const wire = await game.page.evaluate('window.__AR_WIRE__');
 		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
@@ -301,6 +408,7 @@ try {
 	}
 	await a.page.close();
 	await b.page.close();
+	await c.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();

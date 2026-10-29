@@ -1004,6 +1004,24 @@ spawning work as in any flow.
 | `leaveBounds` | `instance`, `edge` | A body whose Edges are `pass` was on the field and is now wholly off it, by `edge` (`left`, `right`, `top`, `bottom`). One spawned off the field to come in has not left it. It stays alive until you Despawn it. |
 | `characterState` | `instance`, `character`, `from`, `to` | A character's brain moved to another state on its own (a guard spotted the player: `patrol` → `chase`). `character` is its id in the config. Not raised for **Set Character State**. |
 
+**Online-room signals** (only in a game with `arcade.online`; the room decides them, the flow only
+shows them). A player is its room id; `me` / `mine` say whether it is this device's own:
+
+| Signal | Payload | When it fires |
+|---|---|---|
+| `playerJoined` / `playerLeft` | `player`, `me` | A player joined or left the room. |
+| `hit` | `by`, `target`, `effect`, `mine`, `me` | An ability stunned a player (or passed `tag` on). |
+| `caught` | `by`, `target`, `effect`, `mine`, `me` | An ability caught a player. It is out, and not drawn, until it respawns. |
+| `roundStart` | `round` | A round started: everyone is back at the spawn with no score. |
+| `roundEnd` | `round`, `winner`, `won` | A round ended, at the goal or on its clock; the next one starts by itself. |
+| `ability` | `player`, `character`, `button`, `x`, `y`, `mine`, `predicted` | A player used an ability (a swipe, a cast) at `x`, `y`. This device's own fires on the key press (`predicted`), before the room answers, so draw it here; everyone else's when the room tells. |
+
+**Room values.** A variable can mirror a value the room owns: give it `server` — `score` or `status`
+(this device's player), `round`, `phase`, `secondsLeft` (in the round, or until the next), `winner`
+or `won`. The game writes it from every room state, so a HUD Text Box bound to `var:<id>` shows it.
+Flow only reads it: a Set or Change of it is refused (`variable-server-owned`). The Variables panel
+does not set `server` yet; it is in the flow's file (the Salmons export writes it).
+
 **Actions** — each aims at the instance fed to **instance**, or, with **instance** unwired, at
 every body carrying the tag in **tagged** (`player`):
 
@@ -1237,7 +1255,9 @@ values, a starting value of the wrong type, a threshold on a non-number, a set t
 lacks), `variable-scope` (a mode's variable used outside that mode, or a scope that doesn't match
 where it is declared), `variable-duplicate` (two variables with one id), `variable-shadows-money`
 (in a real-money game, a variable named `balance`, `win`, `totalWin` or `bet`, or one fed into a
-money amount — money comes only from the server), and `tick-async` (a tick chain reaches a Delay,
+money amount — money comes only from the server), `variable-server-owned` (a Set or Change of a
+variable the online room owns, one whose `server` names no room value, or one not `game`-scoped),
+and `tick-async` (a tick chain reaches a Delay,
 an awaited cue or cinematic, a held Show or a Wait for state; start a timer instead). Two are
 warnings: `tick-fast` (a tick under 100 ms, or every frame) and `input-unknown` (an **On input**
 action no key is mapped to).

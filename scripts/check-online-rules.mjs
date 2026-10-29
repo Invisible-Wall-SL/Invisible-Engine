@@ -28,6 +28,14 @@ import {
 	STATUS,
 } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
+	SERVER_VALUE_KINDS,
+	createAbilityPredictor,
+	flowSignalsOf,
+	serverValuesOf,
+	shownInRoom,
+} from '../packages/engine-mechanics/src/onlineFlow.js';
+import { SERVER_VARIABLE_SOURCES } from '../packages/engine-flow-v2/src/variables.ts';
+import {
 	ONLINE_RULES_MODULE_IDS,
 	normalizeGameConfigDoc,
 	onlineGameOf,
@@ -579,7 +587,143 @@ await check('the same inputs replay to the same bodies, scores and events', () =
 	}
 });
 
-// --- 4. live: a real server ----------------------------------------------------------------------
+// --- 4. what reaches Flow (P11.2) ---------------------------------------------------------------
+
+// The online events' names against the arcade vocabulary: the launcher's check:flow-variables.
+await check("the room values are the ones Flow's variables may mirror", () => {
+	assert.deepEqual(SERVER_VALUE_KINDS, SERVER_VARIABLE_SOURCES);
+});
+
+await check('room events become Flow signals; the own ability is left to the press', () => {
+	const room = roomOf({ abilities: [CATCH], round: { seconds: 5, nextRoundSeconds: 1 } });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 400;
+	b.body.x = 445;
+	room.ready();
+	room.hold({ b: SWIPE }, 1);
+	room.hold({}, 5 * TICK);
+	const drawn = (id) => ({
+		x: id === 'b' ? 445 : 0,
+		y: 300,
+		character: id === 'b' ? 'bear' : 'salmon',
+	});
+	const forA = flowSignalsOf(room.events, 'a', drawn);
+	const names = forA.map((s) => s.name);
+	assert.deepEqual(names.slice(0, 3), ['roundStart', 'playerJoined', 'playerJoined']);
+	assert.ok(names.includes('caught') && names.includes('roundEnd'), JSON.stringify(names));
+	assert.deepEqual(forA.find((s) => s.name === 'caught').payload, {
+		by: 'b',
+		target: 'a',
+		effect: 'catch',
+		mine: false,
+		me: true,
+	});
+	assert.deepEqual(forA.find((s) => s.name === 'ability').payload, {
+		player: 'b',
+		character: 'bear',
+		button: 'ability1',
+		x: 445,
+		y: 300,
+		mine: false,
+		predicted: false,
+	});
+	const forB = flowSignalsOf(room.events, 'b', drawn);
+	assert.ok(!forB.some((s) => s.name === 'ability'), "the bear's own swipe is raised on its press");
+	assert.equal(forB.find((s) => s.name === 'caught').payload.mine, true);
+	assert.deepEqual(forB.find((s) => s.name === 'roundEnd').payload, {
+		round: 1,
+		winner: 'b',
+		won: true,
+	});
+});
+
+await check('server-owned values come from the room: scores, status, round, clock, winner', () => {
+	const room = roomOf({ abilities: [CATCH], round: { seconds: 5, nextRoundSeconds: 1 } });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 400;
+	b.body.x = 445;
+	room.ready();
+	room.hold({ b: SWIPE }, 1);
+	const state = () => ({
+		step: room.sim.steps,
+		phase: room.sim.rules.phase,
+		round: room.sim.rules.round,
+		endsAt: room.sim.rules.endsAt,
+		winner: room.sim.rules.winner,
+		players: room.sim.players,
+	});
+	assert.deepEqual(serverValuesOf(state(), 'b', TICK), {
+		score: CATCH.score,
+		status: 'free',
+		round: 1,
+		phase: 'running',
+		secondsLeft: Math.ceil((room.sim.rules.endsAt - room.sim.steps) / TICK),
+		winner: '',
+		won: false,
+	});
+	const ofA = serverValuesOf(state(), 'a', TICK);
+	assert.equal(ofA.status, 'out');
+	assert.ok(ofA.secondsLeft >= 3 && ofA.secondsLeft <= 4);
+	room.hold({}, 4 * TICK);
+	assert.deepEqual(
+		[serverValuesOf(state(), 'b', TICK).won, serverValuesOf(state(), 'a', TICK).winner],
+		[true, 'b'],
+	);
+	assert.equal(serverValuesOf({}, 'a', TICK).phase, 'waiting');
+});
+
+await check('an out player is hidden until it respawns', () => {
+	const room = roomOf({ abilities: [CATCH] });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 400;
+	b.body.x = 445;
+	room.ready();
+	assert.ok(shownInRoom(a));
+	room.hold({ b: SWIPE }, 1);
+	assert.equal(shownInRoom(a), false);
+	assert.ok(shownInRoom(b));
+	room.hold({}, TICK + 1);
+	assert.ok(shownInRoom(a), 'respawned, it is drawn again');
+	a.status = STATUS.stunned;
+	assert.ok(shownInRoom(a), 'a stunned player is still drawn');
+});
+
+await check('a predicted ability is raised on the press, at every step the room uses it', () => {
+	const room = roomOf({ abilities: [CATCH, { ...CATCH, button: 'ability2', cooldownMs: 300 }] });
+	room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	room.ready();
+	const bear = createAbilityPredictor(room.sim.game, 'bear');
+	const salmon = createAbilityPredictor(room.sim.game, 'salmon');
+	const predicted = [];
+	const pressed = [];
+	for (let i = 0; i < 90; i++) {
+		const buttons = (i % 7 < 5 ? BUTTONS.ability1 : 0) | (i % 11 < 3 ? BUTTONS.ability2 : 0);
+		const before = room.events.length;
+		room.press('b', { buttons });
+		room.step();
+		pressed.push(...bear.step(buttons, b.status === STATUS.free).map((button) => [i, button]));
+		predicted.push(
+			...room.events
+				.slice(before)
+				.filter((e) => e.type === 'ability' && e.by === 'b')
+				.map((e) => [i, e.button]),
+		);
+		assert.deepEqual(salmon.step(buttons, true), [], 'a salmon has no ability');
+	}
+	assert.ok(pressed.length > 4);
+	assert.deepEqual(
+		pressed,
+		predicted,
+		'the device raises each ability on the step the room uses it',
+	);
+	assert.deepEqual(bear.step(BUTTONS.ability1 | BUTTONS.ability2, false), [], 'not while held');
+});
+
+// --- 5. live: a real server ----------------------------------------------------------------------
 
 const freePort = () =>
 	new Promise((resolve) => {
@@ -642,6 +786,14 @@ try {
 		const me = salmon.state.players.get(salmon.sessionId);
 		assert.equal(me.status, STATUS.out);
 		assert.equal(bear.state.players.get(bear.sessionId).score, CATCH.score);
+		// What each device's Flow gets: the catch, its score as a room value, the out salmon hidden.
+		assert.deepEqual(
+			flowSignalsOf(heard.salmon, salmon.sessionId).find((s) => s.name === 'caught').payload,
+			{ by: bear.sessionId, target: salmon.sessionId, effect: 'catch', mine: false, me: true },
+		);
+		assert.equal(serverValuesOf(bear.state, bear.sessionId, TICK).score, CATCH.score);
+		assert.equal(serverValuesOf(salmon.state, salmon.sessionId, TICK).status, 'out');
+		assert.equal(shownInRoom(bear.state.players.get(salmon.sessionId)), false);
 		assert.deepEqual(
 			heard.bear.find((e) => e.type === 'caught'),
 			{ type: 'caught', by: bear.sessionId, target: salmon.sessionId, effect: 'catch' },
@@ -685,6 +837,11 @@ try {
 				3000,
 			);
 			assert.ok(heard.salmon.some((e) => e.type === 'roundStart' && e.round === 2));
+			assert.deepEqual(
+				flowSignalsOf(heard.salmon, salmon.sessionId).find((s) => s.name === 'roundEnd').payload,
+				{ round: 1, winner: salmon.sessionId, won: true },
+			);
+			assert.equal(serverValuesOf(bear.state, bear.sessionId, TICK).round, 2);
 		},
 	);
 
