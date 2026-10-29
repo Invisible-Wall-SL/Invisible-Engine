@@ -86,6 +86,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-10-29 — **Tool bar switcher is now a "Tools" dropdown.** The icon strip in the shared top
+  bar is replaced by one **Tools ▾** button that opens a panel of the other tools in stage columns
+  (Create / Assets / Build / Files & Reference / Pipeline, each labelled in its accent). Closes on
+  outside click, Escape or a pick; spans the bar under 1000px. Done in `$lib/ToolTopBar.svelte` and
+  the four HTML twins (atlas, sheet, rigger, rig viewer); `toolBarParams` now also bakes each
+  tool's `stage` label so the twins group the same way. The measured icon-only collapse is gone.
+  Design: [unified-tool-bar](../design/unified-tool-bar.md).
 - 2026-10-28 — **Game-doctor repair eval (PLAN 9G.4, ADR-0012 §6)**. `agent-eval.ts --agent
   game-doctor` runs the real definition over five scripted worlds in `docs/director/eval/repair/`
   (button off-screen, typo, engine bug, wrong payout, injection): the worker's own `buildRequest`,

@@ -16,23 +16,34 @@
   .iw-brand{display:flex;align-items:center;gap:9px;flex:none;font-weight:700;
     letter-spacing:.14em;text-transform:uppercase;color:#7ee0c0;font-size:14px;
     text-decoration:none;white-space:nowrap}
-  .iw-switcher{display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto;overflow:hidden}
-  .iw-tool{display:inline-flex;align-items:center;gap:6px;flex:none;padding:5px 9px;
-    border-radius:8px;border:1px solid transparent;color:#b9b9c4;text-decoration:none;
-    font-size:12px;font-weight:600;white-space:nowrap}
-  .iw-tool:hover{background:#26262d;border-color:#2a2a31;color:#fff}
+  /* "Tools" dropdown — visual twin of the launcher $lib/ToolTopBar.svelte switcher */
+  .iw-switcher{position:relative;display:flex;align-items:center;min-width:0;flex:1 1 auto}
+  .iw-switch-btn{display:inline-flex;align-items:center;gap:7px;flex:none;padding:5px 9px 5px 10px;
+    border-radius:8px;border:1px solid #2c2c38;background:#15151c;color:#b9b9c4;font:inherit;
+    font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer}
+  .iw-switch-btn:hover,.iw-switch-btn.on{background:#1b1b22;border-color:#3a3a4a;color:#e8e8ee}
+  .iw-switch-btn .ic{display:inline-flex;width:16px;height:16px;color:#7ee0c0}
+  .iw-switch-btn .chev{width:12px;height:12px;color:#6f6f7c;transition:transform .14s}
+  .iw-switch-btn.on .chev{transform:rotate(180deg)}
+  .iw-switch-menu{position:absolute;top:calc(100% + 8px);left:0;z-index:1000;display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:6px 10px;
+    width:min(920px,calc(100vw - 32px));max-height:calc(100vh - 90px);overflow-y:auto;padding:12px;
+    border-radius:12px;border:1px solid #2c2c38;background:#121218;
+    box-shadow:0 18px 48px rgba(0,0,0,.55),0 0 0 1px rgba(0,0,0,.4)}
+  .iw-switch-menu[hidden]{display:none}
+  @media (max-width:1000px){.iw-switcher{position:static}.iw-toolbar{position:relative}
+    .iw-switch-menu{top:100%;left:12px;right:12px;width:auto}}
+  .iw-stage{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .iw-stage h3{margin:0 0 4px;padding:2px 8px 6px;border-bottom:2px solid color-mix(in srgb,var(--accent) 45%,transparent);
+    color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  .iw-tool{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;color:#b9b9c4;
+    text-decoration:none;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .iw-tool .ic{display:inline-flex;flex:none;width:16px;height:16px;color:var(--accent)}
+  .iw-tool .ic svg{width:16px;height:16px;display:block}
+  .iw-tool:hover,.iw-tool:focus-visible{background:color-mix(in srgb,var(--accent) 12%,#1b1b22);color:#f2f2f6;outline:none}
   .iw-report{display:inline-flex;align-items:center;flex:none;padding:5px 10px;border-radius:8px;border:1px solid #3a2a33;color:#f778ba;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
   .iw-report:hover{background:#2a1a22;border-color:#6b3550}
   .iw-report[hidden]{display:none}
-  .iw-tool .ic{display:inline-flex;width:16px;height:16px}
-  .iw-tool .ic svg{width:16px;height:16px;display:block}
-  /* Collapse to icon-only when the labelled row would overflow the bar's own track
-     (measured in JS), not at a blunt viewport breakpoint; scroll if even icon-only
-     overflows rather than clipping tools off the edge. */
-  .iw-switcher.compact .iw-tool .label{display:none}
-  .iw-switcher.compact .iw-tool{padding:6px}
-  /* icon-only still overflows → scroll rather than clipping tools off the edge */
-  .iw-switcher.compact{overflow-x:auto;overflow-y:hidden}
   .pill{font-size:11px;padding:2px 7px;border-radius:10px;background:#26262d;color:#9ad}
   .ok{color:#6c6}.err{color:#e66}.note{color:#cc9}
   main{flex:1;min-height:0;display:flex}
@@ -247,10 +258,42 @@
     report.title = 'Report a bug in this tool';
     report.hidden = false;
   }
+  // "Tools" dropdown — mirrors $lib/ToolTopBar.svelte: one button, and a panel of the
+  // other tools grouped by the launcher-baked stage (`t.stage`, tinted by `t.accent`).
   var nav = document.getElementById('iw-switcher');
-  if (nav && Array.isArray(tools)) {
-    tools.forEach(function (t) {
-      if (!t || !t.url) return;
+  var links = Array.isArray(tools) ? tools.filter(function (t) { return t && t.url; }) : [];
+  if (nav && links.length) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'iw-switch-btn';
+    btn.title = 'Switch to another tool';
+    btn.setAttribute('aria-haspopup', 'true');
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/>' +
+      '<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>' +
+      '</svg></span><span>Tools</span><svg class="chev" viewBox="0 0 12 12" aria-hidden="true">' +
+      '<path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+      'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    var menu = document.createElement('div');
+    menu.className = 'iw-switch-menu';
+    menu.hidden = true;
+    var group = null, stage;
+    links.forEach(function (t) {
+      var accent = /^#[0-9a-fA-F]{6}$/.test(t.accent || '') ? t.accent : '#8a8a93';
+      if (!group || t.stage !== stage) {
+        stage = t.stage;
+        group = document.createElement('section');
+        group.className = 'iw-stage';
+        group.style.setProperty('--accent', accent);
+        if (stage) {
+          var h = document.createElement('h3');
+          h.textContent = stage;
+          group.appendChild(h);
+        }
+        menu.appendChild(group);
+      }
       var a = document.createElement('a');
       a.className = 'iw-tool';
       a.href = t.url;
@@ -258,38 +301,26 @@
       var ic = document.createElement('span');
       ic.className = 'ic';
       ic.innerHTML = svg(t.id);
-      if (/^#[0-9a-fA-F]{6}$/.test(t.accent || '')) ic.style.color = t.accent;
       var lb = document.createElement('span');
-      lb.className = 'label';
       lb.textContent = (t.name || '').replace(/^Invisible /, '');
       a.appendChild(ic);
       a.appendChild(lb);
-      nav.appendChild(a);
+      group.appendChild(a);
     });
-  }
-  // Responsive collapse — mirrors $lib/ToolTopBar.svelte. Drop the labels to an
-  // icon-only row only when the labelled row would actually overflow its track
-  // (measured, with hysteresis so it re-expands once room returns); if the
-  // icon-only row still overflows, scroll it rather than clipping tools.
-  if (nav) {
-    var compact = false, naturalWidth = 0;
-    var measure = function () {
-      if (compact) {
-        if (naturalWidth && nav.clientWidth >= naturalWidth + 8) {
-          compact = false;
-          nav.classList.remove('compact');
-        }
-      } else {
-        naturalWidth = nav.scrollWidth;
-        if (nav.scrollWidth > nav.clientWidth + 1) {
-          compact = true;
-          nav.classList.add('compact');
-        }
-      }
+    var setOpen = function (open) {
+      menu.hidden = !open;
+      btn.classList.toggle('on', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     };
-    if (window.ResizeObserver) new ResizeObserver(measure).observe(nav);
-    else window.addEventListener('resize', measure);
-    measure();
+    btn.addEventListener('click', function () { setOpen(menu.hidden); });
+    window.addEventListener('pointerdown', function (e) {
+      if (!menu.hidden && !nav.contains(e.target)) setOpen(false);
+    });
+    window.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !menu.hidden) { setOpen(false); btn.focus(); }
+    });
+    nav.appendChild(btn);
+    nav.appendChild(menu);
   }
 })();
 </script>

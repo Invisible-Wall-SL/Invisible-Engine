@@ -5733,6 +5733,29 @@
 	/** The `Shift+/` shortcut sheet is open over the stage. */
 	let cheatSheetOpen = $state(false);
 
+	/** The View dropdown in the canvas bar: every on/off view option as one tree of switches. */
+	let viewMenuOpen = $state(false);
+	let viewMenuEl = $state<HTMLElement | null>(null);
+	const viewOnCount = $derived(
+		[
+			playingEffects,
+			showScreenBorder,
+			showRulers,
+			showRulers && snapToGuides,
+			!!onPickInScene && pickAnyScreen,
+			!!gameView,
+		].filter(Boolean).length,
+	);
+
+	$effect(() => {
+		if (!viewMenuOpen) return;
+		const onPointer = (e: PointerEvent) => {
+			if (viewMenuEl && !viewMenuEl.contains(e.target as Node)) viewMenuOpen = false;
+		};
+		window.addEventListener('pointerdown', onPointer);
+		return () => window.removeEventListener('pointerdown', onPointer);
+	});
+
 	function onKeyDown(e: KeyboardEvent): void {
 		// Don't hijack typing in form fields (properties panel inputs etc.).
 		if (isTypingTarget(e.target) || dialogQueue.current) return;
@@ -5741,6 +5764,11 @@
 		if (guideDrag && e.key === 'Escape') {
 			guideDrag = null;
 			schedule();
+			e.preventDefault();
+			return;
+		}
+		if (viewMenuOpen && e.key === 'Escape') {
+			viewMenuOpen = false;
 			e.preventDefault();
 			return;
 		}
@@ -7220,6 +7248,26 @@
 			/ deselect · Shift+/ = shortcuts
 		{/if}
 	</div>
+	{#snippet viewToggle(
+		label: string,
+		title: string,
+		on: boolean,
+		toggle: () => void,
+		disabled = false,
+	)}
+		<button
+			type="button"
+			class="view-row"
+			role="menuitemcheckbox"
+			aria-checked={on}
+			{title}
+			{disabled}
+			onclick={toggle}
+		>
+			<span class="view-label">{label}</span>
+			<span class="view-switch" class:on aria-hidden="true"></span>
+		</button>
+	{/snippet}
 	<div class="canvas-top">
 		{@render modeBar?.()}
 		<div class="canvas-actions">
@@ -7276,125 +7324,124 @@
 				</button>
 				<button class="fit" type="button" title="Fit the frame (F)" onclick={fitView}> Fit </button>
 			</div>
-			<button
-				class="fit"
-				type="button"
-				class:on={cheatSheetOpen}
-				aria-pressed={cheatSheetOpen}
-				title="Keyboard shortcuts (Shift+/)"
-				aria-label="Keyboard shortcuts"
-				onclick={() => (cheatSheetOpen = !cheatSheetOpen)}
-			>
-				?
-			</button>
-			<button
-				class="fit"
-				onclick={refreshAssets}
-				type="button"
-				title="Reload atlas + rig art from R2 (after you update a PNG) — no full page reload needed"
-			>
-				↻ Reload art
-			</button>
-			<button
-				class="fit"
-				class:on={playingEffects}
-				onclick={() => (playingEffects = !playingEffects)}
-				type="button"
-				aria-pressed={playingEffects}
-				title={playingEffects ? 'Pause effect preview' : 'Play effect preview'}
-			>
-				{playingEffects ? '❚❚' : '▶'} FX
-			</button>
-			<button
-				class="fit"
-				class:on={showScreenBorder}
-				onclick={() => (showScreenBorder = !showScreenBorder)}
-				type="button"
-				aria-pressed={showScreenBorder}
-				title={showScreenBorder
-					? 'Hide the screen bounds overlay'
-					: 'Show the screen + play-area bounds on top of all art'}
-			>
-				⛶ Bounds
-			</button>
-			<button
-				class="fit"
-				class:on={showRulers}
-				onclick={() => {
-					showRulers = !showRulers;
-					writeFlag(RULERS_KEY, showRulers);
-				}}
-				type="button"
-				aria-pressed={showRulers}
-				title={showRulers
-					? 'Hide the rulers and guides'
-					: 'Show rulers on the canvas edges; drag from a ruler to add a guide'}
-			>
-				📏 Rulers
-			</button>
-			{#if showRulers}
+			<div class="view-menu" bind:this={viewMenuEl}>
 				<button
-					class="fit"
-					class:on={snapToGuides}
-					onclick={() => {
-						snapToGuides = !snapToGuides;
-						writeFlag(SNAP_GUIDES_KEY, snapToGuides);
-					}}
+					class="fit view-btn"
+					class:on={viewMenuOpen}
 					type="button"
-					aria-pressed={snapToGuides}
-					title={snapToGuides
-						? 'Moved objects snap to the guides. Click to stop snapping to guides.'
-						: 'Moved objects ignore the guides. Click to snap to them.'}
+					aria-haspopup="true"
+					aria-expanded={viewMenuOpen}
+					title="View options: previews, overlays, picking and the in-game view"
+					onclick={() => (viewMenuOpen = !viewMenuOpen)}
 				>
-					⌗ Snap to guides
+					View
+					{#if viewOnCount > 0}<span class="view-count">{viewOnCount}</span>{/if}
+					<span class="view-chev" aria-hidden="true">▾</span>
 				</button>
-			{/if}
-			{#if onPickInScene}
-				<button
-					class="fit"
-					class:on={pickAnyScreen}
-					onclick={() => {
-						pickAnyScreen = !pickAnyScreen;
-						setHoverPick(null);
-					}}
-					type="button"
-					aria-pressed={pickAnyScreen}
-					title={pickAnyScreen
-						? 'Any screen: a click selects the topmost item drawn under the pointer, on whichever screen it belongs to, and switches to that screen. Shift-click stays on this screen. Click to select on the edited screen only.'
-						: 'Clicks select on the edited screen only. Click to select anything drawn on the canvas: an item on another screen switches to that screen.'}
-				>
-					⌖ Any screen
-				</button>
-			{/if}
-			{#if gameView !== undefined}
-				<button
-					class="fit"
-					class:on={gameView}
-					onclick={() => (gameView = !gameView)}
-					type="button"
-					aria-pressed={gameView}
-					title={gameView
-						? 'In-game view: only the screens the idle game shows, plus the one you are editing. Click to draw every screen.'
-						: 'Drawing every screen at once. Click for In-game view: the idle game plus the screen you are editing.'}
-				>
-					🎮 In-game view
-				</button>
-				{#if gameView && viewModes.length > 0}
-					<select
-						class="fit"
-						class:on={viewMode !== undefined}
-						value={viewMode ?? ''}
-						onchange={(e) => (viewMode = e.currentTarget.value || undefined)}
-						aria-label="Game mode shown"
-						title="The game mode In-game view shows: the base game, or a mode with every screen it keeps on screen (its board, counter, total), whichever screen you edit. Its intro, outro and popups still draw only while you edit them."
-					>
-						<option value="">Base game</option>
-						{#each viewModes as mode (mode.id)}
-							<option value={mode.id}>{mode.label}</option>
-						{/each}
-					</select>
+				{#if viewMenuOpen}
+					<div class="view-panel" role="menu" aria-label="View options">
+						<div class="view-group">Preview</div>
+						{@render viewToggle(
+							'FX preview',
+							'Play the effect previews on the canvas',
+							playingEffects,
+							() => (playingEffects = !playingEffects),
+						)}
+						<div class="view-group">Overlays</div>
+						{@render viewToggle(
+							'Bounds',
+							'The screen + play-area bounds on top of all art',
+							showScreenBorder,
+							() => (showScreenBorder = !showScreenBorder),
+						)}
+						{@render viewToggle(
+							'Rulers',
+							'Rulers on the canvas edges; drag from a ruler to add a guide',
+							showRulers,
+							() => {
+								showRulers = !showRulers;
+								writeFlag(RULERS_KEY, showRulers);
+							},
+						)}
+						<div class="view-children" class:off={!showRulers}>
+							{@render viewToggle(
+								'Snap to guides',
+								'Moved objects snap to the guides',
+								snapToGuides,
+								() => {
+									snapToGuides = !snapToGuides;
+									writeFlag(SNAP_GUIDES_KEY, snapToGuides);
+								},
+								!showRulers,
+							)}
+						</div>
+						{#if onPickInScene}
+							<div class="view-group">Picking</div>
+							{@render viewToggle(
+								'Any screen',
+								'A click selects the topmost item drawn under the pointer, on whichever screen it belongs to, and switches to that screen. Shift-click stays on this screen.',
+								pickAnyScreen,
+								() => {
+									pickAnyScreen = !pickAnyScreen;
+									setHoverPick(null);
+								},
+							)}
+						{/if}
+						{#if gameView !== undefined}
+							<div class="view-group">Game</div>
+							{@render viewToggle(
+								'In-game view',
+								'Only the screens the idle game shows, plus the one you are editing. Off draws every screen.',
+								gameView,
+								() => (gameView = !gameView),
+							)}
+							{#if viewModes.length > 0}
+								<div
+									class="view-children"
+									class:off={!gameView}
+									role="group"
+									aria-label="Game mode shown"
+									title="The game mode In-game view shows: the base game, or a mode with every screen it keeps on screen (its board, counter, total), whichever screen you edit. Its intro, outro and popups still draw only while you edit them."
+								>
+									{#each [{ id: '', label: 'Base game' }, ...viewModes] as mode (mode.id)}
+										<button
+											type="button"
+											class="view-row"
+											role="menuitemradio"
+											aria-checked={(viewMode ?? '') === mode.id}
+											disabled={!gameView}
+											onclick={() => (viewMode = mode.id || undefined)}
+										>
+											<span class="view-radio" class:on={(viewMode ?? '') === mode.id}></span>
+											<span class="view-label">{mode.label}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						{/if}
+						<div class="view-group">Help</div>
+						{@render viewToggle(
+							'Keyboard shortcuts',
+							'The shortcut sheet over the stage (Shift+/)',
+							cheatSheetOpen,
+							() => (cheatSheetOpen = !cheatSheetOpen),
+						)}
+						<button
+							type="button"
+							class="view-row"
+							role="menuitem"
+							title="Reload atlas + rig art from R2 (after you update a PNG) — no full page reload needed"
+							onclick={() => {
+								refreshAssets();
+								viewMenuOpen = false;
+							}}
+						>
+							<span class="view-action" aria-hidden="true">↻</span>
+							<span class="view-label">Reload art</span>
+						</button>
+					</div>
 				{/if}
-			{/if}
+			</div>
 		</div>
 	</div>
 </div>
@@ -7749,5 +7796,138 @@
 	}
 	.fit:disabled:hover {
 		border-color: #2a2430;
+	}
+	.view-menu {
+		position: relative;
+		pointer-events: auto;
+	}
+	.view-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.view-count {
+		min-width: 16px;
+		padding: 0 4px;
+		border-radius: 8px;
+		background: #1d3a30;
+		color: #7ee0c0;
+		font-size: 10px;
+		line-height: 15px;
+		text-align: center;
+	}
+	.view-chev {
+		color: #6f6f7c;
+		font-size: 10px;
+	}
+	.view-panel {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		width: 240px;
+		max-height: min(520px, calc(100vh - 160px));
+		overflow-y: auto;
+		padding: 6px;
+		border-radius: 10px;
+		border: 1px solid #2c2c38;
+		background: #121218;
+		box-shadow: 0 14px 40px #000000aa;
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+	.view-group {
+		padding: 8px 8px 4px;
+		color: #6f6f7c;
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+	.view-group:first-child {
+		padding-top: 2px;
+	}
+	.view-row {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		width: 100%;
+		padding: 6px 8px;
+		border: 0;
+		border-radius: 6px;
+		background: none;
+		color: #c8c8d2;
+		font: inherit;
+		font-size: 12px;
+		text-align: left;
+		cursor: pointer;
+	}
+	.view-row:hover:not(:disabled),
+	.view-row:focus-visible {
+		background: #1b1b22;
+		color: #f2f2f6;
+		outline: none;
+	}
+	.view-row:disabled {
+		cursor: default;
+	}
+	.view-label {
+		flex: 1;
+		min-width: 0;
+	}
+	/* A child option hangs off its parent toggle and dims while the parent is off. */
+	.view-children {
+		margin-left: 14px;
+		padding-left: 6px;
+		border-left: 1px solid #2c2c38;
+	}
+	.view-children.off {
+		opacity: 0.4;
+	}
+	.view-switch {
+		position: relative;
+		flex: none;
+		width: 26px;
+		height: 14px;
+		border-radius: 7px;
+		background: #2a2a34;
+		transition: background 0.14s;
+	}
+	.view-switch::after {
+		content: '';
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: #8a8a96;
+		transition:
+			transform 0.14s,
+			background 0.14s;
+	}
+	.view-switch.on {
+		background: #1d4a3b;
+	}
+	.view-switch.on::after {
+		transform: translateX(12px);
+		background: #7ee0c0;
+	}
+	.view-radio {
+		flex: none;
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		border: 1.5px solid #4a4a58;
+	}
+	.view-radio.on {
+		border-color: #7ee0c0;
+		background: radial-gradient(circle, #7ee0c0 0 3px, transparent 3.5px);
+	}
+	.view-action {
+		flex: none;
+		width: 12px;
+		text-align: center;
+		color: #7ee0c0;
 	}
 </style>

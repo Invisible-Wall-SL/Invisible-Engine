@@ -171,6 +171,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-29 — **Canvas toolbar: the view toggles are one View ▾ menu.** FX, Bounds, Rulers, Snap
+  to guides, Any screen, In-game view with its game-mode picker, the shortcut sheet and Reload art
+  moved from a row of buttons into one dropdown of on/off switches in `EditorCanvas.svelte`.
+  Children (Snap to guides under Rulers, the modes under In-game view) hang off their parent and
+  grey out while it is off. A count on the button shows how many switches are on. Esc or an
+  outside click closes the menu. Undo/redo and zoom stay as buttons. Both sides (Screens and
+  Components) share it. Guide: [invisible-editor](../tools/invisible-editor.md).
 - 2026-10-27 — **The `tilemap` node and its paint mode** (P10.13, branch
   `feat/p10-13-gravity-jumps-levels`, in review; [game-families](game-families.md) P10.13). Library →
   Elements → **Tilemap** inserts a 16 × 8 grid of 64 px tiles centred on the screen. The stage
