@@ -37,7 +37,9 @@ foundation and `launcher-studio` for launcher/auth/R2) — your edge is this too
   `validateNodeActors` per screen timeline; component timelines are left out (their instances
   play them on `playOn`) — `docs/status/cinematic.md`.
 - **Game side:** `apps/lines/src/game/flowV2Runtime.svelte.ts` (`flowV2DrivesScreens`, ownership),
-  `flowV2InterpreterHolder.ts`, `flowEffects.ts`; the v1 `flow*` modules and `packages/engine-flow`
+  `flowV2InterpreterHolder.ts`, `flowEffects.ts` (`screenTransition` /
+  `waitForScreenTransition` call the `screenTransitions.ts` seam, bound in `Game.svelte` to the
+  `pixi-svelte/screenFx` runtime; Shader Graph 8e.4); the v1 `flow*` modules and `packages/engine-flow`
   are still imported by v2 export, the FX tool and the runtime — do not delete them.
 
 ## Contracts you must preserve

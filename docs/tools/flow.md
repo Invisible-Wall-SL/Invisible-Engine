@@ -380,8 +380,8 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
   element in the Scene Editor (its **Element FX** section, trigger *On cue*), and its cue is in the
   **Cues** list here. Use this when the effect is part of the element's design.
 - **The `elementEffect` action** (Actions), for a one-off effect with nothing authored:
-  - **target** — a dropdown of what the game can aim at in this project: `reels`, every screen
-    (`screen:<id>`), and every node that is a group, a component placement, a coded mount, or
+  - **target** — a dropdown of what the game can aim at in this project: `reels` (the default),
+    `stage` (the whole game, HUD included: a post FX), every screen (`screen:<id>`), and every node that is a group, a component placement, a coded mount, or
     carries Element FX of its own.
   - **kind** — the effect (shake, flip, sphericon, wave, melt, glow, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, crash, crumble, shatter, crystallize, dissolve to / assemble from particles, … 50 in all), then the project's own
     `custom:<id>` effects from [Invisible Shader Graph](shader-graph.md).
@@ -396,7 +396,35 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
   element hidden until then.
 
 An unknown target or kind does nothing, as an unknown `cameraEffect` kind does. A target that is
-not on screen when the action runs does nothing either.
+not on screen when the action runs does nothing either. On `stage`, exit, enter, motion-only and
+break kinds do not play, and at most two effects (four filters in all) play there at once.
+
+### Screen transitions (from one screen to the next)
+
+A **screen transition** plays from the screen that was up to the one the flow shows next — a
+dissolve, a burn, a shatter, or a [Shader Graph](shader-graph.md) effect that reads both screens.
+
+- **`screenTransition`** (Actions):
+  - **kind** — a built-in exit effect (dissolve out, burn to ashes, melt, shatter, …), then the
+    project's own `custom:<id>` effects. A built-in plays on a frozen picture of the old screen as
+    it leaves; a Shader Graph effect that reads the **Screens** node gets both screens.
+  - **durationMs** (50 ms to 5 s), **intensity** (capped at 4), **color** and **reverse** are
+    optional.
+  - **blocking** — off by default: the old screen is frozen, the flow goes on at once, and the
+    nodes after it change the screen underneath (show / hide). Set it on for a flourish over a
+    screen that does not change.
+- **`waitForScreenTransition`** holds the chain until no transition is playing (goes on at once
+  when none is).
+
+Only one transition plays at a time; a second one ends the first. If the effect can't play (not
+shipped, refused, no WebGL), the game fades or cuts instead — it never goes black or stalls.
+
+**The transition cue.** A project can also play one on every `transition` cue (free-spin entry and
+exit) instead of the wipe, set by the layout's `transitionCue` setting (its row in the Scene
+Editor's Game Settings → Screen FX is still to come; until then an editor save drops it). While it
+is on, the authored Transition pilot is set aside, and Game Maker shows a **Transition cue: screen
+transition** chip. On free-spin exit the screen is already back on the base game when the cue
+fires, so that transition plays over the base game, not out of the free spins.
 
 ### Containers (screens as z-ordered layers)
 
