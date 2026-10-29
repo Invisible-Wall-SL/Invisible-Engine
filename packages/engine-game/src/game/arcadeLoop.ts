@@ -90,6 +90,9 @@ export interface ArcadeCameraOptions {
 	world?: Field;
 	/** The view's size: the screen's design size, read each step (a rotated device). */
 	view(): Field;
+	/** The world box the screen shows, when it is not the view's rectangle (an isometric screen,
+	 *  P11.4: `engine-layout` `isoViewRect`). Absent ⇒ `camera.js` `viewRect`. */
+	visible?(camera: { x: number; y: number }, view: Field): ReturnType<typeof viewRect>;
 }
 
 /** The config's arcade block, with its defaults applied (`game-config` `resolveArcade`). */
@@ -378,7 +381,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 		const view = opts.view();
 		const target = followed(cam.follow);
 		stepCamera(cam, clock.dt, { view, world: opts.world, target });
-		const rect = viewRect(cam, view);
+		const rect = (opts.visible ?? viewRect)(cam, view);
 		const gone: string[] = [];
 		for (const body of list) {
 			if (!bodies.has(body.id)) continue;
@@ -405,7 +408,7 @@ export function createArcadeLoop(options: ArcadeLoopOptions): ArcadeLoop {
 
 	const cullNow = () => {
 		if (!camera || !cameraOptions) return;
-		const rect = viewRect(camera, cameraOptions.view());
+		const rect = (cameraOptions.visible ?? viewRect)(camera, cameraOptions.view());
 		const next = new Set<string>();
 		for (const body of bodies.values())
 			if (!meets(aabbOf(body), rect, ARCADE_CULL_MARGIN)) next.add(body.id);

@@ -4,7 +4,7 @@
 
 **One-line state:** **Salmons is rebuilt as data on the engine (P10.16, built 2026-10-27; in
 review)**, with its own rules since P11.3 (the climb, sandbanks, the line, the golden salmon;
-in review): its river, rules, characters, bots and layout run on the shared runtime and the game
+in review) and drawn isometric since P11.4 (in review): its river, rules, characters, bots and layout run on the shared runtime and the game
 server, with placeholder looks, and play in two browsers and a room of bots
 ([playtest/salmons.md](../playtest/salmons.md)). It is not in the `salmons` portal project yet, and
 its players are not moved over: both are owner steps (below). The art pass (S0) was approved on
@@ -110,8 +110,9 @@ the placeholders when they are.
 
 ## Open items / next (S0)
 
-The isometric view is scheduled in [Phase 11](../design/phase-11.md) (P11.4); its HUD and round
-over, the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
+The isometric view is built ([Phase 11](../design/phase-11.md) P11.4: the river drawn 2:1, the
+players upright in depth order; the S0 art should be drawn for it: diamond ground, upright
+characters, their place at their feet); its HUD and round over, the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
 Left from P11.3 (known limits):
 
 - The rules' room events `climbed`, `grounded`, `jumped`, `hooked`, `escaped` and `golden` reach the
@@ -157,6 +158,11 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-10-29 — **P11.4: Salmons is isometric.** Its river screen sets `projection: 'isometric'`:
+  the river is drawn 2:1, the players upright, nearer in front; the room and the netcode are
+  unchanged. `salmons-play.mjs` 37 / 37 in each netcode. Detail in
+  [status/game-families](game-families.md) P11.4.
 
 - 2026-10-29 — **P11.3: Salmons' rules.** Rocks and waterfalls are solids, the river is a wall to
   bears and fishermen; the rules module `salmons` climbs waterfalls by tapping, grounds a salmon

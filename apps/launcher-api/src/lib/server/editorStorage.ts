@@ -15,6 +15,7 @@ import {
 	type LayoutType,
 	type Scene,
 	sceneCamera,
+	sceneProjection,
 	sceneWorld,
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
@@ -370,6 +371,12 @@ function normalizeScene(input: unknown): Scene | null {
 	if (world) scene.world = world;
 	const camera = sceneCamera({ ...scene, camera: input.camera as Scene['camera'] });
 	if (camera && Object.keys(camera).length) scene.camera = camera;
+	// Its projection (`Scene.projection`, P11.4): stored only when it is not flat, on a `game` screen.
+	const projection = sceneProjection({
+		...scene,
+		projection: input.projection as Scene['projection'],
+	});
+	if (projection) scene.projection = projection;
 	// The screen's ruler guides (editor-only; `loadDoc` strips them before any game reads the doc).
 	const guides = normalizeEditorGuides(input.guides);
 	if (guides) scene.guides = guides;

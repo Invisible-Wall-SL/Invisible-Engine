@@ -18,7 +18,7 @@
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
 	import { liftOf, liftsOn } from './arcadeLifts.svelte';
-	import { inWorldCamera, isCulled } from './worldCameraView.svelte';
+	import { inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
 
@@ -58,11 +58,15 @@
 	});
 
 	// The layer's space for a pointer (P10.11): the container the node's transform places it in.
+	// A projected screen's top-level layer (P11.4) un-projects the point back to the world: its
+	// instances are drawn at their projected places in this space.
 	const parent = getContextParent();
+	const scope = worldProjection();
+	const projection = scope?.layers.has(node.id) ? scope : undefined;
 	$effect(() =>
 		registerSpawnLayerSpace(node.id, (x, y) => {
 			const local = parent.parent.toLocal({ x, y });
-			return { x: local.x, y: local.y };
+			return projection ? projection.unproject(local.x, local.y) : { x: local.x, y: local.y };
 		}),
 	);
 
@@ -85,8 +89,27 @@
 	});
 </script>
 
-{#each instances as instance (instance.id)}
-	{#if liftsOn()}
+{#each instances as instance, seq (instance.id)}
+	{#if projection}
+		<!-- A projected screen (P11.4): drawn upright at the projected place, in ground-depth order
+		     (the zIndex; spawn order breaks a tie), culled by the loop's projected view. -->
+		{@const place = places[instance.id] ?? instance}
+		{@const at = projection.project(place.x, place.y)}
+		{@const lift = liftsOn() ? liftOf(instance.id) : undefined}
+		<Container
+			x={at.x}
+			y={at.y}
+			zIndex={projection.depth(place.x, place.y, seq)}
+			visible={!culling || !isCulled(instance.id)}
+		>
+			{#if lift}
+				<Graphics y={lift.foot} draw={shadowOf(lift.shadow)} />
+			{/if}
+			<Container y={-(lift?.z ?? 0)}>
+				<ComponentInstance node={instanceNode(instance)} {space} />
+			</Container>
+		</Container>
+	{:else if liftsOn()}
 		{@const lift = liftOf(instance.id)}
 		<Container
 			x={places[instance.id]?.x ?? instance.x}

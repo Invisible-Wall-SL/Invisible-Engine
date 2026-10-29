@@ -542,8 +542,15 @@ function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
 	if (!worldCamera || !at) return;
 	const { camera, world, view } = worldCamera;
-	stepCamera(camera, dtMs / 1000, { view: view(), world, target: { ...at, vx: 0, vy: 0 } });
-	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY: camera.offsetY });
+	const size = view();
+	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
+	setWorldCameraView({
+		x: camera.x,
+		y: camera.y,
+		shakeX: camera.offsetX,
+		shakeY: camera.offsetY,
+		view: size,
+	});
 }
 
 /** Raise the own player's abilities the input uses, on the press: drawn before the room answers. */

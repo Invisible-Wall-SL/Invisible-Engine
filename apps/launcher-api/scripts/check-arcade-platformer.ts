@@ -24,6 +24,15 @@
  *  5. THE SAMPLE, played headless on the real interpreter and loop: the hero starts on the ground,
  *     runs right, jumps the first gap, collects a coin, falls into the second gap's pit (a life, back
  *     at the start, the camera snapped), and the same seed and keys replay.
+ *  6. THE PROJECTION (P11.4, `projection.ts`): ground ↔ screen round-trips; a world square is a
+ *     2:1 diamond; ground depth orders bodies down the screen, spawn order breaking a tie; a
+ *     top-level node is moved to its projected place; the loop's view is the screen's world box;
+ *     the diamond hit-test finds every cell from inside its diamond and nothing off the grid; a
+ *     non-square, turned, unevenly scaled or parallax tilemap is flagged; a `projection` with no
+ *     world is flat; neighbour autotiling picks the
+ *     variant of the mask and ships it (`tilemapRegions`); an old tileset normalizes byte for byte;
+ *     `sceneProjection` reads only a `game` screen; the level a screen makes is the same flat or
+ *     isometric (physics is never projected); Salmons' river screen is isometric.
  */
 
 import { readFileSync } from 'node:fs';
@@ -49,7 +58,20 @@ import { createArcadeLoop, type ArcadeRules } from 'engine-game/src/game/arcadeL
 import {
 	LAYOUT_NODE_KINDS,
 	TILE_EMPTY,
+	isoCellAt,
+	isoCellBox,
+	isoCellDiamond,
+	isoDepth,
+	isoDepthOrder,
+	isoNodeShift,
+	isoProject,
+	isoTileRegions,
+	isoTilemapIssues,
+	isoUnproject,
+	isoViewRect,
 	normalizeTilemapNode,
+	sceneProjection,
+	tilemapAutotileMask,
 	sceneCamera,
 	sceneSpawnLayers,
 	sceneTilemaps,
@@ -878,6 +900,259 @@ const playLedges = (seed: string) => {
 		'5. the same seed and keys replay the same bodies and signals',
 		json(a.game.loop.bodies()) === json(b.game.loop.bodies()) &&
 			json(a.game.signals.map((s) => s.name)) === json(b.game.signals.map((s) => s.name)),
+	);
+}
+
+// 6. THE PROJECTION
+{
+	const points = [
+		[0, 0],
+		[100, 0],
+		[0, 100],
+		[123.5, -40.25],
+		[-7, 3000],
+	];
+	check(
+		'6. ground → screen → ground is the same point',
+		points.every(([x, y]) => {
+			const s = isoProject(x, y);
+			const back = isoUnproject(s.x, s.y);
+			return Math.abs(back.x - x) < 1e-9 && Math.abs(back.y - y) < 1e-9;
+		}),
+	);
+	check(
+		'6. world +x draws right-down, +y left-down, at 2:1',
+		json(isoProject(100, 0)) === json({ x: 100, y: 50 }) &&
+			json(isoProject(0, 100)) === json({ x: -100, y: 50 }),
+	);
+	const cell = { tileWidth: 64, tileHeight: 64 };
+	const d = isoCellDiamond(cell, 0, 0);
+	check(
+		'6. a 64 px world square is a 128 × 64 diamond, its top corner at the cell’s',
+		json(d) ===
+			json([
+				{ x: 0, y: 0 },
+				{ x: 64, y: 32 },
+				{ x: 0, y: 64 },
+				{ x: -64, y: 32 },
+			]) && json(isoCellBox(cell, 0, 0)) === json({ x: -64, y: 0, w: 128, h: 64 }),
+		json(d),
+	);
+	const bodies = [
+		{ id: 'far', x: 100, y: 100 },
+		{ id: 'right', x: 300, y: 0 },
+		{ id: 'near', x: 200, y: 300 },
+		{ id: 'tie', x: 0, y: 300 },
+	];
+	const order = [...bodies]
+		.sort((a, b) => isoDepth(a.x, a.y) - isoDepth(b.x, b.y))
+		.map((b) => b.id);
+	check(
+		'6. ground depth draws a body lower on the screen in front; a tie keeps spawn order',
+		json(order) === json(['far', 'right', 'tie', 'near']) &&
+			bodies.every(
+				(a) =>
+					!bodies.some(
+						(b) =>
+							isoProject(b.x, b.y).y > isoProject(a.x, a.y).y &&
+							isoDepth(b.x, b.y) <= isoDepth(a.x, a.y),
+					),
+			),
+		json(order),
+	);
+	const zOrder = (list: { id: string; x: number; y: number }[]) =>
+		list
+			.map((b, seq) => ({ id: b.id, z: isoDepthOrder(b.x, b.y, seq) }))
+			.sort((a, b) => a.z - b.z)
+			.map((b) => b.id);
+	check(
+		'6. the draw order breaks a depth tie by spawn order, whatever order it is sorted from',
+		json(zOrder(bodies)) === json(['far', 'right', 'tie', 'near']) &&
+			isoDepthOrder(0, 300, 1) < isoDepthOrder(300, 0, 2) &&
+			isoDepthOrder(0, 300, 2) > isoDepthOrder(300, 0, 1) &&
+			isoDepthOrder(10, 10, 99) < isoDepthOrder(10, 11, 0),
+		json(zOrder(bodies)),
+	);
+	check(
+		'6. a top-level node is moved from its world place to its projected one',
+		[
+			[0, 0],
+			[200, 40],
+			[-30, 75],
+		].every(([x, y]) => {
+			const shift = isoNodeShift(x, y);
+			return json({ x: x + shift.x, y: y + shift.y }) === json(isoProject(x, y));
+		}) &&
+			// a layer at (200, 40) and a place (10, 20) in it: drawn where world (210, 60) projects
+			json({
+				x: 200 + isoNodeShift(200, 40).x + isoProject(10, 20).x,
+				y: 40 + isoNodeShift(200, 40).y + isoProject(10, 20).y,
+			}) === json(isoProject(210, 60)),
+	);
+	const cam = { x: 300, y: 5000 };
+	const viewSize = { w: 1422, h: 800 };
+	const box = isoViewRect(cam, viewSize);
+	const corners = [
+		[0, 0],
+		[viewSize.w, 0],
+		[0, viewSize.h],
+		[viewSize.w, viewSize.h],
+	].map(([sx, sy]) => {
+		const off = isoUnproject(sx - viewSize.w / 2, sy - viewSize.h / 2);
+		return { x: cam.x + viewSize.w / 2 + off.x, y: cam.y + viewSize.h / 2 + off.y };
+	});
+	check(
+		'6. the loop’s isometric view is the world box of the screen’s four corners',
+		corners.every(
+			(c) =>
+				c.x >= box.x0 - 1e-9 &&
+				c.x <= box.x1 + 1e-9 &&
+				c.y >= box.y0 - 1e-9 &&
+				c.y <= box.y1 + 1e-9,
+		) &&
+			corners.some((c) => Math.abs(c.x - box.x0) < 1e-9) &&
+			corners.some((c) => Math.abs(c.y - box.y1) < 1e-9),
+		json({ box, corners }),
+	);
+	const grid = { cols: 5, rows: 3, tileWidth: 48, tileHeight: 48 };
+	let hits = 0;
+	let misses = 0;
+	for (let row = 0; row < grid.rows; row++)
+		for (let col = 0; col < grid.cols; col++) {
+			const [top, right, bottom, left] = isoCellDiamond(grid, col, row);
+			const centre = { x: (left.x + right.x) / 2, y: (top.y + bottom.y) / 2 };
+			const probes = [
+				centre,
+				...[top, right, bottom, left].map((v) => ({
+					x: centre.x + (v.x - centre.x) * 0.9,
+					y: centre.y + (v.y - centre.y) * 0.9,
+				})),
+			];
+			for (const p of probes) {
+				const at = isoCellAt(grid, p.x, p.y);
+				if (at?.col === col && at.row === row) hits += 1;
+				else misses += 1;
+			}
+		}
+	const cellBox = isoCellBox(grid, 0, 0);
+	check(
+		'6. the diamond hit-test finds each cell from its centre and near each corner',
+		misses === 0 && hits === grid.cols * grid.rows * 5,
+		`${misses} missed`,
+	);
+	check(
+		'6. …and nothing in a cell box’s corner outside its diamond, or off the grid',
+		isoCellAt(grid, cellBox.x + 2, cellBox.y + 2) === undefined &&
+			isoCellAt(grid, 0, -1) === undefined &&
+			isoCellAt(grid, 10000, 0) === undefined,
+	);
+
+	const tiles = [0, 0, -1, 0, 0, 1, -1, 0, -1];
+	check(
+		'6. the autotile mask: ↑ 1, → 2, ↓ 4, ← 8, same tile only, off the grid none',
+		[0, 1, 3, 4, 5, 7].map((i) => tilemapAutotileMask(tiles, 3, 3, i)).join() === '6,12,3,13,0,1',
+		[0, 1, 3, 4, 5, 7].map((i) => tilemapAutotileMask(tiles, 3, 3, i)).join(),
+	);
+	const autotile = Array.from({ length: 16 }, (_, m) => (m === 5 ? 'a::down-up' : ''));
+	const iso = normalizeTilemapNode({
+		kind: 'tilemap',
+		id: 'iso',
+		x: 0,
+		y: 0,
+		tileWidth: 64,
+		tileHeight: 64,
+		cols: 1,
+		rows: 3,
+		tiles: [0, 0, 0],
+		tileset: [{ region: 'a::water', autotile }],
+	}) as TilemapNode;
+	check(
+		'6. the middle of a column draws the ↑↓ variant, its ends the tile’s own art',
+		json(isoTileRegions(iso)) === json(['a::water', 'a::down-up', 'a::water']),
+		json(isoTileRegions(iso)),
+	);
+	check(
+		'6. the art export ships a used tile’s autotile variants',
+		json(tilemapRegions(iso)) === json(['a::water', 'a::down-up']),
+		json(tilemapRegions(iso)),
+	);
+	const old = {
+		kind: 'tilemap',
+		id: 'old',
+		x: 0,
+		y: 0,
+		tileWidth: 32,
+		tileHeight: 32,
+		cols: 2,
+		rows: 1,
+		tiles: [0, 1],
+		tileset: [{ region: 'a::r', collide: 'solid' }, { region: 'a::s' }],
+	};
+	check(
+		'6. a tileset with no autotile normalizes byte for byte; empty trailing slots and an all-empty autotile are dropped',
+		json(normalizeTilemapNode(structuredClone(old))) === json(old) &&
+			json(
+				normalizeTilemapNode({
+					...structuredClone(old),
+					tileset: [{ region: 'x', autotile: ['', 7] }],
+				})?.tileset,
+			) === json([{ region: 'x' }]) &&
+			json(
+				normalizeTilemapNode(structuredClone(iso) as unknown as Record<string, unknown>)?.tileset,
+			) === json([{ region: 'a::water', autotile: ['', '', '', '', '', 'a::down-up'] }]),
+	);
+	const world = { w: 4000, h: 4000 };
+	check(
+		'6. the projection is a world `game` screen’s, and only `isometric`',
+		sceneProjection({ id: 's', name: 'S', nodes: [], world, projection: 'isometric' }) ===
+			'isometric' &&
+			sceneProjection({ id: 's', name: 'S', nodes: [], world }) === undefined &&
+			sceneProjection({
+				id: 's',
+				name: 'S',
+				nodes: [],
+				world,
+				space: 'canvas',
+				projection: 'isometric',
+			}) === undefined &&
+			sceneProjection({
+				id: 's',
+				name: 'S',
+				nodes: [],
+				world,
+				projection: 'oblique' as Scene['projection'],
+			}) === undefined,
+	);
+	check(
+		'6. a doc with `projection` but no world or camera is flat (the save, the game and the editor agree)',
+		sceneProjection({ id: 's', name: 'S', nodes: [], projection: 'isometric' }) === undefined,
+	);
+	check(
+		'6. an isometric tilemap that would not draw as it collides is flagged; a square, plain one is not',
+		isoTilemapIssues({ tileWidth: 64, tileHeight: 64 }).length === 0 &&
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 32 }).some((i) => i.includes('square')) &&
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, rotation: 0.3 }).length === 1 &&
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, scale: { x: 2, y: 1 } }).length === 1 &&
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, scale: { x: -1, y: -1 } }).length === 1 &&
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, parallax: { x: 0.5, y: 1 } }).length === 1,
+	);
+	const level: Scene = {
+		id: 'lvl',
+		name: 'Level',
+		nodes: [{ ...old, tileset: [{ region: 'a::r', collide: 'solid' }] } as TilemapNode],
+	};
+	check(
+		'6. the level the loop reads is the same flat or isometric',
+		json(sceneTilemaps(level)) ===
+			json(sceneTilemaps({ ...level, world, projection: 'isometric' })),
+	);
+	const { salmonsRiver } = await import('../../../packages/engine-mechanics/src/salmons.js');
+	const { salmonsReferenceLayout } =
+		await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
+	const river = salmonsReferenceLayout(salmonsRiver()).scenes.find((s) => s.id === 'basegame');
+	check(
+		'6. Salmons’ river screen is isometric',
+		!!river && sceneProjection(river) === 'isometric' && !!sceneWorld(river),
 	);
 }
 

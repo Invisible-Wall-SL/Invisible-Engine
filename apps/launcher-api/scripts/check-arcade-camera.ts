@@ -26,7 +26,8 @@
  *     the same seed replays the same framing; the flow validates clean.
  *  5. THE DATA: `sceneWorld` / `sceneCamera` keep only whole fields on a `game` screen; the save
  *     keeps them; a spawn layer's margin reaches the live set's spec.
- *  6. PARITY (source-scanned): `<LayoutScene>` adds the world container only on a world screen,
+ *  6. PARITY (source-scanned): `<LayoutScene>` adds the world container only on a world screen
+ *     (and draws it projected only when it names `isometric` and the arcade seam registered one),
  *     `<SpawnLayer>` culls only under one, the runtime publishes only with a camera, and the river
  *     sample stays off the package entries.
  */
@@ -808,8 +809,37 @@ function scene4(): Scene {
 		/const worldCamera = untrack\(\s*\(\) => \(scene\.space \?\? 'game'\) === 'game' && hasWorldCamera\(scene\)/.test(
 			layoutScene,
 		) &&
-			/\{#if worldCamera\}[\s\S]*?\{:else\}\s*\{@render sceneNodes\(\)\}/.test(layoutScene) &&
+			/\{(?:#|:else )if worldCamera\}[\s\S]*?\{:else\}\s*\{@render sceneNodes\(\)\}/.test(
+				layoutScene,
+			) &&
 			/\{@const factor = worldCamera \? nodeParallax\(node\) : undefined\}/.test(layoutScene),
+	);
+	check(
+		'6. <LayoutScene> draws projected only a world screen naming isometric, with a registered world',
+		/const ProjectedWorld = untrack\(\(\) =>\s*worldCamera && scene\.projection === 'isometric' \? getProjectedWorld\(\) : undefined,?\s*\)/.test(
+			layoutScene,
+		) && /\{#if ProjectedWorld\}/.test(layoutScene),
+	);
+	const loopSrc = read('packages/engine-game/src/game/arcadeLoop.ts');
+	const arcadeSrc = read('apps/lines/src/game/arcade.ts');
+	check(
+		'6. the loop judges the view by `visible` only when given one (an isometric screen); else `viewRect`',
+		(loopSrc.match(/\(\w+\.visible \?\? viewRect\)\(/g) ?? []).length === 2 &&
+			!/[^.]viewRect\(cam/.test(loopSrc) &&
+			/const visible = sceneProjection\(scene\) \? isoViewRect : undefined;/.test(arcadeSrc) &&
+			/\.\.\.\(visible \? \{ visible \} : \{\}\)/.test(arcadeSrc),
+	);
+	const nodeView = read('packages/engine-layout/src/lib/LayoutNodeView.svelte');
+	check(
+		'6. a projected top-level layer or tilemap is drawn at its bound position projected; elsewhere flat',
+		/const projectedPos = \$derived\(projection \? projection\.project\(posX, posY\) : undefined\);/.test(
+			nodeView,
+		) &&
+			(
+				nodeView.match(/x=\{projectedPos\?\.x \?\? posX\}\s*y=\{projectedPos\?\.y \?\? posY\}/g) ??
+				[]
+			).length === 2 &&
+			/scope\.tilemaps\.has\(node\.id\) \|\| scope\.layers\.has\(node\.id\)/.test(nodeView),
 	);
 	const spawnLayer = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	check(

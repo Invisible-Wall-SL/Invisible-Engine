@@ -8,6 +8,11 @@ import {
 	TILE_EMPTY,
 	TILEMAP_MAX_SIDE,
 	TILEMAP_MAX_TILES,
+	TILE_AUTOTILE_VARIANTS,
+	isoCellAt,
+	isoGridBox,
+	isoNodeShift,
+	isoProject,
 	newTilemapNode,
 	tilemapCellAt,
 	tilemapFill,
@@ -17,6 +22,7 @@ import {
 	tilemapTiles,
 	type Point2D,
 	type ResolvedTransform,
+	type SceneProjection,
 	type TileCollide,
 	type TilemapNode,
 } from 'engine-layout';
@@ -52,7 +58,8 @@ export function tilemapToolForKey(e: {
 }
 
 /** A new tilemap of `cols × rows` tiles, centred on (`cx`, `cy`) (a tilemap draws from its
- *  top-left). */
+ *  top-left). Its place is world px on every screen, flat or isometric: the loop reads it as the
+ *  level's top-left. */
 export function newTilemapAt(id: string, cx: number, cy: number): TilemapNode {
 	const node = newTilemapNode(id, 0, 0);
 	node.x = Math.round(cx - (node.cols * node.tileWidth) / 2);
@@ -60,13 +67,38 @@ export function newTilemapAt(id: string, cx: number, cy: number): TilemapNode {
 	return node;
 }
 
-/** The box the canvas selects and frames: the whole grid, from the node's top-left. */
-export function tilemapBox(node: Pick<TilemapNode, 'cols' | 'rows' | 'tileWidth' | 'tileHeight'>): {
+/** The scale the stage applies to a tilemap: the game's (`<LayoutNodeView>`: unsigned). */
+const scaleOf = (t: Pick<ResolvedTransform, 'scale'>): Point2D => ({
+	x: Math.abs(t.scale?.x || 1),
+	y: Math.abs(t.scale?.y || 1),
+});
+
+/**
+ * The box the canvas selects and frames: the whole grid, from the node's top-left. On an isometric
+ * screen it is the diamond grid where the game draws it, its top corner at the node's projected
+ * place (`isoNodeShift` from `t`, the node's place), as `ax` / `ay` fractions from that place.
+ */
+export function tilemapBox(
+	node: Pick<TilemapNode, 'cols' | 'rows' | 'tileWidth' | 'tileHeight'>,
+	projection?: SceneProjection,
+	t: Pick<ResolvedTransform, 'x' | 'y' | 'scale'> = { x: 0, y: 0 },
+): {
 	w: number;
 	h: number;
 	ax: number;
 	ay: number;
 } {
+	if (projection === 'isometric') {
+		const grid = isoGridBox(node);
+		const shift = isoNodeShift(t.x, t.y);
+		const s = scaleOf(t);
+		return {
+			w: grid.w,
+			h: grid.h,
+			ax: (grid.ax * grid.w - shift.x / s.x) / grid.w,
+			ay: -shift.y / s.y / grid.h,
+		};
+	}
 	return {
 		w: Math.max(1, node.cols * node.tileWidth),
 		h: Math.max(1, node.rows * node.tileHeight),
@@ -81,12 +113,19 @@ export function tilemapWorldToLocal(t: ResolvedTransform, w: Point2D): Point2D {
 	return { x: (w.x - t.x) / (t.scale?.x || 1), y: (w.y - t.y) / (t.scale?.y || 1) };
 }
 
-/** The cell under a stage point, or `undefined` off the grid. */
+/** The cell under a stage point, or `undefined` off the grid (on an isometric screen, the
+ *  diamond under it, the grid drawn from the node's projected place). */
 export function tilemapCellAtWorld(
 	node: TilemapNode,
 	t: ResolvedTransform,
 	w: Point2D,
+	projection?: SceneProjection,
 ): { col: number; row: number } | undefined {
+	if (projection === 'isometric') {
+		const at = isoProject(t.x, t.y);
+		const s = scaleOf(t);
+		return isoCellAt(node, (w.x - at.x) / s.x, (w.y - at.y) / s.y);
+	}
 	const p = tilemapWorldToLocal(t, w);
 	return tilemapCellAt(node, p.x, p.y);
 }
@@ -163,6 +202,29 @@ export function setTilesetRegion(node: TilemapNode, index: number, region: strin
 	const entry = node.tileset?.[index];
 	if (!entry) return false;
 	entry.region = region;
+	return true;
+}
+
+/** Set an entry's autotile variant for neighbour mask `mask` (0 … 15), sparse: an empty region
+ *  clears the slot, and an entry with no variant left loses `autotile`. False when there is no
+ *  such entry or mask. */
+export function setTilesetAutotile(
+	node: TilemapNode,
+	index: number,
+	mask: number,
+	region: string,
+): boolean {
+	const entry = node.tileset?.[index];
+	if (!entry || !Number.isInteger(mask) || mask < 0 || mask >= TILE_AUTOTILE_VARIANTS) return false;
+	const variants = Array.from(
+		{ length: TILE_AUTOTILE_VARIANTS },
+		(_, i) => entry.autotile?.[i] ?? '',
+	);
+	variants[mask] = region;
+	let end = variants.length;
+	while (end > 0 && !variants[end - 1]) end -= 1;
+	if (end === 0) delete entry.autotile;
+	else entry.autotile = variants.slice(0, end);
 	return true;
 }
 

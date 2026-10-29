@@ -1235,7 +1235,7 @@ console.log('8. parity');
 	const view = source('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	eq(
 		'<SpawnLayer> keys each instance by its handle id',
-		view.includes('{#each instances as instance (instance.id)}'),
+		/\{#each instances as instance(?:, \w+)? \(instance\.id\)\}/.test(view),
 		true,
 	);
 	eq('… and gives its instance node that id', /id: instance\.id,/.test(view), true);

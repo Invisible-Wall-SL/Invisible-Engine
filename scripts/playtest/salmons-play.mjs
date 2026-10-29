@@ -17,7 +17,8 @@
 // the seed its state carries — pages A and B (one room) make the same river, page C (another room)
 // a different one, each the river whose sea the server started its salmon at. P11.3: page E, in a
 // room of the authored river that starts its salmon below a waterfall, is stopped at the foot and
-// climbs it by tapping Space; page F, below a sandbank, is grounded on it and jumps off. The playbook is
+// climbs it by tapping Space; page F, below a sandbank, is grounded on it and jumps off. P11.4: the
+// river screen is isometric, and page A's salmon is drawn at its projected place. The playbook is
 // docs/playtest/salmons.md. It builds its own
 // snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
@@ -33,6 +34,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+
+import { PNG } from 'pngjs';
 
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
@@ -260,6 +263,37 @@ const settle = async (game, ms) => {
 	}
 };
 const players = async (game) => (await game.state()).arcade?.bodies ?? [];
+
+/** Whether a screenshot shows the own salmon's colour at its isometric place and not at its flat
+ *  one (`engine-layout` `projection.ts`; the screen is the design box, scaled to the page). */
+function isometricAt(png, arcade, me) {
+	const cam = arcade?.camera;
+	const at = arcade?.online?.drawn.find((d) => d.id === me);
+	const k = cam ? png.width / cam.view.w : 0;
+	if (!cam || !at || Math.abs(cam.view.h * k - png.height) > 2)
+		return { ok: false, cam, at, size: [png.width, png.height] };
+	const dx = at.x - (cam.x + cam.view.w / 2);
+	const dy = at.y - (cam.y + cam.view.h / 2);
+	const centre = { x: cam.view.w / 2 + cam.shakeX, y: cam.view.h / 2 + cam.shakeY };
+	// The placeholder look draws up and left of its place by half its size (a known failure mode,
+	// docs/knowledge/families/arcade.md): its middle is where the salmon's colour is sure.
+	const screen = (x, y) => ({ x: Math.round((x - 45) * k), y: Math.round((y - 22) * k) });
+	const projected = screen(centre.x + dx - dy, centre.y + (dx + dy) / 2);
+	const flat = screen(centre.x + dx, centre.y + dy);
+	const salmon = ({ x, y }) => {
+		if (x < 0 || y < 0 || x >= png.width || y >= png.height) return false;
+		const i = (y * png.width + x) * 4;
+		const [r, g, b] = png.data.subarray(i, i + 3);
+		return Math.abs(r - 0xfa) < 12 && Math.abs(g - 0x80) < 12 && Math.abs(b - 0x72) < 12;
+	};
+	const apart = Math.hypot(projected.x - flat.x, projected.y - flat.y) > 60;
+	return {
+		ok: salmon(projected) && (!apart || !salmon(flat)),
+		projected,
+		flat,
+		apart,
+	};
+}
 const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
 const shown = (game) => game.flow('f ? f.ordered().map((c) => c.id) : []');
 const zonesOf = (game) => game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]);
@@ -396,8 +430,17 @@ try {
 			roomMe,
 		},
 	);
-	writeFileSync(join(out, '03-salmon-upstream.png'), await a.page.screenshot());
+	const shot = await a.page.screenshot();
+	writeFileSync(join(out, '03-salmon-upstream.png'), shot);
 	result.shots.push('03-salmon-upstream.png');
+	// P11.4: the river screen is isometric. The own salmon is drawn upright where the projection
+	// puts it, (x − y, (x + y) / 2) from the camera's centre, not where the flat world would.
+	const iso = isometricAt(PNG.sync.read(shot), (await a.state()).arcade, me);
+	verdict(
+		'isometric: page A draws its salmon at its projected place, not its flat one',
+		iso.ok,
+		iso,
+	);
 
 	// The HUD: the room's own values, bound as variables the room owns.
 	const hudA = await shown(a);

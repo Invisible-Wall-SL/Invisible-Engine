@@ -15,7 +15,8 @@ export type { SalmonsRiverDrawing } from './salmonsRiver';
  *
  * The river is passed in, not imported: this package does not depend on `engine-mechanics`; the
  * river itself is drawn by `./salmonsRiver` (which a room's device also draws its own river
- * with). Played by `scripts/playtest/salmons-play.mjs`; written into a project by
+ * with). The river screen is isometric (P11.4): the ground drawn 2:1, the players upright.
+ * Played by `scripts/playtest/salmons-play.mjs`; written into a project by
  * `scripts/salmons/export.mjs`. Not exported from the package entry, so no game bundles it.
  */
 
@@ -151,6 +152,7 @@ export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 				role: 'basegame',
 				world: { ...river.world },
 				camera: { ...SALMONS_CAMERA, deadZone: { ...SALMONS_CAMERA.deadZone } },
+				projection: 'isometric',
 				nodes: [
 					salmonsRiverNode(river),
 					{

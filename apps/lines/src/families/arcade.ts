@@ -5,6 +5,10 @@
  * `config-vite`) resolves this module to `off/arcade.ts` instead.
  */
 import { ARCADE_LOOP_ACTIONS, ARCADE_VOCAB, type TemplateVocabulary } from 'engine-flow-v2';
+import { IsoWorld, registerProjectedWorld } from 'engine-layout/svelte';
+
+// A world screen with `projection: 'isometric'` (P11.4) is drawn by the family's isometric world.
+registerProjectedWorld(IsoWorld);
 
 export { default as ArcadeStage } from '../components/ArcadeStage.svelte';
 export { joinOnlineRoom } from '../game/online';

@@ -3,8 +3,12 @@
 		TILE_COLLIDES,
 		TILEMAP_MAX_SIDE,
 		TILEMAP_MAX_TILES,
+		TILE_AUTOTILE_VARIANTS,
+		autotileMaskLabel,
+		isoTilemapIssues,
 		parseScopedFrameRef,
 		tilemapTiles,
+		type SceneProjection,
 		type TileCollide,
 		type TilemapNode,
 	} from 'engine-layout';
@@ -15,6 +19,7 @@
 		removeTilesetEntry,
 		resizeTilemap,
 		setTilemapTileSize,
+		setTilesetAutotile,
 		setTilesetCollide,
 		setTilesetRegion,
 	} from '$lib/editor/tilemapEdit';
@@ -26,10 +31,19 @@
 	/**
 	 * Properties of a `tilemap` (game-families §4.4): its grid, its tileset (each entry's art and
 	 * how it collides) and the stage's paint tools. The arcade loop stands characters on, and stops
-	 * them at, the tiles marked solid or one-way.
+	 * them at, the tiles marked solid or one-way. On an isometric screen (P11.4) the grid is painted
+	 * as 2:1 diamonds and an entry may pick its art by its neighbours (autotile).
 	 */
-	type Props = { node: TilemapNode; sheets: { key: string; name: string }[]; onChange: () => void };
-	const { node, sheets, onChange }: Props = $props();
+	type Props = {
+		node: TilemapNode;
+		projection?: SceneProjection;
+		sheets: { key: string; name: string }[];
+		onChange: () => void;
+	};
+	const { node, projection, sheets, onChange }: Props = $props();
+	const iso = $derived(projection === 'isometric');
+	const issues = $derived(iso ? isoTilemapIssues(node) : []);
+	const MASKS = Array.from({ length: TILE_AUTOTILE_VARIANTS }, (_, mask) => mask);
 
 	const COLLIDE_LABEL: Record<TileCollide, string> = {
 		none: 'none',
@@ -173,7 +187,18 @@
 			/>
 		</label>
 	</div>
-	<p class="muted small">{node.cols * node.tileWidth} × {node.rows * node.tileHeight} px</p>
+	<p class="muted small">
+		{node.cols * node.tileWidth} × {node.rows * node.tileHeight} px{#if iso}
+			of world. On this isometric screen a tile is a square of world (tile w = tile h), drawn as a {node.tileWidth *
+				2} × {node.tileWidth} diamond{/if}
+	</p>
+	{#if iso && issues.length}
+		<ul class="issues" role="alert">
+			{#each issues as issue (issue)}
+				<li>{issue}</li>
+			{/each}
+		</ul>
+	{/if}
 
 	<span class="sub-label">tileset</span>
 	<ul class="tileset">
@@ -225,6 +250,28 @@
 							onclick={() => removeEntry(i)}>×</button
 						>
 					</div>
+					{#if iso}
+						<details class="autotile">
+							<summary
+								title="Neighbour autotiling: the art a cell of this tile draws, by which of its four neighbours (↑ → ↓ ← on the grid) hold this same tile. An empty slot draws the tile's own art."
+							>
+								autotile · {(entry.autotile ?? []).filter(Boolean).length} / {TILE_AUTOTILE_VARIANTS}
+							</summary>
+							{#each MASKS as mask (mask)}
+								<div class="variant">
+									<span class="mask">{autotileMaskLabel(mask)}</span>
+									<RegionPicker
+										{sheets}
+										value={entry.autotile?.[mask] ?? ''}
+										scoped
+										onSelect={(region) => {
+											if (setTilesetAutotile(node, i, mask, region)) onChange();
+										}}
+									/>
+								</div>
+							{/each}
+						</details>
+					{/if}
 				</div>
 			</li>
 		{/each}
@@ -364,6 +411,28 @@
 	.entry-row select {
 		flex: 1;
 		padding: 3px 6px;
+	}
+	.issues {
+		margin: 0 0 6px;
+		padding-left: 16px;
+		color: #ffb27a;
+		font-size: 11px;
+	}
+	.autotile summary {
+		color: #9a9aa6;
+		font-size: 10px;
+		cursor: pointer;
+	}
+	.variant {
+		display: flex;
+		gap: 4px;
+		align-items: center;
+		margin-top: 4px;
+	}
+	.mask {
+		flex: 0 0 34px;
+		color: #c8c8d0;
+		font-size: 11px;
 	}
 	.count {
 		color: #8a8a96;
