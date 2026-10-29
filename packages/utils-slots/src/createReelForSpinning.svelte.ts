@@ -13,6 +13,7 @@ import type {
 	SpinType,
 	AnticipationTier,
 } from './types';
+import { onScreenTail, reelYAbove } from './stripHandover';
 
 export type SpinningReelMotion = 'spinning' | 'bouncing' | 'stopped';
 export type SpinningReelSymbolState = 'static' | 'land' | 'spin';
@@ -192,12 +193,15 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	// internal states
 	let isPreSpinning = false;
 	let targetPaddingPosition = reelLength - 1;
-	let prevSymbols: ReelSymbol[] = createReelSymbols(reelOptions.initialSymbols);
 	let targetSymbols: ReelSymbol[] = createReelSymbols(reelOptions.initialSymbols);
 	let paddingRawReel: TRawSymbol[] = reelOptions.initialSymbols;
 	let onSpinFinishing: () => void = () => {};
 	let noStop = false;
 	let paddingSize = 0;
+	// How far the last handover laid the strip from where the resting placement would have put it
+	// (under half a row; `generalSpinWith`). The slide that follows spends the time it would have
+	// spent from there, so every reel still lands on the frame it always did.
+	let handoverShift = 0;
 
 	const getPaddingRawSymbol = ({
 		paddingRawReel,
@@ -226,20 +230,23 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			return getPaddingRawSymbol({ paddingRawReel, index: targetIndex });
 		});
 
-	const addPadding = async (paddingSizeValue: number) => {
+	/**
+	 * Lay `targetSymbols` and `paddingSizeValue` filler cells above `tail` — the cells on screen,
+	 * whose first one is drawn at `tailY` — and return the reel Y that keeps every `tail` cell where
+	 * it is drawn. The strip it hands over to is the one the player is looking at, so nothing jumps.
+	 */
+	const addPadding = (paddingSizeValue: number, tail: ReelSymbol[], tailY: number) => {
 		const paddingRawSymbols = getPaddingRawSymbols({
 			paddingRawReel,
 			start: targetPaddingPosition,
 			length: paddingSizeValue,
 		});
 		const paddingSymbols = paddingSymbolsOf(paddingRawSymbols);
-		const symbolsForSpin: ReelSymbol[] = [...targetSymbols, ...paddingSymbols, ...prevSymbols];
+		const symbolsForSpin: ReelSymbol[] = [...targetSymbols, ...paddingSymbols, ...tail];
 		symbolsForSpin.forEach((symbol, newSymbolIndex) => (symbol.symbolIndex = newSymbolIndex));
 		reelState.symbols = [...symbolsForSpin];
 
-		const topY =
-			homeY() - symbolsForSpin.length * getSymbolHeight() + reelLength * getSymbolHeight();
-		return topY;
+		return reelYAbove(tailY, targetSymbols.length + paddingSymbols.length, getSymbolHeight());
 	};
 
 	const slideY = async ({
@@ -251,8 +258,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		speed: number;
 		easing?: (value: number) => number;
 	}) => {
-		const currentY = reelY.current;
-		const distance = Math.abs(targetY - currentY);
+		const distance = Math.abs(targetY - (reelY.current - handoverShift));
+		handoverShift = 0;
 		const duration = distance / speed; // (speed unit: pixel / ms)
 
 		await reelY.set(targetY, { duration, easing });
@@ -271,21 +278,26 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		setSymbolsWithReelSymbols(targetSymbols);
 	};
 
+	// The strip and the reel Y that keeps it in place change together, so a spin that takes over
+	// never hands over from a strip drawn somewhere else. The yields after are the ones this step
+	// always had: a spin that takes over as the first lap ends still lays its strip before the loop
+	// turns the reel's symbols to their spin state, so the result turns with them, as it always did.
 	const preSpinPadding = async ({
 		preSpinPaddingRawReel,
 	}: {
 		preSpinPaddingRawReel: TRawSymbol[];
 	}) => {
 		const randomStart = Math.floor(Math.random() * preSpinPaddingRawReel.length);
-		prevSymbols = targetSymbols;
+		const onScreen = targetSymbols;
 		const targetRawSymbols = getPaddingRawSymbols({
 			paddingRawReel: preSpinPaddingRawReel,
 			start: randomStart,
 			length: reelLength,
 		});
 		targetSymbols = paddingSymbolsOf(targetRawSymbols);
-		const topY = await addPadding(0);
-		await placeY(topY);
+		placeY(addPadding(0, onScreen, reelY.current));
+		await Promise.resolve();
+		await Promise.resolve();
 	};
 
 	const preSpinSlideDownLoop = async ({
@@ -302,6 +314,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				: reelState.spinOptions().reelPreSpinSpeed;
 			const easing = started || isTurboBeforeAll ? linear : backIn;
 			await slideY({ reelY: homeY(), speed, easing });
+			// The spin took over while this lap was sliding: the strip is its strip now.
+			if (!isPreSpinning) break;
 			await preSpinPadding({ preSpinPaddingRawReel });
 			if (!started) {
 				reelState.motion = 'spinning';
@@ -338,8 +352,18 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const generalSpinWith = async ({ slideDown }: { slideDown: () => Promise<void> }) => {
 		const isSpinning = reelState.motion === 'spinning';
 
-		const topY = await addPadding(paddingSize);
-		await placeY(topY);
+		// Hand over from the strip AS DRAWN, wherever the pre-spin loop has it (`onScreenTail`). The
+		// result used to be laid above the loop's newest lap, the one still ABOVE the window, and
+		// placed as if the reel were at rest: the strip on screen was swapped for that one in a
+		// single frame, a whole reel's jump when the result landed as a lap ended.
+		const { tail, tailY } = onScreenTail(
+			reelState.symbols,
+			reelY.current,
+			homeY(),
+			getSymbolHeight(),
+		);
+		handoverShift = tailY - homeY();
+		placeY(addPadding(paddingSize, tail, tailY));
 
 		if (!isSpinning) {
 			reelState.motion = 'spinning';
@@ -361,7 +385,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		// `stopButtonClick`, so by the time any subscriber (including the board's `stop()`) runs,
 		// and for every reel that starts rolling afterwards, `isSkipped()` is already true.
 		if (roundSkip.isSkipped() || (!noStop && stateBet.isTurbo && isSpinning)) {
-			// skip
+			// The slide it was meant for is skipped: the bounce-back must not inherit it.
+			handoverShift = 0;
 		} else {
 			await interruptible.add(slideDown);
 		}
@@ -455,7 +480,6 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelState.spinType = prepareToSpinOptions.spinType;
 
 		noStop = prepareToSpinOptions.noStop;
-		prevSymbols = targetSymbols;
 		targetPaddingPosition = prepareToSpinOptions.paddingPosition;
 		targetSymbols = createReelSymbols(prepareToSpinOptions.symbols);
 		if (reelOptions.riders) withRiders(targetSymbols, reelOptions.riders.target);
@@ -495,17 +519,16 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				reelSymbol.cascade = null;
 				reelSymbol.symbolIndex = symbolIndex;
 			});
-			// `prevSymbols` and `targetSymbols` share these objects until the next `prepareToSpin` /
+			// `targetSymbols` shares these objects with the strip until the next `prepareToSpin` /
 			// `preSpinPadding` replaces the target set — and both of those run before `addPadding`,
-			// which is the only thing that concatenates the two. That ordering is what keeps a spin
-			// strip free of the same cell twice.
+			// which is the only thing that lays the targets above the strip. That ordering is what
+			// keeps a spin strip free of the same cell twice.
 			// A settled strip carries no riders: what landed riding a cell is the game's to draw at rest.
 			// Nor filler: whatever it lands on is the board, drawn as board cells are.
 			reelSymbols.forEach((reelSymbol) => {
 				reelSymbol.rider = undefined;
 				reelSymbol.padding = false;
 			});
-			prevSymbols = [...reelSymbols];
 			targetSymbols = [...reelSymbols];
 			paddingRawReel = reelOptions.initialSymbols;
 			reelState.symbols = [...reelSymbols];

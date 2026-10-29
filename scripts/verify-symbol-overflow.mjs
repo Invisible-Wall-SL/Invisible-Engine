@@ -633,7 +633,7 @@ ok(
 );
 ok(
 	'the reel marks itself rolling before the pre-spin strip is built, and clears it with motion',
-	/isPreSpinning = true;[\s\S]{0,400}?reelState\.rolling = true;[\s\S]{0,200}?await preSpinPadding/.test(
+	/isPreSpinning = true;[\s\S]{0,400}?reelState\.rolling = true;[\s\S]{0,200}?(?:await )?preSpinPadding\(/.test(
 		REEL_SRC,
 	) && /reelState\.motion = 'stopped';[\s\S]{0,300}?reelState\.rolling = false;/.test(REEL_SRC),
 );
