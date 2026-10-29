@@ -103,6 +103,13 @@ export const stageFxFilterCount = (kind: ElementFxKindId): number | undefined =>
 };
 
 /**
+ * What the stage knows of a kind, in the shape `engine-layout`'s `readPostFx` takes as its judge:
+ * the game and the Scene Editor read a doc's post FX through this one, so the editor shows exactly
+ * the entries the game plays.
+ */
+export const stageFxJudge = { refusal: stageFxRefusal, filters: stageFxFilterCount } as const;
+
+/**
  * Why one more effect drawing `filters` does not fit beside `others` (each the filter count of an
  * effect already on the stage), or `undefined` when it does.
  */

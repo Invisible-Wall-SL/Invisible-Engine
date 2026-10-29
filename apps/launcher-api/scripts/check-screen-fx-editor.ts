@@ -39,7 +39,7 @@ import {
 	REFERENCE_GRAPHS,
 	compileShaderEffect,
 } from 'engine-shadergraph';
-import { stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
+import { stageFxFilterCount, stageFxJudge, stageFxRefusal } from 'pixi-svelte/elementFx';
 
 import { collectSceneCueNames } from '../src/lib/sceneCues';
 import {
@@ -196,7 +196,7 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 
 // ---- 3. what the editor says plays is what the game plays --------------------------------------
 {
-	const judge = { refusal: stageFxRefusal, filters: stageFxFilterCount };
+	const judge = stageFxJudge;
 	const lists: unknown[][] = [
 		[],
 		[entry('a', 'glow'), entry('b', 'shine'), entry('c', 'flash')],
@@ -208,6 +208,7 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 		[entry('z', 'custom:fiveFilters'), entry('a', 'custom:costed', { trigger: 'cue', cue: 'x' })],
 		[{ id: 'bad', kind: 'notAKind', trigger: 'always' }, entry('a', 'glow')],
 		[entry('a', 'custom:gone'), entry('b', 'glow')],
+		[entry('a', 'glow'), entry('a', 'shine'), entry('b', 'flash')],
 	];
 	const warn = console.warn;
 	console.warn = () => {};
@@ -218,8 +219,19 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 				const e = raw as ElementFxEntry;
 				return refusals[j] === undefined && !e.disabled && e.kind !== 'notAKind' ? [e.id] : [];
 			});
+			const said = list.flatMap((raw, j) => {
+				const e = raw as ElementFxEntry;
+				return refusals[j] === undefined || e.kind === 'notAKind' ? [] : [e.id];
+			});
 			const game = readPostFx({ postFx: list }, judge).map((e) => e.id);
 			eq(`list ${i}: the entries the block shows as playing are readPostFx’s`, editor, game);
+			const enabled = list.filter((raw) => !(raw as ElementFxEntry).disabled).length;
+			check(
+				`list ${i}: every other enabled, readable entry says why it does not play`,
+				editor.length + said.length ===
+					enabled - list.filter((r) => (r as ElementFxEntry).kind === 'notAKind').length,
+				JSON.stringify({ editor, said }),
+			);
 		}
 	} finally {
 		console.warn = warn;
@@ -231,7 +243,22 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 			entry('b', 'fadeOut'),
 			entry('c', 'glow', { trigger: 'enter' }),
 		]),
-		[undefined, stageFxRefusal('fadeOut'), 'a post FX plays always or on a cue'],
+		[undefined, stageFxRefusal('fadeOut'), 'a post FX plays always or on a cue, not "enter"'],
+	);
+	eq(
+		'…a kind the project no longer compiles, and an entry after one with its id, say so too',
+		postFxEntryRefusals([entry('a', 'custom:gone'), entry('b', 'glow'), entry('b', 'shine')]),
+		['its effect is not registered', undefined, 'an entry before it has the same id'],
+	);
+	check(
+		'the game reads its post FX through the same judge',
+		readFileSync(
+			new URL('../../lines/src/components/Game.svelte', import.meta.url),
+			'utf8',
+		).includes('readPostFx(editorDoc.settings, stageFxJudge)') &&
+			readFileSync(new URL('../src/lib/screenFx.ts', import.meta.url), 'utf8').includes(
+				'readPostFx({ postFx: list }, stageFxJudge,',
+			),
 	);
 }
 

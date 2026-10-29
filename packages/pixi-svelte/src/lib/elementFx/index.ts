@@ -13,6 +13,7 @@ export {
 	bindStagePostFx,
 	stageFxCapRefusal,
 	stageFxFilterCount,
+	stageFxJudge,
 	stageFxRefusal,
 } from './stage';
 export { graphFilter } from './custom';

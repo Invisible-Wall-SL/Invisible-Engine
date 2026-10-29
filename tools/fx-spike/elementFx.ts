@@ -167,6 +167,7 @@ import {
 	bindStagePostFx,
 	bindStagePostFxSlot,
 	stageFxFilterCount,
+	stageFxJudge,
 	stageFxLoadText,
 	stageFxRefusal,
 	stagePostFx,
@@ -3653,7 +3654,11 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 	}
 
 	console.log('element fx — post FX in the doc (settings.postFx, stageFxAntialias)');
-	const judge = { refusal: stageFxRefusal, filters: stageFxFilterCount };
+	const judge = stageFxJudge;
+	assert(
+		judge.refusal === stageFxRefusal && judge.filters === stageFxFilterCount,
+		'the stage’s judge is its own refusal and filter count',
+	);
 	const warnings: string[] = [];
 	const warn = console.warn;
 	console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
@@ -3744,6 +3749,25 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			'with the judge, an unregistered custom kind is dropped with a warning and takes no place: the next two play',
 		);
 		warnings.length = 0;
+		const told: string[] = [];
+		const kept = readPostFx(
+			{
+				postFx: [
+					{ id: 'gone', kind: 'custom:deleted', trigger: 'always' },
+					{ id: 'b', kind: 'fadeOut', trigger: 'always' },
+					{ id: 'c', kind: 'glow', trigger: 'always' },
+				],
+			},
+			judge,
+			(entry, why) => told.push(`${entry.id}: ${why}`),
+		);
+		assert(
+			kept.map((e) => e.id).join() === 'c' &&
+				warnings.length === 0 &&
+				told.join(' | ') === `gone: its effect is not registered | b: ${stageFxRefusal('fadeOut')}`,
+			'a caller that asks is told why each entry does not play (the Scene Editor), and nothing is warned',
+		);
+		warnings.length = 0;
 		const doc = {
 			jurisdiction: 'UK',
 			postFx: [
@@ -3785,9 +3809,7 @@ console.log('element fx — the stage (post FX, Shader Graph 8e)');
 			/\{#key postFx\}\s*\{#if postFx\.length\}\s*<ElementFxPlayer entries=\{postFx\} \/>\s*\{\/if\}\s*\{\/key\}/.test(
 				game,
 			) &&
-			game.includes(
-				'readPostFx(editorDoc.settings, { refusal: stageFxRefusal, filters: stageFxFilterCount })',
-			) &&
+			game.includes('readPostFx(editorDoc.settings, stageFxJudge)') &&
 			ELEMENT_FX_STAGE_TARGET === 'stage' &&
 			/const app = stateApp\.pixiApplication;\s*if \(app\) return bindStagePostFx\(app\);/.test(
 				game,

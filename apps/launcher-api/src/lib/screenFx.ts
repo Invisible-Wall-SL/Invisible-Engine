@@ -1,13 +1,18 @@
 import {
 	STAGE_FX_LIMITS,
 	customElementFx,
-	readElementFxEntries,
+	readElementFxEntry,
 	type ElementFxEntry,
 	type ElementFxKindId,
 } from 'constants-shared/elementFx';
-import type { GameSettings } from 'engine-layout';
+import { readPostFx, type GameSettings } from 'engine-layout';
 import { POST_COST_BUDGET, POST_SAMPLE_BUDGET } from 'engine-shadergraph';
-import { stageFxCapRefusal, stageFxFilterCount, stageFxRefusal } from 'pixi-svelte/elementFx';
+import {
+	stageFxCapRefusal,
+	stageFxFilterCount,
+	stageFxJudge,
+	stageFxRefusal,
+} from 'pixi-svelte/elementFx';
 
 /**
  * Game Settings → Screen FX in the Scene Editor (Shader Graph 8e, `shader-graph-screens.md` §9.2):
@@ -95,23 +100,23 @@ export function postFxKindRefusal(
 }
 
 /**
- * Why each entry does not play in the game, by index (`undefined`: it plays, or is off): the
- * reader's own order (`readPostFx`), a trigger that is not `always` / `cue`, a refused kind, then
- * the caps against the entries before it that play. A custom kind the project no longer compiles
- * takes its place as the reader gives it one (it plays nothing, and its row says so).
+ * Why each entry does not play in the game, by index (`undefined`: it plays, is off, or cannot be
+ * read here): `readPostFx` itself, with the game's judge (`stageFxJudge`), so the editor marks
+ * exactly the entries the game plays, each in the reader's words. A custom kind the project no
+ * longer compiles takes no place, as in the game, and its row says so; an entry after one with the
+ * same id is never read.
  */
 export function postFxEntryRefusals(raw: unknown): (string | undefined)[] {
-	const playing: number[] = [];
-	return (Array.isArray(raw) ? raw : []).map((item) => {
-		const [entry] = readElementFxEntries([item]);
-		if (!entry || entry.disabled) return undefined;
-		if (entry.trigger !== 'always' && entry.trigger !== 'cue') {
-			return 'a post FX plays always or on a cue';
-		}
-		const filters = stageFxFilterCount(entry.kind) ?? 0;
-		const refusal = stageFxRefusal(entry.kind) ?? stageFxCapRefusal(playing, filters);
-		if (!refusal) playing.push(filters);
-		return refusal;
+	const list = Array.isArray(raw) ? raw : [];
+	const dropped = new Map<string, string>();
+	readPostFx({ postFx: list }, stageFxJudge, (entry, why) => dropped.set(entry.id, why));
+	const first = new Map<string, number>();
+	return list.map((item, index) => {
+		const entry = readElementFxEntry(item);
+		if (!entry) return undefined;
+		if ((first.get(entry.id) ?? index) !== index) return 'an entry before it has the same id';
+		first.set(entry.id, index);
+		return entry.disabled ? undefined : dropped.get(entry.id);
 	});
 }
 
