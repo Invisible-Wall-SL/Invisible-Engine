@@ -39,8 +39,9 @@ export function createBot({ brain, seed, at, abilities = [], character }) {
 /**
  * The bot's input for the next step, clamped onto `field`. `self` is its player (`{ body, character
  * }`), `players` everyone in the room; the brain sees the connected players other than itself that
- * can be hit (free, or grounded on a sandbank), and steps by the room's `dt` (seconds). `speed` is its character's full tilt: a brain that
- * wants to go faster is full tilt. `view` is the room's current step: a bot sees the present.
+ * can be hit (free, or grounded on a sandbank), and steps by the room's `dt` (seconds). `speed` is
+ * its character's full tilt: a brain that wants to go faster is full tilt. `view` is the room's
+ * current step: a bot sees the present.
  */
 export function botInput(bot, self, players, { dt, speed, field, view }) {
 	const bodies = [self.body];
