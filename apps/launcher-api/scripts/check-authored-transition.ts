@@ -28,7 +28,8 @@
  *     authored: the very doc with the flag off; with it on an equal doc, the same scenes swapped and
  *     the rest the very scene objects); with it on, the authored swap is not made, the coded part
  *     is retired and the cue is subscribed; with no transition runtime bound the game reads the row
- *     as off; the game binds the runtime before the scenes load and unbinds on destroy; the chips
+ *     as off; the game binds the runtime before the scenes load and unbinds on destroy; a slam
+ *     (`roundSkip`) ends the playing transition through the runtime's dispose; the chips
  *     (the pilot chip hidden while the row plays a screen transition, since its swap is not made).
  *
  * Runs the real `engine-layout` readers, player and registry, the real `editorStorage`
@@ -51,6 +52,7 @@ const { buildGameProfile } = await import('../src/lib/server/gameProfile.ts');
 const { authoredOverlayChips } = await import('../src/lib/server/authoredWinTiers.ts');
 const S = await import('../../lines/src/game/screenTransitions.ts');
 const { basegameOverlaysSceneOf } = await import('../../lines/src/game/sceneSelection.ts');
+const { roundSkip } = await import('../../../packages/utils-shared/skipToken.ts');
 
 let failures = 0;
 let passes = 0;
@@ -828,6 +830,7 @@ eq(
 			return { captured: Promise.resolve(), done: Promise.resolve() };
 		},
 		wait: () => Promise.resolve(),
+		skip: () => {},
 	});
 	eq(
 		'a runtime bound ⇒ the rule’s verdict',
@@ -898,18 +901,26 @@ eq(
 			binding.includes('elementFxHostFor(pixiApp, particleTimeScale)'),
 			binding.includes('return { captured: handle.captured, done: handle.done };'),
 			binding.includes('wait: () => waitForScreenTransition(app()),'),
+			binding.includes('skip: () => disposeScreenTransitions(app()),'),
 		],
-		[true, true, true, true, true],
+		[true, true, true, true, true, true],
 	);
+	let skipped = 0;
 	const first = {
 		play: () => ({ captured: Promise.resolve(), done: Promise.resolve() }),
 		wait: () => Promise.resolve(),
+		skip: () => skipped++,
 	};
 	const unbindFirst = S.bindScreenTransitions(first);
+	roundSkip.skip();
+	roundSkip.reset();
 	const unbindSecond = S.bindScreenTransitions({ ...first });
 	unbindFirst();
 	const afterStaleUnbind = S.bootTransitionCueStatus(() => 'screen');
 	unbindSecond();
+	roundSkip.skip();
+	roundSkip.reset();
+	eq('a slam reaches the bound runtime’s skip, once, and nothing once unbound', skipped, 1);
 	eq(
 		'a stale unbind (a Game destroyed after the next bound) leaves the later binding in place',
 		[afterStaleUnbind, S.bootTransitionCueStatus(() => 'screen')],

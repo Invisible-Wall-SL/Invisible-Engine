@@ -1,6 +1,10 @@
 import { elementFxHostFor } from 'pixi-svelte';
 import { particleTimeScale } from 'pixi-svelte/particleClock';
-import { playScreenTransition, waitForScreenTransition } from 'pixi-svelte/screenFx';
+import {
+	disposeScreenTransitions,
+	playScreenTransition,
+	waitForScreenTransition,
+} from 'pixi-svelte/screenFx';
 import { LAYER_BAND_SCREEN_TRANSITION } from 'engine-layout';
 
 import type { ScreenTransitionsApi } from './screenTransitions';
@@ -23,4 +27,5 @@ export const screenTransitionsOn = (app: () => App): ScreenTransitionsApi => ({
 		return { captured: handle.captured, done: handle.done };
 	},
 	wait: () => waitForScreenTransition(app()),
+	skip: () => disposeScreenTransitions(app()),
 });

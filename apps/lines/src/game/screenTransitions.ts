@@ -12,6 +12,7 @@
 import type { TransitionCueStatus } from 'engine-layout';
 import type { ElementFxParamValue } from 'constants-shared/elementFx';
 import { readScreenTransition, type ScreenTransitionSpec } from 'constants-shared/screenTransition';
+import { roundSkip } from 'utils-shared/skipToken';
 
 /** One transition the game asks the runtime to play. */
 export interface ScreenTransitionPlay extends ScreenTransitionSpec {
@@ -22,7 +23,8 @@ export interface ScreenTransitionPlay extends ScreenTransitionSpec {
 export interface ScreenTransitionHandle {
 	/** Resolves once the old screen is frozen (the next frame): the screen may change under it. */
 	captured: Promise<void>;
-	/** Resolves when it has played out, or was ended by another transition, a resize or teardown. */
+	/** Resolves when it has played out, or was ended by another transition, a slam, a resize or
+	 *  teardown. */
 	done: Promise<void>;
 }
 
@@ -32,9 +34,14 @@ export interface ScreenTransitionsApi {
 	play(transition: ScreenTransitionPlay): ScreenTransitionHandle;
 	/** Resolves when no transition is playing; at once when none is. */
 	wait(): Promise<void>;
+	/** Ends the playing transition now, at its end state; nothing when none is playing. */
+	skip(): void;
 }
 
 let api: ScreenTransitionsApi | null = null;
+
+// A slam (the player's stop press trips `roundSkip`) cuts a playing transition to the new screen.
+roundSkip.onSkip(() => api?.skip());
 
 /** Bind the runtime (or unbind it with `null`). Returns the unbind, which leaves a later binding
  *  in place. */

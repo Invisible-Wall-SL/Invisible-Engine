@@ -24,6 +24,11 @@
  *   5. No runtime bound (today's game): the transition is a cut — the chain runs straight through
  *      in one turn, with no play — and `waitForScreenTransition` resolves at once; the walk is the
  *      same as the doc with both actions removed; `?fxdebug=1` warns of the cut once.
+ *   6. A slam (`roundSkip.skip()`, what the stop press runs) ends the playing transition in the
+ *      same turn: before the capture the chain changes the screen and goes on, after it the wait
+ *      or a blocking transition goes on, a later `waitForScreenTransition` resolves at once; a
+ *      slam with none playing ends nothing, a transition started after it plays, and with no
+ *      runtime bound a slam is a no-op.
  *
  * Prints PASS/FAIL per assertion + a final `V2 SCREEN TRANSITION HARNESS: PASSED`.
  */
@@ -55,6 +60,7 @@ import {
 	waitForScreenTransitionEffect,
 	type ScreenTransitionPlay,
 } from '../../apps/lines/src/game/screenTransitions';
+import { roundSkip } from 'utils-shared/skipToken';
 
 let failed = false;
 const assert = (label: string, ok: boolean, detail?: string) => {
@@ -188,12 +194,15 @@ const deferred = () => {
 /** Let every pending microtask (and the interpreter's awaits) settle. */
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** A stub runtime: records each play; the harness releases its capture and its end. */
+/** A stub runtime: records each play; the harness releases its capture and its end. `skip` ends
+ *  the playing one as the runtime's dispose does: both settled, at once. */
 const stubApi = () => {
 	const plays: ScreenTransitionPlay[] = [];
 	let captured = deferred();
 	let done = deferred();
 	let playing = false;
+	let skips = 0;
+	let cut = 0;
 	bindScreenTransitions({
 		play: (transition) => {
 			plays.push(transition);
@@ -204,11 +213,22 @@ const stubApi = () => {
 			return { captured: captured.promise, done: done.promise };
 		},
 		wait: () => (playing ? done.promise : Promise.resolve()),
+		skip: () => {
+			skips++;
+			if (!playing) return;
+			cut++;
+			playing = false;
+			captured.resolve();
+			done.resolve();
+		},
 	});
 	return {
 		plays,
 		capture: () => captured.resolve(),
 		end: () => done.resolve(),
+		skips: () => skips,
+		cut: () => cut,
+		playing: () => playing,
 	};
 };
 
@@ -402,6 +422,80 @@ const main = async () => {
 			warnings.length === 1 && String(warnings[0]).startsWith('[fxdebug] screenTransition'),
 			JSON.stringify(warnings),
 		);
+	}
+
+	console.log('\n6. a slam cuts the playing transition to the new screen:');
+	{
+		const api = stubApi();
+		const early = makeRun(docWith(TRANSITION));
+		await settle();
+		roundSkip.skip();
+		same(
+			'slammed before the capture: ended in the same turn',
+			[api.cut(), api.playing()],
+			[1, false],
+		);
+		await settle();
+		same('…the chain changes the screen and goes on, the wait at once', early.log, [
+			'effect screenTransition',
+			'hide basegame',
+			'show freeSpins',
+			'effect waitForScreenTransition',
+			'cue uiShow',
+		]);
+		roundSkip.reset();
+
+		const late = makeRun(docWith(TRANSITION));
+		await settle();
+		api.capture();
+		await settle();
+		assert('captured, the chain holds at the wait', !late.isFinished());
+		roundSkip.skip();
+		await settle();
+		same(
+			'slammed after the capture: ended, the wait released',
+			[api.cut(), late.log.at(-1)],
+			[2, 'cue uiShow'],
+		);
+		let waited = false;
+		void waitForScreenTransitionEffect()?.then(() => (waited = true));
+		await Promise.resolve();
+		assert('a waitForScreenTransition after the slam resolves at once', waited);
+		roundSkip.reset();
+
+		const blocking = makeRun(docWith({ ...TRANSITION, blocking: lit('bool', true) }, false));
+		await settle();
+		api.capture();
+		await settle();
+		roundSkip.skip();
+		await settle();
+		same(
+			'a blocking transition slammed: ended, the chain goes on',
+			[api.cut(), blocking.isFinished()],
+			[3, true],
+		);
+		roundSkip.reset();
+
+		roundSkip.skip();
+		same('a slam with none playing ends nothing', [api.skips(), api.cut()], [4, 3]);
+		const after = makeRun(docWith(TRANSITION));
+		await settle();
+		api.capture();
+		await settle();
+		assert('a transition started after the slam plays on', api.playing() && !after.isFinished());
+		api.end();
+		await after.run;
+		roundSkip.reset();
+
+		bindScreenTransitions(null);
+		let threw = false;
+		try {
+			roundSkip.skip();
+		} catch {
+			threw = true;
+		}
+		same('no runtime bound: a slam reaches nothing', [threw, api.skips()], [false, 4]);
+		roundSkip.reset();
 	}
 
 	console.log(`\nV2 SCREEN TRANSITION HARNESS: ${failed ? 'FAILED' : 'PASSED'}`);
