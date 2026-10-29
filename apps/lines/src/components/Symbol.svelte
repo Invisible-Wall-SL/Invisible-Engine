@@ -40,6 +40,11 @@
 		 * by the inline message symbol, where a moving icon inside a line of text pulls the eye off
 		 * the sentence it illustrates. */
 		frozen?: boolean;
+		/** Not started yet, without remounting: the base art (rig or flipbook) holds its first frame
+		 *  and the state's Element FX are not made. A rolling cell drawn before its centre reaches
+		 *  the window (`SymbolWrap`'s `held`). Unlike {@link frozen}, the FX container stays, so
+		 *  starting does not remount the art. */
+		held?: boolean;
 		/**
 		 * The win-celebration DIM for this cell (`winCycle.dimNonWinning`) — a Pixi tint, applied to
 		 * each drawn PIECE below rather than once on a container above them all.
@@ -225,7 +230,9 @@
 	 * visit of a state; a gate the symbol has moved on from reports nothing.
 	 */
 	const symbolFx = $derived(props.frozen ? undefined : bakedSymbolFx()[props.rawSymbol.name]);
-	const stateFx = $derived(symbolFx ? symbolStateFx(props.rawSymbol.name, props.state) : []);
+	const stateFx = $derived(
+		symbolFx && !props.held ? symbolStateFx(props.rawSymbol.name, props.state) : [],
+	);
 	const waitsForFx = $derived(stateFx.some(elementFxEnterEnds));
 	const ownArt = $derived(hasAuthoredSymbolState(props.rawSymbol.name, props.state));
 	const gate = $derived.by(() => {
@@ -304,7 +311,7 @@
 				<SymbolFlipbook
 					{symbolInfo}
 					{loop}
-					frozen={props.frozen}
+					frozen={props.frozen || props.held}
 					x={props.x}
 					y={props.y}
 					oncomplete={artComplete}
@@ -315,7 +322,7 @@
 				<SymbolRigMain
 					{loop}
 					{symbolInfo}
-					frozen={props.frozen}
+					frozen={props.frozen || props.held}
 					x={props.x}
 					y={props.y}
 					listener={{

@@ -85,8 +85,20 @@
 			: cell.symbolY();
 
 	/**
-	 * Each view's cell now: of the cells it serves that have entered the window (y at or below its
-	 * top edge — the strip moves down), the most recent one. A board cell in that place means the
+	 * How far above the window edge a cell counts as entered: half a row, the margin `SymbolWrap`
+	 * draws a ROLLING cell at (filler only ever rolls), so a view takes its next cell on the frame
+	 * that cell's row first touches the window. A view's cells are `rows + 2` pitches apart and the
+	 * widened window is `rows + 1`, so no view is ever owed two at once.
+	 */
+	const enterAt = (row: number): number =>
+		top -
+		(context.stateGameDerived.boardGeometry().rowPitchLocal *
+			getSymbolSeat(props.reelIndex, row - 1).scale) /
+			2;
+
+	/**
+	 * Each view's cell now: of the cells it serves that have entered the window (its row touching
+	 * the top edge — the strip moves down), the most recent one. A board cell in that place means the
 	 * view has nothing to draw: that cell is drawn as board cells are. Recomputed every frame the reel
 	 * moves, so it holds the cells themselves: a view's item changes only when its cell does.
 	 */
@@ -95,7 +107,7 @@
 		const bestY: number[] = Array(slots);
 		for (const { cell, row, slot } of placed) {
 			const y = yOf(cell, row);
-			if (y < top) continue;
+			if (y <= enterAt(row)) continue;
 			if (!best[slot] || y < bestY[slot]) {
 				best[slot] = cell;
 				bestY[slot] = y;
