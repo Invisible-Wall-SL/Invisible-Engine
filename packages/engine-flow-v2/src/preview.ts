@@ -31,13 +31,27 @@ import {
 import { createSpawnStore, spawnedIdOf, type SpawnLayerSpec } from './spawn';
 import { createFlowState, flowUsesState, stepFlowState } from './state';
 import type { EventDecl, FlowDoc, FunctionLibraryDoc, TemplateVocabulary, TypeRef } from './types';
+import { findElementFxSpec, isPlayableElementFxKind } from 'constants-shared/elementFx';
+import { SCREEN_TRANSITION_LIMITS, readScreenTransition } from 'constants-shared/screenTransition';
+import {
+	SCREEN_TRANSITION_ACTION,
+	WAIT_FOR_SCREEN_TRANSITION_ACTION,
+} from './screenTransitionActions';
 
 // ---------------------------------------------------------------------------
 // The timeline.
 // ---------------------------------------------------------------------------
 
 export type FlowPreviewEntry =
-	| { kind: 'effect'; at: number; name: string; payload?: Record<string, unknown> }
+	/** An action. A `screenTransition` carries its length (`lengthMs`, speed-scaled; absent when its
+	 *  kind's own length is not known here), and a `waitForScreenTransition` how long it holds. */
+	| {
+			kind: 'effect';
+			at: number;
+			name: string;
+			payload?: Record<string, unknown>;
+			lengthMs?: number;
+	  }
 	| { kind: 'cue'; at: number; name: string; payload?: Record<string, unknown> }
 	/** A `delay` node — `ms` is the ELAPSED (already speed-scaled) duration the clock advanced. */
 	| { kind: 'delay'; at: number; ms: number }
@@ -207,15 +221,47 @@ export const previewFlowEvent = async (
 		? previewOnClock(doc, lookups, eventName, options)
 		: previewChain(doc, lookups, eventName, options);
 
-/** The recorder env both previews share; `at()` stamps each entry. */
+/**
+ * A `screenTransition` payload's length on the preview's clock: its `durationMs`, else its kind's
+ * own (a custom kind's only where the page registered it), clamped as the game clamps it, ÷ the
+ * speed; `undefined` when neither is known.
+ */
+const screenTransitionLengthMs = (
+	payload: Record<string, unknown>,
+	speed: number,
+): number | undefined => {
+	const spec = readScreenTransition({ kind: payload.kind, durationMs: payload.durationMs });
+	if (!spec) return undefined;
+	const own = isPlayableElementFxKind(spec.kind)
+		? findElementFxSpec(spec.kind)?.durationMs
+		: undefined;
+	const ms =
+		spec.durationMs ??
+		(own === undefined
+			? undefined
+			: Math.min(
+					SCREEN_TRANSITION_LIMITS.durationMs.max,
+					Math.max(SCREEN_TRANSITION_LIMITS.durationMs.min, own),
+				));
+	return ms === undefined ? undefined : stamp(ms / speed);
+};
+
+/**
+ * The recorder env both previews share; `at()` stamps each entry, `hold(ms)` waits on the clock
+ * without a Delay entry. Screen transitions are modelled as the game plays them (§6.2): one at a
+ * time, a new one ending the last; a blocking one holds its chain for its length; a
+ * `waitForScreenTransition` holds until the last one has played out.
+ */
 const recorderEnv = (
 	timeline: FlowPreviewEntry[],
 	at: () => number,
 	speed: number,
 	engine: (key: string) => unknown,
 	waitForTimeout: FlowV2Env['waitForTimeout'],
+	hold: (ms: number) => Promise<void>,
 	spawnLayers: readonly SpawnLayerSpec[] = [],
 ): FlowV2Env => {
+	let transitionEndsAt = 0;
 	// The live set, headless: the same store and rules as the game, nothing drawn. A spawned
 	// instance runs no state machine here, so its sets / fires / waits are recorded like a placed one's.
 	const live = createSpawnStore();
@@ -224,6 +270,18 @@ const recorderEnv = (
 		Object.keys(payload).length > 0 ? { payload } : {};
 	return {
 		effect: (name, payload) => {
+			if (name === SCREEN_TRANSITION_ACTION) {
+				const lengthMs = screenTransitionLengthMs(payload, speed);
+				const known = lengthMs === undefined ? {} : { lengthMs };
+				timeline.push({ kind: 'effect', at: at(), name, ...withPayload(payload), ...known });
+				transitionEndsAt = at() + (lengthMs ?? 0);
+				return payload.blocking === true && lengthMs ? hold(lengthMs) : undefined;
+			}
+			if (name === WAIT_FOR_SCREEN_TRANSITION_ACTION) {
+				const lengthMs = stamp(Math.max(0, transitionEndsAt - at()));
+				timeline.push({ kind: 'effect', at: at(), name, ...withPayload(payload), lengthMs });
+				return lengthMs > 0 ? hold(lengthMs) : undefined;
+			}
 			timeline.push({ kind: 'effect', at: at(), name, ...withPayload(payload) });
 		},
 		broadcast: (cue, payload) => {
@@ -319,6 +377,10 @@ const previewChain = async (
 			clock += elapsed;
 			await Promise.resolve();
 		},
+		async (ms) => {
+			clock += ms;
+			await Promise.resolve();
+		},
 		options.spawnLayers,
 	);
 
@@ -388,6 +450,7 @@ const previewOnClock = async (
 				timeline.push({ kind: 'delay', at: now, ms: elapsed });
 				return new Promise<void>((resolve) => schedule(now + elapsed, resolve));
 			},
+			(ms) => new Promise<void>((resolve) => schedule(now + ms, resolve)),
 			options.spawnLayers,
 		),
 		state,

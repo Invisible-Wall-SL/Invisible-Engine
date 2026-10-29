@@ -51,7 +51,22 @@
 	import { spawnableComponents, typeLabel } from './palette';
 	import EnumLiteral from './EnumLiteral.svelte';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
-	import type { FlowDoc } from 'engine-flow-v2';
+	import {
+		ELEMENT_FX_KIND_ENUM,
+		SCREEN_TRANSITION_ACTION,
+		SCREEN_TRANSITION_KIND_ENUM,
+		type FlowDoc,
+	} from 'engine-flow-v2';
+	import { customElementFxVersion } from '$lib/customElementFx.svelte';
+	import { isStageEffect, stageKindRefusal } from '$lib/flowScreenFx';
+	import {
+		screenTransitionKindGroups,
+		screenTransitionKindLabel,
+		transitionLoad,
+		transitionLoadText,
+	} from '$lib/screenFx';
+	import { isScreenTransitionKind } from 'constants-shared/screenTransition';
+	import { resolve } from '$app/paths';
 
 	let {
 		doc,
@@ -63,6 +78,7 @@
 		timelineIssues = {},
 		onchange,
 		oneditcomponent,
+		shaderQuery,
 	}: {
 		doc: FlowDoc;
 		node: V2Node;
@@ -80,7 +96,49 @@
 		/** Open the placement's component in the Scene Editor (the page confirms first, and refuses
 		 *  while the doc is unsaved). */
 		oneditcomponent?: (instanceId: string) => void;
+		/** The `/shaders` query that opens a custom kind's graph, when this user may open it. */
+		shaderQuery?: (kind: string) => string | undefined;
 	} = $props();
+
+	// --- screen FX (Shader Graph 8e, `shader-graph-screens.md` §9.1) ----------------------------
+	/** A node's literal input, when it is one. */
+	const literalInput = (pin: string): unknown => {
+		const source = node.inputs?.[pin];
+		return source?.kind === 'literal' ? source.value : undefined;
+	};
+	const isTransition = $derived(node.kind === 'action' && node.ref === SCREEN_TRANSITION_ACTION);
+	const transitionKind = $derived.by(() => {
+		const kind = isTransition ? literalInput('kind') : undefined;
+		return isScreenTransitionKind(kind) ? kind : undefined;
+	});
+	/** The transition kinds as their pickers group them: the built-in exits, then the project's
+	 *  Shader Graph effects. */
+	const transitionGroups = $derived.by(() => {
+		customElementFxVersion();
+		return screenTransitionKindGroups();
+	});
+	const stageEffect = $derived(isStageEffect(node));
+	const stageRefusal = $derived(stageEffect ? stageKindRefusal(literalInput('kind')) : undefined);
+	/** How an enum's dropdown reads on this node: the transition kinds grouped and named, and on the
+	 *  whole stage each Element FX kind it refuses flagged. */
+	function enumDecor(name: string): {
+		groups?: readonly { label: string; values: readonly string[] }[];
+		labelOf?: (value: string) => string;
+		flag?: (value: string) => string | undefined;
+	} {
+		if (name === SCREEN_TRANSITION_KIND_ENUM) {
+			return {
+				groups: transitionGroups.map((g) => ({ label: g.label, values: g.kinds })),
+				labelOf: screenTransitionKindLabel,
+			};
+		}
+		if (name === ELEMENT_FX_KIND_ENUM && stageEffect) {
+			return {
+				flag: (value) => (stageKindRefusal(value) ? 'does not play on the whole stage' : undefined),
+			};
+		}
+		return {};
+	}
 
 	// --- placed component instances (Rive plan §6.2, Phase 7) --------------------------------
 	/** A Wait for state on a SPAWNED instance (game-families §3.3): it names a component, not a node. */
@@ -1478,6 +1536,33 @@
 				{/each}
 			</div>
 		{/if}
+
+		{#if isTransition}
+			<div class="screenfx" data-screen-transition>
+				{#if transitionKind}
+					{@const load = transitionLoad(transitionKind)}
+					<p class="hint" class:warn={load.kind === 'compiled' && load.over}>
+						{transitionLoadText(transitionKind)}
+					</p>
+				{/if}
+				<p class="hint">
+					Freezes the screen and goes on at once. Put the screen change right after this node, then
+					<strong>Wait for transition</strong>. A blocking transition is a flourish over a screen
+					that does not change.
+				</p>
+				{#if transitionKind && shaderQuery?.(transitionKind)}
+					<a class="shader-link" href="{resolve('/shaders')}?{shaderQuery(transitionKind)}"
+						>Open in Shader Graph ↗</a
+					>
+				{/if}
+			</div>
+		{/if}
+		{#if stageRefusal}
+			<p class="hint warn" data-stage-refusal>
+				⚠ This kind plays nothing on the whole stage: {stageRefusal}. Pick a light, distortion or
+				loop kind with a pixel pass.
+			</p>
+		{/if}
 	</div>
 </div>
 
@@ -1535,12 +1620,16 @@
 					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.value })}
 				/>
 			{:else if lt.t === 'enum'}
+				{@const decor = enumDecor(lt.name)}
 				<EnumLiteral
 					enumName={lt.name}
 					values={enumValues(lt.name)}
 					value={src.value}
 					{unset}
 					{optional}
+					groups={decor.groups}
+					labelOf={decor.labelOf}
+					flag={decor.flag}
 					commit={(value) => commit({ kind: 'literal', type: lt, value })}
 				/>
 			{:else if lt.t === 'list' && lt.of.t === 'enum'}
@@ -1856,6 +1945,10 @@
 		color: #94a3b8;
 	}
 	.hint code {
+		color: #93c5fd;
+	}
+	.shader-link {
+		font-size: 11px;
 		color: #93c5fd;
 	}
 	.hint.warn {

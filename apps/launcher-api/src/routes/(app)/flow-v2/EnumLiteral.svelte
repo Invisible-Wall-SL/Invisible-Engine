@@ -13,6 +13,9 @@
 		list = false,
 		unset = false,
 		optional = false,
+		groups,
+		labelOf,
+		flag,
 		commit,
 	}: {
 		enumName: string;
@@ -23,8 +26,31 @@
 		/** `value` is the phantom default, not a stored value (see the inspector's `dataSourceEditor`). */
 		unset?: boolean;
 		optional?: boolean;
+		/** The dropdown's option groups, in order; a value no group holds follows them ungrouped. */
+		groups?: readonly { label: string; values: readonly string[] }[];
+		/** A value's name in the dropdown; unset ⇒ the value itself. */
+		labelOf?: (value: string) => string;
+		/** Why a value is worth a warning here (it stays pickable), shown after its name. */
+		flag?: (value: string) => string | undefined;
 		commit: (value: string | string[]) => void;
 	} = $props();
+
+	/** The options in their groups, then any the groups leave out. */
+	const grouped = $derived.by(() => {
+		if (!groups) return undefined;
+		const listed = groups
+			.map((group) => ({
+				label: group.label,
+				values: group.values.filter((v) => choices.options.includes(v)),
+			}))
+			.filter((group) => group.values.length);
+		const held = new Set(listed.flatMap((group) => group.values));
+		return { listed, rest: choices.options.filter((v) => !held.has(v)) };
+	});
+	const optionText = (v: string): string => {
+		const why = flag?.(v);
+		return `${labelOf?.(v) ?? v}${why ? ` — ${why}` : ''}`;
+	};
 
 	const choices = $derived(enumChoices(enumName, values, unset ? undefined : value));
 	const selected = $derived(Array.isArray(value) ? value.map(String) : []);
@@ -69,11 +95,24 @@
 				<option value="" disabled>{optional ? '— default —' : '— choose —'}</option>
 			{/if}
 			{#each choices.stale as v (v)}
-				<option value={v}>{v} — {choices.flag}</option>
+				<option value={v}>{labelOf?.(v) ?? v} — {choices.flag}</option>
 			{/each}
-			{#each choices.options as v (v)}
-				<option value={v}>{v}</option>
-			{/each}
+			{#if grouped}
+				{#each grouped.listed as group (group.label)}
+					<optgroup label={group.label}>
+						{#each group.values as v (v)}
+							<option value={v} title={flag?.(v)}>{optionText(v)}</option>
+						{/each}
+					</optgroup>
+				{/each}
+				{#each grouped.rest as v (v)}
+					<option value={v} title={flag?.(v)}>{optionText(v)}</option>
+				{/each}
+			{:else}
+				{#each choices.options as v (v)}
+					<option value={v} title={flag?.(v)}>{optionText(v)}</option>
+				{/each}
+			{/if}
 		</select>
 	{/if}
 	{#if choices.stale.length > 0}

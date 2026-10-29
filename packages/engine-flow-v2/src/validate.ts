@@ -111,6 +111,10 @@
  */
 
 import { flattenGroups } from './collapse';
+import {
+	SCREEN_TRANSITION_ACTION,
+	WAIT_FOR_SCREEN_TRANSITION_ACTION,
+} from './screenTransitionActions';
 import { containersMissingScene } from './containerScenes';
 import {
 	instanceEventFieldOf,
@@ -207,7 +211,11 @@ export type FlowIssueCode =
 	| 'spawn-layer-unknown'
 	| 'spawn-not-spawnable'
 	| 'spawn-cell-free'
-	| 'spawn-handle-unfed';
+	| 'spawn-handle-unfed'
+	| 'screen-transition-unwaited'
+	/** Raised by the launcher, which knows the Element FX runtime: an `elementEffect` on `stage`
+	 *  whose kind the stage refuses (`stageFxRefusal`). */
+	| 'stage-fx-refused';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -559,11 +567,62 @@ export const validateFlowDoc = (
 		scoped.push(...modeScopeIssues(graph, modeId));
 		scoped.push(...variableNodeIssues(flat, ctx, modeId, doc));
 		scoped.push(...missingSceneIssues(flat, missingScenes));
+		scoped.push(...screenTransitionIssues(flat, library));
 		issues.push(
 			...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))),
 		);
 	}
 	return [...duplicateIdIssuesFrom(idCounts), ...variableDeclIssues(doc, outcome), ...issues];
+};
+
+/**
+ * `screen-transition-unwaited` — an info (`shader-graph-screens.md` §9.1): a `screenTransition` that
+ * is not blocking (its `blocking` literally true; a wired one is not judged) whose chain never
+ * reaches a `waitForScreenTransition`, in the graph or a library function its chain calls. Legitimate
+ * (a transition may play under the next beat), so a hint, never a defect.
+ */
+const screenTransitionIssues = (
+	graph: FlowDoc['graph'],
+	library: FunctionLibraryDoc,
+): FlowIssue[] => {
+	const waits = (nodes: readonly Node[]): boolean =>
+		nodes.some((n) => n.kind === 'action' && n.ref === WAIT_FOR_SCREEN_TRANSITION_ACTION);
+	const functionWaits = new Map(
+		library.functions.map((fn) => [fn.id, waits(flattenGroups(fn.body).nodes)]),
+	);
+	const next = new Map<string, string[]>();
+	for (const edge of graph.exec) {
+		next.set(edge.from.node, [...(next.get(edge.from.node) ?? []), edge.to.node]);
+	}
+	const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+	const reachesWait = (from: string): boolean => {
+		const seen = new Set<string>([from]);
+		const todo = [...(next.get(from) ?? [])];
+		while (todo.length) {
+			const id = todo.pop();
+			if (id === undefined || seen.has(id)) continue;
+			seen.add(id);
+			const node = byId.get(id);
+			if (node?.kind === 'action' && node.ref === WAIT_FOR_SCREEN_TRANSITION_ACTION) return true;
+			if (node?.kind === 'functionCall' && functionWaits.get(node.ref)) return true;
+			todo.push(...(next.get(id) ?? []));
+		}
+		return false;
+	};
+	const issues: FlowIssue[] = [];
+	for (const node of graph.nodes) {
+		if (node.kind !== 'action' || node.ref !== SCREEN_TRANSITION_ACTION) continue;
+		const blocking = node.inputs?.blocking;
+		if (blocking && (blocking.kind !== 'literal' || blocking.value === true)) continue;
+		if (reachesWait(node.id)) continue;
+		issues.push({
+			code: 'screen-transition-unwaited',
+			severity: 'info',
+			message: `screen transition '${node.id}' is not blocking and its chain never reaches a Wait for transition, so it plays under whatever comes next. Put a Wait for transition after the screen change if the next beat should wait for it (or leave it, if it should not)`,
+			at: { on: 'node', node: node.id },
+		});
+	}
+	return issues;
 };
 
 const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;

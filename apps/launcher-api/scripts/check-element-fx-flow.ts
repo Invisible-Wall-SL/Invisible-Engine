@@ -3,7 +3,7 @@
  *
  * Run: `pnpm --filter launcher-api run check:element-fx-flow`
  *
- * Three rules:
+ * Five rules:
  *
  *  1. **An Element FX cue is fireable.** A node's or a screen's `elementFx` entry that plays (or
  *     stops) on a cue is harvested into the flow's cue list like a rig's own cue, inside components
@@ -14,19 +14,26 @@
  *     every node the game registers an anchor for (a group, a component placement, a coded mount,
  *     any node carrying Element FX — inside a component too). Not a reel grid, whose effects play
  *     on the reel stack.
- *  4. **`reels` and `stage` are reserved** (8e): the server's layout reader gives a node with either
- *     id a free one of its own, at any depth, so a node never catches the Flow's reels or stage.
  *  3. **One composition.** `composeFlowV2Vocab` widens the enum with the targets for the editor and
  *     the publish gate alike; with no targets the vocabulary keeps its identity. The project's
  *     custom kinds widen both `ElementFxKind` and `ScreenTransitionKind` (8e).
+ *  4. **`reels` and `stage` are reserved** (8e): the server's layout reader gives a node with either
+ *     id a free one of its own, at any depth, so a node never catches the Flow's reels or stage.
+ *  5. **The stage in the editor** (8e.6): an `elementEffect` on `stage` whose kind the stage refuses
+ *     (`stageFxRefusal`) is warned, in its mode section; the inspector flags those kinds there.
  */
 import type { ComponentDef, Scene } from 'engine-layout';
 import {
 	ELEMENT_FX_KIND_ENUM,
 	ELEMENT_FX_TARGET_ENUM,
 	SCREEN_TRANSITION_KIND_ENUM,
+	freshDrivenSeedDoc,
 	templateVocabulary,
+	type FlowDoc,
+	type Node,
 } from 'engine-flow-v2';
+import { stageFxRefusal } from 'pixi-svelte/elementFx';
+import { stageEffectIssues } from '../src/lib/flowScreenFx';
 import { SCREEN_TRANSITION_KINDS } from 'constants-shared/screenTransition';
 import { ELEMENT_FX_RESERVED_IDS } from 'constants-shared/elementFx';
 import { normalizeDoc, releaseReservedNodeIds } from '../src/lib/server/editorStorage';
@@ -274,6 +281,73 @@ check(
 		'4. the reserved ids are the reels and the stage',
 		[...ELEMENT_FX_RESERVED_IDS],
 		['reels', 'stage'],
+	);
+}
+
+// ── 5. the stage in the editor ────────────────────────────────────────────────────────────────
+{
+	const seed = freshDrivenSeedDoc('lines');
+	const effect = (id: string, target: string, kind: string): Node =>
+		({
+			id,
+			kind: 'action',
+			pos: { x: 0, y: 0 },
+			ref: 'elementEffect',
+			inputs: {
+				target: {
+					kind: 'literal',
+					type: { t: 'enum', name: ELEMENT_FX_TARGET_ENUM },
+					value: target,
+				},
+				kind: { kind: 'literal', type: { t: 'enum', name: ELEMENT_FX_KIND_ENUM }, value: kind },
+			},
+		}) as Node;
+	const doc: FlowDoc = {
+		...seed,
+		graph: {
+			...seed.graph,
+			nodes: [
+				...seed.graph.nodes,
+				effect('glowStage', 'stage', 'glow'),
+				effect('fadeStage', 'stage', 'fadeOut'),
+				effect('shakeStage', 'stage', 'shake'),
+				effect('shatterStage', 'stage', 'shatter'),
+				effect('fadeReels', 'reels', 'fadeOut'),
+			],
+		},
+		modes: {
+			freeSpins: {
+				graph: { nodes: [effect('popStage', 'stage', 'popIn')], exec: [], data: [] },
+			},
+		},
+	};
+	const issues = stageEffectIssues(doc);
+	eq(
+		'5. an elementEffect on the stage whose kind the stage refuses is warned (exit, motion-only, break; an enter kind in a mode section carries its mode); a light kind and another target are not',
+		issues.map((i) => [i.code, i.severity, i.at.on === 'node' ? i.at.node : '', i.mode ?? '']),
+		[
+			['stage-fx-refused', 'warning', 'fadeStage', ''],
+			['stage-fx-refused', 'warning', 'shakeStage', ''],
+			['stage-fx-refused', 'warning', 'shatterStage', ''],
+			['stage-fx-refused', 'warning', 'popStage', 'freeSpins'],
+		],
+	);
+	check(
+		'5. each says the runtime’s reason',
+		issues[0]?.message.includes(String(stageFxRefusal('fadeOut'))) === true,
+	);
+	check(
+		'5. the editor lists them with its issues; the inspector flags the refused kinds on the stage',
+		read('../src/routes/(app)/flow-v2/+page.svelte').includes('...stageEffectIssues(doc),') &&
+			read('../src/routes/(app)/flow-v2/NodeInspector.svelte').includes(
+				"flag: (value) => (stageKindRefusal(value) ? 'does not play on the whole stage' : undefined),",
+			),
+	);
+	check(
+		'5. the page registers the project’s effects, so a custom kind is judged as the game judges it',
+		read('../src/routes/(app)/flow-v2/+page.svelte').includes(
+			'registerCustomElementFx(untrack(() => data.customElementFx));',
+		) && read('../src/routes/(app)/flow-v2/+page.server.ts').includes('customElementFx: customFx,'),
 	);
 }
 

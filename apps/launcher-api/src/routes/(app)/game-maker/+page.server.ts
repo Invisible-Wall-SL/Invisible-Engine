@@ -44,7 +44,7 @@ import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/
 import { loadDocWithEtag } from '$lib/server/editorStorage';
 import { loadComponent } from '$lib/server/componentStorage';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
-import { flowFiresTransitionWith } from '$lib/server/cueLists';
+import { flowFiresTransitionWith } from '$lib/transitionCueFlow';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import type { FunctionLibraryDoc } from 'engine-flow-v2';

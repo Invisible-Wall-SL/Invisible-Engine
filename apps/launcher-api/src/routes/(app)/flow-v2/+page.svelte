@@ -44,6 +44,10 @@
 		stalePinsOf,
 	} from '$lib/flowInstanceUi';
 	import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
+	import { registerCustomElementFx } from '$lib/customElementFx.svelte';
+	import { stageEffectIssues } from '$lib/flowScreenFx';
+	import { flowFiresTransition } from '$lib/transitionCueFlow';
+	import { CUSTOM_ELEMENT_FX_PREFIX } from 'constants-shared/elementFx';
 	import { LIBRARY } from './sample';
 	import {
 		MODE_NODES,
@@ -86,6 +90,25 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// The project's shader effects, so a transition's kinds are named and costed and an
+	// `elementEffect` on the stage is judged by the runtime's own rule. Once: the page reloads with
+	// its project.
+	registerCustomElementFx(untrack(() => data.customElementFx));
+	const canOpenShaders = untrack(() => data.tools.some((t) => t.id === 'shaders'));
+	/** The `/shaders` query that opens a custom kind's graph (the shared library's with `shared=1`),
+	 *  for the inspector's "Open in Shader Graph". */
+	function shaderQuery(kind: string): string | undefined {
+		if (!canOpenShaders || !kind.startsWith(CUSTOM_ELEMENT_FX_PREFIX)) return undefined;
+		const id = kind.slice(CUSTOM_ELEMENT_FX_PREFIX.length);
+		const graph = data.shaderGraphs.find((g) => g.id === id);
+		if (!graph) return undefined;
+		return (
+			`graph=${encodeURIComponent(id)}` +
+			(graph.shared ? '&shared=1' : '') +
+			`&project=${encodeURIComponent(data.projectKey)}`
+		);
+	}
 
 	// The FlowDoc is the single source of truth. The `(app)` route always resolves a real project,
 	// so the server always sends a real `doc` (loaded from R2 at `flowV2DocKey`, or — for a project
@@ -540,7 +563,14 @@
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
 					...startupTapIssues(doc, library, data.armedTaps ?? {}),
+					...stageEffectIssues(doc),
 				],
+	);
+
+	// The Screen FX transition cue row is on in the Scene Editor, but this flow never fires the cue it
+	// answers (Shader Graph 8e, §9.2): said beside the issues, as Game Maker's chip says it.
+	const transitionCueUnfired = $derived(
+		data.transitionCueOn && flowFiresTransition(doc, library) === false,
 	);
 
 	// Issues per doc section, for the tab badges (`''` = the global graph).
@@ -2151,6 +2181,7 @@
 					timelineIssues={data.timelineIssues}
 					onchange={applyDocEdit}
 					oneditcomponent={(instanceId) => void editComponentOf(instanceId)}
+					{shaderQuery}
 				/>
 			{:else if view.kind === 'function' && activeFn}
 				<h3>Function body</h3>
@@ -2203,6 +2234,14 @@
 					{highlightInstance}
 					{spawnLayers}
 				/>
+			{/if}
+			{#if transitionCueUnfired}
+				<p class="cue-unfired" data-transition-cue-unfired>
+					⚠ Game Settings → Screen FX plays a screen transition on the <code>transition</code> cue,
+					but this flow never fires <code>transition</code>, so it never plays. Fire it where the
+					screen changes (the starter flows do, into and out of the free spins), or set the row back
+					to the wipe.
+				</p>
 			{/if}
 			<ValidationPanelV2
 				{issues}
@@ -2687,5 +2726,14 @@
 	}
 	.collapse-actions .primary:hover {
 		background: #2563eb;
+	}
+	.cue-unfired {
+		margin: 0 0 8px;
+		font-size: 11px;
+		line-height: 1.4;
+		color: #fbbf24;
+	}
+	.cue-unfired code {
+		color: #fde68a;
 	}
 </style>

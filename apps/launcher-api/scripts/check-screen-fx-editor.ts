@@ -68,7 +68,7 @@ import {
 	transitionLoad,
 	transitionLoadText,
 } from '../src/lib/screenFx';
-import { flowFiresTransition, flowFiresTransitionWith } from '../src/lib/server/cueLists';
+import { flowFiresTransition, flowFiresTransitionWith } from '../src/lib/transitionCueFlow';
 import { buildGameProfile } from '../src/lib/server/gameProfile';
 import { authoredOverlaySaveDecision } from '../src/lib/server/authoredOverlayGuard';
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation';

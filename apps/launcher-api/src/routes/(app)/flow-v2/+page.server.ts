@@ -25,10 +25,15 @@ import {
 import { withPlacedComponentVersions, wrongKindFlowMessage } from '$lib/server/flowV2Validation';
 import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
 import { resolveProjectCinematic } from '$lib/server/sharedCinematics';
-import { loadCustomElementFx } from '$lib/server/shaderStorage';
+import { compileProjectShadersWithCosts } from '$lib/server/shaderStorage';
 import { cinematicPickerOptions, type CinematicPickerOption } from '$lib/timeline/screenTimeline';
 import { docNamesInstance } from 'engine-flow-v2';
-import { validateNodeActors, type CinematicDoc, type Scene } from 'engine-layout';
+import {
+	transitionCueStatus,
+	validateNodeActors,
+	type CinematicDoc,
+	type Scene,
+} from 'engine-layout';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -79,12 +84,16 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// opens on (a ways project must not be handed the Book-of flow).
 	// The project's component defs load alongside: the cue harvest below walks the placed ones.
 	// The project's kind as `/config` and `/symbols` resolve it, for the symbol pickers below.
-	const [layout, components, gameType, customFx] = await Promise.all([
+	const [layout, components, gameType, shaders] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		listComponents({ projectKey }),
 		projectGameType(projectKey),
-		loadCustomElementFx(clientKey, projectKey),
+		compileProjectShadersWithCosts(clientKey, projectKey).catch((e: unknown) => {
+			console.error(`[flow-v2] could not compile ${clientKey}/${projectKey}'s shader graphs`, e);
+			return { effects: [], costs: [] };
+		}),
 	]);
+	const customFx = shaders.effects;
 	// The stored Game Config, read before the flow: a coin board opens on its own starter. It also
 	// feeds the add-ons and the symbol pickers below.
 	const storedConfig = await loadGameConfigDocWithEtag(clientKey, projectKey);
@@ -205,6 +214,17 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		sceneCues,
 		fxTargets,
 		customFxKinds,
+		/** The project's compiled shader effects, registered by the page: a transition's kinds are
+		 *  named and costed, and an `elementEffect` on the stage judged by the runtime's rule. */
+		customElementFx: customFx,
+		/** Game Settings → Screen FX plays a screen transition on the `transition` cue (the game's
+		 *  rule, `transitionCueStatus`, against the compiled effects): the page warns when this flow
+		 *  never fires it. */
+		transitionCueOn:
+			transitionCueStatus(layout, (kind) => customFxKinds.includes(kind)) === 'screen',
+		/** Each compiled graph's id and whether it is the shared library's: where "Open in Shader
+		 *  Graph" goes. */
+		shaderGraphs: shaders.costs.map(({ id, shared }) => ({ id, shared })),
 		containerEvents,
 		/** Placed node id → the instance's projected interface (`projectFlowInstances`), the source of
 		 *  a `componentInstance` node's pins and of every `instance-*` validation. */

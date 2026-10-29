@@ -29,6 +29,12 @@
  *      or a blocking transition goes on, a later `waitForScreenTransition` resolves at once; a
  *      slam with none playing ends nothing, a transition started after it plays, and with no
  *      runtime bound a slam is a no-op.
+ *   7. The validator (8e.6): a non-blocking transition whose chain never reaches a
+ *      `waitForScreenTransition` (in the graph or a library function it calls) is one info on the
+ *      node; blocking, literally or wired, says nothing.
+ *   8. The deterministic preview (8e.6) lists both actions with their lengths: the set length or
+ *      the kind's own, clamped and ÷ the speed; a blocking one holds its chain; a wait holds until
+ *      the last one ends; a kind whose length is not known here has none.
  *
  * Prints PASS/FAIL per assertion + a final `V2 SCREEN TRANSITION HARNESS: PASSED`.
  */
@@ -36,6 +42,7 @@
 import {
 	createContainerMountModel,
 	createFlowV2Env,
+	previewFlowEvent,
 	runFlowEvent,
 	templateVocabulary,
 	validateFlowDoc,
@@ -53,6 +60,7 @@ import {
 	SCREEN_TRANSITION_KINDS,
 	SCREEN_TRANSITION_LIMITS,
 } from 'constants-shared/screenTransition';
+import { findElementFxSpec } from 'constants-shared/elementFx';
 
 import {
 	bindScreenTransitions,
@@ -496,6 +504,143 @@ const main = async () => {
 		}
 		same('no runtime bound: a slam reaches nothing', [threw, api.skips()], [false, 4]);
 		roundSkip.reset();
+	}
+
+	console.log('\n7. the validator: a transition nothing waits for is an info (8e.6)');
+	{
+		const unwaited = (doc: FlowDoc, library = LIBRARY) =>
+			validateFlowDoc(doc, VOCAB, library).filter((i) => i.code === 'screen-transition-unwaited');
+		same(
+			'non-blocking with a Wait for transition on its chain: nothing said',
+			unwaited(docWith(TRANSITION)).length,
+			0,
+		);
+		const bare = unwaited(docWith(TRANSITION, false));
+		same(
+			'non-blocking, its chain never waits: one info on the node, which never blocks Publish',
+			bare.map((i) => [i.severity, i.at.on === 'node' ? i.at.node : '']),
+			[['info', 'freeze']],
+		);
+		same(
+			'blocking (literally on), or blocking wired: nothing said',
+			[
+				unwaited(docWith({ ...TRANSITION, blocking: lit('bool', true) }, false)).length,
+				unwaited(docWith({ ...TRANSITION, blocking: { kind: 'wire' } }, false)).length,
+				unwaited(docWith({ ...TRANSITION, blocking: lit('bool', false) }, false)).length,
+			],
+			[0, 0, 1],
+		);
+		const viaFunction = docWith(TRANSITION, false);
+		viaFunction.graph.nodes.push({
+			id: 'callWait',
+			kind: 'functionCall',
+			pos: { x: 1200, y: 0 },
+			ref: 'fn_wait',
+		} as Node);
+		viaFunction.graph.exec.push({
+			from: { node: 'after', pin: 'exec' },
+			to: { node: 'callWait', pin: 'exec' },
+		});
+		const library = {
+			version: 2 as const,
+			functions: [
+				{
+					id: 'fn_wait',
+					name: 'Wait',
+					inputs: [],
+					outputs: [],
+					requires: {},
+					body: {
+						nodes: [
+							{ id: 'w', kind: 'action', pos: { x: 0, y: 0 }, ref: 'waitForScreenTransition' },
+						] as Node[],
+						exec: [],
+						data: [],
+					},
+				},
+			],
+		};
+		same(
+			'a library function on its chain that waits counts',
+			[unwaited(viaFunction, library).length, unwaited(viaFunction).length],
+			[0, 1],
+		);
+	}
+
+	console.log('\n8. the preview lists both actions with their lengths (8e.6)');
+	{
+		const timeline = async (doc: FlowDoc, speed = 1) =>
+			(
+				await previewFlowEvent(doc, { vocab: VOCAB, library: LIBRARY }, 'load', { speed })
+			).timeline.flatMap((e) =>
+				e.kind === 'effect'
+					? [[e.at, e.name, e.lengthMs ?? null]]
+					: e.kind === 'cue'
+						? [[e.at, e.name]]
+						: [],
+			);
+		same(
+			'non-blocking: the transition 900 ms, the wait holds for it, the next beat at 900',
+			await timeline(docWith(TRANSITION)),
+			[
+				[0, 'screenTransition', 900],
+				[0, 'waitForScreenTransition', 900],
+				[900, 'uiShow'],
+			],
+		);
+		same('at 2× the lengths halve', await timeline(docWith(TRANSITION), 2), [
+			[0, 'screenTransition', 450],
+			[0, 'waitForScreenTransition', 450],
+			[450, 'uiShow'],
+		]);
+		same(
+			'blocking: the chain holds for its length; a wait after it holds for nothing',
+			await timeline(docWith({ ...TRANSITION, blocking: lit('bool', true) })),
+			[
+				[0, 'screenTransition', 900],
+				[900, 'waitForScreenTransition', 0],
+				[900, 'uiShow'],
+			],
+		);
+		same(
+			'no length set: the kind’s own (Dissolve out’s), clamped as the game clamps',
+			[
+				(await timeline(docWith({ kind: kindLit('dissolveOut') })))[0],
+				(
+					await timeline(docWith({ kind: kindLit('dissolveOut'), durationMs: lit('ms', 60_000) }))
+				)[0],
+			],
+			[
+				[0, 'screenTransition', findElementFxSpec('dissolveOut')?.durationMs ?? -1],
+				[0, 'screenTransition', SCREEN_TRANSITION_LIMITS.durationMs.max],
+			],
+		);
+		same(
+			'a custom kind not known here: no length, and the wait holds for nothing',
+			await timeline(docWith({ kind: kindLit('custom:swirl') })),
+			[
+				[0, 'screenTransition', null],
+				[0, 'waitForScreenTransition', 0],
+				[0, 'uiShow'],
+			],
+		);
+		const withState: FlowDoc = {
+			...docWith({ ...TRANSITION, blocking: lit('bool', true) }),
+			variables: [{ id: 'score', type: 'int', initial: 0, scope: 'game' }],
+		};
+		same(
+			'on the virtual-time queue (a doc with variables) too: the blocking one holds its chain',
+			await timeline(withState),
+			[
+				[0, 'screenTransition', 900],
+				[900, 'waitForScreenTransition', 0],
+				[900, 'uiShow'],
+			],
+		);
+		same('a wait with no transition holds for nothing', await timeline(docWith(null)), [
+			[0, 'waitForScreenTransition', 0],
+			[0, 'uiShow'],
+		]);
 	}
 
 	console.log(`\nV2 SCREEN TRANSITION HARNESS: ${failed ? 'FAILED' : 'PASSED'}`);
