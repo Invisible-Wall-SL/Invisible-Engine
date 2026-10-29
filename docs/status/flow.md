@@ -55,6 +55,12 @@
 
 ## Recent changes
 
+- 2026-10-29 — **Screen transitions in the Flow** (Invisible Shader Graph 8e.4,
+  [status](shader-graph.md)). `screenTransition` and `waitForScreenTransition` in the standard,
+  match3 and arcade vocabularies, the `ScreenTransitionKind` enum, and `stage` in
+  `ElementFxTarget` (after `reels`, still the default). Vocabulary hashes in
+  `check:flow-bonus-modes` pin the additions on their own; every starter flow is byte-identical
+  (`check:flow-publish-gate`). Guide: [flow.md](../tools/flow.md#screen-transitions-from-one-screen-to-the-next).
 - 2026-10-27 — **Publish refuses a driven flow that leaves an armed tap screen up from start-up**
   (`startup-tap-surface`, an ERROR). The live case is `unassigned/cloud` (published 2026-10-26):
   its flow was seeded under the old "mount once, toggle by cue" model and shows `freeSpinIntro` /

@@ -15,6 +15,18 @@
 // moved into a flow container (`hudCorners`, canvas space, mounted by the flow), which proves the
 // swap reaches the scenes the flow interpreters render, not only the overlays scene, and the same
 // book with turbo on at boot (`ie_turbo=1`), under which measured waits are halved.
+// A fourth set proves the `transition` cue's screen transition (Invisible Shader Graph 8e,
+// docs/design/shader-graph-screens.md §9.2, §15 step 4): the doc's `settings.transitionCue` names a
+// compiled crossfade that reads both screens (`screenEffects.mts`), shipped in the bundle's
+// `shaderEffects`. On that side the flow goes on within 2 frames of the cue (the cue resolves once
+// the old screen is frozen, not after the wipe), the shell filter is on the stage, every captured
+// frame from t+24 differs from the cue frame, each is the mix of the two screens at the clock's progress
+// (to within two frames), the frames travel strictly from the old screen to the new one, and no
+// frame is darker than both screens at any pixel — the two screens read off two more sides that
+// play the crossfade's halves alone (From: the frozen old screen, checked frozen and not blank; To:
+// the live new one) on the same frames, all three drawing every frame. With the row's graph left
+// out of `shaderEffects` the row is unplayable, and every frame is pixel-identical to the
+// published wipe.
 // Deterministic: a fixed seed, stepped frames, no wall clock. No URL flag flips the Transition: the
 // authored side is a DOC with the flag set, served the way a published project is.
 //
@@ -30,6 +42,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+
+import { PNG } from 'pngjs';
 
 import { openPage } from '../current-games/lib/browser.mjs';
 import {
@@ -145,6 +159,29 @@ const inContainer = (bundle) => {
 		},
 	};
 };
+// The transition cue row: its compiled effects, and a bundle naming one of them (or, `effects`
+// empty, naming one it does not ship).
+const SCREEN_EFFECTS = JSON.parse(
+	execFileSync(
+		process.execPath,
+		[
+			'--experimental-strip-types',
+			'--import',
+			'./scripts/ts-loader.mjs',
+			'scripts/transition-parity/screenEffects.mts',
+		],
+		{ cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
+	),
+);
+const SCREEN_MS = 2000;
+const withCue = (bundle, kind, effects) => ({
+	...bundle,
+	doc: {
+		...bundle.doc,
+		settings: { ...(bundle.doc.settings ?? {}), transitionCue: { kind, durationMs: SCREEN_MS } },
+	},
+	shaderEffects: [...(bundle.shaderEffects ?? []), ...effects],
+});
 const bundleFile = (name, bundle) => {
 	const file = join(out, `runtime-${name}.json`);
 	writeFileSync(file, JSON.stringify(bundle));
@@ -157,7 +194,33 @@ const SIDES = {
 	'authored-container': bundleFile('authored-container', flagged(inContainer(published))),
 	'coded-turbo': undefined,
 	'authored-turbo': bundleFile('authored-turbo', flagged(published)),
+	screen: bundleFile('screen', withCue(published, 'custom:tp-crossfade', SCREEN_EFFECTS)),
+	'screen-from': bundleFile('screen-from', withCue(published, 'custom:tp-from', SCREEN_EFFECTS)),
+	'screen-to': bundleFile('screen-to', withCue(published, 'custom:tp-to', SCREEN_EFFECTS)),
+	'screen-missing': bundleFile('screen-missing', withCue(published, 'custom:tp-crossfade', [])),
 };
+// The row's sides draw every frame, as a player sees them, through the shell filter on each. (The
+// still, a render to a texture, is taken under `draw: 'last'` too: the determinism clock skips only
+// draws to the screen.) Each comparison stays within one mode: the row's sides with each other,
+// `screen-missing` (no still) with the published wipe.
+const DRAW = { screen: 'every', 'screen-from': 'every', 'screen-to': 'every' };
+// The flow goes on this soon after the cue under the row (the frame the still is taken on, ± 1).
+const SCREEN_CONTINUES_WITHIN = 2;
+// The still is the screen a frame after the cue frame: the backdrop's own animation moves this
+// much of it, where a blank still is ~90% off.
+const STILL_NEAR_CUE = 0.1;
+// A channel value this far below both screens' counts as darker (8-bit steps, the screen-fx bar).
+const DARKER_STEP = 2;
+// The crossfade is From and To mixed by its progress, so every captured frame is that mix: the
+// progress that fits it (least squares over the channels where the screens differ by at least
+// `MIX_SPREAD`) must be the clock's, offset / the length in frames, within `MIX_PROGRESS_SLACK`
+// (the still is taken a frame after the cue, so it reads a frame behind), and every channel must
+// sit within `MIX_STEP` of the mix at that progress. Measured 2026-10-29: a frame behind (0.008
+// under), every channel within 0.6.
+const SCREEN_FRAMES = (SCREEN_MS * 60) / 1000;
+const MIX_SPREAD = 16;
+const MIX_PROGRESS_SLACK = 2 / SCREEN_FRAMES;
+const MIX_STEP = 2;
 // The turbo variant (Rive plan Phase 8b, condition 1): the same book with turbo on at boot
 // (`ie_turbo=1`, honoured with `ie_determinism` only). The runtime divides measured cue waits by
 // `timeScale`; the rigs ride the ticker, so the wipe must track the coded one here too.
@@ -229,7 +292,7 @@ async function play(side) {
 		if (!ready) throw new Error('the runtime never installed determinism mode');
 		const api = (call) => page.evaluate(`window.__IE_DETERMINISM__.${call}`);
 		const state = () => api('state()');
-		const step = (frames) => api(`step(${Number(frames)}, { draw: 'last' })`);
+		const step = (frames) => api(`step(${Number(frames)}, { draw: '${DRAW[side] ?? 'last'}' })`);
 		const waitFor = async (until, maxFrames = 7200) => {
 			const r = await api(`waitFor(${JSON.stringify({ ...until, maxFrames, draw: 'last' })})`);
 			if (!r.ok)
@@ -271,7 +334,8 @@ async function play(side) {
 			}
 			const file = join(dir, `t+${offset}.png`);
 			writeFileSync(file, await page.screenshot());
-			result.captures[offset] = { file, frame: s.frame, screens: s.screens };
+			const stageFilters = await page.evaluate('window.__PIXI_APP__?.stage?.filters?.length ?? 0');
+			result.captures[offset] = { file, frame: s.frame, screens: s.screens, stageFilters };
 		}
 		for (let n = 0; !cueFired(s, NEXT_CUE) && n < MAX_FRAMES_TO_NEXT; n++) {
 			await step(1);
@@ -282,7 +346,8 @@ async function play(side) {
 			throw new Error(
 				`the ${NEXT_CUE} cue never fired within ${MAX_FRAMES_TO_NEXT} frames of the wipe`,
 			);
-		result.nextCueFrame = s.frame;
+		// The frame it fired on, which under the cue row comes before the last capture.
+		result.nextCueFrame = next.frame;
 		const final = await page.evaluate(
 			'window.__IE_DETERMINISM__ && { ...window.__IE_DETERMINISM__.state(), renderer: window.__PIXI_APP__?.renderer?.name }',
 		);
@@ -376,7 +441,133 @@ for (const [codedSide, authoredSide] of PAIRS) {
 	if (pair.continues.pass) log(`✓ ${line}`);
 	else fail(line);
 }
+
+// ---- the transition cue row --------------------------------------------------------------------------------
+
+const cueRow = ['screen', 'screen-from', 'screen-to', 'screen-missing'].map(
+	(side) => results[side],
+);
+if (!results.coded.error && cueRow.every((r) => !r.error)) {
+	const [screen, from, to, missing] = cueRow;
+	const coded = results.coded;
+	const row = { screen: [], missing: [], continues: undefined, pass: true };
+	report.pairs.push({ cueRow: row });
+	const check = (ok, line) => {
+		if (ok) log(`✓ ${line}`);
+		else {
+			row.pass = false;
+			fail(line);
+		}
+	};
+	log('— the transition cue row —');
+	const span = screen.nextCueFrame - screen.cueFrame;
+	row.continues = span;
+	check(
+		span <= SCREEN_CONTINUES_WITHIN,
+		`the flow continued (${NEXT_CUE}) ${span} frames after the cue (within ${SCREEN_CONTINUES_WITHIN}; the wipe took ${coded.nextCueFrame - coded.cueFrame})`,
+	);
+	check(
+		[from, to].every((r) => r.cueFrame === screen.cueFrame),
+		`the From and To sides reach the cue on the same frame (${[screen, from, to].map((r) => r.cueFrame).join(' / ')})`,
+	);
+	check(
+		OFFSETS.every((offset) => screen.captures[offset].stageFilters > 0),
+		`the shell filter is on the stage at every captured frame (${OFFSETS.map((o) => screen.captures[o].stageFilters).join(' ')})`,
+	);
+	// The two screens: From holds the frozen old screen (one still, so every capture is the same
+	// image, and it is the cue frame's screen a frame later: close to it, never blank); To is the
+	// live new screen.
+	const png = (r, offset) => readFileSync(r.captures[offset].file);
+	const reference = png(screen, REFERENCE);
+	const still = compareScreens(reference, png(from, OFFSETS[0]), tolerance);
+	check(
+		still.diffRatio < STILL_NEAR_CUE,
+		`Screens → From is the old screen: ${(still.diffRatio * 100).toFixed(2)}% off the cue frame, one frame earlier (under ${STILL_NEAR_CUE * 100}%)`,
+	);
+	check(
+		OFFSETS.every((offset) => identical(png(from, OFFSETS[0]), png(from, offset))),
+		'Screens → From is frozen: the same image at every captured frame',
+	);
+	for (const offset of OFFSETS) {
+		const frame = png(screen, offset);
+		const at = `t+${String(offset).padStart(2)}`;
+		const moved = compareScreens(reference, frame, tolerance).diffRatio;
+		const fromOld = compareScreens(png(from, offset), frame, tolerance).diffRatio;
+		const fromNew = compareScreens(png(to, offset), frame, tolerance).diffRatio;
+		const a = PNG.sync.read(frame).data;
+		const old = PNG.sync.read(png(from, offset)).data;
+		const now = PNG.sync.read(png(to, offset)).data;
+		let darker = 0;
+		for (let i = 0; i < a.length; i++)
+			if ((i & 3) !== 3 && a[i] < Math.min(old[i], now[i]) - DARKER_STEP) darker++;
+		let num = 0;
+		let den = 0;
+		for (let i = 0; i < a.length; i++) {
+			const spread = now[i] - old[i];
+			if ((i & 3) === 3 || Math.abs(spread) < MIX_SPREAD) continue;
+			num += (a[i] - old[i]) * spread;
+			den += spread * spread;
+		}
+		const progress = den ? num / den : NaN;
+		let offMix = 0;
+		for (let i = 0; i < a.length; i++)
+			if ((i & 3) !== 3 && Math.abs(a[i] - (old[i] + progress * (now[i] - old[i]))) > MIX_STEP)
+				offMix++;
+		const clock = offset / SCREEN_FRAMES;
+		row.screen.push({ offset, diffRatio: moved, fromOld, fromNew, darker, progress, offMix });
+		// At t+12 the mix is still within a pixel step of the old screen, so only the mix check
+		// below can tell it from a held frame; from t+24 on it must also visibly differ.
+		if (offset >= 24)
+			check(
+				moved > WIPE_ON_SCREEN,
+				`${at}: differs from the cue frame by ${(moved * 100).toFixed(2)}% (floor ${WIPE_ON_SCREEN * 100}%)`,
+			);
+		check(darker === 0, `${at}: ${darker} values darker than both screens`);
+		check(
+			Math.abs(progress - clock) <= MIX_PROGRESS_SLACK && offMix === 0,
+			`${at}: the mix of From and To at progress ${progress.toFixed(4)} (the clock's ${clock.toFixed(4)} ± ${MIX_PROGRESS_SLACK.toFixed(4)}), ${offMix} values off it by more than ${MIX_STEP}`,
+		);
+	}
+	// …and it travels from one to the other: off the old screen more at each capture, off the new
+	// one less, strictly from t+24 on (at t+12 the mix is still within the tolerance of the old
+	// screen); a frame held on either screen, or frozen between captures, fails this.
+	const series = (key) => row.screen.map((f) => f[key]);
+	const moving = (key) => series(key).slice(OFFSETS.indexOf(24));
+	const strictly = (list, up) =>
+		list.every((v, i) => i === 0 || (up ? v > list[i - 1] : v < list[i - 1]));
+	const percent = (list) => list.map((v) => (v * 100).toFixed(2)).join(' → ');
+	check(
+		strictly(moving('fromOld'), true) && series('fromOld').at(-1) > WIPE_ON_SCREEN,
+		`it leaves the old screen: ${percent(series('fromOld'))}% off it, rising strictly from t+24`,
+	);
+	check(
+		strictly(moving('fromNew'), false) && series('fromNew')[0] > WIPE_ON_SCREEN,
+		`it reaches the new screen: ${percent(series('fromNew'))}% off it, falling strictly from t+24`,
+	);
+	check(
+		!missing.held && !coded.held,
+		'the row left unplayable holds the cue as published (no instance)',
+	);
+	for (const offset of [REFERENCE, ...OFFSETS]) {
+		const same = identical(
+			readFileSync(coded.captures[offset].file),
+			readFileSync(missing.captures[offset].file),
+		);
+		row.missing.push({ offset, identical: same });
+		check(
+			same,
+			`t+${String(offset).padStart(2)}: the row with its graph left out is pixel-identical to the published wipe`,
+		);
+	}
+	check(
+		missing.nextCueFrame - missing.cueFrame === coded.nextCueFrame - coded.cueFrame &&
+			missing.cueFrame === coded.cueFrame,
+		`…and the flow continues on the same frame (${missing.nextCueFrame - missing.cueFrame} / ${coded.nextCueFrame - coded.cueFrame})`,
+	);
+}
 writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, '\t'));
 log(`report → ${join(out, 'report.json')}`);
 if (!report.pass) process.exit(1);
-log('✅ the authored Transition matches the coded one');
+log(
+	'✅ the authored Transition matches the coded one; the transition cue row plays its screen transition',
+);

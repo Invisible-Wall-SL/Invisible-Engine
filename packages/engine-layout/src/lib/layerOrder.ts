@@ -66,6 +66,11 @@ export const LAYER_BAND_TAKEOVER = 9_000;
 /** Fixed z for the engine-owned top layer (the info overlay; the coded path's free-spin
  *  counter) — always above every list-ordered AND pinned screen, so no authoring can bury it. */
 export const LAYER_BAND_TOP = 10_000;
+/** Fixed z for a SCREEN TRANSITION's still of the old screen (Invisible Shader Graph 8e,
+ *  `docs/design/shader-graph-screens.md` §6.3): above everything the game draws, so the old screen
+ *  covers the new one until the effect reveals it, and below {@link LAYER_BAND_INPUT_MASK}, so a
+ *  press-to-continue tap still lands. Empty unless a transition plays on a still. */
+export const LAYER_BAND_SCREEN_TRANSITION = 10_500;
 /** Fixed z for the press-to-continue INPUT MASK — the one layer above {@link LAYER_BAND_TOP}
  *  itself. While a `tapToContinue` overlay is up, a full-canvas hit rect mounts here so the tap
  *  lands on the overlay wherever the pointer happens to be resting; without it the HUD (which

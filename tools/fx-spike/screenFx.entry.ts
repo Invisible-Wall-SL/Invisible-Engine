@@ -772,13 +772,19 @@ const lifecycle = async (gl: number): Promise<void> => {
 	for (const kind of [kindOf(crossfade), 'shatter']) {
 		const handle = await begin(rig, { kind, durationMs: 2000 });
 		frame(rig, 20);
+		let waited = false;
+		void waitForScreenTransition(rig.app).then(() => (waited = true));
 		disposeScreenTransitions(rig.app);
+		const freed = handle.still === undefined && (await settled(handle.done)) && waited;
+		frame(rig);
+		const next = compare(shot(rig), ref.new);
 		claim(
-			`dispose (${handle.route} route) ends it and leaves nothing: no child, filter, area or ticker callback`,
+			`dispose (${handle.route} route, a slam's cut) ends it and leaves nothing: no still, child, filter, area or ticker callback; a wait settles; the next frame is the new screen (${said(next)})`,
 			!handle.active &&
-				(await settled(handle.done)) &&
+				freed &&
 				atRest(rig) &&
-				rig.app.ticker.count === listeners,
+				rig.app.ticker.count === listeners &&
+				next.over === 0,
 		);
 	}
 	{

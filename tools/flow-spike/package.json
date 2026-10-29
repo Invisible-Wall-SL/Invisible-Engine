@@ -60,6 +60,7 @@
 		"v2drivenseed": "tsx flowV2DrivenSeed.ts",
 		"v2cascadeseedplay": "tsx flowV2CascadeSeedPlay.ts",
 		"v2holdandwin": "tsx flowV2HoldAndWin.ts",
+		"v2screentransition": "tsx flowV2ScreenTransition.ts",
 		"loadingbar": "tsx loadingBarDefaults.ts",
 		"slamcounter": "tsx --import ./appStubs.register.mjs slamCounter.ts"
 	},

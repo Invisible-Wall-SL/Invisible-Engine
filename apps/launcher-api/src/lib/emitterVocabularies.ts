@@ -1185,6 +1185,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
+				group: 'Effect',
+			},
+			{
 				name: 'elementEffect',
 				group: 'Effect',
 			},
@@ -2784,6 +2792,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 		effects: [
 			{
 				name: 'cameraEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
 				group: 'Effect',
 			},
 			{
@@ -4389,6 +4405,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
+				group: 'Effect',
+			},
+			{
 				name: 'elementEffect',
 				group: 'Effect',
 			},
@@ -5988,6 +6012,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 		effects: [
 			{
 				name: 'cameraEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'screenTransition',
+				group: 'Effect',
+			},
+			{
+				name: 'waitForScreenTransition',
 				group: 'Effect',
 			},
 			{
