@@ -6,6 +6,7 @@ import {
 	createBot,
 	createOnlineRules,
 	facingOf,
+	generatedOnlineGame,
 	onlineLevel,
 	stepContext,
 	stepPlayer,
@@ -35,8 +36,9 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * THE RULES (P10.15) are the game's data, run by `engine-mechanics` `createOnlineRules`: a level's
  * currents push a player inside `stepPlayer` (so a device predicts them), and after each applied
  * input and each step the rules decide hits, statuses, the goal and the round. A player the rules
- * hold (stunned, out) still has its inputs taken and acknowledged, but stands still for them, as a
- * device told it is held predicts. A respawn moves a body with no input: the device reconciles it.
+ * hold (stunned, out; a module's grounded, hooked) still has its inputs taken and acknowledged —
+ * and passed to the rules, so a grounded salmon can jump — but stands still for them, as a device
+ * told it is held predicts. A respawn moves a body with no input: the device reconciles it.
  *
  * BOTS (P10.16, §7) fill the room to `online.bots.fillTo` while anyone is in it. A bot is a player
  * (id `bot:<n>`, `bot: true`) whose input each step comes from its brain (`engine-mechanics`
@@ -80,7 +82,10 @@ export type SimPlayer = RulesPlayer & {
 export class RoomRefusal extends Error {}
 
 export type RoomSim = {
+	/** The game as this room plays it: with a field of its own when its config names a generator. */
 	readonly game: OnlineGame;
+	/** The room's seed: its bots' brains and its generated field, so a room replays from it. */
+	readonly seed: number;
 	readonly ctx: StepContext;
 	readonly players: ReadonlyMap<string, SimPlayer>;
 	readonly steps: number;
@@ -100,13 +105,15 @@ export type RoomSim = {
 };
 
 export type RoomSimOptions = {
-	/** Seeds the bots' brains, so a room replays exactly. Default: a random seed. */
+	/** Seeds the bots' brains and a generated field (`engine-mechanics` `generatedOnlineGame`), so a
+	 *  room replays exactly. Default: a random seed. */
 	seed?: number;
 };
 
-export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): RoomSim {
-	const { online, field } = game;
+export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}): RoomSim {
 	const seed = options.seed ?? Math.floor(Math.random() * 0x7fffffff);
+	const { game } = generatedOnlineGame(authored, seed);
+	const { online, field } = game;
 	const bots = new Map<string, OnlineBot>();
 	let botsMade = 0;
 	/** People let in so far, by character: the next takes the next of its character's spawns. */
@@ -126,7 +133,7 @@ export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): R
 		// A spawn outside the field is pulled inside at once, as every later step would.
 		stepPlayer(player.body, undefined, 0, atRest, field);
 	};
-	const rules = createOnlineRules(game, { spawn });
+	const rules = createOnlineRules(game, { spawn, seed });
 
 	const countOf = (characterId: string) =>
 		[...players.values()].filter((p) => p.character.id === characterId).length;
@@ -246,6 +253,7 @@ export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): R
 
 	return {
 		game,
+		seed,
 		ctx,
 		players,
 		get steps() {
@@ -314,6 +322,8 @@ export function createRoomSim(game: OnlineGame, options: RoomSimOptions = {}): R
 					if (rules.holds(player)) {
 						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 						player.moving = false;
+						// A held player's input still reaches a rules module (a jump off a sandbank).
+						rules.applied(player, input, players.values(), stamp);
 						continue;
 					}
 					const level = levels.get(player.character.id);

@@ -986,6 +986,12 @@ export interface FlowVariable {
 	values?: string[];
 	initial: number | boolean | string;
 	scope: FlowVariableScope;
+	/**
+	 * The online room's value this variable mirrors (`SERVER_VARIABLE_SOURCES`;
+	 * `docs/design/realtime-multiplayer.md` §4): the room writes it and Flow only reads it — the
+	 * validator refuses a Set or Change of it (`variable-server-owned`). Absent ⇒ Flow's own.
+	 */
+	server?: string;
 }
 
 /** One action of the key map (game-families §3.2): Flow reads `action`, never a raw key. */

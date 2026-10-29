@@ -5,14 +5,22 @@ import {
 	MOVE_SCALE,
 	ONLINE_EVENT,
 	STATUS,
+	abilitySignal,
 	characterBody,
 	clampInput,
+	createAbilityPredictor,
 	createCamera,
 	createFixedStep,
+	flowSignalsOf,
+	serverValuesOf,
+	shownInRoom,
+	type AbilityPredictor,
+	type OnlineFlowSignal,
 	createInterpolator,
 	createPredictor,
 	createRng,
 	createSnapshotClock,
+	generatedOnlineGame,
 	onlineLevel,
 	reconcilerOptions,
 	snapFor,
@@ -26,12 +34,28 @@ import {
 	type Predictor,
 	type SnapshotClock,
 } from 'engine-mechanics';
-import { sceneCamera, sceneWorld, worldCameraScene, type Scene } from 'engine-layout';
+import { serverVariablesOf } from 'engine-flow-v2';
+import {
+	FIELD_DRAWINGS,
+	sceneCamera,
+	sceneWorld,
+	worldCameraScene,
+	type LayoutDoc,
+	type LayoutNode,
+	type Scene,
+} from 'engine-layout';
 import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
-import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import {
+	bakedFlowV2Doc,
+	bakedGameConfig,
+	preparedEditorDoc,
+	refuseOnlineBoot,
+	setRoomDocChange,
+} from '../editor-scenes';
 import { typingInto } from './flowKeys';
+import { getFlowV2 } from './flowV2InterpreterHolder';
 
 /**
  * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §6, §10; P10.14, P10.15) —
@@ -51,6 +75,17 @@ import { typingInto } from './flowKeys';
  * predictor above; `colyseus` is the SDK's own `Predict` reconciler (`engine-rooms/predict`,
  * awaited and called only then), running the same step (`reconcilerStep`). Everyone else is
  * interpolated the same way in both, so `view` means the same.
+ *
+ * FLOW (P11.2): the room's events reach the flow as its online events (`flowSignalsOf`), and the
+ * room's scores and round are written, on each state, into the variables the flow declares the
+ * room owns (`FlowVariable.server`), which its HUD binds as `var:<id>`. The own player's abilities
+ * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
+ * drawn at once. A player that is out is not drawn until it respawns.
+ *
+ * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
+ * the join waits for the room's first state, makes the room's own field from the seed it carries
+ * (`generatedOnlineGame`, the very function the server ran) and draws it in place of the authored
+ * one ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
@@ -77,11 +112,17 @@ type RoomState = {
 	step: number;
 	phase: string;
 	round: number;
+	endsAt: number;
 	winner: string;
+	/** The room's seed, from which a generated field is made (P11.2 (e)). */
+	seed: number;
 	players: Map<string, PlayerState>;
 };
 
-/** How many of the room's events the probe keeps. */
+/** How long a join waits for the room's first state, which carries the seed of its field. */
+const SEED_WAIT_MS = 5000;
+
+/** How many of the room's events, and of the flow signals raised, the probe keeps. */
 const EVENTS_KEPT = 32;
 
 type Session = {
@@ -102,6 +143,17 @@ type Session = {
 	drawn: Map<string, string>;
 	refused: Set<string>;
 	events: OnlineEvent[];
+	/** The own player's abilities, raised on the press; made with its first place. */
+	abilities: AbilityPredictor | undefined;
+	/** The flow signals raised, newest last (the probe's). */
+	signals: OnlineFlowSignal[];
+	/** The flow's variables the room writes, read once the flow is up. */
+	serverVariables: { id: string; server: string }[] | undefined;
+	/** The room's seed, and the field made from it, drawn in place of the authored node of its id. */
+	seed: number | undefined;
+	field: LayoutNode | undefined;
+	/** Whether the loaded doc drew {@link field}: `undefined` until the scenes load. */
+	fieldDrawn: boolean | undefined;
 };
 
 let session: Session | undefined;
@@ -206,9 +258,24 @@ export async function joinOnlineRoom(): Promise<void> {
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
+	const generator = resolved.online.generator;
+	const seed = generator ? await roomSeed(room) : undefined;
+	if (generator && seed === undefined) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot('the room did not say which field it plays');
+	}
+	const played =
+		seed === undefined ? { game: resolved, made: undefined } : generatedOnlineGame(resolved, seed);
+	const draw = generator ? FIELD_DRAWINGS[generator] : undefined;
+	const field = played.made && draw?.(played.made);
+	const prepared = preparedEditorDoc();
+	if (field && prepared && !holdsNode(prepared, field.id)) {
+		room.leave().catch(() => {});
+		return refuseOnlineBoot(missingFieldNode(field.id));
+	}
 	const current: Session = {
 		room,
-		game: resolved,
+		game: played.game,
 		clock: createFixedStep({ hz: resolved.online.tickHz }),
 		seq: 0,
 		me: undefined,
@@ -217,7 +284,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		others: createInterpolator({
 			snapPx: snapFor(
 				Math.max(...resolved.online.characters.map((c) => c.speed)) +
-					strongestForce(resolved.online.rules.zones),
+					strongestForce(played.game.online.rules.zones),
 				resolved.online.patchHz,
 			),
 		}),
@@ -225,13 +292,112 @@ export async function joinOnlineRoom(): Promise<void> {
 		drawn: new Map(),
 		refused: new Set(),
 		events: [],
+		abilities: undefined,
+		signals: [],
+		serverVariables: undefined,
+		seed,
+		field,
+		fieldDrawn: undefined,
 	};
 	session = current;
+	if (current.field) setRoomDocChange(withRoomField);
 	room.onStateChange(() => received(current, performance.now()));
 	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
+		const players = stateOf(current.room).players;
+		for (const signal of flowSignalsOf(
+			events,
+			current.room.sessionId,
+			(id) => {
+				const player = players?.get(id);
+				return player && { ...placeOf(current, id, player), character: player.character };
+			},
+			current.abilities,
+		))
+			raise(current, signal);
 	});
+}
+
+/** The seed the room's first state carries, or `undefined` if none comes in time. */
+function roomSeed(room: Room): Promise<number | undefined> {
+	const now = (room.state as Partial<RoomState> | undefined)?.seed;
+	if (typeof now === 'number') return Promise.resolve(now);
+	return new Promise((resolve) => {
+		const first = (state: Partial<RoomState>) => {
+			clearTimeout(timer);
+			resolve(typeof state.seed === 'number' ? state.seed : undefined);
+		};
+		const timer = setTimeout(() => {
+			room.onStateChange.remove(first);
+			resolve(undefined);
+		}, SEED_WAIT_MS);
+		room.onStateChange.once(first);
+	});
+}
+
+/** Whether a screen of `doc` has a top-level node `id`, where a generated field is drawn. */
+const holdsNode = (doc: LayoutDoc, id: string) =>
+	doc.scenes.some((scene) => scene.nodes.some((node) => node.id === id));
+
+/** Why a generator game with no node to draw its room's field in does not start. */
+const missingFieldNode = (id: string) =>
+	`the layout has no node "${id}" to draw the room's own field in: keep a node with id ` +
+	`"${id}", or remove arcade.online.generator`;
+
+/**
+ * `doc` with the room's own field drawn in place of the authored node of the same id, in every
+ * scene, and that scene's world sized to the room's field; `doc` itself when the room plays the
+ * field as authored (or there is no room). The loaded doc passes through it (`editor-scenes`
+ * `loadEditorScenes`) once a room made its own field. A layout with no node of that id would
+ * draw the authored field over the room's own: the join refuses it before the game mounts when the
+ * layout is already in hand, and here (a layout fetched at mount) the device leaves the room.
+ */
+function withRoomField(doc: LayoutDoc): LayoutDoc {
+	const current = session;
+	const field = current?.field;
+	if (!current || !field) return doc;
+	const size = current.game.field;
+	const holds = (scene: Scene) => scene.nodes.some((node) => node.id === field.id);
+	current.fieldDrawn = holdsNode(doc, field.id);
+	if (!current.fieldDrawn) {
+		current.room.leave().catch(() => {});
+		void refuseOnlineBoot(missingFieldNode(field.id), true);
+		return doc;
+	}
+	return {
+		...doc,
+		scenes: doc.scenes.map((scene) =>
+			holds(scene)
+				? {
+						...scene,
+						...(scene.world ? { world: { w: size.w, h: size.h } } : {}),
+						nodes: scene.nodes.map((node) => (node.id === field.id ? field : node)),
+					}
+				: scene,
+		),
+	};
+}
+
+/** Raise a room event in the flow (an online event). */
+function raise(current: Session, signal: OnlineFlowSignal) {
+	current.signals.push(signal);
+	current.signals.splice(0, current.signals.length - EVENTS_KEPT);
+	void getFlowV2()?.dispatch(signal.name, signal.payload);
+}
+
+/** Write the room's values into the flow's variables the room owns; the next frame delivers them. */
+function bindServerVariables(current: Session, state: Partial<RoomState>) {
+	const store = getFlowV2()?.state;
+	if (!store) return;
+	current.serverVariables ??= serverVariablesOf(bakedFlowV2Doc() ?? {});
+	if (!current.serverVariables.length) return;
+	const values: Record<string, unknown> = serverValuesOf(
+		state,
+		current.room.sessionId,
+		current.game.online.tickHz,
+	);
+	for (const { id, server } of current.serverVariables) store.write(id, values[server]);
 }
 
 /** The own player's predictor, from its first place in the room. */
@@ -266,12 +432,15 @@ function received(current: Session, nowMs: number) {
 	const players = state.players;
 	if (!players || state.step === undefined) return;
 	current.view.observe(state.step, nowMs);
+	bindServerVariables(current, state);
 	current.others.retain(new Set(players.keys()));
 	players.forEach((player, id) => {
 		if (id !== current.room.sessionId) {
 			current.others.push(id, state.step!, player.x, player.y);
 			return;
 		}
+		current.abilities ??= createAbilityPredictor(current.game, player.character);
+		current.abilities.acked(player.ack);
 		// The SDK reconciles on its own, from the input acknowledgement each state carries.
 		if (current.sdk) {
 			current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
@@ -325,13 +494,15 @@ function draw(current: Session) {
 	const players = stateOf(current.room).players;
 	if (!players) return;
 	for (const [id, instance] of current.drawn) {
-		if (!players.has(id)) {
+		const player = players.get(id);
+		if (!player || !shownInRoom(player)) {
 			live.despawn(instance);
 			current.drawn.delete(id);
 		}
 	}
 	const moves: { id: string; x: number; y: number }[] = [];
 	players.forEach((player, id) => {
+		if (!shownInRoom(player)) return;
 		const at = placeOf(current, id, player);
 		const instance = current.drawn.get(id);
 		if (instance) {
@@ -375,6 +546,26 @@ function follow(current: Session, dtMs: number) {
 	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY: camera.offsetY });
 }
 
+/** Raise the own player's abilities the input uses, on the press: drawn before the room answers. */
+function predictAbilities(current: Session, buttons: number, seq: number) {
+	const state = stateOf(current.room);
+	const me = state.players?.get(current.room.sessionId);
+	if (!current.abilities || !me) return;
+	const free = state.phase === 'running' && me.status === STATUS.free;
+	const at = ownPlace(current);
+	for (const button of current.abilities.step(buttons, free, seq))
+		raise(
+			current,
+			abilitySignal(
+				current.room.sessionId,
+				button,
+				current.room.sessionId,
+				at && { ...at, character: me.character },
+				true,
+			),
+		);
+}
+
 /** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
@@ -391,6 +582,7 @@ export function tickOnline(dtMs: number) {
 		Object.assign(handle.data, input);
 		handle.send();
 		current.me?.input(input);
+		predictAbilities(current, input.buttons, input.seq);
 	});
 	current.me?.frame(dtMs);
 	draw(current);
@@ -404,9 +596,11 @@ export function onlineProbe() {
 	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
 	const drawn: { id: string; x: number; y: number }[] = [];
+	const hidden: string[] = [];
 	state?.players?.forEach((p, id) => {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
-		if (current) drawn.push({ id, ...placeOf(current, id, p) });
+		if (!shownInRoom(p)) hidden.push(id);
+		else if (current) drawn.push({ id, ...placeOf(current, id, p) });
 	});
 	const camera = worldCamera?.camera;
 	return {
@@ -430,6 +624,9 @@ export function onlineProbe() {
 						drawn,
 						viewStep: current.viewStep,
 						netcode: current.game.online.netcode,
+						seed: current.seed ?? null,
+						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
+						fieldDrawn: current.fieldDrawn ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),
@@ -443,6 +640,11 @@ export function onlineProbe() {
 							]),
 						),
 						events: [...current.events],
+						hidden,
+						signals: current.signals.map((s) => ({ ...s })),
+						spawned: spawnStore()
+							.live(current.game.online.layer)
+							.map((instance) => instance.componentId),
 					},
 				}
 			: {}),

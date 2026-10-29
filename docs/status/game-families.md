@@ -67,6 +67,262 @@ already-bundled `cards.js` values.
   deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
   `check:card-family` re-pinned for the new exclusions.
 
+**P11.3 — Salmons' rules (built 2026-10-29; in review, stacked on P11.2 c–e / #1466).**
+[phase-11.md](../design/phase-11.md) §3 (P11.3), §3.1, §4 #8;
+[realtime-multiplayer.md](../design/realtime-multiplayer.md) §4's table. Branch
+`engine/p11-3-salmons-rules`. Not deployed.
+
+- **Solids, predicted (`online.js`).** A zone rule may be `solid`: `true` (every side) or one-way
+  (`'below'` / `'above'` / `'left'` / `'right'`: it stops only a body coming from that side), for
+  the characters it names. `onlineLevel` indexes them beside the currents; `stepPlayer` moves a
+  body against them on an input's step (new export `moveAgainstSolids`, over `motion.js`
+  `stepSolid`, unchanged). A level with no solids takes the old path bit for bit (`check:room-sim`,
+  `check:netcode` unchanged); server and device run the same function, so a rock is predicted.
+- **The rules core (`onlineRules.js`).** `STATUS` gains `grounded` (3) and `hooked` (4): held, but
+  only the module frees them. A `grounded` player can still be hit. A third ability effect,
+  `hook`, hands the *nearest* target in reach to the module. A module may now be
+  `create(game, api)` (per room) with optional hooks `step`, `input` (every applied input, held
+  players' too: `roomSim.ts` now calls `applied` for them, a no-op without a module), `hook`,
+  `worth` (what a catch of / goal by a player scores) and `reset` (round start). The room's seed
+  reaches the rules (`createOnlineRules(game, { spawn, seed })`). `tag` is unchanged.
+- **Salmons' module (`salmonsRules.js`, new).** `ONLINE_RULES_MODULES` gains `waterfallClimb`,
+  `sandbanks`, `fishingLine`, `goldenSalmon`, and `salmons` (all four), which Salmons' config
+  names. New room events: `climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `golden`; a landed
+  line is `caught` with effect `hook`. Object literals only, so no runtime but `arcade` carries it.
+  - *waterfall climb:* a salmon at a waterfall's foot (its top within 8 px of the waterfall's
+    bottom) taps jump; each tap adds a quarter of the height, the height drains 0.6 a second and
+    drops when it leaves the foot; at the top it is lifted over (`climbed`);
+  - *sandbanks:* a free salmon whose centre comes onto one is `grounded` (held, catchable) until it
+    taps jump (`jumped`, no grace); not grounded again before its centre has left the sand;
+  - *the line:* the fisherman's cast hooks the nearest salmon within 280 px (`hooked`; one line
+    per fisherman); it is reeled in at 200 px/s and landed within 60 px of him: out 4 s, +2 to him
+    (`caught`). Five taps of jump shake the hook, and the line breaks if he drops or is held
+    (`escaped`, the salmon free with the usual grace);
+  - *golden salmon:* one salmon per round (the room's `mark`), picked by a hash of the room's seed,
+    the round and the step among the salmon in the room, again when none is left; a catch of it
+    and its goal score 3×.
+- **The river (`salmons.js`).** `salmonsRiver(seed)` adds `rocks` (bands 1 … n−3, 60 %, 50–90 px
+  square, a fifth down the band), `sandbanks` (same bands, 50 %, 150–230 × 60, three quarters
+  down) and `waterfalls` (40 px strips across the whole river at the top of bands 1 … n−2, 35 %),
+  at least one sandbank and one waterfall, drawn from the RNG after the bands and whirlpools so a
+  seed's bands and whirlpools are what they were. `salmonsGeometry` makes the zones and rules:
+  rocks solid, waterfalls `solid: 'below'` + `kind: 'waterfall'` for salmon, sandbanks
+  `kind: 'sandbank'`, and each band's water, the sea and the source solid to bears and fishermen.
+  The config: the fisherman's cast is `hook`, `rules.module: 'salmons'`. The drawing
+  (`engine-layout` `salmonsRiverNode`) draws the three from the same river object (placeholder
+  rects), so server and device agree from one seed.
+- **game-config.** Zone rules keep `solid` and `kind` (`ONLINE_ZONE_KINDS`); the effect list gains
+  `hook`; `ONLINE_RULES_MODULE_IDS` the five ids, `ONLINE_LINE_MODULE_IDS`; `zoneRules` max 64 →
+  256 (Salmons' authored river has 86). Validator warnings: a `hook` with no line module, a zone
+  `kind` no module acts on or with no module. `/config`: the effect select offers `hook`
+  (`OnlineSection.svelte`, `onlineDoc.ts`); no other UI change.
+- **Proof.** `check:online-rules` 29 (6 new): Salmons' recorded traces
+  (`packages/engine-mechanics/fixtures/salmons-traces.json`: climb, sandbank, line with a landing
+  and an escape, golden salmon; events, a track every 10 steps and the end) replay exactly and
+  twice the same, each trace's rule asserted, and a predictor against a rock and a bear against the
+  river equal the room's bodies; `-- --record` rewrites the file. `check:room-bots` 20 (the swimmer
+  taps through waterfalls and sandbanks and steers round rocks; its goal is golden, 30; a bear bot
+  on its bank catches a salmon near the shore and no bot is ever in the water). `check:room-sim`
+  39 and `check:netcode` 28 unchanged. `salmons-play.mjs` **36 / 36 in each netcode** (pages E and
+  F: stopped at a waterfall's foot and climbed by tapping Space; grounded on a sandbank and jumped
+  off).
+- **Runtime sizes** (`check:family-runtimes`, gzip -6, all within `family-runtime-budget.json`):
+  lines 1,307,228 B, match3 1,315,584, card 1,319,766, **arcade 1,407,830 (4,121,802 raw)**.
+  Against #1466's head built here the same way (`PUBLIC_IE_FAMILIES=<id>`, release env): slot
+  +229 B gz (the config's new names and validator text), arcade +915 B gz / +3.3 KB raw.
+- **Load test** (`scripts/room-load.mjs`, 100 devices, 60 ± 20 ms, this container): 30 of 30
+  steps and 19.9 of 20 states a second held, 7.9 KB/s per device on average (11.0 at most), 0.77
+  MB/s out, step **p50 0.83 / p99 2.63 / max 4.3 ms** (P10.16: 0.39 / 0.81 / 2.5), 28 % of a core,
+  165 MB. Within P10.16's budget (p99 < 8 ms).
+- **Chosen here, owner may overturn:** every number above (4 taps to climb, drain 0.6/s, foot
+  8 px; reel 200 px/s, land at 60 px, 5 taps to escape, one line per fisherman, the score at the
+  landing; golden 3×, one per round, re-picked when it leaves, caught it stays golden; obstacle
+  chances and sizes); a grounded salmon can be hit, a hooked one cannot; a sandbank jump has no
+  grace, an escape has; waterfalls span the whole river width; the water, sea and source are
+  walls to bears and fishermen (so a bear reaches only salmon within ~64 px of its bank).
+- **Review fixes (same day).** `/config`'s zone-rule setter keeps a rule that has a `solid` or
+  a `kind` (unticking its goal, clearing its push), and the rule table shows both read-only
+  (`check:game-config-family` 252); bots target a grounded salmon as well as a free one
+  (`onlineBots.js`; `check:room-bots` 21: a bear bot catches a grounded salmon).
+- **Known limits.** The new events reach the device but are not in `ONLINE_FLOW_EVENTS` yet (no cue
+  or sound);
+  the golden salmon is not drawn gold and the line is not drawn; a climb and a reel move a body on
+  the server only, so the own device sees them as a correction (a climb is ~100 px, faded, not
+  snapped); one tap of jump is read by each rule on its own, so a salmon jumping off a sandbank at
+  a waterfall's foot also climbs a quarter (left as is); rocks are rectangles; bots never climb (bots are bears and fishermen); the line and the
+  golden salmon are proven by the gates, not in a browser.
+
+**P11.2 (c–e) — publish writes `rooms_url`, `/config` online sections, a new river per room
+(built 2026-10-29; in review, stacked on (a–b)).** [phase-11.md](../design/phase-11.md) §3 (P11.2
+c–e), §3.1; [realtime-multiplayer.md](../design/realtime-multiplayer.md) §10, §14 #4. The second of
+P11.2's two PRs. Not deployed.
+
+- **(c) The publish writes the game server's address.** `apps/launcher-api` `onlineLaunch.ts`:
+  for an online arcade game (`mechanicFor().room`) `withRoomsUrl` appends `&rooms_url=<address>`
+  to the launch URL `publishGame.ts` registers (the parameter `game/online.ts` boots from; the
+  game key is the URL's `project`). The address is the launcher's new **`GAME_SERVER_URL`**
+  (default `wss://rooms.invisiblewall.org`, the live service, per the launcher's code-default rule
+  for non-secret URLs; trimmed, a trailing slash dropped). Set **empty**, or to anything that is
+  not `ws(s)://` / `http(s)://`, an online game is refused with `PublishBlockedError` reason
+  **`no-game-server`** (no override), by the gates (`publishGateRefusal` too) and again on the
+  config the snapshot freezes. Slot, match-3, card and offline arcade launch URLs are unchanged.
+  An authoring launch keeps `rooms_url`.
+- **(d) `/config` sections for an online game** (`FamilySection.svelte` → `OnlineSection.svelte`,
+  setters in `onlineDoc.ts`, each writing what the normalizer stores): the Arcade section gains
+  **Played online** (on: an empty `arcade.online`; off: asks, then deletes the block); an online
+  arcade game then shows three sections: **Online room** (the five room numbers, Netcode, spawn,
+  layer, nearby box; characters: id (a rename renames every rule and bot that names it), body,
+  speed, most, spawns), **Online rules** (round seconds, pause, goal score, rules module; zone
+  rules: zone, push x / y, goal, characters; abilities: character, button, reach, targets, effect,
+  holds ms, score, cooldown) and **Bots** (fill to, can win, bot spawns; each bot's character and
+  brain). An entry the normalizer would drop is never made (Add needs a body / zone / character /
+  brain first) and an edit that would empty one is refused. Each section shows its own validator
+  issues; the Arcade section no longer repeats them.
+- **(e) A new river per room.** `game-config` `arcade.online.generator` (normalized, resolved;
+  `ONLINE_GENERATOR_IDS = ['salmonsRiver']`, the validator's error for an unknown one).
+  `engine-mechanics` `onlineGenerators.js` (+ `.d.ts`, exported): `generatedOnlineGame(game, seed)`
+  swaps the generator's geometry into the game (field, zones, zone rules, the spawn, characters'
+  and bots' spawns; everything else as configured) and returns what it made; a game with no
+  generator comes back as the same object. `salmons.js` gains `salmonsGeometry(river)` (what
+  `salmonsConfig` was built from, unchanged output) and `salmonsConfig` names the generator. Server:
+  `createRoomSim` runs it on its seed (`sim.seed`: one seed for the bots' brains and the river, so
+  a room replays from it); `arcadeRoom.ts` writes it into the room state's new `seed` (uint32) and
+  logs it. Device: `joinOnlineRoom` (only when the config names a generator) waits up to 5 s for the
+  room's first state, makes the room's game from its seed with the same function, and refuses the
+  boot if no seed arrives; it then registers `withRoomField` with `editor-scenes`
+  (`setRoomDocChange`), so `loadEditorScenes` returns the doc with the generator's drawing
+  (`engine-layout` `FIELD_DRAWINGS`, `salmonsRiverNode`, moved to
+  `referenceLayouts/salmonsRiver.ts` and exported) in place of the authored node of the same id
+  (`river`). Nothing registers it for any other game, and `Game.svelte` is unchanged. The probe gains `online.seed`,
+  `online.zones`, `online.fieldDrawn` (whether the swap happened). The scene holding the node
+  gets the generated field's size as its `world`. A layout with no node of that id never draws the
+  authored river over the room's: `joinOnlineRoom` (awaited by `load()`) checks the layout already
+  in hand (`editor-scenes` `preparedEditorDoc`), leaves the room and stops the boot, saying to keep
+  a node with that id or remove `arcade.online.generator`; a layout fetched only at mount leaves
+  the room and shows the same screen.
+  When a config names a known generator, `/config` notes by the spawn, character spawns, zone rules and
+  bot spawns that each room's generator replaces them. The publish validates `GAME_SERVER_URL`
+  with `new URL()` and a protocol check.
+- **Gates:** new launcher **`check:online-publish`** (5 checks over the real `publishGame.ts`: an
+  online game with `GAME_SERVER_URL` empty / blank / schemeless / `ftp://` refused
+  `no-game-server` by the gate and the publish with nothing written; offline arcade and slot
+  publish without an address and without `rooms_url`; an online game's URL carries the address,
+  set, local and default, and its authoring launch keeps it; `online.ts` reads that parameter).
+  `check:game-config-family` 243 (16 new online setter steps re-normalized; the three sections
+  only on an online page, after Arcade, showing its values). `check:room-bots` 18 → **20** (a room
+  plays its seed's river and replays it, the device's function gives the server's game, a game
+  with no generator is untouched, an unknown generator is an error; live: two rooms of one game get
+  two seeds and two rivers, each salmon and bear where its room's river puts it).
+  `check:room-sim` 39 (source scans of the seed wait, the registration and `loadEditorScenes`).
+  `check:netcode` 25, `check:online-rules` 23, `check:pipeline-games` 35, `check:runtime-choice`,
+  `check:book-of-migration`: pass, unchanged.
+- **Verified by playing:** `salmons-play.mjs` **28 / 28** in each netcode (the 23 plus: page D,
+  booted with a layout missing `river`, stops before the game mounts and leaves the room; pages A and
+  B, one room, make the river of the room's seed and draw it; page A's salmon started at that
+  river's sea, as the server put it; not the authored river; page C, another room, plays another
+  river). Its bots are now still bears (a room's river places them, so the old filter of their
+  spawns cannot hold them upstream). `online-play.mjs` 19 / 19 and `arcade-play.mjs` OK on the same
+  build.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6; (a–b) → this branch): slot 1,303,338 →
+  1,303,401 B (+63), match3 1,311,697 → 1,311,811 B (+114), card 1,316,034 → 1,316,150 B (+116),
+  **arcade 1,401,737 → 1,403,062 B (+1.3 KB gz; 4,107,131 B raw)**. All within
+  `family-runtime-budget.json`. The non-arcade growth is shared config code every runtime boots
+  (`generator` normalized / resolved / validated) and the `loadEditorScenes` hook; the river's
+  generator and drawing reach the arcade runtime only (no `whirlpool` in the slot build).
+- **Slot / match-3 / card / offline-arcade parity:** the publish changes only an online game's URL
+  and refusals; `/config` shows the online sections only for an arcade game played online (the
+  Played online box is new on every arcade page). On the device, the seed wait and the drawing run
+  only for a config that names a generator, behind `gameMechanic().room`; otherwise nothing is
+  registered and `loadEditorScenes` returns the doc as before. A config without
+  `generator` resolves and steps exactly as before (`createRoomSim` keeps the same game object).
+  Edited shared modules: `game-config` `family.ts`, `familyValidate.ts`; `engine-mechanics`
+  `index.ts`, `salmons.js`; `engine-layout` `referenceLayouts/index.ts`, `salmons.ts`;
+  `apps/lines` `editor-scenes.ts` (the hook).
+- **Chosen here, owner may overturn:** the address's default is the live service (the launcher's
+  rule for non-secret URLs) rather than no default; a generator owns the field's geometry and
+  replaces the authored zones and spawns wholesale; a device waits 5 s for the seed; the play test's
+  bots stand still.
+- **Known limits:** the Characters page and `/editor` still show the authored river, not a room's;
+  `/config` edits `generator` only through Raw JSON; a rename of an online character does not
+  rename a Flow or layout reference to it.
+
+**P11.2 (a–b) — online Flow events, server-owned variables, predicted abilities, `out` hidden
+(built 2026-10-29; in review).** [phase-11.md](../design/phase-11.md) §3 (P11.2 a–b), §3.1;
+[realtime-multiplayer.md](../design/realtime-multiplayer.md) §4, §6, §10. The first of P11.2's two
+PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side changes).
+
+- **What reaches Flow** (`engine-mechanics` `onlineFlow.js` + `.d.ts`, plain ESM, run by the gates
+  and by `apps/lines` `game/online.ts`):
+  - **online events**, raised from the room's `event` messages (`flowSignalsOf`): `playerJoined` /
+    `playerLeft` (`player`, `me`), `hit` / `caught` (`by`, `target`, `effect`, `mine`, `me`),
+    `roundStart` (`round`), `roundEnd` (`round`, `winner`, `won`), `ability` (`player`,
+    `character`, `button`, `x`, `y`, `mine`, `predicted`). Declared in `ARCADE_VOCAB`
+    (`ARCADE_ONLINE_EVENTS`), so they show in `/flow-v2`'s arcade palette;
+  - **server-owned variables**: a `FlowVariable` gains `server`, naming a room value
+    (`SERVER_VARIABLE_SOURCES`: `score`, `status`, `round`, `phase`, `secondsLeft`, `winner`,
+    `won`; `serverValuesOf` makes them). `online.ts` writes them from each state; a HUD binds them
+    as `var:<id>`. The validator's new **`variable-server-owned`** refuses a Set or Change of one,
+    a `server` naming no room value, and one not `game`-scoped (a wrong type is `variable-type`).
+- **Predicted abilities** (`createAbilityPredictor`): each input the device sends is run through
+  the room's own test (button held, off cooldown, round running, player free) and an `ability`
+  signal (`predicted: true`) is raised in the same fixed step, so the flow draws the swipe or cast
+  on the press. The room's echo of such a press is dropped, per button; an echo with no press
+  waiting on its button (the device thought the player held, e.g. just after `roundStart` or a
+  stun) is raised then, `predicted: false`. A press the room refused never echoes: it is dropped
+  one state after the state that acknowledged its input (`acked`), since the room's event comes
+  right after that state. `roundStart` and the own `joined` clear the cooldowns set by inputs the
+  room had taken, except one whose echo is still due (it was taken after the clear); waiting
+  presses are kept.
+- **`out` hidden** (`shownInRoom`): a caught player is despawned and not drawn until it respawns
+  (it reappears at the spawn, not sliding from where it was caught); the probe lists it in
+  `online.hidden`. The probe also gains `signals` and `spawned`.
+- **Salmons' screens:** `engine-flow-v2` `reference/salmonsSeed.ts` (`SALMONS_SEED_DOC`, not
+  exported, so no game bundles it): `load` / tap → river + HUD; `roundEnd` shows the round-over,
+  `roundStart` hides it; `ability` spawns a bear's swipe or a fisherman's cast at the user for
+  300 ms. `referenceLayouts/salmons.ts` gains `salmonsHud` (SCORE, ROUND, TIME) and
+  `salmonsRoundOver` (counting down `secondsLeft`) and the `salmonsSwipe` / `salmonsCast`
+  placeholders; `scripts/salmons/export.mjs` writes the flow (`editor/flow-v2.json`) and the two
+  new components.
+- **Gates:** `check:online-rules` 17 → **23** (signals from a played room, the own ability left to
+  the press, an unpredicted accepted press drawn on the room's word; cooldowns cleared at
+  `roundStart`; the values; `out` hidden; the predictor against the room step for step over 90 mixed
+  presses on two buttons; the live catch / round end through `flowSignalsOf` / `serverValuesOf` /
+  `shownInRoom`); `check:netcode` 23 → **28** (a swipe raised on the press a full round trip, 10
+  steps at 150 ms each way, before the room's word, and a press the device did not predict drawn
+  when the room tells; a refused press expiring so a later unpredicted swipe is drawn; an echo on
+  one button never answering the other; a `[roundStart, ability]` batch neither doubling the swipe
+  nor reopening its cooldown; a source scan of the event, value, press and
+  hide paths in `online.ts`); `check:room-sim` 38 → **39** (live joins / leaves as signals, values
+  off the SDK-decoded state); launcher `check:flow-variables` → **48** (the
+  `variable-server-owned` fixtures, the shared lists, Salmons' flow clean on its layout);
+  `check:arcade-rules` 78 (its loop-signal list leaves the online events out).
+- **Verified by playing:** `scripts/playtest/salmons-play.mjs` **23 / 23** in each netcode (P10.16's
+  16 plus: the HUD shows the room's round and score; page B's J draws the swipe before the room
+  tells of it; the room then tells, it is not drawn twice and is gone; page C, in a 5 s-round room,
+  sees the round over come up counting down and go at round 2; page C sends the RGS nothing and
+  has no page error). `online-play.mjs` 19 / 19, `arcade-play.mjs` and `arcade-camera-play.mjs`
+  OK on the same build.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6; `main` 3f50bc8 → this branch, the same
+  build): slot 1,303,333 → 1,303,338 B, match3 1,311,692 → 1,311,697 B, card 1,316,029 →
+  1,316,034 B (raw bytes identical: nothing reaches them); **arcade 1,400,046 → 1,401,737 B
+  (+1.7 KB gz, +5.2 KB raw)**. All within `family-runtime-budget.json` (arcade 1,420,269).
+- **Slot / match-3 / card / offline-arcade parity:** the runtime change is in `game/online.ts`,
+  reached only when `gameMechanic().room`, behind the arcade seam; the three other runtimes'
+  bundles are byte-for-byte the same size. Offline arcade: `ARCADE_VOCAB` gains events the loop
+  never raises; the starter and sample flows are unchanged. Edited shared modules:
+  `engine-flow-v2` `types.ts` (an optional field), `variables.ts`, `variableValidate.ts`,
+  `validate.ts` (a new code), `engine-layout` `referenceLayouts/arcade.ts` (exports `textBox`),
+  `apps/lines` `determinism.ts` (probe type only), `/flow-v2`'s issue icon.
+- **Chosen here, owner may overturn:** event names follow the vocabulary's convention (`roundEnd`
+  shows as **onRoundEnd**); `roundStart` and `ability` are added to the design's five (the
+  round-over needs a close, the swipe needs a press); the room values are the seven above; a
+  predicted press the room did not take still shows its swipe.
+- **Known limits:** the Variables panel in `/flow-v2` does not set `server` yet (the Salmons
+  export writes it); the predictor counts cooldowns from the device's own steps, so a dropped or
+  late input can show a swipe the room did not take, or miss one (presentation only); a swipe
+  is drawn over its user (placeholder looks); `winner` is a room id, and in a `nearby` room the
+  winner may not be in the device's state, so there is no winner's name.
+
 **P11.1a — family seams (merged 2026-10-28, #1437).** [phase-11.md](../design/phase-11.md) §2.2,
 §2.5. Shared code reaches match-3, arcade and card code only through
 `apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
@@ -379,7 +635,8 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   - a bot presses an ability whenever a target is within its reach (the rules' cooldown paces it);
     bots see only free, connected players;
   - Salmons' river is **one seed for every room**, written into the config at authoring time
-    (§14 #4 asked for generation; a new river per room needs the device to draw the room's seed);
+    (§14 #4 asked for generation; a new river per room needs the device to draw the room's seed) —
+    superseded by P11.2 (e): each room makes its own;
   - Salmons' numbers (speeds, reaches, catch times, currents, bank push, round length, goal score,
     the bear and fisherman maxima) are first guesses to tune in play;
   - the load-test devices start where people do (all salmon at the sea): the shoal at a round's
@@ -397,7 +654,7 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   - the load test runs the devices and the proxy in one Node process: at 100 devices it is not the
     limit on a 4-core machine, but a slower one would show the devices' lateness as the room's;
   - P10.15's limits stand (online Flow events, server-owned `var:` sources, predicted ability events,
-    the `out` player still drawn).
+    the `out` player still drawn) — all four lifted by P11.2 (a–b).
 
 | Run (Salmons, 100 devices, 60 ± 20 ms) | Steps / s seen (of 30) | States / s (of 20) | KB/s per device: mean / max | Egress | Step p50 / p99 / max | Server CPU | RSS |
 |---|---|---|---|---|---|---|---|
@@ -567,10 +824,10 @@ row, per the approved A4 design ([realtime-multiplayer.md](../design/realtime-mu
     unreliable input frames because of the schema 5.0.42 decoder loop (P10.14);
   - **room events do not reach Flow** (`onPlayerJoined`, `onHit`, `onCaught`, `onRoundEnd`, …), and
     **scores are not bound to `var:` sources** — the server-owned variables and their validator rule
-    (`variable-server-owned`) — so a HUD cannot show them yet (open item);
+    (`variable-server-owned`) — so a HUD cannot show them yet (lifted by P11.2 (a–b));
   - **predicted events** (§6: a swipe played the moment it is pressed) are not drawn: the device
-    has no ability presentation yet;
-  - a player that is `out` is still drawn (where it was caught) until it respawns;
+    has no ability presentation yet (lifted by P11.2 (a–b));
+  - a player that is `out` is still drawn (where it was caught) until it respawns (lifted by P11.2 (a–b));
   - the 250 ms rewind covers an honest view only up to about a 120 ms round trip (the view is the
     100 ms interpolation delay plus the trip plus a step behind): a slower player's hits are tested
     against a later place than it saw;
@@ -2231,19 +2488,20 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a
    two-user check (`/cards` and `/config` open on one card project) is still to be done by hand; (d)
    the deck's AI weights take any number (the AI's own reader decides what it accepts).
-0. **P10.15 follow-ups:** (a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
+0. **P10.15 follow-ups:** ~~(a) **online Flow events** (`onPlayerJoined`, `onPlayerLeft`, `onHit`,
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
-   hiding an `out` player; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
-   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; (d) a `/config`
-   section for `arcade.online.rules`; (e) the online world camera following the predicted player.
+   hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; ~~(c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
+   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild~~ — done in
+   P11.3, 2026-10-29 (left: its events as Flow events, the golden salmon and the line drawn); ~~(d) a
+   `/config` section for `arcade.online.rules`~~ — done in P11.2 (c–e), 2026-10-29; (e) the online
+   world camera following the predicted player.
 1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
    static until the per-family runtime build (item 9), or ship the SDK as a separate file only an
-   online game fetches; (b) the **publish** writes `rooms_url` into an online game's launch URL and
-   refuses an online game with no server address (§10) — the game server already reads the
-   published snapshot's config (`/api/game-server/config`, 2026-10-27); (c) a `/config` section for
-   `arcade.online`; (d) the Railway service, DNS and the config credential (owner, INFRA steps),
+   online game fetches; ~~(b) the **publish** writes `rooms_url` into an online game's launch URL
+   and refuses an online game with no server address (§10); (c) a `/config` section for
+   `arcade.online`~~ — done in P11.2 (c–e), 2026-10-29; (d) the Railway service, DNS and the config credential (owner, INFRA steps),
    then the `deploy-drift` entry. (The read-only config token, once (e), is done: 2026-10-27.)
 2. **Live real-money match-3** waits on a real provider's match-3 wire (§9 #2); our wire
    (`docs/reference/match3-wire.md`) and its facade mapping are rewritten when one arrives.
@@ -2289,6 +2547,23 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-10-29 — **P11.3: Salmons' rules.** Solids and one-way solids in the online level (predicted);
+  `STATUS` `grounded` / `hooked`, the `hook` effect and per-room modules in `onlineRules.js`;
+  `salmonsRules.js` (waterfall climb, sandbanks, the line, the golden salmon); rocks, sandbanks and
+  waterfalls in the river; recorded traces in `check:online-rules`. `salmons-play.mjs` 36 / 36 in
+  each netcode; load test within budget (p99 2.6 ms); arcade +915 B gz, slot +229 B. Open item 0 (c)
+  is done. Detail above.
+
+- 2026-10-29 — **P11.2 (c–e): publish writes `rooms_url`, `/config` online sections, a new river
+  per room** (launcher `GAME_SERVER_URL`, reason `no-game-server`, `check:online-publish`;
+  `OnlineSection.svelte`; `arcade.online.generator`, `onlineGenerators.js`, the room state's
+  `seed`). Arcade runtime +1.3 KB gz, the others +63 to +116 B. Open items 0 (d), 1 (b) and (c)
+  are done. Detail above.
+
+- 2026-10-29 — **P11.2 (a–b): online Flow events, server-owned variables, predicted abilities,
+  `out` hidden** (`engine-mechanics` `onlineFlow.js`, `variable-server-owned`, Salmons' HUD and
+  round over). Arcade runtime +1.7 KB gz; the other three unchanged. Open items 0 (a) and (b) are
+  done. Detail above.
 - 2026-10-29 — **P11.1 done.** #1449 (`/healthz` `gameRuntimes`, Director drafts on the family
   runtime) and #1450 (`lines` built slot only, publish refuses an unreleased family runtime) merged
   after the non-slot republish; every slot game's runtime is about 1,296 KB gz (−8.2 %).

@@ -3,7 +3,8 @@
 > Plan: [design/game-families.md](../design/game-families.md) §1 (Salmons and its art pass, S0), §4.3–§4.5, P10.16, §9 #28 · Online rooms: [design/realtime-multiplayer.md](../design/realtime-multiplayer.md) · The art pass's own guide: `docs/art-pass.md` in `GuiltyForever/Salmon-` · The sample it builds on: [playtest/arcade-sample.md](../playtest/arcade-sample.md) · Agents: `arcade-games` (art pass: `atlas-python-tools`, `invisible-flipbook`, `invisible-fx`, `invisible-components`)
 
 **One-line state:** **Salmons is rebuilt as data on the engine (P10.16, built 2026-10-27; in
-review)**: its river, rules, characters, bots and layout run on the shared runtime and the game
+review)**, with its own rules since P11.3 (the climb, sandbanks, the line, the golden salmon;
+in review): its river, rules, characters, bots and layout run on the shared runtime and the game
 server, with placeholder looks, and play in two browsers and a room of bots
 ([playtest/salmons.md](../playtest/salmons.md)). It is not in the `salmons` portal project yet, and
 its players are not moved over: both are owner steps (below). The art pass (S0) was approved on
@@ -12,7 +13,8 @@ the placeholders when they are.
 
 ## Current state
 
-- **Salmons on the engine (P10.16)** — all generated from one seed, `SALMONS_SEED`:
+- **Salmons on the engine (P10.16)** — the authored config and layout are made from one seed,
+  `SALMONS_SEED`; each room plays a river of its own (P11.2 e, below):
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
     `salmonsConfig`): a 1800 × 7200 river of 15 bands from the sea to the source; `salmon`,
     `bear` (≤ 30) and `fisherman` (≤ 20); bears and fishermen start on the banks; 100 players; bots
@@ -22,17 +24,45 @@ the placeholders when they are.
     zone forces on salmon (rapids push harder); a bank pushes a salmon back into the water; the
     bear's swipe (110 px, out 3 s, +1) and the fisherman's cast (280 px, out 4 s, +2) are `catch`
     abilities on J; the first salmon at the source wins (+10);
-  - **not yet built** (Salmons' own rules, a rules module each — P10.15 open item c): the climb up
-    a waterfall by tapping, sandbanks that ground a salmon until it jumps, rocks and one-way
-    waterfalls as solids, and the fisherman's line (hook, reel, land: today one catch); the golden
-    salmon; a new river per room (§14 #4: today every room plays the one seed's river);
+  - **Salmons' own rules (P11.3, built 2026-10-29; in review)**: rocks are solids and waterfalls
+    one-way solids that stop a salmon from below; the water, sea and source are solid to bears and
+    fishermen, who stay on the banks (all predicted by the device); the rules module `salmons`
+    (`engine-mechanics` `salmonsRules.js`, server only): a salmon climbs a waterfall by tapping
+    Space at its foot, is grounded on a sandbank until it taps Space, can be hooked by a
+    fisherman's cast, reeled in and landed (+2; five taps shake the hook), and one salmon per round
+    is golden (worth 3× caught or at the source). The river places the rocks, sandbanks and
+    waterfalls from its seed, on the server and on every device. Detail and the numbers in
+    [status/game-families](game-families.md) P11.3;
+  - **chosen here, owner may overturn** (Salmons' design leaves them open): 4 taps to climb, the
+    height draining 0.6 a second; a grounded salmon can be caught, a hooked one cannot; reel
+    200 px/s, landed within 60 px, 5 taps to escape, one line per fisherman, the cast's score at
+    the landing; the golden salmon picked by the server from the room's seed (not chosen by the
+    player, as the old client did), 3×, re-picked when it leaves; obstacle chances and sizes;
+    waterfalls across the whole river;
+  - **a new river per room (P11.2 e, built 2026-10-29; in review)**: the config names the
+    generator (`arcade.online.generator: 'salmonsRiver'`). Each room picks a seed and carries it in
+    its state (`seed`); the server and every device run `engine-mechanics` `generatedOnlineGame`
+    on it (the river's field, zones, currents, banks and spawns; characters, rules and bots stay as
+    the config says), and the device draws that river (`engine-layout` `salmonsRiverNode`) in
+    place of the authored one. A room replays from its seed (the bots' brains and the river). The
+    authored `salmons-1` river is what `/editor` and `/config` show;
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
-    (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`); no HUD or round-over screen until room
-    events and scores reach Flow (P10.15's open item);
-  - **proof**: `check:room-bots` (a salmon swims the river to the source and wins; a bear bot
-    catches one; the config validates clean), `scripts/playtest/salmons-play.mjs` (14 / 14), and
-    the 100-device load test ([status/game-families](game-families.md) P10.16).
+    (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`);
+  - **the HUD and the round over (P11.2 a–b, built 2026-10-29; in review)**: Salmons' own flow
+    (`engine-flow-v2` `reference/salmonsSeed.ts`) shows a HUD of the room's own values — SCORE,
+    ROUND, TIME (`score`, `round`, `secondsLeft`, variables the room owns) — and a round-over
+    screen at each `roundEnd`, counting down to the next round and gone at `roundStart`; the bear's
+    swipe and the fisherman's cast are drawn on the press (placeholders `salmonsSwipe`,
+    `salmonsCast`); a caught salmon is not drawn until it respawns;
+  - **proof**: `check:room-bots` (a salmon swims the river to the source, climbing and jumping,
+    and wins; a bear bot on its bank catches one near the shore; the config validates clean; a
+    room plays its seed's river and replays it; live, two rooms of one game play two rivers, each
+    the one its devices make), `check:online-rules` (Salmons' recorded traces: the climb, the
+    sandbank, the line, the golden salmon), `scripts/playtest/salmons-play.mjs` (36 / 36 in each
+    netcode: the HUD, the swipe, a round over, two rooms with two rivers, a waterfall climbed and
+    a sandbank jumped off), and the 100-device load test ([status/game-families](game-families.md)
+    P10.16, P11.3).
 - **The Salmons that players reach today is not built from this repository.** It lives in
   `GuiltyForever/Salmon-` (a Colyseus 0.15 server and a PixiJS client) and deploys from there.
   Nothing merged here changes it until its players are moved over (owner steps below).
@@ -66,23 +96,31 @@ the placeholders when they are.
    `node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/salmons/export.mjs --out <dir>`
    and upload what it writes, at the same keys, into R2 (the FTP Browser, admin full-bucket):
    `invisible_wall/salmons/config/config.json` (replaces the dodger's config),
-   `invisible_wall/salmons/editor/scenes.json` (replaces its screens) and the three
-   `editor/salmons/components/salmons*.json`. Back up the current three first.
-2. **Remove the arcade starter flow** from the project (`invisible_wall/salmons/editor/flow-v2.json`,
-   after a backup): it is an offline flow, and Salmons has none yet.
-3. **Publish** `salmons` from Game Maker. The publish does not yet write the game server's address
-   into the launch URL (P10.14 open item 1b), so open it with
-   `?rooms_url=wss://rooms.invisiblewall.org` added.
+   `invisible_wall/salmons/editor/scenes.json` (replaces its screens),
+   `invisible_wall/salmons/editor/flow-v2.json` (Salmons' flow, replacing the offline arcade
+   starter) and the five `editor/salmons/components/salmons*.json`. Back up the current files first.
+2. (No longer needed since P11.2: the export now writes Salmons' own flow over the starter.)
+3. **Publish** `salmons` from Game Maker. Since P11.2 (c) the publish writes the game server's
+   address into the launch URL as `rooms_url` (the launcher's `GAME_SERVER_URL`, by default
+   `wss://rooms.invisiblewall.org`), so the published link plays as it is.
 4. **The game server's config credential** (INFRA "Invisible Game Server" steps 5–7), so the live
    server can read the published config; until then it plays no game.
-5. **Moving the players over** from the Salmon repository's own server: when the art and the
-   missing rules (above) are in and you are happy with a playtest on the live server.
+5. **Moving the players over** from the Salmon repository's own server: when the art (and,
+   if wanted, the isometric view, P11.4) is in and you are happy with a playtest on the live server.
 
 ## Open items / next (S0)
 
-Salmons' own rules (the climb, sandbanks, solids, the line, the golden salmon), its HUD and
-round-over screen, the published `rooms_url`, a river per room and the isometric view are
-scheduled in [Phase 11](../design/phase-11.md) (P11.2–P11.4); S0 runs beside them.
+The isometric view is scheduled in [Phase 11](../design/phase-11.md) (P11.4); its HUD and round
+over, the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
+Left from P11.3 (known limits):
+
+- The rules' room events `climbed`, `grounded`, `jumped`, `hooked`, `escaped` and `golden` reach the
+  device's probe but are not in `onlineFlow.js` `ONLINE_FLOW_EVENTS` (nor `engine-flow-v2`
+  `ARCADE_ONLINE_EVENTS`), so Flow cannot play a cue or sound on them yet. A landing is `caught`
+  (effect `hook`), which Flow does hear.
+- The golden salmon is not drawn gold and the line is not drawn.
+- One tap of Space can do two things at once: a salmon that jumps off a sandbank at a waterfall's
+  foot also gets a quarter of the climb from that tap (each rule reads the tap on its own). S0 runs beside them.
 
 1. **Generate the 22 character clips** in the project `salmons`, following the Salmon repository's
    `docs/art-pass.md` recipes: `salmon_pink` and `salmon_golden` (`swim`, `hop`, `caught`), `bear`
@@ -119,6 +157,16 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-10-29 — **P11.3: Salmons' rules.** Rocks and waterfalls are solids, the river is a wall to
+  bears and fishermen; the rules module `salmons` climbs waterfalls by tapping, grounds a salmon
+  on a sandbank until it jumps, plays the fisherman's line (hook, reel, land) and the golden
+  salmon. `salmons-play.mjs` 36 / 36. Detail in [status/game-families](game-families.md) P11.3.
+
+- 2026-10-29 — **P11.2 (c–e): a new river per room, and the publish writes `rooms_url`.** Each
+  room makes its own river from the seed it carries, on the server and on every device
+  (`onlineGenerators.js`); owner step 3 no longer needs a hand-added `rooms_url`.
+  `salmons-play.mjs` 28 / 28. Detail in [status/game-families](game-families.md) P11.2 (c–e).
 
 - 2026-10-27 — **P10.16: Salmons rebuilt as data on the engine.** The river generator and the
   online config (`engine-mechanics` `salmons.js`), its layout (`engine-layout`

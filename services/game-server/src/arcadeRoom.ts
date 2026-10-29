@@ -98,11 +98,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
 			deps.rooms.count += 1;
 			this.counted = true;
-			// The bots' seed is logged, so a room's bots can be replayed from the log.
+			// The seed is logged, so a room's bots and generated field can be replayed from the log.
 			const seed = Math.floor(Math.random() * 0x7fffffff);
 			const sim = createRoomSim(loaded, { seed });
-			if (loaded.online.bots.fillTo > 0)
-				console.log(`[game-server] room ${this.roomId} of "${game}": bot seed ${seed}`);
+			if (loaded.online.bots.fillTo > 0 || loaded.online.generator)
+				console.log(`[game-server] room ${this.roomId} of "${game}": seed ${seed}`);
 			this.sim = sim;
 			const { online } = sim.game;
 			this.maxClients = online.maxPlayers;
@@ -110,6 +110,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.maxMessagesPerSecond = messagesPerSecond(online.tickHz);
 			if (online.nearby) this.state = new NearbyRoomState();
 			this.state.phase = 'waiting';
+			this.state.seed = seed;
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);

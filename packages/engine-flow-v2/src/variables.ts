@@ -66,3 +66,39 @@ export const variableOfSource = (source: string): string | undefined =>
 	source.startsWith(VARIABLE_SOURCE_PREFIX) && source.length > VARIABLE_SOURCE_PREFIX.length
 		? source.slice(VARIABLE_SOURCE_PREFIX.length)
 		: undefined;
+
+/** The kind of value a room value is. */
+export type ServerValueKind = 'number' | 'string' | 'bool';
+
+/**
+ * The room values an online game's variable can mirror (`FlowVariable.server`;
+ * `docs/design/realtime-multiplayer.md` §4, §10): the own player's `score` and `status` (`free` /
+ * `stunned` / `out`, or a rules module's `grounded` / `hooked`); the room's `round`, `phase`
+ * (`waiting` / `running` / `ended`) and `secondsLeft` in the phase (0 without a clock); the last
+ * round's `winner` (a player id, `''` for nobody) and whether the own player `won` it.
+ * `engine-mechanics` `serverValuesOf` makes them from the room's state; `check:online-rules` holds
+ * the two lists equal.
+ */
+export const SERVER_VARIABLE_SOURCES: Readonly<Record<string, ServerValueKind>> = {
+	score: 'number',
+	status: 'string',
+	round: 'number',
+	phase: 'string',
+	secondsLeft: 'number',
+	winner: 'string',
+	won: 'bool',
+};
+
+/** Can a variable of `type` hold a room value of `kind`? */
+export const serverSourceFits = (type: FlowVariable['type'], kind: ServerValueKind): boolean =>
+	kind === 'number'
+		? type === 'int' || type === 'float'
+		: kind === 'string'
+			? type === 'string' || type === 'enum'
+			: type === 'bool';
+
+/** The doc's variables the room writes (`server` set), each with the room value it mirrors. */
+export const serverVariablesOf = (
+	doc: Pick<FlowDoc, 'variables' | 'modes'>,
+): { id: string; server: string }[] =>
+	docVariables(doc).flatMap((v) => (v.server ? [{ id: v.id, server: v.server }] : []));

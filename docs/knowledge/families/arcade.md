@@ -15,20 +15,17 @@ keeps the score and lives. On top of that (Phase 10, `docs/design/game-families.
   Characters** (`/characters`).
 - **A3, P10.12–P10.13:** a world bigger than the screen with a camera and parallax; gravity, jumps,
   one-way platforms and the `tilemap` node.
-- **A4, P10.14–P10.16:** online rooms on `services/game-server` (Colyseus 0.18): the server
-  (P10.14, live), netcode and the online rules (P10.15), then bots, nearby-only state, the
-  100-device load test and Salmons as data (P10.16).
+- **A4, P10.14–P10.16, P11.3:** online rooms on `services/game-server` (Colyseus 0.18): server,
+  netcode, rules, bots, nearby state, the 100-device load test, Salmons as data and its rules.
 
 Arcade is **rules-decided (free play) only**. An RGS-decided arcade config is `unplayable`: it does
 not boot and does not publish (P10.10 is optional and undecided). It never reaches a wallet, a
 partner RGS or a delivery build.
 
-**Salmons** (`docs/status/salmons.md`) is the target: a 100-player online game. The live Salmons is
-in the separate `GuiltyForever/Salmon-` repo (Colyseus 0.15). Here it is rebuilt **as data** on the
-shared runtime in P10.16, never ported in as a second engine: `engine-mechanics` `salmons.js`
-(the river and the config) and `engine-layout` `referenceLayouts/salmons.ts`. Putting it in the
-`salmons` portal project (which plays the P10.8 dodger today, as the S0 art test bed) is an owner
-step.
+**Salmons** (`docs/status/salmons.md`) is the target: a 100-player online game, live in the separate
+`GuiltyForever/Salmon-` repo (Colyseus 0.15), rebuilt here **as data** (P10.16), never ported in:
+`engine-mechanics` `salmons.js` (river, config), `salmonsRules.js` (its rules module, P11.3),
+`engine-layout` `referenceLayouts/salmons.ts`. Moving it into the `salmons` project is an owner step.
 
 Must never change: slot and match-3 games render and step exactly as before. Every arcade path is
 keyed on an arcade-only switch. A stored config without the new fields comes back byte for byte.
@@ -58,11 +55,36 @@ A seed and the same keys replay the same game.
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}`. The server
   owns every place. The room's body equals the device's `stepPlayer` fold bit for bit
   (`services/game-server/src/roomSim.ts`; `check:room-sim`).
+- **What moves a player is predicted; what decides is the server's (P11.3).** Currents and solids
+  (`solid: true`, or one-way `'below'` etc., per character) live in `onlineLevel` / `stepPlayer`,
+  which the device runs too. A rules module (`ONLINE_RULES_MODULES`) runs on the server only; a body
+  it moves (a climb, a reel) reaches the device as a correction. Its choices hash the room's seed.
+  Change Salmons' rules or river, re-record `fixtures/salmons-traces.json` (`check:online-rules`).
+- **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
+  (`engine-mechanics` `onlineFlow.js` `flowSignalsOf`); its scores and round reach it only as
+  variables with `server`, written by `online.ts` from each state. Flow never writes one
+  (`variable-server-owned`). The own player's `ability` is raised on the press by
+  `createAbilityPredictor`, which mirrors `onlineRules.js`'s cooldown test: change one, change both
+  (`check:online-rules` compares them step for step). The room's echo of a press it raised is
+  dropped, per button; an echo with no press waiting is raised then (`predicted: false`); a
+  refused press expires one state after its input is acknowledged; a round's start or the own join
+  clears the cooldowns of inputs already taken, but not of a press whose echo is still due.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it exactly as a device's
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config
   with no `bots` makes none; with no `nearby` the room keeps the P10.14 state class
   (`check:room-bots`).
+- **A generated field is one function on both sides (P11.2 e).** A config naming
+  `arcade.online.generator` plays, per room, the field `generatedOnlineGame(game, seed)` makes from
+  the room's `seed`: `createRoomSim` runs it on the server, `online.ts` on the device, and
+  `FIELD_DRAWINGS` draws it in place of the layout node of its id (via `setRoomDocChange`;
+  `Game.svelte` untouched). One seed drives bots and field. Change generator, geometry and drawing
+  together (`check:room-bots`, `salmons-play.mjs`). **The layout must keep that node id** (`river`
+  for Salmons; S0 art may restyle it, never rename or delete it): without it `joinOnlineRoom`
+  leaves the room and refuses the boot before the game mounts.
+- **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
+  launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
+  (`no-game-server`, `check:online-publish`).
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
@@ -81,11 +103,11 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineBots,salmons}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                                      |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/`                                             |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `mechanic.ts`                                                                                                                                                   |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
-| Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter) and the sample seeds                                                                                                                    |
+| Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |

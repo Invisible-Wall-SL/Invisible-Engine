@@ -84,7 +84,7 @@ export const ARCADE_SAMPLE_COMPONENTS: readonly ComponentDef[] = [
 	placeholder('arcadeFish', 'Fish (placeholder)', 44, 44, 0xffd166, true),
 ];
 
-const textBox = (
+export const textBox = (
 	id: string,
 	label: string,
 	x: number,

@@ -1,8 +1,8 @@
 # Unified Tool Bar
 
 > A single, consistent top bar across **every** tool: the Invisible emblem, the
-> current tool's name, and a horizontal switcher listing every other online tool
-> the signed-in user is entitled to. One look, one nav model, everywhere.
+> current tool's name, and a **Tools** dropdown listing every other online tool
+> the signed-in user is entitled to, grouped by stage. One look, one nav model, everywhere.
 
 Status: **SHIPPED** — all four build-plan steps: `ToolTopBar` in every launcher tool, the
 `tools=` redirect payload (`$lib/server/toolBar.ts`), the HTML twins (atlas, sheet, rigger and
@@ -37,16 +37,17 @@ every Domain-A consumer is inside launcher-api — same as `$lib/Emblem.svelte`.
 ## Anatomy (left → right)
 
 ```
-[◆ Emblem]  TOOL NAME   │   [▣ Sheet] [▤ Atlas] [◈ Component] …
-   ↑ launcher home         ↑ current      ↑ every OTHER online tool the user can see
+[◆ Emblem]  TOOL NAME   [▦ Tools ▾]            … [Ask the AI] [Report bug]
+   ↑ launcher home         ↑ opens a panel of every OTHER online tool, grouped by stage
 ```
 
 - **Emblem** → launcher home (`ENV.ORIGIN` / `/`), always.
 - **Tool name** → static label of the current tool.
-- **Switcher** → every **online** tool in the user's role manifest **except the
-  current one**, icon + text. **Icon-only when the row gets tight** (label hidden,
-  `title=` tooltip). Local-install tools (an external rig editor, Invisible Launcher) and
-  the admin panel never appear.
+- **Switcher** → a **Tools ▾** button that opens a panel of every **online** tool in the
+  user's role manifest **except the current one**: one column per stage (stage label in its
+  accent over a tinted rule), each tool as icon + name. Closes on outside click, Escape (focus
+  back to the button) or picking a tool; under 1000px the panel spans the bar. Local-install
+  tools (an external rig editor, Invisible Launcher) and the admin panel never appear.
 - **Ask the AI** → opens `$lib/AskAiPanel.svelte`, a movable chat about the current tool
   (`/api/ask-ai`, grounded in its `docs/tools/<slug>.md`). The atlas/sheet twins mount
   `iw_common/ask_ai.js` before their Report bug and relay through their own server
@@ -65,7 +66,9 @@ every Domain-A consumer is inside launcher-api — same as `$lib/Emblem.svelte`.
   Editor's `← Editor` link. The switcher is the one way between tools.
 - **Admin stays launcher-only** — it's a capability, not a tool, so it is already
   absent from every tool manifest. No change needed; do not add it to the bar.
-- **Overflow:** icon-only when tight (labels drop before anything collapses).
+- **Overflow:** none — the bar holds one button however many tools there are. (Until
+  2026-10-29 the switcher was a flat icon + label row that dropped to icon-only when tight;
+  the owner asked for a dropdown in its place.)
 
 ## Stage grouping, order & colour coding (2026-07-27)
 
@@ -87,20 +90,20 @@ Publish stage; the text tools sit under Build.)
 
 Two surfaces consume it differently, per owner decision (2026-07-27):
 
-- **Top bar** — flat switcher, **no section chrome**; each tool's icon is *tinted*
-  with its stage accent (`toolAccent(id)`). Because same-stage tools sit adjacent,
-  the tints read as colour bands. Renders `TOOL_BAR_ORDER`, filtered to the user's
-  tools, current removed.
+- **Top bar** — the Tools dropdown groups by stage (label + accent rule per stage
+  column; each tool's icon tinted with its stage accent). Renders `TOOL_BAR_ORDER`,
+  filtered to the user's tools, current removed.
 - **Home grid** — one **labelled, colour-accented `.sec` section per stage** (border
   + header + card-icon tint via `--accent`). Stages with no entitled tools are
   dropped; any online tool not placed in a stage falls into a trailing **Other**
   bucket so it can never silently vanish.
 
-The **HTML twins carry the tint too** (2026-07-27): `toolBarParams` bakes an
-`accent` per tool into the `tools=` payload, and each twin
+The **HTML twins carry the grouping and tint too**: `toolBarParams` bakes an `accent`
+(2026-07-27) and a `stage` label (2026-10-29) per tool into the `tools=` payload; each twin
+starts a new stage column whenever `stage` changes, and each twin
 (`services/atlas-tool/ui_server.py`, `services/sheet-tool/ui.html`,
-`static/rigger/view.html`, `static/rig-viewer/view.html`) sets `ic.style.color = accent`
-(hex-validated) after building the icon — so the twin bar matches the Svelte bar.
+`static/rigger/view.html`, `static/rig-viewer/view.html`) sets the column's `--accent`
+(hex-validated) — so the twin bar matches the Svelte bar.
 
 > Each twin keeps its OWN mirror of `TOOL_ICONS`; a tool missing from a twin's `ICON` map
 > renders label-only there (no icon, so no tint). All four twins cover every online tool (19 on

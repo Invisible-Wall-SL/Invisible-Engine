@@ -13,7 +13,8 @@
  * character that, off cooldown, hits every player of its target characters within `reach`, tested
  * where the user's device was drawing them (`view`, held to {@link REWIND_MS} behind the room), so
  * a hit that lands on the screen lands in the room. Its effect is `stun` (the target stands still)
- * or `catch` (the target is out, then respawns), and it may score. A player whose status ends, who
+ * or `catch` (the target is out, then respawns), and it may score; or `hook`, which hands the
+ * nearest target to the rules module (Salmons' line reels it in). A player whose status ends, who
  * respawns or who starts a round cannot be hit for {@link GRACE_MS}, and a respawn forgets the
  * player's past places, so nobody is hit where it no longer was. A round ends at the goal or on its
  * clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every score
@@ -29,9 +30,12 @@
 
 import { BUTTONS, clipToField, levelCell } from './online.js';
 import { aabbOf, createStaticIndex, inZone, queryStatic, touching } from './motion.js';
+import { SALMONS_RULES } from './salmonsRules.js';
 
-/** A player's status: free, held still by a stun, or out until it respawns. */
-export const STATUS = Object.freeze({ free: 0, stunned: 1, out: 2 });
+/** A player's status: free, held still by a stun, or out until it respawns; or held by a rules
+ *  module until the module lets it go (P11.3): `grounded` on a sandbank (it can still be hit),
+ *  `hooked` on a line. */
+export const STATUS = Object.freeze({ free: 0, stunned: 1, out: 2, grounded: 3, hooked: 4 });
 
 /** How far back an ability is tested against what its user saw, at most, ms (§6: lag
  *  compensation). Whole steps, rounded down. */
@@ -84,16 +88,24 @@ const tag = {
 	},
 };
 
-/** The named rules modules (`arcade.online.rules.module`): code for what the data cannot say. Each
- *  has a `step(world)` run once a step while a round runs. `game-config` lists the same ids. */
-export const ONLINE_RULES_MODULES = Object.freeze({ tag });
+/**
+ * The named rules modules (`arcade.online.rules.module`): code for what the data cannot say.
+ * `game-config` lists the same ids. A module is either the hooks themselves (`tag`) or
+ * `create(game, api)` returning them, for one room. Every hook is optional and runs only while a
+ * round runs: `step(world)` once a step; `input(player, input, world)` (a world with no players) after each input the room
+ * applies, also for a player it holds; `hook(user, target, ability, world)` for a `hook` ability's
+ * nearest target (true: it took it); `worth(player, points)` what a catch of, or a goal by,
+ * `player` scores; `reset(world)` at a round's start. `api` is {@link ModuleApi}.
+ */
+export const ONLINE_RULES_MODULES = Object.freeze({ tag, ...SALMONS_RULES });
 
 /**
  * The rules of one room. `game` is the room's `OnlineGame`; `spawn(player)` puts a player back at
- * the start (the room owns where that is). The room calls {@link OnlineRules.applied} after each
- * input it applies and {@link OnlineRules.afterStep} once a step; both may push events.
+ * the start (the room owns where that is); `seed` is the room's, for a module's choices. The room
+ * calls {@link OnlineRules.applied} after each input it applies and {@link OnlineRules.afterStep}
+ * once a step; both may push events.
  */
-export function createOnlineRules(game, { spawn }) {
+export function createOnlineRules(game, { spawn, seed = 0 }) {
 	const { online } = game;
 	const { rules, tickHz } = online;
 	const rewind = Math.max(1, Math.floor((REWIND_MS * tickHz) / 1000));
@@ -116,7 +128,6 @@ export function createOnlineRules(game, { spawn }) {
 		cooldown: Math.max(1, stepsOf(a.cooldownMs, tickHz)),
 		hold: stepsOf(a.ms, tickHz),
 	}));
-	const module = rules.module ? ONLINE_RULES_MODULES[rules.module] : undefined;
 	/** Whether a player can win a round: a bot only when the game lets bots win (P10.16). */
 	const canWin = (player) => !player.bot || online.bots?.canWin === true;
 	/** id → past places, a ring by stamp. */
@@ -128,6 +139,11 @@ export function createOnlineRules(game, { spawn }) {
 	let winner = '';
 
 	const emit = (event) => events.push(event);
+	const worldOf = (every, stamp) => ({ players: [...every], stamp, tickHz, round, seed, emit });
+	/** What `points` for a catch of, or a goal by, `player` are worth (a module may say more). */
+	const worth = (player, points) => (module?.worth ? module.worth(player, points) : points);
+	/** Whether a player can be hit: free, or held by a sandbank. */
+	const hittable = (player) => player.status === STATUS.free || player.status === STATUS.grounded;
 
 	const placeAt = (player, stamp) => {
 		const ring = history.get(player.id);
@@ -148,6 +164,20 @@ export function createOnlineRules(game, { spawn }) {
 		history.delete(player.id);
 	};
 
+	const definition = rules.module ? ONLINE_RULES_MODULES[rules.module] : undefined;
+	const module = definition?.create
+		? definition.create(game, {
+				STATUS,
+				free,
+				release: (player) => {
+					player.status = STATUS.free;
+					player.until = 0;
+				},
+				score,
+				worth: (player, points) => worth(player, points),
+			})
+		: definition;
+
 	const startRound = (players, stamp) => {
 		phase = 'running';
 		round += 1;
@@ -162,6 +192,7 @@ export function createOnlineRules(game, { spawn }) {
 			respawn(player);
 		}
 		emit({ type: 'roundStart', round });
+		module?.reset?.(worldOf(players, stamp));
 	};
 
 	const endRound = (stamp, by) => {
@@ -215,7 +246,9 @@ export function createOnlineRules(game, { spawn }) {
 		holds: (player) => player.status !== STATUS.free,
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
-			if (phase !== 'running' || player.status !== STATUS.free) return;
+			if (phase !== 'running') return;
+			if (module?.input) module.input(player, input, { stamp, tickHz, round, seed, emit });
+			if (player.status !== STATUS.free) return;
 			let players;
 			for (const ability of abilities) {
 				if (ability.character !== player.character.id || !(input.buttons & ability.bit)) continue;
@@ -224,14 +257,21 @@ export function createOnlineRules(game, { spawn }) {
 				emit({ type: 'ability', by: player.id, button: ability.button });
 				players ??= [...every];
 				const seen = Math.max(stamp - 1 - rewind, Math.min(stamp - 1, input.view));
+				let nearest;
+				let nearestAt = Infinity;
 				for (const target of players) {
-					if (target === player || !target.connected || target.status !== STATUS.free) continue;
+					if (target === player || !target.connected || !hittable(target)) continue;
 					if (stamp < target.safeUntil || !ability.targets.includes(target.character.id)) continue;
 					const at = placeAt(target, seen);
-					if (Math.hypot(at.x - player.body.x, at.y - player.body.y) > ability.reach) continue;
+					const d = Math.hypot(at.x - player.body.x, at.y - player.body.y);
+					if (d > ability.reach) continue;
+					if (ability.effect === 'hook') {
+						if (d < nearestAt) [nearest, nearestAt] = [target, d];
+						continue;
+					}
 					target.status = ability.effect === 'catch' ? STATUS.out : STATUS.stunned;
 					target.until = stamp + ability.hold;
-					score(player, ability.score);
+					score(player, worth(target, ability.score));
 					emit({
 						type: ability.effect === 'catch' ? 'caught' : 'hit',
 						by: player.id,
@@ -239,13 +279,15 @@ export function createOnlineRules(game, { spawn }) {
 						effect: ability.effect,
 					});
 				}
+				if (nearest && module?.hook) module.hook(player, nearest, ability, worldOf(players, stamp));
 			}
 		},
 		/** Once a step, after every player moved: the step is now `stamp`. Returns its events. */
 		afterStep(every, stamp) {
 			const players = [...every];
 			for (const player of players) {
-				if (player.status === STATUS.free || stamp < player.until) continue;
+				if (player.status === STATUS.free || player.status > STATUS.out) continue;
+				if (stamp < player.until) continue;
 				if (player.status === STATUS.out) respawn(player);
 				free(player, stamp);
 			}
@@ -259,14 +301,12 @@ export function createOnlineRules(game, { spawn }) {
 								inZone(player.body, goal),
 						);
 						if (!reached) continue;
-						score(player, rules.round.goalScore);
+						score(player, worth(player, rules.round.goalScore));
 						endRound(stamp, player.id);
 						break;
 					}
 				}
-				if (phase === 'running' && module) {
-					module.step({ players, stamp, tickHz, emit });
-				}
+				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
 			} else if (phase === 'ended' && stamp >= endsAt) startRound(players, stamp);
 			for (const player of players) {

@@ -239,6 +239,8 @@
 		"check:bonus-import": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bonus-import.ts",
 		"precheck:project-duplicate": "node scripts/ensure-svelte-kit.mjs",
 		"check:project-duplicate": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-duplicate.ts",
+		"precheck:online-publish": "node scripts/ensure-svelte-kit.mjs",
+		"check:online-publish": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-online-publish.ts",
 		"precheck:book-of-migration": "node scripts/ensure-svelte-kit.mjs",
 		"check:book-of-migration": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-book-of-migration.ts",
 		"precheck:config-bonus-modes": "node scripts/ensure-svelte-kit.mjs",

@@ -2220,6 +2220,21 @@ function fellBack(reason: string): LayoutDoc {
 	return fallbackEditorScenes;
 }
 
+/** What an online room changes in the loaded doc: its own field, drawn in place of the authored one
+ *  (P11.2 (e)); set by `game/online.ts` after the join, and never for any other game. */
+let roomDocChange: ((doc: LayoutDoc) => LayoutDoc) | undefined;
+
+export function setRoomDocChange(change: (doc: LayoutDoc) => LayoutDoc): void {
+	roomDocChange = change;
+}
+
+/** The layout this boot will render when it is already in hand (the runtime bundle's, else the
+ *  baked one), before the game mounts; `undefined` when it is still to be fetched. */
+export function preparedEditorDoc(): LayoutDoc | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.doc as LayoutDoc;
+	return hasBakedDoc() ? (bakedBundle.doc as LayoutDoc) : undefined;
+}
+
 export async function loadEditorScenes(): Promise<LayoutDoc> {
 	const doc = await resolveEditorDoc();
 	// The doc's Canvas Size IS the box the Scene Editor laid every `game`-space node out
@@ -2241,7 +2256,8 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 	// nodes) into the parametric `componentInstance` HUD, so the bottom bar renders under a
 	// flow-v2-driven game too (where the coded `<UI>` — the binds' only renderer — is suppressed).
 	// A no-op for a doc already seeded parametric or with no `hudBar` (returns the same object).
-	return normalizeHudScenes(doc);
+	const scenes = normalizeHudScenes(doc);
+	return roomDocChange ? roomDocChange(scenes) : scenes;
 }
 
 async function resolveEditorDoc(): Promise<LayoutDoc> {

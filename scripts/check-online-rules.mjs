@@ -6,20 +6,25 @@
 // `tag` rules module; the same inputs replay to the same events — first headless over the room's
 // own code, then over a real Colyseus 0.18 server whose devices see the state and the events.
 //
-// Salmons' own rules (the climb, the line, its river) and their recorded traces are P10.16's, with
-// the rebuild (`docs/status/game-families.md`).
+// Salmons' own rules (P11.3: engine-mechanics salmonsRules.js and the river's solids) replay its
+// recorded traces exactly — the waterfall climb, the sandbank, the line, the golden salmon — and
+// rocks and the river stop a player on the device as in the room.
 //
-// Run: pnpm check:online-rules
+// Run: pnpm check:online-rules (`-- --record` rewrites fixtures/salmons-traces.json after a
+// deliberate change to Salmons' rules or river)
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { BUTTONS, clampInput } from '../packages/engine-mechanics/src/online.js';
+import { BUTTONS, clampInput, onlineLevel } from '../packages/engine-mechanics/src/online.js';
+import { createPredictor } from '../packages/engine-mechanics/src/netcode.js';
+import { salmonsConfig, salmonsRiver } from '../packages/engine-mechanics/src/salmons.js';
+import { GOLDEN_WORTH, LINE } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	GRACE_MS,
 	ONLINE_EVENT,
@@ -27,6 +32,14 @@ import {
 	REWIND_MS,
 	STATUS,
 } from '../packages/engine-mechanics/src/onlineRules.js';
+import {
+	SERVER_VALUE_KINDS,
+	createAbilityPredictor,
+	flowSignalsOf,
+	serverValuesOf,
+	shownInRoom,
+} from '../packages/engine-mechanics/src/onlineFlow.js';
+import { SERVER_VARIABLE_SOURCES } from '../packages/engine-flow-v2/src/variables.ts';
 import {
 	ONLINE_RULES_MODULE_IDS,
 	normalizeGameConfigDoc,
@@ -195,7 +208,7 @@ await check('the rules block normalizes, resolves with its defaults, and is vali
 		}),
 		['arcade.online.rules.abilities[0].character', 'arcade.online.rules.abilities[0].targets'],
 	);
-	assert.deepEqual(errors({ module: 'salmons' }), ['arcade.online.rules.module']);
+	assert.deepEqual(errors({ module: 'trout' }), ['arcade.online.rules.module']);
 	assert.deepEqual(errors({ module: 'tag' }), []);
 	// A refused config makes no room.
 	assert.ok('refused' in onlineGameOf(normalizeGameConfigDoc(configOf({ module: 'nope' }))));
@@ -579,7 +592,497 @@ await check('the same inputs replay to the same bodies, scores and events', () =
 	}
 });
 
-// --- 4. live: a real server ----------------------------------------------------------------------
+// --- 4. what reaches Flow (P11.2) ---------------------------------------------------------------
+
+// The online events' names against the arcade vocabulary: the launcher's check:flow-variables.
+await check("the room values are the ones Flow's variables may mirror", () => {
+	assert.deepEqual(SERVER_VALUE_KINDS, SERVER_VARIABLE_SOURCES);
+});
+
+await check('room events become Flow signals; the own ability is left to the press', () => {
+	const room = roomOf({ abilities: [CATCH], round: { seconds: 5, nextRoundSeconds: 1 } });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 400;
+	b.body.x = 445;
+	room.ready();
+	room.hold({ b: SWIPE }, 1);
+	room.hold({}, 5 * TICK);
+	const drawn = (id) => ({
+		x: id === 'b' ? 445 : 0,
+		y: 300,
+		character: id === 'b' ? 'bear' : 'salmon',
+	});
+	const forA = flowSignalsOf(room.events, 'a', drawn);
+	const names = forA.map((s) => s.name);
+	assert.deepEqual(names.slice(0, 3), ['roundStart', 'playerJoined', 'playerJoined']);
+	assert.ok(names.includes('caught') && names.includes('roundEnd'), JSON.stringify(names));
+	assert.deepEqual(forA.find((s) => s.name === 'caught').payload, {
+		by: 'b',
+		target: 'a',
+		effect: 'catch',
+		mine: false,
+		me: true,
+	});
+	assert.deepEqual(forA.find((s) => s.name === 'ability').payload, {
+		player: 'b',
+		character: 'bear',
+		button: 'ability1',
+		x: 445,
+		y: 300,
+		mine: false,
+		predicted: false,
+	});
+	// The bear's device raised its swipe on the press; the room's echo of it is not raised again.
+	const pressedAt = room.events.findIndex((e) => e.type === 'ability');
+	const bear = createAbilityPredictor(room.sim.game, 'bear');
+	const forB = flowSignalsOf(room.events.slice(0, pressedAt), 'b', drawn, bear);
+	assert.deepEqual(bear.step(BUTTONS.ability1, true), ['ability1']);
+	forB.push(...flowSignalsOf(room.events.slice(pressedAt), 'b', drawn, bear));
+	assert.ok(!forB.some((s) => s.name === 'ability'), "the bear's own swipe is raised on its press");
+	// Without a press it raised (the device thought it held), the room's echo is raised now.
+	const unsure = createAbilityPredictor(room.sim.game, 'bear');
+	assert.deepEqual(unsure.step(BUTTONS.ability1, false), []);
+	assert.deepEqual(
+		flowSignalsOf(room.events.slice(pressedAt), 'b', drawn, unsure).find(
+			(s) => s.name === 'ability',
+		)?.payload,
+		{
+			player: 'b',
+			character: 'bear',
+			button: 'ability1',
+			x: 445,
+			y: 300,
+			mine: true,
+			predicted: false,
+		},
+		'a press the room took and the device did not predict is drawn when the room tells',
+	);
+	assert.equal(forB.find((s) => s.name === 'caught').payload.mine, true);
+	assert.deepEqual(forB.find((s) => s.name === 'roundEnd').payload, {
+		round: 1,
+		winner: 'b',
+		won: true,
+	});
+});
+
+await check("a round's start clears the device's cooldowns, as it clears the room's", () => {
+	const room = roomOf({
+		abilities: [{ ...CATCH, cooldownMs: 60_000 }],
+		round: { seconds: 5, nextRoundSeconds: 0 },
+	});
+	room.join('a', 'salmon');
+	room.join('b', 'bear');
+	const bear = createAbilityPredictor(room.sim.game, 'bear');
+	const drawn = [];
+	let seen = room.events.length;
+	for (let i = 0; i < 8 * TICK; i++) {
+		// The device presses on what it last saw: the round running.
+		const running = room.sim.rules.phase === 'running';
+		for (const button of bear.step(BUTTONS.ability1, running))
+			drawn.push({ i, button, predicted: true });
+		room.press('b', { buttons: BUTTONS.ability1 });
+		room.step();
+		// The state, then the step's events after it.
+		bear.acked(room.sim.players.get('b').ack);
+		for (const signal of flowSignalsOf(room.events.slice(seen), 'b', undefined, bear))
+			if (signal.name === 'ability') drawn.push({ i, predicted: signal.payload.predicted });
+		seen = room.events.length;
+	}
+	const used = room.of('ability').length;
+	assert.equal(used, 2, 'the room takes one swipe a round on a minute-long cooldown');
+	assert.deepEqual(
+		drawn.map((d) => d.predicted),
+		[true, true],
+		`each drawn once, on the press: ${JSON.stringify(drawn)}`,
+	);
+	assert.ok(drawn[1].i > 5 * TICK, 'the second is in round two');
+});
+
+await check('server-owned values come from the room: scores, status, round, clock, winner', () => {
+	const room = roomOf({ abilities: [CATCH], round: { seconds: 5, nextRoundSeconds: 1 } });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 400;
+	b.body.x = 445;
+	room.ready();
+	room.hold({ b: SWIPE }, 1);
+	const state = () => ({
+		step: room.sim.steps,
+		phase: room.sim.rules.phase,
+		round: room.sim.rules.round,
+		endsAt: room.sim.rules.endsAt,
+		winner: room.sim.rules.winner,
+		players: room.sim.players,
+	});
+	assert.deepEqual(serverValuesOf(state(), 'b', TICK), {
+		score: CATCH.score,
+		status: 'free',
+		round: 1,
+		phase: 'running',
+		secondsLeft: Math.ceil((room.sim.rules.endsAt - room.sim.steps) / TICK),
+		winner: '',
+		won: false,
+	});
+	const ofA = serverValuesOf(state(), 'a', TICK);
+	assert.equal(ofA.status, 'out');
+	assert.ok(ofA.secondsLeft >= 3 && ofA.secondsLeft <= 4);
+	room.hold({}, 4 * TICK);
+	assert.deepEqual(
+		[serverValuesOf(state(), 'b', TICK).won, serverValuesOf(state(), 'a', TICK).winner],
+		[true, 'b'],
+	);
+	assert.equal(serverValuesOf({}, 'a', TICK).phase, 'waiting');
+});
+
+await check('an out player is hidden until it respawns', () => {
+	const room = roomOf({ abilities: [CATCH] });
+	const a = room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	a.body.x = 400;
+	b.body.x = 445;
+	room.ready();
+	assert.ok(shownInRoom(a));
+	room.hold({ b: SWIPE }, 1);
+	assert.equal(shownInRoom(a), false);
+	assert.ok(shownInRoom(b));
+	room.hold({}, TICK + 1);
+	assert.ok(shownInRoom(a), 'respawned, it is drawn again');
+	a.status = STATUS.stunned;
+	assert.ok(shownInRoom(a), 'a stunned player is still drawn');
+});
+
+await check('a predicted ability is raised on the press, at every step the room uses it', () => {
+	const room = roomOf({ abilities: [CATCH, { ...CATCH, button: 'ability2', cooldownMs: 300 }] });
+	room.join('a', 'salmon');
+	const b = room.join('b', 'bear');
+	room.ready();
+	const bear = createAbilityPredictor(room.sim.game, 'bear');
+	const salmon = createAbilityPredictor(room.sim.game, 'salmon');
+	const predicted = [];
+	const pressed = [];
+	for (let i = 0; i < 90; i++) {
+		const buttons = (i % 7 < 5 ? BUTTONS.ability1 : 0) | (i % 11 < 3 ? BUTTONS.ability2 : 0);
+		const before = room.events.length;
+		room.press('b', { buttons });
+		room.step();
+		pressed.push(...bear.step(buttons, b.status === STATUS.free).map((button) => [i, button]));
+		predicted.push(
+			...room.events
+				.slice(before)
+				.filter((e) => e.type === 'ability' && e.by === 'b')
+				.map((e) => [i, e.button]),
+		);
+		assert.deepEqual(salmon.step(buttons, true), [], 'a salmon has no ability');
+	}
+	assert.ok(pressed.length > 4);
+	assert.deepEqual(
+		pressed,
+		predicted,
+		'the device raises each ability on the step the room uses it',
+	);
+	assert.deepEqual(bear.step(BUTTONS.ability1 | BUTTONS.ability2, false), [], 'not while held');
+});
+
+// --- 5. Salmons' rules, on recorded traces (P11.3) -------------------------------------------------
+//
+// Each trace is a room of Salmons (no bots) on one seed's river: who joins, where the test puts
+// them, and the inputs each sends, step by step. The room's events, a track of every player every
+// ten steps and the end are recorded in packages/engine-mechanics/fixtures/salmons-traces.json; a
+// replay must give exactly them. `--record` writes the file again after a deliberate change.
+
+const TRACES_FILE = join(ROOT, 'packages/engine-mechanics/fixtures/salmons-traces.json');
+const RECORD = process.argv.includes('--record');
+const JUMP = BUTTONS.jump;
+const salmonsGame = (() => {
+	const doc = salmonsConfig();
+	doc.arcade.online.bots.fillTo = 0;
+	const game = onlineGameOf(normalizeGameConfigDoc(doc));
+	assert.ok(game && !('refused' in game), 'Salmons is an online game');
+	return game;
+})();
+const thousandths = (v) => Math.round(v * 1000) / 1000;
+
+/** Play a trace and return what the room did: its events, a track and the end. */
+function playTrace(trace) {
+	const sim = createRoomSim(salmonsGame, { seed: trace.seed });
+	for (const [id, character] of trace.joins) sim.join(id, { character });
+	for (const [id, x, y] of trace.place) Object.assign(sim.players.get(id).body, { x, y });
+	const events = sim
+		.events()
+		.filter((e) => e.type !== 'joined')
+		.map((e) => ({ step: 0, ...e }));
+	const track = [];
+	const seqs = new Map();
+	for (let step = 1; step <= trace.steps; step++) {
+		for (const [at, id] of trace.leaves ?? []) if (at === step) sim.leave(id);
+		const got = sim.step((id) => {
+			const run = trace.runs.find((r) => r[0] === id && step >= r[1] && step <= r[2]);
+			const [, , , moveX = 0, moveY = 0, buttons = 0, every = 0] = run ?? [];
+			const seq = (seqs.get(id) ?? 0) + 1;
+			seqs.set(id, seq);
+			const press = !every || step % every === 0 ? buttons : 0;
+			return [clampInput({ seq, view: sim.steps, moveX, moveY, buttons: press }, sim.game.field)];
+		});
+		for (const e of got) events.push({ step, ...e });
+		if (step % 10 === 0)
+			track.push([
+				step,
+				...[...sim.players.values()].map((p) => [
+					p.id,
+					thousandths(p.body.x),
+					thousandths(p.body.y),
+					p.status,
+				]),
+			]);
+	}
+	const end = Object.fromEntries(
+		[...sim.players.values()].map((p) => [
+			p.id,
+			{
+				x: thousandths(p.body.x),
+				y: thousandths(p.body.y),
+				status: p.status,
+				score: p.score,
+				golden: p.mark,
+			},
+		]),
+	);
+	return { events, track, end };
+}
+
+const at = (result, id, step) => {
+	const row = result.track.find((r) => r[0] === step);
+	const [, x, y, status] = row.slice(1).find((p) => p[0] === id);
+	return { x, y, status };
+};
+
+/** Where in a band's water a salmon can swim straight up past its top, clear of its rock. */
+const clearX = (river, band) => {
+	const mid = (band.left + band.right) / 2;
+	const rock = river.rocks.find((r) => r.y < band.y + band.h && r.y + r.h > band.y);
+	if (!rock || mid < rock.x - 60 || mid > rock.x + rock.w + 60) return mid;
+	return rock.x - band.left > band.right - rock.x - rock.w ? rock.x - 70 : rock.x + rock.w + 70;
+};
+
+const TRACES = (() => {
+	const river = salmonsRiver(3);
+	const fall = river.waterfalls[0];
+	const below = river.bands.find((b) => b.y === fall.y + fall.h / 2);
+	const sand = river.sandbanks[0];
+	const lineBand = river.bands[6];
+	const mid = lineBand.y + lineBand.h / 2;
+	const goldBand = salmonsRiver(4).bands[6];
+	const goldY = goldBand.y + goldBand.h / 2;
+	// -32 of 127 of a salmon's 240 px/s holds it against the 60 px/s current.
+	const HOVER = -32;
+	return {
+		climb: {
+			seed: 3,
+			joins: [['s', 'salmon']],
+			place: [['s', clearX(river, below), fall.y + fall.h + 22 + 40]],
+			runs: [
+				['s', 1, 40, 0, -127],
+				['s', 41, 80, 0, -127, JUMP, 2],
+				['s', 81, 120, 0, 127, JUMP, 2],
+			],
+			steps: 120,
+		},
+		sandbank: {
+			seed: 3,
+			joins: [['s', 'salmon']],
+			place: [['s', sand.x + sand.w / 2, sand.y + sand.h + 40]],
+			runs: [
+				['s', 1, 50, 0, -127],
+				['s', 51, 51, 0, -127, JUMP],
+				['s', 52, 90, 0, -127],
+			],
+			steps: 90,
+		},
+		line: {
+			seed: 3,
+			joins: [
+				['f', 'fisherman'],
+				['a', 'salmon'],
+				['b', 'salmon'],
+			],
+			place: [
+				['f', lineBand.left - 60, mid],
+				['a', lineBand.left + 120, mid],
+				['b', lineBand.left + 180, mid],
+			],
+			runs: [
+				['f', 31, 31, 0, 0, BUTTONS.ability1],
+				['f', 140, 140, 0, 0, BUTTONS.ability1],
+				['a', 1, 30, 0, HOVER],
+				['b', 1, 140, 0, HOVER],
+				['b', 141, 170, 0, 0, JUMP, 2],
+			],
+			steps: 200,
+		},
+		golden: {
+			seed: 4,
+			joins: [
+				['k', 'bear'],
+				['a', 'salmon'],
+				['b', 'salmon'],
+				['c', 'salmon'],
+			],
+			place: [
+				['k', goldBand.left - 50, goldY],
+				['a', goldBand.left + 50, goldY],
+				['b', goldBand.left + 50, goldY - 35],
+				['c', goldBand.left + 50, goldY + 35],
+			],
+			runs: [
+				['a', 1, 34, 0, HOVER],
+				['b', 1, 34, 0, HOVER],
+				['c', 1, 34, 0, HOVER],
+				['k', 35, 35, 0, 0, BUTTONS.ability1],
+			],
+			steps: 80,
+		},
+	};
+})();
+// The golden salmon leaves at step 60: which one it is, the seed decides.
+TRACES.golden.leaves = [
+	[60, playTrace({ ...TRACES.golden, steps: 1 }).events.find((e) => e.type === 'golden').id],
+];
+
+const played = Object.fromEntries(
+	Object.entries(TRACES).map(([name, trace]) => [name, { trace, result: playTrace(trace) }]),
+);
+if (RECORD) writeFileSync(TRACES_FILE, `${JSON.stringify(played, null, '\t')}\n`);
+const recorded = JSON.parse(readFileSync(TRACES_FILE, 'utf8'));
+
+await check('Salmons: every recorded trace replays exactly, and twice the same', () => {
+	assert.deepEqual(Object.keys(recorded).sort(), Object.keys(TRACES).sort());
+	for (const [name, { trace, result }] of Object.entries(played)) {
+		assert.deepEqual(trace, recorded[name].trace, `${name}: the trace is the recorded one`);
+		assert.deepEqual(result, recorded[name].result, `${name}: the room did what it did`);
+		assert.deepEqual(playTrace(trace), result, `${name}: replays the same`);
+	}
+});
+
+await check(
+	'Salmons: a waterfall stops a salmon from below; tapping climbs it; down it passes',
+	() => {
+		const { trace, result } = played.climb;
+		const fall = salmonsRiver(trace.seed).waterfalls[0];
+		const foot = fall.y + fall.h + 22;
+		assert.ok(Math.abs(at(result, 's', 40).y - foot) < 1e-3, 'held up at the foot');
+		const climbed = result.events.filter((e) => e.type === 'climbed');
+		assert.equal(climbed.length, 1);
+		assert.ok(climbed[0].step > 41 && climbed[0].step <= 60, `climbed at ${climbed[0].step}`);
+		assert.equal(climbed[0].zone, 'waterfall0');
+		assert.ok(at(result, 's', 80).y < fall.y, 'above the waterfall');
+		assert.ok(result.end.s.y > fall.y + fall.h, 'swimming down, it passes back through');
+	},
+);
+
+await check('Salmons: a sandbank grounds a salmon until it jumps, and not again on it', () => {
+	const { trace, result } = played.sandbank;
+	const sand = salmonsRiver(trace.seed).sandbanks[0];
+	const grounded = result.events.filter((e) => e.type === 'grounded');
+	assert.equal(grounded.length, 1, 'grounded once');
+	assert.ok(grounded[0].step < 40);
+	assert.deepEqual(at(result, 's', 40), at(result, 's', 50), 'held still, pressing up');
+	assert.equal(at(result, 's', 50).status, STATUS.grounded);
+	assert.deepEqual(
+		result.events.filter((e) => e.type === 'jumped').map((e) => e.step),
+		[51],
+	);
+	assert.ok(result.end.s.y < sand.y, 'it swam off the sand upstream');
+	assert.equal(result.end.s.status, STATUS.free);
+});
+
+await check(
+	'Salmons: the line hooks the nearest salmon, reels it in and lands it; one escapes',
+	() => {
+		const { result } = played.line;
+		const kinds = result.events
+			.filter((e) => ['hooked', 'caught', 'escaped'].includes(e.type))
+			.map((e) => [e.type, e.by, e.target, e.effect ?? '']);
+		assert.deepEqual(kinds, [
+			['hooked', 'f', 'a', ''],
+			['caught', 'f', 'a', 'hook'],
+			['hooked', 'f', 'b', ''],
+			['escaped', 'f', 'b', ''],
+		]);
+		const hooked = result.events.find((e) => e.type === 'hooked');
+		assert.equal(hooked.step, 31);
+		assert.equal(at(result, 'a', 40).status, STATUS.hooked);
+		assert.ok(at(result, 'a', 40).x < at(result, 'a', 30).x, 'reeled towards the bank');
+		const golden = result.events.filter((e) => e.type === 'golden').map((e) => e.id);
+		const worth = golden[0] === 'a' ? GOLDEN_WORTH : 1;
+		assert.equal(result.end.f.score, 2 * worth, 'the cast’s score, at the landing');
+		assert.equal(result.end.b.status, STATUS.free);
+		assert.ok(LINE.escapeTaps === 5);
+	},
+);
+
+await check('Salmons: one golden salmon, worth more; it passes on when it leaves', () => {
+	const { trace, result } = played.golden;
+	const golden = result.events.filter((e) => e.type === 'golden');
+	assert.equal(golden[0].step, 1);
+	const first = golden[0].id;
+	assert.equal(trace.leaves[0][1], first);
+	const caught = result.events.filter((e) => e.type === 'caught' && e.by === 'k');
+	assert.deepEqual(caught.map((e) => e.target).sort(), ['a', 'b', 'c']);
+	assert.equal(result.end.k.score, GOLDEN_WORTH + 1 + 1);
+	assert.equal(golden.length, 2);
+	assert.ok(golden[1].step >= 60 && golden[1].id !== first, 'another salmon is golden');
+	assert.equal(result.end[golden[1].id].golden, true);
+	assert.equal(Object.values(result.end).filter((p) => p.golden).length, 1);
+});
+
+await check(
+	'Salmons: rocks and the river are solids a device predicts as the room moves them',
+	() => {
+		const river = salmonsRiver(3);
+		const rock = river.rocks[0];
+		const sim = createRoomSim(salmonsGame, { seed: 3 });
+		const fish = sim.join('s', { character: 'salmon' });
+		const bear = sim.join('k', { character: 'bear' });
+		const band = river.bands.find((b) => rock.y >= b.y && rock.y < b.y + b.h);
+		Object.assign(fish.body, { x: rock.x + rock.w / 2, y: rock.y + rock.h + 22 + 30 });
+		Object.assign(bear.body, { x: band.left - 60, y: band.y + band.h / 2 });
+		const device = (player) =>
+			createPredictor({
+				body: { ...player.body, tags: [...player.body.tags] },
+				speed: player.character.speed,
+				ctx: sim.ctx,
+				field: sim.game.field,
+				level: onlineLevel(
+					sim.game.zones,
+					sim.game.online.rules.zones,
+					player.character.id,
+					sim.game.field,
+				),
+			});
+		const devices = { s: device(fish), k: device(bear) };
+		const moves = { s: { moveY: -127 }, k: { moveX: 127 } };
+		for (let seq = 1; seq <= 40; seq++) {
+			const inputs = {};
+			for (const id of ['s', 'k']) {
+				inputs[id] = clampInput({ seq, view: sim.steps, ...moves[id] }, sim.game.field);
+				devices[id].input(inputs[id]);
+			}
+			sim.step((id) => [inputs[id]]);
+		}
+		assert.ok(Math.abs(fish.body.y - (rock.y + rock.h + 22)) < 1e-6, 'stopped under the rock');
+		assert.ok(Math.abs(bear.body.x - (band.left - 46)) < 1e-6, 'the bear stopped at the water');
+		for (const [id, player] of [
+			['s', fish],
+			['k', bear],
+		]) {
+			assert.equal(devices[id].body.x, player.body.x, `${id}: the device's x is the room's`);
+			assert.equal(devices[id].body.y, player.body.y, `${id}: the device's y is the room's`);
+		}
+	},
+);
+
+// --- 6. live: a real server ----------------------------------------------------------------------
 
 const freePort = () =>
 	new Promise((resolve) => {
@@ -642,6 +1145,14 @@ try {
 		const me = salmon.state.players.get(salmon.sessionId);
 		assert.equal(me.status, STATUS.out);
 		assert.equal(bear.state.players.get(bear.sessionId).score, CATCH.score);
+		// What each device's Flow gets: the catch, its score as a room value, the out salmon hidden.
+		assert.deepEqual(
+			flowSignalsOf(heard.salmon, salmon.sessionId).find((s) => s.name === 'caught').payload,
+			{ by: bear.sessionId, target: salmon.sessionId, effect: 'catch', mine: false, me: true },
+		);
+		assert.equal(serverValuesOf(bear.state, bear.sessionId, TICK).score, CATCH.score);
+		assert.equal(serverValuesOf(salmon.state, salmon.sessionId, TICK).status, 'out');
+		assert.equal(shownInRoom(bear.state.players.get(salmon.sessionId)), false);
 		assert.deepEqual(
 			heard.bear.find((e) => e.type === 'caught'),
 			{ type: 'caught', by: bear.sessionId, target: salmon.sessionId, effect: 'catch' },
@@ -685,6 +1196,11 @@ try {
 				3000,
 			);
 			assert.ok(heard.salmon.some((e) => e.type === 'roundStart' && e.round === 2));
+			assert.deepEqual(
+				flowSignalsOf(heard.salmon, salmon.sessionId).find((s) => s.name === 'roundEnd').payload,
+				{ round: 1, winner: salmon.sessionId, won: true },
+			);
+			assert.equal(serverValuesOf(bear.state, bear.sessionId, TICK).round, 2);
 		},
 	);
 

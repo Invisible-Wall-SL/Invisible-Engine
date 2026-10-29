@@ -2,7 +2,8 @@
 // §12; P10.16): bots that fill a room's empty places with the P10.11 brains, a person taking a
 // bot's place, bots that cannot win, the nearby-only state (each device sent only the players near
 // its own, and its own `ack` only), per-character spawns, and Salmons as data (its river, its
-// config, a salmon that can swim it and a bear bot that catches one) — headless over the room's own
+// config, a salmon that can swim it and a bear bot that catches one; P11.2 (e): a river of its own in
+// every room, made from the room's seed) — headless over the room's own
 // code, then over a real Colyseus 0.18 server on localhost with real `@colyseus/sdk` clients.
 // The 100-device load test is `scripts/room-load.mjs` (not a gate: it takes a minute and a core).
 //
@@ -16,16 +17,23 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import { GOLDEN_WORTH } from '../packages/engine-mechanics/src/salmonsRules.js';
 import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
+	ONLINE_GENERATORS,
+	generatedOnlineGame,
+} from '../packages/engine-mechanics/src/onlineGenerators.js';
+import {
 	SALMONS_SEED,
 	salmonsConfig,
+	salmonsGeometry,
 	salmonsRiver,
 } from '../packages/engine-mechanics/src/salmons.js';
 import {
 	ARCADE_ONLINE_BOT_DEFAULTS,
+	ONLINE_GENERATOR_IDS,
 	normalizeGameConfigDoc,
 	onlineGameOf,
 	resolveArcadeOnline,
@@ -419,47 +427,105 @@ await check('Salmons: the river is the seed’s, and its config is a valid onlin
 		['bear', 'fisherman'],
 		'§14 #5: bears and fishermen',
 	);
-	assert.ok(salmons.online.rules.zones.length <= 64);
+	assert.ok(salmons.online.rules.zones.length <= 256, 'a room runs every zone rule');
 	assert.equal(salmons.online.rules.round.nextRoundSeconds, 15, '§14 #6');
 	assert.ok(salmons.online.nearby);
 });
 
-/** A salmon that steers for the middle of the water a little upstream of it. */
-const swimmer = (river) => (player) => {
+/** A salmon that steers for the middle of the water a little upstream of it, round the rocks
+ *  ahead, and taps jump every other step (P11.3: it climbs the waterfalls and jumps off the
+ *  sandbanks). */
+const swimmer = (river) => (player, step) => {
 	const ahead = player.body.y - 120;
 	const band =
 		river.bands.find((b) => ahead >= b.y && ahead < b.y + b.h) ??
 		(ahead < river.bands[0].y ? river.bands[0] : river.bands.at(-1));
-	const mid = (band.left + band.right) / 2;
-	const dx = mid - player.body.x;
-	return { moveX: Math.max(-1, Math.min(1, dx / 60)) * 90, moveY: -MOVE_SCALE };
+	let aim = (band.left + band.right) / 2;
+	const { x, y } = player.body;
+	const rock = river.rocks.find(
+		(r) => x > r.x - 60 && x < r.x + r.w + 60 && r.y + r.h > y - 200 && r.y + r.h < y,
+	);
+	if (rock)
+		aim = rock.x - band.left > band.right - rock.x - rock.w ? rock.x - 70 : rock.x + rock.w + 70;
+	const dx = aim - x;
+	return {
+		moveX: Math.max(-1, Math.min(1, dx / 60)) * 90,
+		moveY: -MOVE_SCALE,
+		buttons: step % 2 ? BUTTONS.jump : 0,
+	};
 };
 
+await check('Salmons: each room plays a river of its own seed, and replays it', () => {
+	assert.deepEqual([...ONLINE_GENERATOR_IDS].sort(), Object.keys(ONLINE_GENERATORS).sort());
+	assert.equal(salmons.online.generator, 'salmonsRiver');
+	const one = createRoomSim(salmons, { seed: 11 });
+	const again = createRoomSim(salmons, { seed: 11 });
+	const two = createRoomSim(salmons, { seed: 12 });
+	assert.equal(one.seed, 11);
+	assert.deepEqual(one.game.zones, again.game.zones, 'the same seed: the same river');
+	assert.notDeepEqual(one.game.zones, two.game.zones, 'two rooms: two rivers');
+	const geometry = salmonsGeometry(salmonsRiver(11));
+	assert.deepEqual(one.game.zones, geometry.zones);
+	assert.deepEqual(one.game.online.rules.zones, geometry.zoneRules);
+	assert.deepEqual(one.game.online.spawn, geometry.spawn);
+	assert.deepEqual(one.game.online.bots.spawns, geometry.botSpawns);
+	assert.deepEqual(
+		one.game.online.characters.map((c) => c.spawns ?? null),
+		[null, geometry.spawns.bear, geometry.spawns.fisherman],
+	);
+	// What the room keeps from the config: everything but the river's geometry.
+	assert.deepEqual(
+		one.game.online.characters.map((c) => c.speed),
+		[240, 190, 140],
+	);
+	assert.deepEqual(one.game.online.rules.abilities, salmons.online.rules.abilities);
+	assert.deepEqual(one.game.online.bots.characters, salmons.online.bots.characters);
+	// The device runs the very same function on the seed the state carries.
+	assert.deepEqual(generatedOnlineGame(salmons, 11).game, one.game);
+	assert.deepEqual(generatedOnlineGame(salmons, 11).made, salmonsRiver(11));
+	const me = one.join('me', { character: 'salmon' });
+	assert.deepEqual([me.body.x, me.body.y], [geometry.spawn.x, geometry.spawn.y]);
+	// A game that names no generator plays its field as authored.
+	const plain = gameOf(configOf({ characters: CHARACTERS }));
+	assert.equal(generatedOnlineGame(plain, 11).game, plain);
+	assert.equal(generatedOnlineGame(plain, 11).made, undefined);
+	assert.equal(createRoomSim(plain, { seed: 11 }).game, plain);
+	const unknown = normalizeGameConfigDoc(configOf({ characters: CHARACTERS, generator: 'lake' }));
+	assert.deepEqual(
+		validateFamily(unknown)
+			.filter((i) => i.path === 'arcade.online.generator')
+			.map((i) => i.severity),
+		['error'],
+	);
+});
+
 await check('Salmons: a salmon that swims the river reaches the source and wins the round', () => {
-	const river = salmonsRiver();
 	const sim = createRoomSim(salmons, { seed: 1 });
+	const river = salmonsRiver(sim.seed);
 	const me = sim.join('me', { character: 'salmon' });
 	for (const bot of bots(sim)) bot.body.x = bot.body.x < 900 ? 0 : 1800;
 	const swim = swimmer(river);
 	let end;
 	const steps = 120 * salmons.online.tickHz;
 	for (let i = 0; i < steps && !end; i++) {
-		const events = sim.step((id) => [clampInput({ ...swim(sim.players.get(id)), seq: i + 1 })]);
+		const events = sim.step((id) => [clampInput({ ...swim(sim.players.get(id), i), seq: i + 1 })]);
 		// Keep the bots off it: this checks the river, not the hunt.
 		for (const bot of bots(sim)) bot.status = STATUS.stunned;
 		end = events.find((e) => e.type === 'roundEnd');
 	}
 	assert.ok(end, `the salmon reached the source (it got to y = ${Math.round(me.body.y)})`);
 	assert.equal(end.winner, 'me');
-	assert.equal(me.score, salmons.online.rules.round.goalScore);
+	// The only salmon in the room is its golden one: its goal is worth GOLDEN_WORTH times as much.
+	assert.equal(me.mark, true);
+	assert.equal(me.score, salmons.online.rules.round.goalScore * GOLDEN_WORTH);
 });
 
 await check(
 	'Salmons: the current carries a resting salmon downstream; a bank pushes it back',
 	() => {
-		const river = salmonsRiver();
-		const band = river.bands[5];
 		const sim = createRoomSim(salmons, { seed: 1 });
+		const river = salmonsRiver(sim.seed);
+		const band = river.bands[5];
 		const me = sim.join('me', { character: 'salmon' });
 		for (const bot of bots(sim)) sim.players.delete(bot.id);
 		me.body.x = (band.left + band.right) / 2;
@@ -475,18 +541,47 @@ await check(
 	},
 );
 
-await check('Salmons: a bear bot catches a salmon that swims into it', () => {
+await check('Salmons: a bear bot on its bank catches a salmon near the shore', () => {
 	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
 	const me = sim.join('me', { character: 'salmon' });
 	const bear = bots(sim).find((b) => b.character.id === 'bear');
-	me.body.x = bear.body.x + 300;
+	const band = river.bands.find((b) => bear.body.y >= b.y && bear.body.y < b.y + b.h);
+	me.body.x = bear.body.x < band.left ? band.left + 50 : band.right - 50;
 	me.body.y = bear.body.y;
+	let caught;
+	let wet = 0;
+	for (let i = 0; i < 300 && !caught; i++) {
+		const events = sim.step(() => [clampInput({ seq: i + 1 })]);
+		caught = events.find((e) => e.type === 'caught' && e.target === 'me');
+		for (const b of bots(sim)) {
+			const at = river.bands.find((r) => b.body.y >= r.y && b.body.y < r.y + r.h);
+			if (at && b.body.x > at.left + 1 && b.body.x < at.right - 1) wet += 1;
+		}
+	}
+	assert.ok(caught, 'the bear bot chased the salmon and swiped');
+	assert.equal(sim.players.get(caught.by).character.id, 'bear');
+	assert.equal(me.status, STATUS.out);
+	assert.equal(wet, 0, 'P11.3: the water is solid to bears and fishermen');
+});
+
+await check('Salmons: a bear bot sees and catches a salmon grounded on a sandbank', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
+	const me = sim.join('me', { character: 'salmon' });
+	const bear = bots(sim).find((b) => b.character.id === 'bear');
+	const band = river.bands.find((b) => bear.body.y >= b.y && bear.body.y < b.y + b.h);
+	me.body.x = bear.body.x < band.left ? band.left + 50 : band.right - 50;
+	me.body.y = bear.body.y;
+	// Grounded as the sandbanks module grounds it: held, and only a jump frees it.
+	me.status = STATUS.grounded;
 	let caught;
 	for (let i = 0; i < 300 && !caught; i++) {
 		const events = sim.step(() => [clampInput({ seq: i + 1 })]);
 		caught = events.find((e) => e.type === 'caught' && e.target === 'me');
+		if (!caught) assert.equal(me.status, STATUS.grounded);
 	}
-	assert.ok(caught, 'the bear bot chased the salmon and swiped');
+	assert.ok(caught, 'the bear bot went for the grounded salmon and swiped');
 	assert.equal(sim.players.get(caught.by).character.id, 'bear');
 	assert.equal(me.status, STATUS.out);
 });
@@ -538,6 +633,10 @@ writeFileSync(
 		}),
 	),
 );
+const duo = salmonsConfig();
+duo.arcade.online.maxPlayers = 2;
+delete duo.arcade.online.bots;
+writeFileSync(join(dir, 'riverduo.json'), JSON.stringify(duo));
 writeFileSync(
 	join(dir, 'bots.json'),
 	JSON.stringify(configOf({ characters: CHARACTERS, bots: { ...BOTS, fillTo: 4 } })),
@@ -545,7 +644,7 @@ writeFileSync(
 const port = await freePort();
 const server = createGameServer({
 	loadGame: createConfigSource({ dir }),
-	maxRooms: 2,
+	maxRooms: 3,
 	commit: 'roombots0000',
 	gracefullyShutdown: false,
 	trustProxy: true,
@@ -653,6 +752,39 @@ try {
 			);
 			assert.ok(!heard.some((e) => e.id === east.sessionId), 'nothing about far-away east');
 			await west.leave();
+		},
+	);
+	await check(
+		'live: two rooms of one game play two rivers, each the one its devices make from its seed',
+		async () => {
+			const duoGame = gameOf(duo);
+			const join = (c, character) =>
+				c === undefined
+					? clientOf().joinOrCreate(ROOM_NAME, { game: 'riverduo', character })
+					: clientOf().joinById(c, { character });
+			const a = await join(undefined, 'salmon');
+			const b = await join(a.roomId, 'bear');
+			const c = await join(undefined, 'salmon');
+			assert.notEqual(a.roomId, c.roomId, 'the first room is full: a second one');
+			const seeded = (room) => typeof room.state.seed === 'number' && room.state.players?.size;
+			await until('both seeds', () => seeded(a) && seeded(b) && seeded(c));
+			assert.equal(a.state.seed, b.state.seed, 'one room, one seed');
+			assert.notEqual(a.state.seed, c.state.seed, 'two rooms, two seeds');
+			const rivers = [a, c].map((room) => generatedOnlineGame(duoGame, room.state.seed));
+			assert.notDeepEqual(rivers[0].made.bands, rivers[1].made.bands, 'two rivers');
+			// Each device's river is the server's: the salmon stands where its river's sea is.
+			for (const [room, { game }] of [
+				[a, rivers[0]],
+				[c, rivers[1]],
+			]) {
+				const me = room.state.players.get(room.sessionId);
+				assert.deepEqual([me.x, me.y], [game.online.spawn.x, game.online.spawn.y]);
+			}
+			// (Nearby: the bear on its bank is sent to its own device, not to the salmon at the sea.)
+			const bear = b.state.players.get(b.sessionId);
+			const bank = rivers[0].game.online.characters[1].spawns[0];
+			assert.deepEqual([bear.x, bear.y], [bank.x, bank.y], 'the bear is on the room’s bank');
+			await Promise.all([a.leave(), b.leave(), c.leave()]);
 		},
 	);
 } finally {

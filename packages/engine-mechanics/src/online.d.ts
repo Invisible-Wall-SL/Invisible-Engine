@@ -36,7 +36,21 @@ export function stepContext(tickHz: number, subSteps?: number): StepContext;
 export type OnlineCurrent = StaticShape & { fx: number; fy: number };
 
 /** What of a level moves one character's players. */
-export type OnlineLevel = { currents: StaticIndex<OnlineCurrent> };
+export type OnlineLevel = {
+	currents: StaticIndex<OnlineCurrent>;
+	/** Absent ⇒ none. */
+	solids?: StaticIndex<OnlineSolid>;
+};
+
+/** The side a one-way solid stops a body coming from; `true` = every side. */
+export type OnlineSolidSide = true | 'below' | 'above' | 'left' | 'right';
+
+/** A solid: a zone that stops a moving player, from every side or only from one (P11.3). */
+export type OnlineSolid = StaticShape & {
+	from: 'any' | 'below' | 'above' | 'left' | 'right';
+	box: { x0: number; y0: number; x1: number; y1: number };
+	body: Body & { solid: true };
+};
 
 export function stepPlayer<B extends Body>(
 	body: B,
@@ -46,10 +60,21 @@ export function stepPlayer<B extends Body>(
 	field?: Field,
 	level?: OnlineLevel,
 ): B;
+export function moveAgainstSolids<B extends Body>(
+	body: B,
+	dt: number,
+	solids: StaticIndex<OnlineSolid>,
+	field?: Field,
+): B;
 export function onlineLevel(
 	zones: readonly StaticShape[] | undefined,
 	rules:
-		| readonly { zone: string; force?: { x: number; y: number }; characters?: string[] }[]
+		| readonly {
+				zone: string;
+				force?: { x: number; y: number };
+				solid?: OnlineSolidSide;
+				characters?: string[];
+		  }[]
 		| undefined,
 	character: string,
 	field: Field,

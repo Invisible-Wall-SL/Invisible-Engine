@@ -204,6 +204,7 @@ export type FlowIssueCode =
 	| 'variable-scope'
 	| 'variable-duplicate'
 	| 'variable-shadows-money'
+	| 'variable-server-owned'
 	| 'rules-only-in-rgs'
 	| 'tick-async'
 	| 'tick-fast'

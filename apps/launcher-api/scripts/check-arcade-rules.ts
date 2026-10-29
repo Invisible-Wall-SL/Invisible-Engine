@@ -40,6 +40,7 @@ import {
 	ARCADE_DRIVEN_SEED_DOC,
 	ARCADE_FIELD_LAYER,
 	ARCADE_LOOP_ACTIONS,
+	ARCADE_ONLINE_EVENTS,
 	ARCADE_LOOP_VALUES,
 	ARCADE_SAMPLE,
 	ARCADE_PLAYER_LIFT,
@@ -892,11 +893,12 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 			})(),
 	);
 	check(
-		"10. the vocabulary's loop signals are exactly the loop's",
+		"10. the vocabulary's loop signals are exactly the loop's (an online room raises the rest)",
 		JSON.stringify(
 			ARCADE_VOCAB.events
 				.map((e) => e.name)
 				.filter((n) => !['load', 'tapToStart', 'settings', 'soundToggle', 'gameRules'].includes(n))
+				.filter((n) => !ARCADE_ONLINE_EVENTS.includes(n))
 				.sort(),
 		) === JSON.stringify(Object.values(ARCADE_SIGNALS).sort()),
 	);

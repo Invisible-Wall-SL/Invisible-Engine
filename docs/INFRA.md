@@ -434,7 +434,9 @@ GAME_SERVER_CONFIG_DIR=/tmp/games pnpm --filter game-server start      # ws://lo
 curl localhost:2567/healthz
 ```
 
-Then open the runtime with `?rooms_url=ws://localhost:2567&rooms_game=<project>` (or `?project=`),
+A published online game's launch already carries `rooms_url` (the launcher's `GAME_SERVER_URL`,
+default `wss://rooms.invisiblewall.org`; P11.2). Locally, open the runtime with
+`?rooms_url=ws://localhost:2567&rooms_game=<project>` (or `?project=`),
 optionally `&rooms_name=…&rooms_character=…`. `scripts/playtest/online-play.mjs` does exactly this
 with two headless browsers.
 
@@ -731,6 +733,11 @@ code default, so the dashboard need not set it):
   Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
   only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing
   else uses it. See "Invisible Game Server".
+- **Game server address:** `GAME_SERVER_URL` (not a secret; code default
+  `wss://rooms.invisiblewall.org`) — what Publish writes into an online arcade game's launch URL as
+  `rooms_url` (`onlineLaunch.ts`, P11.2). Needs no setting while the game server lives at that
+  address; set it only to point published online games elsewhere. Set **empty**, Publish refuses
+  every online arcade game (`no-game-server`).
 - **Pipeline Changes (GitHub App):** `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
   `GITHUB_APP_PRIVATE_KEY` (all secrets, no default; the launcher only) — see "GitHub App
   (Pipeline Changes)" below.

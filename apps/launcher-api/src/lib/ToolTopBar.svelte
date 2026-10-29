@@ -1,16 +1,16 @@
 <script lang="ts">
 	// Shared top-bar chrome for every launcher tool: the Invisible emblem (→ home),
-	// the current tool's name, and a horizontal switcher of every OTHER online tool
-	// the user can see. The look here is the source of truth; the Python tools
+	// the current tool's name, and a "Tools" dropdown of every OTHER online tool the
+	// user can see, grouped by stage. The look here is the source of truth; the Python tools
 	// (atlas/sheet) render a visually identical HTML twin fed by the launcher.
 	// See docs/design/unified-tool-bar.md.
 	import { page } from '$app/state';
 	import AskAiPanel from '$lib/AskAiPanel.svelte';
 	import { BUG_TOOL } from '$lib/bugReports';
 	import Emblem from '$lib/Emblem.svelte';
-	import { TOOLS, toolBarItems, toolAccent, type ToolDef } from '$lib/roles';
+	import { TOOL_STAGES, TOOLS, toolBarItems, type ToolDef } from '$lib/roles';
 	import { reportBugHref, withProject } from '$lib/toolLinks';
-	import { untrack, type Snippet } from 'svelte';
+	import type { Snippet } from 'svelte';
 
 	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
 	// scoping). Optional so a page that doesn't resolve a project can omit them; when
@@ -49,34 +49,36 @@
 	const canAsk = $derived(current in TOOLS);
 	let asking = $state(false);
 
-	// Drop the tool labels (icon-only) only when the labelled row would actually
-	// overflow its track — not on a blunt viewport breakpoint. We watch the nav with a
-	// ResizeObserver and remember the labelled "natural" width so we can re-expand with
-	// hysteresis once the room comes back (in icon-only mode the row no longer overflows,
-	// so `scrollWidth` alone can't tell us whether expanding would fit again).
-	let nav = $state<HTMLElement | null>(null);
-	let compact = $state(false);
-	let naturalWidth = 0;
+	const groups = $derived(
+		TOOL_STAGES.map((stage) => ({
+			stage,
+			tools: items.filter((t) => stage.tools.includes(t.id)),
+		})).filter((g) => g.tools.length),
+	);
 
-	function measure(): void {
-		const el = nav;
-		if (!el) return;
-		if (untrack(() => compact)) {
-			// Labels hidden: re-expand only if the remembered full width fits with slack.
-			if (naturalWidth && el.clientWidth >= naturalWidth + 8) compact = false;
-		} else {
-			naturalWidth = el.scrollWidth;
-			if (el.scrollWidth > el.clientWidth + 1) compact = true;
-		}
+	let open = $state(false);
+	let switcher = $state<HTMLElement | null>(null);
+	let toggle = $state<HTMLButtonElement | null>(null);
+
+	function close(refocus = false): void {
+		open = false;
+		if (refocus) toggle?.focus();
 	}
 
 	$effect(() => {
-		const el = nav;
-		if (!el) return;
-		const ro = new ResizeObserver(() => measure());
-		ro.observe(el);
-		measure();
-		return () => ro.disconnect();
+		if (!open) return;
+		const onPointer = (e: PointerEvent) => {
+			if (switcher && !switcher.contains(e.target as Node)) close();
+		};
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') close(true);
+		};
+		window.addEventListener('pointerdown', onPointer);
+		window.addEventListener('keydown', onKey);
+		return () => {
+			window.removeEventListener('pointerdown', onPointer);
+			window.removeEventListener('keydown', onKey);
+		};
 	});
 </script>
 
@@ -95,20 +97,70 @@
 		</div>
 	{/if}
 
-	{#if items.length}
-		<nav class="switcher" class:compact bind:this={nav} aria-label="Switch tool">
-			{#each items as tool (tool.id)}
-				<!-- Carries the shown project, so a tool opens what this bar says is open even after
-				     another tab moved the session (`resolveToolScope` reads `?project=`). -->
-				<a class="tool" href={tool.url && withProject(tool.url, projectKey)} title={tool.name}>
-					{#if tool.icon}<span class="ic" style="color:{toolAccent(tool.id)}"
-							>{@html tool.icon}</span
-						>{/if}
-					<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
-				</a>
-			{/each}
-		</nav>
-	{/if}
+	<div class="switcher" bind:this={switcher}>
+		{#if items.length}
+			<button
+				type="button"
+				class="switch-btn"
+				class:on={open}
+				aria-haspopup="true"
+				aria-expanded={open}
+				title="Switch to another tool"
+				bind:this={toggle}
+				onclick={() => (open = !open)}
+			>
+				<span class="ic">
+					<svg
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<rect x="4" y="4" width="6.5" height="6.5" rx="1.5" />
+						<rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" />
+						<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" />
+						<rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" />
+					</svg>
+				</span>
+				<span class="label">Tools</span>
+				<svg class="chev" viewBox="0 0 12 12" aria-hidden="true">
+					<path
+						d="M3 4.5 6 7.5 9 4.5"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</button>
+			{#if open}
+				<nav class="menu" aria-label="Switch tool">
+					{#each groups as g (g.stage.id)}
+						<section class="stage" style="--accent:{g.stage.accent}">
+							<h3>{g.stage.label}</h3>
+							{#each g.tools as tool (tool.id)}
+								<!-- Carries the shown project, so a tool opens what this bar says is open even
+								     after another tab moved the session (`resolveToolScope` reads `?project=`). -->
+								<a
+									class="tool"
+									href={tool.url && withProject(tool.url, projectKey)}
+									title={tool.name}
+									onclick={() => close()}
+								>
+									{#if tool.icon}<span class="ic">{@html tool.icon}</span>{/if}
+									<span>{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
+								</a>
+							{/each}
+						</section>
+					{/each}
+				</nav>
+			{/if}
+		{/if}
+	</div>
 
 	{#if meta}<div class="meta">{@render meta()}</div>{/if}
 
@@ -241,36 +293,130 @@
 		color: #7ee0c0;
 		font-family: ui-monospace, monospace;
 	}
+	/* The switcher is a "Tools" dropdown: one button, and a stage-grouped panel under it
+	   (the HTML twins in atlas/sheet/rig/rigger mirror this as .iw-switcher). The wrapper
+	   still takes the free width so the meta/Ask/Report controls stay right-aligned. */
 	.switcher {
+		position: relative;
 		display: flex;
 		align-items: center;
-		gap: 4px;
 		min-width: 0;
 		flex: 1 1 auto;
-		overflow: hidden;
 	}
-	.tool {
+	.switch-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
+		gap: 7px;
 		flex: none;
-		padding: 5px 9px;
+		padding: 5px 9px 5px 10px;
 		border-radius: 8px;
-		border: 1px solid transparent;
+		border: 1px solid #2c2c38;
+		background: #15151c;
 		color: #b9b9c4;
-		text-decoration: none;
+		font: inherit;
 		font-size: 12px;
 		font-weight: 600;
 		white-space: nowrap;
+		cursor: pointer;
 		transition:
 			background 0.14s,
 			border-color 0.14s,
 			color 0.14s;
 	}
-	.tool:hover {
+	.switch-btn:hover,
+	.switch-btn.on {
 		background: #1b1b22;
-		border-color: #2c2c38;
+		border-color: #3a3a4a;
 		color: #e8e8ee;
+	}
+	.switch-btn .ic {
+		color: #7ee0c0;
+	}
+	.chev {
+		width: 12px;
+		height: 12px;
+		color: #6f6f7c;
+		transition: transform 0.14s;
+	}
+	.switch-btn.on .chev {
+		transform: rotate(180deg);
+	}
+	.menu {
+		position: absolute;
+		top: calc(100% + 8px);
+		left: 0;
+		z-index: 1000;
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+		gap: 6px 10px;
+		width: min(920px, calc(100vw - 32px));
+		max-height: calc(100vh - 90px);
+		overflow-y: auto;
+		padding: 12px;
+		border-radius: 12px;
+		border: 1px solid #2c2c38;
+		background: #121218;
+		box-shadow:
+			0 18px 48px rgba(0, 0, 0, 0.55),
+			0 0 0 1px rgba(0, 0, 0, 0.4);
+	}
+	/* Narrow window: span the whole bar instead of hanging off the button's left edge. */
+	@media (max-width: 1000px) {
+		.switcher {
+			position: static;
+		}
+		.iw-toolbar {
+			position: relative;
+		}
+		.menu {
+			top: 100%;
+			left: 12px;
+			right: 12px;
+			width: auto;
+		}
+	}
+	.stage {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+	.stage h3 {
+		margin: 0 0 4px;
+		padding: 2px 8px 6px;
+		border-bottom: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+		color: var(--accent);
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+	.tool {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		padding: 6px 8px;
+		border-radius: 7px;
+		color: #b9b9c4;
+		text-decoration: none;
+		font-size: 12.5px;
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		transition:
+			background 0.12s,
+			color 0.12s;
+	}
+	.tool .ic {
+		flex: none;
+		color: var(--accent);
+	}
+	.tool:hover,
+	.tool:focus-visible {
+		background: color-mix(in srgb, var(--accent) 12%, #1b1b22);
+		color: #f2f2f6;
+		outline: none;
 	}
 	.ic {
 		display: inline-flex;
@@ -323,19 +469,5 @@
 	.ask.on {
 		background: #1a2038;
 		border-color: #3b5290;
-	}
-	/* Icon-only when the labelled row would overflow its track (driven by the
-	   ResizeObserver above): drop labels before anything else collapses. */
-	.switcher.compact .label {
-		display: none;
-	}
-	.switcher.compact .tool {
-		padding: 6px;
-	}
-	/* If even the icon-only row can't fit, scroll it rather than clipping tools
-	   off the end (the HTML twins in atlas/sheet/rig/rigger mirror this). */
-	.switcher.compact {
-		overflow-x: auto;
-		overflow-y: hidden;
 	}
 </style>

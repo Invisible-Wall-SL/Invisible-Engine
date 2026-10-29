@@ -1,4 +1,4 @@
-import { toolAccent, toolBarItems, type ToolDef } from '$lib/roles';
+import { stageOfTool, toolAccent, toolBarItems, type ToolDef } from '$lib/roles';
 import { ENV } from './env';
 
 /**
@@ -7,7 +7,7 @@ import { ENV } from './env';
  * single source of truth for the role-gated tool list:
  *
  * - `home` — the emblem target (back to the launcher).
- * - `tools` — url-encoded `[{ id, name, url }]` for every ONLINE tool the user
+ * - `tools` — url-encoded `[{ id, name, url, accent, stage }]` for every ONLINE tool the user
  *   has, in `TOOL_BAR_ORDER`, with the current tool removed. Every `url` points
  *   back through the launcher origin (e.g. `…/editor`, `…/sheet`); the launcher
  *   re-gates the role and mints a fresh signed launch token (`./toolLaunch`), so
@@ -26,6 +26,8 @@ export function toolBarParams(tools: ToolDef[], currentId: string): URLSearchPar
 		url: origin + (t.url ?? '/'),
 		// Stage accent so the HTML twins can tint the icon exactly like the Svelte bar.
 		accent: toolAccent(t.id),
+		// Stage label, so the HTML twins group their Tools dropdown like the Svelte bar.
+		stage: stageOfTool(t.id)?.label,
 	}));
 	const params = new URLSearchParams();
 	params.set('home', origin);

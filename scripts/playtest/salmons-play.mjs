@@ -9,7 +9,16 @@
 // each page is sent only the players near its own (the bear on its bank is not sent to the salmon
 // at the sea); page A's camera frames its own salmon; ArrowUp held on page A swims its salmon
 // upstream and the camera follows; at rest page A draws its own salmon where the room has it; nothing
-// reached an RGS; no page error. The playbook is docs/playtest/salmons.md. It builds its own
+// reached an RGS; no page error. With P11.2 it plays Salmons' flow (`engine-flow-v2`
+// `SALMONS_SEED_DOC`) too: the HUD shows the room's score and round (variables the room owns); page
+// B's J draws the bear's swipe on the press, before the room tells of it; and page C, in a room
+// of its own whose rounds last 5 s (`rooms_game=salmons-short`), sees the round-over screen come up
+// at the round's end and go at the next. P11.2 (e): each room plays a river of its own, made from
+// the seed its state carries — pages A and B (one room) make the same river, page C (another room)
+// a different one, each the river whose sea the server started its salmon at. P11.3: page E, in a
+// room of the authored river that starts its salmon below a waterfall, is stopped at the foot and
+// climbs it by tapping Space; page F, below a sandbank, is grounded on it and jumps off. The playbook is
+// docs/playtest/salmons.md. It builds its own
 // snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
 // camera under that netcode; the pages must report the mode they ran.
@@ -25,6 +34,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
@@ -33,7 +43,8 @@ import {
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
-import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
+import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
+import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
 import { openPage } from '../current-games/lib/browser.mjs';
@@ -59,11 +70,17 @@ mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
 
 const river = salmonsRiver();
-// The bots start upstream, at least 2000 px from the sea, so nothing hunts page A's salmon while it
-// swims (the hunt is check:room-bots'): otherwise a bear bot near the sea may catch it mid-check.
+// Each room makes its own river, bots' banks included, so the bots here are bears that stand still:
+// nothing hunts page A's salmon while it swims (the hunt is check:room-bots').
 const authored = salmonsConfig(river);
 const bots = authored.arcade.online.bots;
-bots.spawns = bots.spawns.filter((p) => p.y < river.sea.y - 2000);
+bots.characters = bots.characters.filter((bot) => bot.character === 'bear');
+for (const character of authored.arcade.characters)
+	character.brain = {
+		initial: 'rest',
+		states: [{ id: 'rest', behaviour: 'idle' }],
+		transitions: [],
+	};
 authored.arcade.online.netcode = opt.netcode;
 const config = normalizeGameConfigDoc(authored);
 const doc = salmonsReferenceLayout(river);
@@ -84,11 +101,44 @@ const snapshot = join(work, 'snapshot');
 mkdirSync(join(snapshot, 'deploy'), { recursive: true });
 writeFileSync(
 	join(snapshot, 'runtime.json'),
-	JSON.stringify({ doc, componentDefs, componentDefaults: {}, config }),
+	JSON.stringify({ doc, componentDefs, componentDefaults: {}, config, flowV2: SALMONS_SEED_DOC }),
 );
 const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
+// The same game with 5 s rounds and 3 s between them, for page C's round over.
+const SHORT = 'salmons-short';
+const short = structuredClone(authored);
+short.arcade.online.rules.round = {
+	...short.arcade.online.rules.round,
+	seconds: 5,
+	nextRoundSeconds: 3,
+};
+short.arcade.online.bots.fillTo = 0;
+writeFileSync(join(configs, `${SHORT}.json`), JSON.stringify(normalizeGameConfigDoc(short)));
+writeFileSync(join(configs, 'salmons-noriver.json'), JSON.stringify(normalizeGameConfigDoc(short)));
+// P11.3: rooms that play the authored river (no generator, no bots), each salmon starting just
+// below a waterfall (page E) or a sandbank (page F) of it.
+const FALL = river.waterfalls[0];
+const BELOW = river.bands.find((band) => band.y === FALL.y + FALL.h / 2);
+const ROCK = river.rocks.find((r) => r.y < BELOW.y + BELOW.h && r.y + r.h > BELOW.y);
+const midBelow = (BELOW.left + BELOW.right) / 2;
+const FALL_X =
+	!ROCK || midBelow < ROCK.x - 60 || midBelow > ROCK.x + ROCK.w + 60
+		? midBelow
+		: ROCK.x - BELOW.left > BELOW.right - ROCK.x - ROCK.w
+			? ROCK.x - 70
+			: ROCK.x + ROCK.w + 70;
+const SAND = river.sandbanks[0];
+const ruleRoom = (name, spawn) => {
+	const game = structuredClone(short);
+	delete game.arcade.online.generator;
+	game.arcade.online.spawn = spawn;
+	game.arcade.online.rules.round = authored.arcade.online.rules.round;
+	writeFileSync(join(configs, `${name}.json`), JSON.stringify(normalizeGameConfigDoc(game)));
+};
+ruleRoom('salmons-falls', { x: FALL_X, y: FALL.y + FALL.h + 22 + 80 });
+ruleRoom('salmons-sand', { x: SAND.x + SAND.w / 2, y: SAND.y + SAND.h + 80 });
 
 const HOOK = `(() => {
 	const wire = (window.__AR_WIRE__ = []);
@@ -119,10 +169,35 @@ const snap = await serveSnapshot({
 	snapshotId: 'salmons',
 	assetBase: `${server.origin}/${KEY}/`,
 });
+// The same game with a layout that lost its `river` node: page D must stop before it plays.
+const noRiver = join(work, 'runtime-noriver.json');
+writeFileSync(
+	noRiver,
+	JSON.stringify({
+		doc: {
+			...doc,
+			scenes: doc.scenes.map((scene) => ({
+				...scene,
+				nodes: scene.nodes.filter((node) => node.id !== 'river'),
+			})),
+		},
+		componentDefs,
+		componentDefaults: {},
+		config,
+		flowV2: SALMONS_SEED_DOC,
+	}),
+);
+const snapNoRiver = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: noRiver,
+	name: 'Salmons',
+	snapshotId: 'salmons-noriver',
+	assetBase: `${server.origin}/${KEY}/`,
+});
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
-	maxRooms: 4,
+	maxRooms: 6,
 	commit: 'playtest',
 	gracefullyShutdown: false,
 });
@@ -168,10 +243,11 @@ async function ready(page) {
 		key: (name, type) =>
 			page.page('Input.dispatchKeyEvent', {
 				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-				key: name,
+				key: { KeyJ: 'j', Space: ' ' }[name] ?? name,
 				code: name,
-				windowsVirtualKeyCode: { ArrowUp: 38 }[name],
+				windowsVirtualKeyCode: { ArrowUp: 38, KeyJ: 74, Space: 32 }[name],
 			}),
+		flow: (expr) => page.evaluate(`(() => { const f = window.__IE_FLOW_V2__; return ${expr}; })()`),
 	};
 }
 
@@ -185,6 +261,16 @@ const settle = async (game, ms) => {
 };
 const players = async (game) => (await game.state()).arcade?.bodies ?? [];
 const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
+const shown = (game) => game.flow('f ? f.ordered().map((c) => c.id) : []');
+const zonesOf = (game) => game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]);
+/** What a page made of its room's field, and what the room's seed makes here, in Node. */
+const riverOf = async (page, doc) => {
+	const online = (await page.state()).arcade?.online ?? {};
+	const made =
+		typeof online.seed === 'number' ? generatedOnlineGame(onlineGameOf(doc), online.seed) : null;
+	return { seed: online.seed, drawn: online.fieldDrawn, zones: online.zones, made };
+};
+const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
 try {
 	const a = await ready(await boot('a', { rooms_name: 'Ann', rooms_character: 'salmon' }));
@@ -225,6 +311,30 @@ try {
 	);
 	const ownA = seenA.find((p) => p.id === me);
 	verdict('page A’s salmon starts at the sea', ownA && ownA.y > river.sea.y - 200, ownA);
+	const riverA = await riverOf(a, config);
+	const riverB = await riverOf(b, config);
+	verdict(
+		'pages A and B (one room) make the river of the room’s seed and draw it',
+		riverA.made !== null &&
+			riverA.seed === riverB.seed &&
+			riverA.drawn === true &&
+			riverB.drawn === true &&
+			JSON.stringify(riverA.zones) === JSON.stringify(zonesOf(riverA.made.game)) &&
+			JSON.stringify(riverB.zones) === JSON.stringify(riverA.zones),
+		{ seeds: [riverA.seed, riverB.seed], drawn: [riverA.drawn, riverB.drawn] },
+	);
+	verdict(
+		'…the river the server plays: page A’s salmon started at that river’s sea',
+		!!riverA.made &&
+			!!ownA &&
+			ownA.x === riverA.made.game.online.spawn.x &&
+			ownA.y === riverA.made.game.online.spawn.y,
+		{ ownA, spawn: riverA.made?.game.online.spawn },
+	);
+	verdict(
+		'…and not the authored river',
+		JSON.stringify(riverA.zones) !== JSON.stringify(zonesOf(onlineGameOf(config))),
+	);
 	const cam0 = (await a.state()).arcade?.camera;
 	const frames = (cam, p) =>
 		!!cam &&
@@ -289,9 +399,226 @@ try {
 	writeFileSync(join(out, '03-salmon-upstream.png'), await a.page.screenshot());
 	result.shots.push('03-salmon-upstream.png');
 
+	// The HUD: the room's own values, bound as variables the room owns.
+	const hudA = await shown(a);
+	const roomA = (await a.state()).arcade?.online;
+	const hud = {
+		shown: hudA,
+		score: await variable(a, 'score'),
+		round: await variable(a, 'round'),
+		secondsLeft: await variable(a, 'secondsLeft'),
+		room: { round: roomA?.round, score: roomA?.scores?.[me] },
+	};
+	verdict(
+		'page A shows the HUD over the river, with the room’s round and its own score',
+		hudA.includes('salmonsHud') &&
+			hudA.includes('basegame') &&
+			!hudA.includes('salmonsRoundOver') &&
+			hud.round === roomA?.round &&
+			hud.round >= 1 &&
+			hud.score === roomA?.scores?.[me] &&
+			hud.secondsLeft > 0,
+		hud,
+	);
+
+	// The bear's swipe, drawn on the press.
+	await b.key('KeyJ', 'down');
+	await b.play([{ op: 'step', frames: 3 }]);
+	const pressed = (await b.state()).arcade?.online;
+	await b.key('KeyJ', 'up');
+	const predicted = pressed?.signals.filter((s) => s.name === 'ability' && s.payload.mine);
+	const toldYet = pressed?.events.filter((e) => e.type === 'ability' && e.by === meB);
+	verdict(
+		'page B’s J draws the bear’s swipe on the press, before the room tells of it',
+		predicted?.length === 1 &&
+			predicted[0].payload.predicted === true &&
+			predicted[0].payload.character === 'bear' &&
+			pressed.spawned.includes('salmonsSwipe') &&
+			toldYet.length === 0,
+		{ predicted, spawned: pressed?.spawned, toldYet },
+	);
+	writeFileSync(join(out, '04-bear-swipes.png'), await b.page.screenshot());
+	result.shots.push('04-bear-swipes.png');
+	await settle(b, 800);
+	const after = (await b.state()).arcade?.online;
+	verdict(
+		'…the room then tells of it, the device does not draw it twice, and the swipe is gone',
+		after.events.some((e) => e.type === 'ability' && e.by === meB) &&
+			after.signals.filter((s) => s.name === 'ability' && s.payload.mine).length === 1 &&
+			!after.spawned.includes('salmonsSwipe'),
+		{ events: after.events, spawned: after.spawned },
+	);
+
+	// A round's end and the next round, in a room of 5 s rounds.
+	const c = await ready(
+		await boot('c', { rooms_name: 'Cy', rooms_character: 'salmon', rooms_game: SHORT }),
+	);
+	await settle(c, 600);
+	const riverC = await riverOf(c, normalizeGameConfigDoc(short));
+	verdict(
+		'page C (another room) plays another river, its own room’s',
+		riverC.made !== null &&
+			riverC.seed !== riverA.seed &&
+			riverC.drawn === true &&
+			JSON.stringify(riverC.zones) === JSON.stringify(zonesOf(riverC.made.game)) &&
+			JSON.stringify(riverC.made.made.bands) !== JSON.stringify(riverA.made?.made.bands),
+		{ seeds: [riverA.seed, riverC.seed] },
+	);
+	writeFileSync(join(out, '05-another-river.png'), await c.page.screenshot());
+	result.shots.push('05-another-river.png');
+	const roundOne = await variable(c, 'round');
+	let over;
+	for (let i = 0; i < 40 && !over; i++) {
+		await settle(c, 300);
+		if ((await shown(c)).includes('salmonsRoundOver'))
+			over = {
+				shown: await shown(c),
+				secondsLeft: await variable(c, 'secondsLeft'),
+				signals: (await c.state()).arcade?.online?.signals.map((s) => s.name),
+			};
+	}
+	verdict(
+		'page C: the round ends, its flow hears it and shows the round over, counting down',
+		!!over &&
+			roundOne === 1 &&
+			over.signals.includes('roundEnd') &&
+			over.secondsLeft > 0 &&
+			over.secondsLeft <= 3,
+		{ roundOne, over },
+	);
+	if (over) writeFileSync(join(out, '06-round-over.png'), await c.page.screenshot());
+	if (over) result.shots.push('06-round-over.png');
+	let next;
+	for (let i = 0; i < 30 && !next; i++) {
+		await settle(c, 300);
+		if ((await variable(c, 'round')) === 2) next = await shown(c);
+	}
+	verdict(
+		'…and the next round hides it again',
+		!!next && !next.includes('salmonsRoundOver') && next.includes('salmonsHud'),
+		next,
+	);
+
+	// P11.3, page E: a waterfall stops the salmon from below; tapping Space climbs it.
+	const ownOf = async (game) => {
+		const { me: id } = await drawnOf(game);
+		return (await players(game)).find((p) => p.id === id);
+	};
+	const eventsOf = async (game) => (await game.state()).arcade?.online?.events ?? [];
+	const tap = async (game) => {
+		await game.key('Space', 'down');
+		await game.play([{ op: 'step', frames: 4 }]);
+		await game.key('Space', 'up');
+		await game.play([{ op: 'step', frames: 4 }]);
+	};
+	const e = await ready(
+		await boot('e', { rooms_name: 'Ed', rooms_character: 'salmon', rooms_game: 'salmons-falls' }),
+	);
+	await settle(e, 600);
+	const { me: meE } = await drawnOf(e);
+	await e.key('ArrowUp', 'down');
+	await settle(e, 2000);
+	const footA = await ownOf(e);
+	await settle(e, 800);
+	const footB = await ownOf(e);
+	const foot = FALL.y + FALL.h + 22;
+	verdict(
+		'page E: holding ArrowUp, its salmon is stopped at the foot of the waterfall',
+		!!footA && !!footB && Math.abs(footB.y - foot) < 2 && Math.abs(footB.y - footA.y) < 2,
+		{ footA, footB, foot },
+	);
+	writeFileSync(join(out, '07-at-the-waterfall.png'), await e.page.screenshot());
+	result.shots.push('07-at-the-waterfall.png');
+	let climbed;
+	for (let i = 0; i < 40 && !climbed; i++) {
+		await tap(e);
+		climbed = (await eventsOf(e)).find((ev) => ev.type === 'climbed' && ev.id === meE);
+	}
+	await settle(e, 400);
+	const above = await ownOf(e);
+	await e.key('ArrowUp', 'up');
+	verdict(
+		'…tapping Space climbs it: the room tells of the climb and the salmon is above the waterfall',
+		!!climbed && !!above && above.y < FALL.y,
+		{ climbed, above, fall: FALL },
+	);
+	writeFileSync(join(out, '08-over-the-waterfall.png'), await e.page.screenshot());
+	result.shots.push('08-over-the-waterfall.png');
+
+	// P11.3, page F: a sandbank grounds the salmon until it jumps.
+	const f = await ready(
+		await boot('f', { rooms_name: 'Fi', rooms_character: 'salmon', rooms_game: 'salmons-sand' }),
+	);
+	await settle(f, 600);
+	const { me: meF } = await drawnOf(f);
+	await f.key('ArrowUp', 'down');
+	let grounded;
+	for (let i = 0; i < 20 && !grounded; i++) {
+		await settle(f, 200);
+		grounded = (await eventsOf(f)).find((ev) => ev.type === 'grounded' && ev.id === meF);
+	}
+	await settle(f, 300);
+	const sandA = await ownOf(f);
+	await settle(f, 1000);
+	const sandB = await ownOf(f);
+	verdict(
+		'page F: its salmon swims onto the sandbank and is grounded: ArrowUp held, it stays put',
+		!!grounded && !!sandA && !!sandB && sandA.x === sandB.x && sandA.y === sandB.y,
+		{ grounded, sandA, sandB },
+	);
+	writeFileSync(join(out, '09-grounded.png'), await f.page.screenshot());
+	result.shots.push('09-grounded.png');
+	await tap(f);
+	let off;
+	for (let i = 0; i < 20; i++) {
+		await settle(f, 200);
+		off = await ownOf(f);
+		if (off && off.y < SAND.y - 30) break;
+	}
+	await f.key('ArrowUp', 'up');
+	const jumped = (await eventsOf(f)).find((ev) => ev.type === 'jumped' && ev.id === meF);
+	verdict(
+		'…Space jumps it off, and it swims on upstream',
+		!!jumped && !!off && off.y < SAND.y - 30,
+		{ jumped, off, sand: SAND },
+	);
+
+	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
+	const NO_RIVER = 'salmons-noriver';
+	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
+		.rooms;
+	const d = await boot('d', {
+		rooms_name: 'Di',
+		rooms_character: 'salmon',
+		rooms_game: NO_RIVER,
+		editorDocBase: snapNoRiver.origin,
+	});
+	let stopped = null;
+	for (let i = 0; i < 100 && !stopped; i++) {
+		await wait(100);
+		stopped = await d.evaluate('window.__IE_RUNTIME_STALE__?.reason ?? null').catch(() => null);
+	}
+	await wait(1500);
+	const roomsAfter = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
+		.rooms;
+	const mounted = await d.evaluate("!!document.querySelector('canvas')").catch(() => true);
+	verdict(
+		'page D, whose layout lost its river node, stops before the game with what to do, and leaves the room',
+		!!stopped &&
+			stopped.includes('keep a node with id "river"') &&
+			stopped.includes('arcade.online.generator') &&
+			!mounted &&
+			roomsAfter === roomsBefore,
+		{ stopped, mounted, roomsBefore, roomsAfter },
+	);
+	await d.close();
+
 	for (const [name, game] of [
 		['A', a],
 		['B', b],
+		['C', c],
+		['E', e],
+		['F', f],
 	]) {
 		const wire = await game.page.evaluate('window.__AR_WIRE__');
 		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
@@ -301,11 +628,15 @@ try {
 	}
 	await a.page.close();
 	await b.page.close();
+	await c.page.close();
+	await e.page.close();
+	await f.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();
 	await server.close?.();
 	await snap.close?.();
+	await snapNoRiver.close?.();
 	rmSync(work, { recursive: true, force: true });
 }
 

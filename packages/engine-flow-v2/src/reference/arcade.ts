@@ -17,6 +17,9 @@
  *  - the world camera's (P10.12, on a screen with a world or a camera): `enterView` / `leaveView`,
  *    `cameraFollow`, `cameraMoveTo`, `cameraShake`, `cameraSetAutoScroll`, and `cameraX` /
  *    `cameraY` / `viewWidth` / `viewHeight`, so Flow can spawn ahead of the view.
+ *  - an online room's events (P11.2): `playerJoined` / `playerLeft`, `hit` / `caught`,
+ *    `roundStart` / `roundEnd`, and `ability` (the device's own raised on the press). Its scores and
+ *    round are variables the room writes (`FlowVariable.server`), which Flow only reads.
  *
  * Time and input (`onTick`, `onTimer`, `onInput`, the timers) and spawning (`spawn`, `despawn`, `$live`)
  * are Flow node kinds every vocabulary has (P10.3, P10.7), so they are not declared here.
@@ -31,6 +34,7 @@ const INSTANCE = { t: 'instance' } as const;
 const STRING = { t: 'string' } as const;
 const FLOAT = { t: 'float' } as const;
 const BOOL = { t: 'bool' } as const;
+const INT = { t: 'int' } as const;
 
 /** The field edges a body can leave by — `engine-mechanics` `Edge`. */
 export const ARCADE_EDGES = ['left', 'right', 'top', 'bottom'] as const;
@@ -118,6 +122,89 @@ const LOOP_EVENTS: EventDecl[] = [
 			"A character's brain moved to another state on its own (a guard spotted the player: `patrol` → `chase`). Not raised for Set Character State.",
 	},
 ];
+
+const PLAYER = (description: string) => ({ name: 'player', type: STRING, description });
+const ME = (description: string) => ({ name: 'me', type: BOOL, description });
+const HIT_PAYLOAD = [
+	{ name: 'by', type: STRING, description: 'The player whose ability it was.' },
+	{ name: 'target', type: STRING, description: 'The player it hit.' },
+	{ name: 'effect', type: STRING, description: "The ability's effect (`catch`, `stun`, `tag`)." },
+	{ name: 'mine', type: BOOL, description: 'This device’s player hit it.' },
+	ME('This device’s player was hit.'),
+];
+
+/**
+ * An online room's events (`docs/design/realtime-multiplayer.md` §4, P11.2), raised on the device
+ * from the room's `event` messages (`engine-mechanics` `flowSignalsOf`) — never in an offline game.
+ * Device Flow presents them; the room decides them. A player is its room id.
+ */
+const ONLINE_EVENTS: EventDecl[] = [
+	{
+		name: 'playerJoined',
+		payload: [PLAYER('The player who joined.'), ME('It is this device’s player.')],
+		category: 'book',
+		description: 'Online: a player joined the room.',
+	},
+	{
+		name: 'playerLeft',
+		payload: [PLAYER('The player who left.'), ME('It is this device’s player.')],
+		category: 'book',
+		description: 'Online: a player left the room.',
+	},
+	{
+		name: 'hit',
+		payload: HIT_PAYLOAD,
+		category: 'book',
+		description: 'Online: an ability stunned a player (or passed `tag` on).',
+	},
+	{
+		name: 'caught',
+		payload: HIT_PAYLOAD,
+		category: 'book',
+		description: 'Online: an ability caught a player: it is out, and not drawn, until it respawns.',
+	},
+	{
+		name: 'roundStart',
+		payload: [{ name: 'round', type: INT, description: 'The round, from 1.' }],
+		category: 'book',
+		description: 'Online: a round started; every player is back at the spawn with no score.',
+	},
+	{
+		name: 'roundEnd',
+		payload: [
+			{ name: 'round', type: INT, description: 'The round that ended.' },
+			{ name: 'winner', type: STRING, description: "The winner's player id; empty for nobody." },
+			{ name: 'won', type: BOOL, description: 'This device’s player won it.' },
+		],
+		category: 'book',
+		description: 'Online: a round ended, at the goal or on its clock. The next starts on its own.',
+	},
+	{
+		name: 'ability',
+		payload: [
+			PLAYER('The player who used it.'),
+			{ name: 'character', type: STRING, description: "Its character's id (`bear`)." },
+			{ name: 'button', type: STRING, description: '`ability1` or `ability2`.' },
+			{ name: 'x', type: FLOAT, description: 'Where the player is drawn, field px.' },
+			{ name: 'y', type: FLOAT, description: 'Field px.' },
+			{ name: 'mine', type: BOOL, description: 'This device’s player used it.' },
+			{
+				name: 'predicted',
+				type: BOOL,
+				description:
+					'Raised on the press, before the room answers (this device’s own; the room may still miss).',
+			},
+		],
+		category: 'book',
+		description:
+			"Online: a player used an ability (a swipe, a cast). This device's own is raised on the press, so draw it here at once; everyone else's when the room tells.",
+	},
+];
+
+/** Every online room event's name (`engine-mechanics` `ONLINE_FLOW_EVENTS`' values). */
+export const ARCADE_ONLINE_EVENTS: readonly string[] = /* @__PURE__ */ ONLINE_EVENTS.map(
+	(event) => event.name,
+);
 
 /** The body an action aims at: one instance, else every body tagged `tagged`. */
 const AIM = [
@@ -317,7 +404,11 @@ export const ARCADE_VOCAB: TemplateVocabulary = /* @__PURE__ */ (() => ({
 		{ name: 'ArcadeEdge', values: [...ARCADE_EDGES] },
 		{ name: 'ArcadeCharacterControl', values: [...ARCADE_CHARACTER_CONTROLS] },
 	],
-	events: [...standard.events.filter((e) => KEPT_EVENTS.has(e.name)), ...LOOP_EVENTS],
+	events: [
+		...standard.events.filter((e) => KEPT_EVENTS.has(e.name)),
+		...LOOP_EVENTS,
+		...ONLINE_EVENTS,
+	],
 	actions: [...standard.actions.filter((a) => KEPT_ACTIONS.has(a.name)), ...LOOP_ACTIONS],
 	cues: standard.cues.filter((c) => KEPT_CUES.has(c.name)),
 	collections: [],
