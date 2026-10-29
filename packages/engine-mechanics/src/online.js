@@ -22,7 +22,7 @@
  * what `scripts/check-room-sim.mjs` pins and what a predicting device replays (`netcode.js`).
  */
 
-import { aabbOf, createStaticIndex, inZone, queryStatic, stepBody } from './motion.js';
+import { aabbOf, createStaticIndex, inZone, queryStatic, stepBody, stepSolid } from './motion.js';
 
 /** A full-tilt move along one axis. */
 export const MOVE_SCALE = 127;
@@ -113,12 +113,14 @@ function applyInput(body, input, speed) {
  * One fixed step of one player: the input sets its velocity, then `subSteps` motion steps of
  * `subDt` move it and hold it to the field. `input` undefined = the step had no input, and the
  * player stands still. With a `level`, each sub-step of an input's step adds the force of every
- * current the body is in to that velocity.
+ * current the body is in to that velocity, and stops the body at the level's solids
+ * ({@link moveAgainstSolids}).
  */
 export function stepPlayer(body, input, speed, ctx, field, level) {
 	applyInput(body, input, speed);
 	const currents = input && level?.currents.shapes.length ? level.currents : undefined;
-	if (!currents) {
+	const solids = input && level?.solids?.shapes.length ? level.solids : undefined;
+	if (!currents && !solids) {
 		for (let i = 0; i < ctx.subSteps; i++) stepBody(body, ctx.subDt, field);
 		return body;
 	}
@@ -127,15 +129,62 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 	for (let i = 0; i < ctx.subSteps; i++) {
 		body.vx = vx;
 		body.vy = vy;
-		for (const zone of queryStatic(currents, aabbOf(body))) {
-			if (!inZone(body, zone)) continue;
-			body.vx += zone.fx;
-			body.vy += zone.fy;
+		if (currents) {
+			for (const zone of queryStatic(currents, aabbOf(body))) {
+				if (!inZone(body, zone)) continue;
+				body.vx += zone.fx;
+				body.vy += zone.fy;
+			}
 		}
-		stepBody(body, ctx.subDt, field);
+		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field);
+		else stepBody(body, ctx.subDt, field);
 	}
 	body.vx = vx;
 	body.vy = vy;
+	return body;
+}
+
+/** A body this close to a one-way solid's side, px, is on that side. */
+const ONE_WAY_EPSILON = 1e-6;
+
+/** Whether `box` is wholly on the side of `solid` it blocks from (`solid.from`). */
+const onBlockedSide = (box, solid) => {
+	const s = solid.box;
+	switch (solid.from) {
+		case 'below':
+			return box.y0 >= s.y1 - ONE_WAY_EPSILON;
+		case 'above':
+			return box.y1 <= s.y0 + ONE_WAY_EPSILON;
+		case 'left':
+			return box.x1 <= s.x0 + ONE_WAY_EPSILON;
+		case 'right':
+			return box.x0 >= s.x1 - ONE_WAY_EPSILON;
+		default:
+			return true;
+	}
+};
+
+/**
+ * Move a body for `dt` against a level's solids (`motion.js` `stepSolid`: x, then y, sliding along
+ * a wall): the solids near its path, a one-way solid only while the body is wholly on the side it
+ * blocks from, so a body coming from there is stopped and one from anywhere else passes.
+ */
+export function moveAgainstSolids(body, dt, solids, field) {
+	const box = aabbOf(body);
+	const dx = (body.vx || 0) * dt;
+	const dy = (body.vy || 0) * dt;
+	const swept = {
+		x0: Math.min(box.x0, box.x0 + dx),
+		y0: Math.min(box.y0, box.y0 + dy),
+		x1: Math.max(box.x1, box.x1 + dx),
+		y1: Math.max(box.y1, box.y1 + dy),
+	};
+	const near = [];
+	for (const solid of queryStatic(solids, swept)) {
+		if (onBlockedSide(box, solid)) near.push(solid.body);
+	}
+	if (!near.length) return stepBody(body, dt, field);
+	stepSolid(body, dt, near, field);
 	return body;
 }
 
@@ -155,23 +204,42 @@ export const levelCell = (field) => Math.max(128, Math.ceil(Math.max(field.w, fi
 
 /**
  * What of a level moves a player of `character`: its currents, the zones of `arcade.zones` that an
- * `arcade.online.rules.zones` entry gives a force and that apply to the character (every one when
- * the rule names none), held to the field and indexed once. The server and a predicting device build
- * it from the same config, so both push the player alike.
+ * `arcade.online.rules.zones` entry gives a force, and its solids, the zones an entry makes `solid`
+ * (`true`: from every side; `'below'` / `'above'` / `'left'` / `'right'`: only a body coming from
+ * that side, a one-way solid such as a waterfall; P11.3). Each applies to the characters its rule
+ * names (every one when it names none), held to the field and indexed once. The server and a
+ * predicting device build it from the same config, so both move the player alike.
  */
 export function onlineLevel(zones, rules, character, field) {
 	const byId = new Map((zones ?? []).map((zone) => [zone.id, zone]));
 	const currents = [];
+	const solids = [];
 	for (const rule of rules ?? []) {
 		const zone = byId.get(rule.zone);
-		if (!zone || !rule.force) continue;
+		if (!zone || !(rule.force || rule.solid)) continue;
 		if (rule.characters && !rule.characters.includes(character)) continue;
 		const clipped = clipToField(zone, field);
 		if (!clipped) continue;
 		const { id, x, y, w, h } = clipped;
-		currents.push({ id, x, y, w, h, fx: rule.force.x, fy: rule.force.y });
+		if (rule.force) currents.push({ id, x, y, w, h, fx: rule.force.x, fy: rule.force.y });
+		if (rule.solid) {
+			solids.push({
+				id,
+				x,
+				y,
+				w,
+				h,
+				from: rule.solid === true ? 'any' : rule.solid,
+				box: { x0: x, y0: y, x1: x + w, y1: y + h },
+				body: { id, shape: 'box', x: x + w / 2, y: y + h / 2, w, h, solid: true },
+			});
+		}
 	}
-	return { currents: createStaticIndex(currents, levelCell(field)) };
+	const cell = levelCell(field);
+	return {
+		currents: createStaticIndex(currents, cell),
+		solids: createStaticIndex(solids, cell),
+	};
 }
 
 /**

@@ -73,10 +73,11 @@ export type ServerValueKind = 'number' | 'string' | 'bool';
 /**
  * The room values an online game's variable can mirror (`FlowVariable.server`;
  * `docs/design/realtime-multiplayer.md` §4, §10): the own player's `score` and `status` (`free` /
- * `stunned` / `out`); the room's `round`, `phase` (`waiting` / `running` / `ended`) and
- * `secondsLeft` in the phase (0 without a clock); the last round's `winner` (a player id, `''` for
- * nobody) and whether the own player `won` it. `engine-mechanics` `serverValuesOf` makes them from
- * the room's state; `check:online-rules` holds the two lists equal.
+ * `stunned` / `out`, or a rules module's `grounded` / `hooked`); the room's `round`, `phase`
+ * (`waiting` / `running` / `ended`) and `secondsLeft` in the phase (0 without a clock); the last
+ * round's `winner` (a player id, `''` for nobody) and whether the own player `won` it.
+ * `engine-mechanics` `serverValuesOf` makes them from the room's state; `check:online-rules` holds
+ * the two lists equal.
  */
 export const SERVER_VARIABLE_SOURCES: Readonly<Record<string, ServerValueKind>> = {
 	score: 'number',

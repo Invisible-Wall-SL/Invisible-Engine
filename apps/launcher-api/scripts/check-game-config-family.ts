@@ -446,6 +446,31 @@ step(
 		online().rules!.zones![0].characters?.join() === 'character1',
 );
 step(
+	'P11.3: a solid or a kind keeps a zone rule, so its goal unticks and its push clears',
+	(d) => {
+		online().rules!.zones!.push(
+			{ zone: 'zone1', goal: true, solid: true },
+			{ zone: 'zone1', force: { x: 5, y: 0 }, kind: 'sandbank' },
+		);
+		onlineDoc.setZoneRuleField(d, 1, 'goal', false);
+		onlineDoc.setZoneRuleField(d, 2, 'forceX', '0');
+	},
+	(d) => {
+		const [, solid, kind] = d.arcade?.online?.rules?.zones ?? [];
+		return (
+			solid?.solid === true && !('goal' in solid) && kind?.kind === 'sandbank' && !('force' in kind)
+		);
+	},
+);
+step(
+	'…and removing them leaves the first rule',
+	(d) => {
+		onlineDoc.removeZoneRule(d, 2);
+		onlineDoc.removeZoneRule(d, 1);
+	},
+	(d) => d.arcade?.online?.rules?.zones?.length === 1,
+);
+step(
 	'an ability and its numbers',
 	(d) => {
 		onlineDoc.addAbility(d);

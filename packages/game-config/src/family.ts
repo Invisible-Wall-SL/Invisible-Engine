@@ -101,20 +101,33 @@ export type ArcadeOnlineCharacter = {
 	spawns?: { x: number; y: number }[];
 };
 
-/** A zone's part in an online game's rules (P10.15): a current that pushes, or the round's goal. */
+/** The sides a one-way solid zone stops a player coming from; `true` = every side. */
+export type ArcadeOnlineSolid = true | 'below' | 'above' | 'left' | 'right';
+
+/** Zone kinds a rules module acts on ({@link ONLINE_RULES_MODULE_IDS}; Salmons: P11.3). */
+export const ONLINE_ZONE_KINDS: readonly string[] = Object.freeze(['sandbank', 'waterfall']);
+
+/** A zone's part in an online game's rules (P10.15, P11.3): a current that pushes, a solid that
+ *  stops, the round's goal, or a zone a rules module acts on. */
 export type ArcadeOnlineZoneRule = {
 	/** An `arcade.zones` id. */
 	zone: string;
 	/** px/s added to a moving player's velocity while it is in the zone (a river's current). */
 	force?: { x: number; y: number };
+	/** Stops a moving player: from every side, or only one coming from that side (a waterfall
+	 *  stops a salmon from below). The device predicts it. */
+	solid?: ArcadeOnlineSolid;
+	/** What the rules module makes of the zone ({@link ONLINE_ZONE_KINDS}). */
+	kind?: string;
 	/** The first player to reach it wins the round. */
 	goal?: boolean;
 	/** The characters it applies to. Absent ⇒ every character. */
 	characters?: string[];
 };
 
-/** What a hit does to its target (`docs/design/realtime-multiplayer.md` §4): a closed list. */
-export type ArcadeOnlineHitEffect = 'catch' | 'stun';
+/** What a hit does to its target (`docs/design/realtime-multiplayer.md` §4): a closed list. A
+ *  `hook` hands the nearest target to the rules module's line (P11.3). */
+export type ArcadeOnlineHitEffect = 'catch' | 'stun' | 'hook';
 
 /** A button of a character that hits the players of other characters within its reach. */
 export type ArcadeOnlineAbility = {
@@ -145,7 +158,17 @@ export type ArcadeOnlineRound = {
 
 /** The named rules modules a room can run: the ids of `engine-mechanics` `ONLINE_RULES_MODULES`
  *  (this package depends on nothing, so `check:online-rules` holds the two lists equal). */
-export const ONLINE_RULES_MODULE_IDS: readonly string[] = Object.freeze(['tag']);
+export const ONLINE_RULES_MODULE_IDS: readonly string[] = Object.freeze([
+	'tag',
+	'waterfallClimb',
+	'sandbanks',
+	'fishingLine',
+	'goldenSalmon',
+	'salmons',
+]);
+
+/** The rules modules that play a `hook` ability's line. */
+export const ONLINE_LINE_MODULE_IDS: readonly string[] = Object.freeze(['fishingLine', 'salmons']);
 
 /** The field generators a room can make its field with: the ids of `engine-mechanics`
  *  `ONLINE_GENERATORS` (`check:room-bots` holds the two lists equal). */
@@ -263,7 +286,7 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	roundSeconds: { min: 5, max: 3600 },
 	nextRoundSeconds: { min: 0, max: 300 },
 	abilities: { max: 16 },
-	zoneRules: { max: 64 },
+	zoneRules: { max: 256 },
 	fillTo: { min: 0, max: 100 },
 	nearby: { min: 200, max: 20_000 },
 	botCharacters: { max: 16 },
@@ -700,6 +723,8 @@ const ids = (raw: unknown): string[] | undefined => {
 	return list.length ? list : undefined;
 };
 
+const SOLID_SIDES = new Set(['below', 'above', 'left', 'right']);
+
 const normalizeZoneRule = (raw: unknown): ArcadeOnlineZoneRule | undefined => {
 	if (!isObject(raw)) return undefined;
 	const zone = tagOf(raw.zone);
@@ -710,10 +735,14 @@ const normalizeZoneRule = (raw: unknown): ArcadeOnlineZoneRule | undefined => {
 		const y = num(raw.force.y) ?? 0;
 		if (x || y) rule.force = { x, y };
 	}
+	if (raw.solid === true || SOLID_SIDES.has(raw.solid as string))
+		rule.solid = raw.solid as ArcadeOnlineSolid;
+	const kind = tagOf(raw.kind);
+	if (kind) rule.kind = kind;
 	if (raw.goal === true) rule.goal = true;
 	const characters = ids(raw.characters);
 	if (characters) rule.characters = characters;
-	return rule.force || rule.goal ? rule : undefined;
+	return rule.force || rule.solid || rule.kind || rule.goal ? rule : undefined;
 };
 
 const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
@@ -722,7 +751,10 @@ const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
 	const button = raw.button === 'ability1' || raw.button === 'ability2' ? raw.button : undefined;
 	const reach = positive(raw.reach);
 	const targets = ids(raw.targets);
-	const effect = raw.effect === 'catch' || raw.effect === 'stun' ? raw.effect : undefined;
+	const effect =
+		raw.effect === 'catch' || raw.effect === 'stun' || raw.effect === 'hook'
+			? raw.effect
+			: undefined;
 	if (!character || !button || !reach || !targets || !effect) return undefined;
 	const ability: ArcadeOnlineAbility = { character, button, reach, targets, effect };
 	const ms = nonNegInt(raw.ms);

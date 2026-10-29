@@ -6,7 +6,7 @@
 import type { Body } from './motion';
 import type { OnlineInput } from './online';
 
-export const STATUS: Readonly<{ free: 0; stunned: 1; out: 2 }>;
+export const STATUS: Readonly<{ free: 0; stunned: 1; out: 2; grounded: 3; hooked: 4 }>;
 export const REWIND_MS: 250;
 export const GRACE_MS: 1000;
 export const ONLINE_EVENT: 'event';
@@ -40,16 +40,49 @@ export type OnlineEvent =
 	| { type: 'ability'; by: string; button: string }
 	| { type: 'hit' | 'caught'; by: string; target: string; effect: string }
 	| { type: 'roundStart'; round: number }
-	| { type: 'roundEnd'; round: number; winner: string };
+	| { type: 'roundEnd'; round: number; winner: string }
+	| { type: 'climbed' | 'grounded'; id: string; zone: string }
+	| { type: 'jumped' | 'golden'; id: string }
+	| { type: 'hooked' | 'escaped'; by: string; target: string };
 
 export type RulesWorld = {
 	players: RulesPlayer[];
 	stamp: number;
 	tickHz: number;
+	/** The round running. */
+	round: number;
+	/** The room's seed. */
+	seed: number;
 	emit(event: OnlineEvent): void;
 };
 
-export const ONLINE_RULES_MODULES: Readonly<Record<string, { step(world: RulesWorld): void }>>;
+/** An ability as a module's `hook` gets it: `hold` is its `ms` in steps. */
+export type RulesAbility = { score: number; hold: number; reach: number; button: string };
+
+/** What a rules module's hooks may do to the room (P11.3). */
+export type ModuleApi = {
+	STATUS: typeof STATUS;
+	/** Free a player, safe from hits for {@link GRACE_MS}. */
+	free(player: RulesPlayer, stamp: number): void;
+	/** Free a player with no grace. */
+	release(player: RulesPlayer): void;
+	score(player: RulesPlayer, points: number): void;
+	worth(player: RulesPlayer, points: number): number;
+};
+
+/** A rules module's hooks, every one optional (`ONLINE_RULES_MODULES`). */
+export type RulesHooks = {
+	step?(world: RulesWorld): void;
+	/** Its world has no players: an input is the player's own. */
+	input?(player: RulesPlayer, input: OnlineInput, world: Omit<RulesWorld, 'players'>): void;
+	hook?(user: RulesPlayer, target: RulesPlayer, ability: RulesAbility, world: RulesWorld): boolean;
+	worth?(player: RulesPlayer, points: number): number;
+	reset?(world: RulesWorld): void;
+};
+
+export type RulesModule = RulesHooks | { create(game: RulesGame, api: ModuleApi): RulesHooks };
+
+export const ONLINE_RULES_MODULES: Readonly<Record<string, RulesModule>>;
 
 export type OnlineRules = {
 	readonly phase: OnlinePhase;
@@ -70,29 +103,37 @@ export type OnlineRules = {
 	take(): OnlineEvent[];
 };
 
-export function createOnlineRules(
-	game: {
-		field: { w: number; h: number };
-		zones: readonly { id: string; x: number; y: number; w: number; h: number }[];
-		online: {
-			tickHz: number;
-			bots?: { canWin: boolean };
-			rules: {
-				zones: readonly { zone: string; goal?: boolean; characters?: string[] }[];
-				abilities: readonly {
-					character: string;
-					button: 'ability1' | 'ability2';
-					reach: number;
-					targets: string[];
-					effect: 'catch' | 'stun';
-					ms: number;
-					score: number;
-					cooldownMs: number;
-				}[];
-				round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
-				module?: string;
-			};
+/** What of an online game the rules read. */
+export type RulesGame = {
+	field: { w: number; h: number };
+	zones: readonly { id: string; x: number; y: number; w: number; h: number }[];
+	online: {
+		tickHz: number;
+		bots?: { canWin: boolean };
+		rules: {
+			zones: readonly {
+				zone: string;
+				goal?: boolean;
+				kind?: string;
+				characters?: string[];
+			}[];
+			abilities: readonly {
+				character: string;
+				button: 'ability1' | 'ability2';
+				reach: number;
+				targets: string[];
+				effect: 'catch' | 'stun' | 'hook';
+				ms: number;
+				score: number;
+				cooldownMs: number;
+			}[];
+			round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
+			module?: string;
 		};
-	},
-	options: { spawn(player: RulesPlayer): void },
+	};
+};
+
+export function createOnlineRules(
+	game: RulesGame,
+	options: { spawn(player: RulesPlayer): void; seed?: number },
 ): OnlineRules;

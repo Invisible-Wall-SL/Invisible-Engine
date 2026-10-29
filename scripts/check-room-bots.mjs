@@ -17,7 +17,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import { GOLDEN_WORTH } from '../packages/engine-mechanics/src/salmonsRules.js';
 import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
@@ -426,20 +427,32 @@ await check('Salmons: the river is the seed’s, and its config is a valid onlin
 		['bear', 'fisherman'],
 		'§14 #5: bears and fishermen',
 	);
-	assert.ok(salmons.online.rules.zones.length <= 64);
+	assert.ok(salmons.online.rules.zones.length <= 256, 'a room runs every zone rule');
 	assert.equal(salmons.online.rules.round.nextRoundSeconds, 15, '§14 #6');
 	assert.ok(salmons.online.nearby);
 });
 
-/** A salmon that steers for the middle of the water a little upstream of it. */
-const swimmer = (river) => (player) => {
+/** A salmon that steers for the middle of the water a little upstream of it, round the rocks
+ *  ahead, and taps jump every other step (P11.3: it climbs the waterfalls and jumps off the
+ *  sandbanks). */
+const swimmer = (river) => (player, step) => {
 	const ahead = player.body.y - 120;
 	const band =
 		river.bands.find((b) => ahead >= b.y && ahead < b.y + b.h) ??
 		(ahead < river.bands[0].y ? river.bands[0] : river.bands.at(-1));
-	const mid = (band.left + band.right) / 2;
-	const dx = mid - player.body.x;
-	return { moveX: Math.max(-1, Math.min(1, dx / 60)) * 90, moveY: -MOVE_SCALE };
+	let aim = (band.left + band.right) / 2;
+	const { x, y } = player.body;
+	const rock = river.rocks.find(
+		(r) => x > r.x - 60 && x < r.x + r.w + 60 && r.y + r.h > y - 200 && r.y + r.h < y,
+	);
+	if (rock)
+		aim = rock.x - band.left > band.right - rock.x - rock.w ? rock.x - 70 : rock.x + rock.w + 70;
+	const dx = aim - x;
+	return {
+		moveX: Math.max(-1, Math.min(1, dx / 60)) * 90,
+		moveY: -MOVE_SCALE,
+		buttons: step % 2 ? BUTTONS.jump : 0,
+	};
 };
 
 await check('Salmons: each room plays a river of its own seed, and replays it', () => {
@@ -495,14 +508,16 @@ await check('Salmons: a salmon that swims the river reaches the source and wins 
 	let end;
 	const steps = 120 * salmons.online.tickHz;
 	for (let i = 0; i < steps && !end; i++) {
-		const events = sim.step((id) => [clampInput({ ...swim(sim.players.get(id)), seq: i + 1 })]);
+		const events = sim.step((id) => [clampInput({ ...swim(sim.players.get(id), i), seq: i + 1 })]);
 		// Keep the bots off it: this checks the river, not the hunt.
 		for (const bot of bots(sim)) bot.status = STATUS.stunned;
 		end = events.find((e) => e.type === 'roundEnd');
 	}
 	assert.ok(end, `the salmon reached the source (it got to y = ${Math.round(me.body.y)})`);
 	assert.equal(end.winner, 'me');
-	assert.equal(me.score, salmons.online.rules.round.goalScore);
+	// The only salmon in the room is its golden one: its goal is worth GOLDEN_WORTH times as much.
+	assert.equal(me.mark, true);
+	assert.equal(me.score, salmons.online.rules.round.goalScore * GOLDEN_WORTH);
 });
 
 await check(
@@ -526,18 +541,47 @@ await check(
 	},
 );
 
-await check('Salmons: a bear bot catches a salmon that swims into it', () => {
+await check('Salmons: a bear bot on its bank catches a salmon near the shore', () => {
 	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
 	const me = sim.join('me', { character: 'salmon' });
 	const bear = bots(sim).find((b) => b.character.id === 'bear');
-	me.body.x = bear.body.x + 300;
+	const band = river.bands.find((b) => bear.body.y >= b.y && bear.body.y < b.y + b.h);
+	me.body.x = bear.body.x < band.left ? band.left + 50 : band.right - 50;
 	me.body.y = bear.body.y;
+	let caught;
+	let wet = 0;
+	for (let i = 0; i < 300 && !caught; i++) {
+		const events = sim.step(() => [clampInput({ seq: i + 1 })]);
+		caught = events.find((e) => e.type === 'caught' && e.target === 'me');
+		for (const b of bots(sim)) {
+			const at = river.bands.find((r) => b.body.y >= r.y && b.body.y < r.y + r.h);
+			if (at && b.body.x > at.left + 1 && b.body.x < at.right - 1) wet += 1;
+		}
+	}
+	assert.ok(caught, 'the bear bot chased the salmon and swiped');
+	assert.equal(sim.players.get(caught.by).character.id, 'bear');
+	assert.equal(me.status, STATUS.out);
+	assert.equal(wet, 0, 'P11.3: the water is solid to bears and fishermen');
+});
+
+await check('Salmons: a bear bot sees and catches a salmon grounded on a sandbank', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
+	const me = sim.join('me', { character: 'salmon' });
+	const bear = bots(sim).find((b) => b.character.id === 'bear');
+	const band = river.bands.find((b) => bear.body.y >= b.y && bear.body.y < b.y + b.h);
+	me.body.x = bear.body.x < band.left ? band.left + 50 : band.right - 50;
+	me.body.y = bear.body.y;
+	// Grounded as the sandbanks module grounds it: held, and only a jump frees it.
+	me.status = STATUS.grounded;
 	let caught;
 	for (let i = 0; i < 300 && !caught; i++) {
 		const events = sim.step(() => [clampInput({ seq: i + 1 })]);
 		caught = events.find((e) => e.type === 'caught' && e.target === 'me');
+		if (!caught) assert.equal(me.status, STATUS.grounded);
 	}
-	assert.ok(caught, 'the bear bot chased the salmon and swiped');
+	assert.ok(caught, 'the bear bot went for the grounded salmon and swiped');
 	assert.equal(sim.players.get(caught.by).character.id, 'bear');
 	assert.equal(me.status, STATUS.out);
 });

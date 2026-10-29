@@ -12,6 +12,10 @@ export type SalmonsRiverDrawing = {
 	world: { w: number; h: number };
 	bands: readonly { y: number; h: number; left: number; right: number; current: number }[];
 	whirlpools: readonly { x: number; y: number; r: number }[];
+	/** P11.3; absent in a river made before it. */
+	rocks?: readonly Rect[];
+	sandbanks?: readonly Rect[];
+	waterfalls?: readonly Rect[];
 	source: Rect;
 	sea: Rect;
 };
@@ -23,6 +27,9 @@ const COLOR = {
 	whirlpool: 0x2a5d91,
 	source: 0xcfe9f7,
 	sea: 0x1f4f7a,
+	rock: 0x6b6b6b,
+	sandbank: 0xd9c38a,
+	waterfall: 0xe8f4fb,
 };
 
 const rect = (id: string, r: Rect, color: number, round = false): LayoutNode =>
@@ -68,6 +75,13 @@ export function salmonsRiverNode(river: SalmonsRiverDrawing): LayoutNode {
 				true,
 			),
 		),
+	);
+	river.sandbanks?.forEach((r, i) =>
+		children.push(rect(`river-sandbank-${i}`, r, COLOR.sandbank, true)),
+	);
+	river.rocks?.forEach((r, i) => children.push(rect(`river-rock-${i}`, r, COLOR.rock, true)));
+	river.waterfalls?.forEach((r, i) =>
+		children.push(rect(`river-waterfall-${i}`, r, COLOR.waterfall)),
 	);
 	return {
 		id: 'river',

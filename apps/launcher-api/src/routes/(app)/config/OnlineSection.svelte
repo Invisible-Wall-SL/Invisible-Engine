@@ -271,8 +271,8 @@
 	<p class="hint">
 		What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
 		that pushes players (px/s), or the round's <strong>goal</strong>. An <strong>ability</strong> is a
-		button that catches or stuns players of its target characters within its reach. A round ends at the
-		goal or on its clock, and the next starts after a pause.
+		button that catches, stuns or hooks players of its target characters within its reach. A round ends
+		at the goal or on its clock, and the next starts after a pause.
 	</p>
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
@@ -323,6 +323,7 @@
 						<th>Push y</th>
 						<th>Goal</th>
 						<th>Characters</th>
+						<th title="Set by the generator or the config's JSON; not edited here">Solid / kind</th>
 						<th></th>
 					</tr>
 				</thead>
@@ -363,6 +364,14 @@
 									placeholder="every one"
 									onchange={(e) => setZoneRuleField(doc, i, 'characters', e.currentTarget.value)}
 								/></td
+							>
+							<td class="readonly"
+								>{[
+									rule.solid === true ? 'solid' : rule.solid ? `solid from ${rule.solid}` : '',
+									rule.kind ?? '',
+								]
+									.filter(Boolean)
+									.join(' · ') || '—'}</td
 							>
 							<td
 								><button class="del" title="Remove" onclick={() => removeZoneRule(doc, i)}>×</button
@@ -441,6 +450,7 @@
 								>
 									<option value="catch">catch</option>
 									<option value="stun">stun</option>
+									<option value="hook">hook</option>
 								</select></td
 							>
 							<td
@@ -594,6 +604,11 @@
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: #7ee0c0;
+	}
+	.readonly {
+		font-size: 12px;
+		color: #8b8b98;
+		white-space: nowrap;
 	}
 	.hint {
 		margin: 0 0 12px;

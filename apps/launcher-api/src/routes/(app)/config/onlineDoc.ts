@@ -246,7 +246,7 @@ export function setZoneRuleField(
 		force[field === 'forceX' ? 'x' : 'y'] = n;
 		next.force = force.x || force.y ? force : undefined;
 	}
-	if (!next.force && !next.goal) return;
+	if (!next.force && !next.goal && !rule.solid && !rule.kind) return;
 	if (next.force) rule.force = next.force;
 	else delete rule.force;
 	if (next.goal) rule.goal = true;
@@ -291,7 +291,8 @@ export function setAbilityField(
 	} else if (field === 'button') {
 		if (value === 'ability1' || value === 'ability2') ability.button = value;
 	} else if (field === 'effect') {
-		if (value === 'catch' || value === 'stun') ability.effect = value as ArcadeOnlineHitEffect;
+		if (value === 'catch' || value === 'stun' || value === 'hook')
+			ability.effect = value as ArcadeOnlineHitEffect;
 	} else if (field === 'reach') {
 		const n = positive(value);
 		if (n !== undefined) ability.reach = n;

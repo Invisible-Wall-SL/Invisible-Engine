@@ -34,7 +34,7 @@ export const SERVER_VALUE_KINDS = Object.freeze({
 	won: 'bool',
 });
 
-const STATUS_NAMES = ['free', 'stunned', 'out'];
+const STATUS_NAMES = ['free', 'stunned', 'out', 'grounded', 'hooked'];
 
 /** An `ability` signal: `at` is its player as drawn (where, and which character). */
 export function abilitySignal(by, button, me, at, predicted) {

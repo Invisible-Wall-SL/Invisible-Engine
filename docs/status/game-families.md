@@ -67,6 +67,91 @@ already-bundled `cards.js` values.
   deterministic; the save and the two grants; the registry and guide). `check:family-tools` and
   `check:card-family` re-pinned for the new exclusions.
 
+**P11.3 — Salmons' rules (built 2026-10-29; in review, stacked on P11.2 c–e / #1466).**
+[phase-11.md](../design/phase-11.md) §3 (P11.3), §3.1, §4 #8;
+[realtime-multiplayer.md](../design/realtime-multiplayer.md) §4's table. Branch
+`engine/p11-3-salmons-rules`. Not deployed.
+
+- **Solids, predicted (`online.js`).** A zone rule may be `solid`: `true` (every side) or one-way
+  (`'below'` / `'above'` / `'left'` / `'right'`: it stops only a body coming from that side), for
+  the characters it names. `onlineLevel` indexes them beside the currents; `stepPlayer` moves a
+  body against them on an input's step (new export `moveAgainstSolids`, over `motion.js`
+  `stepSolid`, unchanged). A level with no solids takes the old path bit for bit (`check:room-sim`,
+  `check:netcode` unchanged); server and device run the same function, so a rock is predicted.
+- **The rules core (`onlineRules.js`).** `STATUS` gains `grounded` (3) and `hooked` (4): held, but
+  only the module frees them. A `grounded` player can still be hit. A third ability effect,
+  `hook`, hands the *nearest* target in reach to the module. A module may now be
+  `create(game, api)` (per room) with optional hooks `step`, `input` (every applied input, held
+  players' too: `roomSim.ts` now calls `applied` for them, a no-op without a module), `hook`,
+  `worth` (what a catch of / goal by a player scores) and `reset` (round start). The room's seed
+  reaches the rules (`createOnlineRules(game, { spawn, seed })`). `tag` is unchanged.
+- **Salmons' module (`salmonsRules.js`, new).** `ONLINE_RULES_MODULES` gains `waterfallClimb`,
+  `sandbanks`, `fishingLine`, `goldenSalmon`, and `salmons` (all four), which Salmons' config
+  names. New room events: `climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `golden`; a landed
+  line is `caught` with effect `hook`. Object literals only, so no runtime but `arcade` carries it.
+  - *waterfall climb:* a salmon at a waterfall's foot (its top within 8 px of the waterfall's
+    bottom) taps jump; each tap adds a quarter of the height, the height drains 0.6 a second and
+    drops when it leaves the foot; at the top it is lifted over (`climbed`);
+  - *sandbanks:* a free salmon whose centre comes onto one is `grounded` (held, catchable) until it
+    taps jump (`jumped`, no grace); not grounded again before its centre has left the sand;
+  - *the line:* the fisherman's cast hooks the nearest salmon within 280 px (`hooked`; one line
+    per fisherman); it is reeled in at 200 px/s and landed within 60 px of him: out 4 s, +2 to him
+    (`caught`). Five taps of jump shake the hook, and the line breaks if he drops or is held
+    (`escaped`, the salmon free with the usual grace);
+  - *golden salmon:* one salmon per round (the room's `mark`), picked by a hash of the room's seed,
+    the round and the step among the salmon in the room, again when none is left; a catch of it
+    and its goal score 3×.
+- **The river (`salmons.js`).** `salmonsRiver(seed)` adds `rocks` (bands 1 … n−3, 60 %, 50–90 px
+  square, a fifth down the band), `sandbanks` (same bands, 50 %, 150–230 × 60, three quarters
+  down) and `waterfalls` (40 px strips across the whole river at the top of bands 1 … n−2, 35 %),
+  at least one sandbank and one waterfall, drawn from the RNG after the bands and whirlpools so a
+  seed's bands and whirlpools are what they were. `salmonsGeometry` makes the zones and rules:
+  rocks solid, waterfalls `solid: 'below'` + `kind: 'waterfall'` for salmon, sandbanks
+  `kind: 'sandbank'`, and each band's water, the sea and the source solid to bears and fishermen.
+  The config: the fisherman's cast is `hook`, `rules.module: 'salmons'`. The drawing
+  (`engine-layout` `salmonsRiverNode`) draws the three from the same river object (placeholder
+  rects), so server and device agree from one seed.
+- **game-config.** Zone rules keep `solid` and `kind` (`ONLINE_ZONE_KINDS`); the effect list gains
+  `hook`; `ONLINE_RULES_MODULE_IDS` the five ids, `ONLINE_LINE_MODULE_IDS`; `zoneRules` max 64 →
+  256 (Salmons' authored river has 86). Validator warnings: a `hook` with no line module, a zone
+  `kind` no module acts on or with no module. `/config`: the effect select offers `hook`
+  (`OnlineSection.svelte`, `onlineDoc.ts`); no other UI change.
+- **Proof.** `check:online-rules` 29 (6 new): Salmons' recorded traces
+  (`packages/engine-mechanics/fixtures/salmons-traces.json`: climb, sandbank, line with a landing
+  and an escape, golden salmon; events, a track every 10 steps and the end) replay exactly and
+  twice the same, each trace's rule asserted, and a predictor against a rock and a bear against the
+  river equal the room's bodies; `-- --record` rewrites the file. `check:room-bots` 20 (the swimmer
+  taps through waterfalls and sandbanks and steers round rocks; its goal is golden, 30; a bear bot
+  on its bank catches a salmon near the shore and no bot is ever in the water). `check:room-sim`
+  39 and `check:netcode` 28 unchanged. `salmons-play.mjs` **36 / 36 in each netcode** (pages E and
+  F: stopped at a waterfall's foot and climbed by tapping Space; grounded on a sandbank and jumped
+  off).
+- **Runtime sizes** (`check:family-runtimes`, gzip -6, all within `family-runtime-budget.json`):
+  lines 1,307,228 B, match3 1,315,584, card 1,319,766, **arcade 1,407,830 (4,121,802 raw)**.
+  Against #1466's head built here the same way (`PUBLIC_IE_FAMILIES=<id>`, release env): slot
+  +229 B gz (the config's new names and validator text), arcade +915 B gz / +3.3 KB raw.
+- **Load test** (`scripts/room-load.mjs`, 100 devices, 60 ± 20 ms, this container): 30 of 30
+  steps and 19.9 of 20 states a second held, 7.9 KB/s per device on average (11.0 at most), 0.77
+  MB/s out, step **p50 0.83 / p99 2.63 / max 4.3 ms** (P10.16: 0.39 / 0.81 / 2.5), 28 % of a core,
+  165 MB. Within P10.16's budget (p99 < 8 ms).
+- **Chosen here, owner may overturn:** every number above (4 taps to climb, drain 0.6/s, foot
+  8 px; reel 200 px/s, land at 60 px, 5 taps to escape, one line per fisherman, the score at the
+  landing; golden 3×, one per round, re-picked when it leaves, caught it stays golden; obstacle
+  chances and sizes); a grounded salmon can be hit, a hooked one cannot; a sandbank jump has no
+  grace, an escape has; waterfalls span the whole river width; the water, sea and source are
+  walls to bears and fishermen (so a bear reaches only salmon within ~64 px of its bank).
+- **Review fixes (same day).** `/config`'s zone-rule setter keeps a rule that has a `solid` or
+  a `kind` (unticking its goal, clearing its push), and the rule table shows both read-only
+  (`check:game-config-family` 252); bots target a grounded salmon as well as a free one
+  (`onlineBots.js`; `check:room-bots` 21: a bear bot catches a grounded salmon).
+- **Known limits.** The new events reach the device but are not in `ONLINE_FLOW_EVENTS` yet (no cue
+  or sound);
+  the golden salmon is not drawn gold and the line is not drawn; a climb and a reel move a body on
+  the server only, so the own device sees them as a correction (a climb is ~100 px, faded, not
+  snapped); one tap of jump is read by each rule on its own, so a salmon jumping off a sandbank at
+  a waterfall's foot also climbs a quarter (left as is); rocks are rectangles; bots never climb (bots are bears and fishermen); the line and the
+  golden salmon are proven by the gates, not in a browser.
+
 **P11.2 (c–e) — publish writes `rooms_url`, `/config` online sections, a new river per room
 (built 2026-10-29; in review, stacked on (a–b)).** [phase-11.md](../design/phase-11.md) §3 (P11.2
 c–e), §3.1; [realtime-multiplayer.md](../design/realtime-multiplayer.md) §10, §14 #4. The second of
@@ -2407,8 +2492,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    `onCaught`, `onRoundEnd`) from the room's `event` messages, and **server-owned variables** (the
    room's scores bound as read-only `var:` sources; the validator's `variable-server-owned`) — the
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
-   hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; (c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
-   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild; ~~(d) a
+   hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; ~~(c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
+   entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild~~ — done in
+   P11.3, 2026-10-29 (left: its events as Flow events, the golden salmon and the line drawn); ~~(d) a
    `/config` section for `arcade.online.rules`~~ — done in P11.2 (c–e), 2026-10-29; (e) the online
    world camera following the predicted player.
 1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
@@ -2460,6 +2546,13 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-10-29 — **P11.3: Salmons' rules.** Solids and one-way solids in the online level (predicted);
+  `STATUS` `grounded` / `hooked`, the `hook` effect and per-room modules in `onlineRules.js`;
+  `salmonsRules.js` (waterfall climb, sandbanks, the line, the golden salmon); rocks, sandbanks and
+  waterfalls in the river; recorded traces in `check:online-rules`. `salmons-play.mjs` 36 / 36 in
+  each netcode; load test within budget (p99 2.6 ms); arcade +915 B gz, slot +229 B. Open item 0 (c)
+  is done. Detail above.
 
 - 2026-10-29 — **P11.2 (c–e): publish writes `rooms_url`, `/config` online sections, a new river
   per room** (launcher `GAME_SERVER_URL`, reason `no-game-server`, `check:online-publish`;
