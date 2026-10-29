@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte';
 	import { Container } from 'pixi-svelte';
-	import { getContextLayout } from 'utils-layout';
 
 	import IsoTilemap from './IsoTilemap.svelte';
-	import { isoDepthOrder, isoNodeShift, isoProject, isoUnproject } from './projection';
-	import { resolveTransform } from './resolveTransform';
+	import { isoDepthOrder, isoProject, isoUnproject } from './projection';
 	import type { LayoutNode } from './types';
 	import { setWorldProjection, worldCameraView } from './worldCameraView.svelte';
 
@@ -17,8 +15,8 @@
 	 * - a `spawnLayer` upright, its instances at their projected places in ground-depth order
 	 *   (`<SpawnLayer>` reads the scope this sets, by its id);
 	 * - a `tilemap` as 2:1 diamonds (`<LayoutNodeView>` draws it with `<IsoTilemap>`, by its id);
-	 * - both moved from their world place to its projected one (`isoNodeShift`), so a world point
-	 *   inside them is their place plus the point, projected;
+	 * - both drawn at their projected place (`<LayoutNodeView>` projects their bound position), so a
+	 *   world point inside them is their place plus the point, projected;
 	 * - anything else as ground: the node drawn flat, then the plane turned 45° and squashed to half
 	 *   its height, so a rectangle of the world is the diamond it covers. A spawn layer or tilemap
 	 *   nested in it is drawn there as it would be flat, never projected twice.
@@ -37,7 +35,6 @@
 		unproject: isoUnproject,
 		depth: isoDepthOrder,
 	});
-	const layout = getContextLayout();
 	const view = worldCameraView();
 	const origin = $derived.by(() => {
 		const centre = isoProject(view.x + view.w / 2, view.y + view.h / 2);
@@ -49,11 +46,7 @@
 	<Container x={origin.x} y={origin.y}>
 		{#each nodes as n (n.id)}
 			{#if n.kind === 'spawnLayer' || n.kind === 'tilemap'}
-				{@const t = resolveTransform(n, layout.stateLayoutDerived.layoutType())}
-				{@const shift = isoNodeShift(t.x, t.y)}
-				<Container x={shift.x} y={shift.y} zIndex={n.zIndex}>
-					{@render render(n)}
-				</Container>
+				{@render render(n)}
 			{:else}
 				<Container scale={{ x: 1, y: 0.5 }} zIndex={n.zIndex}>
 					<Container rotation={Math.PI / 4} scale={Math.SQRT2}>

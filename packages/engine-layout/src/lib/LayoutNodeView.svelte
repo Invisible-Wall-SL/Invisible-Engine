@@ -376,12 +376,15 @@
 		const at = alignedAt?.();
 		return at ? { x: at.x ?? anchored.x, y: at.y ?? anchored.y } : anchored;
 	});
-	// A projected world screen's top-level tilemap (P11.4) is drawn by the projected world's own
-	// tilemap (diamonds); anywhere else, or nested, as before.
-	const ProjectedTilemap = untrack(() => {
-		const scope = node.kind === 'tilemap' ? worldProjection() : undefined;
-		return scope?.tilemaps.has(node.id) ? scope.tilemap : undefined;
+	// A projected world screen's top-level tilemap or spawn layer (P11.4) is drawn at its projected
+	// place (its bound, timeline-driven position projected, so a binding moves it on the diamonds),
+	// a tilemap by the projected world's own tilemap; anywhere else, or nested, as before.
+	const projection = untrack(() => {
+		const scope =
+			node.kind === 'tilemap' || node.kind === 'spawnLayer' ? worldProjection() : undefined;
+		return scope && (scope.tilemaps.has(node.id) || scope.layers.has(node.id)) ? scope : undefined;
 	});
+	const ProjectedTilemap = node.kind === 'tilemap' ? projection?.tilemap : undefined;
 	const tilemapScale = $derived(
 		node.kind === 'tilemap'
 			? { x: Math.abs(transform.scale?.x ?? 1), y: Math.abs(transform.scale?.y ?? 1) }
@@ -389,6 +392,7 @@
 	);
 	const posX = $derived(pos.x);
 	const posY = $derived(pos.y);
+	const projectedPos = $derived(projection ? projection.project(posX, posY) : undefined);
 
 	// A componentInstance that HOSTS a board-relative overlay (the win / free-spin VISUALS,
 	// catalog `space:'game'`) must be framed against the MAIN box even when the author drops it
@@ -1419,8 +1423,8 @@
 				Nothing spawned ⇒ nothing renders.
 			-->
 			<Container
-				x={posX}
-				y={posY}
+				x={projectedPos?.x ?? posX}
+				y={projectedPos?.y ?? posY}
 				scale={transform.scale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
@@ -1434,8 +1438,8 @@
 			<!-- A tilemap (game-families §4.4): drawn from its top-left, never mirrored (it collides as
 			     `sceneTilemaps` reads it: unrotated, by the scale's size). -->
 			<Container
-				x={posX}
-				y={posY}
+				x={projectedPos?.x ?? posX}
+				y={projectedPos?.y ?? posY}
 				scale={tilemapScale}
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}

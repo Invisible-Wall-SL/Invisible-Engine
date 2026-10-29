@@ -156,8 +156,17 @@ already-bundled `cards.js` values.
   82, `check:arcade-camera` 78, `check:arcade-characters` 89; `salmons-play.mjs` 37 / 37 in each
   netcode; `arcade-play` 14, `arcade-camera-play` 12. Sizes: lines 1,307,796 B gz, match3
   1,316,188, card 1,320,328, arcade 1,409,510 (all within budget).
-- **Known limits.** The editor stage draws every other node flat, so a diamond tilemap lines up
-  with them only at the world's origin; depth sorts within one spawn layer, not across layers or
+- **Second review (2026-10-29, on d4fdd6d).** A top-level spawn layer or tilemap is now drawn at
+  its bound / timeline-driven position projected (`LayoutNodeView` `projectedPos`; `IsoWorld` no
+  longer shifts it from the raw transform), so a binding moves it on the diamonds
+  (`check:arcade-camera` 79 pins it); the rotation warning says the game ignores a tilemap's
+  rotation; `/editor`'s isometric note and autotile pickers show only for a top-level tilemap;
+  `check:flow-spawn`'s `SpawnLayer` key scan accepts the each's index binding (still keyed by the
+  handle id).
+- **Known limits.** The camera is clamped to the world as on a flat screen (its view rectangle),
+  so near a world edge the isometric view shows past the world's diamond; the editor stage draws
+  every other node flat, so a diamond tilemap lines up with them only at the world's origin, and
+  it places a bound tilemap at its authored place; depth sorts within one spawn layer, not across layers or
   against ground nodes; a hopping character's shadow is drawn upright; an isometric tilemap's
   issues are warned in `/editor`, not refused; the loop's isometric view box is only exercised by
   the gates (no offline isometric sample is played in a browser; Salmons is online and does not

@@ -4124,7 +4124,11 @@
 							selectedNode.kind !== 'spawnLayer' &&
 							activeScene.nodes.some((n) => n.id === selectedNode.id)}
 						worldCamera={!!activeScene && hasWorldCamera(activeScene)}
-						projection={sceneProjection(activeScene)}
+						projection={!!activeScene &&
+						!!selectedNode &&
+						activeScene.nodes.some((n) => n.id === selectedNode.id)
+							? sceneProjection(activeScene)
+							: undefined}
 						{templateMode}
 						{slotMeta}
 						sceneSlots={activeSceneSlots}

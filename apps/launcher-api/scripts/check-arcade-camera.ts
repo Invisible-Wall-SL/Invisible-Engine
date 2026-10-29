@@ -829,6 +829,18 @@ function scene4(): Scene {
 			/const visible = sceneProjection\(scene\) \? isoViewRect : undefined;/.test(arcadeSrc) &&
 			/\.\.\.\(visible \? \{ visible \} : \{\}\)/.test(arcadeSrc),
 	);
+	const nodeView = read('packages/engine-layout/src/lib/LayoutNodeView.svelte');
+	check(
+		'6. a projected top-level layer or tilemap is drawn at its bound position projected; elsewhere flat',
+		/const projectedPos = \$derived\(projection \? projection\.project\(posX, posY\) : undefined\);/.test(
+			nodeView,
+		) &&
+			(
+				nodeView.match(/x=\{projectedPos\?\.x \?\? posX\}\s*y=\{projectedPos\?\.y \?\? posY\}/g) ??
+				[]
+			).length === 2 &&
+			/scope\.tilemaps\.has\(node\.id\) \|\| scope\.layers\.has\(node\.id\)/.test(nodeView),
+	);
 	const spawnLayer = read('packages/engine-layout/src/lib/SpawnLayer.svelte');
 	check(
 		'6. <SpawnLayer> culls only under a world camera',

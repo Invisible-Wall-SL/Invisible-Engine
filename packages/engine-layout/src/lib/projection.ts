@@ -49,8 +49,9 @@ export const isoDepthOrder = (x: number, y: number, seq: number): number =>
 
 /**
  * How far a top-level node placed at world (x, y) is moved so it is drawn at its projected place:
- * `isoProject(x, y) − (x, y)`. A spawn layer's and a tilemap's own place go through it, so a
- * world point inside them is `node.xy + place` projected.
+ * `isoProject(x, y) − (x, y)` (the game draws a top-level spawn layer or tilemap at its projected
+ * place; the editor, which draws from the place, moves it by this). A world point inside them is
+ * `node.xy + place` projected.
  */
 export const isoNodeShift = (x: number, y: number): Point2D => {
 	const at = isoProject(x, y);
@@ -83,7 +84,7 @@ export function isoTilemapIssues(
 	const out: string[] = [];
 	if (node.tileWidth !== node.tileHeight)
 		out.push('tiles are not square: an isometric tile is a square of world, tile w = tile h');
-	if (node.rotation) out.push('it is rotated: the game draws the diamonds turned');
+	if (node.rotation) out.push('it is rotated: the game ignores a tilemap’s rotation');
 	const sx = node.scale?.x ?? 1;
 	const sy = node.scale?.y ?? 1;
 	if (sx !== sy || sx <= 0) out.push('its scale is not uniform and positive');
