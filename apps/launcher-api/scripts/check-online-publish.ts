@@ -189,6 +189,10 @@ await check('an address that is not ws(s):// or http(s):// is refused', async ()
 	await refusedWith('salmonsonline', 'no-game-server');
 	process.env.GAME_SERVER_URL = 'ftp://rooms.invisiblewall.org';
 	await refusedWith('salmonsonline', 'no-game-server');
+	for (const junk of ['wss://', 'wss://rooms invisible wall', 'wss://rooms.invisiblewall.org x']) {
+		process.env.GAME_SERVER_URL = junk;
+		await refusedWith('salmonsonline', 'no-game-server');
+	}
 	assert(!URLS.has('salmonsonline'), 'a game row was written');
 });
 

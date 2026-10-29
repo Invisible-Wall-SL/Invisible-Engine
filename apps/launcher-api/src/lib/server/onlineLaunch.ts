@@ -1,7 +1,17 @@
 import { mechanicFor } from 'engine-game/src/game/mechanic';
 import type { GameConfigDoc } from 'game-config';
 
-const ADDRESS = /^(wss?|https?):\/\/[^\s/?#]+/i;
+const PROTOCOLS = new Set(['ws:', 'wss:', 'http:', 'https:']);
+
+/** Whether `value` is a whole ws(s):// or http(s):// address with a host. */
+const isAddress = (value: string): boolean => {
+	try {
+		const url = new URL(value);
+		return PROTOCOLS.has(url.protocol) && url.hostname !== '';
+	} catch {
+		return false;
+	}
+};
 
 /** The game server address as the launch URL carries it: trimmed, without a trailing slash. */
 const normalized = (address: string): string => address.trim().replace(/\/+$/, '');
@@ -23,7 +33,7 @@ export function roomsAddressRefusal(
 			'This game is played online in a room on the Invisible Game Server, and the launcher has no ' +
 			'game server address (GAME_SERVER_URL is set empty), so it is not published.'
 		);
-	if (!ADDRESS.test(value))
+	if (!isAddress(value))
 		return (
 			`The launcher's game server address (GAME_SERVER_URL "${value}") is not a ws://, wss://, ` +
 			'http:// or https:// address, so this online game is not published.'

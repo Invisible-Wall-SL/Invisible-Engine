@@ -68,7 +68,7 @@ casts. Open a second tab with `rooms_character=bear` to hunt.
    tells, the swipe is not drawn twice, and it is gone after 300 ms.
 9. A river per room (P11.2 e): pages A and B (one room) report the room's seed and make the same
    river from it, the very zones `generatedOnlineGame` makes from that seed in Node, and draw it
-   (`online.field` = `river`); page A's salmon started at that river's sea, where the server put it;
+   (`online.fieldDrawn`: the loaded doc held the `river` node it replaced); page A's salmon started at that river's sea, where the server put it;
    it is not the authored river; page C (another room) plays another river, its own room's.
 10. Page C joins `salmons-short` (the same game with 5 s rounds, no bots): the round ends, the
     round-over screen comes up counting down, and round 2 hides it again.

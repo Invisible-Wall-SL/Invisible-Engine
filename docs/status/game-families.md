@@ -109,7 +109,12 @@ P11.2's two PRs. Not deployed.
   (`engine-layout` `FIELD_DRAWINGS`, `salmonsRiverNode`, moved to
   `referenceLayouts/salmonsRiver.ts` and exported) in place of the authored node of the same id
   (`river`). Nothing registers it for any other game, and `Game.svelte` is unchanged. The probe gains `online.seed`,
-  `online.zones`, `online.field`.
+  `online.zones`, `online.fieldDrawn` (whether the swap happened). The scene holding the node
+  gets the generated field's size as its `world`. A layout with no node of that id stops the game
+  on the failure screen (and logs an error) rather than draw the authored river over the room's.
+  When a config names a generator, `/config` notes by the spawn, character spawns, zone rules and
+  bot spawns that each room's generator replaces them. The publish validates `GAME_SERVER_URL`
+  with `new URL()` and a protocol check.
 - **Gates:** new launcher **`check:online-publish`** (5 checks over the real `publishGame.ts`: an
   online game with `GAME_SERVER_URL` empty / blank / schemeless / `ftp://` refused
   `no-game-server` by the gate and the publish with nothing written; offline arcade and slot

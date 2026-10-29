@@ -583,7 +583,9 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(online, /const seed = generator \? await roomSeed\(room\) : undefined;/);
 	assert.match(online, /: generatedOnlineGame\(resolved, seed\);/);
 	assert.match(online, /if \(current\.field\) setRoomDocChange\(withRoomField\);/);
-	assert.match(online, /const field = session\?\.field;\s+if \(!field\) return doc;/);
+	assert.match(online, /const field = current\?\.field;\s+if \(!current \|\| !field\) return doc;/);
+	// A layout with no node to draw the field in stops the game rather than draw the authored one.
+	assert.match(online, /if \(!current\.fieldDrawn\) \{[\s\S]*?void refuseOnlineBoot\(/);
 	const scenes = readFileSync(join(src, 'editor-scenes.ts'), 'utf8');
 	assert.match(scenes, /return roomDocChange \? roomDocChange\(scenes\) : scenes;/);
 });

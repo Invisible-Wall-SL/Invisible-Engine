@@ -9,12 +9,13 @@
  * A generator decides the field's geometry only: its size, its zones and their rules, and where
  * players and bots start. Everything else (characters, speeds, abilities, the round, bots) stays
  * as the config says. Its zones and zone rules REPLACE the authored ones, whose river the editor
- * shows. Plain ESM, like the rest of the package.
+ * shows. Its field size may differ from the authored one: the device sizes the world scene that
+ * holds the drawing to it (`online.ts` `withRoomField`). Plain ESM, like the rest of the package.
  */
 
 import { salmonsGeometry, salmonsRiver } from './salmons.js';
 
-/** The generators a config can name, by id (`game-config` `ONLINE_GENERATOR_IDS` lists the same). */
+/** The generators a config can name, by id (`game-config` `ONLINE_GENERATOR_IDS` lists them). */
 export const ONLINE_GENERATORS = {
 	salmonsRiver: { make: salmonsRiver, geometry: salmonsGeometry },
 };

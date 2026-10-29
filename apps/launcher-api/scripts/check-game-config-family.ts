@@ -764,6 +764,15 @@ try {
 			/Played online<\/label>/.test(shownOnline) &&
 			/<input type="checkbox"[^>]*checked[^>]*\/?>Played online/.test(shownOnline),
 	);
+	const generatedNotices = (config: GameConfigDoc) =>
+		(renderPage(config).body.match(/Each room's generator \(<code>/g) ?? []).length;
+	const withGenerator = structuredClone(salmonsLike);
+	withGenerator.arcade!.online!.generator = 'salmonsRiver';
+	check(
+		'3. arcade: a generator is noted by the spawn, character spawns, zone rules and bot spawns',
+		generatedNotices(salmonsLike) === 0 && generatedNotices(withGenerator) === 4,
+		String(generatedNotices(withGenerator)),
+	);
 	check(
 		'3. arcade: the Netcode picker only on an online game, showing its netcode',
 		!renderPage(arcade).body.includes('Netcode') &&

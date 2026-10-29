@@ -21,8 +21,9 @@
  * the next starts 15 s later (§14 #6). Bots fill each room to 20 as bears and fishermen, and cannot
  * win (§14 #5).
  *
- * Plain, dependency-free ESM like the rest of the package. Not exported from its entry: only
- * `onlineGenerators.js` reaches it, so the arcade runtime alone bundles the river's generator.
+ * Plain, dependency-free ESM like the rest of the package. Not exported from its entry itself,
+ * but reachable from it through `onlineGenerators.js`: only tree-shaking keeps it out of a
+ * runtime that never calls `generatedOnlineGame` (`check:family-runtimes` holds the sizes).
  */
 
 import { createRng } from './board.js';

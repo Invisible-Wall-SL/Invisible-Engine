@@ -218,7 +218,7 @@ const riverOf = async (page, doc) => {
 	const online = (await page.state()).arcade?.online ?? {};
 	const made =
 		typeof online.seed === 'number' ? generatedOnlineGame(onlineGameOf(doc), online.seed) : null;
-	return { seed: online.seed, field: online.field, zones: online.zones, made };
+	return { seed: online.seed, drawn: online.fieldDrawn, zones: online.zones, made };
 };
 const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
@@ -267,11 +267,11 @@ try {
 		'pages A and B (one room) make the river of the room’s seed and draw it',
 		riverA.made !== null &&
 			riverA.seed === riverB.seed &&
-			riverA.field === 'river' &&
-			riverB.field === 'river' &&
+			riverA.drawn === true &&
+			riverB.drawn === true &&
 			JSON.stringify(riverA.zones) === JSON.stringify(zonesOf(riverA.made.game)) &&
 			JSON.stringify(riverB.zones) === JSON.stringify(riverA.zones),
-		{ seeds: [riverA.seed, riverB.seed], fields: [riverA.field, riverB.field] },
+		{ seeds: [riverA.seed, riverB.seed], drawn: [riverA.drawn, riverB.drawn] },
 	);
 	verdict(
 		'…the river the server plays: page A’s salmon started at that river’s sea',
@@ -409,7 +409,7 @@ try {
 		'page C (another room) plays another river, its own room’s',
 		riverC.made !== null &&
 			riverC.seed !== riverA.seed &&
-			riverC.field === 'river' &&
+			riverC.drawn === true &&
 			JSON.stringify(riverC.zones) === JSON.stringify(zonesOf(riverC.made.game)) &&
 			JSON.stringify(riverC.made.made.bands) !== JSON.stringify(riverA.made?.made.bands),
 		{ seeds: [riverA.seed, riverC.seed] },

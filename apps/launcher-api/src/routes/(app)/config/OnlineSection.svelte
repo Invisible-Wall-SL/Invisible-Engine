@@ -70,6 +70,7 @@
 	const brains = $derived((doc.arcade?.characters ?? []).map((c) => c.id));
 	const rules = $derived(online.rules);
 	const bots = $derived(online.bots);
+	const generator = $derived(online.generator);
 	let newBody = $state('');
 	let newZone = $state('');
 	let newBotCharacter = $state('');
@@ -80,6 +81,14 @@
 	{#each issuesFor(prefix) as issue (issue.path + issue.message)}
 		<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 	{/each}
+{/snippet}
+
+{#snippet generated(what: string)}
+	{#if generator}
+		<p class="generated">
+			Each room's generator (<code>{generator}</code>) replaces {what}; these are the authored ones.
+		</p>
+	{/if}
 {/snippet}
 
 {#snippet options(ids: string[], current: string)}
@@ -165,7 +174,9 @@
 				/></label
 			>
 		</div>
+		{@render generated('the spawn')}
 		<span class="legend">Characters <em>what a player can be</em></span>
+		{@render generated("the characters' spawns")}
 		{#if online.characters.length}
 			<table class="tbl">
 				<thead>
@@ -296,6 +307,7 @@
 			>
 		</div>
 		<span class="legend">Zone rules</span>
+		{@render generated('the zone rules')}
 		{#if rules?.zones?.length}
 			<table class="tbl">
 				<thead>
@@ -479,6 +491,7 @@
 	</p>
 	<fieldset class="panel" disabled={readOnly}>
 		{#if bots}
+			{@render generated("the bots' spawns")}
 			<div class="row">
 				<label
 					>Fill room to<input
@@ -704,6 +717,11 @@
 		text-transform: none;
 		letter-spacing: 0;
 		color: #6f6f7d;
+	}
+	.generated {
+		margin: 0 0 6px;
+		font-size: 11px;
+		color: #d3b483;
 	}
 	.inline-issue {
 		margin: 8px 0 0;

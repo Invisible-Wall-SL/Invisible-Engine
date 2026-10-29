@@ -151,6 +151,8 @@ type Session = {
 	/** The room's seed, and the field made from it, drawn in place of the authored node of its id. */
 	seed: number | undefined;
 	field: LayoutNode | undefined;
+	/** Whether the loaded doc drew {@link field}: `undefined` until the scenes load. */
+	fieldDrawn: boolean | undefined;
 };
 
 let session: Session | undefined;
@@ -288,6 +290,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		serverVariables: undefined,
 		seed,
 		field: played.made && draw?.(played.made),
+		fieldDrawn: undefined,
 	};
 	session = current;
 	if (current.field) setRoomDocChange(withRoomField);
@@ -314,27 +317,46 @@ function roomSeed(room: Room): Promise<number | undefined> {
 	const now = (room.state as Partial<RoomState> | undefined)?.seed;
 	if (typeof now === 'number') return Promise.resolve(now);
 	return new Promise((resolve) => {
-		const timer = setTimeout(() => resolve(undefined), SEED_WAIT_MS);
-		room.onStateChange.once((state: Partial<RoomState>) => {
+		const first = (state: Partial<RoomState>) => {
 			clearTimeout(timer);
 			resolve(typeof state.seed === 'number' ? state.seed : undefined);
-		});
+		};
+		const timer = setTimeout(() => {
+			room.onStateChange.remove(first);
+			resolve(undefined);
+		}, SEED_WAIT_MS);
+		room.onStateChange.once(first);
 	});
 }
 
 /**
  * `doc` with the room's own field drawn in place of the authored node of the same id, in every
- * scene; `doc` itself when the room plays the field as authored (or there is no room). The loaded
- * doc passes through it (`editor-scenes` `loadEditorScenes`) once a room made its own field.
+ * scene, and that scene's world sized to the room's field; `doc` itself when the room plays the
+ * field as authored (or there is no room). The loaded doc passes through it (`editor-scenes`
+ * `loadEditorScenes`) once a room made its own field. A layout with no node of that id would
+ * draw the authored field over the room's own, so the game stops on the failure screen instead.
  */
 function withRoomField(doc: LayoutDoc): LayoutDoc {
-	const field = session?.field;
-	if (!field) return doc;
+	const current = session;
+	const field = current?.field;
+	if (!current || !field) return doc;
+	const size = current.game.field;
+	const holds = (scene: Scene) => scene.nodes.some((node) => node.id === field.id);
+	current.fieldDrawn = doc.scenes.some(holds);
+	if (!current.fieldDrawn) {
+		console.error(`[online] the layout has no "${field.id}" node to draw the room's field in`);
+		void refuseOnlineBoot(`the layout has no "${field.id}" node to draw the room's field in`, true);
+		return doc;
+	}
 	return {
 		...doc,
 		scenes: doc.scenes.map((scene) =>
-			scene.nodes.some((node) => node.id === field.id)
-				? { ...scene, nodes: scene.nodes.map((node) => (node.id === field.id ? field : node)) }
+			holds(scene)
+				? {
+						...scene,
+						...(scene.world ? { world: { w: size.w, h: size.h } } : {}),
+						nodes: scene.nodes.map((node) => (node.id === field.id ? field : node)),
+					}
 				: scene,
 		),
 	};
@@ -587,7 +609,7 @@ export function onlineProbe() {
 						netcode: current.game.online.netcode,
 						seed: current.seed ?? null,
 						zones: current.game.zones.map((z) => [z.id, z.x, z.y, z.w, z.h]),
-						field: current.field?.id ?? null,
+						fieldDrawn: current.fieldDrawn ?? null,
 						...(current.sdk
 							? {}
 							: { corrections: current.me?.corrections ?? 0, snaps: current.me?.snaps ?? 0 }),

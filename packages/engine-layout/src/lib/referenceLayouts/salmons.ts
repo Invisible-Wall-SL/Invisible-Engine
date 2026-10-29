@@ -9,13 +9,14 @@ export type { SalmonsRiverDrawing } from './salmonsRiver';
  * (`engine-mechanics` `salmonsRiver`), drawn as the play field's world, with a camera that follows
  * the device's own salmon, bear or fisherman (`apps/lines` `game/online.ts`), the spawn layer
  * the room's players are drawn in, and (P11.2) the HUD and the round-over screen, fed by the
- * variables the room owns (`engine-flow-v2` `SALMONS_SEED_DOC`). Placeholder shapes until the S0 art replaces the three
- * characters' components ({@link SALMONS_CHARACTER_COMPONENTS}) and the backdrop's rectangles.
+ * variables the room owns (`engine-flow-v2` `SALMONS_SEED_DOC`). Placeholder shapes until the S0
+ * art replaces the three characters' components ({@link SALMONS_CHARACTER_COMPONENTS}) and the
+ * backdrop's rectangles.
  *
  * The river is passed in, not imported: this package does not depend on `engine-mechanics`; the
- * river itself is drawn by `./salmonsRiver` (which a room's device also draws its own river with). Played by
- * `scripts/playtest/salmons-play.mjs`; written into a project by `scripts/salmons/export.mjs`. Not
- * exported from the package entry, so no game bundles it.
+ * river itself is drawn by `./salmonsRiver` (which a room's device also draws its own river
+ * with). Played by `scripts/playtest/salmons-play.mjs`; written into a project by
+ * `scripts/salmons/export.mjs`. Not exported from the package entry, so no game bundles it.
  */
 
 /** The spawn layer the room's players are drawn in (`arcade.online.layer`'s default). */
