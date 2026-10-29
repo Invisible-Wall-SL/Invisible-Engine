@@ -64,8 +64,9 @@ A seed and the same keys replay the same game.
   (`variable-server-owned`). The own player's `ability` is raised on the press by
   `createAbilityPredictor`, which mirrors `onlineRules.js`'s cooldown test: change one, change both
   (`check:online-rules` compares them step for step). The room's echo of a press it raised is
-  dropped; an echo with no press waiting is raised then (`predicted: false`); a round's start or
-  the own join clears its cooldowns, as the room does.
+  dropped, per button; an echo with no press waiting is raised then (`predicted: false`); a
+  refused press expires one state after its input is acknowledged; a round's start or the own join
+  clears the cooldowns of inputs already taken, but not of a press whose echo is still due.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it exactly as a device's
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config

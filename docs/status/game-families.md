@@ -87,9 +87,13 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
 - **Predicted abilities** (`createAbilityPredictor`): each input the device sends is run through
   the room's own test (button held, off cooldown, round running, player free) and an `ability`
   signal (`predicted: true`) is raised in the same fixed step, so the flow draws the swipe or cast
-  on the press. The room's echo of such a press is dropped; an echo with no press waiting (the
-  device thought the player held, e.g. just after `roundStart` or a stun) is raised then,
-  `predicted: false`. `roundStart` and the own `joined` clear its cooldowns, as the room does.
+  on the press. The room's echo of such a press is dropped, per button; an echo with no press
+  waiting on its button (the device thought the player held, e.g. just after `roundStart` or a
+  stun) is raised then, `predicted: false`. A press the room refused never echoes: it is dropped
+  one state after the state that acknowledged its input (`acked`), since the room's event comes
+  right after that state. `roundStart` and the own `joined` clear the cooldowns set by inputs the
+  room had taken, except one whose echo is still due (it was taken after the clear); waiting
+  presses are kept.
 - **`out` hidden** (`shownInRoom`): a caught player is despawned and not drawn until it respawns
   (it reappears at the spawn, not sliding from where it was caught); the probe lists it in
   `online.hidden`. The probe also gains `signals` and `spawned`.
@@ -104,9 +108,11 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
   the press, an unpredicted accepted press drawn on the room's word; cooldowns cleared at
   `roundStart`; the values; `out` hidden; the predictor against the room step for step over 90 mixed
   presses on two buttons; the live catch / round end through `flowSignalsOf` / `serverValuesOf` /
-  `shownInRoom`); `check:netcode` 23 → **25** (a swipe raised on the press a full round trip, 10
+  `shownInRoom`); `check:netcode` 23 → **28** (a swipe raised on the press a full round trip, 10
   steps at 150 ms each way, before the room's word, and a press the device did not predict drawn
-  when the room tells; a source scan of the event, value, press and
+  when the room tells; a refused press expiring so a later unpredicted swipe is drawn; an echo on
+  one button never answering the other; a `[roundStart, ability]` batch neither doubling the swipe
+  nor reopening its cooldown; a source scan of the event, value, press and
   hide paths in `online.ts`); `check:room-sim` 38 → **39** (live joins / leaves as signals, values
   off the SDK-decoded state); launcher `check:flow-variables` → **48** (the
   `variable-server-owned` fixtures, the shared lists, Salmons' flow clean on its layout);

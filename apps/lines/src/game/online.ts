@@ -331,6 +331,7 @@ function received(current: Session, nowMs: number) {
 			return;
 		}
 		current.abilities ??= createAbilityPredictor(current.game, player.character);
+		current.abilities.acked(player.ack);
 		// The SDK reconciles on its own, from the input acknowledgement each state carries.
 		if (current.sdk) {
 			current.sdk.me ??= reconcilerOf(current, current.sdk.predict, player);
@@ -437,13 +438,13 @@ function follow(current: Session, dtMs: number) {
 }
 
 /** Raise the own player's abilities the input uses, on the press: drawn before the room answers. */
-function predictAbilities(current: Session, buttons: number) {
+function predictAbilities(current: Session, buttons: number, seq: number) {
 	const state = stateOf(current.room);
 	const me = state.players?.get(current.room.sessionId);
 	if (!current.abilities || !me) return;
 	const free = state.phase === 'running' && me.status === STATUS.free;
 	const at = ownPlace(current);
-	for (const button of current.abilities.step(buttons, free))
+	for (const button of current.abilities.step(buttons, free, seq))
 		raise(
 			current,
 			abilitySignal(
@@ -472,7 +473,7 @@ export function tickOnline(dtMs: number) {
 		Object.assign(handle.data, input);
 		handle.send();
 		current.me?.input(input);
-		predictAbilities(current, input.buttons);
+		predictAbilities(current, input.buttons, input.seq);
 	});
 	current.me?.frame(dtMs);
 	draw(current);
