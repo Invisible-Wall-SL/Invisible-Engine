@@ -172,9 +172,13 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
 - **Predicted abilities** (`createAbilityPredictor`): each input the device sends is run through
   the room's own test (button held, off cooldown, round running, player free) and an `ability`
   signal (`predicted: true`) is raised in the same fixed step, so the flow draws the swipe or cast
-  on the press. The room's echo of such a press is dropped; an echo with no press waiting (the
-  device thought the player held, e.g. just after `roundStart` or a stun) is raised then,
-  `predicted: false`. `roundStart` and the own `joined` clear its cooldowns, as the room does.
+  on the press. The room's echo of such a press is dropped, per button; an echo with no press
+  waiting on its button (the device thought the player held, e.g. just after `roundStart` or a
+  stun) is raised then, `predicted: false`. A press the room refused never echoes: it is dropped
+  one state after the state that acknowledged its input (`acked`), since the room's event comes
+  right after that state. `roundStart` and the own `joined` clear the cooldowns set by inputs the
+  room had taken, except one whose echo is still due (it was taken after the clear); waiting
+  presses are kept.
 - **`out` hidden** (`shownInRoom`): a caught player is despawned and not drawn until it respawns
   (it reappears at the spawn, not sliding from where it was caught); the probe lists it in
   `online.hidden`. The probe also gains `signals` and `spawned`.
@@ -189,9 +193,11 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
   the press, an unpredicted accepted press drawn on the room's word; cooldowns cleared at
   `roundStart`; the values; `out` hidden; the predictor against the room step for step over 90 mixed
   presses on two buttons; the live catch / round end through `flowSignalsOf` / `serverValuesOf` /
-  `shownInRoom`); `check:netcode` 23 → **25** (a swipe raised on the press a full round trip, 10
+  `shownInRoom`); `check:netcode` 23 → **28** (a swipe raised on the press a full round trip, 10
   steps at 150 ms each way, before the room's word, and a press the device did not predict drawn
-  when the room tells; a source scan of the event, value, press and
+  when the room tells; a refused press expiring so a later unpredicted swipe is drawn; an echo on
+  one button never answering the other; a `[roundStart, ability]` batch neither doubling the swipe
+  nor reopening its cooldown; a source scan of the event, value, press and
   hide paths in `online.ts`); `check:room-sim` 38 → **39** (live joins / leaves as signals, values
   off the SDK-decoded state); launcher `check:flow-variables` → **48** (the
   `variable-server-owned` fixtures, the shared lists, Salmons' flow clean on its layout);
@@ -223,7 +229,7 @@ PRs (owner decision #7); (c)–(e) follow. Not deployed (nothing server-side cha
   is drawn over its user (placeholder looks); `winner` is a room id, and in a `nearby` room the
   winner may not be in the device's state, so there is no winner's name.
 
-**P11.1a — family seams (built 2026-10-28; in review).** [phase-11.md](../design/phase-11.md) §2.2,
+**P11.1a — family seams (merged 2026-10-28, #1437).** [phase-11.md](../design/phase-11.md) §2.2,
 §2.5. Shared code reaches match-3, arcade and card code only through
 `apps/lines/src/families/{match3,arcade,card}.ts`; `families/off/*` are inert stubs with the same
 names and types. `config-vite` (`families.js`, in `baseConfig()`, so game repos get it) reads
@@ -236,7 +242,7 @@ play <family> games". Left for P11.1b:
 game, `engine-flow-v2` exports the family vocabularies and action lists to the shared flow code,
 and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
 
-**P11.1c — `lines` is slot only (built 2026-10-28; in review, merge only after the republish).**
+**P11.1c — `lines` is slot only (merged 2026-10-29: #1449, then #1450 after the non-slot republish).**
 [phase-11.md](../design/phase-11.md) §2.5. Two PRs:
 - **c1, the listing and Director** (mergeable with P11.1b): the test server's public `/healthz`
   gains `gameRuntimes` (each game's `runtime` and `protocol`; `match3` / `freePlay` mean a non-slot
@@ -249,8 +255,8 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
   non-slot game now): a family runtime with no release refuses the publish (`runtime-unreleased`).
   Every slot game downloads the slot runtime, about 1,296 KB gz against 1,412 KB (−8.2 %).
 
-**P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (built 2026-10-28; in
-review).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
+**P11.1b — four runtimes, the baked-config default, `check:family-runtimes` (merged 2026-10-28,
+#1442).** [phase-11.md](../design/phase-11.md) §2.4, §3.1.
 
 - **Four runtimes.** `lines` (every slot kind; built `all` in P11.1b, `slot` since P11.1c), `match3`, `arcade`
   and `card`, listed once in `packages/constants-shared/runtimes.ts` (`RUNTIMES`, `RUNTIME_IDS`,
@@ -2456,6 +2462,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   `out` hidden** (`engine-mechanics` `onlineFlow.js`, `variable-server-owned`, Salmons' HUD and
   round over). Arcade runtime +1.7 KB gz; the other three unchanged. Open items 0 (a) and (b) are
   done. Detail above.
+- 2026-10-29 — **P11.1 done.** #1449 (`/healthz` `gameRuntimes`, Director drafts on the family
+  runtime) and #1450 (`lines` built slot only, publish refuses an unreleased family runtime) merged
+  after the non-slot republish; every slot game's runtime is about 1,296 KB gz (−8.2 %).
 - 2026-10-28 — **P11.1b engine half: the family default and the gate.** Builds now default to the baked config's
   family. The runtime drops each left-out family's Flow vocabulary and seeds (`familyFlow.ts`,
   `vocabularyIn`, `@__PURE__` registries and builders). Adds `check:family-runtimes`

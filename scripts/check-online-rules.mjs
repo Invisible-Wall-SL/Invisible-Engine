@@ -669,7 +669,6 @@ await check("a round's start clears the device's cooldowns, as it clears the roo
 	room.join('a', 'salmon');
 	room.join('b', 'bear');
 	const bear = createAbilityPredictor(room.sim.game, 'bear');
-	bear.reset();
 	const drawn = [];
 	let seen = room.events.length;
 	for (let i = 0; i < 8 * TICK; i++) {
@@ -679,6 +678,8 @@ await check("a round's start clears the device's cooldowns, as it clears the roo
 			drawn.push({ i, button, predicted: true });
 		room.press('b', { buttons: BUTTONS.ability1 });
 		room.step();
+		// The state, then the step's events after it.
+		bear.acked(room.sim.players.get('b').ack);
 		for (const signal of flowSignalsOf(room.events.slice(seen), 'b', undefined, bear))
 			if (signal.name === 'ability') drawn.push({ i, predicted: signal.payload.predicted });
 		seen = room.events.length;

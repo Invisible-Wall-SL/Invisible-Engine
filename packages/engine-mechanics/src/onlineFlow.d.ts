@@ -64,12 +64,17 @@ export function serverValuesOf(state: ServerValuesState, me: string, tickHz: num
 export function shownInRoom(player: { status: number }): boolean;
 
 export type AbilityPredictor = {
-	/** One sent input's buttons; `free` when the round runs and the own player is free. Returns the
-	 *  buttons of the abilities it uses (one per ability). */
-	step(buttons: number, free: boolean): string[];
-	/** The room's `ability` for the own player came: whether it answers a press already raised. */
-	echo(): boolean;
-	/** The room cleared the player's cooldowns (a round started, the player joined). */
+	/** One sent input's buttons; `free` when the round runs and the own player is free; `seq` the
+	 *  input's (default: one after the last). Returns the buttons of the abilities it uses. */
+	step(buttons: number, free: boolean, seq?: number): string[];
+	/** The room's `ability` on `button` for the own player came: whether it answers a press
+	 *  already raised. */
+	echo(button: string): boolean;
+	/** A state acknowledged the own inputs up to `ack`: presses still unanswered a state later
+	 *  were refused, and are dropped. */
+	acked(ack: number): void;
+	/** The room cleared the player's cooldowns: those set by inputs it had taken by then, but not
+	 *  by a press still waiting for its echo. */
 	reset(): void;
 };
 
