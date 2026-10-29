@@ -1289,7 +1289,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		'the game swaps the win (after the transition) and builds both flow interpreters from the swapped doc; no raw doc reaches them',
 		[
 			swapAt > 0,
-			resolver.indexOf('win.status(transitioned)') >
+			resolver.indexOf('options.status(transitioned)') >
 				resolver.indexOf('withAuthoredTransitionDoc(raw)'),
 			v2At > swapAt,
 			v1At > swapAt,
@@ -1733,7 +1733,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[
 			game.includes('presentation: authoredWinPresentation,') &&
 				src('../../../packages/engine-layout/src/lib/authoredOverlays.ts').includes(
-					'withAuthoredWinDoc(transitioned, win.presentation?.())',
+					'withAuthoredWinDoc(transitioned, options.presentation?.())',
 				),
 			/const first = authoredWinTiers\(\)\[0\];\s*return first \? \{ winSpine: first\.rigKey, slotName: first\.slotName \} : undefined;/.test(
 				authoredWinSrc,

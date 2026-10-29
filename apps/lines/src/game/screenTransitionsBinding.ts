@@ -14,11 +14,11 @@ type App = Parameters<typeof playScreenTransition>[0];
  */
 export const screenTransitionsOn = (app: () => App): ScreenTransitionsApi => ({
 	play: (transition) => {
-		const stage = app();
+		const pixiApp = app();
 		const handle = playScreenTransition(
-			stage,
+			pixiApp,
 			{ ...transition, zIndex: LAYER_BAND_SCREEN_TRANSITION },
-			elementFxHostFor(stage, particleTimeScale),
+			elementFxHostFor(pixiApp, particleTimeScale),
 		);
 		return { captured: handle.captured, done: handle.done };
 	},

@@ -895,7 +895,7 @@ eq(
 		[
 			bindAt > 0 && bindAt < game.indexOf('void loadEditorScenes().then('),
 			binding.includes('{ ...transition, zIndex: LAYER_BAND_SCREEN_TRANSITION }'),
-			binding.includes('elementFxHostFor(stage, particleTimeScale)'),
+			binding.includes('elementFxHostFor(pixiApp, particleTimeScale)'),
 			binding.includes('return { captured: handle.captured, done: handle.done };'),
 			binding.includes('wait: () => waitForScreenTransition(app()),'),
 		],
@@ -973,7 +973,7 @@ eq(
 	eq(
 		'the Game Maker chips judge the row by the compiled kinds, the Transition row unchanged',
 		[
-			authoredOverlayChips(cueDoc, null, undefined),
+			authoredOverlayChips(cueDoc, null, undefined, none),
 			authoredOverlayChips(cueDoc, null, undefined, swirl),
 		].map((c) => [c.transitionCue, c.authoredTransition]),
 		[

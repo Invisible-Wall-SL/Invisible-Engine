@@ -62,8 +62,6 @@ import { playElementFx, stopElementFx, type ElementFxHost, type ElementFxPose } 
 import { VERTEX, programLinks } from '../elementFx/shaders';
 import { BEFORE_RENDER, setStageFilters, stageFilters } from './stageFilters';
 
-export { SCREEN_TRANSITION_LIMITS };
-
 /** The still's longest side, in pixels (design §10): a desktop at 2560 × 1440 × 2 is scaled to
  *  0.8. */
 export const SCREEN_STILL_MAX_PX = 4096;

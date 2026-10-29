@@ -106,13 +106,13 @@ export function authoredWinTiersFor(input: {
  * with (`resolveAuthoredOverlays`: Transition, then the Win, then the free spins, each on the doc
  * the swaps before it produced), so a chip never reports a status read on a different doc. The
  * `transition` cue's row (Invisible Shader Graph 8e) is judged by the game's rule against the
- * project's compiled shader effects (`registered`); none given ⇒ every custom kind is unregistered.
+ * project's compiled shader effects (`registered`).
  */
 export function authoredOverlayChips(
 	layout: LayoutDoc,
 	config: GameConfigDoc | null,
 	winText: WinTextDoc | undefined,
-	registered: (kind: CustomElementFxKind) => boolean = () => false,
+	registered: (kind: CustomElementFxKind) => boolean,
 ): {
 	authoredTransition: AuthoredTransitionStatus;
 	transitionCue: TransitionCueStatus;

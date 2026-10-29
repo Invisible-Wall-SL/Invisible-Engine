@@ -9,6 +9,7 @@
 
 import {
 	ELEMENT_FX,
+	ELEMENT_FX_LIMITS,
 	isCustomElementFxKind,
 	type ElementFxKind,
 	type ElementFxKindId,
@@ -33,7 +34,7 @@ export const isScreenTransitionKind = (value: unknown): value is ElementFxKindId
 /** A transition's length and strength (§10: 50 ms to 5 s; strength as an Element FX's). */
 export const SCREEN_TRANSITION_LIMITS = {
 	durationMs: { min: 50, max: 5_000 },
-	intensity: { min: 0, max: 4 },
+	intensity: ELEMENT_FX_LIMITS.intensity,
 } as const;
 
 /** One transition as authored: the `transition` cue's row, or a Flow node's literals. */

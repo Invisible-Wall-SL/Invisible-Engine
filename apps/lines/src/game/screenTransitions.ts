@@ -52,7 +52,9 @@ let warnedUnbound = false;
 const warnUnbound = (): void => {
 	if (warnedUnbound || !fxdebug()) return;
 	warnedUnbound = true;
-	console.warn('[fxdebug] screenTransition: no transition runtime in this build, played as a cut');
+	console.warn(
+		'[fxdebug] screenTransition: no transition runtime bound (not bound yet, or torn down), played as a cut',
+	);
 };
 
 /** A `screenTransition` node's payload as a play, or `undefined` when it names no transition kind. */

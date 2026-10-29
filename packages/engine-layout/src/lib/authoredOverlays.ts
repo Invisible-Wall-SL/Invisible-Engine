@@ -577,20 +577,22 @@ export function resolveAuthoredOverlays<
 	T extends Pick<LayoutDoc, 'scenes' | 'settings' | 'mainSizesMap'>,
 >(
 	raw: T,
-	win: {
+	options: {
 		status: (doc: T) => AuthoredWinStatus;
 		presentation?: () => AuthoredWinPresentation | undefined;
 		transitionCue?: TransitionCueStatus;
 	},
 ): AuthoredOverlayResolution<T> {
-	const transitionCue = win.transitionCue ?? 'off';
+	const transitionCue = options.transitionCue ?? 'off';
 	const transition = authoredTransitionStatus(raw);
 	const transitioned = authoredTransitionSwapped(transition, transitionCue)
 		? withAuthoredTransitionDoc(raw)
 		: raw;
-	const winStatus = win.status(transitioned);
+	const winStatus = options.status(transitioned);
 	const won =
-		winStatus === 'ready' ? withAuthoredWinDoc(transitioned, win.presentation?.()) : transitioned;
+		winStatus === 'ready'
+			? withAuthoredWinDoc(transitioned, options.presentation?.())
+			: transitioned;
 	const freeSpins = authoredFreeSpinsStatus(won);
 	const doc = freeSpins === 'ready' ? withAuthoredFreeSpinsDoc(won) : won;
 	return { doc, transition, transitionCue, win: winStatus, freeSpins };

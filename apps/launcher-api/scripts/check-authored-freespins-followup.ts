@@ -375,7 +375,7 @@ const withRows = (doc: LayoutDoc, rows: Record<string, boolean>): LayoutDoc => (
 	for (const doc of docs) {
 		for (const rows of combos) {
 			const layout = withRows(doc, rows);
-			const chips = W.authoredOverlayChips(layout, null, undefined);
+			const chips = W.authoredOverlayChips(layout, null, undefined, () => false);
 			const tiers = W.authoredWinTiersFor({ config: null, layout, winText: undefined });
 			const game = A.resolveAuthoredOverlays(layout, {
 				status: (d) => A.authoredWinStatus({ doc: d, tiers }),
