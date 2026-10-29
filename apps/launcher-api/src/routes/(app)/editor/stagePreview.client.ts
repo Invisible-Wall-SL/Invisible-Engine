@@ -255,7 +255,19 @@ export function playTransitionOnStage(options: StageTransition): () => void {
 			},
 			host,
 		);
-		void handle.captured.then(options.onCaptured);
-		return { done: handle.done, stop: () => handle.end(), looping: 0 };
+		// `captured` settles also when the transition is ended before its still is taken: a preview
+		// stopped by then must not show what it would have revealed.
+		let stopped = false;
+		void handle.captured.then(() => {
+			if (!stopped) options.onCaptured();
+		});
+		return {
+			done: handle.done,
+			stop: () => {
+				stopped = true;
+				handle.end();
+			},
+			looping: 0,
+		};
 	});
 }

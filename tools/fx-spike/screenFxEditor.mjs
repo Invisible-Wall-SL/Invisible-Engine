@@ -416,6 +416,38 @@ try {
 			(await stageShot()) === restingStage,
 		JSON.stringify(ended),
 	);
+	// Stopped as soon as its stage is drawn, before the still is taken (the next frame): the screen
+	// it would have shown must never come in.
+	const raced = await ev(`new Promise((resolve) => {
+		sfx.cueRow().querySelector('.sfx-icon.play').click();
+		const began = performance.now();
+		const poll = () => {
+			const overlay = document.querySelector('[data-element-fx-overlay] canvas');
+			const ctx = overlay?.getContext('2d');
+			let drawn = false;
+			if (ctx && overlay.width && overlay.height) {
+				const { data } = ctx.getImageData(0, 0, overlay.width, overlay.height);
+				for (let i = 3; i < data.length && !drawn; i += 4 * 97) drawn = data[i] > 0;
+			}
+			if (drawn) {
+				document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+				resolve(true);
+			} else if (performance.now() - began > 5000) resolve(false);
+			else setTimeout(poll, 0);
+		};
+		poll();
+	})`);
+	await sleep(600);
+	const afterRace = await ev(stageOverlayState);
+	check(
+		'stopped before its still is taken, the screen it plays into never comes in',
+		raced &&
+			!afterRace.overlay &&
+			afterRace.hiddenSurfaces === 0 &&
+			!(await shownGroup(intro?.[0])) &&
+			(await stageShot()) === restingStage,
+		JSON.stringify({ raced, afterRace }),
+	);
 
 	console.log('3. the anti-aliasing switch');
 	const note = await ev(

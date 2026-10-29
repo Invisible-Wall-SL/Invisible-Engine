@@ -6588,7 +6588,11 @@
 	 * or a wheel on the stage ends it.
 	 */
 	function previewOnStage(
-		play: (overlay: StageOverlay, setLive: (on: boolean) => void) => () => void,
+		play: (
+			overlay: StageOverlay,
+			setLive: (on: boolean) => void,
+			isOpen: () => boolean,
+		) => () => void,
 		finished: () => void,
 		options: { live: boolean; antialias: boolean; onClose?: () => void },
 	): (() => void) | null {
@@ -6675,6 +6679,7 @@
 				},
 			},
 			(on) => (live = on),
+			() => !over,
 		);
 		return cancel;
 	}
@@ -6690,11 +6695,13 @@
 		finished: () => void,
 	): (() => void) | null {
 		return previewOnStage(
-			(overlay, setLive) =>
+			(overlay, setLive, isOpen) =>
 				playTransitionOnStage({
 					...overlay,
 					spec: preview.spec,
 					onCaptured: () => {
+						// A preview closed meanwhile has already taken the screen back.
+						if (!isOpen()) return;
 						preview.reveal?.(true);
 						setLive(true);
 					},
