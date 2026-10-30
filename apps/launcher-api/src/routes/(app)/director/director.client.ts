@@ -78,6 +78,21 @@ export interface TemplatesAnswer {
 	estimatePlaceholder: boolean;
 }
 
+/** One saved prompt (`GET /api/director/prompts`). */
+export interface SavedPrompt {
+	id: string;
+	clientKey: string;
+	name: string;
+	body: string;
+	version: number;
+	updatedAt: string;
+}
+
+export interface PromptsAnswer {
+	prompts: SavedPrompt[];
+	limits: { name: number; body: number };
+}
+
 export interface MockupsAnswer {
 	doc: MockupsDoc;
 	pending: boolean;
@@ -205,7 +220,7 @@ async function readRefusal(res: Response): Promise<ApiRefusal> {
 /** One JSON call. A non-2xx is thrown as `ApiRefusal`; a failed fetch as `NetworkLost`. */
 export async function api<T>(
 	url: string,
-	init: { method?: 'GET' | 'POST'; json?: unknown; form?: FormData } = {},
+	init: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; json?: unknown; form?: FormData } = {},
 ): Promise<T> {
 	let res: Response;
 	try {

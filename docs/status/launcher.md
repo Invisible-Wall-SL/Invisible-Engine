@@ -118,6 +118,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   runs has swept in the last 5 minutes (`app_settings.DIRECTOR_WORKER_KINDS`, written by every new
   sweep), so an old worker never drives one as a create run. publish-all and the Book of
   Migration publish without the repair warning.
+- 2026-10-30 — **Invisible Director: saved prompts on the New game screen**. Migration
+  `0036_concerned_morlocks` adds `director_prompts` (name unique per client ignoring case,
+  `version` for optimistic writes). `GET/POST /api/director/prompts` and `PATCH/DELETE
+  /api/director/prompts/[id]` (`lib/server/director/prompts.ts`) show and change only the prompts of
+  clients the caller may target (`mayTargetClient`, the form's client list); a hidden client's prompt
+  is a 404, a stale version 409 `conflict` with nothing written, a duplicate name 409 `name_taken`,
+  and a client change is access-checked for the new client. Body cap = `MAX_NOTES_LENGTH`, now in
+  `director/notesLimit.ts`. The create request is unchanged. Gate: `check:director-prompts` (in
+  Lint; a Postgres pass runs when `DATABASE_URL` is set).
 - 2026-10-28 — **Invisible Director: repair runs on the family packs (PLAN 9G, ADR-0012)**.
   `createRepairRun` freezes `director_runs.family` from the project's kind and refuses a family with
   no ready pack (409 `no_family_pack`) before anything is written; a repair run reads its pack as

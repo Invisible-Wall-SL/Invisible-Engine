@@ -23,6 +23,7 @@ import {
 	type StepInput,
 } from 'director-costs/recipe';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
+import { MAX_NOTES_LENGTH } from './notesLimit';
 import { GAME_BUG_TRIAGE_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
 import {
@@ -205,8 +206,6 @@ export interface StartingPoint {
 	/** Copied from `mockups.json` (ADR-0005 "Ownership"); the run header shows it. */
 	ownershipConfirmed: MockupsDoc['ownershipConfirmed'];
 }
-
-export const MAX_NOTES_LENGTH = 8000;
 
 export function startingPointOf(doc: MockupsDoc, notes: string): StartingPoint {
 	return {
