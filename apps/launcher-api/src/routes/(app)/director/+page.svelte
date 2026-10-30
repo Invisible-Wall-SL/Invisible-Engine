@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import {
 		PROJECT_KEY_HTML_PATTERN,
 		PROJECT_KEY_PATTERN,
@@ -154,13 +155,17 @@
 		}
 	}
 
-	function loadPrompt() {
+	async function loadPrompt() {
 		const p = selectedPrompt;
 		if (!p) return;
 		if (
 			notes.trim() &&
 			notes.trim() !== p.body &&
-			!confirm('Replace the notes with this prompt?')
+			!(await askConfirm({
+				title: 'Replace the notes?',
+				message: `The notes will be replaced by "${p.name}".`,
+				confirmLabel: 'Replace',
+			}))
 		) {
 			return;
 		}
@@ -201,9 +206,16 @@
 		});
 	}
 
-	function deletePrompt() {
+	async function deletePrompt() {
 		const p = selectedPrompt;
-		if (!p || !confirm(`Delete the saved prompt "${p.name}"?`)) return;
+		if (!p) return;
+		const ok = await askConfirm({
+			title: 'Delete this saved prompt?',
+			message: `"${p.name}" is removed for everyone who can see this client.`,
+			confirmLabel: 'Delete',
+			danger: true,
+		});
+		if (!ok) return;
 		return withPrompt(async () => {
 			await api(`/api/director/prompts/${p.id}?version=${p.version}`, { method: 'DELETE' });
 			if (loaded?.id === p.id) loaded = null;
