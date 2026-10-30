@@ -14,7 +14,13 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SALMONS_CHARACTER_COMPONENTS } from '../../../packages/engine-layout/src/lib/referenceLayouts/salmons';
 import { r2Slug as exportSlug } from '../../../scripts/salmons/r2Slug.mjs';
-import { projectComponentKey, r2Slug } from '../src/lib/server/projectPaths';
+import {
+	editorDocKey,
+	flowV2DocKey,
+	gameConfigDocKey,
+	projectComponentKey,
+	r2Slug,
+} from '../src/lib/server/projectPaths';
 
 const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 let passed = 0;
@@ -61,12 +67,12 @@ try {
 		{ cwd: root, stdio: 'pipe' },
 	);
 	const written = new Set(files(out).map((path) => path.split('\\').join('/')));
+	const client = 'invisible_wall';
 	const project = 'salmons';
-	const prefix = `${r2Slug('invisible_wall')}/${r2Slug(project)}`;
 	const expected = [
-		`${prefix}/config/config.json`,
-		`${prefix}/editor/scenes.json`,
-		`${prefix}/editor/flow-v2.json`,
+		gameConfigDocKey(client, project),
+		editorDocKey(client, project),
+		flowV2DocKey(client, project),
 		...SALMONS_CHARACTER_COMPONENTS.map((def) => projectComponentKey(project, def.id)),
 	];
 	for (const key of expected)
