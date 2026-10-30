@@ -253,6 +253,13 @@
       "when": 1793172269518,
       "tag": "0035_director_repair_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793354149099,
+      "tag": "0036_director_prompts",
+      "breakpoints": true
     }
   ]
 }

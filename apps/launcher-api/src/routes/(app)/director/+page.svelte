@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import {
 		PROJECT_KEY_HTML_PATTERN,
 		PROJECT_KEY_PATTERN,
@@ -27,6 +28,8 @@
 		type ActionAnswer,
 		type EstimateAnswer,
 		type MockupsAnswer,
+		type PromptsAnswer,
+		type SavedPrompt,
 		type RunListEntry,
 		type RunSummary,
 		type TemplatesAnswer,
@@ -95,6 +98,133 @@
 	let cpArtPlan = $state(true);
 	let cpRegionBatch = $state(true);
 	let notes = $state('');
+
+	// ── Saved prompts: notes texts kept per client, reused under any client the user may target ──
+	const UNASSIGNED_KEY = 'unassigned';
+	let prompts = $state<SavedPrompt[]>([]);
+	let promptLimits = $state({ name: 80, body: 8000 });
+	let promptErr = $state('');
+	let promptBusy = $state(false);
+	let selectedPromptId = $state('');
+	/** The prompt last loaded into Notes and the version it had then: Update is conditional on it. */
+	let loaded = $state<{ id: string; version: number } | null>(null);
+	let saveOpen = $state(false);
+	let saveName = $state('');
+	let saveClient = $state(UNASSIGNED_KEY);
+
+	const clientLabel = (key: string) =>
+		key === UNASSIGNED_KEY
+			? 'Unassigned'
+			: (offer?.clients.find((c) => c.key === key)?.name ?? key);
+	const selectedPrompt = $derived(prompts.find((p) => p.id === selectedPromptId) ?? null);
+	/** The form's client first, then the others by name. */
+	const promptGroups = $derived.by(() => {
+		const current = clientKey || UNASSIGNED_KEY;
+		const keys = [...new Set(prompts.map((p) => p.clientKey))].sort((a, b) =>
+			a === current ? -1 : b === current ? 1 : clientLabel(a).localeCompare(clientLabel(b)),
+		);
+		return keys.map((k) => ({
+			key: k,
+			label: clientLabel(k),
+			prompts: prompts.filter((p) => p.clientKey === k),
+		}));
+	});
+
+	async function loadPrompts() {
+		try {
+			const got = await api<PromptsAnswer>('/api/director/prompts');
+			prompts = got.prompts;
+			promptLimits = got.limits;
+			if (!prompts.some((p) => p.id === selectedPromptId)) selectedPromptId = '';
+		} catch (e) {
+			promptErr = describe(e);
+		}
+	}
+
+	/** Runs one prompt write; a stale version or a taken name is shown inline, and the list reloads. */
+	async function withPrompt(write: () => Promise<void>) {
+		promptBusy = true;
+		promptErr = '';
+		try {
+			await write();
+		} catch (e) {
+			promptErr = describe(e);
+			if (isRefusal(e, 'conflict', 'not_found')) await loadPrompts();
+		} finally {
+			promptBusy = false;
+		}
+	}
+
+	async function loadPrompt() {
+		const p = selectedPrompt;
+		if (!p) return;
+		if (
+			notes.trim() &&
+			notes.trim() !== p.body &&
+			!(await askConfirm({
+				title: 'Replace the notes?',
+				message: `The notes will be replaced by "${p.name}".`,
+				confirmLabel: 'Replace',
+			}))
+		) {
+			return;
+		}
+		notes = p.body;
+		loaded = { id: p.id, version: p.version };
+		promptErr = '';
+	}
+
+	function openSave() {
+		saveName = selectedPrompt?.name ?? '';
+		saveClient = clientKey || UNASSIGNED_KEY;
+		saveOpen = true;
+		promptErr = '';
+	}
+
+	function savePrompt() {
+		return withPrompt(async () => {
+			const { prompt } = await api<{ prompt: SavedPrompt }>('/api/director/prompts', {
+				json: { clientKey: saveClient, name: saveName, body: notes },
+			});
+			await loadPrompts();
+			selectedPromptId = prompt.id;
+			loaded = { id: prompt.id, version: prompt.version };
+			saveOpen = false;
+		});
+	}
+
+	function updatePrompt() {
+		const at = loaded;
+		if (!at) return;
+		return withPrompt(async () => {
+			const { prompt } = await api<{ prompt: SavedPrompt }>(`/api/director/prompts/${at.id}`, {
+				method: 'PATCH',
+				json: { body: notes, version: at.version },
+			});
+			loaded = { id: prompt.id, version: prompt.version };
+			await loadPrompts();
+		});
+	}
+
+	async function deletePrompt() {
+		const p = selectedPrompt;
+		if (!p) return;
+		const ok = await askConfirm({
+			title: 'Delete this saved prompt?',
+			message: `"${p.name}" is removed for everyone who can see this client.`,
+			confirmLabel: 'Delete',
+			danger: true,
+		});
+		if (!ok) return;
+		return withPrompt(async () => {
+			await api(`/api/director/prompts/${p.id}?version=${p.version}`, { method: 'DELETE' });
+			if (loaded?.id === p.id) loaded = null;
+			selectedPromptId = '';
+			await loadPrompts();
+		});
+	}
+
+	onMount(loadPrompts);
 
 	const checkpointsBody = $derived({
 		breakdown: cpBreakdown,
@@ -645,6 +775,67 @@
 							</label>
 						</div>
 					{/if}
+					<div class="prompts" role="group" aria-label="Saved prompts">
+						<label>
+							Saved prompts
+							<select bind:value={selectedPromptId} disabled={promptBusy || prompts.length === 0}>
+								<option value=""
+									>{prompts.length === 0 ? 'None saved yet' : 'Choose a saved prompt…'}</option
+								>
+								{#each promptGroups as g (g.key)}
+									<optgroup label={g.label}>
+										{#each g.prompts as p (p.id)}
+											<option value={p.id}>{p.name}</option>
+										{/each}
+									</optgroup>
+								{/each}
+							</select>
+						</label>
+						<div class="prompt-actions">
+							<button type="button" disabled={!selectedPrompt || promptBusy} onclick={loadPrompt}
+								>Load</button
+							>
+							<button type="button" disabled={!notes.trim() || promptBusy} onclick={openSave}
+								>Save as…</button
+							>
+							{#if loaded && selectedPromptId === loaded.id}
+								<button type="button" disabled={!notes.trim() || promptBusy} onclick={updatePrompt}
+									>Update</button
+								>
+							{/if}
+							<button type="button" disabled={!selectedPrompt || promptBusy} onclick={deletePrompt}
+								>Delete</button
+							>
+						</div>
+					</div>
+					{#if saveOpen}
+						<div class="prompt-save">
+							<label>
+								Name
+								<input
+									bind:value={saveName}
+									maxlength={promptLimits.name}
+									placeholder="e.g. Cartoon ocean"
+								/>
+							</label>
+							<label>
+								Client
+								<select bind:value={saveClient}>
+									<option value={UNASSIGNED_KEY}>Unassigned</option>
+									{#each offer?.clients ?? [] as c (c.key)}
+										<option value={c.key}>{c.name}</option>
+									{/each}
+								</select>
+							</label>
+							<button type="button" disabled={!saveName.trim() || promptBusy} onclick={savePrompt}
+								>Save</button
+							>
+							<button type="button" disabled={promptBusy} onclick={() => (saveOpen = false)}
+								>Cancel</button
+							>
+						</div>
+					{/if}
+					{#if promptErr}<p class="err" role="alert">{promptErr}</p>{/if}
 					<label class="notes">
 						<span>
 							Notes and style
@@ -1203,6 +1394,31 @@
 		min-height: 0;
 		margin: 0;
 		accent-color: #2b8d6f;
+	}
+	.prompts {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 10px 12px;
+		margin-top: 14px;
+	}
+	.prompts label {
+		flex: 1 1 260px;
+	}
+	.prompt-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.prompt-save {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 10px 12px;
+		margin-top: 10px;
+	}
+	.prompt-save label {
+		flex: 1 1 200px;
 	}
 	.notes {
 		margin-top: 14px;

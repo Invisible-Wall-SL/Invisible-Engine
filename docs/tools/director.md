@@ -69,6 +69,14 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
      check made before it existed. Once ticked it shows who confirmed.
    - **Notes and style** are optional with mockups and required without: a run with no mockups
      builds a style board from them instead.
+   - **Saved prompts** sit above the notes: texts kept per client and reusable under any client you
+     may create games for. The picker groups them by client, the form's client first. **Load** fills
+     Notes (it asks first when Notes already holds something else); loading changes only the text
+     box, never the create request. **Save as…** takes a name (up to 80 characters, unique per
+     client ignoring case) and a client, defaulting to the form's: pick another client to reuse a
+     prompt for it. **Update** (shown once you have loaded one) writes the edited Notes back; if
+     someone saved it meanwhile you are told, and Load to see their version. **Delete** asks first.
+     You only ever see the prompts of clients you may create games for.
 4. **Checkpoints.** Where the agents stop and wait for you: **Mockup breakdown** (recommended),
    **Art plan** (recommended: how each region will be made — the Atlas Maker pipelines, sizes and
    variants — and what it costs, before anything renders), **After each region batch**, and

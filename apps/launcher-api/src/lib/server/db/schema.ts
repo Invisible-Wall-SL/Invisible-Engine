@@ -1106,7 +1106,38 @@ export type SharedAnimation = typeof sharedAnimations.$inferSelect;
 export type DocLease = typeof docLeases.$inferSelect;
 export type CostMonth = typeof costMonths.$inferSelect;
 export type DirectorSpend = typeof directorSpend.$inferSelect;
+/**
+ * Invisible Director's saved prompts: named notes-and-style texts the New game screen loads into
+ * its Notes box. Listed per client (`client_key` is the form's client, `unassigned` for none), and
+ * re-saved under another client to reuse them. A name is unique per client, ignoring case. `version`
+ * is the optimistic-concurrency counter every update and delete is conditional on.
+ */
+export const directorPrompts = pgTable(
+	'director_prompts',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		clientKey: text('client_key').notNull(),
+		name: text('name').notNull(),
+		body: text('body').notNull(),
+		createdByUserId: text('created_by_user_id').references(() => users.id, {
+			onDelete: 'set null',
+		}),
+		updatedByUserId: text('updated_by_user_id').references(() => users.id, {
+			onDelete: 'set null',
+		}),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		version: integer('version').notNull().default(1),
+	},
+	(table) => [
+		uniqueIndex('director_prompts_client_name_idx').on(table.clientKey, sql`lower(${table.name})`),
+	],
+);
+
 export type DirectorRun = typeof directorRuns.$inferSelect;
+export type DirectorPrompt = typeof directorPrompts.$inferSelect;
 export type DirectorEvent = typeof directorEvents.$inferSelect;
 export type DirectorMessage = typeof directorMessages.$inferSelect;
 export type DirectorRegion = typeof directorRegions.$inferSelect;

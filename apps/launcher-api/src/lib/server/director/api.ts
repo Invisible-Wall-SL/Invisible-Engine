@@ -3,6 +3,7 @@ import { ConflictError } from '../r2';
 import { AdapterError } from './adapter';
 import { FontRequestError } from './fontRequests';
 import { MockupError } from './mockups';
+import { PromptError } from './prompts';
 import { RunError } from './runs';
 
 /**
@@ -32,6 +33,7 @@ export function refusalResponse(e: unknown): Response | null {
 		e instanceof RunError ||
 		e instanceof FontRequestError ||
 		e instanceof MockupError ||
+		e instanceof PromptError ||
 		e instanceof AdapterError
 	) {
 		return json({ error: e.code, message: e.message }, { status: e.status, headers: NO_STORE });
