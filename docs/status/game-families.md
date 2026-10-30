@@ -2727,6 +2727,11 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-10-30 — **Game server: a page on another origin can join.** The guard's refusals now answer
+  Colyseus' CORS headers for the page's origin (with credentials; the SDK fetches with them, so `*`
+  failed in a browser), and a chunked matchmaking body (as a proxy may forward one) is read under
+  the same 4 KB cap instead of being refused 411 (`services/game-server/src/server.ts`).
+  `check:room-sim` pins a cross-origin preflight, seat, refusal and chunked join.
 - 2026-10-29 — **P11.5: offline abilities and zone forces.** `engine-mechanics` `abilities.js` is
   the one implementation the room and the offline loop call (`arcadeAbilities.ts`);
   `arcade.abilities` / `arcade.forces`; `useAbility` and offline `ability` / `hit` / `caught`;

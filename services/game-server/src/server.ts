@@ -69,13 +69,41 @@ const REQUEST_TIMEOUT_MS = 10_000;
 /** Sockets one process holds: every player's WebSocket, with room for matchmaking requests. */
 const MAX_CONNECTIONS = 6000;
 
+/** The CORS headers Colyseus' matchmaker answers with, for `req`'s origin. A device's page is on
+ *  another origin and the SDK fetches with credentials, so a refusal without them (or with `*`)
+ *  reaches the page as a CORS failure, never as its status. */
+const corsHeaders = (req: IncomingMessage): Record<string, string> => {
+	const origin = req.headers.origin;
+	return {
+		...matchMaker.controller.DEFAULT_CORS_HEADERS,
+		...matchMaker.controller.getCorsHeaders(new Headers(origin ? { origin } : {})),
+	};
+};
+
 /** Answer `status` and close. The socket is dropped only once the answer is out, so a refused
  *  device reads why; `connection: close` keeps Node from reading the rest of its body. */
 const refuse = (req: IncomingMessage, res: ServerResponse, status: number): true => {
 	res.on('finish', () => req.destroy());
-	res.writeHead(status, { connection: 'close', 'access-control-allow-origin': '*' }).end();
+	res.writeHead(status, { connection: 'close', ...corsHeaders(req) }).end();
 	return true;
 };
+
+/** Read a chunked body whole, up to {@link MAX_BODY_BYTES}: the text, or `undefined` once it
+ *  passes that (or the request fails). */
+const readBounded = (req: IncomingMessage): Promise<string | undefined> =>
+	new Promise((done) => {
+		const chunks: Buffer[] = [];
+		let size = 0;
+		req.on('data', (chunk: Buffer) => {
+			size += chunk.length;
+			if (size > MAX_BODY_BYTES) {
+				req.pause();
+				done(undefined);
+			} else chunks.push(chunk);
+		});
+		req.on('end', () => done(Buffer.concat(chunks).toString('utf8')));
+		req.on('error', () => done(undefined));
+	});
 
 /**
  * Where the request says it is, built as Colyseus' router (better-call) builds it — from
@@ -96,10 +124,10 @@ const locate = (req: IncomingMessage): URL | undefined => {
 
 /**
  * An HTTP server that refuses, before any listener (Colyseus' router among them) sees it: a
- * request whose URL the router could not build (400); one that would carry a body with no
- * `content-length` (411 — a chunked body is streamed with no limit; Node itself rejects a request
- * naming both) or declares more than {@link MAX_BODY_BYTES} (413 — Node reads no more than the
- * declared length); and an address's requests that can carry a body (every matchmaking call)
+ * request whose URL the router could not build (400); one that would carry a body with neither
+ * `content-length` nor `transfer-encoding` (411), declares more than {@link MAX_BODY_BYTES}, or
+ * streams more than that chunked (413 — Node reads no more than a declared length; a chunked body
+ * is read here, bounded, since a proxy may forward a device's body so); and an address's requests that can carry a body (every matchmaking call)
  * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window (429; counted by method, so no
  * spelling of the path escapes it); and a method it does not serve (405). `trustProxy`: the address is the last `x-forwarded-for` entry,
  * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
@@ -182,9 +210,23 @@ function guardedHttpServer(
 			}
 			if (!BODYLESS.has(method)) {
 				const length = req.headers['content-length'];
-				if (length === undefined) return refuse(req, res, 411);
+				if (length === undefined && req.headers['transfer-encoding'] === undefined) {
+					return refuse(req, res, 411);
+				}
 				if (Number(length) > MAX_BODY_BYTES) return refuse(req, res, 413);
 				if (over(posts, addressOf(req), perWindow)) return refuse(req, res, 429);
+				if (length === undefined) {
+					// A chunked body (a proxy may forward one so) is read here, bounded, and handed to the
+					// router as `req.body`, which it reads instead of the stream.
+					void readBounded(req).then((body) => {
+						if (body === undefined) refuse(req, res, 413);
+						else {
+							(req as IncomingMessage & { body?: string }).body = body;
+							emit(event, ...args);
+						}
+					});
+					return true;
+				}
 			}
 		}
 		return emit(event, ...args);

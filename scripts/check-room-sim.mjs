@@ -697,7 +697,7 @@ try {
 			body: JSON.stringify({ game: 'river', pad: 'x'.repeat(10_000) }),
 		});
 		assert.equal(big.status, 413);
-		// A chunked body declares no length, so it is refused before a byte is read.
+		// A chunked body declares no length: it is read only up to the same limit, then refused.
 		const chunked = await new Promise((resolve, reject) => {
 			const req = httpRequest(
 				{
@@ -715,9 +715,71 @@ try {
 			req.write('{"game":"river","pad":"');
 			req.write('x'.repeat(64_000));
 		});
-		assert.equal(chunked, 411);
+		assert.equal(chunked, 413);
 		assert.equal(game.rooms.count, 0);
 	});
+
+	await check(
+		'live: a page on another origin is let in — preflight, seat and refusal all answer CORS for it',
+		async () => {
+			const origin = 'https://games.example';
+			const url = `http://127.0.0.1:${port}/matchmake/joinOrCreate/${ROOM_NAME}`;
+			// The SDK fetches with credentials, so `*` would not do: the page's own origin, and
+			// credentials allowed, on every answer it can get.
+			const lets = (res, what) => {
+				assert.equal(res.headers.get('access-control-allow-origin'), origin, what);
+				assert.equal(res.headers.get('access-control-allow-credentials'), 'true', what);
+			};
+			const preflight = await fetch(url, {
+				method: 'OPTIONS',
+				headers: {
+					origin,
+					'access-control-request-method': 'POST',
+					'access-control-request-headers': 'content-type',
+				},
+			});
+			assert.ok(preflight.status < 300, `preflight ${preflight.status}`);
+			lets(preflight, 'preflight');
+			assert.match(preflight.headers.get('access-control-allow-methods') ?? '', /POST/);
+			assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /content-type/i);
+			const refused = await fetch(url, {
+				method: 'POST',
+				headers: { origin, 'content-type': 'application/json' },
+				body: JSON.stringify({ game: 'river', pad: 'x'.repeat(10_000) }),
+			});
+			assert.equal(refused.status, 413);
+			lets(refused, 'a refusal');
+			const answered = await fetch(url, {
+				method: 'POST',
+				headers: { origin, 'content-type': 'application/json' },
+				body: JSON.stringify({ game: 'nope' }),
+			});
+			lets(answered, 'the matchmaker’s answer');
+			// A proxy may forward a device's body chunked: under the limit, it is served.
+			const chunked = await new Promise((resolve, reject) => {
+				const req = httpRequest(
+					{
+						port,
+						host: '127.0.0.1',
+						method: 'POST',
+						path: `/matchmake/joinOrCreate/${ROOM_NAME}`,
+						headers: { origin, 'content-type': 'application/json', 'transfer-encoding': 'chunked' },
+					},
+					(res) => {
+						let text = '';
+						res.on('data', (c) => (text += c));
+						res.on('end', () => resolve({ res, text }));
+					},
+				);
+				req.on('error', reject);
+				req.write('{"game":"no');
+				req.end('pe"}');
+			});
+			assert.equal(chunked.res.headers['access-control-allow-origin'], origin);
+			assert.match(chunked.text, /this game is not available/);
+			assert.equal(game.rooms.count, 0);
+		},
+	);
 
 	await check(
 		'live: a request the router could not parse is refused, and the server lives',
