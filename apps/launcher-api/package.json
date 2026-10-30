@@ -243,6 +243,8 @@
 		"precheck:project-duplicate": "node scripts/ensure-svelte-kit.mjs",
 		"check:project-duplicate": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-duplicate.ts",
 		"precheck:online-publish": "node scripts/ensure-svelte-kit.mjs",
+		"precheck:salmons-export": "node scripts/ensure-svelte-kit.mjs",
+		"check:salmons-export": "tsx --tsconfig tsconfig.scripts.json scripts/check-salmons-export.ts",
 		"check:online-publish": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-online-publish.ts",
 		"precheck:book-of-migration": "node scripts/ensure-svelte-kit.mjs",
 		"check:book-of-migration": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-book-of-migration.ts",
