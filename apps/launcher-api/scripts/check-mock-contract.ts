@@ -30,6 +30,7 @@ import {
 	potsOverlayPreset,
 	symbolsWithRole,
 	type GameConfigDoc,
+	type PaytableRow,
 } from 'game-config';
 
 // ── In-memory R2 ─────────────────────────────────────────────────────────────
@@ -595,6 +596,36 @@ await check('a trigger below 3 carries its places on the strips; 3 and up never 
 	const untriggered = { ...fairy, freeSpinsTrigger: undefined };
 	eq('freeSpinsTriggerStrips' in (validGrid(untriggered) ?? {}), false, 'no trigger, no strips');
 });
+
+await check(
+	'an own-named feature wild carries its own line row; the rest stay as they were',
+	async () => {
+		const preset = normalizeGameConfigDoc(fairyCloverPreset())!;
+		const priced = (symbols: Record<string, PaytableRow[]>) =>
+			linesGrid(
+				normalizeGameConfigDoc({
+					...preset,
+					symbols: Object.fromEntries(
+						Object.entries(preset.symbols).map(([name, sym]) => [
+							name,
+							symbols[name] ? { ...sym, paytable: symbols[name] } : sym,
+						]),
+					),
+				})!,
+			);
+		const CL = [{ '3': 20 }, { '4': 100 }, { '5': 500 }];
+		eq('wildPaytables' in linesGrid(preset), false, 'no wild row authored: no field');
+		const clover = priced({ CL });
+		eq(clover.wildPaytables, { CL: { '3': 20, '4': 100, '5': 500 } }, 'the clover’s row');
+		eq('wild' in clover, false, 'and no stray WILD priced at it');
+		const both = priced({ CL, W: [{ '5': 1000 }] });
+		eq([both.wild, both.wildPaytables?.CL], [{ paytable: { '5': 1000 } }, clover.wildPaytables?.CL], 'W keeps `wild`'); // prettier-ignore
+		const { validGrid } = await import('../../../services/test-server/makeMock.mjs');
+		eq(validGrid(clover)?.wildPaytables, clover.wildPaytables, 'the test server keeps it');
+		const stray = { ...clover, wildPaytables: { ...clover.wildPaytables, ZZ: { '3': 1 } } };
+		eq(validGrid(stray)?.wildPaytables, clover.wildPaytables, 'a row for a wild it never deals is dropped'); // prettier-ignore
+	},
+);
 
 await check(
 	'a trigger the server has no name for is omitted and said once, not swapped for SCAT',

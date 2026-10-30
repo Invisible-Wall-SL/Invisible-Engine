@@ -492,5 +492,122 @@ const presented = async (make, label, rounds) => {
 	);
 }
 
+// ---------------------------------------------------------------------------------------------
+console.log('\n6. an own-named wild with its own row (CL, no W): a run it leads pays that row');
+{
+	// Worth more than any 3 of a base symbol, so a grown pair at the left pays CL, not what follows.
+	const CL_ROW = { 2: 1000, 3: 2000, 4: 3000, 5: 5000 };
+	const own = { wildPaytables: { CL: CL_ROW } };
+	const lines = [
+		[0, 0, 0, 0, 0],
+		[1, 1, 1, 1, 1],
+	];
+	const clOnly = [
+		['CL', 'PIC1'],
+		['CL', 'PIC1'],
+		['CL', 'PIC2'],
+		['CL', 'PIC2'],
+		['CL', 'PIC2'],
+	];
+	const wins = (opts) =>
+		evaluatePaylines(clOnly, 1, lines, null, { landingWilds: ['CL'], ...opts }).map(
+			(w) => `${w.what}×${w.occurs}=${w.pay}`,
+		);
+	check(
+		JSON.stringify(wins(own)) === JSON.stringify(['CL×5=5000']),
+		'a CL-only line pays CL’s row, as CL',
+		` (${wins(own)})`,
+	);
+	check(wins({}).length === 0, 'without the row it pays nothing, as before');
+	// The scatter after the run leaves no base symbol to pay, so only the run of wilds is priced.
+	const mixed = [['CL'], ['WILD'], ['CL'], ['SCAT'], ['PIC7']];
+	const run = (board, wild) =>
+		evaluatePaylines(board, 1, [[0, 0, 0, 0, 0]], wild, { landingWilds: ['WILD', 'CL'], ...own })
+			.map((w) => `${w.what}×${w.occurs}=${w.pay}`)
+			.join();
+	const wPay = { paytable: { 3: 7 } };
+	check(
+		run(mixed, wPay) === 'CL×3=2000' &&
+			run([['WILD'], ['CL'], ['CL'], ['SCAT'], ['PIC7']], wPay) === 'WILD×3=7',
+		'mixed wilds: the leading cell’s wild prices the run, which continues over any wild',
+	);
+
+	const make = (opts = {}) =>
+		createMockRgs({
+			label: 'clover',
+			quiet: true,
+			startBalance: 1e12,
+			seed: 'clover',
+			rows: ROWS,
+			growingWild: { symbol: 'CL', reels: [0], freeSpinReels: [0], pattern: 'horizontal' },
+			forceWilds: true,
+			...opts,
+		});
+	const plain = [];
+	const priced = [];
+	for (let r = 0; r < 120; r++) {
+		plain.push(...spinsOf(await playRound(make({ seed: `c${r}` }), 'p')));
+		priced.push(...spinsOf(await playRound(make({ seed: `c${r}`, ...own }), 'q')));
+	}
+	check(
+		plain.length === priced.length &&
+			plain.every((s, k) => JSON.stringify(s.landed) === JSON.stringify(priced[k].landed)),
+		'the row changes no draw: the same seed lands the same boards',
+	);
+	const config = (await call(make(own), [], '/rgs/engine?sid=c&seq=0')).events.find(
+		(e) => e.event === 'config',
+	).context;
+	const declared = config.paytable.CL;
+	check(
+		JSON.stringify(declared?.occurs) === '[2,3,4,5]' && !config.paytable.WILD,
+		'config declares CL’s row, and no WILD',
+	);
+	const paylines = config.paylines;
+	const exact = priced.every((s) => {
+		const expected = evaluatePaylines(finalBoard(s), 1, paylines, null, {
+			landingWilds: ['CL'],
+			...own,
+		}).map((w) => `${w.context.paylineId}:${w.what}:${w.occurs}`);
+		const paid = s.wins
+			.filter((w) => w.mode === 'line')
+			.map((w) => `${w.context.paylineId}:${w.what}:${w.occurs}`);
+		return JSON.stringify(expected) === JSON.stringify(paid);
+	});
+	const clWins = priced.flatMap((s) => s.wins.filter((w) => w.what === 'CL'));
+	const perLine = new Set(clWins.map((w) => w.pay / CL_ROW[w.occurs]));
+	check(
+		clWins.length > 0 && exact && perLine.size === 1,
+		'the mock pays CL wins at CL’s row, exactly those of the final board',
+		` (${clWins.length})`,
+	);
+	check(
+		plain.every((s) => s.wins.every((w) => w.what !== 'CL')),
+		'without the row the mock never reports a CL win',
+	);
+
+	const rounds = await presented(() => make({ seed: 'clover-facade', ...own }), 'f-clover', 60);
+	const bad = [];
+	let shown = 0;
+	for (const { state, raw } of rounds) {
+		const bet = raw.find((e) => e.event === 'bet').context;
+		const end = raw.find((e) => e.event === 'gameEnd').context.win;
+		const final = state.findLast((e) => e.type === 'setTotalWin' || e.type === 'finalWin');
+		const expected = Math.round((end / (bet.betPerLine * bet.paylines.length)) * 100);
+		if ((final?.amount ?? 0) !== expected) bad.push(`money ${final?.amount} vs ${expected}`);
+		const served = raw.filter((e) => e.event === 'spinWin' && e.context.what === 'CL').length;
+		const engine = state
+			.filter((e) => e.type === 'winInfo')
+			.flatMap((e) => e.wins)
+			.filter((w) => w.symbol === 'CL').length;
+		if (served !== engine) bad.push(`${served} CL wins served, ${engine} shown`);
+		shown += engine;
+	}
+	check(
+		shown > 0 && bad.length === 0,
+		'the facade shows each CL win as CL, and the money agrees',
+		` (${shown} CL wins)${bad.length ? `\n      ${bad.slice(0, 3).join('\n      ')}` : ''}`,
+	);
+}
+
 console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);
 process.exit(failed === 0 ? 0 : 1);

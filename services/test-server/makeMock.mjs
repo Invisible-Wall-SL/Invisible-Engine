@@ -576,6 +576,24 @@ export const validGrid = (grid) => {
 					pattern: gw.pattern,
 				}
 			: null;
+	// Each own-named feature wild's line row (`wildPaytables`), kept only for a wild the grid deals,
+	// shape-checked like the line table. A malformed row drops that wild's row, never the grid.
+	const featureWilds = new Set([
+		...(expandingWilds?.symbols.map((w) => w.symbol) ?? []),
+		...(growingWild ? [growingWild.symbol] : []),
+	]);
+	const wildRows = Object.entries(
+		grid.wildPaytables && typeof grid.wildPaytables === 'object' ? grid.wildPaytables : {},
+	).filter(
+		([name, row]) =>
+			featureWilds.has(name) &&
+			name !== 'WILD' &&
+			row &&
+			typeof row === 'object' &&
+			Object.keys(row).length &&
+			Object.values(row).every((v) => typeof v === 'number'),
+	);
+	const wildPaytables = wildRows.length ? Object.fromEntries(wildRows) : null;
 	// The in-play scatter is also wild (the Book-of book): it substitutes on lines. Only `true`.
 	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
@@ -739,6 +757,7 @@ export const validGrid = (grid) => {
 		...(scatterWild ? { scatterWild: true } : {}),
 		...(expandingWilds ? { expandingWilds } : {}),
 		...(growingWild ? { growingWild } : {}),
+		...(wildPaytables ? { wildPaytables } : {}),
 		...(match3 ? { match3 } : {}),
 	};
 };

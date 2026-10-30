@@ -302,6 +302,20 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-30 — **The test server prices a run of wilds by the wild that leads it** (branch
+  `claude/sweet-babbage-1f324o`, found reviewing #1444). The lines mock priced every leading run of
+  wilds through the `WILD` row and reported `WILD`; the contract's `projectWild` took the first
+  in-play wild with a paytable, so a project whose growing wild `CL` carried a row (and `W` none)
+  had a stray `W` dealt at `CL`'s prices and its `CL` lines reported as `W`. Now the contract sends
+  each expanding/growing wild that travels under its own name with an authored row in a new
+  `wildPaytables` grid field (and keeps it out of `wild`); `makeMock.validGrid` keeps a row only for
+  a wild the grid deals; the mock's `evaluatePaylines` prices a leading run by the LEADING cell's
+  wild — its own row, reported as that wild — the run continuing over any wild, and the `config`
+  event declares the row. A run led by `WILD`, or by a wild with no row, is priced as before. No
+  field ⇒ byte-identical (`check:lines-parity`, `check:deal-parity`, `check:mock-contract`
+  unchanged). Guards: `check:wild-rewrite` §6 (mock and facade agree on `CL` money),
+  `check:mock-contract` "an own-named feature wild carries its own line row". Not a runtime release
+  (mock, test server and launcher contract only).
 - 2026-10-29 — **A reel no longer swaps its symbols when the spin takes over from the pre-spin**
   (branch `claude/reel-handover-jump`). Owner report on `commonoverlayproject`: as each reel's
   opening acceleration ends it snaps to a different set of symbols before rolling on. Logged in
