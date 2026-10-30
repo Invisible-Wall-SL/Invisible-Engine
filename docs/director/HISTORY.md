@@ -15,6 +15,19 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-30 · Director · director-backend (saved prompts on New game)
+- Did: Saved prompts beside Notes and style: a picker grouped by client (Load, Save as… under any
+  targetable client, Update, Delete); director_prompts table (migration 0036_director_prompts),
+  /api/director/prompts routes, access by the New game form's client rule (a hidden client's
+  prompt reads as 404), version-conditional update/delete (409 conflict), unique name per client;
+  confirmations through askConfirm.
+- Branch / PR: claude/tender-archimedes-iz0djq, #1477 (merged 2026-10-30 as a4785b8).
+- Tests: check:director-prompts 48/0 (memory, in Lint) and 92/0 on Postgres 16;
+  check:director-runs 547; check:migration-order; lint; build; svelte-check at baseline.
+- Decisions: owner asked for prompts shared per client and reusable across clients (2026-10-30).
+  Who last edited a prompt is stored, not shown (default).
+- Next: none open.
+
 ## 2026-10-28 · Phase 9 9G · director-backend + director-frontend + regression-guardian
 - Did: Game repair runs (ADR-0012, approved 2026-10-28): repair run kind with reproduce/fix/verify
   and an always-on Repair review; game-doctor (leads, plays the draft, no writes; builder/animator
