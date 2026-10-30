@@ -66,6 +66,11 @@ const ROOM_SOCKET = /\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/;
  *  up. A WebSocket, once upgraded, is not a request and is not timed by it. */
 const REQUEST_TIMEOUT_MS = 10_000;
 
+/** How long an idle kept-alive connection stays open. Node's default (5 s) is shorter than edge
+ *  proxies usually keep their upstream connections (60 s is common): the edge then sends a request
+ *  down one Node just closed and answers the device its own 502, with no CORS headers. */
+const KEEP_ALIVE_MS = 75_000;
+
 /** Sockets one process holds: every player's WebSocket, with room for matchmaking requests. */
 const MAX_CONNECTIONS = 6000;
 
@@ -103,6 +108,7 @@ const readBounded = (req: IncomingMessage): Promise<string | undefined> =>
 		});
 		req.on('end', () => done(Buffer.concat(chunks).toString('utf8')));
 		req.on('error', () => done(undefined));
+		req.on('close', () => done(undefined));
 	});
 
 /**
@@ -127,10 +133,12 @@ const locate = (req: IncomingMessage): URL | undefined => {
  * request whose URL the router could not build (400); one that would carry a body with neither
  * `content-length` nor `transfer-encoding` (411), declares more than {@link MAX_BODY_BYTES}, or
  * streams more than that chunked (413 — Node reads no more than a declared length; a chunked body
- * is read here, bounded, since a proxy may forward a device's body so); and an address's requests that can carry a body (every matchmaking call)
- * past `perWindow` ({@link MATCHMAKE_PER_WINDOW}) in a window (429; counted by method, so no
- * spelling of the path escapes it); and a method it does not serve (405). `trustProxy`: the address is the last `x-forwarded-for` entry,
- * the one the platform's proxy added (Railway); otherwise the socket's. The WebSocket upgrade is
+ * is read here, bounded, since a proxy may forward a device's body so); an address's requests
+ * that can carry a body (every matchmaking call) past `perWindow` ({@link MATCHMAKE_PER_WINDOW})
+ * in a window (429; counted by method, so no spelling of the path escapes it); and a method it
+ * does not serve (405). Every refusal answers CORS for the request's origin. `trustProxy`: the
+ * address is the last `x-forwarded-for` entry, the one the platform's proxy added (Railway);
+ * otherwise the socket's. The WebSocket upgrade is
  * served only for a room seat ({@link ROOM_SOCKET} with a `sessionId`); one address holds at most
  * {@link SOCKETS_PER_ADDRESS} WebSockets and held seats together and opens at most
  * {@link UPGRADES_PER_WINDOW} WebSockets a window.
@@ -143,6 +151,7 @@ function guardedHttpServer(
 	const http = createServer({
 		requestTimeout: REQUEST_TIMEOUT_MS,
 		headersTimeout: REQUEST_TIMEOUT_MS,
+		keepAliveTimeout: KEEP_ALIVE_MS,
 	});
 	http.maxConnections = MAX_CONNECTIONS;
 	const emit = http.emit.bind(http);

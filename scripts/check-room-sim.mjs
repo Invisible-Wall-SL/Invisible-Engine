@@ -720,7 +720,7 @@ try {
 	});
 
 	await check(
-		'live: a page on another origin is let in — preflight, seat and refusal all answer CORS for it',
+		'live: a page on another origin gets CORS on the preflight, a refusal, the matchmaker’s answer and a chunked join',
 		async () => {
 			const origin = 'https://games.example';
 			const url = `http://127.0.0.1:${port}/matchmake/joinOrCreate/${ROOM_NAME}`;
@@ -776,6 +776,7 @@ try {
 				req.end('pe"}');
 			});
 			assert.equal(chunked.res.headers['access-control-allow-origin'], origin);
+			assert.equal(chunked.res.headers['access-control-allow-credentials'], 'true');
 			assert.match(chunked.text, /this game is not available/);
 			assert.equal(game.rooms.count, 0);
 		},
