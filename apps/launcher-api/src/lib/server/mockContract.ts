@@ -128,12 +128,19 @@ function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
  * A SCATTER that is also wild (a Book-of book) is not this wild: its `paytable` is its scatter pay,
  * and it substitutes as `SCAT` (`projectScatterWild`). Taking it here made the mock deal a separate
  * `WILD` — mapped to `W`, which a book project has no art for — priced at the book's scatter row.
+ *
+ * Nor is an expanding or growing wild that travels under its OWN name (`ownNamed`, e.g. `CL`): its
+ * row rides `wildPaytables` (`projectWildRewrite`). Taking it here dealt a stray `W` priced at it.
  */
-function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } | undefined {
+function projectWild(
+	doc: GameConfigDoc,
+	ownNamed: ReadonlySet<string>,
+): { paytable: Record<string, number> } | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	const entry = Object.entries(doc.symbols).find(
 		([name, sym]) =>
 			inPlay.has(name) &&
+			!ownNamed.has(name) &&
 			sym.special_properties?.includes('wild') &&
 			!isScatterSymbol(sym) &&
 			sym.paytable?.length,
@@ -411,15 +418,27 @@ function projectExpandingSymbol(doc: GameConfigDoc, projectKey: string): Grid['e
 	return candidates.length ? { candidates } : undefined;
 }
 
+/** The wilds a rewrite sends under their own name — every one but `WILD` (the project's `W`). */
+function ownNamedWilds(rewrite: Pick<Grid, 'expandingWilds' | 'growingWild'>): Set<string> {
+	return new Set(
+		[
+			...(rewrite.expandingWilds?.symbols.map((w) => w.symbol) ?? []),
+			...(rewrite.growingWild ? [rewrite.growingWild.symbol] : []),
+		].filter((name) => name !== 'WILD'),
+	);
+}
+
 /**
  * The project's expanding and growing wilds for the lines mock, in SERVER names: the in-play `W` is
  * the mock's `WILD`; any other wild keeps its own name, which the facade passes through unmapped. A
  * name the lines vocabulary already gives another meaning cannot travel, so it is left out (warned).
+ * Each own-named wild with an authored paytable carries it in `wildPaytables`: a run of wilds it
+ * leads pays that row. `W`'s row is the `wild` field's (`projectWild`).
  */
 function projectWildRewrite(
 	doc: GameConfigDoc,
 	projectKey: string,
-): Pick<Grid, 'expandingWilds' | 'growingWild'> {
+): Pick<Grid, 'expandingWilds' | 'growingWild' | 'wildPaytables'> {
 	const toServer = new Map(
 		Object.entries(linesMapping.symbols).map(([server, client]) => [client, server]),
 	);
@@ -441,10 +460,19 @@ function projectWildRewrite(
 	});
 	const growing = resolveGrowingWild(doc);
 	const growName = growing && serverName(growing.symbol);
-	return {
+	const rewrite = {
 		...(symbols.length ? { expandingWilds: { symbols } } : {}),
 		...(growing && growName ? { growingWild: { ...growing, symbol: growName } } : {}),
 	};
+	// An own-named wild's server name IS its project name, so its row is read straight off the doc.
+	const wildPaytables = Object.fromEntries(
+		[...ownNamedWilds(rewrite)].flatMap((name) => {
+			const rows = doc.symbols[name]?.paytable;
+			const row = rows?.length ? paytableToOccursMap(rows) : {};
+			return Object.keys(row).length ? [[name, row]] : [];
+		}),
+	);
+	return { ...rewrite, ...(Object.keys(wildPaytables).length ? { wildPaytables } : {}) };
 }
 
 type FreeSpinsFields = Pick<
@@ -663,7 +691,8 @@ function projectGrid(
 				...(potsOverlay ? { potsOverlay } : {}),
 			};
 		}
-		const wild = projectWild(doc);
+		const wildRewrite = projectWildRewrite(doc, projectKey);
+		const wild = projectWild(doc, ownNamedWilds(wildRewrite));
 		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
 		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals
 		// tall-symbol runs — incl. guaranteed edge cutoffs — only for a project that actually stacks
@@ -702,7 +731,6 @@ function projectGrid(
 		const paysLines = model.type === 'lines';
 		const expandingSymbol = paysLines ? projectExpandingSymbol(doc, projectKey) : undefined;
 		const scatterWild = paysLines && projectScatterWild(doc);
-		const wildRewrite = projectWildRewrite(doc, projectKey);
 		// The pots overlay composes over the lines mock as over the book mock (book-feature Phase 4),
 		// its imported modes' names in the lines vocabulary. Last, so a project without it is unchanged.
 		const potsOverlay = inServerNames(potsOverlayMockInputs(doc), linesMapping, projectKey);

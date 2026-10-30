@@ -390,11 +390,18 @@ function hashStr(s) {
  * never pays a line of its own: its pay is the scatter pay, so a line of books alone pays nothing here.
  *
  * `opts.landingWilds` names the expanding and growing wilds (`mock-wild-rewrite.mjs`): they
- * substitute too, and count towards a leading run of wilds the `WILD` paytable prices.
+ * substitute too, and count towards a leading run of wilds.
+ *
+ * Which paytable prices a leading run of wilds: THE LEADING CELL'S. The run continues over any wild
+ * (`WILD` or a landing wild), and is priced by `opts.wildPaytables[leader]` — a landing wild's own
+ * line row, sent only when the project authored one — reported as that wild (`what: leader`).
+ * A run led by `WILD`, or by a landing wild with no row of its own, is priced by the `WILD` paytable
+ * and reported as `WILD`, exactly as before the rows existed.
  */
 export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts = {}) => {
 	const wildPay = wild?.paytable ?? null;
 	const landingWild = (sym) => opts.landingWilds?.includes(sym) === true;
+	const ownWildPay = (sym) => (landingWild(sym) ? (opts.wildPaytables?.[sym] ?? null) : null);
 	const isWild = (sym) =>
 		(wildPay !== null && sym === 'WILD') ||
 		(opts.scatterWild === true && sym === 'SCAT') ||
@@ -411,9 +418,12 @@ export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts 
 			if (isWild(sym) || (base !== null && sym === base)) baseRun++;
 			else break;
 		}
+		const leaderPay = ownWildPay(seq[0]);
+		const runPay = leaderPay ?? wildPay;
+		const runWhat = leaderPay ? seq[0] : 'WILD';
 		let wildRun = 0;
 		for (const sym of seq) {
-			if (wildPay !== null && (sym === 'WILD' || landingWild(sym))) wildRun++;
+			if (runPay !== null && ((wildPay !== null && sym === 'WILD') || landingWild(sym))) wildRun++;
 			else break;
 		}
 		let best = null;
@@ -425,10 +435,10 @@ export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts 
 		// so no future table can reintroduce the double-pay.
 		const baseMult = base !== null && base !== 'SCAT' ? (payRowOf(opts, base)?.[baseRun] ?? 0) : 0;
 		if (baseMult > 0) best = { what: base, occurs: baseRun, pay: baseMult * betPerLine };
-		const wildMult = wildPay && wildRun > 0 ? (wildPay[wildRun] ?? 0) : 0;
+		const wildMult = runPay && wildRun > 0 ? (runPay[wildRun] ?? 0) : 0;
 		if (wildMult > 0) {
 			const pay = wildMult * betPerLine;
-			if (!best || pay > best.pay) best = { what: 'WILD', occurs: wildRun, pay };
+			if (!best || pay > best.pay) best = { what: runWhat, occurs: wildRun, pay };
 		}
 		if (best) {
 			wins.push({
@@ -1093,11 +1103,23 @@ export function createMockRgs(opts = {}) {
 	})();
 	/** The feature wilds this instance deals that nothing else declares. */
 	const LANDING_WILDS = (wildRewrite?.names ?? []).filter((name) => !(name === 'WILD' && wild));
+	/**
+	 * Each feature wild's OWN line row (`opts.wildPaytables`, server names), for a wild other than
+	 * `WILD` whose project authored one: a run of wilds it leads pays it (`evaluatePaylines`). None ⇒
+	 * absent from `evalOpts`, so every run is priced by the `WILD` paytable as before.
+	 */
+	const WILD_PAYTABLES = Object.fromEntries(
+		LANDING_WILDS.filter((name) => name !== 'WILD')
+			.map((name) => [name, normalizeWildPaytable(opts.wildPaytables?.[name])])
+			.filter(([, row]) => Object.keys(row).length),
+	);
+	const ownWildPays = Object.keys(WILD_PAYTABLES).length ? WILD_PAYTABLES : null;
 	const evalOpts = {
 		pool: LINE_POOL,
 		symbolPaytable: opts.symbolPaytable ?? null,
 		...(scatterWild ? { scatterWild } : {}),
 		...(wildRewrite ? { landingWilds: wildRewrite.names } : {}),
+		...(ownWildPays ? { wildPaytables: ownWildPays } : {}),
 	};
 	/** Every symbol that substitutes on a line, as `config` and `spinStart` declare them. */
 	const WILD_SYMBOLS = [
@@ -2004,6 +2026,7 @@ export function createMockRgs(opts = {}) {
 						Object.entries({
 							...EFFECTIVE_PAY_TABLE,
 							...(wild ? { WILD: wild.paytable } : {}),
+							...ownWildPays,
 							...(SCATTER_PAYS ? { SCAT: SCATTER_PAYS } : {}),
 						}).map(([sym, byCount]) => {
 							const counts = Object.keys(byCount)

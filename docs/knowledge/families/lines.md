@@ -76,6 +76,7 @@ gone wrong with them. Owner agent: `lines-games`.
   `resolveExpandingWilds` / `resolveGrowingWild` (lines win model, no tumble, a dealt non-scatter
   wild). Neither block ⇒ no extra draw in the mock (`check:lines-parity`). An expansion leaves a
   scatter, the trigger symbol and a growing wild in place; a grow never overwrites a scatter.
+  A run of wilds is priced by its LEADING wild's own row (`wildPaytables`), else by `W`'s (`wild`).
 - **The book reveal is unskippable.** `setExpandingSymbol` is in `UNSKIPPABLE_BOOK_EVENTS`
   (`apps/lines/src/game/unskippablePresentation.ts`).
 - **`bookIntro` / `bookIdle` inherit the symbol's effective `win` binding** unless bound

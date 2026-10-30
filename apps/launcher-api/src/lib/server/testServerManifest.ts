@@ -403,6 +403,10 @@ export interface TestServerGameEntry {
 		expandingWilds?: { symbols: { symbol: string; reels: number[] }[] };
 		/** The growing wild (same gate), in SERVER names, every default resolved. Absent ⇒ none. */
 		growingWild?: { symbol: string; reels: number[]; freeSpinReels: number[]; pattern: string };
+		/** The line row, occurs → multiplier, of each expanding or growing wild sent under its OWN
+		 *  name (not `WILD`) whose project authored one: a run of wilds it leads pays it. Absent ⇒
+		 *  every run of wilds is priced by `wild`, as before. See `projectWildRewrite`. */
+		wildPaytables?: Record<string, Record<string, number>>;
 		/** `true` when the in-play scatter is also wild (a Book-of book): the lines mock substitutes
 		 *  `SCAT` on lines and declares it in `wildSymbols`. Absent ⇒ the scatter is only a scatter. */
 		scatterWild?: true;
