@@ -10,11 +10,7 @@ import { loadCatalogBitmapFont } from '$lib/fontLoad.client';
 import type { BakeEffects } from './fontBake.client';
 import type { CharsetPreset } from './charsets.client';
 
-export type {
-	CatalogFont,
-	ParsedDescriptor,
-	LocalBitmapFont,
-} from '$lib/fontLoad.client';
+export type { CatalogFont, ParsedDescriptor, LocalBitmapFont } from '$lib/fontLoad.client';
 export {
 	parseDescriptorClient,
 	loadLocalBitmapFont,
@@ -282,4 +278,54 @@ async function errText(res: Response, fallback: string): Promise<string> {
 	} catch {
 		return `${fallback} (${res.status})`;
 	}
+}
+
+/** One doc's part of a swap report (`$lib/server/fontSwap` `FontSwapPart`). */
+export interface FontSwapPart {
+	doc: string;
+	label: string;
+	path: '/editor' | '/flow-v2' | '/symbols';
+	refs: string[];
+	status: 'none' | 'planned' | 'written' | 'skipped' | 'error';
+	note?: string;
+}
+
+/** What a swap found (dry run) or did (apply). */
+export interface FontSwapReport {
+	from: { id: string; name: string };
+	to: { id: string; name: string };
+	applied: boolean;
+	parts: FontSwapPart[];
+	rigText: { bundle: string; elements: string[] }[];
+	blocked?: string;
+}
+
+/** Every font the project's game renders (own catalog + shared library) — the swap choices. */
+export async function fetchSwapFonts(): Promise<CatalogFont[]> {
+	try {
+		const res = await fetch('/api/fonts/swap');
+		if (!res.ok) return [];
+		return ((await res.json()) as { fonts?: CatalogFont[] }).fonts ?? [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Report (dry run) or perform (`expect` set: the reference count the user confirmed) a swap of
+ * `from` for `to` in `projectKey`, the project this page loaded. Throws on failure.
+ */
+export async function swapFont(args: {
+	from: string;
+	to: string;
+	projectKey: string;
+	expect?: number;
+}): Promise<FontSwapReport> {
+	const res = await fetch('/api/fonts/swap', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ ...args, apply: args.expect !== undefined }),
+	});
+	if (!res.ok) throw new Error(await errText(res, 'Swap failed.'));
+	return (await res.json()) as FontSwapReport;
 }

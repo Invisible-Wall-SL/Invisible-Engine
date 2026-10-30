@@ -15,6 +15,7 @@ Works today on `main` (code complete, most flows not yet browser-verified):
 - **id-collision guard** — a new font whose `id`/`folder` already exists is rejected **409** unless `overwrite: true` (explicit UI opt-in); this is the fix for the past bug where a same-id font silently replaced another.
 - The consume side ships: coded HUD/label text honours authored bitmap fonts via the shared `CatalogText` (fixed 2026-07-03).
 - **Ship chain** — `fontExport.ts` writes `deploy/editor-fonts/`, both bundle assemblies carry it (the live runtime via `runtimeBundle.ts`, the desktop bake via `/api/editor/export-fonts`), and `pull-project-assets.mjs` mirrors + prunes `editor-fonts/`.
+- **Swap** — replaces one font with another across the project's docs (Scene Editor, project components and their defaults, Flow v2, Symbols) with a dry-run report first. Rig text is reported for a Rigger re-bake, not rewritten.
 - **Missing glyphs are dropped, not fatal** — `packages/pixi-svelte/src/lib/sanitizeBitmapText.ts` removes characters the bitmap font lacks before layout, so a narrow preset (e.g. `currency`) renders without them instead of blanking the screen.
 
 ## Open items / next
@@ -26,6 +27,21 @@ Works today on `main` (code complete, most flows not yet browser-verified):
 - None.
 
 ## Recent changes
+- 2026-10-29 — **Swap tab: replace a font everywhere in the project.** `POST /api/fonts/swap`
+  (`lib/server/fontSwap.ts`) reports (dry run) or rewrites every reference to one font so it names
+  another. A ref matches when `findFont` resolves it to the swapped entry against the renderable
+  catalog, so id refs, legacy name refs and the Symbols tool's name refs are all caught, while a
+  face-name twin or a built-in family is not. The pure rewriters live in `fontSwapRewrite.ts`,
+  covered by `check:font-swap`. Writes go through each doc's own save with `'always'` backups and
+  its ETag; open Scene Editor / Flow / Symbols leases block the apply, and a doc whose tool the
+  caller's role lacks is skipped (the component docs gate on `editor`, as their own routes do).
+  Component defs are rewritten from their STORED bytes (`loadStoredProjectComponent`), never the
+  coded-param merge; Component Editor leases on each touched def block the apply too. The apply
+  refuses when its re-read count differs from the dry run the user confirmed, and when the page's
+  project is no longer the session's (409). Writes are per object, so a partial write says what
+  landed. Rig text, shared-library defs, version-pinned instances and fonts used only as an
+  implicit default are out of scope (reported or documented). `GET /api/fonts/swap` lists the renderable fonts with
+  preview URLs. Not browser-verified yet.
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `fonts.list` reads
   the fonts a game renders (`loadRenderableFonts`). Its `fonts.bake_from_ttf`
   (`apps/launcher-api/src/lib/server/director/ops/fonts.ts`) cannot bake, since the bake runs in the
