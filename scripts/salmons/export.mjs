@@ -10,6 +10,9 @@
 //   <client>/<project>/editor/scenes.json   the river layout, HUD and round over (`engine-layout` salmons.ts)
 //   <client>/<project>/editor/flow-v2.json  its flow (`engine-flow-v2` salmonsSeed.ts)
 //   editor/<project>/components/<id>.json   the placeholder looks (characters, swipe, cast)
+//
+// Every segment is the launcher's `r2Slug` (`projectComponentKey` lowercases `salmonsBear` to
+// `salmonsbear`), so the launcher finds what this writes.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -23,6 +26,7 @@ import {
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
 import { validateFamily } from '../../packages/game-config/src/familyValidate.ts';
+import { r2Slug } from './r2Slug.mjs';
 
 const { values: opt } = parseArgs({
 	options: {
@@ -46,10 +50,12 @@ const errors = validateFamily(config).filter((issue) => issue.severity === 'erro
 if (errors.length)
 	throw new Error(`the Salmons config does not validate: ${JSON.stringify(errors)}`);
 const layout = { ...salmonsReferenceLayout(river), projectKey: opt.project };
+const client = r2Slug(opt.client);
+const project = r2Slug(opt.project);
 
 console.log(`Salmons (river ${river.seed}) → ${out}`);
-write(`${opt.client}/${opt.project}/config/config.json`, config);
-write(`${opt.client}/${opt.project}/editor/scenes.json`, layout);
-write(`${opt.client}/${opt.project}/editor/flow-v2.json`, SALMONS_SEED_DOC);
+write(`${client}/${project}/config/config.json`, config);
+write(`${client}/${project}/editor/scenes.json`, layout);
+write(`${client}/${project}/editor/flow-v2.json`, SALMONS_SEED_DOC);
 for (const def of SALMONS_CHARACTER_COMPONENTS)
-	write(`editor/${opt.project}/components/${def.id}.json`, def);
+	write(`editor/${project}/components/${r2Slug(def.id)}.json`, def);

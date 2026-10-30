@@ -98,7 +98,9 @@ the placeholders when they are.
    `invisible_wall/salmons/config/config.json` (replaces the dodger's config),
    `invisible_wall/salmons/editor/scenes.json` (replaces its screens),
    `invisible_wall/salmons/editor/flow-v2.json` (Salmons' flow, replacing the offline arcade
-   starter) and the five `editor/salmons/components/salmons*.json`. Back up the current files first.
+   starter) and the five lowercase `editor/salmons/components/salmons*.json` (`salmonsbear.json`
+   and so on: the launcher reads a component at its `r2Slug`-ed id; camelCase files are never
+   found). Back up the current files first.
 2. (No longer needed since P11.2: the export now writes Salmons' own flow over the starter.)
 3. **Publish** `salmons` from Game Maker. Since P11.2 (c) the publish writes the game server's
    address into the launch URL as `rooms_url` (the launcher's `GAME_SERVER_URL`, by default
