@@ -682,11 +682,11 @@
 			[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
 			// §17 Phase 3 — same for the outro's positionable visual.
 			[FREE_SPIN_OUTRO_VISUAL_DEF.id]: FREE_SPIN_OUTRO_VISUAL_DEF,
-			// Makes `getComponent('win')` resolve so the `winVisual` `game`-space scene (emitted only
-			// when the win overlay is split) expands into its bound `WinVisual` part, positioned by the
-			// editor node. Pure registration otherwise (no scene references it ⇒ no render change — the
-			// OFF composer `bind:Win` renders unchanged). Book of Borut opts in by placing the `win`
-			// component in the editor (the shared def carries `boundToInstance:true`).
+			// Makes `getComponent('win')` resolve so a `win` instance an author placed (e.g. in a
+			// `winVisual` scene) expands into its bound `WinVisual` part, positioned by the editor node.
+			// Pure registration otherwise (no scene references it ⇒ no render change — the composer
+			// `bind:Win` renders unchanged). Book of Borut places the `win` component in the editor (the
+			// shared def carries `boundToInstance:true`).
 			[WIN_DEF.id]: WIN_DEF,
 			// Book-reveal authoring — makes `getComponent('expandingSymbol')` resolve so an
 			// `expandingSymbol` instance expands into its bound `ExpandingSymbol` part (the chosen
