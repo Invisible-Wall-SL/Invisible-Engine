@@ -31,5 +31,7 @@ export * from './pressHold';
 export * from './rigBoneRotation';
 // One particle time scale (turbo): every `<ParticleEmitter>` steps by it, emission timers divide by it.
 export * from './particleClock';
+// One particle quality factor: every `<ParticleEmitter>` scales its cap and spawn chance by it.
+export * from './particleBudget';
 // The missing-asset diagnostic `Sprite` logs, for a texture-keyed view outside this package.
 export { hasAssetKey, warnMissingAsset } from './missingAsset';
