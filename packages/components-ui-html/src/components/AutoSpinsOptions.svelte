@@ -16,7 +16,7 @@
 	// The landscape grid drops `1000` from the DEFAULT ladder only: an operator's list is offered
 	// exactly as declared, so trimming it would hide an option their licence asked for.
 	const options = $derived(
-		stateLayoutDerived.layoutType() === 'landscape' && !stateOperator.autoplaySpins
+		stateLayoutDerived.layoutKind() === 'landscape' && !stateOperator.autoplaySpins
 			? autoSpinsOptions().filter((value) => value !== '1000')
 			: autoSpinsOptions(),
 	);

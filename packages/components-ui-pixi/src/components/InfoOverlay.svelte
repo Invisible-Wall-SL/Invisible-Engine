@@ -85,7 +85,7 @@
 	{@const ch = stateLayoutDerived.canvasSizes().height}
 	{@const cw = stateLayoutDerived.canvasSizes().width}
 	{@const std = stateLayoutDerived.mainLayoutStandard()}
-	{@const base = BAR_BASE[stateLayoutDerived.layoutType()] ?? 150}
+	{@const base = BAR_BASE[stateLayoutDerived.layoutKind()] ?? 150}
 	{@const barTopStd = std.height - base - 24}
 	{@const barTopCanvas = ch / 2 + (barTopStd - std.height / 2) * std.scale}
 

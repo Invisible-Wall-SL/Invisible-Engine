@@ -9,7 +9,7 @@
 	import { formatBetAmount } from '../betAmountFormat';
 
 	const { stateLayoutDerived } = getContextLayout();
-	const count = $derived(stateLayoutDerived.layoutType() === 'landscape' ? 15 : 18);
+	const count = $derived(stateLayoutDerived.layoutKind() === 'landscape' ? 15 : 18);
 	const options = $derived(
 		[
 			...stateConfig.betMenuOptions.slice(0, count - 1),

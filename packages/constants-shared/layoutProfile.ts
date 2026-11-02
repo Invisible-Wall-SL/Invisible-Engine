@@ -125,6 +125,25 @@ export const selectBucket = (profile: LayoutProfile, size: LayoutBucketBox): Lay
 	);
 };
 
+/** The four bucket kinds the CODED UI is built for (Stake's drawer HUD, menu grids, …). */
+export type CodedLayoutKind = 'desktop' | 'tablet' | 'landscape' | 'portrait';
+
+const CODED_LAYOUT_KINDS = new Set<string>(['desktop', 'tablet', 'landscape', 'portrait']);
+
+/**
+ * Which coded layout serves a bucket. Authored data (HUD positions, node overrides, boxes) is
+ * keyed by the bucket's OWN id; only code that picks a hand-built STRUCTURE asks this. A legacy
+ * id is its own kind (parity); a `stacked` author bucket is portrait (the drawer); any other is
+ * classed by the default rules on the live window, never as portrait, which is only for stacking.
+ * Without this an author-added bucket matched none of the coded branches and lost its HUD.
+ */
+export const codedLayoutKind = (bucket: LayoutBucket, size: LayoutBucketBox): CodedLayoutKind => {
+	if (CODED_LAYOUT_KINDS.has(bucket.id)) return bucket.id as CodedLayoutKind;
+	if (bucket.stacked) return 'portrait';
+	const kind = selectBucket(DEFAULT_LAYOUT_PROFILE, size).id as CodedLayoutKind;
+	return kind === 'portrait' ? 'tablet' : kind;
+};
+
 /** Find a bucket by id (undefined if absent). */
 export const findBucket = (profile: LayoutProfile, id: string): LayoutBucket | undefined =>
 	profile.buckets.find((b) => b.id === id);

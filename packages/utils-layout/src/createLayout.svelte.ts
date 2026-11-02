@@ -1,6 +1,7 @@
 import { innerWidth, innerHeight } from 'svelte/reactivity/window';
 import {
 	DEFAULT_LAYOUT_PROFILE,
+	codedLayoutKind,
 	resolveBucketBox,
 	selectBucket,
 	type LayoutProfile,
@@ -133,11 +134,13 @@ export const createLayout = (layoutOptions: {
 	const selectedBucket = () => bucket;
 	const layoutType = () => selectedBucket().id;
 	const isStacked = () => selectedBucket().stacked === true;
+	const kind = $derived(codedLayoutKind(bucket, canvasSizes()));
+	const layoutKind = () => kind;
 
 	// `authored` = the GAME box (the one the Scene Editor lays nodes out against), so a
-	// published `doc.mainSizesMap` overrides it. `fallbackBox` guards the case where a coded
-	// game ships no box for an author-added bucket id: fall back to the game's own fallback-
-	// bucket box, then the profile's design box — never `undefined.width`.
+	// published `doc.mainSizesMap` overrides it. A bucket the doc has no box for takes the
+	// game's coded box when it has one for that id, else the PROFILE's box for it — never the
+	// coded fallback bucket's (Stake's 1422×800 desktop), which no author drew this bucket for.
 	const createMainLayout =
 		(mainSizesMap: MainSizesMap, authored = false) =>
 		() => {
@@ -148,7 +151,6 @@ export const createLayout = (layoutOptions: {
 			const mainSizes =
 				(authored ? authoredMainSizesMap?.[id] : undefined) ??
 				mainSizesMap[id] ??
-				mainSizesMap[profile.fallbackBucketId] ??
 				resolveBucketBox(profile, id);
 			const widthScale = canvasSizes().width / mainSizes.width;
 			const heightScale = canvasSizes().height / mainSizes.height;
@@ -217,6 +219,7 @@ export const createLayout = (layoutOptions: {
 		canvasRatioType,
 		canvasSizeType,
 		layoutType,
+		layoutKind,
 		isStacked,
 		mainLayout,
 		mainLayoutStandard,

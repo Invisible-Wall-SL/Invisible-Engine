@@ -321,6 +321,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   particles, 134 → 31 screens. Seeded renders of `commonoverlayproject` match `main` exactly.
   Hidden-container emitters are NOT paused: an ambient effect on a screen shown later would start
   empty, and skipping updates shifts the seeded random sequence. Not verified on a physical phone.
+- 2026-11-02 — **An author-added layout bucket no longer falls back to Stake values.** Two coded
+  leftovers from the four fixed buckets: (1) a bucket with no canvas size in the doc took the coded
+  fallback bucket's box (`stateLayout.ts`: Stake desktop 1422×800) ahead of its own profile box —
+  `createLayout` now goes doc box → coded box for that id → profile box; (2) the coded UI compared
+  the bucket id with `landscape`/`portrait`, and `UIDefault` indexed its HUD map by it, so an
+  added bucket drew no coded HUD at all. New `stateLayoutDerived.layoutKind()` (`codedLayoutKind`
+  in `constants-shared/layoutProfile.ts`) names the coded layout a bucket uses: a legacy id is its
+  own kind, a `stacked` bucket is portrait, any other is classed by the default rules on the live
+  window. Authored data (HUD positions, overrides, boxes) stays keyed by the bucket id. Identical
+  for the default profile (parity grid in `test-layout-profile-parity.mjs`);
+  `check:canvas-window-scale` covers the box order. A runtime release on merge.
 - 2026-10-30 — **The test server prices a run of wilds by the wild that leads it** (branch
   `claude/sweet-babbage-1f324o`, found reviewing #1444). The lines mock priced every leading run of
   wilds through the `WILD` row and reported `WILD`; the contract's `projectWild` took the first

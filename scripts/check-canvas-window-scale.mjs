@@ -648,5 +648,35 @@ check(
 	),
 );
 
+// An author-added bucket with no canvas size in the doc and none coded: the game box is the
+// bucket's own profile box, not the coded fallback bucket's, and the coded UI gets a real kind.
+setAuthoredLayoutProfile({
+	...PROFILE,
+	buckets: [
+		{
+			id: 'ultrawide',
+			label: 'Ultrawide',
+			box: { width: 2560, height: 1080 },
+			rule: { minRatio: 2.2 },
+		},
+		...PROFILE.buckets,
+	],
+});
+at(2560, 1080);
+const wide = layout.stateLayoutDerived;
+check(
+	'an added bucket with no box anywhere takes its profile box, not the coded fallback',
+	wide.layoutType() === 'ultrawide' &&
+		wide.mainLayout().width === 2560 &&
+		wide.mainLayout().height === 1080,
+	`${wide.layoutType()} ${wide.mainLayout().width}×${wide.mainLayout().height}`,
+);
+check(
+	'...and the coded UI draws it as desktop',
+	wide.layoutKind() === 'desktop',
+	wide.layoutKind(),
+);
+setAuthoredLayoutProfile(PROFILE);
+
 console.log(failures ? `\n${failures} FAILED` : '\nAll canvas window-scale checks passed.');
 process.exit(failures ? 1 : 0);
