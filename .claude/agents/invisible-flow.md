@@ -18,8 +18,8 @@ foundation and `launcher-studio` for launcher/auth/R2) — your edge is this too
   finish meaningful work (not `docs/STATUS.md`, never `docs/history.md`).
 - **`docs/design/invisible-flow-v2.md`** + **`docs/design/invisible-flow-v2-schema.md`** — the v2
   model and the FlowDoc schema. `docs/design/flow-driven-game.md` is the build program for
-  driving a whole game from Flow. `docs/design/invisible-flow.md` is the v1 plan: its editor is
-  retired, but its runtime primitives are still load-bearing.
+  driving a whole game from Flow. `docs/design/invisible-flow.md` is the v1 plan: its editor and
+  authored doc path are removed; only the default boot flow survives.
 - **`docs/tools/flow.md`** — the user guide; update it in the same change when the UI changes.
 
 ## Code map
@@ -39,8 +39,9 @@ foundation and `launcher-studio` for launcher/auth/R2) — your edge is this too
 - **Game side:** `apps/lines/src/game/flowV2Runtime.svelte.ts` (`flowV2DrivesScreens`, ownership),
   `flowV2InterpreterHolder.ts`, `flowEffects.ts` (`screenTransition` /
   `waitForScreenTransition` call the `screenTransitions.ts` seam, bound in `Game.svelte` to the
-  `pixi-svelte/screenFx` runtime; Shader Graph 8e.4); the v1 `flow*` modules and `packages/engine-flow`
-  are still imported by v2 export, the FX tool and the runtime — do not delete them.
+  `pixi-svelte/screenFx` runtime; Shader Graph 8e.4); `packages/engine-flow` +
+  `createLinesFlow` (`flowRuntime.svelte.ts`) only boot the synthesized default `loading → basegame`
+  flow when no v2 flow drives screens; there is no v1 authored doc to export, bake or load.
 
 ## Contracts you must preserve
 1. **Fall-through parity.** An event or screen the FlowDoc does not own falls through to the

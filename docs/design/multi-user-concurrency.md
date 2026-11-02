@@ -395,7 +395,7 @@ missed these)*:
   architecture change to buy atomicity nobody needs. Two objects, one guard, no lost
   work.
 - **Do NOT add `If-Match` to build output** — `editorArtExport`, `effectExport`,
-  `flowExport`, `flowV2Export`, `fontExport`, `symbolExport`, `rig.ts:602` all write
+  `flowV2Export`, `fontExport`, `symbolExport`, `rig.ts:602` all write
   under `deploy/` and are re-derived wholesale on every export; a precondition would
   only make a re-run fail. Same for the `skeletons.json` rebuilds (derived by LIST).
 - `projectScaffold.ts:91` seeds behind an `objectExists` check — a TOCTOU race whose

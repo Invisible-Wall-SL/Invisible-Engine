@@ -10,6 +10,12 @@
 > signals + component params, with the Flow graph driving the whole game** —
 > loading screen → tap to enter → basegame → win-driven branching, end to end in a
 > shipped game.
+>
+> **v1 authored doc path removed 2026-11-02.** Where a phase below names `flowDoc.ts`,
+> `LINES_FLOW_DOC`, `BakedBundle.flow`, `deploy/flow.json`, `flowExport.ts`, `bakedFlowDoc()` or an
+> `__IE_FLOW_*__` dev hook, that is the v1 path as it was built — all of it is gone. Authored flow
+> ships as Flow v2 (`deploy/flow-v2.json` → `bakedFlowV2Doc()`); `engine-flow` survives only for
+> the synthesized default `loading → basegame` boot flow.
 > Owner direction 2026-06-30 (review session). Related: `invisible-flow.md` (the runtime
 > interpreter + pin model this extends), `invisible-editor.md` (the component/scene model +
 > the four-registry `declare ≠ implement` contract), `live-assets.md` (the export→bake→pull→
@@ -649,6 +655,8 @@ invocation.
   unbound `source` name today, so no new failure mode.
 
 ### 11.7 Deploy → bake → register chain (rule 8)
+
+> Historical (v1, removed 2026-11-02 — see the note at the top).
 
 The FlowDoc already travels export → `deploy/flow.json` → bake (`BakedBundle.flow`) → register
 (`bakedFlowDoc()`), and a `value` trigger is just new content inside the SAME doc. The ONLY chain

@@ -29,9 +29,9 @@ no per-game code.
 ## Architecture — reuse, not new plumbing
 
 Invisible Flow v2 has no "feature nodes"; the extension surfaces are vocabulary, containers,
-and functions. The book reveal is already modelled as **one overlay step** (`bookOwnership.ts`):
-screen `specialBook` + event `setExpandingSymbol` + an awaited `specialBookReveal` cue, with a
-generic ownership gate — *any authored node in the `specialBook` scene that isn't the coded
+and functions. The book reveal was modelled as **one overlay step** (`bookOwnership.ts`, deleted
+2026-11-02 with the v1 flow doc path): screen `specialBook` + event `setExpandingSymbol` + an
+awaited `specialBookReveal` cue, with a generic ownership gate — *any authored node in the `specialBook` scene that isn't the coded
 `SpecialBook` bind anchor* flips ownership, suppressing the coded shuffle and running the
 authored reveal instead.
 

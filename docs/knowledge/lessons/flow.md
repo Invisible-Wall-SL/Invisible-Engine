@@ -60,7 +60,7 @@ A kind change that shipped the old kind's flow (`flow-wrong-kind`):
 ### A known-red baseline hid a real bug
 - **Symptom:** the flow-spike suite carried "6 known reds" for weeks.
 - **Cause:** one red was a real bug: the offline translator wired every omitted optional param to
-  `$trigger.<param>` (`engine-flow-migrate/src/translate.ts`); others were stale assertions.
+  `$trigger.<param>` (`engine-flow-migrate`, since deleted); others were stale assertions.
 - **Fix:** all fixed; every `tools/flow-spike` script runs in `pnpm check:all` (CI `Checks`).
 - **Guard:** CI. Never accept a red baseline; fix or delete the check.
 - **PR:** not recorded (2026-09-30) · source: `docs/status/flow.md`
