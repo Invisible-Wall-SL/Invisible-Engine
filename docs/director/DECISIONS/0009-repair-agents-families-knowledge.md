@@ -167,6 +167,11 @@ gate.
 | `families/<family>.md` | The family's invariants, where its code lives, its known failure modes, how to test it | ≤ 200 lines | the family agent, `game-playtester`; the runtime family pack is generated from its "runtime" section |
 | `lessons/<area>.md` | Entries of **symptom → cause → fix → guard → PR**, at most 8 lines each, deduplicated by symptom | ≤ 300 lines; older entries roll into the guard they produced | the owning tool agent, `pipeline-triage`, `game-doctor` (by area) |
 
+> Superseded in part by 9F (#1412, owner 2026-10-27): the runtime family pack
+> (`services/director-worker/families/*.md`) is the single source of runtime family text, not
+> generated from a "runtime" section. `docs/knowledge/families/*.md` link to the pack's sections
+> instead of repeating them.
+
 - **Read order changes.** An agent's "Read first" puts its knowledge file **before** the status
   file. The status file stays the full record (rule 6) and is read only for the part in hand.
 - **Personal memory is folded in.** The ~38 `[[…]]` links are replaced by links to lessons entries.

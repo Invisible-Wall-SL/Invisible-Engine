@@ -5,6 +5,13 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### Two PRs each add a launcher migration; the one merged second to land first is skipped
+- **Symptom:** two open PRs each generated a migration (9F's 0034, 9G's 0035, 2026-10-27). Merged out of order, production silently skips the earlier-numbered one: fresh-DB tests cannot see it.
+- **Cause:** drizzle's postgres-js migrator applies a migration only when its journal `when` is later than the newest applied `created_at` (`src/lib/server/db/migrate.ts`).
+- **Fix:** the PR that merges second regenerates its migration on top of the merged main.
+- **Guard:** `check:migration-order` in Lint (`scripts/check-migration-order.mjs`).
+- **PR:** #1436
+
 ### A desktop publish sits on "Writing the build breakdown…" for an hour
 - **Symptom:** after the build finished, ☁ Publish stayed on "Writing the build breakdown…" far
   longer than the build itself (a 30 MB game); ending `node.exe` let the upload carry on.
