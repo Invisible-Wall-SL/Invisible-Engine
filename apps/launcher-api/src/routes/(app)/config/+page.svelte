@@ -33,6 +33,7 @@
 		coinEntryLabel,
 		formatPayRow,
 		holdAndWinIsOverlayBonus,
+		inPlayStripKeys,
 		isHoldAndWinSymbol,
 		isScatterSymbol,
 		partnerPaytableDrift,
@@ -579,21 +580,22 @@
 	}
 	/** Put a symbol ON the reel strips (making it IN PLAY / dealable) or take it OFF — the click behind
 	 *  the in-play badge, so a symbol reaches the board without hand-editing raw JSON. Adds one cell to
-	 *  every reel of every game-type strip; removing strips out every cell of that name (never emptying
-	 *  a reel). The in-play gate reads the strips, so the badge flips the instant this runs. These are
-	 *  the COSMETIC strips (what's dealt / flickers past), not the math team's weighted hit-rate. */
+	 *  every reel of every game-type strip it belongs on (`inPlayStripKeys`: a line symbol stays off
+	 *  the respin strips); removing strips out every cell of that name (never emptying a reel). The
+	 *  in-play gate reads the strips, so the badge flips the instant this runs. These are the
+	 *  COSMETIC strips (what's dealt / flickers past), not the math team's weighted hit-rate. */
 	function toggleInPlay(name: string) {
 		if (!doc.symbols[name]) return;
-		const types = Object.keys(doc.paddingReels);
 		if (inPlay.has(name)) {
-			for (const gt of types) {
+			for (const gt of Object.keys(doc.paddingReels)) {
 				doc.paddingReels[gt] = doc.paddingReels[gt].map((reel) => {
 					const kept = reel.filter((cell) => cell.name !== name);
 					return kept.length ? kept : reel; // a strip must always deal something
 				});
 			}
 		} else {
-			for (const gt of types) for (const reel of doc.paddingReels[gt]) reel.push({ name });
+			for (const gt of inPlayStripKeys(doc, name))
+				for (const reel of doc.paddingReels[gt]) reel.push({ name });
 		}
 	}
 	function setProperties(name: string, value: string) {

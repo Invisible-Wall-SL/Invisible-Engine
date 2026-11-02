@@ -19,6 +19,7 @@
 import { resolveFreeSpins } from './freeSpins';
 import {
 	holdAndWinBlankSymbol,
+	isHoldAndWinSymbol,
 	normalizeHoldAndWin,
 	symbolsWithRole,
 	validateHoldAndWin,
@@ -398,6 +399,25 @@ export function respinModeBlocks(doc: BonusDoc): RespinModeBlock[] {
 	}));
 }
 
+/** The strip keys the respin modes roll their boards from. A coin board's base game plays on the
+ *  respin board too, but its strips are the base game's, so they are not among them. */
+export const respinStripKeys = (doc: GameConfigDoc): Set<string> =>
+	new Set(
+		resolveGameModes(doc)
+			.filter((mode) => mode.board === 'respinBoard' && mode.id !== BASE_GAME_MODE)
+			.map((mode) => gameTypeForMode(mode)),
+	);
+
+/** The strips a symbol goes on when `/config` puts it in play: every strip, except that a line
+ *  symbol (no Hold and Win role) stays off the respin strips, whose boards deal only coins,
+ *  specials and blanks. */
+export function inPlayStripKeys(doc: GameConfigDoc, name: string): string[] {
+	const keys = Object.keys(doc.paddingReels);
+	if (isHoldAndWinSymbol(doc.symbols[name])) return keys;
+	const respin = respinStripKeys(doc);
+	return keys.filter((key) => !respin.has(key));
+}
+
 /** Is this respin set the lone default — `holdAndWin` on the `respin` strip, alone? Such a game's
  *  wire and mock inputs are exactly what they were before bonus modes (design §2.2). */
 export const isLoneDefaultRespinSet = (modes: readonly RespinModeBlock[]): boolean =>
@@ -506,6 +526,16 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 				severity: 'warning',
 				path: `${path}.gameType`,
 				message: `The respin mode "${mode.id}" has no "${gameType}" strips to deal its respins from.`,
+			});
+		}
+		const lineSymbols = symbolsInPlayForGameType(doc, gameType).filter(
+			(name) => doc.symbols[name] && !isHoldAndWinSymbol(doc.symbols[name]),
+		);
+		if (mode.holdAndWin && lineSymbols.length) {
+			issues.push({
+				severity: 'warning',
+				path: `paddingReels.${gameType}`,
+				message: `${lineSymbols.join(', ')} ${lineSymbols.length === 1 ? 'is a line symbol' : 'are line symbols'} on the "${gameType}" strips, so the "${mode.id}" respin board shows ${lineSymbols.length === 1 ? 'it' : 'them'}. Set it unused in Symbols, then in play again: that puts a line symbol on the base strips only.`,
 			});
 		}
 		const blank = mode.holdAndWin?.blank;
