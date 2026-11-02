@@ -75,7 +75,3 @@ export const createPlay4FunSessionState = (sid: string): Play4FunSessionState =>
 		},
 	};
 };
-
-// ---------- Back-compat alias (will remove on rename) ----------
-export const createEAGamingSessionState = createPlay4FunSessionState;
-export type EAGamingSessionState = Play4FunSessionState;

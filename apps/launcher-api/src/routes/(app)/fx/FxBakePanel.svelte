@@ -8,6 +8,7 @@
 	import {
 		EFFECT_BAKE_LIMITS,
 		defaultEffectBake,
+		effectBakeBeatFades,
 		effectBakeBlockers,
 		effectBakeFrameAt,
 		effectBakeFrameCount,
@@ -57,6 +58,8 @@
 	);
 	const frames = $derived(effectBakeFrameCount(settings));
 	const warmupMs = $derived(Math.round(emitterSecondsToWallMs(effectBakeWarmup(doc))));
+	// A rig keyframe plays the loop from its beat and fades it out over the longest particle life.
+	const beatFadeOut = $derived(effectBakeBeatFades(doc).fadeOut);
 	const busy = $derived(!!progress);
 
 	type State = { tone: 'on' | 'warn' | 'off'; label: string; detail: string };
@@ -279,6 +282,11 @@
 					</label>
 					<p class="hint">
 						{frames} frames, after a {(warmupMs / 1000).toFixed(1)} s warm-up so the loop starts full.
+					</p>
+					<p class="hint">
+						Fired by a rig keyframe, the loop starts on the beat, follows its bone and fades out
+						over {beatFadeOut.toFixed(2)} s (the longest particle life) when the beat ends. A flight trail
+						plays live.
 					</p>
 					{#if blockers.length}
 						<ul class="blockers">

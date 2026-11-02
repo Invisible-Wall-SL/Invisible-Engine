@@ -37,7 +37,7 @@ of `win` here"*; the game says *"`win` is the `winInfo` book event."*
 - **Where it runs:** inside the Scene Editor at `/editor`, full-page in the launcher, behind the
   auth + role gate, never an iframe. The **Invisible Component Editor** card on the launcher home
   opens `/editor?view=components` (the components home); `/editor?component=<id>` opens one
-  component. Old `/components` and `/components?id=<id>` links redirect to those addresses.
+  component. The old `/components` address no longer exists.
 - **Access:** granted to the `admin`, `developer`, `artist` and `pipelineTester`
   roles — the same roles that get the Scene Editor. It gates on the **`editor`** tool
   (the component storage + `/api/editor/component[s]` API are gated there too), so

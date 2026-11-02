@@ -218,7 +218,7 @@
 		}
 	},
 	"apps/lines": {
-		"errors": 153,
+		"errors": 149,
 		"byFile": {
 			"apps/lines/src/components/Game.svelte": {
 				"ts:2322": 4,
@@ -265,12 +265,6 @@
 			},
 			"apps/lines/src/stories/AuthoredComponents.stories.svelte": {
 				"ts:2322": 1
-			},
-			"apps/lines/src/stories/EAGamingProbe.stories.svelte": {
-				"ts:2339": 1,
-				"ts:2345": 1,
-				"ts:2353": 1,
-				"ts:2554": 1
 			},
 			"apps/lines/src/stories/HudComponentInstance.stories.svelte": {
 				"ts:2322": 2
@@ -1245,42 +1239,6 @@
 			},
 			"packages/pixi-svelte/src/lib/index.ts": {
 				"ts:2308": 1
-			}
-		}
-	},
-	"packages/pixi-svelte-storybook": {
-		"errors": 43,
-		"byFile": {
-			"packages/pixi-svelte-storybook/src/components/ParticleDemoWithSvelte.svelte": {
-				"ts:2339": 12
-			},
-			"packages/pixi-svelte-storybook/src/components/ParticleDemoWithoutSvelte.svelte": {
-				"ts:2339": 4,
-				"ts:7005": 1,
-				"ts:7034": 1
-			},
-			"packages/pixi-svelte-storybook/src/stories/Container.stories.svelte": {
-				"ts:2783": 1
-			},
-			"packages/pixi-svelte-storybook/src/stories/Graphics.stories.svelte": {
-				"ts:2345": 1
-			},
-			"packages/pixi-svelte-storybook/src/stories/Particle.stories.svelte": {
-				"ts:2339": 12,
-				"ts:2783": 2
-			},
-			"packages/pixi-svelte-storybook/src/stories/ParticleEmitter.stories.svelte": {
-				"ts:2353": 1,
-				"ts:2783": 1
-			},
-			"packages/pixi-svelte/src/lib/index.ts": {
-				"ts:2308": 1
-			},
-			"packages/rgs-fetcher/src/rgsFetcher.ts": {
-				"ts:2536": 5
-			},
-			"packages/state-shared/src/stateUrl.svelte.ts": {
-				"ts:2307": 1
 			}
 		}
 	}

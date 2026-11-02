@@ -29,10 +29,9 @@
 	// OFF-path composer (parity): mounts the full-screen GATE (dim + count-up driver + WinCoins +
 	// press + round-await) and the board-relative VISUAL (the tier rig + count number) together,
 	// the visual self-centring on the board (`boundToInstance={false}`) — render-equivalent to the
-	// pre-split standalone Win overlay. The ON path mounts the gate (`WinGate`) and an
-	// editor-positioned `win` componentInstance as SEPARATE scene nodes instead (gated by
-	// `WIN_INSTANCE`). Both subscribe to the `win*` events; the win level / amount / count-up
-	// bridge via `winState`.
+	// pre-split standalone Win overlay. A doc that places its own `win` componentInstance mounts
+	// the gate (`WinGate`) and that editor-positioned visual as SEPARATE scene nodes instead. Both
+	// subscribe to the `win*` events; the win level / amount / count-up bridge via `winState`.
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
 

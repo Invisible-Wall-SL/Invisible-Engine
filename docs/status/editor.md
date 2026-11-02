@@ -42,8 +42,8 @@ Shipped capabilities on `main`:
   Components side mounts its own copy, so both can be mounted; each claims the canvas preview with
   its own owner token (`setTimelinePreview(drives, owner)`). Component authoring: [component-editor
   status](component-editor.md).
-- **Components side** (Rive plan Phase 4a, 2026-10-13 — ⏳ not yet browser-verified). The old
-  `/components` page is `ComponentWorkspace.svelte`, mounted inside `/editor` on first visit and
+- **Components side** (Rive plan Phase 4a, 2026-10-13 — ⏳ not yet browser-verified). The
+  Components side is `ComponentWorkspace.svelte`, mounted inside `/editor` on first visit and
   then kept; the side not shown is only hidden, so neither loses its canvas or unsaved state. Entry
   points: the left pane's **Components** section under Screens (row = edit, ＋ = place on the active
   screen, **＋ New component…** = the components home); double-click a placed instance
@@ -54,7 +54,7 @@ Shipped capabilities on `main`:
   typing or a dialog is open); nested defs open in place up to `MAX_COMPONENT_DEPTH`
   (`canEnterNested`); a **Browse** left tab. URLs: `/editor?view=components`,
   `/editor?component=<id>`, kept current with a shallow `replaceState` and read on first load;
-  `/components` 307-redirects (`$lib/componentLinks.ts`). A link to `/editor` followed from inside
+  `$lib/componentLinks.ts` builds them; the old `/components` redirect route is gone. A link to `/editor` followed from inside
   `/editor` never runs as a navigation (the page holds one project's state and is not remounted):
   `beforeNavigate` applies the same project in place and does a full load for any other or for none
   (`editorSelfNavigation`); every tool bar link carries the shown `?project=` (`$lib/toolLinks.ts`,

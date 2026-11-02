@@ -778,10 +778,8 @@ check-all` shard 3 runs it), over the real `publishGame`.
     Phase 6 migration of [book-feature.md](../design/book-feature.md) is re-runnable for such a row.
     Only the pickers stop offering it (Phase 5c). It goes with the kind in Phase 7.
 
-**Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
-but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
-existing game (now `apps/lines`, with the accessor-based files), so a new game inherits the authored
--config wiring automatically. Left as-is on purpose.
+**Not a gap:** the `new-game.mjs` scaffold copies `src/` from an existing game (now `apps/lines`,
+with the accessor-based files), so a new game inherits the authored-config wiring automatically.
 
 ## Blocked (owner / external)
 

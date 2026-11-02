@@ -170,7 +170,7 @@ mirroring today's sync/background pattern:
 
 ## 5. Migration — copy → verify → retire (idempotent, dry-run default)
 
-New script `scripts/migrate-r2-unified-repo.py` (boto3, R2 creds from env, `--dry-run` default-on).
+Ran via a one-off `migrate-r2-unified-repo.py` (boto3, `--dry-run` default-on); the migration is done and the script removed.
 Per `(C, P)` resolved from Postgres `projects` (NULL `clientKey` → `unassigned`):
 
 **Phase A — copy (non-destructive, server-side `CopyObject`):**
@@ -247,7 +247,7 @@ the deploy and unset the flag; data is untouched.
 **Code — DONE, builds/compiles clean** (not yet committed/deployed):
 - Python: `iw_common/context.py` (r2_slug + project_prefix), both `cloud_paths.py`, `atlas-tool/{ui_server,batch_atlas}.py`, `sheet-tool/sheet_server.py`, `atlas-tool/seed_r2.py`.
 - Launcher: `projectPaths.ts` (r2Slug + projectPrefix + SUB), `toolScope.ts`, `projectScaffold.ts`, `rig.ts`, `projectAssets.ts`, `editorRegions.ts`, `scripts/r2-sync-rigs.mjs`.
-- Migration: `scripts/migrate-r2-unified-repo.py` (dry-run default; `--apply`, `--verify`, `--phase-b --i-verified-cutover`).
+- Migration: the one-off `migrate-r2-unified-repo.py` (run, then removed).
 
 **Remaining (needs R2 creds + a deploy window):** run Phase A dry-run → `--apply` → deploy code + restart tools → smoke-test → `--phase-b`. See §6.
 

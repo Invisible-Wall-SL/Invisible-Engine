@@ -440,7 +440,7 @@ const stub = (code: string) => 'data:text/javascript,' + encodeURIComponent(code
 const STUBS = {
 	'$app/state': stub('export const page = { url: new URL("https://game.test/") };'),
 	'$env/static/public': stub(
-		'export const PUBLIC_SITE_MODE = ""; export const PUBLIC_SENTRY_DSN = ""; export const PUBLIC_SENTRY_SAMPLE_RATE = ""; export const PUBLIC_CHROMATIC = "";',
+		'export const PUBLIC_SENTRY_DSN = ""; export const PUBLIC_SENTRY_SAMPLE_RATE = ""; export const PUBLIC_CHROMATIC = "";',
 	),
 };
 const PACKAGES = new URL('../packages/', import.meta.url).href;

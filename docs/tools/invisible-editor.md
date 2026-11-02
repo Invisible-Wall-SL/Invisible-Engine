@@ -1922,7 +1922,6 @@ preview time.
 
 The address bar follows what is open: `/editor?view=components` is the components home and
 `/editor?component=<id>` is one component, so a reload or a shared link lands in the same place.
-Old `/components` links redirect here.
 
 **The breadcrumb** at the left of the editor bar shows where you are, for example
 `← Screens › Components › Win banner`, or `← Base game › Win banner › Coin` when you came in from a

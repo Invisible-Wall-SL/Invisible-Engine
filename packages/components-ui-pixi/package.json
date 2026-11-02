@@ -5,8 +5,7 @@
 	"license": "MIT",
 	"scripts": {
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
-		"lint": "eslint \"src\"",
-		"storybook": "PUBLIC_CHROMATIC=true storybook dev -p 5003 public"
+		"lint": "eslint \"src\""
 	},
 	"type": "module",
 	"devDependencies": {
@@ -14,9 +13,6 @@
 		"eslint-config-custom": "workspace:*",
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
-		"config-storybook": "workspace:*",
-		"chromatic": "18.13.3",
-		"@storybook/addon-svelte-csf": "5.1.5",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"svelte-check": "4.7.7"
 	},

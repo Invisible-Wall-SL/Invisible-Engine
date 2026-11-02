@@ -1,7 +1,6 @@
 import type { LayoutDoc } from 'engine-layout';
 
 import { defaultLayout } from './defaultLayout';
-import { HUD_BUTTON_INSTANCES, TRANSITION_INSTANCE, WIN_INSTANCE } from './editorFlags';
 
 /**
  * Offline fallback / checked-in stand-in for the editor document the Invisible
@@ -24,8 +23,4 @@ import { HUD_BUTTON_INSTANCES, TRANSITION_INSTANCE, WIN_INSTANCE } from './edito
  * Its own module, free of `editor-scenes.ts`'s runtime imports, so the offline stock-asset fixture
  * (`stockAssets.fixture.ts`) reads the very scenes the game falls back to.
  */
-export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
-	buttons: HUD_BUTTON_INSTANCES,
-	transition: TRANSITION_INSTANCE,
-	winInstance: WIN_INSTANCE,
-});
+export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', { buttons: true });

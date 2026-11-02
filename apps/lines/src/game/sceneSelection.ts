@@ -28,10 +28,10 @@ const docPlacesWinVisual = (scenes: Scene[]): boolean =>
 	collectComponentIds(scenes.flatMap((scene) => scene.nodes)).includes('win');
 
 /**
- * The overlays scene, with that degrade applied. This is exactly the `WIN_INSTANCE`-ON shape the
- * gate/visual split was designed for — it was simply never reached by a doc that authors the
- * visual while leaving `basegameOverlays` at the reference default, or omitting the scene
- * entirely (then the fallback supplies `bind:Win`, and the game gets both halves twice).
+ * The overlays scene, with that degrade applied. This is the gate/visual split's shape — it was
+ * simply never reached by a doc that authors the visual while leaving `basegameOverlays` at the
+ * reference default, or omitting the scene entirely (then the fallback supplies `bind:Win`, and
+ * the game gets both halves twice).
  * No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
  */
 export function basegameOverlaysSceneOf(

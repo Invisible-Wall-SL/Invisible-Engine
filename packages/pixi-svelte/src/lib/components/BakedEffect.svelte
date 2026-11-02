@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { EffectBakeResult } from 'engine-fx';
+	import type { EffectBakeBeatFades, EffectBakeResult } from 'engine-fx';
 	import type { Texture } from 'pixi.js';
 
 	export type Props = {
@@ -11,6 +11,15 @@
 		effectId: string;
 		/** Tells two mounts of one effect apart beyond their position (a node id). */
 		instanceKey?: string;
+		/**
+		 * Played on a rig beat (`<RiggedEffect>`): fade in from the beat, and out once emission ends.
+		 * Absent ⇒ an ambient loop, drawn at full opacity for the life of the mount.
+		 */
+		beat?: EffectBakeBeatFades;
+		/** On a beat, emission ends this many ms after it is set (`<EffectLayer>`'s `emitFor`). */
+		emitFor?: number;
+		/** On a beat, its emit speed: the loop plays at that rate (`effectBakeBeatRate`). */
+		emitSpeed?: number;
 	};
 </script>
 
@@ -24,10 +33,21 @@
 	 * picked on the first tick, from the effect, the instance key and where the sprite then sits on
 	 * screen — deterministic, so copies of one effect are out of step with each other but a seeded
 	 * render is the same every run.
+	 *
+	 * On a rig BEAT the mount is re-keyed every beat, so the loop starts from the beat (at that
+	 * deterministic frame), plays at the beat's emit speed, and fades: in over a moment, out over the
+	 * longest particle life once `emitFor` runs out — the time the live particles would take to die.
+	 * Then the sprite stops drawing and leaves the ticker.
 	 */
 	import { Sprite } from 'pixi.js';
-	import { onDestroy } from 'svelte';
-	import { effectBakeFrameAt, effectBakeInstanceKey, effectBakeStartFrame } from 'engine-fx';
+	import { onDestroy, untrack } from 'svelte';
+	import {
+		effectBakeBeatAlpha,
+		effectBakeBeatRate,
+		effectBakeFrameAt,
+		effectBakeInstanceKey,
+		effectBakeStartFrame,
+	} from 'engine-fx';
 
 	import { getContextApp, getContextParent } from '../context.svelte';
 	import { particleTimeScale } from '../particleClock';
@@ -51,6 +71,23 @@
 	let seconds = 0;
 	let shown = -1;
 
+	// A beat's emission end, in the same particle-clock seconds as `seconds`. Like the live layer's
+	// stop timer, it is (re)set from the moment `emitFor` is set: `released` turns it to 0 mid-beat.
+	const onBeat = $derived(!!props.beat);
+	let endAt: number | undefined;
+	$effect(() => {
+		if (!onBeat) return;
+		const emitFor = props.emitFor;
+		untrack(() => {
+			endAt =
+				typeof emitFor === 'number' && Number.isFinite(emitFor) && emitFor >= 0
+					? seconds + emitFor / 1000
+					: undefined;
+		});
+	});
+	// svelte-ignore state_referenced_locally
+	if (props.beat && props.beat.fadeIn > 0) sprite.alpha = 0;
+
 	const tick = (): void => {
 		const ticker = context.stateApp.pixiApplication?.ticker;
 		if (!ticker) return;
@@ -64,7 +101,18 @@
 				count,
 			);
 		} else seconds += (ticker.deltaMS / 1000) * particleTimeScale();
-		const frame = effectBakeFrameAt(start, seconds, props.result.fps, count);
+		const beat = props.beat;
+		if (beat) {
+			const alpha = effectBakeBeatAlpha(seconds, endAt, beat);
+			sprite.alpha = alpha;
+			if (alpha <= 0 && endAt !== undefined && seconds >= endAt) {
+				sprite.visible = false;
+				ticker.remove(tick);
+				return;
+			}
+		}
+		const played = beat ? seconds * effectBakeBeatRate(props.emitSpeed) : seconds;
+		const frame = effectBakeFrameAt(start, played, props.result.fps, count);
 		if (frame === shown) return;
 		shown = frame;
 		sprite.texture = textures[frame];

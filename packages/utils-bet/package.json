@@ -13,7 +13,6 @@
 		"eslint-config-custom": "workspace:*"
 	},
 	"dependencies": {
-		"envs": "workspace:*",
 		"rgs-requests": "workspace:*",
 		"pixi-svelte": "workspace:*"
 	}

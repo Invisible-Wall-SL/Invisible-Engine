@@ -61,7 +61,7 @@ Module state grows by one field: `_CURRENT_CLIENT` alongside `_CURRENT_PROJECT`.
 
 ## 3. Migration plan (two-phase, idempotent)
 
-`scripts/migrate-r2-client-isolation.py` (boto3, run from a workstation with R2 creds; dry-run flag default-on).
+Ran 2026-05-30 via a one-off `migrate-r2-client-isolation.py` (boto3, dry-run default-on); the script has since been removed.
 
 **Phase A — copy (non-destructive):**
 

@@ -2,7 +2,7 @@
 
 Plug-and-play translator between the **Invisible Engine** internal RGS request shape and the **Play4Fun `/rgs/engine`** batched-action protocol used by EAGaming-fronted casinos (and likely other Play4Fun-backed brands).
 
-> **Naming note:** the package is currently named `rgs-translator-eagaming` because EAGaming was the discovery target. The actual protocol belongs to **Play4Fun** — the EAGaming brand wrapper proxies through to a Play4Fun RGS host (e.g. `www.best00qpin.com`). Will rename to `rgs-translator-play4fun` once we verify the same protocol on a second brand. Internal types/functions already use `Play4Fun*` names with `EAGaming*` aliases for back-compat.
+> **Naming note:** the package is currently named `rgs-translator-eagaming` because EAGaming was the discovery target. The actual protocol belongs to **Play4Fun** — the EAGaming brand wrapper proxies through to a Play4Fun RGS host (e.g. `www.best00qpin.com`). Will rename to `rgs-translator-play4fun` once we verify the same protocol on a second brand.
 
 ## Why this exists
 
@@ -234,8 +234,6 @@ node scripts/smoke-mock.mjs              # full round-lifecycle smoke test
 | Script                                                 | Purpose                                                                                                        |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | [console-sniffer.js](../../scripts/console-sniffer.js) | Monkey-patches `fetch` and `XMLHttpRequest` in the live game iframe; logs every request to `window.eaSniffed`. |
-| [console-probe.js](../../scripts/console-probe.js)     | Paste-in probe runner; fires a sequence of test actions against the live endpoint.                             |
-| [probe.mjs](../../scripts/probe.mjs)                   | Standalone Node probe (CF will block it for EAGaming-fronted hosts).                                           |
 | [smoke-mock.mjs](../../scripts/smoke-mock.mjs)         | Round-lifecycle smoke test against the mock server.                                                            |
 
 ## Source files

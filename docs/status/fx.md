@@ -29,7 +29,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   emitters. `EffectDoc.bake` (`engine-fx` `bake.ts`); the sheet lives at
   `<client>/<project>/fx-bakes/<id>/` and ships through the editor-art road; `<EffectPlayer>` plays
   `<BakedEffect>` only when the bake is on, current, bakeable, undriven and its whole sheet is
-  loaded — otherwise the live path, untouched. ⏳ Gated headlessly (Node, the real page and the
+  loaded — otherwise the live path, untouched. A **rig keyframe** (`rigFx` → `<RiggedEffect>`) is
+  not a drive: a baked effect it fires plays the loop from each beat on the bone, at the binding's
+  speed, and fades out over its longest particle life when the beat ends (2026-11-02). A flight
+  trail or live parameter values still play live. ⏳ Gated headlessly (Node, the real page and the
   real player in headless Chromium); not yet clicked in an authed `/fx` or watched in a published
   game.
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
@@ -65,6 +68,11 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Owner look at rig-fired bakes** (2026-11-02) — in Overlay Buffalo Duel once this runtime
+  ships: the firecracker sparks (`s_sparks_small`) and the roof (`s_sparks_big`, `s_smoke`,
+  `smokeclouds`) should draw as baked loops on their bones, appear over 0.1 s, and fade out over
+  their particle life (~1.9 s for `s_sparks_small`) when the clip stops. Judge whether the faded
+  tail reads well against the old live die-off.
 - **Owner pass over baked effects** (2026-11-02) — open the `overlay-wishworld` firecracker in
   `/fx`, Save, open **Bake**, turn it on, **Bake now** (24 fps × 2 s at 50 %), Save; check the
   preview loops with no pop, then publish and watch the pots: 11 firecrackers should each be one
@@ -152,6 +160,42 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-02 — **A baked effect fired by a rig keyframe plays its bake** (branch
+  `claude/fx-bake-rig-beats`). Why: in `borut/overlay_buffaloduel` the rig-fired firecracker
+  effects (`s_sparks_small` on `R_FireCrackerRed/Blue/Green`, `s_sparks_big`, `s_smoke`,
+  `smokeclouds` on `R_Roof`/`R_RoofBlue`) were baked, current and shipped — the game downloaded the
+  sheets — but every `<RiggedEffect>` mount passes `forceEmit` + `emitFor`, which `<EffectPlayer>`
+  counted as a drive, so all of them drew live particles. What changed:
+  - **`<EffectPlayer>`**: only a trail owner (`ownerPos` / `ownerRotation`) or live parameter
+    values keep a baked effect live; `forceEmit` / `emitFor` / `emitSpeed` no longer do. A forced
+    baked mount passes `<BakedEffect beat>` (the fades) + `emitFor` + `emitSpeed`.
+  - **`<BakedEffect beat>`**: the loop starts on the beat (the mount is re-keyed per beat; same
+    deterministic start frame, no `Math.random`), plays at `emitSpeed / DEFAULT_EMIT_SPEED`, ends
+    emission `emitFor` ms after it is set on the particle clock (`released` → 0 → now), fades in over
+    `min(0.1 s, life)` and out over the longest particle life at the beat speed, then hides and
+    leaves the ticker. It already sat inside `<RigBoneAttach>`, so it follows the bone as the live
+    emitters do. Ambient bakes are unchanged (full opacity, rate 1).
+  - **`engine-fx` `bake.ts`**: `effectBakeLongestLife`, `effectBakeBeatFades`, `effectBakeBeatRate`,
+    `effectBakeBeatAlpha`, `EFFECT_BAKE_BEAT_FADE_IN_SECONDS` (the design doc's "On a rig beat").
+  - **/fx Bake bar**: a line saying a keyframe-fired bake follows its bone and fades out over N s;
+    `docs/tools/fx.md` no longer lists rig keyframes as playing live.
+  - **Visible differences vs live** (by design): the beat shows the full warmed-up loop after 0.1 s
+    instead of particles building up from the emitter; the tail is a uniform fade of the whole loop
+    rather than individual particles dying; a beat shorter than the loop shows only its first part;
+    re-fired beats start on the same frame each time (deterministic per bone position).
+  - Gates: `effect-bake` 89 (18 new: fades, rate, envelope), `baked-runtime` 30 (18 new: rig-beat
+    mounts bake with no particles, start frame, fade-in, no-duration keeps looping, a 300 ms beat
+    fades out and stops drawing, 2× speed plays 2× fast, release fades over the life at that speed
+    then stops, the next beat restarts faded-in, a trail owner / live params / an unbaked effect stay
+    live, a baked beat draws no random numbers). `rigger-fx.js` rebuilt. `pnpm check:all` 616/616.
+  - **Played locally** (headless Chromium, the served `overlay-buffaloduel` page with its
+    `index.html` swapped for a local `apps/lines` build of this branch; census by shape —
+    `n.emitter && 'maxLife' in n && 'agePercent' in n`): after a spin the served runtime drew ~70
+    `Firecrackers_0013_Spark_Mini` + ~70 `Firecrackers_0012_Spark` + clouds/fire live particles;
+    the local build drew 0 of them and 1–3 `bake_3c40462e_*` (`s_sparks_small`) sprites, frames
+    advancing, one hidden after its strip released it. The roof bakes (`s_sparks_big`, `s_smoke`,
+    `smokeclouds` on `R_Roof` `ON`/`ON_copy`) did not fire in the spins sampled, so they are
+    unobserved. ⏳ Owner-verify by eye: the firecrackers and the roof (see Open items).
 - 2026-11-02 — **Baked effects: an optional looping flipbook in place of the emitters** (branch
   `claude/fx-bake-flipbook`). Why: in `overlay-wishworld` ~1,900 of ~2,600 live particles at the pot
   peak were copies of one firecracker effect on 11 pots; the cost was per-particle simulation ×11,

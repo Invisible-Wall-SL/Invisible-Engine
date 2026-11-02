@@ -19,7 +19,6 @@
 		"config-svelte": "workspace:*",
 		"config-lingui": "workspace:*",
 		"config-storybook": "workspace:*",
-		"chromatic": "18.13.3",
 		"@storybook/addon-svelte-csf": "5.1.5",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"svelte-check": "4.7.7"
@@ -31,7 +30,6 @@
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.70.3",
 		"@lingui/core": "6.10.1",
-		"envs": "workspace:*",
 		"rgs-requests": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"engine-layout": "workspace:*",
@@ -48,7 +46,6 @@
 		"utils-xstate": "workspace:*",
 		"utils-slots": "workspace:*",
 		"utils-book": "workspace:*",
-		"utils-bet": "workspace:*",
 		"utils-layout": "workspace:*",
 		"utils-sound": "workspace:*"
 	}

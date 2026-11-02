@@ -60,7 +60,12 @@
 	 * ms (or the config's `emitterLifetime`). The pure `planLayer`/`layerTrigger` seam in
 	 * `engine-fx` is the single source of truth for that classification.
 	 */
-	import { effectBakeChoice, hasEffectLevelDrives, paramDrivenLayerKeys } from 'engine-fx';
+	import {
+		effectBakeBeatFades,
+		effectBakeChoice,
+		hasEffectLevelDrives,
+		paramDrivenLayerKeys,
+	} from 'engine-fx';
 	import type { Texture } from 'pixi.js';
 	import BakedEffect from './BakedEffect.svelte';
 	import EffectLayer from './EffectLayer.svelte';
@@ -72,20 +77,20 @@
 
 	// Baked (`invisible-fx.md` §"Baked effects"): only a doc that carries a `bake` is ever asked, so
 	// an effect without one takes the live path below untouched. A mount that drives the effect — a
-	// trail owner, a forced rig beat, live parameter values — plays live, and so does a bake whose
-	// sheet is not (or not wholly) loaded.
+	// trail owner, live parameter values — plays live, and so does a bake whose sheet is not (or not
+	// wholly) loaded. A rig beat (`forceEmit` + `emitFor`/`emitSpeed`, `<RiggedEffect>`) is no
+	// drive: the loop plays from the beat, at the beat's speed, and fades out when emission ends.
 	const baked = $derived.by(() => {
 		if (!props.doc.bake) return undefined;
 		const loaded = context.stateApp.loadedAssets ?? {};
 		const driven =
-			!!props.forceEmit ||
-			props.emitFor !== undefined ||
-			!!props.ownerPos ||
-			!!props.ownerRotation ||
-			(!!props.params && !!props.doc.params?.length);
+			!!props.ownerPos || !!props.ownerRotation || (!!props.params && !!props.doc.params?.length);
 		const choice = effectBakeChoice(props.doc, (key) => loaded[key] as Texture | undefined, driven);
 		return choice.mode === 'baked' ? choice : undefined;
 	});
+	const beatFades = $derived(
+		baked && props.forceEmit ? effectBakeBeatFades(props.doc, props.emitSpeed) : undefined,
+	);
 
 	// Exposed parameters: a layer applies them only when it is driven AND values are supplied; the
 	// effect-level wrapper mounts only when some drive targets `effect.*` (its defaults have no stored
@@ -120,6 +125,9 @@
 		textures={baked.textures}
 		effectId={props.doc.id}
 		instanceKey={props.instanceKey}
+		beat={beatFades}
+		emitFor={props.emitFor}
+		emitSpeed={props.emitSpeed}
 	/>
 {:else if effectLevel}
 	<EffectParamGroup params={props.doc.params} values={props.params} children={layers} />

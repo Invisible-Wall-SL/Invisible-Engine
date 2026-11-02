@@ -274,8 +274,8 @@ R2 template is authored visually and is the source of truth; `template.ts` is th
 
 Companion to the slot contract: a **slot** says *where + what role* (boardFrame, reelGrid); a **symbol name** says *what the asset is* (`H1` is a high-pay symbol). The engine already speaks this language, but the rule is implicit and the classification is duplicated. Make it an explicit, shared contract.
 
-**It already exists — wire it, don't reinvent.** `packages/game-spec/src/schema.ts` already models it:
-- `SymbolKindSchema = 'high' | 'low' | 'wild' | 'scatter' | 'wildScatter' | 'bonus' | 'multiplier'` — "drives engine behaviour AND info-page rendering".
+**The model.** (It was first sketched in the offline `game-spec` CLI, since removed; no package owns it today.)
+- Kinds: `'high' | 'low' | 'wild' | 'scatter' | 'wildScatter' | 'bonus' | 'multiplier'` — drives engine behaviour AND info-page rendering.
 - `SymbolSpec = { id: 'H1'|'L1'|'W'|'S'…, kind, name?, pay?, asset?, trigger? }`. `id` is the symbol's canonical name; `kind` is its pay-class; `asset.key` (`'h1.webp'`, `'M'`) is the loaded texture, which may differ from `id`.
 
 Today's gap is purely wiring + enforcement:
@@ -284,17 +284,17 @@ Today's gap is purely wiring + enforcement:
 - The editor doesn't read the spec at all.
 
 **The contract (make the name authoritative):**
-- A canonical prefix convention, owned by `game-spec`: `H{n}` → `high`, `L{n}` → `low`, `W` → `wild`, and `S` → `scatter` **or** `wildScatter` (the special symbol can be both — Book-of uses `S` as the Book). Reserved tokens for `bonus`/`multiplier`. (No `mid` tier today — `multiplier` is its own kind, and `M` currently appears only as an *asset filename*, not a symbol id. Adding an `M{n}` mid-pay tier is a deliberate `SymbolKindSchema` extension, not an existing fact.)
-- **Built** (`packages/game-spec/src/symbols.ts`): `classifySymbol(id)` for the unambiguous prefixes + `isKindConsistentWithId(id, kind)` — the *compatibility* check, since `S` is legitimately `scatter` or `wildScatter`. The editor / spec validation call these so `H1` cannot be declared anything but high-pay, without rejecting a valid `{ id:'S', kind:'wildScatter' }`. A hard `SymbolSpec` schema refinement is **deferred** (it would have to encode the same compatibility rule and risks breaking existing specs); the helper is the contract for now.
+- A canonical prefix convention: `H{n}` → `high`, `L{n}` → `low`, `W` → `wild`, and `S` → `scatter` **or** `wildScatter` (the special symbol can be both — Book-of uses `S` as the Book). Reserved tokens for `bonus`/`multiplier`. (No `mid` tier today — `multiplier` is its own kind, and `M` currently appears only as an *asset filename*, not a symbol id. Adding an `M{n}` mid-pay tier is a deliberate kind-list extension, not an existing fact.)
+- **Planned** (a first version lived in the removed `game-spec` package): `classifySymbol(id)` for the unambiguous prefixes + `isKindConsistentWithId(id, kind)` — the *compatibility* check, since `S` is legitimately `scatter` or `wildScatter`. The editor / spec validation call these so `H1` cannot be declared anything but high-pay, without rejecting a valid `{ id:'S', kind:'wildScatter' }`. A hard `SymbolSpec` schema refinement is **deferred** (it would have to encode the same compatibility rule and risks breaking existing specs); the helper is the contract for now.
 - The RGS/protocol vocabulary (`PIC1`, `SCAT` — see `packages/utils-shared/paytable.ts`) is a **separate space** translated into engine names at the RGS adapter/facade boundary. The editor and templates only ever speak engine names; adapters own the mapping.
 
 **Two readers, one source:**
 - **Engine** derives `HIGH_SYMBOLS`, scatter/wild handling, and paytable `mode` from the project's `SymbolSpec[]` via `classifySymbol`, instead of hardcoding.
 - **Editor** reads the same `SymbolSpec[]` to (a) group the asset library by kind ("High / Low / Scatter / Wild"), and (b) validate `mount` slots: a `reelGrid` slot declares its symbol-set requirement in `SymbolKind`s ("requires ≥1 scatter, ≥1 wild"), and the editor warns if the project's atlas provides no matching-named frames. This is the asset-identity layer beneath the slot/position layer — together they are the full "declare ≠ implement" contract: the editor declares + validates against names; the engine implements behaviour keyed off the same names.
 
-**Build order impact:** independent of, but complementary to, §7.3. The `classifySymbol` + refinement can land in `game-spec` early (small, self-contained); engine-side consumption (replace `HIGH_SYMBOLS`) and editor-side grouping/validation follow when their respective surfaces are touched. Don't block the template work on it.
+**Build order impact:** independent of, but complementary to, §7.3. The `classifySymbol` + refinement can land early (small, self-contained); engine-side consumption (replace `HIGH_SYMBOLS`) and editor-side grouping/validation follow when their respective surfaces are touched. Don't block the template work on it.
 
-**Decision (owner 2026-06-02):** keep high/low only for now — **no `mid` tier**. Add `'mid'` + an `M{n}` prefix only when a game needs it. The human-readable tier list is published at [`docs/conventions/symbol-naming.md`](../conventions/symbol-naming.md) (mirrors `SymbolKindSchema`; code stays source of truth), linked from the Sheet Maker / Atlas Maker tool docs where regions are named.
+**Decision (owner 2026-06-02):** keep high/low only for now — **no `mid` tier**. Add `'mid'` + an `M{n}` prefix only when a game needs it. The human-readable tier list is published at [`docs/conventions/symbol-naming.md`](../conventions/symbol-naming.md) (the human reference until a code owner exists), linked from the Sheet Maker / Atlas Maker tool docs where regions are named.
 
 ---
 
@@ -593,7 +593,7 @@ Board layout is fully derived from a tiny constant set, **per game** (no shared 
 
 ### 13.0 The finding that frames this (current state, verified 2026-06-08)
 There are **two parallel "component" systems**, drifted apart:
-- **System A — `ComponentDef` prefabs** (`/components`, §8). Authored node-trees + the params/instance-override SCHEMA (`ComponentDef.params`, `ComponentInstanceNode.params`). **Build steps 1–5 are DONE:** schema, static expansion (`engine-layout/ComponentInstance.svelte` resolves a def via `registerComponents` + renders `def.root` through `LayoutNodeView`, with a depth/cycle guard), R2 storage (shared+project shadow), editor component mode, reuse. The "Balance"/"Win" rows the owner sees are **empty materialized shells** (from "Edit as component") — dead artifacts, not wired to the HUD; they render nothing (the empty canvas).
+- **System A — `ComponentDef` prefabs** (`/editor?view=components`, §8). Authored node-trees + the params/instance-override SCHEMA (`ComponentDef.params`, `ComponentInstanceNode.params`). **Build steps 1–5 are DONE:** schema, static expansion (`engine-layout/ComponentInstance.svelte` resolves a def via `registerComponents` + renders `def.root` through `LayoutNodeView`, with a depth/cycle guard), R2 storage (shared+project shadow), editor component mode, reuse. The "Balance"/"Win" rows the owner sees are **empty materialized shells** (from "Edit as component") — dead artifacts, not wired to the HUD; they render nothing (the empty canvas).
 - **System B — bound coded components** (`/editor`, §12). The REAL HUD. Already parametric for **appearance**: `boundComponentCatalog.BOUND_COMPONENT_PARAMS` gives `UiLabelBalance/Win/Bet` the SAME `TEXT_STYLE_PARAMS`, flowing via `bind.props`, overridable per-placement. The live VALUE stays **coded identity** (which `bind.component` you mount), per §9.2.
 
 **So the owner's vision = build step 6 of §8.8** (the param/signal/value-binding layer — the explicitly-deferred seam at `ComponentInstance.svelte:53` "STATIC ONLY (v1): params ignored here"). Steps 1–5 are the proven foundation; §12 proves the appearance half on the bound path. Batch B implements value binding + the per-project defaults layer + the Component-Editor surface, and **reconciles A and B** by making the HUD readouts real instanced components.
@@ -615,7 +615,7 @@ A per-project `ComponentDef` `HudReadout`:
 New R2 key `editor/<projectKey>/component-defaults/<componentId>.json` = `{ params: Record<string, unknown> }` (author-set defaults set in the Component Editor). Precedence at render: **instance override > project default > `def.param.default` > coded fallback.** Loaded alongside components in `+page.server.ts`/the editor load; written by a `POST /api/editor/component-defaults`. (Deliberately a thin sidecar, NOT a new `scope` on `ComponentDef`, so a shared def can carry per-project defaults without forking the def.)
 
 ### 13.4 Editor surfaces
-- **Component Editor (`/components`) — kills the empty canvas.** When a component is open: render its `def.params` as controls (reuse the §12 auto-render loop / `EditableParam` style) bound to the **per-project defaults**; render `def.root` on the canvas using those defaults so the component shows a real text readout (not blank). For a coded/bound component with no `def.root` (the catalog-only path), fall back to placeholder art via `resolveAnchorPreviewArt` + `getEditableParams`. A `source` picker is just a param control.
+- **Component Editor (`/editor?view=components`) — kills the empty canvas.** When a component is open: render its `def.params` as controls (reuse the §12 auto-render loop / `EditableParam` style) bound to the **per-project defaults**; render `def.root` on the canvas using those defaults so the component shows a real text readout (not blank). For a coded/bound component with no `def.root` (the catalog-only path), fall back to placeholder art via `resolveAnchorPreviewArt` + `getEditableParams`. A `source` picker is just a param control.
 - **Scene Editor (`/editor`).** The component picker drops a `HudReadout` instance; Properties overrides `source`/`label`/style per placement (extend the existing `onSetInstanceParam` UI already wired in `EditorProperties`).
 
 ### 13.5 Build order (parity-gated; HUD migration LAST)
@@ -964,7 +964,7 @@ Three editor-wide capabilities, added on top of the panel work:
   the axis); dragging a member of a multi-selection moves the whole group by one snapped
   delta; the overlay outlines every member but shows handles only when exactly one is picked;
   Delete removes all in one transaction (`onDeleteMany`). Outliner: Shift = contiguous range
-  (pre-order flatten of the node tree), Ctrl/⌘ = toggle. The `/components` Component Editor
+  (pre-order flatten of the node tree), Ctrl/⌘ = toggle. The Component Editor (`/editor?view=components`)
   shares `EditorCanvas`/`EditorOutline`, so it was migrated to `selectedIds` too.
 
 ### 20.1 Deferred engine wiring (owner: "keep this change for later")
