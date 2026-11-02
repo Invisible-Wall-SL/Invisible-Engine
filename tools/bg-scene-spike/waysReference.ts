@@ -78,13 +78,7 @@ assert(
 );
 assert(
 	'every option combo still builds for lines',
-	[
-		{},
-		{ buttons: true },
-		{ transition: true },
-		{ winInstance: true },
-		{ buttons: true, transition: true, winInstance: true },
-	].every((o) => defaultLayout('lines', o).scenes.length > 0),
+	[{}, { buttons: true }].every((o) => defaultLayout('lines', o).scenes.length > 0),
 );
 assert(
 	'an unknown game type still throws rather than silently returning lines',

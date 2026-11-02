@@ -1865,7 +1865,7 @@
 	 * is the flow-v2-safe HUD: the coded `UiLabel*`/`UiButton*` `bind` nodes render only
 	 * through the coded `<UI>` chrome, which a flow-v2-driven game suppresses, so a "reset"
 	 * that emitted them would go blank on such a game. The shared runtime (built from
-	 * `apps/lines`, `HUD_BUTTON_INSTANCES` on) registers `hudReadout`/`button` + the value/
+	 * `apps/lines`) registers `hudReadout`/`button` + the value/
 	 * action sources, so a published game renders these. */
 	async function addHudLayer(): Promise<void> {
 		const fresh = hudScenes({ readouts: true, buttons: true });
