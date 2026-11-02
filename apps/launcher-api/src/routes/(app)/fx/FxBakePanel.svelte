@@ -10,18 +10,20 @@
 		defaultEffectBake,
 		effectBakeBeatFades,
 		effectBakeBlockers,
+		effectBakeCellOrigin,
 		effectBakeFrameAt,
 		effectBakeFrameCount,
-		effectBakeHash,
+		effectBakeGroups,
+		effectBakeStale,
 		effectBakeWarmup,
 		emitterSecondsToWallMs,
 		normalizeEffectDoc,
 		type EffectBake,
+		type EffectBakeBlend,
 		type EffectDoc,
 	} from 'engine-fx';
 	import type { ResolveArt } from '$lib/fx/effectEmitter.client';
 	import type { FxStageCost } from './fxCost.client';
-	import { blendMode } from './fxModel.client';
 	import {
 		captureEffectBake,
 		uploadEffectBake,
@@ -52,10 +54,19 @@
 	const settings = $derived(bake ?? defaultEffectBake());
 	const blockers = $derived(effectBakeBlockers(doc));
 	const result = $derived(bake?.result);
-	// Hashed only once there is a bake to compare: the normalized doc, as Save stores it.
+	// Hashed only once there is a bake to compare: the normalized doc, as Save stores it. A bake from
+	// before blend groups whose layers mix blends is stale too: it flattened them into one sheet.
 	const stale = $derived(
-		!!result && result.hash !== effectBakeHash(normalizeEffectDoc($state.snapshot(doc), doc.id)),
+		!!result && effectBakeStale(normalizeEffectDoc($state.snapshot(doc), doc.id)),
 	);
+	const BLEND_LABEL: Record<EffectBakeBlend, string> = {
+		normal: 'Normal',
+		add: 'Add',
+		screen: 'Screen',
+		multiply: 'Multiply',
+	};
+	// What a bake will hold: one group per run of layers that share a blend mode.
+	const blendRuns = $derived(effectBakeGroups(doc.layers).map((g) => BLEND_LABEL[g.blendMode]));
 	const frames = $derived(effectBakeFrameCount(settings));
 	const warmupMs = $derived(Math.round(emitterSecondsToWallMs(effectBakeWarmup(doc))));
 	// A rig keyframe plays the loop from its beat and fades it out over the longest particle life.
@@ -123,10 +134,9 @@
 
 	// --- preview: the baked loop, played on a 2D canvas -------------------------------------------
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
-	type Sheet = {
-		image: CanvasImageSource;
-		rects: { x: number; y: number; w: number; h: number }[];
-	};
+	type Rect = { x: number; y: number; w: number; h: number };
+	/** The page and, per blend group, its frames' rects. */
+	type Sheet = { image: CanvasImageSource; groups: { blend: EffectBakeBlend; rects: Rect[] }[] };
 	let sheet = $state.raw<Sheet | undefined>();
 
 	$effect(() => {
@@ -135,14 +145,16 @@
 		sheet = undefined;
 		if (!r) return;
 		if (f && f.hash === r.hash) {
-			const { cellW, cellH, gap, cols } = f.plan;
+			const { cellW: w, cellH: h } = f.plan;
 			sheet = {
 				image: f.canvas,
-				rects: Array.from({ length: f.frames }, (_, i) => ({
-					x: (i % cols) * (cellW + gap),
-					y: Math.floor(i / cols) * (cellH + gap),
-					w: cellW,
-					h: cellH,
+				groups: f.groups.map((blend, g) => ({
+					blend,
+					rects: Array.from({ length: f.frames }, (_, i) => ({
+						...effectBakeCellOrigin(f.plan, g * f.frames + i),
+						w,
+						h,
+					})),
 				})),
 			};
 			return;
@@ -152,12 +164,15 @@
 			const art = await resolveArt(r.assetKey);
 			if (!art || cancelled) return;
 			const byName = new Map(art.regions.map((reg) => [reg.name, reg]));
-			const rects = r.frames.map((n) => byName.get(n)).filter((x) => !!x);
-			if (rects.length !== r.frames.length) return;
+			const groups = r.groups.map((g) => ({
+				blend: g.blendMode,
+				rects: g.frames.map((n) => byName.get(n)).filter((x) => !!x),
+			}));
+			if (groups.some((g, i) => g.rects.length !== r.groups[i].frames.length)) return;
 			const img = new Image();
 			img.src = art.pageUrl;
 			await img.decode().catch(() => undefined);
-			if (!cancelled && img.naturalWidth) sheet = { image: img, rects };
+			if (!cancelled && img.naturalWidth) sheet = { image: img, groups };
 		})();
 		return () => {
 			cancelled = true;
@@ -173,32 +188,47 @@
 		if (!ctx) return;
 		let raf = 0;
 		let t0: number | undefined;
+		const count = Math.min(...s.groups.map((g) => g.rects.length));
 		const draw = (now: number): void => {
 			// Timed from the first frame's own timestamp: one read before it can be later than it.
 			t0 ??= now;
-			const i = effectBakeFrameAt(0, (now - t0) / 1000, r.fps, s.rects.length);
-			const rect = s.rects[i];
-			const fit = Math.min(cv.width / rect.w, cv.height / rect.h, 2);
-			const w = rect.w * fit;
-			const h = rect.h * fit;
-			ctx.clearRect(0, 0, cv.width, cv.height);
-			ctx.globalCompositeOperation = r.blendMode === 'add' ? 'lighter' : 'source-over';
-			ctx.drawImage(
-				s.image,
-				rect.x,
-				rect.y,
-				rect.w,
-				rect.h,
-				(cv.width - w) / 2,
-				(cv.height - h) / 2,
-				w,
-				h,
-			);
+			const i = effectBakeFrameAt(0, (now - t0) / 1000, r.fps, count);
+			// Over the stage's background, each group with its blend, as `<BakedEffect>` draws them.
+			ctx.globalCompositeOperation = 'source-over';
+			ctx.fillStyle = PREVIEW_BG;
+			ctx.fillRect(0, 0, cv.width, cv.height);
+			for (const g of s.groups) {
+				const rect = g.rects[i];
+				const fit = Math.min(cv.width / rect.w, cv.height / rect.h, 2);
+				const w = rect.w * fit;
+				const h = rect.h * fit;
+				ctx.globalCompositeOperation = COMPOSITE[g.blend];
+				ctx.drawImage(
+					s.image,
+					rect.x,
+					rect.y,
+					rect.w,
+					rect.h,
+					(cv.width - w) / 2,
+					(cv.height - h) / 2,
+					w,
+					h,
+				);
+			}
 			raf = requestAnimationFrame(draw);
 		};
 		raf = requestAnimationFrame(draw);
 		return () => cancelAnimationFrame(raf);
 	});
+
+	/** The preview's ground: the stage's background, so additive light reads as it does there. */
+	const PREVIEW_BG = '#0b0e13';
+	const COMPOSITE: Record<EffectBakeBlend, GlobalCompositeOperation> = {
+		normal: 'source-over',
+		add: 'lighter',
+		screen: 'screen',
+		multiply: 'multiply',
+	};
 
 	const megabytes = (w: number, h: number): string => ((w * h * 4) / (1024 * 1024)).toFixed(1);
 </script>
@@ -283,6 +313,13 @@
 					<p class="hint">
 						{frames} frames, after a {(warmupMs / 1000).toFixed(1)} s warm-up so the loop starts full.
 					</p>
+					{#if blendRuns.length > 1}
+						<p class="hint">
+							Its layers mix blend modes, so it bakes as {blendRuns.length} layered groups ({blendRuns.join(
+								' → ',
+							)}), each drawn with its own blend.
+						</p>
+					{/if}
 					<p class="hint">
 						Fired by a rig keyframe, the loop starts on the beat, follows its bone and fades out
 						over {beatFadeOut.toFixed(2)} s (the longest particle life) when the beat ends. A flight trail
@@ -321,9 +358,9 @@
 					{#if result}
 						<canvas bind:this={previewCanvas} width="180" height="180"></canvas>
 						<p class="hint">
-							{result.frames.length} frames · {result.sheet.w}×{result.sheet.h} px page{stale
-								? ' · stale'
-								: ''}
+							{result.groups[0].frames.length} frames{result.groups.length > 1
+								? ` × ${result.groups.length} groups`
+								: ''} · {result.sheet.w}×{result.sheet.h} px page{stale ? ' · stale' : ''}
 						</p>
 					{:else}
 						<div class="empty">No bake yet</div>
@@ -340,7 +377,11 @@
 						<td>
 							{cost ? `${cost.total.peak.live} particles at peak` : 'measuring…'}
 						</td>
-						<td>1 sprite</td>
+						<td
+							>{result && result.groups.length > 1
+								? `${result.groups.length} sprites`
+								: '1 sprite'}</td
+						>
 					</tr>
 					<tr>
 						<td>Texture memory</td>
@@ -353,12 +394,6 @@
 					</tr>
 				</tbody>
 			</table>
-			{#if result && result.blendMode === 'normal' && doc.layers.some((l) => blendMode(l.config) !== 'normal')}
-				<p class="hint">
-					Mixed blend modes bake as Normal: additive glow over a dark background may read slightly
-					darker than live.
-				</p>
-			{/if}
 		</div>
 	{/if}
 </div>

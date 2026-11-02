@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
  * FX BAKE PAGE — "Bake now" in the real `/fx` page, headless (`fxPage/entry.ts?bake=1` mounts the
- * real `+page.svelte` on a saved, additive sparks effect; see `fxPage.mjs`):
+ * real `+page.svelte` on a saved effect — a normal puff under additive sparks; see `fxPage.mjs`):
  *  1. off by default: the Bake bar reads Live and the effect carries no `bake` block;
  *  2. turned on, not yet baked: the bar says so (games still run it live);
  *  3. Bake now: the page warms up, captures, composes one sheet, PUTs its PNG and writes its JSON;
- *     the bar reads Baked; the sheet has one cell per frame, every cell draws something, and the
- *     crossfaded seam (last frame → first) jumps no more than an ordinary step between frames;
+ *     the bar reads Baked; the sheet has one cell per frame of each blend group (normal, then add),
+ *     every cell draws something, and in each group the crossfaded seam (last frame → first) jumps
+ *     no more than an ordinary step between frames;
  *  4. the preview plays the loop;
  *  5. Save stores the bake on the doc; a tuned emitter makes the bar read Stale.
  *
  *   pnpm --filter fx-spike fx-bake-page [--keep <dir>]
  *
  * `--keep` also writes there `sheet.png` (the baked sheet), `stage.png` (the live preview) and
- * `compare.png` (the live effect beside baked frame 0, each over the stage background).
+ * `compare.png` (the live effect beside baked frame 0, each over the stage background, every group
+ * drawn with its blend).
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -90,10 +92,12 @@ try {
 				g.drawImage(bmp, 0, 0);
 				return { c, g, w: bmp.width, h: bmp.height, key: up.key, bytes: up.bytes };
 			},
-			canvasAlpha(cv) {
+			/** Pixels that differ from the preview's stage background (#0b0e13). */
+			canvasLit(cv) {
 				const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
 				let n = 0;
-				for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+				for (let i = 0; i < d.length; i += 4)
+					if (Math.abs(d[i] - 11) + Math.abs(d[i + 1] - 14) + Math.abs(d[i + 2] - 19) > 24) n++;
 				return n;
 			},
 		};
@@ -141,8 +145,8 @@ try {
 		`${sheet.w}×${sheet.h}, ${sheet.bytes} bytes`,
 	);
 	check(
-		'the panel names the frames and page',
-		/48 frames · \d+×\d+ px page/.test(sheet.hint),
+		'the panel names the frames, groups and page',
+		/48 frames × 2 groups · \d+×\d+ px page/.test(sheet.hint),
 		sheet.hint,
 	);
 
@@ -155,29 +159,44 @@ try {
 			const pix = regions.map((r) => s.g.getImageData(r.x, r.y, r.w, r.h).data);
 			const drawn = pix.map((d) => { let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++; return n; });
 			const diff = (a, b) => { let t = 0; for (let i = 0; i < a.length; i++) t += Math.abs(a[i] - b[i]); return t / a.length; };
-			const steps = [];
-			for (let i = 0; i + 1 < pix.length; i++) steps.push(diff(pix[i], pix[i + 1]));
-			const seam = diff(pix[pix.length - 1], pix[0]);
-			const sorted = [...steps].sort((a, b) => a - b);
-			return JSON.stringify({ count: regions.length, minDrawn: Math.min(...drawn), seam, median: sorted[sorted.length >> 1], max: sorted.at(-1) });
+			const per = 48;
+			const groups = [];
+			for (let g = 0; g * per < pix.length; g++) {
+				const run = pix.slice(g * per, (g + 1) * per);
+				const steps = [];
+				for (let i = 0; i + 1 < run.length; i++) steps.push(diff(run[i], run[i + 1]));
+				const sorted = [...steps].sort((a, b) => a - b);
+				groups.push({ seam: diff(run[run.length - 1], run[0]), median: sorted[sorted.length >> 1], max: sorted.at(-1) });
+			}
+			return JSON.stringify({ count: regions.length, minDrawn: Math.min(...drawn), groups });
 		})()`),
 	);
-	check('one cell per frame (24 fps × 2 s)', cells.count === 48, `${cells.count}`);
 	check(
-		'every cell draws the effect',
+		'one cell per frame of each blend group (24 fps × 2 s × 2 groups)',
+		cells.count === 96,
+		`${cells.count}`,
+	);
+	check(
+		'every cell draws its group',
 		cells.minDrawn > 50,
 		`fewest lit pixels in a cell: ${cells.minDrawn}`,
 	);
-	check(
-		'the crossfaded seam is an ordinary step (last → first within 1.5× the median step)',
-		cells.seam <= cells.median * 1.5,
-		`seam ${cells.seam.toFixed(2)}, median step ${cells.median.toFixed(2)}, largest ${cells.max.toFixed(2)}`,
+	cells.groups.forEach((g, i) =>
+		check(
+			`group ${i}: the crossfaded seam is an ordinary step (last → first within 1.5× the median step)`,
+			g.seam <= g.median * 1.5,
+			`seam ${g.seam.toFixed(2)}, median step ${g.median.toFixed(2)}, largest ${g.max.toFixed(2)}`,
+		),
 	);
 
 	console.log('4. the preview');
 	await sleep(400);
-	const lit = await ev(`bakeDrive.canvasAlpha(document.querySelector('.bake .preview canvas'))`);
-	check('the preview plays the baked loop', lit > 50, `${lit} lit pixels`);
+	const lit = await ev(`bakeDrive.canvasLit(document.querySelector('.bake .preview canvas'))`);
+	check(
+		'the preview plays the baked loop over the stage background',
+		lit > 50 && lit < 180 * 180,
+		`${lit} lit pixels`,
+	);
 
 	console.log('5. save, then stale');
 	await ev(`bakeDrive.button('⤓ Save')`);
@@ -187,10 +206,14 @@ try {
 		'Save stores the bake on the doc',
 		stored?.enabled === true &&
 			/^[0-9a-f]{8}$/.test(stored?.result?.hash ?? '') &&
-			stored.result.blendMode === 'add',
+			stored.result.groups?.map((g) => g.blendMode).join() === 'normal,add' &&
+			stored.result.groups.every((g) => g.frames.length === 48),
 		JSON.stringify({
 			...stored,
-			result: { ...stored?.result, frames: `${stored?.result?.frames?.length} frames` },
+			result: {
+				...stored?.result,
+				groups: stored?.result?.groups?.map((g) => `${g.blendMode}: ${g.frames.length} frames`),
+			},
 		}),
 	);
 	check('after Save it still reads Baked', (await ev(`bakeDrive.pill()`)) === 'Baked');
@@ -200,12 +223,13 @@ try {
 		const stagePng = await ev(`document.querySelector('.stage canvas').toDataURL('image/png')`);
 		writeFileSync(join(dir, 'stage.png'), Buffer.from(stagePng.split(',')[1], 'base64'));
 		// Live (left) next to baked frame 0 (right): each over the stage background, at the stage's
-		// 1:1 zoom, the baked frame drawn additively at its stored bounds as <BakedEffect> places it.
+		// 1:1 zoom, each group's frame 0 drawn with its blend at the stored bounds as <BakedEffect>
+		// places it.
 		const comparePng = await ev(`(async () => {
 			const s = await bakeDrive.sheet();
 			const bake = fxPage.saved[0].stored.bake.result;
 			const res = await fetch('/api/editor/regions?sheet=' + encodeURIComponent(bake.assetKey));
-			const r = (await res.json()).regions[0];
+			const byName = new Map((await res.json()).regions.map((r) => [r.name, r]));
 			const stage = document.querySelector('.stage canvas');
 			const half = 300;
 			const out = document.createElement('canvas');
@@ -214,8 +238,11 @@ try {
 			g.fillStyle = '#0b0e13'; g.fillRect(0, 0, out.width, out.height);
 			const k = stage.width / stage.clientWidth;
 			g.drawImage(stage, stage.width / 2 - half * k, stage.height / 2 - half * k, 2 * half * k, 2 * half * k, 0, 0, 2 * half, 2 * half);
-			g.globalCompositeOperation = 'lighter';
-			g.drawImage(s.c, r.x, r.y, r.w, r.h, 3 * half + bake.bounds.x, half + bake.bounds.y, bake.bounds.w, bake.bounds.h);
+			for (const group of bake.groups) {
+				const r = byName.get(group.frames[0]);
+				g.globalCompositeOperation = group.blendMode === 'add' ? 'lighter' : 'source-over';
+				g.drawImage(s.c, r.x, r.y, r.w, r.h, 3 * half + bake.bounds.x, half + bake.bounds.y, bake.bounds.w, bake.bounds.h);
+			}
 			return out.toDataURL('image/png');
 		})()`);
 		writeFileSync(join(dir, 'compare.png'), Buffer.from(comparePng.split(',')[1], 'base64'));
@@ -242,5 +269,5 @@ if (failed || bad.length) {
 	process.exit(1);
 }
 console.log(
-	`fx bake page: off by default, baked to one seamless sheet, previewed, saved and marked stale — ${results.length}/${results.length} (${((Date.now() - began) / 1000).toFixed(1)} s)`,
+	`fx bake page: off by default, baked to one seamless sheet of blend groups, previewed, saved and marked stale — ${results.length}/${results.length} (${((Date.now() - began) / 1000).toFixed(1)} s)`,
 );

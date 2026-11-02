@@ -15,11 +15,12 @@
  * Every WebGL context keeps its drawing buffer, so the driver can read the stage's pixels. The page
  * exposes `window.fxPage`: the requests made, the docs saved and the baked pages uploaded.
  *
- * `?bake=1` opens a saved, bakeable effect (additive sparks on the dot).
+ * `?bake=1` opens a saved, bakeable effect: a normal puff under additive sparks, both on the dot —
+ * two blend groups.
  */
 import { mount } from 'svelte';
 import {
-	effectBakeFrameName,
+	effectBakeGroupFrameNames,
 	effectBakeSheetJson,
 	normalizeEffectDoc,
 	type EffectDoc,
@@ -139,6 +140,26 @@ const sparks = normalizeEffectDoc(
 		name: 'Sparks',
 		layers: [
 			{
+				key: 'puff',
+				particleKind: 'sprite',
+				art: { assetKey: ATLAS, frames: ['dot'] },
+				placement: { space: 'free' },
+				config: {
+					lifetime: { min: 0.8, max: 1 },
+					frequency: 0.05,
+					emitterLifetime: -1,
+					maxParticles: 40,
+					pos: { x: 0, y: 0 },
+					addAtBack: false,
+					behaviors: [
+						{ type: 'alphaStatic', config: { alpha: 0.6 } },
+						{ type: 'scaleStatic', config: { min: 0.8, max: 1 } },
+						{ type: 'moveSpeedStatic', config: { min: 5, max: 10 } },
+						{ type: 'colorStatic', config: { color: '6080a0' } },
+					],
+				},
+			},
+			{
 				key: 'spark',
 				particleKind: 'sprite',
 				art: { assetKey: ATLAS, frames: ['dot'] },
@@ -242,6 +263,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 				effectId: string;
 				hash: string;
 				frames: number;
+				groups?: number;
 				plan: {
 					cellW: number;
 					cellH: number;
@@ -253,14 +275,15 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 			};
 			const stem = `client/project/fx-bakes/${body.effectId}/fxbake_${body.effectId}_${body.hash}`;
 			if (!r2.has(`${stem}.png`)) return json({ message: 'no page' }, 409);
+			const groups = body.groups ?? 1;
 			sheets.set(
 				`${stem}.json`,
-				effectBakeSheetJson(body.plan, body.frames, `${stem}.png`, body.hash),
+				effectBakeSheetJson(body.plan, body.frames * groups, `${stem}.png`, body.hash),
 			);
 			return json({
 				ok: true,
 				assetKey: `${stem}.json`,
-				frames: Array.from({ length: body.frames }, (_, i) => effectBakeFrameName(body.hash, i)),
+				groups: effectBakeGroupFrameNames(body.hash, body.frames, groups),
 			});
 		}
 		case '/api/lease':

@@ -614,7 +614,8 @@ export async function exportEditorArt(
 				const bake = effectDoc.bake?.result;
 				if (bake && effectBakeShips(effectDoc) && isManifestAssetKey(bake.assetKey)) {
 					refs.manifestKeys.add(bake.assetKey);
-					for (const frame of bake.frames) refs.usedRegions.add(frame);
+					for (const group of bake.groups)
+						for (const frame of group.frames) refs.usedRegions.add(frame);
 				}
 				for (const layer of effectDoc.layers) {
 					const assetKey = layer.art?.assetKey;
