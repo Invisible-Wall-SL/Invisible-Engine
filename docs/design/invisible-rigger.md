@@ -50,6 +50,10 @@ branding/ownership with **zero** compatibility cost:
 - **Our editor → our runtime (`engine-rig`, §7 Phase 6):** same bytes, no conversion.
 - **Our editor → the reference runtime / an external rig editor import:** still the same bytes.
 
+> **Under review (2026-11-02):** [irig-format](irig-format.md) proposes making `.irig` a
+> versioned format of our own, now that the runtime is ours. Until the owner decides, this
+> section stands.
+
 Do **not** fork the format. The instant our format diverges from rig's we lose
 the free runtime and inherit a permanent round-trip-fidelity burden.
 
