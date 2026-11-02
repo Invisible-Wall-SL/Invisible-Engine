@@ -21,7 +21,12 @@ import {
 	respinBoardMaxRows,
 	symbolsWithRole,
 } from './src/holdAndWin.ts';
-import { potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
+import {
+	inPlayStripKeys,
+	potsOverlayOf,
+	primaryHoldAndWin,
+	respinStripKeys,
+} from './src/bonusGames.ts';
 import type { GameConfigDoc, LegacyBonusKeys } from './src/types.ts';
 
 let failures = 0;
@@ -759,6 +764,43 @@ check(
 	],
 	[['holdAndWin.expansion.rule'], ['holdAndWin.expansion']],
 );
+
+console.log('\nin play — a line symbol stays off the respin strips');
+for (const id of HOLD_AND_WIN_PRESET_IDS) {
+	const doc = normalize(HOLD_AND_WIN_PRESETS[id]);
+	const respin = respinStripKeys(doc);
+	const line = Object.keys(doc.symbols).find(
+		(name) => !doc.symbols[name].special_properties?.length,
+	)!;
+	const coin = symbolsWithRole(doc, 'coin')[0];
+	check(
+		`${id}: a line symbol goes on every strip but the respin ones`,
+		inPlayStripKeys(doc, line),
+		Object.keys(doc.paddingReels).filter((key) => !respin.has(key)),
+	);
+	check(
+		`${id}: a coin goes on every strip`,
+		inPlayStripKeys(doc, coin),
+		Object.keys(doc.paddingReels),
+	);
+	check(
+		`${id}: no line symbol sits on its respin strips`,
+		validateGameConfigDoc(doc).filter((i) => i.path.startsWith('paddingReels.')),
+		[],
+	);
+}
+{
+	const doc = clone(classic);
+	doc.symbols.H9 = { paytable: [{ '3': 1 }] };
+	for (const reel of doc.paddingReels.respin) reel.push({ name: 'H9' });
+	check(
+		'a line symbol on the respin strip is named',
+		validateGameConfigDoc(doc)
+			.filter((i) => i.path.startsWith('paddingReels.'))
+			.map((i) => `${i.severity}:${i.path}`),
+		['warning:paddingReels.respin'],
+	);
+}
 
 console.log(failures === 0 ? '\nAll Hold and Win assertions passed.\n' : `\n${failures} FAILED\n`);
 process.exit(failures === 0 ? 0 : 1);

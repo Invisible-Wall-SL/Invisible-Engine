@@ -1099,6 +1099,14 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-02 — **A new line symbol no longer shows on the Hold and Win board.** `/config`'s
+  **unused → in play** badge pushed the symbol onto every strip, the `respin` strip included, so a
+  line symbol added to a Hold and Win game (H4, L5) rolled past on the respin board. It now goes
+  on the strips `inPlayStripKeys` names (game-config `bonusGames.ts`): every strip but the respin
+  modes' (`respinStripKeys`) for a symbol with no Hold and Win role, every strip for a role
+  symbol. `validateBonusModes` warns on a line symbol already on a respin mode's strips (path
+  `paddingReels.<strip>`); a game saved with one is repaired by setting it unused and in play
+  again. Guard: `holdAndWin.fixture` ("in play — a line symbol stays off the respin strips").
 - 2026-10-28 — **`holdAndWinBannerTier`: one banner component can look different per jackpot tier.**
   A banner now carries the tier it names (`HoldAndWinBannerView.tier`: the jackpot celebration, the
   coin jackpot, a jackpot upgrade, the platform jackpot), and the runtime registers the number

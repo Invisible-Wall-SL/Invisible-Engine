@@ -1136,6 +1136,12 @@ This is the one rule that keeps a game from advertising symbols it never deals. 
 the strips now server-defined, the in-play set — and so the **in play** / **unused**
 badges — reflect the server's declared symbols at runtime.
 
+Clicking **unused** puts the symbol on the strips. A line symbol (one with no Hold and Win
+role) goes on every strip except a respin mode's, so it never shows on the Hold and Win
+board; a coin, jackpot, blank or other role symbol goes on every strip. A line symbol
+already on a respin strip is flagged with a warning: set it **unused**, then **in play**
+again, and it comes back on the base strips only.
+
 A coin overlay's pot token is the one symbol that reaches the board without a
 strip: it drops **over** a cell and flies into its pot. So it is not in the Symbols table
 but in a section of its own, **Coins**, with no badge: whether a coin is used, and which
