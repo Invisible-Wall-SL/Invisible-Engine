@@ -218,7 +218,7 @@
 		}
 	},
 	"apps/lines": {
-		"errors": 156,
+		"errors": 153,
 		"byFile": {
 			"apps/lines/src/components/Game.svelte": {
 				"ts:2322": 4,
@@ -251,15 +251,8 @@
 			"apps/lines/src/game/bookEventHandlerMap.ts": {
 				"ts:2353": 3
 			},
-			"apps/lines/src/game/bookOwnership.ts": {
-				"ts:2352": 1
-			},
 			"apps/lines/src/game/cascadeSoundStep.fixture.ts": {
 				"ts:2591": 1
-			},
-			"apps/lines/src/game/flowDoc.ts": {
-				"ts:18048": 1,
-				"ts:2345": 1
 			},
 			"apps/lines/src/game/flowEffects.ts": {
 				"ts:2322": 2

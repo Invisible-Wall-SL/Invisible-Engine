@@ -4,11 +4,7 @@
  * These are the real book-event choreographies (`freeSpinTrigger`, `setExpandingSymbol`, `setWin`,
  * the `winInfo` forEach, …), transcribed 1:1 from the reference game's coded `bookEventHandlerMap`
  * and authored against {@link BOOK_OF_VOCAB}. They live HERE — in the package, template-owned — so
- * they are a reusable artifact both consumers share:
- *   - `apps/lines` builds its committed reference flow (`LINES_FLOW_V2_DOC`) from them; and
- *   - the v1→v2 TRANSLATOR (`engine-flow-migrate`) INJECTS a book event's choreography when the
- *     game's authored v1 flow only declared a screen transition for it (no presentation) — so a
- *     translated game gets the template's faithful presentation, not an empty screen swap.
+ * `apps/lines` builds its committed reference flow (`LINES_FLOW_V2_DOC`) from them.
  *
  * The DSL is deliberately tiny — a linear list of `action` / `cue` steps, plus a `forEach` step for
  * the one non-linear case (`winInfo`). {@link buildChoreo} turns a step list into a v2 exec/data

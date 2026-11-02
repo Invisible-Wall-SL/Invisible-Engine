@@ -19,8 +19,8 @@ import type { LinesFlowV2 } from './flowV2Runtime.svelte';
 declare global {
 	/** DEV live-verify handle (Phase 4b) — the built v2 handle, published for ad-hoc verification:
 	 *  `window.__IE_FLOW_V2__.dispatch('<event>', {...})` runs an authored handler (showing/hiding
-	 *  containers, firing cues), and `.ordered()` reads the mounted set. Mirrors the existing
-	 *  `__IE_FLOW_VALUE__` dev affordance. `undefined` when no v2 doc is authored. */
+	 *  containers, firing cues), and `.ordered()` reads the mounted set. `undefined` when no v2 doc
+	 *  is authored. */
 
 	var __IE_FLOW_V2__: LinesFlowV2 | undefined;
 }

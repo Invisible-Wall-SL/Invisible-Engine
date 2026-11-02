@@ -786,10 +786,7 @@ function contentSummary(bundle: RuntimeBundle): { label: string; value: string }
 		{ label: 'Effects', value: String(count(bundle.effects)) },
 		{ label: 'Shader effects', value: String(count(bundle.shaderEffects)) },
 		{ label: 'Cinematics', value: String(count(bundle.cinematics)) },
-		{
-			label: 'Flow',
-			value: bundle.flowV2 ? 'authored (v2)' : bundle.flow ? 'authored (v1)' : 'coded default',
-		},
+		{ label: 'Flow', value: bundle.flowV2 ? 'authored' : 'coded default' },
 		{ label: 'Game config', value: bundle.config ? 'authored' : 'template default' },
 		{ label: 'Win text', value: bundle.winText ? 'authored' : 'coded defaults' },
 	];

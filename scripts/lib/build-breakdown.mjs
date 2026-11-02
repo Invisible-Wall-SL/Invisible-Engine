@@ -648,7 +648,7 @@ function contentSummary(bundle) {
 		['Effects', String(count(bundle.effects))],
 		['Shader effects', String(count(bundle.shaderEffects))],
 		['Cinematics', String(count(bundle.cinematics))],
-		['Flow', bundle.flowV2 ? 'authored (v2)' : bundle.flow ? 'authored (v1)' : 'coded default'],
+		['Flow', bundle.flowV2 ? 'authored' : 'coded default'],
 		['Game config', bundle.config ? 'authored' : 'template default'],
 		['Win text', bundle.winText ? 'authored' : 'coded defaults'],
 	];

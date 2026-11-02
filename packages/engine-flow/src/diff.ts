@@ -152,7 +152,7 @@ export const diffFlowDoc = (
 /**
  * The default coded book-event vocabulary for the diff (the `apps/lines` /
  * Book-of `bookEventHandlerMap` keys, design doc §5/§7). Mirrors the events
- * `LINES_FLOW_DOC` migrates plus the deliberately-coded ones (`finalWin`), so the diff
+ * a flow can take over plus the deliberately-coded ones (`finalWin`), so the diff
  * shows the full coded surface a project can override. A later phase can export each
  * game's real handler-map keys as data (like the emitter vocabulary) and pass them in.
  */

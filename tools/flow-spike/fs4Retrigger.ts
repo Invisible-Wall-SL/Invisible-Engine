@@ -16,9 +16,6 @@
  *                    └(data) freeSpinRetrigger.extraFs ─────────────────→ (count)
  *     `runFlowEvent(doc, ctx, 'freeSpinRetrigger', { extraFs: 10, total: 22 })` shows the container
  *     and the "+N" readout receives `count: 10` (the payload resolved THROUGH the gameSignals data-out).
- *  3. The v1 `LINES_FLOW_FREESPIN_DOC` fixture's LAYER edge into `freeSpinRetrigger` triggers on the
- *     `freeSpinRetrigger` book event (the facade's real event type), NOT the phantom `retrigger` it
- *     named while inert.
  */
 
 import {
@@ -33,8 +30,6 @@ import {
 	type PinContext,
 	type RunContext,
 } from 'engine-flow-v2';
-
-import { LINES_FLOW_FREESPIN_DOC } from '../../apps/lines/src/game/flowDoc';
 
 const LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };
 
@@ -156,19 +151,6 @@ const main = async () => {
 			'records `show retrigger@20` then `effect showRetriggerCount({count:10})`, in order',
 			eq(log, expected),
 			log.join(' | '),
-		);
-	}
-
-	// --- 3. the v1 fixture's LAYER edge fires on the REAL event ---
-	console.log('\n3. LINES_FLOW_FREESPIN_DOC — the LAYER edge triggers on the real event:');
-	{
-		const layerEdge = LINES_FLOW_FREESPIN_DOC.transitions.find(
-			(t) => t.to === 'freeSpinRetrigger' && t.trigger.kind === 'bookEvent',
-		);
-		assert(
-			'LAYER edge into freeSpinRetrigger triggers on the `freeSpinRetrigger` book event',
-			layerEdge?.trigger.kind === 'bookEvent' && layerEdge.trigger.event === 'freeSpinRetrigger',
-			JSON.stringify(layerEdge?.trigger),
 		);
 	}
 

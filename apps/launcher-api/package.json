@@ -347,7 +347,6 @@
 		"engine-cinematic": "workspace:*",
 		"engine-flipbook": "workspace:*",
 		"engine-flow": "workspace:*",
-		"engine-flow-migrate": "workspace:*",
 		"engine-flow-v2": "workspace:*",
 		"engine-game": "workspace:*",
 		"engine-fx": "workspace:*",

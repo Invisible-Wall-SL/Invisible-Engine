@@ -338,7 +338,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		],
 	},
 	{ file: 'apps/lines/src/game/emitterVocabulary.ts', rule: 'notAsset', names: ['transition'] },
-	{ file: 'apps/lines/src/game/flowDoc.ts', rule: 'notAsset', names: ['transition'] },
 	{ file: 'apps/lines/src/game/flowEffects.ts', rule: 'symbols', names: ['explosion'] },
 	{ file: 'apps/lines/src/game/flowV2Runtime.svelte.ts', rule: 'part', names: ['transition'] },
 	{

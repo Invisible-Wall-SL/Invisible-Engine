@@ -1,6 +1,5 @@
 import { error, json } from '@sveltejs/kit';
 import { getDeployToken } from '$lib/server/appSettings';
-import { exportEditorFlow } from '$lib/server/flowExport';
 import { exportEditorFlowV2 } from '$lib/server/flowV2Export';
 import {
 	checkFlowV2ForPublish,
@@ -13,13 +12,11 @@ import { withDeployWrite } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
 /**
- * Build-time trigger: export the project's Invisible Flow document into
- * `deploy/flow.json` so the bake can embed it (see `$lib/server/flowExport.ts`).
- * Called by `bake-editor-doc.mjs` right before the deploy mirror runs, gated by
- * the same shared read token as `/api/editor/doc` (`?k=` vs `EDITOR_DOC_SECRET`)
- * — a build runner has the token, no launcher session. The FlowDoc carries no
- * binary assets, so this is a single JSON copy + normalize. Idempotent; safe to
- * re-run per build. An un-authored project exports an empty doc (parity, §7).
+ * Build-time trigger: export the project's Invisible Flow v2 graph + shared function library into
+ * `deploy/` so the bake can embed them (see `$lib/server/flowV2Export.ts`). Called by
+ * `bake-editor-doc.mjs` right before the deploy mirror runs, gated by the same shared read token as
+ * `/api/editor/doc` (`?k=` vs `EDITOR_DOC_SECRET`) — a build runner has the token, no launcher
+ * session. Idempotent; safe to re-run per build. An un-authored project exports nothing (parity).
  *
  * The v2 flow is VALIDATED first — the desktop half of the online publish's flow gate — and a flow
  * with errors is refused with a 409 `{ error, reason: 'invalid-flow', details }` before anything is
@@ -56,21 +53,12 @@ export const POST: RequestHandler = async ({ url }) => {
 			);
 		}
 
-		// v1 flow + v2 flow are both exported here so ONE bake call covers both. The v2
-		// pair (`flowV2` / `flowV2Library`) is what a flow-v2 game needs to drive its
-		// screens; without it the desktop bake embedded only v1 and a v2-authored game
-		// ran inert (static scene-editor placement, no flow). Each export self-gates on
-		// "authored", so an un-authored side contributes nothing (parity). Mirrors what
-		// the online runtime bundle already assembles (`runtimeBundle.ts`).
-		const [index, indexV2] = await withDeployWrite(
-			projectKey,
-			async () =>
-				[
-					await exportEditorFlow(clientKey, projectKey),
-					await exportEditorFlowV2(clientKey, projectKey),
-				] as const,
+		// The export self-gates on "authored", so an un-authored project contributes nothing
+		// (parity). Mirrors what the online runtime bundle assembles (`runtimeBundle.ts`).
+		const index = await withDeployWrite(projectKey, () =>
+			exportEditorFlowV2(clientKey, projectKey),
 		);
-		return json({ clientKey, projectKey, ...index, ...indexV2 });
+		return json({ clientKey, projectKey, ...index });
 	} catch (e) {
 		console.error('export-flow failed:', e);
 		throw error(502, 'Failed to export the project flow.');

@@ -1,4 +1,3 @@
-import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
 import type { CustomElementFx } from 'constants-shared/elementFx';
@@ -483,19 +482,10 @@ type BakedBundle = {
 	 * Absent ⇒ `getActiveGameConfig()` resolves the compiled template and the game is byte-identical
 	 * (parity). See `docs/design/invisible-game-config.md`. */
 	config?: GameConfigDoc;
-	/** The authored presentation graph (Invisible Flow output), exported to
-	 * `deploy/flow.json` and embedded by `bake-editor-doc.mjs`. When present the
-	 * runtime interpreter (engine-flow) mounts authored screens + runs authored
-	 * choreography in place of the coded mounting + `bookEventHandlerMap`; the per-event
-	 * fall-through still defers any un-authored screen/event to the coded path. ABSENT
-	 * ⇒ the interpreter is inert ⇒ the coded path runs, byte-identical to current `main`
-	 * (the §7 fall-through invariant). The FlowDoc carries NO binary assets (it
-	 * references scenes the Scene Editor already exported), so there is no `pull` step. */
-	flow?: FlowDoc;
 	/** The authored Invisible Flow **v2** graph (`/flow-v2` output), exported to
 	 * `deploy/flow-v2.json` and embedded by the bake. When present the game builds the v2
-	 * interpreter from it (`flowV2Runtime`); ABSENT ⇒ v2 stays inert and the v1/coded path
-	 * owns the game (parity). Like v1's `flow`, it carries no binary assets. */
+	 * interpreter from it (`flowV2Runtime`); ABSENT ⇒ v2 stays inert and the default flow +
+	 * coded path own the game (parity). It carries no binary assets. */
 	flowV2?: FlowDocV2;
 	/** The shared v2 function library the `flowV2` graph's `functionCall` nodes resolve
 	 * against (`_shared/flow-v2/functions.json`), embedded alongside `flowV2` at bake. */
@@ -1372,24 +1362,10 @@ export function bakedWinTextFor(mode: string | undefined): ResolvedWinText {
 }
 
 /**
- * The baked Invisible Flow document (the presentation graph). When present, the
- * game's `flowRuntime` builds the engine-flow interpreter from it so authored screens
- * mount + authored choreography runs in place of the coded path; the per-event
- * fall-through keeps every un-authored screen/event on the coded handler. Mirrors
- * `bakedSymbolMap`'s runtime→baked→undefined resolution; undefined ⇒ the interpreter
- * is inert ⇒ coded mounting + `bookEventHandlerMap` (the §7 fall-through invariant).
- */
-export function bakedFlowDoc(): FlowDoc | undefined {
-	if (hasRuntimeBundle()) return runtimeBundle!.flow;
-	if (!hasBakedDoc()) return undefined;
-	return bakedBundle.flow;
-}
-
-/**
  * The baked Invisible Flow **v2** graph (`/flow-v2` output). When present, the game's
  * `flowV2Runtime` builds the v2 interpreter from it so a v2 flow drives the game; undefined ⇒ v2
- * stays inert and the v1/coded path owns the game (parity, decision "ship-ready v2, keep v1").
- * Same runtime→baked→undefined resolution as `bakedFlowDoc`.
+ * stays inert and the default flow + coded path own the game (parity). Mirrors `bakedSymbolMap`'s
+ * runtime→baked→undefined resolution.
  */
 export function bakedFlowV2Doc(): FlowDocV2 | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.flowV2;

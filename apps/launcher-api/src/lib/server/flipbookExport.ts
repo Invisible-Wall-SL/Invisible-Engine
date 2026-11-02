@@ -1,6 +1,6 @@
 /**
  * Export a project's Invisible Flipbook clips into the game-loadable `deploy/` subtree —
- * the FlipbookClip analogue of `effectExport.ts` / `flowExport.ts` / `editorArtExport.ts`.
+ * the FlipbookClip analogue of `effectExport.ts` / `flowV2Export.ts` / `editorArtExport.ts`.
  * Closes the "authored the clip in /flipbook, it saves to R2, but the shipped game has no
  * clips" gap (docs/design/invisible-flipbook.md §"Travel", RULE 8).
  *

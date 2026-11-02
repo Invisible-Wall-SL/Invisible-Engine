@@ -740,7 +740,7 @@
 		emitSignal: (signal: string) => void emitFlowSignal(signal),
 	});
 	// Flow value dataflow (design doc §11.4) — wire `<ComponentInstance>`'s value-feed lookup through
-	// the interpreter's authored value-binding overrides (+ the dev `__IE_FLOW_VALUE__` hook). No
+	// the interpreter's value-binding overrides. No
 	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
 	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
 	registerFlowValueSource(linesValueResolver);

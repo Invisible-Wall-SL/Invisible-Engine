@@ -1,8 +1,7 @@
 /**
  * Invisible Flow v2 — the committed REFERENCE book-of flow for apps/lines. A REAL authored flow that
  * DRIVES THE WHOLE GAME (loading → basegame → HUD + free-spins) WITHOUT authoring online first —
- * loaded via the `window.__IE_FLOW_V2_LINES__` dev global / `?flowV2=lines` (mirroring v1's
- * `__IE_FLOW_LINES__`) or shipped through the baked bundle (`bakedFlowV2Doc()`).
+ * loaded via the `window.__IE_FLOW_V2_LINES__` dev global / `?flowV2=lines` or shipped through the baked bundle (`bakedFlowV2Doc()`).
  *
  * The lines reference is now the fully FLOW-DRIVEN doc (owns `load`), the SAME artifact new projects
  * are seeded with — so "loading a lines game" (via `?flowV2=lines`) exercises the driven flow the

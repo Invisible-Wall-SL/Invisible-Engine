@@ -606,7 +606,7 @@ export function sharedShaderDocBackupTarget(id: string): DocBackupTarget {
 /**
  * Per-CLIP Invisible Flipbook document — `<client>/<project>/clips/<id>.clip.json` (design doc
  * `invisible-flipbook.md`). One file per clip, mirroring `fxDocKey`'s multi-doc layout rather
- * than the single-doc `flowDocKey` shape: clips are independently authored, so a per-clip file
+ * than the single-doc `flowV2DocKey` shape: clips are independently authored, so a per-clip file
  * gives each its own compare-and-swap guard and two authors editing DIFFERENT clips never
  * collide. (The design doc's "one doc per project" line predates this; `FlipbookDoc` is the
  * ASSEMBLED collection the bake emits and `registerFlipbooks` consumes, not the storage unit.)
@@ -627,20 +627,10 @@ export function clipsPrefix(client: string, project: string): string {
 export const CLIP_DOC_SUFFIX = '.clip.json';
 
 /**
- * Per-project Invisible Flow document — `<client>/<project>/editor/flow.json` — the
- * authored presentation graph (macro transition graph + per-screen choreography),
- * sibling to the Scene Editor's `scenes.json` (design doc `invisible-flow.md` §7/§12).
- * Same client/project slug-underscore convention as `editorDocKey`.
- */
-export function flowDocKey(client: string, project: string): string {
-	return `${SUB.editor(client, project)}/flow.json`;
-}
-
-/**
  * Per-project Invisible Flow **v2** document — `<client>/<project>/editor/flow-v2.json`.
  * A DISTINCT sibling of v1's `flow.json` (they never share a file): v2 is the node-graph
  * event flow (`engine-flow-v2`'s `FlowDoc`, `version: 2`), authored on the `/flow-v2` dev
- * canvas. Same client/project slug-underscore convention as `flowDocKey`.
+ * canvas. Same client/project slug-underscore convention as `editorDocKey`.
  */
 export function flowV2DocKey(client: string, project: string): string {
 	return `${SUB.editor(client, project)}/flow-v2.json`;

@@ -277,11 +277,6 @@
       "count": 2
     }
   },
-  "apps/lines/src/game/flowRuntime.svelte.ts": {
-    "svelte/prefer-svelte-reactivity": {
-      "count": 1
-    }
-  },
   "apps/lines/src/game/flowV2Runtime.svelte.ts": {
     "svelte/prefer-svelte-reactivity": {
       "count": 1

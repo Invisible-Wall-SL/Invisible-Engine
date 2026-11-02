@@ -25,7 +25,6 @@
  * serves — so the runtime resolves each file as `assetBase + rel`. This module does
  * NOT build `assetBase`; the endpoint adds it from the request origin + token.
  */
-import { type FlowDoc, isAuthoredFlow } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
 import type { CustomElementFx } from 'constants-shared/elementFx';
@@ -60,7 +59,6 @@ import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { stampEffectiveLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
-import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
 import { flowScreensMissing } from './flowV2Validation';
 import { cinematicRigNames, exportCinematics, loadAuthoredCinematics } from './cinematicExport';
@@ -103,11 +101,8 @@ export interface RuntimeBundle {
 	sounds: { catalog: SoundCatalog };
 	localization: { sourceLang: string; messages: Record<string, Record<string, string>> };
 	symbols: SymbolExportResult;
-	/** The authored presentation graph (Invisible Flow). Omitted unless the project
-	 * authored a non-empty flow — absent ⇒ the interpreter is inert ⇒ coded path (§7). */
-	flow?: FlowDoc;
 	/** The authored Invisible Flow **v2** graph + shared library. Omitted unless the project
-	 * authored a non-empty v2 flow — absent ⇒ v2 inert, v1/coded owns (parity). */
+	 * authored a non-empty v2 flow — absent ⇒ v2 inert, the default flow + coded path own (parity). */
 	flowV2?: FlowDocV2;
 	flowV2Library?: FlowV2LibraryDoc;
 	/** The authored Invisible Cinematic documents. Omitted unless the project authored one with at
@@ -414,7 +409,7 @@ async function assembleRuntimeBundle(
 	// must stay null so the bundle omits `config` and the game runs its compiled template. See the
 	// `config` field's note on the bundle type.
 	const [
-		{ editorArt, fonts, sounds, symbols, flow, flowV2, flowV2Library, cinematics },
+		{ editorArt, fonts, sounds, symbols, flowV2, flowV2Library, cinematics },
 		localization,
 		effectIndex,
 		rigFx,
@@ -503,9 +498,7 @@ async function assembleRuntimeBundle(
 		sounds: { catalog: sounds.catalog },
 		localization,
 		symbols,
-		// Omit an un-authored flow so the runtime interpreter stays inert (parity, §7).
-		...(flow ? { flow } : {}),
-		// Invisible Flow v2 — omit when un-authored so v2 stays inert and v1/coded owns (parity).
+		// Invisible Flow v2 — omit when un-authored so v2 stays inert and the default flow owns (parity).
 		...(flowV2 ? { flowV2 } : {}),
 		...(flowV2 && flowV2Library ? { flowV2Library } : {}),
 		// Invisible Cinematic — omit when none are authored so a cinematic-less project's bundle
@@ -559,8 +552,6 @@ async function ensureDeployExports(
 	fonts: { catalog: FontCatalog };
 	sounds: { catalog: SoundCatalog };
 	symbols: SymbolExportResult;
-	/** The exported FlowDoc, or undefined when the project authored no flow (parity). */
-	flow?: FlowDoc;
 	/** The exported v2 FlowDoc + shared library, or undefined when no v2 flow is authored. */
 	flowV2?: FlowDocV2;
 	flowV2Library?: FlowV2LibraryDoc;
@@ -593,7 +584,7 @@ async function ensureDeployExports(
 	const deployPrefix = `${SUB.deploy(client, projectKey)}/`;
 	const pageStore = new PageStore(deployPrefix);
 
-	const [editorArt, fontIndex, soundIndex, symbols, flowIndex, flowV2Index, cinematicIndex] =
+	const [editorArt, fontIndex, soundIndex, symbols, flowV2Index, cinematicIndex] =
 		await Promise.all([
 			// `timings` goes in too: `art` dominates the assemble, and the per-PHASE breakdown it folds
 			// back in (`art:manifests` / `art:images` / `art:spines` / `art:prune:list`) is what says
@@ -611,7 +602,6 @@ async function ensureDeployExports(
 			step('symbols', timings, () =>
 				exportEditorSymbols(client, projectKey, { timings, pageStore }),
 			),
-			step('flow', timings, () => exportEditorFlow(client, projectKey)),
 			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
 			step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
 			// Boot splashes are a SIDE EFFECT here, not part of the bundle: the splash paints
@@ -634,17 +624,13 @@ async function ensureDeployExports(
 		await deleteObjects(stale);
 	});
 
-	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
-	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
-	// is the SAME gate the interpreter's `isActive` uses, so the baked slot and the runtime
-	// never diverge (a transitions-only doc is inert ⇒ not baked). v2 mirrors this: the export
-	// already gates on an authored graph, so `flowV2Index` is undefined for an un-authored v2 doc.
+	// Forward an authored v2 flow only: the export gates on an authored graph, so `flowV2Index` is
+	// empty for an un-authored v2 doc and the game boots its default flow (parity).
 	return {
 		editorArt,
 		fonts: { catalog: fontIndex.catalog },
 		sounds: { catalog: soundIndex.catalog },
 		symbols,
-		...(isAuthoredFlow(flowIndex.flow) ? { flow: flowIndex.flow } : {}),
 		...(flowV2Index.flowV2 ? { flowV2: flowV2Index.flowV2 } : {}),
 		...(flowV2Index.flowV2Library ? { flowV2Library: flowV2Index.flowV2Library } : {}),
 		...(cinematicIndex.cinematics ? { cinematics: cinematicIndex.cinematics } : {}),

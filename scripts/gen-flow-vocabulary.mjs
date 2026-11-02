@@ -12,7 +12,7 @@
  * per-component `EmitterEvent*` unions) and the effect catalog (`flowEffects.ts`) are
  * properties of the GAME SOURCE, identical across every project built on that game — they are
  * NOT per-project authored data living in R2. So they are committed as a game-source fixture
- * (mirroring `flowDoc.ts` / `flowEffects.ts`) and surfaced through `engine-flow`, exactly the
+ * (mirroring `flowEffects.ts`) and surfaced through `engine-flow`, exactly the
  * way the LayoutDoc + component defs are passed in to the editor (design doc §3/§11). This is
  * an AUTHORING-fidelity step only: it changes which events/effects the picker OFFERS, never the
  * runtime (the executor broadcasts/invokes whatever the FlowDoc says).

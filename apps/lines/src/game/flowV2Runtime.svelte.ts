@@ -139,7 +139,7 @@ declare global {
 
 	var __IE_FLOW_V2_LIB__: FunctionLibraryDoc | undefined;
 	/** DEV opt-in: load the COMMITTED reference book-of flow (`LINES_FLOW_V2_DOC` + its library) so
-	 *  v2 drives a real game without a bake (mirrors v1's `__IE_FLOW_LINES__`). Unset ⇒ not loaded. */
+	 *  v2 drives a real game without a bake. Unset ⇒ not loaded. */
 
 	var __IE_FLOW_V2_LINES__: boolean | undefined;
 	/** DEV opt-in: load the stacked-picture verify flow (`LINES_FLOW_V2_STACKED_DOC` — the reference

@@ -1,6 +1,6 @@
 /**
  * Export a project's Invisible FX effects into the game-loadable `deploy/` subtree —
- * the EffectDoc analogue of `flowExport.ts` / `editorArtExport.ts` / `fontExport.ts`.
+ * the EffectDoc analogue of `flowV2Export.ts` / `editorArtExport.ts` / `fontExport.ts`.
  * Closes the "authored the effect in /fx, it saves to R2, but the shipped game has no
  * effects" gap (docs/design/invisible-fx.md §8, RULE 8).
  *
@@ -8,7 +8,7 @@
  * binary assets of its own: its particle ART is an atlas the editor-art export already
  * ships (FX references it by `art.assetKey`, never re-packs textures, §4 / §8). So this
  * is a pure-JSON copy with no texture mirroring. A project holds MANY named effects, so
- * (unlike Flow's single `flow.json`) each is written under its own deploy file plus a
+ * (unlike Flow's single `flow-v2.json`) each is written under its own deploy file plus a
  * lightweight index:
  *
  *   <client>/<project>/<id>.fx.json            ← the authored doc (saved by /api/fx/save)

@@ -1186,7 +1186,7 @@ export const presentReveal = async ({
 
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
-// apps/lines FlowDoc (`flowDoc.ts`). Bodies are the coded handler leaves, verbatim.
+// Flow (`FlowEffect`). Bodies are the coded handler leaves, verbatim.
 // ---------------------------------------------------------------------------
 
 const effects: Record<string, FlowEffect> = {

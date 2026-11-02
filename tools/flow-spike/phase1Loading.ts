@@ -15,7 +15,7 @@
  *     section exercises the interpreter primitive, not the game's boot path.
  *
  *  B. Loading-owned advance — a FlowDoc authoring `loading` (initial) + a `complete` edge to
- *     `basegame` (the `LINES_FLOW_LOADING_DOC` shape): the interpreter STARTS on `loading`,
+ *     `basegame` (the default loading leg): the interpreter STARTS on `loading`,
  *     the mounter OWNS `loading`, and a tap (`completeActiveScreen()` — the existing
  *     tap-to-continue hook) fires the `complete` edge and swaps `loading` → `basegame`. The
  *     swap runs the loading `exit` choreography then the basegame `enter` choreography IN
@@ -70,7 +70,7 @@ const makeRig = (turbo: boolean) => {
 
 const broadcast = (event: string): ChoreographyNode => ({ kind: 'broadcast', event });
 
-// The `LINES_FLOW_LOADING_DOC` shape (apps/lines/src/game/flowDoc.ts): loading (initial) with
+// A loading leg: loading (initial) with
 // an exit beat, a `complete` edge to basegame, and a basegame enter beat. Kept inline so the
 // spike stays self-contained (flow-spike has no dependency on `apps/lines`).
 const loadingDoc: FlowDoc = {
@@ -85,7 +85,7 @@ const loadingDoc: FlowDoc = {
 	],
 };
 
-// The default `LINES_FLOW_DOC` shape — authors ONLY basegame (no `loading` node), so it must
+// A basegame-only doc — authors ONLY basegame (no `loading` node), so it must
 // NOT own loading (the §7 parity boot).
 const basegameOnlyDoc: FlowDoc = {
 	version: 1,
