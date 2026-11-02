@@ -36,6 +36,7 @@
 		"fx-page": "node fxPage.mjs",
 		"fx-cost-page": "node fxCostPage.mjs",
 		"fx-bake-page": "node fxBakePage.mjs",
+		"baked-runtime": "node bakedRuntime.mjs",
 		"nine-slice-parity": "node nineSliceParity.mjs",
 		"fx-previews": "node fxPreviews.mjs",
 		"shader-page": "node shaderPage.mjs",
