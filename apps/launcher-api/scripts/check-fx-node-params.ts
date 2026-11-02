@@ -1101,8 +1101,8 @@ export function mountLive(node, initial) {
 			view,
 		) &&
 			view.includes('const { bound, allBindings, fxParamValues } = fold;') &&
-			view.includes(
-				'<EffectPlayer doc={effectDoc} scope={signalScope} params={fxParamValues} />',
+			/<EffectPlayer\s+doc=\{effectDoc\}\s+scope=\{signalScope\}\s+params=\{fxParamValues\}[^>]*\/>/.test(
+				view,
 			) &&
 			!/createBoundValues|withNodeActorOutputs/.test(view),
 	);
