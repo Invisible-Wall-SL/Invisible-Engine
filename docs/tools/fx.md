@@ -201,7 +201,13 @@ Click the bar to open it:
 **What cannot bake** — the panel lists the reason and games play it live: an effect with **exposed
 parameters**, a layer on a **rig bone**, **rig-clip particles**, a layer that fires **On event** or
 stops after a **Duration**, and a **one-shot burst** (an emitter lifetime). Where a game drives an
-effect (a flight trail, a rig keyframe), that copy plays live too.
+effect along a path (a flight trail) or sets its parameters live, that copy plays live too.
+
+**Fired by a rig keyframe**, a baked effect plays its loop: it starts on each beat, follows the
+keyframe's bone, plays at the binding's **Speed**, and keeps looping while the beat emits (its
+**Duration**, or until the clip stops for a **Continuous** binding). It fades in over a tenth of a
+second, and when the beat ends it fades out over the effect's longest particle life — the time the
+live particles would take to die — then stops drawing. The panel shows that fade-out time.
 
 ### Load a rig backdrop (attach to a rig)
 
