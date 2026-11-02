@@ -13,11 +13,18 @@
  *  5. the runtime choice — bake on + every frame loaded ⇒ baked; off / absent / driven / one frame
  *     missing ⇒ live — and that the default path reads no asset at all;
  *  6. the per-instance desync — deterministic, spread, and `Math.random` never drawn;
- *  7. the export — only a shipping bake survives `exportableEffectDoc`; the rest are stripped.
+ *  7. the export — only a shipping bake survives `exportableEffectDoc`; the rest are stripped;
+ *  8. a rig beat — the fades (in briefly, out over the longest particle life at the beat's speed),
+ *     the opacity envelope, and the loop rate under `emitSpeed`.
  */
 
 import {
+	DEFAULT_EMIT_SPEED,
+	EFFECT_BAKE_BEAT_FADE_IN_SECONDS,
 	EFFECT_BAKE_LIMITS,
+	effectBakeBeatAlpha,
+	effectBakeBeatFades,
+	effectBakeBeatRate,
 	effectBakeBlend,
 	effectBakeBlockers,
 	effectBakeChoice,
@@ -26,6 +33,7 @@ import {
 	effectBakeFrameName,
 	effectBakeHash,
 	effectBakeInstanceKey,
+	effectBakeLongestLife,
 	effectBakeSeamFrames,
 	effectBakeSeamWeight,
 	effectBakeSheetJson,
@@ -342,6 +350,52 @@ console.log('7. the export');
 		effectBakeChoice(exported, (k) => (k.startsWith(RESULT.assetKey) ? 1 : undefined)).mode ===
 			'baked',
 		'the exported doc still chooses baked once its sheet is loaded',
+	);
+}
+
+console.log('8. a rig beat');
+{
+	const doc = freshDoc();
+	const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
+	assert(effectBakeLongestLife(doc) === 1.2, 'the longest life is the largest lifetime.max');
+	const fades = effectBakeBeatFades(doc);
+	const life = 1.2 / DEFAULT_EMIT_SPEED / 1000;
+	assert(near(fades.fadeOut, life), `it fades out over that life at the default speed (${life} s)`);
+	assert(
+		fades.fadeIn === EFFECT_BAKE_BEAT_FADE_IN_SECONDS,
+		`and in over ${EFFECT_BAKE_BEAT_FADE_IN_SECONDS} s`,
+	);
+	const fast = effectBakeBeatFades(doc, DEFAULT_EMIT_SPEED * 2);
+	assert(near(fast.fadeOut, life / 2), 'twice the emit speed halves the fade-out');
+	assert(effectBakeBeatRate() === 1, 'the default speed plays the loop at 1');
+	assert(effectBakeBeatRate(DEFAULT_EMIT_SPEED * 2) === 2, 'twice the emit speed plays it at 2');
+	const short = {
+		...doc.layers[0],
+		config: { ...doc.layers[0].config, lifetime: { min: 0.01, max: 0.02 } },
+	};
+	const tiny = effectBakeBeatFades({ layers: [short] });
+	assert(tiny.fadeIn === tiny.fadeOut, 'the fade-in is never longer than the life');
+
+	const f = { fadeIn: 0.1, fadeOut: 0.5 };
+	assert(effectBakeBeatAlpha(0, undefined, f) === 0, 'nothing drawn on the beat itself');
+	assert(near(effectBakeBeatAlpha(0.05, undefined, f), 0.5), 'half-way up the fade-in');
+	assert(effectBakeBeatAlpha(3, undefined, f) === 1, 'full while emitting, without end');
+	assert(effectBakeBeatAlpha(0.9, 1, f) === 1, 'full until emission ends');
+	assert(near(effectBakeBeatAlpha(1.25, 1, f), 0.5), 'half-way down the fade-out');
+	assert(effectBakeBeatAlpha(1.5, 1, f) === 0, 'gone once the longest life has passed');
+	assert(effectBakeBeatAlpha(9, 1, f) === 0, 'and stays gone');
+	assert(
+		near(effectBakeBeatAlpha(0.05, 0.05, f), 0.5) && near(effectBakeBeatAlpha(0.3, 0.05, f), 0.25),
+		'released mid fade-in ⇒ fades out from where it had got to',
+	);
+	assert(effectBakeBeatAlpha(0, 0, f) === 0, 'released at once ⇒ never drawn');
+	assert(
+		effectBakeBeatAlpha(1, 1, { fadeIn: 0, fadeOut: 0 }) === 0,
+		'no lifetime ⇒ off at the end',
+	);
+	assert(
+		effectBakeBeatAlpha(0, undefined, { fadeIn: 0, fadeOut: 0 }) === 1,
+		'… and full before it',
 	);
 }
 

@@ -10,6 +10,7 @@
  */
 
 import { behaviorsOf } from './bindArt';
+import { DEFAULT_EMIT_SPEED, emitterSecondsToWallMs } from './playback';
 import type { EffectDoc, EmitterLayer } from './types';
 
 /** How the end of the captured loop meets its start. */
@@ -154,18 +155,23 @@ const configNum = (config: unknown, key: string): number | undefined => {
 	return finite(v) ? v : undefined;
 };
 
-/**
- * Emitter seconds to run before the first captured frame, so the loop starts with the effect full:
- * the longest particle life of any layer, plus a margin, capped.
- */
-export function effectBakeWarmup(doc: Pick<EffectDoc, 'layers'>): number {
+/** The longest particle life of any layer, emitter seconds (0 when no layer sets one). */
+export function effectBakeLongestLife(doc: Pick<EffectDoc, 'layers'>): number {
 	let longest = 0;
 	for (const layer of doc.layers) {
 		const life = isObject(layer.config.lifetime) ? layer.config.lifetime : undefined;
 		const max = configNum(life, 'max') ?? configNum(life, 'min') ?? 0;
 		longest = Math.max(longest, max);
 	}
-	return Math.min(EFFECT_BAKE_LIMITS.warmupEmitterSeconds, longest * 1.25 + 0.1);
+	return longest;
+}
+
+/**
+ * Emitter seconds to run before the first captured frame, so the loop starts with the effect full:
+ * the longest particle life of any layer, plus a margin, capped.
+ */
+export function effectBakeWarmup(doc: Pick<EffectDoc, 'layers'>): number {
+	return Math.min(EFFECT_BAKE_LIMITS.warmupEmitterSeconds, effectBakeLongestLife(doc) * 1.25 + 0.1);
 }
 
 /** Why an effect cannot bake, one line per reason; empty ⇒ it can. */
@@ -376,8 +382,8 @@ export type EffectBakeChoice<T> =
 
 /**
  * Which path a mounted effect takes. Baked only when the doc's bake is on, has a result, the effect
- * is still bakeable, the mount does not drive it (a trail owner, a forced rig beat, live parameter
- * values), and EVERY frame of the sheet is loaded — a missing sheet falls back to the live emitters.
+ * is still bakeable, the mount does not drive it (a trail owner, live parameter values — a rig beat
+ * does not count: the loop plays on the beat, see {@link effectBakeBeatAlpha}), and EVERY frame of the sheet is loaded — a missing sheet falls back to the live emitters.
  * `lookup` reads `loadedAssets`; a frame resolves as `<assetKey>::<frame>` first, then bare (the
  * editor-art key scheme, as `EffectLayer` resolves particle art).
  */
@@ -430,4 +436,53 @@ export function effectBakeFrameAt(
 ): number {
 	if (frameCount <= 0) return 0;
 	return (start + Math.floor(Math.max(0, seconds) * fps)) % frameCount;
+}
+
+/** The longest fade-in of a baked effect fired by a rig beat, seconds on the particle clock. */
+export const EFFECT_BAKE_BEAT_FADE_IN_SECONDS = 0.1;
+
+/** How a baked effect fired by a rig beat fades in at the beat and out once emission ends. */
+export interface EffectBakeBeatFades {
+	/** Seconds from the beat to full opacity. */
+	fadeIn: number;
+	/** Seconds from the end of emission to nothing drawn: the longest particle life. */
+	fadeOut: number;
+}
+
+/**
+ * The fades of a baked effect played on a rig beat, in particle-clock seconds. Live, the beat's
+ * particles build up and, once emission stops, live out their lifetime; the baked loop starts full
+ * and has no particles to let die, so it fades. Out over the longest particle life at the beat's
+ * `emitSpeed` (the time the last live particle takes to go); in over a short
+ * {@link EFFECT_BAKE_BEAT_FADE_IN_SECONDS}, never longer than that life, so the full loop does not
+ * pop in and a short beat still reaches full strength.
+ */
+export function effectBakeBeatFades(
+	doc: Pick<EffectDoc, 'layers'>,
+	emitSpeed?: number,
+): EffectBakeBeatFades {
+	const life = emitterSecondsToWallMs(effectBakeLongestLife(doc), emitSpeed) / 1000;
+	return { fadeIn: Math.min(life, EFFECT_BAKE_BEAT_FADE_IN_SECONDS), fadeOut: life };
+}
+
+/** The loop's playback rate under a rig beat's `emitSpeed` (1 at the default speed). */
+export function effectBakeBeatRate(emitSpeed?: number): number {
+	return (emitSpeed || DEFAULT_EMIT_SPEED) / DEFAULT_EMIT_SPEED;
+}
+
+/**
+ * The opacity of a baked effect `seconds` after its rig beat, emission ending at `endAt` seconds
+ * (`undefined`: it never ends). Fades in, holds while emitting, then fades out from wherever it had
+ * got to; 0 once the fade-out is over, and the sprite stops drawing.
+ */
+export function effectBakeBeatAlpha(
+	seconds: number,
+	endAt: number | undefined,
+	fades: EffectBakeBeatFades,
+): number {
+	const rise = (t: number): number => (fades.fadeIn > 0 ? clamp(t / fades.fadeIn, 0, 1) : 1);
+	if (endAt === undefined || seconds < endAt) return rise(Math.max(0, seconds));
+	const from = rise(Math.max(0, endAt));
+	if (fades.fadeOut <= 0) return 0;
+	return from * clamp(1 - (seconds - endAt) / fades.fadeOut, 0, 1);
 }

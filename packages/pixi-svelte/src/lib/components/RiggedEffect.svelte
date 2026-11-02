@@ -72,8 +72,10 @@
 	 * `{#key runId}` — a clean burst from t=0 every beat. The `<EffectPlayer forceEmit>` makes every
 	 * layer emit on mount regardless of its authored trigger (the keyframe IS the trigger), so a bound
 	 * effect plays no matter how it was authored — an `event`-mode layer would otherwise sit dormant
-	 * waiting for a cue that never comes. Nothing renders before the first fire (the effect is dormant
-	 * until then). No-op when there is no host rig in context (never crashes).
+	 * waiting for a cue that never comes. A BAKED effect plays its loop instead, from the beat and on
+	 * the bone the same way, fading out over its particle life when emission ends (`<BakedEffect
+	 * beat>`). Nothing renders before the first fire (the effect is dormant until then). No-op when
+	 * there is no host rig in context (never crashes).
 	 */
 	import * as PIXI from 'pixi.js';
 	import * as RIG from 'engine-rig/pixi';
