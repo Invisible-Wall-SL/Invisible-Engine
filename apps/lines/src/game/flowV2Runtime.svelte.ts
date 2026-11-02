@@ -444,8 +444,8 @@ export const createLinesFlowV2 = (
 
 	// Cross-screen layering is owned by the EDITOR scene order (the screen list — "top row
 	// rendered first"), the SAME source of truth the coded/legacy HUD path reads via
-	// `sceneLayerZIndex` (Game.svelte). A container's own `z` was baked at v1→v2 migration
-	// (`translate.ts`: `i * 10` over the v1 SCREEN order) and can DIVERGE from the current scene
+	// `sceneLayerZIndex` (Game.svelte). A container's own `z` was baked by the since-removed v1→v2
+	// translator (`i * 10` over the v1 SCREEN order) and can DIVERGE from the current scene
 	// order — e.g. a `hudBar` placed above the `hud_*` readouts ends up UNDER them in-game though
 	// the editor shows it on top. Re-stamp each container's z from the scene order so flow-v2
 	// stacking matches the editor and a screen-list reorder re-layers the game. `sceneLayerZIndex`

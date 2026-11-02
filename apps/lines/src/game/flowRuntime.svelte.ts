@@ -198,7 +198,7 @@ const synthesizeDefaultFlowDoc = (editorDoc: LayoutDoc): FlowDoc | undefined => 
 	};
 };
 
-/** The interpreter handle the game holds (`undefined` with no loading/basegame scene ⇒ coded path). */
+/** The interpreter handle the game holds; `undefined` when the doc has no loading/basegame scene. */
 export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookEventContext>>;
 
 /**
