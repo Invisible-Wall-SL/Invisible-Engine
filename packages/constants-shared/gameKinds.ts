@@ -4,7 +4,7 @@
  * which options each authoring tool offers (`kindCapabilities` in `engine-layout`).
  *
  * Lives here because this package is dependency-free and already imported by the launcher,
- * `engine-layout`, `engine-flow-v2` and `game-spec`, so every consumer derives from it instead of
+ * `engine-layout` and `engine-flow-v2`, so every consumer derives from it instead of
  * keeping a hand-copied list that a new kind silently misses. Author-created custom kinds (editor
  * §21) are NOT listed: they are arbitrary ids stored in R2, and every consumer treats an id it
  * does not know as a custom kind.

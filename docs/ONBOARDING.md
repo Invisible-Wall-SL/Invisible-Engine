@@ -21,7 +21,6 @@ pnpm build        # build everything
 pnpm storybook    # component explorer
 pnpm lint         # ESLint
 pnpm format       # Prettier
-pnpm e2e          # Playwright
 pnpm check:all    # every offline check/fixture/spike (CI: Checks); --list, --only <substr>
 pnpm check:python # every services/*/test_*.py (needs the services' requirements installed)
 ```

@@ -240,7 +240,6 @@ const BET_TYPE_METHODS_MAP = {
 
 - Q: From what I see, most of the animated graphics seem to be rig, is their any other alternatives that you know of, besides rig?
   - A: Spritesheet animation is a good alternative.
-Check out the example of spritesheet animation here: [SpriteSheet.stories.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/pixi-svelte-storybook/src/stories/SpriteSheet.stories.svelte)
 
 - Q: Is there a mechanism to switch from a game type (i.e. lines) to another game type (i.e. cluster) as a mechanic?
   - A: It's easy. What you can do:
@@ -874,7 +873,6 @@ The naming convention of packages is a combination of `<PACKAGE_TYPE>`, hyphen a
   - [pixi-svelte](/packages/pixi-svelte): This local package contains reusable svelte components/functions/types based on [pixijs](https://www.npmjs.com/package/pixi.js) and [svelte](https://www.npmjs.com/package/svelte).
     - It creates `stateApp` and `ContextApp` as a [svelte-context](https://svelte.dev/docs/svelte/context).
     - It also builds and publishes [pixi-svelte of npm](https://www.npmjs.com/package/pixi-svelte).
-  - [pixi-svelte-storybook](/packages/pixi-svelte-storybook): This is a storybook for components in `pixi-svelte`.
 - `constants-*`:
   - [constants-shared](/packages/constants-shared): This local package contains reusable <mark>global</mark> constants.
 - `state-*`:

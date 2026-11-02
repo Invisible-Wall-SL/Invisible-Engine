@@ -93,7 +93,7 @@ for (const file of [
 	'services/atlas-tool/ui_server.py',
 	'services/director-worker/src/index.ts',
 	'apps/cluster/src/game/config.ts',
-	'packages/game-spec/src/index.ts',
+	'packages/director-costs/src/index.ts',
 	'tools/flow-spike/index.mjs',
 	'.github/workflows/lint.yml',
 	'.github/actions/code-changed/action.yml',

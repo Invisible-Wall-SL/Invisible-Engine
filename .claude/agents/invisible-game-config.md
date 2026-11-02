@@ -75,9 +75,6 @@ consumers (see `engine-pixi-svelte`).
 - **Tool page:** `apps/launcher-api/src/routes/(app)/config/` + `POST/GET /api/game-config` (session
   gate) and `GET /api/game-config/doc` (deploy-token gate, for the bake). Registered in `roles.ts`.
 - **Strip consumer:** `packages/utils-slots/src/createReelForSpinning.svelte.ts`.
-- **Related but NOT this:** `packages/game-spec` is the offline CLI spec that *generates*
-  `paytable.ts`/`infoManifest.ts` at scaffold time. Game Config is the *online, per-project,
-  runtime-shipped* doc. Don't merge them; don't duplicate their overlap silently.
 
 ## Rules specific to Game Config work
 - **Validate the data contract offline first** — a Node fixture over the real modules beats

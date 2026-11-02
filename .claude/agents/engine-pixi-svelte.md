@@ -42,6 +42,6 @@ rendering/runtime foundation the tool agents build on.
 
 ## How to work
 Read `CLAUDE.md`, `docs/status/engine.md`, and the target package before editing. Small,
-verifiable changes; validate with `pnpm --filter <pkg> build` + relevant Storybook/e2e. On
+verifiable changes; validate with `pnpm --filter <pkg> build` + relevant Storybook/check gates. On
 finishing meaningful work update `docs/status/engine.md`. Report what changed and how you
 verified it.

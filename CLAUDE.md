@@ -49,7 +49,7 @@ apps/          → 6 game applications (lines, cluster, scatter, ways, number-pi
 packages/      → 30 shared libraries
   pixi-svelte  → Core: declarative PixiJS components inside Svelte
   components-* → UI component libraries (layout, pixi, shared, ui-html, ui-pixi)
-  utils-*      → Utilities (bet, book, sound, layout, xstate, slots, resize-observer…)
+  utils-*      → Utilities (bet, book, sound, layout, xstate, slots…)
   rgs-*        → Remote Game Server integration (requests, fetcher)
   state-shared → Shared XState state definitions
   config-*     → Shared build configs (ts, vite, svelte, storybook, lingui)
@@ -66,7 +66,7 @@ packages/      → 30 shared libraries
 | Particles | @barvynkoa/particle-emitter |
 | Filters | pixi-filters 6 |
 | Build | Vite 6 + Turbo 2 |
-| Testing | Node fixture gates (root + launcher `check:*` scripts, run by CI's Lint workflow), Storybook stories, and play-QA via the `game-playtester` agent. No E2E or visual-regression suite runs: no package implements the `e2e*` Turbo tasks and the Chromatic CLI is never invoked (upstream-SDK leftovers). |
+| Testing | Node fixture gates (root + launcher `check:*` scripts, run by CI's Lint workflow), Storybook stories, and play-QA via the `game-playtester` agent. There is no E2E or visual-regression suite. |
 | i18n | Lingui 6 |
 | Fonts | WebFontLoader |
 
@@ -153,7 +153,7 @@ Two facts that shape most work:
 
 Plug-and-play translator package. Maps the Invisible Engine internal request shape to the **Play4Fun** `/rgs/engine` batched-action protocol. Lives in [packages/rgs-translator-eagaming](packages/rgs-translator-eagaming) — kept separate so the original `rgs-fetcher`/`rgs-requests` path stays default and can be swapped per-app.
 
-> **Naming note:** the package is currently named `rgs-translator-eagaming` because the discovery target was `eagaming.com`. We've since confirmed the actual protocol belongs to **Play4Fun** (the EAGaming brand wrapper proxies to a Play4Fun RGS host, e.g. `www.best00qpin.com`). Will likely rename to `rgs-translator-play4fun` once we've verified the same protocol on another brand. Internal types/functions already use `Play4Fun*` names with `EAGaming*` back-compat aliases.
+> **Naming note:** the package is currently named `rgs-translator-eagaming` because the discovery target was `eagaming.com`. We've since confirmed the actual protocol belongs to **Play4Fun** (the EAGaming brand wrapper proxies to a Play4Fun RGS host, e.g. `www.best00qpin.com`). Will likely rename to `rgs-translator-play4fun` once we've verified the same protocol on another brand.
 
 ### Wire format → **`docs/reference/play4fun-protocol.md`**
 
@@ -194,13 +194,10 @@ a delivery, where the RGS is same-origin with the operator's page — see
 - `src/types.ts` — wire types + sample payloads in comments
 - `src/sessionState.ts` — sid + seq + gid lifecycle
 - `src/translator.ts` — `buildBetActions`, `buildHeartbeat`, `buildCollectAction`, `buildSingleAction`, `translateBetResponse`
-- `src/eagamingFetcher.ts` — HTTP transport (`createPlay4FunFetcher` / `createEAGamingFetcher` alias). Auto-binds gid from responses.
+- `src/eagamingFetcher.ts` — HTTP transport (`createPlay4FunFetcher`). Auto-binds gid from responses.
 
 ### Probe scripts
 - [scripts/console-sniffer.js](scripts/console-sniffer.js) — paste into the live game iframe console; monkey-patches fetch + XHR and logs every request to `window.eaSniffed`. Use to capture real network traffic during play.
-- [scripts/console-probe.js](scripts/console-probe.js) — paste into the iframe console; runs a sequence of probe POSTs against the discovered endpoint.
-- [scripts/probe.mjs](scripts/probe.mjs) — Node-based probe (will be bounced by Cloudflare for EAGaming-fronted hosts; useful for non-CF backends).
-- [apps/lines/src/stories/EAGamingProbe.stories.svelte](apps/lines/src/stories/EAGamingProbe.stories.svelte) — Storybook UI (works only when paired with same-origin proxy or a CF-free target).
 
 ## Svelte 5 Notes
 - Use **runes** (`$state`, `$derived`, `$effect`, `$props`) — not the legacy Options API

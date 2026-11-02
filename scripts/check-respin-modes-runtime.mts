@@ -780,7 +780,7 @@ const stub = (source: string) => 'data:text/javascript,' + encodeURIComponent(so
 const SEAM_STUBS = {
 	'$app/state': stub('export const page = { url: new URL("https://game.test/") };'),
 	'$env/static/public': stub(
-		'export const PUBLIC_SITE_MODE = ""; export const PUBLIC_SENTRY_DSN = ""; export const PUBLIC_SENTRY_SAMPLE_RATE = ""; export const PUBLIC_CHROMATIC = "";',
+		'export const PUBLIC_SENTRY_DSN = ""; export const PUBLIC_SENTRY_SAMPLE_RATE = ""; export const PUBLIC_CHROMATIC = "";',
 	),
 	'rgs-requests': stub('export const requestEndEvent = async () => ({});'),
 	'error-tracking': stub('export const captureRgsFailure = () => {};'),
