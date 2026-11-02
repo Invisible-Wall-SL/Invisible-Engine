@@ -171,6 +171,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-02 — **The desktop build now ships the authored layout profile, so its landscape matches
+  the editor and the live game.** `/api/editor/doc` — the doc the standalone/desktop build bakes —
+  never stamped the admin global layout profile; only the online runtime bundle did. A project with
+  no per-project override therefore booted online on the authored buckets and on desktop on the
+  coded default (the legacy Stake ratio tree), so landscape picked a different bucket and box.
+  Both surfaces now call one helper, `stampEffectiveLayoutProfile` (`lib/server/layoutProfile.ts`),
+  guarded by `check:layout-profile-surfaces`. Reaches a desktop game on its next build.
 - 2026-10-29 — **Canvas toolbar: the view toggles are one View ▾ menu.** FX, Bounds, Rulers, Snap
   to guides, Any screen, In-game view with its game-mode picker, the shortcut sheet and Reload art
   moved from a row of buttons into one dropdown of on/off switches in `EditorCanvas.svelte`.
