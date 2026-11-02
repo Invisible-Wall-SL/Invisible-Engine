@@ -14,6 +14,7 @@ import {
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
+import { stampEffectiveLayoutProfile } from '$lib/server/layoutProfile';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import {
 	DEFAULT_PROJECT_KEY,
@@ -144,6 +145,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		// overrode it), so the game shows the project name without a hard-coded string.
 		applyHudGameNameDefault(doc, await projectName(projectKey));
 		resolveRigKeysForGame(doc, clientKey, projectKey);
+		// The standalone/desktop build bakes THIS doc, so it needs the same effective layout
+		// profile the online runtime bundle ships — without it the build falls back to the coded
+		// default buckets and lays landscape/portrait out unlike the editor and the live game.
+		await stampEffectiveLayoutProfile(doc as LayoutDoc);
 		// Per-project component param defaults (§14.2 B4.5) so the game's
 		// `registerComponentDefaults` can apply author-set appearance defaults to
 		// `componentInstance`s (e.g. the HUD readouts). Empty map ⇒ def defaults apply.

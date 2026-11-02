@@ -1,4 +1,9 @@
-import { DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile, type LayoutProfile } from 'engine-layout';
+import {
+	DEFAULT_LAYOUT_PROFILE,
+	normalizeLayoutProfile,
+	type LayoutDoc,
+	type LayoutProfile,
+} from 'engine-layout';
 import { getAppSetting, setAppSetting } from './appSettings';
 import { loadDocWithEtag } from './editorStorage';
 
@@ -42,6 +47,20 @@ export async function setGlobalLayoutProfile(
 	if (!profile) throw new Error('Invalid layout profile: no usable bucket');
 	await setAppSetting(LAYOUT_PROFILE_DEFAULT_KEY, JSON.stringify(profile), userId);
 	return profile;
+}
+
+/**
+ * Bake the EFFECTIVE layout profile into a game-facing doc: a project override (already on the
+ * doc) wins; otherwise stamp the admin global default so a non-overriding game runs the
+ * pipeline's authored buckets without a runtime DB read. No global default ⇒ no field ⇒ the
+ * runtime uses the coded {@link DEFAULT_LAYOUT_PROFILE}. Every surface that ships a doc to a
+ * game — the online runtime bundle AND `/api/editor/doc`, which the standalone/desktop build
+ * bakes — must go through here, or the two builds lay the screen out in different buckets.
+ */
+export async function stampEffectiveLayoutProfile(doc: LayoutDoc): Promise<void> {
+	if (doc.layoutProfile) return;
+	const globalDefault = await getGlobalLayoutProfile();
+	if (globalDefault) doc.layoutProfile = globalDefault;
 }
 
 export type LayoutProfileSource = 'project' | 'global' | 'default';
