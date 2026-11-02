@@ -38,7 +38,9 @@
 	const fewer = $derived(coinBoardStepLines(choices, count, -1));
 	const more = $derived(coinBoardStepLines(choices, count, 1));
 	// The portrait HUD is a drawer: the selector folds away with it.
-	const shown = $derived(!(layoutType === 'portrait' && stateUi.drawerFold));
+	const shown = $derived(
+		!(context.stateLayoutDerived.layoutKind() === 'portrait' && stateUi.drawerFold),
+	);
 
 	const text = { fontFamily: 'proxima-nova', fontSize: FONT_SIZE, fill: WHITE };
 

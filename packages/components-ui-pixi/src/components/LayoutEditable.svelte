@@ -71,7 +71,8 @@
 
 	// Portrait drives the fold-out drawer structure (only reached when `<UIDefault>`
 	// has confirmed the doc carries portrait authoring, via `hudHasPortrait`).
-	const isPortrait = $derived(layoutType === 'portrait');
+	const layoutKind = $derived(context.stateLayoutDerived.layoutKind());
+	const isPortrait = $derived(layoutKind === 'portrait');
 
 	// The drawer events only have meaning in the portrait fold-out layout — the coded
 	// `LayoutDesktop/Landscape/Tablet` never subscribed to them. But the editable path
@@ -638,7 +639,7 @@
 		onpointerup={() => (stateUi.menuOpen = false)}
 	/>
 
-	{#if layoutType === 'portrait'}
+	{#if layoutKind === 'portrait'}
 		<!-- Menu overlay (coded — mirrors LayoutPortrait.svelte's menu cluster). -->
 		<MainContainer standard alignVertical="bottom">
 			<Container
@@ -662,7 +663,7 @@
 				</Container>
 			</Container>
 		</MainContainer>
-	{:else if layoutType === 'landscape'}
+	{:else if layoutKind === 'landscape'}
 		<MainContainer standard alignVertical="bottom">
 			<Container
 				x={165}
@@ -685,7 +686,7 @@
 				</Container>
 			</Container>
 		</MainContainer>
-	{:else if layoutType === 'tablet'}
+	{:else if layoutKind === 'tablet'}
 		<MainContainer standard alignVertical="bottom">
 			<Container
 				x={100}

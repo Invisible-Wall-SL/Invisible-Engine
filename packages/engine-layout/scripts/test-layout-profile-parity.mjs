@@ -20,7 +20,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const bundled = await esbuild.build({
 	stdin: {
-		contents: `export { selectBucket, DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile } from '../../constants-shared/layoutProfile.ts';`,
+		contents: `export { selectBucket, codedLayoutKind, DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile } from '../../constants-shared/layoutProfile.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
 		sourcefile: 'entry.ts',
@@ -32,7 +32,7 @@ const bundled = await esbuild.build({
 });
 const tmp = join(tmpdir(), `layout-profile-parity-${process.pid}.mjs`);
 await writeFile(tmp, bundled.outputFiles[0].text);
-const { selectBucket, DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile } = await import(
+const { selectBucket, codedLayoutKind, DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile } = await import(
 	pathToFileURL(tmp).href
 );
 await rm(tmp, { force: true });
@@ -83,9 +83,11 @@ const GRID = [
 
 let failures = 0;
 for (const [w, h] of GRID) {
-	const got = selectBucket(DEFAULT_LAYOUT_PROFILE, { width: w, height: h }).id;
+	const bucket = selectBucket(DEFAULT_LAYOUT_PROFILE, { width: w, height: h });
+	const got = bucket.id;
 	const want = legacyLayoutType(w, h);
-	const ok = got === want;
+	// The coded UI's kind must BE the bucket for the default profile, or every shipped game moves.
+	const ok = got === want && codedLayoutKind(bucket, { width: w, height: h }) === want;
 	if (!ok) failures++;
 	console.log(
 		`  ${ok ? '✓' : '✗'} ${w}×${h} (r=${(w / h).toFixed(3)}) → ${got}${ok ? '' : ` (legacy: ${want})`}`,
@@ -139,6 +141,15 @@ check('normalize drops dup/bad/id-less buckets (1 survives)', repaired?.buckets.
 check('normalize fills missing label from id', repaired?.buckets[0].label === 'a');
 check('normalize repairs bad fallbackBucketId to a real bucket', repaired?.fallbackBucketId === 'a');
 check('normalize rejects a profile with no usable bucket', normalizeLayoutProfile({ buckets: [] }) === null);
+
+// 3. The coded UI's kind for an author-added bucket: never undefined, stacked ⇒ portrait.
+const ultrawide = merged.buckets.find((b) => b.id === 'ultrawide');
+check('added wide bucket → desktop kind on a monitor', codedLayoutKind(ultrawide, { width: 2560, height: 1080 }) === 'desktop');
+check('added wide bucket → landscape kind on a phone', codedLayoutKind(ultrawide, { width: 812, height: 375 }) === 'landscape');
+const tall = { id: 'tall', label: 'Tall', box: { width: 1080, height: 2400 }, rule: {}, stacked: true };
+check('added stacked bucket → portrait kind (the drawer)', codedLayoutKind(tall, { width: 390, height: 844 }) === 'portrait');
+const flatTall = { ...tall, stacked: false };
+check('added unstacked tall bucket → tablet, never the drawer', codedLayoutKind(flatTall, { width: 390, height: 844 }) === 'tablet');
 
 if (custom) {
 	console.error(`\n✗ ${custom} custom-profile assertion(s) failed.`);

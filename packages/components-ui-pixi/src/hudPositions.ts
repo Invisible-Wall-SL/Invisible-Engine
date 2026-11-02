@@ -113,9 +113,13 @@ export function hudTint(scene: Scene | undefined, id: string): number | undefine
  * (bar OR corners) carries an `overrides.portrait` entry; the freshly-seeded
  * `hudBarScene()` does (it now emits portrait overrides), so a seeded / "Refresh HUD
  * layer" doc opts in, while an un-refreshed doc keeps the coded `LayoutPortrait`.
+ * `bucketId` is the stacked bucket in force — an author-added one is authored under its own id.
  */
-export function hudHasPortrait(hud: { bar?: Scene; corners?: Scene } | undefined): boolean {
+export function hudHasPortrait(
+	hud: { bar?: Scene; corners?: Scene } | undefined,
+	bucketId = 'portrait',
+): boolean {
 	const hasPortraitOverride = (scene: Scene | undefined): boolean =>
-		(scene?.nodes ?? []).some((node) => node.overrides?.portrait !== undefined);
+		(scene?.nodes ?? []).some((node) => node.overrides?.[bucketId] !== undefined);
 	return hasPortraitOverride(hud?.bar) || hasPortraitOverride(hud?.corners);
 }

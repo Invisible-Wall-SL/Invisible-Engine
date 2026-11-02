@@ -52,7 +52,7 @@
 		tablet: LayoutTablet,
 	};
 
-	const LayoutComponent = $derived(LAYOUT_COMPONENT_MAP[stateLayoutDerived.layoutType()]);
+	const LayoutComponent = $derived(LAYOUT_COMPONENT_MAP[stateLayoutDerived.layoutKind()]);
 	// Opt-in: a game that passes `hud` scenes drives the HUD from editor data.
 	// Portrait's coded layout is an animated fold-out drawer (behaviour, not static
 	// placement), so it joins the data-driven path ONLY when the doc actually carries
@@ -63,7 +63,8 @@
 	// the editable path whenever any HUD scene is passed, unchanged.
 	const useEditable = $derived(
 		Boolean(props.hud?.bar || props.hud?.corners) &&
-			(stateLayoutDerived.layoutType() !== 'portrait' || hudHasPortrait(props.hud)),
+			(stateLayoutDerived.layoutKind() !== 'portrait' ||
+				hudHasPortrait(props.hud, stateLayoutDerived.layoutType())),
 	);
 </script>
 

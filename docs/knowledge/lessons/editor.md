@@ -6,6 +6,15 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
+### An added layout bucket drew a Stake-sized box and no coded HUD
+
+- **Symptom:** a bucket added in the layout profile without a canvas size showed at 1422×800.
+- **Cause:** `createLayout` tried the coded FALLBACK bucket's box (Stake desktop) before the
+  bucket's own profile box; the coded UI matched bucket ids by name, so `UIDefault` drew no HUD.
+- **Fix:** profile box before the coded fallback; coded UI asks `layoutKind()`, data keys by id.
+- **Guard:** `check:canvas-window-scale` (box order), `test-layout-profile-parity.mjs` (kinds).
+- **PR:** not recorded (2026-11-02) · source: `docs/status/engine.md`
+
 ### A canvas screen ended differently on a wider window
 
 - **Symptom:** a feature intro's curtains met on one PC and left a strip of reels open on another.
