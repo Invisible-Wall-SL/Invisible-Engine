@@ -950,6 +950,15 @@ async function main() {
 			effectSkeletonKeys = Array.isArray(fx?.referencedSkeletonKeys)
 				? fx.referencedSkeletonKeys
 				: [];
+			// A bake left ON that did not ship (stale against its effect, never captured, or the effect
+			// no longer bakeable): the export stripped it, so the game plays that effect live.
+			const staleBakes = Array.isArray(fx?.staleBakes) ? fx.staleBakes : [];
+			if (staleBakes.length) {
+				console.warn(
+					`⚠ bake-doc: ${staleBakes.length} FX bake(s) are ON but not shipped — stale or never ` +
+						`baked, so these effects play LIVE: ${staleBakes.join(', ')}. Bake them again in /fx.`,
+				);
+			}
 			// Only embed when at least one rig has a bound event, keeping the bundle byte-identical
 			// for every game with no rig-FX bindings (parity).
 			if (fx?.rigFx && typeof fx.rigFx === 'object' && Object.keys(fx.rigFx).length > 0) {

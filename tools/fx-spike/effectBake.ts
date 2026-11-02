@@ -82,7 +82,7 @@ const rawDoc = (extra: Record<string, unknown> = {}): Record<string, unknown> =>
 
 const RESULT = {
 	assetKey: 'c/p/fx-bakes/firecracker/fxbake_firecracker_00000000.json',
-	frames: ['bake_000', 'bake_001', 'bake_002'],
+	frames: ['bake_00000000_000', 'bake_00000000_001', 'bake_00000000_002'],
 	fps: 24,
 	bounds: { x: -60, y: -80, w: 120, h: 140 },
 	blendMode: 'add',
@@ -237,12 +237,16 @@ console.log('4. the sheet plan');
 	assert(big.scale < 1, '… and reports the lower scale');
 	assert(planEffectBakeSheet(1e6, 1e6, 120, 1) === undefined, 'an impossible sheet is refused');
 
-	const json = effectBakeSheetJson(plan, 48, 'fxbake_x_00000000.png');
+	const json = effectBakeSheetJson(plan, 48, 'fxbake_x_00000000.png', '0badf00d');
 	const rects = Object.values(json.frames).map(
 		(f) => (f as { frame: { x: number; y: number; w: number; h: number } }).frame,
 	);
 	assert(rects.length === 48, 'the JSON lists every frame');
-	assert(Object.keys(json.frames)[0] === effectBakeFrameName(0), 'frames are named in order');
+	assert(
+		Object.keys(json.frames)[0] === effectBakeFrameName('0badf00d', 0) &&
+			Object.keys(json.frames)[0] === 'bake_0badf00d_000',
+		'frames are named in order, by the bake',
+	);
 	assert(
 		rects.every((r) => r.x + r.w <= plan.width && r.y + r.h <= plan.height),
 		'every cell lies on the page',
@@ -282,10 +286,10 @@ console.log('5. the runtime choice');
 	const driven = effectBakeChoice(doc, spy, true);
 	assert(driven.mode === 'live' && driven.reason === 'driven', 'a driven mount ⇒ live');
 
-	loaded.delete(`${RESULT.assetKey}::bake_001`);
+	loaded.delete(`${RESULT.assetKey}::bake_00000000_001`);
 	const missing = effectBakeChoice(doc, lookup);
 	assert(missing.mode === 'live' && missing.reason === 'missing-art', 'one frame missing ⇒ live');
-	loaded.set('bake_001', 'tex:bare');
+	loaded.set('bake_00000000_001', 'tex:bare');
 	assert(effectBakeChoice(doc, lookup).mode === 'baked', 'a bare frame key also resolves');
 
 	const event = JSON.parse(JSON.stringify(doc)) as EffectDoc;

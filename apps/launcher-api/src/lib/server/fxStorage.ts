@@ -1,4 +1,5 @@
 import { normalizeEffectDoc, type EffectDoc } from 'engine-fx';
+import { pruneEffectBakes } from './fxBake';
 import {
 	FX_DOC_SUFFIX,
 	FX_META_SUFFIX,
@@ -182,6 +183,7 @@ export async function saveEffect(
 		JSON.stringify(meta, null, 2),
 		'application/json',
 	);
+	await pruneEffectBakes(clientKey, projectKey, id, doc.bake?.result?.assetKey);
 	return { id, doc, etag };
 }
 
@@ -199,5 +201,6 @@ export async function deleteEffect(
 	const id = r2Slug(rawId);
 	await deleteObject(fxDocKey(clientKey, projectKey, id));
 	await deleteObject(fxMetaKey(clientKey, projectKey, id));
+	await pruneEffectBakes(clientKey, projectKey, id);
 	return { id };
 }

@@ -318,12 +318,12 @@ export function planEffectBakeSheet(
 	}
 }
 
-/** Name of frame `i` in a baked sheet. */
-export const effectBakeFrameName = (i: number): string => `bake_${String(i).padStart(3, '0')}`;
-
-/** The R2 stem a bake's sheet is written under (`<stem>.json` + `<stem>.png`). */
-export const effectBakeStem = (effectId: string, hash: string): string =>
-	`fxbake_${effectId}_${hash}`;
+/**
+ * Name of frame `i` of the bake `hash`. The hash keeps two baked effects' frames apart: the editor-art
+ * export reports a region name packed in two shipped sheets as a collision.
+ */
+export const effectBakeFrameName = (hash: string, i: number): string =>
+	`bake_${hash}_${String(i).padStart(3, '0')}`;
 
 /**
  * The TexturePacker (json-hash) description of a baked sheet: what `/api/editor/regions` reads and
@@ -333,6 +333,7 @@ export function effectBakeSheetJson(
 	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols' | 'width' | 'height'>,
 	frames: number,
 	image: string,
+	hash: string,
 ): {
 	frames: Record<string, unknown>;
 	meta: { image: string; size: { w: number; h: number }; scale: string; format: string };
@@ -341,7 +342,7 @@ export function effectBakeSheetJson(
 	for (let i = 0; i < frames; i++) {
 		const x = (i % plan.cols) * (plan.cellW + plan.gap);
 		const y = Math.floor(i / plan.cols) * (plan.cellH + plan.gap);
-		out[effectBakeFrameName(i)] = {
+		out[effectBakeFrameName(hash, i)] = {
 			frame: { x, y, w: plan.cellW, h: plan.cellH },
 			rotated: false,
 			trimmed: false,

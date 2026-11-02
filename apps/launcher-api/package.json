@@ -121,6 +121,8 @@
 		"check:shader-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-shader-editor.ts",
 		"precheck:shader-pipeline": "node scripts/ensure-svelte-kit.mjs",
 		"check:shader-pipeline": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shader-pipeline.ts",
+		"precheck:fx-bake": "node scripts/ensure-svelte-kit.mjs",
+		"check:fx-bake": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-fx-bake.ts",
 		"precheck:fx-node-params": "node scripts/ensure-svelte-kit.mjs",
 		"check:fx-node-params": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-fx-node-params.ts",
 		"precheck:component-listeners-events": "node scripts/ensure-svelte-kit.mjs",

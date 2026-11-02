@@ -56,6 +56,7 @@ import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { applyClipBounds, clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
+import { effectBakeShips } from 'engine-fx';
 import { artBoundsRef, loadArtBoundsDoc, type ArtBounds } from './artBoundsStorage';
 import { artSliceRef, loadArtSlicesDoc, type ArtSlice } from './artSlicesStorage';
 import { sliceBorders } from '$lib/artSlices';
@@ -607,6 +608,14 @@ export async function exportEditorArt(
 		try {
 			for (const row of await listEffects(clientKey, projectKey)) {
 				const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+				// A BAKED effect's sheet ships like any effect atlas — but only while the bake ships
+				// (`effectBakeShips`, the same test `exportEffects` strips by), so a stale or disabled
+				// bake never drags its page into the build (`invisible-fx.md` §"Baked effects").
+				const bake = effectDoc.bake?.result;
+				if (bake && effectBakeShips(effectDoc) && isManifestAssetKey(bake.assetKey)) {
+					refs.manifestKeys.add(bake.assetKey);
+					for (const frame of bake.frames) refs.usedRegions.add(frame);
+				}
 				for (const layer of effectDoc.layers) {
 					const assetKey = layer.art?.assetKey;
 					if (!assetKey || !isManifestAssetKey(assetKey)) continue;

@@ -26,7 +26,12 @@
  * from a previous export are pruned, so an un-authored / de-authored project bakes no
  * effects (parity). Idempotent — re-running converges.
  */
-import { normalizeEffectDoc, type EffectDoc } from 'engine-fx';
+import {
+	effectBakeShips,
+	exportableEffectDoc,
+	normalizeEffectDoc,
+	type EffectDoc,
+} from 'engine-fx';
 import { listEffects } from './fxStorage';
 import { SUB, fxDocKey } from './projectPaths';
 import { deleteObjects, getObjectText, listAllKeys, putObjectText } from './r2';
@@ -45,11 +50,17 @@ export interface EffectExportIndex {
 	 *  `symbols.index.spines`) — a dangling skeletonKey = an invisible rig-particle effect
 	 *  (§8). Empty when no effect uses rig particles. */
 	referencedSkeletonKeys: string[];
+	/** Ids of effects whose bake is ON but was not shipped — stale against the doc, never captured, or
+	 *  the effect is no longer bakeable — so they play live in the game. Re-bake in `/fx`. */
+	staleBakes: string[];
 }
 
-/** The distinct, non-empty `art.assetKey`s an effect's (sprite) layers reference. */
+/** The distinct, non-empty `art.assetKey`s an effect's (sprite) layers reference — and its baked
+ *  sheet, which the exported doc only keeps when it ships (`exportableEffectDoc`). */
 function assetKeysOf(effect: EffectDoc): string[] {
 	const keys = new Set<string>();
+	const baked = effect.bake?.result?.assetKey;
+	if (baked) keys.add(baked);
 	for (const layer of effect.layers) {
 		if (layer.particleKind === 'spine') continue; // a rig layer renders no atlas art
 		const k = layer.art?.assetKey;
@@ -80,6 +91,7 @@ export async function exportEffects(
 	// doc travels). A doc that fails to load/parse is skipped, never a hard failure.
 	const rows = await listEffects(clientKey, projectKey);
 	const effects: EffectDoc[] = [];
+	const staleBakes: string[] = [];
 	for (const row of rows) {
 		const raw = await getObjectText(fxDocKey(clientKey, projectKey, row.id));
 		if (!raw) continue;
@@ -91,7 +103,10 @@ export async function exportEffects(
 		}
 		// The slugged id is authoritative for the file stem (matches the source `<id>.fx.json`).
 		doc.id = row.id;
-		effects.push(doc);
+		// A bake ships only while it is on, current and the effect still bakeable; any other `bake`
+		// block is stripped here, so the game plays that effect live (`invisible-fx.md` §"Baked effects").
+		if (doc.bake?.enabled && !effectBakeShips(doc)) staleBakes.push(doc.id);
+		effects.push(exportableEffectDoc(doc));
 	}
 
 	// Write each pure doc + the index the game registers, tracking what we wrote so stale
@@ -118,9 +133,16 @@ export async function exportEffects(
 	const referencedSkeletons = new Set<string>();
 	for (const e of effects) for (const k of skeletonKeysOf(e)) referencedSkeletons.add(k);
 
+	if (staleBakes.length)
+		console.log(
+			`[effects] ${staleBakes.length} bake(s) not shipped (stale, never baked or no longer ` +
+				`bakeable — these play live): ${staleBakes.join(', ')}`,
+		);
+
 	return {
 		effects,
 		referencedAssetKeys: [...referenced],
 		referencedSkeletonKeys: [...referencedSkeletons],
+		staleBakes,
 	};
 }
