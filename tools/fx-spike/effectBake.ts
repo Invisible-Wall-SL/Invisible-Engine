@@ -9,13 +9,17 @@
  *  2. the stale hash — stable under key order, blind to name / `enabled` / the result, moved by any
  *     layer or capture-setting change;
  *  3. what may bake (`effectBakeBlockers`) and the warm-up;
- *  4. the sheet plan and its TexturePacker JSON (fits the page, cells never overlap);
- *  5. the runtime choice — bake on + every frame loaded ⇒ baked; off / absent / driven / one frame
- *     missing ⇒ live — and that the default path reads no asset at all;
+ *  4. the sheet plan and its TexturePacker JSON (fits the page, cells never overlap, start on a
+ *     4-px block with a transparent gutter), and the frame names of each blend group;
+ *  5. the runtime choice — bake on + every frame loaded ⇒ baked, one texture row per blend group;
+ *     off / absent / driven / one frame missing / a pre-group bake that flattened mixed blends ⇒
+ *     live — and that the default path reads no asset at all;
  *  6. the per-instance desync — deterministic, spread, and `Math.random` never drawn;
  *  7. the export — only a shipping bake survives `exportableEffectDoc`; the rest are stripped;
  *  8. a rig beat — the fades (in briefly, out over the longest particle life at the beat's speed),
- *     the opacity envelope, and the loop rate under `emitSpeed`.
+ *     the opacity envelope, and the loop rate under `emitSpeed`;
+ *  9. blend groups — consecutive layers sharing a blend are one group, in draw order; a stored
+ *     result from before groups reads as one group, and is stale when the layers mix blends.
  */
 
 import {
@@ -25,12 +29,15 @@ import {
 	effectBakeBeatAlpha,
 	effectBakeBeatFades,
 	effectBakeBeatRate,
-	effectBakeBlend,
 	effectBakeBlockers,
+	effectBakeCellOrigin,
 	effectBakeChoice,
 	effectBakeFrameAt,
 	effectBakeFrameCount,
 	effectBakeFrameName,
+	effectBakeGroupFrameNames,
+	effectBakeGroups,
+	effectBakeGroupsMatch,
 	effectBakeHash,
 	effectBakeInstanceKey,
 	effectBakeLongestLife,
@@ -88,12 +95,12 @@ const rawDoc = (extra: Record<string, unknown> = {}): Record<string, unknown> =>
 	...extra,
 });
 
+const FRAMES = ['bake_00000000_000', 'bake_00000000_001', 'bake_00000000_002'];
 const RESULT = {
 	assetKey: 'c/p/fx-bakes/firecracker/fxbake_firecracker_00000000.json',
-	frames: ['bake_00000000_000', 'bake_00000000_001', 'bake_00000000_002'],
+	groups: [{ blendMode: 'add', frames: FRAMES }],
 	fps: 24,
 	bounds: { x: -60, y: -80, w: 120, h: 140 },
-	blendMode: 'add',
 	hash: '00000000',
 	sheet: { w: 200, h: 80 },
 };
@@ -126,8 +133,21 @@ console.log('1. the doc field');
 	assert(d?.loopSeconds === EFFECT_BAKE_LIMITS.loopSeconds.min, 'loopSeconds clamps to its min');
 	assert(d?.scale === EFFECT_BAKE_LIMITS.scale.max, 'scale clamps to its max');
 	assert(d?.seam === 'crossfade', 'an unknown seam is crossfade');
-	const bad = normalizeEffectBake({ enabled: true, result: { ...RESULT, frames: [] } });
+	const bad = normalizeEffectBake({
+		enabled: true,
+		result: { ...RESULT, groups: [{ blendMode: 'add', frames: [] }] },
+	});
 	assert(bad?.enabled === true && !bad.result, 'a result with no frames is dropped (plays live)');
+	const uneven = normalizeEffectBake({
+		enabled: true,
+		result: { ...RESULT, groups: [...RESULT.groups, { blendMode: 'normal', frames: ['x'] }] },
+	});
+	assert(!uneven?.result, 'groups with different frame counts are dropped');
+	const oddBlend = normalizeEffectBake({
+		enabled: true,
+		result: { ...RESULT, groups: [{ blendMode: 'overlay', frames: FRAMES }] },
+	});
+	assert(!oddBlend?.result, 'a group with an unknown blend is dropped');
 	const badKey = normalizeEffectBake({ enabled: true, result: { ...RESULT, assetKey: 'x.png' } });
 	assert(!badKey?.result, 'a result whose assetKey is not a manifest key is dropped');
 	const doc = freshDoc();
@@ -203,7 +223,10 @@ console.log('3. what may bake, and the warm-up');
 			EFFECT_BAKE_LIMITS.warmupEmitterSeconds,
 		'warm-up is capped',
 	);
-	assert(effectBakeBlend(ok.layers) === 'add', 'all-additive layers bake as add');
+	assert(
+		eq(effectBakeGroups(ok.layers), [{ blendMode: 'add', layers: ['spark'] }]),
+		'all-additive layers bake as one add group',
+	);
 	const mixed = normalizeEffectDoc(
 		rawDoc({
 			layers: [
@@ -218,7 +241,28 @@ console.log('3. what may bake, and the warm-up');
 			],
 		}),
 	);
-	assert(effectBakeBlend(mixed.layers) === 'normal', 'a normal layer makes the bake normal');
+	assert(
+		eq(
+			effectBakeGroups(mixed.layers).map((g) => g.blendMode),
+			['add', 'normal'],
+		),
+		'a normal layer after the additive one is its own group',
+	);
+	const zebra = normalizeEffectDoc(
+		rawDoc({
+			layers: Array.from({ length: EFFECT_BAKE_LIMITS.groups + 1 }, (_, i) => ({
+				key: `l${i}`,
+				config: sparkConfig(i % 2 ? { behaviors: [] } : {}),
+				art: { assetKey: 'c/p/manifests/fx.json', frames: ['Spark_Mini'] },
+				placement: { space: 'free' },
+				particleKind: 'sprite',
+			})),
+		}),
+	);
+	assert(
+		effectBakeBlockers(zebra).some((r) => /blend groups/.test(r)),
+		`more than ${EFFECT_BAKE_LIMITS.groups} alternating blend runs is refused with a reason`,
+	);
 }
 
 console.log('4. the sheet plan');
@@ -267,18 +311,59 @@ console.log('4. the sheet plan');
 			if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) overlap = true;
 		}
 	assert(!overlap, 'no two cells overlap');
+	assert(
+		rects.every((r) => r.x % 4 === 0 && r.y % 4 === 0),
+		'every cell starts on a 4-px block (a KTX2 block never spans two cells)',
+	);
+	const gutter = Math.min(
+		...rects.flatMap((a) =>
+			rects
+				.filter((b) => b !== a && b.y === a.y && b.x > a.x)
+				.map((b) => b.x - (a.x + a.w))
+				.concat(
+					rects.filter((b) => b !== a && b.x === a.x && b.y > a.y).map((b) => b.y - (a.y + a.h)),
+				),
+		),
+	);
+	assert(gutter >= plan.gap && plan.gap >= 2, `cells keep a transparent gutter (${gutter} px)`);
+	assert(
+		plan.width === Math.max(...rects.map((r) => r.x + r.w)) &&
+			plan.height === Math.max(...rects.map((r) => r.y + r.h)),
+		'the page is no larger than its cells need',
+	);
+	const two = planEffectBakeSheet(300, 200, 96, 0.5)!;
+	const names = effectBakeGroupFrameNames('0badf00d', 48, 2);
+	const twoJson = effectBakeSheetJson(two, 96, 'p.png', '0badf00d');
+	assert(
+		names.length === 2 &&
+			names.every((g) => g.length === 48) &&
+			names.flat().every((n) => n in twoJson.frames) &&
+			new Set(names.flat()).size === 96,
+		'each blend group names its own 48 cells of the sheet',
+	);
+	assert(
+		eq((twoJson.frames[names[1][0]] as { frame: { x: number; y: number } }).frame, {
+			...effectBakeCellOrigin(two, 48),
+			w: two.cellW,
+			h: two.cellH,
+		}),
+		'group 1 frame 0 is cell 48, where the capture draws it',
+	);
 }
 
 console.log('5. the runtime choice');
 {
 	const doc = freshDoc();
 	const loaded = new Map<string, string>(
-		RESULT.frames.map((f) => [`${RESULT.assetKey}::${f}`, `tex:${f}`]),
+		FRAMES.map((f) => [`${RESULT.assetKey}::${f}`, `tex:${f}`]),
 	);
 	const lookup = (k: string) => loaded.get(k);
 	const on = effectBakeChoice(doc, lookup);
 	assert(on.mode === 'baked', 'bake on + every frame loaded ⇒ baked');
-	assert(on.mode === 'baked' && on.textures.length === 3, '… with the frames in order');
+	assert(
+		on.mode === 'baked' && eq(on.textures, [FRAMES.map((f) => `tex:${f}`)]),
+		'… one row per blend group, with the frames in order',
+	);
 
 	const reads: string[] = [];
 	const spy = (k: string) => {
@@ -397,6 +482,98 @@ console.log('8. a rig beat');
 		effectBakeBeatAlpha(0, undefined, { fadeIn: 0, fadeOut: 0 }) === 1,
 		'… and full before it',
 	);
+}
+
+console.log('9. blend groups');
+{
+	const layer = (key: string, blend?: string) => ({
+		key,
+		config: sparkConfig({
+			behaviors: blend ? [{ type: 'blendMode', config: { blendMode: blend } }] : [],
+		}),
+		art: { assetKey: 'c/p/manifests/fx.json', frames: ['Spark_Mini'] },
+		placement: { space: 'free' },
+		particleKind: 'sprite',
+	});
+	// The Overlay Buffalo Duel `s_sparks_small` stack: two normal layers under four additive ones.
+	const layers = [
+		layer('Clouds'),
+		layer('Fire'),
+		layer('layer-5', 'add'),
+		layer('Sparks2', 'add'),
+		layer('layer-6', 'add'),
+		layer('layer-7', 'add'),
+	];
+	const groups = effectBakeGroups(normalizeEffectDoc(rawDoc({ layers })).layers);
+	assert(
+		eq(groups, [
+			{ blendMode: 'normal', layers: ['Clouds', 'Fire'] },
+			{ blendMode: 'add', layers: ['layer-5', 'Sparks2', 'layer-6', 'layer-7'] },
+		]),
+		'consecutive layers that share a blend are one group, in draw order',
+	);
+	const sandwich = effectBakeGroups(
+		normalizeEffectDoc(
+			rawDoc({ layers: [layer('a', 'add'), layer('b'), layer('c', 'add'), layer('d', 'screen')] }),
+		).layers,
+	);
+	assert(
+		eq(
+			sandwich.map((g) => g.blendMode),
+			['add', 'normal', 'add', 'screen'],
+		),
+		'a blend that comes back later is a new group (draw order is kept)',
+	);
+	assert(
+		eq(
+			effectBakeGroups(
+				normalizeEffectDoc(rawDoc({ layers: [layer('m', 'multiply'), layer('x', 'overlay')] }))
+					.layers,
+			).map((g) => g.blendMode),
+			['multiply', 'normal'],
+		),
+		'multiply is its own group; an unknown blend draws as normal',
+	);
+
+	// A bake from before blend groups: `frames` + `blendMode` at the top of the result.
+	const settings = { enabled: true, fps: 24, loopSeconds: 2, scale: 0.25, seam: 'crossfade' };
+	const legacy = (blendMode: string, docLayers: unknown[]) => {
+		const draft = normalizeEffectDoc(rawDoc({ layers: docLayers, bake: settings }));
+		const { groups: _groups, ...rest } = RESULT;
+		return normalizeEffectDoc({
+			...draft,
+			bake: {
+				...draft.bake,
+				result: { ...rest, frames: FRAMES, blendMode, hash: effectBakeHash(draft) },
+			},
+		}) as EffectDoc;
+	};
+	const mixed = legacy('normal', layers);
+	assert(
+		eq(mixed.bake?.result?.groups, [{ blendMode: 'normal', frames: FRAMES }]),
+		'a pre-group result reads as one group',
+	);
+	assert(
+		!effectBakeGroupsMatch(mixed) && effectBakeStale(mixed),
+		'… and when its layers mix blends (it flattened them) it is stale — Bake again',
+	);
+	assert(!effectBakeShips(mixed), '… so the export does not ship it');
+	const lookup = (k: string) => (k.startsWith(RESULT.assetKey) ? 1 : undefined);
+	const choice = effectBakeChoice(mixed, lookup);
+	assert(
+		choice.mode === 'live' && choice.reason === 'stale-blend',
+		'… and a game that already has it plays the effect live',
+	);
+	const allAdd = legacy('add', [layer('a', 'add'), layer('b', 'add')]);
+	assert(
+		effectBakeGroupsMatch(allAdd) && !effectBakeStale(allAdd),
+		'a pre-group bake of an all-additive effect is still current',
+	);
+	assert(effectBakeChoice(allAdd, lookup).mode === 'baked', '… and still plays baked');
+	const allNormal = legacy('normal', [layer('a'), layer('b')]);
+	assert(!effectBakeStale(allNormal), 'a pre-group bake of an all-normal effect is still current');
+	const allScreen = legacy('normal', [layer('a', 'screen')]);
+	assert(effectBakeStale(allScreen), 'a pre-group bake that flattened screen to normal is stale');
 }
 
 if (failures) {

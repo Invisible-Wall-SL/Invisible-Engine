@@ -16,21 +16,34 @@ import type { EffectDoc, EmitterLayer } from './types';
 /** How the end of the captured loop meets its start. */
 export type EffectBakeSeam = 'crossfade' | 'cut';
 
-/** How the baked sheet is blended when it plays. */
-export type EffectBakeBlend = 'normal' | 'add';
+/**
+ * How a baked group is blended when it plays: the blend of the layers it was captured from (a
+ * layer's `blendMode` behavior; none is `normal`).
+ */
+export type EffectBakeBlend = 'normal' | 'add' | 'screen' | 'multiply';
+
+/**
+ * One BLEND GROUP of a bake: a run of consecutive layers (draw order) that share a blend mode,
+ * captured on its own so it can be drawn with that blend. Flattening an additive layer into a
+ * normal-blend sheet turns its light into paint: the sheet's alpha then hides the background and the
+ * dark surround of a glow texture shows as a dark outline (`docs/knowledge/lessons/fx.md`).
+ */
+export interface EffectBakeGroup {
+	blendMode: EffectBakeBlend;
+	/** Its frames, in playback order. Every group of a bake has the same count. */
+	frames: string[];
+}
 
 /** The sheet a "Bake now" produced. Written by `/fx`, never by hand. */
 export interface EffectBakeResult {
 	/** The sheet's R2 manifest key (a TexturePacker JSON), shipped like any effect atlas. */
 	assetKey: string;
-	/** Its frames, in playback order. */
-	frames: string[];
+	/** The blend groups, in draw order (bottom first); drawn on the same frame index. */
+	groups: EffectBakeGroup[];
 	/** Playback rate the loop was captured at. */
 	fps: number;
 	/** Where a frame sits in the effect's own space: top-left and size, in effect pixels. */
 	bounds: { x: number; y: number; w: number; h: number };
-	/** `add` when every layer draws additively (the capture holds light, not paint). */
-	blendMode: EffectBakeBlend;
 	/** {@link effectBakeHash} of the doc the sheet was captured from. A mismatch is a stale bake. */
 	hash: string;
 	/** The sheet's page size in pixels. */
@@ -64,6 +77,8 @@ export const EFFECT_BAKE_LIMITS = {
 	scale: { min: 0.05, max: 1 },
 	/** Frames in one loop. */
 	frames: { min: 2, max: 120 },
+	/** Blend groups (runs of layers that share a blend mode) one bake may hold. */
+	groups: 8,
 	/** Longest side of the sheet page, pixels. */
 	sheetSide: 4096,
 	/** Largest effect-space box a frame may cover; beyond it a frame is clipped to the box. */
@@ -77,13 +92,41 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
+const BLENDS: readonly EffectBakeBlend[] = ['normal', 'add', 'screen', 'multiply'];
+const isBlend = (v: unknown): v is EffectBakeBlend => BLENDS.includes(v as EffectBakeBlend);
+const frameList = (v: unknown): string[] | undefined =>
+	Array.isArray(v) && v.length > 0 && v.every((f) => typeof f === 'string' && f.length > 0)
+		? [...(v as string[])]
+		: undefined;
+
+/**
+ * The groups of a stored result. A bake from before blend groups (`frames` + `blendMode`, the whole
+ * effect in one sheet) reads as one group, so it keeps playing where its blend still matches the
+ * layers ({@link effectBakeGroupsMatch}).
+ */
+function normalizeGroups(raw: Record<string, unknown>): EffectBakeGroup[] | undefined {
+	if (!Array.isArray(raw.groups)) {
+		const frames = frameList(raw.frames);
+		return frames && [{ blendMode: raw.blendMode === 'add' ? 'add' : 'normal', frames }];
+	}
+	if (!raw.groups.length || raw.groups.length > EFFECT_BAKE_LIMITS.groups) return undefined;
+	const out: EffectBakeGroup[] = [];
+	for (const g of raw.groups) {
+		const frames = isObject(g) ? frameList(g.frames) : undefined;
+		if (!frames || !isBlend(g.blendMode)) return undefined;
+		if (out.length && frames.length !== out[0].frames.length) return undefined;
+		out.push({ blendMode: g.blendMode, frames });
+	}
+	return out;
+}
+
 function normalizeResult(raw: unknown): EffectBakeResult | undefined {
 	if (!isObject(raw)) return undefined;
-	const { assetKey, frames, fps, bounds, blendMode, hash, sheet } = raw;
+	const { assetKey, fps, bounds, hash, sheet } = raw;
 	if (typeof assetKey !== 'string' || !assetKey.includes('/') || !assetKey.endsWith('.json'))
 		return undefined;
-	if (!Array.isArray(frames) || frames.length === 0) return undefined;
-	if (!frames.every((f): f is string => typeof f === 'string' && f.length > 0)) return undefined;
+	const groups = normalizeGroups(raw);
+	if (!groups) return undefined;
 	if (!finite(fps) || fps <= 0) return undefined;
 	if (!isObject(bounds) || !isObject(sheet)) return undefined;
 	const { x, y, w, h } = bounds;
@@ -92,10 +135,9 @@ function normalizeResult(raw: unknown): EffectBakeResult | undefined {
 	if (typeof hash !== 'string' || !hash) return undefined;
 	return {
 		assetKey,
-		frames: [...frames],
+		groups,
 		fps,
 		bounds: { x, y, w, h },
-		blendMode: blendMode === 'add' ? 'add' : 'normal',
 		hash,
 		sheet: { w: sheet.w, h: sheet.h },
 	};
@@ -193,6 +235,12 @@ export function effectBakeBlockers(doc: Pick<EffectDoc, 'layers' | 'params'>): s
 		if (life !== undefined && life > 0)
 			out.push(`${name} is a one-shot burst (emitter lifetime ${life}s), so it does not loop.`);
 	}
+	const groups = effectBakeGroups(doc.layers).length;
+	if (groups > EFFECT_BAKE_LIMITS.groups)
+		out.push(
+			`Its layers switch blend mode ${groups - 1} times; a bake holds at most ` +
+				`${EFFECT_BAKE_LIMITS.groups} blend groups. Reorder the layers so ones that share a blend sit together.`,
+		);
 	return out;
 }
 
@@ -234,10 +282,21 @@ export function effectBakeHash(doc: Pick<EffectDoc, 'layers' | 'params' | 'bake'
 	);
 }
 
+/**
+ * The result's blend groups are the layers' blend runs, in order. Not so for a bake captured before
+ * blend groups from an effect that mixes blends: it flattened them into one normal-blend sheet.
+ */
+export function effectBakeGroupsMatch(doc: Pick<EffectDoc, 'layers' | 'bake'>): boolean {
+	const groups = doc.bake?.result?.groups;
+	if (!groups) return false;
+	const runs = effectBakeGroups(doc.layers);
+	return runs.length === groups.length && runs.every((r, i) => r.blendMode === groups[i].blendMode);
+}
+
 /** The bake no longer matches the doc (or there is none yet). */
 export function effectBakeStale(doc: Pick<EffectDoc, 'layers' | 'params' | 'bake'>): boolean {
 	const result = doc.bake?.result;
-	return !result || result.hash !== effectBakeHash(doc);
+	return !result || result.hash !== effectBakeHash(doc) || !effectBakeGroupsMatch(doc);
 }
 
 /**
@@ -264,13 +323,13 @@ export function exportableEffectDoc(doc: EffectDoc): EffectDoc {
 	return { ...rest, bake: { ...bake, result: bake.result } };
 }
 
-/** Layout of a baked sheet: a grid of equal cells, one per frame. */
+/** Layout of a baked sheet: a grid of equal cells, one per frame of each blend group. */
 export interface EffectBakeSheetPlan {
 	/** The scale actually used — the requested one, lowered when the sheet would not fit. */
 	scale: number;
 	cellW: number;
 	cellH: number;
-	/** Transparent pixels between cells, so filtering never bleeds a neighbour in. */
+	/** Fewest transparent pixels between cells, so filtering never bleeds a neighbour in. */
 	gap: number;
 	cols: number;
 	rows: number;
@@ -279,45 +338,64 @@ export interface EffectBakeSheetPlan {
 }
 
 const BAKE_GAP = 2;
+/** Cells start on a multiple of this, so no 4×4 block of a compressed (KTX2) page spans two. */
+const BAKE_ALIGN = 4;
+
+/** Distance from one cell's origin to the next along an axis: the cell, the gap, then aligned. */
+export const effectBakePitch = (cell: number, gap: number): number =>
+	Math.ceil((cell + gap) / BAKE_ALIGN) * BAKE_ALIGN;
+
+/** Top-left of cell `i` on the page. Cell `g × frames + f` is frame `f` of group `g`. */
+export function effectBakeCellOrigin(
+	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols'>,
+	i: number,
+): { x: number; y: number } {
+	return {
+		x: (i % plan.cols) * effectBakePitch(plan.cellW, plan.gap),
+		y: Math.floor(i / plan.cols) * effectBakePitch(plan.cellH, plan.gap),
+	};
+}
+
+/** The page size a grid needs: no gutter after the last column or row. */
+export function effectBakeSheetSize(
+	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols' | 'rows'>,
+): { width: number; height: number } {
+	return {
+		width: (plan.cols - 1) * effectBakePitch(plan.cellW, plan.gap) + plan.cellW,
+		height: (plan.rows - 1) * effectBakePitch(plan.cellH, plan.gap) + plan.cellH,
+	};
+}
 
 const layoutAt = (
 	boundsW: number,
 	boundsH: number,
-	frames: number,
+	cells: number,
 	scale: number,
 ): EffectBakeSheetPlan => {
 	const cellW = Math.max(1, Math.ceil(boundsW * scale));
 	const cellH = Math.max(1, Math.ceil(boundsH * scale));
-	const cols = Math.max(1, Math.min(frames, Math.ceil(Math.sqrt((frames * cellH) / cellW))));
-	const rows = Math.ceil(frames / cols);
-	return {
-		scale,
-		cellW,
-		cellH,
-		gap: BAKE_GAP,
-		cols,
-		rows,
-		width: cols * cellW + (cols - 1) * BAKE_GAP,
-		height: rows * cellH + (rows - 1) * BAKE_GAP,
-	};
+	const cols = Math.max(1, Math.min(cells, Math.ceil(Math.sqrt((cells * cellH) / cellW))));
+	const rows = Math.ceil(cells / cols);
+	const grid = { cellW, cellH, gap: BAKE_GAP, cols, rows };
+	return { scale, ...grid, ...effectBakeSheetSize(grid) };
 };
 
 /**
- * Lay out `frames` cells of the captured box (effect pixels) at `scale` into one page no larger than
- * `EFFECT_BAKE_LIMITS.sheetSide`, lowering the scale until it fits. `undefined` when even the
- * smallest scale does not fit.
+ * Lay out `cells` cells (frames × blend groups) of the captured box (effect pixels) at `scale` into
+ * one page no larger than `EFFECT_BAKE_LIMITS.sheetSide`, lowering the scale until it fits.
+ * `undefined` when even the smallest scale does not fit.
  */
 export function planEffectBakeSheet(
 	boundsW: number,
 	boundsH: number,
-	frames: number,
+	cells: number,
 	scale: number,
 ): EffectBakeSheetPlan | undefined {
 	const side = EFFECT_BAKE_LIMITS.sheetSide;
 	const min = EFFECT_BAKE_LIMITS.scale.min;
 	let s = clamp(scale, min, EFFECT_BAKE_LIMITS.scale.max);
 	for (;;) {
-		const plan = layoutAt(boundsW, boundsH, frames, s);
+		const plan = layoutAt(boundsW, boundsH, cells, s);
 		if (plan.width <= side && plan.height <= side) return plan;
 		if (s <= min) return undefined;
 		s = Math.max(min, s * Math.min(side / plan.width, side / plan.height, 0.95));
@@ -325,11 +403,22 @@ export function planEffectBakeSheet(
 }
 
 /**
- * Name of frame `i` of the bake `hash`. The hash keeps two baked effects' frames apart: the editor-art
- * export reports a region name packed in two shipped sheets as a collision.
+ * Name of cell `i` of the bake `hash` (cells run group by group). The hash keeps two baked effects'
+ * frames apart: the editor-art export reports a region name packed in two shipped sheets as a
+ * collision.
  */
 export const effectBakeFrameName = (hash: string, i: number): string =>
 	`bake_${hash}_${String(i).padStart(3, '0')}`;
+
+/** The frame names of each blend group of a sheet with `frames` frames per group. */
+export const effectBakeGroupFrameNames = (
+	hash: string,
+	frames: number,
+	groups: number,
+): string[][] =>
+	Array.from({ length: groups }, (_, g) =>
+		Array.from({ length: frames }, (_, i) => effectBakeFrameName(hash, g * frames + i)),
+	);
 
 /**
  * The TexturePacker (json-hash) description of a baked sheet: what `/api/editor/regions` reads and
@@ -337,7 +426,7 @@ export const effectBakeFrameName = (hash: string, i: number): string =>
  */
 export function effectBakeSheetJson(
 	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols' | 'width' | 'height'>,
-	frames: number,
+	cells: number,
 	image: string,
 	hash: string,
 ): {
@@ -345,9 +434,8 @@ export function effectBakeSheetJson(
 	meta: { image: string; size: { w: number; h: number }; scale: string; format: string };
 } {
 	const out: Record<string, unknown> = {};
-	for (let i = 0; i < frames; i++) {
-		const x = (i % plan.cols) * (plan.cellW + plan.gap);
-		const y = Math.floor(i / plan.cols) * (plan.cellH + plan.gap);
+	for (let i = 0; i < cells; i++) {
+		const { x, y } = effectBakeCellOrigin(plan, i);
 		out[effectBakeFrameName(hash, i)] = {
 			frame: { x, y, w: plan.cellW, h: plan.cellH },
 			rotated: false,
@@ -362,28 +450,45 @@ export function effectBakeSheetJson(
 	};
 }
 
-/** `add` when every layer that draws blends additively; otherwise `normal`. */
-export function effectBakeBlend(layers: readonly EmitterLayer[]): EffectBakeBlend {
-	const drawn = layers.filter((l) => l.particleKind !== 'spine');
-	if (!drawn.length) return 'normal';
-	return drawn.every(
-		(l) => behaviorsOf(l.config).find((b) => b.type === 'blendMode')?.config.blendMode === 'add',
-	)
-		? 'add'
-		: 'normal';
+/** How a layer blends: its `blendMode` behavior, `normal` without one (or with an unknown mode). */
+export function effectBakeLayerBlend(layer: EmitterLayer): EffectBakeBlend {
+	const mode = behaviorsOf(layer.config).find((b) => b.type === 'blendMode')?.config.blendMode;
+	return isBlend(mode) ? mode : 'normal';
+}
+
+/**
+ * The blend groups a bake captures: consecutive drawn layers (draw order) that share a blend mode.
+ * Each run composites exactly on its own and then onto what is below it with its blend, so the
+ * groups drawn in order look like the live layers.
+ */
+export function effectBakeGroups(
+	layers: readonly EmitterLayer[],
+): { blendMode: EffectBakeBlend; layers: string[] }[] {
+	const out: { blendMode: EffectBakeBlend; layers: string[] }[] = [];
+	for (const layer of layers) {
+		if (layer.particleKind === 'spine') continue;
+		const blendMode = effectBakeLayerBlend(layer);
+		const last = out[out.length - 1];
+		if (last?.blendMode === blendMode) last.layers.push(layer.key);
+		else out.push({ blendMode, layers: [layer.key] });
+	}
+	return out;
 }
 
 /** Why a mount plays live although its effect has a bake. */
-export type EffectBakeLiveReason = 'no-bake' | 'off' | 'not-bakeable' | 'driven' | 'missing-art';
+export type EffectBakeLiveReason =
+	'no-bake' | 'off' | 'not-bakeable' | 'stale-blend' | 'driven' | 'missing-art';
 
 export type EffectBakeChoice<T> =
-	| { mode: 'baked'; result: EffectBakeResult; textures: T[] }
+	| { mode: 'baked'; result: EffectBakeResult; textures: T[][] }
 	| { mode: 'live'; reason: EffectBakeLiveReason };
 
 /**
  * Which path a mounted effect takes. Baked only when the doc's bake is on, has a result, the effect
  * is still bakeable, the mount does not drive it (a trail owner, live parameter values — a rig beat
- * does not count: the loop plays on the beat, see {@link effectBakeBeatAlpha}), and EVERY frame of the sheet is loaded — a missing sheet falls back to the live emitters.
+ * does not count: the loop plays on the beat, see {@link effectBakeBeatAlpha}), its blend groups
+ * are still the layers' blend runs (a bake from before blend groups flattened additive layers into
+ * paint), and EVERY frame of the sheet is loaded — a missing sheet falls back to the live emitters.
  * `lookup` reads `loadedAssets`; a frame resolves as `<assetKey>::<frame>` first, then bare (the
  * editor-art key scheme, as `EffectLayer` resolves particle art).
  */
@@ -396,13 +501,18 @@ export function effectBakeChoice<T>(
 	if (!bake) return { mode: 'live', reason: 'no-bake' };
 	if (!bake.enabled || !bake.result) return { mode: 'live', reason: 'off' };
 	if (effectBakeBlockers(doc).length) return { mode: 'live', reason: 'not-bakeable' };
+	if (!effectBakeGroupsMatch(doc)) return { mode: 'live', reason: 'stale-blend' };
 	if (driven) return { mode: 'live', reason: 'driven' };
-	const { assetKey, frames } = bake.result;
-	const textures: T[] = [];
-	for (const frame of frames) {
-		const tex = lookup(`${assetKey}::${frame}`) ?? lookup(frame);
-		if (tex === undefined || tex === null) return { mode: 'live', reason: 'missing-art' };
-		textures.push(tex);
+	const { assetKey, groups } = bake.result;
+	const textures: T[][] = [];
+	for (const group of groups) {
+		const row: T[] = [];
+		for (const frame of group.frames) {
+			const tex = lookup(`${assetKey}::${frame}`) ?? lookup(frame);
+			if (tex === undefined || tex === null) return { mode: 'live', reason: 'missing-art' };
+			row.push(tex);
+		}
+		textures.push(row);
 	}
 	return { mode: 'baked', result: bake.result, textures };
 }
