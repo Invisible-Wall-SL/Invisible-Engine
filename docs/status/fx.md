@@ -136,6 +136,25 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-02 — **`/fx` shows what an effect costs to draw** (branch `claude/fx-cost-readout`).
+  Profiling `overlay-wishworld` on a phone-sized page found particles were most of the frame
+  (pot beams at 1000 spawns/s capped at 200, a 1336×755 `ReelBackground` frame used as a particle,
+  20–130 screens of additive overdraw; particles off cut mid-spin frame time ~61%), and nothing in
+  `/fx` had warned. A **Cost** bar under the preview (`FxCostPanel.svelte`) now reads, from
+  `FxStage`'s new `onCost` (measured every frame, reported every 250 ms): live particles and
+  **coverage** (each live, visible particle's on-screen box clipped to the viewport, summed, ÷ the
+  viewport) per layer and in total, now and at peak (reset on an edit or a view change), against
+  `FX_COST_BUDGET` (layer 300 live / 1.5 screens, effect 800 / 4) in `fxCost.client.ts`; a per-layer
+  table with Max, rate, life, blend and art size; hints for a rate far over the cap, very large
+  particles and additive stacking. Coverage is against the preview viewport (`/fx` has no game
+  canvas frame), and the panel says so with the size and zoom. Read-only: nothing writes the doc
+  and the emitters play as before. The page now resolves every layer's atlas regions (not only
+  material layers') for the art size. Gates: `fx-spike` `fx-cost` (geometry, settings, hints and
+  the measure over a real `Emitter`, incl. that measuring changes neither config nor playback) and
+  `fx-cost-page` (the real page in headless Chromium: the bar, the beam going over budget with the
+  cap hint, coverage ×8-zoom with the additive hint, select from the panel); `fx-page` still 31/31.
+  ⏳ Not clicked in the authed `/fx`; the budgets are first numbers to revisit after using it on
+  real effects. A Tier-C layer's coverage is sampled 4×/s; a material layer's ignores its padding.
 - 2026-10-27 — **Invisible Director can re-skin an effect's particle art and colours** (Director
   card 9H, [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413,
   in review). Two adapter ops for the animator agent, `fx.get_effect` and `fx.update_art`
