@@ -262,10 +262,9 @@ eq(
 // ---- 2. the interpreter ------------------------------------------------------------------------
 
 {
-	// Two triggers fired in ONE frame take a transition that needs both, on the next tick — the
-	// path every def but a `frameExact` one takes (Phase 8b review). A zero-length step between the
-	// fires settles the first trigger unconsumed, which is why taking a transition at the fire is
-	// opt-in on the def, not the default.
+	// Two triggers fired in ONE frame take a transition that needs both, on the next tick. A
+	// zero-length step between the fires settles the first trigger unconsumed, which is why a
+	// transition is never taken at the fire.
 	const both = layer({
 		states: [
 			{ id: 'idle', timeline: 'c_coin_idle', loop: true },
@@ -302,7 +301,7 @@ eq(
 	eager.advance(0);
 	eager.fire('y');
 	eq(
-		'...a zero-length step between them settles the first (why advance-at-fire is frameExact-only)',
+		'...a zero-length step between them settles the first (why a transition is not taken at the fire)',
 		eager.advance(1 / 60).fired.map((f) => f.transition),
 		[],
 	);

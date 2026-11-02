@@ -534,7 +534,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     `check:flow-symbols-follow-config`, `check:signal-scope`, the flow-spike `v2vocab` /
     `v2holdandwin` / `v2optional` / `vocab`, `gen:flow-vocab:check`,
     `check:doc-readers-unknown-fields` (271), `check:save-keeps-unknown-blocks` (154),
-    `check:authored-freespins-followup`, `check:fx-node-params` (105), `check:depth-segments`,
+    `check:fx-node-params` (105), `check:depth-segments`,
     `check:component-links`, and `check:svelte` for `pixi-svelte`, `engine-layout` and
     `apps/lines` (at baseline). A headless Chromium harness rendered every kind at three moments and
     at the end on WebGL1 and WebGL2 with no shader error. ⏳ Not clicked in a browser.
@@ -608,8 +608,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   - **Gate:** `pnpm --filter launcher-api check:fx-node-params` 76 → 104 (a new §11, plus the
     compiled fold in §8 following a component param live, and the save round-trip in §9). Also
     green: `check:component-param-forwarding` (106), `check:component-state-machine` (151),
-    `check:component-state-machine-editor` (42), `check:component-timelines` (80), the
-    `check:authored-*` gates, `check:doc-readers-unknown-fields` (271),
+    `check:component-state-machine-editor` (42), `check:component-timelines` (80),
+    `check:doc-readers-unknown-fields` (271),
     `check:save-keeps-unknown-blocks` (154), `check:component-links` (75), `check:depth-segments`,
     `check:vendored-bundles`, `check:undefined-names`, `check:svelte-init-order`, and
     `check:svelte` for `engine-layout` and `launcher-api` (at baseline). ⏳ Not clicked in a

@@ -913,7 +913,7 @@ export function createMockRgs(opts = {}) {
 	 *  with no free spins: there is no feature to force, so its rounds deal (and `WIN_X`) as usual. */
 	const forceTrigger = freeSpinsOn && (opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1');
 	/** FORCE_RETRIGGER=1 → the first free spin of every feature lands the trigger symbols again
-	 *  (the free-spin parity gate's retrigger, Rive plan Phase 8c). Inert outside a feature. */
+	 *  (a retrigger testing aid). Inert outside a feature. */
 	const forceRetrigger =
 		freeSpinsOn && (opts.forceRetrigger ?? process.env.FORCE_RETRIGGER === '1');
 	const label = opts.label ?? 'mock';

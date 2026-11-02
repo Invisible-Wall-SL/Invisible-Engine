@@ -33,13 +33,7 @@
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
 
-import {
-	BUTTON_PRESENTATION_ID,
-	FREE_SPIN_INTRO_PRESENTATION_ID,
-	FREE_SPIN_OUTRO_PRESENTATION_ID,
-	pendingCueHolds,
-} from 'engine-layout';
-import { isComponentMounted } from 'engine-layout/svelte';
+import { pendingCueHolds } from 'engine-layout';
 import type { ArcadeNetcode } from 'game-config';
 
 const FLAG = 'ie_determinism';
@@ -186,20 +180,9 @@ export type DeterminismState = DeterminismProbeState & {
 	/** The Flow cues fired so far, each with the frame it fired on (the last {@link CUE_LOG_MAX}),
 	 *  so a harness can step to a cue and capture at fixed frames after it. */
 	cues: readonly { cue: string; frame: number }[];
-	/** The cue / signal names with a PENDING cue hold right now (`pendingCueHolds`, Rive plan Phase
-	 *  8a/8b) — the positive control of a parity gate: the authored side holds, the coded side does not,
-	 *  including holds opened by a game-fired signal the cue trace never shows. */
+	/** The cue / signal names with a PENDING cue hold right now (`pendingCueHolds`), including holds
+	 *  opened by a game-fired signal the cue trace never shows. */
 	holds: readonly string[];
-	/** The authored free-spin presentations with an instance MOUNTED right now (Rive plan Phase 8c) —
-	 *  the free-spin parity gate's positive control: the authored side mounts them, the coded none. */
-	presentations: readonly string[];
-	/** The press-feedback sounds and the `uiHide` / `uiShow` events broadcast so far, each with its
-	 *  frame (Rive plan Phase 8d) — the button parity gate compares the sounds (the authored button
-	 *  plays what the coded press body did) and steps to the UI fades by them. */
-	uiEvents: readonly { event: string; frame: number }[];
-	/** Whether a `buttonPresentation` instance is MOUNTED (Rive plan Phase 8d) — the button parity
-	 *  gate's positive control: the authored side mounts it, the coded side never does. */
-	buttonPresentation: boolean;
 };
 
 export type DeterminismApi = {
@@ -212,7 +195,7 @@ export type DeterminismApi = {
 	waitFor(
 		condition: DeterminismCondition,
 	): Promise<{ ok: boolean; frame: number; state: DeterminismState }>;
-	/** Turn turbo on or off, as the player's persistent choice — so a parity script can run a turbo
+	/** Turn turbo on or off, as the player's persistent choice — so a screenshot harness can run a turbo
 	 *  variant of the same book. Routed to the game's `stateBet` once it has registered its probe; a
 	 *  call before that is kept and applied then. */
 	setTurbo(on: boolean): void;
@@ -268,7 +251,7 @@ let turboControl: ((on: boolean) => void) | undefined;
 let turboRequested: boolean | undefined;
 const TURBO_FLAG = 'ie_turbo';
 
-/** `?ie_turbo=1`, honoured only with the determinism flag: a turbo boot for the parity scripts. */
+/** `?ie_turbo=1`, honoured only with the determinism flag: a turbo boot for a screenshot harness. */
 const flagTurbo = (): boolean | undefined => {
 	if (typeof location === 'undefined' || !flagSeed()) return undefined;
 	return new URLSearchParams(location.search).get(TURBO_FLAG) === '1' ? true : undefined;
@@ -276,7 +259,6 @@ const flagTurbo = (): boolean | undefined => {
 
 const CUE_LOG_MAX = 256;
 const cueLog: { cue: string; frame: number }[] = [];
-const uiEventLog: { event: string; frame: number }[] = [];
 /** The current frame while the mode is on; bound by `installDeterminism`. */
 let frameNow: (() => number) | undefined;
 
@@ -288,14 +270,6 @@ export function recordDeterminismCue(cue: string): void {
 	if (!frameNow) return;
 	cueLog.push({ cue, frame: frameNow() });
 	if (cueLog.length > CUE_LOG_MAX) cueLog.shift();
-}
-
-/** `Game.svelte` reports every press sound and UI fade event it hears broadcast; a no-op when the
- *  mode is off. */
-export function recordDeterminismUiEvent(event: string): void {
-	if (!frameNow) return;
-	uiEventLog.push({ event, frame: frameNow() });
-	if (uiEventLog.length > CUE_LOG_MAX) uiEventLog.shift();
 }
 
 /**
@@ -809,11 +783,6 @@ export function installDeterminism(): void {
 		errors,
 		cues: [...cueLog],
 		holds: pendingCueHolds(),
-		presentations: [FREE_SPIN_INTRO_PRESENTATION_ID, FREE_SPIN_OUTRO_PRESENTATION_ID].filter(
-			isComponentMounted,
-		),
-		uiEvents: [...uiEventLog],
-		buttonPresentation: isComponentMounted(BUTTON_PRESENTATION_ID),
 		...readProbe(),
 	});
 	const holds = (c: DeterminismCondition, s: DeterminismState): boolean =>

@@ -597,9 +597,8 @@ export function bakedBundleData(): unknown {
 export function registerBakedComponents(): void {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) {
-		// No bundle and no baked doc (the layout-only fallback, the dev pilot): the engine's built-in
-		// timelines still register, or a `transitionWipe` the fallback doc places would mount with no
-		// timeline — no hold, and a rig revealed at its setup pose.
+		// No bundle and no baked doc (the layout-only fallback): the engine's built-in timelines still
+		// register, so a built-in def the fallback doc places still has its timeline.
 		registerGameTimelines(undefined);
 		return;
 	}
@@ -615,9 +614,8 @@ export function registerBakedComponents(): void {
 	if (source.componentDefs) registerComponents(source.componentDefs);
 	if (source.componentDefaults) registerComponentDefaults(source.componentDefaults);
 	// Component timelines (Rive plan Phase 4): each placed instance plays its def's timelines on
-	// their `playOn` signal. The engine's BUILT-IN timelines (Phase 8a: the authored Transition's
-	// wipe) register first, so a project timeline of the same id shadows one; they play only on an
-	// instance of their built-in def, which no doc places until a project opts in (parity).
+	// their `playOn` signal. The engine's BUILT-IN timelines register first, so a project timeline
+	// of the same id shadows one; they play only on an instance of their built-in def.
 	registerGameTimelines(bakedCinematics());
 }
 

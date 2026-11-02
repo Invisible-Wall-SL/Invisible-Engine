@@ -17,8 +17,8 @@
 
 	const context = getGameContext();
 
-	// Retired for this boot (the project renders the AUTHORED Transition — Rive plan Phase 8a): no
-	// subscription, so the awaited `transition` is held by the authored instance alone and this part
+	// Retired for this boot (the `transition` cue plays a screen transition instead): no
+	// subscription, so the awaited `transition` is held by the screen transition alone and this part
 	// draws nothing. Read once at mount: the game retires the part before the doc's instances mount.
 	const retired = isCodedOverlayRetired('transition');
 

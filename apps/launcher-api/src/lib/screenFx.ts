@@ -272,7 +272,7 @@ export function transitionCueLine(
 	if (status === 'off') {
 		return {
 			status,
-			text: 'Every transition cue plays the wipe (coded, or authored when Authored overlays → Transition is on).',
+			text: 'Every transition cue plays the wipe.',
 			warn: false,
 		};
 	}
@@ -285,7 +285,7 @@ export function transitionCueLine(
 	}
 	return {
 		status,
-		text: 'Every transition cue plays this instead of the wipe: the frame freezes, the flow goes on at once (about 1.6 s sooner than after the wipe) and the transition reveals what it shows next. The authored Transition pilot is set aside.',
+		text: 'Every transition cue plays this instead of the wipe: the frame freezes, the flow goes on at once (about 1.6 s sooner than after the wipe) and the transition reveals what it shows next.',
 		warn: false,
 	};
 }

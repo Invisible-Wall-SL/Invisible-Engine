@@ -54,7 +54,7 @@ export interface SceneDurationResolvers {
 	 *  bind with no measurable animation (skipped). */
 	boundComponentMs?(component: string): number | undefined;
 	/**
-	 * The authored twin of `boundComponentMs` (Rive plan Phase 8a): how long an instance of `defId`
+	 * The authored twin of `boundComponentMs`: how long an instance of `defId`
 	 * HOLDS an awaited cue — the longest of its `holdsCue` timelines, a project's own included (an
 	 * authored 2 s entrance that holds measures 2 s). The ONE exemption is the win presentation
 	 * (8b): its holds are tier-walk timing, not an entrance, and the coded `Win` / `WinGate` it

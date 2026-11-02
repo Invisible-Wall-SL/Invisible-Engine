@@ -2,7 +2,7 @@ import { resolveBoundValue } from './componentParams';
 import type { LayoutNode } from './types';
 
 /**
- * RIG-SLOT RIDERS (Rive plan Phase 8b, `BaseNode.rigSlot`): the pure half of hosting a node inside
+ * RIG-SLOT RIDERS (`BaseNode.rigSlot`): the pure half of hosting a node inside
  * a sibling rig's slot. A container's children are split once per render into the nodes drawn in
  * place and the riders its first rig child hosts; the rig renders each group of riders inside one
  * `<RigSlot>` per slot name, so the rig drives their transform and alpha every frame as it drives

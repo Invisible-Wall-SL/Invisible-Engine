@@ -1,13 +1,11 @@
 import { WIN_PRESENTATION_DEFAULTS } from 'engine-layout';
 
-import { tierHasExit, type TierAnimationMap } from './winEscalation';
+import type { TierAnimationMap } from './winEscalation';
 import type { WinLevelData } from './winLevelMap';
 
 /**
  * WIN TIER PRESENTATION — which rig, slot and clips a tier plays, from the `win` component's
- * params. PURE: the coded `WinVisual` reads its live params through it, and the authored
- * presentation (Rive plan Phase 8b) generates its per-tier timelines from the same answer, so the
- * two can never name different clips.
+ * params. PURE: the coded `WinVisual` reads its live params through it.
  *
  * Per field: the PER-TIER value (`<alias>Spine` / `<alias>Slot` / `<alias>Intro|Idle|Outro`) ?? the
  * SHARED set (`winSpine` / `slotName` / `introAnimation` / `idleAnimation` / `exitAnimation`) ?? the
@@ -46,33 +44,5 @@ export function resolveTierPresentation(
 		rigKey: rig,
 		slotName,
 		animationMap: { intro: intro ?? '', idle: idle ?? '', outro: outro ?? '' },
-	};
-}
-
-/** One active big tier as the authored presentation needs it: its clips (the exit only when it IS one). */
-export interface AuthoredWinTierClips {
-	alias: string;
-	rigKey: string;
-	slotName: string;
-	intro: string;
-	idle: string;
-	outro?: string;
-}
-
-/** The authored presentation's view of a tier, or `undefined` for a tier with no animation. */
-export function authoredWinTierClips(
-	params: Record<string, unknown>,
-	data: WinLevelData,
-): AuthoredWinTierClips | undefined {
-	const pres = resolveTierPresentation(params, data);
-	if (!pres.animationMap) return undefined;
-	const map = pres.animationMap;
-	return {
-		alias: data.alias,
-		rigKey: pres.rigKey,
-		slotName: pres.slotName,
-		intro: map.intro,
-		idle: map.idle,
-		...(tierHasExit(map) ? { outro: map.outro } : {}),
 	};
 }

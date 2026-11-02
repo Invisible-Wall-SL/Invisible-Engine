@@ -43,15 +43,7 @@ import {
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
-import {
-	kindCapabilities,
-	TUMBLE_PATTERN_LABELS,
-	type AuthoredTransitionStatus,
-	type AuthoredWinStatus,
-	type AuthoredFreeSpinsStatus,
-	type AuthoredButtonsStatus,
-	type TransitionCueStatus,
-} from 'engine-layout';
+import { kindCapabilities, TUMBLE_PATTERN_LABELS, type TransitionCueStatus } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
@@ -80,23 +72,16 @@ export interface GameProfileSignals {
 	/** Which mock-RGS protocol the published game talks. Null until the project is published. */
 	protocol: MockProtocol | null;
 	/**
-	 * The layout doc's authored-overlay switches, each resolved through the ONE rule the game reads
-	 * at boot (Rive plan Phase 8a `authoredTransitionStatus`, 8b `authoredWinStatus`) — off
-	 * `editor/scenes.json` (plus, for the Win, the config's tiers and the Win Text captions);
-	 * `null` when the project has no doc yet.
+	 * The layout doc's `transition` cue, resolved through the ONE rule the game reads at boot
+	 * (Invisible Shader Graph 8e `transitionCueStatus`) off `editor/scenes.json`; `null` when the
+	 * project has no doc yet.
 	 */
 	layout?: {
-		authoredTransition: AuthoredTransitionStatus;
-		/** Invisible Shader Graph 8e `transitionCueStatus`; absent ⇒ off. */
+		/** Absent ⇒ off. */
 		transitionCue?: TransitionCueStatus;
 		/** The row plays a screen transition, but the project's stored flow never fires
 		 *  `transition` (`flowFiresTransition`), so it never plays. */
 		transitionCueUnfired?: boolean;
-		authoredWin: AuthoredWinStatus;
-		/** Rive plan Phase 8c `authoredFreeSpinsStatus`; absent ⇒ off. */
-		authoredFreeSpins?: AuthoredFreeSpinsStatus;
-		/** Rive plan Phase 8d `authoredButtonsStatus`; absent ⇒ off. */
-		authoredButtons?: AuthoredButtonsStatus;
 	} | null;
 }
 
@@ -576,38 +561,9 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
 	},
 	{
-		id: 'authoredTransition',
-		title:
-			'The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount (Rive plan Phase 8a pilot).',
-		text: (ctx) =>
-			ctx.layout?.authoredTransition === 'ready' && ctx.layout.transitionCue !== 'screen'
-				? 'Authored Transition (pilot)'
-				: null,
-	},
-	{
-		id: 'authoredTransitionUnbound',
-		title:
-			'The authored Transition is on, but no scene binds the coded Transition it replaces — the game keeps the coded path and plays no transition wipe at all. Add the Transition overlay node back (the reference overlays scene has it) or turn the pilot off.',
-		tone: 'warn',
-		text: (ctx) =>
-			ctx.layout?.authoredTransition === 'nothing-to-replace'
-				? 'Authored Transition on, nothing to replace'
-				: null,
-	},
-	{
-		id: 'authoredTransitionNonCanvas',
-		title:
-			'The authored Transition is on, but a Transition overlay node sits in a scene that is not canvas space (game, standard or background): the authored wipe cover-fits only in a canvas scene, so the game keeps the coded Transition everywhere. Move the node to a canvas-space scene (the reference overlays scene) or turn the pilot off.',
-		tone: 'warn',
-		text: (ctx) =>
-			ctx.layout?.authoredTransition === 'non-canvas-scene'
-				? 'Authored Transition on, held back: a Transition sits outside canvas space'
-				: null,
-	},
-	{
 		id: 'transitionCue',
 		title:
-			'Every transition cue (free-spin entry and exit) plays a screen transition instead of the wipe, set in Game Settings → Screen FX: it freezes what is on screen as the cue fires and plays out over whatever the flow shows next, which goes on once the frame is frozen. On free-spin exit the screen has already changed back to the base game when the cue fires, so that transition plays over the base game, not out of the free spins. While it is on, the authored Transition pilot is set aside.',
+			'Every transition cue (free-spin entry and exit) plays a screen transition instead of the wipe, set in Game Settings → Screen FX: it freezes what is on screen as the cue fires and plays out over whatever the flow shows next, which goes on once the frame is frozen. On free-spin exit the screen has already changed back to the base game when the cue fires, so that transition plays over the base game, not out of the free spins.',
 		text: (ctx) =>
 			ctx.layout?.transitionCue === 'screen' ? 'Transition cue: screen transition' : null,
 	},
@@ -630,87 +586,6 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 			ctx.layout?.transitionCue === 'unplayable'
 				? 'Transition cue: its effect does not ship, the wipe plays'
 				: null,
-	},
-	{
-		id: 'authoredWin',
-		title:
-			'The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses (Rive plan Phase 8b pilot). The tiers here are read from the saved layout doc; republish to apply a change.',
-		text: (ctx) => (ctx.layout?.authoredWin === 'ready' ? 'Authored Win (pilot)' : null),
-	},
-	{
-		id: 'authoredWinUnbound',
-		title:
-			'The authored Win is on, but no scene binds the coded Win overlay it replaces and none places a win instance — the game keeps the coded path and plays no big-win presentation at all. Add the Win overlay node back (the reference overlays scene has it) or turn the pilot off.',
-		tone: 'warn',
-		text: (ctx) =>
-			ctx.layout?.authoredWin === 'nothing-to-replace'
-				? 'Authored Win on, nothing to replace'
-				: null,
-	},
-	{
-		id: 'authoredWinCaption',
-		title:
-			'The authored Win is on, but a big-win tier’s caption in Invisible Win Text interpolates a token such as {amount}, which the authored caption (a text switch to the Win Text key) cannot render — the game keeps the coded Win everywhere. Remove the token from the tier captions or turn the pilot off.',
-		tone: 'warn',
-		text: (ctx) =>
-			ctx.layout?.authoredWin === 'caption-variable'
-				? 'Authored Win on, held back: a win caption uses {amount}'
-				: null,
-	},
-	{
-		id: 'authoredWinTier',
-		title:
-			'The authored Win is on, but the big-win tiers resolve to more than one rig bundle or count slot (per-tier Spine / Slot params on the win instance, or a tier’s own spineKey in the Game Config): the authored presentation has one rig node and cannot play them — the game keeps the coded Win everywhere. Give every tier the same rig and slot or turn the pilot off.',
-		tone: 'warn',
-		text: (ctx) =>
-			ctx.layout?.authoredWin === 'tier-presentation-unsupported'
-				? 'Authored Win on, held back: the tiers use more than one rig or count slot'
-				: null,
-	},
-	{
-		id: 'authoredFreeSpins',
-		title:
-			'The free-spin intro and outro visuals (the frame rig, the count rig and number, the localized captions, the fade) play from the built-in free-spin presentation components and their timelines instead of the coded FreeSpinIntroVisual / FreeSpinOutroVisual; the coded outro driver keeps the count-up and the round hold, the screens keep their taps (Rive plan Phase 8c pilot).',
-		text: (ctx) =>
-			ctx.layout?.authoredFreeSpins === 'ready' ? 'Authored free spins (pilot)' : null,
-	},
-	{
-		id: 'authoredFreeSpinsHeld',
-		title:
-			'The authored free-spin intro / outro is on, but the game keeps the coded visuals for both screens: no screen binds a coded free-spin visual, one sits in a screen that is not canvas space, a screen places a free-spin visual instance, or a visual names a rig, clip or slot other than the coded default. Fix the named case or turn the pilot off.',
-		tone: 'warn',
-		text: (ctx) => {
-			const status = ctx.layout?.authoredFreeSpins;
-			if (!status || status === 'off' || status === 'ready') return null;
-			const why: Record<Exclude<AuthoredFreeSpinsStatus, 'off' | 'ready'>, string> = {
-				'nothing-to-replace': 'nothing to replace',
-				'non-canvas-scene': 'a free-spin visual sits outside canvas space',
-				'placed-visual': 'a screen places a free-spin visual instance',
-				'custom-presentation': 'a free-spin visual names a custom rig, clip or slot',
-			};
-			return `Authored free spins on, held back: ${why[status]}`;
-		},
-	},
-	{
-		id: 'authoredButtons',
-		title:
-			'Every parametric HUD button draws its per-state frame, turns its spin frame and plays its press sound from the built-in Button presentation component and its state machine instead of the coded ButtonFrame; the press road and the gates that disable, select or spin a button stay coded (Rive plan Phase 8d pilot).',
-		text: (ctx) => (ctx.layout?.authoredButtons === 'ready' ? 'Authored buttons (pilot)' : null),
-	},
-	{
-		id: 'authoredButtonsHeld',
-		title:
-			"The authored buttons are on, but the game keeps the coded ButtonFrame for every button: no screen places a parametric button, or the project's own Button component draws something the built-in does not. Fix the named case or turn the pilot off.",
-		tone: 'warn',
-		text: (ctx) => {
-			const status = ctx.layout?.authoredButtons;
-			if (!status || status === 'off' || status === 'ready') return null;
-			const why: Record<Exclude<AuthoredButtonsStatus, 'off' | 'ready'>, string> = {
-				'nothing-to-replace': 'nothing to replace',
-				'custom-button': "the project's own Button component draws something else",
-			};
-			return `Authored buttons on, held back: ${why[status]}`;
-		},
 	},
 	{
 		id: 'boardGlow',

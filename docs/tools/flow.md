@@ -437,7 +437,7 @@ shipped, refused, no WebGL), the game fades or cuts instead — it never goes bl
 **The transition cue.** A project can also play one on every `transition` cue (free-spin entry and
 exit) instead of the wipe, set in the Scene Editor's
 [Game Settings → Screen FX](invisible-editor.md#game-settings--screen-fx) (**The transition cue
-plays**), with no Flow edit. While it is on, the authored Transition pilot is set aside, and Game
+plays**), with no Flow edit. While it is on, the coded Transition stands down, and Game
 Maker shows a **Transition cue: screen transition** chip. On free-spin exit the screen is already
 back on the base game when the cue fires, so that transition plays over the base game, not out of
 the free spins. With that row on, a flow that never fires `transition` gets an amber note above

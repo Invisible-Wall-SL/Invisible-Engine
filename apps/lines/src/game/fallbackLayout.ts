@@ -1,15 +1,7 @@
 import type { LayoutDoc } from 'engine-layout';
 
 import { defaultLayout } from './defaultLayout';
-import {
-	AUTHORED_TRANSITION,
-	AUTHORED_WIN,
-	AUTHORED_FREE_SPINS,
-	AUTHORED_BUTTONS,
-	HUD_BUTTON_INSTANCES,
-	TRANSITION_INSTANCE,
-	WIN_INSTANCE,
-} from './editorFlags';
+import { HUD_BUTTON_INSTANCES, TRANSITION_INSTANCE, WIN_INSTANCE } from './editorFlags';
 
 /**
  * Offline fallback / checked-in stand-in for the editor document the Invisible
@@ -36,8 +28,4 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	buttons: HUD_BUTTON_INSTANCES,
 	transition: TRANSITION_INSTANCE,
 	winInstance: WIN_INSTANCE,
-	authoredTransition: AUTHORED_TRANSITION,
-	authoredWin: AUTHORED_WIN,
-	authoredFreeSpins: AUTHORED_FREE_SPINS,
-	authoredButtons: AUTHORED_BUTTONS,
 });

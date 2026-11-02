@@ -316,7 +316,7 @@ interface BaseNode {
 	 */
 	hiddenUntilSignal?: string;
 	/**
-	 * RIDE A SIBLING RIG'S SLOT (Rive plan Phase 8b, `docs/design/rive-style-editor.md` §13.6.3): the
+	 * RIDE A SIBLING RIG'S SLOT: the
 	 * name of a slot on the first `spine` node among this node's siblings. The node then renders
 	 * INSIDE that rig, in the slot's own object — the container the rig drives every frame from the
 	 * slot's bone (position, rotation, scale) and colour (alpha), shown only while the slot has an
@@ -345,44 +345,6 @@ interface BaseNode {
 	 */
 	elementFx?: ElementFxEntry[];
 }
-
-/**
- * Every {@link BaseNode} field as a RUNTIME list (`true` = a rewrite that replaces a node's kind
- * carries it over). The `satisfies` fails the type-check when `BaseNode` gains a field this list
- * lacks, so a swap that rebuilds a node from it (the authored free-spin swap) cannot silently drop
- * a new field. `bind` is `false`: it is the coded part the rewrite removes.
- */
-export const BASE_NODE_FIELDS = {
-	id: true,
-	label: true,
-	x: true,
-	y: true,
-	anchor: true,
-	scale: true,
-	coverScale: true,
-	rotation: true,
-	alpha: true,
-	blendMode: true,
-	zIndex: true,
-	parallax: true,
-	overrides: true,
-	visibleFor: true,
-	slotId: true,
-	fit: true,
-	coverFit: true,
-	coverBox: true,
-	locked: true,
-	bind: false,
-	screenAnchor: true,
-	preview: true,
-	paramBindings: true,
-	valueBindings: true,
-	pressAction: true,
-	hiddenUntilSignal: true,
-	rigSlot: true,
-	on: true,
-	elementFx: true,
-} as const satisfies { [K in keyof Required<BaseNode>]: boolean };
 
 /**
  * The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). The
@@ -683,14 +645,6 @@ export interface RigNode extends BaseNode {
 	assetKey: string;
 	width?: number;
 	height?: number;
-	/**
-	 * FIT THE RIG'S WIDTH TO THE GAME'S BOARD WIDTH (Rive plan Phase 8b) — the `game`-space twin of
-	 * {@link BaseNode.coverFit}: the rig is sized through `<RigProvider width>` to the board the game
-	 * registered (`registerBoardBox`), the way the coded big-win rig was fitted to
-	 * `boardLayout().width`, so one authored node reproduces that size on every layout type. Needs a
-	 * registered board; without one, or on any other kind, the node keeps its authored size (parity).
-	 */
-	boardFit?: boolean;
 	defaultAnimation?: string;
 	loop?: boolean;
 	skin?: string;
@@ -1693,40 +1647,9 @@ export interface GameSettings {
 	 * Invisible Shader Graph 8e: the awaited `transition` cue plays this screen transition instead of
 	 * the wipe (`docs/design/shader-graph-screens.md` §9.2). Sparse: written only when set, so every
 	 * doc without it plays the wipe. Read through `readTransitionCue`; `transitionCueStatus` is the
-	 * one rule with the authored Transition.
+	 * one rule the game and the launcher share.
 	 */
 	transitionCue?: ScreenTransitionSpec;
-	/**
-	 * The coded overlays this project renders from their AUTHORED component instead of the coded
-	 * mount (Rive plan Phase 8, `docs/design/rive-style-editor.md` §13). Sparse: a row is written
-	 * only when it is on, so every doc authored before it, and every doc that never turned one on,
-	 * is byte-identical to the coded path. `transition` swaps the `bind: Transition` wipe for the
-	 * built-in `transitionWipe` component (8a). Off for every live game until the owner's browser
-	 * check; the Game Settings row says so.
-	 */
-	authoredOverlays?: {
-		transition?: boolean;
-		/**
-		 * 8b: the big-win PRESENTATION (the tier rig, its per-tier clips, the count, the caption and
-		 * the plain number — what the coded `WinVisual` draws) renders from the built-in
-		 * `winPresentation` component and its generated per-tier timelines; the coded `WinGate`
-		 * (count-up, round hold, presses, dim, `winState`) stays and conducts them.
-		 */
-		win?: boolean;
-		/**
-		 * 8c: the free-spin INTRO and OUTRO visuals (the frame rig, the count rig and text, the
-		 * localized sprites, the fade — what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`
-		 * draw) render from the built-in `freeSpinIntroPresentation` / `freeSpinOutroPresentation`
-		 * components; the coded outro driver, the screens' taps and the flow's holds stay.
-		 */
-		freeSpins?: boolean;
-		/**
-		 * 8d: every parametric `button` instance draws its per-state frame, spin rotation and press
-		 * sound from the built-in `buttonPresentation` component and its state machine; the press road
-		 * and the gates that feed `disabled` / `active` / `spinning` stay coded.
-		 */
-		buttons?: boolean;
-	};
 	/**
 	 * Post FX: Element FX on the whole stage, HUD included (Shader Graph 8e,
 	 * `shader-graph-screens.md` §6.5). Triggers `always` and `cue` only; at most two play, drawing at
@@ -1904,9 +1827,7 @@ export interface ComponentDef {
 	capability?: keyof KindCapabilities;
 	/**
 	 * Placed by the ENGINE only: the Scene Editor's palette never offers it (`componentOfferedForKind`
-	 * is false for every kind), while a doc that holds it still renders it. The authored Transition
-	 * is one during its pilot: the game places it where the flag says, and a hand-placed copy would
-	 * play a second wipe. Absent ⇒ offered as `capability` says.
+	 * is false for every kind), while a doc that holds it still renders it. Absent ⇒ offered as `capability` says.
 	 */
 	internal?: boolean;
 	/**
@@ -1924,37 +1845,6 @@ export interface ComponentDef {
 	 * interpreter, no subscription, no ticker work (parity).
 	 */
 	stateMachine?: ComponentStateMachine;
-	/**
-	 * FRAME-EXACT (built-in only, Rive plan Phase 8b): the authored twin of a coded part that must
-	 * land on the coded frame. Its state machine takes a trigger's transition at the fire (not on the
-	 * next tick), and its timelines snap to their end within a microsecond of float error. Only the
-	 * `winPresentation` def sets it; never stored, so no project def has it. Absent ⇒ neither (parity).
-	 */
-	frameExact?: true;
-	/**
-	 * BOARD-ANCHORED (built-in only, Rive plan Phase 8c): the instance is framed against the main
-	 * box on any screen (as a `game`-space hosted overlay is) AND offset by the game's live board
-	 * position (`boardBox()`), so it lands where a coded overlay that self-centred on
-	 * `boardLayout()` drew — a reel-grid override included. Only the free-spin presentations set it;
-	 * never stored. Absent ⇒ placed as before (parity).
-	 */
-	boardAnchored?: true;
-	/**
-	 * BUTTON STATES (built-in only, Rive plan Phase 8d): the instance owns the press although the def
-	 * binds a coded part (its label only draws), feeds the state machine's reserved inputs from its
-	 * live flags — `look` (the shared cascade's resolved look, {@link BUTTON_LOOKS}), `rotating`,
-	 * `fadeWithUi` — provides `tileColor` / `tileBorderColor` from `variant`, starts the machine at
-	 * mount, and plays the press sound the press hands it (`pressSounds.ts`). Only
-	 * `buttonPresentation` sets it; never stored. Absent ⇒ none of this (parity).
-	 */
-	buttonStates?: true;
-	/**
-	 * SETTLES (built-in only): its timelines hand a keyed `rotation` that returns to 0 or `alpha`
-	 * that returns to 1 to the node as that value (`CinematicNodeDrive.settles`) — a fade-in that ends
-	 * on alpha 1 lands on 1, not on the last blended value. The authored button, Win and free-spin
-	 * presentations set it; never stored. Absent ⇒ the fold's transform as before (parity).
-	 */
-	settles?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
@@ -2322,14 +2212,14 @@ export interface CinematicDoc {
 	 */
 	playOnComponents?: string[];
 	/**
-	 * A COMPONENT timeline only (Rive plan Phase 8a): an awaited fire of `playOn` — a Flow
+	 * A COMPONENT timeline only: an awaited fire of `playOn` — a Flow
 	 * `fireCue` with "wait" ticked — is held until this timeline reaches its end on every instance it
 	 * started on, the way a coded overlay holds the awaited broadcast until its rig completes. Absent
 	 * ⇒ the fire returns as it always has (parity); a zero-length timeline holds nothing.
 	 */
 	holdsCue?: boolean;
 	/**
-	 * A COMPONENT timeline only (Rive plan Phase 8c): seconds the playhead wraps back to when it
+	 * A COMPONENT timeline only: seconds the playhead wraps back to when it
 	 * reaches `duration`, carrying the overshoot, so the stretch from here to the end loops for as
 	 * long as the timeline is on screen — a coded rig's looping idle after its intro. A looping
 	 * timeline never reports an end (it holds no cue); a step longer than a whole lap crosses each

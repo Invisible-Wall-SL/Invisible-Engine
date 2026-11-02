@@ -46,7 +46,7 @@ runtime bundle). Screen-side traps: [editor.md](editor.md).
 - **Cause:** published games bake data the coded path reads (`visibleSource` on Borut's instances,
   the coded `Win` / `Transition` overlays).
 - **Fix:** defang, don't gut: stop authoring it, keep the runtime honouring it; land the new path
-  as an opt-in (Authored overlays) or a registry (`isComponentMounted`). Deactivate by config.
+  as an opt-in setting or a registry (`isComponentMounted`). Deactivate by config.
 - **Guard:** the current-games harness ([targets](../targets.md) non-negotiable 1); else review.
 - **PR:** not recorded (2026-07-03, 2026-10-01, 2026-10-14) · source: `docs/history.md`
 

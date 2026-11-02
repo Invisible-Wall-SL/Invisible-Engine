@@ -9,7 +9,7 @@ launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/I
 ### CI failed on a gate my filtered local run never ran
 - **Symptom:** the gates I picked by keyword passed, then `check-all (n/3)` went red in CI.
 - **Cause:** gates pin source: `check-respin-modes-runtime.mts` lists respin deps (`onCellLand`);
-  `check:authored-freespins` hashes `drivenSeed.ts`; two gates hash Hold and Win scene sets.
+  two gates hash Hold and Win scene sets.
 - **Fix:** re-pin; scene sets in `test-hold-and-win-template.mjs`, `check-spins-modes-tools.ts`.
 - **Guard:** run the full `pnpm check:all` before the first push; new helpers go in new files.
 - **PR:** #1275, #1315, #1355, #1369 · session 0174mEVaXX9QzjP3pJPFZUPH, 016sy31TWY7BzxzvRsmoEkyX,

@@ -3,8 +3,7 @@
  *   pnpm --filter launcher-api check:cinematic-ease            # check
  *   pnpm --filter launcher-api check:cinematic-ease --update   # rewrite the golden (main only!)
  *
- *  1. PARITY: every built-in timeline the game ships (transition wipe, buttons, win tiers, free
- *     spins) and a synthetic doc using every legacy `ease` string (and junk) sample BYTE-IDENTICALLY
+ *  1. PARITY: a synthetic doc using every legacy `ease` string (and junk) sample BYTE-IDENTICALLY
  *     to the golden captured from the evaluator before `ease: [x1, y1, x2, y2]` existed.
  *  2. CUBIC: a key's `ease: [x1, y1, x2, y2]` matches an independent reference cubic-bezier (a dense
  *     table, not the evaluator's solver) within 1e-4, on number, tint and countUp channels; the
@@ -25,7 +24,6 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import type { CinematicDoc, LayoutNode } from 'engine-layout';
 import * as EV from '../../../packages/engine-cinematic/src/cinematicEval.js';
 
-const B = await import('../../../packages/engine-layout/src/lib/builtinTimelines.ts');
 const GOLDEN = new URL('./check-cinematic-ease.golden.json', import.meta.url);
 
 let failures = 0;
@@ -112,24 +110,7 @@ const LEGACY: CinematicDoc = {
 	markers: [],
 };
 
-const tiers = [
-	{ alias: 'big', intro: 'big_win_intro', idle: 'big_win_idle', outro: 'big_win_exit' },
-	{ alias: 'mega', intro: 'mega_win_intro', idle: 'mega_win_idle', caption: 'MEGA WIN' },
-];
-const clipMs = {
-	big_win_intro: 1333.3,
-	big_win_idle: 12000,
-	big_win_exit: 466.7,
-	mega_win_intro: 1366.7,
-	mega_win_idle: 12000,
-};
-const DOCS: CinematicDoc[] = [
-	LEGACY,
-	B.TRANSITION_WIPE_TIMELINE,
-	...B.BUTTON_TIMELINES,
-	...B.winTierTimelines(tiers, clipMs),
-	...B.FREE_SPIN_TIMELINES,
-];
+const DOCS: CinematicDoc[] = [LEGACY];
 
 /** The times a doc is sampled at: a grid over its first 10 s, every key's time and its edges. */
 function timesOf(doc: CinematicDoc): number[] {

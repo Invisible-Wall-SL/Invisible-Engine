@@ -1,14 +1,4 @@
-import {
-	authoredTransitionStatus,
-	authoredTransitionSwapped,
-	collectComponentIds,
-	sceneByRole,
-	withAuthoredTransition,
-	withAuthoredWin,
-	type LayoutDoc,
-	type Scene,
-	type TransitionCueStatus,
-} from 'engine-layout';
+import { collectComponentIds, sceneByRole, type LayoutDoc, type Scene } from 'engine-layout';
 
 /**
  * Which scene the game mounts for each screen it owns by id or role, given the loaded doc and the
@@ -43,28 +33,14 @@ const docPlacesWinVisual = (scenes: Scene[]): boolean =>
  * visual while leaving `basegameOverlays` at the reference default, or omitting the scene
  * entirely (then the fallback supplies `bind:Win`, and the game gets both halves twice).
  * No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
- *
- * `authoredWinOn` is the game's live `authoredWinRuntime.on`; `transitionCue` is the status the game
- * booted the `transition` cue with (a screen transition holds the Transition's swap back).
  */
 export function basegameOverlaysSceneOf(
-	doc: Pick<LayoutDoc, 'scenes' | 'settings'>,
+	doc: Pick<LayoutDoc, 'scenes'>,
 	fallback: LayoutDoc,
-	authoredWinOn: boolean,
-	transitionCue: TransitionCueStatus = 'off',
 ): Scene {
-	const fallbackOverlays = fallbackScene(fallback, 'basegameOverlays');
-	// The AUTHORED Transition (Rive plan Phase 8a): the loaded doc's scenes were swapped once at
-	// load (`withAuthoredTransitionDoc`); the reference overlays a doc without its own gets are
-	// swapped here under the same flag. Off ⇒ the same scene object (parity).
-	const swappedFallback = authoredTransitionSwapped(authoredTransitionStatus(doc), transitionCue)
-		? withAuthoredTransition(fallbackOverlays)
-		: fallbackOverlays;
 	const scene =
 		doc.scenes.find((s) => s.id === 'basegameOverlays') ??
-		// The AUTHORED Win (Phase 8b) degrades the reference composer to its gate half the same
-		// way; the loaded doc's own scenes were swapped at load (`withAuthoredWinDoc`).
-		(authoredWinOn ? withAuthoredWin(swappedFallback) : swappedFallback);
+		fallbackScene(fallback, 'basegameOverlays');
 	if (!docPlacesWinVisual(doc.scenes)) return scene;
 	let degraded = false;
 	const nodes = scene.nodes.map((node) => {

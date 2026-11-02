@@ -76,7 +76,7 @@ means we cover it with a different mechanism, so don't copy it. **Skip** means o
 | Marquee zoom `Z`, `F` / `Shift+F` fit, `+`/`-` | Scroll zoom, pan | **P9**: `F`, `+`/`-`, ⌘0 |
 | Arrow nudge (Shift ×10) | None | **P9** |
 | Onion skin | None (and none in Rive: not documented) | **P9**, as planned: ghost frames ±N around the playhead, editor-only. We'd be ahead of Rive here |
-| Edit vertices, meshes, N-slice, Dependency Graph `D` | Rigger owns meshes; no 9-slice | Skip here. N-slice for buttons is Later (8d's button frame could use it) |
+| Edit vertices, meshes, N-slice, Dependency Graph `D` | Rigger owns meshes; no 9-slice | Skip here. N-slice for buttons is Later |
 
 ### 3.4 Inspector
 

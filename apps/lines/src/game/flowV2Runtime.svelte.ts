@@ -31,7 +31,6 @@ import {
 	registerComponentValues,
 	cueAnimationDurationMs,
 	cueHolds,
-	WIN_PRESENTATION_COMPONENT_ID,
 	emitComponentSignal,
 	ENTER_SIGNAL,
 	flipbookCycleMs,
@@ -616,13 +615,9 @@ export const createLinesFlowV2 = (
 			// wipe plays the preloaded `transition` skeleton's `animation` clip.
 			boundComponentMs: (component) =>
 				component === 'Transition' ? rigClipMs('transition', 'animation') : undefined,
-			// The authored twin (Rive plan Phase 8a): an instance whose timeline HOLDS an awaited cue
-			// measures as that timeline — a project's own `holdsCue` entrance included. The ONE exemption
-			// is the win presentation (8b): its holds are tier-walk timing, not an entrance, and the coded
-			// `Win` / `WinGate` it replaces measure 0 above, or a flow container holding a placed win would
-			// wait out a 13 s tier hold on `showContainer{await}` the coded path never had.
+			// An instance whose timeline HOLDS an awaited cue measures as that timeline — a project's
+			// own `holdsCue` entrance included.
 			instanceHoldMs: (defId) => {
-				if (defId === WIN_PRESENTATION_COMPONENT_ID) return undefined;
 				const held = componentTimelinesFor(defId).filter((d) => d.holdsCue === true);
 				return held.length
 					? Math.max(...held.map((d) => Math.max(d.duration || 0, 0) * 1000))
@@ -780,7 +775,7 @@ export const createLinesFlowV2 = (
 			if (ms > 0) trace('cue', cue, `⏱ ${Math.round(ms)}ms`);
 			else trace('cue', cue);
 			recordDeterminismCue(cue);
-			// The holds the fire just opened (Rive plan Phase 8a): a placed instance whose `holdsCue`
+			// The holds the fire just opened: a placed instance whose `holdsCue`
 			// timeline this cue started registered one in the emit above, and an awaited fire waits for
 			// its end — observed, not measured, exactly as a coded overlay's awaited subscriber is.
 			// Appended only when there are any, so a cue nobody holds awaits the same promises as ever.

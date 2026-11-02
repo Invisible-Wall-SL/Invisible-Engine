@@ -628,7 +628,7 @@ and `game-config`'s card normalizer reads `engine-mechanics` `cards.js`.
   `cardGameParamRefs`; `check:art-scope` section 10. Localization: the "Cards" harvest section.
 - **Gates:** `check:card-family` (113), `check:card-runtime` (32: the starter flow on the real
   interpreter, the idle relight, a flow action queued from inside a chain, copies counted per deck), `check:art-scope` and `check:flow-publish-gate` extended; the gates card
-  touched re-pinned (`check:authored-freespins`' `drivenSeed.ts` hash, `check:flow-time-events`,
+  touched re-pinned (`check:flow-time-events`,
   `expandingSymbol.fixture`, `check:match3-wire`'s unknown family, `check:stock-asset-coverage`,
   `flow-spike v2holdandwin`, `owners.json` `kind:card` gap). Played in a real browser by
   `scripts/playtest/card-play.mjs` ([playtest](../playtest/card-sample.md)).
@@ -1706,8 +1706,8 @@ the screen). No current game declares a world, so none of it runs in one.
   its old branch, the runtime never attaches a camera or publishes a view, and the loop runs its
   P10.8 step (the camera stage is skipped; the camera values answer nothing and the camera actions
   are no-ops). `spawnLayerSpec` adds a field only when the node has a margin. Edited shared modules:
-  `LayoutScene.svelte`, `SpawnLayer.svelte`, `spawnLayerFields.ts`, `types.ts` (`BASE_NODE_FIELDS`
-  gains `parallax`), `spawn.ts` (a type), `arcadeLoop.ts`, `ArcadeStage.svelte`, `arcade.ts`,
+  `LayoutScene.svelte`, `SpawnLayer.svelte`, `spawnLayerFields.ts`, `types.ts` (the `parallax`
+  field), `spawn.ts` (a type), `arcadeLoop.ts`, `ArcadeStage.svelte`, `arcade.ts`,
   `Game.svelte` (one prop on `<ArcadeStage>`), `determinism.ts` (a type), `editorStorage.ts`.
   `familyGate` is unchanged. The current-games harness is not edited.
 - **Chosen in P10.12, owner may overturn** (the plan does not fix them):
@@ -1848,8 +1848,7 @@ in one PR.
   fields. Re-pinned for arcade: `check:match3-rules` §8 (an RGS arcade config refuses to boot, a rules
   one boots), `check:flow-publish-gate` (arcade in the scaffold loops, with its sample components),
   `check:flow-spawn` and `check:flow-time-events` (the arcade starter is the one seed that spawns /
-  the second that keeps state), `check:authored-freespins` (`drivenSeed.ts`'s pin: one import and
-  one `DRIVEN_SEEDS` entry), `expandingSymbol.fixture.ts` (the arcade seed is a family seed),
+  the second that keeps state), `expandingSymbol.fixture.ts` (the arcade seed is a family seed),
   `check:flow-symbols-follow-config` (an arcade vocabulary has no symbol-typed surface; it keeps the
   empty `SymbolName` enum every vocabulary carries), the flow spike's `v2holdandwin` (the arcade
   actions and values are backed: `ARCADE_LOOP_ACTIONS` / `ARCADE_LOOP_VALUES`) and

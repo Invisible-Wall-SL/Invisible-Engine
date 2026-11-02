@@ -402,15 +402,15 @@ check(
 	['W', 'explosion', 'symbolsStatic'],
 );
 check(
-	'the authored-win flag ⇒ the built-in presentation it swaps in',
+	'a retired overlay-swap flag left in a stored doc needs nothing',
 	added(
 		input(
 			mutate((d) => {
-				d.doc.settings = { authoredOverlays: { win: true } };
+				d.doc.settings = { authoredOverlays: { win: true } } as unknown as LayoutDoc['settings'];
 			}),
 		),
 	),
-	['bigwin', 'coins'],
+	[],
 );
 check(
 	'free spins and win-small sheets stay together',
@@ -673,12 +673,12 @@ console.log('\n8. the shared scene selection');
 const fallbackOverlays = fallbackEditorScenes.scenes.find((s) => s.id === 'basegameOverlays')!;
 check(
 	'a doc with no overlays scene and no win instance mounts the reference overlays as is',
-	basegameOverlaysSceneOf({ scenes: [] }, fallbackEditorScenes, false) === fallbackOverlays,
+	basegameOverlaysSceneOf({ scenes: [] }, fallbackEditorScenes) === fallbackOverlays,
 	true,
 );
 check(
 	'a doc that places a `win` degrades the reference composer to its gate',
-	basegameOverlaysSceneOf(authoredDoc(), fallbackEditorScenes, false)
+	basegameOverlaysSceneOf(authoredDoc(), fallbackEditorScenes)
 		.nodes.map((n) => n.bind?.component)
 		.sort(),
 	['WinGate'],
@@ -688,7 +688,6 @@ check(
 	basegameOverlaysSceneOf(
 		{ scenes: authoredDoc().scenes.filter((s) => s.id !== 'basegameOverlays') },
 		fallbackEditorScenes,
-		false,
 	)
 		.nodes.map((n) => n.bind?.component)
 		.sort(),
