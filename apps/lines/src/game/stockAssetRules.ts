@@ -444,18 +444,8 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 			'fsIntroNumber',
 			'fsOutroNumber',
 			'bigwin',
-			'coins',
 			'fsIntro',
-			'freespins_*.png',
-			'freespins.png',
-			'winsmall_*.png',
-			'totalwin.png',
 		],
-	},
-	{
-		file: 'packages/engine-layout/src/lib/builtinComponents.ts',
-		rule: 'notAsset',
-		names: ['sound'],
 	},
 	{
 		file: 'packages/engine-layout/src/lib/builtinRegions.ts',
@@ -529,11 +519,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 			'tumble_multiplier',
 			'tumble_win',
 		],
-	},
-	{
-		file: 'packages/engine-layout/src/lib/builtinTimelines.ts',
-		rule: 'notAsset',
-		names: ['transition'],
 	},
 	{ file: 'packages/engine-layout/src/lib/coinLabel.ts', rule: 'always', names: ['gold'] },
 	// A timeline cue's route kind (`routeComponentCue`), not the stock sound-toggle art.
