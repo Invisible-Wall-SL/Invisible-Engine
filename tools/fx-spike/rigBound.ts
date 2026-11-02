@@ -26,7 +26,7 @@
  *      one animation ever fires.
  *
  * Source modules are imported by path, not through the `engine-layout` barrel, so tsx resolves
- * without pulling Svelte components.
+ * without pulling Svelte components — the same convention as `bg-scene-spike`.
  */
 
 import {

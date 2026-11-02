@@ -1,0 +1,39 @@
+{
+	"skeleton": { "x": -540, "y": -480, "width": 1080, "height": 1235 },
+	"bones": [
+		{ "name": "root" },
+		{ "name": "coin", "parent": "root", "y": 300 },
+		{ "name": "title", "parent": "root", "y": -330 }
+	],
+	"slots": [
+		{ "name": "coin", "bone": "coin", "attachment": "t1_coin" },
+		{ "name": "title", "bone": "title", "attachment": "MM_BigWin" }
+	],
+	"skins": [
+		{
+			"name": "default",
+			"attachments": {
+				"coin": { "t1_coin": { "width": 910, "height": 910 } },
+				"title": { "MM_BigWin": { "width": 1080, "height": 300 } }
+			}
+		}
+	],
+	"animations": {
+		"spin": {
+			"bones": {
+				"coin": {
+					"rotate": [{ "value": 0 }, { "time": 1, "value": -180 }, { "time": 2, "value": -360 }]
+				},
+				"title": {
+					"scale": [
+						{},
+						{ "time": 0.5, "x": 1.08, "y": 1.08 },
+						{ "time": 1 },
+						{ "time": 1.5, "x": 1.08, "y": 1.08 },
+						{ "time": 2 }
+					]
+				}
+			}
+		}
+	}
+}

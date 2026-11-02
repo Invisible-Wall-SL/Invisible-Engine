@@ -1009,9 +1009,6 @@ importers:
 
   packages/components-storybook:
     dependencies:
-      '@chromatic-com/storybook':
-        specifier: 5.6.0
-        version: 5.6.0(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))
       '@lingui/core':
         specifier: 6.10.1
         version: 6.10.1(@babel/core@7.28.0)(babel-plugin-macros@3.1.0)
@@ -2201,6 +2198,15 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  tools/bg-scene-spike:
+    devDependencies:
+      engine-layout:
+        specifier: workspace:*
+        version: link:../../packages/engine-layout
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+
   tools/flipbook-spike:
     devDependencies:
       engine-flipbook:
@@ -2269,6 +2275,15 @@ importers:
       game-config:
         specifier: workspace:*
         version: link:../../packages/game-config
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+
+  tools/generic-mount-spike:
+    devDependencies:
+      engine-layout:
+        specifier: workspace:*
+        version: link:../../packages/engine-layout
       tsx:
         specifier: 4.23.15
         version: 4.23.15
@@ -2464,12 +2479,6 @@ packages:
 
   '@bufbuild/protobuf@2.16.0':
     resolution: {integrity: sha512-FWa0sPlqYGJgpTs6OxBRcL/AW4JT0OIO+W1ajerluoTVh8CV0B7XM1qsNCRgnkSCkRCgOICKHRQlY17jrsm0+Q==}
-
-  '@chromatic-com/storybook@5.6.0':
-    resolution: {integrity: sha512-Z7YMtr9DVwegQeWcBeQaiK5dLcAvgpX53Qr/eGGYTyAEqTb1meUr5VQNq1wmst0Lj+gT6lQEco0PuFfUuf3jzA==}
-    engines: {node: '>=20.0.0', yarn: '>=1.22.18'}
-    peerDependencies:
-      storybook: ^0.0.0-0 || ^10.1.0 || ^10.1.0-0 || ^10.2.0-0 || ^10.3.0-0 || ^10.4.0-0 || ^10.5.0-0 || ^10.6.0-0 || ^11.0.0-0
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -3609,9 +3618,6 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
-
-  '@neoconfetti/react@1.0.0':
-    resolution: {integrity: sha512-klcSooChXXOzIm+SE5IISIAn3bYzYfPjbX7D7HoqZL84oAfgREeSg5vSIaSFH+DaGzzvImTyWe1OyrJ67vik4A==}
 
   '@opentelemetry/api@1.10.0':
     resolution: {integrity: sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ==}
@@ -5068,22 +5074,6 @@ packages:
     resolution: {integrity: sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw==}
     engines: {node: '>= 20.19.0'}
 
-  chromatic@18.13.3:
-    resolution: {integrity: sha512-86wzIxGIdDMBvyYWCXF+V0RyckI+3kl6ki9lJoZem6a0UfwHtEEg5ruORpryTpu6c9dVtBk2qSTX4xtkz3gwsA==}
-    engines: {node: '>=22.0.0'}
-    hasBin: true
-    peerDependencies:
-      '@chromatic-com/cypress': ^0.*.* || ^1.0.0
-      '@chromatic-com/playwright': ^0.*.* || ^1.0.0
-      '@chromatic-com/vitest': ^0.*.* || ^1.0.0
-    peerDependenciesMeta:
-      '@chromatic-com/cypress':
-        optional: true
-      '@chromatic-com/playwright':
-        optional: true
-      '@chromatic-com/vitest':
-        optional: true
-
   cli-cursor@5.0.0:
     resolution: {integrity: sha512-aCj4O5wKyszjMmDT4tZj93kxyydN/K5zPWSCe6/0AV/AA1pqe5ZBIw0a2ZfPQV7lL5/yb5HsUreJ6UFAF1tEQw==}
     engines: {node: '>=18'}
@@ -5694,9 +5684,6 @@ packages:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
 
-  graceful-fs@4.2.11:
-    resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
-
   has-flag@4.0.0:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
@@ -5877,9 +5864,6 @@ packages:
 
   jsonc-parser@3.3.1:
     resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
-
-  jsonfile@6.1.0:
-    resolution: {integrity: sha512-5dgndWOriYSm5cnYaJNhalLNDKOqFwyDB/rr1E9ZsGciGvKPs8R2xYGCacuf3z6K1YKDz182fd+fY3cn3pMqXQ==}
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
@@ -6772,10 +6756,6 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
-  universalify@2.0.1:
-    resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
-    engines: {node: '>= 10.0.0'}
-
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
     engines: {node: '>= 0.8'}
@@ -7287,18 +7267,6 @@ snapshots:
 
   '@bufbuild/protobuf@2.16.0':
     optional: true
-
-  '@chromatic-com/storybook@5.6.0(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))':
-    dependencies:
-      '@neoconfetti/react': 1.0.0
-      chromatic: 18.13.3
-      jsonfile: 6.1.0
-      storybook: 10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0)
-      strip-ansi: 7.2.0
-    transitivePeerDependencies:
-      - '@chromatic-com/cypress'
-      - '@chromatic-com/playwright'
-      - '@chromatic-com/vitest'
 
   '@colors/colors@1.5.0':
     optional: true
@@ -8123,8 +8091,6 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.4
     optional: true
-
-  '@neoconfetti/react@1.0.0': {}
 
   '@opentelemetry/api@1.10.0': {}
 
@@ -9505,10 +9471,6 @@ snapshots:
     dependencies:
       readdirp: 5.1.1
 
-  chromatic@18.13.3:
-    dependencies:
-      semver: 7.8.5
-
   cli-cursor@5.0.0:
     dependencies:
       restore-cursor: 5.1.0
@@ -10149,9 +10111,6 @@ snapshots:
 
   gopd@1.2.0: {}
 
-  graceful-fs@4.2.11:
-    optional: true
-
   has-flag@4.0.0: {}
 
   has-symbols@1.1.0: {}
@@ -10296,12 +10255,6 @@ snapshots:
   json5@2.2.3: {}
 
   jsonc-parser@3.3.1: {}
-
-  jsonfile@6.1.0:
-    dependencies:
-      universalify: 2.0.1
-    optionalDependencies:
-      graceful-fs: 4.2.11
 
   keyv@4.5.4:
     dependencies:
@@ -11338,8 +11291,6 @@ snapshots:
 
   undici-types@8.3.0:
     optional: true
-
-  universalify@2.0.1: {}
 
   unpipe@1.0.0: {}
 

@@ -49,7 +49,7 @@ apps/          → 6 game applications (lines, cluster, scatter, ways, number-pi
 packages/      → 30 shared libraries
   pixi-svelte  → Core: declarative PixiJS components inside Svelte
   components-* → UI component libraries (layout, pixi, shared, ui-html, ui-pixi)
-  utils-*      → Utilities (bet, book, sound, layout, xstate, slots, resize-observer…)
+  utils-*      → Utilities (bet, book, sound, layout, xstate, slots…)
   rgs-*        → Remote Game Server integration (requests, fetcher)
   state-shared → Shared XState state definitions
   config-*     → Shared build configs (ts, vite, svelte, storybook, lingui)
