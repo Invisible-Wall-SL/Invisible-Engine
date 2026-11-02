@@ -437,15 +437,7 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	{
 		file: 'packages/engine-layout/src/lib/builtinComponents.ts',
 		rule: 'builtinDef',
-		names: [
-			'gold',
-			'loader',
-			'transition',
-			'fsIntroNumber',
-			'fsOutroNumber',
-			'bigwin',
-			'fsIntro',
-		],
+		names: ['gold', 'loader', 'transition', 'fsIntroNumber', 'fsOutroNumber', 'bigwin', 'fsIntro'],
 	},
 	{
 		file: 'packages/engine-layout/src/lib/builtinRegions.ts',

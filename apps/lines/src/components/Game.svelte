@@ -33,7 +33,6 @@
 		hasContinuePress,
 		releaseSpinHold,
 		UI_FEATURES_UK,
-		stateUrlDerived,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import {
@@ -169,7 +168,6 @@
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
 		warnOnServerPaytableMismatch,
-		boardDimensions,
 	} from '../game/gameConfig';
 	import { paytable } from '../game/paytable';
 	import {

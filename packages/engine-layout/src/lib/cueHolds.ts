@@ -3,14 +3,15 @@
  * instance whose timeline carries `holdsCue` registers, the moment the cue starts that timeline, a
  * promise that settles when the timeline ends (or the instance is destroyed); the game's awaited
  * `fireCue` appends the holds of that cue to the promises it already awaits — and ONLY when there
- * are any, so a cue nobody holds awaits exactly what it awaited before this module existed (parity).
+ * are any, so a cue nobody holds awaits exactly what it awaited without holds (parity).
  *
  * Svelte-free and Pixi-free: the instance registers, the Flow runtime reads, the gates drive both.
  */
 
 const holds = new Map<string, Set<Promise<void>>>();
 
-/** Hold `cue` until `until` settles. The hold is dropped once it settles, however it does. */
+/** Hold `cue` until `until` settles; the hold is dropped once it settles, however it does. Each
+ *  caller passes a fresh promise, so registering the same one twice would count once. */
 export function holdCue(cue: string, until: Promise<void>): void {
 	if (!cue) return;
 	const set = holds.get(cue) ?? new Set<Promise<void>>();

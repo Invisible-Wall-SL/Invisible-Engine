@@ -1827,7 +1827,8 @@ export interface ComponentDef {
 	capability?: keyof KindCapabilities;
 	/**
 	 * Placed by the ENGINE only: the Scene Editor's palette never offers it (`componentOfferedForKind`
-	 * is false for every kind), while a doc that holds it still renders it. Absent ⇒ offered as `capability` says.
+	 * is false for every kind), while a doc that holds it still renders it. Absent ⇒ offered as
+	 * `capability` says.
 	 */
 	internal?: boolean;
 	/**

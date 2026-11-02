@@ -45,8 +45,8 @@ export interface CinematicStrip {
 	 */
 	mask?: { bones: string[]; includeChildren?: boolean };
 	/**
-	 * The source clip's length in seconds, for a strip on a NODE actor (a rig node): the player samples such a strip without the skeleton, so a loop mode needs the
-	 * length recorded here. Absent ⇒ the strip plays its clip once and holds its last frame (the
+	 * The source clip's length in seconds, for a strip on a NODE actor (a rig node): the player
+	 * samples such a strip without the skeleton, so a loop mode needs the length recorded here. Absent ⇒ the strip plays its clip once and holds its last frame (the
 	 * rig clamps the time to the clip). A cast actor's strips never read it: the evaluator has the
 	 * skeleton.
 	 */

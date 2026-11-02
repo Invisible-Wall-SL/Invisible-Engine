@@ -542,6 +542,79 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 	);
 }
 
+// ---- 8. a looping timeline's `loopFrom`, and rig-slot riders --------------------------------------
+{
+	const cued = {
+		...timeline('c_loopfrom', { playOn: 'loopProbe' }),
+		holdsCue: true,
+		loopFrom: 0.25,
+		tracks: [{ id: 'cues', kind: 'cue', actorId: '', keys: [{ time: 0.5, cue: 'mid' }] }],
+	} as unknown as CinematicDoc;
+	const p = new L.ComponentTimelinePlayer([cued], []);
+	p.trigger('loopProbe');
+	const fired: string[] = [];
+	let completed = 0;
+	for (let f = 0; f < 3 * 60; f++) {
+		const step = p.advance(1 / 60);
+		fired.push(...step.cues.map((c) => c.cue));
+		completed += step.completed.length;
+	}
+	eq(
+		'a loopFrom timeline fires its cue each lap, never completes and holds no awaited fire',
+		[fired.length, completed, p.holdsOn('loopProbe')],
+		[4, 0, []],
+	);
+	const t = p.timeOf(cued.id)!;
+	eq('…and wraps back into [loopFrom, duration)', t >= 0.25 && t < 1, true);
+	p.advance(3600);
+	eq('…and is still playing past an hour', p.isPlaying(), true);
+	const outOfRange = new L.ComponentTimelinePlayer([{ ...cued, loopFrom: 1 }], []);
+	outOfRange.trigger('loopProbe');
+	eq(
+		'a loopFrom outside [0, duration) is ignored: the timeline ends as before',
+		outOfRange.advance(2).completed,
+		['c_loopfrom'],
+	);
+
+	const R = await import('../../../packages/engine-layout/src/lib/rigSlotRiders.ts');
+	const node = (id: string, kind: string, extra: Record<string, unknown> = {}) =>
+		({ id, kind, x: 0, y: 0, ...extra }) as unknown as LayoutNode;
+	const rig = node('rig', 'spine', { assetKey: 'bigwin' });
+	const count = node('count', 'text', { rigSlot: 'slot_count' });
+	const caption = node('caption', 'text', {
+		rigSlot: 'slot_count',
+		paramBindings: { rigSlot: 'captionSlot' },
+	});
+	const plain = node('plain', 'text');
+	const split = R.splitSlotRiders([rig, count, caption, plain]);
+	eq(
+		'riders split off the first sibling rig; the rest render in place',
+		[split.host?.id, split.inPlace.map((n) => n.id), split.riders.map((n) => n.id)],
+		['rig', ['rig', 'plain'], ['count', 'caption']],
+	);
+	eq(
+		'no sibling rig ⇒ nothing rides, every child renders in place',
+		R.splitSlotRiders([count, plain]).riders,
+		[],
+	);
+	eq(
+		'riders group by slot, a param-bound slot name winning over the field',
+		R.groupSlotRiders(split.riders, { captionSlot: 'slot_caption' }).map((g) => [
+			g.slot,
+			g.riders.map((n) => n.id),
+		]),
+		[
+			['slot_count', ['count']],
+			['slot_caption', ['caption']],
+		],
+	);
+	eq(
+		'…and an unset bound param falls back to the field',
+		R.groupSlotRiders(split.riders, {}).map((g) => [g.slot, g.riders.length]),
+		[['slot_count', 2]],
+	);
+}
+
 console.log(
 	`\n${failures === 0 ? '✅' : '❌'} component timelines: ${passes} passed, ${failures} failed`,
 );

@@ -214,8 +214,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			const engine = staleness.for(p.key, Boolean(game));
 
 			// The card's "what IS this game" summary. Three extra R2 reads per project (the config,
-			// the symbols doc and the layout doc); everything else is already in hand. The loaders degrade to a usable value
-			// rather than throwing, so one unreadable doc costs a chip, not the page.
+			// the symbols doc and the layout doc); everything else is already in hand. The loaders
+			// degrade to a usable value rather than throwing, so one unreadable doc costs a chip, not
+			// the page.
 			const [config, symbols, pointer, layout] = await Promise.all([
 				resolveGameConfig(clientKey, p.key, p.gameType),
 				loadSymbolsDoc(clientKey, p.key),
