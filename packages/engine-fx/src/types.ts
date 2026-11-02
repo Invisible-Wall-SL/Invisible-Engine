@@ -19,6 +19,7 @@
  */
 
 import type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';
+import type { EffectBake } from './bake';
 
 /** Re-export the library config type so consumers nest the EXACT same shape (no copy). */
 export type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';
@@ -202,4 +203,6 @@ export interface EffectDoc {
 	layers: EmitterLayer[];
 	/** Exposed parameters. Absent on an effect that exposes none (byte-identical to before). */
 	params?: EffectParam[];
+	/** Play a baked loop instead of the emitters (`bake.ts`). Absent ⇒ live, as before. */
+	bake?: EffectBake;
 }

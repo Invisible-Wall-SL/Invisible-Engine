@@ -11,6 +11,123 @@
 > `invisible-rigger.md` (the sibling tool whose `/rig-viewer`-forked WebGL stage + R2 plumbing
 > this reuses).
 
+## Baked effects (2026-11-02): an optional flipbook in place of the emitters
+
+> Owner ask: let an artist BAKE a looping effect in `/fx` to a sprite sheet that the game plays as
+> one looping flipbook instead of simulating its emitters. **Off by default**: every existing effect,
+> and every new one unless the artist turns it on, plays exactly as before. Progress lives in
+> [status/fx](../status/fx.md).
+
+**Why.** Profiling `overlay-wishworld` on a phone-sized page (CPU ×4 slower): particles were over
+half of every frame, and at the pot peak ~1,900 of ~2,600 live particles were copies of ONE
+firecracker effect, instanced on 11 pots (each copy ~113 `Spark_Mini` + ~35 `Particlelong` + sparks,
+zigzags, clouds, fire). The sparks are 12 px, so the cost is per-particle simulation and scene-graph
+work, ×11 — not fill. Baked, each copy is one animated sprite.
+
+### The doc field (`engine-fx/src/bake.ts`)
+
+```ts
+EffectDoc.bake?: {
+  enabled: boolean;            // play the sheet in games; false/absent ⇒ live
+  fps: number;                 // 6…60, default 24
+  loopSeconds: number;         // 0.25…8, default 2 (wall-clock seconds)
+  scale: number;               // sheet px per effect px, 0.05…1, default 0.5
+  seam: 'crossfade' | 'cut';   // default crossfade
+  result?: {                   // written by "Bake now", never by hand
+    assetKey: string;          // the sheet's R2 manifest key (TexturePacker JSON)
+    frames: string[];          // bake_000 … in playback order
+    fps: number;
+    bounds: { x, y, w, h };    // the frame box in the effect's own space (effect px)
+    blendMode: 'normal' | 'add';
+    hash: string;              // effectBakeHash() of the doc it was captured from
+    sheet: { w, h };
+  };
+}
+```
+
+`normalizeEffectBake` clamps the settings and drops a malformed result (⇒ live). A doc without
+`bake` normalizes without the key, so every saved effect is byte-identical. Editor state stays out.
+
+**Stale.** `effectBakeHash(doc)` is FNV-1a over a key-sorted stringify of `layers`, `params` and the
+four capture settings — not the name, not `enabled`, not the result. Both the page and the export
+hash the NORMALIZED doc, so they agree. A result whose hash differs is stale.
+
+### Capturing a loop (`/fx`, `fxBake.client.ts`)
+
+On "Bake now" the page builds a private offscreen Pixi app, mounts each layer the way the game does
+(the art and material paths `FxStage` uses), and steps it with the game's own clock:
+`emitterDeltaSeconds(1000 / fps)` per captured frame.
+
+1. **Warm-up** — `effectBakeWarmup`: the longest particle life of any layer × 1.25 + 0.1 emitter
+   seconds (capped at 30), stepped at the capture rate, so the loop starts full.
+2. **Capture** — `N = fps × loopSeconds` frames (2…120), plus `S = N/4` more when the seam is
+   `crossfade`. Each frame is extracted at `scale` over its own bounds (clipped to a ±1024 effect-px
+   box), so nothing is rendered twice.
+3. **Seam** — a particle simulation never repeats, so the loop is made seamless by crossfading:
+   output frame `i < S` is `(1−i/S)·capture[N+i] + (i/S)·capture[i]` (an exact premultiplied lerp
+   via canvas `lighter`), the rest is `capture[i]`. Frame `N−1` then flows into frame 0 (=
+   `capture[N]`), and by frame `S` the loop is pure capture. `cut` skips it (for an effect whose
+   emission already has a period).
+4. **Sheet** — `planEffectBakeSheet` lays the `N` cells (the union box × scale, 2 px gaps) on one
+   page of at most 4096×4096, lowering the scale until it fits (the page says so), and refusing an
+   effect that cannot fit even at 0.05.
+
+**Blend.** A capture on transparent black holds premultiplied colour. When every layer is additive
+the sheet plays `add` (`effectBakeBlend`) — the light adds as it did. Any other mix plays `normal`;
+screen/multiply layers are approximate, and the panel says so.
+
+### What cannot bake (`effectBakeBlockers`)
+
+Refused in `/fx` with the reason, and played live at runtime even if a bake is present:
+
+- **exposed parameters** — games set them live per placement; a frozen loop cannot follow;
+- **rig-bound layers** (`placement.space: 'bone'`) and **Tier-C rig particles**;
+- **cue-driven layers** (`trigger.on: 'event'`) and ambient layers with a `trigger.duration`;
+- **one-shot bursts** (`emitterLifetime > 0`) — nothing to loop.
+
+A **mount** that drives the effect also plays live: an owner-tracked trail (`ownerPos` /
+`ownerRotation`), a rig-timeline beat (`forceEmit` / `emitFor`), live parameter values.
+
+### Where it lives, and how it ships (rule 8)
+
+- **R2:** `<client>/<project>/fx-bakes/<effectId>/fxbake_<effectId>_<hash>.{png,json}` — a
+  TexturePacker json-hash + its page, the shape `loadRegionSet` already reads. The hash in the stem
+  keeps a re-bake from ever matching the previous bake's deployed page. The PNG goes straight to R2
+  through a presigned PUT (`/api/fx/bake/upload-url`, body limit), then `/api/fx/bake` writes the
+  JSON from the plan (`effectBakeSheetJson`) and answers the result. Save prunes every other object
+  under `fx-bakes/<effectId>/`; deleting the effect deletes the folder.
+- **export:** `exportEffects` writes `exportableEffectDoc(doc)`: the `bake` block survives only when
+  `effectBakeShips` (on, captured, current, still bakeable) — every other bake is stripped, so the
+  game plays live. A shipping bake's `assetKey` joins `referencedAssetKeys`, so the bake's existing
+  dangling-assetKey guard covers it; stale bakes are listed in `staleBakes` and warned at bake.
+- **editor-art:** `exportEditorArt`'s effects walk adds a shipping bake's sheet like any effect
+  atlas — the same TexturePacker re-emit, WebP/KTX2 page and page store, `deploy/editor-art/`.
+- **bake → pull → register:** unchanged; the sheet registers its frames as
+  `<assetKey>::bake_NNN` with every other editor-art sheet.
+
+The flipbook pipeline is reused for its shipping road and its frame-key scheme. The bake is NOT a
+`FlipbookDoc` clip: a clip is authored, named and shared, whereas a bake is a cache of one effect,
+owned and invalidated by it, so it lives on the effect.
+
+### How the runtime chooses (`effectBakeChoice`)
+
+`<EffectPlayer>` asks only when `doc.bake` exists. **Baked** iff `bake.enabled` ∧ a result ∧ the
+effect is bakeable ∧ the mount does not drive it ∧ **every** frame resolves in `loadedAssets`
+(`<assetKey>::<frame>`, then bare). Anything else is the live path, unchanged — so a missing or
+partial sheet falls back safely. `<BakedEffect>` draws one sprite at `bounds` (sized to it, so a
+downscaled KTX2 page still lands right) with the bake's blend, inside the same node container that
+carries the placement's position, scale, alpha and blend.
+
+**Desync.** Each mount starts at `effectBakeStartFrame(key, N)`, FNV-1a of
+`<effectId>|<instanceKey>|<round(x)>,<round(y)>` — the placed node's id and its on-screen position,
+read on the first tick. Never `Math.random`, so a seeded render is stable and the default path draws
+none. Time is the particle clock's, so turbo speeds the loop as it speeds particles.
+
+### Known limits
+
+The Scene Editor overlay, the Rigger and the Symbols previews keep playing the live emitters (they
+are authoring previews). A bake is a frozen look: re-bake after any change; the panel shows stale.
+
 ## Direction (2026-10-15): **exposed parameters** and the things that drive them
 
 > Owner ask: expose parameters of an effect, drive and animate them from outside, drive them from

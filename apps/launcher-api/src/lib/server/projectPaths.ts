@@ -523,6 +523,27 @@ export function fxMetaKey(client: string, project: string, id: string): string {
 	return `${projectPrefix(client, project)}/${r2Slug(id)}.fx.meta.json`;
 }
 
+/**
+ * A baked effect's sheets (`invisible-fx.md` §"Baked effects"): `<client>/<project>/fx-bakes/<id>/`.
+ * One folder per effect, so Save can prune every bake but the current one and Delete drops them all.
+ * The hash in the stem keeps a re-bake from matching the previous bake's deployed page.
+ */
+export function fxBakePrefix(client: string, project: string, id: string): string {
+	return `${projectPrefix(client, project)}/fx-bakes/${r2Slug(id)}/`;
+}
+
+/** The two objects of one bake: its TexturePacker JSON (the `assetKey`) and its page. */
+export function fxBakeKeys(
+	client: string,
+	project: string,
+	id: string,
+	hash: string,
+): { json: string; png: string; image: string } {
+	const stem = `fxbake_${r2Slug(id)}_${hash}`;
+	const prefix = fxBakePrefix(client, project, id);
+	return { json: `${prefix}${stem}.json`, png: `${prefix}${stem}.png`, image: `${stem}.png` };
+}
+
 /** The `<id>.fx.json` suffix that marks an EffectDoc (excludes the `.fx.meta.json` sidecar). */
 export const FX_DOC_SUFFIX = '.fx.json';
 /** The `<id>.fx.meta.json` suffix that marks the editor-only sidecar. */

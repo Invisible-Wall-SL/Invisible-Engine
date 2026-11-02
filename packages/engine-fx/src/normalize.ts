@@ -29,6 +29,7 @@ import {
 	formatEffectParamPath,
 	parseEffectParamPath,
 } from './params';
+import { normalizeEffectBake } from './bake';
 import { normalizeEmitterMaterial } from './materialLayer';
 import {
 	EFFECT_DOC_VERSION,
@@ -260,8 +261,10 @@ export const normalizeEffectDoc = (raw: unknown, fallbackId = 'effect'): EffectD
 		? obj.layers.map(normalizeLayer).filter((l): l is EmitterLayer => l !== undefined)
 		: [];
 	const doc: EffectDoc = { version: EFFECT_DOC_VERSION, id, name, layers };
+	const bake = normalizeEffectBake(obj.bake);
 	const params = normalizeParams(obj.params);
-	if (!params) return doc;
+	if (!params) return bake ? { ...doc, bake } : doc;
 	doc.params = params;
-	return applyEffectParamDefaults(doc);
+	const withDefaults = applyEffectParamDefaults(doc);
+	return bake ? { ...withDefaults, bake } : withDefaults;
 };

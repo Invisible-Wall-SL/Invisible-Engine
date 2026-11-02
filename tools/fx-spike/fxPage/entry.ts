@@ -7,13 +7,23 @@
  *  - `GET /api/editor/regions` / `asset`: one atlas page drawn on a canvas (a soft dot, a square);
  *  - `POST /api/fx/save` and `GET /api/fx/effect`: the effect normalized as `saveEffect` stores it
  *    (`normalizeEffectDoc`, the slugged id) and read back through JSON, as R2 holds it;
- *  - `/api/lease` (held), `/rig-viewer/skeletons` (none).
+ *  - `/api/lease` (held), `/rig-viewer/skeletons` (none);
+ *  - "Bake now": `POST /api/fx/bake/upload-url`, the presigned `PUT` (held in memory) and
+ *    `POST /api/fx/bake` (the sheet's JSON, `effectBakeSheetJson`), which `regions` / `asset` then
+ *    serve back as any atlas.
  *
  * Every WebGL context keeps its drawing buffer, so the driver can read the stage's pixels. The page
- * exposes `window.fxPage`: the requests made and the docs saved.
+ * exposes `window.fxPage`: the requests made, the docs saved and the baked pages uploaded.
+ *
+ * `?bake=1` opens a saved, bakeable effect (additive sparks on the dot).
  */
 import { mount } from 'svelte';
-import { normalizeEffectDoc, type EffectDoc } from 'engine-fx';
+import {
+	effectBakeFrameName,
+	effectBakeSheetJson,
+	normalizeEffectDoc,
+	type EffectDoc,
+} from 'engine-fx';
 import {
 	REFERENCE_GRAPHS,
 	analyzeShaderGraph,
@@ -121,6 +131,58 @@ store.set('ghost', { text: JSON.stringify(ghost), meta: {}, etag: '"g"' });
 const opening = new URLSearchParams(location.search).has('opened');
 const opened = effectWith('lit', 'Lit', { kind: 'custom:noiseDissolve' });
 
+const baking = new URLSearchParams(location.search).has('bake');
+const sparks = normalizeEffectDoc(
+	{
+		version: 1,
+		id: 'sparks',
+		name: 'Sparks',
+		layers: [
+			{
+				key: 'spark',
+				particleKind: 'sprite',
+				art: { assetKey: ATLAS, frames: ['dot'] },
+				placement: { space: 'free' },
+				config: {
+					lifetime: { min: 0.6, max: 1 },
+					frequency: 0.01,
+					emitterLifetime: -1,
+					maxParticles: 300,
+					pos: { x: 0, y: 0 },
+					addAtBack: false,
+					behaviors: [
+						{
+							type: 'alpha',
+							config: {
+								alpha: {
+									list: [
+										{ time: 0, value: 1 },
+										{ time: 1, value: 0 },
+									],
+								},
+							},
+						},
+						{ type: 'scaleStatic', config: { min: 0.4, max: 0.6 } },
+						{
+							type: 'moveSpeedStatic',
+							config: { min: 15, max: 30 },
+						},
+						{ type: 'rotationStatic', config: { min: 0, max: 360 } },
+						{ type: 'spawnShape', config: { type: 'torus', data: { x: 0, y: 0, radius: 10 } } },
+						{ type: 'blendMode', config: { blendMode: 'add' } },
+					],
+				},
+			},
+		],
+	},
+	'sparks',
+);
+store.set('sparks', { text: JSON.stringify(sparks), meta: {}, etag: '"s"' });
+/** Baked pages PUT to the fake R2, by key; and each bake's sheet JSON. */
+const r2 = new Map<string, Blob>();
+const sheets = new Map<string, unknown>();
+const uploads: { key: string; bytes: number }[] = [];
+
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -135,14 +197,72 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 	)
 		return realFetch(input, init);
 	requests.push(`${method} ${url.pathname}${url.search}`);
+	if (url.host === 'r2.test' && method === 'PUT') {
+		const blob = init?.body as Blob;
+		const key = url.pathname.slice(1);
+		r2.set(key, blob);
+		uploads.push({ key, bytes: blob.size });
+		return new Response(null, { status: 200 });
+	}
 	switch (url.pathname) {
 		case '/api/shaders/effects':
 			if (opening) await new Promise((r) => setTimeout(r, 1500));
 			return json({ ok: true, effects, skipped: [], costs });
-		case '/api/editor/regions':
+		case '/api/editor/regions': {
+			const sheet = sheets.get(url.searchParams.get('sheet') ?? '') as
+				| {
+						frames: Record<string, { frame: { x: number; y: number; w: number; h: number } }>;
+						meta: { size: { w: number; h: number } };
+				  }
+				| undefined;
+			if (sheet) {
+				const png = (url.searchParams.get('sheet') ?? '').replace(/\.json$/, '.png');
+				return json({
+					pageKey: png,
+					pageWidth: sheet.meta.size.w,
+					pageHeight: sheet.meta.size.h,
+					regions: Object.entries(sheet.frames).map(([name, f]) => ({ name, ...f.frame })),
+				});
+			}
 			return json({ pageKey: 'page.png', pageWidth: 128, pageHeight: 64, regions: REGIONS });
-		case '/api/editor/asset':
-			return new Response(await pageImage(), { headers: { 'content-type': 'image/png' } });
+		}
+		case '/api/editor/asset': {
+			const baked = r2.get(url.searchParams.get('key') ?? '');
+			return new Response(baked ?? (await pageImage()), {
+				headers: { 'content-type': 'image/png' },
+			});
+		}
+		case '/api/fx/bake/upload-url': {
+			const body = JSON.parse(String(init?.body)) as { effectId: string; hash: string };
+			const key = `client/project/fx-bakes/${body.effectId}/fxbake_${body.effectId}_${body.hash}.png`;
+			return json({ url: `https://r2.test/${key}`, key, contentType: 'image/png' });
+		}
+		case '/api/fx/bake': {
+			const body = JSON.parse(String(init?.body)) as {
+				effectId: string;
+				hash: string;
+				frames: number;
+				plan: {
+					cellW: number;
+					cellH: number;
+					gap: number;
+					cols: number;
+					width: number;
+					height: number;
+				};
+			};
+			const stem = `client/project/fx-bakes/${body.effectId}/fxbake_${body.effectId}_${body.hash}`;
+			if (!r2.has(`${stem}.png`)) return json({ message: 'no page' }, 409);
+			sheets.set(
+				`${stem}.json`,
+				effectBakeSheetJson(body.plan, body.frames, `${stem}.png`, body.hash),
+			);
+			return json({
+				ok: true,
+				assetKey: `${stem}.json`,
+				frames: Array.from({ length: body.frames }, (_, i) => effectBakeFrameName(body.hash, i)),
+			});
+		}
 		case '/api/lease':
 			return json({ held: true, heartbeatMs: 600_000 });
 		case '/rig-viewer/skeletons':
@@ -167,7 +287,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 	return json({ message: `fxPage: nothing answers ${method} ${url.pathname}` }, 404);
 };
 
-Object.assign(window, { fxPage: { requests, saved } });
+Object.assign(window, { fxPage: { requests, saved, uploads, r2 } });
 
 mount(DialogHost, { target: document.body });
 mount(Page, {
@@ -178,8 +298,11 @@ mount(Page, {
 			projectKey: 'project',
 			tools: [TOOLS.fx, TOOLS.shaders],
 			atlases: [{ manifestKey: ATLAS, label: 'sparks', regions: REGIONS.map((r) => r.name) }],
-			effects: [{ id: 'ghost', name: 'Ghost' }],
-			openedDoc: opening ? opened : null,
+			effects: [
+				{ id: 'ghost', name: 'Ghost' },
+				...(baking ? [{ id: 'sparks', name: 'Sparks' }] : []),
+			],
+			openedDoc: baking ? sparks : opening ? opened : null,
 			openedMeta: null,
 			openedEtag: null,
 			eventTypes: [],

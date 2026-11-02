@@ -32,6 +32,11 @@
 		 * default look and does no per-frame parameter work.
 		 */
 		params?: () => EffectParamValues | undefined;
+		/**
+		 * Tells this mount apart from other mounts of the same effect (a placed node's id). Read only
+		 * by a BAKED effect, to start each copy at a different frame of its loop.
+		 */
+		instanceKey?: string;
 	};
 </script>
 
@@ -55,11 +60,32 @@
 	 * ms (or the config's `emitterLifetime`). The pure `planLayer`/`layerTrigger` seam in
 	 * `engine-fx` is the single source of truth for that classification.
 	 */
-	import { hasEffectLevelDrives, paramDrivenLayerKeys } from 'engine-fx';
+	import { effectBakeChoice, hasEffectLevelDrives, paramDrivenLayerKeys } from 'engine-fx';
+	import type { Texture } from 'pixi.js';
+	import BakedEffect from './BakedEffect.svelte';
 	import EffectLayer from './EffectLayer.svelte';
 	import EffectParamGroup from './EffectParamGroup.svelte';
+	import { getContextApp } from '../context.svelte';
 
 	const props: Props = $props();
+	const context = getContextApp();
+
+	// Baked (`invisible-fx.md` §"Baked effects"): only a doc that carries a `bake` is ever asked, so
+	// an effect without one takes the live path below untouched. A mount that drives the effect — a
+	// trail owner, a forced rig beat, live parameter values — plays live, and so does a bake whose
+	// sheet is not (or not wholly) loaded.
+	const baked = $derived.by(() => {
+		if (!props.doc.bake) return undefined;
+		const loaded = context.stateApp.loadedAssets ?? {};
+		const driven =
+			!!props.forceEmit ||
+			props.emitFor !== undefined ||
+			!!props.ownerPos ||
+			!!props.ownerRotation ||
+			(!!props.params && !!props.doc.params?.length);
+		const choice = effectBakeChoice(props.doc, (key) => loaded[key] as Texture | undefined, driven);
+		return choice.mode === 'baked' ? choice : undefined;
+	});
 
 	// Exposed parameters: a layer applies them only when it is driven AND values are supplied; the
 	// effect-level wrapper mounts only when some drive targets `effect.*` (its defaults have no stored
@@ -88,7 +114,14 @@
 	{/each}
 {/snippet}
 
-{#if effectLevel}
+{#if baked}
+	<BakedEffect
+		result={baked.result}
+		textures={baked.textures}
+		effectId={props.doc.id}
+		instanceKey={props.instanceKey}
+	/>
+{:else if effectLevel}
 	<EffectParamGroup params={props.doc.params} values={props.params} children={layers} />
 {:else}
 	{@render layers()}

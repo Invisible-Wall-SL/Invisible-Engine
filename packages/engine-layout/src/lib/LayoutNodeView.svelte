@@ -1900,7 +1900,12 @@
 					zIndex={transform.zIndex}
 					{blendMode}
 				>
-					<EffectPlayer doc={effectDoc} scope={signalScope} params={fxParamValues} />
+					<EffectPlayer
+						doc={effectDoc}
+						scope={signalScope}
+						params={fxParamValues}
+						instanceKey={node.id}
+					/>
 				</Container>
 			{/if}
 		{:else if node.kind === 'flipbook'}
