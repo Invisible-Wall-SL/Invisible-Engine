@@ -529,7 +529,7 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	{
 		file: 'packages/engine-layout/src/lib/referenceLayouts/lines.ts',
 		rule: 'fallbackScene',
-		names: ['transition', 'bigwin', 'frame_bg.png', 'frame_edge.png'],
+		names: ['frame_bg.png', 'frame_edge.png'],
 	},
 	{ file: 'packages/engine-layout/src/lib/symbolStates.ts', rule: 'symbols', names: ['explosion'] },
 	{ file: 'packages/engine-layout/src/lib/winText.ts', rule: 'symbols', names: ['S'] },
