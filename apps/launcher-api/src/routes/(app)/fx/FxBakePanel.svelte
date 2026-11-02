@@ -45,7 +45,7 @@
 	let progress = $state<BakeProgress | undefined>();
 	let error = $state('');
 	/** The sheet just captured, for an instant preview before it is reloaded from storage. */
-	let fresh = $state<BakeCapture | undefined>();
+	let fresh = $state.raw<BakeCapture | undefined>();
 
 	const bake = $derived(doc.bake);
 	const settings = $derived(bake ?? defaultEffectBake());
@@ -124,7 +124,7 @@
 		image: CanvasImageSource;
 		rects: { x: number; y: number; w: number; h: number }[];
 	};
-	let sheet = $state<Sheet | undefined>();
+	let sheet = $state.raw<Sheet | undefined>();
 
 	$effect(() => {
 		const r = result;
@@ -306,7 +306,7 @@
 					</div>
 					{#if error}<p class="error">{error}</p>{/if}
 					{#if result && !progress && fresh?.hash === result.hash}
-						<p class="hint">Baked. Save the effect to keep it.</p>
+						<p class="hint">Baked. Save the effect to keep this bake.</p>
 					{/if}
 				</div>
 				<div class="preview">
