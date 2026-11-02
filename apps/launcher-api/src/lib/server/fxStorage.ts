@@ -3,6 +3,7 @@ import { pruneEffectBakes } from './fxBake';
 import {
 	FX_DOC_SUFFIX,
 	FX_META_SUFFIX,
+	fxBakePrefix,
 	fxDocKey,
 	fxMetaKey,
 	projectPrefix,
@@ -169,6 +170,13 @@ export async function saveEffect(
 	// The slugged id is authoritative for the file stem AND the doc's own id, so a reopened
 	// effect's id round-trips to the same keys.
 	doc.id = id;
+	// A bake lives in its own effect's folder, which Save and Delete prune. A copy saved under a new
+	// id would otherwise point at the original's sheet, and lose it the next time the original saves
+	// — so a bake that is not this effect's is dropped and the copy bakes on its own.
+	const bakedAt = doc.bake?.result?.assetKey;
+	if (doc.bake && bakedAt && !bakedAt.startsWith(fxBakePrefix(clientKey, projectKey, id))) {
+		delete doc.bake.result;
+	}
 	const etag = await putObjectText(
 		fxDocKey(clientKey, projectKey, id),
 		JSON.stringify(doc, null, 2),

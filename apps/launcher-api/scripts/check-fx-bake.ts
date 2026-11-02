@@ -289,6 +289,25 @@ const result = (hash: string, id = 'firecracker') => ({
 	]);
 	const stored = JSON.parse(R2.get(fxDocKey(CLIENT, PROJECT, 'firecracker'))!.body) as EffectDoc;
 	check('the saved doc keeps its bake', stored.bake?.result?.hash, HASH_B);
+	await saveEffect(
+		CLIENT,
+		PROJECT,
+		{
+			id: 'firecracker_copy',
+			name: 'Firecracker copy',
+			layers: [layer()],
+			bake: { ...BAKE, result: result(HASH_B) },
+		},
+		{},
+		null,
+	);
+	const copy = JSON.parse(R2.get(fxDocKey(CLIENT, PROJECT, 'firecracker_copy'))!.body) as EffectDoc;
+	check(
+		"a copy does not keep the original's sheet (it bakes on its own)",
+		[copy.bake?.enabled, 'result' in (copy.bake ?? {})],
+		[true, false],
+	);
+	check("and saving the copy leaves the original's bake alone", keysUnder(bakeDir).length, 2);
 	await deleteEffect(CLIENT, PROJECT, 'firecracker');
 	check('delete drops every bake of the effect', keysUnder(bakeDir), []);
 }
@@ -322,7 +341,10 @@ console.log('4. the export');
 	check('a current, enabled bake ships', !!byId.baked.bake?.result, true);
 	check('a disabled bake is stripped', 'bake' in byId.off, false);
 	check('a stale bake is stripped', 'bake' in byId.stale, false);
-	check('and named as not shipped', index.staleBakes, ['stale']);
+	check('and named as not shipped (with the copy that never baked)', index.staleBakes, [
+		'firecracker_copy',
+		'stale',
+	]);
 	check(
 		'an effect without a bake exports exactly as before',
 		byId.plain,

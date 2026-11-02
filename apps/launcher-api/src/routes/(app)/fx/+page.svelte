@@ -36,6 +36,7 @@
 	import { replaceState } from '$app/navigation';
 	import FxStage, { type FxStageMaterialStat, type ResolvedArt } from './FxStage.svelte';
 	import FxCostPanel from './FxCostPanel.svelte';
+	import FxBakePanel from './FxBakePanel.svelte';
 	import type { FxStageCost } from './fxCost.client';
 	import {
 		largestFrame,
@@ -1907,6 +1908,14 @@
 				regions={artRegions}
 				{selectedKey}
 				onselect={(key) => (selectedKey = key)}
+			/>
+			<FxBakePanel
+				{doc}
+				onchange={(bake) => setDoc({ ...doc, bake })}
+				savedId={doc.id && doc.id !== UNTITLED_EFFECT_ID ? doc.id : ''}
+				projectKey={data.projectKey}
+				{resolveArt}
+				cost={stageCost}
 			/>
 		</div>
 
