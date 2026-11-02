@@ -112,7 +112,7 @@
 
 		<p class="facts">
 			<span>
-				Reference set <strong>{evalSetText(report.set)}</strong>
+				Reference set <strong>{evalSetText(report.set, report.cases)}</strong>
 			</span>
 			<span>
 				Spent <strong class:over={report.capped}>{evalCostText(report)}</strong>

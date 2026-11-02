@@ -3894,6 +3894,53 @@ check(
 
 // ── The page's pure wording (view.ts), over the same answers ──────────────────
 {
+	{
+		const side = (calls: number, costUsd: number) =>
+			({
+				calls,
+				costUsd,
+				score: 0.5,
+				statusAgreement: 1,
+				regionAgreement: 0.5,
+				extraElements: 2,
+			}) as never;
+		const caseSide = (passed: boolean) => ({ passed }) as never;
+		const mockupReport = { before: side(3, 1.5), after: null };
+		check(
+			'a mockup report keeps its rows',
+			view.evalRows(mockupReport).map((r: { label: string }) => r.label),
+			['Score', 'Status agreement', 'Region agreement', 'Extra elements', 'Calls', 'Cost'],
+		);
+		const repairReport = {
+			before: side(4, 2),
+			after: side(5, 3),
+			cases: [
+				{ before: caseSide(true), after: caseSide(true) },
+				{ before: caseSide(false), after: caseSide(true) },
+				{ before: caseSide(false), after: caseSide(false) },
+			] as never,
+		};
+		check(
+			'a repair report counts cases passed per side, then calls and cost',
+			view.evalRows(repairReport),
+			[
+				{ label: 'Cases passed', before: '1 of 3', after: '2 of 3' },
+				{ label: 'Calls', before: '4', after: '5' },
+				{ label: 'Cost', before: '$2.00', after: '$3.00' },
+			],
+		);
+		const set = { name: 'repair', images: 2, elements: 5 };
+		check(
+			'a repair set reads in cases',
+			view.evalSetText(set, repairReport.cases),
+			'repair · 5 cases',
+		);
+		check(
+			'a mockup set reads as before',
+			view.evalSetText({ name: 'mockups', images: 2, elements: 13 }),
+			'mockups · 2 images · 13 elements',
+		);
+	}
 	type Detail = Parameters<typeof view.blockedSentence>[0];
 	const detailOf = async (number: string): Promise<Detail> =>
 		(await detail(ADMIN, number)).body as unknown as Detail;

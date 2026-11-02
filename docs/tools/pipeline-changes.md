@@ -119,8 +119,9 @@ its record of each merge made from here (who merged, the approvals that counted,
      if any; for a scored run, a table **Before (main)** / **After (this change)**, each column
      headed by that side's model and effort, with the rows **Score**, **Status agreement**,
      **Region agreement**, **Extra elements**, **Calls** and **Cost** (a side that did not run
-     reads "—"); then **Reference set** (`mockups · 2 images · N elements`, or "No reference
-     set") and **Spent** (`$3.20 of $20.00`), with `capped` in red and "The run stopped at the
+     reads "—"; a `game-doctor` repair report has the rows **Cases passed** (`3 of 5`), **Calls**
+     and **Cost**); then **Reference set** (`mockups · 2 images · N elements`, `repair · 5 cases`,
+     or "No reference set") and **Spent** (`$3.20 of $20.00`), with `capped` in red and "The run stopped at the
      cap; the most it can spend is $20.00." when it was. **Elements · N of M changed** lists every
      expected element with its image, the **Expected** status and regions, and each side's answer
      under **Before** and **After**: green when status and regions match, amber when the status
