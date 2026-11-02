@@ -16,7 +16,8 @@ third-party runtime out of the workspace. But the **file** is still a 4.2-format
 (`riggerNewRig.ts`), and the Rig parity workflow compares `engine-rig` with the 4.2.120 reference.
 
 This document proposes making `.irig` a versioned format we own, with 4.2 data reaching it through an
-**importer**, and optionally leaving through an **exporter**.
+**importer**. It is **import only** (owner, 2026-11-02): artists do not take rigs back into the
+external editor, so there is no user-facing export.
 
 ## 2. Why §2.1's reasons no longer hold, and what still does
 
@@ -25,7 +26,7 @@ This document proposes making `.irig` a versioned format we own, with 4.2 data r
 | Reason in 2026-06                                                                  | Now                                                            |
 | ---------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | "The instant our format diverges we lose the **free runtime**."                    | Gone. The runtime is `engine-rig`, ours; no 4.2 runtime ships. |
-| "…and inherit a permanent **round-trip-fidelity burden**" with an external editor. | Still true, and the real cost of this change (§7).             |
+| "…and inherit a permanent **round-trip-fidelity burden**" with an external editor. | Not needed: rigs only come in from that editor, never go back. |
 
 Meanwhile our own features have nowhere to live in a 4.2 file, so each found a workaround, and each
 workaround costs something:
@@ -41,7 +42,7 @@ workaround costs something:
 | Versioning                     | pinned to 4.2.x; a 4.3 data change is a format break we don't control                  | the pin exists only because the file is theirs                                                                       |
 
 **The gain is one place, with a type and a version, for everything a rig means to us.** The loss is
-that a rig no longer opens in the external editor without an export step.
+that a rig no longer opens in the external editor, which nobody does today.
 
 ## 3. Goals and non-goals
 
@@ -59,6 +60,7 @@ that a rig no longer opens in the external editor without an export step.
 - Rewriting the runtime. `SkeletonData` (`packages/engine-rig/src/data.ts`) and everything that poses
   and draws from it stay as they are.
 - Reading the external editor's project file. It is proprietary; out of scope now as before.
+- Exporting back to the external editor. Rigs come in from it; they do not go back.
 - Diverging the _semantics_ in the first version. v1 means exactly what 4.2 means, plus our
   extensions. Real divergence (new constraint kinds, our own curve types, …) is a later, separate,
   versioned step.
@@ -78,7 +80,7 @@ Proposed — three layers, the file is the middle one:
 4.2 JSON ───┐                                   ┌────────────────────────► SkeletonData ──► pose / draw
 4.2 .skel ──┼──► IrigDoc  ◄──read/write──► .irig (irig v1)
 (4.3 later)─┘       │
-                    └──── exporter (optional) ───► 4.2 JSON
+                    └──── 4.2 writer (internal: tests + Rigger adapter) ───► 4.2 JSON
 ```
 
 - **`IrigDoc`** — a typed, plain-data, serializable document: bones, slots, skins, attachments,
@@ -92,8 +94,11 @@ Proposed — three layers, the file is the middle one:
   isomorphic to 4.2 plus extensions. `.skel` import is harder: `skeletonBinary.ts` produces
   `SkeletonData`, not a document, so it needs either a `SkeletonData → IrigDoc` decompiler or to stay
   view-only, as `.skel` is today (§9 Q3).
-- **Exporter** — `exportSpine42Json(doc) → { json, dropped[] }`. It drops our extensions and reports
-  what it dropped. It also keeps the Rig parity gate meaningful (§8).
+- **4.2 writer, internal only** — `exportSpine42Json(doc) → { json, dropped[] }`, which drops our
+  extensions and reports what it dropped. Not a feature: no UI or route offers it. It exists
+  because v1 is isomorphic to 4.2, which makes it cheap, and three things need it: the Phase 0
+  round-trip gate, the Rigger adapter (Phase 4a), and the Rig parity gate on our files (§8). It goes
+  away once the Rigger is ported (4b) and parity no longer needs it.
 
 ### 4.1 irig v1 on the wire
 
@@ -186,7 +191,7 @@ pose equality per rig before writing. Saves already upgrade lazily from Phase 4a
 rest. Then the `.json` rename on export is dropped.
 
 **Phase 6 — retire the 4.2 assumptions.** The 4.2.x pin message in `tools/rigger-spike/rig.mjs` and
-the Rig parity workflow move onto the exporter (§8). The 4.2 importer stays for as long as artists
+the Rig parity workflow move onto the internal 4.2 writer (§8). The 4.2 importer stays for as long as artists
 send 4.2 exports.
 
 Any real semantic divergence (irig v2) is a new decision after Phase 6, with its own migration.
@@ -198,10 +203,10 @@ Any real semantic divergence (irig v2) is a new decision after Phase 6, with its
   Phase 1 needs to sit long enough that no rollback target predates it.
 - **Published snapshots** carry the files they were published with, so an old snapshot keeps its 4.2
   files and keeps working. A re-publish takes the current runtime and the migrated files together.
-- **Losing the external editor.** Artists who iterate in the external editor and re-export will now
-  re-_import_, which replaces the Rigger's edits on that rig — the same as today, where the `.irig`
-  shadows a newer source `.json`. Without the exporter there is no way back into that editor. How
-  often this happens decides the exporter's priority (§9 Q1).
+- **Re-importing over Rigger edits.** An artist who changes a rig in the external editor and sends a
+  new export re-_imports_ it, which replaces the Rigger's edits on that rig. That is the same as
+  today, where the `.irig` shadows a newer source `.json`. With import only there is no way back into
+  that editor, by decision (§9 Q1).
 - **Two loaders during the transition.** Both end in `compileIrig`, and the Phase 1 gate compares
   them on every repo rig, so they cannot drift silently.
 
@@ -210,14 +215,14 @@ Any real semantic divergence (irig v2) is a new decision after Phase 6, with its
 - `scripts/check-rig-runtime-free.mjs` stays exactly as it is.
 - `tools/rig-parity` keeps fetching the 4.2.120 reference at run time, never as a dependency, and
   compares it with `engine-rig` on `exportSpine42Json(irig)` for every repo rig. That tests the
-  importer, the exporter and the runtime at once. Without an exporter, it can only test the importer
-  on the 4.2 fixtures.
+  importer, the internal writer and the runtime at once. When the writer goes (Phase 4b), parity
+  falls back to testing the importer on the 4.2 fixtures.
 - `tools/rig-parity/fetch-examples.mjs` stays: the reference's example rigs are 4.2 import fixtures.
 
 ## 9. Open questions for the owner
 
-1. **Do artists still go back to the external editor?** If yes, the exporter is Phase 0 work and
-   required. If no, it is optional, and only needed to keep the parity gate on our files.
+1. ~~**Do artists still go back to the external editor?**~~ **Decided 2026-11-02: no, import
+   only.** No user-facing export; the 4.2 writer is internal (§4).
 2. **Keep the `.irig` extension?** Proposed yes: the version lives in the file, not the name.
 3. **`.skel` import** — needed, or stays view-only as today?
 4. **`text.json` panel state** — fold into the rig, or stay a sidecar? It is editor state, not rig

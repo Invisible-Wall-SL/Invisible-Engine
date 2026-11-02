@@ -96,7 +96,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   The runtime has been ours since Phase 6, but the file is still 4.2-format JSON, so our
   extensions live as inline keys the runtime discards, a naming convention and sidecars. The
   proposal: a typed `IrigDoc` in `engine-rig`, irig v1 = 4.2 semantics plus those extensions,
-  a 4.2 importer (and optional exporter), shipped reader-first so no runtime release or rollback
+  a 4.2 importer (import only, owner 2026-11-02), shipped reader-first so no runtime release or rollback
   can meet a file it cannot read. Not built; open item 18.
 - 2026-10-27 — **Ask the AI on the bar.** `view.html` loads the shared window `/shared/ask-ai.js`
   (with the deploy's `?v=`) and mounts it before Report bug; it asks `/api/ask-ai` on the session.
