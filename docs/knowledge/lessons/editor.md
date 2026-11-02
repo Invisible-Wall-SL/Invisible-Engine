@@ -6,6 +6,15 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
+### Landscape looked different in the desktop build than online and in the editor
+
+- **Symptom:** a desktop-launcher build laid landscape out unlike the live game and the editor.
+- **Cause:** only the online runtime bundle stamped the admin global layout profile onto the doc;
+  `/api/editor/doc`, which the desktop build bakes, did not, so the build used the coded buckets.
+- **Fix:** one helper, `stampEffectiveLayoutProfile`, called by both doc surfaces.
+- **Guard:** `check:layout-profile-surfaces` (fails on the pre-fix route and on planted mutants).
+- **PR:** not recorded (2026-11-02) · source: `docs/status/editor.md`
+
 ### A canvas screen ended differently on a wider window
 
 - **Symptom:** a feature intro's curtains met on one PC and left a strip of reels open on another.
