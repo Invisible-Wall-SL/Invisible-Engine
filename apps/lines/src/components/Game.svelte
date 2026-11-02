@@ -15,6 +15,7 @@
 	import { bindStagePostFx, stageFxJudge } from 'pixi-svelte/elementFx';
 	import { setStageFxAntialias } from 'pixi-svelte/screenFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
+	import { configureParticleBudget } from 'pixi-svelte/particleBudget';
 	import {
 		stateBet,
 		stateBetDerived,
@@ -882,6 +883,10 @@
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
 	setParticleTimeScale(stateBetDerived.timeScale);
+	// Particles thin out on a device that cannot draw them all (`pixi-svelte` `particleBudget`): the
+	// reduced render tier starts at half, and a game that falls behind its frame rate steps down. A
+	// deterministic render never adapts, so it draws the same on every machine.
+	configureParticleBudget({ adaptive: !globalThis.__IE_DETERMINISM__ });
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(getMessagesMap());

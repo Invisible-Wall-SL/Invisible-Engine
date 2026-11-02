@@ -302,6 +302,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
+  `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
+  Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134
+  screens of additive overdraw a frame (three pot-beam emitters at 1,000 spawns/s capped at 200, a
+  full 1,336×755 background frame used as a particle in the bonus); particles were over half of a
+  spin frame. Two engine changes in `pixi-svelte`:
+  - `particleBudget.ts`: one quality factor (0.25–1) every `<ParticleEmitter>` scales its cap and
+    spawn chance by (emitters capped at 8 or fewer keep every particle). Off until a game turns it
+    on (`Game.svelte` does; the tools never do). It starts at the render tier's cap (`reduced` ⇒
+    0.5) and, when adaptive, steps down by 0.8 after a second of frames slower than 1.5× the
+    target and back up after three faster than 1.1×. A deterministic render never adapts;
+    `?particles=<0.25..1>` pins it.
+  - `ParticleEmitter` marks a particle whose alpha is 0 not renderable: Pixi blends every sprite
+    whatever its alpha, and the idle pot beams were 600 such particles every frame.
+  Measured on `overlay-wishworld` (same scenario, adaptive): median frame idle 450 → 233 ms, spin
+  450 → 267, coin drop 467 → 333, pot trigger 667 → 383 (p95 2.2 s → 1.2 s); pot peak 3,981 → 1,030
+  particles, 134 → 31 screens. Seeded renders of `commonoverlayproject` match `main` exactly.
+  Hidden-container emitters are NOT paused: an ambient effect on a screen shown later would start
+  empty, and skipping updates shifts the seeded random sequence. Not verified on a physical phone.
 - 2026-10-30 — **The test server prices a run of wilds by the wild that leads it** (branch
   `claude/sweet-babbage-1f324o`, found reviewing #1444). The lines mock priced every leading run of
   wilds through the `WILD` row and reported `WILD`; the contract's `projectWild` took the first

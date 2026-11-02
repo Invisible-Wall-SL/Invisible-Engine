@@ -1,6 +1,7 @@
 <script lang="ts" module>
 	import {
 		Emitter,
+		Particle,
 		upgradeConfig,
 		type EmitterConfigV3,
 		type EmitterConfigV2,
@@ -179,6 +180,11 @@
 	import { propsSyncEffect } from '../utils.svelte';
 	import { registerRigParticleBehavior, RigParticleBehavior } from '../rigParticleBehavior';
 	import { particleStepSeconds } from '../particleClock';
+	import {
+		PARTICLE_BUDGET_MIN_SCALED,
+		particleQuality,
+		sampleParticleFrame,
+	} from '../particleBudget';
 
 	const props: Props = $props();
 	const context = getContextApp();
@@ -330,19 +336,58 @@
 			untrack(() => material.setEmitSpeed(emitSpeed));
 		});
 
+	// The particle budget (`particleBudget.ts`) scales the cap and spawn chance the emitter was last
+	// given: a value that differs from what the budget wrote came from `init` or a parameter drive,
+	// and is the new authored base. At a quality of 1 the authored values are written back unchanged.
+	let authoredMax = emitter.maxParticles;
+	let authoredChance = emitter.spawnChance;
+	let budgetMax = authoredMax;
+	let budgetChance = authoredChance;
+	const applyBudget = () => {
+		if (emitter.maxParticles !== budgetMax) authoredMax = emitter.maxParticles;
+		if (emitter.spawnChance !== budgetChance) authoredChance = emitter.spawnChance;
+		const quality = authoredMax > PARTICLE_BUDGET_MIN_SCALED ? particleQuality() : 1;
+		budgetMax =
+			quality < 1
+				? Math.max(PARTICLE_BUDGET_MIN_SCALED, Math.round(authoredMax * quality))
+				: authoredMax;
+		budgetChance = authoredChance * quality;
+		emitter.maxParticles = budgetMax;
+		emitter.spawnChance = budgetChance;
+	};
+
+	// Pixi draws a sprite whatever its alpha, so a particle a parameter or its alpha curve has taken to
+	// 0 still costs its whole quad in blending. Hidden from the draw, it is skipped; it keeps
+	// simulating, so it shows again the frame its alpha rises. A material layer draws its own mesh
+	// from the particles it keeps hidden, so it has nothing to skip here.
+	const skipTransparent = () => {
+		if (material) return;
+		const children = parentContext.parent.children;
+		for (let i = 0; i < children.length; i++) {
+			const child = children[i];
+			if (!(child instanceof Particle)) continue;
+			const drawn = child.alpha > 0;
+			if (child.renderable !== drawn) child.renderable = drawn;
+		}
+	};
+
 	const tick = () => {
-		if (context.stateApp.pixiApplication) {
+		const app = context.stateApp.pixiApplication;
+		if (app) {
+			sampleParticleFrame(app.ticker.lastTime, app.ticker.deltaMS, app.ticker.maxFPS);
 			syncOwner();
 			applier?.apply(props.fxParams?.values());
+			applyBudget();
 			// The emit-speed step × `effect.timeScale` × the particle clock (turbo) — see `particleClock`.
 			const deltaUpdate = particleStepSeconds(
-				context.stateApp.pixiApplication.ticker.deltaMS,
+				app.ticker.deltaMS,
 				props.emitSpeed,
 				props.timeScale?.() ?? 1,
 			);
 			emitter.update(deltaUpdate);
+			skipTransparent();
 			// The mirror, in the same step: the mesh draws this frame's particles.
-			material?.sync(context.stateApp.pixiApplication.renderer);
+			material?.sync(app.renderer);
 		}
 	};
 	const ticker = context.stateApp.pixiApplication?.ticker;
