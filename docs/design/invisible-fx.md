@@ -86,7 +86,8 @@ Refused in `/fx` with the reason, and played live at runtime even if a bake is p
 - **one-shot bursts** (`emitterLifetime > 0`) — nothing to loop.
 
 A **mount** that drives the effect also plays live: an owner-tracked trail (`ownerPos` /
-`ownerRotation`), a rig-timeline beat (`forceEmit` / `emitFor`), live parameter values.
+`ownerRotation`), live parameter values. A rig-timeline beat (`forceEmit` / `emitFor` /
+`emitSpeed`, `<RiggedEffect>`) does NOT — see "On a rig beat" below.
 
 ### Where it lives, and how it ships (rule 8)
 
@@ -122,6 +123,25 @@ carries the placement's position, scale, alpha and blend.
 `<effectId>|<instanceKey>|<round(x)>,<round(y)>` — the placed node's id and its on-screen position,
 read on the first tick. Never `Math.random`, so a seeded render is stable and the default path draws
 none. Time is the particle clock's, so turbo speeds the loop as it speeds particles.
+
+**On a rig beat (2026-11-02).** `<RiggedEffect>` re-mounts its `<EffectPlayer forceEmit emitSpeed
+emitFor>` on every beat, inside `<RigBoneAttach>` when bound to a bone — so a baked effect fired by
+a keyframe plays its loop from the beat (at the same deterministic start frame) and rides the bone
+the way the live emitters do. `<BakedEffect beat>` adds what the live path gets from its particles:
+
+- **rate** — the loop advances at `effectBakeBeatRate(emitSpeed)` = `emitSpeed / DEFAULT_EMIT_SPEED`;
+- **end** — emission ends `emitFor` ms after it is set, on the particle clock (`released` sets it to
+  0, ending now); no `emitFor` loops for the life of the mount, as the live forced layer emits;
+- **fades** (`effectBakeBeatFades`, `effectBakeBeatAlpha`) — out over the longest particle life at
+  the beat's speed (`emitterSecondsToWallMs(effectBakeLongestLife, emitSpeed)`), the time the last
+  live particle takes to die; in over `min(0.1 s, that life)`. Decided: a short fade-in, not one over
+  the whole life. A linear ramp over the life matches a live emitter's particle COUNT, but a short
+  firecracker beat would then peak at a fraction of the loop's opacity while its live particles each
+  draw at full strength; 0.1 s only stops a full loop popping in. Released mid fade-in, it fades out
+  from where it had got to. At 0 after the end the sprite is hidden and leaves the ticker.
+
+An ambient mount (no `forceEmit`) is untouched — full opacity, rate 1 — and an effect without
+`bake` never reaches `<BakedEffect>`, so nothing changes for it and no random number is drawn.
 
 ### Known limits
 

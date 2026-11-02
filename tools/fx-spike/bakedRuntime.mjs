@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
  * BAKED RUNTIME — the game side of a baked effect (`invisible-fx.md` §"Baked effects"), in headless
- * Chromium: `bakedRuntime/entry.ts` mounts the real `<EffectPlayer>` six times in a real WebGL app
- * and steps it through the app ticker:
+ * Chromium: `bakedRuntime/entry.ts` mounts the real `<EffectPlayer>` eleven times in a real WebGL
+ * app and steps it through the app ticker:
  *  - no bake ⇒ the live emitters (particles on the stage);
  *  - bake on + every frame loaded ⇒ one sprite, no particles, on the captured box, additive;
  *  - each copy starts on the frame `effectBakeStartFrame` names for its key and position, two copies
  *    on different frames, and the loop advances at the bake's fps on the app clock;
- *  - a sheet not loaded, a forced rig beat and a bake turned off ⇒ live.
+ *  - a sheet not loaded, a bake turned off, a trail owner, live parameter values ⇒ live;
+ *  - a rig beat (`<RiggedEffect>`'s mount) on a baked effect ⇒ the loop, from its deterministic
+ *    frame, fading in, at the beat's emit speed, fading out over the longest particle life once
+ *    `emitFor` runs out or the beat is released, then not drawn; the next beat starts it again;
+ *    and it draws no random numbers.
  *
  *   pnpm --filter fx-spike baked-runtime
  */
@@ -60,5 +64,5 @@ if (failed || bad.length || !results.length) {
 	process.exit(1);
 }
 console.log(
-	`baked runtime: live by default, baked when on and loaded, desynced, live otherwise — ${results.length}/${results.length} (${((Date.now() - began) / 1000).toFixed(1)} s)`,
+	`baked runtime: live by default, baked when on and loaded, desynced, on rig beats, live otherwise — ${results.length}/${results.length} (${((Date.now() - began) / 1000).toFixed(1)} s)`,
 );
