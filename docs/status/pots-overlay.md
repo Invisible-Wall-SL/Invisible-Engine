@@ -1056,7 +1056,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   the timeline grown to fit). The strip inspector lists the rig's animations (`host.clips`, from the
   canvas's loaded rigs, which now carry each animation's length), and the canvas previews the rig at
   the playhead (`EditorRigLayer` poses `sample.animTime` the way the game's `<RigPose>` does). The
-  runtime was already there (Phase 8a's `animTime` channel). The pot-from-pieces guide now builds a
+  runtime was already there (the `animTime` channel). The pot-from-pieces guide now builds a
   piece from one rig node. Gate: `check:component-timelines` §6. Not yet eyeballed in a browser.
 
 - 2026-10-14 — **A pot built from pieces (the firecracker pot)** (branch

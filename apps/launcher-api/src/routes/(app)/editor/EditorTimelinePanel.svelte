@@ -1456,7 +1456,7 @@
 
 	// ---- component trigger + reuse -------------------------------------------------------------
 
-	/** Whether the open component timeline holds its awaited cue (`holdsCue`, Rive plan Phase 8a). */
+	/** Whether the open component timeline holds its awaited cue (`holdsCue`). */
 	function holdsCue(): boolean {
 		void docVersion;
 		return tl?.doc().holdsCue === true;

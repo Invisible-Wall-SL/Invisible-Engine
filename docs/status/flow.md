@@ -161,15 +161,8 @@
   runtime taking **then** on `full: true`, the inspector wiring source-scanned). ⏳ Not
   browser-verified (auth-gated editor). Guide: [Comparing in a guard](../tools/flow.md#edit-a-node-the-inspector).
 
-- 2026-10-14 — **`instanceHoldMs` exempts the authored win presentation** (Rive plan Phase 8b,
-  PR #1194): `flowV2Runtime`'s `instanceHoldMs` still measures every `holdsCue` timeline of a def
-  (a project's own entrance included); `winPresentation` alone measures `undefined` — its holds
-  are tier-walk timing, and its coded `Win` / `WinGate` measured 0 — so a `showContainer.durationMs`
-  reads the same on both paths. Nothing else in Flow changes. Detail:
-  [engine status](engine.md), 2026-10-14.
-
-- 2026-10-14 — **An awaited `fireCue` waits for the component timelines that hold it** (Rive plan
-  Phase 8a, branch `claude/rive-p8a-transition-overlay`). `flowV2Runtime`'s awaited `broadcast(cue)`
+- 2026-10-14 — **An awaited `fireCue` waits for the component timelines that hold it.**
+  `flowV2Runtime`'s awaited `broadcast(cue)`
   appends `cueHolds(cue)` to the `Promise.all` it already awaits — only when there are any — and
   `containerAnimationMs` measures a holding instance through `instanceHoldMs`; `trace` logs
   `⏳ held by N`; the determinism probe's `state()` lists every fired cue with its frame (`cues`).

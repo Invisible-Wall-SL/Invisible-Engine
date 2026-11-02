@@ -84,7 +84,7 @@ Shipped capabilities on `main`:
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not
   paused.
-- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a), *Win* (8b), 2026-10-14, *Free spins* (8c) and *Buttons* (8d), 2026-10-15; all four unlocked (owner browser check passed 2026-10-17), each switched by a holder of the component-publish capability and off by default for every project — the whole story in [engine status](engine.md).
+- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and Screen FX (the transition cue row and post FX).
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
@@ -171,6 +171,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-02 — Removed the legacy Game Settings overlay-swap flags (owner decision): the coded
+  Transition, win, free-spin intro/outro and button frame are the only path; a stored layout that
+  still carries the old field loads as with it off.
 - 2026-11-02 — **The desktop build now ships the authored layout profile, so its landscape matches
   the editor and the live game.** `/api/editor/doc` — the doc the standalone/desktop build bakes —
   never stamped the admin global layout profile; only the online runtime bundle did. A project with
@@ -617,10 +620,6 @@ Shipped capabilities on `main`:
   reaches a node) and `check:editor-shortcuts` (the map, the typing guard, the sheet covering the
   map), both in the Lint workflow. Limits: a re-parented node keeps its local x/y; nudge and the
   stage handles reach top-level nodes only, as before.
-- 2026-10-17 — **Game Settings → Authored overlays → Free spins and Buttons are switchable.** The
-  owner's browser check passed, so both rows are enabled for publishers like Transition and Win,
-  and no save path refuses switching them on (the locks are removed). Detail in
-  [engine status](engine.md) 2026-10-17.
 - 2026-10-16 — **The canvas no longer turns white.** Each rig, text and FX overlay opened its own
   WebGL context, and the editor mounts one per screen, per depth segment and per blend group on
   both sides. The depth split (#1229) multiplied that: a screen whose nested component has an FX
@@ -638,49 +637,12 @@ Shipped capabilities on `main`:
   side pause (no draw, no animation advance, no bone-rider update) until it is shown again, and a
   rig overlay whose shared context is lost reloads its rigs onto a fresh one. Gate: `check:editor-gl-contexts` fails on any other editor file that opens a WebGL context
   or Pixi renderer. ⏳ Owner to confirm in the live editor on the project that went white.
-- 2026-10-16 — **Game Settings → Authored overlays → Win is switchable.** The owner accepted the
-  Win's two fade-out residues, so the row is enabled for publishers like Transition's and the save
-  no longer refuses switching it on (`AUTHORED_WIN_LOCKED` deleted; a non-publisher's flip is
-  still `forbidden`). Detail in [engine status](engine.md) 2026-10-16.
-- 2026-10-15 — **Authored Win parity follow-up, launcher side** (#1194 follow-up). The status
-  rule now also holds a project back when a spins mode's tier caption carries a token, and the
-  launcher's tier builder reports each mode's own caption (`authoredWinTiers.ts`); the Win row's
-  hint says so. **The Win row stays locked** (`AUTHORED_WIN_LOCKED`): two escalating fade-outs
-  still differ in `check:win-parity` — see [engine status](engine.md) 2026-10-15.
-- 2026-10-15 — **Game Settings → Authored overlays (pilot) → Free spins** (Rive plan Phase 8c,
-  branch `claude/rive-p8c-freespin`): the third checkbox, same capability gate, writing
-  `settings.authoredOverlays.freeSpins: true` only when on. Locked off like Win
-  (`AUTHORED_FREE_SPINS_LOCKED`: disabled unless already on, "pilot pending"; the save action
-  refuses switching it on for everyone with `locked-free-spins`, after the ETag check). The whole
-  story in [engine status](engine.md); guide:
-  [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot).
 - 2026-10-15 — **A placed effect's exposed parameters can be driven** (Invisible FX Step 2): **Bind
   to value** offers **⚡ <parameter>** on an effect node, Animate lists a **⚡** row per parameter,
   and the stage previews both live. Detail in [FX status](fx.md), 2026-10-15 "Step 2".
 - 2026-10-14 — **A rig flipped with `scale.x = -1` inside a group or component previews mirrored,
   not upside down** (shared rig layer). Detail in [component editor status](component-editor.md),
   2026-10-14.
-- 2026-10-14 — **Game Settings → Authored overlays (pilot) → Win** (Rive plan Phase 8b, branch
-  `claude/rive-p8b-win-design`): the second checkbox beside Transition, same capability gate,
-  writing `settings.authoredOverlays.win: true` only when on (`normalizeGameSettings` keeps each
-  ON row, drops OFF ones; `buildGameSettings()` returns `undefined` only with both off). The save
-  action's guard now covers both rows and runs AFTER the ETag check
-  (`authoredOverlayGuard.ts` `authoredOverlaySaveDecision`: stale ⇒ 409 whoever saves, fresh +
-  flip ⇒ 403 for a non-publisher, else write; one read for a non-publisher, none for a publisher).
-  Game Maker chips: *Authored Win (pilot)* and the three held-back warnings, from
-  `authoredWinStatus({ doc, tiers })` with the tiers built server-side (`authoredWinTiers.ts`: the
-  config's ladder or the coded one, the placed `win` instance's params, the Win Text captions —
-  one more R2 read per project with the flag on). `launcher-api` now depends on `engine-game`
-  (deep imports of its pure `winPresentation` / `winLevelMap` modules; the index exports Svelte).
-  Gates: new `check:authored-win` (119), `check:authored-transition` 85 (two assertions updated to
-  the two-row contract), `check:doc-readers-unknown-fields` (the `win` row). Not wired into CI's
-  Lint job: `check:authored-transition`, `check:component-timelines` and `check:authored-win` are
-  package scripts only — the workflow list is a follow-up. Guide:
-  [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot);
-  the engine side: [engine status](engine.md). **Locked off until the Win parity follow-up merges**
-  (#1194 review): the row is disabled unless already on (_pilot pending — parity follow-up_), and
-  the save refuses switching it on for everyone, publishers included (`AUTHORED_WIN_LOCKED`,
-  decision `locked`, 403; a publisher's save reads the store only when it submits Win on).
 - 2026-10-14 — **The way back from a component to its screen is visible.** After a double-click on
   a placed instance, the only exit that looked like a button was **← All components**, which lands
   on the components home, not on the screen. The breadcrumb's first crumb (the screen's name) did
@@ -706,13 +668,6 @@ Shipped capabilities on `main`:
   block now follows `saveState`. `vite build`, `svelte-check` and `check:undefined-names` all pass
   such a file; the new `pnpm check:svelte-init-order` gate fails it (what it models:
   `docs/status/infra.md`, 2026-10-14).
-- 2026-10-14 — **Game Settings → Authored overlays (pilot) → Transition** (Rive plan Phase 8a, branch
-  `claude/rive-p8a-transition-overlay`): one checkbox, enabled for `canPublishShared` holders (the
-  component-publish capability, admin by default) and shown read-only to others while on — the save
-  action refuses a flip from anyone else (`authoredOverlayGuard.ts`) — writing
-  `settings.authoredOverlays.transition: true` only when on (`buildGameSettings()` still returns
-  `undefined` at the defaults). Guide: [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot);
-  the flag's normalizer, chips and runtime: [engine status](engine.md).
 - 2026-10-13 — **Listeners + events in the editor (Rive plan Phase 6b, in review).** Components
   side only: Properties gains **Listeners** (per node) and **Component variables → Events**; the
   State machine tab gains **On enter → raise event** and an **Events** log; in Animate the stage

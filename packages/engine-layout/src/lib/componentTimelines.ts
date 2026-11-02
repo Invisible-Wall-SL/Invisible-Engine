@@ -60,18 +60,13 @@ export function registerComponentTimelines(docs: readonly CinematicDoc[]): void 
 }
 
 /**
- * What a game registers at boot: the engine's built-in timelines first (Rive plan Phase 8a), then
- * the timelines it GENERATED for this boot (Phase 8b: the authored win's per-tier docs, built from
- * the active tiers and the loaded skeleton once assets are in — the game calls this again then),
- * then the project's baked cinematics, so a project timeline shadows a built-in or generated id —
- * on a boot with no bundle and no baked doc the built-ins alone, so a built-in def the fallback doc
- * places still has its timeline. One call for both boot paths.
+ * What a game registers at boot: the engine's built-in timelines first, then the project's baked
+ * cinematics, so a project timeline shadows a built-in id — on a boot with no bundle and no baked
+ * doc the built-ins alone, so a built-in def the fallback doc places still has its timeline. One
+ * call for both boot paths.
  */
-export function registerGameTimelines(
-	baked: readonly CinematicDoc[] | undefined,
-	generated: readonly CinematicDoc[] = [],
-): void {
-	registerComponentTimelines([...BUILTIN_TIMELINES, ...generated, ...(baked ?? [])]);
+export function registerGameTimelines(baked: readonly CinematicDoc[] | undefined): void {
+	registerComponentTimelines([...BUILTIN_TIMELINES, ...(baked ?? [])]);
 }
 
 /** The timelines an instance of `componentId` plays on a signal, in registration order. */
@@ -236,13 +231,6 @@ export class ComponentTimelinePlayer {
 	 *  parameter's default, read from the game's effect registry when a blend asks). */
 	private readonly fxRests = new Map<string, (channel: string) => number | undefined>();
 	private started = 0;
-	/**
-	 * The speed every running `playOn` timeline advances at (Rive plan Phase 8b): `advance(dt)`
-	 * moves the playheads by `dt × playRate`. The authored twin of the rig `timeScale` ramp the coded
-	 * big-win walk applied while the player held to speed up; the owning instance sets it from the
-	 * game's `componentPlayRate` each tick. 1 ⇒ exactly the step handed in (parity).
-	 */
-	playRate = 1;
 
 	/** `params`: the owning instance's params, read when a blend asks for a rest (a `params.<id>`
 	 *  forward on an effect node reads them). */
@@ -278,7 +266,7 @@ export class ComponentTimelinePlayer {
 	}
 
 	/**
-	 * The timelines `signal` starts that HOLD the cue (`holdsCue`, Rive plan Phase 8a): an awaited
+	 * The timelines `signal` starts that HOLD the cue (`holdsCue`): an awaited
 	 * fire of that signal waits for each to reach its end. A zero-length timeline never reports an
 	 * end, so it is left out; a timeline without the field, or a state-machine one (no `playOn`),
 	 * holds nothing.
@@ -347,9 +335,8 @@ export class ComponentTimelinePlayer {
 		return this.running.get(id)?.time;
 	}
 
-	advance(dtSeconds: number): TimelineStep {
+	advance(dt: number): TimelineStep {
 		const step: TimelineStep = { cues: [], completed: [] };
-		const dt = dtSeconds * this.playRate;
 		if (!(dt > 0)) return step;
 		for (const r of this.running.values()) {
 			if (r.done) continue;

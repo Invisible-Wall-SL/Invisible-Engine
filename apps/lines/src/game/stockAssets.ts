@@ -1,9 +1,5 @@
 import {
-	FREE_SPIN_INTRO_PRESENTATION_ID,
-	FREE_SPIN_OUTRO_PRESENTATION_ID,
 	SYMBOL_STATES,
-	TRANSITION_WIPE_COMPONENT_ID,
-	WIN_PRESENTATION_COMPONENT_ID,
 	forwardInstanceParams,
 	forwardedParams,
 	hasAuthoredBackground,
@@ -75,7 +71,6 @@ import {
  * - MOUNT: a coded mount the game always makes would fall back to it ({@link codedMountNeeds});
  * - SYMBOLS: a symbol the game can show resolves to a coded cell naming it, through the renderer's
  *   own merge and state inheritance;
- * - FLAGS: an authored-overlay flag swaps in a built-in that names it ({@link AUTHORED_OVERLAY_DEFS});
  * - ALWAYS: it is in `ALWAYS_KEPT`.
  */
 
@@ -155,19 +150,6 @@ class KeepAll extends Error {}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
-
-/**
- * The built-ins each `settings.authoredOverlays` flag swaps in for coded parts
- * (`authoredOverlays.ts`). On ⇒ each is walked as a placed instance. The authored Win also reads
- * its tier clips off the loaded `bigwin` skeleton (`Game.svelte` `registerAuthoredWinTimelines`),
- * which `winPresentation` names.
- */
-export const AUTHORED_OVERLAY_DEFS: Record<'transition' | 'win' | 'freeSpins', readonly string[]> =
-	{
-		transition: [TRANSITION_WIPE_COMPONENT_ID],
-		win: [WIN_PRESENTATION_COMPONENT_ID],
-		freeSpins: [FREE_SPIN_INTRO_PRESENTATION_ID, FREE_SPIN_OUTRO_PRESENTATION_ID],
-	};
 
 /**
  * The stock names the coded mounts `Game.svelte` always makes fall back to.
@@ -333,8 +315,7 @@ function instanceParamSets(node: LayoutNode, enclosing: Params): (Params | undef
 /**
  * The scenes the game mounts: every scene of the doc (a flow may show any of them), with the
  * overlays scene as `Game.svelte` mounts it (`basegameOverlaysSceneOf`), plus each reference scene
- * the game falls back to for an id or role the doc lacks. The authored-win swap of the reference
- * overlays is not applied: it only removes coded parts, and the flag's own needs are walked anyway.
+ * the game falls back to for an id or role the doc lacks.
  */
 function mountedScenes(doc: LayoutDoc, fallback: LayoutDoc): Scene[] {
 	const scenes = doc.scenes;
@@ -354,7 +335,7 @@ function mountedScenes(doc: LayoutDoc, fallback: LayoutDoc): Scene[] {
 		buyConfirmSceneOf(scenes, fallback),
 	];
 	const out = scenes.filter((scene) => scene.id !== 'basegameOverlays');
-	out.push(basegameOverlaysSceneOf(doc, fallback, false));
+	out.push(basegameOverlaysSceneOf(doc, fallback));
 	for (const scene of selected) if (scene && !out.includes(scene)) out.push(scene);
 	return out;
 }
@@ -474,14 +455,6 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		walkNodes(scene.nodes, {}, [], `scene ${scene.id}`);
 	}
 
-	// FLAGS: each authored-overlay flag's built-ins, walked as placed instances.
-	const flags = doc.settings?.authoredOverlays ?? {};
-	for (const [flag, ids] of Object.entries(AUTHORED_OVERLAY_DEFS)) {
-		if (!flags[flag as keyof typeof flags]) continue;
-		for (const componentId of ids) {
-			expandInstance({ kind: 'componentInstance', componentId } as LayoutNode, {}, [], false);
-		}
-	}
 	// A bet mode's buy card is a def named by the config, mounted by the buy screen's repeater.
 	const presentation = (input.config as { betModePresentation?: unknown }).betModePresentation;
 	for (const mode of Object.values(isRecord(presentation) ? presentation : {})) {

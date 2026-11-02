@@ -20,7 +20,7 @@ import type { CinematicCast, CinematicDoc, LayoutNode, Scene, ValueBinding } fro
 type LooseTrack = Record<string, unknown> & { actorId?: unknown; kind?: unknown };
 
 /** The fixed channels a node actor can key: the `property` channels, the text track, visibility
- *  and — on a rig node — the clip an `animation` strip holds it at (`animTime`, Rive plan Phase 8a).
+ *  and — on a rig node — the clip an `animation` strip holds it at (`animTime`).
  *  The one list every allowlist below derives from. */
 export const NODE_ACTOR_CHANNELS = [
 	'x',

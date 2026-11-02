@@ -387,7 +387,7 @@ export function boundScrubs(
 }
 
 /**
- * The rig's scrubs with a timeline's `animation` strip appended (Rive plan Phase 8a): the strip's
+ * The rig's scrubs with a timeline's `animation` strip appended: the strip's
  * clip-local SECONDS, after the node's own scrubs so a playing timeline wins the pose. No strip ⇒
  * the node's own scrubs, the SAME array (a node no timeline drives, or one whose timeline has not
  * started or holds no clip, poses exactly as before).
@@ -398,8 +398,8 @@ export function withTimelineScrub(
 	trackless = false,
 ): (BoundScrub & { unit?: 'seconds'; fromSetup?: boolean })[] {
 	// `trackless`: on a rig with NO track of its own, the strip owns the rig — it poses from the
-	// setup pose each frame, as a track does (Rive plan Phase 8b: without it, a bone the intro keyed
-	// and the idle does not kept its intro-end pose while the coded track reset it). Over a running
+	// setup pose each frame, as a track does (without it, a bone the intro keyed and the idle does not
+	// would keep its intro-end pose). Over a running
 	// track the strip layers on top, as before and as the editor preview does.
 	if (!strip) return own;
 	return [...own, { ...strip, unit: 'seconds', ...(trackless ? { fromSetup: true } : {}) }];

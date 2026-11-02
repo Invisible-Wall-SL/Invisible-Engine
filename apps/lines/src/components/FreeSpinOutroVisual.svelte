@@ -4,7 +4,6 @@
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import { stateUrlDerived } from 'state-shared';
 	import { getComponentParams } from 'engine-layout/svelte';
-	import { isCodedOverlayRetired } from 'engine-game';
 
 	import { getContext } from '../game/context';
 	import FreeSpinAnimation from './FreeSpinAnimation.svelte';
@@ -67,18 +66,13 @@
 	const isBigWin = $derived(winLevelData?.type === 'big');
 	const countUpAmount = $derived(freeSpinOutroState.countUpAmount);
 
-	// Rive plan Phase 8c: retired for this boot when the doc renders the authored presentation —
-	// read once at mount, then nothing is subscribed and nothing is drawn (the driver still counts).
-	const retired = isCodedOverlayRetired('freeSpins');
-	if (!retired) {
-		context.eventEmitter.subscribeOnMount({
-			freeSpinOutroShow: () => armOutroAnimation(),
-			freeSpinOutroHide: () => (show = false),
-		});
-	}
+	context.eventEmitter.subscribeOnMount({
+		freeSpinOutroShow: () => armOutroAnimation(),
+		freeSpinOutroHide: () => (show = false),
+	});
 </script>
 
-{#if winLevelData && !retired}
+{#if winLevelData}
 	<FadeContainer {show}>
 		<FreeSpinAnimation {boundToInstance}>
 			{#snippet children({ sizes })}

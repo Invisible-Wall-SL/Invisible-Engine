@@ -346,7 +346,7 @@ assert(
 	'a flipbook offers the frame target',
 );
 
-// (e) a timeline's animation strip (Rive plan Phase 8a) rides AFTER the node's own scrubs, in
+// (e) a timeline's animation strip rides AFTER the node's own scrubs, in
 //     seconds; with no strip the node's own scrubs come back untouched — the same array — so a rig
 //     no timeline drives (every Hold and Win 12b scrub today) poses byte-identically.
 {

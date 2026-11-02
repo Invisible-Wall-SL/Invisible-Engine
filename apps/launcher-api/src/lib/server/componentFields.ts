@@ -64,7 +64,6 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	on: true,
 	elementFx: true,
 	assetKey: true,
-	boardFit: true,
 	region: true,
 	keepAspect: true,
 	slice: true,
@@ -161,10 +160,6 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	internal: true,
 	inputs: true,
 	stateMachine: true,
-	frameExact: true,
-	boardAnchored: true,
-	buttonStates: true,
-	settles: true,
 	events: true,
 	guides: true,
 };

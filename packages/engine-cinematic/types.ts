@@ -45,9 +45,8 @@ export interface CinematicStrip {
 	 */
 	mask?: { bones: string[]; includeChildren?: boolean };
 	/**
-	 * The source clip's length in seconds, for a strip on a NODE actor (a rig node — Rive plan
-	 * Phase 8a): the player samples such a strip without the skeleton, so a loop mode needs the
-	 * length recorded here. Absent ⇒ the strip plays its clip once and holds its last frame (the
+	 * The source clip's length in seconds, for a strip on a NODE actor (a rig node): the player
+	 * samples such a strip without the skeleton, so a loop mode needs the length recorded here. Absent ⇒ the strip plays its clip once and holds its last frame (the
 	 * rig clamps the time to the clip). A cast actor's strips never read it: the evaluator has the
 	 * skeleton.
 	 */
@@ -144,7 +143,7 @@ export interface CinematicNodeSample {
 	visible?: boolean;
 	text?: { mode: 'countUp'; value: number } | { mode: 'switchKey'; key: string };
 	/**
-	 * A rig node's clip, held at a clip-local time in SECONDS (Rive plan Phase 8a): the strip of
+	 * A rig node's clip, held at a clip-local time in SECONDS: the strip of
 	 * an `animation` track on a node actor that is active at the sampled time. The rig clamps the
 	 * time to the clip's length, so a strip longer than its clip holds the last frame.
 	 */

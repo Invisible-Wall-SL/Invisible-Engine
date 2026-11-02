@@ -59,20 +59,11 @@ There is no transition that reads two screens. There are four nearby things.
   - one rig, `transition`, clip `animation`, about 1.667 s;
   - height = canvas height × 1.7, centred;
   - it holds the awaited emitter event until the rig's `complete`.
-- The authored twin is the built-in `transitionWipe` component (`builtinComponents.ts` line 1162),
-  with its timeline `c_transitionwipe_wipe` (`builtinTimelines.ts` line 46).
-  - It is behind the per-project flag `settings.authoredOverlays.transition` (Rive plan 8a,
-    `docs/design/rive-style-editor.md` §13.2).
-  - The game retires the coded part for that boot (`Game.svelte` line 2363).
-  - It holds the cue through `cueHolds` (`flowV2Runtime.svelte.ts` lines 789–794).
 - The starter choreography fires it, awaited, on free-spin entry and exit (`bookOfChoreo.ts` lines
   269 and 332). Every slot starter flow is projected from that choreography.
 - **Nothing swaps under the wipe.** The free-spin entry chain is `uiHide` (awaited) → `transition`
   (awaited) → `setFreeSpinCounterTotal` → `freeSpinIntroShow` → … (lines 268–273). The screen
   changes **after** the wipe has finished. The wipe is a covering flourish, not a from → to.
-- The `transition-parity` CI job holds the coded and authored wipes frame for frame:
-  - `scripts/transition-parity/run.mjs`, workflow `.github/workflows/transition-parity.yml`;
-  - it is advisory and path-filtered.
 - The current-games harness captures the wipe as `fs-transition`, 60 frames after the cue
   (`scripts/current-games/screens/lines.json` line 421, `bookOf.json` line 462).
 
@@ -367,7 +358,7 @@ New: `constants-shared/screenShell.ts`, dependency-free like the particle shell.
 | No WebGL renderer, the still cannot be allocated, or the context is lost | A cut: `done` resolves at once, the new screen shows |
 | A post FX kind is missing, or a stage-refused kind | Nothing plays (an unregistered custom entry is a settled no-op today) |
 | A post FX program does not link | The stage drawn as it is: `ElementFxFilter.apply`'s pass-through (8c) |
-| The `transition` cue's screen transition (§9.2) is not playable at boot | The row counts as off: the wipe plays, coded or authored |
+| The `transition` cue's screen transition (§9.2) is not playable at boot | The row counts as off: the coded wipe plays |
 
 Every path ends on the live stage with no filter: the new screen exactly.
 
@@ -464,12 +455,10 @@ interface GameSettings {
   both fields are threaded there, with the `check:doc-readers-unknown-fields` §settings case.
 - **The editor.** `buildGameSettings()` (`editor/+page.svelte` line 2856) writes them only when set.
 - **No new storage, export, bake or pull:** `settings` already rides inside `bundle.doc`.
-- **`transitionCue` and the authored wipe** need one rule, in the pattern of
-  `authoredTransitionStatus` (`authoredOverlays.ts` line 106). The game and the publish chip
-  (`gameProfile.ts`) share it:
+- **`transitionCue`** needs one rule, `transitionCueStatus` (`engine-layout`). The game and the
+  publish chip (`gameProfile.ts`) share it:
   - `off` — the wipe;
-  - `screen` — this transition; the coded part is retired for the boot, and the authored swap is
-    not made;
+  - `screen` — this transition; the coded part is retired for the boot;
   - `unplayable` — the kind is not registered, so the wipe plays and the chip warns.
 
 **`ShaderGraphDoc.madeFor`** gains `'transition'` and `'post'` beside 8d.7's `'particles'`. It is
@@ -505,7 +494,7 @@ untouched. No starter flow uses the new actions in v1.
 
 ### 9.2 The Scene Editor: Game Settings → Screen FX
 
-A block beside **Authored overlays**, with two rows.
+A Game Settings block, with two rows.
 
 **The `transition` cue plays:**
 - *The wipe* (default), or a transition effect, with its duration and strength. The cue carries no
@@ -515,8 +504,7 @@ A block beside **Authored overlays**, with two rows.
   (`setFreeSpinCounterTotal`, `freeSpinIntroShow`, …) change the screen under it, and the
   transition reveals them.
 - That is a real two-screen transition **in every slot project's existing flow, with no Flow edit.**
-- The chip warns when the project's flow never fires `transition`, as Authored overlays warns
-  `nothing-to-replace`.
+- The chip warns when the project's flow never fires `transition`.
 - **The trade:** the flow goes on about 1.6 s sooner than after the wipe. That is the point of a
   transition, but it is a timing change, so it is opt-in (§13, §16.4).
 
@@ -673,12 +661,12 @@ is in the same state until the promote lands. It needs no re-publish.
 | The screen shell drifts from the others | One header list (`EFX_HEADER_FUNCTIONS`) held over all three headers by `check:element-fx`. `shader-compile` gains a `screens` sheet: every reference graph, twin and node through the screen shell, WebGL1 and WebGL2 |
 | Edges lose MSAA under a stage filter | Pixi's default for every filter is `antialias: 'off'`. Every Element FX pass and today's chroma wobble already draw without MSAA. Measured in step 3; §16.10 |
 | Memory on a large tablet during a transition | The still is capped at 4096 a side. `?fxdebug=1` prints its MB. The step 2 gate checks that nothing is reallocated after warm-up |
-| The transition cue's effect changes the free-spin timing (the flow goes on after one frame, not after the wipe) | Opt-in per project. The `transition-parity` script gains a variant that measures it. The owner's browser check |
+| The transition cue's effect changes the free-spin timing (the flow goes on after one frame, not after the wipe) | Opt-in per project. The owner's browser check |
 | The slam rule changes meaning | Under the cue row the cue is held for one frame, so "unskippable" no longer covers a transition's length. Noted in the guide |
 | Authors put the screen change before the freeze | The inspector's hint and the validator's info. The cue row covers the common case with no wiring |
 | A post FX blurs or tints the HUD | The stage includes the HUD in v1, and the guide says so. A layer under the HUD is out of v1 |
 | An exit or enter kind as a post FX hides the game | Refused on the stage, in the editor and in the runtime |
-| A stale Scene Editor tab drops `settings.postFx` or `transitionCue` | `buildGameSettings` rebuilds `settings` from the panel (`+page.svelte` line 2856), as when Authored overlays landed. The lease keeps one editor; noted in the guide |
+| A stale Scene Editor tab drops `settings.postFx` or `transitionCue` | `buildGameSettings` rebuilds `settings` from the panel (`+page.svelte` line 2856). The lease keeps one editor; noted in the guide |
 | A transition reveals a screen still loading its art | The new screen is live, so it fills in as it loads. The game preloads its bundles; checked in play-QA |
 
 **Where I am unsure:**
@@ -729,8 +717,7 @@ is in the same state until the promote lands. It needs no re-publish.
 
 Each step is its own branch and PR, with its status entry. Each merges only with:
 - `check:all` green and svelte-check at baseline;
-- the current-games harness reporting no changed screen;
-- `transition-parity` green wherever it runs.
+- the current-games harness reporting no changed screen.
 
 The order respects one dependency: **8d.7** lands `madeFor` and puts the graph's cost in the
 compiled effect, and steps 3 and 7 build on both.
@@ -820,7 +807,7 @@ compiled effect, and steps 3 and 7 build on both.
        match3 and arcade vocabularies;
      - `stage` in `ElementFxTarget`;
      - the `flowEffects` implementations;
-     - `settings.transitionCue` and the one rule with Authored overlays (`authoredOverlays.ts`);
+     - `settings.transitionCue` and its one rule (`transitionCueStatus`);
      - the cue subscriber, and `LAYER_BAND_SCREEN_TRANSITION`.
    - **Gates:**
      - `gen:flow-vocab:check`;
@@ -828,23 +815,14 @@ compiled effect, and steps 3 and 7 build on both.
      - `check:flow-publish-gate` (every starter flow byte-identical);
      - a flow-spike harness running freeze → hide / show → wait through the real interpreter with a
        stub env;
-     - `check:authored-transition` extended (the row off: the same objects; on: the coded part
-       retired and no swap);
-     - `transition-parity` gains a third variant, the cue row on:
-       - the next cue fires within 2 frames of `transition`;
-       - every captured frame differs from the reference;
-       - none is darker than both screens;
-       - with the row's graph left out of `shaderEffects`, the wipe frames are pixel-identical to
-         as-published.
    - **Exit:** a flow and a doc drive a transition in a game build headless. The transition floor
      starts here.
    - **As built (8e.4).** The seam is `apps/lines/src/game/screenTransitions.ts`, bound by
      `screenTransitionsBinding.ts` in `Game.svelte`'s setup. `stage` sits after `reels` in
      `ElementFxTarget`, so a new node still defaults to the reels. The determinism clock now lets
-     a render to a texture through on a `draw: 'last'` frame. The parity variant fits each frame
-     to the From/To mix rather than only "differs". Owner, 2026-10-29: a slam cuts a playing
-     transition to the new screen (through `roundSkip`); the free-spin exit stays as is (the
-     screen changes before the cue fires).
+     a render to a texture through on a `draw: 'last'` frame. Owner, 2026-10-29: a slam cuts a
+     playing transition to the new screen (through `roundSkip`); the free-spin exit stays as is
+     (the screen changes before the cue fires).
 5. **The ship chain, proven** (launcher).
    - **Contents:** `check:shader-pipeline` grows; the soft floors in `docs/design/games-deploy.md`.
    - **Gates:**
@@ -966,8 +944,7 @@ kept for the record.
 11. **Who may.**
     - *Recommended:* no new capability. Flow authors place transitions; anyone who saves the
       Scene Editor sets Screen FX.
-    - *Alternative:* the Screen FX rows behind the component-publish capability, as Authored
-      overlays are (`authoredOverlayGuard.ts`).
+    - *Alternative:* the Screen FX rows behind the component-publish capability.
 12. **Input during a transition.**
     - *Recommended:* not blocked, as under today's wipe; the choreography hides the HUD first.
     - *Alternative:* the still swallows taps while it covers.

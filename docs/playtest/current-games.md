@@ -193,7 +193,7 @@ Scenario rules:
   spin, which `WIN_X=10` makes pay at least 10x the stake. The harness overshoots the cue by at
   most 10 frames, so no offset may be below that; a smaller one fails loudly.
   The stand-in games carry no flow doc, so the scenarios' `query` is `flowV2=lines` (the committed
-  reference flow, as `scripts/transition-parity/run.mjs` does). The query is added **only for a
+  reference flow). The query is added **only for a
   stand-in game** (`standIn: true` in the games file `fixtures.mjs` writes): a live game's shipped
   flow is never overridden, so a live game on Flow v2 fires the cue from its own flow doc.
   A game that never fires the cue (every game on the coded flow, which records no cues) takes the

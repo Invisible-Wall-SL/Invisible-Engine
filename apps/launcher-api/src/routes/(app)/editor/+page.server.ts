@@ -32,7 +32,6 @@ import {
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
-import { authoredOverlaySaveDecision } from '$lib/server/authoredOverlayGuard';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
@@ -72,7 +71,7 @@ async function gate(
 	locals: App.Locals,
 	cookies: import('@sveltejs/kit').Cookies,
 	url: URL,
-): Promise<{ clientKey: string; projectKey: string; canPublishShared: boolean }> {
+): Promise<{ clientKey: string; projectKey: string }> {
 	if (!locals.user) throw redirect(303, '/login');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
@@ -81,20 +80,11 @@ async function gate(
 	}
 	// The save MUST target the SAME explicit project the page was loaded with, so the
 	// action resolves scope from its own `url` (`?project=`) — not the session alone.
-	const scope = await resolveActionScope({
+	return resolveActionScope({
 		url,
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	return {
-		...scope,
-		canPublishShared: roleHasCapability(
-			locals.user.role,
-			COMPONENT_PUBLISH_CAPABILITY,
-			roleOverrides,
-			overrides,
-		),
-	};
 }
 
 /**
@@ -396,7 +386,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 
 export const actions: Actions = {
 	save: async ({ request, locals, cookies, url }) => {
-		const { clientKey, projectKey, canPublishShared } = await gate(locals, cookies, url);
+		const { clientKey, projectKey } = await gate(locals, cookies, url);
 		const form = await request.formData();
 		const raw = form.get('doc');
 		if (typeof raw !== 'string') {
@@ -424,31 +414,6 @@ export const actions: Actions = {
 					'Your changes are still here — reload to get their version first.',
 				conflict: true as const,
 			});
-		// The authored-overlay pilot switches (Rive plan Phase 8a / 8b) are a publisher's to flip:
-		// the rows are disabled for everyone else, and this refuses a save that would flip one
-		// anyway — AFTER the ETag check (`authoredOverlaySaveDecision`): a stale tab keeps the
-		// ordinary conflict path above everything else, and only a write that would land can be
-		// refused for the flip. One read, for a non-publisher only, so a publisher's autosave pays
-		// no extra read; the write below is still conditional, so a save landing between this read
-		// and the PUT is the same 409.
-		if (!canPublishShared) {
-			const stored = await loadDocWithEtag(clientKey, projectKey);
-			const decision = authoredOverlaySaveDecision({
-				before: stored.doc,
-				after: parsed as Partial<LayoutDoc>,
-				canPublish: canPublishShared,
-				baseEtag,
-				storedEtag: stored.etag,
-			});
-			if (decision === 'conflict') return conflict();
-			if (decision === 'forbidden') {
-				return fail(403, {
-					action: 'save' as const,
-					error:
-						'Switching an authored-overlay pilot (Transition, Win, Free spins, Buttons) needs the component-publish capability.',
-				});
-			}
-		}
 		// `backup: 'always'` = "this save is committing a DESTRUCTIVE layout swap" (a scaffold /
 		// custom-kind / reference load the author accepted). Those are exactly the writes someone
 		// wants back, and they are rare, so they bypass the autosave coalescing window in

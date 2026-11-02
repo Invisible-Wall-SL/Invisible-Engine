@@ -267,16 +267,6 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 	// it names a transition kind, read by the game's own reader so the two keep the same fields.
 	const transitionCue = readScreenTransition(input.transitionCue);
 	if (transitionCue) out.transitionCue = transitionCue;
-	// Authored overlays (Rive plan Phase 8a / 8b): sparse, ON rows only — an off row is the same as
-	// an absent one to the runtime, so it is never written and an older doc never gains the block.
-	if (isRecord(input.authoredOverlays)) {
-		const overlays: NonNullable<GameSettings['authoredOverlays']> = {};
-		if (input.authoredOverlays.transition === true) overlays.transition = true;
-		if (input.authoredOverlays.win === true) overlays.win = true;
-		if (input.authoredOverlays.freeSpins === true) overlays.freeSpins = true;
-		if (input.authoredOverlays.buttons === true) overlays.buttons = true;
-		if (Object.keys(overlays).length > 0) out.authoredOverlays = overlays;
-	}
 	// Screen FX (Shader Graph 8e): the post FX list verbatim, as a screen's Element FX are (the game
 	// and the editor read it through `readPostFx` / `readElementFxEntries`, so an entry a newer build
 	// wrote survives a save), and the stage anti-aliasing switch. Sparse: a list only when it has an

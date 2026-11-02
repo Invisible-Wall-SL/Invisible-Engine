@@ -612,7 +612,7 @@ export function sampleNodeActor(tracks, t, layout) {
 	for (const track of tracks || []) {
 		if (!track) continue;
 		if (track.kind === 'animation' && Array.isArray(track.strips)) {
-			// A rig NODE's clip (Rive plan Phase 8a): the strip active at `t` holds the node's rig at a
+			// A rig NODE's clip: the strip active at `t` holds the node's rig at a
 			// clip-local time. Strips are read in start order, so a later one wins where two overlap;
 			// without the skeleton the clip's length is the strip's `clipLength`, else the clip plays
 			// once and the rig clamps the time (a loop mode needs the length recorded).

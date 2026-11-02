@@ -6,15 +6,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import {
-	authoredButtonsEnabled,
-	authoredButtonsStatus,
-	docButtonVersions,
-	isBuiltinButtonShape,
-	authoredWinEnabled,
-	readTransitionCue,
-	withAuthoredButtonsDoc,
-} from 'engine-layout';
+import { readTransitionCue, transitionCueStatus } from 'engine-layout';
 import { isCustomElementFxKind } from 'constants-shared/elementFx';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
@@ -42,13 +34,11 @@ import {
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
-import { loadComponent } from '$lib/server/componentStorage';
 import { loadCustomElementFx } from '$lib/server/shaderStorage';
 import { flowFiresTransitionWith } from '$lib/transitionCueFlow';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import type { FunctionLibraryDoc } from 'engine-flow-v2';
-import { authoredOverlayChips } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -71,7 +61,6 @@ import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { engineStalenessIndex } from '$lib/server/engineStaleness';
 import { loadTestServerManifest } from '$lib/server/testServerManifest';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
-import { loadWinTextDoc } from '$lib/server/winTextStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -225,39 +214,22 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			const engine = staleness.for(p.key, Boolean(game));
 
 			// The card's "what IS this game" summary. Three extra R2 reads per project (the config,
-			// the symbols doc and the layout doc) — four with the authored Win on (its Win Text doc,
-			// below); everything else is already in hand. The loaders degrade to a usable value
-			// rather than throwing, so one unreadable doc costs a chip, not the page.
+			// the symbols doc and the layout doc); everything else is already in hand. The loaders
+			// degrade to a usable value rather than throwing, so one unreadable doc costs a chip, not
+			// the page.
 			const [config, symbols, pointer, layout] = await Promise.all([
 				resolveGameConfig(clientKey, p.key, p.gameType),
 				loadSymbolsDoc(clientKey, p.key),
 				// The published snapshots players boot (+ the ones a rollback can return to). Null for
 				// a game never published, or last published before snapshots existed.
 				game ? currentPointer(clientKey, p.key).catch(() => null) : null,
-				// The layout doc, for the authored-overlay chips (Rive plan Phase 8a) — the plain read,
+				// The layout doc, for the transition-cue chips — the plain read,
 				// not the ship-path `loadDoc` (which repairs atlas refs on the way); degraded to "no
 				// doc" rather than failing the page.
 				loadDocWithEtag(clientKey, p.key, p.gameType)
 					.then((r) => r.doc)
 					.catch(() => null),
 			]);
-			// The authored Win's status needs the active tiers (the config, in hand) and their Win Text
-			// captions — one more read, paid only by a project with the flag on (Rive plan Phase 8b);
-			// off, the status is `off` whatever the captions say.
-			const winText =
-				layout && authoredWinEnabled(layout)
-					? await loadWinTextDoc(clientKey, p.key).catch(() => undefined)
-					: undefined;
-			// The button pilot is held back by a project `button` def (any version an instance pins) that
-			// draws something else — reads paid only with the flag on (Rive plan Phase 8d).
-			const buttonDefs =
-				layout && authoredButtonsEnabled(layout)
-					? await Promise.all(
-							docButtonVersions(layout).map((version) =>
-								loadComponent('button', p.key, version).catch(() => undefined),
-							),
-						)
-					: [];
 			// The `transition` cue's row names a shader graph: whether it compiles decides the chip, as
 			// it decides the game (Invisible Shader Graph 8e) — compiled only for such a project.
 			const cueKind = layout ? readTransitionCue(layout)?.kind : undefined;
@@ -266,21 +238,11 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 					? (await loadCustomElementFx(clientKey, p.key)).map((e) => e.spec.kind)
 					: [],
 			);
-			// The chips read the doc the game boots, in its order: the button swap first (8d), then the
-			// shared resolution of the Transition, Win and free-spin rows on its output.
-			const layoutChips = (doc: NonNullable<typeof layout>) => {
-				const authoredButtons = authoredButtonsStatus(doc, {
-					shadowed: !buttonDefs.every(isBuiltinButtonShape),
-				});
-				const buttoned = authoredButtons === 'ready' ? withAuthoredButtonsDoc(doc) : doc;
-				return {
-					...authoredOverlayChips(buttoned, config.doc, winText, (kind) => compiledKinds.has(kind)),
-					authoredButtons,
-				};
-			};
 			// The row plays only if the flow fires `transition`: a stored flow that never does gets a
 			// warning chip (read only for a project whose row is on).
-			const chips = layout ? layoutChips(layout) : null;
+			const chips = layout
+				? { transitionCue: transitionCueStatus(layout, (kind) => compiledKinds.has(kind)) }
+				: null;
 			const transitionCueUnfired =
 				chips?.transitionCue === 'screen' &&
 				(await flowFiresTransitionWith(

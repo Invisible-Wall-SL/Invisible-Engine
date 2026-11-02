@@ -335,11 +335,10 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
         still sits on `LAYER_BAND_SCREEN_TRANSITION` (10 500) and runs on the turbo clock. An
         unbound call plays as a cut with a warning.
       - **The transition cue** (`settings.transitionCue`). `transitionCueStatus` (off / screen /
-        unplayable) in `authoredOverlays.ts` is the one rule with Authored overlays: on `screen`
-        every `transition` cue plays the row's transition and the authored Transition pilot is
-        not swapped in; off or unplayable leaves the doc exactly as before. Game Maker shows
-        "Transition cue: screen transition" (and hides the pilot chip) or warns when the row's
-        effect does not ship.
+        unplayable, `engine-layout`) is the one rule: on `screen` every `transition` cue plays the
+        row's transition and the coded Transition stands down; off or unplayable leaves the doc
+        exactly as before. Game Maker shows "Transition cue: screen transition" or warns when the
+        row's effect does not ship.
       - **Determinism** (`apps/lines/src/game/determinism.ts`): a `draw: 'last'` frame now skips
         only renders to the screen, so a still taken under it is no longer blank.
       - **A slam cuts it** (owner, 2026-10-29). The stop press trips `roundSkip`; the seam ends a
@@ -850,22 +849,14 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
 - 2026-10-29 — **Step 8e.4: transitions in the game — the Flow actions and the transition cue**
   (see "Current state"). Merged (#1461): CI green; Current games 8 pass, 0 fail, 0
   changed screens.
-  - **Proof.** `transition-parity` (the cue row on, a third variant: the next cue fires 1 frame
-    after `transition`; every captured frame within 2/120 of the expected From/To mix and within 2
-    of it per channel; From travels strictly to To; nothing darker than both screens; with the
-    graph not shipped, pixel-identical to the published wipe on the same frames), 72 checks;
-    `check:authored-transition` 103 (the row off: the identical doc; on: no swap; the binding; the
-    chips); `check:flow-bonus-modes` 137; `check:flow-publish-gate` (every starter flow
+  - **Proof.** `check:flow-bonus-modes` 137; `check:flow-publish-gate` (every starter flow
     byte-identical); `gen:flow-vocab:check`; flow-spike `v2screentransition` (all three
     vocabularies); `check:element-fx-flow` 22; svelte-check at baseline; `check:all` 601/601.
   - **Review.** Fixed, each mutation-checked: a new `elementEffect` defaulted to `stage`; the
-    pilot and cue chips contradicted each other; the cue chip promised a free-spin exit transition
-    out of the free spins; the parity checks passed on backdrop drift and on equal steps; a still
-    taken under `draw: 'last'` was blank. CI then showed the t+12 "differs from the cue frame"
-    check passed locally only on backdrop drift; it starts at t+24 (the mix check still holds
-    t+12).
+    cue chip promised a free-spin exit transition out of the free spins; a still taken under
+    `draw: 'last'` was blank.
   - **Owner's calls.** A slam cuts a playing transition to the new screen (flow-spike
-    `v2screentransition` §6, `check:authored-transition` 104, fx-spike `screen-fx` 172; 5
+    `v2screentransition` §6, fx-spike `screen-fx` 172; 5
     mutations caught); the free-spin exit stays as is.
 - 2026-10-28 — **Step 8e.3: post FX on the stage** (see "Current state"). Merged
   (#1459): CI green; Current games 8 pass, 0 fail, 0 changed screens.

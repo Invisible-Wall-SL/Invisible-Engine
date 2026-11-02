@@ -56,8 +56,7 @@ You are the developer for **Invisible Shader Graph**.
     `screenTransition` / `waitForScreenTransition` (`engine-flow-v2` `standardVocab.ts`), the kinds
     and limits in `constants-shared/screenTransition.ts`, the game seam
     `apps/lines/src/game/screenTransitions.ts` + `screenTransitionsBinding.ts`, the transition cue
-    (`transitionCueStatus` in `engine-layout` `authoredOverlays.ts`), held by
-    `scripts/transition-parity` (cue-row variant) and `check:authored-transition`; authoring (8e.6): Game Settings → Screen FX
+    (`transitionCueStatus` in `engine-layout`); authoring (8e.6): Game Settings → Screen FX
     (`editor/EditorScreenFx.svelte`, `$lib/screenFx.ts`, `$lib/transitionCueFlow.ts`), ▶ on the
     stage (`editor/stagePreview.client.ts`), the reserved ids (`ELEMENT_FX_RESERVED_IDS`), the
     `/flow-v2` inspector and `stage-fx-refused` (`$lib/flowScreenFx.ts`), held by

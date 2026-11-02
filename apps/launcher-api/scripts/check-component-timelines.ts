@@ -368,10 +368,9 @@ eq(
 	[],
 );
 
-// ---- 6. animation strips on a rig node, and cue holds (Rive plan Phase 8a) ----------------------
+// ---- 6. animation strips on a rig node, and cue holds -----------------------------------------
 
 const H = await import('../../../packages/engine-layout/src/lib/cueHolds.ts');
-const B = await import('../../../packages/engine-layout/src/lib/builtinTimelines.ts');
 const rigNodes: LayoutNode[] = [
 	{ id: 'r_wipe', kind: 'spine', label: 'wipe', x: 0, y: 0, assetKey: 'transition' } as LayoutNode,
 	{ id: 'r_glow', kind: 'sprite', label: 'Glow', x: 0, y: 0 } as LayoutNode,
@@ -494,309 +493,7 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 		[true, 0, []],
 	);
 }
-{
-	const wipe = B.TRANSITION_WIPE_TIMELINE;
-	const def = (await import('../../../packages/engine-layout/src/lib/builtinComponents.ts'))
-		.TRANSITION_WIPE_DEF;
-	eq(
-		"the built-in wipe timeline binds the built-in def's rig node with no issue",
-		N.validateNodeActors(wipe, { id: '', name: '', nodes: def.root.children }),
-		[],
-	);
-	L.registerComponentTimelines([...B.BUILTIN_TIMELINES, timeline('project', { playOn: 'enter' })]);
-	eq(
-		'a built-in timeline registers on its def like a baked one',
-		L.componentTimelinesFor('transitionWipe').map((d) => d.id),
-		[wipe.id],
-	);
-	const shadow = { ...wipe, name: 'project copy', holdsCue: false } as CinematicDoc;
-	L.registerComponentTimelines([...B.BUILTIN_TIMELINES, shadow]);
-	eq(
-		'...and a project timeline of the same id shadows it',
-		L.componentTimelinesFor('transitionWipe').map((d) => d.name),
-		['project copy'],
-	);
-	L.registerComponentTimelines([]);
-}
-
-// ---- 7. the generated win timelines and the play rate (Rive plan Phase 8b) -------------------------
-{
-	const C = await import('../../../packages/engine-layout/src/lib/builtinComponents.ts');
-	const tiers = [
-		{ alias: 'big', intro: 'big_win_intro', idle: 'big_win_idle', outro: 'big_win_exit' },
-		{ alias: 'mega', intro: 'mega_win_intro', idle: 'mega_win_idle', caption: 'MEGA WIN' },
-	];
-	const clipMs = {
-		big_win_intro: 1333.3,
-		big_win_idle: 12000,
-		big_win_exit: 466.7,
-		mega_win_intro: 1366.7,
-		mega_win_idle: 12000,
-	};
-	const generated = B.winTierTimelines(tiers, clipMs);
-	eq(
-		'the generated list: rest, plain, hide, then walk + rewind + idle + loop (+ outro only for a tier with an exit)',
-		generated.map((d) => d.id),
-		[
-			'c_winpresentation_rest',
-			'c_winpresentation_plain',
-			'c_winpresentation_fade_hidden',
-			'c_winpresentation_fade_shown',
-			'c_winpresentation_hide',
-			'c_winpresentation_big_walk',
-			'c_winpresentation_big_rewind',
-			'c_winpresentation_big_idle',
-			'c_winpresentation_big_loop',
-			'c_winpresentation_big_outro',
-			'c_winpresentation_mega_walk',
-			'c_winpresentation_mega_rewind',
-			'c_winpresentation_mega_idle',
-			'c_winpresentation_mega_loop',
-		],
-	);
-	eq(
-		'same inputs ⇒ identical docs (deterministic generation)',
-		JSON.stringify(B.winTierTimelines(tiers, clipMs)),
-		JSON.stringify(generated),
-	);
-	const def = C.winPresentationDef(
-		tiers.map((t) => ({ alias: t.alias, name: t.alias, caption: t.caption })),
-	);
-	eq(
-		"every generated timeline binds the generated def's nodes with no issue",
-		generated.flatMap((d) =>
-			N.validateNodeActors(d, { id: '', name: '', nodes: def.root.children }).map(
-				(i) => `${d.id}:${i.code}`,
-			),
-		),
-		[],
-	);
-	const walk = generated.find((d) => d.id === 'c_winpresentation_big_walk')!;
-	const idleCycle = generated.find((d) => d.id === 'c_winpresentation_big_idle')!;
-	eq(
-		'a walk holds its cue for the intro, an idle cycle for one idle — each off its measured clip',
-		[
-			[walk.holdsCue, walk.playOn, Math.round(walk.duration * 1000)],
-			[idleCycle.holdsCue, idleCycle.playOn, Math.round(idleCycle.duration * 1000)],
-		],
-		[
-			[true, 'winTier.big', 1333],
-			[true, 'winTierIdle.big', 12000],
-		],
-	);
-	eq(
-		'an outro holds for the exit; a loop and the plain number hold nothing',
-		generated
-			.filter((d) => d.id.endsWith('_outro') || d.id.endsWith('_loop') || d.id.endsWith('_plain'))
-			.map((d) => [d.playOn, d.holdsCue === true]),
-		[
-			['winPlain', false],
-			['winTierLoop.big', false],
-			['winTierOutro.big', true],
-			['winTierLoop.mega', false],
-		],
-	);
-	L.registerGameTimelines([], generated);
-	eq(
-		'registerGameTimelines registers the generated docs on the def after the built-ins',
-		L.componentTimelinesFor('winPresentation').length,
-		generated.filter((d) => d.playOn).length,
-	);
-	const shadow = { ...walk, name: 'project copy' } as CinematicDoc;
-	L.registerGameTimelines([shadow], generated);
-	eq(
-		'...and a project timeline of a generated id shadows it',
-		L.componentTimelinesFor('winPresentation').find((d) => d.id === walk.id)?.name,
-		'project copy',
-	);
-	// The play rate: `advance(dt)` moves by dt × playRate (the hold-to-speed-up ramp on the art).
-	const p = new L.ComponentTimelinePlayer([walk], def.root.children);
-	p.trigger('winTier.big');
-	p.playRate = 2;
-	p.advance(0.25);
-	eq('a play rate of 2 advances twice the step', p.timeOf(walk.id), 0.5);
-	{
-		// ONE CLIP PER TIMELINE ends on the rig's own clock: the coded track completes a clip when the
-		// frame deltas summed since THAT clip started reach its length (no rounding, no snap), and the
-		// next clip starts at 0 from that `complete`. Driven with the deltas the determinism clock
-		// hands the ticker (`now += 1000 / 60`, so a delta is not always exactly 1/60 s): every clip
-		// timeline ends on the frame the same sum crosses its length — the whole-frame 12 s idle
-		// included, whose 720 deltas can sum a hair under 12 s and complete on frame 721.
-		const deltas = (base: number, n: number): number[] => {
-			const out: number[] = [];
-			let now = base;
-			for (let i = 0; i < n; i++) {
-				const next = now + 1000 / 60;
-				out.push((next - now) / 1000);
-				now = next;
-			}
-			return out;
-		};
-		const rigFrame = (ds: number[], length: number): number => {
-			let t = 0;
-			for (let i = 0; i < ds.length; i++)
-				if ((t = Math.min(t + ds[i], length)) >= length) return i + 1;
-			return 0;
-		};
-		const timelineFrame = (doc: CinematicDoc, signal: string, ds: number[]): number => {
-			const q = new L.ComponentTimelinePlayer([doc], def.root.children);
-			q.trigger(signal);
-			for (let i = 0; i < ds.length; i++)
-				if (q.advance(ds[i]).completed.includes(doc.id)) return i + 1;
-			return 0;
-		};
-		const superwin = B.winTierTimelines(
-			[{ alias: 'superwin', intro: 'super_win_intro', idle: 'super_win_idle' }],
-			{ super_win_intro: 1366.7, super_win_idle: 12000 },
-		);
-		const intro = superwin.find((d) => d.id === 'c_winpresentation_superwin_walk')!;
-		const idle = superwin.find((d) => d.id === 'c_winpresentation_superwin_idle')!;
-		const bases = [0, 1234.5, 98_765.4321, 3_600_000.125];
-		eq(
-			'the intro and the idle cycle end on the frame the rig completes them, whatever the clock base',
-			bases.map((base) => {
-				const ds = deltas(base, 800);
-				return [
-					timelineFrame(intro, 'winTier.superwin', ds) === rigFrame(ds, 1.3667),
-					timelineFrame(idle, 'winTierIdle.superwin', ds) === rigFrame(ds, 12),
-				];
-			}),
-			bases.map(() => [true, true]),
-		);
-		eq(
-			'...the 82.002-frame intro ends on frame 83, and a 12 s idle whose deltas fall short on 721',
-			[
-				timelineFrame(intro, 'winTier.superwin', deltas(0, 100)),
-				timelineFrame(idle, 'winTierIdle.superwin', Array(721).fill(12 / 720 - 1e-15)),
-			],
-			[83, 721],
-		);
-	}
-	p.playRate = 1;
-	p.advance(0.25);
-	eq('...and 1 the plain step', p.timeOf(walk.id), 0.75);
-	// The coded `FadeContainer`'s tween as the def's state machine: the `fade` node sits at alpha 0
-	// (entry), blends 0 → 1 over 400 ms linear on `winFade` (every win, the first included — the coded
-	// container fades in on its mount too), and on `winHide` blends to 0 FROM THE POSE ON SCREEN
-	// (a hide 100 ms into the fade-in leaves from 0.25, as the coded tween does). No walk, plain,
-	// loop, outro, rest or hide timeline keys alpha.
-	const SM = await import('../../../packages/engine-layout/src/lib/stateMachine.ts');
-	const I = await import('../../../packages/engine-layout/src/lib/componentInterface.ts');
-	const f = new L.ComponentTimelinePlayer(generated, def.root.children);
-	const fadeId = def.root.children[0].id;
-	const visualId = (def.root.children[0] as { children: LayoutNode[] }).children[0].id;
-	const { durations } = L.stateMachineTimelines(def.stateMachine);
-	const runner = new SM.ComponentStateMachineRunner(
-		def.stateMachine!,
-		I.componentInputs(def),
-		durations,
-	);
-	const drive = (): void => {
-		runner.plays().forEach((play, index) => f.drive(play.layer, index, play));
-	};
-	// As the instance fires a trigger: the transition is taken at the fire (a zero-length step), so
-	// the blend's first rendered frame is at `dt` — the `playOn` player's and the coded tween's rule.
-	const fire = (trigger: string): void => {
-		runner.fire(trigger);
-		runner.advance(0);
-		drive();
-	};
-	const tick = (frames: number): void => {
-		for (let k = 0; k < frames; k++) {
-			runner.advance(1 / 60);
-			drive();
-			f.advance(1 / 60);
-		}
-	};
-	drive();
-	eq('at rest the fade node is at alpha 0 (the layer entry)', f.sample(fadeId)?.alpha, 0);
-	eq(
-		'no walk, plain, loop, outro, rest or hide timeline keys alpha',
-		generated
-			.filter((d) => /_(walk|rewind|idle|loop|outro|plain|rest|hide)$/.test(d.id))
-			.flatMap((d) => d.tracks.filter((t) => t.kind === 'property')),
-		[],
-	);
-	fire('winFade');
-	f.trigger('winTier.big');
-	tick(6);
-	const r6 = (v: number | undefined): number | undefined =>
-		v === undefined ? v : Math.round(v * 1e6) / 1e6;
-	eq(
-		'100 ms into the fade-in the fade node is at 0.25 (linear)',
-		r6(f.sample(fadeId)?.alpha),
-		0.25,
-	);
-	fire('winHide');
-	f.trigger('winHide');
-	tick(12);
-	eq(
-		'a hide 100 ms into the fade-in leaves from 0.25: 0.125 at its half (linear from the pose on screen)',
-		r6(f.sample(fadeId)?.alpha),
-		0.125,
-	);
-	tick(12);
-	eq(
-		'...and 0 at its end, where the hide timeline also cuts the visual',
-		[r6(f.sample(fadeId)?.alpha), f.sample(visualId)?.visible],
-		[0, false],
-	);
-	fire('winFade');
-	tick(24);
-	eq('a later win fades in from 0 over the full 400 ms', r6(f.sample(fadeId)?.alpha), 1);
-	// `releaseCueHolds` (8b): a hold settles on its timeline's end OR on an explicit release, and
-	// the map forgets it either way.
-	{
-		let ended = (): void => {};
-		H.holdCue('winTier.big', new Promise<void>((resolve) => (ended = resolve)));
-		let settled = false;
-		void H.cueHolds('winTier.big')[0].then(() => {
-			settled = true;
-		});
-		H.releaseCueHolds('winTier.big');
-		await Promise.resolve();
-		await Promise.resolve();
-		eq(
-			'a released hold settles its awaiter and leaves the map',
-			[settled, H.cueHolds('winTier.big').length, H.pendingCueHolds()],
-			[true, 0, []],
-		);
-		ended();
-		H.releaseCueHolds('nothing-held');
-		eq('releasing a cue nothing holds is a no-op', H.pendingCueHolds(), []);
-	}
-	eq(
-		'every generated doc casts exactly the actors it keys (a walk never takes the fade node)',
-		generated.map((d) => [
-			d.id,
-			d
-				.stage!.cast.map((c) => c.actorId)
-				.sort()
-				.join(','),
-		]),
-		[
-			['c_winpresentation_rest', 'visual'],
-			['c_winpresentation_plain', 'countPlain,tier,visual'],
-			['c_winpresentation_fade_hidden', 'fade'],
-			['c_winpresentation_fade_shown', 'fade'],
-			['c_winpresentation_hide', 'visual'],
-			// `mega` has a caption, so every walk keys the caption node (`''` on `big`): a walk never
-			// leaves the previous tier's caption on screen.
-			['c_winpresentation_big_walk', 'caption,countPlain,tier,visual'],
-			['c_winpresentation_big_rewind', 'tier'],
-			['c_winpresentation_big_idle', 'tier'],
-			['c_winpresentation_big_loop', 'tier'],
-			['c_winpresentation_big_outro', 'tier'],
-			['c_winpresentation_mega_walk', 'caption,countPlain,tier,visual'],
-			['c_winpresentation_mega_rewind', 'tier'],
-			['c_winpresentation_mega_idle', 'tier'],
-			['c_winpresentation_mega_loop', 'tier'],
-		],
-	);
-	L.registerComponentTimelines([]);
-}
-
-// ---- 8. a rig clip authored from the editor ----------------------------------------------------
+// ---- 7. a rig clip authored from the editor ----------------------------------------------------
 
 {
 	const doc = S.newComponentTimeline({ id: 'c_cracker_lit', name: 'Lit', componentId: 'cracker' });
@@ -842,6 +539,79 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 			? [drive.sample.animTime.animation, Math.round(drive.sample.animTime.time * 100) / 100]
 			: null,
 		['fired', 0.25],
+	);
+}
+
+// ---- 8. a looping timeline's `loopFrom`, and rig-slot riders --------------------------------------
+{
+	const cued = {
+		...timeline('c_loopfrom', { playOn: 'loopProbe' }),
+		holdsCue: true,
+		loopFrom: 0.25,
+		tracks: [{ id: 'cues', kind: 'cue', actorId: '', keys: [{ time: 0.5, cue: 'mid' }] }],
+	} as unknown as CinematicDoc;
+	const p = new L.ComponentTimelinePlayer([cued], []);
+	p.trigger('loopProbe');
+	const fired: string[] = [];
+	let completed = 0;
+	for (let f = 0; f < 3 * 60; f++) {
+		const step = p.advance(1 / 60);
+		fired.push(...step.cues.map((c) => c.cue));
+		completed += step.completed.length;
+	}
+	eq(
+		'a loopFrom timeline fires its cue each lap, never completes and holds no awaited fire',
+		[fired.length, completed, p.holdsOn('loopProbe')],
+		[4, 0, []],
+	);
+	const t = p.timeOf(cued.id)!;
+	eq('…and wraps back into [loopFrom, duration)', t >= 0.25 && t < 1, true);
+	p.advance(3600);
+	eq('…and is still playing past an hour', p.isPlaying(), true);
+	const outOfRange = new L.ComponentTimelinePlayer([{ ...cued, loopFrom: 1 }], []);
+	outOfRange.trigger('loopProbe');
+	eq(
+		'a loopFrom outside [0, duration) is ignored: the timeline ends as before',
+		outOfRange.advance(2).completed,
+		['c_loopfrom'],
+	);
+
+	const R = await import('../../../packages/engine-layout/src/lib/rigSlotRiders.ts');
+	const node = (id: string, kind: string, extra: Record<string, unknown> = {}) =>
+		({ id, kind, x: 0, y: 0, ...extra }) as unknown as LayoutNode;
+	const rig = node('rig', 'spine', { assetKey: 'bigwin' });
+	const count = node('count', 'text', { rigSlot: 'slot_count' });
+	const caption = node('caption', 'text', {
+		rigSlot: 'slot_count',
+		paramBindings: { rigSlot: 'captionSlot' },
+	});
+	const plain = node('plain', 'text');
+	const split = R.splitSlotRiders([rig, count, caption, plain]);
+	eq(
+		'riders split off the first sibling rig; the rest render in place',
+		[split.host?.id, split.inPlace.map((n) => n.id), split.riders.map((n) => n.id)],
+		['rig', ['rig', 'plain'], ['count', 'caption']],
+	);
+	eq(
+		'no sibling rig ⇒ nothing rides, every child renders in place',
+		R.splitSlotRiders([count, plain]).riders,
+		[],
+	);
+	eq(
+		'riders group by slot, a param-bound slot name winning over the field',
+		R.groupSlotRiders(split.riders, { captionSlot: 'slot_caption' }).map((g) => [
+			g.slot,
+			g.riders.map((n) => n.id),
+		]),
+		[
+			['slot_count', ['count']],
+			['slot_caption', ['caption']],
+		],
+	);
+	eq(
+		'…and an unset bound param falls back to the field',
+		R.groupSlotRiders(split.riders, {}).map((g) => [g.slot, g.riders.length]),
+		[['slot_count', 2]],
 	);
 }
 

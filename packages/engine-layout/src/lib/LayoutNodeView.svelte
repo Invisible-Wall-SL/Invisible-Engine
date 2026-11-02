@@ -16,7 +16,7 @@
 		 * INSIDE its `<RigProvider>` so their bone layers ride this rig's bone. Paired by `LayoutScene`;
 		 * only meaningful when this node is a rig. */
 		attachedEffects?: EffectNode[];
-		/** Rig-slot riders (Rive plan Phase 8b): sibling nodes whose `rigSlot` names a slot of THIS
+		/** Rig-slot riders: sibling nodes whose `rigSlot` names a slot of THIS
 		 * (rig) node — rendered INSIDE its `<RigProvider>`, each group in one `<RigSlot>`, so the rig
 		 * drives them. Paired by the parent container's branch; only meaningful when this node is a rig. */
 		slotRiders?: LayoutNode[];
@@ -93,7 +93,6 @@
 	import { getComponentSignalScope } from './componentSignalScopeContext';
 	import { handsOffToIdle, isNodeRevealed } from './signalGates';
 	import { resolveBoundValue } from './componentParams';
-	import { boardBox } from './boardBox';
 	import { groupSlotRiders, splitSlotRiders } from './rigSlotRiders';
 	import { attachedEffectDrives, createNodeFold } from './nodeFold.svelte';
 	import DrivenEffectPlayer from './DrivenEffectPlayer.svelte';
@@ -116,7 +115,6 @@
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
 	import SpawnLayer from './SpawnLayer.svelte';
-	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
 	const { node, space, attachedEffects, slotRiders, nested }: Props = $props();
 	const layoutContext = getContextLayout();
@@ -341,7 +339,7 @@
 		allBindings?.some((binding) => targets.includes(binding.target)) ?? false;
 	const frameBound = bindsTarget('frame');
 	const fillBound = bindsTarget('fill');
-	// A timeline's `animation` strip on a rig node (Rive plan Phase 8a) poses the rig through the same
+	// A timeline's `animation` strip on a rig node poses the rig through the same
 	// `<RigPose>` an `animTime` value binding does, so the strip's time reaches the rig the one way.
 	const timelineScrubbed = !!timelineDrive?.channels.has('animTime');
 	const poseBound = bindsTarget('animTime', 'bone') || timelineScrubbed;
@@ -352,17 +350,7 @@
 			fold.allOutputs,
 		);
 		const tint = fold.timelineSample?.tint;
-		const settled =
-			timelineDrive?.settles &&
-			((timelineDrive.channels.has('rotation') && folded.rotation === undefined) ||
-				(timelineDrive.channels.has('alpha') && folded.alpha === undefined))
-				? {
-						...folded,
-						rotation: folded.rotation ?? (timelineDrive.channels.has('rotation') ? 0 : undefined),
-						alpha: folded.alpha ?? (timelineDrive.channels.has('alpha') ? 1 : undefined),
-					}
-				: folded;
-		return tint === undefined ? settled : { ...settled, tint };
+		return tint === undefined ? folded : { ...folded, tint };
 	});
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
@@ -418,27 +406,12 @@
 			: undefined,
 	);
 	const hostedSpace = $derived(hostedComponentSpace(hostedDef));
-	// A `boardAnchored` def (Rive plan Phase 8c, the free-spin presentations) is a board-relative
-	// overlay too, and also sits on the game's live board position — where the coded overlay that
-	// self-centred on `boardLayout()` drew. Every other def: unchanged (parity).
-	const boardAnchored = $derived(hostedDef?.boardAnchored === true);
 	const gameFrameOverlay = $derived(
-		(hostedSpace === 'game' || boardAnchored) && space !== 'game' && space !== 'background',
+		hostedSpace === 'game' && space !== 'game' && space !== 'background',
 	);
 	const gameFrame = $derived.by(() => {
 		if (!gameFrameOverlay) return undefined;
 		const ml = layoutContext.stateLayoutDerived.mainLayout();
-		if (boardAnchored) {
-			const board = boardBox();
-			return {
-				x: posX + ml.x + ml.scale * ((board?.x ?? ml.width / 2) - ml.width / 2),
-				y: posY + ml.y + ml.scale * ((board?.y ?? ml.height / 2) - ml.height / 2),
-				scale: {
-					x: (transform.scale?.x ?? 1) * ml.scale,
-					y: (transform.scale?.y ?? 1) * ml.scale,
-				},
-			};
-		}
 		return {
 			x: ml.x + ml.scale * (transform.x - ml.width / 2),
 			y: ml.y + ml.scale * (transform.y - ml.height / 2),
@@ -542,42 +515,16 @@
 	// dimension is set (texture-natural sizing).
 	const sizeScaleX = $derived(transform.scale?.x ?? 1);
 	const sizeScaleY = $derived(transform.scale?.y ?? 1);
-	// A `boardFit` rig (Rive plan Phase 8b) takes the game's board WIDTH as its explicit width — the
-	// `game`-space twin of `coverFit`, sizing through `<RigProvider width>` exactly as the coded
-	// big-win rig was fitted to `boardLayout().width`. Read through the game's registered reader, so
-	// it follows the live layout; no reader, or any other node ⇒ `undefined` ⇒ the authored size.
 	// The owning instance's params (§13.2), read once per render; init-stable context.
 	const componentParams = $derived(getComponentParams());
-	// Param-bindable (`paramBindings.boardFit`, a boolean param): the win presentation turns it on
-	// per instance. A non-boolean bound value falls through to the node's own field (parity).
-	const boundBoardFit = $derived(
-		node.kind === 'spine'
-			? resolveBoundValue(node.paramBindings, 'boardFit', componentParams)
-			: undefined,
-	);
-	const boardFitOn = $derived(
-		node.kind === 'spine' &&
-			(typeof boundBoardFit === 'boolean' ? boundBoardFit : node.boardFit === true),
-	);
-	const boardFitWidth = $derived(boardFitOn ? boardBox()?.width : undefined);
-	const hasExplicitSize = $derived(
-		transform.width !== undefined || transform.height !== undefined || boardFitWidth !== undefined,
-	);
+	const hasExplicitSize = $derived(transform.width !== undefined || transform.height !== undefined);
 	const sizedWidth = $derived(
-		(boardFitWidth ?? transform.width) !== undefined
-			? (boardFitWidth ?? transform.width ?? 0) * sizeScaleX
-			: undefined,
+		transform.width !== undefined ? transform.width * sizeScaleX : undefined,
 	);
 	const sizedHeight = $derived(
 		transform.height !== undefined ? transform.height * sizeScaleY : undefined,
 	);
 	const sizedScale = $derived(hasExplicitSize ? undefined : transform.scale);
-	// A rig whose `boardFit` is param-bound and resolves OFF (a placed win presentation) renders at
-	// the NATURAL size the coded placed `win` drew: the bundle's load scale divided out, as
-	// `WinAnimation` does without a width. Every other rig keeps its size (the bound case only).
-	const naturalRigLoadScale = $derived(
-		boundBoardFit === false && !hasExplicitSize ? EDITOR_RIG_LOAD_SCALE : undefined,
-	);
 
 	// A background RIG covers via pixi-svelte's `fit`: feed the full canvas box on
 	// BOTH axes (× the cover multiplier) and the doc fit; `RigProvider`/`rigSizeScale`
@@ -746,7 +693,7 @@
 	// typically absent, so every existing doc renders byte-identical to today.
 	// Wrong-primitive bound values are ignored (prefer the static value over a crash).
 
-	// Rig-slot riders this rig hosts (Rive plan Phase 8b), grouped by the slot each rides — a
+	// Rig-slot riders this rig hosts, grouped by the slot each rides — a
 	// param-bound `rigSlot` resolves through the owning instance's params like any bound field.
 	const slotRiderGroups = $derived(
 		node.kind === 'spine' && slotRiders?.length ? groupSlotRiders(slotRiders, componentParams) : [],
@@ -1050,8 +997,7 @@
 			height: height * cover.scaleY,
 		};
 	});
-	// A param-bound fill / border colour (Rive plan Phase 8d: the authored button's tile takes its
-	// variant colour from the instance). Unbound ⇒ the node's own `color` (parity).
+	// A param-bound fill / border colour. Unbound ⇒ the node's own `color` (parity).
 	const boundRectColor = $derived(
 		node.kind === 'rect'
 			? resolveBoundValue(node.paramBindings, 'color', componentParams)
@@ -1069,7 +1015,7 @@
 			? resolveBoundValue(node.paramBindings, 'borderColor', componentParams)
 			: undefined,
 	);
-	// The rounded / bordered rect (Rive plan Phase 8d) — only on a rect that sets them, so every other
+	// The rounded / bordered rect — only on a rect that sets them, so every other
 	// rect hands `<Rectangle>` exactly the props it did (its defaults draw a square, borderless fill).
 	const rectShape = $derived.by(() => {
 		if (node.kind !== 'rect') return {};
@@ -1082,8 +1028,7 @@
 		}
 		return shape;
 	});
-	// A container's param-bound `tint` (Rive plan Phase 8d: the authored button frame, tinted as the
-	// coded frame tints its container). Unbound ⇒ `undefined`, which the container never receives.
+	// A container's param-bound `tint`. Unbound ⇒ `undefined`, which the container never receives.
 	const containerTint = $derived.by(() => {
 		if (node.kind !== 'container') return undefined;
 		const bound = resolveBoundValue(node.paramBindings, 'tint', componentParams);
@@ -1353,7 +1298,7 @@
 			>
 				{#if ownAnchor}<Anchor name={node.id} />{/if}
 				<!--
-					Rig-slot riders (Rive plan Phase 8b): a child whose `rigSlot` names a slot is not drawn
+					Rig-slot riders: a child whose `rigSlot` names a slot is not drawn
 					here — the first rig child hosts it inside that slot, so the rig drives it every frame.
 					No rig child, or no rider ⇒ every child draws in place as before (parity).
 				-->
@@ -1646,7 +1591,6 @@
 				width={bgRigBox ? bgRigBox.width : sizedWidth}
 				height={bgRigBox ? bgRigBox.height : sizedHeight}
 				fit={bgRigBox ? bgFit : undefined}
-				loadScaleBase={naturalRigLoadScale}
 				skin={effSkin}
 				visible={rigVisible}
 				rebroadcastEvents
@@ -1718,7 +1662,7 @@
 					/>
 				{/if}
 				<!--
-					Rig-slot riders (Rive plan Phase 8b): each group renders inside ONE `<RigSlot>`, the slot
+					Rig-slot riders: each group renders inside ONE `<RigSlot>`, the slot
 					object the rig drives from the slot's bone and colour every frame and shows only while the
 					slot has an attachment — the coded win count's `<RigSlot>` exactly. A rider's own x / y /
 					scale compose on top (it renders through this same view, at its authored transform).

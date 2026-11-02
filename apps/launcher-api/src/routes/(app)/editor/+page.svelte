@@ -2844,15 +2844,6 @@
 	let featureAutoplay = $state<boolean>(data.doc.settings?.features?.autoplay ?? true);
 	let featureSpaceHold = $state<boolean>(data.doc.settings?.features?.spaceHold ?? true);
 	const ukLocked = $derived(jurisdiction === 'UK');
-	// Authored overlays (Rive plan Phase 8a / 8b): the pilot switches that render the Transition /
-	// the big-win presentation from their authored components instead of the coded mounts. Off,
-	// and absent from the doc, unless turned on. Both read `data` (a prop declared above) only.
-	let authoredTransition = $state<boolean>(
-		data.doc.settings?.authoredOverlays?.transition === true,
-	);
-	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
-	let authoredFreeSpins = $state<boolean>(data.doc.settings?.authoredOverlays?.freeSpins === true);
-	let authoredButtons = $state<boolean>(data.doc.settings?.authoredOverlays?.buttons === true);
 	// Screen FX (Shader Graph 8e): the transition cue row, the post FX list and the stage
 	// anti-aliasing switch. Off, and absent from the doc, unless set.
 	let transitionCue = $state.raw<ScreenTransitionSpec | undefined>(
@@ -2883,11 +2874,9 @@
 			background: bootLoaderBackground,
 			size: bootLoaderSize,
 		});
-		const authoredOverlays =
-			authoredTransition || authoredWin || authoredFreeSpins || authoredButtons;
 		const screenFx = screenFxSettings({ transitionCue, postFx, stageFxAntialias });
 		const screenFxSet = Object.keys(screenFx).length > 0;
-		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays && !screenFxSet) {
+		if (jurisdiction === 'default' && allOn && !bootLoader && !screenFxSet) {
 			return undefined;
 		}
 		const settings: GameSettings = {};
@@ -2900,15 +2889,6 @@
 			};
 		}
 		if (bootLoader) settings.bootLoader = bootLoader;
-		// Sparse: only an ON row is written (the normalizer keeps only those too).
-		if (authoredOverlays) {
-			settings.authoredOverlays = {
-				...(authoredTransition ? { transition: true } : {}),
-				...(authoredWin ? { win: true } : {}),
-				...(authoredFreeSpins ? { freeSpins: true } : {}),
-				...(authoredButtons ? { buttons: true } : {}),
-			};
-		}
 		Object.assign(settings, screenFx);
 		return settings;
 	}
@@ -4407,79 +4387,6 @@
 								</label>
 								{#if ukLocked}
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
-								{/if}
-
-								{#if data.canPublishShared || authoredTransition || authoredWin || authoredFreeSpins || authoredButtons}
-									<hr class="gs-rule" />
-									<p class="gs-note">
-										<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
-										instead of the coded one. Both rows are pilots: leave them off for live games until
-										the owner's browser check; the publish summary names each when on.
-									</p>
-									<label
-										class="gs-toggle"
-										class:disabled={!data.canPublishShared}
-										title="The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount. Same rig, same timing; the flow continues when the wipe ends. Switched by a publisher (the component-publish capability)."
-									>
-										<input
-											type="checkbox"
-											checked={authoredTransition}
-											disabled={!data.canPublishShared}
-											onchange={(e) => {
-												authoredTransition = e.currentTarget.checked;
-												onGameSettingChange();
-											}}
-										/>
-										<span>Transition</span>
-									</label>
-									<label
-										class="gs-toggle"
-										class:disabled={!data.canPublishShared}
-										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption (in the base game or any spins mode) uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
-									>
-										<input
-											type="checkbox"
-											checked={authoredWin}
-											disabled={!data.canPublishShared}
-											onchange={(e) => {
-												authoredWin = e.currentTarget.checked;
-												onGameSettingChange();
-											}}
-										/>
-										<span>Win</span>
-									</label>
-									<label
-										class="gs-toggle"
-										class:disabled={!data.canPublishShared}
-										title="The free-spin intro and outro visuals (the frame rig, the count rig and number, the localized captions, the fade) play from the built-in “Free-spin intro / outro presentation” components and their timelines instead of the coded FreeSpinIntroVisual / FreeSpinOutroVisual; the coded outro driver keeps the count-up and the round hold, the screens keep their taps. Held back (the coded path stays, the publish summary warns) when nothing binds a coded visual, when one sits in a non-canvas screen, when a screen places a free-spin visual instance, or when a visual names a custom rig, clip or slot. Switched by a publisher (the component-publish capability)."
-									>
-										<input
-											type="checkbox"
-											checked={authoredFreeSpins}
-											disabled={!data.canPublishShared}
-											onchange={(e) => {
-												authoredFreeSpins = e.currentTarget.checked;
-												onGameSettingChange();
-											}}
-										/>
-										<span>Free spins</span>
-									</label>
-									<label
-										class="gs-toggle"
-										class:disabled={!data.canPublishShared}
-										title="Every parametric HUD button draws its per-state frame (the tile, its downstate grey and selected border, or the state images), turns its spin frame and plays its press sound from the built-in “Button presentation” component and its state machine instead of the coded ButtonFrame; the press itself, what it does and when the button is disabled, selected or spinning stay coded. Held back (the coded frame stays, the publish summary warns) when no screen places a parametric button, or when the project's own Button component draws something else. Switched by a publisher (the component-publish capability)."
-									>
-										<input
-											type="checkbox"
-											checked={authoredButtons}
-											disabled={!data.canPublishShared}
-											onchange={(e) => {
-												authoredButtons = e.currentTarget.checked;
-												onGameSettingChange();
-											}}
-										/>
-										<span>Buttons</span>
-									</label>
 								{/if}
 
 								<hr class="gs-rule" />

@@ -293,7 +293,7 @@ export interface RigClip {
 }
 
 /**
- * Play `clip` on the rig node actor `actorId` from `at` (Rive plan Phase 8a's `animation` strip,
+ * Play `clip` on the rig node actor `actorId` from `at` (the `animation` strip,
  * authored from the editor): the actor's animation track, created when it has none, gains a strip
  * that holds the clip for its own length, with `clipLength` recorded so the game can loop it
  * without the skeleton. The timeline grows to end no earlier than the strip; it never shrinks.

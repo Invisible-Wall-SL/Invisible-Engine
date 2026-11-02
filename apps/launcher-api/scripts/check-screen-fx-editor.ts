@@ -24,8 +24,7 @@
  *     its load is a custom kind's compiled cost or a built-in twin's against the transition budget.
  *  6. **The cue palette** harvests the post FX cues, and the publish gate's vocabulary resolves a
  *     Fire Cue on one only given the doc's settings.
- *  7. **No new capability** (§16.11): a save that changes Screen FX is anyone's.
- *  8. **The wiring**, by source: the page builds `settings` through the block's helper and renders
+ *  7. **The wiring**, by source: the page builds `settings` through the block's helper and renders
  *     the block in Game Settings; the block is held to the stage's triggers and caps; the cue row
  *     comes first and writes through the game's reader.
  */
@@ -70,7 +69,6 @@ import {
 } from '../src/lib/screenFx';
 import { flowFiresTransition, flowFiresTransitionWith } from '../src/lib/transitionCueFlow';
 import { buildGameProfile } from '../src/lib/server/gameProfile';
-import { authoredOverlaySaveDecision } from '../src/lib/server/authoredOverlayGuard';
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation';
 
 let fails = 0;
@@ -384,10 +382,8 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 			line({ kind: 'custom:gone' }).text.includes('the wipe'),
 	);
 	check(
-		'on, it names the trade: the flow goes on about 1.6 s sooner, the pilot set aside',
-		line({ kind: 'burn' }).text.includes('1.6 s sooner') &&
-			line({ kind: 'burn' }).text.includes('pilot is set aside') &&
-			!line({ kind: 'burn' }).warn,
+		'on, it names the trade: the flow goes on about 1.6 s sooner',
+		line({ kind: 'burn' }).text.includes('1.6 s sooner') && !line({ kind: 'burn' }).warn,
 	);
 	check(
 		'a stored flow that never fires transition warns; no stored flow (the coded one) does not',
@@ -512,7 +508,7 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 			protocol: null,
 			layout,
 		}).features.map((c) => c.id);
-	const on = { authoredTransition: 'off', authoredWin: 'off', transitionCue: 'screen' } as const;
+	const on = { transitionCue: 'screen' } as const;
 	eq(
 		'Game Maker warns when the flow never fires transition (only with the row on)',
 		[
@@ -570,26 +566,7 @@ const entry = (id: string, kind: string, more: Partial<ElementFxEntry> = {}): El
 	check('…and not without them (so the settings are what resolves it)', unresolved());
 }
 
-// ---- 7. no new capability -------------------------------------------------------------------------
-eq(
-	'a non-publisher’s save that sets the cue row, post FX and the switch is written',
-	authoredOverlaySaveDecision({
-		before: { settings: {} },
-		after: {
-			settings: {
-				transitionCue: { kind: 'burn' },
-				postFx: [entry('a', 'glow')],
-				stageFxAntialias: true,
-			},
-		},
-		canPublish: false,
-		baseEtag: '"e"',
-		storedEtag: '"e"',
-	}),
-	'write',
-);
-
-// ---- 8. the wiring --------------------------------------------------------------------------------
+// ---- 7. the wiring --------------------------------------------------------------------------------
 {
 	const page = src('../src/routes/(app)/editor/+page.svelte');
 	const block = src('../src/routes/(app)/editor/EditorScreenFx.svelte');
@@ -600,7 +577,7 @@ eq(
 			page.includes(
 				'const screenFx = screenFxSettings({ transitionCue, postFx, stageFxAntialias });',
 			),
-			/!authoredOverlays && !screenFxSet\)/.test(page),
+			/!bootLoader && !screenFxSet\)/.test(page),
 			/Object\.assign\(settings, screenFx\);\s*return settings;/.test(page),
 			page.includes('data.doc.settings?.postFx') &&
 				page.includes('data.doc.settings?.stageFxAntialias === true') &&
@@ -609,11 +586,11 @@ eq(
 		[true, true, true, true],
 	);
 	eq(
-		'Game Settings renders the block, after Authored overlays and before Boot splash',
+		'Game Settings renders the block, after the speed features and before Boot splash',
 		(() => {
 			const at = (s: string) => page.indexOf(s);
 			return [
-				at('<EditorScreenFx') > at('<span>Buttons</span>'),
+				at('<EditorScreenFx') > at('<span>Hold-to-spin (Space)</span>'),
 				at('<EditorScreenFx') < at('<strong>Boot splash</strong>'),
 			];
 		})(),

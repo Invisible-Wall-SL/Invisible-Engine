@@ -35,8 +35,7 @@ export interface ComponentDuplicate {
  * onto the copy under a fresh id, and the state machine plays the copies, so editing one never
  * moves the original. A state playing a timeline the source only reuses keeps playing that one.
  * Node actors keep their targets: a component timeline finds its node by name, and the copy keeps
- * every name. The built-in-only behaviour flags (`buttonStates`, `settles`, …) stay, so a copy of
- * a presentation def plays as it does.
+ * every name.
  *
  * `projectDefaults` (this game's defaults for the source) become the copy's own param defaults:
  * the copy is already this project's fork, so its look lives in one place, the def, and shows the

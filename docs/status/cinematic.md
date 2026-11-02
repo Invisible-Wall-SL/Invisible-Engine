@@ -688,26 +688,17 @@ through the same player; headless-proven, no editor yet (5b).
   parameter), `blendNodeSamples` mixes them on an effect node, and the shared Timeline module gained
   `host.actorChannels` and a `keyProperty` ease (both synced to `static/shared/`). Detail in
   [FX status](fx.md), 2026-10-15 "Step 2".
-- 2026-10-14 — **Generated timelines and a per-component play rate (Rive plan Phase 8b, branch
-  `claude/rive-p8b-win-design`).** `registerGameTimelines(baked, generated)` takes timelines the
-  game GENERATES at boot (the authored win's per-tier walk / loop / outro docs, `winTierTimelines`,
-  lower-case ids a baked project timeline shadows); `ComponentTimelinePlayer.playRate` advances
-  every running `playOn` timeline by `dt × playRate` (`componentPlayRate.ts`, set by the game);
-  a `text` track in `switchKey` mode drives the caption. No Animate UI for any of it in this
-  change. Detail: [engine status](engine.md), 2026-10-14; launcher gate `check:authored-win`.
-
-- 2026-10-14 — **`animation` strips on rig NODE actors + `holdsCue` (Rive plan Phase 8a, branch
-  `claude/rive-p8a-transition-overlay`).** The §3.1 open item: a node actor's `animation` track now
-  plays — `sampleNodeActor` (synced copy too) samples the strip active at `t` as `animTime:
-  { animation, time }` in clip-local SECONDS (`clipLocalTime` with the strip's new `clipLength`, else
-  once-and-hold), `keyedNodeChannels` keys `animTime`, `nodeActorChannelsForKind('spine')` takes it
-  (`validateNodeActors`: `channel-unsupported` on any other kind), and the player hands it to
-  `<LayoutNodeView>` → `<RigPose>` (`unit: 'seconds'`). A component timeline may carry `holdsCue`
-  (Animate → **Holds the cue**, cleared with Plays on). Not built: the `/rigger` and `/editor`
-  sequencer rows for a rig-node strip (the first built-in timeline is code); loop modes on a node
-  strip need `clipLength`. Gates: `check:component-timelines` (53), `cinematic-nodes.mjs` 69/69,
-  `cinematic.mjs` 118/118. The runtime seam, the registry rule and the built-in timeline:
-  [engine status](engine.md), 2026-10-14.
+- 2026-10-14 — **`animation` strips on rig NODE actors + `holdsCue`.** The §3.1 open item: a node
+  actor's `animation` track now plays — `sampleNodeActor` (synced copy too) samples the strip active
+  at `t` as `animTime: { animation, time }` in clip-local SECONDS (`clipLocalTime` with the strip's
+  new `clipLength`, else once-and-hold), `keyedNodeChannels` keys `animTime`,
+  `nodeActorChannelsForKind('spine')` takes it (`validateNodeActors`: `channel-unsupported` on any
+  other kind), and the player hands it to `<LayoutNodeView>` → `<RigPose>` (`unit: 'seconds'`). A
+  component timeline may carry `holdsCue` (Animate → **Holds the cue**, cleared with Plays on). Not
+  built: the `/rigger` and `/editor` sequencer rows for a rig-node strip; loop modes on a node strip
+  need `clipLength`. Gates: `check:component-timelines` (53), `cinematic-nodes.mjs` 69/69,
+  `cinematic.mjs` 118/118. The runtime seam, the registry rule and built-in timelines: [engine
+  status](engine.md), 2026-10-14.
 
 - 2026-10-13 — **Component state machine runtime (Rive plan Phase 5a, branch
   `claude/rive-p5a-state-machine-runtime`).** `stateMachine.ts` (interpreter, `blendNodeSamples`,

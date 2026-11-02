@@ -148,8 +148,6 @@ export const PART_NEEDS: Record<string, PartNeeds> = {
 	Win: winVisualNeeds,
 	WinVisual: winVisualNeeds,
 	WinGate: none,
-	// `WinCoinsPart.svelte:16-21`.
-	WinCoins: (params) => (params.showCoins !== false ? ['coins'] : []),
 	// `Transition.svelte:28-46` → `TransitionAnimation.svelte:23`. Awaited: a missing rig never
 	// completes, so a mounted Transition keeps its rig even when nothing is known to fire it.
 	Transition: () => ['transition'],
@@ -225,7 +223,6 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
  * - `part` — a bound coded part: {@link PART_NEEDS}.
  * - `mount` — a coded mount the game always makes: `codedMountNeeds` in `stockAssets.ts`.
  * - `always` — a key in {@link ALWAYS_KEPT}.
- * - `flags` — a built-in the authored-overlay flags swap in: `AUTHORED_OVERLAY_DEFS` there.
  * - `builtinDef` — a built-in ComponentDef; the reference walk expands it where it is placed.
  * - `fallbackScene` — reference-layout content: walked when the game mounts it as a fallback scene
  *   (`sceneSelection.ts`), otherwise only reachable once copied into a project's doc.
@@ -238,7 +235,6 @@ export type StockRule =
 	| 'part'
 	| 'mount'
 	| 'always'
-	| 'flags'
 	| 'builtinDef'
 	| 'fallbackScene'
 	| 'reference'
@@ -426,11 +422,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	{ file: 'packages/engine-game/src/game/gameConfig.ts', rule: 'symbols', names: ['H1'] },
 	{ file: 'packages/engine-game/src/game/symbolCell.ts', rule: 'symbols', names: ['explosion'] },
 	{
-		file: 'packages/engine-layout/src/lib/authoredOverlays.ts',
-		rule: 'flags',
-		names: ['fsIntroNumber', 'fsOutroNumber'],
-	},
-	{
 		file: 'packages/engine-layout/src/lib/boundComponentCatalog.ts',
 		rule: 'editorOnly',
 		names: [
@@ -446,25 +437,7 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	{
 		file: 'packages/engine-layout/src/lib/builtinComponents.ts',
 		rule: 'builtinDef',
-		names: [
-			'gold',
-			'loader',
-			'transition',
-			'fsIntroNumber',
-			'fsOutroNumber',
-			'bigwin',
-			'coins',
-			'fsIntro',
-			'freespins_*.png',
-			'freespins.png',
-			'winsmall_*.png',
-			'totalwin.png',
-		],
-	},
-	{
-		file: 'packages/engine-layout/src/lib/builtinComponents.ts',
-		rule: 'notAsset',
-		names: ['sound'],
+		names: ['gold', 'loader', 'transition', 'fsIntroNumber', 'fsOutroNumber', 'bigwin', 'fsIntro'],
 	},
 	{
 		file: 'packages/engine-layout/src/lib/builtinRegions.ts',
@@ -538,11 +511,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 			'tumble_multiplier',
 			'tumble_win',
 		],
-	},
-	{
-		file: 'packages/engine-layout/src/lib/builtinTimelines.ts',
-		rule: 'notAsset',
-		names: ['transition'],
 	},
 	{ file: 'packages/engine-layout/src/lib/coinLabel.ts', rule: 'always', names: ['gold'] },
 	// A timeline cue's route kind (`routeComponentCue`), not the stock sound-toggle art.

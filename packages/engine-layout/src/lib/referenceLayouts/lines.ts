@@ -104,34 +104,6 @@ export interface DefaultLayoutOptions {
 	 * `bind:Win` in `basegameOverlays` (parity); `apps/lines` forwards its `WIN_INSTANCE` flag.
 	 */
 	winInstance?: boolean;
-	/**
-	 * Set `settings.authoredOverlays.transition` on the doc (Rive plan Phase 8a): the game then
-	 * renders the Transition from the built-in `transitionWipe` component instead of the coded
-	 * `bind:Transition` (the node itself is unchanged — the game swaps it at mount). Default-OFF =
-	 * no `settings` block (parity); `apps/lines` forwards its `AUTHORED_TRANSITION` dev-pilot flag.
-	 */
-	authoredTransition?: boolean;
-	/**
-	 * Set `settings.authoredOverlays.win` on the doc (Rive plan Phase 8b): the game then renders the
-	 * big-win presentation from the built-in `winPresentation` component and its generated timelines
-	 * instead of the coded `WinVisual` (the gate stays coded). Default-OFF = no row (parity);
-	 * `apps/lines` forwards its `AUTHORED_WIN` dev-pilot flag.
-	 */
-	authoredWin?: boolean;
-	/**
-	 * Set `settings.authoredOverlays.freeSpins` on the doc (Rive plan Phase 8c): the game then
-	 * renders the free-spin intro / outro visuals from the built-in presentations instead of the
-	 * coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`. Default-OFF = no row (parity);
-	 * `apps/lines` forwards its `AUTHORED_FREE_SPINS` dev-pilot flag.
-	 */
-	authoredFreeSpins?: boolean;
-	/**
-	 * Set `settings.authoredOverlays.buttons` on the doc (Rive plan Phase 8d): the game then draws
-	 * every parametric `button` from the built-in `buttonPresentation` instead of the coded
-	 * `ButtonFrame`. Default-OFF = no row (parity); `apps/lines` forwards its `AUTHORED_BUTTONS`
-	 * dev-pilot flag.
-	 */
-	authoredButtons?: boolean;
 }
 
 /**
@@ -253,21 +225,6 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 		projectKey: gameType,
 		gameType,
 		mainSizesMap: MAIN_SIZES_MAP,
-		...(options.authoredTransition ||
-		options.authoredWin ||
-		options.authoredFreeSpins ||
-		options.authoredButtons
-			? {
-					settings: {
-						authoredOverlays: {
-							...(options.authoredTransition ? { transition: true } : {}),
-							...(options.authoredWin ? { win: true } : {}),
-							...(options.authoredFreeSpins ? { freeSpins: true } : {}),
-							...(options.authoredButtons ? { buttons: true } : {}),
-						},
-					},
-				}
-			: {}),
 		scenes: [
 			{
 				// Startup splash: a generic `loadingBar` componentInstance (the masked
