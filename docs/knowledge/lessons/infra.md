@@ -6,6 +6,14 @@ Covers Railway deploys, Cloudflare (DNS, tunnel), R2, CI workflows, GHCR, git wo
 launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/INFRA.md` and the
 `/deploy` skill. ComfyUI and RunPod traps live in [comfyui.md](comfyui.md).
 
+### An online game said "this game is not available"
+- **Symptom:** Salmons would not join a room; the device only said "this game is not available".
+- **Cause:** three in turn: the `rooms` record proxied (a CORS-less `523` on `/matchmake`), then
+  `GAME_SERVER_CONFIG_URL` unset, then set with a malformed `?project={game}` (the launcher's 400).
+- **Fix:** `rooms` DNS-only; the URL set exactly as INFRA "Invisible Game Server" step 6 writes it.
+- **Guard:** none; the reason is only in the game-server log (INFRA → Troubleshooting).
+- **PR:** not recorded (2026-11-02) · source: `docs/INFRA.md`
+
 ### CI failed on a gate my filtered local run never ran
 - **Symptom:** the gates I picked by keyword passed, then `check-all (n/3)` went red in CI.
 - **Cause:** gates pin source: `check-respin-modes-runtime.mts` lists respin deps (`onCellLand`);

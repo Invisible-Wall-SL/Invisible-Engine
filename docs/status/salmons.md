@@ -92,6 +92,8 @@ the placeholders when they are.
 
 ## Owner steps (P10.16) — not done by the build
 
+Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
+
 1. **Put Salmons in the `salmons` project.** Run
    `node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/salmons/export.mjs --out <dir>`
    and upload what it writes, at the same keys, into R2 (the FTP Browser, admin full-bucket):
@@ -106,7 +108,7 @@ the placeholders when they are.
    address into the launch URL as `rooms_url` (the launcher's `GAME_SERVER_URL`, by default
    `wss://rooms.invisiblewall.org`), so the published link plays as it is.
 4. **The game server's config credential** (INFRA "Invisible Game Server" steps 5–7), so the live
-   server can read the published config; until then it plays no game.
+   server can read the published config.
 5. **Moving the players over** from the Salmon repository's own server: when the art (and,
    if wanted, the isometric view, P11.4) is in and you are happy with a playtest on the live server.
 
@@ -160,6 +162,10 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-02 — **Salmons plays live.** Owner steps 1 (upload), 3 (publish) and 4 (the config
+  credential) are done; a published link joins a room on `rooms.invisiblewall.org`. The three
+  failures on the way are in INFRA "Invisible Game Server" → Troubleshooting.
 
 - 2026-10-29 — **P11.4: Salmons is isometric.** Its river screen sets `projection: 'isometric'`:
   the river is drawn 2:1, the players upright, nearer in front; the room and the netcode are
