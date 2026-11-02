@@ -32,8 +32,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   loaded — otherwise the live path, untouched. A **rig keyframe** (`rigFx` → `<RiggedEffect>`) is
   not a drive: a baked effect it fires plays the loop from each beat on the bone, at the binding's
   speed, and fades out over its longest particle life when the beat ends (2026-11-02). A flight
-  trail or live parameter values still play live. ⏳ Gated headlessly (Node, the real page and the
-  real player in headless Chromium); not yet clicked in an authed `/fx` or watched in a published
+  trail or live parameter values still play live. An effect that mixes blend modes bakes as
+  layered **blend groups**, one sprite each with its own blend (2026-11-02), so additive layers stay
+  light. ⏳ Gated headlessly (Node, the real page, the real player and a baked-vs-live pixel
+  comparison in headless Chromium); not yet clicked in an authed `/fx` or watched in a published
   game.
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
 - **Event trigger end-to-end.** A `trigger.on:'event'` layer fires when a matching cue crosses the runtime event bus (a Flow v1 Broadcast / v2 `fireCue`), with an optional **Stop event** and **Duration**. The full author→ship→fire chain (export → `deploy/effects/` → bake → pull → `bakedEffects()` register) is wired.
@@ -68,6 +70,12 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Re-bake Overlay Buffalo Duel's mixed effects** (2026-11-02) — `s_sparks_small` and
+  `s_sparks_big` mix Normal and Add, so their stored bakes now read **Stale** and play live (in a
+  game, once this runtime ships, even before a re-publish). In `/fx`: open each, **Bake again**,
+  Save, publish; then judge by eye that the dark outline is gone. `s_smoke` (all Add) and
+  `smokeclouds` (all Normal) keep their bakes. Unverified: the UASTC-compressed KTX2 page of a
+  layered sheet (the pixel gate runs the PNG and the premultiplied twin's bytes, not the encoder).
 - **Owner look at rig-fired bakes** (2026-11-02) — in Overlay Buffalo Duel once this runtime
   ships: the firecracker sparks (`s_sparks_small`) and the roof (`s_sparks_big`, `s_smoke`,
   `smokeclouds`) should draw as baked loops on their bones, appear over 0.1 s, and fade out over
@@ -160,6 +168,50 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-02 — **Mixed blend modes bake as layered groups: no more dark outline** (branch
+  `claude/fx-bake-blend-groups`). Why: Overlay Buffalo Duel's baked `s_sparks_small` (Clouds, Fire
+  Normal; four spark layers Add) and `s_sparks_big` (Clouds Normal; Fire, Sparks1, Sparks2 Add)
+  showed a strong dark outline. `effectBakeBlend` returned `normal` unless every layer was additive,
+  so the additive layers were captured with their accumulated alpha into the one sheet and drawn
+  source-over: they hid the background by `1 − A` instead of adding light, and the black surround of
+  the spark art (invisible under Add) became a dark ring. Confirmed in pixels (below). What changed:
+  - **`engine-fx` `bake.ts`**: `effectBakeGroups` (consecutive drawn layers sharing a blend, draw
+    order; `normal`/`add`/`screen`/`multiply`) replaces `effectBakeBlend`. `EffectBakeResult` holds
+    `groups: { blendMode, frames }[]` instead of `frames` + `blendMode`; a stored pre-group result
+    reads as one group. `effectBakeGroupsMatch` — a result whose groups are not the layers' blend
+    runs is **stale** (export strips it) and `effectBakeChoice` plays it live (`stale-blend`), so an
+    already-shipped flattened bake stops drawing its outline as soon as the runtime updates. Cells
+    start on a 4-px block with ≥ 2 px of transparent gutter (`effectBakePitch`,
+    `effectBakeCellOrigin`, `effectBakeSheetSize`): no bilinear or UASTC-block bleed between cells.
+    More than 8 groups is a blocker.
+  - **Capture (`fxBake.client.ts`)**: `mountEffectForBake` (shared with the pixel gate); each frame
+    is extracted once per group over the same box (other groups hidden), a `multiply` run cleared to
+    white; `add`/`screen` alpha is raised to the brightest channel before the straight-alpha PNG.
+    Cells are laid out group by group on the one page.
+  - **`/api/fx/bake`**: takes `groups` (1–8, default 1), validates the aligned layout, answers each
+    group's frame names.
+  - **Runtime (`<BakedEffect>`)**: one sprite per group, in order, each with its blend, all on the
+    same frame, same start frame, same beat fades and rate. `<EffectPlayer>` re-mounts it per sheet.
+  - **/fx Bake bar**: a line when the layers mix blends ("bakes as N layered groups (Normal → Add)");
+    the preview draws every group with its blend over the stage background; the stale test is
+    `effectBakeStale`. The old "Mixed blend modes bake as Normal" warning is gone.
+  - **Premultiply round trip**: checked, no bug — capture reads premultiplied, the PNG is straight
+    (`rgb·255/a`, a transparent pixel stays 0,0,0,0), Pixi premultiplies a PNG on upload and the
+    encoder premultiplies the `.pm.ktx2` twin, which `ktx2AlphaMode` marks premultiplied. The pixel
+    gate measures it: a normal-only cloud has no pixel darker than live by more than 6/255.
+  - **Pixel evidence** (`baked-runtime`, new `bakedRuntime/pixels.ts`: the real capture at scale 1,
+    cut seam, and the real `<EffectPlayer>`, against the same seeded particles run live; 12 frames
+    each, over mid grey and the dark stage background). Normal cloud under Add sparks whose art is a
+    glow on an opaque black square — the old flattened bake: over grey MAE 11.09/255, 14,698 dark-ring
+    pixels (baked darker than the background where live is not); over dark 1.47/255, 1,738. The
+    grouped bake: MAE 0.29 / 0.26, 0 dark-ring, 0 darker than live, for both the PNG and the
+    premultiplied KTX2 bytes. Normal-only smoke: 0.34 / 0.29, 0 / 0 / 0. Normal + multiply + screen:
+    0.41 / 0.35, 0 / 0 / 0.
+  - Gates: `effect-bake` 108 (19 new), `baked-runtime` 83 (53 new pixel checks), `fx-bake-page` 15
+    (now a Normal + Add effect: 96 cells, each group's seam), `launcher-api` `check:fx-bake` 33 (4
+    new). `rigger-fx.js` rebuilt. `pnpm check:all` 610/610, `check:svelte` at baseline, lint clean.
+  - **Existing bakes**: a mixed-blend bake must be baked again (it reads Stale and plays live until
+    then); an all-Add or all-Normal bake keeps working unchanged.
 - 2026-11-02 — **A baked effect fired by a rig keyframe plays its bake** (branch
   `claude/fx-bake-rig-beats`). Why: in `borut/overlay_buffaloduel` the rig-fired firecracker
   effects (`s_sparks_small` on `R_FireCrackerRed/Blue/Green`, `s_sparks_big`, `s_smoke`,
