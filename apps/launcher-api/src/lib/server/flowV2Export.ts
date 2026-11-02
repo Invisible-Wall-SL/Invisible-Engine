@@ -1,10 +1,9 @@
 /**
  * Export a project's Invisible Flow **v2** document (+ the shared function library) into the
- * game-loadable `deploy/` subtree — the v2 analogue of `flowExport.ts`. Closes the "authored the
- * flow in /flow-v2, it saves to R2, but the shipped game still runs its coded path" gap for v2
- * (Phase 5 "ship-ready v2, keep v1"; RULE 8).
+ * game-loadable `deploy/` subtree. Closes the "authored the flow in /flow-v2, it saves to R2, but
+ * the shipped game still runs its coded path" gap (RULE 8).
  *
- * Like v1's flow export, a v2 FlowDoc carries NO binary assets (it only references scenes the Scene
+ * A v2 FlowDoc carries NO binary assets (it only references scenes the Scene
  * Editor already exported + a template vocabulary the game ships), so this is a plain JSON copy with
  * no asset mirroring:
  *

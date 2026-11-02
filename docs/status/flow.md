@@ -2,13 +2,13 @@
 
 > Design: [invisible-flow-v2.md](../design/invisible-flow-v2.md) (+ [schema](../design/invisible-flow-v2-schema.md), [v1 plan](../design/invisible-flow.md), [flow-driven-game](../design/flow-driven-game.md)) · Guide: [docs/tools/flow.md](../tools/flow.md) · Agent: `.claude/agents/invisible-flow.md` · Older entries: [flow-history.md](flow-history.md)
 
-**One-line state:** Shipped and live — `/flow-v2` is the only editor, the v1 runtime + doc format + bake still power the game, and the flow-driven-game engine story (loading→tap→basegame, win-branch, condition guards, generic takeover mount, HUD replace) is complete on `main`; **`bookofborutremake` IS v2-driven in production** (`flowV2DrivesScreens === true`).
+**One-line state:** Shipped and live — `/flow-v2` is the only editor and Flow v2 the only authored flow (the v1 authored doc path was removed 2026-11-02), and the flow-driven-game engine story (loading→tap→basegame, win-branch, condition guards, generic takeover mount, HUD replace) is complete on `main`; **`bookofborutremake` IS v2-driven in production** (`flowV2DrivesScreens === true`).
 
 ## Current state
 
 - **Editor — `/flow-v2` only.** Unreal-style Blueprint graph (exec + typed data pins) over one game, at `apps/launcher-api/routes/(app)/flow-v2/`, backed by `packages/engine-flow-v2`. Palette projected from the template vocabulary (`bookOf`, `ways`, `cluster`, `scatter`, `holdAndWin` — `templateVocabulary(doc.templateId)`), pins derived from node refs, symbol pickers that follow the project's `/config` (in play, then the pots overlay's coins; no kind declares symbols), connect-time type checking, live Validation panel, deterministic headless Preview (ordered effect/cue/delay/show/hide timeline, 1×/2× speed), Collapse-to-Function (global shared library) and Collapse-to-Group, drag-off-pin contextual spawner. Auto-saves (no Save button) to R2 `editor/flow-v2.json` via `POST /api/flow-v2/save` (flow-gated). **v1 `/flow` editor retired 2026-07-13** (route + `/api/flow/save` + v1-editor-only helpers deleted).
-- **v1 runtime + doc format + bake still LIVE (load-bearing).** `engine-flow`, `flowExport.ts`/`exportEditorFlow` + `/api/editor/export-flow`, `flowVocabularies.ts` (the `/fx` tool derives its emitter vocab from it), and the `apps/lines/src/game/flow*` interpreter were deliberately KEPT — v2 storage/export, the FX tool, and the live runtime layer on these shared `flow*` primitives. The runtime dispatches a screen/event through the interpreter when a FlowDoc declares it, else falls through to coded mounting + `bookEventHandlerMap` (byte-identical to `main`).
-- **Full ship chain exists.** `/flow-v2` author → R2 → `flowV2Export.ts` (`deploy/flow-v2.json`) → bake → bundle slot → game `bakedFlowV2Doc()`. v1 doc bake path also intact.
+- **v1 authored doc path removed (2026-11-02).** No v1 FlowDoc is exported, baked or loaded; a stored `editor/flow.json` / `deploy/flow.json` in R2 is ignored. `engine-flow` + `createLinesFlow` (`apps/lines/src/game/flowRuntime.svelte.ts`) remain: when no v2 flow drives screens, every game boots a synthesized default `loading → basegame` flow (`events: []`), so book events fall through to the coded `bookEventHandlerMap`. v2 imports its `linesEngineReader`. The build breakdown's "Flow" row reads `authored` / `coded default`.
+- **Full ship chain exists.** `/flow-v2` author → R2 → `flowV2Export.ts` (`deploy/flow-v2.json`) → bake → bundle slot → game `bakedFlowV2Doc()`.
 - **flow-driven-game engine — Phases 1–4 + 6.1–6.3 + 8 on `main`** (merged 2026-06-30, `bdc849f`; see [design](../design/flow-driven-game.md)):
   - **P1** loading splash is a Flow screen; tap fires its `complete` edge to `basegame`.
   - **P2** big-win / free-spin-intro promoted to exclusive Flow screen nodes (`bigWin`/`freeSpinIntro`) reached by guarded `bookEvent` transitions, returning via tap `complete`; small wins stay feed-driven overlays.
@@ -26,7 +26,7 @@
 - **How a change ships:** both halves ship on a `main` merge. The launcher/editor UI deploys on Railway; a flow **engine** change (`apps/lines/**`, `packages/**`) triggers the automatic `Runtime release`, which re-points every online game at once (see "How the runtime ships" in [engine.md](engine.md)). A flow a project AUTHORS reaches players only when the project is published (they boot the published snapshot).
 - **`bookofborutremake` IS v2-driven in production** (verified live 2026-07-16, off the running game — this **corrects** a long-standing "no shipped game runs an authored FlowDoc yet" claim that was false and load-bearing for scoping decisions). `window.__IE_FLOW_V2__.ownsEvent('load')` ⇒ `true` (so `flowV2DrivesScreens === true`), `.ordered()` ⇒ `[{id:'loading',sceneId:'loading',z:105}]`. It owns via **wired `gameSignals` exec pins** — `load`, `tapToStart`, `winInfo`, `freeSpinEnd`, `setExpandingSymbol` — and has **zero `event` nodes**, so ownership resolves through `flowOwnsSignal`, NOT through `event`-node refs. It does **not** author `freeSpinIntro` (that scene isn't in the doc) and does **not** own `setWin`.
   - **Gotcha when reading a v2 doc:** the graph schema is `{nodes, exec, data}` — there is **no `edges` field**. `graph.edges || []` reads as "the flow is inert" and has produced wrong claims twice. Use `flowOwnsSignal` / `__IE_FLOW_V2__`.
-- **⏳ Caveats:** the cutover-track runtime dispatch / book-event ownership are landing incrementally; verify a project's authored flow against the live game (baked data masks dev-only bugs).
+- **⏳ Caveats:** verify a project's authored flow against the live game (baked data masks dev-only bugs).
 
 ## Open items / next
 
@@ -55,6 +55,18 @@
 
 ## Recent changes
 
+- 2026-11-02 — **The Flow v1 authored doc path is removed.** **Gone:** `flowExport.ts` (wrote
+  `deploy/flow.json`) and `flowDocKey`; the bake's v1 `flow` embed (`BakedBundle.flow` /
+  `RuntimeBundle.flow` / `bakedFlowDoc()`); the dev hooks `__IE_FLOW_DOC__`, `__IE_FLOW_LINES__`,
+  `__IE_FLOW_LOADING__`, `__IE_FLOW_WIN__`, `__IE_FLOW_COND__` and `__IE_FLOW_VALUE__`;
+  `apps/lines/src/game/flowDoc.ts` (the `LINES_FLOW_*` fixtures), `bookOwnership.ts`,
+  `withoutFreeSpinOverlays` and `loadFlowDoc`; `packages/engine-flow-migrate` and
+  `scripts/translate-flow.ts`; flow-spike `phase2`, `phase3`, `phase5`, `phase6`, `valuechain`,
+  `fs1` and `v2translate` (`vocab` and `fs4` lost their v1-fixture checks). **Kept:**
+  `/api/editor/export-flow`, now exporting only the v2 graph + function library
+  (`exportEditorFlowV2`); `engine-flow` + `createLinesFlow` for the synthesized default boot flow;
+  the v2 hooks (`__IE_FLOW_V2__`, `__IE_FLOW_V2_LINES__`). Stored v1 files in R2 are ignored, not
+  deleted. The build breakdown's "Flow" row now reads `authored` / `coded default`.
 - 2026-10-29 — **Screen transitions in the Flow** (Invisible Shader Graph 8e.4,
   [status](shader-graph.md)). `screenTransition` and `waitForScreenTransition` in the standard,
   match3 and arcade vocabularies, the `ScreenTransitionKind` enum, and `stage` in

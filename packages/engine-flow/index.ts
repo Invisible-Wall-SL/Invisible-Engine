@@ -8,7 +8,6 @@ export * from './src/dispatch';
 export * from './src/presentation';
 export * from './src/interpreter';
 export * from './src/pins';
-export * from './src/overlayOwnership';
 export * from './src/validate';
 export * from './src/diff';
 export * from './src/normalize';

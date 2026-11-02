@@ -1502,10 +1502,10 @@ The two cue traps (splice in series; fire after the screen shows) are in
 - **Function inputs/outputs are fixed once created.** A function body's **Entry** / **Result**
   signature (its inputs/outputs) can't be edited yet; adding or removing a function's
   parameters is a later feature.
-- The `/flow-v2` editor is the successor to the v1 `/flow` graph and is still on the
-  cutover track — the runtime dispatch, book-event ownership and full bake→ship chain are
-  landing incrementally (see `docs/STATUS.md`), so verify a project's authored flow against
-  the live game before relying on it.
+- The `/flow-v2` editor replaced the old v1 `/flow` graph. A v1 flow saved before 2026-11-02 is
+  no longer read by the game; a project without a v2 flow boots the default loading screen and
+  the coded presentation, so re-author its flow here. Verify an authored flow against the live
+  game before relying on it.
 
 ## For developers
 

@@ -70,7 +70,7 @@ const makeRig = (turbo: boolean) => {
 
 const broadcast = (event: string): ChoreographyNode => ({ kind: 'broadcast', event });
 
-// A fixture mirroring the LINES_FLOW_WIN_DOC shape (basegame + bigWin + freeSpinIntro), PLUS a
+// A win-transitions fixture (basegame + bigWin + freeSpinIntro), PLUS a
 // `loading` entry leg — so the harness exercises ALL four kinds of active screen the game
 // distinguishes: loading (splash, own path), basegame (reel-split base), and the two
 // takeovers. Each takeover swaps OUT of basegame on a bookEvent and returns via `complete`.

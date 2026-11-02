@@ -34,7 +34,7 @@
  * (`flowV2DrivesScreens` false) the rule collapses to the bare mount test ⇒ byte-identical.
  */
 
-/** The engine's canonical big-win flow screen id (`flowDoc.ts`) — the coded / v1 celebration. */
+/** The engine's canonical big-win flow screen id — the coded celebration. */
 const BIG_WIN_SCREEN = 'bigWin';
 /** The canonical free-spin intro / outro container ids (the scaffold scene ids). */
 const FREE_SPIN_INTRO_SCREEN = 'freeSpinIntro';

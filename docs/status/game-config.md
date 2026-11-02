@@ -396,9 +396,7 @@ moved to the `win` component — section above; the stings to Invisible Sound). 
 an un-authored config stays byte-identical. Inline `winLevels`/`escalateFrom`/`escalateTiers` validator
 issues render under the panel. `docs/tools/game-config.md` updated in the same change (rule 9).
 
-**Deliberately NOT touched:** `flowDoc.ts`'s `BIG_WIN_LEVELS = [6..10]` — a module-scope DEV-hook
-fixture (`window.__IE_FLOW_WIN__`), not the production path (online games run authored flow-v2 graphs);
-config is async so it can't be read at that module's init. Left as-is. And the coded `winLevelMap` table
+**Deliberately NOT touched:** the coded `winLevelMap` table
 stays as the un-authored fallback (byte-identical requirement #4).
 
 **Runtime bundle:** `winLevels` rides the existing config bake→pull chain (it's part of `GameConfigDoc`,

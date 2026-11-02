@@ -738,7 +738,7 @@
 		emitSignal: (signal: string) => void emitFlowSignal(signal),
 	});
 	// Flow value dataflow (design doc §11.4) — wire `<ComponentInstance>`'s value-feed lookup through
-	// the interpreter's authored value-binding overrides (+ the dev `__IE_FLOW_VALUE__` hook). No
+	// the interpreter's value-binding overrides. No
 	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
 	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
 	registerFlowValueSource(linesValueResolver);
@@ -1361,16 +1361,15 @@
 
 	const context = getContext();
 
-	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
-	// loads (it resolves authored screen ids to their scenes). ABSENT by default (no FlowDoc
-	// ⇒ `createLinesFlow` returns `undefined`), so the interpreter is inert and every screen
-	// mounts via the coded path below — byte-identical to current `main` (§7). When active,
-	// it drives book-event dispatch (via `flowInterpreterHolder`, read by `playBook.ts`)
-	// and the generic mounter resolves which authored screen mounts here.
+	// Invisible Flow — the default loading→basegame interpreter, built once the live editor doc
+	// loads (it resolves screen ids to their scenes). `undefined` when a v2 flow drives screens or
+	// the doc has no loading/basegame scene. It drives book-event dispatch (via
+	// `flowInterpreterHolder`, read by `playBook.ts`); its `events: []` leave every book event on
+	// the coded handlers.
 	let flow = $state<LinesFlow | undefined>(undefined);
 	// Invisible Flow v2 (Phase 4b) — the DEV-gated v2 handle + its z-ordered mounted containers,
 	// mirrored into a rune so `<FlowV2Mount>` re-renders on show/hide. `undefined`/empty on a normal
-	// boot (`__IE_FLOW_V2_DOC__` unset) ⇒ v2 inert, the v1/coded path above is untouched (parity).
+	// boot (`__IE_FLOW_V2_DOC__` unset) ⇒ v2 inert, the default flow above is untouched (parity).
 	let flowV2ResolveScene = $state<((sceneId: string) => Scene | undefined) | undefined>(undefined);
 	let flowV2Containers = $state<MountedContainerRef[]>([]);
 	// The v2 handle itself, mirrored into a rune so `<FlowV2Messages>` (the §6.3 text-message overlay)

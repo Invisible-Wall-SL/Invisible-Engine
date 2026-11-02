@@ -14,20 +14,8 @@
  * so book events STILL fall through to the coded `bookEventHandlerMap` (the game's presentation
  * is otherwise unchanged — only the loading/dismiss display moved to the generic mounter).
  *
- * An AUTHORED FlowDoc WINS: a FlowDoc that already includes the loading screen is used verbatim
- * (never overridden by the synthetic default). Authored docs reach the game via:
- *   - the baked `flow` slot in `BakedBundle` (Phase 6 — the real ship source), filled by the
- *     export→deploy→bake→register chain; absent for an un-baked `apps/lines` dev boot;
- *   - dev-only escape hatches on top: `window.__IE_FLOW_DOC__` (an arbitrary FlowDoc, the
- *     Phase-4 ad-hoc live-verify hook), `window.__IE_FLOW_LOADING__` (the committed
- *     `LINES_FLOW_LOADING_DOC` loading→basegame entry-leg fixture, flow-driven-game §1),
- *     `window.__IE_FLOW_WIN__` (the committed `LINES_FLOW_WIN_DOC` win-presentation-transitions
- *     fixture, flow-driven-game §2), and `window.__IE_FLOW_LINES__` (the committed full
- *     `LINES_FLOW_DOC` fixture), none set on a normal boot.
- *
- * A v1 FlowDoc does not present free spins: its free-spin overlay screens and events are stripped
- * (`withoutFreeSpinOverlays`), so each free-spin book event reaches its coded handler, which carries
- * the feature's state. Free-spin screens are a v2 flow's containers.
+ * Authored presentation is a Flow v2 graph (`flowV2Runtime`); when one drives screens this
+ * interpreter is not built at all (`Game.svelte`).
  *
  * It OBSERVES the XState platform FSM and book events; it NEVER drives a platform transition
  * (§12). The dispatcher's coded handlers are the un-authored fall-through.
@@ -38,14 +26,12 @@ import { createFlowInterpreter } from 'engine-flow';
 import type { LayoutDoc, Scene } from 'engine-layout';
 import { basegameSceneId, loadingSceneId, sceneByRole } from 'engine-layout';
 
-import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
 import { freeSpinsRemaining, freeSpinsTotal } from 'engine-game';
 import { stateBet, stateBetDerived } from 'state-shared';
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
-import { bakedFlowDoc } from '../editor-scenes';
 import type { ResolvedMeter } from 'game-config';
 import { boardDimensions } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
@@ -59,75 +45,16 @@ import { stateGame } from './stateGame.svelte';
 import { isFreeGameType, stateModes } from './stateModes.svelte';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
-import {
-	LINES_FLOW_COND_DOC,
-	LINES_FLOW_DOC,
-	LINES_FLOW_LOADING_DOC,
-	LINES_FLOW_WIN_DOC,
-} from './flowDoc';
 import type { BookEvent, BookEventContext } from './typesBookEvent';
 
-declare global {
-	var __IE_FLOW_DOC__: FlowDoc | undefined;
-
-	var __IE_FLOW_LINES__: boolean | undefined;
-
-	var __IE_FLOW_LOADING__: boolean | undefined;
-
-	var __IE_FLOW_WIN__: boolean | undefined;
-
-	var __IE_FLOW_COND__: boolean | undefined;
-	/**
-	 * Dev-only live-verify hook for value dataflow (design doc §11 step 4). Re-point a HUD value
-	 * display at a DIFFERENT engine feed at runtime WITHOUT authoring/baking a FlowDoc, so the
-	 * `app.stage` verify can confirm the readout switches to the override feed's number. Call
-	 * `window.__IE_FLOW_VALUE__('<instanceId>', '<producerFeed>')` before/after boot; pass a falsy
-	 * `producerFeed` to CLEAR an override. It writes a game-side override map the registered value
-	 * resolver consults FIRST — it does NOT touch the interpreter's memoized `valueBindings` cache
-	 * (so nothing ships-hacked), and it works even with no FlowDoc (inert interpreter). Unset ⇒ the
-	 * override map is empty ⇒ every display resolves its own `source` (parity §11.6).
-	 */
-
-	var __IE_FLOW_VALUE__: ((instanceId: string, producerFeed: string) => void) | undefined;
-}
-
 /**
- * Dev-only value-binding overrides injected via `window.__IE_FLOW_VALUE__` (see the global above).
- * Keyed `${instanceId}::${source}` → override feed key, mirroring the interpreter's binding table.
- * Empty on a normal boot (the hook is never called) ⇒ the resolver falls straight through to the
- * interpreter / the display's own `source` (parity §11.6).
- */
-const devValueOverrides = new Map<string, string>();
-
-if (typeof globalThis !== 'undefined') {
-	globalThis.__IE_FLOW_VALUE__ = (instanceId: string, producerFeed: string): void => {
-		// A falsy feed clears the override for EVERY source key on that instance (the display's own
-		// `source` isn't known here); a truthy feed overrides regardless of the display's own source
-		// name, so the verify can target `${instanceId}::${anySource}`. Keyed by instance for a simple
-		// "re-point this readout" verify — the value resolver matches on instance id first.
-		if (!producerFeed) {
-			for (const key of [...devValueOverrides.keys()]) {
-				if (key.startsWith(`${instanceId}::`)) devValueOverrides.delete(key);
-			}
-			return;
-		}
-		devValueOverrides.set(instanceId, producerFeed);
-	};
-}
-
-/**
- * Resolve a value display's engine FEED, honouring (in order): a dev-only `__IE_FLOW_VALUE__`
- * override on this instance, then the Flow interpreter's authored value-binding override
+ * Resolve a value display's engine FEED: the Flow interpreter's value-binding override
  * (`resolveValueSource`, design doc §11.4), else the display's own `source` verbatim (auto-bind by
  * name, §11.2 rule 3). Registered into engine-layout's `registerFlowValueSource` so
- * `<ComponentInstance>` calls it at the subscription site. Interpreter absent/inert AND no dev
- * override ⇒ returns `source` unchanged (byte-parity §11.6).
+ * `<ComponentInstance>` calls it at the subscription site. Interpreter absent ⇒ `source` unchanged.
  */
-export const linesValueResolver = (instanceId: string, source: string): string => {
-	const devOverride = devValueOverrides.get(instanceId);
-	if (devOverride) return devOverride;
-	return getFlowInterpreter()?.resolveValueSource(instanceId, source) ?? source;
-};
+export const linesValueResolver = (instanceId: string, source: string): string =>
+	getFlowInterpreter()?.resolveValueSource(instanceId, source) ?? source;
 
 /** A jackpot tier's prize in book-event units (× total bet, like `win`) — a progressive tier's live
  *  pool; 0 when the game's Game Config names no such tier. */
@@ -229,44 +156,8 @@ export const linesEngineReader = (key: string): unknown => {
 };
 
 /**
- * Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).
- *
- * Precedence — dev escape hatches FIRST (so a live-verify override always wins), then the
- * REAL ship source, the baked `BakedBundle.flow` slot:
- *  - `window.__IE_FLOW_DOC__` — an arbitrary FlowDoc injected at runtime (the Phase-4 hook,
- *    kept for ad-hoc single-screen/event live-verify);
- *  - `window.__IE_FLOW_LINES__` — load the COMMITTED, complete apps/lines FlowDoc
- *    (`LINES_FLOW_DOC` in `flowDoc.ts`) — the Phase-5 full-migration fixture, for live-verify
- *    without a deploy/bake;
- *  - `bakedFlowDoc()` — the FlowDoc embedded in the baked bundle by the export→deploy→bake
- *    chain (Phase 6, the real ship path). UNDEFINED on an un-baked / un-authored boot — incl.
- *    `apps/lines` dev with no globals set — so `loadFlowDoc()` returns `undefined`, the
- *    interpreter is inert, and the game is byte-identical to current `main` (§7).
- */
-export const loadFlowDoc = (): FlowDoc | undefined => {
-	if (typeof globalThis !== 'undefined') {
-		if (globalThis.__IE_FLOW_DOC__) return globalThis.__IE_FLOW_DOC__;
-		// Phase 1 (flow-driven-game §1) — the loading→basegame entry-leg fixture, for live-verify
-		// of the tap-to-enter leg without a deploy/bake. Checked BEFORE the full `LINES_FLOW_DOC`
-		// so a loading-leg verify wins. Unset on a normal boot ⇒ inert (parity, §7).
-		if (globalThis.__IE_FLOW_LOADING__) return LINES_FLOW_LOADING_DOC;
-		// Phase 2 (flow-driven-game §2) — the win-presentation-transitions fixture, for
-		// live-verify of the win-branch leg (big-win + free-spin-intro as exclusive screen nodes,
-		// small win as a feed-driven overlay) without a deploy/bake. Checked before the full
-		// `LINES_FLOW_DOC` so a win-branch verify wins. Unset on a normal boot ⇒ inert (parity, §7).
-		if (globalThis.__IE_FLOW_WIN__) return LINES_FLOW_WIN_DOC;
-		// Phase 3 (flow-driven-game §3) — the engine-state `condition`-transition fixture, for
-		// live-verify of branching on LIVE engine state (a `$engine.*` guard) without a deploy/bake.
-		// Checked before the full `LINES_FLOW_DOC`. Unset on a normal boot ⇒ inert (parity, §7).
-		if (globalThis.__IE_FLOW_COND__) return LINES_FLOW_COND_DOC;
-		if (globalThis.__IE_FLOW_LINES__) return LINES_FLOW_DOC;
-	}
-	return bakedFlowDoc();
-};
-
-/**
- * Add a DEFAULT `loading → basegame` leg so an un-authored game still boots generically (the
- * coded loading path is gone — flow-driven-game §1).
+ * The DEFAULT `loading → basegame` flow every game boots (the coded loading path is gone —
+ * flow-driven-game §1).
  *
  * Active-SET semantics (the pin-driven model): `loading` is the `initial` (base) screen, so it —
  * and ONLY it — is active at boot; `basegame` is NOT yet active, so the reel board is HIDDEN
@@ -275,26 +166,14 @@ export const loadFlowDoc = (): FlowDoc | undefined => {
  * tap) DEACTIVATES `loading` and ACTIVATES `basegame` — the splash unmounts and the reels appear
  * on the clean, undimmed background. `basegame` has no `complete`-triggered outgoing edge, so it
  * PERSISTS thereafter (celebration overlays layer over it and remove themselves on their Complete).
- *
- * - No `base` doc ⇒ synthesize the minimal `loading` (initial) → `basegame` doc with `events: []`
- *   (book events keep falling through to the coded `bookEventHandlerMap`).
- * - A `base` doc that LACKS the loading screen ⇒ PREPEND the loading leg: add the `loading` screen
- *   as the new `initial`, demote the base doc's own `initial`, and add the `complete` edge to the
- *   role-resolved basegame — preserving all of the base doc's screens/transitions/events (so a dev
- *   `__IE_FLOW_LINES__` fixture keeps its full per-event choreographies, now with a loading leg).
- * - A `base` doc that ALREADY includes the loading screen is handled by the caller (it WINS).
+ * `events: []`, so book events fall through to the coded `bookEventHandlerMap`.
  *
  * Returns `undefined` (inert) if the loading or basegame scene can't be resolved, so nothing
  * crashes on a boot with no such scenes (keeps the coded path).
  */
-const withDefaultLoadingLeg = (
-	editorDoc: LayoutDoc,
-	base: FlowDoc | undefined,
-): FlowDoc | undefined => {
+const synthesizeDefaultFlowDoc = (editorDoc: LayoutDoc): FlowDoc | undefined => {
 	const loadingId = loadingSceneId(editorDoc.scenes);
 	const basegameId = basegameSceneId(editorDoc.scenes);
-	// Bail out (inert) if either scene doesn't actually resolve to a real scene — a boot with
-	// no loading/basegame scene keeps the coded path, nothing to synthesize.
 	const hasLoading =
 		sceneByRole(editorDoc.scenes, 'loading') !== undefined ||
 		editorDoc.scenes.some((scene) => scene.id === loadingId);
@@ -303,89 +182,28 @@ const withDefaultLoadingLeg = (
 		editorDoc.scenes.some((scene) => scene.id === basegameId);
 	if (!hasLoading || !hasBasegame) return undefined;
 
-	const completeEdge: FlowDoc['transitions'][number] = {
-		id: `${loadingId}→${basegameId}`,
-		from: loadingId,
-		to: basegameId,
-		trigger: { kind: 'complete' },
-	};
-
-	if (!base) {
-		return {
-			version: 1,
-			projectKey: editorDoc.projectKey ?? 'lines',
-			screens: [{ id: loadingId, initial: true }, { id: basegameId }],
-			transitions: [completeEdge],
-			events: [],
-		};
-	}
-
-	// Prepend the loading leg to the base doc: `loading` becomes the new initial, the base's own
-	// initial is demoted, and the `complete` edge feeds into the role-resolved basegame. The base's
-	// screens/transitions/events are otherwise untouched.
 	return {
-		...base,
-		screens: [
-			{ id: loadingId, initial: true },
-			...base.screens.map((screen) => (screen.initial ? { ...screen, initial: false } : screen)),
+		version: 1,
+		projectKey: editorDoc.projectKey ?? 'lines',
+		screens: [{ id: loadingId, initial: true }, { id: basegameId }],
+		transitions: [
+			{
+				id: `${loadingId}→${basegameId}`,
+				from: loadingId,
+				to: basegameId,
+				trigger: { kind: 'complete' },
+			},
 		],
-		transitions: [completeEdge, ...base.transitions],
+		events: [],
 	};
 };
 
-/**
- * Resolve the ACTIVE FlowDoc the game runs: the sourced doc (`loadFlowDoc`) with the default
- * loading leg applied. Returns `undefined` when no doc is authored (inert / coded path, parity §7).
- */
-const resolveActiveFlowDoc = (editorDoc: LayoutDoc): FlowDoc | undefined => {
-	const authoredDoc = loadFlowDoc();
-	// An AUTHORED doc that already includes the role-resolved loading screen WINS (used verbatim,
-	// never overridden). Otherwise add the default loading leg so an un-authored game (or an authored
-	// doc that omitted loading) still boots generically. If loading/basegame can't resolve, fall back
-	// to the authored doc as-is (inert loading, but the rest of the flow still runs).
-	const loadingId = loadingSceneId(editorDoc.scenes);
-	const authoredHasLoading = authoredDoc?.screens.some((screen) => screen.id === loadingId);
-	return authoredHasLoading
-		? authoredDoc
-		: (withDefaultLoadingLeg(editorDoc, authoredDoc) ?? authoredDoc);
-};
-
-/** The free-spin overlay screens a v1 FlowDoc may declare, and the book events that drive them. */
-const FREE_SPIN_SCREENS = new Set([
-	'freeSpinIntro',
-	'freeSpinCounter',
-	'freeSpinRetrigger',
-	'freeSpinOutro',
-]);
-const FREE_SPIN_EVENTS = new Set([
-	'freeSpinTrigger',
-	'updateFreeSpin',
-	'freeSpinRetrigger',
-	'freeSpinEnd',
-]);
-
-/**
- * Strip a v1 doc's free-spin overlays — the screens, every transition touching one, and the events
- * that drive them — so each free-spin book event reaches its coded handler (the feature's state).
- * A v1 screen cannot hold the round on a tap without an engine gate, and the engine has none: a
- * v1-mounted intro would run its choreography straight through and then sit on screen until tapped.
- * Free-spin screens are a v2 flow's containers (`showContainer{awaitComplete}` owns the hold).
- */
-const withoutFreeSpinOverlays = (doc: FlowDoc): FlowDoc => ({
-	...doc,
-	screens: doc.screens.filter((s) => !FREE_SPIN_SCREENS.has(s.id)),
-	transitions: doc.transitions.filter(
-		(t) => !FREE_SPIN_SCREENS.has(t.from) && !FREE_SPIN_SCREENS.has(t.to),
-	),
-	events: (doc.events ?? []).filter((e) => !FREE_SPIN_EVENTS.has(e.event)),
-});
-
-/** The interpreter handle the game holds (or `undefined` when no FlowDoc ⇒ pure coded path). */
+/** The interpreter handle the game holds; `undefined` when the doc has no loading/basegame scene. */
 export type LinesFlow = ReturnType<typeof createFlowInterpreter<BookEvent, BookEventContext>>;
 
 /**
- * Build the interpreter from the (optional) FlowDoc + the live editor doc. Returns
- * `undefined` when no FlowDoc is authored — the game then runs entirely coded (parity).
+ * Build the interpreter from the default flow + the live editor doc. Returns `undefined` when
+ * the doc has no loading/basegame scene — the game then runs entirely coded (parity).
  * `editorDoc` is the live LayoutDoc the game already loads; the generic mounter resolves a
  * screen id to its `Scene` from it, so an authored screen mounts the SAME scene the editor
  * authored (the real scenes, untouched).
@@ -409,17 +227,8 @@ export const createLinesFlow = (
 	 *  intent, or an absent bridge, is a safe no-op (parity §8.8). */
 	invokeIntent?: (screenId: string, intent: string) => void,
 ): LinesFlow | undefined => {
-	const resolvedDoc = resolveActiveFlowDoc(editorDoc);
-	if (!resolvedDoc) return undefined;
-	// Book-reveal authoring — the SAME per-step ownership flip for the single `reveal` step: an
-	// un-owned reveal's `setExpandingSymbol` event + `specialBook` overlay is STRIPPED so it falls
-	// through to the coded `SpecialBook` shuffle (byte-parity), while an OWNED reveal keeps its
-	// authored event + screen. `Game.svelte` gates the coded `SpecialBook` mount off the SAME
-	// ownership (`hasAuthoredBookReveal`), so event-authoring + mount-suppression flip together.
-	const flowDoc = gateBookOwnership(
-		withoutFreeSpinOverlays(resolvedDoc),
-		resolveBookOwnership(resolvedDoc, editorDoc.scenes),
-	);
+	const flowDoc = synthesizeDefaultFlowDoc(editorDoc);
+	if (!flowDoc) return undefined;
 
 	const resolveScene = (screenId: string): Scene | undefined =>
 		editorDoc.scenes.find((scene) => scene.id === screenId);

@@ -779,20 +779,11 @@ async function main() {
 			);
 		}
 
-	// Export the project's Invisible Flow document (the authored presentation graph)
-	// into R2 `deploy/flow.json` and embed the returned doc so the game's interpreter
-	// runs the authored flow instead of its coded mounting + bookEventHandlerMap. The
-	// FlowDoc carries NO binary assets (it references scenes the editor already
-	// exported), so there is no deploy mirror for it — just the embedded doc. Absent /
-	// un-authored ⇒ `flow` stays undefined ⇒ the interpreter is inert ⇒ the coded path
-	// runs, byte-identical to today (design doc §7 fall-through, §10 pipeline).
-	let flow;
-	// Invisible Flow v2 — the same endpoint returns `flowV2` + `flowV2Library` (the v2
-	// graph + its shared function library) alongside the v1 `flow`. A flow-v2 game reads
-	// these via `bakedFlowV2Doc()` / `bakedFlowV2Library()`; without them a v2-authored
-	// game bakes inert and renders static scene-editor placement with no flow driving —
-	// the exact "flow was never built" symptom. The endpoint self-gates on authored, so
-	// they're present only for a real v2 flow (parity for v1/coded games).
+	// Export the project's Invisible Flow v2 graph + its shared function library and embed
+	// them: a flow-v2 game reads these via `bakedFlowV2Doc()` / `bakedFlowV2Library()`; without
+	// them a v2-authored game bakes inert and renders static scene-editor placement with no flow
+	// driving — the exact "flow was never built" symptom. The endpoint self-gates on authored, so
+	// they're present only for a real v2 flow; otherwise the game boots its default flow (parity).
 	let flowV2;
 	let flowV2Library;
 	const flowUrl =
@@ -830,19 +821,6 @@ async function main() {
 				bail(`Flow export failed: HTTP ${flowRes.status} — ${await bodySnippet(flowRes)}`);
 			}
 			const f = await flowRes.json();
-			// Only embed an authored flow (≥1 screen or ≥1 event choreography). An un-
-			// authored doc — including a transitions-only doc, whose edges reference screens
-			// that don't exist ⇒ the interpreter is inert — leaves `flow` undefined so the
-			// bundle omits it and the game stays byte-identical to current `main` (parity, §7).
-			// Hand-rolled copy of engine-flow's `isAuthoredFlow` (this script can't import TS);
-			// it MUST stay in sync — transitions deliberately excluded.
-			const fd = f?.flow;
-			const authored =
-				fd &&
-				typeof fd === 'object' &&
-				((Array.isArray(fd.screens) && fd.screens.length > 0) ||
-					(Array.isArray(fd.events) && fd.events.length > 0));
-			if (authored) flow = fd;
 			// v2 is authored-gated server-side (exportEditorFlowV2 returns {} otherwise), so
 			// a present `flowV2` object is already a real graph — embed it + its library.
 			if (f?.flowV2 && typeof f.flowV2 === 'object') {
@@ -1354,13 +1332,9 @@ async function main() {
 		// keeping the bundle byte-identical for every game that hasn't — `bakedGameConfig()` is then
 		// undefined and the game runs its compiled `game/config.ts` (parity).
 		...(gameConfig ? { config: gameConfig } : {}),
-		// The authored presentation graph (Invisible Flow). Omitted unless the project
-		// authored a non-empty flow, keeping the bundle byte-identical for every game
-		// with no flow work — the §7 fall-through (absent ⇒ interpreter inert).
-		...(flow ? { flow } : {}),
 		// The authored Invisible Flow **v2** graph + its shared function library. Omitted
 		// unless the project authored a non-empty v2 flow — absent ⇒ v2 stays inert and the
-		// v1/coded path owns (parity). This is what a flow-v2 game needs to drive its
+		// default flow owns (parity). This is what a flow-v2 game needs to drive its
 		// screens; matches the online runtime bundle (`runtimeBundle.ts`).
 		...(flowV2 ? { flowV2 } : {}),
 		...(flowV2 && flowV2Library ? { flowV2Library } : {}),
@@ -1425,9 +1399,6 @@ async function main() {
 	const symbolCount = Object.keys(symbols.map).length;
 	const symbolAssetCount =
 		symbols.index.sheets.length + symbols.index.images.length + symbols.index.spines.length;
-	const flowNote = flow
-		? ` flow={${flow.screens?.length ?? 0} screens/${flow.transitions?.length ?? 0} transitions/${flow.events?.length ?? 0} events},`
-		: '';
 	const flowV2Note = flowV2
 		? ` flowV2={${flowV2.nodes?.length ?? Object.keys(flowV2.nodes ?? {}).length ?? 0} nodes${flowV2Library ? `, lib ${flowV2Library.functions?.length ?? 0} fns` : ''}},`
 		: '';
@@ -1463,7 +1434,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote}${shadersNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowV2Note}${effectsNote}${flipbooksNote}${shadersNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -1475,7 +1446,7 @@ async function main() {
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
-			`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+			`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowV2Note} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 
