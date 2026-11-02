@@ -138,6 +138,35 @@ that layer; they spawn from the **centre of the canvas**. As soon as you tick a 
 the Inspector, the real texture replaces the dots. The dots are a preview stand-in only —
 they are never written into the saved effect and are never used by a game.
 
+### The Cost bar (what the effect costs to draw)
+
+Under the preview, a **Cost** bar shows what the effect costs while it plays, updated a few
+times a second:
+
+- **live** — how many particles are alive now, with the **peak** and the effect's budget (800).
+  Every live particle is updated every frame.
+- **screens** — **coverage**: every particle's on-screen size added up and divided by the
+  preview's size, so roughly how many full screens of pixels the GPU blends each frame, with the
+  peak and the budget (4×). A big soft glow 600 px wide counts for its whole square, transparent
+  corners included: the GPU still blends them.
+
+The bar turns red and says **Over budget** when the effect passes a budget, or **N layers over
+budget** when a layer does (300 live or 1.5 screens per layer). Click the bar to open the
+per-layer table: each layer's live count and coverage (peak in brackets) beside the settings that
+drive them — **Max** particles, **Rate** (particles asked for per second: per wave ÷ Frequency),
+**Life**, **Blend** and **Art** (the largest frame, × the largest scale). Click a layer's name to
+select it. Under a layer, a short hint names the usual cause:
+
+- **Asks for 1000/s but Max particles is 200** — the rate is far above what the cap allows, so the
+  layer sits full all the time. The hint says what rate would just fill it.
+- **Very large particles** — a big frame (a whole background used as a particle) or a big scale.
+- **Additive (or Screen) blending stacks** — every overlapping particle is blended again.
+
+The panel says what coverage is measured against: `/fx` has no game canvas, so it is the
+**preview viewport** at its current size and zoom. Zooming in or widening the window changes the
+number, and the peaks start again when you edit the effect or move the view. Compare effects at
+the same zoom (Reset view). The Cost bar only reads: it never changes the effect or how it plays.
+
 ### Load a rig backdrop (attach to a rig)
 
 Above the preview is a **Backdrop** bar. Pick one of the project's rigs (the same
@@ -507,6 +536,11 @@ mere save.
 - **Materials:** a material's load budgets (150 / 4, 32 M, 64 M) are first estimates, to be
   revised after a phone check. Nothing pre-checks a material against the game's cap of 8 drawing
   at once.
+- **The Cost bar measures the preview, not the game.** Coverage is against the `/fx` viewport at
+  its zoom, not a game canvas, and the budgets (300 / 1.5 per layer, 800 / 4 per effect) are
+  first numbers from profiling one phone-sized game. A rig-particle layer's coverage is taken a few
+  times a second rather than every frame, and a material layer's is its particles' frames, without
+  the padding its material adds.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
 - **Forces don't vary per particle**, apart from each particle's own gust and turbulence
@@ -542,6 +576,11 @@ mere save.
   mutators, the min/max `curveRange`/`setCurveBound` seam, the colour-overlay + rotation-lock
   + flipbook-playback setters, and the layer stack ops (+ the bone-follow coordinate math),
   all harness-covered in `tools/fx-spike` (`variation.ts` for everything min/max-related).
+  The Cost bar: `FxStage`'s `onCost` measures each layer every frame (live particles, clipped
+  screen boxes ÷ the viewport) and reports 4× a second to `FxCostPanel.svelte`; the budgets
+  (`FX_COST_BUDGET`), settings, hints and geometry are in `fxCost.client.ts`, covered by
+  `fx-spike` `fx-cost` (Node, a real `Emitter`) and `fx-cost-page` (the real page in headless
+  Chromium).
   `fxRig.client.ts` loads a project skeleton via the shared `/rig-viewer/skeletons` +
   `/rig-viewer/file` endpoints (whose `requireRigAccess` gate now also accepts the `fx`
   tool).

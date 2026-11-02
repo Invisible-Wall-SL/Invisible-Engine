@@ -68,6 +68,11 @@
 			"svelte": "./src/lib/particleClock.ts",
 			"default": "./src/lib/particleClock.ts"
 		},
+		"./particleBudget": {
+			"types": "./src/lib/particleBudget.ts",
+			"svelte": "./src/lib/particleBudget.ts",
+			"default": "./src/lib/particleBudget.ts"
+		},
 		"./elementFx": {
 			"types": "./src/lib/elementFx/index.ts",
 			"svelte": "./src/lib/elementFx/index.ts",
