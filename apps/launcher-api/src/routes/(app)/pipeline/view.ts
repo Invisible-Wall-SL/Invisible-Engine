@@ -504,10 +504,11 @@ export function evalPill(check: AgentEvalCheck): EvalPill {
 	}
 }
 
-/** The reference set as one line: "mockups · 2 images · 13 elements". */
-export function evalSetText(set: EvalReport['set']): string {
+/** The reference set as one line: "mockups · 2 images · 13 elements", or "repair · 5 cases". */
+export function evalSetText(set: EvalReport['set'], cases?: EvalReport['cases']): string {
 	if (!set) return 'No reference set';
 	const { name, images, elements } = set;
+	if (cases) return `${name} · ${elements} ${plural(elements, 'case')}`;
 	return `${name} · ${images} ${plural(images, 'image')} · ${elements} ${plural(elements, 'element')}`;
 }
 
@@ -525,13 +526,23 @@ export interface EvalRow {
 	after: string;
 }
 
-/** The before/after summary table; a side that did not run reads "—". */
-export function evalRows(report: Pick<EvalReport, 'before' | 'after'>): EvalRow[] {
+/** The before/after summary table; a side that did not run reads "—". A repair report counts cases passed. */
+export function evalRows(report: Pick<EvalReport, 'before' | 'after' | 'cases'>): EvalRow[] {
 	const row = (label: string, read: (side: EvalSide) => string): EvalRow => ({
 		label,
 		before: report.before ? read(report.before) : '—',
 		after: report.after ? read(report.after) : '—',
 	});
+	const { cases } = report;
+	if (cases) {
+		const passed = (side: 'before' | 'after'): string =>
+			report[side] ? `${cases.filter((c) => c[side]?.passed).length} of ${cases.length}` : '—';
+		return [
+			{ label: 'Cases passed', before: passed('before'), after: passed('after') },
+			row('Calls', (s) => String(s.calls)),
+			row('Cost', (s) => money(s.costUsd)),
+		];
+	}
 	return [
 		row('Score', (s) => pct(s.score)),
 		row('Status agreement', (s) => pct(s.statusAgreement)),

@@ -3,11 +3,13 @@
 #
 # Invisible Pipeline Changes' Agents tab opens a PR that edits ONE file,
 # services/director-worker/agents/<name>.md, and labels it `agent-definition`. This workflow runs
-# the edited agent and `main`'s version of it over the agent's reference set (today only
-# `mockup-analyst` has one: the mockups in docs/director/eval/mockups/, scored against
-# expected-breakdown.json) and posts the commit status `agent-eval` plus a report. An agent with no
-# reference set passes with "nothing to compare"; a definition the worker's loader would refuse
-# fails, before any model call.
+# the edited agent and `main`'s version of it over the agent's reference set (today two agents have
+# one: `mockup-analyst`, the mockups in docs/director/eval/mockups/ scored against
+# expected-breakdown.json; and `game-doctor`, the repair set in docs/director/eval/repair/, scripted
+# worlds scored per case) and posts the commit status `agent-eval` plus a report. The repair run is
+# 5 whole scripted runs per side, so it takes longer, which is why the eval step allows 60 minutes.
+# An agent with no reference set passes with "nothing to compare"; a definition the worker's loader
+# would refuse fails, before any model call.
 #
 # WHY `pull_request_target`, not `pull_request`: this job holds ANTHROPIC_API_KEY. Under
 # `pull_request` the workflow file and every script it runs come from the PR, so a branch could
@@ -77,7 +79,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'agent-definition') &&
       (github.event.action != 'labeled' || github.event.label.name == 'agent-definition')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 70
     # The environment the key can be moved into later (docs/INFRA.md "Agent eval").
     environment: agent-eval
     steps:
@@ -173,7 +175,7 @@ jobs:
       # `--before` only when main has the agent: a new agent is evaluated alone.
       - name: Run the eval
         id: eval
-        timeout-minutes: 20
+        timeout-minutes: 60
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AGENT: ${{ steps.files.outputs.agent }}
