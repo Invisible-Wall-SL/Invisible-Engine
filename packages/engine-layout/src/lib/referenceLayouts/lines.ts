@@ -2,7 +2,7 @@ import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import { defaultConfirmScene } from '../confirmScene';
 import { defaultFreeSpinIntroScene, defaultFreeSpinOutroScene } from '../freeSpinScenes';
 import { linesTemplate } from '../templates/lines';
-import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
+import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
 /**
@@ -78,32 +78,16 @@ const fsCounterOverrides: Partial<Record<LayoutType, NodeOverride>> = {
 const STANDARD_SCENES = linesTemplate.scenes;
 const sceneName = (id: string) => STANDARD_SCENES.find((scene) => scene.id === id)?.name ?? id;
 
-/** Engine-flip options forwarded to {@link hudScenes}; default OFF = parity. */
+/** Options forwarded to {@link hudScenes}; default OFF = parity. */
 export interface DefaultLayoutOptions {
 	/**
 	 * Emit the HUD button cluster as parametric `componentInstance(button)` nodes
 	 * (§16.4 B6.4) instead of coded `UiButton*` `bind` nodes. Forwarded to
 	 * `hudScenes({ buttons })`. Default-OFF so the editor's "Load game scene" picker
 	 * + the full-scene-set merge (`referenceLayouts/index.ts`) stay byte-identical;
-	 * `apps/lines` passes its `HUD_BUTTON_INSTANCES` module flag (also default-OFF
-	 * for now — see `apps/lines/src/game/editorFlags.ts`) to drive its fallback doc.
+	 * `apps/lines` passes `true` for its fallback doc (`fallbackLayout.ts`).
 	 */
 	buttons?: boolean;
-	/**
-	 * Emit the `Transition` overlay as an editor-owned `componentInstance(transition)`
-	 * (§17.4 step 4) instead of the direct coded `bind:Transition`. The instance mounts
-	 * the SAME coded part but positions it via the node transform (the coded part renders
-	 * at local origin under this flag), so the author can move the wipe. Default-OFF =
-	 * the direct bind (parity); `apps/lines` forwards its `TRANSITION_INSTANCE` flag.
-	 */
-	transition?: boolean;
-	/**
-	 * Split the WIN overlay (big-win presentation) into a full-screen GATE (`canvas`
-	 * `bind:WinGate`) + an editor-positioned VISUAL (a `game`-space `componentInstance(win)`,
-	 * defaulted to board-centre). Default-OFF = the single composer
-	 * `bind:Win` in `basegameOverlays` (parity); `apps/lines` forwards its `WIN_INSTANCE` flag.
-	 */
-	winInstance?: boolean;
 }
 
 /**
@@ -135,90 +119,33 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 
 	const centre = frameCentre(MAIN_SIZES_MAP.desktop);
 
-	// §17.4 step 4 — the Transition overlay node: the direct coded `bind` by default
-	// (parity), or an editor-owned `componentInstance(transition)` when `options.transition`
-	// is set. The instance is `canvas`-centred via `screenAnchor {0.5,0.5}` to reproduce the
-	// coded centre; `Transition.svelte` renders at local origin under the flag so this node's
-	// transform places the wipe. Reversible (drop the flag).
-	const transitionNode: LayoutNode = options.transition
-		? {
-				id: 'instance-transition',
-				slotId: 'Transition',
-				label: 'Transition',
-				kind: 'componentInstance',
-				componentId: 'transition',
-				screenAnchor: { x: 0.5, y: 0.5 },
-				x: 0,
-				y: 0,
-				params: {},
-			}
-		: {
-				id: 'bound-transition',
-				slotId: 'Transition',
-				label: 'Transition overlay (coded)',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: { component: 'Transition' },
-				children: [],
-			};
+	// The Transition overlay node: the direct coded `bind`, which self-centres in canvas coords. An
+	// author who places the `transition` component instead gets the editor-positioned twin.
+	const transitionNode: LayoutNode = {
+		id: 'bound-transition',
+		slotId: 'Transition',
+		label: 'Transition overlay (coded)',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		bind: { component: 'Transition' },
+		children: [],
+	};
 
-	// The WIN overlay node in `basegameOverlays`: the direct coded composer `bind:Win` by default
-	// (parity), or the full-screen GATE `bind:WinGate` when `options.winInstance` is set. Both are
-	// `canvas`-space container binds at (0,0) — the coded part self-positions in canvas coords. The
-	// positionable VISUAL is a SEPARATE `game`-space `componentInstance(win)` scene below (emitted
-	// only ON); the win level / amount / count-up bridge via `winState`. Reversible (drop the flag).
-	const winNode: LayoutNode = options.winInstance
-		? {
-				id: 'bound-win-gate',
-				slotId: 'Win',
-				label: 'Win gate (coded)',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: { component: 'WinGate' },
-				children: [],
-			}
-		: {
-				id: 'bound-win',
-				slotId: 'Win',
-				label: 'Win overlay (coded)',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: { component: 'Win' },
-				children: [],
-			};
-
-	// The positionable WIN VISUAL scene, emitted only when the overlay is split (ON). `game`-space
-	// so the scene's `<MainContainer>` scales it; the `componentInstance(win)` is defaulted to
-	// board-centre (its `WinVisual` renders at the node origin under `boundToInstance`), so the ON
-	// default reproduces the OFF board-centred placement. The owner drags to move it. Params default
-	// the shared `bigwin` rig + `slot_win_count` slot (the coded hardcodes), so parity holds.
-	const winVisualScenes: Scene[] = options.winInstance
-		? [
-				{
-					id: 'winVisual',
-					name: sceneName('winVisual'),
-					space: 'game',
-					nodes: [
-						{
-							id: 'win-visual',
-							slotId: 'Win',
-							label: 'Win overlay',
-							kind: 'componentInstance',
-							componentId: 'win',
-							x: centre.x,
-							y: centre.y,
-							params: {
-								winSpine: 'bigwin',
-								slotName: 'slot_win_count',
-							},
-						},
-					],
-				},
-			]
-		: [];
+	// The WIN overlay node in `basegameOverlays`: the direct coded composer `bind:Win` (gate +
+	// visual), a `canvas`-space container bind at (0,0) — the coded part self-positions in canvas
+	// coords. A doc that places its own `win` component degrades it to its gate half
+	// (`basegameOverlaysSceneOf` in `apps/lines`).
+	const winNode: LayoutNode = {
+		id: 'bound-win',
+		slotId: 'Win',
+		label: 'Win overlay (coded)',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		bind: { component: 'Win' },
+		children: [],
+	};
 
 	return {
 		version: 1,
@@ -324,9 +251,8 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 			//
 			// `buttons` (B6.4): forwarded from `options.buttons` — the editor picker +
 			// full-scene-set merge call `defaultLayout('lines')` with no options ⇒ OFF (coded
-			// `bind` buttons, parity); `apps/lines` passes its default-OFF `HUD_BUTTON_INSTANCES`
-			// flag, so flipping that one constant converts the cluster to `componentInstance(button)`
-			// nodes (+ the replacement hotkey).
+			// `bind` buttons, parity); `apps/lines`'s fallback doc passes `true`, so its cluster is
+			// `componentInstance(button)` nodes (+ the replacement hotkey).
 			...hudScenes({ readouts: true, buttons: options.buttons }),
 			{
 				id: 'basegameOverlays',
@@ -337,7 +263,6 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				space: 'canvas',
 				nodes: [winNode, transitionNode],
 			},
-			...winVisualScenes,
 			defaultFreeSpinIntroScene(sceneName('freeSpinIntro')),
 			{
 				id: 'freeSpinCounter',

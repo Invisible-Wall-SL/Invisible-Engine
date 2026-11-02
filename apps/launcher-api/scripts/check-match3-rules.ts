@@ -585,7 +585,7 @@ const legalMove = (board: Board) => findMoves(board, { limit: 1 })[0];
 	const game = read('apps/lines/src/components/Game.svelte');
 	check(
 		'9. Game.svelte: no spin hotkey, no hold-to-spin and no coded HUD without a bet',
-		/\{#if mechanic\.bets && \(HUD_BUTTON_INSTANCES \|\| suppressCodedHud\)\}/.test(game) &&
+		/\{#if mechanic\.bets\}/.test(game) &&
 			/\{#if mechanic\.bets &&\s*!mechanic\.interactiveRound &&\s*!codedHudMounted &&\s*stateUi\.config\.features\.spaceHold\}/.test(
 				game,
 			) &&

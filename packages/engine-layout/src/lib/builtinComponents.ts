@@ -833,7 +833,7 @@ export const LOADING_INTRO_DEF: ComponentDef = {
  * `bind` child mounting the coded `Transition`, which KEEPS its proven lifecycle (the
  * `transition` event → play `TransitionAnimation` → rig `complete` → resolve the
  * round-blocking `await broadcastAsync`). What the migration changes is OWNERSHIP OF
- * POSITION: under the `TRANSITION_INSTANCE` flag the coded part renders at its LOCAL
+ * POSITION: inside a `transition` instance the coded part renders at its LOCAL
  * origin (see `Transition.svelte` / `TransitionAnimation.svelte`), so the editor node's
  * transform places the wipe — drag/scale the instance to move it — instead of the coded
  * part hardcoding canvas-centre. Placed `canvas`-space centred (`screenAnchor {0.5,0.5}`)

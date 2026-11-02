@@ -282,7 +282,6 @@
 		seedPlatformJackpots,
 		statePlatformJackpots,
 	} from '../game/platformJackpot.svelte';
-	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
 		bakedFontCatalog,
@@ -673,10 +672,9 @@
 			[LOADING_INTRO_DEF.id]: LOADING_INTRO_DEF,
 			// §17.4 step 4 — the Transition migrated off its direct coded `bind` to an
 			// editor-owned `componentInstance`. Registering the def makes
-			// `getComponent('transition')` resolve so a `transition` instance (placed only when
-			// `TRANSITION_INSTANCE` is on, see `editor-scenes.ts`) expands into its bound coded
-			// `Transition` part, now positioned by the editor node. Pure registration otherwise
-			// (no scene references it ⇒ no render change — parity).
+			// `getComponent('transition')` resolve so a `transition` instance an author placed
+			// expands into its bound coded `Transition` part, positioned by the editor node. Pure
+			// registration otherwise (no scene references it ⇒ no render change — parity).
 			[TRANSITION_DEF.id]: TRANSITION_DEF,
 			// §17 Phase 3 — makes `getComponent('freeSpinIntroVisual')` resolve so an
 			// author-placed `freeSpinIntroVisual` instance expands into its bound
@@ -684,11 +682,11 @@
 			[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
 			// §17 Phase 3 — same for the outro's positionable visual.
 			[FREE_SPIN_OUTRO_VISUAL_DEF.id]: FREE_SPIN_OUTRO_VISUAL_DEF,
-			// Makes `getComponent('win')` resolve so the `winVisual` `game`-space scene (emitted only
-			// when the win overlay is split) expands into its bound `WinVisual` part, positioned by the
-			// editor node. Pure registration otherwise (no scene references it ⇒ no render change — the
-			// OFF composer `bind:Win` renders unchanged). Book of Borut opts in by placing the `win`
-			// component in the editor (the shared def carries `boundToInstance:true`).
+			// Makes `getComponent('win')` resolve so a `win` instance an author placed (e.g. in a
+			// `winVisual` scene) expands into its bound `WinVisual` part, positioned by the editor node.
+			// Pure registration otherwise (no scene references it ⇒ no render change — the composer
+			// `bind:Win` renders unchanged). Book of Borut places the `win` component in the editor (the
+			// shared def carries `boundToInstance:true`).
 			[WIN_DEF.id]: WIN_DEF,
 			// Book-reveal authoring — makes `getComponent('expandingSymbol')` resolve so an
 			// `expandingSymbol` instance expands into its bound `ExpandingSymbol` part (the chosen
@@ -1204,8 +1202,8 @@
 	// places its own win visual (see `basegameOverlaysSceneOf`).
 	const basegameOverlaysScene = $derived(basegameOverlaysSceneOf(editorDoc, fallbackEditorScenes));
 	// Whether the (unconditionally-mounted) `basegameOverlays` scene STILL carries a coded WIN gate
-	// bind — the reference layout's `WIN_INSTANCE` shapes: `bind:Win` (the OFF composer, gate +
-	// visual) or `bind:WinGate` (the ON full-screen gate). When it does, THAT gate is the sole
+	// bind: `bind:Win` (the composer, gate + visual) or `bind:WinGate` (the gate half, when the doc
+	// places its own `win` visual). When it does, THAT gate is the sole
 	// `winUpdate` `waitForResolve` subscriber, so the engine-owned flow gate (mounted below) must NOT
 	// also mount — two subscribers would each hold the round on `winUpdate` and hang it. Book of
 	// Borut authored the gate OUT and placed just the `win` VISUAL componentInstance, so this is
@@ -1217,10 +1215,9 @@
 		),
 	);
 	// The board-relative VISUAL scene of the split WIN overlay (`game`-space, so <LayoutScene>
-	// wraps it in its own MainContainer for main-scaling). Present only when the overlay is split
-	// (the `WIN_INSTANCE` fallback emits it, or the owner authored a `win` component in the editor);
-	// `undefined` otherwise ⇒ the mount renders nothing (the OFF composer `Win` draws the visual
-	// itself). Parity-safe.
+	// wraps it in its own MainContainer for main-scaling). Present only when the owner authored a
+	// `win` component in the editor; `undefined` otherwise ⇒ the mount renders nothing (the composer
+	// `Win` draws the visual itself). Parity-safe.
 	const winVisualScene = $derived(winVisualSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// The free-spin counter as an editor scene (the fallback layout ships it, so a no-doc boot is
 	// parity) — the coded path's counter; a v2 flow mounts it as a container instead.
@@ -2269,13 +2266,11 @@
 		},
 	});
 
-	// §16.4 B6.4 — replacement Space hotkey for the spin button. Once the cluster is
-	// flipped to `componentInstance(button)` nodes (`HUD_BUTTON_INSTANCES`), the coded
-	// `ButtonBet` (and its own `<OnHotkey hotkey="Space">`) is no longer mounted, so
-	// Space would stop working. This mirrors `ButtonBet`'s binding exactly — same
-	// `getSpinKey()` disabled rule (so Space is a live SLAM mid-round, like the button)
-	// and the same shared press body. GATED on the flag so it never double-fires
-	// alongside the coded button's own hotkey while the cluster is still coded.
+	// §16.4 B6.4 — replacement Space hotkey for the spin button. The fallback doc's cluster is
+	// `componentInstance(button)` nodes, so the coded `ButtonBet` (and its own
+	// `<OnHotkey hotkey="Space">`) is not mounted there and Space would stop working. This
+	// mirrors `ButtonBet`'s binding exactly — same `getSpinKey()` disabled rule (so Space is a
+	// live SLAM mid-round, like the button) and the same shared press body.
 	// `hasContinuePress()` mirrors `ButtonBetProvider`'s `hotkeyDisabled`: while a
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
 	// runs the continue-press only. `ignorePressInProgress` as on `ButtonBet`: bet on a fresh press.
@@ -2465,15 +2460,11 @@
 	<Sound />
 
 	<!--
-			§16.4 B6.4 — replacement Space hotkey for the spin button. Mounted whenever the coded
-			`ButtonBet` (and its own `<OnHotkey hotkey="Space">`) is NOT present: either the cluster is
-			flipped to `componentInstance(button)` nodes (`HUD_BUTTON_INSTANCES`), OR the author
-			authored replacement HUD screens that suppress the whole coded `<UI>` (`suppressCodedHud`,
-			§16 full-replace). In both cases the coded hotkey is gone, so this is the SOLE Space binding
-			(no double-fire). Neither ⇒ not rendered, coded hotkey is the sole binding (parity). Mirrors
-			`ButtonBet`'s binding.
+			§16.4 B6.4 — replacement Space hotkey for the spin button, mounted on every bets game (the
+			button cluster is `componentInstance(button)` nodes, and an authored full-replace HUD
+			suppresses the coded `<UI>` too). Mirrors `ButtonBet`'s binding.
 		-->
-	{#if mechanic.bets && (HUD_BUTTON_INSTANCES || suppressCodedHud)}
+	{#if mechanic.bets}
 		<OnHotkey
 			hotkey="Space"
 			disabled={spinHotkeyDisabled}
@@ -2837,10 +2828,9 @@
 		<LayoutScene scene={basegameOverlaysScene} />
 	</Container>
 	<!-- The split WIN overlay's board-relative VISUAL (`game`-space `componentInstance(win)`).
-			 Present only when the overlay is split (`WIN_INSTANCE` ON, or a `win` component authored in
-			 the editor); the full-screen `WinGate` is the `basegameOverlays` scene bind above. Empty ⇒
-			 renders nothing (the OFF composer `bind:Win` draws the visual itself) — byte-identical to
-			 `main` (parity). Mirrors the free-spin outro VISUAL scene. -->
+			 Present only when a `win` component is authored in the editor; the full-screen `WinGate` is
+			 the `basegameOverlays` scene bind above. Empty ⇒ renders nothing (the composer `bind:Win`
+			 draws the visual itself). Mirrors the free-spin outro VISUAL scene. -->
 	{#if winVisualScene && winVisualScene.nodes.length}
 		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
 			<LayoutScene scene={winVisualScene} />
