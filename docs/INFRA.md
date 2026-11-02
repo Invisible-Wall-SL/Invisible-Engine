@@ -474,15 +474,18 @@ the config credential, are **done (2026-11-02)**:
    other), and to Better Stack Uptime (the "Game server" row under "Uptime"; the owner adds the
    monitor).
 
-**Troubleshooting.** A device whose room is refused is always told only "this game is not
-available"; the reason is in the **game-server log** (Railway → game-server → Deploy Logs). What
+**Troubleshooting.** A device whose game's config does not load is told only "this game is not
+available" (a full server says "the server holds no more rooms"); the reason is in the
+**game-server log** (Railway → game-server → Deploy Logs), as
+`[game-server] no room for "<game>": Error: …`. What
 we hit putting Salmons live (2026-11-02):
 
 - **`523` with no CORS header on `/matchmake`** (the browser reports a CORS error): the `rooms`
   Cloudflare record is **proxied** (orange cloud). It must be **DNS-only** (step 8).
-- **Log: `no room for "<game>": no config source`**: `GAME_SERVER_CONFIG_URL` is unset on
+- **Log: `Error: no config source: set GAME_SERVER_CONFIG_DIR or GAME_SERVER_CONFIG_URL`**:
+  `GAME_SERVER_CONFIG_URL` is unset on
   game-server (step 6; apply the staged change, step 7).
-- **Log: `the config of "<game>" answered 400`**: the URL value is malformed. `?project={game}`
+- **Log: `Error: the config of "<game>" answered 400`**: the URL value is malformed. `?project={game}`
   must be literal, `{game}` included: the server substitutes it.
 
 ## ComfyUI tunnel (optional — a person's own GPU)

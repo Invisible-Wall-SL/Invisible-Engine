@@ -108,7 +108,7 @@ Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisib
    address into the launch URL as `rooms_url` (the launcher's `GAME_SERVER_URL`, by default
    `wss://rooms.invisiblewall.org`), so the published link plays as it is.
 4. **The game server's config credential** (INFRA "Invisible Game Server" steps 5–7), so the live
-   server can read the published config; until then it plays no game.
+   server can read the published config.
 5. **Moving the players over** from the Salmon repository's own server: when the art (and,
    if wanted, the isometric view, P11.4) is in and you are happy with a playtest on the live server.
 
