@@ -11,6 +11,15 @@ a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for
 
 ## Invisible FX, Element FX and particles
 
+### A second Pixi app crashed the /fx preview when it was destroyed
+- **Symptom:** after "Bake now" the `/fx` preview threw `Cannot read properties of null (reading
+  'clear')` from the batcher on its next render.
+- **Cause:** Pixi keeps its batches in a pool shared by every renderer; destroying the bake's
+  offscreen `Application` left its batches in that pool with their texture lists torn down.
+- **Fix:** the capture app is made once and kept for the page's life (`fxBake.client.ts`).
+- **Guard:** `fx-spike` `fx-bake-page` fails on any page error after a bake.
+- **PR:** not recorded (2026-11-02) · branch `claude/fx-bake-flipbook`
+
 ### particle-material failed in check:all and passed alone
 - **Symptom:** `tools/fx-spike:particle-material` red on unrelated PRs: "Max particles 10.3: 11
   particles drawn (N)", N = 8 or 10 between runs.

@@ -23,6 +23,15 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   the end); the editor's section, preview and posing were exercised in standalone harnesses only;
   not yet clicked in `/editor` or watched in a published game.
 
+- **Baked effects (optional, off by default)** (2026-11-02, [design](../design/invisible-fx.md)
+  §"Baked effects") — a looping ambient effect can be baked in `/fx` (the **Bake** bar under the
+  preview) to one sprite sheet that the game plays as a single animated sprite instead of its
+  emitters. `EffectDoc.bake` (`engine-fx` `bake.ts`); the sheet lives at
+  `<client>/<project>/fx-bakes/<id>/` and ships through the editor-art road; `<EffectPlayer>` plays
+  `<BakedEffect>` only when the bake is on, current, bakeable, undriven and its whole sheet is
+  loaded — otherwise the live path, untouched. ⏳ Gated headlessly (Node, the real page and the
+  real player in headless Chromium); not yet clicked in an authed `/fx` or watched in a published
+  game.
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
 - **Event trigger end-to-end.** A `trigger.on:'event'` layer fires when a matching cue crosses the runtime event bus (a Flow v1 Broadcast / v2 `fireCue`), with an optional **Stop event** and **Duration**. The full author→ship→fire chain (export → `deploy/effects/` → bake → pull → `bakedEffects()` register) is wired.
 - **Pro `/fx` inspector knobs:** emission **direction (centre °) + spread (±°)**, particle **spin min/max + accel**, a **rotation lock** (`noRotation` — travel along the arc without facing it), and a **Sprite** section — a fixed art **rotation offset** + a **pivot** (anchor) grid (see the 2026-10-14 entry); a **movement** toggle (eased `moveSpeed` vs **acceleration** — up-direction + a downward pull = a fountain); a stackable **Forces** section (gravity at any angle, wind with gusts, vortex with swirl + centrifugal/centripetal radial, attractor/repulsor with an absorb sink, turbulence, drag — see the 2026-10-13 entry); **colour** start/end tint **plus a colour overlay with a per-particle intensity min/max**; **blend mode** (Normal/Add/Screen/Multiply); five **spawn kinds** — point / circle / ring / rectangle / **burst** (even fan). Alpha, Scale and the eased Speed each carry an **On** switch (a config with no such behavior can grow one instead of the section silently vanishing) and a **Min / Max** switch that splits each end into a per-particle range — four INDEPENDENT bounds (see the 2026-08-28 fix entry). All are live sliders + number boxes that re-tune the preview verbatim.
@@ -56,6 +65,13 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Owner pass over baked effects** (2026-11-02) — open the `overlay-wishworld` firecracker in
+  `/fx`, Save, open **Bake**, turn it on, **Bake now** (24 fps × 2 s at 50 %), Save; check the
+  preview loops with no pop, then publish and watch the pots: 11 firecrackers should each be one
+  sprite, out of step with each other, and the frame time should drop (profile on the phone-sized
+  page with CPU ×4 as before). Then edit the effect and confirm the bar reads **Stale** and the
+  publish log names it (it plays live until re-baked). Unverified in a real browser session: the
+  presigned PUT to R2 (CORS), the KTX2 page of a baked sheet, and a bake of a material layer.
 - **Shader Graph materials** (decided 2026-10-25, being built) — a compiled Shader Graph effect as
   the material a sprite layer's particles draw with, picked in `/fx` (the Material section, from
   8d.5; guide: [tools/fx](../tools/fx.md)). Since 8d.5, editing a layer no longer restarts the
@@ -136,6 +152,41 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-02 — **Baked effects: an optional looping flipbook in place of the emitters** (branch
+  `claude/fx-bake-flipbook`). Why: in `overlay-wishworld` ~1,900 of ~2,600 live particles at the pot
+  peak were copies of one firecracker effect on 11 pots; the cost was per-particle simulation ×11,
+  not fill. What landed:
+  - **Doc + rules** (`engine-fx` `bake.ts`): `EffectDoc.bake = { enabled, fps, loopSeconds, scale,
+    seam, result? }`, normalized and clamped (absent stays absent); `effectBakeHash` (FNV-1a of a
+    key-sorted stringify of layers, params and the capture settings) marks a bake stale;
+    `effectBakeBlockers` refuses exposed parameters, bone layers, Tier-C layers, cue-driven and
+    timed layers and one-shot bursts; `planEffectBakeSheet` fits the frames on one ≤ 4096 px page
+    (lowering the scale if needed); `effectBakeChoice` picks baked only when on + result + bakeable +
+    undriven + every frame loaded; `effectBakeStartFrame` desyncs copies from
+    `<effectId>|<instanceKey>|<x>,<y>` (no `Math.random`).
+  - **Runtime** (`pixi-svelte`): `<EffectPlayer>` asks only when `doc.bake` exists and mounts
+    `<BakedEffect>` (one sprite on the captured box, the bake's blend, the particle clock); any
+    other doc renders exactly as before. `LayoutNodeView` passes the node id as `instanceKey`.
+  - **/fx**: the **Bake** bar (`FxBakePanel.svelte`) — Live / Not baked / Stale / Baked, settings,
+    the reasons an effect cannot bake, Bake now with progress, a preview, live-vs-baked cost.
+    `fxBake.client.ts` captures in a private offscreen Pixi app (warm-up = longest life × 1.25,
+    stepped by `emitterDeltaSeconds(1000/fps)`, frames read back un-premultiplied, a quarter-loop
+    crossfade into the post-loop frames for a seamless seam).
+  - **Pipeline**: `POST /api/fx/bake/upload-url` (presigned PUT of the page) + `POST /api/fx/bake`
+    (writes the TexturePacker JSON from the grid); Save prunes every other bake of the effect,
+    Delete drops them, a Save As copy drops the original's bake. `exportEffects` ships
+    `exportableEffectDoc` (stale/disabled bakes stripped, listed as `staleBakes` and warned by
+    `bake-editor-doc.mjs`; a shipping sheet joins `referencedAssetKeys`); `exportEditorArt` ships the
+    sheet like any effect atlas (WebP/KTX2, page store) → pull → registered as
+    `<assetKey>::bake_<hash>_NNN`.
+  - **Bug found on the way:** destroying a second Pixi `Application` corrupts Pixi's shared batch
+    pool (the stage's next render threw `textures.clear` on null), so the capture app is kept for
+    the page's life — see [lessons/fx](../knowledge/lessons/fx.md).
+  - Gates: `pnpm check:fx-bake` (`fx-spike` `effect-bake`, 71 Node checks), `fx-spike`
+    `fx-bake-page` (14, the real `/fx` page in headless Chromium: off by default, bake, a seam that
+    fails as a cut and passes as a crossfade, preview, save, stale), `fx-spike` `baked-runtime` (12,
+    the real `<EffectPlayer>` in WebGL), `launcher-api` `check:fx-bake` (29, the server chain over an
+    in-memory R2 with the real `loadRegionSet` and `exportEffects`). ⏳ Owner-verify live (above).
 - 2026-11-02 — **`/fx` shows what an effect costs to draw** (branch `claude/fx-cost-readout`).
   Profiling `overlay-wishworld` on a phone-sized page found particles were most of the frame
   (pot beams at 1000 spawns/s capped at 200, a 1336×755 `ReelBackground` frame used as a particle,
