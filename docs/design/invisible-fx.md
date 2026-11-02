@@ -478,9 +478,8 @@ vocabulary. So:
 ## 2. Why this tool exists (the goal)
 
 Particle/effect work is constant, fiddly, and today has **no authoring surface** — an
-`EmitterConfigV3` is hand-written JSON (see the lone
-[ParticleEmitter story](../../packages/pixi-svelte-storybook/src/stories/ParticleEmitter.stories.svelte)
-fountain config). Tuning it means editing numbers blind and rebuilding. Invisible FX
+`EmitterConfigV3` was hand-written JSON (the lone example was a fountain config in a since-removed
+pixi-svelte Storybook story). Tuning it means editing numbers blind and rebuilding. Invisible FX
 gives the same browser-based, R2-backed, license-free authoring the Rigger/Atlas tools
 do: **see the effect while you tune it**, draw its art from the project's real atlases,
 author it _in context_ on the actual animated rig it will sit on, and save it where the

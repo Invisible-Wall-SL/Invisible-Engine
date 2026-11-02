@@ -2619,8 +2619,8 @@ game, bundle or screen changes.
   the **Match-3** or **Arcade** section (`FamilySection.svelte`, setters in `familyDoc.ts`).
 - **`GAME_KINDS`** gains `match3` and `arcade`, with `SLOT_GAME_KINDS`, `GAME_FAMILIES` and
   `familyOfKind()` beside it (pulled forward from P10.1b, §9 #27). The slot-only consumers derive
-  from `SLOT_GAME_KINDS`: the Scene Editor's template-type picker, the flow-vocabulary generator and
-  game-spec's schema. Game Maker still offers neither kind: it needs a full scene set (P10.5).
+  from `SLOT_GAME_KINDS`: the Scene Editor's template-type picker and the flow-vocabulary
+  generator. Game Maker still offers neither kind: it needs a full scene set (P10.5).
 - **`kindCapabilities`** takes `family` / `outcome` and gains `wallet`, `betControls` and `board`
   (all `true` for a slot). A match-3 or arcade project is offered none of a slot's sections.
   `projectAddOns()` passes a non-slot config's family and outcome to it, so the tools follow the

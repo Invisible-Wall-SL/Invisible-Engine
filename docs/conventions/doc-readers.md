@@ -172,8 +172,6 @@ the save guard for every field in the table above.
 - **The build-time delivery profile validator** (`packages/config-vite/deliveryProfile.js`)
   rejects unknown fields ON PURPOSE, because a typo in a delivery must fail the build. Its
   runtime twin, `packages/delivery-profile`, warns and ignores.
-- **`game-spec`** (`packages/game-spec`) is a hand-authored CLI input, not a stored doc. Its
-  top-level `.strict()` is deliberate typo protection.
 - **Round-tripping.** An older launcher that loads a newer doc drops the unknown field from what
   it shows, so the doc the author saves from it lacks the field. The concurrency check cannot
   catch this, because it is a legitimate `If-Match` save. What survives that save:

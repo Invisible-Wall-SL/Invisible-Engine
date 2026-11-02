@@ -235,15 +235,6 @@ export interface Play4FunTransportConfig {
 	fetchImpl?: typeof fetch;
 }
 
-// ---------- Back-compat aliases (will remove on rename to play4fun) ----------
-
-export type EAGamingAction = Play4FunActionEnvelope['action'];
-export type EAGamingActionEnvelope<TContext = unknown> = { action: string; context: TContext };
-export type EAGamingRequestBody = Play4FunRequestBody;
-export type EAGamingRequestQuery = Play4FunRequestQuery;
-export type EAGamingResponse = Play4FunResponse;
-export type EAGamingTransportConfig = Play4FunTransportConfig;
-
 /* ---------- Sample payloads (for reference) ----------
 
   // heartbeat (no actions, just balance check)

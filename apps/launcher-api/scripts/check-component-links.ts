@@ -3,18 +3,16 @@
  * land on the component it named:
  *   pnpm --filter launcher-api check:component-links
  *
- *  1. the legacy `/components` route redirects onto `/editor`'s Components side, keeping the id
- *     and every other parameter (`project`, `client`);
- *  2. what `/editor` reads back out of those URLs opens the same component;
- *  3. the tool card and every in-app link point at `/editor`, never the retired page;
- *  4. edit-in-place stops where the game stops drawing nested components;
- *  5. a link to `/editor` followed from inside `/editor` never swaps one project's state for
+ *  1. what `/editor` reads back out of a components link opens the same component;
+ *  2. the tool card and every in-app link point at `/editor`, never the retired page;
+ *  3. edit-in-place stops where the game stops drawing nested components;
+ *  4. a link to `/editor` followed from inside `/editor` never swaps one project's state for
  *     another's: tool links carry the shown project, and `/editor` applies the same project in
  *     place and fully reloads for any other (or for a link naming none);
- *  6. every `/editor` write targets the project the page was LOADED for, even from a bookmarked
+ *  5. every `/editor` write targets the project the page was LOADED for, even from a bookmarked
  *     bare `/editor` after another tab moved the session; drift blocks saves;
- *  7. a component this tab has no ETag for has it read before its first save;
- *  8. the Library offers a component every other component that does not contain it, directly or
+ *  6. a component this tab has no ETag for has it read before its first save;
+ *  7. the Library offers a component every other component that does not contain it, directly or
  *     through a nested instance, so a placement can never make a cycle.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -25,7 +23,6 @@ import {
 	componentsTarget,
 	editorActionUrl,
 	editorSelfNavigation,
-	legacyComponentsRedirect,
 } from '../src/lib/componentLinks.ts';
 import {
 	etagAdoption,
@@ -49,33 +46,20 @@ function check(label: string, actual: unknown, expected: unknown): void {
 	console.error(`FAIL  ${label}\n        expected ${e}\n        got      ${a}`);
 }
 
-const redirectOf = (search: string): string =>
-	legacyComponentsRedirect(new URL(`https://app.example/components${search}`).searchParams);
 const targetOf = (href: string): string | null | undefined =>
 	componentsTarget(new URL(href, 'https://app.example').searchParams);
 
-// ── 1. Legacy deep links ─────────────────────────────────────────────────────
-check('bare /components opens the components home', redirectOf(''), '/editor?view=components');
+// ── 1. What /editor reads back ───────────────────────────────────────────────
 check(
-	'"Open Component Editor" (?project=) keeps its project',
-	redirectOf('?project=book_of_borut'),
-	'/editor?project=book_of_borut&view=components',
+	'a components link opens that component',
+	targetOf(componentsHref('coin', new URLSearchParams('project=p'))),
+	'coin',
 );
 check(
-	'"Edit as component" (?id=&project=) opens that component in that project',
-	redirectOf('?id=c_win%20banner&project=book_of_borut'),
-	'/editor?project=book_of_borut&component=c_win+banner',
+	'the components home opens the home',
+	targetOf(componentsHref(null, new URLSearchParams('project=p'))),
+	null,
 );
-check(
-	'a client scope rides along',
-	redirectOf('?client=eagaming&id=coin'),
-	'/editor?client=eagaming&component=coin',
-);
-check('an empty id is the home, not a component', redirectOf('?id='), '/editor?view=components');
-
-// ── 2. What /editor reads back ───────────────────────────────────────────────
-check('a redirected id opens that component', targetOf(redirectOf('?id=coin&project=p')), 'coin');
-check('the redirected home opens the home', targetOf(redirectOf('?project=p')), null);
 check('a plain /editor stays on the screens', targetOf('/editor?project=p'), undefined);
 check('an unknown view stays on the screens', targetOf('/editor?view=screens'), undefined);
 check('componentsHref(id) round-trips', targetOf(componentsHref('hudReadout')), 'hudReadout');
@@ -90,7 +74,7 @@ check(
 	'/editor?project=p&view=components',
 );
 
-// ── 3. The card and the links ────────────────────────────────────────────────
+// ── 2. The card and the links ────────────────────────────────────────────────
 check(
 	'the Component Editor card opens /editor',
 	TOOLS.componentEditor.url.split('?')[0],
@@ -102,18 +86,7 @@ check(
 	null,
 );
 const routes = fileURLToPath(new URL('../src/routes/', import.meta.url));
-check(
-	'the retired page is gone (its route only redirects)',
-	existsSync(`${routes}(app)/components/+page.svelte`),
-	false,
-);
-check(
-	'the /components route redirects through legacyComponentsRedirect',
-	readFileSync(`${routes}(app)/components/+server.ts`, 'utf8').includes(
-		'legacyComponentsRedirect(',
-	),
-	true,
-);
+check('the retired /components route is gone', existsSync(`${routes}(app)/components`), false);
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const LINK_TO_RETIRED_PAGE = /['"`]\/components(?:[?'"`#]|$)/m;
 const linkers = readdirSync(src, { recursive: true, encoding: 'utf8' })
@@ -122,7 +95,7 @@ const linkers = readdirSync(src, { recursive: true, encoding: 'utf8' })
 	.filter((f) => LINK_TO_RETIRED_PAGE.test(readFileSync(`${src}${f}`, 'utf8')));
 check('nothing in the launcher links to /components any more', linkers, []);
 
-// ── 4. Edit in place follows the game's nesting cap ──────────────────────────
+// ── 3. Edit in place follows the game's nesting cap ──────────────────────────
 check('a component opened from a screen can open the one inside it', canEnterNested(0), true);
 check(
 	`but not one ${MAX_COMPONENT_DEPTH} levels down, which the game skips`,
@@ -130,7 +103,7 @@ check(
 	false,
 );
 
-// ── 5. Same-route navigations keep their project ─────────────────────────────
+// ── 4. Same-route navigations keep their project ─────────────────────────────
 check(
 	'a tool link carries the shown project',
 	withProject(TOOLS.componentEditor.url, 'book_of_borut'),
@@ -174,7 +147,7 @@ check(
 	true,
 );
 
-// ── 6. Writes are pinned to the loaded project ──────────────────────────────
+// ── 5. Writes are pinned to the loaded project ──────────────────────────────
 // Tab A opens a bookmarked bare `/editor` and gets X; tab B moves the session to Y; tab A saves.
 check(
 	'a bare /editor posts its save to the loaded project',
@@ -450,7 +423,7 @@ check(
 	[409, 'scope-mismatch'],
 );
 
-// ── 7. ETags of components the page created or refreshed ─────────────────────
+// ── 6. ETags of components the page created or refreshed ─────────────────────
 check('a def with a stored ETag is known', etagKnown({ coin: '"e1"' }, 'coin'), true);
 check('a built-in (null) is known: its first save creates', etagKnown({ win: null }, 'win'), true);
 check('a def refreshed after load is not, so it is read on open', etagKnown({}, 'gem'), false);

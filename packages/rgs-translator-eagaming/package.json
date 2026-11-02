@@ -33,7 +33,6 @@
 	},
 	"devDependencies": {
 		"eslint": "9.21.0",
-		"eslint-config-custom": "workspace:*",
-		"utils-fetcher": "workspace:*"
+		"eslint-config-custom": "workspace:*"
 	}
 }

@@ -6,8 +6,6 @@ Use PixiJS in a declarative way with Svelte5.
 
 Check out the github repo for pixi-svelte usage and for more information in https://github.com/Invisible-Wall-SL/Invisible-Engine/tree/main/packages/pixi-svelte
 
-For more usage please checkout storybook: https://github.com/Invisible-Wall-SL/Invisible-Engine/tree/main/packages/pixi-svelte-storybook
-
 ## Examples of usage
 
 ### Text

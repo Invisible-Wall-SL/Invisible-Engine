@@ -83,7 +83,7 @@ How the mapping is chosen today:
 |---|---|---|
 | **(i) Shared online runtime** (all Game Maker games, and the partner game) | `engineFacade.ts` starts from `resolveActiveMapping()`. That is `PUBLIC_RGS_GAME`, which `runtime-release.yml` does not set, so it starts on `linesMapping`. `captureConfig` then calls `pickMappingForConfig(cfg)` (`gameMappings.ts`) on the boot `config`. Any of `ACE … TEN` ⇒ `bookMapping`; `PIC5–7` ⇒ `linesMapping`; a captured Hold and Win block ⇒ identity. The server's own declaration decides. | **No** |
 | **(ii) Test-server mock contract** | `resolveMockContract` → `protocolFor(projectGameType)` (`mockProtocol.ts`). `'book'` chooses `createBookMock` (`services/test-server/server.mjs` `makeBookMock`). Then `projectGrid`'s `book` branch translates client names to server names with `bookMapping` (`projectSymbolPaytable`, `projectLineSymbols`, `inServerNames` for the overlay). Every other protocol uses `linesMapping`. | **Yes**: it decides which mock deals the game, and so which vocabulary the contract is written in. |
-| **(iii) Desktop / standalone builds** | `launcherProfile.ts` `derivePublishBlock` stamps `protocol: protocolFor(gameType)` (the mock the test server deals the build). `PUBLIC_RGS_GAME=book` comes from `game-spec` `backendFor` (dev runs in the desktop launcher's config) and `seed-project-profile.mjs --env`. At runtime it is only the starting mapping, and the boot `config` corrects it as in (i). Delivery builds (`build-delivery.mjs`) do not set it. | Protocol: **yes**. Mapping: **no**, in effect. |
+| **(iii) Desktop / standalone builds** | `launcherProfile.ts` `derivePublishBlock` stamps `protocol: protocolFor(gameType)` (the mock the test server deals the build). `PUBLIC_RGS_GAME=book` comes from `seed-project-profile.mjs --env` (dev runs in the desktop launcher's config). At runtime it is only the starting mapping, and the boot `config` corrects it as in (i). Delivery builds (`build-delivery.mjs`) do not set it. | Protocol: **yes**. Mapping: **no**, in effect. |
 | Current-games harness | `scripts/current-games/lib/plan.mjs` `contractFor`. A game with no manifest entry (the partner game) gets `{ protocol: protocolFor(gameType) }` → the book mock. That is why the partner game renders as a Book-of game in CI. | **Yes** |
 
 **Afterwards: no new field.**
@@ -403,11 +403,10 @@ then runs over both hosts, and the book host's digests must not move.
 | `screens/bookOf.json` | lines scenarios plus `pots` | Merged into `lines.json`; the `pots` scenario stays gated on `grid.potsOverlay` |
 | `fixtures.mjs` | `cg-bookof`, `cg-bookof-pots` (`gameType: 'bookOf'`, `protocol: 'book'`) | `cg-book`, `cg-book-pots`: lines plus the preset |
 
-**game-spec, scaffolding and the desktop profile**
+**Scaffolding and the desktop profile**
 
 | File | Today | Becomes |
 |---|---|---|
-| `packages/game-spec/src/{schema,scaffold}.ts`, `examples/book-of-thermopylae.spec.ts`, `README.md` | `type: 'bookOf'`; `backendFor` picks the book mock and `PUBLIC_RGS_GAME=book` | `type: 'lines'` plus an optional `expandingSymbol` section; lines mock |
 | `scripts/new-game.mjs` | Comment: "a Book-of game is apps/lines plus a bookOf scene set" | Edit |
 | `launcher-api/scripts/seed-game-editor.mjs` | Writes `gameType: 'bookOf'` | `'lines'` |
 | `launcher-api/src/lib/server/launcherProfile.ts`, `scripts/verify-launcher-profile.mts` | `protocol: protocolFor(gameType)` | `lines` for every Book-of game |
@@ -602,7 +601,7 @@ server deployed.
    - Every "Becomes" in §5 marked Phase 7: `GAME_KINDS`, `protocolFor`, `book` in both
      `MOCK_PROTOCOLS`, the slot template, the `/flow` v1 entry, the scene-set kind.
    - The harness: plan, gates, screens and fixtures.
-   - game-spec, scaffolds and the publish scripts' defaults.
+   - Scaffolds and the publish scripts' defaults.
    - The shim, the admin action, and the Phase 1 fields in the fixture mock.
    - The docs and agents.
    - Gate: everything above plus the census at zero.

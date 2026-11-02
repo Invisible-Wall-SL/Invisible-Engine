@@ -18,7 +18,6 @@
 		"config-svelte": "workspace:*",
 		"config-lingui": "workspace:*",
 		"config-storybook": "workspace:*",
-		"chromatic": "18.13.3",
 		"@storybook/addon-svelte-csf": "5.1.5",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"svelte-check": "4.7.7"
@@ -33,10 +32,8 @@
 		"utils-shared": "workspace:*",
 		"utils-layout": "workspace:*",
 		"utils-event-emitter": "workspace:*",
-		"utils-resize-observer": "workspace:*",
 		"state-shared": "workspace:*",
 		"constants-shared": "workspace:*",
-		"components-shared": "workspace:*",
-		"envs": "workspace:*"
+		"components-shared": "workspace:*"
 	}
 }

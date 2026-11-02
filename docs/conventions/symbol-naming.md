@@ -7,9 +7,8 @@ Atlas Maker, the Invisible Editor) rely on this — so the name is a contract, n
 just a label. Name a region wrong and the engine will treat it as the wrong kind
 of symbol.
 
-> **Source of truth = code, not this page.** The authoritative list of kinds is
-> `SymbolKindSchema` in `packages/game-spec/src/schema.ts`. This page mirrors it
-> for humans. If they disagree, the code wins — fix this page.
+> **No single code owner yet.** No package holds a canonical symbol-kind list today; this page is
+> the reference. When one lands, it becomes the source of truth and this page mirrors it.
 
 ## The tiers
 
@@ -29,7 +28,7 @@ the special symbol is either a plain `scatter` or a Book-style `wildScatter`. So
 the convention is enforced as *compatibility*, not equality: `H1` must be
 `high`, but `S` may be `scatter` **or** `wildScatter`. Confirmed in use today:
 `H1`–`H5`, `L1`–`L5`, `S`, `W` (lines uses `S`=scatter; Book-of uses `S`=wildScatter).
-`bonus`/`multiplier` exist in the schema but have no established id prefix yet —
+`bonus`/`multiplier` are named kinds but have no established id prefix yet —
 give them one here the first time a game uses one.
 
 **No `mid` tier yet** (intentional, owner 2026-06-02). We run high/low only; a
@@ -49,12 +48,9 @@ which point the prefix table above gets the new row.
 
 ## Where this is (will be) enforced
 
-- `game-spec` — `classifySymbol(id)` (unambiguous prefixes) and
-  `isKindConsistentWithId(id, kind)` (the compatibility check, allowing
-  `S`=scatter|wildScatter) in `packages/game-spec/src/symbols.ts`. The editor /
-  spec validation calls these to keep the name authoritative. (A hard schema
-  refinement on `SymbolSpec` is deferred — the compatibility helper is the
-  contract for now; see `docs/design/invisible-editor.md` §7.6.)
+- **Not enforced in code today.** A classifier for the unambiguous prefixes plus a compatibility
+  check (allowing `S`=scatter|wildScatter) is the intended contract; see
+  `docs/design/invisible-editor.md` §7.6.
 - **Engine** — derives high/scatter/wild handling from the project's
   `SymbolSpec[]` instead of hardcoding (`HIGH_SYMBOLS` in
   `apps/lines/src/game/constants.ts` is the current hardcoded version).

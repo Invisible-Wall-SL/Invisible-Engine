@@ -81,9 +81,6 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
-      envs:
-        specifier: workspace:*
-        version: link:../../packages/envs
       lodash:
         specifier: 4.18.1
         version: 4.18.1
@@ -99,9 +96,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../../packages/utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../../packages/utils-book
@@ -133,9 +127,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -377,9 +368,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../../packages/utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../../packages/utils-book
@@ -411,9 +399,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -471,9 +456,6 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../../packages/constants-shared
-      envs:
-        specifier: workspace:*
-        version: link:../../packages/envs
       lodash:
         specifier: 4.18.1
         version: 4.18.1
@@ -489,9 +471,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../../packages/utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../../packages/utils-book
@@ -523,9 +502,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -583,9 +559,6 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
-      envs:
-        specifier: workspace:*
-        version: link:../../packages/envs
       lodash:
         specifier: 4.18.1
         version: 4.18.1
@@ -601,9 +574,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../../packages/utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../../packages/utils-book
@@ -635,9 +605,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -695,9 +662,6 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
-      envs:
-        specifier: workspace:*
-        version: link:../../packages/envs
       lodash:
         specifier: 4.18.1
         version: 4.18.1
@@ -713,9 +677,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../../packages/utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../../packages/utils-book
@@ -747,9 +708,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -807,9 +765,6 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
-      envs:
-        specifier: workspace:*
-        version: link:../../packages/envs
       lodash:
         specifier: 4.18.1
         version: 4.18.1
@@ -825,9 +780,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../../packages/utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../../packages/utils-book
@@ -859,9 +811,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../../packages/config-lingui
@@ -914,9 +863,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-storybook:
         specifier: workspace:*
         version: link:../config-storybook
@@ -969,21 +915,12 @@ importers:
         specifier: 6.2.0
         version: 6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)
     devDependencies:
-      '@storybook/addon-svelte-csf':
-        specifier: 5.1.5
-        version: 5.1.5(@storybook/svelte@10.6.3(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0)))(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)))(babel-plugin-macros@3.1.0)(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
-      config-storybook:
-        specifier: workspace:*
-        version: link:../config-storybook
       config-svelte:
         specifier: workspace:*
         version: link:../config-svelte
@@ -1048,9 +985,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -1166,9 +1100,6 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../engine-layout
-      envs:
-        specifier: workspace:*
-        version: link:../envs
       rgs-requests:
         specifier: workspace:*
         version: link:../rgs-requests
@@ -1184,9 +1115,6 @@ importers:
       utils-layout:
         specifier: workspace:*
         version: link:../utils-layout
-      utils-resize-observer:
-        specifier: workspace:*
-        version: link:../utils-resize-observer
       utils-shared:
         specifier: workspace:*
         version: link:../utils-shared
@@ -1200,9 +1128,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -1279,18 +1204,9 @@ importers:
         specifier: 6.2.0
         version: 6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)
     devDependencies:
-      '@storybook/addon-svelte-csf':
-        specifier: 5.1.5
-        version: 5.1.5(@storybook/svelte@10.6.3(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0)))(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)))(babel-plugin-macros@3.1.0)(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
-      config-storybook:
-        specifier: workspace:*
-        version: link:../config-storybook
       config-svelte:
         specifier: workspace:*
         version: link:../config-svelte
@@ -1315,9 +1231,6 @@ importers:
 
   packages/config-storybook:
     devDependencies:
-      '@chromatic-com/storybook':
-        specifier: 5.6.0
-        version: 5.6.0(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))
       '@storybook/addon-docs':
         specifier: 10.6.3
         version: 10.6.3(@types/react@19.1.8)(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))
@@ -1558,9 +1471,6 @@ importers:
       engine-mechanics:
         specifier: workspace:*
         version: link:../engine-mechanics
-      envs:
-        specifier: workspace:*
-        version: link:../envs
       game-config:
         specifier: workspace:*
         version: link:../game-config
@@ -1582,9 +1492,6 @@ importers:
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../utils-bet
       utils-book:
         specifier: workspace:*
         version: link:../utils-book
@@ -1846,37 +1753,6 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  packages/game-spec:
-    dependencies:
-      config-lingui:
-        specifier: workspace:*
-        version: link:../config-lingui
-      constants-shared:
-        specifier: workspace:*
-        version: link:../constants-shared
-      game-config:
-        specifier: workspace:*
-        version: link:../game-config
-      zod:
-        specifier: 3.23.8
-        version: 3.23.8
-    devDependencies:
-      '@types/node':
-        specifier: 22.20.5
-        version: 22.20.5
-      eslint:
-        specifier: 9.21.0
-        version: 9.21.0(jiti@2.7.0)
-      eslint-config-custom:
-        specifier: workspace:*
-        version: link:../eslint-config-custom
-      tsx:
-        specifier: 4.23.15
-        version: 4.23.15
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   packages/pixi-svelte:
     dependencies:
       '@barvynkoa/particle-emitter':
@@ -1925,9 +1801,6 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-lingui:
         specifier: workspace:*
         version: link:../config-lingui
@@ -1952,73 +1825,6 @@ importers:
       prettier-plugin-svelte:
         specifier: 3.3.3
         version: 3.3.3(prettier@3.9.10)(svelte@5.57.2(@typescript-eslint/types@8.72.0))
-      svelte-check:
-        specifier: 4.7.7
-        version: 4.7.7(picomatch@4.0.7)(svelte@5.57.2(@typescript-eslint/types@8.72.0))(typescript@6.0.3)
-
-  packages/pixi-svelte-storybook:
-    dependencies:
-      '@chromatic-com/storybook':
-        specifier: 5.6.0
-        version: 5.6.0(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))
-      '@storybook/addon-docs':
-        specifier: 10.6.3
-        version: 10.6.3(@types/react@19.1.8)(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))
-      '@storybook/addon-svelte-csf':
-        specifier: 5.1.5
-        version: 5.1.5(@storybook/svelte@10.6.3(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0)))(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)))(babel-plugin-macros@3.1.0)(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      '@storybook/builder-vite':
-        specifier: 10.6.3
-        version: 10.6.3(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      '@storybook/sveltekit':
-        specifier: 10.6.3
-        version: 10.6.3(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)))(storybook@10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0))(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      '@sveltejs/adapter-static':
-        specifier: ^3
-        version: 3.0.10(@sveltejs/kit@2.70.3(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)))(svelte@5.57.2(@typescript-eslint/types@8.72.0))(typescript@6.0.3)(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)))
-      '@sveltejs/vite-plugin-svelte':
-        specifier: 5.0.3
-        version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      pixi-svelte:
-        specifier: workspace:*
-        version: link:../pixi-svelte
-      pixi.js:
-        specifier: 8.22.0
-        version: 8.22.0
-      storybook:
-        specifier: 10.6.3
-        version: 10.6.3(@types/react@19.1.8)(prettier@3.9.10)(react@19.1.0)
-      svelte:
-        specifier: 5.57.2
-        version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-shared:
-        specifier: workspace:*
-        version: link:../utils-shared
-      vite:
-        specifier: 6.2.0
-        version: 6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15)
-    devDependencies:
-      components-storybook:
-        specifier: workspace:*
-        version: link:../components-storybook
-      config-lingui:
-        specifier: workspace:*
-        version: link:../config-lingui
-      config-storybook:
-        specifier: workspace:*
-        version: link:../config-storybook
-      config-svelte:
-        specifier: workspace:*
-        version: link:../config-svelte
-      config-vite:
-        specifier: workspace:*
-        version: link:../config-vite
-      eslint:
-        specifier: 9.21.0
-        version: 9.21.0(jiti@2.7.0)
-      eslint-config-custom:
-        specifier: workspace:*
-        version: link:../eslint-config-custom
       svelte-check:
         specifier: 4.7.7
         version: 4.7.7(picomatch@4.0.7)(svelte@5.57.2(@typescript-eslint/types@8.72.0))(typescript@6.0.3)
@@ -2065,9 +1871,6 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
-      utils-fetcher:
-        specifier: workspace:*
-        version: link:../utils-fetcher
 
   packages/state-shared:
     dependencies:
@@ -2111,9 +1914,6 @@ importers:
 
   packages/utils-bet:
     dependencies:
-      envs:
-        specifier: workspace:*
-        version: link:../envs
       pixi-svelte:
         specifier: workspace:*
         version: link:../pixi-svelte
@@ -2226,28 +2026,12 @@ importers:
       '@sveltejs/vite-plugin-svelte':
         specifier: 5.0.3
         version: 5.0.3(svelte@5.57.2(@typescript-eslint/types@8.72.0))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.106.1)(tsx@4.23.15))
-      chromatic:
-        specifier: 18.13.3
-        version: 18.13.3
       config-svelte:
         specifier: workspace:*
         version: link:../config-svelte
       config-vite:
         specifier: workspace:*
         version: link:../config-vite
-      eslint:
-        specifier: 9.21.0
-        version: 9.21.0(jiti@2.7.0)
-      eslint-config-custom:
-        specifier: workspace:*
-        version: link:../eslint-config-custom
-
-  packages/utils-resize-observer:
-    dependencies:
-      resize-observer:
-        specifier: 1.0.4
-        version: 1.0.4
-    devDependencies:
       eslint:
         specifier: 9.21.0
         version: 9.21.0(jiti@2.7.0)
@@ -2285,9 +2069,6 @@ importers:
       '@types/lodash':
         specifier: 4.17.27
         version: 4.17.27
-      envs:
-        specifier: workspace:*
-        version: link:../envs
       lodash:
         specifier: 4.18.1
         version: 4.18.1
@@ -2420,15 +2201,6 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  tools/bg-scene-spike:
-    devDependencies:
-      engine-layout:
-        specifier: workspace:*
-        version: link:../../packages/engine-layout
-      tsx:
-        specifier: 4.23.15
-        version: 4.23.15
-
   tools/flipbook-spike:
     devDependencies:
       engine-flipbook:
@@ -2497,15 +2269,6 @@ importers:
       game-config:
         specifier: workspace:*
         version: link:../../packages/game-config
-      tsx:
-        specifier: 4.23.15
-        version: 4.23.15
-
-  tools/generic-mount-spike:
-    devDependencies:
-      engine-layout:
-        specifier: workspace:*
-        version: link:../../packages/engine-layout
       tsx:
         specifier: 4.23.15
         version: 4.23.15
@@ -6544,9 +6307,6 @@ packages:
   redent@3.0.0:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
-
-  resize-observer@1.0.4:
-    resolution: {integrity: sha512-AQ2MdkWTng9d6JtjHvljiQR949qdae91pjSNugGGeOFzKIuLHvoZIYhUTjePla5hCFDwQHrnkciAIzjzdsTZew==}
 
   resolve-from@4.0.0:
     resolution: {integrity: sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g==}
@@ -10992,8 +10752,6 @@ snapshots:
     dependencies:
       indent-string: 4.0.0
       strip-indent: 3.0.0
-
-  resize-observer@1.0.4: {}
 
   resolve-from@4.0.0: {}
 

@@ -373,8 +373,3 @@ export const createPlay4FunFetcher = (
 		},
 	};
 };
-
-// ---------- Back-compat aliases ----------
-export const createEAGamingFetcher = createPlay4FunFetcher;
-export type EAGamingPostOptions = Play4FunPostOptions;
-export type EAGamingPostResult = Play4FunPostResult;
