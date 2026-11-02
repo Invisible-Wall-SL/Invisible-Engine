@@ -357,8 +357,7 @@ Node 22 process on **Colyseus 0.18** (`@colyseus/core` 0.18.23, `@colyseus/ws-tr
 workspace member, so CI installs it and `pnpm check:room-sim` boots it. Its current state is
 [status/game-families.md](status/game-families.md) "P10.14". **Live since 2026-10-27** as the
 Railway service `game-server` on `rooms.invisiblewall.org`, listed in `scripts/deploy-drift.mjs`.
-It plays no game until its config credential is set (steps 5–7): `GAME_SERVER_CONFIG_URL` is
-deliberately unset until then.
+Its config credential (steps 5–7) is set since 2026-11-02; Salmons plays on it.
 
 **What it serves.** WebSocket rooms of type `arcade`, matched by the join option `game` (the
 project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
@@ -379,8 +378,9 @@ config. 400 = bad project key; 401 = missing/wrong bearer, or the secret unset.
 **Limits it enforces** (no env needed): a room holds `arcade.online.maxPlayers` (≤ 100) and each
 character's `max`; a device sending more than `2 × tickHz + 10` messages a second is disconnected
 and gets no seat held; a WebSocket message over 1 KB is refused; an HTTP request that would carry
-a body with no `content-length` (chunked) is answered 411 and one declaring over 4 KB 413, before
-Colyseus reads it; a request whose URL Colyseus' router could not build (a bad
+a body with neither `content-length` nor `transfer-encoding` is answered 411, one declaring over
+4 KB 413, and a chunked body is read (413 past 4 KB) before Colyseus sees it; every refusal carries
+the matchmaker's CORS headers; a request whose URL Colyseus' router could not build (a bad
 `x-forwarded-proto`, an absolute-form target, a bad `Host`) is refused before it can crash the
 process, and so is a method it does not serve (405; only GET, HEAD, OPTIONS, POST); a request
 must finish within 10 s; at most 6 000 sockets; a WebSocket is served only for a room seat, and one
@@ -441,7 +441,7 @@ optionally `&rooms_name=…&rooms_character=…`. `scripts/playtest/online-play.
 with two headless browsers.
 
 **Owner / infra steps to stand it up.** Steps 1–4 and 8–10 are **done (2026-10-27)**; steps 5–7,
-the config credential, are still to do:
+the config credential, are **done (2026-11-02)**:
 
 1. **Railway → Invisible Pipeline project → New service** from GitHub
    `Invisible-Wall-SL/Invisible-Engine`, branch `main`, name `game-server`.
@@ -473,6 +473,17 @@ the config credential, are still to do:
    `scripts/deploy-drift.mjs` and to the Watch Paths table above (the fixture holds the two to each
    other), and to Better Stack Uptime (the "Game server" row under "Uptime"; the owner adds the
    monitor).
+
+**Troubleshooting.** A device whose room is refused is always told only "this game is not
+available"; the reason is in the **game-server log** (Railway → game-server → Deploy Logs). What
+we hit putting Salmons live (2026-11-02):
+
+- **`523` with no CORS header on `/matchmake`** (the browser reports a CORS error): the `rooms`
+  Cloudflare record is **proxied** (orange cloud). It must be **DNS-only** (step 8).
+- **Log: `no room for "<game>": no config source`**: `GAME_SERVER_CONFIG_URL` is unset on
+  game-server (step 6; apply the staged change, step 7).
+- **Log: `the config of "<game>" answered 400`**: the URL value is malformed. `?project={game}`
+  must be literal, `{game}` included: the server substitutes it.
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
