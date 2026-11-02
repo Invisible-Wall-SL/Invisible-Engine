@@ -27,6 +27,16 @@ Works today on `main` (code complete, most flows not yet browser-verified):
 - None.
 
 ## Recent changes
+- 2026-10-30 — **Generate no longer bakes broken glyphs (missing strokes, filled counters).**
+  The baker built each glyph's `Path2D` from opentype.js 2.0's `toPathData(3)`, whose rounding
+  writes `NaN` for a coordinate whose fraction stringifies in exponent form (`1e-7` →
+  `"1e-7e+3"`); the browser stops parsing the path there, so the glyph lost its tail (a `3` or `7`
+  vanished, an `O` filled solid). Which glyphs broke depended on the bake size; AntiquaBold (CFF)
+  and PFEuroset Bold (TrueType) both hit it. `outlineToPath2D()` now draws from `path.commands`
+  directly. Verified by rendering both fonts at size 70 in a browser, string path vs commands, from
+  opentype.js 2.0.0's real `dist`: the string path reproduced the reported artefacts and the commands
+  path drew every ASCII glyph. Saved fonts baked before this keep their broken pages until
+  re-baked (Edit → Bake → Save).
 - 2026-10-29 — **Swap tab: replace a font everywhere in the project.** `POST /api/fonts/swap`
   (`lib/server/fontSwap.ts`) reports (dry run) or rewrites every reference to one font so it names
   another. A ref matches when `findFont` resolves it to the swapped entry against the renderable

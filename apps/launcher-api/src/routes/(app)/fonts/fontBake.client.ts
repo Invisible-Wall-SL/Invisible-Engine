@@ -22,7 +22,7 @@
  *   yoffset      = floor(bb.y1) - pad
  *   xadvance     = round(glyph.advanceWidth * scale)
  */
-import { parse, type Font, type Glyph } from 'opentype.js';
+import { parse, type Font, type Glyph, type Path } from 'opentype.js';
 import { shelfPack } from '$lib/shelfPack';
 import {
 	applyStops,
@@ -266,7 +266,7 @@ export async function bakeBitmapFont(opts: BakeOptions): Promise<BakeResult> {
 		// Shift the path so its ink box + pad sits at tile (0,0).
 		ctx.save();
 		ctx.translate(pad - inkLeft, pad - inkTop);
-		const p2d = new Path2D(path.toPathData(3));
+		const p2d = outlineToPath2D(path);
 
 		// (1) drop-shadow: applied to the fill pass below via ctx.shadow*.
 		if (effects.shadow.enabled) {
@@ -363,6 +363,24 @@ export async function bakeBitmapFont(opts: BakeOptions): Promise<BakeResult> {
 		glyphCount: tiles.length,
 		kerningCount: kernings.pairs.length,
 	};
+}
+
+/**
+ * Build the glyph's Path2D straight from its outline commands. Never via `toPathData()`:
+ * opentype.js 2.0's rounding writes `NaN` for a coordinate whose fraction stringifies in
+ * exponent form (`1e-7` → `"1e-7e+3"`), and the browser drops the path from that point,
+ * so at some sizes glyphs baked with missing strokes or filled counters.
+ */
+function outlineToPath2D(path: Path): Path2D {
+	const p2d = new Path2D();
+	for (const c of path.commands) {
+		if (c.type === 'M') p2d.moveTo(c.x, c.y);
+		else if (c.type === 'L') p2d.lineTo(c.x, c.y);
+		else if (c.type === 'C') p2d.bezierCurveTo(c.x1, c.y1, c.x2, c.y2, c.x, c.y);
+		else if (c.type === 'Q') p2d.quadraticCurveTo(c.x1, c.y1, c.x, c.y);
+		else p2d.closePath();
+	}
+	return p2d;
 }
 
 /** Page filenames: `${base}.png` for a single page, else `${base}_${i}.png`. */
