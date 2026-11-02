@@ -28,7 +28,7 @@
 	 * its kind, time, capacity and frames at mount, so a change to any of those remounts it; a change
 	 * to the material's strength or params is a uniform write, with no re-init and no reset.
 	 */
-	import { Emitter } from '@barvynkoa/particle-emitter';
+	import { Emitter, Particle } from '@barvynkoa/particle-emitter';
 	import type * as RIG from 'engine-rig/pixi';
 	import {
 		bindArt,
@@ -56,7 +56,7 @@
 		particleMaterialSlotsFor,
 		type MountedParticleMaterial,
 	} from 'pixi-svelte/particleMaterial';
-	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
+	import { Application, Container, Matrix, Sprite, Texture, type TextureSource } from 'pixi.js';
 	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
 	import {
 		layerEmitter,
@@ -69,6 +69,13 @@
 	import { customElementFx } from 'constants-shared/elementFx';
 	import { onMount, untrack } from 'svelte';
 	import type { FxStagePlain } from './fxMaterial.client';
+	import {
+		clippedScreenArea,
+		measureEmitter,
+		type FxCostSample,
+		type FxLayerCostReading,
+		type FxStageCost,
+	} from './fxCost.client';
 	import {
 		emitterOwnerLocal,
 		layerFollowsBone,
@@ -147,6 +154,11 @@
 		 * material mounted (layer pixels, padding and overdraw included).
 		 */
 		onMaterialStats?: (stats: Record<string, FxStageMaterialStat>) => void;
+		/**
+		 * Told, a few times a second, what the effect costs: each layer's live particles and the
+		 * screens of pixels they cover, measured every frame, now and at peak. Read-only.
+		 */
+		onCost?: (cost: FxStageCost) => void;
 	}
 
 	export interface FxStageMaterialStat {
@@ -178,6 +190,7 @@
 		params,
 		paramValues,
 		onMaterialStats,
+		onCost,
 	}: Props = $props();
 
 	const emitOn = $derived(playing && emitting);
@@ -290,6 +303,100 @@
 		onMaterialStats(stats);
 	}
 
+	/** Each layer's live particles and covered pixels this frame, and their peaks. */
+	interface LayerCost {
+		now: FxCostSample;
+		peak: FxCostSample;
+	}
+	let layerCosts: Record<string, LayerCost> = {};
+	let totalNow: FxCostSample = { live: 0, coverage: 0 };
+	let totalPeak: FxCostSample = { live: 0, coverage: 0 };
+	const parentToScreen = new Matrix();
+	const IDENTITY = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+	let costView = { w: 0, h: 0 };
+
+	/** Forget the peaks: the effect changed, or the view moved (coverage is in screen pixels). */
+	function resetCostPeaks(): void {
+		layerCosts = {};
+		totalNow = { live: 0, coverage: 0 };
+		totalPeak = { live: 0, coverage: 0 };
+	}
+
+	/**
+	 * Measure every layer this frame. A rig-particle layer (Tier C) draws `RigView`s, whose bounds
+	 * are costly to walk, so its coverage is taken only when `withRigs` (the report tick).
+	 */
+	function measureCost(withRigs: boolean): void {
+		if (!app || !onCost) return;
+		const w = app.screen.width;
+		const h = app.screen.height;
+		const screen = w * h;
+		if (screen <= 0) return;
+		if (w !== costView.w || h !== costView.h) {
+			resetCostPeaks();
+			costView = { w, h };
+		}
+		let count = 0;
+		let coverage = 0;
+		for (const [key, entry] of live) {
+			const rig = entry.layer.particleKind === 'spine' && entry.hasArt;
+			const parent = entry.emitter.parent;
+			if (!parent) continue;
+			parent.getGlobalTransform(parentToScreen);
+			const measured = measureEmitter(entry.emitter, parentToScreen, w, h);
+			let area = measured.area;
+			const known = layerCosts[key];
+			if (rig) {
+				if (withRigs) {
+					area = 0;
+					for (const child of entry.container.children) {
+						if (child instanceof Particle || !child.visible) continue;
+						const b = child.getBounds();
+						area += clippedScreenArea(IDENTITY, b, w, h);
+					}
+				} else area = (known?.now.coverage ?? 0) * screen;
+			}
+			const now = { live: measured.live, coverage: area / screen };
+			layerCosts[key] = {
+				now,
+				peak: {
+					live: Math.max(known?.peak.live ?? 0, now.live),
+					coverage: Math.max(known?.peak.coverage ?? 0, now.coverage),
+				},
+			};
+			count += now.live;
+			coverage += now.coverage;
+		}
+		totalNow = { live: count, coverage };
+		totalPeak = {
+			live: Math.max(totalPeak.live, count),
+			coverage: Math.max(totalPeak.coverage, coverage),
+		};
+	}
+
+	let costAt = 0;
+	/** Measure this frame; report a few times a second. */
+	function costTick(time: number): void {
+		const due = time - costAt >= STATS_EVERY_MS;
+		measureCost(due);
+		if (!due) return;
+		costAt = time;
+		reportCost();
+	}
+
+	/** Tell the page what the effect costs (`onCost`). */
+	function reportCost(): void {
+		if (!app || !onCost) return;
+		const layersOut: Record<string, FxLayerCostReading> = {};
+		for (const [key, cost] of Object.entries(layerCosts))
+			if (live.has(key)) layersOut[key] = { ...cost };
+		onCost({
+			viewport: { w: app.screen.width, h: app.screen.height, zoom: view.scale },
+			layers: layersOut,
+			total: { now: totalNow, peak: totalPeak },
+		});
+	}
+
 	onMount(() => {
 		let disposed = false;
 		const created = new Application();
@@ -315,6 +422,7 @@
 						entry.applier.apply(values);
 						syncMaterial(entry);
 					}
+					costTick(ticker.lastTime);
 					return;
 				}
 				effectFx?.apply(values);
@@ -348,6 +456,7 @@
 					statsAt = ticker.lastTime;
 					reportMaterials();
 				}
+				costTick(ticker.lastTime);
 			});
 			await requestRebuild();
 		})();
@@ -499,6 +608,7 @@
 		if (!world) return;
 		world.position.set(view.x, view.y);
 		world.scale.set(view.scale);
+		resetCostPeaks();
 	}
 
 	/** A soft white dot used as a STAND-IN particle while a layer has no art bound yet, so the
@@ -552,6 +662,7 @@
 	async function rebuild(): Promise<void> {
 		if (!app || !world) return;
 		const gen = ++rebuildGen;
+		resetCostPeaks();
 
 		// Tear down emitters whose layer no longer exists.
 		const keys = new Set(layers.map((l) => l.key));

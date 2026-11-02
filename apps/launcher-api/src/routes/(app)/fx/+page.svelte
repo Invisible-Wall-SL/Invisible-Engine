@@ -35,6 +35,8 @@
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import FxStage, { type FxStageMaterialStat, type ResolvedArt } from './FxStage.svelte';
+	import FxCostPanel from './FxCostPanel.svelte';
+	import type { FxStageCost } from './fxCost.client';
 	import {
 		largestFrame,
 		materialChoices,
@@ -604,12 +606,18 @@
 	/** How the stage draws each material layer, as it last said. */
 	let materialStats = $state<Record<string, FxStageMaterialStat>>({});
 
-	/** Each atlas's regions once resolved: a layer's largest frame sizes its load estimate. */
+	/** What the stage last measured the effect to cost (the Cost panel under the preview). */
+	let stageCost = $state<FxStageCost | undefined>();
+
+	/**
+	 * Each atlas's regions once resolved: a layer's largest frame sizes its material load estimate
+	 * and is the art size the Cost panel shows.
+	 */
 	let artRegions = $state<Record<string, ResolvedArt['regions']>>({});
 	$effect(() => {
 		for (const layer of doc.layers) {
 			const key = layer.art.assetKey;
-			if (!layer.material || !key || key in artRegions) continue;
+			if (!key || key in artRegions) continue;
 			resolveArt(key)
 				.then((art) => {
 					if (art) artRegions = { ...artRegions, [key]: art.regions };
@@ -1890,8 +1898,16 @@
 					params={doc.params}
 					paramValues={previewValues}
 					onMaterialStats={(stats) => (materialStats = stats)}
+					onCost={(cost) => (stageCost = cost)}
 				/>
 			</div>
+			<FxCostPanel
+				layers={doc.layers}
+				cost={stageCost}
+				regions={artRegions}
+				{selectedKey}
+				onselect={(key) => (selectedKey = key)}
+			/>
 		</div>
 
 		<aside class="inspector">
