@@ -13,7 +13,16 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
   bucket's own profile box; the coded UI matched bucket ids by name, so `UIDefault` drew no HUD.
 - **Fix:** profile box before the coded fallback; coded UI asks `layoutKind()`, data keys by id.
 - **Guard:** `check:canvas-window-scale` (box order), `test-layout-profile-parity.mjs` (kinds).
-- **PR:** not recorded (2026-11-02) · source: `docs/status/engine.md`
+- **PR:** #1489 (2026-11-02) · source: `docs/status/engine.md`
+
+### Landscape looked different in the desktop build than online and in the editor
+
+- **Symptom:** a desktop-launcher build laid landscape out unlike the live game and the editor.
+- **Cause:** only the online runtime bundle stamped the admin global layout profile onto the doc;
+  `/api/editor/doc`, which the desktop build bakes, did not, so the build used the coded buckets.
+- **Fix:** one helper, `stampEffectiveLayoutProfile`, called by both doc surfaces.
+- **Guard:** `check:layout-profile-surfaces` (fails on the pre-fix route and on planted mutants).
+- **PR:** #1487 (2026-11-02) · source: `docs/status/editor.md`
 
 ### A canvas screen ended differently on a wider window
 

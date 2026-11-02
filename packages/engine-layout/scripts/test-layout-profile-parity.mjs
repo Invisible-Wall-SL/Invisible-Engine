@@ -143,7 +143,7 @@ check('normalize repairs bad fallbackBucketId to a real bucket', repaired?.fallb
 check('normalize rejects a profile with no usable bucket', normalizeLayoutProfile({ buckets: [] }) === null);
 
 // 3. The coded UI's kind for an author-added bucket: never undefined, stacked ⇒ portrait.
-const ultrawide = merged.buckets.find((b) => b.id === 'ultrawide');
+const ultrawide = merged.buckets.find((/** @type {{ id: string }} */ b) => b.id === 'ultrawide');
 check('added wide bucket → desktop kind on a monitor', codedLayoutKind(ultrawide, { width: 2560, height: 1080 }) === 'desktop');
 check('added wide bucket → landscape kind on a phone', codedLayoutKind(ultrawide, { width: 812, height: 375 }) === 'landscape');
 const tall = { id: 'tall', label: 'Tall', box: { width: 1080, height: 2400 }, rule: {}, stacked: true };
