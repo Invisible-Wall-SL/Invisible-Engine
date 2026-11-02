@@ -13,13 +13,13 @@
 	},
 	"dependencies": {
 		"@colyseus/core": "0.18.23",
-		"@colyseus/schema": "5.0.42",
+		"@colyseus/schema": "5.0.43",
 		"@colyseus/ws-transport": "0.18.4",
 		"engine-mechanics": "workspace:*",
 		"game-config": "workspace:*"
 	},
 	"devDependencies": {
-		"@colyseus/sdk": "0.18.6",
+		"@colyseus/sdk": "0.18.8",
 		"@types/node": "22.20.5",
 		"typescript": "6.0.3"
 	}
