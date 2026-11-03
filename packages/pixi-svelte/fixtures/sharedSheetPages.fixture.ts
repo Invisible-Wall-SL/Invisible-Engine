@@ -76,6 +76,15 @@ async function main(): Promise<void> {
 	check('both sheets draw from the same source', art.textureSource === symbols.textureSource, true);
 	check('frames still parse', Object.keys(art.textures), ['H1_static']);
 
+	console.log('\n2b. a premultiplied (`pma`) rig page keeps a texture of its own');
+	fetched.length = 0;
+	const PMA = ATLAS.replace('filter: Linear,Linear', 'filter: Linear,Linear\npma: true');
+	await rigParser.parse(PMA, { src: `${BASE}/editor-art/R_Imported/R_Imported.atlas` }, loader);
+	await rigParser.parse(PMA, { src: `${BASE}/editor-art/R_Other/R_Other.atlas` }, loader);
+	check('one more fetch, keyed apart, shared by pma rigs', fetched, [
+		`${BASE}/_pages/0ef425de.webp#pma`,
+	]);
+
 	console.log('\n3. the url keeps the sheet’s query');
 	fetched.length = 0;
 	await parseSheet('editor-art/S_UI/S_UI.json?v=3');

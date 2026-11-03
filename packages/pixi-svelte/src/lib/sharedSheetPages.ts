@@ -12,9 +12,10 @@ import { copySearchParams, path, spritesheetAsset, type Loader, type Texture } f
  * (2026-11-03): the symbol export's copy of `S_StaticElements` beside the editor-art one, and four
  * pages a sheet shares with a rig, loaded twice — 43 MB of duplicate textures on desktop.
  *
- * Joining here gives the url the rig loader already uses. A page loaded both ways keeps the alpha
- * handling it always had: a sheet and a straight rig page both premultiply on upload. A sheet
- * handed a `texture` is parsed as before.
+ * Joining here gives the url the rig loader already uses, so a sheet and a straight rig page share
+ * one texture (both premultiply on upload). A `pma` rig page stays apart: the rig loader keys it
+ * `#pma`, since Pixi's cache ignores the alpha mode a load asks for. A sheet handed a `texture` is
+ * parsed as before.
  */
 let installed = false;
 

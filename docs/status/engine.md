@@ -326,9 +326,26 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   hides stays mounted, so its stock art is still kept. Fixture cases 9–10 in
   `stockAssets.fixture.ts`, mutation-checked against `main`. The `[Cache] already has key`
   warnings for `H1_static`… remain (both copies of `S_StaticElements` register the bare frame
-  names; same texture now). **Not verified:** a spin, since the build URL answers a fresh demo
-  session with `not found` at the RGS on `main` and live too. **Owner-side content** for this
-  game (the rest of the 415 MB): see the open item below.
+  names; same texture now). Systemic, not one game's: `commonoverlayproject` (same method) goes
+  34 → 27 textures, 214.7 → 176.8 MB, 16.45 → 15.08 MB downloaded (two `S_Reel` sheets and two
+  sheet/rig pairs sharing a page, plus the same free-spin art). A rig page declaring `pma: true`
+  keeps its own cache key (`engine-rig` `assets.ts`, `#pma`, never sent on the wire): Pixi's cache
+  ignores the alpha mode a load asks for, and the page store shares one WebP between a sheet and a
+  `pma` rig. A cinematic's scoped cue (`signal:boardFrameGlowShow`) counts as a free-spin switch.
+  **Desktop stays uncompressed — measured, not assumed.** The KTX2 twins (UASTC q1) transcode to
+  BC7 on a desktop GPU at ¼ of the memory, but drawn 1:1 against the WebP on `overlay-buffaloduel`'s
+  4-aligned pages they move **9.8k–22.5k fully opaque pixels by more than 20/255, worst 76–107**
+  (PSNR 34–38 dB) — the same order as the lossy WebP the 2026-09-23 `nearLossless` decision
+  rejected for banding (51,588 px, worst 92). Phones already take that trade; a desktop default
+  would show it. Residency stays too: sparing rarely-shown art from the warm-up brings back the
+  0.1–1.6 s first-show uploads it removed (2026-10-27). **Page size is not the pipeline's
+  problem:** every page over 1 Mpx already has a twin, floored to 4×4 blocks (`ktx2Dimensions.ts`,
+  revision 2) — `3593×2573` was never barred from KTX2. What costs desktop memory is EMPTY page:
+  the shared `S_UI` page (`bf9f8ba9…`, also in `commonoverlayproject`) is 4096² with 14% of its
+  pixels drawn; the FX bake's pages are 9–15% drawn (`engine-fx` `bake.ts` packs untrimmed
+  full-bounds cells). **Not verified:** a spin, since the build URL answers a fresh demo session
+  with `not found` at the RGS on `main` and live too. **Owner-side content** for this game: see
+  the open item below.
 - 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
   `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
   Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134

@@ -750,6 +750,19 @@ check(
 	freeSpinArt,
 );
 check(
+	'…or a cinematic fires one as a scoped cue',
+	added(
+		input(
+			{
+				...withFreeSpinParts(),
+				other: [[{ id: 'intro', keys: [{ time: 0, cue: 'signal:boardFrameGlowShow' }] }]],
+			},
+			{ config: noFreeSpins },
+		),
+	),
+	freeSpinArt,
+);
+check(
 	'…or a full pot starts them',
 	added(
 		input(withFreeSpinParts(), {

@@ -207,12 +207,17 @@ function codedMountNeeds(data: StockAssetData, freeSpins: boolean): string[] {
  * Whether a round can ever draw the free-spin presentation: the config's free-spins rule is on, a
  * bonus route (a pot, a buy, a meter) starts the built-in free spins, the project has a reels mode of
  * its own (an imported free spins, `stateModes.svelte.ts` `isFreeGameType`), or an authored doc fires
- * one of `FREE_SPIN_SWITCHES`. With free spins off the rules page already tells the player there are
- * none (`infoManifest.ts`), so a server that sends them anyway is out of step with what the game says.
+ * one of `FREE_SPIN_SWITCHES` — bare, or scoped as a cinematic cue is (`signal:boardFrameGlowShow`,
+ * which `FlowV2Cinematics.svelte` broadcasts bare). With free spins off the rules page already tells
+ * the player there are none (`infoManifest.ts`), so a server that sends them anyway is out of step
+ * with what the game says.
  */
 function freeSpinsReachable(config: GameConfigDoc, authoredNames: Names): boolean {
 	if (resolveFreeSpins(config).enabled) return true;
-	if (FREE_SPIN_SWITCHES.some((name) => authoredNames.has(name))) return true;
+	const switches = new Set(FREE_SPIN_SWITCHES);
+	for (const name of authoredNames.keys()) {
+		if (switches.has(name.slice(name.lastIndexOf(':') + 1))) return true;
+	}
 	const builtins = new Set(builtinGameModes().map((mode) => mode.id));
 	if (resolveGameModes(config).some((mode) => mode.board === 'reels' && !builtins.has(mode.id))) {
 		return true;
