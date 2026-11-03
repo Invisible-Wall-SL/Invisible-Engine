@@ -609,6 +609,8 @@ export function registerBakedComponents(): void {
 	registerGameTimelines(bakedCinematics());
 }
 
+type RigEntrySrc = { atlas: string; skeleton: string; scale: number };
+
 /**
  * Asset entries for the spritesheets the baked doc's art references (exported to
  * `deploy/editor-art/` at bake time, mirrored into `static/assets/` by the
@@ -619,8 +621,45 @@ export function registerBakedComponents(): void {
  * The src is page-relative (`assets/…`), matching how the static dir is served.
  */
 type EditorArtAssetEntry =
-	| { type: 'sprites' | 'sprite'; src: string; preload: boolean; namespace?: string }
-	| { type: 'spine'; src: { atlas: string; skeleton: string; scale: number }; preload: boolean };
+	| {
+			type: 'sprites' | 'sprite';
+			src: string;
+			fallback?: string;
+			preload: boolean;
+			namespace?: string;
+	  }
+	| { type: 'spine'; src: RigEntrySrc; fallback?: RigEntrySrc; preload: boolean };
+
+/** The tier's url for a page/image that may have a KTX2 twin. When the twin is chosen, `fallback`
+ * names the WebP/PNG it came from: `AssetsLoader` loads that instead if the `.ktx2` fails (a broken
+ * transcoder, a 404), so the compressed tier can cost VRAM but never the art. */
+function tierSrc(
+	base: string,
+	plain: string,
+	ktx2: string | undefined,
+	useKtx2: boolean,
+): { src: string; fallback?: string } {
+	return useKtx2 && ktx2
+		? { src: `${base}${ktx2}`, fallback: `${base}${plain}` }
+		: { src: `${base}${plain}` };
+}
+
+/** {@link tierSrc} for a rig bundle: only the atlas has a twin (its page lines name the `.ktx2`
+ * pages); the skeleton is shared. */
+function rigTierSrc(
+	base: string,
+	rig: { atlas: string; skeleton: string; scale?: number; ktx2Atlas?: string },
+	useKtx2: boolean,
+): { src: RigEntrySrc; fallback?: RigEntrySrc } {
+	const at = (atlas: string): RigEntrySrc => ({
+		atlas: `${base}${atlas}`,
+		skeleton: `${base}${rig.skeleton}`,
+		scale: rig.scale ?? 2,
+	});
+	return useKtx2 && rig.ktx2Atlas
+		? { src: at(rig.ktx2Atlas), fallback: at(rig.atlas) }
+		: { src: at(rig.atlas) };
+}
 
 /**
  * Dangling-binding guard (browser side). The exporters flag every placed region /
@@ -687,10 +726,9 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 		// Scope each sheet's frames by its manifest key (the value sprite nodes store
 		// as `assetKey`) so two sheets that reuse a region name don't collide in the
 		// flat loadedAssets map. `LayoutNodeView` resolves the matching scoped key.
-		const sheetPath = useKtx2 && sheet.ktx2Json ? sheet.ktx2Json : sheet.json;
 		out[`editorArt/${sheet.json}`] = {
 			type: 'sprites',
-			src: `${base}${sheetPath}`,
+			...tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2),
 			preload: true,
 			namespace: editorArtNamespace(sheet.key),
 		};
@@ -698,8 +736,11 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	// Standalone images register under the sprite node's full assetKey — that IS
 	// the engine's lookup key for a region-less sprite node.
 	for (const image of source.editorArt?.images ?? []) {
-		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
-		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
+		out[image.key] = {
+			type: 'sprite',
+			...tierSrc(base, image.file, image.ktx2, useKtx2),
+			preload: true,
+		};
 	}
 	// Rig bundles register under the rig node's full assetKey — the value
 	// `LayoutNodeView` passes to `<RigProvider key=…>`.
@@ -707,16 +748,7 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 		// On the compressed tier load the KTX2 atlas variant (its page-name lines point at the
 		// `.ktx2` twins; rig's atlas loader loads each page by extension → our KTX2 loader
 		// transcodes it). Same region coords, so the skeleton is unchanged. Absent ⇒ original.
-		const atlasPath = useKtx2 && rig.ktx2Atlas ? rig.ktx2Atlas : rig.atlas;
-		out[rig.key] = {
-			type: 'spine',
-			src: {
-				atlas: `${base}${atlasPath}`,
-				skeleton: `${base}${rig.skeleton}`,
-				scale: rig.scale ?? 2,
-			},
-			preload: true,
-		};
+		out[rig.key] = { type: 'spine', ...rigTierSrc(base, rig, useKtx2), preload: true };
 	}
 	return out;
 }
@@ -1402,8 +1434,8 @@ export function bakedFlowV2Library(): FlowV2LibraryDoc | undefined {
 }
 
 type SymbolAssetEntry =
-	| { type: 'sprites' | 'sprite'; src: string; preload: boolean }
-	| { type: 'spine'; src: { atlas: string; skeleton: string; scale: number }; preload: boolean };
+	| { type: 'sprites' | 'sprite'; src: string; fallback?: string; preload: boolean }
+	| { type: 'spine'; src: RigEntrySrc; fallback?: RigEntrySrc; preload: boolean };
 
 /**
  * Asset entries for any sprite sheet / image / rig bundle a baked symbol binding
@@ -1434,28 +1466,21 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 	// tier-identical; only the resolved `src` differs. Absent variant ⇒ the WebP/PNG (parity).
 	const useKtx2 = preferCompressedTextures();
 	for (const sheet of index.sheets ?? []) {
-		const sheetPath = useKtx2 && sheet.ktx2Json ? sheet.ktx2Json : sheet.json;
 		out[`editorSymbols/${sheet.json}`] = {
 			type: 'sprites',
-			src: `${base}${sheetPath}`,
+			...tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2),
 			preload: true,
 		};
 	}
 	for (const image of index.images ?? []) {
-		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
-		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
-	}
-	for (const rig of index.spines ?? []) {
-		const atlasPath = useKtx2 && rig.ktx2Atlas ? rig.ktx2Atlas : rig.atlas;
-		out[rig.key] = {
-			type: 'spine',
-			src: {
-				atlas: `${base}${atlasPath}`,
-				skeleton: `${base}${rig.skeleton}`,
-				scale: rig.scale ?? 2,
-			},
+		out[image.key] = {
+			type: 'sprite',
+			...tierSrc(base, image.file, image.ktx2, useKtx2),
 			preload: true,
 		};
+	}
+	for (const rig of index.spines ?? []) {
+		out[rig.key] = { type: 'spine', ...rigTierSrc(base, rig, useKtx2), preload: true };
 	}
 	return out;
 }
@@ -1526,20 +1551,15 @@ function layerAssets(
 
 	for (const rig of index.spines ?? []) {
 		if (!keys.has(rig.key) || rig.key in already || rig.key in out) continue;
-		out[rig.key] = {
-			type: 'spine',
-			src: {
-				atlas: `${base}${useKtx2 && rig.ktx2Atlas ? rig.ktx2Atlas : rig.atlas}`,
-				skeleton: `${base}${rig.skeleton}`,
-				scale: rig.scale ?? 2,
-			},
-			preload: true,
-		};
+		out[rig.key] = { type: 'spine', ...rigTierSrc(base, rig, useKtx2), preload: true };
 	}
 	for (const image of index.images ?? []) {
 		if (!keys.has(image.key) || image.key in already || image.key in out) continue;
-		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
-		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
+		out[image.key] = {
+			type: 'sprite',
+			...tierSrc(base, image.file, image.ktx2, useKtx2),
+			preload: true,
+		};
 	}
 	// A sprite/flipbook layer's `assetKey`/clip frame is a sheet FRAME, not a sheet key, and a frame
 	// can't be mapped to its sheet without reading the sheet json — so a bg/fg sprite/flipbook needs
@@ -1552,8 +1572,11 @@ function layerAssets(
 		for (const sheet of index.sheets ?? []) {
 			const key = `editorSymbols/${sheet.json}`;
 			if (key in already || key in out) continue;
-			const sheetPath = useKtx2 && sheet.ktx2Json ? sheet.ktx2Json : sheet.json;
-			out[key] = { type: 'sprites', src: `${base}${sheetPath}`, preload: true };
+			out[key] = {
+				type: 'sprites',
+				...tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2),
+				preload: true,
+			};
 		}
 	}
 	return out;

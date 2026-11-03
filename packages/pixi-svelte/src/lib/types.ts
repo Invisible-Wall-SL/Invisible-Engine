@@ -41,6 +41,9 @@ export type RigSrc = { skeleton: string; atlas: string; scale?: number };
 export type Asset = {
 	type: RawType;
 	src: string | RigSrc;
+	/** Loaded instead when `src` fails: the WebP/PNG twin of a GPU-compressed `.ktx2` variant, so a
+	 * broken transcoder or a missing `.ktx2` costs VRAM, never the art. Same shape as `src`. */
+	fallback?: string | RigSrc;
 	preload?: boolean;
 	/** `sprites` only: a key prefix prepended to every frame's `loadedAssets` entry
 	 * (in addition to the bare frame name), so two sheets that reuse a frame name

@@ -48,6 +48,9 @@ const SKIP = {
 	// Builds the whole runtime five times (minutes) — `pnpm check:family-runtimes` and, per id, the
 	// release workflow run it.
 	'scripts/check-family-runtime.mjs': 'five full runtime builds; run by check:family-runtimes',
+	// Three app builds and a real browser (minutes); run by hand before an engine change that touches
+	// how the KTX2 transcoder ships or loads.
+	'scripts/check-ktx2-transcoder.mjs': 'three builds + Chromium; run by check:ktx2-transcoder',
 	// Print a rig's structure for a human; they assert nothing.
 	'tools/rigger-spike/inspect.mjs': 'a rig dump for reading, not a check',
 	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',
