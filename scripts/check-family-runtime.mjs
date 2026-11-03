@@ -28,7 +28,8 @@
 //                      visit. CODE only: the build's own `assets/` (art, audio) keep stable names and
 //                      are served `no-store`, so a repeat visit fetches them again.
 // Lazy chunks only some boots load (the Sentry SDK, Pixi's canvas fallback) are reported, not
-// budgeted.
+// budgeted. A family with an online mode whose online code is in NO lazy chunk is a problem, not a
+// warning (the release job fails): the online-boot budget would otherwise silently mean nothing.
 // This is a build measure next to the current-games harness, not part of it: the harness boots the
 // same builds and compares screens; this reads bytes.
 

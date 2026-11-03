@@ -356,7 +356,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     the page `no-store`, and kept the previous runtime release's `_app/immutable/*` for one
     generation. It now does the same for a desktop-published game's own files
     (`retiredGameImmutable`: the portal relay prunes re-hashed chunks, which would 404 a lazy chunk
-    for a page loaded just before a republish), and answers a bare `/<gameKey>` with a 301 to
+    for a page loaded just before a republish; held in memory, so a test-server restart in between
+    drops it, as it already did for the runtime's), and answers a bare `/<gameKey>` with a 301 to
     `/<gameKey>/`, query kept (the shell's relative URLs would otherwise resolve against `/`).
     `verify-runtime-live.mjs` HEADs the bundle again (the shell loads it by URL). The build's own
     `assets/` stay `no-store` (open item).

@@ -1,4 +1,4 @@
-// The three shapes a game build ships in, built from `apps/lines` the way each is really cut. Shared
+// The four shapes a game build ships in, built from `apps/lines` the way each is really cut. Shared
 // by the browser gates that boot them (`check-runtime-shell.mjs`, `check-ktx2-transcoder.mjs`), so
 // `pnpm check:ktx2-transcoder --out <dir>` and `pnpm check:runtime-shell --skip-build --out <dir>`
 // can share one set of builds.

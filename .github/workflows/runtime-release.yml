@@ -242,7 +242,7 @@ jobs:
 
       # The bundle carries exactly the families its id names: its `__IE_FAMILIES__` and no left-out
       # family's code, in any of its files. Over its size budgets (a first visit: the shell, the
-      # bundle and the chunks every boot loads; a repeat visit's code: the shell) is a warning only
+      # bundle and its CSS; a repeat visit's code: the shell) is a warning only
       # (no PR check runs the budget).
       - name: 'Gate: the ${{ matrix.runtime }} bundle carries its families only'
         env:

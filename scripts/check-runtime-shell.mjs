@@ -2,12 +2,12 @@
 // ES-module bundle, and every place we serve one boots it, loads each chunk from the right URL and,
 // on a repeat visit, downloads no code but the shell.
 //
-//   pnpm check:runtime-shell                 builds three variants of apps/lines, then checks each
+//   pnpm check:runtime-shell                 builds four variants of apps/lines, then checks each
 //   pnpm check:runtime-shell --skip-build    re-checks the builds a previous `--out` kept
 //   pnpm check:runtime-shell --out <dir>     where the builds go (default: a temp dir, removed)
 //
 // The builds are `lib/game-build-variants.mjs`'s, so `pnpm check:ktx2-transcoder --out <dir>` then
-// `pnpm check:runtime-shell --skip-build --out <dir>` builds once for both. Minutes (three full
+// `pnpm check:runtime-shell --skip-build --out <dir>` builds once for both. Minutes (four full
 // builds + Chromium), so NOT in Lint and skipped by `check:all`, like `check:ktx2-transcoder`. Uses
 // the machine's pre-installed Playwright + Chromium, resolved through `NODE_PATH`.
 //

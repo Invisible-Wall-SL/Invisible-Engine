@@ -975,10 +975,13 @@ never branches on a template. The family branch is one more branch of the same k
   `<Match3Input />` (cell hit-test, swap flights, select / hint) beside it.
 - **Arcade** mounts `<ArcadeStage />` (the play field and loop) instead of the reel stack.
 
-**There are no lazy chunks.** The runtime is built with SvelteKit's `bundleStrategy: 'inline'`, or
-`'single'` for embed builds (`packages/config-svelte/index.js:87`). Both produce **one** bundle with
-dynamic imports inlined. So the family code ships inside every game's runtime bundle, slots
-included. It never *runs* for a slot game, but slot players download it.
+**Family code is split per runtime, and a few rarely used parts are lazy chunks.** Since
+2026-11-03 every build is SvelteKit's `bundleStrategy: 'single'` (`packages/config-svelte`): a small
+`index.html` shell plus an immutable `_app/immutable/bundle.<hash>.js`, with `config-vite`'s
+`lazyChunks.js` letting dynamic imports become chunks. The Sentry SDK, Pixi's canvas fallback and
+arcade's online code (`engine-rooms` + Colyseus) are lazy; the embed delivery stays one file.
+Phase 11 builds one runtime per family, so slot players no longer download match-3, arcade or card
+code.
 
 P10.5 measures the size cost and reports it in its PR. If the cost is too high, the choices are a
 second runtime (option B) or a split bundle strategy. A split bundle changes how every game loads,
