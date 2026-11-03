@@ -827,5 +827,110 @@ check(
 	[],
 );
 
+// overlay-buffaloduel (2026-11-03): the shared `hudReadout` def defaults its frame to test6's 4096²
+// UI sheet and a shared button def its rig to `R_SpinButtonNew`; every placement overrides both, yet
+// the export ships them and the game loaded 94 MB of textures it never drew.
+console.log('\n11. project art only an overridden component default names');
+const FOREIGN = 'other/proj/manifests/ui.json';
+const OWN = 'proj/manifests/ui.json';
+const panelArtDef = {
+	id: 'panel',
+	name: 'Panel',
+	version: 3,
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'frame',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				assetKey: FOREIGN,
+				region: 'Widget',
+				paramBindings: { region: 'frameImage' },
+			},
+			{ id: 'rig', kind: 'spine', x: 0, y: 0, assetKey: '', paramBindings: { assetKey: 'rig' } },
+		],
+	},
+	params: [
+		{ key: 'frameImage', kind: 'image', default: `${FOREIGN}::Widget` },
+		{ key: 'rig', kind: 'spine', default: 'R_Unused' },
+	],
+} as unknown as ComponentDef;
+const projectArt = {
+	sheets: [
+		{ key: FOREIGN, json: 'editor-art/ui/ui.1.json', names: ['Widget'] },
+		{ key: OWN, json: 'editor-art/ui_2/ui_2.1.json', names: ['OwnFrame'] },
+	],
+	spines: [{ key: 'R_Unused' }, { key: 'R_Used' }],
+};
+const placedPanel = (params: Record<string, unknown>, extra: Partial<StockAssetData> = {}) =>
+	input(
+		{
+			...mutate((d) =>
+				d.doc.scenes[2].nodes.push(
+					node({ id: 'p', kind: 'componentInstance', componentId: 'panel', params }),
+				),
+			),
+			editorArt: projectArt,
+			componentDefs: [panelArtDef],
+			...extra,
+		},
+		{ resolveDef: (id) => (id === 'panel' ? panelArtDef : builtin(id)) },
+	);
+const unusedArt = (inp: StockAssetsInput): string[] =>
+	sorted(analyseStockAssets(inp).editorArtUnused);
+const overridden = { frameImage: `${OWN}::OwnFrame`, rig: 'R_Used' };
+check(
+	'every placement overriding both defaults ⇒ the foreign sheet and the rig are skipped',
+	unusedArt(placedPanel(overridden)),
+	['R_Unused', 'editorArt/editor-art/ui/ui.1.json'],
+);
+check(
+	'a placement leaving the frame unset draws the default ⇒ its sheet stays',
+	unusedArt(placedPanel({ rig: 'R_Used' })),
+	['R_Unused', 'editorArt/editor-art/ui_2/ui_2.1.json'],
+);
+check(
+	'a bare frame override keeps the node’s own sheet (it scopes the frame)',
+	unusedArt(placedPanel({ frameImage: 'Widget', rig: 'R_Used' })),
+	['R_Unused', 'editorArt/editor-art/ui_2/ui_2.1.json'],
+);
+check(
+	'a def nothing places may be mounted by code ⇒ every name it holds stays',
+	unusedArt({
+		...placedPanel(overridden),
+		data: {
+			...placedPanel(overridden).data!,
+			doc: authoredDoc(),
+		},
+	}),
+	['R_Used', 'editorArt/editor-art/ui_2/ui_2.1.json'],
+);
+check(
+	'a project default naming the art keeps it',
+	unusedArt(placedPanel(overridden, { artReferences: [{ panel: { rig: 'R_Unused' } }] })),
+	['editorArt/editor-art/ui/ui.1.json'],
+);
+check(
+	'a sheet exported before frame names were recorded is always kept',
+	unusedArt(
+		placedPanel(overridden, {
+			editorArt: { ...projectArt, sheets: projectArt.sheets.map(({ names: _, ...s }) => s) },
+		}),
+	),
+	['R_Unused'],
+);
+check(
+	'a doubt that keeps every stock key keeps every exported asset too',
+	analyseStockAssets(
+		input({ ...authoredData(), editorArt: projectArt }, { isBoundPart: () => true }),
+	).editorArtUnused,
+	[],
+);
+
 if (failures) throw new Error(`${failures} stock-asset assertion(s) FAILED`);
 console.log('\nAll stock-asset assertions passed.\n');

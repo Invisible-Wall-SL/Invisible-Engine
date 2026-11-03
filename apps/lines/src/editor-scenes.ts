@@ -126,7 +126,7 @@ type BakedBundle = {
 		 * page, emitted beside the WebP/PNG by the editor-art export. Present only for a
 		 * project re-exported after KTX2 encoding shipped; absent ⇒ the WebP/PNG loads as
 		 * before (parity). The asset builder prefers the KTX2 variant unless `?quality=high`. */
-		sheets: { key: string; json: string; ktx2Json?: string }[];
+		sheets: { key: string; json: string; names?: string[]; ktx2Json?: string }[];
 		images: { key: string; file: string; ktx2?: string }[];
 		/** Rig bundles editor-placed `spine` nodes reference (atlas + skeleton +
 		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
@@ -891,6 +891,12 @@ export function bootStockAssetData(): StockAssetData | undefined {
 		other: Object.entries(source)
 			.filter(([section]) => !STOCK_DATA_READ_ELSEWHERE.has(section))
 			.map(([, value]) => value),
+		editorArt: source.editorArt,
+		componentDefs: [
+			...Object.values(source.componentDefs ?? {}),
+			...(source.componentVersions ?? []),
+		],
+		artReferences: [source.componentDefaults, source.shaderEffects],
 	};
 }
 

@@ -74,25 +74,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 ## Open items / next
 
 - **`overlay-buffaloduel` texture memory — owner content left** (2026-11-03 audit; engine part
-  above). Desktop stays uncompressed by design, so only smaller or fewer pages help. The biggest
-  page (4096², 67 MB, 14% drawn) is NOT this game's `S_UI` (that is 1300², shipped as `S_UI_2`):
-  it is **test6's** `S_UI`, named by the shared `hudReadout` def (v10) as its background node's
-  `assetKey` and its `ui0005widgetbigImage` default (`…test6/…/atlas_manifest_S_UI.json::
-  UI_0005_WidgetBig`). All three of this game's instances override it with their own
-  `panel_empty2`, so the page is loaded and never drawn; `commonoverlayproject`'s instances do not
-  override it, so it draws test6's widget from that page. Fix the shared def's default in
-  Component Editor (and see the export follow-up: a def default every instance overrides still
-  ships). The `R_SpinButtonNew`
-  page is 3250×2048 (27 MB for a button); the symbol art is eight sheets at 1300² and four at 2048
-  wide (`H1`–`H3`, 14–17 MB each); the re-baked `fxbake_s_sparks_small` page is 1941×1748 (14 MB,
-  not divisible by 4, so never KTX2). `fxbake_smokeclouds` (3593×2573, 37 MB in the audit) left
-  with the 2026-11-03 09:32 rebuild. Stock art the project still reaches: `reels_frame` 13.7 MB (the `freeSpinCounter`
-  instance's default `frameImage`; pick an own region or drop the counter from the layout and the
-  flow's `showContainer`), the `explosion` rig's `symbols3` page 10 MB (the `BONUS`/`JACKPOT`/
-  `MULTI` explosion state bound to stock `explosion`), `SD2_Coin` 8.7 MB (the big win's coins; set
-  `showCoins` off or bind own art), `transition` 5.1 MB (a `Transition` node in
-  `basegameOverlays` that nothing fires), `anticipation` 4.7 MB (no authored anticipation
-  `spineKey`). `sounds.mp3` (4.9 MB) stays: the coded game plays stock names (`sfx_btn_spin`,
+  in Recent changes). Desktop stays uncompressed by design, so only smaller or fewer pages help.
+  **Republish this game** (☁ Publish): the export now records sheet frame names, and with them the
+  runtime leaves test6's 4096² `S_UI` page unloaded (67 MB; `R_SpinButtonNew`, 27 MB, needs only
+  the runtime release). **Fix the shared `hudReadout` def's default** (Component Editor, v10): its
+  frame defaults to test6's `UI_0005_WidgetBig`, so a project placing it without a frame of its
+  own draws test6 art from a 4096² page — `commonoverlayproject` does. The symbol art is eight
+  sheets at 1300² and four at 2048 wide (`H1`–`H3`, 14–17 MB each, 26–63% drawn). Stock art the
+  project still reaches: `reels_frame` 13.7 MB (the `freeSpinCounter` instance stays mounted
+  hidden; pick an own `frameImage` or drop the counter and the flow's `showContainer`),
+  `symbols3` 10 MB (the `BONUS`/`JACKPOT`/`MULTI` explosion state bound to stock `explosion`),
+  `SD2_Coin` 8.7 MB (the big win's coins; `showCoins` off or own art), `transition` 5.1 MB (a
+  `Transition` node in `basegameOverlays` nothing fires; kept because an awaited show of that
+  screen measures it), `anticipation` 4.7 MB (no authored anticipation `spineKey`). `sounds.mp3` (4.9 MB) stays: the coded game plays stock names (`sfx_btn_spin`,
   `sfx_reel_stop_*`) the project's 17 sounds do not replace.
 
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
@@ -339,6 +333,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   keeps its own cache key (`engine-rig` `assets.ts`, `#pma`, never sent on the wire): Pixi's cache
   ignores the alpha mode a load asks for, and the page store shares one WebP between a sheet and a
   `pma` rig. A cinematic's scoped cue (`signal:boardFrameGlowShow`) counts as a free-spin switch.
+  **Art only an overridden component default names stays unloaded.** The editor-art export ships
+  every image/rig default a component declares, and the game loaded all of it: here test6's
+  `S_UI` (67 MB, the shared `hudReadout`'s frame default) and `R_SpinButtonNew` (27 MB, a shared
+  button's rig default), both overridden by every placement. The walk now also judges the
+  project's exported sheets, images and rigs (`editorArtUnused`), each reached by any name the
+  reachable game holds (effective params; a node's own `assetKey`/`region` only where the
+  renderer reads them), by everything in a def the walk never expanded or the engine mounts from
+  scenes it builds itself, and by project param defaults and shader effects. A sheet needs its
+  frame names for that (frames also register bare), which the export now records
+  (`editorArtExport.ts` `names`); an older bundle keeps every sheet. Measured: 415.3 → 388.7 MB on
+  the published bundle, → 321.6 MB once republished (−93.7 MB); `commonoverlayproject` unchanged
+  (its readouts draw the default); board, HUD and spin button identical, same console. Fixture §11.
   **Desktop stays uncompressed — measured, not assumed.** The KTX2 twins (UASTC q1) transcode to
   BC7 on a desktop GPU at ¼ of the memory, but drawn 1:1 against the WebP on `overlay-buffaloduel`'s
   4-aligned pages they move **9.8k–22.5k fully opaque pixels by more than 20/255, worst 76–107**
