@@ -373,7 +373,10 @@ run exactly as before, a person's `bug-12-fix-login` included. One thing is new.
 filter `ready_for_review` by author, so marking any other draft ready now makes a run whose jobs
 are all skipped. That run has its own concurrency group, so it never cancels the run on its head,
 and the verdict posts nothing for it. `triggers.fixture.mjs` evaluates the workflow's own trigger
-text over every case and compares each one with the workflow as it was.
+text over every case and compares each one with the workflow as it was. The other half of that
+push filter is the launcher's: `check:bug-fix-runs` reads the workflow's `branches-ignore` and
+fails unless it ignores the branch of every id `newFixRunId` makes, and accepts exactly the ids
+`FIX_RUN_ID` does, so a change to either side alone cannot let a fix run's push run.
 
 **Who posts the status.** The harness runs the pull request's own tree, so nothing it writes can be
 trusted as the answer: it holds no `statuses` permission and calls no statuses API. The required

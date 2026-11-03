@@ -139,6 +139,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-03 — **The fix-run push filter is pinned to the launcher's ids.** `check:bug-fix-runs`
+  reads current-games.yml's `push.branches-ignore` and fails unless it ignores
+  `fixRunBranch(n, id)` for every id `newFixRunId` makes (now an export of
+  `server/bugFixRuns.ts`) and accepts exactly what `FIX_RUN_ID` does. A launcher id of another
+  length, a narrower glob, or a deleted glob each fail it (three planted mutants).
 - 2026-11-03 — **current-games waits for a fix run's "Ready for review" (ADR-0013, owner-approved
   default; #1514).** A push to `bug-*-fix-` plus 10
   lowercase hex characters is ignored. `ready_for_review` is now a `pull_request` type. `prepare`
