@@ -74,8 +74,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 ## Open items / next
 
 - **`overlay-buffaloduel` texture memory — owner content left** (2026-11-03 audit; engine part
-  above). Desktop stays uncompressed by design, so only smaller or fewer pages help: the `S_UI`
-  page is 4096² (67 MB, repack the sheet to two 2048² pages or trim it); the `R_SpinButtonNew`
+  above). Desktop stays uncompressed by design, so only smaller or fewer pages help. The biggest
+  page (4096², 67 MB, 14% drawn) is NOT this game's `S_UI` (that is 1300², shipped as `S_UI_2`):
+  it is **test6's** `S_UI`, named by the shared `hudReadout` def (v10) as its background node's
+  `assetKey` and its `ui0005widgetbigImage` default (`…test6/…/atlas_manifest_S_UI.json::
+  UI_0005_WidgetBig`). All three of this game's instances override it with their own
+  `panel_empty2`, so the page is loaded and never drawn; `commonoverlayproject`'s instances do not
+  override it, so it draws test6's widget from that page. Fix the shared def's default in
+  Component Editor (and see the export follow-up: a def default every instance overrides still
+  ships). The `R_SpinButtonNew`
   page is 3250×2048 (27 MB for a button); the symbol art is eight sheets at 1300² and four at 2048
   wide (`H1`–`H3`, 14–17 MB each); the re-baked `fxbake_s_sparks_small` page is 1941×1748 (14 MB,
   not divisible by 4, so never KTX2). `fxbake_smokeclouds` (3593×2573, 37 MB in the audit) left
@@ -341,8 +348,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   0.1–1.6 s first-show uploads it removed (2026-10-27). **Page size is not the pipeline's
   problem:** every page over 1 Mpx already has a twin, floored to 4×4 blocks (`ktx2Dimensions.ts`,
   revision 2) — `3593×2573` was never barred from KTX2. What costs desktop memory is EMPTY page:
-  the shared `S_UI` page (`bf9f8ba9…`, also in `commonoverlayproject`) is 4096² with 14% of its
-  pixels drawn; the FX bake's pages are 9–15% drawn (`engine-fx` `bake.ts` packs untrimmed
+  test6's 4096² `S_UI` page (14% drawn), which both games load through the shared `hudReadout`
+  def's default (open item above); the FX bake's pages are 9–15% drawn (`engine-fx` `bake.ts` packs untrimmed
   full-bounds cells). **Not verified:** a spin, since the build URL answers a fresh demo session
   with `not found` at the RGS on `main` and live too. **Owner-side content** for this game: see
   the open item below.
