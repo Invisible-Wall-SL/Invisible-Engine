@@ -17,12 +17,26 @@ import { registerFxBehaviors, type EmitterLayer } from 'engine-fx';
 // here covers all three — the runtime's own registration lives in `<ParticleEmitter>`. Idempotent.
 registerFxBehaviors(Emitter);
 
-/** An atlas page + its per-frame rects — what a layer's `art.assetKey` resolves to. */
+/**
+ * An atlas page + its per-frame rects — what a layer's `art.assetKey` resolves to. A trimmed frame
+ * also says where it sits in its untrimmed canvas (`offX/offY` inside `origW × origH`).
+ */
 export interface ResolvedArt {
 	pageUrl: string;
 	pageWidth: number;
 	pageHeight: number;
-	regions: { name: string; x: number; y: number; w: number; h: number; rotated?: boolean }[];
+	regions: {
+		name: string;
+		x: number;
+		y: number;
+		w: number;
+		h: number;
+		rotated?: boolean;
+		offX?: number;
+		offY?: number;
+		origW?: number;
+		origH?: number;
+	}[];
 }
 
 /** Resolve an `art.assetKey` (atlas manifest key) to its page URL + region rects. */
