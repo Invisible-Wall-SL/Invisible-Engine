@@ -56,7 +56,7 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 | `developer` | Developer | every online tool except the Sheet Maker, Invisible Director and Invisible Pipeline Changes, plus the desktop Invisible Launcher |
 | `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Shader Graph, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Sound, Localization, Win Text, + the desktop Invisible Launcher, + both bug lists (Invisible Pipeline Bug Reports, Invisible Game Bug Reports) |
 | `animator` | Animator | Invisible Rig Viewer, Invisible Rigger, an external rig editor, + both bug lists |
-| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Shader Graph, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Rig Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes, both bug lists) — **without** the publish capabilities or `pipelineMerge`, which stay admin-default; **with** Triage pipeline bugs and Triage game bugs (`pipelineBugTriage`, `gameBugTriage`), as `admin` and `developer` have them |
+| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Shader Graph, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Rig Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes, both bug lists) — **without** the publish capabilities, `pipelineMerge` or Start fix runs on pipeline bugs (`pipelineBugFix`), which stay admin-default; **with** Triage pipeline bugs and Triage game bugs (`pipelineBugTriage`, `gameBugTriage`), as `admin` and `developer` have them |
 | `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text, + both bug lists |
 | `audio` | Music / SFX | Invisible Sound (upload, audition and approve the game's music and SFX), Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher, + both bug lists |
 
@@ -218,6 +218,13 @@ clears it, then asks the test server to re-read its list.
 - **Override (optional)** — JSON in the same shape as `pricing.json`, every field optional (e.g.
   `{"perMTok":{"claude-opus-5-5":{"output":18}}}`), so a price can change without a deploy. It is
   validated on save; empty clears it. Nothing in code carries a price.
+- **Pipeline bug fix runs** (ADR-0013) — three caps for the fix runs that Start fix will launch on
+  a pipeline bug (the button comes with card 13C):
+  - **Fix run budget (USD)**: the cap one run stops at. Default **$15**, accepted $1–$500.
+  - **Monthly ceiling (USD)**: once this calendar month's (UTC) fix runs have spent it, new starts
+    are refused. A run already going is never stopped. Default **$150**, accepted $1–$5000.
+  - **At most at once**: how many fix runs may be going at once, over every bug. Default **2**,
+    accepted 1–10.
 - **Abandoned mockups** — mockups uploaded on Director's New-game screen under a game key that was
   never created. **Clear abandoned mockups** deletes every such key's mockups, originals and crops
   when there is no project with that key (live or deleted), no Director run for it, and nothing

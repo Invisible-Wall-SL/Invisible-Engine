@@ -135,13 +135,14 @@ Cards 9A–9H, each on its own branch. 9A merged with the audit and the ADR (#13
 
 ## Phase 10 — Pipeline bug fix runs ("Start fix") · ADR-0013 (approved 2026-11-03)
 
-13A can start now. 13B also waits for the owner's three setup steps (the GitHub App's Actions
-write, the `bug-fix` environment, `ANTHROPIC_BUG_FIX_API_KEY`).
+13A is done. 13B waits for the owner's three setup steps (the GitHub App's Actions write, the
+`bug-fix` environment, `ANTHROPIC_BUG_FIX_API_KEY`) and for OPEN_QUESTIONS 27 (CI secrets on a
+fix run's branch), which must be settled before 13B runs anything.
 
 | Card | Tasks | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 13A | `bug_fix_runs` + `fix_run` event kind; `pipelineBugFix` capability; caps in Settings; start with its refusals; App dispatch; OIDC check; brief, screenshot and result endpoints; validation, App commit, draft PR; sync backstop; Stop; spend rows | launcher-studio (App calls reviewed by director-backend) | todo | `check:bug-fix-runs`, `check:bug-reports`, `check:migration-order` |
-| 13B | `bug-fix.yml`, `scripts/bug-fix/*`, the `pipeline-triage.md` sentence, INFRA | infra-railway | todo | `check:bug-fix-workflow`; the five-case spike under $20 |
+| 13A | `bug_fix_runs` + `fix_run` event kind; `pipelineBugFix` capability; caps in Settings; start with its refusals; App dispatch; OIDC check; brief, screenshot and result endpoints; validation, App commit, draft PR; sync backstop; Stop; spend rows | launcher-studio (App calls reviewed by director-backend) | done (#1512) | `check:bug-fix-runs`, `check:bug-reports`, `check:migration-order` |
+| 13B | `bug-fix.yml`, `scripts/bug-fix/*`, the `pipeline-triage.md` sentence, INFRA; `current-games.yml` skips fix-run branches and draft fix PRs (OPEN_QUESTIONS 27, owner) | infra-railway | todo (blocked: owner setup + OQ 27) | `check:bug-fix-workflow`; the five-case spike under $20 |
 | 13C | **Start fix** / **Send and start fix**, the run line, the fix run on the escalated game bug, **Mark ready for review** in Pipeline Changes; tool guides and status | director-frontend + launcher-studio + docs-keeper | todo | `check:bug-fix-runs` page facts; browser pass |
 | 13D | Pilot on three real, low-risk pipeline bugs; measured cost replaces the estimate | regression-guardian | todo | Each PR merged or closed by the owner; spend per run recorded |
 

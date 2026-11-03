@@ -15,6 +15,66 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-03 · Phase 10 · launcher-studio (13A: fix runs, back end)
+- Did: built ADR-0013 card 13A in apps/launcher-api:
+  - the `bug_fix_runs` table and the `fix_run` event kind;
+  - the `pipelineBugFix` capability (admin by default, per role or per user, in the "Pipeline bug
+    reports" group);
+  - the Settings caps `PIPELINE_FIX_BUDGET_USD` $15, `PIPELINE_FIX_MONTHLY_USD` $150 and
+    `PIPELINE_FIX_MAX_LIVE` 2;
+  - Start with every refusal, and Send and start in one transaction;
+  - dispatch of `bug-fix.yml` as the App, with the one input `fix_run`; a 403 or 404 ends the run
+    `failed` with a sentence naming docs/INFRA.md;
+  - GitHub OIDC verification with node:crypto;
+  - the brief, screenshot and result endpoints;
+  - the change checks, and the App's blob → tree → commit → ref → draft PR on `base_sha`;
+  - the backstop in `syncBugLinks`;
+  - Stop;
+  - `director_spend` rows (`fix:<id>`, agent `bug-fix`).
+  No UI beyond the Admin settings and roles (13C); no workflow (13B).
+- Files: drizzle/0037_bug_fix_runs.sql; src/lib/bugFixRuns.ts;
+  src/lib/server/{bugFixRuns,bugFixRunsActions,bugFixRunsChange,bugFixRunsStore,githubOidc}.ts;
+  routes api/bugs/[number]/fix-runs/** and api/pipeline/fix-runs/**; roles.ts, appSettings.ts,
+  bugReports.ts, schema.ts, admin page, bugs/view.ts; scripts/check-bug-fix-runs.ts,
+  check-bug-reports.ts; scripts/check-secrets.d.mts. Docs: docs/status/bug-reports.md,
+  docs/tools/{launcher,pipeline-bugs}.md, PLAN.md, OPEN_QUESTIONS.md.
+- Branch / PR: claude/loving-swirles-29ad4c, #1512.
+- Tests: `check:bug-fix-runs` (98 checks; 82 planted mutants over three rounds, all caught),
+  `check:bug-reports` (142),
+  `check:migration-order`, `pnpm lint`, `check:svelte --only apps/launcher-api` (at baseline),
+  `check:undefined-names`; `check:pipeline-changes` and `check:director-adapters` pass once the
+  director-worker agent files are LF (on Windows, autocrlf checks them out CRLF; unrelated).
+  Reviewed by director-backend (App and OIDC calls), pipeline-concurrency (store) and
+  code-reviewer (security, twice); three rounds of fixes.
+- Decisions, beyond the ADR's sketch:
+  - Three columns: `reason` (the launcher's own words, apart from the run's `summary`),
+    `result_at` (a lease on a result, renewed before every GitHub write and stale after 5 minutes,
+    so a lost reply can be resent without opening two PRs) and a unique `gh_run_id`.
+  - Stop settles `cancelled` at once rather than when GitHub reports it, so no result can open a
+    PR after a person pressed Stop.
+  - The OIDC check also pins `environment = bug-fix`, `run_attempt = 1` (a person's re-run keeps
+    the bot as actor), `runner_environment` and `workflow_ref`.
+  - The change checks are stricter than the ADR's table:
+    - protected paths by ancestry against the base tree, plus `.claude` anywhere, `.npmrc`,
+      `.gitattributes`, Dockerfiles, Python manifests, migrations (`apps/launcher-api/drizzle/`: a
+      schema change is a person's call; the owner can loosen it) and the launcher's own fix-run
+      modules and routes;
+    - every existing `package.json` script kept, and no new lifecycle, `pre*`, `post*` or `pnpm:*`
+      one; `packageManager` kept;
+    - secrets scanned on the added lines and on the cleaned public text, with no pragma pass;
+    - new suppression comments and hidden characters refused;
+    - privacy checked on folded keys and display names.
+  - The result endpoint takes a gzip body (adapter-node's 512K limit), and the collector must send
+    `application/json`.
+- Next:
+  - OPEN_QUESTIONS 27 (owner): `current-games.yml` runs a branch's code next to CI secrets on
+    every push to a non-main branch and every PR, so fix-run branches and draft fix PRs must be
+    skipped before 13B runs anything.
+  - 13B after that and the owner's three setup steps. 13B's spike also confirms that GitHub
+    accepts `return_run_details` (a 422 retries without it).
+  - 13C can start now.
+  - Owed: a two-connection proof of the store's SQL on real Postgres.
+
 ## 2026-11-03 · Phase 10 · coordinator (ADR-0013 approved)
 - Did: recorded the owner's approval of ADR-0013 (items 1–11 at their defaults) and the
   "superseded by ADR-0013" note under ADR-0009 §2.

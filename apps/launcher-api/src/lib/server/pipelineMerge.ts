@@ -90,7 +90,7 @@ const REQUEST_ID_MAX = 100;
 const CLAIM_STALE_MS = 2 * 60_000;
 /** What makes GitHub skip a push's workflows — Lint, Checks, Secrets, the runtime release — when
  *  it appears anywhere in the commit message, the subject included. */
-const CI_SKIP = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]/i;
+export const CI_SKIP = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]/i;
 const CI_SKIPS = new RegExp(CI_SKIP.source, 'gi');
 
 const short = (sha: string): string => sha.slice(0, 7);

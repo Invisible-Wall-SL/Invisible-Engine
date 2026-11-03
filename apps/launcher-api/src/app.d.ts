@@ -10,10 +10,12 @@ declare global {
 				role: Role;
 			} | null;
 		}
-		/** A thrown `error()` body: the sentence, and for a refused definition every reason. */
+		/** A thrown `error()` body: the sentence, for a refused definition every reason, and for a
+		 *  refused fix run start the refusal's code (`$lib/bugFixRuns` `FixRunRefusal`). */
 		interface Error {
 			message: string;
 			errors?: string[];
+			code?: string;
 		}
 		// interface PageData {}
 		// interface PageState {}
