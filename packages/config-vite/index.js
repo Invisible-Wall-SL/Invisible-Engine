@@ -184,6 +184,17 @@ const families = () => {
 };
 
 /**
+ * The browsers a game build compiles for. Vite's default (`safari14`, `chrome87`) made esbuild LOWER
+ * every `#private` class field — Svelte's runtime is built on them — to a WeakMap per field, so each
+ * effect and branch Svelte creates paid a WeakMap write and every read a brand check, and the
+ * entries fed the collector: on `overlay-buffaloduel`'s Hold and Win bonus (CPU slowed 4×) its
+ * worst frames were single 1–3 s collections in the middle of a mount. The floor is no higher than
+ * the runtime already had: every game calls `Array.prototype.at` unpolyfilled at boot (the mode
+ * stack), so none ever ran below these versions.
+ */
+const BUILD_TARGET = ['es2022', 'chrome92', 'edge92', 'firefox90', 'safari15.4'];
+
+/**
  * Every game build passes through this factory — the engine's apps and every standalone game repo's
  * `vite.config.js` alike — so it is where a game repo whose Svelte pins drifted from the engine's is
  * stopped, before anything compiles (`svelteVersions.js`).
@@ -210,6 +221,7 @@ export default () => {
 		// `InitialiseApplication.svelte` converts its `data:` URI to a `blob:` URL at runtime
 		// (a Worker's `importScripts()` rejects `data:` but accepts `blob:`).
 		build: {
+			target: BUILD_TARGET,
 			assetsInlineLimit: Infinity,
 			sourcemap: sourcemap(),
 			output: {

@@ -73,6 +73,16 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **A screen timeline remounts its whole screen — the Hold and Win bonus's worst frame (owner
+  decision).** A host-`screen` timeline playing on a screen remounts it (`FlowV2Mount` /
+  `EngineScreenMount` `{#key drive?.key}`: a `LayoutNodeView` reads its driver once, at init). On
+  `overlay-buffaloduel` the Pots screen (60 component instances, 60 rigs) remounts as
+  `HideUnderReel_Intro` and `HideUnderReel_Outro` start, twice per bonus, ~0.6–1.1 s each with the
+  CPU slowed 4×; the base game's screen remounts the same way. ~22% of that is Svelte inserting block
+  anchors (~58 per layout node). Driving a mounted screen without the remount would remove it, but
+  it is a visible change: every rig, state machine and effect on the screen stops restarting when a
+  timeline starts. Needs the owner's call (or an authored switch, off by default). Measurement
+  tooling and the profile of it: see the 2026-11-03 entry under Recent changes.
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
   symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
@@ -289,6 +299,32 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-03 — **Game builds stop lowering `#private` fields; respin cells skip symbols that draw
+  nothing** (branch `claude/hold-and-win-mount-ahead`). From the 2026-11-03 audit of
+  `overlay-buffaloduel`, whose Hold and Win bonus froze up to 1.5 s with the CPU slowed 4×.
+  Profiled per long frame (headless shell on the GPU, `long-animation-frame`, CPU profile aligned to
+  the rAF clock), the freezes were mounts plus the collector, in three groups:
+  - **GC.** `config-vite` set no `build.target`, so Vite's default (`safari14`) made esbuild lower
+    every `#private` class field to a WeakMap. Svelte's runtime is built on them, so every effect
+    and branch paid WeakMap writes and brand checks, and the worst bonus frames were single
+    1–3 s collections in the middle of a mount. `build.target` is now
+    `es2022` / Chrome 92 / Firefox 90 / Safari 15.4 — no floor raised: every game already calls
+    `Array.prototype.at` unpolyfilled at boot (the mode stack). GC inside the long frames fell from
+    seconds to ~76 ms; the bundle is ~60 KB smaller. Applies to every build through `config-vite`.
+  - **Respin strips.** A respin cell mounted a whole `Symbol` for every strip symbol rolling past its
+    window; two thirds of a Hold and Win strip are blanks that draw nothing (no art, no placeholder,
+    label, stamp or Element FX). `RespinCell` now leaves those unmounted, rolling or at rest
+    (`game/symbolDraws.ts` `symbolDrawsNothing`, which mirrors `Symbol.svelte`'s draw conditions —
+    keep them in step). Such a symbol never reports completion either, so nothing waits on it.
+  - **Screen timeline remounts** — not fixed; see Open items.
+  Measured on the live build's own data and authoring mock, each side a local build swapped in for
+  the page's document, three interleaved rounds of base + all three pots' bonuses, median:
+  worst bonus frame 1,700 → 1,067 ms, frames over 250 ms 89 → 27, over 100 ms 531 → 357, bonus
+  frame rate 10.7 → 16.3 fps. The remaining worst frame is the Pots screen remount. The texture
+  growth the audit saw in the first bonus (74 → 89) is not art: Pixi texture-pool render targets and
+  one text canvas, allocated once. Notes for re-running the probe: the profile's start trails the
+  page clock by 1–2 s at 4× (fit the shift so no idle sample falls inside a long rAF gap), and other
+  sessions' builds swing a run 2× (raise the headless shell to High priority, interleave rounds).
 - 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
   `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
   Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134
