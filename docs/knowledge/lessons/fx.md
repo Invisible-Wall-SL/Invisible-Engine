@@ -11,6 +11,15 @@ a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for
 
 ## Invisible FX, Element FX and particles
 
+### A baked effect had a dark outline the live one did not
+- **Symptom:** Buffalo Duel's baked sparks had a strong dark outline; live they blended fine.
+- **Cause:** Normal + Add layers were flattened into one sheet drawn Normal: the additive capture's
+  alpha hid the background, and the spark art's black surround became a dark ring.
+- **Fix:** one capture per run of same-blend layers, one sprite per group with its blend; an old
+  mixed bake reads Stale and plays live until Bake again.
+- **Guard:** `fx-spike` `baked-runtime` pixel page: baked vs live, no dark ring, MAE < 2/255.
+- **PR:** not recorded (2026-11-02) · branch `claude/fx-bake-blend-groups`
+
 ### A second Pixi app crashed the /fx preview when it was destroyed
 - **Symptom:** after "Bake now" the `/fx` preview threw `Cannot read properties of null (reading
   'clear')` from the batcher on its next render.

@@ -35,10 +35,12 @@ EffectDoc.bake?: {
   seam: 'crossfade' | 'cut';   // default crossfade
   result?: {                   // written by "Bake now", never by hand
     assetKey: string;          // the sheet's R2 manifest key (TexturePacker JSON)
-    frames: string[];          // bake_000 … in playback order
+    groups: {                  // one per BLEND GROUP, in draw order (bottom first)
+      blendMode: 'normal' | 'add' | 'screen' | 'multiply';
+      frames: string[];        // bake_<hash>_000 … in playback order; same count in every group
+    }[];
     fps: number;
     bounds: { x, y, w, h };    // the frame box in the effect's own space (effect px)
-    blendMode: 'normal' | 'add';
     hash: string;              // effectBakeHash() of the doc it was captured from
     sheet: { w, h };
   };
@@ -47,10 +49,13 @@ EffectDoc.bake?: {
 
 `normalizeEffectBake` clamps the settings and drops a malformed result (⇒ live). A doc without
 `bake` normalizes without the key, so every saved effect is byte-identical. Editor state stays out.
+A result from before blend groups (top-level `frames` + `blendMode`) reads as one group.
 
 **Stale.** `effectBakeHash(doc)` is FNV-1a over a key-sorted stringify of `layers`, `params` and the
 four capture settings — not the name, not `enabled`, not the result. Both the page and the export
-hash the NORMALIZED doc, so they agree. A result whose hash differs is stale.
+hash the NORMALIZED doc, so they agree. A result whose hash differs is stale, and so is one whose
+groups' blends are not the layers' blend runs (`effectBakeGroupsMatch`) — a pre-group bake of an
+effect that mixes blends, which flattened them (see "Blend groups").
 
 ### Capturing a loop (`/fx`, `fxBake.client.ts`)
 
@@ -68,13 +73,32 @@ On "Bake now" the page builds a private offscreen Pixi app, mounts each layer th
    via canvas `lighter`), the rest is `capture[i]`. Frame `N−1` then flows into frame 0 (=
    `capture[N]`), and by frame `S` the loop is pure capture. `cut` skips it (for an effect whose
    emission already has a period).
-4. **Sheet** — `planEffectBakeSheet` lays the `N` cells (the union box × scale, 2 px gaps) on one
-   page of at most 4096×4096, lowering the scale until it fits (the page says so), and refusing an
-   effect that cannot fit even at 0.05.
+4. **Sheet** — `planEffectBakeSheet` lays the `N × groups` cells (the union box × scale) on one
+   page of at most 4096×4096, group by group, lowering the scale until it fits (the page says so),
+   and refusing an effect that cannot fit even at 0.05. Each cell starts on a 4-px block with at
+   least 2 transparent pixels to the next (`effectBakePitch`), so neither bilinear filtering nor a
+   KTX2 (UASTC 4×4) block mixes two cells.
 
-**Blend.** A capture on transparent black holds premultiplied colour. When every layer is additive
-the sheet plays `add` (`effectBakeBlend`) — the light adds as it did. Any other mix plays `normal`;
-screen/multiply layers are approximate, and the panel says so.
+**Blend groups.** `effectBakeGroups` splits the layers (draw order) into runs that share a blend
+mode; each run is captured on its own, every frame over the SAME box (the other runs hidden), and
+the runtime draws one sprite per group, in order, each with its blend. A run composites exactly on
+its own (over, add and screen are associative), so the groups drawn in order are the live layers.
+The capture is cleared to transparent, except a `multiply` run, which is cleared to white: its
+pixels are then the factor it multiplies by (white = leave alone), stored opaque. An `add`/`screen`
+run's alpha is raised to its brightest channel before the straight-alpha PNG, so colour a run of
+glows holds beyond its alpha survives the round trip; those blends never read it. At most
+`EFFECT_BAKE_LIMITS.groups` (8) groups; more is a blocker (reorder the layers).
+
+Why groups: until 2026-11-02 a mixed effect baked into ONE `normal` sheet. An additive layer's
+capture holds its accumulated alpha, so drawn `normal` it hid the background by `1 − A` instead of
+adding light, and the dark surround of a glow texture (invisible under `add`) became a dark outline
+(Overlay Buffalo Duel's `s_sparks_small` / `s_sparks_big`, `docs/knowledge/lessons/fx.md`).
+
+**Alpha round trip.** The capture reads premultiplied pixels, writes straight alpha to the PNG
+(`rgb·255/a`; a fully transparent pixel stays 0,0,0,0), and the game premultiplies again — Pixi on
+upload of the PNG, the encoder for the `.pm.ktx2` twin (`premultiplyRgba`, then marked
+`premultiplied-alpha` by `ktx2AlphaMode`). The `baked-runtime` pixel gate checks both against the
+live effect: no dark fringe on a normal-only cloud.
 
 ### What cannot bake (`effectBakeBlockers`)
 
@@ -114,10 +138,12 @@ owned and invalidated by it, so it lives on the effect.
 
 `<EffectPlayer>` asks only when `doc.bake` exists. **Baked** iff `bake.enabled` ∧ a result ∧ the
 effect is bakeable ∧ the mount does not drive it ∧ **every** frame resolves in `loadedAssets`
-(`<assetKey>::<frame>`, then bare). Anything else is the live path, unchanged — so a missing or
-partial sheet falls back safely. `<BakedEffect>` draws one sprite at `bounds` (sized to it, so a
-downscaled KTX2 page still lands right) with the bake's blend, inside the same node container that
-carries the placement's position, scale, alpha and blend.
+(`<assetKey>::<frame>`, then bare) ∧ the result's groups match the layers' blend runs (else
+`stale-blend`: a game that already has a flattened pre-group bake plays live until it is re-baked
+and published). Anything else is the live path, unchanged — so a missing or partial sheet falls
+back safely. `<BakedEffect>` draws one sprite per group at `bounds` (sized to it, so a downscaled
+KTX2 page still lands right), in group order, each with its group's blend, all on the same frame —
+inside the same node container that carries the placement's position, scale, alpha and blend.
 
 **Desync.** Each mount starts at `effectBakeStartFrame(key, N)`, FNV-1a of
 `<effectId>|<instanceKey>|<round(x)>,<round(y)>` — the placed node's id and its on-screen position,

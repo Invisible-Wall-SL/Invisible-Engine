@@ -7,7 +7,8 @@
  *   2. THE SHEET — `/api/fx/bake` refuses a layout that does not fit and a page that never arrived,
  *      writes the TexturePacker JSON beside the page, and that JSON reads back through the REAL
  *      `loadRegionSet` (the reader the editor-art export ships every effect atlas through) as one
- *      region per frame, on that page.
+ *      region per frame, on that page, each cell on a 4-px block; a bake of several blend groups
+ *      gets each group's frame names, cells group by group.
  *   3. SAVE AND DELETE — Save prunes every bake of the effect but the one the saved doc names; Delete
  *      drops them all.
  *   4. THE EXPORT — the real `exportEffects` ships a current, enabled bake (and lists its sheet in
@@ -179,7 +180,8 @@ const layer = (frequency = 0.008) => ({
 const BAKE = { enabled: true, fps: 24, loopSeconds: 2, scale: 0.5, seam: 'crossfade' };
 const HASH_A = '0000000a';
 const HASH_B = '0000000b';
-const PLAN = { cellW: 60, cellH: 70, gap: 2, cols: 2, rows: 2, width: 122, height: 142 };
+// Cells start on a 4-px block: 60 + 2 → a 64 px pitch, 70 + 2 → 72.
+const PLAN = { cellW: 60, cellH: 70, gap: 2, cols: 2, rows: 2, width: 124, height: 142 };
 const bakeDir = fxBakePrefix(CLIENT, PROJECT, 'firecracker');
 
 // ── 1. The upload ──────────────────────────────────────────────────────────────────────────────
@@ -236,11 +238,8 @@ console.log('2. the sheet');
 	check('the bake answers 200', res.status, 200);
 	const assetKey = `${bakeDir}fxbake_firecracker_${HASH_A}.json`;
 	check('it names the sheet by its JSON key', res.body.assetKey, assetKey);
-	check('and its frames, named by the bake', res.body.frames, [
-		`bake_${HASH_A}_000`,
-		`bake_${HASH_A}_001`,
-		`bake_${HASH_A}_002`,
-		`bake_${HASH_A}_003`,
+	check('and its frames, named by the bake, as one blend group', res.body.groups, [
+		[`bake_${HASH_A}_000`, `bake_${HASH_A}_001`, `bake_${HASH_A}_002`, `bake_${HASH_A}_003`],
 	]);
 	const set = await loadRegionSet(assetKey);
 	check(
@@ -248,25 +247,44 @@ console.log('2. the sheet');
 		set.regions.map((r) => [r.name, r.x, r.y, r.w, r.h]),
 		[
 			[`bake_${HASH_A}_000`, 0, 0, 60, 70],
-			[`bake_${HASH_A}_001`, 62, 0, 60, 70],
+			[`bake_${HASH_A}_001`, 64, 0, 60, 70],
 			[`bake_${HASH_A}_002`, 0, 72, 60, 70],
-			[`bake_${HASH_A}_003`, 62, 72, 60, 70],
+			[`bake_${HASH_A}_003`, 64, 72, 60, 70],
 		],
 	);
 	check('on its own page', set.pageKey, `${bakeDir}fxbake_firecracker_${HASH_A}.png`);
-	check('at the page size', [set.pageWidth, set.pageHeight], [122, 142]);
+	check('at the page size', [set.pageWidth, set.pageHeight], [124, 142]);
+	check(
+		'the old 2 px pitch no longer fits its cells',
+		(await call(bakeRoute.POST, { ...body, plan: { ...PLAN, width: 122 } })).status,
+		400,
+	);
+	check(
+		'more blend groups than the limit are refused',
+		(await call(bakeRoute.POST, { ...body, frames: 2, groups: 9 })).status,
+		400,
+	);
+	const grouped = await call(bakeRoute.POST, { ...body, frames: 2, groups: 2 });
+	check('two blend groups of two frames: each group names its own cells', grouped.body.groups, [
+		[`bake_${HASH_A}_000`, `bake_${HASH_A}_001`],
+		[`bake_${HASH_A}_002`, `bake_${HASH_A}_003`],
+	]);
+	check(
+		'two groups of three frames do not fit four cells',
+		(await call(bakeRoute.POST, { ...body, frames: 3, groups: 2 })).status,
+		400,
+	);
 }
 
 // ── 3. Save and delete ─────────────────────────────────────────────────────────────────────────
 console.log('3. save and delete');
 const result = (hash: string, id = 'firecracker') => ({
 	assetKey: `${fxBakePrefix(CLIENT, PROJECT, id)}fxbake_${id}_${hash}.json`,
-	frames: [0, 1, 2, 3].map((i) => `bake_${hash}_00${i}`),
+	groups: [{ blendMode: 'add', frames: [0, 1, 2, 3].map((i) => `bake_${hash}_00${i}`) }],
 	fps: 24,
 	bounds: { x: -60, y: -70, w: 120, h: 140 },
-	blendMode: 'add',
 	hash,
-	sheet: { w: 122, h: 142 },
+	sheet: { w: 124, h: 142 },
 });
 {
 	put(`${bakeDir}fxbake_firecracker_${HASH_B}.png`, 'PNG');

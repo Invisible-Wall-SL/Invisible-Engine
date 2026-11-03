@@ -53,10 +53,9 @@ const bake = (enabled: boolean, assetKey = SHEET) => ({
 	seam: 'crossfade',
 	result: {
 		assetKey,
-		frames: FRAMES,
+		groups: [{ blendMode: 'add', frames: FRAMES }],
 		fps: FPS,
 		bounds: BOUNDS,
-		blendMode: 'add',
 		hash: '0000abcd',
 		sheet: { w: 256, h: 256 },
 	},

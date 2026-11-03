@@ -120,15 +120,17 @@
 {/snippet}
 
 {#if baked}
-	<BakedEffect
-		result={baked.result}
-		textures={baked.textures}
-		effectId={props.doc.id}
-		instanceKey={props.instanceKey}
-		beat={beatFades}
-		emitFor={props.emitFor}
-		emitSpeed={props.emitSpeed}
-	/>
+	{#key baked.result.assetKey}
+		<BakedEffect
+			result={baked.result}
+			textures={baked.textures}
+			effectId={props.doc.id}
+			instanceKey={props.instanceKey}
+			beat={beatFades}
+			emitFor={props.emitFor}
+			emitSpeed={props.emitSpeed}
+		/>
+	{/key}
 {:else if effectLevel}
 	<EffectParamGroup params={props.doc.params} values={props.params} children={layers} />
 {:else}

@@ -179,7 +179,8 @@ The bar's pill says how games will play the effect:
 - **Live** — Bake is off, or the effect cannot bake; games run the emitters.
 - **Not baked** — Bake is on but nothing has been captured yet; games still run it live.
 - **Stale** — the effect (a layer, or a capture setting) changed since it was baked; games run it
-  live until you bake again.
+  live until you bake again. A bake made before 2 November 2026 of an effect that mixes blend modes
+  also reads Stale — **Bake again** (then Save and publish) to get the layered bake.
 - **Baked** — games play the baked loop.
 
 Click the bar to open it:
@@ -187,6 +188,11 @@ Click the bar to open it:
 - **Play baked in games** — the switch. Off keeps the bake but plays live.
 - **Frames / s** (6–60, default 24) and **Loop (s)** (0.25–8, default 2) — the loop's length; the
   line under them says how many frames that is (at most 120) and how long the warm-up runs.
+- **Mixed blend modes bake as layered groups.** When the layers mix blend modes (say Normal
+  clouds under Add sparks), the panel says so: each run of layers that share a blend is captured
+  on its own and played as its own sprite with that blend, so additive light still adds over the
+  scene instead of darkening it. Each group adds its frames to the sheet; up to 8 groups (reorder
+  the layers so ones with the same blend sit together if the panel refuses).
 - **Resolution** (5–100 %, default 50 %) — sheet pixels per effect pixel. Lower is smaller and
   softer. If the sheet would not fit one 4096 px page, the bake lowers it for you.
 - **Seam** — **Crossfade** (default) blends the loop's last quarter-second into its start so it
@@ -194,9 +200,10 @@ Click the bar to open it:
 - **Bake now** (**Bake again** once baked) — warms the effect up so the loop starts full,
   captures it off-screen, builds one sheet and uploads it, with a progress bar. The effect must be
   **saved first** (the button says so). Afterwards **⤓ Save** to keep the bake on the effect.
-- The **preview** on the right plays the baked loop, with its frame count and page size.
+- The **preview** on the right plays the baked loop over the stage's dark background, every group
+  drawn with its blend, with its frame count (× groups) and page size.
 - A small table compares **Live** (particles at peak per copy, from the Cost bar) with **Baked**
-  (one sprite) and the sheet's texture memory.
+  (one sprite per blend group) and the sheet's texture memory.
 
 **What cannot bake** — the panel lists the reason and games play it live: an effect with **exposed
 parameters**, a layer on a **rig bone**, **rig-clip particles**, a layer that fires **On event** or
@@ -539,8 +546,10 @@ mere save.
   bake that is on but did not ship.
 - **A baked effect looks slightly different from live.** It is a recording: a fixed loop at its
   frame rate and resolution, not a fresh simulation. Raise **Resolution** or **Frames / s** if it
-  reads soft or steppy. An effect that mixes blend modes bakes as Normal, so additive glow over a
-  dark background can read a little darker; the panel says so.
+  reads soft or steppy.
+- **A baked effect has a dark outline.** It was baked before mixed blend modes baked as layered
+  groups: its additive layers were flattened into Normal. It now reads **Stale** and plays live;
+  **Bake again**, Save, and publish.
 - **Save As keeps the settings but not the bake.** A copy must be baked on its own.
 
 - **A stale tab can drop a layer's material.** `/fx` keeps no version history. If an effect is
@@ -635,12 +644,13 @@ mere save.
   Chromium).
   The Bake bar: `FxBakePanel.svelte`; the capture is `fxBake.client.ts` (a private offscreen Pixi
   app, kept for the page's life — destroying a renderer corrupts Pixi's shared batch pool — warm-up,
-  capture, crossfaded seam, sheet layout, then upload through `POST /api/fx/bake/upload-url` (a
-  presigned R2 PUT) and `POST /api/fx/bake` (the sheet's JSON)). The schema, hash, rules, sheet plan
-  and runtime choice are `packages/engine-fx/src/bake.ts`; the game plays a bake through
-  `<EffectPlayer>` → `<BakedEffect>`. Gates: `fx-spike` `effect-bake` (Node), `fx-bake-page` (the
-  real page), `baked-runtime` (the real player), and `launcher-api` `check:fx-bake` (the server
-  chain).
+  capture per blend group, crossfaded seam, sheet layout, then upload through
+  `POST /api/fx/bake/upload-url` (a presigned R2 PUT) and `POST /api/fx/bake` (the sheet's JSON)).
+  The schema, hash, blend groups, rules, sheet plan and runtime choice are
+  `packages/engine-fx/src/bake.ts`; the game plays a bake through `<EffectPlayer>` →
+  `<BakedEffect>` (one sprite per group). Gates: `fx-spike` `effect-bake` (Node), `fx-bake-page`
+  (the real page), `baked-runtime` (the real player, and baked-vs-live pixels), and `launcher-api`
+  `check:fx-bake` (the server chain).
   `fxRig.client.ts` loads a project skeleton via the shared `/rig-viewer/skeletons` +
   `/rig-viewer/file` endpoints (whose `requireRigAccess` gate now also accepts the `fx`
   tool).
