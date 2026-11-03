@@ -15,6 +15,30 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-03 · Phase 10 · infra-railway (OPEN_QUESTIONS 27: current-games skips fix runs)
+- Did: the owner approved OPEN_QUESTIONS 27's default, and `current-games.yml` now does it:
+  - a push to `bug-*-fix-` plus 10 lowercase hex characters is ignored;
+  - `ready_for_review` is a `pull_request` type;
+  - `prepare` is skipped for a fix run's draft (user type `Bot`, branch `bug-…-fix-…`) and for a
+    `ready_for_review` on any other PR.
+  The verdict posts `pending` for the draft and nothing for the other skipped runs. Those runs get
+  a concurrency group of their own, so they never cancel the PR's real run. Pipeline Changes'
+  `harnessRunOf` skips a run that concluded `skipped`, so an ordinary PR marked ready keeps its
+  report.
+- Files: .github/workflows/current-games.yml; scripts/current-games/lib/verdict.mjs,
+  {verdict,retry,triggers}.fixture.mjs; apps/launcher-api/src/lib/server/pipelineChanges.ts,
+  scripts/check-pipeline-changes.ts. Docs: docs/INFRA.md, docs/playtest/current-games.md,
+  docs/status/infra.md, OPEN_QUESTIONS.md, PLAN.md.
+- Branch / PR: ci/skip-draft-fix-run-prs, #1514.
+- Tests:
+  - `triggers.fixture.mjs` (new) evaluates the workflow text over 38 events against the old
+    workflow: an ordinary branch or PR runs exactly as before. 13 planted mutants each fail it.
+  - `verdict.fixture.mjs`, `retry.fixture.mjs`.
+  - `check:pipeline-changes` fails with the `harnessRunOf` fix removed.
+- Decisions: the PR edits the harness, so main's verdict fails `current-games` on it by design
+  (OPEN_QUESTIONS 21). It merges on the owner's review.
+- Next: 13B after the owner's three setup steps; 13C can start.
+
 ## 2026-11-03 · Phase 10 · launcher-studio (13A: fix runs, back end)
 - Did: built ADR-0013 card 13A in apps/launcher-api:
   - the `bug_fix_runs` table and the `fix_run` event kind;

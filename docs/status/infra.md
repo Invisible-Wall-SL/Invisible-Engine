@@ -140,7 +140,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
 
 ## Recent changes
 - 2026-11-03 — **current-games waits for a fix run's "Ready for review" (ADR-0013, owner-approved
-  default; #CIPR).** A push to `bug-*-fix-` plus 10
+  default; #1514).** A push to `bug-*-fix-` plus 10
   lowercase hex characters is ignored. `ready_for_review` is now a `pull_request` type. `prepare`
   is skipped for a fix run's draft (user type `Bot`, branch `bug-…-fix-…`) and for a
   `ready_for_review` on any other PR. The verdict posts `pending` for the draft and nothing for the
