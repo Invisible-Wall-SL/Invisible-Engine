@@ -93,7 +93,7 @@ return resolveReelGridFromNode;`,
 // `boardOverflow`, which lives further down because it reads the live board's reel motion.
 // ---------------------------------------------------------------------------------------------
 const seatBlock = (() => {
-	const start = ENGINE_SRC.indexOf('\tconst boardGeometry = () => {');
+	const start = ENGINE_SRC.indexOf('\tconst resolveBoardGeometry = () => {');
 	const seat = ENGINE_SRC.indexOf('\tconst getSymbolSeat = (');
 	if (start < 0 || seat < start) {
 		throw new Error(
@@ -135,7 +135,10 @@ const buildEngine = compileSlice({
 		'stateGame',
 		'deps',
 	],
-	body: `${engineBlock}
+	body: `// The shipped getter reads the resolver through a $derived; the slice has no runes, so it reads
+// the resolver itself.
+const boardGeometry = () => resolveBoardGeometry();
+${engineBlock}
 return { boardGeometry, boardOverflow, boardOverflowAuthored, boardMaskColumns };`,
 });
 
