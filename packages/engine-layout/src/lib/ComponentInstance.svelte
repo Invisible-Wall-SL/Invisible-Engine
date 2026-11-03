@@ -52,7 +52,13 @@
 </script>
 
 <script lang="ts">
-	import { Container, createPressHold, getContextApp, getContextParent } from 'pixi-svelte';
+	import {
+		Container,
+		createPressHold,
+		getContextApp,
+		getContextParent,
+		getContextRestart,
+	} from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 	import {
@@ -1115,6 +1121,27 @@
 	};
 	timelineTicker?.add(tickTimelines);
 	onDestroy(() => timelineTicker?.remove(tickTimelines));
+	// A restart (its screen's timeline played again without remounting it): back to how this
+	// instance starts — its timelines stopped, its machine on its entry states, `enter` played again
+	// if it is on screen.
+	const restart = getContextRestart();
+	let restartKey = untrack(() => restart?.());
+	$effect(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		untrack(() => {
+			timelinePlayer?.reset();
+			stateMachineRunner?.reset();
+			stateMachineStarted = false;
+			if (stateMachineRunner && selfVisible) startStateMachine();
+			timelineClock += 1;
+			if (selfVisible) {
+				fireCue(signalToTargets.get(ENTER_SIGNAL) ?? []);
+				fireComponentSignal(ENTER_SIGNAL);
+			}
+		});
+	});
 
 	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
 	// container — no coded `bind` part) has nothing to own the press: `ButtonFrame`

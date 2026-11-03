@@ -21,7 +21,13 @@
 		resolveScene: (sceneId: string) => Scene | undefined;
 		/** The screen timeline moving a shown screen, by scene id (reactive). Absent ⇒ none. */
 		screenDrive?: (sceneId: string) => ScreenNodeDrive | undefined;
+		/** A screen its timelines drive WITHOUT remounting it, by scene id: its nodes sample whichever
+		 *  timeline drives it now, and its content restarts on each new play. Absent ⇒ remounted. */
+		screenSlot?: (sceneId: string) => ScreenSlot | undefined;
 	};
+
+	/** A screen driven in place: the driver its nodes keep for life, and the key each play changes. */
+	export type ScreenSlot = { driver: CinematicNodeDriver; restart: () => unknown };
 
 	/** A playing screen timeline's hold on the screen it animates. `key` names one play: a node
 	 *  asks for its driver once, at mount, so a new play remounts the screen. */
@@ -34,7 +40,7 @@
 
 	import LayoutScene from './LayoutScene.svelte';
 
-	const { containers, resolveScene, screenDrive }: Props = $props();
+	const { containers, resolveScene, screenDrive, screenSlot }: Props = $props();
 </script>
 
 <!--
@@ -51,16 +57,26 @@
 {#each containers as container (container.id)}
 	{@const scene = resolveScene(container.sceneId)}
 	{@const drive = screenDrive?.(container.sceneId)}
+	{@const slot = screenSlot?.(container.sceneId)}
 	{#if scene}
 		<Container zIndex={container.z}>
-			{#key drive?.key}
-				<!-- The container is this screen's own: a Flow `elementEffect` aims at it by name. -->
+			{#if slot}
 				<LayoutScene
 					{scene}
-					nodeDriver={drive?.driver}
+					nodeDriver={slot.driver}
+					restart={slot.restart}
 					parentTarget={elementFxScreenTarget(container.sceneId)}
 				/>
-			{/key}
+			{:else}
+				{#key drive?.key}
+					<!-- The container is this screen's own: a Flow `elementEffect` aims at it by name. -->
+					<LayoutScene
+						{scene}
+						nodeDriver={drive?.driver}
+						parentTarget={elementFxScreenTarget(container.sceneId)}
+					/>
+				{/key}
+			{/if}
 		</Container>
 	{/if}
 {/each}

@@ -260,6 +260,13 @@ export class ComponentTimelinePlayer {
 		for (const b of this.bound) this.boundById.set(b.doc.id, b);
 	}
 
+	/** Back to how a fresh player starts: nothing playing, no slot driven. */
+	reset(): void {
+		this.running.clear();
+		this.driven.clear();
+		this.started = 0;
+	}
+
 	/** The signals that start at least one of this instance's timelines. */
 	signals(): string[] {
 		return [...new Set(this.bound.map((b) => b.doc.playOn).filter((s): s is string => !!s))];
