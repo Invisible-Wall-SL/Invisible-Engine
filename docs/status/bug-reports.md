@@ -152,9 +152,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
 4. **Start fix on a pipeline bug** (ADR-0013, Director PLAN Phase 10). The back end (13A) is
    built. Still to come:
-   - **13B**, the workflow. It waits for the owner's three setup steps and for Director
-     OPEN_QUESTIONS 27: `current-games.yml` would run a fix run's branch code next to CI secrets,
-     so it must skip fix-run branches and draft fix PRs first.
+   - **13B**, the workflow. It waits for the owner's three setup steps. Director OPEN_QUESTIONS
+     27 is settled: since #1514, `current-games.yml` skips fix-run branches and draft fix PRs, so a
+     fix run's branch code never runs next to CI secrets before **Mark ready for review**.
    - **13C**, the buttons and **Mark ready for review**.
    - **13D**, the pilot.
 
