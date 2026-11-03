@@ -141,6 +141,13 @@
 		emitting?: boolean;
 		/** Draw the faint atlas page behind the particles (default true). */
 		showReference?: boolean;
+		/**
+		 * Re-fire the one-shot layers (a finite emitter lifetime) together, on a loop: once every one
+		 * has stopped and its last particle died, they all fire again after {@link BURST_GAP_MS}, and a
+		 * rebuilt one-shot layer re-fires them all with it. Off by default: a host that fires its own
+		 * burst (the `/symbols` arrival) drives `emitting` instead.
+		 */
+		loopBursts?: boolean;
 		/** The effect's exposed parameters (`doc.params`). */
 		params?: EffectParam[];
 		/**
@@ -187,6 +194,7 @@
 		ownerRotation,
 		emitting = true,
 		showReference = true,
+		loopBursts = false,
 		params,
 		paramValues,
 		onMaterialStats,
@@ -275,6 +283,55 @@
 		if (!material || !app) return;
 		material.sync(app.renderer);
 		entry.peakArea = Math.max(entry.peakArea ?? 0, material.coveredArea);
+	}
+
+	/** One-shot: the emitter stops spawning by itself (a finite `emitterLifetime`). */
+	const isBurst = (entry: LiveLayer): boolean => entry.emitter.emitterLifetime > 0;
+
+	/**
+	 * Start a layer from nothing: its particles cleared and, when the stage emits, emitting from the
+	 * start of its lifetime (the library's `emit` setter rewinds it).
+	 */
+	function restartLayer(entry: LiveLayer): void {
+		entry.emitter.cleanup();
+		entry.emitter.resetPositionTracking();
+		entry.emitter.emit = emitOn && entry.hasArt;
+		entry.peakArea = 0;
+		syncMaterial(entry);
+	}
+
+	/** Every layer from the start, together: the whole effect as the game first plays it. */
+	export function replay(): void {
+		for (const entry of live.values()) restartLayer(entry);
+		burstIdleMs = 0;
+		resetCostPeaks();
+	}
+
+	/** Every one-shot layer from the start, together (the continuous ones keep running). */
+	function refireBursts(): void {
+		for (const entry of live.values()) if (isBurst(entry)) restartLayer(entry);
+		burstIdleMs = 0;
+	}
+
+	/** The pause between the last particle of a burst dying and the bursts firing again. */
+	const BURST_GAP_MS = 600;
+	let burstIdleMs = 0;
+
+	/** Looping bursts: count the time every one-shot layer has been spent and empty, then re-fire. */
+	function loopBurstTick(dtMs: number): void {
+		if (!loopBursts || !emitOn) return;
+		let any = false;
+		for (const entry of live.values()) {
+			if (!isBurst(entry) || !entry.hasArt) continue;
+			any = true;
+			if (entry.emitter.emit || entry.emitter.particleCount > 0) {
+				burstIdleMs = 0;
+				return;
+			}
+		}
+		if (!any) return;
+		burstIdleMs += dtMs;
+		if (burstIdleMs >= BURST_GAP_MS) refireBursts();
 	}
 
 	const STATS_EVERY_MS = 250;
@@ -452,6 +509,7 @@
 						emitter.emit = false;
 					}
 				}
+				loopBurstTick(ticker.deltaMS);
 				if (ticker.lastTime - statsAt >= STATS_EVERY_MS) {
 					statsAt = ticker.lastTime;
 					reportMaterials();
@@ -677,6 +735,8 @@
 		// Resolve the reference backdrop from the FIRST layer that has art bound.
 		await updateReference();
 
+		/** A one-shot layer started over: the other one-shot layers fire with it. */
+		let rebuiltBurst = false;
 		for (const layer of layers) {
 			// Tier C: a `particleKind:'spine'` layer pools `RigView` instances each playing a clip —
 			// the SAME mechanism `<EffectLayer>` mounts (`bindRigParticle` → the pooled behavior),
@@ -686,6 +746,8 @@
 			if (layer.particleKind === 'spine') {
 				await buildRigLayer(layer, gen);
 				if (gen !== rebuildGen) return;
+				const rig = live.get(layer.key);
+				rebuiltBurst ||= !!rig && isBurst(rig);
 				continue;
 			}
 
@@ -763,6 +825,7 @@
 			syncMaterial(entry);
 			bindParams(entry);
 			entry.emitter.emit = emitOn;
+			rebuiltBurst ||= isBurst(entry);
 		}
 
 		// Layer order IS draw order (the runtime mounts one `<EffectLayer>` per layer in document
@@ -775,6 +838,7 @@
 			const entry = live.get(layer.key);
 			if (entry && entry.container.parent === world) world.addChild(entry.container);
 		}
+		if (loopBursts && rebuiltBurst && emitOn) refireBursts();
 		reportMaterials();
 	}
 

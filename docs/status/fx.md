@@ -168,6 +168,24 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-03 — **One-shot effects loop in the `/fx` preview; ⟲ Replay** (branch
+  `claude/fx-stage-playback-fix`). Owner report: a burst effect played once on load and then never
+  again; editing a layer re-fired only that layer, so the whole effect could not be seen. Not a
+  regression: the same at `08e01df` (proven by running the new gate against that commit's `/fx`
+  route): the stage never re-fired a spent emitter, only Pause → Play did. Looping effects were
+  checked with the owner's own docs (`v_coins`, `s_sparks_small`, `backgroundbeam2`) and keep
+  playing through edits. What changed:
+  - **`FxStage`** `loopBursts` (default off, `/fx` turns it on): when every one-shot layer
+    (`emitterLifetime > 0`) has stopped and its last particle died, they all re-fire together after
+    600 ms; a rebuild that re-inits a one-shot layer re-fires every one-shot layer with it; nothing
+    re-fires while paused. `replay()` clears and restarts every layer together.
+  - **`/fx` sub-bar:** **⟲ Replay** next to Play / Pause. Guide updated (`docs/tools/fx.md`).
+  - **Gate:** `fx-spike` `fx-playback-page` (in `check:all`) — the real page, particles counted per
+    emitter on the stage: two looping layers through open / long run / edit / pause-play, and three
+    bursts over a continuous layer: re-fire together, re-fire on an edit, Replay from zero, no
+    re-fire paused. Red on `main` before the fix (no re-fire, on the loop or on an edit), 10/10 after. The entry exposes `fxPage.apps` and
+    `fxPage.emitters`. The in-game runtime is untouched (a game fires a burst through its trigger).
+  - ⏳ Owner-verify live: open `explosion` in `/fx` and watch it loop; press ⟲ Replay.
 - 2026-11-02 — **Mixed blend modes bake as layered groups: no more dark outline** (branch
   `claude/fx-bake-blend-groups`). Why: Overlay Buffalo Duel's baked `s_sparks_small` (Clouds, Fire
   Normal; four spark layers Add) and `s_sparks_big` (Clouds Normal; Fire, Sparks1, Sparks2 Add)
