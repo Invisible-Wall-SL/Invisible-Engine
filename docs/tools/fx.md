@@ -84,6 +84,8 @@ following controls:
   confirm asks you to type the effect's name first. Disabled until an effect has actually
   been saved/opened.
 - **▶ Play / ❚❚ Pause** — toggles the live emitters in the preview.
+- **⟲ Replay** — plays the whole effect again from its start: every layer cleared and started
+  together.
 - **Reset view** — re-centres and re-fits the preview camera.
 
 The right of the sub-bar shows a transient save status (a green confirmation or a red
@@ -125,10 +127,15 @@ use **▶ Play / ❚❚ Pause** (sub-bar) to start/stop the simulation. **Reset 
 re-fits. The preview plays at normal speed; in a game, effects play twice as fast while **turbo**
 is on — the same particles, in half the time.
 
-**Editing a layer restarts only that layer**; the others keep playing as they were, so you can
-tune one layer against the rest. To see the whole effect from the start, **❚❚ Pause** then
-**▶ Play**: Pause stops every layer emitting and Play starts them all again, a one-shot burst
-included. That is how to judge a one-shot's timing against the other layers.
+**One-shot layers loop in the preview.** A layer with a finite emitter lifetime (a burst, an
+explosion) fires once in a game. Here, once every one-shot layer has stopped and its last particle
+has died, they all fire again together after a short pause, so a burst effect keeps showing whole.
+Continuous layers just keep running.
+
+**Editing a layer restarts that layer**; the continuous ones keep playing as they were, so you can
+tune one layer against the rest. Editing a one-shot layer re-fires **every** one-shot layer with it,
+so you always see the burst whole. To see the whole effect from its start, press **⟲ Replay**.
+Paused, nothing re-fires.
 
 **Placeholder dots (a layer with no art).** Particles in this tool are sprites cut from
 your atlas — there is no abstract default shape. So a layer that has **no region bound
