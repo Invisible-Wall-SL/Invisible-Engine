@@ -302,17 +302,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 ## Recent changes
 - 2026-11-03 — **The runtimes are ~79 KB gz smaller: no lodash, terser, no WebGPU renderer**
   (branch `engine-bundle-trim`). Three changes, sizes from `check:family-runtimes --measure`
-  (release env, gzip -6), `main` 6bd8a6f → this branch:
+  (release env, gzip -6), `main` 13c5885 (after the KTX2 transcoder left the page) → this branch:
 
   | Runtime | Before B | After B | Δ |
   |---|---|---|---|
-  | `lines` (`slot`) | 1,298,202 | 1,219,454 | −78,748 (−6.1 %) |
-  | `match3` | 1,306,218 | 1,227,754 | −78,464 |
-  | `arcade` | 1,400,942 | 1,318,097 | −82,845 |
-  | `card` | 1,310,330 | 1,231,833 | −78,497 |
+  | `lines` (`slot`) | 778,557 | 699,525 | −79,032 (−10.2 %) |
+  | `match3` | 786,791 | 707,569 | −79,222 |
+  | `arcade` | 881,386 | 797,911 | −83,475 |
+  | `card` | 791,155 | 711,600 | −79,555 |
 
-  On the slot runtime, one change at a time: lodash −28,097, the WebGPU stub −15,727, terser
-  −34,939.
+  On the slot runtime, one change at a time (measured on 6bd8a6f, before the transcoder change):
+  lodash −28,097, the WebGPU stub −15,727, terser −34,939.
   - **lodash → native.** The runtime's only uses (`_.range`, `_.flatten`, `_.findLast` in
     `engine-game`, `utils-book`, `utils-slots`, `apps/lines`; `_.merge`, `_.values`, `_.entries`
     in `utils-shared`) are `Array.from`, `.flat(2)`, `findLast`, `Object.values/entries` and a
@@ -327,7 +327,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     prerenders `index.html` stays unminified as on `main` — `build.minify` in the config would reach
     it, so the plugin runs after `sveltekit()` and skips a `build.ssr` pass. Nothing in the engine
     reads a function or class name, and esbuild already mangled them. Build time: the four-runtime
-    `--measure` run 179 s → 241 s (one `lines` build ≈ 34 → 55 s). Hidden source maps still come
+    `--measure` run 178 s → 250 s (one `lines` build ≈ 34 → 55 s). Hidden source maps still come
     out right: a captured terser bundle + map went through `sentry-sourcemaps.mjs runtime --dry-run`
     (one debug ID, upload OK) and a page position maps back to the right Pixi line.
   - **The WebGPU renderer is stubbed** (`config-vite/pixiRenderers.js`): only for imports from Pixi's
@@ -336,8 +336,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     renderer. The WGSL strings filters carry for both renderers stay. `pixiRenderers.fixture.mjs`
     (in `check:all`) fails if the installed Pixi moves that file or stops making those imports, and
     the plugin fails a build in which `autoDetectRenderer` was bundled but an import was not stubbed.
-  - **Budgets not lowered**: `family-runtime-budget.json` is the owner's P11.1b measurement + 2 %
-    (phase-11 §4 #4), which steps have never re-set.
+  - **Budgets lowered** to these sizes + 2 % (`family-runtime-budget.json`: 713,516 / 721,721 /
+    813,870 / 725,832), as the KTX2 change did.
   - **Found, not fixed (pre-existing on `main`):** an `IE_SOURCEMAPS=hidden` build no longer leaves
     `_app/immutable/bundle.*.js` + its map in `apps/lines/build`, so `sentry-sourcemaps.mjs runtime`
     prints "nothing to upload" on `main` too. The map is written and then removed with the inlined
