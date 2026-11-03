@@ -15,6 +15,13 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-03 · Phase 10 · coordinator (#1514 merged)
+- Did: the owner merged #1514, so 13B waits only for the owner's three setup steps.
+- Files: PLAN.md (Phase 10 intro, 13B row), docs/status/bug-reports.md (open item 4).
+- Branch / PR: docs/oq27-merged.
+- Tests: none (docs only).
+- Next: 13B after the owner's setup; 13C can start.
+
 ## 2026-11-03 · Phase 10 · infra-railway (OPEN_QUESTIONS 27: current-games skips fix runs)
 - Did: the owner approved OPEN_QUESTIONS 27's default, and `current-games.yml` now does it:
   - a push to `bug-*-fix-` plus 10 lowercase hex characters is ignored;
