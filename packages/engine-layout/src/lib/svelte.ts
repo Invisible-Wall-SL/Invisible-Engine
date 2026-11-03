@@ -16,6 +16,7 @@ import FlowV2Mount, {
 	type Props as FlowV2MountProps,
 	type MountedContainerRef,
 	type ScreenNodeDrive,
+	type ScreenSlot,
 } from './FlowV2Mount.svelte';
 import type { CinematicNodeDriver } from './cinematicNodeContext';
 import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelte';
@@ -51,6 +52,7 @@ export type {
 	FlowV2MountProps,
 	MountedContainerRef,
 	ScreenNodeDrive,
+	ScreenSlot,
 	CinematicNodeDriver,
 	CatalogTextProps,
 	RepeaterProps,

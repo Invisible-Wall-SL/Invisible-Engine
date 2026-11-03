@@ -180,6 +180,7 @@
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { gameFxWarmup } from '../game/gpuWarmup';
+	import { createScreenSlots } from '../game/screenSlots';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
 	import {
@@ -283,6 +284,7 @@
 		statePlatformJackpots,
 	} from '../game/platformJackpot.svelte';
 	import {
+		bakedCinematics,
 		bakedEditorArtAssets,
 		bakedFontCatalog,
 		bakedFontSrcBase,
@@ -1376,6 +1378,19 @@
 	// re-renders once the flow is built at load. Independent of `flowV2DrivesScreens` — a book-events-only
 	// flow that owns no screens can still author messages. `undefined` with no v2 flow (parity: nothing).
 	let flowV2Handle = $state<LinesFlowV2 | undefined>(undefined);
+	// PROTOTYPE: `?screenDrive=keep` drives a screen whose timelines only move its nodes in place
+	// (`screenSlots.ts`) instead of remounting it on each play.
+	const screenSlot = (() => {
+		if (new URLSearchParams(globalThis.location?.search ?? '').get('screenDrive') !== 'keep')
+			return undefined;
+		const slots = createScreenSlots(bakedCinematics, (sceneId) =>
+			flowV2Handle?.screenDrive(sceneId),
+		);
+		return (sceneId: string) => {
+			const scene = flowV2ResolveScene?.(sceneId);
+			return scene ? slots(scene) : undefined;
+		};
+	})();
 	// Flow variables, timers and tick (game-families §3.2): one ticker callback advances the flow's
 	// store, the `tickFlights` pattern. Added only when the flow has one, so a slot game's frame is
 	// untouched. It also re-runs on `loaded`: the ticker is not reactive, and a flow built from a
@@ -2972,6 +2987,7 @@
 			containers={flowV2Containers.filter((c) => c.id !== basegameScreenId)}
 			resolveScene={flowV2ResolveScene}
 			screenDrive={flowV2Handle?.screenDrive}
+			{screenSlot}
 		/>
 	{/if}
 

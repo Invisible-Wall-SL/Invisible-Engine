@@ -10,13 +10,22 @@
 		/** Register the container this screen is mounted in as this Element FX target
 		 *  (`screen:<id>`). Only a mount that gives the screen a container of its own passes it. */
 		parentTarget?: string;
+		/** Driven in place (`<FlowV2Mount screenSlot>`): the key each new play changes, which restarts
+		 *  this screen's rigs and component machines as a remount would. Read once, at mount. */
+		restart?: () => unknown;
 	};
 </script>
 
 <script lang="ts">
 	import { MainContainer } from 'components-layout';
 	import { readElementFxEntries, elementFxScreenTarget } from 'constants-shared/elementFx';
-	import { Anchor, Container, getContextParent, registerAnchor } from 'pixi-svelte';
+	import {
+		Anchor,
+		Container,
+		getContextParent,
+		registerAnchor,
+		setContextRestart,
+	} from 'pixi-svelte';
 	import { getContextLayout, scaleLayout, setContextLayout } from 'utils-layout';
 
 	import { untrack } from 'svelte';
@@ -35,7 +44,7 @@
 	import { tapDimBehind } from './tapToContinue';
 	import { sceneMountKey, trackComponentMount } from './mountedComponents';
 
-	const { scene, nodeDriver, parentTarget }: Props = $props();
+	const { scene, nodeDriver, parentTarget, restart }: Props = $props();
 	const parentContext = getContextParent();
 	$effect(() => {
 		const name = parentTarget;
@@ -47,6 +56,8 @@
 	setSceneIdContext(untrack(() => scene.id));
 	const driver = untrack(() => nodeDriver);
 	if (driver) setCinematicNodeDriver(driver);
+	const restartKey = untrack(() => restart);
+	if (restartKey) setContextRestart(restartKey);
 
 	// Count this screen in while it is mounted (`isComponentMounted(sceneMountKey(id))`), so a coded
 	// default can step aside for an authored screen the flow is showing — the Hold and Win banner for

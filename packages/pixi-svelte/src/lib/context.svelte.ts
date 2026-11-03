@@ -71,6 +71,18 @@ export function getContextRigLoadScale(): () => number {
 	return (getContext(RIG_LOAD_SCALE_NS) as (() => number) | undefined) ?? (() => 1);
 }
 
+// A screen that a timeline drives without remounting it hands its content a RESTART key: each new
+// play changes it, and what a remount would have restarted (a rig's track, a component's state
+// machine) starts again from the top.
+const RESTART_NS = '@@pixi_restart';
+export function setContextRestart(value: () => unknown) {
+	setContext(RESTART_NS, value);
+}
+/** The restart key as a getter; `undefined` outside such a screen. */
+export function getContextRestart(): (() => unknown) | undefined {
+	return getContext(RESTART_NS) as (() => unknown) | undefined;
+}
+
 // Rig event context
 const RIG_EVENT_EMITTER_NS = '@@pixi_rig_event_emitter';
 export function setContextRigEventEmitter(value: PIXI.EventEmitter) {
