@@ -14,7 +14,7 @@
 	},
 	"dependencies": {
 		"xstate": "5.33.3",
-		"svelte": "5.57.2",
+		"svelte": "5.57.3",
 		"utils-shared": "workspace:*",
 		"state-shared": "workspace:*",
 		"constants-shared": "workspace:*",

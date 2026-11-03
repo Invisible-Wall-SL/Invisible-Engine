@@ -19,7 +19,7 @@
 		"lint": "eslint *.ts*"
 	},
 	"devDependencies": {
-		"@sveltejs/package": "3.0.1",
+		"@sveltejs/package": "3.0.2",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"config-lingui": "workspace:*",
 		"config-svelte": "workspace:*",
@@ -34,14 +34,14 @@
 	"dependencies": {
 		"@barvynkoa/particle-emitter": "0.0.1",
 		"engine-rig": "workspace:*",
-		"@lingui/core": "6.10.1",
+		"@lingui/core": "6.11.0",
 		"@types/webfontloader": "1.6.38",
 		"constants-shared": "workspace:*",
 		"engine-flipbook": "workspace:*",
 		"engine-fx": "workspace:*",
 		"pixi-filters": "6.1.5",
 		"pixi.js": "8.22.0",
-		"svelte": "5.57.2",
+		"svelte": "5.57.3",
 		"utils-event-emitter": "workspace:*",
 		"vite": "6.2.0",
 		"webfontloader": "1.6.28"

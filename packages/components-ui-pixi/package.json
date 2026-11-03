@@ -17,10 +17,10 @@
 		"svelte-check": "4.7.7"
 	},
 	"dependencies": {
-		"svelte": "5.57.2",
+		"svelte": "5.57.3",
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.70.3",
-		"@lingui/core": "6.10.1",
+		"@lingui/core": "6.11.0",
 		"pixi-svelte": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-layout": "workspace:*",
