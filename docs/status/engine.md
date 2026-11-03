@@ -307,7 +307,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     in `utils-shared`) are `Array.from`, `.flat(2)`, `findLast`, `Object.values/entries` and a
     small deep merge in `utils-shared/i18n.ts` that keeps lodash `merge`'s rules for a messages map
     (arrays merge by index, `undefined` never overwrites; 20,000 random catalogs gave the same result
-    as lodash). `_.range` rounded a fractional length up, which the reel's padding (a multiplier × the reel length, e.g. 1.2 × 6) relies on, so that one keeps `Math.ceil`. lodash is no longer a
+    as lodash). `_.range` rounded a fractional length up, which the reel's padding (a multiplier
+    × the reel length, e.g. 1.2 × 6) relies on, so that one keeps `Math.ceil`. lodash is no longer a
     dependency of any runtime package; the reference apps (`price`, `scatter`, `ways`,
     `number-picker`, `cluster`) keep their own.
   - **Terser minifies the client bundle** (`config-vite` `terserClient`, `compress.passes: 2`,
