@@ -15,7 +15,7 @@
 	},
 	"type": "module",
 	"devDependencies": {
-		"eslint": "9.21.0",
+		"eslint": "10.14.0",
 		"eslint-config-custom": "workspace:*",
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
