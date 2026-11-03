@@ -18,7 +18,7 @@ import FlowV2Mount, {
 	type ScreenNodeDrive,
 	type ScreenSlot,
 } from './FlowV2Mount.svelte';
-import type { CinematicNodeDriver } from './cinematicNodeContext';
+import type { CinematicNodeDrive, CinematicNodeDriver } from './cinematicNodeContext';
 import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelte';
 import Repeater, { type Props as RepeaterProps } from './Repeater.svelte';
 import BuyFeatureScreen, { type Props as BuyFeatureScreenProps } from './BuyFeatureScreen.svelte';
@@ -53,6 +53,7 @@ export type {
 	MountedContainerRef,
 	ScreenNodeDrive,
 	ScreenSlot,
+	CinematicNodeDrive,
 	CinematicNodeDriver,
 	CatalogTextProps,
 	RepeaterProps,

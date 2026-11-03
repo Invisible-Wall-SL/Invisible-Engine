@@ -56,8 +56,8 @@
 	setSceneIdContext(untrack(() => scene.id));
 	const driver = untrack(() => nodeDriver);
 	if (driver) setCinematicNodeDriver(driver);
-	const restartKey = untrack(() => restart);
-	if (restartKey) setContextRestart(restartKey);
+	const restartOf = untrack(() => restart);
+	if (restartOf) setContextRestart(restartOf);
 
 	// Count this screen in while it is mounted (`isComponentMounted(sceneMountKey(id))`), so a coded
 	// default can step aside for an authored screen the flow is showing — the Hold and Win banner for
@@ -301,7 +301,9 @@
 		<Container>
 			<Anchor name={elementFxScreenTarget(scene.id)} />
 			{#if liveVisible}
-				<ElementFxPlayer entries={screenFx} />
+				{#key restartOf?.()}
+					<ElementFxPlayer entries={screenFx} />
+				{/key}
 			{/if}
 			{@render body()}
 		</Container>

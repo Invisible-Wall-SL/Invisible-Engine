@@ -30,7 +30,8 @@
 	export type ScreenSlot = { driver: CinematicNodeDriver; restart: () => unknown };
 
 	/** A playing screen timeline's hold on the screen it animates. `key` names one play: a node
-	 *  asks for its driver once, at mount, so a new play remounts the screen. */
+	 *  asks for its driver once, at mount, so a new play remounts the screen — unless the screen has
+	 *  a `screenSlot`, which samples the play now driving it and restarts in place instead. */
 	export type ScreenNodeDrive = { key: string; driver: CinematicNodeDriver };
 </script>
 

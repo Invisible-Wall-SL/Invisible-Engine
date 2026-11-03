@@ -44,6 +44,7 @@
 		getContextApp,
 		getContextParent,
 		getContextRestart,
+		onRestart,
 	} from 'pixi-svelte';
 	import type { FederatedPointerEvent } from 'pixi.js';
 	import { getContextLayout } from 'utils-layout';
@@ -245,11 +246,7 @@
 	// its subscriptions made again (they re-seed), its clocks (effects, flipbooks, Element FX, a coded
 	// part that does not restart itself) mounted afresh. Off such a screen it never changes.
 	const restart = getContextRestart();
-	let restartKey = untrack(() => restart?.());
-	$effect.pre(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
+	onRestart(restart, () => {
 		sceneSigAnim = undefined;
 		countUpTo = undefined;
 	});

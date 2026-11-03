@@ -21,6 +21,10 @@
 // the board's layout (`heldReelGridNode`), so the win line and what else is placed from the board
 // follow the reels; until then only the drawing moves.
 //
+// IN PLACE (2026-11-03): a screen whose timelines only move its nodes is not remounted on a play but
+// driven where it stands and restarted in place (`engine-layout` `screenSlots.ts`); §6 pins which
+// screens qualify and what their nodes sample.
+//
 // PER-RATIO KEYS: a screen lays its nodes out per ratio, so one move rarely fits every ratio. A
 // property track with a `layout` keys that ratio alone; a ratio with such keys plays them, every
 // other ratio the default keys (`keysLayout`), switching live as the device turns.
@@ -895,6 +899,76 @@ const hudIntro = () => ({
 	check('wiring: every play of a cinematic carries its own play number', /const play = \+\+cinematicPlays;/.test(runtime) && (runtime.match(/playingCinematics\.set\(cinematicId, \{\s*play,/g) ?? []).length === 2); // prettier-ignore
 	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'screenHolding: screenDrives.holding', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore
 	check('wiring: <FlowV2Cinematics> hands <Cinematic> the ratio reader', source('apps/lines/src/components/FlowV2Cinematics.svelte').includes('layoutType={stateLayoutDerived.layoutType}')); // prettier-ignore
+	check('wiring: <FlowV2Mount> gets Game’s in-place slots', /<FlowV2Mount[\s\S]{0,200}?\{screenSlot\}\s*\/>/.test(gameSource)); // prettier-ignore
+}
+
+// --- 6. a screen its timelines only move is driven in place ----------------------------------------
+// `engine-layout` `screenSlots.ts`: which screens skip the remount, the channels each node takes for life, what an
+// undriven node samples, the restart key following the play, and the playing drive asked once a play.
+{
+	const { createScreenSlots } = await import(
+		repoFile('packages/engine-layout/src/lib/screenSlots.ts')
+	);
+	const scene = {
+		id: 'pots',
+		name: 'Pots',
+		nodes: [
+			{ id: 'pot-red', label: 'Pot (red)', kind: 'container', children: [] },
+			{ id: 'pot-blue', label: 'Pot (blue)', kind: 'container', children: [] },
+			{ id: 'title', kind: 'text', text: 'POTS' },
+		],
+	};
+	const timeline = (id, sceneId, target, channels) => ({
+		id,
+		host: { kind: 'screen', sceneId },
+		stage: { cast: [{ actorId: `a-${target}`, kind: 'node', target }] },
+		tracks: [
+			{
+				actorId: `a-${target}`,
+				kind: 'property',
+				channels: Object.fromEntries(channels.map((c) => [c, [{ time: 0, value: 1 }]])),
+			},
+		],
+	});
+	let docs = [
+		timeline('hide', 'pots', 'Pot (red)', ['y', 'x']),
+		timeline('show', 'pots', 'Pot (red)', ['alpha']),
+		timeline('fade', 'pots', 'Pot (blue)', ['scale']),
+	];
+	const asked = [];
+	let current;
+	const slots = createScreenSlots(
+		() => docs,
+		(sceneId) => (sceneId === 'pots' ? current : undefined),
+	);
+	const slot = slots(scene);
+	check('in place: a screen whose timelines only move its nodes gets a slot', !!slot);
+	check('in place: a node takes every channel any of them keys on it', JSON.stringify([...(slot?.driver('pot-red')?.channels ?? [])].sort()) === '["alpha","x","y"]'); // prettier-ignore
+	check('in place: a node no timeline keys takes no driver', slot?.driver('title') === undefined);
+	const red = slot?.driver('pot-red');
+	check('in place: undriven, a node samples nothing (drawn as authored)', JSON.stringify(red?.sample()) === '{}'); // prettier-ignore
+	check('in place: undriven, the restart key is unset', slot?.restart() === undefined);
+	const play = (key, y) => ({
+		key,
+		driver: (nodeId) => {
+			asked.push(`${key}:${nodeId}`);
+			return { channels: new Set(['y']), sample: () => ({ y }) };
+		},
+	});
+	current = play('hide#1', 40);
+	check('in place: driven, a node samples the play now driving the screen', red?.sample().y === 40);
+	red?.sample();
+	red?.sample();
+	check('in place: the playing drive is asked once per play, not once a frame', asked.length === 1); // prettier-ignore
+	check('in place: the restart key is the play’s', slot?.restart() === 'hide#1');
+	current = play('show#2', 90);
+	check('in place: a new play is sampled from its own drive', red?.sample().y === 90 && asked.length === 2); // prettier-ignore
+	check('in place: …and changes the restart key', slot?.restart() === 'show#2');
+	check('in place: the same scene and timelines give the same slot', slots(scene) === slot);
+	docs = [...docs, timeline('mask', 'pots', 'Pot (blue)', ['fill'])];
+	check('in place: a timeline that keys anything but a move remounts its screen', slots(scene) === undefined); // prettier-ignore
+	check('in place: …so does visibility', createScreenSlots(() => [timeline('v', 'pots', 'Pot (red)', ['visible'])], () => undefined)(scene) === undefined); // prettier-ignore
+	check('in place: a screen with no timeline of its own takes none', createScreenSlots(() => [timeline('x', 'hud', 'Pot (red)', ['x'])], () => undefined)(scene) === undefined); // prettier-ignore
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

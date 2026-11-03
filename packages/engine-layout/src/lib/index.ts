@@ -60,6 +60,7 @@ export * from './textBoxLayout';
 export * from './componentParams';
 export * from './valueBindings';
 export * from './cinematicNodes';
+export * from './screenSlots';
 export * from './fxNodeParams';
 export * from './tapToContinue';
 export * from './signalGates';

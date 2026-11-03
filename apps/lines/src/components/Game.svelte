@@ -155,6 +155,7 @@
 		HOLD_AND_WIN_BANNER_SHOW_SOURCES,
 		readPostFx,
 		readStageFxAntialias,
+		createScreenSlots,
 	} from 'engine-layout';
 	import type { ReelGridNode, Scene } from 'engine-layout';
 
@@ -181,7 +182,6 @@
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { gameFxWarmup } from '../game/gpuWarmup';
-	import { createScreenSlots } from '../game/screenSlots';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
 	import {

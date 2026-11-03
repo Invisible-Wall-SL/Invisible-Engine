@@ -8,6 +8,7 @@
 		Container,
 		getContextApp,
 		getContextRestart,
+		onRestart,
 		Rectangle,
 		Sprite,
 	} from 'pixi-svelte';
@@ -125,12 +126,8 @@
 	});
 	// A restart of its screen in place (`getContextRestart`): at rest, as a freshly mounted pot is.
 	const restart = getContextRestart();
-	let restartKey = untrack(() => restart?.());
-	$effect.pre(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
-		untrack(() => pulse.set(1, { duration: 0 }));
+	onRestart(restart, () => {
+		pulse.set(1, { duration: 0 });
 	});
 
 	const textStyle = (size: number) => ({

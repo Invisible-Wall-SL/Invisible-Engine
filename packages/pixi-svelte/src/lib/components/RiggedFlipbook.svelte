@@ -88,6 +88,7 @@
 		getContextRestart,
 		getContextRig,
 		getContextRigLoadScale,
+		onRestart,
 	} from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
@@ -187,11 +188,7 @@
 	// A restart (`setContextRestart`): dormant again, as a fresh mount is, before the rig's track
 	// starts over and its first beat fires this again.
 	const restart = getContextRestart();
-	let restartKey = untrack(() => restart?.());
-	$effect.pre(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
+	onRestart(restart, () => {
 		clearTimers();
 		runId = 0;
 	});

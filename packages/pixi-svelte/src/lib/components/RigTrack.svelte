@@ -30,7 +30,7 @@
 	import { onDestroy, untrack } from 'svelte';
 
 	import { propsSyncEffect } from '../utils.svelte';
-	import { getContextRestart, getContextRig } from '../context.svelte';
+	import { getContextRestart, getContextRig, onRestart } from '../context.svelte';
 	import { shouldApplyRigAnimation } from '../rigTrackReplay';
 
 	const props: Props = $props();
@@ -43,17 +43,13 @@
 	// fresh one starts: the setup pose with no track, so the effect below applies the animation
 	// from its first frame.
 	const restart = getContextRestart();
-	let restartKey = untrack(() => restart?.());
-	$effect(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
-		untrack(() => {
-			rig.state.clearTracks();
-			rig.skeleton.setToSetupPose();
-			appliedReplay = undefined;
-			track = null;
-		});
+	onRestart(restart, () => {
+		rig.state.clearTracks();
+		rig.skeleton.setToSetupPose();
+		rig.skeleton.time = 0;
+		for (const constraint of rig.skeleton.physicsConstraints) constraint.reset();
+		appliedReplay = undefined;
+		track = null;
 	});
 
 	// Fall back to the skeleton's first animation when no name is given — matches the

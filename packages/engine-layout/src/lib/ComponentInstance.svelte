@@ -58,6 +58,7 @@
 		getContextApp,
 		getContextParent,
 		getContextRestart,
+		onRestart,
 	} from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
@@ -681,14 +682,8 @@
 	// mount would (`restartInstance`, below). The effects a mount runs read it too, so they run
 	// again — a re-subscribe re-seeds, as it does on a mount. Off such a screen it never changes.
 	const restart = getContextRestart();
-	let restartKey = untrack(() => restart?.());
 	const restarted = (): unknown => restart?.();
-	$effect.pre(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
-		untrack(restartInstance);
-	});
+	onRestart(restart, restartInstance);
 	// The tap surface arms once its gate signal has fired (or immediately when none is set). Reactive
 	// so the tap-registration `$effect` below re-runs when the arming signal fires (e.g. intro done).
 	const tapArmed = $derived(isTapArmed(tapArmSignal, firedSignals));
@@ -1160,6 +1155,7 @@
 		wasVisible = false;
 		cueHoldsOf?.releaseAll();
 		eventDispatcher?.reset();
+		flowInstance?.restart();
 		timelinePlayer?.reset();
 		stateMachineRunner?.restart();
 		applyFixedInputs();

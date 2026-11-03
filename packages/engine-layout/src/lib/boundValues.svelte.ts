@@ -141,18 +141,20 @@ export function createBoundValues(
 	});
 	// A restart of the screen in place (`setContextRestart`): every output snaps to its value, as a
 	// fresh mount's first does.
-	let restartKey = untrack(() => restart?.());
-	$effect.pre(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
-		untrack(() => {
-			targets.forEach((target, i) => {
-				glides[i] = undefined;
-				shown[i] = target;
+	if (restart) {
+		let restartKey = untrack(restart);
+		$effect.pre(() => {
+			const key = restart();
+			if (key === restartKey) return;
+			restartKey = key;
+			untrack(() => {
+				targets.forEach((target, i) => {
+					glides[i] = undefined;
+					shown[i] = target;
+				});
 			});
 		});
-	});
+	}
 
 	return {
 		get outputs() {
