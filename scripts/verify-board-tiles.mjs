@@ -291,7 +291,7 @@ ok(
 // =============================================================================================
 
 // -- the real seat block, sliced exactly as `verify-symbol-seat.mjs` slices it -------------------
-const blockStart = GAME_STATE.indexOf('\tconst boardGeometry = () => {');
+const blockStart = GAME_STATE.indexOf('\tconst resolveBoardGeometry = () => {');
 const seatStart = GAME_STATE.indexOf('\tconst getSymbolSeat = (');
 if (blockStart < 0 || seatStart < blockStart) {
 	throw new Error('could not locate the boardGeometry…getSymbolSeat block in gameState.svelte.ts');
@@ -315,7 +315,10 @@ const buildGetters = compileSlice({
 		'boardOverride',
 		'deps',
 	],
-	body: `${seatBlock}
+	body: `// The shipped getter reads the resolver through a $derived; the slice has no runes, so it reads
+// the resolver itself.
+const boardGeometry = () => resolveBoardGeometry();
+${seatBlock}
 return { boardGeometry, getSymbolX, getSymbolY, getSymbolSeat, boardPerspective };`,
 });
 

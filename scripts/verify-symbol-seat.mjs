@@ -69,7 +69,7 @@ const REEL_PADDING = readConst('REEL_PADDING');
 // Normalized to LF: the repo checks out CRLF on Windows, and the slice markers below are written
 // with `\n`.
 const source = readLF(SOURCE);
-const blockStart = source.indexOf('\tconst boardGeometry = () => {');
+const blockStart = source.indexOf('\tconst resolveBoardGeometry = () => {');
 const seatStart = source.indexOf('\tconst getSymbolSeat = (');
 if (blockStart < 0 || seatStart < blockStart) {
 	throw new Error('could not locate the boardGeometry…getSymbolSeat block in gameState.svelte.ts');
@@ -94,7 +94,10 @@ const buildGetters = compileSlice({
 		'boardOverride',
 		'deps',
 	],
-	body: `${block}
+	body: `// The shipped getter reads the resolver through a $derived; the slice has no runes, so it reads
+// the resolver itself.
+const boardGeometry = () => resolveBoardGeometry();
+${block}
 return {
 	boardGeometry,
 	getSymbolX,
