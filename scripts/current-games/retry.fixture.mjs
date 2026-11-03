@@ -280,6 +280,28 @@ for (const conclusion of ['cancelled', 'success', 'timed_out', 'skipped'])
 	);
 // A green run decides nothing (and does not throw on an empty failed set).
 assert.equal(decideRetry({ conclusion: 'success', runAttempt: 1, jobs: greenRun() }).retry, false);
+{
+	// A run whose `prepare` its `if:` skipped (a fix run's draft, or `ready_for_review` on any other
+	// PR): every job `skipped` with no runner and no steps, the shape the jobs API gave for run
+	// 41646804079's skipped job; the run concludes `skipped`. That shape is what "never acquired a
+	// runner" looks like too, so a skipped job must never enter the failed set: GitHub chose not to
+	// start it, and nothing is re-run, even under a run that (impossibly) concluded `failure`.
+	const skipped = (name) => ({ name, conclusion: 'skipped', runner_name: null, steps: [] });
+	const all = ['prepare', 'build', 'gates', 'render (${{ matrix.shard }})', 'report'].map(skipped);
+	for (const conclusion of ['skipped', 'failure']) {
+		const d = decideRetry({ conclusion, runAttempt: 1, jobs: all });
+		assert.equal(d.retry, false, conclusion);
+		assert.deepEqual(d.jobs, [], `${conclusion}: no skipped job is classified`);
+	}
+	assert.match(
+		decideRetry({ conclusion: 'failure', runAttempt: 1, jobs: all }).reason,
+		/no job died before its body ran/,
+	);
+	// …and a skipped job beside a real lost runner changes nothing about that runner's retry.
+	const d = decideRetry(failedRun([...all.slice(1), neverAcquired('prepare')]));
+	assert.equal(d.retry, true, d.reason);
+	assert.deepEqual(names(d, 'infrastructure'), ['prepare']);
+}
 
 // ---- 3. the table matches current-games.yml ----
 {
