@@ -13,7 +13,7 @@ launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/I
   `inline` strategy delete `bundle.<hash>.js` and its `.map` once copied into `index.html`.
 - **Fix:** builds are a shell + ES-module chunks (`bundleStrategy: 'single'`); each chunk carries a
   debug ID (`config-vite/debugIds.js`); `sentry-sourcemaps.mjs` uploads one map per chunk.
-- **Guard:** `pnpm check:sentry-sourcemaps` (Lint) builds a real app and stages its maps.
+- **Guard:** `pnpm check:sentry-sourcemaps` (CI) builds a real app and stages its maps.
 - **PR:** not recorded (2026-11-03) · source: `docs/status/engine.md`
 
 ### An online game said "this game is not available"

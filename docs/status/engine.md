@@ -374,12 +374,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     under its own debug ID. The release build step gets `NODE_OPTIONS=--max-old-space-size=8192`: a
     hidden-map build dies at Node's default ~2.1 GB heap on a 16 GB machine (reproduced locally on
     main and on this branch; the bfa9541 CI release got through).
-  - **Gates.** `pnpm check:sentry-sourcemaps` (new, in Lint, ~10 s): the synthetic fixture plus
-    `sentry-sourcemaps-build.fixture.mjs`, which builds a three-file kit app through `config-svelte`
+  - **Gates.** `pnpm check:sentry-sourcemaps` (new, run by CI's `check:all`, ~10 s): the
+    synthetic fixture plus `sentry-sourcemaps-build.fixture.mjs`, which builds a three-file kit app through `config-svelte`
     + `config-vite` with hidden maps and checks a shell, a lazy chunk, a map + debug ID per chunk,
     exactly those staged, and frames mapping back to the source line; with `bundleStrategy:
-    'inline'` restored it fails 5 checks. `pnpm check:test-server-caching` (new, in Lint, seconds):
-    the real test server in local mode, the caching headers, one generation of retired chunks after
+    'inline'` restored it fails 5 checks. `pnpm check:test-server-caching` (new, run by
+    `check:all`, seconds): the real test server in local mode, the caching headers, one generation of retired chunks after
     a runtime flip and after two desktop republishes (4 checks fail without `retiredGameImmutable`),
     and the 301. `pnpm check:runtime-shell` (new, local, Playwright, skipped by `check:all`):
     runtime and desktop on the real test server, an inline delivery in a nested folder, an embed on
@@ -392,7 +392,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     fails after the import); a pointer flip and a desktop republish keep the old chunk one
     generation. 60/60. `pnpm check:ktx2-transcoder` 93/93 (builds shared:
     `scripts/lib/game-build-variants.mjs`; its inline delivery uses a gate profile `rgs_url` may
-    repoint, because request interception turns the HTTP cache off).
+    repoint, because request interception turns the HTTP cache off). After merging main it failed
+    18 checks, the same on main: #1506 skips exported art nothing names (`editorArtUnused`), and
+    the probe's scene drew nothing, so `probe.ktx2`/`probe.png` were never requested. The fixture
+    scene now draws the image and the sheet frame, as a game's would (fixture only).
   - **Sizes** (`check:family-runtimes --measure`, gzip -6 per file as served; the measure builds
     with a stand-in DSN like the release and checks family markers across every file). First visit =
     shell + what it loads (bundle + CSS; `scripts/lib/build-chunks.mjs`); online boot = that + the
@@ -421,11 +424,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     the desktop launcher's own uploader (`Invisible_Launcher.py`, not in this repo) must upload
     `_app/` with the rest of `build/` — now the whole game, not just the KTX2 transcoder (Open
     items, KTX2 follow-up (4), is now blocking for desktop publishes).
-  - **Merge condition (owner):** before this merges, confirm that `Invisible_Launcher.py`'s
-    uploader uploads the WHOLE `_app/` folder, ideally with `index.html` last (so a visitor never
-    gets a shell whose bundle is not up yet). Every desktop game now needs `_app/` to boot, and the
-    desktop launcher builds from `origin/main`, so the first desktop publish after the merge ships
-    this shape; an uploader that skips `_app/` publishes a game that loads nothing.
+  - **Desktop launcher checked** (`invisible-launcher` @ b5daea6, `Invisible_Launcher.py`): both
+    publish routes (`publish_game_via_portal` and direct R2) upload every file of the build, sorted,
+    so `_app/` goes up before `index.html`; a delivery zips everything but OS junk; `_GAME_MIME`
+    types `.wasm`. Its post-publish verify reads `bundle\.[A-Za-z0-9_-]+\.js` from the local
+    `index.html`, and the shell still names `_app/immutable/bundle.<hash>.js`. Every desktop game
+    needs `_app/` to boot now, and gets this shape on its next build from `origin/main`.
 - 2026-11-03 — **A shared page loads once, and the stock walk drops free-spin and undealt-symbol
   art** (branch `claude/buffaloduel-texture-memory`). Audit of `overlay-buffaloduel`: 513 MB of
   resident textures on desktop (build of 2026-11-02 20:28; the owner's 2026-11-03 09:32 rebuild

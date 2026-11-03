@@ -148,7 +148,20 @@ const LAUNCHER = originOf(launcher);
 launcherRoutes['/api/editor/runtime'] = JSON.stringify({
 	assetBase: `${LAUNCHER}/f/`,
 	name: 'KTX2 transcoder probe',
-	doc: { scenes: [{ id: 'basegame', name: 'Base game', nodes: [] }] },
+	// The scene draws both, as a game's would: the boot skips exported art nothing names
+	// (`stockAssets.ts` `editorArtUnused`).
+	doc: {
+		scenes: [
+			{
+				id: 'basegame',
+				name: 'Base game',
+				nodes: [
+					{ id: 'image', kind: 'sprite', x: 0, y: 0, assetKey: 'probe/image' },
+					{ id: 'frame', kind: 'sprite', x: 16, y: 0, assetKey: 'probe-sheet', region: 'probe' },
+				],
+			},
+		],
+	},
 	editorArt: {
 		sheets: [{ key: 'probe-sheet', json: 'probe-sheet.json', ktx2Json: 'probe-sheet.ktx2.json' }],
 		images: [{ key: 'probe/image', file: 'probe.png', ktx2: 'probe.ktx2' }],

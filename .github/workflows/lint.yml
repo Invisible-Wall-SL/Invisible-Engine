@@ -151,23 +151,6 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:paytable && pnpm check:info-figures
 
-      # Readable stack traces: a hidden-source-map game build must leave one map per shipped chunk,
-      # each tied to its chunk by a debug ID, and `sentry-sourcemaps.mjs` must stage exactly those.
-      # The release only ever said "nothing to upload" as a notice, so for a month (the SvelteKit
-      # 2.70 upgrade deleted the inlined bundle's map) Sentry got no maps and nothing went red. The
-      # build half compiles a three-file app through config-svelte + config-vite (seconds).
-      - name: game builds keep their source maps for Sentry
-        if: steps.changes.outputs.code == 'true'
-        run: pnpm check:sentry-sourcemaps
-
-      # The page is a no-store shell over content-hashed `_app/immutable/` code a browser keeps for a
-      # year, so a page loaded just before a release or a republish still needs the old chunks. The
-      # real test server, local mode: the caching headers, one generation of retired chunks for a
-      # runtime flip and a desktop republish, and `/<gameKey>` → `/<gameKey>/` (seconds).
-      - name: test server keeps the previous release's chunks
-        if: steps.changes.outputs.code == 'true'
-        run: pnpm check:test-server-caching
-
       # Engine-game fixture gate — the win presentation's tap / hold / outro timeline and its
       # wiring, much of it asserted against SOURCE TEXT because a Svelte template cannot be run
       # from Node. Nothing ran these: #692 moved the celebration-lock rule into its own module,

@@ -136,7 +136,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
 ## Recent changes
 - 2026-11-03 — **Runtime source maps reach Sentry again** (closes open item 7). The game is now an
   `index.html` shell plus ES-module chunks, each with its own hidden map and a debug ID, and the
-  release uploads one map per shipped chunk; `pnpm check:sentry-sourcemaps` (Lint) builds a real app
+  release uploads one map per shipped chunk; `pnpm check:sentry-sourcemaps` (CI) builds a real app
   to prove it. `runtime-release.yml`'s comments and `verify-runtime-live.mjs` (which HEADs the
   bundle again, now that the shell loads it by URL) follow. Detail: [engine](engine.md) 2026-11-03.
 - 2026-11-03 — **The fix-run push filter is pinned to the launcher's ids.** `check:bug-fix-runs`

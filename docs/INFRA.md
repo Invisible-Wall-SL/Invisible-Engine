@@ -1101,7 +1101,7 @@ the facade, so it is not reported (changing it changes boot behaviour).
 
 The repo and every served bundle are **public**, so a source map must never sit next to the code:
 maps are built, uploaded to Sentry, and **deleted from the build before anything is published**. All
-of it lives in `scripts/sentry-sourcemaps.mjs`; `pnpm check:sentry-sourcemaps` (in Lint) runs its
+of it lives in `scripts/sentry-sourcemaps.mjs`; `pnpm check:sentry-sourcemaps` (CI) runs its
 fixture and `sentry-sourcemaps-build.fixture.mjs`, which builds a three-file SvelteKit app through
 `config-svelte` + `config-vite` with `IE_SOURCEMAPS=hidden` and fails unless every shipped chunk
 leaves a map the script stages under the chunk's debug ID.
