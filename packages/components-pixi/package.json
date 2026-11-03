@@ -16,7 +16,7 @@
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
 		"config-lingui": "workspace:*",
-		"@sveltejs/vite-plugin-svelte": "5.0.3",
+		"@sveltejs/vite-plugin-svelte": "7.3.1",
 		"svelte-check": "4.7.7"
 	},
 	"dependencies": {
