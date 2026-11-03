@@ -73,6 +73,21 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **`overlay-buffaloduel` texture memory — owner content left** (2026-11-03 audit; engine part
+  above). Desktop stays uncompressed by design, so only smaller or fewer pages help: the `S_UI`
+  page is 4096² (67 MB, repack the sheet to two 2048² pages or trim it); the `R_SpinButtonNew`
+  page is 3250×2048 (27 MB for a button); the symbol art is eight sheets at 1300² and four at 2048
+  wide (`H1`–`H3`, 14–17 MB each); the re-baked `fxbake_s_sparks_small` page is 1941×1748 (14 MB,
+  not divisible by 4, so never KTX2). `fxbake_smokeclouds` (3593×2573, 37 MB in the audit) left
+  with the 2026-11-03 09:32 rebuild. Stock art the project still reaches: `reels_frame` 13.7 MB (the `freeSpinCounter`
+  instance's default `frameImage`; pick an own region or drop the counter from the layout and the
+  flow's `showContainer`), the `explosion` rig's `symbols3` page 10 MB (the `BONUS`/`JACKPOT`/
+  `MULTI` explosion state bound to stock `explosion`), `SD2_Coin` 8.7 MB (the big win's coins; set
+  `showCoins` off or bind own art), `transition` 5.1 MB (a `Transition` node in
+  `basegameOverlays` that nothing fires), `anticipation` 4.7 MB (no authored anticipation
+  `spineKey`). `sounds.mp3` (4.9 MB) stays: the coded game plays stock names (`sfx_btn_spin`,
+  `sfx_reel_stop_*`) the project's 17 sounds do not replace.
+
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
   symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
@@ -289,6 +304,31 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-03 — **A shared page loads once, and the stock walk drops free-spin and undealt-symbol
+  art** (branch `claude/buffaloduel-texture-memory`). Audit of `overlay-buffaloduel`: 513 MB of
+  resident textures on desktop (build of 2026-11-02 20:28; the owner's 2026-11-03 09:32 rebuild
+  is 488.7 MB). Measured on that rebuild's baked bundle and published assets, `main` vs
+  this branch built the same way (Play4Fun transport): **59 → 49 textures, 488.7 → 415.3 MB
+  resident, 31.3 → 27.6 MB downloaded** at boot. Three engine changes:
+  (1) `pixi-svelte` `sharedSheetPages.ts`: Pixi's spritesheet parser loads `dirname(json) +
+  meta.image` unnormalized and caches by that string, so a page in the shared `_pages/` store
+  (`../../_pages/<hash>`) loaded once per sheet folder and once more for a rig. The parser now loads
+  the joined url, the one the rig loader already used. Here: `S_StaticElements` (editor-art and
+  editor-symbols copies) and the pages `S_UI_2`, `S_BigWin`, `S_FireCracker`,
+  `S_HolographicBackdrop` share with rigs, 43 MB. Fixture `fixtures/sharedSheetPages.fixture.ts`.
+  (2) `stockAssets.ts`: the symbols doc's `map` is read only for symbols the board can show; the
+  project's entries for undealt `BOOST`/`COLLECT`/`MYSTERY` named the stock `M` and `W` rigs and
+  kept `symbols2` (9.6 MB). (3) A game that can never enter free spins (rule off, no bonus route
+  to `freeSpins`, no reels mode of its own, no authored doc firing a free-spin cue — all in
+  `freeSpinsReachable`) keeps nothing for `FreeSpinIntroVisual`, `FreeSpinOutroVisual`,
+  `FreeSpinCounter` or the coded `BoardFrame` glow, which mount nothing until a free-spin cue:
+  `fsIntro`, `freeSpins`, `winSmall`, `reelhouse` (21 MB). A component instance a free-spin feed
+  hides stays mounted, so its stock art is still kept. Fixture cases 9–10 in
+  `stockAssets.fixture.ts`, mutation-checked against `main`. The `[Cache] already has key`
+  warnings for `H1_static`… remain (both copies of `S_StaticElements` register the bare frame
+  names; same texture now). **Not verified:** a spin, since the build URL answers a fresh demo
+  session with `not found` at the RGS on `main` and live too. **Owner-side content** for this
+  game (the rest of the 415 MB): see the open item below.
 - 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
   `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
   Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134

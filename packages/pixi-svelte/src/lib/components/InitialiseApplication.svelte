@@ -16,6 +16,7 @@
 	import { registerAdvancedBlendModes } from '../advancedBlendModes';
 	import { honourPremultipliedKtx2 } from '../ktx2AlphaMode';
 	import { preferAstcForKtx2 } from '../ktx2TranscodeTarget';
+	import { shareSheetPages } from '../sharedSheetPages';
 	// Self-hosted KTX2 transcoder, bundled INTO the engine via Vite `?url` so it is emitted
 	// into every consuming build's own asset output (`_app/immutable/...`) with a correct,
 	// base-aware URL — standalone game builds AND the shared runtime bundle alike. (An earlier
@@ -56,6 +57,7 @@
 		});
 		preferAstcForKtx2();
 		honourPremultipliedKtx2();
+		shareSheetPages();
 
 		// Before the renderer exists: `BlendModePipe` caches one `FilterEffect` per mode name for
 		// the life of a renderer, so a registration landing after a mode has drawn is ignored.

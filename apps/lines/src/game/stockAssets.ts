@@ -21,7 +21,15 @@ import {
 import { createSymbolMap } from 'engine-game/src/game/symbolMap';
 import { resolveSymbolState } from 'engine-game/src/game/symbolCell';
 import type { SymbolInfoMap } from 'engine-game/src/game/types';
-import { symbolsUsed, type GameConfigDoc } from 'game-config';
+import {
+	FREE_SPINS_MODE,
+	builtinGameModes,
+	resolveBonusModes,
+	resolveFreeSpins,
+	resolveGameModes,
+	symbolsUsed,
+	type GameConfigDoc,
+} from 'game-config';
 
 import stockTable from './assets';
 import { SYMBOL_INFO_MAP } from './constants';
@@ -37,6 +45,8 @@ import {
 } from './sceneSelection';
 import {
 	ALWAYS_KEPT,
+	FREE_SPIN_PARTS,
+	FREE_SPIN_SWITCHES,
 	KEPT_TOGETHER,
 	PART_NEEDS,
 	STOCK_KEYS,
@@ -70,8 +80,12 @@ import {
  * - PART: a bound coded part it mounts would fall back to it ({@link PART_NEEDS});
  * - MOUNT: a coded mount the game always makes would fall back to it ({@link codedMountNeeds});
  * - SYMBOLS: a symbol the game can show resolves to a coded cell naming it, through the renderer's
- *   own merge and state inheritance;
+ *   own merge and state inheritance (a symbols-doc entry for a symbol the board never shows is not
+ *   read);
  * - ALWAYS: it is in `ALWAYS_KEPT`.
+ *
+ * A game that can never enter free spins ({@link freeSpinsReachable}) mounts the free-spin parts and
+ * the board glow without ever drawing them, so they keep nothing (`FREE_SPIN_PARTS`).
  */
 
 type Params = Record<string, unknown>;
@@ -157,13 +171,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *   a background scene carries authored content.
  * - The foreground rig hosts every bone-placed effect not bound to a rig (`Effects.svelte:41-63,118-123`).
  * - `BoardFrame` (`{#if !suppressCodedBoardGlow}`, `BoardFrame.svelte:20-21`): the authored glow rig
- *   ?? `reelhouse`, unless the `boardGlow` scene carries authored content.
+ *   ?? `reelhouse`, unless the `boardGlow` scene carries authored content or the game never enters
+ *   free spins (it is lit only by `boardFrameGlowShow`).
  * - Every winning cell's frame (`Symbol.svelte` `showWinFrame`, `SymbolWinFrame.svelte:30-32`): the
  *   authored highlight ?? `anticipation`.
  * - The reel anticipation overlay (`Anticipations.svelte:95-96`, `anticipationPresentation.ts:141-142`):
  *   the authored `spineKey` || `anticipation`.
  */
-function codedMountNeeds(data: StockAssetData): string[] {
+function codedMountNeeds(data: StockAssetData, freeSpins: boolean): string[] {
 	const out: string[] = [];
 	const { doc, symbols, effects = [], rigFx = {} } = data;
 	if (!hasAuthoredBackground(doc.scenes)) {
@@ -180,10 +195,31 @@ function codedMountNeeds(data: StockAssetData): string[] {
 			),
 	);
 	if (bonePlaced) out.push('foregroundAnimation');
-	if (!hasAuthoredBoardGlow(doc.scenes)) out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
+	if (freeSpins && !hasAuthoredBoardGlow(doc.scenes)) {
+		out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
+	}
 	out.push(symbols?.highlight?.assetKey ?? 'anticipation');
 	out.push(symbols?.anticipation?.spineKey || 'anticipation');
 	return out;
+}
+
+/**
+ * Whether a round can ever draw the free-spin presentation: the config's free-spins rule is on, a
+ * bonus route (a pot, a buy, a meter) starts the built-in free spins, the project has a reels mode of
+ * its own (an imported free spins, `stateModes.svelte.ts` `isFreeGameType`), or an authored doc fires
+ * one of `FREE_SPIN_SWITCHES`. With free spins off the rules page already tells the player there are
+ * none (`infoManifest.ts`), so a server that sends them anyway is out of step with what the game says.
+ */
+function freeSpinsReachable(config: GameConfigDoc, authoredNames: Names): boolean {
+	if (resolveFreeSpins(config).enabled) return true;
+	if (FREE_SPIN_SWITCHES.some((name) => authoredNames.has(name))) return true;
+	const builtins = new Set(builtinGameModes().map((mode) => mode.id));
+	if (resolveGameModes(config).some((mode) => mode.board === 'reels' && !builtins.has(mode.id))) {
+		return true;
+	}
+	return resolveBonusModes(config).some(
+		(bonus) => bonus.mode.id === FREE_SPINS_MODE && bonus.routes.length > 0,
+	);
 }
 
 /**
@@ -367,9 +403,15 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		throw new KeepAll('a scene of the layout doc has no node list');
 	}
 	const names: Names = new Map();
+	const authoredNames: Names = new Map();
+	collectNames(data.other, authoredNames, 'authored docs');
+	const freeSpins = freeSpinsReachable(input.config, authoredNames);
+	const drawsNothing = (part: unknown): boolean =>
+		!freeSpins && typeof part === 'string' && FREE_SPIN_PARTS.has(part);
 	let walked = 0;
 
 	const visitPart = (name: string, params: Params, props: Params): void => {
+		if (drawsNothing(name)) return;
 		const needs = PART_NEEDS[name];
 		if (needs) for (const need of needs(params, props)) addName(names, need, `part ${name}`);
 		else if (input.isBoundPart(name)) throw new KeepAll(`bound part '${name}' has no stock rule`);
@@ -421,8 +463,10 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 			walked += 1;
 			if (walked > MAX_WALKED_NODES) throw new KeepAll('the layout expands past the walk budget');
 			const { children, ...own } = node;
-			collectNames(own, names, origin);
 			const bind = node.bind;
+			// A part that never draws reads nothing from its bind's props (`introSpine`, …).
+			const silent = isRecord(bind) && drawsNothing(bind.component);
+			collectNames(silent ? { ...own, bind: undefined } : own, names, origin);
 			if (isRecord(bind) && typeof bind.component === 'string') {
 				visitPart(bind.component, params, isRecord(bind.props) ? bind.props : {});
 			}
@@ -464,11 +508,14 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		}
 	}
 
-	collectNames(symbols, names, 'symbols doc');
+	// The symbol map is read below, for the symbols the board can show.
+	collectNames({ ...symbols, map: undefined }, names, 'symbols doc');
 	collectNames(data.effects, names, 'effects');
 	collectNames(data.rigFx, names, 'rig FX');
-	collectNames(data.other, names, 'authored docs');
-	for (const need of codedMountNeeds(data)) addName(names, need, 'coded mount');
+	for (const [name, origins] of authoredNames) {
+		for (const origin of origins) addName(names, name, origin);
+	}
+	for (const need of codedMountNeeds(data, freeSpins)) addName(names, need, 'coded mount');
 
 	// SYMBOLS: every symbol the game can show, through the renderer's own merge (`symbolMap.ts`) and
 	// state resolution (`symbolCell.ts`), for every state it can be asked for.

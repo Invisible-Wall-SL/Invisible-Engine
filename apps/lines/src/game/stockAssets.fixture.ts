@@ -694,5 +694,125 @@ check(
 	['Transition', 'WinGate'],
 );
 
+// overlay-buffaloduel (2026-11-03): a Hold and Win game with free spins off kept the stock free-spin
+// sheets and the board glow for parts it mounts but never shows, and two stock symbol rigs for map
+// entries of symbols it never deals.
+console.log('\n9. a game that cannot enter free spins');
+const noFreeSpins = { ...config, freeSpins: { enabled: false } } as GameConfigDoc;
+const withFreeSpinParts = (): StockAssetData =>
+	mutate((d) => {
+		delete d.symbols!.boardGlow;
+		d.doc.scenes = d.doc.scenes.map((s) =>
+			s.id === 'boardGlow'
+				? scene('boardGlow', [
+						node({ id: 'glow', kind: 'container', bind: { component: 'BoardFrame' } }),
+					])
+				: s,
+		);
+		d.doc.scenes.push(
+			scene('fsIntro', [
+				node({
+					id: 'intro',
+					kind: 'container',
+					bind: { component: 'FreeSpinIntroVisual', props: { introSpine: 'fsIntroNumber' } },
+				}),
+				node({ id: 'outro', kind: 'container', bind: { component: 'FreeSpinOutroVisual' } }),
+				node({ id: 'counter', kind: 'container', bind: { component: 'FreeSpinCounter' } }),
+			]),
+		);
+	});
+const freeSpinArt = [
+	'freeSpins',
+	'fsIntro',
+	'fsIntroNumber',
+	'fsOutroNumber',
+	'reelhouse',
+	'reelsFrame',
+	'winSmall',
+];
+check(
+	'with free spins on, the parts keep their art',
+	added(input(withFreeSpinParts())),
+	freeSpinArt,
+);
+check('with them off, nothing', added(input(withFreeSpinParts(), { config: noFreeSpins })), []);
+check(
+	'…unless a flow fires a free-spin cue',
+	added(
+		input(
+			{
+				...withFreeSpinParts(),
+				other: [{ graph: { nodes: [{ kind: 'fireCue', ref: 'freeSpinIntroShow' }] } }],
+			},
+			{ config: noFreeSpins },
+		),
+	),
+	freeSpinArt,
+);
+check(
+	'…or a full pot starts them',
+	added(
+		input(withFreeSpinParts(), {
+			config: {
+				...noFreeSpins,
+				coinOverlay: {
+					style: 'pots',
+					pots: [{ id: 'red', token: 'POT_RED', maxLevel: 20, bonus: { mode: 'freeSpins' } }],
+				},
+			} as unknown as GameConfigDoc,
+		}),
+	),
+	freeSpinArt,
+);
+check(
+	'…or the project plays a reels mode of its own',
+	added(
+		input(withFreeSpinParts(), {
+			config: { ...noFreeSpins, modes: [{ id: 'imported', board: 'reels' }] } as GameConfigDoc,
+		}),
+	),
+	freeSpinArt,
+);
+check(
+	'an instance a free-spin feed hides still keeps its frame (it stays mounted)',
+	added(
+		input(
+			mutate((d) =>
+				d.doc.scenes[2].nodes.push(
+					node({
+						id: 'fs',
+						kind: 'componentInstance',
+						componentId: 'freeSpinCounter',
+						params: { visibleSource: 'freeSpinCounterShow' },
+					}),
+				),
+			),
+			{ config: noFreeSpins },
+		),
+	),
+	['reelsFrame'],
+);
+
+console.log('\n10. symbol bindings for symbols the board never shows');
+const boostBound = (): StockAssetData =>
+	mutate((d) => (mapOf(d).BOOST = { win: { type: 'spine', assetKey: 'M', animationName: 'win' } }));
+check('a binding of an undealt symbol keeps nothing', added(input(boostBound())), []);
+check(
+	'…until the server declares it',
+	added(input(boostBound(), { symbolsInPlay: [...symbolsInPlay(config), 'BOOST'] })),
+	['M'],
+);
+check(
+	'a binding naming a coded symbol does not deal that symbol',
+	added(
+		input(
+			mutate(
+				(d) => (mapOf(d).MYSTERY = { win: { type: 'spine', assetKey: 'W', animationName: 'win' } }),
+			),
+		),
+	),
+	[],
+);
+
 if (failures) throw new Error(`${failures} stock-asset assertion(s) FAILED`);
 console.log('\nAll stock-asset assertions passed.\n');
