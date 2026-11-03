@@ -81,6 +81,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
     the preview. Keying the setup's values, as ◆ Key transform / path / physics already do, would
     change what newly keyed IK plays. That is the owner's call.
+18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
+    versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
+    fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0 and 1 built (Recent
+    changes); Phase 2 (server consumers read through the doc) is next. **Before Phase 3 writes the
+    first v1 file,** the "Runtime rollback" workflow needs a floor at the Phase 1 release, or a
+    rollback below it blanks every v1 rig (design §7).
 
 ## Blocked (owner / external)
 
@@ -89,6 +95,34 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-03 — **irig v1, Phase 1: the runtime reads irig v1**
+  ([irig-format](../design/irig-format.md) §6). `SkeletonJson.readSkeletonData` recognises the
+  `irig` stamp, checks the document with `readIrig` and reads it with the same walk (v1 keeps every
+  4.2 field under its 4.2 name), taking the version from `importedFrom`; so every game, tool and
+  the vendored WebGL bundle (rebuilt) reads irig with no change of its own. The `.irig` asset loader
+  accepts a stamped document with no header. 4.2 files keep their direct path: the importer is
+  stricter than the 4.2 reader (it drops a wrong-typed value the reader coerces), so 4.2 files are
+  not imported at load before Phase 5. Gate: all 33 distinct repo rigs read as irig into the same
+  `SkeletonData` as their 4.2 file; a newer version, an unknown key and a wrong-typed value are
+  refused at load (a mutant that skips the check fails all three). Nothing writes v1 yet.
+- 2026-11-03 — **irig v1, Phase 0: the schema and the round-trip gate**
+  ([irig-format](../design/irig-format.md) §6). `packages/engine-rig/src/irig/`: `schema.ts` is the
+  v1 schema as data (4.2 meaning field for field, plus `pivot` and the event `fx` / `flipbook`
+  bindings), and the TypeScript types are inferred from it; `irig.ts` has `importSpine42Json` (keeps
+  what the 4.2 reader reads, reports the rest), `readIrig` (strict), `writeIrig` and the internal
+  `exportSpine42Json`. Nothing calls them yet: no consumer, no runtime path. `irig.fixture.ts`
+  (`check:all`): all 33 distinct repo skeletons import losing only 100 bones' 4.1-era `transform`,
+  survive write → read, export back to the original key for key, and read through `SkeletonJson`
+  into identical `SkeletonData`; a rig with every extension keeps them all; the reader refuses a
+  newer version, a 4.2 file, unknown keys and wrong types. A planted mutant (blend dropped and
+  wrongly allow-listed) fails 38 checks. `engine-rig` gained `@types/node` for the fixture, as
+  `engine-shadergraph` has.
+- 2026-11-02 — **Design proposal: `.irig` as our own format** ([irig-format](../design/irig-format.md)).
+  The runtime has been ours since Phase 6, but the file is still 4.2-format JSON, so our
+  extensions live as inline keys the runtime discards, a naming convention and sidecars. The
+  proposal: a typed `IrigDoc` in `engine-rig`, irig v1 = 4.2 semantics plus those extensions,
+  a 4.2 importer (import only, owner 2026-11-02), shipped reader-first so no runtime release or rollback
+  can meet a file it cannot read. Not built; open item 18.
 - 2026-10-27 — **Ask the AI on the bar.** `view.html` loads the shared window `/shared/ask-ai.js`
   (with the deploy's `?v=`) and mounts it before Report bug; it asks `/api/ask-ai` on the session.
   See [launcher status](launcher.md) (Ask the AI).

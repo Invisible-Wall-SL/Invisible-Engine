@@ -139,8 +139,21 @@ export class RigView extends Container {
 		// No pose until the first `update`, as in the reference Pixi runtime: every world transform
 		// is zero, so a view shown before it is updated draws nothing.
 		this.addChild(this.measure);
-		this.onRender = () => this.syncDisplay();
+		this.onRender = () => {
+			if (this.drawnThisFrame()) this.syncDisplay();
+		};
 		this.syncDisplay();
+	}
+
+	/** False only when a hidden container between this view and its render group's root means
+	 * nothing it holds is drawn; the meshes are rebuilt on the first frame it is shown again. */
+	private drawnThisFrame(): boolean {
+		const root = this.parentRenderGroup?.root;
+		if (!this.visible && this !== root) return false;
+		for (let node = this.parent; node && node !== root; node = node.parent) {
+			if (!node.visible) return false;
+		}
+		return true;
 	}
 
 	get autoUpdate(): boolean {
@@ -182,7 +195,6 @@ export class RigView extends Container {
 		skeleton.updateWorldTransform(Physics.update);
 		this.afterUpdateWorldTransforms(this);
 		this.updateSlotObjects();
-		this.syncDisplay();
 	}
 
 	/** Bounds of the current pose, in this container's local space: the bounding-box attachments'
@@ -396,7 +408,7 @@ export class RigView extends Container {
 	}
 
 	/** Rebuilds every slot's mesh from the current pose and restores draw order. Runs before each
-	 * render, and after `update`. */
+	 * render the view is drawn in, so a frame poses once however many times it was updated. */
 	syncDisplay(): void {
 		const skeleton = this.skeleton;
 		const clipper = this.clipper;

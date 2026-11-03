@@ -20,7 +20,9 @@ per-device page variants. A `?quality=high` tier opts high-memory targets (arcad
 back into the uncompressed full-res pages.
 
 **Fail-safe / parity:** every hop degrades to today's WebP/PNG when a KTX2 twin is absent
-(un-encoded project, encoder off, page skipped) or when `?quality=high` is set.
+(un-encoded project, encoder off, page skipped) or when `?quality=high` is set — and, at load,
+when the twin was chosen but fails (transcoder unreachable or invalid, `.ktx2` 404): the entry's
+`fallback` is loaded instead (see "Load").
 
 ## Pipeline (produce → carry → load)
 
@@ -47,18 +49,37 @@ back into the uncompressed full-res pages.
   mirrors every `deploy/` byte, `runtimeBundle.ts` carries the same `EditorArtIndex`. The new
   `ktx2Json`/`ktx2` fields ride along.
 - **Load** — `pixi-svelte/InitialiseApplication.svelte` registers Pixi's KTX2 loader
-  (`import 'pixi.js/ktx2'`) and **self-hosts the transcoder** via `setKTXTranscoderPath(...)`
-  (Pixi's default is an external CDN — forbidden). The `libktx.{js,wasm}` files are vendored
-  INTO the engine package (`pixi-svelte/src/lib/transcoders/ktx/`) and imported via Vite
-  `?url`, so they emit into every consuming build's own `_app/immutable/assets/` with a
-  correct base-aware URL — reaching standalone game builds too (whose `static/` comes from
-  the game repo, NOT the engine, so a `static/` file + `document.baseURI` would 404 there).
-  `config-vite` excludes libktx from its `assetsInlineLimit: Infinity` single-file inlining so
-  the transcoder stays a real, lazily-fetched file (a Worker's `importScripts()` rejects the
-  `data:` URI an inlined asset becomes; the runtime also defensively converts any `data:` URL
-  to a `blob:` one). `apps/lines/src/editor-scenes.ts` `bakedEditorArtAssets()`
-  registers the `ktx2Json`/`ktx2` variant unless `?quality=high`, keying the loadedAssets
-  entry off the WebP path so lookups are tier-identical.
+  (`import 'pixi.js/ktx2'`) and **self-hosts the transcoder** (Pixi's default is an external CDN —
+  forbidden). The `libktx.{js,wasm}` files are vendored INTO the engine package
+  (`pixi-svelte/src/lib/transcoders/ktx/`) and imported via Vite `?url`, so they emit into every
+  consuming build's own `_app/immutable/assets/` — reaching standalone game builds too (whose
+  `static/` comes from the game repo, NOT the engine). They are **real files, not inlined**:
+  `config-vite`'s `assetsInlineLimit` inlines everything else but returns `false` for libktx
+  (~520 KB gz that only the compressed tier ever fetches). Their URL is anchored on the bundle
+  chunk: in the default inline (`iife`) build `config-vite/assetUrls.js` replaces Vite's
+  `document.currentScript.src || document.baseURI` anchor (which put them at `<page>/assets/…`)
+  with the chunk's own location, `<page>/_app/immutable/bundle.<hash>.js`, the same fallback
+  SvelteKit uses for `import.meta.url`; the embed (`single`, ES module) build keeps Vite's
+  `import.meta.url` runtime, so it resolves against the CDN folder `game.js` was loaded from.
+  `ktx2Transcoder.ts` fetches both files on the FIRST `.ktx2` load (a desktop never downloads
+  them), refuses a non-OK answer, an HTML page or an invalid wasm, and hands Pixi's worker
+  same-origin `blob:` URLs of the checked bytes — Pixi's own failure modes are an uncaught
+  `TypeError` (script 404) or a load that never settles (wasm 404). `apps/lines/src/editor-scenes.ts`
+  registers the `ktx2Json`/`ktx2`/`ktx2Atlas` variant unless `?quality=high`, keying the
+  loadedAssets entry off the WebP path so lookups are tier-identical, and records the WebP/PNG as
+  the entry's `fallback`; `AssetsLoader` loads it when the `.ktx2` path fails and warns once per
+  session (`[ktx2] …`, a Sentry breadcrumb when reporting is on). Guarded by
+  `pnpm check:ktx2-transcoder` (runtime on the test server, inline delivery, embed; transcoder
+  blocked, wasm blocked, wasm stalled, `.ktx2` missing, `?quality=high` fetching no transcoder).
+  Each transcoder fetch times out after 30 s and a failed check is retried once before the session
+  settles on the WebP/PNG twins.
+- **What a host must allow** for the compressed tier to stay compressed (otherwise it degrades to
+  the WebP/PNG twins, never to missing art): (1) **CORS on the transcoder files.** `libktx.*` is
+  fetched by the page with `fetch()`, so a delivery whose files sit on a partner CDN on another
+  origin needs that CDN to answer `Access-Control-Allow-Origin` for them, exactly as it already
+  must for the textures. (2) **`blob:` under a CSP.** Pixi's KTX2 worker is itself a `blob:`
+  worker and loads the checked transcoder with `importScripts(blob:…)`, so a page with a Content
+  Security Policy must allow `blob:` in `worker-src` and `script-src`.
 
 ## Adaptive quality tier
 

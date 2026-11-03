@@ -6,6 +6,24 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### Every desktop downloaded the phones' KTX2 transcoder
+- **Symptom:** the runtime page was ~1.3 MB gz, 520 KB of it a transcoder only phones run.
+- **Cause:** `config-vite`'s `assetsInlineLimit: Infinity` inlined `libktx.{js,wasm}` as base64.
+  Emitted instead, the inline (`iife`) build resolved them to `<page>/assets/`, a 404 only a phone
+  hits, and Pixi has no fallback (a missing wasm hangs every `.ktx2` load).
+- **Fix:** libktx kept out of inlining; `config-vite/assetUrls.js` anchors URLs on the chunk;
+  `pixi-svelte/ktx2Transcoder.ts` checks the files (30 s timeout, one retry); `Asset.fallback`.
+- **Guard:** `pnpm check:ktx2-transcoder` (runtime, inline delivery, embed; transcoder broken).
+- **PR:** not recorded (2026-11-03) · source: `docs/status/engine.md`
+
+### Bet-mode icons were blank on phones
+- **Symptom:** a bet-mode / buy menu icon drew nothing on the compressed tier only.
+- **Cause:** `betModeMeta.ts` `artUrl` handed an `<img>` the entry's `src`, which on that tier is
+  the `.ktx2` twin; a browser cannot decode KTX2 in an `<img>`.
+- **Fix:** use the entry's `fallback` (the WebP/PNG it was encoded from) when there is one.
+- **Guard:** none; load `?quality=low` when checking any non-Pixi use of an asset URL.
+- **PR:** not recorded (2026-11-03) · source: `docs/status/engine.md`
+
 ### A rolling symbol popped in once its centre entered the window
 - **Symptom:** spinning reels show a gap at the top and bottom; symbols snap in and out.
 - **Cause:** `SymbolWrap` culled on the seat's centre, so a cell drew only when half inside, and the

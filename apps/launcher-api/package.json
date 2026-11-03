@@ -53,6 +53,8 @@
 		"check:pipeline-games": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pipeline-games.ts",
 		"precheck:bug-reports": "node scripts/ensure-svelte-kit.mjs",
 		"check:bug-reports": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bug-reports.ts",
+		"precheck:bug-fix-runs": "node scripts/ensure-svelte-kit.mjs",
+		"check:bug-fix-runs": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bug-fix-runs.ts",
 		"precheck:pipeline-changes": "node scripts/ensure-svelte-kit.mjs",
 		"check:pipeline-changes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pipeline-changes.ts",
 		"list:project-folder-aliases": "tsx --tsconfig tsconfig.scripts.json scripts/list-project-folder-aliases.ts",

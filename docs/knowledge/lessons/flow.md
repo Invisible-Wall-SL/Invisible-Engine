@@ -40,6 +40,17 @@ A kind change that shipped the old kind's flow (`flow-wrong-kind`):
 - **Guard:** `containerScenes.fixture.ts`, `flowV2MissingScreens.fixture.ts`, publish-gate §13.
 - **PR:** not recorded (2026-10-03) · source: `docs/status/flow.md`
 
+### The boot error named screens the flow never uses
+- **Symptom:** Buffalo Duel's console listed four "screens not in its layout" that appear in no
+  node of its Flow.
+- **Cause:** `syncFlowContainers` declares every Scene-Editor screen and never drops one, so a
+  screen deleted later stays in `FlowDoc.containers`; the boot log and the Publish note judged
+  every DECLARED container, not the used ones.
+- **Fix:** `usedContainerIds` (show/hide nodes in every section, groups, library bodies) filters
+  the boot list and `flowScreensMissing`; a stale one that is shown anyway still logs on the show.
+- **Guard:** `containerScenes.fixture.ts` §6, `flowV2MissingScreens.fixture.ts` §5, publish-gate §13.
+- **PR:** not recorded (2026-11-03) · source: `docs/status/flow.md`
+
 ### A kind was authored against the Book-of vocabulary
 - **Symptom:** ways, then cluster and scatter projects offered `setExpandingSymbol` and the lines
   symbols, and their seeds were the Book-of flow.

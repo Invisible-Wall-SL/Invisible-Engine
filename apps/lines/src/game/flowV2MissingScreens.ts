@@ -10,8 +10,10 @@ const screenLabel = (c: ContainerRef): string =>
 /**
  * Make a Flow that shows a screen the layout no longer has LOUD. Such a container still mounts, so
  * `<FlowV2Mount>` silently skips it, and a game waiting on that screen sits on whatever is already
- * drawn with nothing in the console. Logs the whole list once at boot, then once per container id
- * the first time the flow shows or hides it. Logging only: every call reaches `mount` unchanged.
+ * drawn with nothing in the console. Logs the list of `used` ones once at boot, then once per
+ * container id the first time it is shown or hidden. A missing container no node uses
+ * (`usedContainerIds`) is only a stale declaration, so boot does not name it. Logging only: every
+ * call reaches `mount` unchanged.
  *
  * A flow and layout that agree (or an unknown layout) get `mount` itself back and log nothing.
  */
@@ -19,16 +21,20 @@ export const withMissingScreenReport = (
 	mount: ContainerMountModel,
 	containers: readonly ContainerRef[],
 	sceneIds: Iterable<string>,
+	used: ReadonlySet<string>,
 	log: (message: string) => void = console.error,
 ): ContainerMountModel => {
 	const missing = containersMissingScene(containers, sceneIds);
 	if (missing.length === 0) return mount;
-	log(
-		`[flow-v2] this game's Flow names ${missing.length} screen(s) that are not in its layout ` +
-			`(Scene Editor): ${missing.map(screenLabel).join(', ')}. Nothing will draw for them, and any ` +
-			'step waiting on one will never continue. Restore them in /editor (History…) or remove ' +
-			'them from the Flow.',
-	);
+	const named = missing.filter((c) => used.has(c.id));
+	if (named.length > 0) {
+		log(
+			`[flow-v2] this game's Flow names ${named.length} screen(s) that are not in its layout ` +
+				`(Scene Editor): ${named.map(screenLabel).join(', ')}. Nothing will draw for them, and ` +
+				'any step waiting on one will never continue. Restore them in /editor (History…) or ' +
+				'remove them from the Flow.',
+		);
+	}
 	const unreported = new Map(missing.map((c) => [c.id, c]));
 	const report = (id: string, verb: 'shows' | 'hides'): void => {
 		const container = unreported.get(id);

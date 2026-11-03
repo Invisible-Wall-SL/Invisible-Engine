@@ -10,7 +10,6 @@
 		defaultEffectBake,
 		effectBakeBeatFades,
 		effectBakeBlockers,
-		effectBakeCellOrigin,
 		effectBakeFrameAt,
 		effectBakeFrameCount,
 		effectBakeGroups,
@@ -134,7 +133,17 @@
 
 	// --- preview: the baked loop, played on a 2D canvas -------------------------------------------
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
-	type Rect = { x: number; y: number; w: number; h: number };
+	/** A frame on the page, and where it sits in its full cell (a trimmed frame is offset). */
+	type Rect = {
+		x: number;
+		y: number;
+		w: number;
+		h: number;
+		offX: number;
+		offY: number;
+		cellW: number;
+		cellH: number;
+	};
 	/** The page and, per blend group, its frames' rects. */
 	type Sheet = { image: CanvasImageSource; groups: { blend: EffectBakeBlend; rects: Rect[] }[] };
 	let sheet = $state.raw<Sheet | undefined>();
@@ -145,15 +154,20 @@
 		sheet = undefined;
 		if (!r) return;
 		if (f && f.hash === r.hash) {
-			const { cellW: w, cellH: h } = f.plan;
+			const { cellW, cellH, frames } = f.layout;
 			sheet = {
 				image: f.canvas,
 				groups: f.groups.map((blend, g) => ({
 					blend,
-					rects: Array.from({ length: f.frames }, (_, i) => ({
-						...effectBakeCellOrigin(f.plan, g * f.frames + i),
-						w,
-						h,
+					rects: frames.slice(g * f.frames, (g + 1) * f.frames).map(({ x, y, trim }) => ({
+						x,
+						y,
+						w: trim.w,
+						h: trim.h,
+						offX: trim.x,
+						offY: trim.y,
+						cellW,
+						cellH,
 					})),
 				})),
 			};
@@ -166,7 +180,13 @@
 			const byName = new Map(art.regions.map((reg) => [reg.name, reg]));
 			const groups = r.groups.map((g) => ({
 				blend: g.blendMode,
-				rects: g.frames.map((n) => byName.get(n)).filter((x) => !!x),
+				rects: g.frames.flatMap((n) => {
+					const reg = byName.get(n);
+					if (!reg) return [];
+					const { x, y, w, h } = reg;
+					const [offX, offY] = [reg.offX ?? 0, reg.offY ?? 0];
+					return [{ x, y, w, h, offX, offY, cellW: reg.origW ?? w, cellH: reg.origH ?? h }];
+				}),
 			}));
 			if (groups.some((g, i) => g.rects.length !== r.groups[i].frames.length)) return;
 			const img = new Image();
@@ -199,9 +219,7 @@
 			ctx.fillRect(0, 0, cv.width, cv.height);
 			for (const g of s.groups) {
 				const rect = g.rects[i];
-				const fit = Math.min(cv.width / rect.w, cv.height / rect.h, 2);
-				const w = rect.w * fit;
-				const h = rect.h * fit;
+				const fit = Math.min(cv.width / rect.cellW, cv.height / rect.cellH, 2);
 				ctx.globalCompositeOperation = COMPOSITE[g.blend];
 				ctx.drawImage(
 					s.image,
@@ -209,10 +227,10 @@
 					rect.y,
 					rect.w,
 					rect.h,
-					(cv.width - w) / 2,
-					(cv.height - h) / 2,
-					w,
-					h,
+					(cv.width - rect.cellW * fit) / 2 + rect.offX * fit,
+					(cv.height - rect.cellH * fit) / 2 + rect.offY * fit,
+					rect.w * fit,
+					rect.h * fit,
 				);
 			}
 			raf = requestAnimationFrame(draw);

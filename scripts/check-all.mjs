@@ -40,6 +40,7 @@ const SKIP = {
 	// Not checks: tooling that the gates themselves use.
 	'scripts/check-commit-scope.mjs': 'commit-msg hook — takes the message file as its argument',
 	'scripts/check-secrets.mjs': 'pre-commit hook — scans the staged diff (its test runs below)',
+	'scripts/check-secrets.d.mts': "the hook's types, for the launcher's fix-run secret scan",
 	'scripts/check-engine-game-fixtures.mjs': 'meta-runner — its fixtures are discovered directly',
 	'scripts/check-all.mjs': 'this file',
 	// Need the network, R2 or a deployed service.
@@ -48,6 +49,9 @@ const SKIP = {
 	// Builds the whole runtime five times (minutes) — `pnpm check:family-runtimes` and, per id, the
 	// release workflow run it.
 	'scripts/check-family-runtime.mjs': 'five full runtime builds; run by check:family-runtimes',
+	// Three app builds and a real browser (minutes); run by hand before an engine change that touches
+	// how the KTX2 transcoder ships or loads.
+	'scripts/check-ktx2-transcoder.mjs': 'three builds + Chromium; run by check:ktx2-transcoder',
 	// Print a rig's structure for a human; they assert nothing.
 	'tools/rigger-spike/inspect.mjs': 'a rig dump for reading, not a check',
 	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',

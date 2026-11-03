@@ -23,7 +23,7 @@ import { analyseStockAssets, withoutStockAssets } from './stockAssets';
 export function skipUnusedStockAssets<T extends Record<string, unknown>>(registered: T): T {
 	const data = bootStockAssetData();
 	if (!data) return registered;
-	const { needed, keptAllBecause } = analyseStockAssets({
+	const { needed, keptAllBecause, editorArtUnused } = analyseStockAssets({
 		data,
 		fallbackDoc: fallbackEditorScenes,
 		resolveDef: (id, version) =>
@@ -34,10 +34,18 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 		symbolsInPlay: getSymbolsInPlay(),
 	});
 	const { assets, skipped } = withoutStockAssets(registered, stockAssets, needed);
+	const art = editorArtUnused.filter((key) => key in assets);
+	const kept: T = art.length ? { ...assets } : assets;
+	for (const key of art) delete kept[key];
 	console.info(
 		keptAllBecause
 			? `[stock-assets] kept every stock asset: ${keptAllBecause}`
 			: `[stock-assets] skipped ${skipped.length} stock asset(s) this project never draws: ${skipped.join(', ') || 'none'}`,
 	);
-	return assets;
+	if (art.length) {
+		console.info(
+			`[stock-assets] skipped ${art.length} exported art asset(s) only a component default every placement overrides names: ${art.join(', ')}`,
+		);
+	}
+	return kept;
 }

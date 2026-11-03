@@ -8,9 +8,13 @@ import { defineConfig } from 'vite';
 // The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
+import { chunkAnchoredAssetUrls } from './assetUrls.js';
 import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
+import { noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
 import { assertSvelteVersions } from './svelteVersions.js';
+
+const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
 
 const NODE_ENV = process.env.NODE_ENV;
 let dev = NODE_ENV === 'development';
@@ -184,6 +188,24 @@ const families = () => {
 };
 
 /**
+ * Terser, not esbuild, minifies the client bundle: ~35 KB gz less on the slot runtime for ~25 s
+ * more per build. Its defaults make only safe transforms, and its mangling renames locals as
+ * esbuild's did, so nothing that relied on a name survived either. The SSR pass (which prerenders
+ * `index.html`) stays unminified, as it was: `build.minify` set in the config would reach it too,
+ * and SvelteKit hands the config's `minify` on to its client pass.
+ */
+const terserClient = () => ({
+	name: 'ie-terser-client',
+	apply: 'build',
+	// After sveltekit(), whose own config hook is what marks its first pass `build.ssr`.
+	enforce: 'post',
+	config: (config) =>
+		config.build?.ssr || config.build?.minify !== undefined
+			? undefined
+			: { build: { minify: 'terser', terserOptions: { compress: { passes: 2 } } } },
+});
+
+/**
  * Every game build passes through this factory — the engine's apps and every standalone game repo's
  * `vite.config.js` alike — so it is where a game repo whose Svelte pins drifted from the engine's is
  * stopped, before anything compiles (`svelteVersions.js`).
@@ -192,7 +214,14 @@ export default () => {
 	assertSvelteVersions();
 	const familySet = families();
 	return defineConfig({
-		plugins: [familySet.plugin, sveltekit(), lingui()],
+		plugins: [
+			familySet.plugin,
+			noWebGpuRenderer(),
+			terserClient(),
+			sveltekit(),
+			lingui(),
+			chunkAnchoredAssetUrls(),
+		],
 		logLevel: 'info',
 		define: {
 			...gameBuildDefine(),
@@ -203,14 +232,14 @@ export default () => {
 		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
 		ssr: { noExternal: ['error-tracking'] },
-		// Inline EVERY build-time asset into the bundle (single-file game deploy). This includes
-		// the KTX2/libktx transcoder (`pixi-svelte` imports it via `?url`): a standalone game's
-		// deploy remaps/omits `_app/immutable/assets/`, so an emitted transcoder file 404s there.
-		// Inlined, the transcoder travels IN the bundle regardless of deploy layout;
-		// `InitialiseApplication.svelte` converts its `data:` URI to a `blob:` URL at runtime
-		// (a Worker's `importScripts()` rejects `data:` but accepts `blob:`).
+		// Inline every build-time asset into the bundle (single-file game deploy) EXCEPT the KTX2
+		// transcoder (`libktx.{js,wasm}`, ~520 KB gz, imported by `pixi-svelte` via `?url`): only a
+		// phone on the compressed tier ever fetches it, so it ships as a real
+		// `_app/immutable/assets/` file instead of a base64 copy every desktop downloads.
+		// `chunkAnchoredAssetUrls` (`assetUrls.js`) makes its URL resolve beside the bundle, and
+		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load.
 		build: {
-			assetsInlineLimit: Infinity,
+			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file),
 			sourcemap: sourcemap(),
 			output: {
 				sourcemap: sourcemap(),

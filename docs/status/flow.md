@@ -55,6 +55,15 @@
 
 ## Recent changes
 
+- 2026-11-03 — **The missing-screen report names only screens the flow uses.** The editor declares
+  every Scene-Editor screen (`syncFlowContainers`) and never drops one, so a screen deleted later
+  stayed in `FlowDoc.containers` and the game's boot error (and the Publish note) listed it though
+  no node touched it (Buffalo Duel: `specialBook`, `buyFeature`, `buyConfirm`, `s_b6akwrq6`). New
+  `usedContainerIds(doc, library?)` in `engine-flow-v2` (show/hide nodes in every section, groups
+  and library function bodies) filters the boot list (`flowV2MissingScreens.ts`) and
+  `flowScreensMissing`; a stale container shown anyway still logs on its first show/hide. The
+  per-node `container-scene-missing` warning was already judged per node and is unchanged.
+
 - 2026-11-02 — **The Flow v1 authored doc path is removed.** **Gone:** `flowExport.ts` (wrote
   `deploy/flow.json`) and `flowDocKey`; the bake's v1 `flow` embed (`BakedBundle.flow` /
   `RuntimeBundle.flow` / `bakedFlowDoc()`); the dev hooks `__IE_FLOW_DOC__`, `__IE_FLOW_LINES__`,
