@@ -983,6 +983,56 @@ check(
 		[12],
 	],
 );
+{
+	// current-games.yml ignores a push to a fix run's branch by its exact shape, so a push to one
+	// it does not match runs model-written code beside the harness's secrets before anyone reads it.
+	// Read the workflow's own list; GitHub's filter globs, the part a branch list uses.
+	const yml = text('../../../.github/workflows/current-games.yml').replace(/\r\n/g, '\n');
+	const push = /\n {2}push:\n((?: {4}.*\n|\s*\n)*)/.exec(yml)?.[1] ?? '';
+	const ignore = [
+		...(/ {4}branches-ignore:\n((?: {6}- .*\n)+)/.exec(push)?.[1] ?? '').matchAll(
+			/- '?([^'\n]+?)'?\s*$/gm,
+		),
+	].map((m) => m[1]);
+	const globToRegExp = (glob: string) => {
+		if (/[?+!]/.test(glob)) throw new Error(`a filter this check cannot read: ${glob}`);
+		const body = glob
+			.split(/(\[[^\]]*\]|\*\*|\*)/)
+			.map((part) =>
+				part === '**'
+					? '.*'
+					: part === '*'
+						? '[^/]*'
+						: part.startsWith('[')
+							? part
+							: part.replace(/[.^$|(){}\\]/g, '\\$&'),
+			)
+			.join('');
+		return new RegExp(`^${body}$`);
+	};
+	const ignored = (branch: string) => ignore.some((g) => globToRegExp(g).test(branch));
+	const made = Array.from({ length: 500 }, () => server.newFixRunId() as string);
+	const probes = [
+		'0a1b2c3d4e',
+		'ffffffffff',
+		'0000000000',
+		'0A1B2C3D4E',
+		'0a1b2c3d4',
+		'0a1b2c3d4ef',
+		'0a1b2c3d4g',
+		'login',
+	];
+	check(
+		"every id the launcher makes is FIX_RUN_ID's, and current-games.yml ignores a push to its branch",
+		[
+			ignore.length > 1,
+			made.every((id) => shared.FIX_RUN_ID.test(id)),
+			[1, 12, 1517, 99999].every((n) => made.every((id) => ignored(shared.fixRunBranch(n, id)))),
+			probes.map((p) => ignored(shared.fixRunBranch(12, p))),
+		],
+		[true, true, true, probes.map((p) => shared.FIX_RUN_ID.test(p))],
+	);
+}
 check(
 	"the brief's untrusted line is the Director worker's own",
 	UNTRUSTED_LINE,
