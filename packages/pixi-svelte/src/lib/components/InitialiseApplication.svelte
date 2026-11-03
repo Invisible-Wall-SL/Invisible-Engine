@@ -16,6 +16,7 @@
 	import { registerAdvancedBlendModes } from '../advancedBlendModes';
 	import { honourPremultipliedKtx2 } from '../ktx2AlphaMode';
 	import { preferAstcForKtx2 } from '../ktx2TranscodeTarget';
+	import { shareSheetPages } from '../sharedSheetPages';
 	import { installKtx2Transcoder } from '../ktx2Transcoder';
 	// Self-hosted KTX2 transcoder (Pixi's default is an external CDN — forbidden). `?url` emits
 	// both files into every consuming build's own `_app/immutable/assets/` — standalone game builds
@@ -48,6 +49,7 @@
 		installKtx2Transcoder({ jsUrl: ktxTranscoderJsUrl, wasmUrl: ktxTranscoderWasmUrl });
 		preferAstcForKtx2();
 		honourPremultipliedKtx2();
+		shareSheetPages();
 
 		// Before the renderer exists: `BlendModePipe` caches one `FilterEffect` per mode name for
 		// the life of a renderer, so a registration landing after a mode has drawn is ignored.

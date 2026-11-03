@@ -64,7 +64,11 @@ export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 					if (provided instanceof TextureSource) source = provided;
 					else {
 						if (!loader) throw new Error(`No loader to fetch atlas page ${page.name}`);
-						const url = copySearchParams(path.join(base, provided ?? page.name), src);
+						// Pixi's loader caches by url alone, whatever the alpha mode asked for, and a sheet loads
+						// the same shared page (`pixi-svelte` `sharedSheetPages.ts`) premultiplying on upload. A
+						// `pma` page keeps a key of its own; the fragment never reaches the request.
+						const joined = copySearchParams(path.join(base, provided ?? page.name), src);
+						const url = page.pma ? `${joined}#pma` : joined;
 						const texture = await loader.load<Texture>({
 							src: url,
 							data: {
