@@ -478,7 +478,7 @@ async function assembleRuntimeBundle(
 	const effects = reachableEffects;
 	// A screen the flow names but the layout lost ships as nothing: the game logs it at boot, and
 	// Publish lists it. Said here too, so an authoring boot's assemble leaves a trace server-side.
-	const screensMissing = flowScreensMissing(flowV2, doc.scenes);
+	const screensMissing = flowScreensMissing(flowV2, doc.scenes, flowV2Library);
 	if (screensMissing.length) {
 		console.warn(
 			`[runtime] "${projectKey}": the flow names ${screensMissing.length} screen(s) the layout ` +

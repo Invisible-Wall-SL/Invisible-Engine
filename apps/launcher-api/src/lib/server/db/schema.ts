@@ -1,4 +1,5 @@
 import {
+	bigint,
 	bigserial,
 	boolean,
 	check,
@@ -14,6 +15,7 @@ import {
 	uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRuns';
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { Role } from '$lib/roles';
 
@@ -1010,7 +1012,8 @@ export type BugEventKind =
 	| 'linked'
 	| 'unlinked'
 	| 'escalated'
-	| 'repair';
+	| 'repair'
+	| 'fix_run';
 
 /**
  * A bug's activity, append-only: who did what and when. `actor_id` is null for what the launcher
@@ -1033,7 +1036,7 @@ export const bugReportEvents = pgTable(
 		index('bug_report_events_bug_idx').on(table.bugNumber, table.id),
 		check(
 			'bug_report_events_kind_check',
-			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked', 'escalated', 'repair')`,
+			sql`${table.kind} in ('reported', 'edited', 'comment', 'priority', 'status', 'sent', 'unsent', 'screenshot_added', 'screenshot_removed', 'linked', 'unlinked', 'escalated', 'repair', 'fix_run')`,
 		),
 	],
 );
@@ -1086,6 +1089,62 @@ export const bugReportRelations = pgTable(
 		primaryKey({ columns: [table.fromBug, table.kind] }),
 		index('bug_report_relations_to_idx').on(table.toBug),
 		check('bug_report_relations_kind_check', sql`${table.kind} in ('escalated_to')`),
+	],
+);
+
+/**
+ * A fix run on a pipeline bug (ADR-0013): Claude Code in a GitHub Actions job (`bug-fix.yml`),
+ * whose result the launcher turns into a draft pull request on `bug-<n>-fix-<id>`. Queryable state —
+ * "is a run live on this bug?", "how many are live?" — where the bug's `fix_run` events are the
+ * history its activity shows. One live run per bug (`bug_fix_runs_live_idx`); one Actions run binds
+ * one fix run (`gh_run_id` unique), at dispatch when GitHub names it, else at the job's first
+ * contact. `summary` and `second_bug` are the run's own words (untrusted, capped, unlinked);
+ * `reason` is the launcher's sentence for how it ended. `result_at` is set when a result is
+ * accepted, before its pull request is made: the claim that lets only the first result in and
+ * keeps the backstop off a run mid-commit. `started_by` is a snapshot, like a reporter.
+ */
+export const bugFixRuns = pgTable(
+	'bug_fix_runs',
+	{
+		id: text('id').primaryKey(),
+		bugNumber: integer('bug_number')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		status: text('status').$type<FixRunStatus>().notNull().default('dispatched'),
+		outcome: text('outcome').$type<FixRunOutcome>(),
+		/** Main's commit when the run was dispatched: the job checks it out, the change sits on it. */
+		baseSha: text('base_sha').notNull(),
+		ghRunId: bigint('gh_run_id', { mode: 'number' }),
+		prNumber: integer('pr_number'),
+		branch: text('branch'),
+		summary: text('summary'),
+		reason: text('reason'),
+		secondBug: jsonb('second_bug').$type<FixRunSecondBug>(),
+		/** What the run's result reported, priced; null while none was reported ("spend unknown"). */
+		spendUsd: doublePrecision('spend_usd'),
+		startedById: text('started_by_id').notNull(),
+		startedBy: text('started_by').notNull(),
+		requestId: text('request_id').notNull(),
+		resultAt: timestamp('result_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		finishedAt: timestamp('finished_at', { withTimezone: true }),
+	},
+	(table) => [
+		uniqueIndex('bug_fix_runs_request_id_idx').on(table.requestId),
+		uniqueIndex('bug_fix_runs_gh_run_id_idx').on(table.ghRunId),
+		uniqueIndex('bug_fix_runs_live_idx')
+			.on(table.bugNumber)
+			.where(sql`${table.status} in ('dispatched', 'running')`),
+		index('bug_fix_runs_bug_idx').on(table.bugNumber, table.createdAt),
+		check(
+			'bug_fix_runs_status_check',
+			sql`${table.status} in ('dispatched', 'running', 'pr_opened', 'no_fix', 'failed', 'cancelled')`,
+		),
+		check(
+			'bug_fix_runs_outcome_check',
+			sql`${table.outcome} is null or ${table.outcome} in ('fixed', 'not_reproduced', 'needs_person', 'second_area')`,
+		),
 	],
 );
 
@@ -1151,3 +1210,4 @@ export type BugReportRelation = typeof bugReportRelations.$inferSelect;
 export type BugReportScreenshot = typeof bugReportScreenshots.$inferSelect;
 export type BugReportEvent = typeof bugReportEvents.$inferSelect;
 export type BugReportLink = typeof bugReportLinks.$inferSelect;
+export type BugFixRun = typeof bugFixRuns.$inferSelect;

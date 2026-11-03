@@ -531,14 +531,16 @@ const harnessStatusOf = (head: Head): HarnessStatus | null => statusOf(head, HAR
 
 /**
  * The harness run that owns this head's status: the one the harness's own workflow file made for
- * the PR, from this repository, on this head. Not a push run (it stands down when the PR exists)
- * and not a run that merely carries the name.
+ * the PR, from this repository, on this head. Not a push run (it stands down when the PR exists),
+ * not a run that merely carries the name, and not a run that skipped every job: that is a
+ * `ready_for_review` the harness ignores (current-games.yml's `prepare`), which rendered nothing.
  */
 const harnessRunOf = (head: Head, sha: string): GhWorkflowRun | null =>
 	head.workflowRuns.find(
 		(r) =>
 			r.path === HARNESS_WORKFLOW_PATH &&
 			r.event === 'pull_request' &&
+			r.conclusion !== 'skipped' &&
 			r.head_sha === sha &&
 			r.repository?.full_name === repo() &&
 			r.head_repository?.full_name === repo(),

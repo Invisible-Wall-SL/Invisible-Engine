@@ -139,6 +139,15 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-03 — **current-games waits for a fix run's "Ready for review" (ADR-0013, owner-approved
+  default; #1514).** A push to `bug-*-fix-` plus 10
+  lowercase hex characters is ignored. `ready_for_review` is now a `pull_request` type. `prepare`
+  is skipped for a fix run's draft (user type `Bot`, branch `bug-…-fix-…`) and for a
+  `ready_for_review` on any other PR. The verdict posts `pending` for the draft and nothing for the
+  other skipped runs, which also get a concurrency group of their own. `triggers.fixture.mjs`
+  evaluates the workflow text over 38 events against the old workflow, and 13 planted mutants each
+  fail it. Pipeline Changes' `harnessRunOf` skips a run that concluded `skipped`, so an ordinary
+  PR marked ready keeps its report (`check:pipeline-changes`).
 - 2026-10-28 — **Four runtimes, one per family (P11.1b, branch `ci/p11-1b-runtime-matrix`, not
   merged; needs the P11.1b engine branch's `scripts/check-family-runtime.mjs` beside it).**
   `runtime-release.yml` runs the gates once (`gates`), then a `publish` matrix over `lines`,

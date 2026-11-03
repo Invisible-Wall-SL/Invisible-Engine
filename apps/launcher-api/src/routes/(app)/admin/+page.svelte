@@ -7,7 +7,7 @@
 	import type { ProjectFootprint } from '$lib/projectFootprint';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { MIN_PASSWORD_LENGTH } from '$lib/passwordPolicy';
-	import { BUG_KINDS, BUG_TOOL, BUG_TRIAGE, type BugKind } from '$lib/bugReports';
+	import { BUG_CAPABILITIES, BUG_KINDS, BUG_TOOL, type BugKind } from '$lib/bugReports';
 	import { roleLabel } from '$lib/roles';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
@@ -367,17 +367,18 @@
 	type CapRow = { key: string; name: string; isNew?: true };
 	type CapGroup = { id: string; label: string; rows: CapRow[] };
 
-	// The two bug tools are granted apart, each card beside its own triage capability, in a group of
-	// its own here and in a block of its own in a user's panel.
+	// The two bug tools are granted apart, each card beside its own capabilities (triage, and for
+	// pipeline bugs starting fix runs), in a group of its own here and in a block of its own in a
+	// user's panel.
 	const BUG_GROUP_LABELS: Record<BugKind, string> = {
 		pipeline: 'Pipeline bug reports',
 		game: 'Game bug reports',
 	};
-	const bugKeys = new Set(BUG_KINDS.flatMap((k) => [BUG_TOOL[k], BUG_TRIAGE[k]]));
+	const bugKeys = new Set(BUG_KINDS.flatMap((k) => [BUG_TOOL[k], ...BUG_CAPABILITIES[k]]));
 	function bugRows(kind: BugKind): CapRow[] {
 		const tool = data.tools.find((t) => t.id === BUG_TOOL[kind]);
-		const cap = data.capabilities.find((c) => c.key === BUG_TRIAGE[kind]);
-		return [tool && { key: tool.id, name: tool.name, isNew: tool.isNew }, cap].filter(
+		const caps = BUG_CAPABILITIES[kind].map((key) => data.capabilities.find((c) => c.key === key));
+		return [tool && { key: tool.id, name: tool.name, isNew: tool.isNew }, ...caps].filter(
 			(r): r is CapRow => !!r,
 		);
 	}
@@ -2333,6 +2334,63 @@
 						/>
 					</label>
 					<button type="submit">Save repair budget</button>
+				</form>
+
+				<h4 class="director-sub">Pipeline bug fix runs</h4>
+				<p class="muted hint">
+					A fix run on a pipeline bug runs Claude Code in GitHub Actions and stops at its own cap.
+					Default <strong>${data.pipelineFix.budgetDefaultUsd}</strong>.
+				</p>
+				<form method="POST" action="?/setPipelineFixBudget" use:enhance class="runpod-idle">
+					<label class="minutes">
+						Fix run budget (USD)
+						<input
+							name="budgetUsd"
+							type="number"
+							min={data.director.budgetMinUsd}
+							max={data.director.budgetMaxUsd}
+							step="0.01"
+							value={data.pipelineFix.budgetUsd}
+						/>
+					</label>
+					<button type="submit">Save fix run budget</button>
+				</form>
+				<p class="muted hint">
+					Once this calendar month's fix runs have spent the ceiling, new ones are refused; a run
+					already going is never stopped. Default
+					<strong>${data.pipelineFix.monthlyDefaultUsd}</strong>.
+				</p>
+				<form method="POST" action="?/setPipelineFixMonthly" use:enhance class="runpod-idle">
+					<label class="minutes">
+						Monthly ceiling (USD)
+						<input
+							name="monthlyUsd"
+							type="number"
+							min={data.pipelineFix.monthlyMinUsd}
+							max={data.pipelineFix.monthlyMaxUsd}
+							step="0.01"
+							value={data.pipelineFix.monthlyUsd}
+						/>
+					</label>
+					<button type="submit">Save ceiling</button>
+				</form>
+				<p class="muted hint">
+					How many fix runs may be going at once, over every bug. Default
+					<strong>{data.pipelineFix.maxLiveDefault}</strong>.
+				</p>
+				<form method="POST" action="?/setPipelineFixMaxLive" use:enhance class="runpod-idle">
+					<label class="minutes">
+						At most at once
+						<input
+							name="maxLive"
+							type="number"
+							min={data.pipelineFix.maxLiveMin}
+							max={data.pipelineFix.maxLiveMax}
+							step="1"
+							value={data.pipelineFix.maxLive}
+						/>
+					</label>
+					<button type="submit">Save</button>
 				</form>
 
 				<h4 class="director-sub">Abandoned mockups and QA drafts</h4>
