@@ -76,7 +76,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
   symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
-  pre-spin lap; ~40% of spin CPU), rigs pose twice a frame and keep ticking when hidden, and idle
+  pre-spin lap; ~40% of spin CPU), rigs keep ticking when hidden (their meshes are now rebuilt once a
+  drawn frame, not twice — 2026-11-03, below), and idle
   particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
   spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
   pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
@@ -295,6 +296,32 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   budget starts at half (`particleBudget.ts` reads the tier). Safari still reports nothing, so
   iPhones stay `full` and only the adaptive budget thins their particles. `?render=` and
   `?particles=` overrides are unchanged. Not verified on a physical 4 GB phone.
+- 2026-11-03 — **A rig rebuilds its meshes once a drawn frame, and the board geometry is cached**
+  (branch `claude/game-performance-audit-e0546b`). From a performance audit of
+  `overlay-buffaloduel` on a real GPU (Intel Arc, D3D11) with the CPU slowed 4×: base spins 25 fps,
+  each Hold and Win bonus 18–21 fps with 12–29 frames over 250 ms and freezes up to 1.55 s; desktop
+  speed holds ~53 fps with bonus hitches to 480 ms. Two engine costs fixed:
+  - `RigView` (`engine-rig/pixi`) rebuilt every slot mesh in `update` AND again in `onRender`, so a
+    frame posed each rig twice, hidden or not. `update` now only poses the skeleton; `onRender`
+    rebuilds the meshes, and skips a view under a hidden container (below its render group's
+    root), which is rebuilt on the first frame it shows. Measured on the local `lines` build with
+    the CPU slowed 6× (same seed both sides, 3 rounds): mesh rebuilding 123–184 → 64–116 ms per
+    second of play. `tools/rig-parity/render.mjs` (plain, `--slot-objects`, `--fresh`): 44 rigs,
+    188 frames, worst 0.00%; `parity.mjs` 306 skeletons, 0 failures.
+  - `boardGeometry()` (`engine-game` `gameState.svelte.ts`) resolved the `reelGrid` node and its
+    per-layout overrides on every call, once per cell per frame (~12% of a spin's JS on the
+    audited game). It is a `$derived` now; its inputs (the stored node, the layout type) are both
+    reactive. The sample game has no authored grid, so the local benchmark cannot show this one.
+  - **Not changed, on purpose:** splitting `propsSyncEffect` per prop (14.8% of the bonus's JS).
+    `Sprite` hands `texture` and `width`/`height` to `BaseSprite` together and Pixi's size depends on
+    the texture, so a per-prop effect would change behaviour, and it adds effects to every mount —
+    mounting is what the bonus freezes are made of.
+  - **Still open:** the Hold and Win freezes are component MOUNTS (Svelte creating effects for the
+    respin beat's screens and cells in one frame, after a flow `wait` and in the ticker frame), not
+    per-frame cost. Next is staggering or pre-mounting the bonus screens. Also: 513 MB of
+    uncompressed resident textures on desktop (a 4096² UI page, a 3593×2573 smoke page no KTX2 can
+    take), the `S_StaticElements` and holographic pages loaded twice, and the stock `sounds.mp3` /
+    `symbols2/3` / `fsIntro` / `reelhouse` kept by the stock-asset walk.
 - 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
   `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
   Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134

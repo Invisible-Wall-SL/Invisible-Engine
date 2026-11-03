@@ -723,7 +723,7 @@ const codes = (def: ComponentDef) =>
 // ---- 7. the board cell hit-test ----------------------------------------------------------------
 
 const gameSource = source('packages/engine-game/src/game/gameState.svelte.ts');
-const blockStart = gameSource.indexOf('\tconst boardGeometry = () => {');
+const blockStart = gameSource.indexOf('\tconst resolveBoardGeometry = () => {');
 const cellStart = gameSource.indexOf('\tconst getCellAt = (');
 if (blockStart < 0 || cellStart < blockStart)
 	throw new Error('could not locate the boardGeometry…getCellAt block in gameState.svelte.ts');
@@ -745,7 +745,8 @@ const buildBoard = compileSlice({
 		'boardOverride',
 		'deps',
 	],
-	body: `${block}\nreturn { getSymbolSeat, getCellAt, boardGeometry };`,
+	// The shipped getter reads the resolver through a $derived; the slice has no runes.
+	body: `const boardGeometry = () => resolveBoardGeometry();\n${block}\nreturn { getSymbolSeat, getCellAt, boardGeometry };`,
 }) as (...args: unknown[]) => {
 	getSymbolSeat(reel: number, row: number): { x: number; y: number; scale: number };
 	getCellAt(x: number, y: number): { reel: number; row: number } | undefined;
