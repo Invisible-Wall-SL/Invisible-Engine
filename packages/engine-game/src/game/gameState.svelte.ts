@@ -161,8 +161,16 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * authored on-screen cell size; a UNIFORM cell (`cellWidth == cellHeight == cellSize`,
 	 * no gap) collapses both edges to exactly `SYMBOL_SIZE`, so uniform-scaled boards
 	 * draw art at 120px unchanged.
+	 *
+	 * Read through a `$derived`: every seat, reel pitch and pool window asks for it once per cell
+	 * per frame, and resolving the node (overrides included) on each ask was ~12% of a spin's CPU on
+	 * a phone-class CPU. Its inputs are the stored node and the layout type, both reactive, so the
+	 * cache drops exactly when one of them changes. Declared above the resolver it reads, which a
+	 * `$derived` only calls when first read; the seat fixtures slice from the resolver down.
 	 */
-	const boardGeometry = () => {
+	const geometry = $derived.by(() => resolveBoardGeometry());
+	const boardGeometry = () => geometry;
+	const resolveBoardGeometry = () => {
 		const override = resolveReelGridFromNode(
 			boardOverride.node ?? undefined,
 			deps.layout.layoutType(),

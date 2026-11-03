@@ -5,9 +5,10 @@
 
 	import { getContextApp } from '../context.svelte';
 	import { getProcessed } from '../assetLoad';
+	import { noteKtx2Fallback } from '../ktx2Transcoder';
 	import { collectTextureSources, compileProgram, warmGpu } from '../gpuWarmup';
 	import { renderTier } from '../renderTier';
-	import type { LoadedAssets, RawAsset } from '../types';
+	import type { Asset, LoadedAssets, RawAsset } from '../types';
 
 	type Props = { children: Snippet };
 
@@ -45,20 +46,36 @@
 		}
 	};
 
+	/** `entry` is read once by the caller: `stateApp.assets` is reassigned while loads are in flight
+	 *  (the runtime re-merge, the stock-asset skip in `Game.svelte`), so it is not re-read here. */
+	const loadAsset = async (key: string, entry: Asset, src: Asset['src']) => {
+		const { type, namespace, family } = entry;
+		const loadSrc =
+			type === 'spine' ? Object.values(src).filter((item) => typeof item === 'string') : src;
+		const rawAsset = await PIXI.Assets.load<RawAsset>(loadSrc, onProgress);
+		collectTextureSources(rawAsset, loadedSources);
+		if (type === 'spine') loadedRigs = true;
+		return getProcessed({ key, rawAsset, type, src, namespace, family });
+	};
+
 	const loadAssets = async (nameList: string[]) => {
 		const loadedAssetsArray = await Promise.all(
 			nameList.map(async (key) => {
+				const entry = context.stateApp.assets?.[key];
+				if (!entry) return;
 				try {
-					const { type, src, namespace, family } = context.stateApp.assets![key];
-					const loadSrc =
-						type === 'spine' ? Object.values(src).filter((item) => typeof item === 'string') : src;
-					const rawAsset = await PIXI.Assets.load<RawAsset>(loadSrc, onProgress);
-					collectTextureSources(rawAsset, loadedSources);
-					if (type === 'spine') loadedRigs = true;
-					const processed = getProcessed({ key, rawAsset, type, src, namespace, family });
-					return processed;
+					return await loadAsset(key, entry, entry.src);
 				} catch (error) {
-					console.error(error);
+					if (!entry.fallback) {
+						console.error(error);
+						return;
+					}
+					noteKtx2Fallback(key, error);
+					try {
+						return await loadAsset(key, entry, entry.fallback);
+					} catch (fallbackError) {
+						console.error(fallbackError);
+					}
 				}
 			}),
 		);

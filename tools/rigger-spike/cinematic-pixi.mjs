@@ -28,7 +28,7 @@
 //      with real runtime objects, and the resulting pose is compared against the evaluator's.
 //      This is where the actual risk lives: does an idle AnimationState corrupt our pose?
 //   B. CALL-ORDER (observed on a real `RigView`, not from memory) — that the sequence replayed
-//      in A really is what `update(dt)` does, ending with the slot meshes rebuilt.
+//      in A really is what `update(dt)` does, and that the slot meshes are rebuilt at the render.
 //
 // The residual — that Pixi re-uploads the geometry and the frame visibly changes — is a LIVE
 // check, listed in docs/status/cinematic.md. Do not read this gate as "verified in a browser".
@@ -225,12 +225,22 @@ const { RigView, Ticker } = await import(await rigPixi());
 	view.beforeUpdateWorldTransforms = () => calls.push('BEFORE hook');
 	view.afterUpdateWorldTransforms = () => calls.push('AFTER hook');
 	view.update(1 / 60);
+	view.onRender();
 	const expected = ['state.update', 'skeleton.update', 'state.apply', 'BEFORE hook', 'updateWorldTransform', 'AFTER hook', 'syncDisplay'];
 	ok(
-		'order is state.update → skeleton.update → state.apply → BEFORE hook → updateWorldTransform → AFTER hook → meshes',
+		'order is state.update → skeleton.update → state.apply → BEFORE hook → updateWorldTransform → AFTER hook → meshes (at render)',
 		calls.join() === expected.join(),
 		calls.join(' → '),
 	);
+	calls.length = 0;
+	view.update(1 / 60);
+	ok('`update` poses only: the meshes wait for the render', !calls.includes('syncDisplay'), calls.join(' → '));
+	view.visible = false;
+	view.onRender();
+	ok('a hidden view skips the mesh rebuild at render', !calls.includes('syncDisplay'), calls.join(' → '));
+	view.visible = true;
+	view.onRender();
+	ok('shown again, the render rebuilds its meshes', calls.at(-1) === 'syncDisplay', calls.join(' → '));
 	ok('`skeleton` and `state` are public fields we may drive', !!view.skeleton && !!view.state);
 	view.destroy();
 }
