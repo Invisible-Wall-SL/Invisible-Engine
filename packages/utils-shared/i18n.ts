@@ -14,10 +14,11 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
 
 /** Lodash `merge`'s rules for the JSON a messages map is: arrays and plain objects merge key by key
  * (into a fresh container unless the target already holds one), an `undefined` source never
- * replaces a value, anything else overwrites. */
+ * replaces a value, anything else overwrites, and a `__proto__` key is skipped as lodash skips it. */
 const deepMerge = <T extends Mergeable>(target: T, source: Mergeable): T => {
 	const into = target as Record<string, unknown>;
 	for (const [key, value] of Object.entries(source)) {
+		if (key === '__proto__') continue;
 		const current = into[key];
 		if (Array.isArray(value)) {
 			into[key] = deepMerge(Array.isArray(current) ? current : [], value);

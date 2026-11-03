@@ -197,7 +197,7 @@ const terserClient = () => ({
 	// After sveltekit(), whose own config hook is what marks its first pass `build.ssr`.
 	enforce: 'post',
 	config: (config) =>
-		config.build?.ssr
+		config.build?.ssr || config.build?.minify !== undefined
 			? undefined
 			: { build: { minify: 'terser', terserOptions: { compress: { passes: 2 } } } },
 });

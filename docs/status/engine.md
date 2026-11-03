@@ -295,7 +295,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
   | Runtime | Before B | After B | Δ |
   |---|---|---|---|
-  | `lines` (`slot`) | 1,298,202 | 1,219,439 | −78,763 (−6.1 %) |
+  | `lines` (`slot`) | 1,298,202 | 1,219,454 | −78,748 (−6.1 %) |
   | `match3` | 1,306,218 | 1,227,754 | −78,464 |
   | `arcade` | 1,400,942 | 1,318,097 | −82,845 |
   | `card` | 1,310,330 | 1,231,833 | −78,497 |
@@ -307,7 +307,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     in `utils-shared`) are `Array.from`, `.flat(2)`, `findLast`, `Object.values/entries` and a
     small deep merge in `utils-shared/i18n.ts` that keeps lodash `merge`'s rules for a messages map
     (arrays merge by index, `undefined` never overwrites; 20,000 random catalogs gave the same result
-    as lodash). Every `_.range` caller passes a non-negative integer. lodash is no longer a
+    as lodash). `_.range` rounded a fractional length up, which the reel's padding (a multiplier × the reel length, e.g. 1.2 × 6) relies on, so that one keeps `Math.ceil`. lodash is no longer a
     dependency of any runtime package; the reference apps (`price`, `scatter`, `ways`,
     `number-picker`, `cluster`) keep their own.
   - **Terser minifies the client bundle** (`config-vite` `terserClient`, `compress.passes: 2`,
