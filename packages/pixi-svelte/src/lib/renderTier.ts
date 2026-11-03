@@ -11,7 +11,7 @@
  * untextured `Graphics` shapes get harder.
  *
  * Auto-detected only where a device says how much memory it has (Chromium's `deviceMemory`,
- * reported rounded down to a power of two): 2 GB or less is `reduced`. Safari reports nothing,
+ * reported rounded down to a power of two): 4 GB or less is `reduced`. Safari reports nothing,
  * so an iPhone stays `full` unless told. `?render=reduced` forces the reduced tier on any device,
  * `?render=full` keeps the full one. Independent of `?quality`, which picks the texture format.
  */
@@ -19,7 +19,7 @@
 export type RenderTier = 'full' | 'reduced';
 
 /** The most memory, in GB, a device reports and still counts as low-end. */
-const LOW_END_MEMORY_GB = 2;
+const LOW_END_MEMORY_GB = 4;
 
 export interface RenderSettings {
 	tier: RenderTier;

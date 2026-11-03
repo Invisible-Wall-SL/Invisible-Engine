@@ -63,7 +63,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   authored Element FX with its own params, the camera chroma split, the rig dark tint
   (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
   Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
-  devices (Chromium `deviceMemory` ≤ 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
+  devices (Chromium `deviceMemory` ≤ 4 GB since 2026-11-03, was 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
   and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
   exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
   hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
@@ -83,10 +83,21 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   it is a visible change: every rig, state machine and effect on the screen stops restarting when a
   timeline starts. Needs the owner's call (or an authored switch, off by default). Measurement
   tooling and the profile of it: see the 2026-11-03 entry under Recent changes.
+- **KTX2 transcoder follow-ups** (2026-11-03 change, below). (1) Serve one copy of
+  `libktx.<hash>.*` from a shared path (e.g. `/_shared/`) so a phone moving between games reuses
+  one cached transcoder; today every game key caches its own. (2) `check:ktx2-transcoder` is
+  local only: running it in the release job needs Chromium installed there. (3) Confirm the
+  first `.ktx2` load and the fallback on a real iPhone/Android (`?quality=low`, then block
+  `libktx` in remote DevTools). (4) **Owner:** confirm the desktop launcher's uploader
+  (`Invisible_Launcher.py`, not in this repo) uploads `_app/immutable/assets/` with the rest of
+  `build/` (every in-repo publish path does); without it a desktop-published game falls back to
+  uncompressed pages on phones.
+
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
   symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
-  pre-spin lap; ~40% of spin CPU), rigs pose twice a frame and keep ticking when hidden, and idle
+  pre-spin lap; ~40% of spin CPU), rigs keep ticking when hidden (their meshes are now rebuilt once a
+  drawn frame, not twice — 2026-11-03, below), and idle
   particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
   spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
   pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
@@ -325,6 +336,92 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   one text canvas, allocated once. Notes for re-running the probe: the profile's start trails the
   page clock by 1–2 s at 4× (fit the shift so no idle sample falls inside a long rAF gap), and other
   sessions' builds swing a run 2× (raise the headless shell to High priority, interleave rounds).
+- 2026-11-03 — **The KTX2 transcoder is no longer inlined into every build, and a compressed texture
+  that fails falls back to its WebP/PNG twin** (branch `engine-ktx2-transcoder-external`). **Why:**
+  `config-vite`'s `assetsInlineLimit: Infinity` turned `libktx.{js,wasm}` (imported by `pixi-svelte`
+  via `?url`) into base64, so every player, desktop included, downloaded ~520 KB gz of a transcoder
+  only the compressed tier (`preferCompressedTextures`: phones, `deviceMemory` ≤ 4, `?quality=low`)
+  ever runs; the comment and the design doc claiming libktx was excluded were wrong. **Now:**
+  - `assetsInlineLimit` is a function that inlines everything except libktx; the two files ship as
+    `_app/immutable/assets/libktx.<hash>.{js,wasm}` (immutable, content-hashed).
+  - **URL.** Emitted as-is, the inline (`iife`) build resolved them with Vite's
+    `document.currentScript.src || document.baseURI`, i.e. `<page>/assets/…`, a 404 only a phone
+    would ever hit. `config-vite/assetUrls.js` (`enforce: 'post'`, inline builds only) wraps
+    SvelteKit's `renderBuiltUrl` so a JS-hosted asset url is anchored on the chunk itself, the same
+    expression SvelteKit uses for `import.meta.url`: the script's `src`, else
+    `new URL('_app/immutable/bundle.<hash>.js', document.baseURI)`. Runtime (`/<gameKey>/` on the
+    test server), a desktop ☁ Publish build (same `/<gameKey>/` shape, its own files) and an inline
+    delivery in any folder resolve `<page dir>/_app/immutable/assets/…`; the embed (`single`, ES
+    module) build is untouched and keeps `new URL(…, import.meta.url)`, i.e. the CDN folder
+    `game.js` came from.
+  - **Fallback.** `pixi-svelte/ktx2Transcoder.ts` fetches both files on the first `.ktx2` load (not
+    at boot), refuses a non-OK answer, an HTML page or an invalid wasm, and gives Pixi's worker
+    `blob:` urls of the checked bytes. Left to Pixi, a missing script is an uncaught `TypeError` in
+    its message handler and a missing wasm leaves every `.ktx2` load pending forever. Each fetch
+    times out after 30 s; a failed check is retried once (1 s later) inside the promise every
+    concurrent load awaits, then remembered, so later loads fail at once. `editor-scenes.ts` records the WebP/PNG as the entry's
+    new `Asset.fallback` wherever it picks a `ktx2Json`/`ktx2`/`ktx2Atlas` twin (editor art, symbols,
+    book-VFX/transition/flight layers) and `AssetsLoader` loads it when the `.ktx2` path throws,
+    with one `[ktx2] …` `console.warn` per session (a Sentry breadcrumb when reporting is on). The
+    boot splash never selects a twin, so it is unaffected. Also fixed on the way: a bet-mode icon
+    (`betModeMeta.ts` `artUrl`) handed its `<img>` the `.ktx2` on the compressed tier; it now uses
+    the WebP/PNG.
+  - **Sizes** (`check:family-runtimes --measure`, `index.html` gzip -6): lines 1,298,733 → 778,390 B,
+    match3 → 786,534, arcade → 881,195, card → 790,949 (−520,343 B each; the "before" for the three
+    non-slot ids is derived from that one measured delta). Budget lowered to measured + 2 %. The
+    transcoder now costs a phone two extra requests (319 KB + 48 KB gz) on its first `.ktx2`.
+  - **Gate:** `pnpm check:ktx2-transcoder` (local, minutes, Playwright; skipped by `check:all`):
+    builds the runtime, an inline delivery (`2complex`) and an embed (`operator-embed`), serves the
+    runtime from the real test server (`TEST_SERVER_LOCAL`, versioned release) and the deliveries
+    from a nested host folder and a separate CDN origin, boots each with `?runtime=1&quality=low`
+    against a stub `/api/editor/runtime` (one image + one sheet with `.ktx2` twins), and checks the
+    transcoder comes from `_app/immutable/assets/` and the `.ktx2` loads with no twin; then with
+    both transcoder files blocked, only the wasm blocked, the wasm never answering (the real 30 s
+    timeout, twice) and the `.ktx2` 404ing, that the transcoder is retried once and both twins
+    load with exactly one warning; and that `?quality=high` requests no transcoder at all. 93/93 pass; with the url fix reverted it fails on the inline
+    build (the transcoder requested from `<page>/assets/`) while the fallback still draws the art.
+  - **Release / publish / delivery:** nothing needed changing. `publish-runtime-bundle.mjs` uploads
+    every file under the build (`.wasm` typed, landed count verified) and the test server hydrates
+    them all and keeps the previous release's `_app/immutable/*`; `sentry-sourcemaps.mjs` strips
+    only `.map` (verify passes on the new build); `publish-game-bundle.mjs` and the portal relay
+    (`gameBundleRelay.ts`, wasm typed) upload every file; `build-delivery.mjs` keeps `_app/` and
+    strips only `.ts`/`favicon.svg`/`loader.gif`; partner delivery upload types wasm. The desktop
+    launcher's own uploader (`Invisible_Launcher.py`, not in this repo) is not verified.
+  - **Parity:** the current-games harness on the 10 stand-in games (main 6bd8a6f vs this branch):
+    10 pass, 0 changed screens (they render the uncompressed tier, which loads no `.ktx2`).
+  - ⏳ Needs a **runtime release** (automatic on merge). Not verified on a physical phone.
+- 2026-11-03 — **Low-end render tier now starts at 4 GB.** Owner call: almost no phone shipped in
+  2026 reports 2 GB or less, so `renderTier.ts`'s `LOW_END_MEMORY_GB` is 4. A Chromium device
+  reporting `deviceMemory` ≤ 4 now renders at resolution ≤ 1.5 with no MSAA, and its particle
+  budget starts at half (`particleBudget.ts` reads the tier). Safari still reports nothing, so
+  iPhones stay `full` and only the adaptive budget thins their particles. `?render=` and
+  `?particles=` overrides are unchanged. Not verified on a physical 4 GB phone.
+- 2026-11-03 — **A rig rebuilds its meshes once a drawn frame, and the board geometry is cached**
+  (branch `claude/game-performance-audit-e0546b`). From a performance audit of
+  `overlay-buffaloduel` on a real GPU (Intel Arc, D3D11) with the CPU slowed 4×: base spins 25 fps,
+  each Hold and Win bonus 18–21 fps with 12–29 frames over 250 ms and freezes up to 1.55 s; desktop
+  speed holds ~53 fps with bonus hitches to 480 ms. Two engine costs fixed:
+  - `RigView` (`engine-rig/pixi`) rebuilt every slot mesh in `update` AND again in `onRender`, so a
+    frame posed each rig twice, hidden or not. `update` now only poses the skeleton; `onRender`
+    rebuilds the meshes, and skips a view under a hidden container (below its render group's
+    root), which is rebuilt on the first frame it shows. Measured on the local `lines` build with
+    the CPU slowed 6× (same seed both sides, 3 rounds): mesh rebuilding 123–184 → 64–116 ms per
+    second of play. `tools/rig-parity/render.mjs` (plain, `--slot-objects`, `--fresh`): 44 rigs,
+    188 frames, worst 0.00%; `parity.mjs` 306 skeletons, 0 failures.
+  - `boardGeometry()` (`engine-game` `gameState.svelte.ts`) resolved the `reelGrid` node and its
+    per-layout overrides on every call, once per cell per frame (~12% of a spin's JS on the
+    audited game). It is a `$derived` now; its inputs (the stored node, the layout type) are both
+    reactive. The sample game has no authored grid, so the local benchmark cannot show this one.
+  - **Not changed, on purpose:** splitting `propsSyncEffect` per prop (14.8% of the bonus's JS).
+    `Sprite` hands `texture` and `width`/`height` to `BaseSprite` together and Pixi's size depends on
+    the texture, so a per-prop effect would change behaviour, and it adds effects to every mount —
+    mounting is what the bonus freezes are made of.
+  - **Still open:** the Hold and Win freezes are component MOUNTS (Svelte creating effects for the
+    respin beat's screens and cells in one frame, after a flow `wait` and in the ticker frame), not
+    per-frame cost. Next is staggering or pre-mounting the bonus screens. Also: 513 MB of
+    uncompressed resident textures on desktop (a 4096² UI page, a 3593×2573 smoke page no KTX2 can
+    take), the `S_StaticElements` and holographic pages loaded twice, and the stock `sounds.mp3` /
+    `symbols2/3` / `fsIntro` / `reelhouse` kept by the stock-asset walk.
 - 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
   `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
   Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134

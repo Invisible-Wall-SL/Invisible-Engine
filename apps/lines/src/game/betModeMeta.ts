@@ -6,8 +6,8 @@ import { bakedEditorArtAssets } from '../editor-scenes';
 
 /**
  * Resolve a bet-mode art KEY (an editor-art asset key, Phase 7) to a renderable image URL. A bet-mode
- * icon is a single image, so only the `'sprite'` entry has a usable URL — its `.src` is the same file
- * URL the engine loads. A `'sprites'` sheet (`.src` is the atlas JSON) or a `'spine'` skeleton can't be
+ * icon is a single image, so only the `'sprite'` entry has a usable URL — the uncompressed file the
+ * engine loads. A `'sprites'` sheet (`.src` is the atlas JSON) or a `'spine'` skeleton can't be
  * an `<img>`, so they resolve to empty. An unauthored/unshipped key (absent from the baked art index —
  * e.g. not yet reachable in the bundle) is empty too, so a consumer draws nothing rather than a broken
  * image. Matches the `BetModeData.assets.*` = URL convention the old `DEFAULT_BET_MODE_META` used.
@@ -15,7 +15,10 @@ import { bakedEditorArtAssets } from '../editor-scenes';
 function artUrl(key: string): string {
 	if (!key) return '';
 	const entry = bakedEditorArtAssets()[key];
-	return entry?.type === 'sprite' && typeof entry.src === 'string' ? entry.src : '';
+	if (entry?.type !== 'sprite') return '';
+	// On the compressed tier `src` is the `.ktx2` twin, which an `<img>` cannot decode; `fallback`
+	// is then the WebP/PNG it was encoded from.
+	return entry.fallback ?? entry.src;
 }
 
 /**
