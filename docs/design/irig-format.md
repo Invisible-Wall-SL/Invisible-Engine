@@ -85,49 +85,62 @@ Proposed — three layers, the file is the middle one:
 
 - **`IrigDoc`** — a typed, plain-data, serializable document: bones, slots, skins, attachments,
   constraints, events, animations, and our extensions. Name-based references, like the file. This is
-  what the Rigger edits and what the server inspects. New module in `packages/engine-rig`
-  (`irig/doc.ts`), with `readIrig(text) → IrigDoc` and `writeIrig(doc) → string`.
+  what the Rigger edits and what the server inspects. Built in Phase 0 as
+  `packages/engine-rig/src/irig/`: `schema.ts` holds the schema as data, and the importer, the reader
+  and the TypeScript types all come from it; `irig.ts` has `readIrig(text | object) → IrigDoc`
+  (strict: any value outside the schema refuses the document) and `writeIrig(doc) → string`.
 - **`compileIrig(doc, attachmentLoader) → SkeletonData`** — replaces `SkeletonJson` on the runtime
   path. Because v1 is semantically 4.2, it is a port of `skeletonJson.ts` (~980 lines) reading typed
   fields instead of raw JSON, and keeps its `scale` handling and linked-mesh resolution.
-- **Importers** — `importSpine42Json(json) → IrigDoc` is mostly a structural mapping, since v1 is
-  isomorphic to 4.2 plus extensions. `.skel` import is harder: `skeletonBinary.ts` produces
-  `SkeletonData`, not a document, so it needs either a `SkeletonData → IrigDoc` decompiler or to stay
-  view-only, as `.skel` is today (§9 Q3).
-- **4.2 writer, internal only** — `exportSpine42Json(doc) → { json, dropped[] }`, which drops our
-  extensions and reports what it dropped. Not a feature: no UI or route offers it. It exists
-  because v1 is isomorphic to 4.2, which makes it cheap, and three things need it: the Phase 0
+- **Importers** — `importSpine42Json(json) → { doc, issues }` keeps every key the 4.2 reader reads
+  plus our extensions, in source order (the first animation is the default one; timelines apply in
+  order). Anything else is left out and listed in `issues`: a key the reader ignores, or a value of
+  the wrong type. One bad item drops its whole list rather than shifting the indices after it.
+  `.skel` import is harder: `skeletonBinary.ts` produces `SkeletonData`, not a document, so it needs
+  either a `SkeletonData → IrigDoc` decompiler or to stay view-only, as `.skel` is today (§9 Q3).
+- **4.2 writer, internal only** — `exportSpine42Json(doc) → object`: the 4.2 JSON back, with the
+  extensions inline where today's files carry them. Not a feature: no UI or route offers it. It
+  exists because v1 is isomorphic to 4.2, which makes it cheap, and three things need it: the Phase 0
   round-trip gate, the Rigger adapter (Phase 4a), and the Rig parity gate on our files (§8). It goes
   away once the Rigger is ported (4b) and parity no longer needs it.
 
 ### 4.1 irig v1 on the wire
 
-JSON, so diffs, backups and the R2 viewers stay readable. Candidate shape (final field list is Phase 0):
+JSON, so diffs, backups and the R2 viewers stay readable. The field list is fixed by
+`packages/engine-rig/src/irig/schema.ts` (Phase 0):
 
 ```jsonc
 {
-  "irig": 1,                       // format version — replaces skeleton.spine
-  "skeleton": { "x": 0, "y": 0, "width": 0, "height": 0, "fps": 30, "referenceScale": 100 },
-  "bones": [ … ],                  // 4.2 semantics
+  "irig": 1,                       // format version
+  "skeleton": { "hash": "…", "importedFrom": "4.1.23", "x": 0, "y": 0, "width": 0, "height": 0 },
+  "bones": [ … ],                  // 4.2 semantics, field for field
   "slots": [ … ],
-  "skins": [ … ],                  // region attachments may carry "pivot": { "x", "y" }
   "ik": [ … ], "transform": [ … ], "path": [ … ], "physics": [ … ],
+  "skins": [ … ],                  // always the list form; a region may carry "pivot": [u, v]
   "events": { … },
   "animations": {
     "idle": {
       …,                           // 4.2 timelines
       "events": [ { "time": 0.4, "name": "burst", "fx": { "effectId": "…", "bone": "…" } } ]
     }
-  },
-  "text": [ { "id": "title", "slot": "title", "locales": { "en": "title@en", "es": "title@es" } } ],
-  "origin": { "atlas": "…", "revision": "…" }
+  }
 }
 ```
 
-What changes versus 4.2: the version stamp; `pivot`, `fx` and `flipbook` become declared fields the
-runtime keeps on `SkeletonData` (so the FX/Flipbook manifests can be read from the loaded rig, or kept
-baked — §9 Q5); localized text gets an explicit map instead of only a naming convention; the
-`source.json` origin moves inside. Whether `text.json`'s panel state moves inside too is §9 Q4.
+What changes versus 4.2: the `irig` version; the header's `spine` becomes `importedFrom` (provenance
+only); skins are always a list; `pivot` (a region's `[u, v]`), `fx` and `flipbook` (an animation
+event's bindings, every field the Rigger writes) are declared fields. What Phase 0 decided against:
+
+- **`source.json` stays a sidecar.** It records the rig BUNDLE's atlas sync (`rigBundleSync.ts`),
+  one per bundle and written by the sync, not by an author editing the rig.
+- **No `text` map yet.** Localized text keeps its `<base>@<locale>` attachment names until §9 Q6 is
+  answered; `text.json` (panel state) stays a sidecar either way (§9 Q4).
+
+Whether the runtime keeps `pivot` / `fx` / `flipbook` on `SkeletonData` is Phase 1 (§9 Q5).
+
+**What the gate found in the repo** (155 skeleton files, 33 distinct; none is `.irig`, those live on
+R2): every key imports except 100 bones' `transform`, a 4.1 export's name for `inherit` that the
+4.2 reader never reads. The R2 rigs are checked by Phase 5's dry run.
 
 ### 4.2 Detection, not extension
 
@@ -156,7 +169,7 @@ engine merge is a runtime release to every online game within seconds, and playe
 snapshots.** So every runtime that might load a rig must read irig v1 _before_ any file is written in
 it, and a runtime rollback must never go back past that reader (§7).
 
-**Phase 0 — schema and the round-trip gate.** `IrigDoc` types, `readIrig` / `writeIrig`,
+**Phase 0 — schema and the round-trip gate.** _Built 2026-11-03 — see §4 and status._ `IrigDoc` types, `readIrig` / `writeIrig`,
 `importSpine42Json`, `exportSpine42Json`. A new offline gate in `check:all`: every repo rig
 goes 4.2 → `IrigDoc` → irig v1 → `IrigDoc` → 4.2 with no semantic loss, and a rig carrying every
 extension keeps them all through irig v1. No consumer changes. This is where the field list in §4.1
