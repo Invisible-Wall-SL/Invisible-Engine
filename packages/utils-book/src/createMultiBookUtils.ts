@@ -1,5 +1,3 @@
-import _ from 'lodash';
-
 import type { BaseBookEvent } from './types';
 
 const createMultiBookUtils = () => {
@@ -12,7 +10,7 @@ const createMultiBookUtils = () => {
 	}) {
 		const rounds = book.reduce((acc, cur, curIndex, arr) => {
 			if (splitBy.includes(cur.type) || curIndex === arr.length - 1) {
-				const previousEvents = _.flatten(_.flatten(acc));
+				const previousEvents = acc.flat(2);
 				const startIndex = previousEvents.length;
 				const slice = arr.slice(startIndex, curIndex);
 
@@ -37,7 +35,7 @@ const createMultiBookUtils = () => {
 	}) {
 		const roundsList = books.map((book) => splitBookToRounds({ book, splitBy }));
 		const roundsLength = Math.max(...roundsList.map((rounds) => rounds.length));
-		const mergedRounds = _.range(roundsLength).map((_, roundIndex) => {
+		const mergedRounds = Array.from({ length: roundsLength }, (_, roundIndex) => {
 			const mergedRound = roundsList.map((rounds) => rounds?.[roundIndex] || []);
 			return mergedRound;
 		});

@@ -9,6 +9,7 @@ import { defineConfig } from 'vite';
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
 import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
+import { noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
@@ -184,6 +185,24 @@ const families = () => {
 };
 
 /**
+ * Terser, not esbuild, minifies the client bundle: ~35 KB gz less on the slot runtime for ~25 s
+ * more per build. Its defaults make only safe transforms, and its mangling renames locals as
+ * esbuild's did, so nothing that relied on a name survived either. The SSR pass (which prerenders
+ * `index.html`) stays unminified, as it was: `build.minify` set in the config would reach it too,
+ * and SvelteKit hands the config's `minify` on to its client pass.
+ */
+const terserClient = () => ({
+	name: 'ie-terser-client',
+	apply: 'build',
+	// After sveltekit(), whose own config hook is what marks its first pass `build.ssr`.
+	enforce: 'post',
+	config: (config) =>
+		config.build?.ssr
+			? undefined
+			: { build: { minify: 'terser', terserOptions: { compress: { passes: 2 } } } },
+});
+
+/**
  * Every game build passes through this factory — the engine's apps and every standalone game repo's
  * `vite.config.js` alike — so it is where a game repo whose Svelte pins drifted from the engine's is
  * stopped, before anything compiles (`svelteVersions.js`).
@@ -192,7 +211,7 @@ export default () => {
 	assertSvelteVersions();
 	const familySet = families();
 	return defineConfig({
-		plugins: [familySet.plugin, sveltekit(), lingui()],
+		plugins: [familySet.plugin, noWebGpuRenderer(), terserClient(), sveltekit(), lingui()],
 		logLevel: 'info',
 		define: {
 			...gameBuildDefine(),

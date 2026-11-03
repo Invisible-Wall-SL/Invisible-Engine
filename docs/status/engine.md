@@ -289,6 +289,47 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-03 — **The runtimes are ~79 KB gz smaller: no lodash, terser, no WebGPU renderer**
+  (branch `engine-bundle-trim`). Three changes, sizes from `check:family-runtimes --measure`
+  (release env, gzip -6), `main` 6bd8a6f → this branch:
+
+  | Runtime | Before B | After B | Δ |
+  |---|---|---|---|
+  | `lines` (`slot`) | 1,298,202 | 1,219,439 | −78,763 (−6.1 %) |
+  | `match3` | 1,306,218 | 1,227,754 | −78,464 |
+  | `arcade` | 1,400,942 | 1,318,097 | −82,845 |
+  | `card` | 1,310,330 | 1,231,833 | −78,497 |
+
+  On the slot runtime, one change at a time: lodash −28,097, the WebGPU stub −15,727, terser
+  −34,939.
+  - **lodash → native.** The runtime's only uses (`_.range`, `_.flatten`, `_.findLast` in
+    `engine-game`, `utils-book`, `utils-slots`, `apps/lines`; `_.merge`, `_.values`, `_.entries`
+    in `utils-shared`) are `Array.from`, `.flat(2)`, `findLast`, `Object.values/entries` and a
+    small deep merge in `utils-shared/i18n.ts` that keeps lodash `merge`'s rules for a messages map
+    (arrays merge by index, `undefined` never overwrites; 20,000 random catalogs gave the same result
+    as lodash). Every `_.range` caller passes a non-negative integer. lodash is no longer a
+    dependency of any runtime package; the reference apps (`price`, `scatter`, `ways`,
+    `number-picker`, `cluster`) keep their own.
+  - **Terser minifies the client bundle** (`config-vite` `terserClient`, `compress.passes: 2`,
+    `terser` 5.51.2 a `config-vite` dependency, so a game repo resolves it too). The SSR pass that
+    prerenders `index.html` stays unminified as on `main` — `build.minify` in the config would reach
+    it, so the plugin runs after `sveltekit()` and skips a `build.ssr` pass. Nothing in the engine
+    reads a function or class name, and esbuild already mangled them. Build time: the four-runtime
+    `--measure` run 179 s → 241 s (one `lines` build ≈ 34 → 55 s). Hidden source maps still come
+    out right: a captured terser bundle + map went through `sentry-sourcemaps.mjs runtime --dry-run`
+    (one debug ID, upload OK) and a page position maps back to the right Pixi line.
+  - **The WebGPU renderer is stubbed** (`config-vite/pixiRenderers.js`): only for imports from Pixi's
+    `autoDetectRenderer.mjs`, `isWebGPUSupported` answers `false` and `./gpu/WebGPURenderer.mjs` is
+    a module that throws if ever constructed. A device without WebGL still falls through to the canvas
+    renderer. The WGSL strings filters carry for both renderers stay. `pixiRenderers.fixture.mjs`
+    (in `check:all`) fails if the installed Pixi moves that file or stops making those imports, and
+    the plugin fails a build in which `autoDetectRenderer` was bundled but an import was not stubbed.
+  - **Budgets not lowered**: `family-runtime-budget.json` is the owner's P11.1b measurement + 2 %
+    (phase-11 §4 #4), which steps have never re-set.
+  - **Found, not fixed (pre-existing on `main`):** an `IE_SOURCEMAPS=hidden` build no longer leaves
+    `_app/immutable/bundle.*.js` + its map in `apps/lines/build`, so `sentry-sourcemaps.mjs runtime`
+    prints "nothing to upload" on `main` too. The map is written and then removed with the inlined
+    bundle.
 - 2026-11-02 — **A particle budget, and alpha-0 particles are no longer drawn** (branch
   `claude/particle-budget`). Owner report: `overlay-wishworld`'s particles kill performance.
   Profiled on a Pixel-sized page with the CPU slowed 4×: up to ~4,000 live particles and 7–134
