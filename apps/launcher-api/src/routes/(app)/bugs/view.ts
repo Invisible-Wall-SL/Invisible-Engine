@@ -336,10 +336,47 @@ function repairText(d: Record<string, unknown>): string {
 	return `ended the repair: ${REPAIR_END_WORDS[outcome] ?? 'ended'}`;
 }
 
-/** The longer text under an activity line: a comment, or what a repair run reported. */
+/** A fix run's own outcome, after "found no fix:" when the launcher gave no reason. */
+const FIX_OUTCOME_WORDS: Record<string, string> = {
+	not_reproduced: 'it did not reproduce',
+	needs_person: 'it needs a person',
+	second_area: 'the cause is in another area',
+};
+
+/**
+ * One `fix_run` event (ADR-0013), after the actor's name: the person who started or stopped it
+ * ("Ana started fix run 3f2a…"), else the run itself ("Fix run 3f2a… opened #12").
+ */
+function fixRunText(e: BugEventView): string {
+	const d = e.data;
+	const run = typeof d.run === 'string' ? d.run : '';
+	const reason = typeof d.reason === 'string' && d.reason ? d.reason : null;
+	switch (d.status) {
+		case 'dispatched':
+			return `started fix run ${run}`;
+		case 'running':
+			return 'started work on the bug';
+		case 'pr_opened':
+			return `opened #${String(d.pr)}`;
+		case 'no_fix':
+			return `found no fix: ${reason ?? FIX_OUTCOME_WORDS[String(d.outcome)] ?? 'no fix'}`;
+		case 'failed':
+			return reason ? `failed: ${reason}` : 'failed';
+		case 'cancelled':
+			return e.auto ? `was stopped: ${reason ?? 'cancelled on GitHub'}` : `stopped fix run ${run}`;
+		default:
+			return `fix run ${run}`;
+	}
+}
+
+/** The longer text under an activity line: a comment, or what a repair or fix run reported. */
 export function eventNote(e: BugEventView): string | null {
 	if (e.kind === 'comment') return typeof e.data.text === 'string' ? e.data.text : null;
-	if (e.kind === 'repair' && typeof e.data.summary === 'string' && e.data.summary.trim()) {
+	if (
+		(e.kind === 'repair' || e.kind === 'fix_run') &&
+		typeof e.data.summary === 'string' &&
+		e.data.summary.trim()
+	) {
 		return e.data.summary;
 	}
 	return null;
@@ -401,6 +438,8 @@ export function eventText(e: BugEventView): string {
 			return `unlinked #${String(d.pr)}: it no longer names this bug`;
 		case 'linked':
 			return `linked #${String(d.pr)}${typeof d.title === 'string' ? ` “${d.title}”` : ''}`;
+		case 'fix_run':
+			return fixRunText(e);
 		default:
 			return e.kind;
 	}

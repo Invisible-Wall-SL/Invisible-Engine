@@ -117,6 +117,34 @@ export const ALWAYS_KEPT: readonly StockKey[] = [
 /** Sheets that pack the same frame (`totalwin.png`) into one flat texture map: kept together. */
 export const KEPT_TOGETHER: readonly (readonly StockKey[])[] = [['freeSpins', 'winSmall']];
 
+/**
+ * The coded parts that draw nothing outside free spins: each mounts its art only once a free-spin cue
+ * shows it (`FreeSpinIntroVisual.svelte` on `freeSpinIntroShow`, `FreeSpinOutroVisual.svelte` on the
+ * outro count-up, `FreeSpinCounter.svelte` on `freeSpinCounterShow`, each inside a `FadeContainer`
+ * that mounts nothing while hidden). The coded `BoardFrame` mount is the same: lit only by
+ * `boardFrameGlowShow`.
+ */
+export const FREE_SPIN_PARTS: ReadonlySet<string> = new Set([
+	'FreeSpinIntroVisual',
+	'FreeSpinOutroVisual',
+	'FreeSpinCounter',
+]);
+
+/**
+ * What shows those parts besides a free-spin book event (`bookEventHandlerMap.ts` `freeSpinTrigger`,
+ * `updateFreeSpin`): the flow cues and actions of these names (`emitterVocabulary.ts`,
+ * `flowEffects.ts`). An authored doc naming one may show them in any game.
+ */
+export const FREE_SPIN_SWITCHES: readonly string[] = [
+	'freeSpinIntroShow',
+	'freeSpinOutroShow',
+	'freeSpinOutroCountUp',
+	'freeSpinCounterShow',
+	'boardFrameGlowShow',
+	'setFreeGameType',
+	'enterFreeSpinOutro',
+];
+
 const str = (value: unknown): string | undefined =>
 	typeof value === 'string' && value.length > 0 ? value : undefined;
 const bool = (value: unknown): boolean | undefined =>

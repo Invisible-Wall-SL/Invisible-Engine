@@ -95,6 +95,9 @@ export interface EditorArtSheet {
 	/** Spritesheet JSON path relative to `deploy/` (= relative to `static/assets/`). */
 	json: string;
 	frames: number;
+	/** The frame names the sheet registers (bare and scoped), so the game can tell a sheet no name
+	 *  reaches (`apps/lines` `stockAssets.ts` `editorArtUnused`) and leave it unloaded. */
+	names: string[];
 	/** GPU-compressed variant: a second spritesheet JSON whose `meta.image` points at the
 	 * KTX2 (Basis Universal) page emitted beside the WebP/PNG. Present only when the page
 	 * was large enough to encode; the game prefers it (4–8× less VRAM) unless `?quality=high`.
@@ -864,8 +867,9 @@ export async function exportEditorArt(
 			);
 			written.add(`${deployPrefix}${ktx2Json}`);
 		}
-		sheets.push({ key: manifestKey, json: jsonRel, frames: set.regions.length, ktx2Json });
-		sheetRegionNames.push({ stem, names: set.regions.map((r) => r.name) });
+		const names = set.regions.map((r) => r.name);
+		sheets.push({ key: manifestKey, json: jsonRel, frames: names.length, names, ktx2Json });
+		sheetRegionNames.push({ stem, names });
 		for (const r of set.regions) coveredRegions.add(r.name);
 		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
 	};

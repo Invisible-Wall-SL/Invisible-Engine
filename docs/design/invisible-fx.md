@@ -73,11 +73,19 @@ On "Bake now" the page builds a private offscreen Pixi app, mounts each layer th
    via canvas `lighter`), the rest is `capture[i]`. Frame `N−1` then flows into frame 0 (=
    `capture[N]`), and by frame `S` the loop is pure capture. `cut` skips it (for an effect whose
    emission already has a period).
-4. **Sheet** — `planEffectBakeSheet` lays the `N × groups` cells (the union box × scale) on one
-   page of at most 4096×4096, group by group, lowering the scale until it fits (the page says so),
-   and refusing an effect that cannot fit even at 0.05. Each cell starts on a 4-px block with at
-   least 2 transparent pixels to the next (`effectBakePitch`), so neither bilinear filtering nor a
-   KTX2 (UASTC 4×4) block mixes two cells.
+4. **Sheet** — `planEffectBakeSheet` sizes the `N × groups` cells (the union box × scale) as a grid
+   on one page of at most 4096×4096, lowering the scale until it fits (the page says so), and
+   refusing an effect that cannot fit even at 0.05. Each composed cell is then **trimmed**
+   (`effectBakeTrim`: the box of the pixels that change what is below — not transparent, and in a
+   multiply group not white — plus one transparent pixel each side, so a trimmed frame filters
+   exactly as its full cell did), and the trims are shelf-packed (`packEffectBakeFrames`), the
+   squarest page within 5% of the smallest; it always fits where the grid fit. Each frame starts on
+   a 4-px block with at least 2 transparent pixels to the next, so neither bilinear filtering nor a
+   KTX2 (UASTC 4×4) block mixes two frames. The JSON (`effectBakeSheetJson`, written by
+   `/api/fx/bake` from the trims the page reports, re-packed there) keeps the full cell as every
+   frame's `sourceSize` and the trim as its `spriteSourceSize`, so Pixi's `orig`/`trim` place each
+   frame where its cell drew it and `<BakedEffect>` needs no change. A bake from before trimming
+   keeps its grid sheet and plays as before.
 
 **Blend groups.** `effectBakeGroups` splits the layers (draw order) into runs that share a blend
 mode; each run is captured on its own, every frame over the SAME box (the other runs hidden), and

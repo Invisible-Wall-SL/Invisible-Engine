@@ -40,6 +40,7 @@ const SKIP = {
 	// Not checks: tooling that the gates themselves use.
 	'scripts/check-commit-scope.mjs': 'commit-msg hook — takes the message file as its argument',
 	'scripts/check-secrets.mjs': 'pre-commit hook — scans the staged diff (its test runs below)',
+	'scripts/check-secrets.d.mts': "the hook's types, for the launcher's fix-run secret scan",
 	'scripts/check-engine-game-fixtures.mjs': 'meta-runner — its fixtures are discovered directly',
 	'scripts/check-all.mjs': 'this file',
 	// Need the network, R2 or a deployed service.

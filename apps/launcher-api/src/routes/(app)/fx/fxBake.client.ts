@@ -18,19 +18,22 @@ import {
 	EFFECT_BAKE_LIMITS,
 	bindArt,
 	effectBakeBlockers,
-	effectBakeCellOrigin,
 	effectBakeFrameCount,
 	effectBakeGroups,
 	effectBakeHash,
 	effectBakeSeamFrames,
 	effectBakeSeamWeight,
+	effectBakeTrim,
 	effectBakeWarmup,
 	emitterDeltaSeconds,
 	normalizeEffectDoc,
+	packEffectBakeFrames,
 	planEffectBakeSheet,
 	type EffectBakeBlend,
+	type EffectBakeLayout,
 	type EffectBakeResult,
 	type EffectBakeSheetPlan,
+	type EffectBakeTrim,
 	type EffectDoc,
 } from 'engine-fx';
 import {
@@ -60,7 +63,10 @@ interface CapturedFrame {
 /** A finished capture, before upload. */
 export interface BakeCapture {
 	canvas: HTMLCanvasElement;
+	/** The scale and cell (each frame's full box) the sheet was composed at. */
 	plan: EffectBakeSheetPlan;
+	/** Each cell's trim and where it sits on `canvas`. */
+	layout: EffectBakeLayout;
 	/** Frames per group; the sheet holds `frames × groups.length` cells, group by group. */
 	frames: number;
 	/** Each group's blend, in draw order. */
@@ -313,18 +319,12 @@ export async function captureEffectBake(options: {
 			);
 
 		options.onProgress?.({ phase: 'sheet', done: 0, total: cells });
-		const canvas = document.createElement('canvas');
-		canvas.width = plan.width;
-		canvas.height = plan.height;
-		const ctx = canvas.getContext('2d');
-		if (!ctx) throw new Error('This browser cannot compose the sheet (no 2D canvas).');
-		ctx.imageSmoothingQuality = 'high';
 		/** Capture pixels are at `scale`; the plan may have lowered it to fit the page. */
 		const k = plan.scale / scale;
 		const cell = document.createElement('canvas');
 		cell.width = plan.cellW;
 		cell.height = plan.cellH;
-		const cellCtx = cell.getContext('2d');
+		const cellCtx = cell.getContext('2d', { willReadFrequently: true });
 		if (!cellCtx) throw new Error('This browser cannot compose the sheet (no 2D canvas).');
 		const drawFrame = (frame: CapturedFrame, alpha: number): void => {
 			if (!frame.image || alpha <= 0) return;
@@ -337,6 +337,8 @@ export async function captureEffectBake(options: {
 				frame.image.height * k,
 			);
 		};
+		/** Each cell, composed then cut down to its trim. */
+		const trimmed: { image: ImageData; trim: EffectBakeTrim }[] = [];
 		for (let gi = 0; gi < groups.length; gi++) {
 			const run = captured[gi];
 			for (let i = 0; i < frames; i++) {
@@ -347,15 +349,32 @@ export async function captureEffectBake(options: {
 				if (w < 1) drawFrame(run[frames + i], 1 - w);
 				cellCtx.globalCompositeOperation = 'lighter';
 				drawFrame(run[i], w);
-				const at = effectBakeCellOrigin(plan, gi * frames + i);
-				ctx.drawImage(cell, at.x, at.y);
+				const full = cellCtx.getImageData(0, 0, plan.cellW, plan.cellH);
+				const trim = effectBakeTrim(full.data, plan.cellW, plan.cellH, groups[gi].blendMode);
+				trimmed.push({ image: cellCtx.getImageData(trim.x, trim.y, trim.w, trim.h), trim });
 				options.onProgress?.({ phase: 'sheet', done: gi * frames + i + 1, total: cells });
+				if (i % 8 === 0) await yieldToUi();
 			}
 		}
+		const layout = packEffectBakeFrames(
+			plan.cellW,
+			plan.cellH,
+			trimmed.map((t) => t.trim),
+		);
+		// The packer never needs more than the grid the plan already fitted.
+		if (!layout) throw new Error('The baked frames could not be packed onto one page.');
+
+		const canvas = document.createElement('canvas');
+		canvas.width = layout.width;
+		canvas.height = layout.height;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) throw new Error('This browser cannot compose the sheet (no 2D canvas).');
+		layout.frames.forEach((at, i) => ctx.putImageData(trimmed[i].image, at.x, at.y));
 
 		return {
 			canvas,
 			plan,
+			layout,
 			frames,
 			groups: groups.map((g) => g.blendMode),
 			bounds: { x: bx, y: by, w: bw, h: bh },
@@ -401,7 +420,7 @@ export async function uploadEffectBake(options: {
 		body: blob,
 	});
 	if (!put.ok) throw new Error(`Uploading the sheet failed (HTTP ${put.status}).`);
-	const { cellW, cellH, gap, cols, rows, width, height } = capture.plan;
+	const { cellW, cellH, width, height, frames } = capture.layout;
 	const committed = await fetch('/api/fx/bake', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
@@ -409,7 +428,7 @@ export async function uploadEffectBake(options: {
 			...target,
 			frames: capture.frames,
 			groups: capture.groups.length,
-			plan: { cellW, cellH, gap, cols, rows, width, height },
+			sheet: { cellW, cellH, width, height, trims: frames.map((f) => f.trim) },
 		}),
 	});
 	if (!committed.ok) await fail(committed, 'Writing the sheet');

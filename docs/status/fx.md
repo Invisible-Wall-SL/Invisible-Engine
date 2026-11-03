@@ -34,7 +34,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   speed, and fades out over its longest particle life when the beat ends (2026-11-02). A flight
   trail or live parameter values still play live. An effect that mixes blend modes bakes as
   layered **blend groups**, one sprite each with its own blend (2026-11-02), so additive layers stay
-  light. ⏳ Gated headlessly (Node, the real page, the real player and a baked-vs-live pixel
+  light. Frames are **trimmed** to what they draw and packed tight (2026-11-03), so a sheet is no
+  longer mostly empty; a bake from before keeps its grid sheet until baked again. ⏳ Gated headlessly (Node, the real page, the real player and a baked-vs-live pixel
   comparison in headless Chromium); not yet clicked in an authed `/fx` or watched in a published
   game.
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
@@ -73,7 +74,9 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Re-bake Overlay Buffalo Duel's mixed effects** (2026-11-02) — `s_sparks_small` and
   `s_sparks_big` mix Normal and Add, so their stored bakes now read **Stale** and play live (in a
   game, once this runtime ships, even before a re-publish). In `/fx`: open each, **Bake again**,
-  Save, publish; then judge by eye that the dark outline is gone. `s_smoke` (all Add) and
+  Save, publish; then judge by eye that the dark outline is gone. The re-bake also gets the
+  trimmed page (2026-11-03): the same frames re-packed measure ~0.25× and ~0.4× the old pages
+  (see that entry); check the published page sizes in the texture inventory. `s_smoke` (all Add) and
   `smokeclouds` (all Normal) keep their bakes. Unverified: the UASTC-compressed KTX2 page of a
   layered sheet (the pixel gate runs the PNG and the premultiplied twin's bytes, not the encoder).
 - **Owner look at rig-fired bakes** (2026-11-02) — in Overlay Buffalo Duel once this runtime
@@ -168,6 +171,66 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-03 — **One-shot effects loop in the `/fx` preview; ⟲ Replay** (branch
+  `claude/fx-stage-playback-fix`). Owner report: a burst effect played once on load and then never
+  again; editing a layer re-fired only that layer, so the whole effect could not be seen. Not a
+  regression: the same at `08e01df` (proven by running the new gate against that commit's `/fx`
+  route): the stage never re-fired a spent emitter, only Pause → Play did. Looping effects were
+  checked with the owner's own docs (`v_coins`, `s_sparks_small`, `backgroundbeam2`) and keep
+  playing through edits. What changed:
+  - **`FxStage`** `loopBursts` (default off, `/fx` turns it on): when every one-shot layer
+    (`emitterLifetime > 0`) has stopped and its last particle died, they all re-fire together after
+    600 ms; a rebuild that re-inits a one-shot layer re-fires every one-shot layer with it; nothing
+    re-fires while paused. `replay()` clears and restarts every layer together.
+  - **`/fx` sub-bar:** **⟲ Replay** next to Play / Pause. Guide updated (`docs/tools/fx.md`).
+  - **Gate:** `fx-spike` `fx-playback-page` (in `check:all`) — the real page, particles counted per
+    emitter on the stage: two looping layers through open / long run / edit / pause-play, and three
+    bursts over a continuous layer: re-fire together, re-fire on an edit, Replay from zero, no
+    re-fire paused. Red on `main` before the fix (no re-fire, on the loop or on an edit), 10/10 after. The entry exposes `fxPage.apps` and
+    `fxPage.emitters`. The in-game runtime is untouched (a game fires a burst through its trigger).
+  - ⏳ Owner-verify live: open `explosion` in `/fx` and watch it loop; press ⟲ Replay.
+- 2026-11-03 — **Baked sheets pack trimmed frames** (branch `claude/fx-bake-trimmed-frames`). Why:
+  desktop keeps every page resident uncompressed, and a bake's page was mostly empty — every frame
+  an equal cell of the loop's whole box (Overlay Buffalo Duel: `fxbake_s_sparks_small` 1941×1748,
+  9% drawn; `fxbake_s_sparks_big` 1565×1424, 15%).
+  - **`engine-fx` `bake.ts`**: `effectBakeTrim` (a composed cell's box of pixels that change what is
+    below — not transparent, in a multiply group not white — grown by one transparent pixel, so the
+    edge texel's outward filtering stays inside the frame), `packEffectBakeFrames` (deterministic
+    shelf packer, tallest first, frames on 4-px blocks with a 2 px gap; the squarest page within 5%
+    of the smallest; always fits where the grid fit), `effectBakeSheetJson(layout, …)` (TexturePacker
+    `sourceSize` = the full cell, `spriteSourceSize` = the trim, `trimmed` per frame).
+    `planEffectBakeSheet` still settles the scale and the cell; `effectBakeCellOrigin` is gone.
+  - **/fx capture** (`fxBake.client.ts`): composes each cell as before, trims it, packs, writes the
+    page; `BakeCapture.layout` carries the packing; the Bake bar preview draws trimmed frames at
+    their offset (fresh and stored sheets). **`/api/fx/bake`** now takes
+    `sheet: { cellW, cellH, width, height, trims }`, re-packs the trims itself and refuses a page
+    size that is not the packer's (a stale tab gets a 400; reload and bake).
+  - **Runtime: unchanged.** `<BakedEffect>` sizes its sprites to the captured box, which Pixi
+    measures from the texture's `orig` (= the cell), and places the quad from its `trim`. No bake
+    version bump: an old bake's JSON is still a grid sheet and plays as before; a re-bake gets the
+    small page.
+  - **Measured** on the shipped Buffalo Duel pages (their 48 cells read back and re-packed with the
+    new trim + packer; MB = w×h×4): `s_sparks_small` 1941×1748 (13.6 MB) → 927×879 (3.3 MB), 9% →
+    37% drawn; `s_sparks_big` 1565×1424 (8.9 MB) → 933×943 (3.5 MB), 15% → 39%. Those bakes are
+    flattened single-group bakes (already Stale); their re-bake has two groups, so expect more
+    cells per page than measured here.
+  - **Gates:** `check:fx-bake` (fx-spike `effectBake.ts`): trims (margin, edge clamp, empty cell,
+    multiply white), packing (on the page, no overlap, ≥2 px apart, 4-px blocks, no KTX2 block
+    shared by two frames, deterministic, a flat set packs as a block), every cell rebuilt from the
+    JSON the way Pixi builds a trimmed texture is pixel-identical to the composed cell (96 cells),
+    malformed trims refused. Launcher `check:fx-bake`: the route re-packs real trims, refuses a
+    wrong page size and a trim outside its cell, and `loadRegionSet` reads the trim back
+    (`offX/offY/origW/origH`). `baked-runtime` pixel page: the real capture is cut by Pixi's own
+    `Spritesheet` from the JSON; trimmed frames draw what full cells draw through the real
+    `<EffectPlayer>` (0 channels differ for mixed and smoke, ≤1/255 for blends, ≤2/255 at scale 0.5
+    — the sampler's sub-texel rounding, which the same cells moved on another page also show), and
+    a mutant trim one pixel off fails it at 17–86/255. `fx-bake-page` (the real `/fx` page, faked
+    routes): Bake now writes 96 trimmed cells on one ~363×354 page, seams ordinary, the preview
+    plays, Save stores it; its fake `/api/editor/regions` now carries the trim as the real one does,
+    and it resolves `/api/…` on a Windows `file://` page (it never reached the bake there before).
+    Not run: a real `/fx` bake in an authed browser, and the UASTC encoder on a trimmed page. A KTX2 twin the editor-art export downscales
+    rounds each trim offset on its own (`toTexturePackerJson`), at most half a texel of that
+    smaller page — as for any trimmed atlas.
 - 2026-11-02 — **Mixed blend modes bake as layered groups: no more dark outline** (branch
   `claude/fx-bake-blend-groups`). Why: Overlay Buffalo Duel's baked `s_sparks_small` (Clouds, Fire
   Normal; four spark layers Add) and `s_sparks_big` (Clouds Normal; Fire, Sparks1, Sparks2 Add)

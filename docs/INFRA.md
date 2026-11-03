@@ -766,6 +766,12 @@ code default, so the dashboard need not set it):
   harness itself posts nothing: `.github/workflows/current-games-verdict.yml` (`workflow_run`, main's
   code) reads the finished run and posts the status — see "Who may post `current-games`" under
   "Branch ruleset on `main`". How to run and read it: `docs/playtest/current-games.md`.
+  **A fix run's code never meets these secrets before a person has read it (ADR-0013).** A push to
+  a fix-run branch (`bug-<n>-fix-` + 10 lowercase hex characters) is ignored. While the App's draft
+  PR is a draft, `prepare` is skipped and `current-games` stays `pending`. **Ready for review**
+  starts the run. Every other branch and PR runs as before. Marking an ordinary draft ready now
+  makes a run whose jobs are all skipped, and the verdict posts nothing for it (playtest doc, "A
+  fix run waits for "Ready for review"").
 - **Current-games verdict (GitHub Actions *environment* secrets, environment
   `current-games-verdict`):** `CURRENT_GAMES_VERDICT_APP_ID` and
   `CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY` — the GitHub App the verdict posts `current-games` as.

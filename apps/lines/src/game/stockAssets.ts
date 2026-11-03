@@ -4,8 +4,10 @@ import {
 	forwardedParams,
 	hasAuthoredBackground,
 	hasAuthoredBoardGlow,
+	parseScopedFrameRef,
 	partStandIn,
 	repeaterComponentIds,
+	resolveBoundValue,
 	resolveComponentParams,
 	resolveLayoutInstanceParams,
 	spawnableComponentIds,
@@ -21,7 +23,15 @@ import {
 import { createSymbolMap } from 'engine-game/src/game/symbolMap';
 import { resolveSymbolState } from 'engine-game/src/game/symbolCell';
 import type { SymbolInfoMap } from 'engine-game/src/game/types';
-import { symbolsUsed, type GameConfigDoc } from 'game-config';
+import {
+	FREE_SPINS_MODE,
+	builtinGameModes,
+	resolveBonusModes,
+	resolveFreeSpins,
+	resolveGameModes,
+	symbolsUsed,
+	type GameConfigDoc,
+} from 'game-config';
 
 import stockTable from './assets';
 import { SYMBOL_INFO_MAP } from './constants';
@@ -37,6 +47,8 @@ import {
 } from './sceneSelection';
 import {
 	ALWAYS_KEPT,
+	FREE_SPIN_PARTS,
+	FREE_SPIN_SWITCHES,
 	KEPT_TOGETHER,
 	PART_NEEDS,
 	STOCK_KEYS,
@@ -70,8 +82,12 @@ import {
  * - PART: a bound coded part it mounts would fall back to it ({@link PART_NEEDS});
  * - MOUNT: a coded mount the game always makes would fall back to it ({@link codedMountNeeds});
  * - SYMBOLS: a symbol the game can show resolves to a coded cell naming it, through the renderer's
- *   own merge and state inheritance;
+ *   own merge and state inheritance (a symbols-doc entry for a symbol the board never shows is not
+ *   read);
  * - ALWAYS: it is in `ALWAYS_KEPT`.
+ *
+ * A game that can never enter free spins ({@link freeSpinsReachable}) mounts the free-spin parts and
+ * the board glow without ever drawing them, so they keep nothing (`FREE_SPIN_PARTS`).
  */
 
 type Params = Record<string, unknown>;
@@ -87,6 +103,21 @@ export type StockAssetData = {
 	/** Every other authored doc the game renders from (flow, flow v2 and its library, cinematics,
 	 *  win text, flipbooks, …) — read for names only. */
 	other?: readonly unknown[];
+	/** The project's exported art (`bakedEditorArtAssets`): what {@link editorArtUnused} judges. */
+	editorArt?: StockEditorArt;
+	/** Every def the bundle carries, latest and pinned versions: a def the walk never expands keeps
+	 *  every name it holds, since code may mount it. */
+	componentDefs?: readonly ComponentDef[];
+	/** Data that may name the project's art but never a stock key (its per-component param
+	 *  defaults, its shader effects): read only for {@link editorArtUnused}. */
+	artReferences?: readonly unknown[];
+};
+
+export type StockEditorArt = {
+	/** `names`: the frames a sheet registers; absent in a bundle exported before they were. */
+	sheets?: readonly { key: string; json: string; names?: readonly string[] }[];
+	images?: readonly { key: string }[];
+	spines?: readonly { key: string }[];
 };
 
 export type StockSymbolsDoc = {
@@ -128,6 +159,9 @@ export type StockAssetsAnalysis = {
 	/** For each kept key, where the names that reached it came from (`scene basegame`, `part Win`,
 	 *  `symbol W.static`, …). Empty when every key was kept. */
 	reasons: Partial<Record<StockKey, string[]>>;
+	/** Asset-table keys of the project's exported art nothing the game can draw names
+	 *  ({@link editorArtUnused}). Empty when every key was kept. */
+	editorArtUnused: string[];
 };
 
 /** Every collected name and where it came from. */
@@ -157,13 +191,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *   a background scene carries authored content.
  * - The foreground rig hosts every bone-placed effect not bound to a rig (`Effects.svelte:41-63,118-123`).
  * - `BoardFrame` (`{#if !suppressCodedBoardGlow}`, `BoardFrame.svelte:20-21`): the authored glow rig
- *   ?? `reelhouse`, unless the `boardGlow` scene carries authored content.
+ *   ?? `reelhouse`, unless the `boardGlow` scene carries authored content or the game never enters
+ *   free spins (it is lit only by `boardFrameGlowShow`).
  * - Every winning cell's frame (`Symbol.svelte` `showWinFrame`, `SymbolWinFrame.svelte:30-32`): the
  *   authored highlight ?? `anticipation`.
  * - The reel anticipation overlay (`Anticipations.svelte:95-96`, `anticipationPresentation.ts:141-142`):
  *   the authored `spineKey` || `anticipation`.
  */
-function codedMountNeeds(data: StockAssetData): string[] {
+function codedMountNeeds(data: StockAssetData, freeSpins: boolean): string[] {
 	const out: string[] = [];
 	const { doc, symbols, effects = [], rigFx = {} } = data;
 	if (!hasAuthoredBackground(doc.scenes)) {
@@ -180,10 +215,36 @@ function codedMountNeeds(data: StockAssetData): string[] {
 			),
 	);
 	if (bonePlaced) out.push('foregroundAnimation');
-	if (!hasAuthoredBoardGlow(doc.scenes)) out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
+	if (freeSpins && !hasAuthoredBoardGlow(doc.scenes)) {
+		out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
+	}
 	out.push(symbols?.highlight?.assetKey ?? 'anticipation');
 	out.push(symbols?.anticipation?.spineKey || 'anticipation');
 	return out;
+}
+
+/**
+ * Whether a round can ever draw the free-spin presentation: the config's free-spins rule is on, a
+ * bonus route (a pot, a buy, a meter) starts the built-in free spins, the project has a reels mode of
+ * its own (an imported free spins, `stateModes.svelte.ts` `isFreeGameType`), or an authored doc fires
+ * one of `FREE_SPIN_SWITCHES` — bare, or scoped as a cinematic cue is (`signal:boardFrameGlowShow`,
+ * which `FlowV2Cinematics.svelte` broadcasts bare). With free spins off the rules page already tells
+ * the player there are none (`infoManifest.ts`), so a server that sends them anyway is out of step
+ * with what the game says.
+ */
+function freeSpinsReachable(config: GameConfigDoc, authoredNames: Names): boolean {
+	if (resolveFreeSpins(config).enabled) return true;
+	const switches = new Set(FREE_SPIN_SWITCHES);
+	for (const name of authoredNames.keys()) {
+		if (switches.has(name.slice(name.lastIndexOf(':') + 1))) return true;
+	}
+	const builtins = new Set(builtinGameModes().map((mode) => mode.id));
+	if (resolveGameModes(config).some((mode) => mode.board === 'reels' && !builtins.has(mode.id))) {
+		return true;
+	}
+	return resolveBonusModes(config).some(
+		(bonus) => bonus.mode.id === FREE_SPINS_MODE && bonus.routes.length > 0,
+	);
 }
 
 /**
@@ -346,7 +407,12 @@ export const stockAssetsNeeded = (input: StockAssetsInput): Set<StockKey> =>
 
 export function analyseStockAssets(input: StockAssetsInput): StockAssetsAnalysis {
 	if (!input.data) {
-		return { needed: new Set(STOCK_KEYS), keptAllBecause: 'no layout doc at boot', reasons: {} };
+		return {
+			needed: new Set(STOCK_KEYS),
+			keptAllBecause: 'no layout doc at boot',
+			reasons: {},
+			editorArtUnused: [],
+		};
 	}
 	try {
 		return reachable(input, input.data);
@@ -355,6 +421,7 @@ export function analyseStockAssets(input: StockAssetsInput): StockAssetsAnalysis
 			needed: new Set(STOCK_KEYS),
 			keptAllBecause: error instanceof KeepAll ? error.message : `the walk threw: ${error}`,
 			reasons: {},
+			editorArtUnused: [],
 		};
 	}
 }
@@ -367,9 +434,17 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		throw new KeepAll('a scene of the layout doc has no node list');
 	}
 	const names: Names = new Map();
+	const authoredNames: Names = new Map();
+	collectNames(data.other, authoredNames, 'authored docs');
+	const freeSpins = freeSpinsReachable(input.config, authoredNames);
+	const drawsNothing = (part: unknown): boolean =>
+		!freeSpins && typeof part === 'string' && FREE_SPIN_PARTS.has(part);
+	/** `id@version` of every def the walk expanded. */
+	const expanded = new Set<string>();
 	let walked = 0;
 
 	const visitPart = (name: string, params: Params, props: Params): void => {
+		if (drawsNothing(name)) return;
 		const needs = PART_NEEDS[name];
 		if (needs) for (const need of needs(params, props)) addName(names, need, `part ${name}`);
 		else if (input.isBoundPart(name)) throw new KeepAll(`bound part '${name}' has no stock rule`);
@@ -388,6 +463,7 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		// `ComponentInstance.svelte`: an unregistered id renders nothing.
 		if (def === undefined) return;
 		if (!isWellFormedDef(def)) throw new KeepAll(`component '${id}' is not a readable def`);
+		expanded.add(`${def.id}@${def.version}`);
 		const consumes = consumedParams(def);
 		const projectDefaults = input.componentDefaults(id);
 		// A repeater's items carry params from runtime data, and a param forwarded from an enclosing
@@ -403,7 +479,7 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 					collectNames(value, names, `component ${id}`);
 				}
 			}
-			walkNodes([def.root], params, [...stack, id], `component ${id}`);
+			walkNodes([def.root], params, [...stack, id], `component ${id}`, anyParamLive);
 			const standIn = partStandIn(def);
 			if (standIn) visitPart(standIn, params, {});
 		}
@@ -414,6 +490,7 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		params: Params,
 		stack: readonly string[],
 		origin: string,
+		live = false,
 	): void => {
 		if (!Array.isArray(nodes)) throw new KeepAll('a node list is not a list');
 		for (const node of nodes) {
@@ -421,8 +498,18 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 			walked += 1;
 			if (walked > MAX_WALKED_NODES) throw new KeepAll('the layout expands past the walk budget');
 			const { children, ...own } = node;
-			collectNames(own, names, origin);
 			const bind = node.bind;
+			// A part that never draws reads nothing from its bind's props (`introSpine`, …).
+			const silent = isRecord(bind) && drawsNothing(bind.component);
+			collectNames(
+				{
+					...own,
+					...(silent ? { bind: undefined } : {}),
+					...(live ? {} : unreadOwnFields(node, params)),
+				},
+				names,
+				origin,
+			);
 			if (isRecord(bind) && typeof bind.component === 'string') {
 				visitPart(bind.component, params, isRecord(bind.props) ? bind.props : {});
 			}
@@ -447,7 +534,7 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 					);
 				}
 			}
-			if (children !== undefined) walkNodes(children, params, stack, origin);
+			if (children !== undefined) walkNodes(children, params, stack, origin, live);
 		}
 	};
 
@@ -464,11 +551,14 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		}
 	}
 
-	collectNames(symbols, names, 'symbols doc');
+	// The symbol map is read below, for the symbols the board can show.
+	collectNames({ ...symbols, map: undefined }, names, 'symbols doc');
 	collectNames(data.effects, names, 'effects');
 	collectNames(data.rigFx, names, 'rig FX');
-	collectNames(data.other, names, 'authored docs');
-	for (const need of codedMountNeeds(data)) addName(names, need, 'coded mount');
+	for (const [name, origins] of authoredNames) {
+		for (const origin of origins) addName(names, name, origin);
+	}
+	for (const need of codedMountNeeds(data, freeSpins)) addName(names, need, 'coded mount');
 
 	// SYMBOLS: every symbol the game can show, through the renderer's own merge (`symbolMap.ts`) and
 	// state resolution (`symbolCell.ts`), for every state it can be asked for.
@@ -522,8 +612,100 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 		const by = group.find((key) => reasons[key]);
 		if (by) for (const key of group) if (!reasons[key]) keep(key, [`kept with ${by}`]);
 	}
-	return { needed: new Set(Object.keys(reasons) as StockKey[]), reasons };
+
+	// A def the walk never expanded, or one the runtime also mounts from a scene it builds itself, may
+	// render with its defaults; a project default may fill any param an instance leaves unset. Every
+	// name either holds still counts.
+	const artNames = new Set([...names.keys(), ...configNames.keys()]);
+	const kept: Names = new Map();
+	for (const def of data.componentDefs ?? []) {
+		if (
+			!isRecord(def) ||
+			!expanded.has(`${def.id}@${def.version}`) ||
+			CODE_MOUNTED_DEFS.has(def.id)
+		) {
+			collectNames(def, kept, 'unplaced component');
+		}
+	}
+	collectNames(data.artReferences, kept, 'art references');
+	for (const name of kept.keys()) artNames.add(name);
+	return {
+		needed: new Set(Object.keys(reasons) as StockKey[]),
+		reasons,
+		editorArtUnused: editorArtUnused(data.editorArt, artNames),
+	};
 }
+
+/**
+ * The node's own art fields the renderer never reads with these params (`LayoutNodeView`
+ * `spriteRef`): a field bound to a param that holds a value draws that value, and a sprite whose
+ * frame is a scoped ref (`<sheet>::<frame>`) draws from that sheet whatever its own `assetKey`.
+ * A component's static `assetKey`/`region` there is only the default its author picked the frame
+ * from.
+ */
+function unreadOwnFields(node: Record<string, unknown>, params: Params): Record<string, undefined> {
+	const bindings = isRecord(node.paramBindings)
+		? (node.paramBindings as Record<string, string>)
+		: undefined;
+	const out: Record<string, undefined> = {};
+	const boundKey = resolveBoundValue(bindings, 'assetKey', params);
+	if (typeof boundKey === 'string' && boundKey) out.assetKey = undefined;
+	if (node.kind !== 'sprite') return out;
+	const boundRegion = resolveBoundValue(bindings, 'region', params);
+	if (typeof boundRegion === 'string') out.region = undefined;
+	const region = typeof boundRegion === 'string' ? boundRegion : node.region;
+	if (typeof region === 'string' && parseScopedFrameRef(region).assetKey) out.assetKey = undefined;
+	return out;
+}
+
+/**
+ * The asset-table keys of the project's exported art (`editor-scenes.ts` `bakedEditorArtAssets`)
+ * that no name reaches. A sheet is reached by its manifest key, a scoped ref into it, or any of its
+ * frame names (its frames also register bare, `pixi-svelte` `assetLoad.ts`) — always, when the bundle
+ * predates the export recording them; an image by its key; a
+ * rig by its key or its bundle folder (`RigProvider.svelte`). The export ships every default a
+ * component declares (`apps/launcher-api` `editorArtExport.ts`), so art only a default names that
+ * every placement overrides lands here.
+ */
+function editorArtUnused(art: StockEditorArt | undefined, names: ReadonlySet<string>): string[] {
+	if (!art) return [];
+	const sheetRefs = new Set<string>();
+	const frames = new Set<string>();
+	const bundles = new Set<string>();
+	for (const name of names) {
+		const scoped = parseScopedFrameRef(name);
+		if (scoped.assetKey) sheetRefs.add(scoped.assetKey);
+		frames.add(scoped.region);
+		bundles.add(rigBundleOf(name));
+	}
+	const unused: string[] = [];
+	for (const sheet of art.sheets ?? []) {
+		const tableKey = `editorArt/${sheet.json}`;
+		const reached =
+			names.has(sheet.key) ||
+			names.has(tableKey) ||
+			sheetRefs.has(sheet.key) ||
+			!Array.isArray(sheet.names) ||
+			sheet.names.some((frame) => frames.has(frame));
+		if (!reached) unused.push(tableKey);
+	}
+	for (const image of art.images ?? []) if (!names.has(image.key)) unused.push(image.key);
+	for (const rig of art.spines ?? []) {
+		if (!names.has(rig.key) && !bundles.has(rigBundleOf(rig.key))) unused.push(rig.key);
+	}
+	return unused;
+}
+
+const rigBundleOf = (value: string): string => RIG_BUNDLE_PATH.exec(value)?.[1] ?? value;
+
+/** Defs placed by scenes the engine builds at runtime rather than reads from the doc
+ *  (`engine-layout` `buyFeatureScene.ts`, `hudMenuScenes.ts`, `freeSpinScenes.ts`). */
+const CODE_MOUNTED_DEFS: ReadonlySet<string> = new Set([
+	'featureCard',
+	'button',
+	'optionCard',
+	'tapToContinue',
+]);
 
 /**
  * The asset table without the stock keys `needed` leaves out. A key is removed only while its entry
