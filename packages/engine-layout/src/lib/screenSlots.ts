@@ -1,6 +1,5 @@
-import type { CinematicNodeDrive } from './cinematicNodeContext';
+import type { CinematicNodeDrive, ScreenNodeDrive, ScreenSlot } from './cinematicNodeContext';
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
-import type { ScreenNodeDrive, ScreenSlot } from './FlowV2Mount.svelte';
 import type { CinematicDoc, Scene } from './types';
 
 /** The channels a screen can take from a timeline without remounting: they only move the node. */

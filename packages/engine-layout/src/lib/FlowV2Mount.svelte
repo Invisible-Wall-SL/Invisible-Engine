@@ -1,6 +1,8 @@
 <script lang="ts" module>
-	import type { CinematicNodeDriver } from './cinematicNodeContext';
+	import type { ScreenNodeDrive, ScreenSlot } from './cinematicNodeContext';
 	import type { Scene } from './types';
+
+	export type { ScreenNodeDrive, ScreenSlot };
 
 	/** A container the v2 flow currently has mounted — its backing scene + stack position.
 	 *  Structural (mirrors engine-flow-v2's `MountedContainer`) so engine-layout stays free of an
@@ -25,14 +27,6 @@
 		 *  timeline drives it now, and its content restarts on each new play. Absent ⇒ remounted. */
 		screenSlot?: (sceneId: string) => ScreenSlot | undefined;
 	};
-
-	/** A screen driven in place: the driver its nodes keep for life, and the key each play changes. */
-	export type ScreenSlot = { driver: CinematicNodeDriver; restart: () => unknown };
-
-	/** A playing screen timeline's hold on the screen it animates. `key` names one play: a node
-	 *  asks for its driver once, at mount, so a new play remounts the screen — unless the screen has
-	 *  a `screenSlot`, which samples the play now driving it and restarts in place instead. */
-	export type ScreenNodeDrive = { key: string; driver: CinematicNodeDriver };
 </script>
 
 <script lang="ts">
