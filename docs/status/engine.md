@@ -335,10 +335,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **GC.** `config-vite` set no `build.target`, so Vite's default (`safari14`) made esbuild lower
     every `#private` class field to a WeakMap. Svelte's runtime is built on them, so every effect
     and branch paid WeakMap writes and brand checks, and the worst bonus frames were single
-    1–3 s collections in the middle of a mount. `build.target` is now
-    `es2022` / Chrome 92 / Firefox 90 / Safari 15.4 — no floor raised: every game already calls
-    `Array.prototype.at` unpolyfilled at boot (the mode stack). GC inside the long frames fell from
-    seconds to ~76 ms; the bundle is ~60 KB smaller. Applies to every build through `config-vite`.
+    1–3 s collections in the middle of a mount. Builds now keep class fields, private members and
+    `#x in` checks native (`esbuild.supported`, `NATIVE_CLASSES`) — no floor raised: every game
+    already calls `Array.prototype.at` unpolyfilled at boot (the mode stack). GC inside the long
+    frames fell from seconds to ~76 ms (measured with an `es2022` target, which keeps the same
+    private fields native). Not that target itself: once the client bundle was minified by Terser,
+    the es2022 output kept the HUD clock's stale width when its string changed, moving the game name
+    on some screens; the current-games harness failed 11 games on it, and a local harness run
+    reproduced it and passed with the narrower list. Applies to every build through `config-vite`.
   - **Respin strips.** A respin cell mounted a whole `Symbol` for every strip symbol rolling past its
     window; two thirds of a Hold and Win strip are blanks that draw nothing (no art, no placeholder,
     label, stamp or Element FX). `RespinCell` now leaves those unmounted, rolling or at rest

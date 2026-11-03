@@ -188,15 +188,30 @@ const families = () => {
 };
 
 /**
- * The browsers a game build compiles for. Vite's default (`safari14`, `chrome87`) made esbuild LOWER
- * every `#private` class field — Svelte's runtime is built on them — to a WeakMap per field, so each
- * effect and branch Svelte creates paid a WeakMap write and every read a brand check, and the
- * entries fed the collector: on `overlay-buffaloduel`'s Hold and Win bonus (CPU slowed 4×) its
- * worst frames were single 1–3 s collections in the middle of a mount. The floor is no higher than
- * the runtime already had: every game calls `Array.prototype.at` unpolyfilled at boot (the mode
- * stack), so none ever ran below these versions.
+ * Class syntax a game build keeps as written. Vite's default target (`safari14`, `chrome87`) made
+ * esbuild LOWER every `#private` class field — Svelte's runtime is built on them — to a WeakMap per
+ * field, so each effect and branch Svelte creates paid a WeakMap write and every read a brand check,
+ * and the entries fed the collector: on `overlay-buffaloduel`'s Hold and Win bonus (CPU slowed 4×)
+ * its worst frames were single 1–3 s collections in the middle of a mount. esbuild lowers a class
+ * whole or not at all, so the field features are listed together. Only these, not an `es2022`
+ * target: Terser minifying the es2022 output kept a text's stale width after its string changed
+ * (the HUD clock moved the game name on some screens: the current-games harness caught it), and
+ * static blocks need Safari 16.4. Every browser the runtime runs on has the rest: every game calls
+ * `Array.prototype.at` unpolyfilled at boot (the mode stack), which is newer than all of them.
  */
-const BUILD_TARGET = ['es2022', 'chrome92', 'edge92', 'firefox90', 'safari15.4'];
+const NATIVE_CLASSES = Object.fromEntries(
+	[
+		'class-field',
+		'class-static-field',
+		'class-private-field',
+		'class-private-method',
+		'class-private-accessor',
+		'class-private-static-field',
+		'class-private-static-method',
+		'class-private-static-accessor',
+		'class-private-brand-check',
+	].map((feature) => [feature, true]),
+);
 
 /**
  * Terser, not esbuild, minifies the client bundle: ~35 KB gz less on the slot runtime for ~25 s
@@ -243,6 +258,7 @@ export default () => {
 		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
 		ssr: { noExternal: ['error-tracking'] },
+		esbuild: { supported: NATIVE_CLASSES },
 		// Inline every build-time asset into the bundle (single-file game deploy) EXCEPT the KTX2
 		// transcoder (`libktx.{js,wasm}`, ~520 KB gz, imported by `pixi-svelte` via `?url`): only a
 		// phone on the compressed tier ever fetches it, so it ships as a real
@@ -250,7 +266,6 @@ export default () => {
 		// `chunkAnchoredAssetUrls` (`assetUrls.js`) makes its URL resolve beside the bundle, and
 		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load.
 		build: {
-			target: BUILD_TARGET,
 			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file),
 			sourcemap: sourcemap(),
 			output: {
