@@ -1,8 +1,8 @@
 # `.irig` as our own format — design + build plan
 
-> **Status: PROPOSED — owner decision needed.** If approved, this reverses
-> [invisible-rigger](invisible-rigger.md) §2.1 ("Do not fork the format"). Until then `.irig` stays
-> byte-valid 4.2-format JSON and nothing here is built.
+> **Status: APPROVED (owner, 2026-11-03), import only.** This reverses
+> [invisible-rigger](invisible-rigger.md) §2.1 ("Do not fork the format"). Progress per phase is in
+> [status/rigger](../status/rigger.md); until Phase 3 nothing writes irig v1.
 > Related: [invisible-rigger](invisible-rigger.md) (the editor), [live-assets](live-assets.md) (the
 > export → deploy → bake → pull → register chain), [multi-user-concurrency](multi-user-concurrency.md)
 > (save path and backups). Current state of the Rigger: [status/rigger](../status/rigger.md).

@@ -83,7 +83,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     change what newly keyed IK plays. That is the owner's call.
 18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
-    fields, 4.2 JSON through an importer. Waiting on the owner's decision and its §9 questions.
+    fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phase 0 in progress.
 
 ## Blocked (owner / external)
 
