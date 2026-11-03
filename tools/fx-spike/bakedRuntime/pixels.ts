@@ -9,7 +9,15 @@
  * The sheet reaches the runtime both ways a game loads it: the PNG (decoded and premultiplied on
  * upload, as Pixi's texture loader does) and the premultiplied KTX2 twin's bytes (`premultiplyRgba`,
  * the encoder's own premultiply, uploaded `premultiplied-alpha` as `ktx2AlphaMode` marks it; the
- * UASTC block compression itself is not run here).
+ * UASTC block compression itself is not run here). Its frames are TRIMMED, and are cut from the page
+ * by Pixi's own `Spritesheet` reading the JSON `/api/fx/bake` writes (`effectBakeSheetJson`); each
+ * effect is also played from the same frames laid out untrimmed, as full cells, and must draw what
+ * they draw — at scale 1 and, for the mixed effect, at 0.5, where the sprite is magnified and a
+ * trim's edge texel filters outward. "The same" allows the GPU's sub-texel rounding of a quad's
+ * texture coordinates, which moves with the page's size and the quad's extent ({@link SUBTEXEL}); the
+ * full cells played from a second, shifted grid are measured beside it. A misplaced trim is far
+ * above it. (The one-pixel margin a trim keeps is proven in texel space by `effectBake.ts`: the soft
+ * art here fades to nothing before its edge, so cutting the margin moves no pixel of it.)
  *
  * The effects:
  *  - MIXED: a soft normal cloud under additive sparks whose texture is a glow on an OPAQUE BLACK
@@ -22,7 +30,7 @@
  *
  * `window.result` lists `[name, ok, detail]`.
  */
-import { flushSync, mount } from 'svelte';
+import { flushSync, mount, unmount } from 'svelte';
 import {
 	Application,
 	BufferImageSource,
@@ -31,12 +39,15 @@ import {
 	ImageSource,
 	Rectangle,
 	Sprite,
+	Spritesheet,
 	Texture,
+	type SpritesheetData,
 	type TextureSource,
 } from 'pixi.js';
 import {
-	effectBakeCellOrigin,
 	effectBakeFrameCount,
+	effectBakeGroupFrameNames,
+	effectBakeSheetJson,
 	effectBakeWarmup,
 	emitterDeltaSeconds,
 	normalizeEffectDoc,
@@ -156,14 +167,14 @@ const sparkLayer = {
 		],
 	},
 };
-const docOf = (id: string, layers: unknown[]): EffectDoc =>
+const docOf = (id: string, layers: unknown[], scale = 1): EffectDoc =>
 	normalizeEffectDoc(
 		{
 			version: 1,
 			id,
 			name: id,
 			layers,
-			bake: { enabled: true, fps: FPS, loopSeconds: 0.5, scale: 1, seam: 'cut' },
+			bake: { enabled: true, fps: FPS, loopSeconds: 0.5, scale, seam: 'cut' },
 		},
 		id,
 	);
@@ -231,9 +242,9 @@ function diff(live: Image, baked: Image, bg: readonly number[], b: Rectangle): D
 }
 
 // --- the sheet, as a game loads it ----------------------------------------------------------------
-async function pngSource(capture: BakeCapture): Promise<TextureSource> {
+async function pngSource(canvas: HTMLCanvasElement): Promise<TextureSource> {
 	const blob = await new Promise<Blob>((resolve, reject) =>
-		capture.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob'))), 'image/png'),
+		canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob'))), 'image/png'),
 	);
 	// Pixi's `loadTextures` for a straight PNG.
 	return new ImageSource({
@@ -254,23 +265,69 @@ function ktx2Source(capture: BakeCapture): TextureSource {
 		alphaMode: 'premultiplied-alpha',
 	});
 }
-function sheetAssets(
+/** The sheet's frames as the game's loader cuts them: Pixi's `Spritesheet` over the bake's JSON. */
+async function sheetAssets(
 	capture: BakeCapture,
 	result: EffectBakeResult,
 	source: TextureSource,
-): Record<string, Texture> {
+): Promise<Record<string, Texture>> {
+	const data = effectBakeSheetJson(capture.layout, 'page.png', capture.hash);
+	const sheet = new Spritesheet(new Texture({ source }), data as unknown as SpritesheetData);
+	await sheet.parse();
 	const out: Record<string, Texture> = {};
-	result.groups.forEach((g, gi) =>
-		g.frames.forEach((name, i) => {
-			const at = effectBakeCellOrigin(capture.plan, gi * capture.frames + i);
-			out[`${result.assetKey}::${name}`] = new Texture({
-				source,
-				frame: new Rectangle(at.x, at.y, capture.plan.cellW, capture.plan.cellH),
-			});
-		}),
-	);
+	for (const g of result.groups)
+		for (const name of g.frames) out[`${result.assetKey}::${name}`] = sheet.textures[name];
 	return out;
 }
+
+/**
+ * The same frames laid out UNTRIMMED, as the bake did before trimming: each frame's whole cell on a
+ * grid, nothing outside its trim. Answers the page and each frame's cell texture over it.
+ */
+function untrimmedCells(
+	capture: BakeCapture,
+	shift = 0,
+): {
+	page: HTMLCanvasElement;
+	cells: (source: TextureSource) => Record<string, Texture>;
+} {
+	const { cellW, cellH, frames } = capture.layout;
+	const pitch = (n: number) => Math.ceil((n + 2) / 4) * 4;
+	const cols = Math.ceil(Math.sqrt(frames.length)) + shift;
+	const at = (i: number) => ({
+		x: shift * 4 + (i % cols) * pitch(cellW),
+		y: shift * 4 + Math.floor(i / cols) * pitch(cellH),
+	});
+	const page = document.createElement('canvas');
+	page.width = shift * 4 + cols * pitch(cellW);
+	page.height = shift * 4 + Math.ceil(frames.length / cols) * pitch(cellH);
+	const ctx = page.getContext('2d') as CanvasRenderingContext2D;
+	const from = (capture.canvas.getContext('2d') as CanvasRenderingContext2D).getImageData(
+		0,
+		0,
+		capture.canvas.width,
+		capture.canvas.height,
+	);
+	frames.forEach(({ x, y, trim }, i) => {
+		const cell = at(i);
+		ctx.putImageData(from, cell.x + trim.x - x, cell.y + trim.y - y, x, y, trim.w, trim.h);
+	});
+	const names = effectBakeGroupFrameNames(capture.hash, capture.frames, capture.groups.length);
+	const assetKey = bakedKey(capture);
+	return {
+		page,
+		cells: (source) =>
+			Object.fromEntries(
+				names
+					.flat()
+					.map((name, i) => [
+						`${assetKey}::${name}`,
+						new Texture({ source, frame: new Rectangle(at(i).x, at(i).y, cellW, cellH) }),
+					]),
+			),
+	};
+}
+const bakedKey = (capture: BakeCapture): string => `c/p/fx-bakes/fx/fxbake_fx_${capture.hash}.json`;
 
 interface Run {
 	capture: BakeCapture;
@@ -285,12 +342,10 @@ interface Run {
 async function bakeAndRunLive(doc: EffectDoc): Promise<Run> {
 	seed(7);
 	const capture = await captureEffectBake({ doc, resolveArt });
+	const names = effectBakeGroupFrameNames(capture.hash, capture.frames, capture.groups.length);
 	const result: EffectBakeResult = {
-		assetKey: `c/p/fx-bakes/${doc.id}/fxbake_${doc.id}_${capture.hash}.json`,
-		groups: capture.groups.map((blendMode, g) => ({
-			blendMode,
-			frames: Array.from({ length: capture.frames }, (_, i) => `px_${g}_${i}`),
-		})),
+		assetKey: bakedKey(capture),
+		groups: capture.groups.map((blendMode, g) => ({ blendMode, frames: names[g] })),
 		fps: capture.fps,
 		bounds: capture.bounds,
 		hash: capture.hash,
@@ -361,19 +416,33 @@ async function bakeAndRunLive(doc: EffectDoc): Promise<Run> {
 	return { capture, result, live, legacy, box };
 }
 
+/**
+ * One app plays every run: Chrome keeps only so many WebGL contexts, and a new app per run evicts
+ * the capture app's, which then reads back nothing.
+ */
+let player: Promise<Application> | undefined;
+/** The players' clock, never turned back: a ticker calls its listeners only when time moves on. */
+let clock = 1000;
+function playerApp(): Promise<Application> {
+	player ??= (async () => {
+		const app = new Application();
+		await app.init({ width: SIZE, height: SIZE, autoStart: false, preference: 'webgl' });
+		return app;
+	})();
+	return player;
+}
+
 /** The baked effect played by the real `<EffectPlayer>`, frame by frame, over each background. */
 async function playBaked(
 	doc: EffectDoc,
 	run: Run,
-	source: TextureSource,
+	loadedAssets: Record<string, Texture>,
 ): Promise<{ blends: string[]; played: { frame: number; images: Record<BgName, Image> }[] }> {
-	const app = new Application();
-	await app.init({ width: SIZE, height: SIZE, autoStart: false, preference: 'webgl' });
+	const app = await playerApp();
 	const bg = new Graphics();
 	app.stage.addChild(bg);
-	const loadedAssets = sheetAssets(run.capture, run.result, source);
 	const bakedDoc = { ...doc, bake: { ...doc.bake!, result: run.result } } as EffectDoc;
-	mount(Host, {
+	const host = mount(Host, {
 		target: document.body,
 		props: { app, loadedAssets, mounts: [{ doc: bakedDoc, x: MID, y: MID }] },
 	});
@@ -382,10 +451,9 @@ async function playBaked(
 	const group0 = run.result.groups[0].frames.map(
 		(n) => loadedAssets[`${run.result.assetKey}::${n}`],
 	);
-	let now = 1000;
 	const out: { frame: number; images: Record<BgName, Image> }[] = [];
 	for (let k = 0; k < run.capture.frames; k++) {
-		app.ticker.update((now += k === 0 ? 16 : 1000 / FPS + 0.01));
+		app.ticker.update((clock += k === 0 ? 16 : 1000 / FPS + 0.01));
 		const sprites = holder.children as Sprite[];
 		const frame = group0.indexOf(sprites[0].texture);
 		const images = {} as Record<BgName, Image>;
@@ -395,7 +463,10 @@ async function playBaked(
 		}
 		out.push({ frame, images });
 	}
-	return { blends: (holder.children as Sprite[]).map((s) => s.blendMode), played: out };
+	const blends = (holder.children as Sprite[]).map((s) => s.blendMode);
+	unmount(host);
+	app.stage.removeChildren().forEach((c) => c.destroy({ children: true }));
+	return { blends, played: out };
 }
 
 /** Mean of a diff over every frame; ring/darker summed. */
@@ -408,6 +479,27 @@ function summarise(diffs: Diff[]): Diff {
 		box,
 	};
 }
+/** Channels that differ between two played runs, frame by frame, over every background. */
+function changed(
+	a: { images: Record<BgName, Image> }[],
+	b: { images: Record<BgName, Image> }[],
+): { channels: number; worst: number } {
+	let channels = 0;
+	let worst = 0;
+	a.forEach((p, k) => {
+		for (const name of Object.keys(BACKGROUNDS) as BgName[]) {
+			const x = p.images[name];
+			const y = b[k].images[name];
+			for (let i = 0; i < x.length; i++) {
+				const d = Math.abs(x[i] - y[i]);
+				if (d) channels++;
+				worst = Math.max(worst, d);
+			}
+		}
+	});
+	return { channels, worst };
+}
+
 const fmt = (d: Diff): string =>
 	`MAE ${d.mae.toFixed(2)}/255, dark-ring ${d.darkRing}, darker-than-live ${d.darker} of ${d.box} px`;
 
@@ -419,6 +511,12 @@ const fmt = (d: Diff): string =>
  * dark ring or a pixel more than 6/255 darker than live is never acceptable: zero pixels.
  */
 const MAE_MAX = 2;
+/**
+ * Most a channel may differ between trimmed frames and full cells: the sampler's fixed-point
+ * texture coordinates round differently on another page and quad (measured: up to 2/255 on a sprite
+ * magnified 2×, along soft edges). A trim placed one pixel off differs by 17–86/255 here.
+ */
+const SUBTEXEL = 2;
 
 (async () => {
 	const mixedDoc = docOf('mixed', [cloudLayer('cloud'), sparkLayer]);
@@ -447,24 +545,48 @@ const MAE_MAX = 2;
 		]),
 		withBlend(sparkLayer, 'sparks', 'screen'),
 	]);
+	const mixedHalfDoc = docOf('mixedhalf', [cloudLayer('cloud'), sparkLayer], 0.5);
 	const expected: Record<string, string> = {
 		mixed: 'normal,add',
 		smoke: 'normal',
 		blends: 'normal,multiply,screen',
+		mixedhalf: 'normal,add',
 	};
 
-	for (const doc of [mixedDoc, smokeDoc, blendsDoc]) {
+	for (const doc of [mixedDoc, smokeDoc, blendsDoc, mixedHalfDoc]) {
 		const run = await bakeAndRunLive(doc);
 		check(
 			`${doc.id}: the bake holds one group per blend run`,
 			run.result.groups.map((g) => g.blendMode).join() === expected[doc.id],
 			run.result.groups.map((g) => g.blendMode).join(),
 		);
+		const full = untrimmedCells(run.capture);
+		const moved = untrimmedCells(run.capture, 1);
+		const fullPlayed = await playBaked(doc, run, full.cells(await pngSource(full.page)));
+		const movedPlayed = await playBaked(doc, run, moved.cells(await pngSource(moved.page)));
+		const trimmedPlayed = await playBaked(
+			doc,
+			run,
+			await sheetAssets(run.capture, run.result, await pngSource(run.capture.canvas)),
+		);
+		const noise = changed(movedPlayed.played, fullPlayed.played);
+		const same = changed(trimmedPlayed.played, fullPlayed.played);
+		const sameFrames = trimmedPlayed.played.every((p, k) => p.frame === fullPlayed.played[k].frame);
+		check(
+			`${doc.id}: trimmed frames draw what full cells draw (page ` +
+				`${run.capture.canvas.width}×${run.capture.canvas.height}, untrimmed ` +
+				`${full.page.width}×${full.page.height})`,
+			sameFrames && same.worst <= SUBTEXEL,
+			`${same.channels} channels differ, worst ${same.worst}/255; the full cells moved on the ` +
+				`page: ${noise.channels}, worst ${noise.worst}/255`,
+		);
+		if (doc.id === 'mixedhalf') continue;
 		for (const [label, source] of [
-			['PNG', await pngSource(run.capture)],
+			['PNG', await pngSource(run.capture.canvas)],
 			['pm KTX2 bytes', ktx2Source(run.capture)],
 		] as const) {
-			const { blends, played } = await playBaked(doc, run, source);
+			const loaded = await sheetAssets(run.capture, run.result, source);
+			const { blends, played } = await playBaked(doc, run, loaded);
 			check(
 				`${doc.id} (${label}): the runtime draws one sprite per group, with its blend`,
 				blends.join() === run.result.groups.map((g) => g.blendMode).join(),

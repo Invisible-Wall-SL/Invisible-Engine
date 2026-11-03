@@ -156,7 +156,15 @@ try {
 			const s = await bakeDrive.sheet();
 			const res = await fetch('/api/editor/regions?sheet=' + encodeURIComponent(s.key.replace(/\\.png$/, '.json')));
 			const { regions } = await res.json();
-			const pix = regions.map((r) => s.g.getImageData(r.x, r.y, r.w, r.h).data);
+			// Each frame is trimmed: put it back in its full cell, as Pixi places it, to compare frames.
+			const cell = document.createElement('canvas');
+			const cg = cell.getContext('2d', { willReadFrequently: true });
+			const pix = regions.map((r) => {
+				cell.width = r.origW ?? r.w;
+				cell.height = r.origH ?? r.h;
+				cg.drawImage(s.c, r.x, r.y, r.w, r.h, r.offX ?? 0, r.offY ?? 0, r.w, r.h);
+				return cg.getImageData(0, 0, cell.width, cell.height).data;
+			});
 			const drawn = pix.map((d) => { let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++; return n; });
 			const diff = (a, b) => { let t = 0; for (let i = 0; i < a.length; i++) t += Math.abs(a[i] - b[i]); return t / a.length; };
 			const per = 48;
@@ -241,7 +249,8 @@ try {
 			for (const group of bake.groups) {
 				const r = byName.get(group.frames[0]);
 				g.globalCompositeOperation = group.blendMode === 'add' ? 'lighter' : 'source-over';
-				g.drawImage(s.c, r.x, r.y, r.w, r.h, 3 * half + bake.bounds.x, half + bake.bounds.y, bake.bounds.w, bake.bounds.h);
+				const k = bake.bounds.w / (r.origW ?? r.w);
+				g.drawImage(s.c, r.x, r.y, r.w, r.h, 3 * half + bake.bounds.x + (r.offX ?? 0) * k, half + bake.bounds.y + (r.offY ?? 0) * k, r.w * k, r.h * k);
 			}
 			return out.toDataURL('image/png');
 		})()`);

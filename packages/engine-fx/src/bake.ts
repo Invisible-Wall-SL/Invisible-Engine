@@ -323,13 +323,18 @@ export function exportableEffectDoc(doc: EffectDoc): EffectDoc {
 	return { ...rest, bake: { ...bake, result: bake.result } };
 }
 
-/** Layout of a baked sheet: a grid of equal cells, one per frame of each blend group. */
+/**
+ * The scale a bake is composed at and its cell: the full captured box of one frame, the
+ * `sourceSize` every frame of the sheet shares. Sized as a grid of equal cells, which bounds the
+ * packed page ({@link packEffectBakeFrames} never needs more), so the scale is settled before any
+ * frame is trimmed.
+ */
 export interface EffectBakeSheetPlan {
 	/** The scale actually used — the requested one, lowered when the sheet would not fit. */
 	scale: number;
 	cellW: number;
 	cellH: number;
-	/** Fewest transparent pixels between cells, so filtering never bleeds a neighbour in. */
+	/** Fewest transparent pixels between frames, so filtering never bleeds a neighbour in. */
 	gap: number;
 	cols: number;
 	rows: number;
@@ -338,33 +343,12 @@ export interface EffectBakeSheetPlan {
 }
 
 const BAKE_GAP = 2;
-/** Cells start on a multiple of this, so no 4×4 block of a compressed (KTX2) page spans two. */
+/** Frames start on a multiple of this, so no 4×4 block of a compressed (KTX2) page spans two. */
 const BAKE_ALIGN = 4;
 
-/** Distance from one cell's origin to the next along an axis: the cell, the gap, then aligned. */
-export const effectBakePitch = (cell: number, gap: number): number =>
-	Math.ceil((cell + gap) / BAKE_ALIGN) * BAKE_ALIGN;
-
-/** Top-left of cell `i` on the page. Cell `g × frames + f` is frame `f` of group `g`. */
-export function effectBakeCellOrigin(
-	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols'>,
-	i: number,
-): { x: number; y: number } {
-	return {
-		x: (i % plan.cols) * effectBakePitch(plan.cellW, plan.gap),
-		y: Math.floor(i / plan.cols) * effectBakePitch(plan.cellH, plan.gap),
-	};
-}
-
-/** The page size a grid needs: no gutter after the last column or row. */
-export function effectBakeSheetSize(
-	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols' | 'rows'>,
-): { width: number; height: number } {
-	return {
-		width: (plan.cols - 1) * effectBakePitch(plan.cellW, plan.gap) + plan.cellW,
-		height: (plan.rows - 1) * effectBakePitch(plan.cellH, plan.gap) + plan.cellH,
-	};
-}
+/** Distance from one frame's origin to the next along an axis: the frame, the gap, then aligned. */
+const effectBakePitch = (size: number): number =>
+	Math.ceil((size + BAKE_GAP) / BAKE_ALIGN) * BAKE_ALIGN;
 
 const layoutAt = (
 	boundsW: number,
@@ -376,14 +360,22 @@ const layoutAt = (
 	const cellH = Math.max(1, Math.ceil(boundsH * scale));
 	const cols = Math.max(1, Math.min(cells, Math.ceil(Math.sqrt((cells * cellH) / cellW))));
 	const rows = Math.ceil(cells / cols);
-	const grid = { cellW, cellH, gap: BAKE_GAP, cols, rows };
-	return { scale, ...grid, ...effectBakeSheetSize(grid) };
+	return {
+		scale,
+		cellW,
+		cellH,
+		gap: BAKE_GAP,
+		cols,
+		rows,
+		width: (cols - 1) * effectBakePitch(cellW) + cellW,
+		height: (rows - 1) * effectBakePitch(cellH) + cellH,
+	};
 };
 
 /**
- * Lay out `cells` cells (frames × blend groups) of the captured box (effect pixels) at `scale` into
- * one page no larger than `EFFECT_BAKE_LIMITS.sheetSide`, lowering the scale until it fits.
- * `undefined` when even the smallest scale does not fit.
+ * Size `cells` cells (frames × blend groups) of the captured box (effect pixels) at `scale` so the
+ * sheet fits one page no larger than `EFFECT_BAKE_LIMITS.sheetSide` even untrimmed, lowering the
+ * scale until it does. `undefined` when even the smallest scale does not fit.
  */
 export function planEffectBakeSheet(
 	boundsW: number,
@@ -400,6 +392,133 @@ export function planEffectBakeSheet(
 		if (s <= min) return undefined;
 		s = Math.max(min, s * Math.min(side / plan.width, side / plan.height, 0.95));
 	}
+}
+
+/** Where a frame's pixels sit inside its cell, cell pixels. */
+export interface EffectBakeTrim {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+/**
+ * The part of a composed cell (`width × height`, straight-alpha RGBA) a frame must keep: the box of
+ * every pixel that changes what is drawn under it, grown by one pixel of nothing on each side and
+ * clamped to the cell. The margin is what keeps a trimmed frame pixel-identical to the full cell: a
+ * texel on the box's edge filters half a texel outward, into a neighbour that is still inside the
+ * frame. A pixel changes nothing when it is fully transparent — or, in a multiply group (captured
+ * over white), when it is white at any alpha. A cell that draws nothing keeps one such pixel.
+ */
+export function effectBakeTrim(
+	pixels: ArrayLike<number>,
+	width: number,
+	height: number,
+	blend: EffectBakeBlend,
+): EffectBakeTrim {
+	const multiply = blend === 'multiply';
+	let x0 = width;
+	let y0 = height;
+	let x1 = -1;
+	let y1 = -1;
+	for (let y = 0, p = 0; y < height; y++) {
+		for (let x = 0; x < width; x++, p += 4) {
+			if (pixels[p + 3] === 0) continue;
+			if (multiply && pixels[p] === 255 && pixels[p + 1] === 255 && pixels[p + 2] === 255) continue;
+			if (x < x0) x0 = x;
+			if (x > x1) x1 = x;
+			if (y < y0) y0 = y;
+			y1 = y;
+		}
+	}
+	if (x1 < 0) return { x: 0, y: 0, w: 1, h: 1 };
+	const x = Math.max(0, x0 - 1);
+	const y = Math.max(0, y0 - 1);
+	return { x, y, w: Math.min(width, x1 + 2) - x, h: Math.min(height, y1 + 2) - y };
+}
+
+/** A packed baked sheet: each cell's trim, and where that trim sits on the page. */
+export interface EffectBakeLayout {
+	cellW: number;
+	cellH: number;
+	width: number;
+	height: number;
+	/** Cell `g × frames + f` is frame `f` of group `g`. */
+	frames: { x: number; y: number; trim: EffectBakeTrim }[];
+}
+
+const isTrim = (t: unknown, cellW: number, cellH: number): t is EffectBakeTrim => {
+	if (!isObject(t)) return false;
+	const { x, y, w, h } = t;
+	const int = (v: unknown): v is number => Number.isInteger(v);
+	if (!int(x) || !int(y) || !int(w) || !int(h)) return false;
+	return x >= 0 && y >= 0 && w >= 1 && h >= 1 && x + w <= cellW && y + h <= cellH;
+};
+
+/** Shelves no wider than `limit`, filled in `order`. */
+const shelfPack = (
+	trims: readonly EffectBakeTrim[],
+	order: readonly number[],
+	limit: number,
+): { width: number; height: number; at: { x: number; y: number }[] } => {
+	const at: { x: number; y: number }[] = new Array(trims.length);
+	let x = 0;
+	let y = 0;
+	let shelf = 0;
+	let width = 0;
+	for (const i of order) {
+		const t = trims[i];
+		if (x > 0 && x + t.w > limit) {
+			x = 0;
+			y += effectBakePitch(shelf);
+			shelf = 0;
+		}
+		at[i] = { x, y };
+		width = Math.max(width, x + t.w);
+		shelf = Math.max(shelf, t.h);
+		x += effectBakePitch(t.w);
+	}
+	return { width, height: y + shelf, at };
+};
+
+/** How much larger than the smallest packing a squarer page may be. */
+const BAKE_SQUARE_SLACK = 1.05;
+
+/**
+ * Pack every cell's trimmed frame onto a small page: shelves, tallest frames first, each frame on a
+ * 4-px block with at least a 2-px transparent gap before the next, so a KTX2 block never spans two
+ * frames. Of the shelf widths tried, the squarest page within 5% of the smallest area wins, so a
+ * bake does not come out a 3000-px strip. Deterministic: the page lays the PNG out with it and
+ * `/api/fx/bake` re-runs it to write the JSON. Fits wherever {@link planEffectBakeSheet}'s grid
+ * fits: at that grid's width every shelf holds at least a grid row. `undefined` when a trim does not
+ * lie in its cell, or the page would pass `EFFECT_BAKE_LIMITS.sheetSide`.
+ */
+export function packEffectBakeFrames(
+	cellW: number,
+	cellH: number,
+	trims: readonly unknown[],
+): EffectBakeLayout | undefined {
+	if (!trims.length || !trims.every((t) => isTrim(t, cellW, cellH))) return undefined;
+	const rects = trims as readonly EffectBakeTrim[];
+	const side = EFFECT_BAKE_LIMITS.sheetSide;
+	const order = rects.map((_, i) => i).sort((a, b) => rects[b].h - rects[a].h || a - b);
+	const tried: { limit: number; area: number; longest: number }[] = [];
+	for (let limit = Math.max(...rects.map((t) => t.w)); limit <= side; limit++) {
+		const { width, height, at } = shelfPack(rects, order, limit);
+		if (height <= side)
+			tried.push({ limit, area: width * height, longest: Math.max(width, height) });
+		// One shelf holds everything: a wider limit packs the same.
+		if (at.every((p) => p.y === 0)) break;
+	}
+	if (!tried.length) return undefined;
+	const smallest = Math.min(...tried.map((t) => t.area));
+	const pick = tried
+		.filter((t) => t.area <= smallest * BAKE_SQUARE_SLACK)
+		.reduce((a, b) =>
+			b.longest < a.longest || (b.longest === a.longest && b.area < a.area) ? b : a,
+		);
+	const { width, height, at } = shelfPack(rects, order, pick.limit);
+	return { cellW, cellH, width, height, frames: rects.map((trim, i) => ({ ...at[i], trim })) };
 }
 
 /**
@@ -422,31 +541,33 @@ export const effectBakeGroupFrameNames = (
 
 /**
  * The TexturePacker (json-hash) description of a baked sheet: what `/api/editor/regions` reads and
- * the editor-art export re-ships, so the sheet takes the same road as any effect atlas.
+ * the editor-art export re-ships, so the sheet takes the same road as any effect atlas. Every frame
+ * keeps the whole cell as its `sourceSize` and its trim as its `spriteSourceSize` — Pixi's `orig` and
+ * `trim` — so a sprite sized to the captured box draws a trimmed frame exactly where the full cell
+ * drew it.
  */
 export function effectBakeSheetJson(
-	plan: Pick<EffectBakeSheetPlan, 'cellW' | 'cellH' | 'gap' | 'cols' | 'width' | 'height'>,
-	cells: number,
+	layout: EffectBakeLayout,
 	image: string,
 	hash: string,
 ): {
 	frames: Record<string, unknown>;
 	meta: { image: string; size: { w: number; h: number }; scale: string; format: string };
 } {
+	const { cellW, cellH } = layout;
 	const out: Record<string, unknown> = {};
-	for (let i = 0; i < cells; i++) {
-		const { x, y } = effectBakeCellOrigin(plan, i);
+	layout.frames.forEach(({ x, y, trim }, i) => {
 		out[effectBakeFrameName(hash, i)] = {
-			frame: { x, y, w: plan.cellW, h: plan.cellH },
+			frame: { x, y, w: trim.w, h: trim.h },
 			rotated: false,
-			trimmed: false,
-			spriteSourceSize: { x: 0, y: 0, w: plan.cellW, h: plan.cellH },
-			sourceSize: { w: plan.cellW, h: plan.cellH },
+			trimmed: trim.x !== 0 || trim.y !== 0 || trim.w !== cellW || trim.h !== cellH,
+			spriteSourceSize: { ...trim },
+			sourceSize: { w: cellW, h: cellH },
 		};
-	}
+	});
 	return {
 		frames: out,
-		meta: { image, size: { w: plan.width, h: plan.height }, scale: '1', format: 'RGBA8888' },
+		meta: { image, size: { w: layout.width, h: layout.height }, scale: '1', format: 'RGBA8888' },
 	};
 }
 

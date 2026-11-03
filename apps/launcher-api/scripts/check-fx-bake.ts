@@ -4,11 +4,11 @@
  *   1. THE UPLOAD — `/api/fx/bake/upload-url` is `fx`-gated, refuses an unsaved effect, a malformed
  *      hash and a tab on another project, and signs a PUT for the page at
  *      `fx-bakes/<id>/fxbake_<id>_<hash>.png`.
- *   2. THE SHEET — `/api/fx/bake` refuses a layout that does not fit and a page that never arrived,
- *      writes the TexturePacker JSON beside the page, and that JSON reads back through the REAL
- *      `loadRegionSet` (the reader the editor-art export ships every effect atlas through) as one
- *      region per frame, on that page, each cell on a 4-px block; a bake of several blend groups
- *      gets each group's frame names, cells group by group.
+ *   2. THE SHEET — `/api/fx/bake` refuses trims that do not pack onto the page it reports and a page
+ *      that never arrived, writes the TexturePacker JSON beside the page, and that JSON reads back
+ *      through the REAL `loadRegionSet` (the reader the editor-art export ships every effect atlas
+ *      through) as one region per frame, on that page, each trimmed inside its full cell; a bake of
+ *      several blend groups gets each group's frame names, cells group by group.
  *   3. SAVE AND DELETE — Save prunes every bake of the effect but the one the saved doc names; Delete
  *      drops them all.
  *   4. THE EXPORT — the real `exportEffects` ships a current, enabled bake (and lists its sheet in
@@ -180,8 +180,16 @@ const layer = (frequency = 0.008) => ({
 const BAKE = { enabled: true, fps: 24, loopSeconds: 2, scale: 0.5, seam: 'crossfade' };
 const HASH_A = '0000000a';
 const HASH_B = '0000000b';
-// Cells start on a 4-px block: 60 + 2 → a 64 px pitch, 70 + 2 → 72.
-const PLAN = { cellW: 60, cellH: 70, gap: 2, cols: 2, rows: 2, width: 124, height: 142 };
+// Four 60×70 cells, each trimmed to what it draws (the full cell, a box, a sliver, a dot).
+const TRIMS = [
+	{ x: 10, y: 12, w: 30, h: 40 },
+	{ x: 0, y: 0, w: 60, h: 70 },
+	{ x: 20, y: 30, w: 8, h: 8 },
+	{ x: 5, y: 5, w: 50, h: 20 },
+];
+// Packed tallest first on 4-px blocks with a 2 px gap: the 60×70 frame, the 30×40 below it at
+// y 72, then the 50×20 and the dot side by side at y 116 (40 + 2 → a 44 px pitch).
+const SHEET = { cellW: 60, cellH: 70, width: 60, height: 136, trims: TRIMS };
 const bakeDir = fxBakePrefix(CLIENT, PROJECT, 'firecracker');
 
 // ── 1. The upload ──────────────────────────────────────────────────────────────────────────────
@@ -221,16 +229,26 @@ console.log('1. the upload');
 // ── 2. The sheet ───────────────────────────────────────────────────────────────────────────────
 console.log('2. the sheet');
 {
-	const body = { effectId: 'firecracker', hash: HASH_A, frames: 4, plan: PLAN };
+	const body = { effectId: 'firecracker', hash: HASH_A, frames: 4, sheet: SHEET };
 	check('a page that never arrived is refused', (await call(bakeRoute.POST, body)).status, 409);
 	put(`${bakeDir}fxbake_firecracker_${HASH_A}.png`, 'PNG');
 	check(
-		'a layout that does not fit its page is refused',
-		(await call(bakeRoute.POST, { ...body, plan: { ...PLAN, width: 100 } })).status,
+		'a page size the packer does not lay those trims out on is refused',
+		(await call(bakeRoute.POST, { ...body, sheet: { ...SHEET, width: 124, height: 142 } })).status,
 		400,
 	);
 	check(
-		'more frames than cells are refused',
+		'a trim outside its cell is refused',
+		(
+			await call(bakeRoute.POST, {
+				...body,
+				sheet: { ...SHEET, trims: [{ x: 40, y: 0, w: 30, h: 10 }, ...TRIMS.slice(1)] },
+			})
+		).status,
+		400,
+	);
+	check(
+		'more frames than trims are refused',
 		(await call(bakeRoute.POST, { ...body, frames: 5 })).status,
 		400,
 	);
@@ -243,22 +261,17 @@ console.log('2. the sheet');
 	]);
 	const set = await loadRegionSet(assetKey);
 	check(
-		'the sheet reads back through loadRegionSet, one region per frame',
-		set.regions.map((r) => [r.name, r.x, r.y, r.w, r.h]),
+		'the sheet reads back through loadRegionSet: each frame trimmed, inside its full 60×70 cell',
+		set.regions.map((r) => [r.name, r.x, r.y, r.w, r.h, r.offX, r.offY, r.origW, r.origH]),
 		[
-			[`bake_${HASH_A}_000`, 0, 0, 60, 70],
-			[`bake_${HASH_A}_001`, 64, 0, 60, 70],
-			[`bake_${HASH_A}_002`, 0, 72, 60, 70],
-			[`bake_${HASH_A}_003`, 64, 72, 60, 70],
+			[`bake_${HASH_A}_000`, 0, 72, 30, 40, 10, 12, 60, 70],
+			[`bake_${HASH_A}_001`, 0, 0, 60, 70, 0, 0, 60, 70],
+			[`bake_${HASH_A}_002`, 52, 116, 8, 8, 20, 30, 60, 70],
+			[`bake_${HASH_A}_003`, 0, 116, 50, 20, 5, 5, 60, 70],
 		],
 	);
 	check('on its own page', set.pageKey, `${bakeDir}fxbake_firecracker_${HASH_A}.png`);
-	check('at the page size', [set.pageWidth, set.pageHeight], [124, 142]);
-	check(
-		'the old 2 px pitch no longer fits its cells',
-		(await call(bakeRoute.POST, { ...body, plan: { ...PLAN, width: 122 } })).status,
-		400,
-	);
+	check('at the packed page size', [set.pageWidth, set.pageHeight], [60, 136]);
 	check(
 		'more blend groups than the limit are refused',
 		(await call(bakeRoute.POST, { ...body, frames: 2, groups: 9 })).status,
@@ -270,7 +283,7 @@ console.log('2. the sheet');
 		[`bake_${HASH_A}_002`, `bake_${HASH_A}_003`],
 	]);
 	check(
-		'two groups of three frames do not fit four cells',
+		'two groups of three frames do not match four trims',
 		(await call(bakeRoute.POST, { ...body, frames: 3, groups: 2 })).status,
 		400,
 	);

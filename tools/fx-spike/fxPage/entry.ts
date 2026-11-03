@@ -23,6 +23,7 @@ import {
 	effectBakeGroupFrameNames,
 	effectBakeSheetJson,
 	normalizeEffectDoc,
+	packEffectBakeFrames,
 	type EffectDoc,
 } from 'engine-fx';
 import {
@@ -210,6 +211,9 @@ const json = (body: unknown, status = 200): Response =>
 const realFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 	const url = new URL(typeof input === 'string' ? input : String(input), location.href);
+	// On Windows a root-relative URL resolved on a file:// page keeps the drive: `/C:/api/…`.
+	if (url.protocol === 'file:')
+		url.pathname = url.pathname.replace(/^\/[A-Za-z]:(?=\/(api|rig))/, '');
 	const method = init?.method ?? 'GET';
 	if (
 		url.protocol === 'file:' &&
@@ -232,7 +236,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 		case '/api/editor/regions': {
 			const sheet = sheets.get(url.searchParams.get('sheet') ?? '') as
 				| {
-						frames: Record<string, { frame: { x: number; y: number; w: number; h: number } }>;
+						frames: Record<
+							string,
+							{
+								frame: { x: number; y: number; w: number; h: number };
+								spriteSourceSize: { x: number; y: number };
+								sourceSize: { w: number; h: number };
+							}
+						>;
 						meta: { size: { w: number; h: number } };
 				  }
 				| undefined;
@@ -242,7 +253,15 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 					pageKey: png,
 					pageWidth: sheet.meta.size.w,
 					pageHeight: sheet.meta.size.h,
-					regions: Object.entries(sheet.frames).map(([name, f]) => ({ name, ...f.frame })),
+					// As `texturePackerToInvisible` reads a trimmed frame.
+					regions: Object.entries(sheet.frames).map(([name, f]) => ({
+						name,
+						...f.frame,
+						offX: f.spriteSourceSize.x,
+						offY: f.spriteSourceSize.y,
+						origW: f.sourceSize.w,
+						origH: f.sourceSize.h,
+					})),
 				});
 			}
 			return json({ pageKey: 'page.png', pageWidth: 128, pageHeight: 64, regions: REGIONS });
@@ -264,22 +283,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 				hash: string;
 				frames: number;
 				groups?: number;
-				plan: {
-					cellW: number;
-					cellH: number;
-					gap: number;
-					cols: number;
-					width: number;
-					height: number;
-				};
+				sheet: { cellW: number; cellH: number; trims: unknown[] };
 			};
 			const stem = `client/project/fx-bakes/${body.effectId}/fxbake_${body.effectId}_${body.hash}`;
 			if (!r2.has(`${stem}.png`)) return json({ message: 'no page' }, 409);
 			const groups = body.groups ?? 1;
-			sheets.set(
-				`${stem}.json`,
-				effectBakeSheetJson(body.plan, body.frames * groups, `${stem}.png`, body.hash),
-			);
+			const layout = packEffectBakeFrames(body.sheet.cellW, body.sheet.cellH, body.sheet.trims);
+			if (!layout) return json({ message: 'bad layout' }, 400);
+			sheets.set(`${stem}.json`, effectBakeSheetJson(layout, `${stem}.png`, body.hash));
 			return json({
 				ok: true,
 				assetKey: `${stem}.json`,
