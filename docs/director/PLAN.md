@@ -133,6 +133,18 @@ Cards 9A–9H, each on its own branch. 9A merged with the audit and the ADR (#13
 | 9G | Repair run kind + `game-doctor` + Repair review checkpoint + game → pipeline escalation | director-backend + director-frontend | done (#1416, #1414; ADR-0012) | A game bug repaired on a test project end to end, owner-approved |
 | 9H | Sound and FX adapters, then Component Editor art | director-backend | done (#1413, ADR-0011) | Each through its storage module with `baseEtag` |
 
+## Phase 10 — Pipeline bug fix runs ("Start fix") · ADR-0013 (approved 2026-11-03)
+
+13A can start now. 13B also waits for the owner's three setup steps (the GitHub App's Actions
+write, the `bug-fix` environment, `ANTHROPIC_BUG_FIX_API_KEY`).
+
+| Card | Tasks | Owner | Status | Acceptance |
+|---|---|---|---|---|
+| 13A | `bug_fix_runs` + `fix_run` event kind; `pipelineBugFix` capability; caps in Settings; start with its refusals; App dispatch; OIDC check; brief, screenshot and result endpoints; validation, App commit, draft PR; sync backstop; Stop; spend rows | launcher-studio (App calls reviewed by director-backend) | todo | `check:bug-fix-runs`, `check:bug-reports`, `check:migration-order` |
+| 13B | `bug-fix.yml`, `scripts/bug-fix/*`, the `pipeline-triage.md` sentence, INFRA | infra-railway | todo | `check:bug-fix-workflow`; the five-case spike under $20 |
+| 13C | **Start fix** / **Send and start fix**, the run line, the fix run on the escalated game bug, **Mark ready for review** in Pipeline Changes; tool guides and status | director-frontend + launcher-studio + docs-keeper | todo | `check:bug-fix-runs` page facts; browser pass |
+| 13D | Pilot on three real, low-risk pipeline bugs; measured cost replaces the estimate | regression-guardian | todo | Each PR merged or closed by the owner; spend per run recorded |
+
 ## Phase 6 — Pilot
 
 | # | Task | Owner | Status | Acceptance |

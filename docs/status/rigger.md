@@ -81,6 +81,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
     the preview. Keying the setup's values, as ◆ Key transform / path / physics already do, would
     change what newly keyed IK plays. That is the owner's call.
+18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
+    versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
+    fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phase 0 in progress.
 
 ## Blocked (owner / external)
 
@@ -89,6 +92,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-02 — **Design proposal: `.irig` as our own format** ([irig-format](../design/irig-format.md)).
+  The runtime has been ours since Phase 6, but the file is still 4.2-format JSON, so our
+  extensions live as inline keys the runtime discards, a naming convention and sidecars. The
+  proposal: a typed `IrigDoc` in `engine-rig`, irig v1 = 4.2 semantics plus those extensions,
+  a 4.2 importer (import only, owner 2026-11-02), shipped reader-first so no runtime release or rollback
+  can meet a file it cannot read. Not built; open item 18.
 - 2026-10-27 — **Ask the AI on the bar.** `view.html` loads the shared window `/shared/ask-ai.js`
   (with the deploy's `?v=`) and mounts it before Report bug; it asks `/api/ask-ai` on the session.
   See [launcher status](launcher.md) (Ask the AI).

@@ -158,7 +158,7 @@ const stripTypes = (what, source) =>
 // which is where `boardSwapsInPlace` now lives too (deliberately: it sits with the geometry it is
 // NOT derived from, so the two are read side by side).
 const seatBlock = (() => {
-	const start = gameStateSource.indexOf('\tconst boardGeometry = () => {');
+	const start = gameStateSource.indexOf('\tconst resolveBoardGeometry = () => {');
 	const seat = gameStateSource.indexOf('\tconst getSymbolSeat = (');
 	if (start < 0 || seat < start) {
 		throw new Error(
@@ -285,6 +285,9 @@ const buildEngine = compileSlice({
 		'stateGame',
 	],
 	body: `${resolverSource}
+// The shipped getter reads the resolver through a $derived; the slice has no runes, so it reads
+// the resolver itself.
+const boardGeometry = () => resolveBoardGeometry();
 ${seatBlock}
 ${standDownBlock}
 return {
