@@ -98,7 +98,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
   - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
     One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).
     `reason` holds the launcher's own sentence and `summary` the run's words. `result_at` is the
-    claim on a result: a 2-minute lease.
+    claim on a result: a lease renewed before every GitHub write, stale after 5 minutes.
   - **Who.** The capability `pipelineBugFix` ("Start fix runs on pipeline bugs", admin by default,
     per role or per user) **plus** `pipelineBugTriage`.
   - **Caps.** Admin › Settings: `PIPELINE_FIX_BUDGET_USD` (one run, $15), `PIPELINE_FIX_MONTHLY_USD`
@@ -176,7 +176,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
     - the launcher's own fix-run modules protected;
     - the secret scan on added lines only;
     - privacy on folded keys and names.
-  - **Fixtures:** `check:bug-fix-runs` (88 checks, each guard tested with a planted mutant),
+  - **Fixtures:** `check:bug-fix-runs` (98 checks, each guard tested with a planted mutant),
     `check:bug-reports` (`fix_run`, and a `bug-<n>-fix-<id>` branch moving the bug).
 
 - 2026-10-27 — **Repair UI on the game bug (Director card 9G)**: the **Repair** card on

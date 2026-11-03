@@ -91,7 +91,8 @@ with the default.
     `PIPELINE_CI_TOKEN`, `PIPELINE_GAMES_URL` and the R2 read keys, which cover the whole bucket,
     `_bugs/` screenshots included. So the App's `bug-<n>-fix-<id>` branch would run model-written
     code next to those secrets before anyone reads it. 13A's change checks cannot close this: any
-    file a CI step imports can read the environment. *Suggested default:* before 13B runs anything,
+    file a CI step imports can read the environment, or rewrite a protected file on the runner's
+    disk before it runs. The protected list guards what lands in git, not what CI executes. *Suggested default:* before 13B runs anything,
     the owner changes `current-games.yml`:
     - add `bug-*-fix-*` to `push.branches-ignore`;
     - add `ready_for_review` to the `pull_request` types;

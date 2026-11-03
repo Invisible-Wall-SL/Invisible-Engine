@@ -40,6 +40,7 @@ import { getPipelineFixBudget } from './appSettings';
 import {
 	actionsRunUrl,
 	cancelActionsRun,
+	cancelListedRun,
 	dispatchFixRun,
 	fixRunActor,
 	fixRunBot,
@@ -49,6 +50,8 @@ import {
 } from './bugFixRunsActions';
 import {
 	MAX_SUMMARY,
+	TEXT_CAPS,
+	TEXT_SLACK,
 	baseProblem,
 	cleanPerson,
 	cleanResult,
@@ -56,6 +59,7 @@ import {
 	localProblem,
 	privateNames,
 	publication,
+	publicationProblem,
 	withModes,
 	type BaseEntry,
 	type BaseTree,
@@ -73,6 +77,7 @@ import {
 	markFixRunRunning,
 	privateNamesOf,
 	recordFixRunSpend,
+	renewFixRunClaim,
 	settleFixRun,
 	type BugFixRun,
 } from './bugFixRunsStore';
@@ -270,7 +275,8 @@ async function cancelForStop(app: GithubApp, ghRunId: number): Promise<void> {
  * Actions run is cancelled first (GitHub's 409 says it already finished, its 404 that it has no such
  * run: both stop it), then the run settles `cancelled` at once — so no result can open a pull
  * request after a person pressed Stop. A run bound in between is cancelled on GitHub after, as best
- * it can be. A run whose result is already being opened is no longer stopped (409); a GitHub
+ * it can be, and one never bound is looked for in the workflow's runs and cancelled when found. A
+ * run whose result is already being opened is no longer stopped (409); a GitHub
  * refusal stops nothing (502).
  */
 export async function stopFixRun(
@@ -304,6 +310,9 @@ export async function stopFixRun(
 	if (!stopped) throw (await getFixRun(id))?.resultAt ? finishing() : ended();
 	if (run.ghRunId === null && stopped.ghRunId !== null) {
 		await cancelActionsRun(app, stopped.ghRunId).catch(() => undefined);
+	} else if (stopped.ghRunId === null) {
+		// Never bound: its Actions run may still have started, under its run-name.
+		await cancelListedRun(app, id).catch(() => undefined);
 	}
 	return viewOf(access, stopped);
 }
@@ -513,9 +522,15 @@ const MAX_MODELS = 10;
 const MAX_TOKENS = 2_000_000_000;
 const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,99}$/;
 const MAX_GATES = 50;
-/** A result claimed this long ago and never settled belonged to a request that died; another
- *  post of the result takes it over (as Pipeline Changes' merge claims do). */
-const CLAIM_STALE_MS = 2 * 60_000;
+/**
+ * A claim not renewed for this long belonged to a request that died; another post of the result
+ * takes it over (as Pipeline Changes' merge claims do). The holder renews before every GitHub write
+ * and after its base reads, so the longest it goes without is the base files' reads — 40 at 4 at a
+ * time, 10 rounds at GitHub's 15 s timeout: 150 s. One write with its retries is at most 3 × 15 s
+ * plus 20 s of waiting; the branch's 422 reads add 30 s. Twice the longest, rounded up. The
+ * backstop gives a claim up only after `MID_PR_MS` (10 minutes), well past this.
+ */
+const CLAIM_STALE_MS = 5 * 60_000;
 
 /** What `POST …/result` answers the job: no reason, no summary — its log is public. */
 export interface FixRunResultAnswer {
@@ -530,8 +545,9 @@ export interface FixRunResultAnswer {
  * Accept the job's result (`FixRunResultBody`, JSON or gzipped JSON). In order:
  *  1. its spend, recorded for any authenticated result of the run's Actions run, live or not (a
  *     cancelled job may still have spent), once per model however often it is sent;
- *  2. the claim, a lease: a live run's result is taken by one request at a time, and one that
- *     held it for over two minutes without settling is taken over; otherwise 409, nothing opened;
+ *  2. the claim, a lease: a live run's result is taken by one request at a time, which renews it as
+ *     it goes; one not renewed for {@link CLAIM_STALE_MS} is taken over, and its first holder —
+ *     should it wake — writes nothing more (409); otherwise 409, nothing opened;
  *  3. a `failure` ends the run `failed`; a run that found no fix ends `no_fix` with its outcome; a
  *     bug closed meanwhile opens nothing;
  *  4. otherwise the change is checked (any refusal: `no_fix`, `needs_person`, the rule named), then
@@ -545,16 +561,27 @@ export async function acceptFixRunResult(
 	id: string,
 	deps: FixRunJobDeps = {},
 ): Promise<FixRunResultAnswer> {
-	const io: Io = { app: deps.app ?? githubApp, sleep: deps.sleep ?? pause };
 	const run = await jobRun(request, id, deps);
 	const body = await readResultBody(request);
 	const spendUsd = await recordSpend(run.id, parseUsage(body.usage));
 	const result = parseResult(body);
 	const claimed = await claimFixRunResult(run.id, new Date(Date.now() - CLAIM_STALE_MS));
-	if (!claimed) {
+	if (!claimed?.resultAt) {
 		throw error(409, 'A result was already accepted for this fix run, or the run has ended.');
 	}
-	const ended = (await settleResult(io, claimed, result)) ?? (await getFixRun(run.id)) ?? claimed;
+	const io: Io = {
+		app: deps.app ?? githubApp,
+		sleep: deps.sleep ?? pause,
+		hold: { runId: run.id, at: claimed.resultAt, renewing: Promise.resolve() },
+		made: null,
+	};
+	let ended: BugFixRun;
+	try {
+		ended = (await settleResult(io, claimed, result)) ?? (await getFixRun(run.id)) ?? claimed;
+	} catch (err) {
+		if (err instanceof LeaseLost) throw error(409, err.message);
+		throw err;
+	}
 	return {
 		fixRun: ended.id,
 		status: ended.status,
@@ -658,11 +685,25 @@ async function recordSpend(id: string, usage: FixRunUsage[]): Promise<number> {
 	return usd;
 }
 
-const optionalText = (body: Record<string, unknown>, key: string): string => {
-	const v = body[key];
+/** A text field, refused unread past {@link TEXT_SLACK} times what is kept of it. */
+function textOf(v: unknown, field: string, cap: number): string {
 	if (v === undefined || v === null) return '';
-	return typeof v === 'string' ? v : bad(`${key} is not text`);
-};
+	if (typeof v !== 'string') return bad(`${field} is not text`);
+	if (v.length > cap * TEXT_SLACK) bad(`${field} is far longer than the launcher keeps`);
+	return v;
+}
+
+/** What is kept of each top-level text field. */
+const FIELD_CAPS = {
+	failure: TEXT_CAPS.summary,
+	title: TEXT_CAPS.title,
+	scope: TEXT_CAPS.scope,
+	summary: TEXT_CAPS.summary,
+	lesson: TEXT_CAPS.lesson,
+} as const;
+
+const optionalText = (body: Record<string, unknown>, key: keyof typeof FIELD_CAPS): string =>
+	textOf(body[key], key, FIELD_CAPS[key]);
 
 function parseResult(body: Record<string, unknown>): ParsedResult {
 	const failure = optionalText(body, 'failure').trim() || null;
@@ -678,7 +719,7 @@ function parseResult(body: Record<string, unknown>): ParsedResult {
 		if (!isRecord(g) || typeof g.command !== 'string' || typeof g.ok !== 'boolean') {
 			return bad('gates has an entry that is not { command, ok }');
 		}
-		return { command: g.command, ok: g.ok };
+		return { command: textOf(g.command, 'gate command', TEXT_CAPS.command), ok: g.ok };
 	});
 	if (gates.length > MAX_GATES) bad(`gates lists more than ${MAX_GATES}`);
 	const files = list('files').map((f): FixRunFile => {
@@ -702,7 +743,11 @@ function parseResult(body: Record<string, unknown>): ParsedResult {
 			bad('secondBug is not { area, title, evidence }');
 		}
 		const s = second as Record<string, string>;
-		secondBug = { area: s.area, title: s.title, evidence: s.evidence };
+		secondBug = {
+			area: textOf(s.area, 'secondBug area', TEXT_CAPS.area),
+			title: textOf(s.title, 'secondBug title', TEXT_CAPS.title),
+			evidence: textOf(s.evidence, 'secondBug evidence', TEXT_CAPS.summary),
+		};
 	}
 	const baseSha = body.baseSha;
 	if (baseSha !== undefined && typeof baseSha !== 'string') bad('baseSha is not text');
@@ -722,10 +767,42 @@ function parseResult(body: Record<string, unknown>): ParsedResult {
 
 // ── The result: GitHub ────────────────────────────────────────────────────────
 
-/** The GitHub App, and how a write waits before it is tried again. */
+/**
+ * What one request works with on a claimed result: the GitHub App, how a write waits before it is
+ * tried again, the claim it holds, and the commit it made (the one branch it may delete).
+ */
 interface Io {
 	app: GithubApp;
 	sleep: (ms: number) => Promise<void>;
+	hold: Hold;
+	made: string | null;
+}
+
+/** The claim a request holds on a run's result: its `result_at`, renewed one renewal at a time. */
+interface Hold {
+	runId: string;
+	at: Date;
+	renewing: Promise<void>;
+}
+
+/** Another request took the claim over (this one went quiet past the stale time) or the run
+ *  ended: this request writes nothing more. */
+class LeaseLost extends Error {
+	constructor() {
+		super("Another request took this fix run's result over, or the run has ended.");
+		this.name = 'LeaseLost';
+	}
+}
+
+/** Renew the claim, after any renewal still in flight; a claim lost stays lost. */
+function renew(io: Io): Promise<void> {
+	const { hold } = io;
+	hold.renewing = hold.renewing.then(async () => {
+		const at = await renewFixRunClaim(hold.runId, hold.at);
+		if (!at) throw new LeaseLost();
+		hold.at = at;
+	});
+	return hold.renewing;
 }
 
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
@@ -740,9 +817,10 @@ const RETRY_AFTER_MAX_S = 10;
  * 5xx or a network error (after 1 s, then 2 s), or a 403 / 429 with a `retry-after` of at most
  * {@link RETRY_AFTER_MAX_S} seconds (after that wait). The Git Data writes are content-addressed and
  * a repeated ref or pull request is found again, so a write that did land before its answer was
- * lost costs nothing.
+ * lost costs nothing. The claim is renewed first: a request that lost it writes nothing.
  */
 async function write(io: Io, path: string, init: RequestInit): Promise<Response> {
+	await renew(io);
 	for (let attempt = 0; ; attempt++) {
 		let res: Response;
 		try {
@@ -881,6 +959,7 @@ async function openFix(
 		{ message: pub.message, tree: tree.sha, parents: [run.baseSha] },
 		'making the commit',
 	);
+	io.made = commit.sha;
 	await makeBranch(io, branch, commit.sha, tree.sha);
 	return openPull(io, branch, pub.title, pub.body);
 }
@@ -894,7 +973,12 @@ interface Done {
 	secondBug?: FixRunSecondBug | null;
 }
 
-async function endOpened(run: BugFixRun, pr: number, done: Done): Promise<BugFixRun | null> {
+async function endOpened(
+	io: Io,
+	run: BugFixRun,
+	pr: number,
+	done: Done,
+): Promise<BugFixRun | null> {
 	const ended = await settleFixRun(
 		run.id,
 		{
@@ -904,6 +988,7 @@ async function endOpened(run: BugFixRun, pr: number, done: Done): Promise<BugFix
 			branch: fixRunBranch(run.bugNumber, run.id),
 		},
 		fixRunActor(run.id),
+		{ heldAt: io.hold.at },
 	);
 	// The pull request exists now: the next link sync and Changes list must read it.
 	forgetBugSync();
@@ -912,9 +997,28 @@ async function endOpened(run: BugFixRun, pr: number, done: Done): Promise<BugFix
 }
 
 /**
+ * Delete the branch this request made, when it is still as made: GitHub answered that no PR comes
+ * from it, and it still points at this request's commit (an earlier try's branch, reused, or one
+ * moved since, is not this request's to delete). Best-effort, but never past a lost claim.
+ */
+async function deleteStray(io: Io, branch: string, made: string): Promise<void> {
+	const r = repo();
+	try {
+		const ref = await io.app.fetch(`/repos/${r}/git/ref/heads/${branch}`);
+		if (!ref.ok) return;
+		const head = ((await ref.json()) as { object?: { sha?: string } }).object?.sha;
+		if (head !== made) return;
+		await write(io, `/repos/${r}/git/refs/heads/${branch}`, { method: 'DELETE' });
+	} catch (err) {
+		if (err instanceof LeaseLost) throw err;
+	}
+}
+
+/**
  * End a claimed run `failed` — unless GitHub has the run's pull request after all (this request,
- * or an earlier one whose claim it took over, opened it), which is then how it ended. A branch with
- * no pull request is deleted, as best it can be: it would only be a stray.
+ * or an earlier one whose claim it took over, opened it), which is then how it ended. When GitHub
+ * answers that there is none, the branch this request made is deleted (it would only be a stray);
+ * when GitHub can't say, nothing is.
  */
 async function endFailed(
 	io: Io,
@@ -923,21 +1027,23 @@ async function endFailed(
 	done: Done,
 ): Promise<BugFixRun | null> {
 	const branch = fixRunBranch(run.bugNumber, run.id);
-	const pr = await pullForBranch(io.app, branch).catch(() => null);
-	if (pr !== null) return endOpened(run, pr, done);
-	await io.app
-		.fetch(`/repos/${repo()}/git/refs/heads/${branch}`, { method: 'DELETE' })
-		.catch(() => undefined);
+	const pr = await pullForBranch(io.app, branch).then(
+		(n) => n,
+		() => undefined,
+	);
+	if (typeof pr === 'number') return endOpened(io, run, pr, done);
+	if (pr === null && io.made !== null) await deleteStray(io, branch, io.made);
 	return settleFixRun(
 		run.id,
 		{ status: 'failed', reason: capReason(reason), summary: done.summary },
 		fixRunActor(run.id),
-		{ extra: done.summary ? { summary: done.summary } : {} },
+		{ heldAt: io.hold.at, extra: done.summary ? { summary: done.summary } : {} },
 	);
 }
 
 /** End a claimed run as its result says; see {@link acceptFixRunResult}. Never throws past here
- *  for what went wrong after the claim: that ends the run `failed`. */
+ *  for what went wrong after the claim — that ends the run `failed` — but a claim lost: then the
+ *  run is another request's to end. */
 async function settleResult(io: Io, run: BugFixRun, r: ParsedResult): Promise<BugFixRun | null> {
 	let text: FixRunText | null = null;
 	try {
@@ -949,6 +1055,7 @@ async function settleResult(io: Io, run: BugFixRun, r: ParsedResult): Promise<Bu
 		text = cleanResult(r);
 		return await settleChange(io, run, r, text);
 	} catch (err) {
+		if (err instanceof LeaseLost) throw err;
 		console.error(
 			`[fix runs] fix run ${run.id} failed after its result was claimed:`,
 			capReason(err instanceof Error ? err.message : String(err)),
@@ -987,7 +1094,7 @@ async function settleChange(
 			run.id,
 			{ status: 'no_fix', ...end, summary: text.summary, secondBug: text.secondBug },
 			fixRunActor(run.id),
-			{ extra: text.summary ? { summary: text.summary } : {} },
+			{ heldAt: io.hold.at, extra: text.summary ? { summary: text.summary } : {} },
 		);
 	if (outcome === 'not_reproduced' || outcome === 'needs_person') return noFix({ outcome });
 	if (outcome === 'second_area' && !r.files.length) return noFix({ outcome });
@@ -1011,8 +1118,10 @@ async function settleChange(
 	});
 	if (local) return refused(local);
 	const base = await readBase(io.app, run.baseSha);
+	await renew(io);
 	if (base === 'truncated') return refused('the base tree is too large to check');
 	const problem = await baseProblem(r.files, base);
+	await renew(io);
 	if (problem) return refused(problem);
 	const pub = publication({
 		number,
@@ -1022,6 +1131,8 @@ async function settleChange(
 		person: cleanPerson(await accountName(run.startedById)),
 		actionsUrl: run.ghRunId === null ? null : actionsRunUrl(run.ghRunId),
 	});
+	const leak = publicationProblem(pub);
+	if (leak) return refused(leak);
 	const pr = await openFix(io, run, branch, base, withModes(r.files, base), pub);
-	return endOpened(run, pr, done);
+	return endOpened(io, run, pr, done);
 }

@@ -272,6 +272,20 @@ export async function claimFixRunResult(id: string, staleBefore: Date): Promise<
 	return run ?? null;
 }
 
+/**
+ * Renew the claim a request holds — the `result_at` it was given, still the run's, the run still
+ * live — and answer the new one; null when another request took it over or the run has ended.
+ */
+export async function renewFixRunClaim(id: string, heldAt: Date): Promise<Date | null> {
+	const now = new Date();
+	const [run] = await getDb()
+		.update(bugFixRuns)
+		.set({ resultAt: now, updatedAt: now })
+		.where(and(eq(bugFixRuns.id, id), live(), eq(bugFixRuns.resultAt, heldAt)))
+		.returning({ resultAt: bugFixRuns.resultAt });
+	return run?.resultAt ?? null;
+}
+
 /** How a run ends: its final status and what it is shown with. */
 export interface FixRunEnd {
 	status: Exclude<FixRunStatus, 'dispatched' | 'running'>;
@@ -286,14 +300,15 @@ export interface FixRunEnd {
 /**
  * End a live run and record its `fix_run` event `{ run, status, pr?, outcome?, reason? }` plus
  * `extra`, in one transaction. `withoutResult`: only while no result is claimed, so neither a Stop
- * nor the backstop ends a run whose result is being opened. Null when it was no longer live (or
- * had a result): someone else ended it first.
+ * nor the backstop ends a run whose result is being opened. `heldAt`: only while the claim is
+ * still that one — the request that holds it, or the backstop that read it. Null when it was no
+ * longer live (or its claim moved): someone else ended it, or holds it.
  */
 export async function settleFixRun(
 	id: string,
 	end: FixRunEnd,
 	actor: Actor,
-	opts: { withoutResult?: boolean; extra?: Record<string, unknown> } = {},
+	opts: { withoutResult?: boolean; heldAt?: Date; extra?: Record<string, unknown> } = {},
 ): Promise<BugFixRun | null> {
 	return getDb().transaction(async (tx) => {
 		const now = new Date();
@@ -315,6 +330,7 @@ export async function settleFixRun(
 					eq(bugFixRuns.id, id),
 					live(),
 					opts.withoutResult ? isNull(bugFixRuns.resultAt) : undefined,
+					opts.heldAt ? eq(bugFixRuns.resultAt, opts.heldAt) : undefined,
 				),
 			)
 			.returning();

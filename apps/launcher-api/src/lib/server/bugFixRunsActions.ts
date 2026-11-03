@@ -158,7 +158,8 @@ export async function pullForBranch(app: GithubApp, branch: string): Promise<num
 export const DID_NOT_START_MS = 15 * 60_000;
 /** Any live run is given up after this long: the job's own timeout is 75 minutes. */
 export const TIMED_OUT_MS = 90 * 60_000;
-/** A claimed result still not opened after this long means the launcher stopped mid-commit. */
+/** A claim not renewed for this long means the launcher stopped mid-commit: its holder renews far
+ *  more often (`CLAIM_STALE_MS` in `bugFixRuns.ts` is half of this). */
 export const MID_PR_MS = 10 * 60_000;
 /** An Actions run may be stamped a little before the launcher stored its fix run. */
 const BIND_SLACK_MS = 60_000;
@@ -207,8 +208,9 @@ export async function backstopFixRuns(app: GithubApp, nowMs = Date.now()): Promi
 
 	// A listing GitHub would not give says nothing about these runs: they wait for the next pass.
 	const listed = unbound.length ? await listedRuns(app).catch(() => null) : null;
-	if (listed) {
-		const bot = listed.length ? await fixRunBot(app).catch(() => null) : null;
+	const bot = listed?.length ? await fixRunBot(app).catch(() => null) : null;
+	// With runs listed but no bot to tell ours by, nothing is known: they wait for the next pass.
+	if (listed && !(listed.length && bot === null)) {
 		for (const run of unbound) {
 			const found = listed.find(
 				(w) =>
@@ -258,8 +260,22 @@ async function listedRuns(app: GithubApp): Promise<GhWorkflowRun[]> {
 }
 
 /**
+ * Stop's last look for a run it settled unbound: the run's own Actions run in the workflow's
+ * listing (its `run-name`, the App's bot), cancelled when found and not yet finished. Throws when
+ * GitHub can't say; Stop takes it as best-effort.
+ */
+export async function cancelListedRun(app: GithubApp, id: string): Promise<void> {
+	const [listed, bot] = await Promise.all([listedRuns(app), fixRunBot(app)]);
+	const found = listed.find(
+		(w) => w.display_title === fixRunName(id) && w.actor?.login === bot && w.status !== 'completed',
+	);
+	if (found) await cancelActionsRun(app, found.id);
+}
+
+/**
  * A result claimed long ago and never settled: the launcher stopped between the claim and the
- * settle. Its pull request may exist all the same — then that is how the run ended.
+ * settle. Its pull request may exist all the same — then that is how the run ended. The settle
+ * holds to the claim as read, so a request that renewed it meanwhile is still the one to end it.
  */
 async function endMidCommit(app: GithubApp, run: BugFixRun): Promise<void> {
 	const branch = fixRunBranch(run.bugNumber, run.id);
@@ -275,5 +291,6 @@ async function endMidCommit(app: GithubApp, run: BugFixRun): Promise<void> {
 			? { status: 'failed', reason: FIX_RUN_REASONS.stoppedMidPr }
 			: { status: 'pr_opened', prNumber: pr, branch },
 		fixRunActor(run.id),
+		{ heldAt: run.resultAt ?? undefined },
 	);
 }
