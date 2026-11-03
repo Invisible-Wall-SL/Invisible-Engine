@@ -107,6 +107,10 @@ so they can be marked as Director templates.
 - **Later (optional):** a **Start fix session** button on the Bugs tab that opens a Claude Code
   session with the brief. It waits until the copy-brief path has been used for a while.
 
+> Superseded by ADR-0013 (owner, 2026-11-03): **Start fix** runs Claude Code on a pipeline bug in a
+> GitHub Actions job and proposes a draft `bug-<n>-fix-<id>` PR. This also supersedes approval
+> item 5 below.
+
 ### 3. Game repair (runtime layer)
 
 - **A repair run kind in Director.** The input is one game bug. It runs on the bug's project, not on

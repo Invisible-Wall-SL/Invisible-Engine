@@ -15,6 +15,30 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-03 · Phase 10 · coordinator (ADR-0013 approved)
+- Did: recorded the owner's approval of ADR-0013 (items 1–11 at their defaults) and the
+  "superseded by ADR-0013" note under ADR-0009 §2.
+- Files: DECISIONS/0013-pipeline-bug-fix-runs.md, DECISIONS/0009-repair-agents-families-knowledge.md,
+  PLAN.md, README.md.
+- Branch / PR: claude/pipeline-bug-report-integration-6605b3.
+- Tests: none (docs only).
+- Decisions: owner approved as drafted (2026-11-03).
+- Next: 13A (launcher back end). 13B after the owner's three setup steps.
+
+## 2026-11-03 · Phase 10 · director-architect (ADR-0013 proposed)
+- Did: drafted ADR-0013, a **Start fix** button on a pipeline bug that runs Claude Code headless in
+  a GitHub Actions job (`pipeline-triage` → the owning agent → gates → `code-reviewer`). The
+  launcher turns the job's result into a draft `bug-<n>-fix-<id>` PR as the GitHub App, so the
+  existing link sync and Pipeline Changes gate take over. Game bugs keep Repair with Director, and
+  an escalated game bug gets Start fix through its pipeline bug.
+- Files: docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md, PLAN.md (Phase 10), README.md.
+- Branch / PR: claude/pipeline-bug-report-integration-6605b3, not committed yet.
+- Tests: none (docs only). Cited paths and lines checked against `main` 6bd8a6fb8.
+- Decisions: picks up ADR-0009 owner item 5 ("later"), at the owner's request of 2026-11-03.
+  The repository is public, so no bug text is a dispatch input, artifact or log line, and the
+  brief is fetched with a GitHub OIDC token.
+- Next: owner approval of the 11 items in the ADR, then 13A.
+
 ## 2026-10-30 · Director · director-backend (saved prompts on New game)
 - Did: Saved prompts beside Notes and style: a picker grouped by client (Load, Save as… under any
   targetable client, Update, Delete); director_prompts table (migration 0036_director_prompts),
