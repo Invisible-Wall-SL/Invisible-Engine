@@ -17,8 +17,10 @@
 //     edits the harness (`HARNESS_SOURCES`) wrote the report it would be judged by, so it fails
 //     without reading it, and so does one whose diff cannot be read; a report whose base is not on
 //     main fails too.
-// A cancelled run fails, unless a newer run on its head will post. It never executes anything from
-// the PR or from an artifact.
+// A cancelled run fails, unless a newer run on its head will post. A run whose `prepare` was
+// skipped renders nothing: on a fix run's draft (ADR-0013) the status is pending until the PR is
+// marked ready for review, and on any other PR (a `ready_for_review` the harness ignores) nothing
+// is posted. It never executes anything from the PR or from an artifact.
 //
 // The harness's report job calls the same `decide` (`--local`) to fail the job exactly when the
 // status will be a failure, so the two cannot drift.
@@ -57,9 +59,52 @@ export const REPORT_ARTIFACT = 'current-games-report-json';
 export const PREPARE_ARTIFACT = 'current-games-prepare';
 const MAX_BYTES = 8 * 1024 * 1024;
 const PENDING = 'Rendering every live game…';
+export const FIX_RUN_DRAFT =
+	"A fix run's draft: current-games runs once it is marked ready for review";
 
 /** `render (6)` → `render`. */
 const jobKind = (name) => name.replace(/\s*\(.*\)\s*$/, '');
+
+/** One kind of job in an attempt: `success` when every one succeeded, else the first other
+ *  conclusion (`missing` when there is none). */
+const resultOf = (jobs, kind) => {
+	const of = (jobs ?? []).filter((j) => jobKind(j.name) === kind);
+	return of.length && of.every((j) => j.conclusion === 'success')
+		? 'success'
+		: (of.find((j) => j.conclusion !== 'success')?.conclusion ?? 'missing');
+};
+
+/**
+ * A fix run's pull request (ADR-0013): opened by a GitHub App (its user is a `Bot`) on a branch
+ * `bug-…-fix-…`. A person's PR never is one, whatever its branch. The same test as the `if:` of
+ * current-games.yml's `prepare`, with GitHub's case-insensitive string comparison;
+ * triggers.fixture.mjs holds the two together.
+ */
+export const isFixRun = (pr) => {
+	const ref = String(pr?.head?.ref ?? '').toLowerCase();
+	return (
+		String(pr?.user?.type ?? '').toLowerCase() === 'bot' &&
+		ref.startsWith('bug-') &&
+		ref.includes('-fix-')
+	);
+};
+
+/**
+ * Why nothing is posted for a pull request run whose `prepare` was skipped, or `null` when it is
+ * decided. A fork's run is refused before this, so a skipped `prepare` is one of two runs: a fix
+ * run's draft, which `decide` answers as pending, or a `ready_for_review` on any other PR, which
+ * the harness ignores: the run that rendered that head keeps its status, as when the event made no
+ * run. A fix run's draft run whose PR has since been marked ready stands down too: its
+ * `ready_for_review` run posts.
+ */
+export function standsDown({ jobs, pr }) {
+	if (resultOf(jobs, 'prepare') !== 'skipped') return null;
+	if (!isFixRun(pr))
+		return 'its prepare was skipped (ready_for_review on a PR that is not a fix run): the run that rendered this head posts';
+	if (pr.draft !== true)
+		return "its prepare was skipped on a fix run's draft, and the PR is now ready for review: its ready_for_review run posts";
+	return null;
+}
 
 /**
  * Is this run one whose status this workflow posts, and where? `{ ok: true, context, sha, pr }`, or
@@ -124,10 +169,15 @@ export function decideCancelled({ run, newer }) {
 	};
 }
 
-/** The `requested` phase: the pending status, unless the run already finished. */
-export function decideRequested({ run }) {
+/**
+ * The `requested` phase: the pending status, unless the run already finished or renders nothing
+ * (its `prepare` was skipped: the completed event decides, and may post nothing at all).
+ */
+export function decideRequested({ run, jobs }) {
 	if (run.status === 'completed')
 		return { why: 'the run already completed; its completed event decides' };
+	if (resultOf(jobs, 'prepare') === 'skipped')
+		return { why: 'its prepare was skipped, so it renders nothing; its completed event decides' };
 	return { post: { state: 'pending', description: PENDING, target_url: run.html_url } };
 }
 
@@ -180,12 +230,11 @@ export function decide({ run, jobs, report, prepare, reach, baseOnMain }) {
 			`Edits the harness (${edits[0]}${edits.length > 1 ? `, +${edits.length - 1}` : ''}): its own run cannot vouch for it; merge after review`,
 		);
 
-	const result = (kind) => {
-		const of = jobs.filter((j) => jobKind(j.name) === kind);
-		return of.length && of.every((j) => j.conclusion === 'success')
-			? 'success'
-			: (of.find((j) => j.conclusion !== 'success')?.conclusion ?? 'missing');
-	};
+	const result = (kind) => resultOf(jobs, kind);
+	// A fix run's draft (`standsDown` lets no other skipped run through): its model-written code
+	// meets the secrets once a person marks it ready. Pending never satisfies the required check.
+	if (result('prepare') === 'skipped')
+		return { state: 'pending', description: FIX_RUN_DRAFT, target_url };
 	if (result('prepare') !== 'success') {
 		const names = (prepare?.missingSecrets ?? []).filter((n) => SECRET_NAMES.has(n));
 		if (!names.length) return fail('The harness could not start: see the prepare job');
@@ -331,8 +380,12 @@ function onBaseBranch(sha) {
 	);
 }
 
-/** The `completed` phase of a run that was not cancelled. */
-async function decideCompleted(run, checked, attempt, repository, lines) {
+/** Every job of one attempt of a run, as GitHub recorded them. */
+const jobsOf = (repository, runId, attempt) =>
+	paginate(`/repos/${repository}/actions/runs/${runId}/attempts/${attempt}/jobs`, 'jobs');
+
+/** The `completed` phase of a run that was not cancelled, from the jobs of its attempt. */
+async function decideCompleted(run, checked, jobs, repository, lines) {
 	let reach = { render: true, why: 'a manual run renders what it was asked to' };
 	if (run.event === 'pull_request') reach = prReach(checked.pr, run.head_sha);
 	else if (run.display_title === SELF_COMPARE_TITLE) reach = { render: true, why: 'self-compare' };
@@ -342,10 +395,6 @@ async function decideCompleted(run, checked, attempt, repository, lines) {
 			: `main's touched.mjs: ${reach.description}`,
 	);
 	if (!reach.render) return decide({ run, jobs: [], reach });
-	const jobs = await paginate(
-		`/repos/${repository}/actions/runs/${run.id}/attempts/${attempt}/jobs`,
-		'jobs',
-	);
 	const report = await artifactJson(repository, run.id, REPORT_ARTIFACT, 'report.json');
 	const prepare = await artifactJson(repository, run.id, PREPARE_ARTIFACT, 'prepare.json');
 	const baseOnMain = baseOnMainOf(run, report, onBaseBranch);
@@ -398,13 +447,18 @@ async function runRemote(opt, repository) {
 	lines.push(`context ${checked.context} on ${checked.sha}`);
 
 	let decision;
+	const attempt = Number(opt.attempt ?? run.run_attempt);
 	if (opt.event === 'requested') {
-		const d = decideRequested({ run });
+		// Jobs that cannot be read yet leave the pending as it always was.
+		const jobs = await jobsOf(repository, run.id, attempt).catch((error) => {
+			lines.push(`jobs not read (${error.message})`);
+			return [];
+		});
+		const d = decideRequested({ run, jobs });
 		if (!d.post) return stop(d.why);
 		decision = d.post;
 	} else {
 		if (run.status !== 'completed') return stop('the run has not completed');
-		const attempt = Number(opt.attempt ?? run.run_attempt);
 		if (attempt !== run.run_attempt)
 			return stop(
 				`attempt ${attempt} is not the latest (${run.run_attempt}); its own event decides`,
@@ -423,7 +477,12 @@ async function runRemote(opt, repository) {
 			const d = decideCancelled({ run, newer });
 			if (!d.post) return stop(d.why);
 			decision = d.post;
-		} else decision = await decideCompleted(run, checked, attempt, repository, lines);
+		} else {
+			const jobs = await jobsOf(repository, run.id, attempt);
+			const why = standsDown({ jobs, pr: checked.pr });
+			if (why) return stop(why);
+			decision = await decideCompleted(run, checked, jobs, repository, lines);
+		}
 	}
 	lines.push(`${decision.state}: ${decision.description}`);
 	if (!opt.post) return summarize([...lines, 'dry run: nothing posted']);

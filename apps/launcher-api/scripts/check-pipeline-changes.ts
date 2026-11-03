@@ -1445,6 +1445,23 @@ const PR_RUN_14 = Number(
 const [JSON_14, FULL_14] = artifact(sha(14), REPORT_14);
 gh.artifacts.set(PR_RUN_14, gh.artifacts.get(Number(harnessRun(sha(14)).id)) as Artifact[]);
 gh.artifacts.delete(Number(harnessRun(sha(14)).id));
+// The PR marked ready for review: a `pull_request` run whose every job was skipped
+// (current-games.yml's `prepare` ignores `ready_for_review` on a PR that is not a fix run), first in
+// GitHub's newest-first list. Never the one read.
+h14.workflowRuns.unshift({
+	id: ++runId,
+	name: 'Current games',
+	path: '.github/workflows/current-games.yml',
+	repository: { full_name: REPO },
+	head_repository: { full_name: REPO },
+	event: 'pull_request',
+	status: 'completed',
+	conclusion: 'skipped',
+	head_sha: sha(14),
+	check_suite_id: ++suite,
+	html_url: `https://github.com/${REPO}/actions/runs/${runId}`,
+	created_at: AT,
+});
 const DIFF_14 = (REPORT_14.summary as { changedScreens: string[] }).changedScreens;
 pull(14, 'launcher(pipeline): 1 px colour bleed at region edges', {
 	sha: sha(14),
@@ -2999,7 +3016,7 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 		true,
 	);
 	check(
-		'Check 2: the PR run, not the push run that stood down',
+		'Check 2: the PR run, not the push run that stood down nor a ready_for_review run that skipped',
 		(d.harness.run as Json).id,
 		PR_RUN_14,
 	);

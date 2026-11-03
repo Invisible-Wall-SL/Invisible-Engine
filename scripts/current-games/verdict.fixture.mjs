@@ -18,8 +18,11 @@ import {
 	decide,
 	decideCancelled,
 	decideRequested,
+	FIX_RUN_DRAFT,
+	isFixRun,
 	prIntoBase,
 	reachOf,
+	standsDown,
 } from './lib/verdict.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -127,6 +130,17 @@ assert.equal(
 	const late = decideRequested({ run: run() });
 	assert.equal(late.post, undefined, 'a requested event after completion posts nothing');
 	assert.match(late.why, /completed event decides/);
+	// A run whose prepare was skipped renders nothing: no "Rendering" pending over the head's status.
+	const inFlight = run({ status: 'in_progress', conclusion: null });
+	const skipped = decideRequested({
+		run: inFlight,
+		jobs: [{ name: 'prepare', conclusion: 'skipped' }],
+	});
+	assert.equal(skipped.post, undefined);
+	assert.match(skipped.why, /prepare was skipped.*completed event decides/);
+	// Jobs not decided yet, or not read: the pending as before.
+	for (const jobs of [[], [{ name: 'prepare', conclusion: null }], undefined])
+		assert.equal(decideRequested({ run: inFlight, jobs }).post.state, 'pending');
 }
 
 // ---- 3. what can a change reach? (main's touched.mjs) ----
@@ -267,6 +281,82 @@ const verdict = (over = {}) =>
 		verdict({ jobs: [job('prepare', 'cancelled')], report: undefined }).state,
 		'failure',
 	);
+}
+// A fix run's draft (ADR-0013): `prepare` skipped, so every job is. Pending, which never satisfies
+// the required check, after the two answers that come first: a harness edit still fails, and a
+// change that cannot reach a game still passes.
+{
+	const all = ['prepare', 'build', 'gates', 'render (${{ matrix.shard }})', 'report'].map((n) =>
+		job(n, 'skipped'),
+	);
+	const d = verdict({ jobs: all, report: undefined });
+	assert.deepEqual(d, { state: 'pending', description: FIX_RUN_DRAFT, target_url: URL });
+	assert.equal(
+		FIX_RUN_DRAFT,
+		"A fix run's draft: current-games runs once it is marked ready for review",
+	);
+	assert.ok(FIX_RUN_DRAFT.length <= 140);
+	assert.equal(verdict({ jobs: [job('prepare', 'skipped')], report: undefined }).state, 'pending');
+	const harness = verdict({
+		jobs: all,
+		report: undefined,
+		reach: { render: true, files: ['packages/x/a.ts', 'scripts/current-games/lib/plan.mjs'] },
+	});
+	assert.equal(harness.state, 'failure');
+	assert.match(harness.description, /^Edits the harness/);
+	const docs = decide({ run: run(), jobs: all, reach: reachOf(['docs/a.md'], runtimeInputs) });
+	assert.deepEqual(
+		[docs.state, docs.description],
+		['success', 'Docs-only change: no game can differ'],
+	);
+	assert.equal(
+		verdict({ jobs: all, report: undefined, reach: reachOf(null) }).state,
+		'failure',
+		'an unreadable diff still fails first',
+	);
+	// A prepare that ran and failed is still a failure, never the draft's pending.
+	assert.equal(verdict({ jobs: [job('prepare', 'failure')], report: undefined }).state, 'failure');
+}
+// Which PR is a fix run: opened by a GitHub App (a `Bot`) on `bug-…-fix-…`, compared as GitHub
+// compares strings (case-insensitive). A person's PR never is one, whatever its branch.
+{
+	const fix = (type, ref) => isFixRun({ user: { type }, head: { ref } });
+	assert.equal(fix('Bot', 'bug-12-fix-0a1b2c3d4e'), true);
+	assert.equal(fix('bot', 'BUG-12-FIX-0A1B2C3D4E'), true);
+	assert.equal(fix('User', 'bug-12-fix-0a1b2c3d4e'), false);
+	assert.equal(fix('User', 'bug-12-fix-login'), false);
+	assert.equal(fix('Bot', 'dependabot/npm_and_yarn/x-1.0.0'), false);
+	assert.equal(fix('Bot', 'railway/fix-deploy-8b46d1'), false);
+	assert.equal(fix('Bot', 'agents/game-doctor-1a2b3c'), false);
+	assert.equal(fix('Organization', 'bug-12-fix-0a1b2c3d4e'), false);
+	assert.equal(isFixRun(undefined), false);
+	assert.equal(isFixRun({ head: { ref: 'bug-1-fix-0a1b2c3d4e' } }), false);
+}
+// A run whose prepare was skipped and is not a fix run's draft posts NOTHING: a `ready_for_review`
+// on any other PR (which made no run before it was a trigger), or a fix run's draft run whose PR
+// has since been marked ready (its ready run posts). Every run that was not skipped is decided.
+{
+	const skipped = [job('prepare', 'skipped'), job('build', 'skipped')];
+	const fixPr = (draft) =>
+		pr({ draft, user: { type: 'Bot' }, head: { sha: SHA, ref: 'bug-12-fix-0a1b2c3d4e' } });
+	const personPr = pr({ draft: false, user: { type: 'User' }, head: { sha: SHA, ref: 'x' } });
+	assert.equal(standsDown({ jobs: skipped, pr: fixPr(true) }), null, "a fix run's draft: decided");
+	assert.match(
+		standsDown({ jobs: skipped, pr: fixPr(false) }),
+		/fix run's draft.*now ready for review/,
+	);
+	assert.match(
+		standsDown({ jobs: skipped, pr: personPr }),
+		/ready_for_review on a PR that is not a fix run/,
+	);
+	assert.match(standsDown({ jobs: skipped, pr: { ...personPr, draft: true } }), /not a fix run/);
+	assert.match(standsDown({ jobs: skipped, pr: undefined }), /not a fix run/);
+	for (const p of [fixPr(true), fixPr(false), personPr, undefined]) {
+		assert.equal(standsDown({ jobs: green(), pr: p }), null);
+		assert.equal(standsDown({ jobs: [job('prepare', 'failure')], pr: p }), null);
+		assert.equal(standsDown({ jobs: [job('prepare', 'cancelled')], pr: p }), null);
+		assert.equal(standsDown({ jobs: [], pr: p }), null);
+	}
 }
 // The run's own prepare said nothing renders while main says something does.
 {
