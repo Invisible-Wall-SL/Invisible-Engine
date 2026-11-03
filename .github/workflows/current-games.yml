@@ -48,6 +48,15 @@
 # workspace graph; an undecidable diff renders everything; the verdict re-decides it with main's
 # copy). A PR from a fork gets no secrets, so it does not run at all and is given no status.
 #
+# FIX RUNS (ADR-0013, docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md): the launcher's GitHub
+# App commits a model-written change to `bug-<n>-fix-<id>` and opens it as a DRAFT PR. The jobs
+# below hold the secrets above, so that code waits for a person: a push to such a branch is ignored,
+# and while its PR is a draft `prepare` is skipped and the verdict leaves `current-games` pending
+# ("A fix run's draft …"). Marking it "Ready for review" starts the run. Every other branch and PR
+# runs exactly as before. GitHub cannot filter `ready_for_review` by author, so on any other PR it
+# makes a run whose jobs are all skipped: it has a concurrency group of its own (it never cancels
+# the run on that head), and the verdict posts nothing for it.
+#
 # AS REPUBLISHED: a published snapshot carries its own copies of the built-in component defs it uses,
 # so a change to `builtinComponents.ts` reaches a game only at its next publish, and the as-published
 # render cannot see it. When the diff touches what the bake reads from the repo (touched.mjs's
@@ -74,8 +83,16 @@ run-name: "${{ github.event_name == 'workflow_dispatch' && (inputs.self_compare 
 on:
   pull_request:
     branches: [main]
+    # GitHub's default three, plus the moment a fix run's draft is marked ready (`prepare` skips it
+    # on any other PR).
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches-ignore: [main]
+    # A fix run's branch is `bug-<n>-fix-<id>`, `id` 10 lowercase hex characters (the launcher's
+    # `fixRunBranch`). Narrower than `bug-*-fix-*` on purpose: a person's `bug-12-fix-login` keeps
+    # its push run. triggers.fixture.mjs pins this list.
+    branches-ignore:
+      - main
+      - 'bug-*-fix-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
   workflow_dispatch:
     inputs:
       self_compare:
@@ -93,8 +110,10 @@ on:
 
 concurrency:
   # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit get
-  # different contexts, and cancelling one would leave its context pending.
-  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}
+  # different contexts, and cancelling one would leave its context pending. A `ready_for_review` run
+  # gets a group of its own: on any PR but a fix run it renders nothing, and must not cancel the run
+  # already rendering that head.
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}${{ github.event.action == 'ready_for_review' && '-ready' || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -109,7 +128,22 @@ env:
 
 jobs:
   prepare:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Every job below needs this one, so skipping it skips the run. A fork's PR is skipped (no
+    # secrets). A fix run's PR (opened by a GitHub App on `bug-…-fix-…`; a person's PR never is one,
+    # whatever its branch) is skipped while a draft and runs from `ready_for_review`. Any other PR's
+    # `ready_for_review` is skipped: it never ran before that type was a trigger. The verdict's
+    # `isFixRun` is the same test; triggers.fixture.mjs pins this expression and evaluates it.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'ready_for_review' ||
+      (github.event.pull_request.user.type == 'Bot' &&
+      startsWith(github.event.pull_request.head.ref, 'bug-') &&
+      contains(github.event.pull_request.head.ref, '-fix-'))) &&
+      !(github.event.pull_request.draft &&
+      github.event.pull_request.user.type == 'Bot' &&
+      startsWith(github.event.pull_request.head.ref, 'bug-') &&
+      contains(github.event.pull_request.head.ref, '-fix-')))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:

@@ -87,6 +87,15 @@ with the default.
 
 ## Answered
 
+- **2026-11-03: CI secrets on a fix run's branch (#27, ADR-0013, from the 13A review).** The owner
+  approved the suggested default. #1514 changes `current-games.yml`:
+  - a push to a `bug-<n>-fix-<id>` branch is ignored;
+  - `ready_for_review` is a `pull_request` type;
+  - the job is skipped while a fix run's PR is a draft.
+
+  So the App's branch runs nothing next to CI secrets until a person presses **Mark ready for
+  review** (13C). `check:bug-fix-workflow` (13B) still pins this with a planted mutant.
+
 - **2026-10-13: abandoned-mockup sweep scope (#18, from #1085).** The owner accepted the suggested
   default for all three points: mockups under a deleted client are never swept, the sweep has no
   dry run, and a generic catalogue font name (e.g. "Serif") drops any unhedged gap naming it.
