@@ -85,6 +85,21 @@ with the default.
     run, and the owner is told. No money depends on it. *Suggested default:* leave it for the
     pilot; refuse queueing outside those steps if the pilot shows renders there are unwanted.
 
+27. **CI secrets on a fix run's branch (ADR-0013, found in the 13A review).** `current-games.yml`
+    runs a branch's own code (install, runtime build) on every push to a non-`main` branch and on
+    every PR, drafts included. Steps later in the same job then receive the repository secrets
+    `PIPELINE_CI_TOKEN`, `PIPELINE_GAMES_URL` and the R2 read keys, which cover the whole bucket,
+    `_bugs/` screenshots included. So the App's `bug-<n>-fix-<id>` branch would run model-written
+    code next to those secrets before anyone reads it. 13A's change checks cannot close this: any
+    file a CI step imports can read the environment. *Suggested default:* before 13B runs anything,
+    the owner changes `current-games.yml`:
+    - add `bug-*-fix-*` to `push.branches-ignore`;
+    - add `ready_for_review` to the `pull_request` types;
+    - skip the job while a fix-run PR is a draft.
+
+    **Mark ready for review** (13C) then becomes the person's gate. `check:bug-fix-workflow` (13B)
+    pins it with a planted mutant.
+
 ## Answered
 
 - **2026-10-13: abandoned-mockup sweep scope (#18, from #1085).** The owner accepted the suggested

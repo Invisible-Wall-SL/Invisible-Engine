@@ -92,8 +92,52 @@ server module, routes, page components, triage, screenshots, the pull-request li
   `/bugs?new=1&for=<tool id>&page=<address>`, the form with the tool and the page filled in
   (`reportBugHref`). The game page's **Game** picker opens another project's list from the one
   Create card.
-- **Fixture:** `pnpm --filter launcher-api check:bug-reports` (run by `check:all`) — the real
-  modules with the database, R2, grants, tool scope and GitHub faked at their seams.
+- **Fix runs (ADR-0013, back end only; card 13A).** A fix run is a GitHub Actions job (card 13B,
+  not built) in which Claude Code proposes a fix for a pipeline bug, and the launcher turns its
+  proposal into a draft pull request. What exists:
+  - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
+    One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).
+    `reason` holds the launcher's own sentence and `summary` the run's words. `result_at` is the
+    claim on a result: a 2-minute lease.
+  - **Who.** The capability `pipelineBugFix` ("Start fix runs on pipeline bugs", admin by default,
+    per role or per user) **plus** `pipelineBugTriage`.
+  - **Caps.** Admin › Settings: `PIPELINE_FIX_BUDGET_USD` (one run, $15), `PIPELINE_FIX_MONTHLY_USD`
+    (the month's ceiling, $150; refuses new starts), `PIPELINE_FIX_MAX_LIVE` (2).
+  - **Start.** `POST /api/bugs/<n>/fix-runs { requestId }`. Refused as `bug_closed`, `pr_open`,
+    `fix_run_live`, `too_many_fix_runs`, `fix_budget_spent` or `request_id_reused`, and 503 without
+    the App. An unsent bug is sent in the same transaction. The launcher then dispatches
+    `bug-fix.yml` on `main` as the App, with one input (`fix_run`). A 403 or 404 ends the run
+    `failed` with a sentence naming `docs/INFRA.md` (the App's Actions write, or no workflow yet).
+    **Stop:** `POST /api/bugs/<n>/fix-runs/<id>/stop` cancels the Actions run and settles
+    `cancelled` at once.
+  - **The job's endpoints.** `/api/pipeline/fix-runs/<id>/{brief,screenshots/<sid>,result}` accept
+    only a GitHub OIDC token (`githubOidc.ts`, node:crypto, audience `invisible-launcher-bug-fix`).
+    The token must come from `bug-fix.yml` on `main`, dispatched by the App's bot, first attempt,
+    environment `bug-fix`, and from the run bound to that fix run. Each endpoint answers only a live
+    run's own bug.
+  - **The result.** The launcher records spend first (`director_spend`, agent `bug-fix`, run
+    `fix:<id>`, idempotent per model), then claims the result and checks the change
+    (`bugFixRunsChange.ts`):
+    - protected paths by ancestry against the base tree, and modes;
+    - dependencies, lifecycle scripts and ratchets;
+    - size and text only;
+    - secrets on the added lines;
+    - suppression comments and hidden characters;
+    - the project's and client's keys and names in the public text;
+    - the commit scope, and a passing gate.
+    A change that breaks a rule ends `no_fix` (needs a person). One that passes is committed as the
+    App on `base_sha` and opened as a draft PR, `bug-<n>-fix-<id>`, titled
+    `<scope>: BUG-<n> <title>`. The link sync then moves the bug, as for any `bug-<n>` branch.
+  - **Backstop.** Inside `syncBugLinks`, apart from the PR pass:
+    - a run with no Actions run after 15 minutes → `failed`;
+    - an Actions run that completed without a result → `failed` / `cancelled`;
+    - any run past 90 minutes → `failed`;
+    - a stalled commit → the PR is looked up first.
+  - **Page data.** `BugDetail.fixRuns` and `canStartFix`, and the `fix_run` activity lines. There is
+    no button yet (card 13C).
+- **Fixtures:** `pnpm --filter launcher-api check:bug-reports` and `check:bug-fix-runs` (both run
+  by `check:all`). Each runs the real modules with the database, R2, grants, tool scope, GitHub and
+  (for fix runs) the OIDC keys faked at their seams.
 
 ## Open items / next
 
@@ -106,11 +150,34 @@ server module, routes, page components, triage, screenshots, the pull-request li
    **Waiting on pipeline · BUG-n** (derived). The bug page has **Escalate to pipeline** (a small
    form in the new **Repair** card, triagers with the Pipeline Bug Reports tool).
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
-4. **Start fix on a pipeline bug** — designed and approved (ADR-0013, Director PLAN Phase 10,
-   cards 13A–13D), not built: Claude Code fixes the bug in a GitHub Actions job and the launcher
-   opens a draft `bug-<n>-fix-<id>` PR. Until then a pipeline bug is fixed from **Copy fix brief**.
+4. **Start fix on a pipeline bug** (ADR-0013, Director PLAN Phase 10). The back end (13A) is
+   built. Still to come:
+   - **13B**, the workflow. It waits for the owner's three setup steps and for Director
+     OPEN_QUESTIONS 27: `current-games.yml` would run a fix run's branch code next to CI secrets,
+     so it must skip fix-run branches and draft fix PRs first.
+   - **13C**, the buttons and **Mark ready for review**.
+   - **13D**, the pilot.
+
+   Until then a pipeline bug is fixed from **Copy fix brief**. The fixture fakes the store, so the
+   real SQL (the advisory lock, the conditional updates, the run-row lock on spend) is proved only
+   by the migration applying in CI's `postgres-proofs`. A two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-03 — **Fix runs, back end (ADR-0013 card 13A, #PRNUM).** `bug_fix_runs` (migration
+  0037), `fix_run` events, the `pipelineBugFix` capability, three Settings caps, Start / Stop,
+  dispatch of `bug-fix.yml` through the App, GitHub OIDC verification, the brief, screenshot and
+  result endpoints, the change checks and the App's draft PR, the backstop in the link sync, and
+  spend rows.
+  - **Built on top of the ADR**, after three reviews (App calls, concurrency, security):
+    - a result lease with retries;
+    - Stop settles at once, so no PR opens after it;
+    - protected paths checked by ancestry against the base tree;
+    - the launcher's own fix-run modules protected;
+    - the secret scan on added lines only;
+    - privacy on folded keys and names.
+  - **Fixtures:** `check:bug-fix-runs` (88 checks, each guard tested with a planted mutant),
+    `check:bug-reports` (`fix_run`, and a `bug-<n>-fix-<id>` branch moving the bug).
 
 - 2026-10-27 — **Repair UI on the game bug (Director card 9G)**: the **Repair** card on
   `/game-bugs` (**Repair with Director**, **Escalate to pipeline**, the bug's repair runs, the
