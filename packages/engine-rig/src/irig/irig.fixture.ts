@@ -1,5 +1,5 @@
 /**
- * Offline gate for irig v1 (docs/design/irig-format.md, Phase 0). Run:
+ * Offline gate for irig v1 (docs/design/irig-format.md, Phases 0 and 1). Run:
  * pnpm exec tsx packages/engine-rig/src/irig/irig.fixture.ts
  *
  * For EVERY skeleton in the repo (de-duplicated by content):
@@ -7,7 +7,8 @@
  *  2. write → read gives back the same document;
  *  3. the internal 4.2 writer gives back the original file, key order included, minus those keys;
  *  4. the runtime's own reader turns the original and the round-tripped file into identical
- *     `SkeletonData` — the proof the dropped keys meant nothing.
+ *     `SkeletonData` — the proof the dropped keys meant nothing;
+ *  5. (Phase 1) the runtime reads the irig v1 document itself into that same `SkeletonData`.
  * Then a rig carrying every extension, and the refusals the reader and importer owe.
  */
 
@@ -196,6 +197,14 @@ for (const { rel, json } of rigs) {
 		console.error(`  ${rel}: the runtime refused it: ${(e as Error).message}`);
 	}
 	check(same, `${rel}: the runtime reads the round-tripped file differently`);
+
+	let sameAsIrig = false;
+	try {
+		sameAsIrig = snapshot(json) === snapshot(JSON.parse(writeIrig(doc)));
+	} catch (e) {
+		console.error(`  ${rel}: the runtime refused the irig document: ${(e as Error).message}`);
+	}
+	check(sameAsIrig, `${rel}: the runtime reads the irig document differently from the 4.2 file`);
 	if (failures > before) console.error(`  in ${rel}`);
 }
 console.log(`${rigs.length} repo skeletons round-trip (${droppedKeys} ignored keys dropped)`);
@@ -348,6 +357,27 @@ const throws = (fn: () => unknown, what: string): void => {
 	);
 	throws(() => importSpine42Json('[]'), 'a list is not a skeleton');
 	throws(() => importSpine42Json({ skeleton: {} }), 'a skeleton with no bones is refused');
+
+	// The runtime path: SkeletonJson checks an irig document before reading it.
+	const read = (json: object): unknown =>
+		new SkeletonJson(stubLoader).readSkeletonData(structuredClone(json));
+	throws(() => read({ ...doc, irig: 2 }), 'the runtime refuses a newer irig version');
+	throws(
+		() => read({ ...doc, extra: 1 }),
+		'the runtime refuses an irig document with an unknown key',
+	);
+	throws(
+		() => read({ ...doc, bones: [{ name: 'root', x: '1' }, doc.bones[1]] }),
+		'the runtime refuses a wrong-typed irig value (a 4.2 file would coerce it)',
+	);
+	const data = new SkeletonJson(stubLoader).readSkeletonData(writeIrig(doc));
+	check(data.version === '4.2.36', 'the runtime keeps the source version of an irig document');
+	check(data.bones.length === 2, 'the runtime reads an irig document given as text');
+	const { skeleton: _header, ...headless } = doc;
+	check(
+		new SkeletonJson(stubLoader).readSkeletonData(headless).bones.length === 2,
+		'an irig document needs no header',
+	);
 }
 
 console.log(`${checks - failures}/${checks} checks passed`);

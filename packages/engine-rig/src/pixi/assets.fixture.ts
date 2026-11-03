@@ -2,13 +2,14 @@
  * Offline fixture for the `.atlas` loader's unload (`assets.ts`): a page the loader fetched goes back
  * through the loader, so Pixi's cache never holds a destroyed texture ("A TextureSource managed by
  * Assets was destroyed instead of unloaded" — the boot splash tripped it releasing its rig); a page
- * handed in through `images` is disposed, as before.
+ * handed in through `images` is disposed, as before. And what the `.irig` loader accepts as a
+ * skeleton: a 4.2 file, or an irig document, whose header is optional.
  *
  *   pnpm check:all --only engine-rig
  */
 import { TextureSource, type Loader, type ResolvedAsset } from 'pixi.js';
 import type { TextureAtlas } from '../atlas';
-import { rigAtlasAsset } from './assets';
+import { isSkeletonJson, rigAtlasAsset } from './assets';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -65,9 +66,15 @@ async function run(): Promise<void> {
 	await parser.unload(own, resolved, loader);
 	check('is disposed', provided.destroyed, true);
 	check('and the loader is not asked about it', unloaded, []);
+
+	console.log('\n3. what the `.irig` loader takes for a skeleton');
+	check('a 4.2 skeleton', isSkeletonJson({ skeleton: {}, bones: [] }), true);
+	check('an irig document with no header', isSkeletonJson({ irig: 1, bones: [] }), true);
+	check('a 4.2 file with no header is not', isSkeletonJson({ bones: [] }), false);
+	check('nor is a list', isSkeletonJson([]), false);
 }
 
 void run().then(() => {
-	if (failures) throw new Error(`${failures} rig atlas unload assertion(s) FAILED`);
-	console.log('\nAll rig atlas unload assertions passed.');
+	if (failures) throw new Error(`${failures} rig asset assertion(s) FAILED`);
+	console.log('\nAll rig asset assertions passed.');
 });

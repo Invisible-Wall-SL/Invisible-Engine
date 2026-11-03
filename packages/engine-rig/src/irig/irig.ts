@@ -149,11 +149,16 @@ export function importSpine42Json(json: string | object): { doc: IrigDoc; issues
 	return { doc: { irig: IRIG_VERSION, ...body } as IrigDoc, issues };
 }
 
+/** An irig document of any version, by its `irig` stamp; a 4.2 file has none. */
+export function isIrigDocument(value: unknown): value is Json & { irig: number } {
+	return isObject(value) && typeof value.irig === 'number';
+}
+
 /** Parses and checks an irig v1 document. Unlike an import, nothing is dropped: any value outside
  * the schema refuses the whole document. */
 export function readIrig(input: string | object): IrigDoc {
 	const root: unknown = typeof input === 'string' ? JSON.parse(input) : input;
-	if (!isObject(root) || typeof root.irig !== 'number') throw new Error('Not an irig document.');
+	if (!isIrigDocument(root)) throw new Error('Not an irig document.');
 	if (root.irig > IRIG_VERSION)
 		throw new Error(`irig version ${root.irig} is newer than this reader (${IRIG_VERSION}).`);
 	if (root.irig !== IRIG_VERSION) throw new Error(`Unknown irig version ${root.irig}.`);

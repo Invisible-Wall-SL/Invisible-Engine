@@ -5099,6 +5099,495 @@ var invisibleRig = function(exports) {
   };
   _AnimationState.EMPTY = new Animation("<empty>", [], 0);
   let AnimationState = _AnimationState;
+  const num = { kind: "num" };
+  const str = { kind: "str" };
+  const bool = { kind: "bool" };
+  const curve = { kind: "curve" };
+  const lit = (...values) => ({ kind: "lit", values });
+  const arr = (of, length) => ({ kind: "arr", of, length });
+  const map = (of) => ({ kind: "map", of });
+  const obj = (fields, required2 = []) => ({ kind: "obj", fields, required: required2 });
+  const variant = (fallback, cases) => ({
+    kind: "variant",
+    fallback,
+    cases
+  });
+  const strings = arr(str);
+  const numbers = arr(num);
+  const header = obj({
+    hash: str,
+    /** The 4.2 header's `spine` version, kept for provenance; nothing reads it. */
+    importedFrom: str,
+    x: num,
+    y: num,
+    width: num,
+    height: num,
+    fps: num,
+    referenceScale: num,
+    images: str,
+    audio: str
+  });
+  const bone = obj(
+    {
+      name: str,
+      parent: str,
+      length: num,
+      x: num,
+      y: num,
+      rotation: num,
+      scaleX: num,
+      scaleY: num,
+      shearX: num,
+      shearY: num,
+      inherit: lit(
+        "normal",
+        "onlyTranslation",
+        "noRotationOrReflection",
+        "noScale",
+        "noScaleOrReflection"
+      ),
+      skin: bool,
+      color: str
+    },
+    ["name"]
+  );
+  const slot = obj(
+    {
+      name: str,
+      bone: str,
+      color: str,
+      dark: str,
+      attachment: str,
+      blend: lit("normal", "additive", "multiply", "screen"),
+      visible: bool
+    },
+    ["name", "bone"]
+  );
+  const constraintBase = { name: str, order: num, skin: bool, bones: strings };
+  const ik = obj(
+    {
+      ...constraintBase,
+      target: str,
+      mix: num,
+      softness: num,
+      bendPositive: bool,
+      compress: bool,
+      stretch: bool,
+      uniform: bool
+    },
+    ["name", "bones", "target"]
+  );
+  const transform = obj(
+    {
+      ...constraintBase,
+      target: str,
+      local: bool,
+      relative: bool,
+      rotation: num,
+      x: num,
+      y: num,
+      scaleX: num,
+      scaleY: num,
+      shearY: num,
+      mixRotate: num,
+      mixX: num,
+      mixY: num,
+      mixScaleX: num,
+      mixScaleY: num,
+      mixShearY: num
+    },
+    ["name", "bones", "target"]
+  );
+  const path = obj(
+    {
+      ...constraintBase,
+      target: str,
+      positionMode: lit("fixed", "percent"),
+      spacingMode: lit("length", "fixed", "percent", "proportional"),
+      rotateMode: lit("tangent", "chain", "chainScale"),
+      rotation: num,
+      position: num,
+      spacing: num,
+      mixRotate: num,
+      mixX: num,
+      mixY: num
+    },
+    ["name", "bones", "target"]
+  );
+  const physics = obj(
+    {
+      name: str,
+      order: num,
+      skin: bool,
+      bone: str,
+      x: num,
+      y: num,
+      rotate: num,
+      scaleX: num,
+      shearX: num,
+      limit: num,
+      fps: num,
+      inertia: num,
+      strength: num,
+      damping: num,
+      mass: num,
+      wind: num,
+      gravity: num,
+      mix: num,
+      inertiaGlobal: bool,
+      strengthGlobal: bool,
+      dampingGlobal: bool,
+      massGlobal: bool,
+      windGlobal: bool,
+      gravityGlobal: bool,
+      mixGlobal: bool
+    },
+    ["name", "bone"]
+  );
+  const sequence = obj({ count: num, start: num, digits: num, setup: num });
+  const vertexFields = { name: str, color: str, vertexCount: num, vertices: numbers };
+  const mesh = obj({
+    name: str,
+    color: str,
+    path: str,
+    width: num,
+    height: num,
+    sequence,
+    parent: str,
+    skin: str,
+    timelines: bool,
+    uvs: numbers,
+    triangles: numbers,
+    vertices: numbers,
+    hull: num,
+    edges: numbers
+  });
+  const attachment = variant("region", {
+    region: obj({
+      name: str,
+      color: str,
+      path: str,
+      x: num,
+      y: num,
+      scaleX: num,
+      scaleY: num,
+      rotation: num,
+      width: num,
+      height: num,
+      sequence,
+      /** Extension: the image's anchor as `[u, v]` across / down, 0..1; centred when absent. */
+      pivot: arr(num, 2)
+    }),
+    mesh,
+    linkedmesh: mesh,
+    boundingbox: obj(vertexFields),
+    path: obj({ ...vertexFields, closed: bool, constantSpeed: bool, lengths: numbers }),
+    point: obj({ name: str, color: str, x: num, y: num, rotation: num }),
+    clipping: obj({ ...vertexFields, end: str })
+  });
+  const skin = obj(
+    {
+      name: str,
+      bones: strings,
+      ik: strings,
+      transform: strings,
+      path: strings,
+      physics: strings,
+      attachments: map(map(attachment))
+    },
+    ["name"]
+  );
+  const eventDef = obj({ int: num, float: num, string: str, audio: str, volume: num, balance: num });
+  const key1 = arr(obj({ time: num, value: num, curve }));
+  const key2 = arr(obj({ time: num, x: num, y: num, curve }));
+  const fxBinding = obj({
+    effectId: str,
+    bone: str,
+    slot: str,
+    continuous: bool,
+    alpha: num,
+    scale: num,
+    delay: num,
+    duration: num,
+    speed: num
+  });
+  const flipbookBinding = obj({
+    clipId: str,
+    bone: str,
+    slot: str,
+    continuous: bool,
+    loop: bool,
+    flipX: bool,
+    flipY: bool,
+    direction: lit("forward", "reverse", "pingpong"),
+    alpha: num,
+    scale: num,
+    delay: num,
+    duration: num,
+    fps: num
+  });
+  const animation = obj({
+    slots: map(
+      obj({
+        attachment: arr(obj({ time: num, name: str })),
+        rgba: arr(obj({ time: num, color: str, curve })),
+        rgb: arr(obj({ time: num, color: str, curve })),
+        alpha: key1,
+        rgba2: arr(obj({ time: num, light: str, dark: str, curve })),
+        rgb2: arr(obj({ time: num, light: str, dark: str, curve }))
+      })
+    ),
+    bones: map(
+      obj({
+        rotate: key1,
+        translate: key2,
+        translatex: key1,
+        translatey: key1,
+        scale: key2,
+        scalex: key1,
+        scaley: key1,
+        shear: key2,
+        shearx: key1,
+        sheary: key1,
+        inherit: arr(obj({ time: num, inherit: bone.fields.inherit }))
+      })
+    ),
+    ik: map(
+      arr(
+        obj({
+          time: num,
+          mix: num,
+          softness: num,
+          bendPositive: bool,
+          compress: bool,
+          stretch: bool,
+          curve
+        })
+      )
+    ),
+    transform: map(
+      arr(
+        obj({
+          time: num,
+          mixRotate: num,
+          mixX: num,
+          mixY: num,
+          mixScaleX: num,
+          mixScaleY: num,
+          mixShearY: num,
+          curve
+        })
+      )
+    ),
+    path: map(
+      obj({
+        position: key1,
+        spacing: key1,
+        mix: arr(obj({ time: num, mixRotate: num, mixX: num, mixY: num, curve }))
+      })
+    ),
+    physics: map(
+      obj({
+        inertia: key1,
+        strength: key1,
+        damping: key1,
+        mass: key1,
+        wind: key1,
+        gravity: key1,
+        mix: key1,
+        reset: arr(obj({ time: num }))
+      })
+    ),
+    attachments: map(
+      map(
+        map(
+          obj({
+            deform: arr(obj({ time: num, offset: num, vertices: numbers, curve })),
+            sequence: arr(
+              obj({
+                time: num,
+                delay: num,
+                index: num,
+                mode: lit(
+                  "hold",
+                  "once",
+                  "loop",
+                  "pingpong",
+                  "onceReverse",
+                  "loopReverse",
+                  "pingpongReverse"
+                )
+              })
+            )
+          })
+        )
+      )
+    ),
+    drawOrder: arr(
+      obj({ time: num, offsets: arr(obj({ slot: str, offset: num }, ["slot", "offset"])) })
+    ),
+    events: arr(
+      obj(
+        {
+          time: num,
+          name: str,
+          int: num,
+          float: num,
+          string: str,
+          volume: num,
+          balance: num,
+          fx: fxBinding,
+          flipbook: flipbookBinding
+        },
+        ["name"]
+      )
+    )
+  });
+  const RIG_FIELDS = {
+    skeleton: header,
+    bones: arr(bone),
+    slots: arr(slot),
+    ik: arr(ik),
+    transform: arr(transform),
+    path: arr(path),
+    physics: arr(physics),
+    skins: arr(skin),
+    events: map(eventDef),
+    animations: map(animation)
+  };
+  const IRIG_VERSION = 1;
+  const IRIG_V1 = obj({ irig: num, ...RIG_FIELDS }, ["irig", "bones"]);
+  const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  const describe = (v) => v === null ? "null" : Array.isArray(v) ? "a list" : `a ${typeof v}`;
+  function clean(field, value, path2, issues) {
+    const fail = (reason) => {
+      issues.push({ path: path2, reason });
+      return void 0;
+    };
+    switch (field.kind) {
+      case "num":
+        return typeof value === "number" ? value : fail(`expected a number, got ${describe(value)}`);
+      case "str":
+        return typeof value === "string" ? value : fail(`expected a string, got ${describe(value)}`);
+      case "bool":
+        return typeof value === "boolean" ? value : fail(`expected true/false, got ${describe(value)}`);
+      case "lit": {
+        if (typeof value !== "string") return fail(`expected a name, got ${describe(value)}`);
+        if (field.values.includes(value)) return value;
+        return fail(`"${value}" is not one of ${field.values.join(", ")}`);
+      }
+      case "curve":
+        if (value === "stepped") return value;
+        if (Array.isArray(value) && value.every((n) => typeof n === "number")) return value;
+        return fail(`expected "stepped" or a list of numbers, got ${describe(value)}`);
+      case "arr": {
+        if (!Array.isArray(value)) return fail(`expected a list, got ${describe(value)}`);
+        if (field.length !== void 0 && value.length !== field.length)
+          return fail(`expected ${field.length} items, got ${value.length}`);
+        const out = [];
+        for (const [i, item] of value.entries()) {
+          const kept = clean(field.of, item, `${path2}[${i}]`, issues);
+          if (kept === void 0) return fail("dropped with its bad item");
+          out.push(kept);
+        }
+        return out;
+      }
+      case "map": {
+        if (!isObject(value)) return fail(`expected an object, got ${describe(value)}`);
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+          const kept = clean(field.of, v, `${path2}.${k}`, issues);
+          if (kept !== void 0) out[k] = kept;
+        }
+        return out;
+      }
+      case "obj":
+        return cleanObject(field.fields, field.required, value, path2, issues);
+      case "variant": {
+        if (!isObject(value)) return fail(`expected an object, got ${describe(value)}`);
+        const type = value.type === void 0 ? field.fallback : value.type;
+        if (typeof type !== "string" || !(type in field.cases))
+          return fail(`unknown attachment type ${JSON.stringify(type)}`);
+        const shape = field.cases[type];
+        return cleanObject(
+          { type: { kind: "str" }, ...shape.fields },
+          shape.required,
+          value,
+          path2,
+          issues
+        );
+      }
+    }
+  }
+  function cleanObject(fields, required2, value, path2, issues) {
+    if (!isObject(value)) {
+      issues.push({ path: path2, reason: `expected an object, got ${describe(value)}` });
+      return void 0;
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const at = path2 ? `${path2}.${k}` : k;
+      const field = fields[k];
+      if (!field) {
+        issues.push({ path: at, reason: "not an irig field" });
+        continue;
+      }
+      const kept = clean(field, v, at, issues);
+      if (kept !== void 0) out[k] = kept;
+    }
+    const missing = required2.filter((k) => !(k in out));
+    if (missing.length) {
+      issues.push({ path: path2, reason: `missing ${missing.join(", ")}` });
+      return void 0;
+    }
+    return out;
+  }
+  function renameKey(o, from, to) {
+    return Object.fromEntries(Object.entries(o).map(([k, v]) => [k === from ? to : k, v]));
+  }
+  function importSpine42Json(json) {
+    const root = typeof json === "string" ? JSON.parse(json) : json;
+    if (!isObject(root)) throw new Error("A skeleton must be a JSON object.");
+    const source = { ...root };
+    if (isObject(source.skeleton))
+      source.skeleton = renameKey(source.skeleton, "spine", "importedFrom");
+    if (isObject(source.skins))
+      source.skins = Object.entries(source.skins).map(([name, attachments]) => ({
+        name,
+        attachments
+      }));
+    const issues = [];
+    const body = cleanObject(RIG_FIELDS, ["bones"], source, "", issues);
+    if (!body) throw new Error(`Not a skeleton: ${issues.map((i) => i.reason).join("; ")}`);
+    return { doc: { irig: IRIG_VERSION, ...body }, issues };
+  }
+  function isIrigDocument(value) {
+    return isObject(value) && typeof value.irig === "number";
+  }
+  function readIrig(input) {
+    const root = typeof input === "string" ? JSON.parse(input) : input;
+    if (!isIrigDocument(root)) throw new Error("Not an irig document.");
+    if (root.irig > IRIG_VERSION)
+      throw new Error(`irig version ${root.irig} is newer than this reader (${IRIG_VERSION}).`);
+    if (root.irig !== IRIG_VERSION) throw new Error(`Unknown irig version ${root.irig}.`);
+    const issues = [];
+    const doc = clean(IRIG_V1, root, "", issues);
+    if (issues.length || !doc) {
+      const list = issues.slice(0, 5).map((i) => `${i.path || "(root)"}: ${i.reason}`);
+      if (issues.length > 5) list.push(`…and ${issues.length - 5} more`);
+      throw new Error(`Invalid irig document — ${list.join("; ")}`);
+    }
+    return doc;
+  }
+  function writeIrig(doc) {
+    return JSON.stringify(doc);
+  }
+  function exportSpine42Json(doc) {
+    const out = { ...doc };
+    delete out.irig;
+    if (isObject(out.skeleton)) out.skeleton = renameKey(out.skeleton, "importedFrom", "spine");
+    return out;
+  }
   function get(map2, key, fallback) {
     const value = map2 == null ? void 0 : map2[key];
     return value === void 0 ? fallback : value;
@@ -5122,10 +5611,12 @@ var invisibleRig = function(exports) {
       const scale = this.scale;
       const data = new SkeletonData();
       const root = typeof json === "string" ? JSON.parse(json) : json;
+      const irig = isIrigDocument(root);
+      if (irig) readIrig(root);
       const skeletonMap = root.skeleton;
       if (skeletonMap) {
         data.hash = skeletonMap.hash;
-        data.version = skeletonMap.spine;
+        data.version = irig ? skeletonMap.importedFrom : skeletonMap.spine;
         data.x = skeletonMap.x;
         data.y = skeletonMap.y;
         data.width = skeletonMap.width;
@@ -7011,492 +7502,6 @@ var invisibleRig = function(exports) {
       timeline.setBezier(0, frame, value, time1, value1, cx1, cy1, cx2, cy2, time2, value2);
     }
   }
-  const num = { kind: "num" };
-  const str = { kind: "str" };
-  const bool = { kind: "bool" };
-  const curve = { kind: "curve" };
-  const lit = (...values) => ({ kind: "lit", values });
-  const arr = (of, length) => ({ kind: "arr", of, length });
-  const map = (of) => ({ kind: "map", of });
-  const obj = (fields, required2 = []) => ({ kind: "obj", fields, required: required2 });
-  const variant = (fallback, cases) => ({
-    kind: "variant",
-    fallback,
-    cases
-  });
-  const strings = arr(str);
-  const numbers = arr(num);
-  const header = obj({
-    hash: str,
-    /** The 4.2 header's `spine` version, kept for provenance; nothing reads it. */
-    importedFrom: str,
-    x: num,
-    y: num,
-    width: num,
-    height: num,
-    fps: num,
-    referenceScale: num,
-    images: str,
-    audio: str
-  });
-  const bone = obj(
-    {
-      name: str,
-      parent: str,
-      length: num,
-      x: num,
-      y: num,
-      rotation: num,
-      scaleX: num,
-      scaleY: num,
-      shearX: num,
-      shearY: num,
-      inherit: lit(
-        "normal",
-        "onlyTranslation",
-        "noRotationOrReflection",
-        "noScale",
-        "noScaleOrReflection"
-      ),
-      skin: bool,
-      color: str
-    },
-    ["name"]
-  );
-  const slot = obj(
-    {
-      name: str,
-      bone: str,
-      color: str,
-      dark: str,
-      attachment: str,
-      blend: lit("normal", "additive", "multiply", "screen"),
-      visible: bool
-    },
-    ["name", "bone"]
-  );
-  const constraintBase = { name: str, order: num, skin: bool, bones: strings };
-  const ik = obj(
-    {
-      ...constraintBase,
-      target: str,
-      mix: num,
-      softness: num,
-      bendPositive: bool,
-      compress: bool,
-      stretch: bool,
-      uniform: bool
-    },
-    ["name", "bones", "target"]
-  );
-  const transform = obj(
-    {
-      ...constraintBase,
-      target: str,
-      local: bool,
-      relative: bool,
-      rotation: num,
-      x: num,
-      y: num,
-      scaleX: num,
-      scaleY: num,
-      shearY: num,
-      mixRotate: num,
-      mixX: num,
-      mixY: num,
-      mixScaleX: num,
-      mixScaleY: num,
-      mixShearY: num
-    },
-    ["name", "bones", "target"]
-  );
-  const path = obj(
-    {
-      ...constraintBase,
-      target: str,
-      positionMode: lit("fixed", "percent"),
-      spacingMode: lit("length", "fixed", "percent", "proportional"),
-      rotateMode: lit("tangent", "chain", "chainScale"),
-      rotation: num,
-      position: num,
-      spacing: num,
-      mixRotate: num,
-      mixX: num,
-      mixY: num
-    },
-    ["name", "bones", "target"]
-  );
-  const physics = obj(
-    {
-      name: str,
-      order: num,
-      skin: bool,
-      bone: str,
-      x: num,
-      y: num,
-      rotate: num,
-      scaleX: num,
-      shearX: num,
-      limit: num,
-      fps: num,
-      inertia: num,
-      strength: num,
-      damping: num,
-      mass: num,
-      wind: num,
-      gravity: num,
-      mix: num,
-      inertiaGlobal: bool,
-      strengthGlobal: bool,
-      dampingGlobal: bool,
-      massGlobal: bool,
-      windGlobal: bool,
-      gravityGlobal: bool,
-      mixGlobal: bool
-    },
-    ["name", "bone"]
-  );
-  const sequence = obj({ count: num, start: num, digits: num, setup: num });
-  const vertexFields = { name: str, color: str, vertexCount: num, vertices: numbers };
-  const mesh = obj({
-    name: str,
-    color: str,
-    path: str,
-    width: num,
-    height: num,
-    sequence,
-    parent: str,
-    skin: str,
-    timelines: bool,
-    uvs: numbers,
-    triangles: numbers,
-    vertices: numbers,
-    hull: num,
-    edges: numbers
-  });
-  const attachment = variant("region", {
-    region: obj({
-      name: str,
-      color: str,
-      path: str,
-      x: num,
-      y: num,
-      scaleX: num,
-      scaleY: num,
-      rotation: num,
-      width: num,
-      height: num,
-      sequence,
-      /** Extension: the image's anchor as `[u, v]` across / down, 0..1; centred when absent. */
-      pivot: arr(num, 2)
-    }),
-    mesh,
-    linkedmesh: mesh,
-    boundingbox: obj(vertexFields),
-    path: obj({ ...vertexFields, closed: bool, constantSpeed: bool, lengths: numbers }),
-    point: obj({ name: str, color: str, x: num, y: num, rotation: num }),
-    clipping: obj({ ...vertexFields, end: str })
-  });
-  const skin = obj(
-    {
-      name: str,
-      bones: strings,
-      ik: strings,
-      transform: strings,
-      path: strings,
-      physics: strings,
-      attachments: map(map(attachment))
-    },
-    ["name"]
-  );
-  const eventDef = obj({ int: num, float: num, string: str, audio: str, volume: num, balance: num });
-  const key1 = arr(obj({ time: num, value: num, curve }));
-  const key2 = arr(obj({ time: num, x: num, y: num, curve }));
-  const fxBinding = obj({
-    effectId: str,
-    bone: str,
-    slot: str,
-    continuous: bool,
-    alpha: num,
-    scale: num,
-    delay: num,
-    duration: num,
-    speed: num
-  });
-  const flipbookBinding = obj({
-    clipId: str,
-    bone: str,
-    slot: str,
-    continuous: bool,
-    loop: bool,
-    flipX: bool,
-    flipY: bool,
-    direction: lit("forward", "reverse", "pingpong"),
-    alpha: num,
-    scale: num,
-    delay: num,
-    duration: num,
-    fps: num
-  });
-  const animation = obj({
-    slots: map(
-      obj({
-        attachment: arr(obj({ time: num, name: str })),
-        rgba: arr(obj({ time: num, color: str, curve })),
-        rgb: arr(obj({ time: num, color: str, curve })),
-        alpha: key1,
-        rgba2: arr(obj({ time: num, light: str, dark: str, curve })),
-        rgb2: arr(obj({ time: num, light: str, dark: str, curve }))
-      })
-    ),
-    bones: map(
-      obj({
-        rotate: key1,
-        translate: key2,
-        translatex: key1,
-        translatey: key1,
-        scale: key2,
-        scalex: key1,
-        scaley: key1,
-        shear: key2,
-        shearx: key1,
-        sheary: key1,
-        inherit: arr(obj({ time: num, inherit: bone.fields.inherit }))
-      })
-    ),
-    ik: map(
-      arr(
-        obj({
-          time: num,
-          mix: num,
-          softness: num,
-          bendPositive: bool,
-          compress: bool,
-          stretch: bool,
-          curve
-        })
-      )
-    ),
-    transform: map(
-      arr(
-        obj({
-          time: num,
-          mixRotate: num,
-          mixX: num,
-          mixY: num,
-          mixScaleX: num,
-          mixScaleY: num,
-          mixShearY: num,
-          curve
-        })
-      )
-    ),
-    path: map(
-      obj({
-        position: key1,
-        spacing: key1,
-        mix: arr(obj({ time: num, mixRotate: num, mixX: num, mixY: num, curve }))
-      })
-    ),
-    physics: map(
-      obj({
-        inertia: key1,
-        strength: key1,
-        damping: key1,
-        mass: key1,
-        wind: key1,
-        gravity: key1,
-        mix: key1,
-        reset: arr(obj({ time: num }))
-      })
-    ),
-    attachments: map(
-      map(
-        map(
-          obj({
-            deform: arr(obj({ time: num, offset: num, vertices: numbers, curve })),
-            sequence: arr(
-              obj({
-                time: num,
-                delay: num,
-                index: num,
-                mode: lit(
-                  "hold",
-                  "once",
-                  "loop",
-                  "pingpong",
-                  "onceReverse",
-                  "loopReverse",
-                  "pingpongReverse"
-                )
-              })
-            )
-          })
-        )
-      )
-    ),
-    drawOrder: arr(
-      obj({ time: num, offsets: arr(obj({ slot: str, offset: num }, ["slot", "offset"])) })
-    ),
-    events: arr(
-      obj(
-        {
-          time: num,
-          name: str,
-          int: num,
-          float: num,
-          string: str,
-          volume: num,
-          balance: num,
-          fx: fxBinding,
-          flipbook: flipbookBinding
-        },
-        ["name"]
-      )
-    )
-  });
-  const RIG_FIELDS = {
-    skeleton: header,
-    bones: arr(bone),
-    slots: arr(slot),
-    ik: arr(ik),
-    transform: arr(transform),
-    path: arr(path),
-    physics: arr(physics),
-    skins: arr(skin),
-    events: map(eventDef),
-    animations: map(animation)
-  };
-  const IRIG_VERSION = 1;
-  const IRIG_V1 = obj({ irig: num, ...RIG_FIELDS }, ["irig", "bones"]);
-  const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-  const describe = (v) => v === null ? "null" : Array.isArray(v) ? "a list" : `a ${typeof v}`;
-  function clean(field, value, path2, issues) {
-    const fail = (reason) => {
-      issues.push({ path: path2, reason });
-      return void 0;
-    };
-    switch (field.kind) {
-      case "num":
-        return typeof value === "number" ? value : fail(`expected a number, got ${describe(value)}`);
-      case "str":
-        return typeof value === "string" ? value : fail(`expected a string, got ${describe(value)}`);
-      case "bool":
-        return typeof value === "boolean" ? value : fail(`expected true/false, got ${describe(value)}`);
-      case "lit": {
-        if (typeof value !== "string") return fail(`expected a name, got ${describe(value)}`);
-        if (field.values.includes(value)) return value;
-        return fail(`"${value}" is not one of ${field.values.join(", ")}`);
-      }
-      case "curve":
-        if (value === "stepped") return value;
-        if (Array.isArray(value) && value.every((n) => typeof n === "number")) return value;
-        return fail(`expected "stepped" or a list of numbers, got ${describe(value)}`);
-      case "arr": {
-        if (!Array.isArray(value)) return fail(`expected a list, got ${describe(value)}`);
-        if (field.length !== void 0 && value.length !== field.length)
-          return fail(`expected ${field.length} items, got ${value.length}`);
-        const out = [];
-        for (const [i, item] of value.entries()) {
-          const kept = clean(field.of, item, `${path2}[${i}]`, issues);
-          if (kept === void 0) return fail("dropped with its bad item");
-          out.push(kept);
-        }
-        return out;
-      }
-      case "map": {
-        if (!isObject(value)) return fail(`expected an object, got ${describe(value)}`);
-        const out = {};
-        for (const [k, v] of Object.entries(value)) {
-          const kept = clean(field.of, v, `${path2}.${k}`, issues);
-          if (kept !== void 0) out[k] = kept;
-        }
-        return out;
-      }
-      case "obj":
-        return cleanObject(field.fields, field.required, value, path2, issues);
-      case "variant": {
-        if (!isObject(value)) return fail(`expected an object, got ${describe(value)}`);
-        const type = value.type === void 0 ? field.fallback : value.type;
-        if (typeof type !== "string" || !(type in field.cases))
-          return fail(`unknown attachment type ${JSON.stringify(type)}`);
-        const shape = field.cases[type];
-        return cleanObject(
-          { type: { kind: "str" }, ...shape.fields },
-          shape.required,
-          value,
-          path2,
-          issues
-        );
-      }
-    }
-  }
-  function cleanObject(fields, required2, value, path2, issues) {
-    if (!isObject(value)) {
-      issues.push({ path: path2, reason: `expected an object, got ${describe(value)}` });
-      return void 0;
-    }
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      const at = path2 ? `${path2}.${k}` : k;
-      const field = fields[k];
-      if (!field) {
-        issues.push({ path: at, reason: "not an irig field" });
-        continue;
-      }
-      const kept = clean(field, v, at, issues);
-      if (kept !== void 0) out[k] = kept;
-    }
-    const missing = required2.filter((k) => !(k in out));
-    if (missing.length) {
-      issues.push({ path: path2, reason: `missing ${missing.join(", ")}` });
-      return void 0;
-    }
-    return out;
-  }
-  function renameKey(o, from, to) {
-    return Object.fromEntries(Object.entries(o).map(([k, v]) => [k === from ? to : k, v]));
-  }
-  function importSpine42Json(json) {
-    const root = typeof json === "string" ? JSON.parse(json) : json;
-    if (!isObject(root)) throw new Error("A skeleton must be a JSON object.");
-    const source = { ...root };
-    if (isObject(source.skeleton))
-      source.skeleton = renameKey(source.skeleton, "spine", "importedFrom");
-    if (isObject(source.skins))
-      source.skins = Object.entries(source.skins).map(([name, attachments]) => ({
-        name,
-        attachments
-      }));
-    const issues = [];
-    const body = cleanObject(RIG_FIELDS, ["bones"], source, "", issues);
-    if (!body) throw new Error(`Not a skeleton: ${issues.map((i) => i.reason).join("; ")}`);
-    return { doc: { irig: IRIG_VERSION, ...body }, issues };
-  }
-  function readIrig(input) {
-    const root = typeof input === "string" ? JSON.parse(input) : input;
-    if (!isObject(root) || typeof root.irig !== "number") throw new Error("Not an irig document.");
-    if (root.irig > IRIG_VERSION)
-      throw new Error(`irig version ${root.irig} is newer than this reader (${IRIG_VERSION}).`);
-    if (root.irig !== IRIG_VERSION) throw new Error(`Unknown irig version ${root.irig}.`);
-    const issues = [];
-    const doc = clean(IRIG_V1, root, "", issues);
-    if (issues.length || !doc) {
-      const list = issues.slice(0, 5).map((i) => `${i.path || "(root)"}: ${i.reason}`);
-      if (issues.length > 5) list.push(`…and ${issues.length - 5} more`);
-      throw new Error(`Invalid irig document — ${list.join("; ")}`);
-    }
-    return doc;
-  }
-  function writeIrig(doc) {
-    return JSON.stringify(doc);
-  }
-  function exportSpine42Json(doc) {
-    const out = { ...doc };
-    delete out.irig;
-    if (isObject(out.skeleton)) out.skeleton = renameKey(out.skeleton, "importedFrom", "spine");
-    return out;
-  }
   class ManagedWebGLRenderingContext {
     constructor(canvasOrContext, contextConfig = { alpha: true }) {
       var _a;
@@ -8454,6 +8459,7 @@ void main() { gl_FragColor = vColor; }`;
   exports.enumFromName = enumFromName;
   exports.exportSpine42Json = exportSpine42Json;
   exports.importSpine42Json = importSpine42Json;
+  exports.isIrigDocument = isIrigDocument;
   exports.managed = managed;
   exports.readIrig = readIrig;
   exports.setArraySize = setArraySize;

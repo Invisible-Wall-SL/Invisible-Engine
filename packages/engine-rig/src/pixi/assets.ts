@@ -14,6 +14,7 @@ import {
 } from 'pixi.js';
 import { TextureAtlas, type TextureAtlasPage } from '../atlas';
 import { RigPageTexture } from './pageTexture';
+import { isIrigDocument } from '../irig/irig';
 
 /** Optional `data` for an `.atlas` asset: page images to use instead of the files the atlas names
  * (one source for a single page, or a map by page name), and extra options for loading them. */
@@ -99,8 +100,10 @@ export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 	},
 } as unknown as AssetExtension<TextureAtlas, RigAtlasMetadata>;
 
-const isSkeletonJson = (value: unknown): boolean =>
-	!!value && typeof value === 'object' && 'skeleton' in value && 'bones' in value;
+/** A 4.2 skeleton (header + bones) or an irig document, whose header is optional. */
+export const isSkeletonJson = (value: unknown): boolean =>
+	isIrigDocument(value) ||
+	(!!value && typeof value === 'object' && 'skeleton' in value && 'bones' in value);
 
 /** `.skel` → `Uint8Array`; `.irig` → its parsed skeleton JSON (a skeleton `.json` already
  * arrives parsed through Pixi's JSON loader, which is all the readers need). */
