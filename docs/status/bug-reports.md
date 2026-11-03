@@ -106,6 +106,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
    **Waiting on pipeline · BUG-n** (derived). The bug page has **Escalate to pipeline** (a small
    form in the new **Repair** card, triagers with the Pipeline Bug Reports tool).
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
+4. **Start fix on a pipeline bug** — designed and approved (ADR-0013, Director PLAN Phase 10,
+   cards 13A–13D), not built: Claude Code fixes the bug in a GitHub Actions job and the launcher
+   opens a draft `bug-<n>-fix-<id>` PR. Until then a pipeline bug is fixed from **Copy fix brief**.
 
 ## Recent changes
 
