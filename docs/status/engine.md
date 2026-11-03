@@ -63,7 +63,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   authored Element FX with its own params, the camera chroma split, the rig dark tint
   (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
   Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
-  devices (Chromium `deviceMemory` ≤ 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
+  devices (Chromium `deviceMemory` ≤ 4 GB since 2026-11-03, was 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
   and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
   exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
   hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
@@ -290,6 +290,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-03 — **Low-end render tier now starts at 4 GB.** Owner call: almost no phone shipped in
+  2026 reports 2 GB or less, so `renderTier.ts`'s `LOW_END_MEMORY_GB` is 4. A Chromium device
+  reporting `deviceMemory` ≤ 4 now renders at resolution ≤ 1.5 with no MSAA, and its particle
+  budget starts at half (`particleBudget.ts` reads the tier). Safari still reports nothing, so
+  iPhones stay `full` and only the adaptive budget thins their particles. `?render=` and
+  `?particles=` overrides are unchanged. Not verified on a physical 4 GB phone.
 - 2026-11-03 — **A rig rebuilds its meshes once a drawn frame, and the board geometry is cached**
   (branch `claude/game-performance-audit-e0546b`). From a performance audit of
   `overlay-buffaloduel` on a real GPU (Intel Arc, D3D11) with the CPU slowed 4×: base spins 25 fps,
