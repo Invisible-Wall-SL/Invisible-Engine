@@ -1,8 +1,9 @@
 /**
- * The WebGPU stub (`pixiRenderers.js`) against the INSTALLED pixi.js: the file it keys on is where
- * it expects, still makes each import it swaps, and the plugin swaps exactly those, only for that
- * file. A Pixi upgrade that moves or rewrites `autoDetectRenderer` fails here rather than quietly
- * putting WebGPU back in the bundle, or breaking the boot.
+ * The WebGPU stub and the eager boot imports (`pixiRenderers.js`) against the INSTALLED pixi.js: the
+ * files they key on are where they expect, still make each import they swap, and the plugins swap
+ * exactly those, only for those files. A Pixi upgrade that moves or rewrites `autoDetectRenderer` or
+ * `browserExt` fails here rather than quietly putting WebGPU back in the bundle, moving the WebGL
+ * renderer into a chunk every boot waits on, or breaking the boot.
  *
  *     node packages/config-vite/pixiRenderers.fixture.mjs
  */
@@ -10,7 +11,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AUTO_DETECT_RENDERER, STUBBED_IMPORTS, noWebGpuRenderer } from './pixiRenderers.js';
+import {
+	AUTO_DETECT_RENDERER,
+	BROWSER_EXT,
+	EAGER_IMPORTS,
+	STUBBED_IMPORTS,
+	eagerPixiBoot,
+	noWebGpuRenderer,
+} from './pixiRenderers.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -81,6 +89,44 @@ untouched.error = (message) => errors.push(message);
 untouched.buildStart();
 untouched.buildEnd();
 check('a build without Pixi (SSR) passes', errors.length === 1);
+
+const browserExt = join(pixiRoot, 'lib/environment-browser/browserExt.mjs');
+check('the eager boot keys on browserExt.mjs', BROWSER_EXT.test(browserExt), browserExt);
+const eager = eagerPixiBoot();
+const eagerErrors = [];
+eager.error = (message) => {
+	eagerErrors.push(message);
+	throw new Error(message);
+};
+for (const file of [autoDetect, browserExt]) {
+	const code = existsSync(file) ? readFileSync(file, 'utf8') : '';
+	const out = eager.transform(code, file)?.code ?? '';
+	for (const { spec } of EAGER_IMPORTS.filter((e) => e.file.test(file))) {
+		check(
+			`${file.split('/lib/')[1]}: import('${spec}') becomes a static import`,
+			code.includes(`import('${spec}')`) &&
+				!out.includes(`import('${spec}')`) &&
+				out.includes(`from '${spec}';`),
+		);
+	}
+}
+check(
+	'the canvas fallback stays a dynamic import',
+	(eager.transform(source, autoDetect)?.code ?? '').includes(
+		"import('./canvas/CanvasRenderer.mjs')",
+	),
+);
+check('another file is left alone', eager.transform(source, '/x/other.mjs') === null);
+const ssrEager = eagerPixiBoot();
+ssrEager.configResolved({ build: { ssr: true } });
+check('the SSR pass is left alone', ssrEager.transform(source, autoDetect) === null);
+let threw = false;
+try {
+	eager.transform('export const browserExt = {};', browserExt);
+} catch {
+	threw = true;
+}
+check('a browserExt that no longer imports browserAll fails the build', threw);
 
 if (failures) {
 	console.error(`\n${failures} failure(s)`);

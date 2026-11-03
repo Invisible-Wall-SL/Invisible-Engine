@@ -59,32 +59,36 @@ const warnAboutDeadSrc = () => {
  * `pull:assets` (`docs/design/live-assets.md`).
  */
 /**
- * EMBED mode — the build a partner's page loads with a `<script src>`, instead of the single
- * droppable `index.html`.
+ * HOW A GAME BUILD SHIPS: a small `index.html` SHELL plus `_app/immutable/bundle.<hash>.js`, an ES
+ * module the shell imports, for every build.
  *
- * Default ('inline') copies the whole bundle INTO the HTML, which is what makes an ordinary build a
- * folder you can drop on any static host. It is also what makes it un-embeddable: a partner's page
- * is server-rendered and already inside iframes they do not control, so they include our bundle and
- * give us a container div — there is no HTML of ours for them to serve.
+ * The shell is what changes on a release, and it is served `no-store`; the bundle and every chunk
+ * beside it are content-hashed under `_app/immutable/`, served long-cached and immutable, so the
+ * only code a repeat visit downloads is the shell. Until 2026-11 the default was 'inline', which
+ * copied the whole bundle INTO the HTML: one droppable file, but ~700 KB gz re-downloaded on every
+ * visit because the page itself cannot be cached.
  *
- * 'single' emits that same bundle as ONE file and leaves the HTML a shell. Nothing else has to
- * change for the assets to follow it: the game builds its asset URLs with `import.meta.url`, which
- * Vite compiles for a classic script to `document.currentScript.src`, so a bundle loaded from
- * `{cdn}/{brand}/games/{versionPath}/{gameAlias}/` resolves `assets/` under that same folder. That
- * is what makes their `versionPath` cache-buster work — the folder moves and the whole game moves
- * with it — and it is exactly what inlining breaks, because an inline script has no `src` and falls
- * back to `document.baseURI`.
+ * 'single' is SvelteKit's one-file bundle. `config-vite` (`lazyChunks.js`) lets its dynamic
+ * imports become their own chunks for every build except an embed, so code a boot may never reach
+ * (the error-reporting SDK, Pixi's fallback renderers) is fetched only when it is.
  *
- * See `docs/design/delivery-builds.md`.
+ * Every URL is relative (`./_app/…`) and every chunk and asset resolves against `import.meta.url`,
+ * so the build still works from any folder it is dropped in.
+ *
+ * EMBED mode (`PUBLIC_DELIVERY_EMBED=1`) is the build a partner's page loads with a `<script src>`.
+ * It has no HTML of ours: their server-rendered page, already inside iframes they do not control,
+ * includes `game.js` (`scripts/build-embed.mjs`, generated from the shell) and gives us a container
+ * div. Its bundle stays ONE file, dynamic imports inlined: the partner uploads a folder per
+ * `versionPath`, and one file is the contract we documented. Its assets follow `import.meta.url` to
+ * `{cdn}/{brand}/games/{versionPath}/{gameAlias}/`, which is what makes their `versionPath`
+ * cache-buster work. See `docs/design/delivery-builds.md`.
  */
-const embedBuild = () => process.env.PUBLIC_DELIVERY_EMBED === '1';
-
 export default () => {
 	const kit = {
 		// See https://kit.svelte.dev/docs/adapters for more information about adapters.
 		adapter: adapter(),
 		output: {
-			bundleStrategy: embedBuild() ? 'single' : 'inline',
+			bundleStrategy: 'single',
 		},
 	};
 

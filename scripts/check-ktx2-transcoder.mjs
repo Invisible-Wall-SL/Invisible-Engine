@@ -10,9 +10,10 @@
 // `NODE_PATH` (`require('playwright')`), as the playtester does.
 //
 // WHY. `libktx.{js,wasm}` (~520 KB gz) used to be inlined as base64 into every build, so every
-// desktop downloaded a transcoder only phones use. Emitted as files, their url is the hazard: an
-// inline build resolved it against the page's folder (`<page>/assets/…`) instead of the bundle's
-// (`<page>/_app/immutable/assets/…`), which only a phone on the compressed tier would ever request.
+// desktop downloaded a transcoder only phones use. Emitted as files, their url is the hazard: the
+// then-inline build resolved it against the page's folder (`<page>/assets/…`) instead of the
+// bundle's (`<page>/_app/immutable/assets/…`), which only a phone on the compressed tier would ever
+// request. Every build is now an ES-module bundle beside a shell, so the url is `import.meta.url`'s.
 // So this boots each shape of build the way it is really served, with `?quality=low` forcing the
 // compressed tier, and proves the transcoder loads from `_app/immutable/assets/` and transcodes a
 // `.ktx2`; then breaks it four ways (both transcoder files blocked; only the wasm blocked, which
@@ -23,15 +24,18 @@
 //   runtime  the shared online runtime, served by the REAL test server (`TEST_SERVER_LOCAL`) under
 //            `/<gameKey>/` from a versioned `_runtime/lines@<v>/` release, as production does. A
 //            desktop ☁ Publish build is served the same way (`/<gameKey>/`, its own files).
-//   inline   a delivery built the default (inline) way, dropped into a nested folder of a host.
-//   embed    a `bundleStrategy: 'single'` delivery (`game.js`) on a separate CDN origin, included
-//            by an operator page on another origin.
+//   inline   a delivery built the default way (shell + bundle), dropped into a nested folder of a
+//            host.
+//   embed    the one-file embed delivery (`game.js`) on a separate CDN origin, included by an
+//            operator page on another origin.
+//
+// The builds are `lib/game-build-variants.mjs`'s, shared with `check:runtime-shell`.
 //
 // The texture comes from a stub `/api/editor/runtime` (`?runtime=1`): one image and one sheet, each
 // with a `.ktx2` twin, so it goes through the game's own registration (`bakedEditorArtAssets`) and
 // `AssetsLoader`, not a test-only path.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
 	cpSync,
 	existsSync,
@@ -45,10 +49,9 @@ import {
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, join, normalize, resolve, sep } from 'node:path';
+import { ROOT, assertVariants, buildVariants } from './lib/game-build-variants.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name, fallback) => {
 	const i = process.argv.indexOf(name);
 	return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
@@ -84,54 +87,8 @@ const FIXTURES = {
 const COMPRESSED = ['probe.ktx2', 'probe-page.ktx2'];
 const TWINS = ['probe.png', 'probe-page.png'];
 
-const BUILDS = [
-	{
-		id: 'runtime',
-		script: 'build',
-		env: {
-			PUBLIC_RGS_TRANSPORT: 'play4fun',
-			PUBLIC_DELIVERY_PROFILES: '*',
-			PUBLIC_IE_FAMILIES: 'slot',
-		},
-	},
-	{
-		id: 'inline',
-		script: 'build',
-		env: { PUBLIC_RGS_TRANSPORT: 'play4fun', PUBLIC_DELIVERY_PROFILE: '2complex' },
-	},
-	{
-		id: 'embed',
-		script: 'build:embed',
-		env: {
-			PUBLIC_DELIVERY_EMBED: '1',
-			PUBLIC_RGS_TRANSPORT: 'play4fun',
-			PUBLIC_DELIVERY_PROFILE: 'operator-embed',
-		},
-	},
-];
-
-const run = (args, env = {}) => {
-	const r = spawnSync('pnpm', args, {
-		cwd: ROOT,
-		env: { ...process.env, ...env },
-		stdio: ['ignore', 'inherit', 'inherit'],
-		shell: process.platform === 'win32',
-	});
-	if (r.status !== 0) throw new Error(`pnpm ${args.join(' ')} failed (exit ${r.status})`);
-};
-
-if (!skipBuild) {
-	run(['--filter', 'lines^...', 'build']);
-	for (const { id, script, env } of BUILDS) {
-		run(['--filter', 'lines', script], env);
-		rmSync(join(OUT, id), { recursive: true, force: true });
-		cpSync(join(ROOT, 'apps/lines/build'), join(OUT, id), { recursive: true });
-	}
-}
-for (const { id } of BUILDS) {
-	if (!existsSync(join(OUT, id)))
-		throw new Error(`no ${id} build in ${OUT} — run without --skip-build`);
-}
+if (!skipBuild) buildVariants(OUT);
+assertVariants(OUT);
 
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
@@ -264,7 +221,7 @@ const TARGETS = [
 	},
 	{
 		id: 'inline',
-		url: `${originOf(host)}/casino/games/probe/index.html${query('&sid=probe')}`,
+		url: `${originOf(host)}/casino/games/probe/index.html${query(`&sid=probe&rgs_url=${encodeURIComponent(MOCK_RGS)}`)}`,
 		assets: `${originOf(host)}/casino/games/probe/_app/immutable/assets/`,
 	},
 	{

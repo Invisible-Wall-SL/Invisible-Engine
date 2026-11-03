@@ -1,41 +1,43 @@
 // Upload the runtime bundle's source maps to Sentry — and make sure none of them ships.
 //
-//   node scripts/sentry-sourcemaps.mjs runtime apps/lines/build [--out <dir>] [--dry-run]
+//   node scripts/sentry-sourcemaps.mjs runtime apps/lines/build [--out <dir>] [--dry-run] [--strict]
 //   node scripts/sentry-sourcemaps.mjs launcher apps/launcher-api/build [--dry-run]
 //   node scripts/sentry-sourcemaps.mjs verify apps/lines/build
 //
 // `launcher` is the launcher's post-build step — see `launcher()` below. The rest is the runtime:
 //
 // `runtime` expects a build made with `IE_SOURCEMAPS=hidden` (packages/config-vite). It
-//   1. re-bases the bundle's map into `index.html` coordinates (below),
-//   2. adds a debug-ID snippet to `index.html`, so the SDK can name the map for any frame,
-//   3. stages the map (+ the page it describes) OUTSIDE the build folder,
-//   4. deletes every `.map` from the build and fails unless `verify` then passes,
-//   5. uploads the staged files with `sentry-cli`, for the release the SDK reports.
-// Step 5 is skipped, with a notice, when SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT is unset,
+//   1. pairs every shipped chunk under `_app/immutable/` with its map, by the debug ID the build
+//      wrote into the chunk (`config-vite/debugIds.js`: a `_sentryDebugIds` snippet the SDK reads
+//      to name the map for any frame, and a `//# debugId=` comment),
+//   2. stages each chunk + its map OUTSIDE the build folder, the map stamped with the same debug ID,
+//   3. deletes every `.map` from the build and fails unless `verify` then passes,
+//   4. uploads the staged files with `sentry-cli`, for the release the SDK reports.
+// Step 4 is skipped, with a notice, when SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT is unset,
 // and a failed upload is a warning: reporting must never be the thing that holds an engine release.
-// `--dry-run` runs step 5 against a local stand-in for Sentry's upload API and checks what arrived.
+// `--dry-run` runs step 4 against a local stand-in for Sentry's upload API and checks what arrived.
+// A shipped chunk with no map, or a map whose chunk carries no debug ID, is reported as a
+// `::warning::` (it would have unreadable frames); `--strict` (the fixtures) makes it fatal.
 //
 // `verify` is the gate: no `.map` file and no `sourceMappingURL` anywhere under the folder. The repo
 // and every served bundle are public, so a map next to the bundle would publish the whole source.
 //
-// WHY THE MAP HAS TO BE RE-BASED: the game is ONE inlined file. SvelteKit's `bundleStrategy:
-// 'inline'` copies `_app/immutable/bundle.<hash>.js` byte for byte into a `<script>` in `index.html`,
-// and that copy is the one that runs — the file itself is only a base URL for `import.meta.url`. A
-// browser numbers an inline script's frames by DOCUMENT line and column, so every frame is ~126
-// lines (and, on the bundle's first line, a few columns) below where the bundle's own map expects
-// it. The staged map therefore describes `index.html`: the same mappings, shifted by the bundle's
-// offset in the page. Frames are tied to it by debug ID, not by URL, because the page's URL is a
-// different game key on every online game and the operator's own page in a delivery.
+// The game is an `index.html` shell that imports `_app/immutable/bundle.<hash>.js`, an ES module,
+// and its lazy chunks (`config-svelte`, `config-vite/lazyChunks.js`), so every frame names a chunk
+// file and its own map describes it as built. Until 2026-11 the bundle was INLINED into the page,
+// which needed the map re-based onto `index.html` — and the inline strategy of the SvelteKit 2.70 the
+// repo moved to on 2026-10-01 deletes the emitted bundle and its map, so from then on nothing was
+// uploaded (`docs/knowledge/lessons/infra.md`).
 
 import { spawn } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { basename, extname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
+import { DEBUG_ID_COMMENT } from '../packages/config-vite/debugIds.js';
 
 /** Pinned: `pnpm dlx` fetches it only when there is something to upload. */
 export const SENTRY_CLI = '@sentry/cli@3.8.0';
@@ -65,215 +67,78 @@ export function sourceMapLeaks(buildDir) {
 	return leaks;
 }
 
-// ── Base64 VLQ, the source-map `mappings` encoding ──────────────────────────────────────────────
-const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const B64_INDEX = Object.fromEntries([...B64].map((c, i) => [c, i]));
+/** The debug ID a chunk was built with (`config-vite/debugIds.js`), or null. */
+export const debugIdOf = (code) => DEBUG_ID_COMMENT.exec(code)?.[1] ?? null;
 
-const decodeSegment = (text) => {
-	const out = [];
-	let value = 0;
-	let shift = 0;
-	for (const char of text) {
-		const digit = B64_INDEX[char];
-		if (digit === undefined) throw new Error(`bad VLQ character '${char}'`);
-		value += (digit & 31) << shift;
-		if (digit & 32) {
-			shift += 5;
+/**
+ * Steps 1–2: every chunk under `_app/immutable/` that has a map, staged under `outDir` at the same
+ * relative path, with the map stamped with the chunk's debug ID. `problems` names each shipped
+ * chunk that would have unreadable frames: one with no map, or one built without a debug ID.
+ */
+export function stageMaps(buildDir, outDir) {
+	const immutable = join(buildDir, '_app', 'immutable');
+	const chunks = [];
+	const problems = [];
+	for (const file of walk(immutable)) {
+		if (extname(file) !== '.js') continue;
+		const rel = relative(buildDir, file).split(sep).join('/');
+		const code = readFileSync(file, 'utf8');
+		const id = debugIdOf(code);
+		let map;
+		try {
+			map = JSON.parse(readFileSync(`${file}.map`, 'utf8'));
+		} catch {
+			// No map: a build made without IE_SOURCEMAPS=hidden, a re-run after the strip, or a file
+			// Vite copied rather than built (the KTX2 transcoder).
+		}
+		if (!map) {
+			if (id) problems.push(`${rel} carries a debug ID but has no map`);
 			continue;
 		}
-		out.push(value & 1 ? -(value >>> 1) : value >>> 1);
-		value = 0;
-		shift = 0;
-	}
-	return out;
-};
-
-const encodeSegment = (fields) =>
-	fields
-		.map((field) => {
-			let value = field < 0 ? (-field << 1) | 1 : field << 1;
-			let text = '';
-			do {
-				let digit = value & 31;
-				value >>>= 5;
-				if (value) digit |= 32;
-				text += B64[digit];
-			} while (value);
-			return text;
-		})
-		.join('');
-
-/** `mappings` → per generated line, absolute `[column, source, line, column]` segments. */
-export function decodeMappings(mappings) {
-	const state = [0, 0, 0, 0];
-	return mappings.split(';').map((line) => {
-		state[0] = 0;
-		if (!line) return [];
-		return line.split(',').map((segment) => {
-			const fields = decodeSegment(segment);
-			const abs = [];
-			for (let i = 0; i < 4 && i < fields.length; i++) abs.push((state[i] += fields[i]));
-			return abs;
-		});
-	});
-}
-
-/**
- * The same map, for the same code placed `line` lines and (on its first line only) `column` columns
- * further into a larger document. Only the first segment of a line holds an absolute column, and
- * source/original positions are relative across lines, so nothing past that one segment changes.
- */
-export function rebaseMappings(mappings, line, column) {
-	const lines = mappings.split(';');
-	if (column && lines[0]) {
-		const segments = lines[0].split(',');
-		const first = decodeSegment(segments[0]);
-		first[0] += column;
-		segments[0] = encodeSegment(first);
-		lines[0] = segments.join(',');
-	}
-	return ';'.repeat(line) + lines.join(';');
-}
-
-/** Line/column of a string index, counting line terminators the way an HTML parser does. */
-const positionOf = (text, index) => {
-	const before = text.slice(0, index);
-	const lines = before.split(/\r\n|\r|\n/);
-	return { line: lines.length - 1, column: lines.at(-1).length };
-};
-
-/** A UUID named by the bundle's content, so a re-run of the same build gets the same debug ID. */
-export const debugIdFor = (content) => {
-	const hex = createHash('sha256').update(content).digest('hex');
-	const variant = ((parseInt(hex[16], 16) & 3) | 8).toString(16);
-	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-};
-
-/**
- * What the Sentry SDK reads to name a map for a frame: `_sentryDebugIds[stack] = id`, where the
- * stack's file is the page itself — the file every frame of the inlined bundle names.
- */
-const snippetFor = (id) =>
-	`<script>!function(){try{var e=window,n=new e.Error().stack;n&&((e._sentryDebugIds=e._sentryDebugIds||{})[n]="${id}")}catch(e){}}();</script>`;
-
-/** Sample mapped positions and check the page holds the same code where the re-based map says. */
-function checkRebase({ bundle, html, map, rebased, line, column }) {
-	const bundleLines = bundle.split('\n');
-	const htmlLines = html.split(/\r\n|\r|\n/);
-	const original = decodeMappings(map.mappings);
-	const shifted = decodeMappings(rebased);
-	const samples = [];
-	const every = Math.max(1, Math.floor(original.flat().length / 400));
-	let n = 0;
-	original.forEach((segments, genLine) => {
-		for (const segment of segments)
-			if (segment.length >= 4 && n++ % every === 0) samples.push([genLine, segment]);
-	});
-	const problems = [];
-	for (const [genLine, [genCol, ...origin]] of samples) {
-		const htmlLine = genLine + line;
-		const htmlCol = genLine === 0 ? genCol + column : genCol;
-		const code = bundleLines[genLine].slice(genCol, genCol + 24);
-		if (htmlLines[htmlLine]?.slice(htmlCol, htmlCol + 24) !== code) {
-			problems.push(
-				`page ${htmlLine + 1}:${htmlCol} does not hold the code at bundle ${genLine + 1}:${genCol}`,
-			);
+		if (!id) {
+			problems.push(`${rel} has a map but no debug ID (built without config-vite's debugIds.js)`);
+			continue;
 		}
-		const hit = shifted[htmlLine]?.find((s) => s[0] === htmlCol);
-		if (!hit || hit.slice(1).join() !== origin.join()) {
-			problems.push(
-				`page ${htmlLine + 1}:${htmlCol} does not resolve to the bundle map's original`,
-			);
-		}
-		if (problems.length > 5) break;
-	}
-	if (!samples.length) problems.push('the bundle map has no mapped positions');
-	return { samples: samples.length, problems };
-}
-
-/** Steps 1–3 for a build that has the bundle's map. Throws when the map cannot be made to fit. */
-function stageMap(buildDir, outDir, bundleName, map) {
-	const bundle = readFileSync(join(buildDir, '_app', 'immutable', bundleName), 'utf8');
-	const htmlPath = join(buildDir, 'index.html');
-	let html = readFileSync(htmlPath, 'utf8');
-	const id = debugIdFor(bundle);
-	// Not a test for `_sentryDebugIds` alone: the SDK inside the bundle names it too.
-	if (!html.includes(snippetFor(id))) {
-		const head = html.indexOf('</head>');
-		if (head < 0) throw new Error('index.html has no </head> to hold the debug-ID snippet');
-		html = `${html.slice(0, head)}${snippetFor(id)}\n\t${html.slice(head)}`;
-	}
-	const at = html.indexOf(bundle);
-	if (at < 0) {
-		console.warn(
-			'The bundle is not inlined in index.html (an embed build?) — its map would not line up.',
+		const staged = join(outDir, rel);
+		mkdirSync(dirname(staged), { recursive: true });
+		writeFileSync(staged, `${code}//# sourceMappingURL=${basename(file)}.map\n`);
+		writeFileSync(
+			`${staged}.map`,
+			JSON.stringify({
+				...map,
+				// Vite writes each source relative to the chunk's folder under
+				// `.svelte-kit/output/client/`, which climbs to the repo root; without the climb Sentry
+				// shows repo paths.
+				sources: map.sources.map((s) => s.replace(/^(\.\.\/)+/, '')),
+				debugId: id,
+				debug_id: id,
+			}),
 		);
-		return null;
+		chunks.push({ file: rel, debugId: id });
 	}
-	if (html.indexOf(bundle, at + 1) >= 0) {
-		throw new Error('the bundle is inlined twice in index.html — which copy runs is ambiguous');
-	}
-	const { line, column } = positionOf(html, at);
-	const rebased = rebaseMappings(map.mappings, line, column);
-	const check = checkRebase({ bundle, html, map, rebased, line, column });
-	if (check.problems.length) {
-		throw new Error(
-			`the re-based map does not line up with index.html:\n  ${check.problems.join('\n  ')}`,
-		);
-	}
-	writeFileSync(htmlPath, html);
-	mkdirSync(outDir, { recursive: true });
-	const source = join(outDir, 'index.html.js');
-	writeFileSync(source, `${html}\n//# debugId=${id}\n//# sourceMappingURL=index.html.js.map\n`);
-	writeFileSync(
-		`${source}.map`,
-		JSON.stringify({
-			...map,
-			// Vite writes each source relative to `.svelte-kit/output/client/_app/immutable/`, which
-			// climbs to the repo root; without the climb Sentry shows repo paths.
-			sources: map.sources.map((s) => s.replace(/^(\.\.\/)+/, '')),
-			file: 'index.html.js',
-			mappings: rebased,
-			debugId: id,
-			debug_id: id,
-		}),
-	);
-	console.info(
-		`Staged the ${bundleName} map for index.html (bundle at line ${line + 1}, column ${column}; ` +
-			`${check.samples} sampled positions line up), debug ID ${id}.`,
-	);
-	return { dir: outDir, debugId: id };
+	return { chunks, problems };
 }
 
 /**
- * Steps 1–4. Returns what to upload, or `null` (with the reason logged) when there is nothing. Only
- * step 4 can fail it: a map that will not fit costs readable traces, a map left in the build would
- * publish the source.
+ * Steps 1–3. Returns what to upload, or `null` (with the reason logged) when there is nothing. Only
+ * step 3 can fail it (and, with `strict`, a chunk with unreadable frames, AFTER the strip): a map
+ * that will not fit costs readable traces, a map left in the build would publish the source.
  */
-export function prepareRuntime(buildDir, outDir) {
-	const immutable = join(buildDir, '_app', 'immutable');
-	const bundleName = readdirSync(immutable).find((f) => /^bundle\.[\w-]+\.js$/.test(f));
-
-	let staged = null;
-	let map;
-	try {
-		if (bundleName) map = JSON.parse(readFileSync(join(immutable, `${bundleName}.map`), 'utf8'));
-	} catch {
-		// No map: a build made without IE_SOURCEMAPS=hidden, or a re-run after the strip.
-	}
-	if (!map) console.warn('No bundle source map in the build — nothing to upload.');
-	else {
-		try {
-			staged = stageMap(buildDir, outDir, bundleName, map);
-		} catch (error) {
-			console.log(`::warning::Source map not staged for Sentry: ${error.message}`);
-		}
-	}
+export function prepareRuntime(buildDir, outDir, { strict = false } = {}) {
+	const { chunks, problems } = stageMaps(buildDir, outDir);
+	for (const problem of problems) console.log(`::warning::Source map not staged: ${problem}`);
+	if (chunks.length)
+		console.info(
+			`Staged ${chunks.length} chunk map(s) for Sentry: ${chunks.map((c) => c.file).join(', ')}.`,
+		);
+	else console.warn('No chunk source map in the build — nothing to upload.');
 
 	for (const file of walk(buildDir)) if (file.endsWith('.map')) rmSync(file);
 	const leaks = sourceMapLeaks(buildDir);
 	if (leaks.length) throw new Error(`source maps would ship:\n  ${leaks.join('\n  ')}`);
-	return staged;
+	if (strict && problems.length)
+		throw new Error(`chunks without a usable map:\n  ${problems.join('\n  ')}`);
+	return chunks.length ? { dir: outDir, chunks } : null;
 }
 
 /**
@@ -446,9 +311,9 @@ export async function fakeSentry() {
 
 /**
  * Upload to the stand-in and check what sentry-cli assembled: every map arrived with a debug ID and
- * with the code file that carries the same one (and, when given, that it is `debugId`).
+ * with the code file that carries the same one, and (when given) every one of `debugIds` did.
  */
-async function dryRun(dir, release, debugId) {
+export async function dryRun(dir, release, debugIds = []) {
 	const sentry = await fakeSentry();
 	const args = uploadArgs({
 		dir,
@@ -487,12 +352,12 @@ async function dryRun(dir, release, debugId) {
 			`maps without a matching debug ID: ${orphans.map((f) => f.url).join(', ') || '(no maps)'}`,
 		);
 	}
-	if (debugId && !maps.some((f) => idOf(f) === debugId)) {
-		throw new Error(`no map carries debug ID ${debugId}`);
-	}
+	const missing = debugIds.filter((id) => !maps.some((f) => idOf(f) === id));
+	if (missing.length) throw new Error(`no map carries debug ID ${missing.join(', ')}`);
 	console.info(
-		`Dry run OK: every map uploaded with its code file under one debug ID${debugId ? ` (${debugId})` : ''}.`,
+		`Dry run OK: ${maps.length} map(s) uploaded, each with its code file under one debug ID.`,
 	);
+	return { maps: maps.length, codeIds: [...codeIds] };
 }
 
 /**
@@ -534,7 +399,7 @@ async function main() {
 	const option = (name) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined);
 	if (!dir || !['runtime', 'launcher', 'verify'].includes(mode)) {
 		console.error(
-			'Usage: node scripts/sentry-sourcemaps.mjs <runtime|launcher|verify> <buildDir> [--out <dir>] [--dry-run]',
+			'Usage: node scripts/sentry-sourcemaps.mjs <runtime|launcher|verify> <buildDir> [--out <dir>] [--dry-run] [--strict]',
 		);
 		process.exit(2);
 	}
@@ -552,10 +417,11 @@ async function main() {
 		);
 	}
 	const outDir = option('--out') ?? mkdtempSync(join(tmpdir(), `ie-sentry-${basename(buildDir)}-`));
-	const staged = prepareRuntime(buildDir, outDir);
+	const staged = prepareRuntime(buildDir, outDir, { strict: flag('--strict') });
 	console.info(`✓ no source map or sourceMappingURL under ${dir}`);
 	if (!staged) return;
-	if (flag('--dry-run')) await dryRun(staged.dir, releaseFor('runtime'), staged.debugId);
+	const ids = staged.chunks.map((c) => c.debugId);
+	if (flag('--dry-run')) await dryRun(staged.dir, releaseFor('runtime'), ids);
 	else await upload(staged.dir, releaseFor('runtime'));
 }
 

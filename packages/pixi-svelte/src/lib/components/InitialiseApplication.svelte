@@ -20,9 +20,9 @@
 	// Self-hosted KTX2 transcoder (Pixi's default is an external CDN — forbidden). `?url` emits
 	// both files into every consuming build's own `_app/immutable/assets/` — standalone game builds
 	// and the shared runtime alike, which a `static/` copy would not reach (a standalone build's
-	// `static/` is the game repo's). `config-vite` keeps them out of the single-file inlining and
-	// anchors their url on the bundle chunk (`assetUrls.js`), so it resolves wherever the build is
-	// served from.
+	// `static/` is the game repo's). `config-vite` keeps them out of asset inlining, and the bundle
+	// is an ES module, so their url resolves against `import.meta.url`: beside the bundle, wherever
+	// the build is served from.
 	import ktxTranscoderJsUrl from '../transcoders/ktx/libktx.js?url';
 	import ktxTranscoderWasmUrl from '../transcoders/ktx/libktx.wasm?url';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
