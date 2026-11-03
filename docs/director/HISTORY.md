@@ -38,7 +38,7 @@ with a new one. Use this format:
   bugReports.ts, schema.ts, admin page, bugs/view.ts; scripts/check-bug-fix-runs.ts,
   check-bug-reports.ts; scripts/check-secrets.d.mts. Docs: docs/status/bug-reports.md,
   docs/tools/{launcher,pipeline-bugs}.md, PLAN.md, OPEN_QUESTIONS.md.
-- Branch / PR: claude/loving-swirles-29ad4c, #PRNUM.
+- Branch / PR: claude/loving-swirles-29ad4c, #1512.
 - Tests: `check:bug-fix-runs` (88 checks, 59 planted mutants all caught), `check:bug-reports` (142),
   `check:migration-order`, `pnpm lint`, `check:svelte --only apps/launcher-api` (at baseline),
   `check:undefined-names`; `check:pipeline-changes` and `check:director-adapters` pass once the

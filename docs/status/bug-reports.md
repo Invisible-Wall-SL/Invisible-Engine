@@ -164,7 +164,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
-- 2026-11-03 — **Fix runs, back end (ADR-0013 card 13A, #PRNUM).** `bug_fix_runs` (migration
+- 2026-11-03 — **Fix runs, back end (ADR-0013 card 13A, #1512).** `bug_fix_runs` (migration
   0037), `fix_run` events, the `pipelineBugFix` capability, three Settings caps, Start / Stop,
   dispatch of `bug-fix.yml` through the App, GitHub OIDC verification, the brief, screenshot and
   result endpoints, the change checks and the App's draft PR, the backstop in the link sync, and
