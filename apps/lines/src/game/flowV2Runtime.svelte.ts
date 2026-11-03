@@ -86,6 +86,7 @@ import {
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
 	variableValueSources,
+	usedContainerIds,
 	vocabularyIn,
 	withAddOns,
 	withOutcome,
@@ -388,6 +389,7 @@ export const createLinesFlowV2 = (
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
+	const library = loadFlowV2Library();
 	// Resolve the template vocabulary from the doc's `templateId` (shared registry), less what the
 	// config's outcome forbids (`withOutcome`), plus the add-ons of the config this game runs
 	// (`withAddOns`) — the SAME contract the /flow-v2 editor authors against and the publish gate
@@ -496,6 +498,7 @@ export const createLinesFlowV2 = (
 		rawMount,
 		doc.containers,
 		editorDoc.scenes.map((scene) => scene.id),
+		usedContainerIds(doc, library),
 	);
 	// SLAM-AWARE ROUND-BLOCK HOLD. `showContainer{awaitComplete}` was the ONLY await left in the
 	// round chain that a slam could not release: every cue, delay and cut-short effect races
@@ -918,7 +921,7 @@ export const createLinesFlowV2 = (
 	// A signal goes to the ACTIVE mode's graph first (`FlowDoc.modes`), then the global one.
 	const ctx: RunContext = {
 		vocab,
-		library: loadFlowV2Library(),
+		library,
 		env,
 		activeMode: () => stateModes.active(),
 	};

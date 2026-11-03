@@ -786,6 +786,15 @@ check(
 	json(flowScreensMissing(linesSeed, withoutLoading)) === json(['loading']),
 	json(flowScreensMissing(linesSeed, withoutLoading)),
 );
+const staleDecl = {
+	...linesSeed,
+	containers: [...linesSeed.containers, { id: 'buyFeature', sceneId: 'buyFeature', z: 999 }],
+};
+check(
+	'13. a declared screen no node uses is not reported (the editor never drops one)',
+	!flowScreensMissing(staleDecl, linesScenes).length,
+	json(flowScreensMissing(staleDecl, linesScenes)),
+);
 const lostIssues = validateFlowV2Against(linesSeed, withoutLoading, null, EMPTY_LIBRARY);
 const loadingNodes = linesSeed.graph.nodes
 	.filter((n) => (n.kind === 'showContainer' || n.kind === 'hideContainer') && n.ref === 'loading')

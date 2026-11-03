@@ -3,7 +3,7 @@
  *   pnpm --filter launcher-api exec tsx ../lines/src/game/flowV2MissingScreens.fixture.ts
  *
  * Live, a driven flow ran `load → show background → hide splash → show loading`, the layout had lost
- * `loading`, and the game sat on its background forever with an empty console. FOUR claims, all
+ * `loading`, and the game sat on its background forever with an empty console. FIVE claims, all
  * through the real mount model:
  *
  *  1. PARITY. A flow and layout that agree (or an unknown, empty layout) get the SAME mount object
@@ -12,6 +12,10 @@
  *  3. ONCE PER SCREEN. The first show or hide of a missing screen logs the actionable line; a repeat,
  *     the other verb, or a screen the layout has logs nothing more.
  *  4. LOGGING ONLY. The wrapped mount shows, hides, orders and notifies exactly like the raw one.
+ *  5. A STALE DECLARATION IS NOT NAMED. The editor declares every screen and never drops one, so a
+ *     deleted screen no node uses stays in `containers` (live: Buffalo Duel named four screens its
+ *     flow never touched). Boot names only the used ones, and logs nothing when none is; a stale
+ *     one that is shown anyway still logs on that show.
  */
 
 import {
@@ -52,11 +56,13 @@ const play = (mount: ContainerMountModel): void => {
 	mount.show('loading');
 };
 
-const build = (sceneIds: string[]) => {
+const ALL_USED = new Set(CONTAINERS.map((c) => c.id));
+
+const build = (sceneIds: string[], used: ReadonlySet<string> = ALL_USED) => {
 	const logs: string[] = [];
 	const changes: MountedContainer[][] = [];
 	const raw = createContainerMountModel(CONTAINERS, (ordered) => changes.push(ordered));
-	const mount = withMissingScreenReport(raw, CONTAINERS, sceneIds, (m) => logs.push(m));
+	const mount = withMissingScreenReport(raw, CONTAINERS, sceneIds, used, (m) => logs.push(m));
 	return { raw, mount, logs, changes };
 };
 
@@ -98,6 +104,19 @@ check('isShown passes through', wrapped.mount.isShown('loading'), true);
 void wrapped.mount.awaitComplete('loading');
 check('a hold still registers', wrapped.mount.heldContainers(), ['loading']);
 check('and a tap still releases it', wrapped.mount.complete('loading'), true);
+
+console.log('5. a stale declaration');
+const stale = build(['background'], new Set(['background', 'loading']));
+check('boot names only the used missing screen', stale.logs, [
+	`[flow-v2] this game's Flow names 1 screen(s) that are not in its layout (Scene Editor): "loading". Nothing will draw for them, and any step waiting on one will never continue. Restore them in /editor (History…) or remove them from the Flow.`,
+]);
+const unused = build(['background'], new Set(['background']));
+check('no used screen missing: nothing at boot', unused.logs, []);
+check('but the mount is still wrapped', unused.mount === unused.raw, false);
+unused.mount.hide('splash');
+check('a stale screen shown or hidden anyway still logs once', unused.logs, [
+	`[flow-v2] the Flow hides screen "splash" (scene "s_q9iw9aqf"), which is not in this game's layout (Scene Editor). Nothing will draw for it, and any step waiting on it will never continue. Restore the screen in /editor (History…) or remove it from the Flow.`,
+]);
 
 console.log(failures === 0 ? '\nAll assertions passed.' : `\n${failures} assertion(s) FAILED.`);
 if (failures > 0) throw new Error('missing screen report fixture failed');

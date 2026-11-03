@@ -20,6 +20,7 @@ import {
 	flowTemplateMismatch,
 	respinTabIssues,
 	spinsTabIssues,
+	usedContainerIds,
 	startupTapIssues,
 	docNamesInstance,
 	validateFlowDoc,
@@ -232,14 +233,20 @@ export async function checkShippedFlowV2(
 }
 
 /**
- * The containers a flow names whose screen its layout does not have (container ids): they draw
- * nothing in-game, and a step waiting on one never continues. Never blocking: an author may be
+ * The containers a flow shows or hides whose screen its layout does not have (container ids): they
+ * draw nothing in-game, and a step waiting on one never continues. A declared container no node
+ * uses (`usedContainerIds`) is a stale declaration, not reported. Never blocking: an author may be
  * mid-edit. No flow, or no scenes, ⇒ `[]`.
  */
-export function flowScreensMissing(flow: FlowDoc | undefined, scenes: readonly Scene[]): string[] {
+export function flowScreensMissing(
+	flow: FlowDoc | undefined,
+	scenes: readonly Scene[],
+	library?: FunctionLibraryDoc,
+): string[] {
 	if (!flow) return [];
+	const used = usedContainerIds(flow, library);
 	return containersMissingScene(
-		flow.containers,
+		flow.containers.filter((c) => used.has(c.id)),
 		scenes.map((s) => s.id),
 	).map((c) => c.id);
 }
