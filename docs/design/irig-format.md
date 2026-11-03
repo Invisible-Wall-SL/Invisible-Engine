@@ -89,9 +89,13 @@ Proposed — three layers, the file is the middle one:
   `packages/engine-rig/src/irig/`: `schema.ts` holds the schema as data, and the importer, the reader
   and the TypeScript types all come from it; `irig.ts` has `readIrig(text | object) → IrigDoc`
   (strict: any value outside the schema refuses the document) and `writeIrig(doc) → string`.
-- **`compileIrig(doc, attachmentLoader) → SkeletonData`** — replaces `SkeletonJson` on the runtime
-  path. Because v1 is semantically 4.2, it is a port of `skeletonJson.ts` (~980 lines) reading typed
-  fields instead of raw JSON, and keeps its `scale` handling and linked-mesh resolution.
+- **Compiling to `SkeletonData`** — planned as a `compileIrig` port of `skeletonJson.ts`; built in
+  Phase 1 without one. v1 keeps every 4.2 field under its 4.2 name, so `SkeletonJson.readSkeletonData`
+  reads an irig document as it is: it recognises the `irig` stamp, checks the document with
+  `readIrig` (strict) and walks it, taking the version from `importedFrom`. Every caller (the games
+  through `engine-rig/pixi`, the editor, FX, Symbols, the Rigger and the Rig Viewer through the
+  vendored WebGL bundle) reads irig with no change of its own. A separate compile earns its ~980
+  lines only when irig v2 diverges from 4.2.
 - **Importers** — `importSpine42Json(json) → { doc, issues }` keeps every key the 4.2 reader reads
   plus our extensions, in source order (the first animation is the default one; timelines apply in
   order). Anything else is left out and listed in `issues`: a key the reader ignores, or a value of
@@ -144,10 +148,16 @@ R2): every key imports except 100 bones' `transform`, a 4.1 export's name for `i
 
 ### 4.2 Detection, not extension
 
-`rigSkeletonAsset` (`engine-rig/pixi/assets.ts`) today accepts an `.irig` only when the root has
-`skeleton` and `bones`. It becomes: root has a numeric `irig` → `readIrig` + `compileIrig`; root looks
-like 4.2 JSON → `importSpine42Json` + `compileIrig`. Both paths end in the same compile, so there is
-one runtime path, and old files keep loading for as long as we want.
+`rigSkeletonAsset` (`engine-rig/pixi/assets.ts`) accepted an `.irig` only when the root has
+`skeleton` and `bones`; since Phase 1 it also accepts a root with a numeric `irig` (the v1 header is
+optional). Inside `SkeletonJson`, the `irig` stamp decides: a stamped document is checked and read;
+anything else is read as 4.2, as before.
+
+**A 4.2 file is not imported at load.** The plan was to run every 4.2 file through
+`importSpine42Json` at runtime, but the importer is stricter than the 4.2 reader: a value of the
+wrong type is dropped where the reader coerces it (`"x": "5"` reads as 5), so importing at load
+could move art in a game. 4.2 files keep their direct path until Phase 5 has imported every R2
+rig with a clean report, after which there are no 4.2 files left to load.
 
 ## 5. Who has to change
 
@@ -175,11 +185,12 @@ goes 4.2 → `IrigDoc` → irig v1 → `IrigDoc` → 4.2 with no semantic loss, 
 extension keeps them all through irig v1. No consumer changes. This is where the field list in §4.1
 gets fixed.
 
-**Phase 1 — the runtime reads irig v1.** `compileIrig`, detection in `rigSkeletonAsset` and in the
-WebGL bundle (`build:invisible-rig`). Gate: for every repo rig, `compileIrig(import(json))` and
-`SkeletonJson(json)` produce identical `SkeletonData`, poses and events over every animation — the
-same comparisons `tools/rig-parity/parity.mjs` makes, run engine-rig against itself. Merge = runtime
-release. Nothing writes v1 yet, so this is invisible.
+**Phase 1 — the runtime reads irig v1.** _Built 2026-11-03 — see §4 and §4.2._ `SkeletonJson`
+reads a stamped irig document after checking it; `rigSkeletonAsset` accepts one; the vendored
+WebGL bundle is rebuilt. Gate (`irig.fixture.ts`): for every repo rig, the irig document reads into
+the same `SkeletonData` as the 4.2 file; a newer version, an unknown key or a wrong-typed value is
+refused at load. Equal `SkeletonData` means equal poses and events, because the same runtime
+animates both. Merge = runtime release. Nothing writes v1 yet, so this is invisible.
 
 **Phase 2 — server consumers read through the doc.** The raw-JSON readers in §5 accept both layouts
 via `readIrig` / import. Still nothing writes v1.
@@ -220,8 +231,8 @@ Any real semantic divergence (irig v2) is a new decision after Phase 6, with its
   new export re-_imports_ it, which replaces the Rigger's edits on that rig. That is the same as
   today, where the `.irig` shadows a newer source `.json`. With import only there is no way back into
   that editor, by decision (§9 Q1).
-- **Two loaders during the transition.** Both end in `compileIrig`, and the Phase 1 gate compares
-  them on every repo rig, so they cannot drift silently.
+- **Two document kinds during the transition.** Both are read by the same `SkeletonJson` walk, and
+  the Phase 1 gate compares them on every repo rig, so they cannot drift silently.
 
 ## 8. What happens to the Esoteric references
 
