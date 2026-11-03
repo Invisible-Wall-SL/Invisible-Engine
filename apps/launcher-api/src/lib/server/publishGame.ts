@@ -472,7 +472,7 @@ export async function publishGame(
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
 		spinesMissing: rigsMissing,
 		shaderEffectsMissing,
-		flowScreensMissing: flowScreensMissing(bundle.flowV2, bundle.doc.scenes),
+		flowScreensMissing: flowScreensMissing(bundle.flowV2, bundle.doc.scenes, bundle.flowV2Library),
 		holdAndWinConfigMissing,
 		snapshot,
 	};
