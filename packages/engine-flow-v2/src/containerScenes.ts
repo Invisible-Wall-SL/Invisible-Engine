@@ -1,5 +1,5 @@
 import { flowGraphs } from './runtime';
-import type { ContainerRef, FlowDoc, Graph } from './types';
+import type { ContainerRef, FlowDoc, FunctionLibraryDoc, Graph } from './types';
 
 /**
  * The flow's containers whose backing scene is NOT in the layout: screens the flow can show that
@@ -19,6 +19,27 @@ export const containersMissingScene = (
 	const known = new Set(sceneIds);
 	if (known.size === 0) return [];
 	return containers.filter((c) => !known.has(c.sceneId));
+};
+
+/**
+ * The container ids a `showContainer` or `hideContainer` node names, in any section (the global
+ * graph or a mode's), inside groups, and in the bodies of `library`'s functions.
+ *
+ * The `/flow-v2` editor declares every Scene-Editor screen (`syncFlowContainers`) and never drops
+ * one, so a screen deleted from the layout stays declared though nothing in the flow touches it.
+ * Such a container mounts nothing and holds nothing: only a used one is worth reporting.
+ */
+export const usedContainerIds = (doc: FlowDoc, library?: FunctionLibraryDoc): Set<string> => {
+	const used = new Set<string>();
+	const scan = (graph: Graph): void => {
+		for (const node of graph.nodes) {
+			if (node.kind === 'showContainer' || node.kind === 'hideContainer') used.add(node.ref);
+			else if (node.kind === 'group' && node.body) scan(node.body);
+		}
+	};
+	for (const { graph } of flowGraphs(doc)) scan(graph);
+	for (const fn of library?.functions ?? []) scan(fn.body);
+	return used;
 };
 
 /**

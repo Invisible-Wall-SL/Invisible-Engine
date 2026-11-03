@@ -185,14 +185,14 @@ var invisibleRig = function(exports) {
       copy.setupIndex = this.setupIndex;
       return copy;
     }
-    apply(slot, attachment) {
-      let index = slot.sequenceIndex;
+    apply(slot2, attachment2) {
+      let index = slot2.sequenceIndex;
       if (index === -1) index = this.setupIndex;
       if (index >= this.regions.length) index = this.regions.length - 1;
       const region = this.regions[index];
-      if (attachment.region !== region) {
-        attachment.region = region;
-        attachment.updateRegion();
+      if (attachment2.region !== region) {
+        attachment2.region = region;
+        attachment2.updateRegion();
       }
     }
     getPath(basePath, index) {
@@ -212,14 +212,14 @@ var invisibleRig = function(exports) {
     }
     /** Transforms `count` world-vertex components starting at component `start` into
      * `worldVertices`, writing `x, y` every `stride` entries from `offset`. */
-    computeWorldVertices(slot, start, count, worldVertices, offset, stride) {
+    computeWorldVertices(slot2, start, count, worldVertices, offset, stride) {
       const end = offset + (count >> 1) * stride;
-      const deform = slot.deform;
+      const deform = slot2.deform;
       const weights = this.bones;
       if (!weights) {
         const source = deform.length > 0 ? deform : this.vertices;
-        const bone = slot.bone;
-        const { a, b, c, d, worldX, worldY } = bone;
+        const bone2 = slot2.bone;
+        const { a, b, c, d, worldX, worldY } = bone2;
         for (let v = start, w = offset; w < end; v += 2, w += stride) {
           const x = source[v];
           const y = source[v + 1];
@@ -235,7 +235,7 @@ var invisibleRig = function(exports) {
         cursor += n + 1;
         influencesBefore += n;
       }
-      const skeletonBones = slot.bone.skeleton.bones;
+      const skeletonBones = slot2.bone.skeleton.bones;
       const vertices = this.vertices;
       const deformed = deform.length > 0;
       let vi = influencesBefore * 3;
@@ -245,7 +245,7 @@ var invisibleRig = function(exports) {
         let wy = 0;
         const n = weights[cursor++];
         for (let k = 0; k < n; k++, cursor++, vi += 3, di += 2) {
-          const bone = skeletonBones[weights[cursor]];
+          const bone2 = skeletonBones[weights[cursor]];
           let x = vertices[vi];
           let y = vertices[vi + 1];
           if (deformed) {
@@ -253,8 +253,8 @@ var invisibleRig = function(exports) {
             y += deform[di + 1];
           }
           const weight = vertices[vi + 2];
-          wx += (x * bone.a + y * bone.b + bone.worldX) * weight;
-          wy += (x * bone.c + y * bone.d + bone.worldY) * weight;
+          wx += (x * bone2.a + y * bone2.b + bone2.worldX) * weight;
+          wy += (x * bone2.c + y * bone2.d + bone2.worldY) * weight;
         }
         worldVertices[w] = wx;
         worldVertices[w + 1] = wy;
@@ -268,7 +268,7 @@ var invisibleRig = function(exports) {
     }
   }
   class RegionAttachment extends Attachment {
-    constructor(name, path) {
+    constructor(name, path2) {
       super(name);
       this.kind = "region";
       this.x = 0;
@@ -284,7 +284,7 @@ var invisibleRig = function(exports) {
       this.offset = new Float32Array(8);
       this.uvs = new Float32Array(8);
       this.tempColor = new Color(1, 1, 1, 1);
-      this.path = path;
+      this.path = path2;
     }
     updateRegion() {
       const region = this.region;
@@ -311,9 +311,9 @@ var invisibleRig = function(exports) {
       else if (region.degrees === 270) uvs.set([u, v, u2, v, u2, v2, u, v2]);
       else uvs.set([u, v2, u, v, u2, v, u2, v2]);
     }
-    computeWorldVertices(slot, worldVertices, offset, stride) {
-      if (this.sequence) this.sequence.apply(slot, this);
-      const { a, b, c, d, worldX, worldY } = slot.bone;
+    computeWorldVertices(slot2, worldVertices, offset, stride) {
+      if (this.sequence) this.sequence.apply(slot2, this);
+      const { a, b, c, d, worldX, worldY } = slot2.bone;
       const o = this.offset;
       for (let i = 0; i < 8; i += 2, offset += stride) {
         const x = o[i];
@@ -340,7 +340,7 @@ var invisibleRig = function(exports) {
     }
   }
   class MeshAttachment extends VertexAttachment {
-    constructor(name, path) {
+    constructor(name, path2) {
       super(name);
       this.kind = "mesh";
       this.region = null;
@@ -355,7 +355,7 @@ var invisibleRig = function(exports) {
       this.sequence = null;
       this.tempColor = new Color(0, 0, 0, 0);
       this.parentMesh = null;
-      this.path = path;
+      this.path = path2;
     }
     /** Maps the [0,1] region UVs onto the page, undoing the region's pack rotation and trim. */
     updateRegion() {
@@ -429,9 +429,9 @@ var invisibleRig = function(exports) {
       this.triangles = parent.triangles;
       this.hullLength = parent.hullLength;
     }
-    computeWorldVertices(slot, start, count, worldVertices, offset, stride) {
-      if (this.sequence) this.sequence.apply(slot, this);
-      super.computeWorldVertices(slot, start, count, worldVertices, offset, stride);
+    computeWorldVertices(slot2, start, count, worldVertices, offset, stride) {
+      if (this.sequence) this.sequence.apply(slot2, this);
+      super.computeWorldVertices(slot2, start, count, worldVertices, offset, stride);
     }
     copy() {
       if (this.parentMesh) return this.newLinkedMesh();
@@ -515,17 +515,17 @@ var invisibleRig = function(exports) {
       this.rotation = 0;
       this.color = new Color(0.38, 0.94, 0, 1);
     }
-    computeWorldPosition(bone, point) {
-      point.x = this.x * bone.a + this.y * bone.b + bone.worldX;
-      point.y = this.x * bone.c + this.y * bone.d + bone.worldY;
+    computeWorldPosition(bone2, point) {
+      point.x = this.x * bone2.a + this.y * bone2.b + bone2.worldX;
+      point.y = this.x * bone2.c + this.y * bone2.d + bone2.worldY;
       return point;
     }
-    computeWorldRotation(bone) {
+    computeWorldRotation(bone2) {
       const r = this.rotation * DEG_RAD;
       const cos = Math.cos(r);
       const sin = Math.sin(r);
-      const x = cos * bone.a + sin * bone.b;
-      const y = cos * bone.c + sin * bone.d;
+      const x = cos * bone2.a + sin * bone2.b;
+      const y = cos * bone2.c + sin * bone2.d;
       return Math.atan2(y, x) / DEG_RAD;
     }
     copy() {
@@ -740,10 +740,10 @@ var invisibleRig = function(exports) {
     }
   }
   class SkinEntry {
-    constructor(slotIndex, name, attachment) {
+    constructor(slotIndex, name, attachment2) {
       this.slotIndex = slotIndex;
       this.name = name;
-      this.attachment = attachment;
+      this.attachment = attachment2;
     }
   }
   class Skin {
@@ -755,24 +755,24 @@ var invisibleRig = function(exports) {
       this.color = new Color(0.99607843, 0.61960787, 0.30980393, 1);
       if (!name) throw new Error("name cannot be null.");
     }
-    setAttachment(slotIndex, name, attachment) {
+    setAttachment(slotIndex, name, attachment2) {
       var _a;
-      if (!attachment) throw new Error("attachment cannot be null.");
+      if (!attachment2) throw new Error("attachment cannot be null.");
       while (this.attachments.length <= slotIndex) this.attachments.push(void 0);
-      const map = (_a = this.attachments)[slotIndex] ?? (_a[slotIndex] = {});
-      map[name] = attachment;
+      const map2 = (_a = this.attachments)[slotIndex] ?? (_a[slotIndex] = {});
+      map2[name] = attachment2;
     }
-    addSkin(skin) {
-      for (const bone of skin.bones) if (!this.bones.includes(bone)) this.bones.push(bone);
-      for (const c of skin.constraints) if (!this.constraints.includes(c)) this.constraints.push(c);
-      for (const entry of skin.getAttachments())
+    addSkin(skin2) {
+      for (const bone2 of skin2.bones) if (!this.bones.includes(bone2)) this.bones.push(bone2);
+      for (const c of skin2.constraints) if (!this.constraints.includes(c)) this.constraints.push(c);
+      for (const entry of skin2.getAttachments())
         this.setAttachment(entry.slotIndex, entry.name, entry.attachment);
     }
     /** Like `addSkin`, but attachments are copied (meshes become linked meshes of the source). */
-    copySkin(skin) {
-      for (const bone of skin.bones) if (!this.bones.includes(bone)) this.bones.push(bone);
-      for (const c of skin.constraints) if (!this.constraints.includes(c)) this.constraints.push(c);
-      for (const entry of skin.getAttachments()) {
+    copySkin(skin2) {
+      for (const bone2 of skin2.bones) if (!this.bones.includes(bone2)) this.bones.push(bone2);
+      for (const c of skin2.constraints) if (!this.constraints.includes(c)) this.constraints.push(c);
+      for (const entry of skin2.getAttachments()) {
         const source = entry.attachment;
         const copy = source instanceof MeshAttachment ? source.newLinkedMesh() : source.copy();
         this.setAttachment(entry.slotIndex, entry.name, copy);
@@ -783,21 +783,21 @@ var invisibleRig = function(exports) {
       return ((_a = this.attachments[slotIndex]) == null ? void 0 : _a[name]) ?? null;
     }
     removeAttachment(slotIndex, name) {
-      const map = this.attachments[slotIndex];
-      if (map) delete map[name];
+      const map2 = this.attachments[slotIndex];
+      if (map2) delete map2[name];
     }
     getAttachments() {
       const out = [];
-      this.attachments.forEach((map, slotIndex) => {
-        if (!map) return;
-        for (const name of Object.keys(map)) out.push(new SkinEntry(slotIndex, name, map[name]));
+      this.attachments.forEach((map2, slotIndex) => {
+        if (!map2) return;
+        for (const name of Object.keys(map2)) out.push(new SkinEntry(slotIndex, name, map2[name]));
       });
       return out;
     }
     getAttachmentsForSlot(slotIndex, out) {
-      const map = this.attachments[slotIndex];
-      if (!map) return;
-      for (const name of Object.keys(map)) out.push(new SkinEntry(slotIndex, name, map[name]));
+      const map2 = this.attachments[slotIndex];
+      if (!map2) return;
+      for (const name of Object.keys(map2)) out.push(new SkinEntry(slotIndex, name, map2[name]));
     }
     clear() {
       this.attachments.length = 0;
@@ -808,14 +808,14 @@ var invisibleRig = function(exports) {
      * skin's attachment under the same name, when it has one. */
     attachAll(skeleton, oldSkin) {
       for (let slotIndex = 0; slotIndex < skeleton.slots.length; slotIndex++) {
-        const slot = skeleton.slots[slotIndex];
-        const current = slot.getAttachment();
+        const slot2 = skeleton.slots[slotIndex];
+        const current = slot2.getAttachment();
         const oldMap = oldSkin.attachments[slotIndex];
         if (!current || !oldMap) continue;
         for (const name of Object.keys(oldMap)) {
           if (oldMap[name] !== current) continue;
           const replacement = this.getAttachment(slotIndex, name);
-          if (replacement) slot.setAttachment(replacement);
+          if (replacement) slot2.setAttachment(replacement);
           break;
         }
       }
@@ -1109,46 +1109,46 @@ var invisibleRig = function(exports) {
     constructor(atlas) {
       this.atlas = atlas;
     }
-    loadSequence(name, basePath, sequence) {
-      for (let i = 0; i < sequence.regions.length; i++) {
-        const path = sequence.getPath(basePath, i);
-        const region = this.atlas.findRegion(path);
-        if (!region) throw new Error(`Region not found in atlas: ${path} (sequence: ${name})`);
-        sequence.regions[i] = region;
+    loadSequence(name, basePath, sequence2) {
+      for (let i = 0; i < sequence2.regions.length; i++) {
+        const path2 = sequence2.getPath(basePath, i);
+        const region = this.atlas.findRegion(path2);
+        if (!region) throw new Error(`Region not found in atlas: ${path2} (sequence: ${name})`);
+        sequence2.regions[i] = region;
       }
     }
-    newRegionAttachment(skin, name, path, sequence) {
-      const attachment = new RegionAttachment(name, path);
-      if (sequence) {
-        this.loadSequence(name, path, sequence);
-        return attachment;
+    newRegionAttachment(skin2, name, path2, sequence2) {
+      const attachment2 = new RegionAttachment(name, path2);
+      if (sequence2) {
+        this.loadSequence(name, path2, sequence2);
+        return attachment2;
       }
-      const region = this.atlas.findRegion(path);
-      if (!region) throw new Error(`Region not found in atlas: ${path} (region attachment: ${name})`);
-      attachment.region = region;
-      return attachment;
+      const region = this.atlas.findRegion(path2);
+      if (!region) throw new Error(`Region not found in atlas: ${path2} (region attachment: ${name})`);
+      attachment2.region = region;
+      return attachment2;
     }
-    newMeshAttachment(skin, name, path, sequence) {
-      const attachment = new MeshAttachment(name, path);
-      if (sequence) {
-        this.loadSequence(name, path, sequence);
-        return attachment;
+    newMeshAttachment(skin2, name, path2, sequence2) {
+      const attachment2 = new MeshAttachment(name, path2);
+      if (sequence2) {
+        this.loadSequence(name, path2, sequence2);
+        return attachment2;
       }
-      const region = this.atlas.findRegion(path);
-      if (!region) throw new Error(`Region not found in atlas: ${path} (mesh attachment: ${name})`);
-      attachment.region = region;
-      return attachment;
+      const region = this.atlas.findRegion(path2);
+      if (!region) throw new Error(`Region not found in atlas: ${path2} (mesh attachment: ${name})`);
+      attachment2.region = region;
+      return attachment2;
     }
-    newBoundingBoxAttachment(skin, name) {
+    newBoundingBoxAttachment(skin2, name) {
       return new BoundingBoxAttachment(name);
     }
-    newPathAttachment(skin, name) {
+    newPathAttachment(skin2, name) {
       return new PathAttachment(name);
     }
-    newPointAttachment(skin, name) {
+    newPointAttachment(skin2, name) {
       return new PointAttachment(name);
     }
-    newClippingAttachment(skin, name) {
+    newClippingAttachment(skin2, name) {
       return new ClippingAttachment(name);
     }
   }
@@ -1480,9 +1480,9 @@ var invisibleRig = function(exports) {
     }
   }
   class Slot {
-    constructor(data, bone) {
+    constructor(data, bone2) {
       this.data = data;
-      this.bone = bone;
+      this.bone = bone2;
       this.color = new Color();
       this.attachment = null;
       this.attachmentState = 0;
@@ -1499,12 +1499,12 @@ var invisibleRig = function(exports) {
     }
     /** Swaps the attachment. Deform is kept only between two vertex attachments that share
      * timelines (a mesh and its linked meshes). */
-    setAttachment(attachment) {
-      if (this.attachment === attachment) return;
+    setAttachment(attachment2) {
+      if (this.attachment === attachment2) return;
       const current = this.attachment;
-      if (!(attachment instanceof VertexAttachment) || !(current instanceof VertexAttachment) || attachment.timelineAttachment !== current.timelineAttachment)
+      if (!(attachment2 instanceof VertexAttachment) || !(current instanceof VertexAttachment) || attachment2.timelineAttachment !== current.timelineAttachment)
         this.deform.length = 0;
-      this.attachment = attachment;
+      this.attachment = attachment2;
       this.sequenceIndex = -1;
     }
     setToSetupPose() {
@@ -1574,22 +1574,22 @@ var invisibleRig = function(exports) {
         );
     }
     /** Rotates one bone to point at the target. */
-    apply1(bone, targetX, targetY, compress, stretch, uniform, alpha) {
-      const p = bone.parent;
+    apply1(bone2, targetX, targetY, compress, stretch, uniform, alpha) {
+      const p = bone2.parent;
       if (!p) throw new Error("IK bone must have parent.");
-      const skeleton = bone.skeleton;
+      const skeleton = bone2.skeleton;
       let pa = p.a;
       let pb = p.b;
       const pc = p.c;
       let pd = p.d;
-      let rotationIK = -bone.ashearX - bone.arotation;
+      let rotationIK = -bone2.ashearX - bone2.arotation;
       let tx = 0;
       let ty = 0;
-      if (bone.inherit === Inherit.OnlyTranslation) {
-        tx = (targetX - bone.worldX) * signum(skeleton.scaleX);
-        ty = (targetY - bone.worldY) * signum(skeleton.scaleY);
+      if (bone2.inherit === Inherit.OnlyTranslation) {
+        tx = (targetX - bone2.worldX) * signum(skeleton.scaleX);
+        ty = (targetY - bone2.worldY) * signum(skeleton.scaleY);
       } else {
-        if (bone.inherit === Inherit.NoRotationOrReflection) {
+        if (bone2.inherit === Inherit.NoRotationOrReflection) {
           const s = Math.abs(pa * pd - pb * pc) / Math.max(1e-4, pa * pa + pc * pc);
           const sa = pa / skeleton.scaleX;
           const sc = pc / skeleton.scaleY;
@@ -1601,21 +1601,21 @@ var invisibleRig = function(exports) {
         const y = targetY - p.worldY;
         const det = pa * pd - pb * pc;
         if (Math.abs(det) > 1e-4) {
-          tx = (x * pd - y * pb) / det - bone.ax;
-          ty = (y * pa - x * pc) / det - bone.ay;
+          tx = (x * pd - y * pb) / det - bone2.ax;
+          ty = (y * pa - x * pc) / det - bone2.ay;
         }
       }
       rotationIK += Math.atan2(ty, tx) * RAD_DEG;
-      if (bone.ascaleX < 0) rotationIK += 180;
+      if (bone2.ascaleX < 0) rotationIK += 180;
       rotationIK = wrapDegrees(rotationIK);
-      let sx = bone.ascaleX;
-      let sy = bone.ascaleY;
+      let sx = bone2.ascaleX;
+      let sy = bone2.ascaleY;
       if (compress || stretch) {
-        if (bone.inherit === Inherit.NoScale || bone.inherit === Inherit.NoScaleOrReflection) {
-          tx = targetX - bone.worldX;
-          ty = targetY - bone.worldY;
+        if (bone2.inherit === Inherit.NoScale || bone2.inherit === Inherit.NoScaleOrReflection) {
+          tx = targetX - bone2.worldX;
+          ty = targetY - bone2.worldY;
         }
-        const b = bone.data.length * sx;
+        const b = bone2.data.length * sx;
         if (b > 1e-4) {
           const dd = tx * tx + ty * ty;
           if (compress && dd < b * b || stretch && dd > b * b) {
@@ -1625,14 +1625,14 @@ var invisibleRig = function(exports) {
           }
         }
       }
-      bone.updateWorldTransformWith(
-        bone.ax,
-        bone.ay,
-        bone.arotation + rotationIK * alpha,
+      bone2.updateWorldTransformWith(
+        bone2.ax,
+        bone2.ay,
+        bone2.arotation + rotationIK * alpha,
         sx,
         sy,
-        bone.ashearX,
-        bone.ashearY
+        bone2.ashearX,
+        bone2.ashearY
       );
     }
     /** Bends a parent/child chain so the child's tip reaches the target. */
@@ -1866,43 +1866,43 @@ var invisibleRig = function(exports) {
       const reflect = ta * td - tb * tc > 0 ? DEG_RAD : -DEG_RAD;
       const offsetRotation = data.offsetRotation * reflect;
       const offsetShearY = data.offsetShearY * reflect;
-      for (const bone of this.bones) {
+      for (const bone2 of this.bones) {
         if (mixRotate !== 0) {
-          const r = wrapRadians(Math.atan2(tc, ta) - Math.atan2(bone.c, bone.a) + offsetRotation) * mixRotate;
-          rotateBoneWorld(bone, r);
+          const r = wrapRadians(Math.atan2(tc, ta) - Math.atan2(bone2.c, bone2.a) + offsetRotation) * mixRotate;
+          rotateBoneWorld(bone2, r);
         }
         if (translate) {
           const t = target.localToWorld(this.temp.set(data.offsetX, data.offsetY));
-          bone.worldX += (t.x - bone.worldX) * mixX;
-          bone.worldY += (t.y - bone.worldY) * mixY;
+          bone2.worldX += (t.x - bone2.worldX) * mixX;
+          bone2.worldY += (t.y - bone2.worldY) * mixY;
         }
         if (mixScaleX !== 0) {
-          let s = Math.sqrt(bone.a * bone.a + bone.c * bone.c);
+          let s = Math.sqrt(bone2.a * bone2.a + bone2.c * bone2.c);
           if (s !== 0)
             s = (s + (Math.sqrt(ta * ta + tc * tc) - s + data.offsetScaleX) * mixScaleX) / s;
-          bone.a *= s;
-          bone.c *= s;
+          bone2.a *= s;
+          bone2.c *= s;
         }
         if (mixScaleY !== 0) {
-          let s = Math.sqrt(bone.b * bone.b + bone.d * bone.d);
+          let s = Math.sqrt(bone2.b * bone2.b + bone2.d * bone2.d);
           if (s !== 0)
             s = (s + (Math.sqrt(tb * tb + td * td) - s + data.offsetScaleY) * mixScaleY) / s;
-          bone.b *= s;
-          bone.d *= s;
+          bone2.b *= s;
+          bone2.d *= s;
         }
         if (mixShearY > 0) {
-          const b = bone.b;
-          const d = bone.d;
+          const b = bone2.b;
+          const d = bone2.d;
           const by = Math.atan2(d, b);
           const r = wrapRadians(
-            Math.atan2(td, tb) - Math.atan2(tc, ta) - (by - Math.atan2(bone.c, bone.a))
+            Math.atan2(td, tb) - Math.atan2(tc, ta) - (by - Math.atan2(bone2.c, bone2.a))
           );
           const angle = by + (r + offsetShearY) * mixShearY;
           const s = Math.sqrt(b * b + d * d);
-          bone.b = Math.cos(angle) * s;
-          bone.d = Math.sin(angle) * s;
+          bone2.b = Math.cos(angle) * s;
+          bone2.d = Math.sin(angle) * s;
         }
-        bone.updateAppliedTransform();
+        bone2.updateAppliedTransform();
       }
     }
     applyRelativeWorld() {
@@ -1912,78 +1912,78 @@ var invisibleRig = function(exports) {
       const reflect = ta * td - tb * tc > 0 ? DEG_RAD : -DEG_RAD;
       const offsetRotation = data.offsetRotation * reflect;
       const offsetShearY = data.offsetShearY * reflect;
-      for (const bone of this.bones) {
+      for (const bone2 of this.bones) {
         if (mixRotate !== 0)
-          rotateBoneWorld(bone, wrapRadians(Math.atan2(tc, ta) + offsetRotation) * mixRotate);
+          rotateBoneWorld(bone2, wrapRadians(Math.atan2(tc, ta) + offsetRotation) * mixRotate);
         if (translate) {
           const t = target.localToWorld(this.temp.set(data.offsetX, data.offsetY));
-          bone.worldX += t.x * mixX;
-          bone.worldY += t.y * mixY;
+          bone2.worldX += t.x * mixX;
+          bone2.worldY += t.y * mixY;
         }
         if (mixScaleX !== 0) {
           const s = (Math.sqrt(ta * ta + tc * tc) - 1 + data.offsetScaleX) * mixScaleX + 1;
-          bone.a *= s;
-          bone.c *= s;
+          bone2.a *= s;
+          bone2.c *= s;
         }
         if (mixScaleY !== 0) {
           const s = (Math.sqrt(tb * tb + td * td) - 1 + data.offsetScaleY) * mixScaleY + 1;
-          bone.b *= s;
-          bone.d *= s;
+          bone2.b *= s;
+          bone2.d *= s;
         }
         if (mixShearY > 0) {
           const r = wrapRadians(Math.atan2(td, tb) - Math.atan2(tc, ta));
-          const b = bone.b;
-          const d = bone.d;
+          const b = bone2.b;
+          const d = bone2.d;
           const angle = Math.atan2(d, b) + (r - PI / 2 + offsetShearY) * mixShearY;
           const s = Math.sqrt(b * b + d * d);
-          bone.b = Math.cos(angle) * s;
-          bone.d = Math.sin(angle) * s;
+          bone2.b = Math.cos(angle) * s;
+          bone2.d = Math.sin(angle) * s;
         }
-        bone.updateAppliedTransform();
+        bone2.updateAppliedTransform();
       }
     }
     applyAbsoluteLocal() {
       const { mixRotate, mixX, mixY, mixScaleX, mixScaleY, mixShearY, target, data } = this;
-      for (const bone of this.bones) {
-        let rotation = bone.arotation;
+      for (const bone2 of this.bones) {
+        let rotation = bone2.arotation;
         if (mixRotate !== 0)
           rotation += (target.arotation - rotation + data.offsetRotation) * mixRotate;
-        let x = bone.ax;
-        let y = bone.ay;
+        let x = bone2.ax;
+        let y = bone2.ay;
         x += (target.ax - x + data.offsetX) * mixX;
         y += (target.ay - y + data.offsetY) * mixY;
-        let scaleX = bone.ascaleX;
-        let scaleY = bone.ascaleY;
+        let scaleX = bone2.ascaleX;
+        let scaleY = bone2.ascaleY;
         if (mixScaleX !== 0 && scaleX !== 0)
           scaleX = (scaleX + (target.ascaleX - scaleX + data.offsetScaleX) * mixScaleX) / scaleX;
         if (mixScaleY !== 0 && scaleY !== 0)
           scaleY = (scaleY + (target.ascaleY - scaleY + data.offsetScaleY) * mixScaleY) / scaleY;
-        let shearY = bone.ashearY;
+        let shearY = bone2.ashearY;
         if (mixShearY !== 0) shearY += (target.ashearY - shearY + data.offsetShearY) * mixShearY;
-        bone.updateWorldTransformWith(x, y, rotation, scaleX, scaleY, bone.ashearX, shearY);
+        bone2.updateWorldTransformWith(x, y, rotation, scaleX, scaleY, bone2.ashearX, shearY);
       }
     }
     applyRelativeLocal() {
       const { mixRotate, mixX, mixY, mixScaleX, mixScaleY, mixShearY, target, data } = this;
-      for (const bone of this.bones) {
-        const rotation = bone.arotation + (target.arotation + data.offsetRotation) * mixRotate;
-        const x = bone.ax + (target.ax + data.offsetX) * mixX;
-        const y = bone.ay + (target.ay + data.offsetY) * mixY;
-        const scaleX = bone.ascaleX * ((target.ascaleX - 1 + data.offsetScaleX) * mixScaleX + 1);
-        const scaleY = bone.ascaleY * ((target.ascaleY - 1 + data.offsetScaleY) * mixScaleY + 1);
-        const shearY = bone.ashearY + (target.ashearY + data.offsetShearY) * mixShearY;
-        bone.updateWorldTransformWith(x, y, rotation, scaleX, scaleY, bone.ashearX, shearY);
+      for (const bone2 of this.bones) {
+        const rotation = bone2.arotation + (target.arotation + data.offsetRotation) * mixRotate;
+        const x = bone2.ax + (target.ax + data.offsetX) * mixX;
+        const y = bone2.ay + (target.ay + data.offsetY) * mixY;
+        const scaleX = bone2.ascaleX * ((target.ascaleX - 1 + data.offsetScaleX) * mixScaleX + 1);
+        const scaleY = bone2.ascaleY * ((target.ascaleY - 1 + data.offsetScaleY) * mixScaleY + 1);
+        const shearY = bone2.ashearY + (target.ashearY + data.offsetShearY) * mixShearY;
+        bone2.updateWorldTransformWith(x, y, rotation, scaleX, scaleY, bone2.ashearX, shearY);
       }
     }
   }
-  function rotateBoneWorld(bone, r) {
+  function rotateBoneWorld(bone2, r) {
     const cos = Math.cos(r);
     const sin = Math.sin(r);
-    const { a, b, c, d } = bone;
-    bone.a = cos * a - sin * c;
-    bone.b = cos * b - sin * d;
-    bone.c = sin * a + cos * c;
-    bone.d = sin * b + cos * d;
+    const { a, b, c, d } = bone2;
+    bone2.a = cos * a - sin * c;
+    bone2.b = cos * b - sin * d;
+    bone2.c = sin * a + cos * c;
+    bone2.d = sin * b + cos * d;
   }
   function bezierAt(t, p0, p1, p2, p3) {
     const u = 1 - t;
@@ -2039,8 +2039,8 @@ var invisibleRig = function(exports) {
       this.mixY = d.mixY;
     }
     update(_physics) {
-      const attachment = this.target.getAttachment();
-      if (!(attachment instanceof PathAttachment)) return;
+      const attachment2 = this.target.getAttachment();
+      if (!(attachment2 instanceof PathAttachment)) return;
       const { mixRotate, mixX, mixY, data, bones } = this;
       if (mixRotate === 0 && mixX === 0 && mixY === 0) return;
       const tangents = data.rotateMode === RotateMode.Tangent;
@@ -2052,10 +2052,10 @@ var invisibleRig = function(exports) {
       const lengths = this.lengths;
       if (scale) lengths.length = boneCount;
       const spacing = this.spacing;
-      const boneLength = (bone) => {
-        const l = bone.data.length;
-        const x = l * bone.a;
-        const y = l * bone.c;
+      const boneLength = (bone2) => {
+        const l = bone2.data.length;
+        const x = l * bone2.a;
+        const y = l * bone2.c;
         return Math.sqrt(x * x + y * y);
       };
       spaces[0] = 0;
@@ -2067,12 +2067,12 @@ var invisibleRig = function(exports) {
         case SpacingMode.Proportional: {
           let sum = 0;
           for (let i = 0; i < spacesCount - 1; i++) {
-            const bone = bones[i];
-            if (bone.data.length < EPSILON) {
+            const bone2 = bones[i];
+            if (bone2.data.length < EPSILON) {
               if (scale) lengths[i] = 0;
               spaces[i + 1] = spacing;
             } else {
-              const length = boneLength(bone);
+              const length = boneLength(bone2);
               if (scale) lengths[i] = length;
               spaces[i + 1] = length;
               sum += length;
@@ -2087,20 +2087,20 @@ var invisibleRig = function(exports) {
         default: {
           const lengthSpacing = data.spacingMode === SpacingMode.Length;
           for (let i = 0; i < spacesCount - 1; i++) {
-            const bone = bones[i];
-            const setupLength = bone.data.length;
+            const bone2 = bones[i];
+            const setupLength = bone2.data.length;
             if (setupLength < EPSILON) {
               if (scale) lengths[i] = 0;
               spaces[i + 1] = spacing;
             } else {
-              const length = boneLength(bone);
+              const length = boneLength(bone2);
               if (scale) lengths[i] = length;
               spaces[i + 1] = (lengthSpacing ? setupLength + spacing : spacing) * length / setupLength;
             }
           }
         }
       }
-      const positions = this.computeWorldPositions(attachment, spacesCount, tangents);
+      const positions = this.computeWorldPositions(attachment2, spacesCount, tangents);
       let boneX = positions[0];
       let boneY = positions[1];
       let offsetRotation = data.offsetRotation;
@@ -2112,9 +2112,9 @@ var invisibleRig = function(exports) {
         offsetRotation *= p.a * p.d - p.b * p.c > 0 ? DEG_RAD : -DEG_RAD;
       }
       for (let i = 0, p = 3; i < boneCount; i++, p += 3) {
-        const bone = bones[i];
-        bone.worldX += (boneX - bone.worldX) * mixX;
-        bone.worldY += (boneY - bone.worldY) * mixY;
+        const bone2 = bones[i];
+        bone2.worldX += (boneX - bone2.worldX) * mixX;
+        bone2.worldY += (boneY - bone2.worldY) * mixY;
         const x = positions[p];
         const y = positions[p + 1];
         const dx = x - boneX;
@@ -2123,14 +2123,14 @@ var invisibleRig = function(exports) {
           const length = lengths[i];
           if (length !== 0) {
             const s = (Math.sqrt(dx * dx + dy * dy) / length - 1) * mixRotate + 1;
-            bone.a *= s;
-            bone.c *= s;
+            bone2.a *= s;
+            bone2.c *= s;
           }
         }
         boneX = x;
         boneY = y;
         if (mixRotate > 0) {
-          const { a, c } = bone;
+          const { a, c } = bone2;
           let r;
           if (tangents) r = positions[p - 1];
           else if (spaces[i + 1] === 0) r = positions[p + 2];
@@ -2139,73 +2139,73 @@ var invisibleRig = function(exports) {
           if (tip) {
             const cos = Math.cos(r);
             const sin = Math.sin(r);
-            const length = bone.data.length;
+            const length = bone2.data.length;
             boneX += (length * (cos * a - sin * c) - dx) * mixRotate;
             boneY += (length * (sin * a + cos * c) - dy) * mixRotate;
           } else r += offsetRotation;
-          rotateBoneWorld(bone, wrapRadians(r) * mixRotate);
+          rotateBoneWorld(bone2, wrapRadians(r) * mixRotate);
         }
-        bone.updateAppliedTransform();
+        bone2.updateAppliedTransform();
       }
     }
-    computeWorldPositions(path, spacesCount, tangents) {
+    computeWorldPositions(path2, spacesCount, tangents) {
       const target = this.target;
       let position = this.position;
       const spaces = this.spaces;
       const out = this.positions;
       out.length = spacesCount * 3 + 2;
-      const closed = path.closed;
-      let verticesLength = path.worldVerticesLength;
+      const closed = path2.closed;
+      let verticesLength = path2.worldVerticesLength;
       let curveCount = verticesLength / 6;
       let prevCurve = NONE;
       const data = this.data;
-      if (!path.constantSpeed) {
-        const lengths = path.lengths;
+      if (!path2.constantSpeed) {
+        const lengths = path2.lengths;
         curveCount -= closed ? 1 : 2;
         const pathLength2 = lengths[curveCount];
         if (data.positionMode === PositionMode.Percent) position *= pathLength2;
         const multiplier2 = data.spacingMode === SpacingMode.Percent ? pathLength2 : data.spacingMode === SpacingMode.Proportional ? pathLength2 / spacesCount : 1;
         const world2 = this.world;
         world2.length = 8;
-        for (let i = 0, o = 0, curve = 0; i < spacesCount; i++, o += 3) {
+        for (let i = 0, o = 0, curve2 = 0; i < spacesCount; i++, o += 3) {
           const space = spaces[i] * multiplier2;
           position += space;
           let p = position;
           if (closed) {
             p %= pathLength2;
             if (p < 0) p += pathLength2;
-            curve = 0;
+            curve2 = 0;
           } else if (p < 0) {
             if (prevCurve !== BEFORE) {
               prevCurve = BEFORE;
-              path.computeWorldVertices(target, 2, 4, world2, 0, 2);
+              path2.computeWorldVertices(target, 2, 4, world2, 0, 2);
             }
             addBeforePosition(p, world2, 0, out, o);
             continue;
           } else if (p > pathLength2) {
             if (prevCurve !== AFTER) {
               prevCurve = AFTER;
-              path.computeWorldVertices(target, verticesLength - 6, 4, world2, 0, 2);
+              path2.computeWorldVertices(target, verticesLength - 6, 4, world2, 0, 2);
             }
             addAfterPosition(p - pathLength2, world2, 0, out, o);
             continue;
           }
-          for (; ; curve++) {
-            const length = lengths[curve];
+          for (; ; curve2++) {
+            const length = lengths[curve2];
             if (p > length) continue;
-            if (curve === 0) p /= length;
+            if (curve2 === 0) p /= length;
             else {
-              const prev = lengths[curve - 1];
+              const prev = lengths[curve2 - 1];
               p = (p - prev) / (length - prev);
             }
             break;
           }
-          if (curve !== prevCurve) {
-            prevCurve = curve;
-            if (closed && curve === curveCount) {
-              path.computeWorldVertices(target, verticesLength - 4, 4, world2, 0, 2);
-              path.computeWorldVertices(target, 0, 4, world2, 4, 2);
-            } else path.computeWorldVertices(target, curve * 6 + 2, 8, world2, 0, 2);
+          if (curve2 !== prevCurve) {
+            prevCurve = curve2;
+            if (closed && curve2 === curveCount) {
+              path2.computeWorldVertices(target, verticesLength - 4, 4, world2, 0, 2);
+              path2.computeWorldVertices(target, 0, 4, world2, 4, 2);
+            } else path2.computeWorldVertices(target, curve2 * 6 + 2, 8, world2, 0, 2);
           }
           addCurvePosition(
             p,
@@ -2228,15 +2228,15 @@ var invisibleRig = function(exports) {
       if (closed) {
         verticesLength += 2;
         world.length = verticesLength;
-        path.computeWorldVertices(target, 2, verticesLength - 4, world, 0, 2);
-        path.computeWorldVertices(target, 0, 2, world, verticesLength - 4, 2);
+        path2.computeWorldVertices(target, 2, verticesLength - 4, world, 0, 2);
+        path2.computeWorldVertices(target, 0, 2, world, verticesLength - 4, 2);
         world[verticesLength - 2] = world[0];
         world[verticesLength - 1] = world[1];
       } else {
         curveCount--;
         verticesLength -= 4;
         world.length = verticesLength;
-        path.computeWorldVertices(target, 2, verticesLength, world, 0, 2);
+        path2.computeWorldVertices(target, 2, verticesLength, world, 0, 2);
       }
       const curves = this.curves;
       curves.length = curveCount;
@@ -2269,14 +2269,14 @@ var invisibleRig = function(exports) {
       let cy2 = 0;
       let x2 = 0;
       let y2 = 0;
-      for (let i = 0, o = 0, curve = 0, segment = 0; i < spacesCount; i++, o += 3) {
+      for (let i = 0, o = 0, curve2 = 0, segment = 0; i < spacesCount; i++, o += 3) {
         const space = spaces[i] * multiplier;
         position += space;
         let p = position;
         if (closed) {
           p %= pathLength;
           if (p < 0) p += pathLength;
-          curve = 0;
+          curve2 = 0;
         } else if (p < 0) {
           addBeforePosition(p, world, 0, out, o);
           continue;
@@ -2284,19 +2284,19 @@ var invisibleRig = function(exports) {
           addAfterPosition(p - pathLength, world, verticesLength - 4, out, o);
           continue;
         }
-        for (; ; curve++) {
-          const length = curves[curve];
+        for (; ; curve2++) {
+          const length = curves[curve2];
           if (p > length) continue;
-          if (curve === 0) p /= length;
+          if (curve2 === 0) p /= length;
           else {
-            const prev = curves[curve - 1];
+            const prev = curves[curve2 - 1];
             p = (p - prev) / (length - prev);
           }
           break;
         }
-        if (curve !== prevCurve) {
-          prevCurve = curve;
-          const ii = curve * 6;
+        if (curve2 !== prevCurve) {
+          prevCurve = curve2;
+          const ii = curve2 * 6;
           x1 = world[ii];
           y1 = world[ii + 1];
           cx1 = world[ii + 2];
@@ -2448,7 +2448,7 @@ var invisibleRig = function(exports) {
       const dy = this.cy - y;
       this.translate(dx * cos - dy * sin - dx, dx * sin + dy * cos - dy);
     }
-    update(physics) {
+    update(physics2) {
       const mix = this.mix;
       if (mix === 0) return;
       const data = this.data;
@@ -2456,20 +2456,20 @@ var invisibleRig = function(exports) {
       const doY = data.y > 0;
       const rotateOrShearX = data.rotate > 0 || data.shearX > 0;
       const doScaleX = data.scaleX > 0;
-      const bone = this.bone;
-      const l = bone.data.length;
+      const bone2 = this.bone;
+      const l = bone2.data.length;
       const skeleton = this.skeleton;
-      switch (physics) {
+      switch (physics2) {
         case Physics.none:
           return;
         case Physics.reset:
         case Physics.update: {
-          if (physics === Physics.reset) this.reset();
+          if (physics2 === Physics.reset) this.reset();
           const delta = Math.max(skeleton.time - this.lastTime, 0);
           this.remaining += delta;
           this.lastTime = skeleton.time;
-          const bx = bone.worldX;
-          const by = bone.worldY;
+          const bx = bone2.worldX;
+          const by = bone2.worldY;
           if (this.needsReset) {
             this.needsReset = false;
             this.ux = bx;
@@ -2514,16 +2514,16 @@ var invisibleRig = function(exports) {
                   a -= step;
                 } while (a >= step);
               }
-              if (doX) bone.worldX += this.xOffset * mix * data.x;
-              if (doY) bone.worldY += this.yOffset * mix * data.y;
+              if (doX) bone2.worldX += this.xOffset * mix * data.x;
+              if (doY) bone2.worldY += this.yOffset * mix * data.y;
             }
             if (rotateOrShearX || doScaleX) {
-              const ca = Math.atan2(bone.c, bone.a);
+              const ca = Math.atan2(bone2.c, bone2.a);
               let c = 0;
               let s = 0;
               let mr = 0;
-              let dx = this.cx - bone.worldX;
-              let dy = this.cy - bone.worldY;
+              let dx = this.cx - bone2.worldX;
+              let dy = this.cy - bone2.worldY;
               if (dx > qx) dx = qx;
               else if (dx < -qx) dx = -qx;
               if (dy > qy) dy = qy;
@@ -2536,13 +2536,13 @@ var invisibleRig = function(exports) {
                 c = Math.cos(r);
                 s = Math.sin(r);
                 if (doScaleX) {
-                  r = l * bone.getWorldScaleX();
+                  r = l * bone2.getWorldScaleX();
                   if (r > 0) this.scaleOffset += (dx * c + dy * s) * inertia / r;
                 }
               } else {
                 c = Math.cos(ca);
                 s = Math.sin(ca);
-                const r = l * bone.getWorldScaleX();
+                const r = l * bone2.getWorldScaleX();
                 if (r > 0) this.scaleOffset += (dx * c + dy * s) * inertia / r;
               }
               a = this.remaining;
@@ -2574,13 +2574,13 @@ var invisibleRig = function(exports) {
             }
             this.remaining = a;
           }
-          this.cx = bone.worldX;
-          this.cy = bone.worldY;
+          this.cx = bone2.worldX;
+          this.cy = bone2.worldY;
           break;
         }
         case Physics.pose:
-          if (doX) bone.worldX += this.xOffset * mix * data.x;
-          if (doY) bone.worldY += this.yOffset * mix * data.y;
+          if (doX) bone2.worldX += this.xOffset * mix * data.x;
+          if (doY) bone2.worldY += this.yOffset * mix * data.y;
       }
       if (rotateOrShearX) {
         let o = this.rotateOffset * mix;
@@ -2590,31 +2590,31 @@ var invisibleRig = function(exports) {
             r = o * data.rotate;
             const s2 = Math.sin(r);
             const c2 = Math.cos(r);
-            const b = bone.b;
-            bone.b = c2 * b - s2 * bone.d;
-            bone.d = s2 * b + c2 * bone.d;
+            const b = bone2.b;
+            bone2.b = c2 * b - s2 * bone2.d;
+            bone2.d = s2 * b + c2 * bone2.d;
           }
           r += o * data.shearX;
           const s = Math.sin(r);
           const c = Math.cos(r);
-          const a = bone.a;
-          bone.a = c * a - s * bone.c;
-          bone.c = s * a + c * bone.c;
+          const a = bone2.a;
+          bone2.a = c * a - s * bone2.c;
+          bone2.c = s * a + c * bone2.c;
         } else {
           o *= data.rotate;
-          rotateBoneWorld(bone, o);
+          rotateBoneWorld(bone2, o);
         }
       }
       if (doScaleX) {
         const s = 1 + this.scaleOffset * mix * data.scaleX;
-        bone.a *= s;
-        bone.c *= s;
+        bone2.a *= s;
+        bone2.c *= s;
       }
-      if (physics !== Physics.pose) {
-        this.tx = l * bone.a;
-        this.ty = l * bone.c;
+      if (physics2 !== Physics.pose) {
+        this.tx = l * bone2.a;
+        this.ty = l * bone2.c;
       }
-      bone.updateAppliedTransform();
+      bone2.updateAppliedTransform();
     }
   }
   const QUAD_TRIANGLES = [0, 1, 2, 2, 3, 0];
@@ -2640,14 +2640,14 @@ var invisibleRig = function(exports) {
       if (!data) throw new Error("data cannot be null.");
       for (const boneData of data.bones) {
         const parent = boneData.parent ? this.bones[boneData.parent.index] : null;
-        const bone = new Bone(boneData, this, parent);
-        parent == null ? void 0 : parent.children.push(bone);
-        this.bones.push(bone);
+        const bone2 = new Bone(boneData, this, parent);
+        parent == null ? void 0 : parent.children.push(bone2);
+        this.bones.push(bone2);
       }
       for (const slotData of data.slots) {
-        const slot = new Slot(slotData, this.bones[slotData.boneData.index]);
-        this.slots.push(slot);
-        this.drawOrder.push(slot);
+        const slot2 = new Slot(slotData, this.bones[slotData.boneData.index]);
+        this.slots.push(slot2);
+        this.drawOrder.push(slot2);
       }
       for (const c of data.ikConstraints) this.ikConstraints.push(new IkConstraint(c, this));
       for (const c of data.transformConstraints)
@@ -2667,37 +2667,37 @@ var invisibleRig = function(exports) {
     updateCache() {
       const cache = [];
       this._updateCache = cache;
-      for (const bone of this.bones) {
-        bone.sorted = bone.data.skinRequired;
-        bone.active = !bone.sorted;
+      for (const bone2 of this.bones) {
+        bone2.sorted = bone2.data.skinRequired;
+        bone2.active = !bone2.sorted;
       }
       if (this.skin) {
         for (const boneData of this.skin.bones) {
-          let bone = this.bones[boneData.index];
-          while (bone) {
-            bone.sorted = false;
-            bone.active = true;
-            bone = bone.parent;
+          let bone2 = this.bones[boneData.index];
+          while (bone2) {
+            bone2.sorted = false;
+            bone2.active = true;
+            bone2 = bone2.parent;
           }
         }
       }
-      const sortBone = (bone) => {
-        if (!bone || bone.sorted) return;
-        sortBone(bone.parent);
-        bone.sorted = true;
-        cache.push(bone);
+      const sortBone = (bone2) => {
+        if (!bone2 || bone2.sorted) return;
+        sortBone(bone2.parent);
+        bone2.sorted = true;
+        cache.push(bone2);
       };
       const sortReset = (bones) => {
-        for (const bone of bones) {
-          if (!bone.active) continue;
-          if (bone.sorted) sortReset(bone.children);
-          bone.sorted = false;
+        for (const bone2 of bones) {
+          if (!bone2.active) continue;
+          if (bone2.sorted) sortReset(bone2.children);
+          bone2.sorted = false;
         }
       };
       const inSkin = (c) => !c.skinRequired || !!this.skin && this.skin.constraints.includes(c);
-      const sortPathAttachment = (attachment, slotBone) => {
-        if (!(attachment instanceof PathAttachment)) return;
-        const pathBones = attachment.bones;
+      const sortPathAttachment = (attachment2, slotBone) => {
+        if (!(attachment2 instanceof PathAttachment)) return;
+        const pathBones = attachment2.bones;
         if (!pathBones) {
           sortBone(slotBone);
           return;
@@ -2707,10 +2707,10 @@ var invisibleRig = function(exports) {
           for (const end = i + n; i < end; i++) sortBone(this.bones[pathBones[i]]);
         }
       };
-      const sortPathSkin = (skin, slotIndex, slotBone) => {
-        const map = skin.attachments[slotIndex];
-        if (!map) return;
-        for (const key of Object.keys(map)) sortPathAttachment(map[key], slotBone);
+      const sortPathSkin = (skin2, slotIndex, slotBone) => {
+        const map2 = skin2.attachments[slotIndex];
+        if (!map2) return;
+        for (const key of Object.keys(map2)) sortPathAttachment(map2[key], slotBone);
       };
       const sortIk = (c) => {
         c.active = c.target.isActive() && inSkin(c.data);
@@ -2738,73 +2738,73 @@ var invisibleRig = function(exports) {
             sortBone(child.parent);
             sortBone(child);
           }
-        } else for (const bone of c.bones) sortBone(bone);
+        } else for (const bone2 of c.bones) sortBone(bone2);
         cache.push(c);
-        for (const bone of c.bones) sortReset(bone.children);
-        for (const bone of c.bones) bone.sorted = true;
+        for (const bone2 of c.bones) sortReset(bone2.children);
+        for (const bone2 of c.bones) bone2.sorted = true;
       };
       const sortPath = (c) => {
         c.active = c.target.bone.isActive() && inSkin(c.data);
         if (!c.active) return;
-        const slot = c.target;
-        const slotIndex = slot.data.index;
-        const slotBone = slot.bone;
+        const slot2 = c.target;
+        const slotIndex = slot2.data.index;
+        const slotBone = slot2.bone;
         if (this.skin) sortPathSkin(this.skin, slotIndex, slotBone);
         if (this.data.defaultSkin && this.data.defaultSkin !== this.skin)
           sortPathSkin(this.data.defaultSkin, slotIndex, slotBone);
-        for (const skin of this.data.skins) sortPathSkin(skin, slotIndex, slotBone);
-        sortPathAttachment(slot.getAttachment(), slotBone);
-        for (const bone of c.bones) sortBone(bone);
+        for (const skin2 of this.data.skins) sortPathSkin(skin2, slotIndex, slotBone);
+        sortPathAttachment(slot2.getAttachment(), slotBone);
+        for (const bone2 of c.bones) sortBone(bone2);
         cache.push(c);
-        for (const bone of c.bones) sortReset(bone.children);
-        for (const bone of c.bones) bone.sorted = true;
+        for (const bone2 of c.bones) sortReset(bone2.children);
+        for (const bone2 of c.bones) bone2.sorted = true;
       };
       const sortPhysics = (c) => {
-        const bone = c.bone;
-        c.active = bone.active && inSkin(c.data);
+        const bone2 = c.bone;
+        c.active = bone2.active && inSkin(c.data);
         if (!c.active) return;
-        sortBone(bone);
+        sortBone(bone2);
         cache.push(c);
-        sortReset(bone.children);
-        bone.sorted = true;
+        sortReset(bone2.children);
+        bone2.sorted = true;
       };
       const total = this.ikConstraints.length + this.transformConstraints.length + this.pathConstraints.length + this.physicsConstraints.length;
       for (let order = 0; order < total; order++) {
-        const ik = this.ikConstraints.find((c) => c.data.order === order);
-        if (ik) {
-          sortIk(ik);
+        const ik2 = this.ikConstraints.find((c) => c.data.order === order);
+        if (ik2) {
+          sortIk(ik2);
           continue;
         }
-        const transform = this.transformConstraints.find((c) => c.data.order === order);
-        if (transform) {
-          sortTransform(transform);
+        const transform2 = this.transformConstraints.find((c) => c.data.order === order);
+        if (transform2) {
+          sortTransform(transform2);
           continue;
         }
-        const path = this.pathConstraints.find((c) => c.data.order === order);
-        if (path) {
-          sortPath(path);
+        const path2 = this.pathConstraints.find((c) => c.data.order === order);
+        if (path2) {
+          sortPath(path2);
           continue;
         }
-        const physics = this.physicsConstraints.find((c) => c.data.order === order);
-        if (physics) sortPhysics(physics);
+        const physics2 = this.physicsConstraints.find((c) => c.data.order === order);
+        if (physics2) sortPhysics(physics2);
       }
-      for (const bone of this.bones) sortBone(bone);
+      for (const bone2 of this.bones) sortBone(bone2);
     }
-    updateWorldTransform(physics) {
-      if (physics === void 0 || physics === null) throw new Error("physics is undefined");
-      for (const bone of this.bones) {
-        bone.ax = bone.x;
-        bone.ay = bone.y;
-        bone.arotation = bone.rotation;
-        bone.ascaleX = bone.scaleX;
-        bone.ascaleY = bone.scaleY;
-        bone.ashearX = bone.shearX;
-        bone.ashearY = bone.shearY;
+    updateWorldTransform(physics2) {
+      if (physics2 === void 0 || physics2 === null) throw new Error("physics is undefined");
+      for (const bone2 of this.bones) {
+        bone2.ax = bone2.x;
+        bone2.ay = bone2.y;
+        bone2.arotation = bone2.rotation;
+        bone2.ascaleX = bone2.scaleX;
+        bone2.ascaleY = bone2.scaleY;
+        bone2.ashearX = bone2.shearX;
+        bone2.ashearY = bone2.shearY;
       }
-      for (const updatable of this._updateCache) updatable.update(physics);
+      for (const updatable of this._updateCache) updatable.update(physics2);
     }
     /** Updates the world transform as if `parent` were the root's parent. */
-    updateWorldTransformWith(physics, parent) {
+    updateWorldTransformWith(physics2, parent) {
       const root = this.getRootBone();
       if (!root) return;
       const { a: pa, b: pb, c: pc, d: pd } = parent;
@@ -2820,14 +2820,14 @@ var invisibleRig = function(exports) {
       root.b = (pa * lb + pb * ld) * this.scaleX;
       root.c = (pc * la + pd * lc) * this.scaleY;
       root.d = (pc * lb + pd * ld) * this.scaleY;
-      for (const updatable of this._updateCache) if (updatable !== root) updatable.update(physics);
+      for (const updatable of this._updateCache) if (updatable !== root) updatable.update(physics2);
     }
     setToSetupPose() {
       this.setBonesToSetupPose();
       this.setSlotsToSetupPose();
     }
     setBonesToSetupPose() {
-      for (const bone of this.bones) bone.setToSetupPose();
+      for (const bone2 of this.bones) bone2.setToSetupPose();
       for (const c of this.ikConstraints) c.setToSetupPose();
       for (const c of this.transformConstraints) c.setToSetupPose();
       for (const c of this.pathConstraints) c.setToSetupPose();
@@ -2835,8 +2835,8 @@ var invisibleRig = function(exports) {
     }
     setSlotsToSetupPose() {
       this.drawOrder.length = 0;
-      for (const slot of this.slots) this.drawOrder.push(slot);
-      for (const slot of this.slots) slot.setToSetupPose();
+      for (const slot2 of this.slots) this.drawOrder.push(slot2);
+      for (const slot2 of this.slots) slot2.setToSetupPose();
     }
     getRootBone() {
       return this.bones.length ? this.bones[0] : null;
@@ -2850,9 +2850,9 @@ var invisibleRig = function(exports) {
       return this.slots.find((s) => s.data.name === name) ?? null;
     }
     setSkinByName(name) {
-      const skin = this.data.findSkin(name);
-      if (!skin) throw new Error("Skin not found: " + name);
-      this.setSkin(skin);
+      const skin2 = this.data.findSkin(name);
+      if (!skin2) throw new Error("Skin not found: " + name);
+      this.setSkin(skin2);
     }
     /** Switches skin. Slots showing an attachment of the old skin take the new skin's attachment of
      * the same name; with no old skin, slots take the new skin's setup attachment when it has one. */
@@ -2861,11 +2861,11 @@ var invisibleRig = function(exports) {
       if (newSkin) {
         if (this.skin) newSkin.attachAll(this, this.skin);
         else {
-          this.slots.forEach((slot, i) => {
-            const name = slot.data.attachmentName;
+          this.slots.forEach((slot2, i) => {
+            const name = slot2.data.attachmentName;
             if (!name) return;
-            const attachment = newSkin.getAttachment(i, name);
-            if (attachment) slot.setAttachment(attachment);
+            const attachment2 = newSkin.getAttachment(i, name);
+            if (attachment2) slot2.setAttachment(attachment2);
           });
         }
       }
@@ -2873,16 +2873,16 @@ var invisibleRig = function(exports) {
       this.updateCache();
     }
     getAttachmentByName(slotName, attachmentName) {
-      const slot = this.data.findSlot(slotName);
-      if (!slot) throw new Error(`Can't find slot with name ${slotName}`);
-      return this.getAttachment(slot.index, attachmentName);
+      const slot2 = this.data.findSlot(slotName);
+      if (!slot2) throw new Error(`Can't find slot with name ${slotName}`);
+      return this.getAttachment(slot2.index, attachmentName);
     }
     getAttachment(slotIndex, attachmentName) {
       var _a;
       if (!attachmentName) throw new Error("attachmentName cannot be null.");
       if (this.skin) {
-        const attachment = this.skin.getAttachment(slotIndex, attachmentName);
-        if (attachment) return attachment;
+        const attachment2 = this.skin.getAttachment(slotIndex, attachmentName);
+        if (attachment2) return attachment2;
       }
       return ((_a = this.data.defaultSkin) == null ? void 0 : _a.getAttachment(slotIndex, attachmentName)) ?? null;
     }
@@ -2890,13 +2890,13 @@ var invisibleRig = function(exports) {
       if (!slotName) throw new Error("slotName cannot be null.");
       const index = this.slots.findIndex((s) => s.data.name === slotName);
       if (index === -1) throw new Error("Slot not found: " + slotName);
-      let attachment = null;
+      let attachment2 = null;
       if (attachmentName) {
-        attachment = this.getAttachment(index, attachmentName);
-        if (!attachment)
+        attachment2 = this.getAttachment(index, attachmentName);
+        if (!attachment2)
           throw new Error(`Attachment not found: ${attachmentName}, for slot: ${slotName}`);
       }
-      this.slots[index].setAttachment(attachment);
+      this.slots[index].setAttachment(attachment2);
     }
     findIkConstraint(name) {
       return this.ikConstraints.find((c) => c.data.name === name) ?? null;
@@ -2924,26 +2924,26 @@ var invisibleRig = function(exports) {
       let minY = Number.POSITIVE_INFINITY;
       let maxX = Number.NEGATIVE_INFINITY;
       let maxY = Number.NEGATIVE_INFINITY;
-      for (const slot of this.drawOrder) {
-        if (!slot.bone.active) continue;
+      for (const slot2 of this.drawOrder) {
+        if (!slot2.bone.active) continue;
         let vertices = null;
         let count = 0;
         let triangles = null;
-        const attachment = slot.getAttachment();
-        if (attachment instanceof RegionAttachment) {
+        const attachment2 = slot2.getAttachment();
+        if (attachment2 instanceof RegionAttachment) {
           count = 8;
           temp.length = 8;
-          attachment.computeWorldVertices(slot, temp, 0, 2);
+          attachment2.computeWorldVertices(slot2, temp, 0, 2);
           vertices = temp;
           triangles = QUAD_TRIANGLES;
-        } else if (attachment instanceof MeshAttachment) {
-          count = attachment.worldVerticesLength;
+        } else if (attachment2 instanceof MeshAttachment) {
+          count = attachment2.worldVerticesLength;
           temp.length = count;
-          attachment.computeWorldVertices(slot, 0, count, temp, 0, 2);
+          attachment2.computeWorldVertices(slot2, 0, count, temp, 0, 2);
           vertices = temp;
-          triangles = attachment.triangles;
-        } else if (attachment instanceof ClippingAttachment && clipper) {
-          clipper.clipStart(slot, attachment);
+          triangles = attachment2.triangles;
+        } else if (attachment2 instanceof ClippingAttachment && clipper) {
+          clipper.clipStart(slot2, attachment2);
           continue;
         }
         if (vertices && triangles) {
@@ -2961,7 +2961,7 @@ var invisibleRig = function(exports) {
             if (y > maxY) maxY = y;
           }
         }
-        clipper == null ? void 0 : clipper.clipEndWithSlot(slot);
+        clipper == null ? void 0 : clipper.clipEndWithSlot(slot2);
       }
       clipper == null ? void 0 : clipper.clipEnd();
       setPoint(offset, minX, minY);
@@ -3269,9 +3269,9 @@ var invisibleRig = function(exports) {
       this.boneIndex = boneIndex;
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const bone = skeleton.bones[this.boneIndex];
-      if (bone.active)
-        bone.rotation = this.getRelativeValue(time, alpha, blend, bone.rotation, bone.data.rotation);
+      const bone2 = skeleton.bones[this.boneIndex];
+      if (bone2.active)
+        bone2.rotation = this.getRelativeValue(time, alpha, blend, bone2.rotation, bone2.data.rotation);
     }
   }
   class RelativePairTimeline extends CurveTimeline2 {
@@ -3281,35 +3281,35 @@ var invisibleRig = function(exports) {
       this.fields = fields;
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const bone = skeleton.bones[this.boneIndex];
-      if (!bone.active) return;
+      const bone2 = skeleton.bones[this.boneIndex];
+      if (!bone2.active) return;
       const [fx, fy] = this.fields;
-      const setupX = bone.data[fx];
-      const setupY = bone.data[fy];
+      const setupX = bone2.data[fx];
+      const setupY = bone2.data[fy];
       if (time < this.frames[0]) {
         if (blend === 0) {
-          bone[fx] = setupX;
-          bone[fy] = setupY;
+          bone2[fx] = setupX;
+          bone2[fy] = setupY;
         } else if (blend === 1) {
-          bone[fx] += (setupX - bone[fx]) * alpha;
-          bone[fy] += (setupY - bone[fy]) * alpha;
+          bone2[fx] += (setupX - bone2[fx]) * alpha;
+          bone2[fy] += (setupY - bone2[fy]) * alpha;
         }
         return;
       }
       const [x, y] = this.values2(time);
       switch (blend) {
         case 0:
-          bone[fx] = setupX + x * alpha;
-          bone[fy] = setupY + y * alpha;
+          bone2[fx] = setupX + x * alpha;
+          bone2[fy] = setupY + y * alpha;
           break;
         case 1:
         case 2:
-          bone[fx] += (setupX + x - bone[fx]) * alpha;
-          bone[fy] += (setupY + y - bone[fy]) * alpha;
+          bone2[fx] += (setupX + x - bone2[fx]) * alpha;
+          bone2[fy] += (setupY + y - bone2[fy]) * alpha;
           break;
         case 3:
-          bone[fx] += x * alpha;
-          bone[fy] += y * alpha;
+          bone2[fx] += x * alpha;
+          bone2[fy] += y * alpha;
       }
     }
   }
@@ -3344,14 +3344,14 @@ var invisibleRig = function(exports) {
   }
   class RelativeValueTimeline extends BoneValueTimeline {
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const bone = skeleton.bones[this.boneIndex];
-      if (bone.active)
-        bone[this.field] = this.getRelativeValue(
+      const bone2 = skeleton.bones[this.boneIndex];
+      if (bone2.active)
+        bone2[this.field] = this.getRelativeValue(
           time,
           alpha,
           blend,
-          bone[this.field],
-          bone.data[this.field]
+          bone2[this.field],
+          bone2.data[this.field]
         );
     }
   }
@@ -3384,16 +3384,16 @@ var invisibleRig = function(exports) {
       this.boneIndex = boneIndex;
     }
     apply(skeleton, _l, time, _e, alpha, blend, direction) {
-      const bone = skeleton.bones[this.boneIndex];
-      if (!bone.active) return;
-      const data = bone.data;
+      const bone2 = skeleton.bones[this.boneIndex];
+      if (!bone2.active) return;
+      const data = bone2.data;
       if (time < this.frames[0]) {
         if (blend === 0) {
-          bone.scaleX = data.scaleX;
-          bone.scaleY = data.scaleY;
+          bone2.scaleX = data.scaleX;
+          bone2.scaleY = data.scaleY;
         } else if (blend === 1) {
-          bone.scaleX += (data.scaleX - bone.scaleX) * alpha;
-          bone.scaleY += (data.scaleY - bone.scaleY) * alpha;
+          bone2.scaleX += (data.scaleX - bone2.scaleX) * alpha;
+          bone2.scaleY += (data.scaleY - bone2.scaleY) * alpha;
         }
         return;
       }
@@ -3402,45 +3402,45 @@ var invisibleRig = function(exports) {
       const y = ky * data.scaleY;
       if (alpha === 1) {
         if (blend === 3) {
-          bone.scaleX += x - data.scaleX;
-          bone.scaleY += y - data.scaleY;
+          bone2.scaleX += x - data.scaleX;
+          bone2.scaleY += y - data.scaleY;
         } else {
-          bone.scaleX = x;
-          bone.scaleY = y;
+          bone2.scaleX = x;
+          bone2.scaleY = y;
         }
         return;
       }
       if (blend === 3) {
-        bone.scaleX += (x - data.scaleX) * alpha;
-        bone.scaleY += (y - data.scaleY) * alpha;
+        bone2.scaleX += (x - data.scaleX) * alpha;
+        bone2.scaleY += (y - data.scaleY) * alpha;
         return;
       }
       if (direction === 1) {
-        const bx = blend === 0 ? data.scaleX : bone.scaleX;
-        const by = blend === 0 ? data.scaleY : bone.scaleY;
-        bone.scaleX = bx + (Math.abs(x) * signum(bx) - bx) * alpha;
-        bone.scaleY = by + (Math.abs(y) * signum(by) - by) * alpha;
+        const bx = blend === 0 ? data.scaleX : bone2.scaleX;
+        const by = blend === 0 ? data.scaleY : bone2.scaleY;
+        bone2.scaleX = bx + (Math.abs(x) * signum(bx) - bx) * alpha;
+        bone2.scaleY = by + (Math.abs(y) * signum(by) - by) * alpha;
       } else {
-        const fromX = blend === 0 ? data.scaleX : bone.scaleX;
-        const fromY = blend === 0 ? data.scaleY : bone.scaleY;
+        const fromX = blend === 0 ? data.scaleX : bone2.scaleX;
+        const fromY = blend === 0 ? data.scaleY : bone2.scaleY;
         const bx = Math.abs(fromX) * signum(x);
         const by = Math.abs(fromY) * signum(y);
-        bone.scaleX = bx + (x - bx) * alpha;
-        bone.scaleY = by + (y - by) * alpha;
+        bone2.scaleX = bx + (x - bx) * alpha;
+        bone2.scaleY = by + (y - by) * alpha;
       }
     }
   }
   class ScaleValueTimeline extends BoneValueTimeline {
     apply(skeleton, _l, time, _e, alpha, blend, direction) {
-      const bone = skeleton.bones[this.boneIndex];
-      if (bone.active)
-        bone[this.field] = this.getScaleValue(
+      const bone2 = skeleton.bones[this.boneIndex];
+      if (bone2.active)
+        bone2[this.field] = this.getScaleValue(
           time,
           alpha,
           blend,
           direction,
-          bone[this.field],
-          bone.data[this.field]
+          bone2[this.field],
+          bone2.data[this.field]
         );
     }
   }
@@ -3468,17 +3468,17 @@ var invisibleRig = function(exports) {
       this.frames[frame + 1] = inherit;
     }
     apply(skeleton, _l, time, _e, _alpha, blend, direction) {
-      const bone = skeleton.bones[this.boneIndex];
-      if (!bone.active) return;
+      const bone2 = skeleton.bones[this.boneIndex];
+      if (!bone2.active) return;
       if (direction === 1) {
-        if (blend === 0) bone.inherit = bone.data.inherit;
+        if (blend === 0) bone2.inherit = bone2.data.inherit;
         return;
       }
       if (time < this.frames[0]) {
-        if (blend === 0 || blend === 1) bone.inherit = bone.data.inherit;
+        if (blend === 0 || blend === 1) bone2.inherit = bone2.data.inherit;
         return;
       }
-      bone.inherit = this.frames[Timeline.search(this.frames, time, 2) + 1];
+      bone2.inherit = this.frames[Timeline.search(this.frames, time, 2) + 1];
     }
   }
   class RGBATimeline extends CurveTimeline {
@@ -3494,10 +3494,10 @@ var invisibleRig = function(exports) {
       this.put(frame, time, r, g, b, a);
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const color = slot.color;
-      const setup = slot.data.color;
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const color = slot2.color;
+      const setup = slot2.data.color;
       if (time < this.frames[0]) {
         if (blend === 0) color.setFromColor(setup);
         else if (blend === 1)
@@ -3539,10 +3539,10 @@ var invisibleRig = function(exports) {
       this.put(frame, time, r, g, b);
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const color = slot.color;
-      const setup = slot.data.color;
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const color = slot2.color;
+      const setup = slot2.data.color;
       if (time < this.frames[0]) {
         if (blend === 0) {
           color.r = setup.r;
@@ -3581,10 +3581,10 @@ var invisibleRig = function(exports) {
       this.slotIndex = slotIndex;
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const color = slot.color;
-      const setup = slot.data.color;
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const color = slot2.color;
+      const setup = slot2.data.color;
       if (time < this.frames[0]) {
         if (blend === 0) color.a = setup.a;
         else if (blend === 1) color.a += (setup.a - color.a) * alpha;
@@ -3615,12 +3615,12 @@ var invisibleRig = function(exports) {
       this.put(frame, time, r, g, b, a, r2, g2, b2);
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const light = slot.color;
-      const dark = slot.darkColor;
-      const setupLight = slot.data.color;
-      const setupDark = slot.data.darkColor;
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const light = slot2.color;
+      const dark = slot2.darkColor;
+      const setupLight = slot2.data.color;
+      const setupDark = slot2.data.darkColor;
       if (!dark || !setupDark) return;
       if (time < this.frames[0]) {
         if (blend === 0) {
@@ -3680,12 +3680,12 @@ var invisibleRig = function(exports) {
       this.put(frame, time, r, g, b, r2, g2, b2);
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const light = slot.color;
-      const dark = slot.darkColor;
-      const setupLight = slot.data.color;
-      const setupDark = slot.data.darkColor;
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const light = slot2.color;
+      const dark = slot2.darkColor;
+      const setupLight = slot2.data.color;
+      const setupDark = slot2.data.darkColor;
       if (!dark || !setupDark) return;
       const assignSetup = () => {
         light.r = setupLight.r;
@@ -3738,28 +3738,28 @@ var invisibleRig = function(exports) {
       this.attachmentNames[frame] = attachmentName;
     }
     apply(skeleton, _l, time, _e, _alpha, blend, direction) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
       if (direction === 1) {
-        if (blend === 0) this.setAttachment(skeleton, slot, slot.data.attachmentName);
+        if (blend === 0) this.setAttachment(skeleton, slot2, slot2.data.attachmentName);
         return;
       }
       if (time < this.frames[0]) {
         if (blend === 0 || blend === 1)
-          this.setAttachment(skeleton, slot, slot.data.attachmentName);
+          this.setAttachment(skeleton, slot2, slot2.data.attachmentName);
         return;
       }
-      this.setAttachment(skeleton, slot, this.attachmentNames[Timeline.search1(this.frames, time)]);
+      this.setAttachment(skeleton, slot2, this.attachmentNames[Timeline.search1(this.frames, time)]);
     }
-    setAttachment(skeleton, slot, name) {
-      slot.setAttachment(name ? skeleton.getAttachment(this.slotIndex, name) : null);
+    setAttachment(skeleton, slot2, name) {
+      slot2.setAttachment(name ? skeleton.getAttachment(this.slotIndex, name) : null);
     }
   }
   class DeformTimeline extends CurveTimeline {
-    constructor(frameCount, bezierCount, slotIndex, attachment) {
-      super(frameCount, bezierCount, [id(12, slotIndex, attachment.id)]);
+    constructor(frameCount, bezierCount, slotIndex, attachment2) {
+      super(frameCount, bezierCount, [id(12, slotIndex, attachment2.id)]);
       this.slotIndex = slotIndex;
-      this.attachment = attachment;
+      this.attachment = attachment2;
       this.vertices = new Array(frameCount);
     }
     getFrameCount() {
@@ -3802,12 +3802,12 @@ var invisibleRig = function(exports) {
       return y + (1 - y) * (time - x) / (frames[frame + 1] - x);
     }
     apply(skeleton, _l, time, _e, alpha, blend) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const current = slot.getAttachment();
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const current = slot2.getAttachment();
       if (!(current instanceof VertexAttachment) || current.timelineAttachment !== this.attachment)
         return;
-      const deform = slot.deform;
+      const deform = slot2.deform;
       if (deform.length === 0) blend = 0;
       const keyed = this.vertices;
       const count = keyed[0].length;
@@ -3871,11 +3871,11 @@ var invisibleRig = function(exports) {
     }
   }
   class SequenceTimeline extends Timeline {
-    constructor(frameCount, slotIndex, attachment) {
+    constructor(frameCount, slotIndex, attachment2) {
       var _a;
-      super(frameCount, [id(28, slotIndex, ((_a = attachment.sequence) == null ? void 0 : _a.id) ?? -1)]);
+      super(frameCount, [id(28, slotIndex, ((_a = attachment2.sequence) == null ? void 0 : _a.id) ?? -1)]);
       this.slotIndex = slotIndex;
-      this.attachment = attachment;
+      this.attachment = attachment2;
     }
     getFrameEntries() {
       return 3;
@@ -3893,29 +3893,29 @@ var invisibleRig = function(exports) {
       this.frames[frame + 2] = delay;
     }
     apply(skeleton, _l, time, _e, _alpha, blend, direction) {
-      const slot = skeleton.slots[this.slotIndex];
-      if (!slot.bone.active) return;
-      const current = slot.attachment;
-      const attachment = this.attachment;
-      if (current !== attachment && (!(current instanceof VertexAttachment) || current.timelineAttachment !== attachment))
+      const slot2 = skeleton.slots[this.slotIndex];
+      if (!slot2.bone.active) return;
+      const current = slot2.attachment;
+      const attachment2 = this.attachment;
+      if (current !== attachment2 && (!(current instanceof VertexAttachment) || current.timelineAttachment !== attachment2))
         return;
       if (direction === 1) {
-        if (blend === 0) slot.sequenceIndex = -1;
+        if (blend === 0) slot2.sequenceIndex = -1;
         return;
       }
       const frames = this.frames;
       if (time < frames[0]) {
-        if (blend === 0 || blend === 1) slot.sequenceIndex = -1;
+        if (blend === 0 || blend === 1) slot2.sequenceIndex = -1;
         return;
       }
       const i = Timeline.search(frames, time, 3);
       const before = frames[i];
       const modeAndIndex = frames[i + 1];
       const delay = frames[i + 2];
-      const sequence = attachment.sequence;
-      if (!sequence) return;
+      const sequence2 = attachment2.sequence;
+      if (!sequence2) return;
       let index = modeAndIndex >> 4;
-      const count = sequence.regions.length;
+      const count = sequence2.regions.length;
       const mode = SequenceModeValues[modeAndIndex & 15];
       if (mode !== SequenceMode.hold) {
         index += (time - before) / delay + 1e-5 | 0;
@@ -3942,7 +3942,7 @@ var invisibleRig = function(exports) {
             if (index >= count) index = span - index;
         }
       }
-      slot.sequenceIndex = index;
+      slot2.sequenceIndex = index;
     }
   }
   class EventTimeline extends Timeline {
@@ -4572,8 +4572,8 @@ var invisibleRig = function(exports) {
       for (let trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
         const current = tracks[trackIndex];
         if (!current || current.delay > 0) continue;
-        const animation = current.animation;
-        if (!animation) continue;
+        const animation2 = current.animation;
+        if (!animation2) continue;
         applied = true;
         const blend = trackIndex === 0 ? MixBlend.first : current.mixBlend;
         let alpha = current.alpha;
@@ -4585,10 +4585,10 @@ var invisibleRig = function(exports) {
         let applyTime = animationTime;
         let applyEvents = events;
         if (current.reverse) {
-          applyTime = animation.duration - applyTime;
+          applyTime = animation2.duration - applyTime;
           applyEvents = null;
         }
-        const timelines = animation.timelines;
+        const timelines = animation2.timelines;
         const count = timelines.length;
         if (trackIndex === 0 && alpha === 1 || blend === MixBlend.add) {
           if (trackIndex === 0) attachments = true;
@@ -4645,10 +4645,10 @@ var invisibleRig = function(exports) {
         current.nextTrackLast = current.trackTime;
       }
       const setupState = this.unkeyedState + SETUP;
-      for (const slot of skeleton.slots) {
-        if (slot.attachmentState === setupState) {
-          const name = slot.data.attachmentName;
-          slot.setAttachment(name ? skeleton.getAttachment(slot.data.index, name) : null);
+      for (const slot2 of skeleton.slots) {
+        if (slot2.attachmentState === setupState) {
+          const name = slot2.data.attachmentName;
+          slot2.setAttachment(name ? skeleton.getAttachment(slot2.data.index, name) : null);
         }
       }
       this.unkeyedState += 2;
@@ -4670,8 +4670,8 @@ var invisibleRig = function(exports) {
       }
       const attachments = mix < from.mixAttachmentThreshold;
       const drawOrder = mix < from.mixDrawOrderThreshold;
-      const animation = from.animation;
-      const timelines = animation.timelines;
+      const animation2 = from.animation;
+      const timelines = animation2.timelines;
       const count = timelines.length;
       const alphaHold = from.alpha * to.interruptAlpha;
       const alphaMix = alphaHold * (1 - mix);
@@ -4679,7 +4679,7 @@ var invisibleRig = function(exports) {
       const animationTime = from.getAnimationTime();
       let applyTime = animationTime;
       let events = null;
-      if (from.reverse) applyTime = animation.duration - applyTime;
+      if (from.reverse) applyTime = animation2.duration - applyTime;
       else if (mix < from.eventThreshold) events = this.events;
       if (blend === MixBlend.add) {
         for (const timeline of timelines)
@@ -4770,23 +4770,23 @@ var invisibleRig = function(exports) {
       return mix;
     }
     applyAttachmentTimeline(timeline, skeleton, time, blend, attachments) {
-      const slot = skeleton.slots[timeline.slotIndex];
-      if (!slot.bone.active) return;
+      const slot2 = skeleton.slots[timeline.slotIndex];
+      if (!slot2.bone.active) return;
       if (time < timeline.frames[0]) {
         if (blend === MixBlend.setup || blend === MixBlend.first)
-          this.setAttachment(skeleton, slot, slot.data.attachmentName, attachments);
+          this.setAttachment(skeleton, slot2, slot2.data.attachmentName, attachments);
       } else
         this.setAttachment(
           skeleton,
-          slot,
+          slot2,
           timeline.attachmentNames[Timeline.search1(timeline.frames, time)],
           attachments
         );
-      if (slot.attachmentState <= this.unkeyedState) slot.attachmentState = this.unkeyedState + SETUP;
+      if (slot2.attachmentState <= this.unkeyedState) slot2.attachmentState = this.unkeyedState + SETUP;
     }
-    setAttachment(skeleton, slot, name, attachments) {
-      slot.setAttachment(name ? skeleton.getAttachment(slot.data.index, name) : null);
-      if (attachments) slot.attachmentState = this.unkeyedState + CURRENT;
+    setAttachment(skeleton, slot2, name, attachments) {
+      slot2.setAttachment(name ? skeleton.getAttachment(slot2.data.index, name) : null);
+      if (attachments) slot2.attachmentState = this.unkeyedState + CURRENT;
     }
     /** Mixes rotation along the shortest route, remembering the direction chosen on the first frame
      * so a mix that crosses 180° keeps turning the same way. */
@@ -4796,21 +4796,21 @@ var invisibleRig = function(exports) {
         timeline.apply(skeleton, 0, time, null, 1, blend);
         return;
       }
-      const bone = skeleton.bones[timeline.boneIndex];
-      if (!bone.active) return;
+      const bone2 = skeleton.bones[timeline.boneIndex];
+      if (!bone2.active) return;
       let r1;
       let r2;
       if (time < timeline.frames[0]) {
         if (blend === MixBlend.setup) {
-          bone.rotation = bone.data.rotation;
+          bone2.rotation = bone2.data.rotation;
           return;
         }
         if (blend !== MixBlend.first) return;
-        r1 = bone.rotation;
-        r2 = bone.data.rotation;
+        r1 = bone2.rotation;
+        r2 = bone2.data.rotation;
       } else {
-        r1 = blend === MixBlend.setup ? bone.data.rotation : bone.rotation;
-        r2 = bone.data.rotation + timeline.getCurveValue(time);
+        r1 = blend === MixBlend.setup ? bone2.data.rotation : bone2.rotation;
+        r2 = bone2.data.rotation + timeline.getCurveValue(time);
       }
       let total;
       let diff = r2 - r1;
@@ -4834,7 +4834,7 @@ var invisibleRig = function(exports) {
         rotations[i] = total;
       }
       rotations[i + 1] = diff;
-      bone.rotation = r1 + total * alpha;
+      bone2.rotation = r1 + total * alpha;
     }
     queueEvents(entry, animationTime) {
       const start = entry.animationStart;
@@ -4909,8 +4909,8 @@ var invisibleRig = function(exports) {
     setAnimation(trackIndex, animationName, loop = false) {
       return this.setAnimationWith(trackIndex, this.resolve(animationName), loop);
     }
-    setAnimationWith(trackIndex, animation, loop = false) {
-      if (!animation) throw new Error("animation cannot be null.");
+    setAnimationWith(trackIndex, animation2, loop = false) {
+      if (!animation2) throw new Error("animation cannot be null.");
       let interrupt = true;
       let current = this.expandToIndex(trackIndex);
       if (current) {
@@ -4923,7 +4923,7 @@ var invisibleRig = function(exports) {
           interrupt = false;
         } else this.clearNext(current);
       }
-      const entry = this.trackEntry(trackIndex, animation, loop, current);
+      const entry = this.trackEntry(trackIndex, animation2, loop, current);
       this.setCurrent(trackIndex, entry, interrupt);
       this.queue.drain();
       return entry;
@@ -4933,11 +4933,11 @@ var invisibleRig = function(exports) {
     }
     /** Queues an animation after the track's last entry. A delay <= 0 is relative to the end of the
      * previous entry, less this entry's mix duration. */
-    addAnimationWith(trackIndex, animation, loop = false, delay = 0) {
-      if (!animation) throw new Error("animation cannot be null.");
+    addAnimationWith(trackIndex, animation2, loop = false, delay = 0) {
+      if (!animation2) throw new Error("animation cannot be null.");
       let last = this.expandToIndex(trackIndex);
       if (last) while (last.next) last = last.next;
-      const entry = this.trackEntry(trackIndex, animation, loop, last);
+      const entry = this.trackEntry(trackIndex, animation2, loop, last);
       if (!last) {
         this.setCurrent(trackIndex, entry, true);
         this.queue.drain();
@@ -4982,10 +4982,10 @@ var invisibleRig = function(exports) {
       while (this.tracks.length <= index) this.tracks.push(null);
       return null;
     }
-    trackEntry(trackIndex, animation, loop, last) {
+    trackEntry(trackIndex, animation2, loop, last) {
       const entry = new TrackEntry();
       entry.trackIndex = trackIndex;
-      entry.animation = animation;
+      entry.animation = animation2;
       entry.loop = loop;
       entry.holdPrevious = false;
       entry.reverse = false;
@@ -4995,7 +4995,7 @@ var invisibleRig = function(exports) {
       entry.mixAttachmentThreshold = 0;
       entry.mixDrawOrderThreshold = 0;
       entry.animationStart = 0;
-      entry.animationEnd = animation.duration;
+      entry.animationEnd = animation2.duration;
       entry.animationLast = -1;
       entry.nextAnimationLast = -1;
       entry.delay = 0;
@@ -5006,7 +5006,7 @@ var invisibleRig = function(exports) {
       entry.timeScale = 1;
       entry.alpha = 1;
       entry.mixTime = 0;
-      entry.mixDuration = (last == null ? void 0 : last.animation) ? this.data.getMix(last.animation, animation) : 0;
+      entry.mixDuration = (last == null ? void 0 : last.animation) ? this.data.getMix(last.animation, animation2) : 0;
       entry.interruptAlpha = 1;
       entry.totalAlpha = 0;
       entry.mixBlend = MixBlend.replace;
@@ -5099,14 +5099,14 @@ var invisibleRig = function(exports) {
   };
   _AnimationState.EMPTY = new Animation("<empty>", [], 0);
   let AnimationState = _AnimationState;
-  function get(map, key, fallback) {
-    const value = map == null ? void 0 : map[key];
+  function get(map2, key, fallback) {
+    const value = map2 == null ? void 0 : map2[key];
     return value === void 0 ? fallback : value;
   }
   let LinkedMesh$1 = class LinkedMesh {
-    constructor(mesh, skin, slotIndex, parent, inheritTimelines) {
-      this.mesh = mesh;
-      this.skin = skin;
+    constructor(mesh2, skin2, slotIndex, parent, inheritTimelines) {
+      this.mesh = mesh2;
+      this.skin = skin2;
       this.slotIndex = slotIndex;
       this.parent = parent;
       this.inheritTimelines = inheritTimelines;
@@ -5142,191 +5142,191 @@ var invisibleRig = function(exports) {
           parent = data.findBone(parentName);
           if (!parent) throw new Error(`Parent bone not found: ${parentName}`);
         }
-        const bone = new BoneData(data.bones.length, boneMap.name, parent);
-        bone.length = get(boneMap, "length", 0) * scale;
-        bone.x = get(boneMap, "x", 0) * scale;
-        bone.y = get(boneMap, "y", 0) * scale;
-        bone.rotation = get(boneMap, "rotation", 0);
-        bone.scaleX = get(boneMap, "scaleX", 1);
-        bone.scaleY = get(boneMap, "scaleY", 1);
-        bone.shearX = get(boneMap, "shearX", 0);
-        bone.shearY = get(boneMap, "shearY", 0);
-        bone.inherit = enumFromName(Inherit, get(boneMap, "inherit", "normal"), Inherit.Normal);
-        bone.skinRequired = get(boneMap, "skin", false);
+        const bone2 = new BoneData(data.bones.length, boneMap.name, parent);
+        bone2.length = get(boneMap, "length", 0) * scale;
+        bone2.x = get(boneMap, "x", 0) * scale;
+        bone2.y = get(boneMap, "y", 0) * scale;
+        bone2.rotation = get(boneMap, "rotation", 0);
+        bone2.scaleX = get(boneMap, "scaleX", 1);
+        bone2.scaleY = get(boneMap, "scaleY", 1);
+        bone2.shearX = get(boneMap, "shearX", 0);
+        bone2.shearY = get(boneMap, "shearY", 0);
+        bone2.inherit = enumFromName(Inherit, get(boneMap, "inherit", "normal"), Inherit.Normal);
+        bone2.skinRequired = get(boneMap, "skin", false);
         const color = get(boneMap, "color", null);
-        if (color) bone.color.setFromString(color);
-        data.bones.push(bone);
+        if (color) bone2.color.setFromString(color);
+        data.bones.push(bone2);
       }
       for (const slotMap of root.slots || []) {
         const boneData = data.findBone(slotMap.bone);
         if (!boneData) throw new Error(`Couldn't find slot bone: ${slotMap.bone}`);
-        const slot = new SlotData(data.slots.length, slotMap.name, boneData);
+        const slot2 = new SlotData(data.slots.length, slotMap.name, boneData);
         const color = get(slotMap, "color", null);
-        if (color) slot.color.setFromString(color);
+        if (color) slot2.color.setFromString(color);
         const dark = get(slotMap, "dark", null);
-        if (dark) slot.darkColor = Color.fromString(dark);
-        slot.attachmentName = get(slotMap, "attachment", null);
-        slot.blendMode = enumFromName(BlendMode, get(slotMap, "blend", "normal"), BlendMode.Normal);
-        slot.visible = get(slotMap, "visible", true);
-        data.slots.push(slot);
+        if (dark) slot2.darkColor = Color.fromString(dark);
+        slot2.attachmentName = get(slotMap, "attachment", null);
+        slot2.blendMode = enumFromName(BlendMode, get(slotMap, "blend", "normal"), BlendMode.Normal);
+        slot2.visible = get(slotMap, "visible", true);
+        data.slots.push(slot2);
       }
       const bonesOf = (names, what) => (names || []).map((name) => {
-        const bone = data.findBone(name);
-        if (!bone) throw new Error(`Couldn't find bone ${name} for ${what}`);
-        return bone;
+        const bone2 = data.findBone(name);
+        if (!bone2) throw new Error(`Couldn't find bone ${name} for ${what}`);
+        return bone2;
       });
-      const constrained = (map, what) => {
-        if (map.bones === void 0 || map.bones === null)
+      const constrained = (map2, what) => {
+        if (map2.bones === void 0 || map2.bones === null)
           throw new Error(`${what} has no bones list.`);
-        return bonesOf(map.bones, what);
+        return bonesOf(map2.bones, what);
       };
-      for (const map of root.ik || []) {
-        const c = new IkConstraintData(map.name);
-        c.order = get(map, "order", 0);
-        c.skinRequired = get(map, "skin", false);
-        c.bones = constrained(map, `IK constraint ${map.name}`);
-        const target = data.findBone(map.target);
+      for (const map2 of root.ik || []) {
+        const c = new IkConstraintData(map2.name);
+        c.order = get(map2, "order", 0);
+        c.skinRequired = get(map2, "skin", false);
+        c.bones = constrained(map2, `IK constraint ${map2.name}`);
+        const target = data.findBone(map2.target);
         if (!target)
-          throw new Error(`Couldn't find target bone ${map.target} for IK constraint ${map.name}.`);
+          throw new Error(`Couldn't find target bone ${map2.target} for IK constraint ${map2.name}.`);
         c.target = target;
-        c.mix = get(map, "mix", 1);
-        c.softness = get(map, "softness", 0) * scale;
-        c.bendDirection = get(map, "bendPositive", true) ? 1 : -1;
-        c.compress = get(map, "compress", false);
-        c.stretch = get(map, "stretch", false);
-        c.uniform = get(map, "uniform", false);
+        c.mix = get(map2, "mix", 1);
+        c.softness = get(map2, "softness", 0) * scale;
+        c.bendDirection = get(map2, "bendPositive", true) ? 1 : -1;
+        c.compress = get(map2, "compress", false);
+        c.stretch = get(map2, "stretch", false);
+        c.uniform = get(map2, "uniform", false);
         data.ikConstraints.push(c);
       }
-      for (const map of root.transform || []) {
-        const c = new TransformConstraintData(map.name);
-        c.order = get(map, "order", 0);
-        c.skinRequired = get(map, "skin", false);
-        c.bones = constrained(map, `transform constraint ${map.name}`);
-        const target = data.findBone(map.target);
+      for (const map2 of root.transform || []) {
+        const c = new TransformConstraintData(map2.name);
+        c.order = get(map2, "order", 0);
+        c.skinRequired = get(map2, "skin", false);
+        c.bones = constrained(map2, `transform constraint ${map2.name}`);
+        const target = data.findBone(map2.target);
         if (!target)
           throw new Error(
-            `Couldn't find target bone ${map.target} for transform constraint ${map.name}.`
+            `Couldn't find target bone ${map2.target} for transform constraint ${map2.name}.`
           );
         c.target = target;
-        c.local = get(map, "local", false);
-        c.relative = get(map, "relative", false);
-        c.offsetRotation = get(map, "rotation", 0);
-        c.offsetX = get(map, "x", 0) * scale;
-        c.offsetY = get(map, "y", 0) * scale;
-        c.offsetScaleX = get(map, "scaleX", 0);
-        c.offsetScaleY = get(map, "scaleY", 0);
-        c.offsetShearY = get(map, "shearY", 0);
-        c.mixRotate = get(map, "mixRotate", 1);
-        c.mixX = get(map, "mixX", 1);
-        c.mixY = get(map, "mixY", c.mixX);
-        c.mixScaleX = get(map, "mixScaleX", 1);
-        c.mixScaleY = get(map, "mixScaleY", c.mixScaleX);
-        c.mixShearY = get(map, "mixShearY", 1);
+        c.local = get(map2, "local", false);
+        c.relative = get(map2, "relative", false);
+        c.offsetRotation = get(map2, "rotation", 0);
+        c.offsetX = get(map2, "x", 0) * scale;
+        c.offsetY = get(map2, "y", 0) * scale;
+        c.offsetScaleX = get(map2, "scaleX", 0);
+        c.offsetScaleY = get(map2, "scaleY", 0);
+        c.offsetShearY = get(map2, "shearY", 0);
+        c.mixRotate = get(map2, "mixRotate", 1);
+        c.mixX = get(map2, "mixX", 1);
+        c.mixY = get(map2, "mixY", c.mixX);
+        c.mixScaleX = get(map2, "mixScaleX", 1);
+        c.mixScaleY = get(map2, "mixScaleY", c.mixScaleX);
+        c.mixShearY = get(map2, "mixShearY", 1);
         data.transformConstraints.push(c);
       }
-      for (const map of root.path || []) {
-        const c = new PathConstraintData(map.name);
-        c.order = get(map, "order", 0);
-        c.skinRequired = get(map, "skin", false);
-        c.bones = constrained(map, `path constraint ${map.name}`);
-        const target = data.findSlot(map.target);
+      for (const map2 of root.path || []) {
+        const c = new PathConstraintData(map2.name);
+        c.order = get(map2, "order", 0);
+        c.skinRequired = get(map2, "skin", false);
+        c.bones = constrained(map2, `path constraint ${map2.name}`);
+        const target = data.findSlot(map2.target);
         if (!target)
-          throw new Error(`Couldn't find target slot ${map.target} for path constraint ${map.name}.`);
+          throw new Error(`Couldn't find target slot ${map2.target} for path constraint ${map2.name}.`);
         c.target = target;
         c.positionMode = enumFromName(
           PositionMode,
-          get(map, "positionMode", "percent"),
+          get(map2, "positionMode", "percent"),
           PositionMode.Percent
         );
         c.spacingMode = enumFromName(
           SpacingMode,
-          get(map, "spacingMode", "length"),
+          get(map2, "spacingMode", "length"),
           SpacingMode.Length
         );
         c.rotateMode = enumFromName(
           RotateMode,
-          get(map, "rotateMode", "tangent"),
+          get(map2, "rotateMode", "tangent"),
           RotateMode.Tangent
         );
-        c.offsetRotation = get(map, "rotation", 0);
-        c.position = get(map, "position", 0);
+        c.offsetRotation = get(map2, "rotation", 0);
+        c.position = get(map2, "position", 0);
         if (c.positionMode === PositionMode.Fixed) c.position *= scale;
-        c.spacing = get(map, "spacing", 0);
+        c.spacing = get(map2, "spacing", 0);
         if (c.spacingMode === SpacingMode.Length || c.spacingMode === SpacingMode.Fixed)
           c.spacing *= scale;
-        c.mixRotate = get(map, "mixRotate", 1);
-        c.mixX = get(map, "mixX", 1);
-        c.mixY = get(map, "mixY", c.mixX);
+        c.mixRotate = get(map2, "mixRotate", 1);
+        c.mixX = get(map2, "mixX", 1);
+        c.mixY = get(map2, "mixY", c.mixX);
         data.pathConstraints.push(c);
       }
-      for (const map of root.physics || []) {
-        const c = new PhysicsConstraintData(map.name);
-        c.order = get(map, "order", 0);
-        c.skinRequired = get(map, "skin", false);
-        const bone = data.findBone(map.bone);
-        if (!bone) throw new Error(`Physics bone not found: ${map.bone}`);
-        c.bone = bone;
-        c.x = get(map, "x", 0);
-        c.y = get(map, "y", 0);
-        c.rotate = get(map, "rotate", 0);
-        c.scaleX = get(map, "scaleX", 0);
-        c.shearX = get(map, "shearX", 0);
-        c.limit = get(map, "limit", 5e3) * scale;
-        c.step = 1 / get(map, "fps", 60);
-        c.inertia = get(map, "inertia", 1);
-        c.strength = get(map, "strength", 100);
-        c.damping = get(map, "damping", 1);
-        c.massInverse = 1 / get(map, "mass", 1);
-        c.wind = get(map, "wind", 0);
-        c.gravity = get(map, "gravity", 0);
-        c.mix = get(map, "mix", 1);
-        c.inertiaGlobal = get(map, "inertiaGlobal", false);
-        c.strengthGlobal = get(map, "strengthGlobal", false);
-        c.dampingGlobal = get(map, "dampingGlobal", false);
-        c.massGlobal = get(map, "massGlobal", false);
-        c.windGlobal = get(map, "windGlobal", false);
-        c.gravityGlobal = get(map, "gravityGlobal", false);
-        c.mixGlobal = get(map, "mixGlobal", false);
+      for (const map2 of root.physics || []) {
+        const c = new PhysicsConstraintData(map2.name);
+        c.order = get(map2, "order", 0);
+        c.skinRequired = get(map2, "skin", false);
+        const bone2 = data.findBone(map2.bone);
+        if (!bone2) throw new Error(`Physics bone not found: ${map2.bone}`);
+        c.bone = bone2;
+        c.x = get(map2, "x", 0);
+        c.y = get(map2, "y", 0);
+        c.rotate = get(map2, "rotate", 0);
+        c.scaleX = get(map2, "scaleX", 0);
+        c.shearX = get(map2, "shearX", 0);
+        c.limit = get(map2, "limit", 5e3) * scale;
+        c.step = 1 / get(map2, "fps", 60);
+        c.inertia = get(map2, "inertia", 1);
+        c.strength = get(map2, "strength", 100);
+        c.damping = get(map2, "damping", 1);
+        c.massInverse = 1 / get(map2, "mass", 1);
+        c.wind = get(map2, "wind", 0);
+        c.gravity = get(map2, "gravity", 0);
+        c.mix = get(map2, "mix", 1);
+        c.inertiaGlobal = get(map2, "inertiaGlobal", false);
+        c.strengthGlobal = get(map2, "strengthGlobal", false);
+        c.dampingGlobal = get(map2, "dampingGlobal", false);
+        c.massGlobal = get(map2, "massGlobal", false);
+        c.windGlobal = get(map2, "windGlobal", false);
+        c.gravityGlobal = get(map2, "gravityGlobal", false);
+        c.mixGlobal = get(map2, "mixGlobal", false);
         data.physicsConstraints.push(c);
       }
       const skins = Array.isArray(root.skins) ? root.skins : Object.entries(root.skins || {}).map(([name, attachments]) => ({ name, attachments }));
       for (const skinMap of skins) {
-        const skin = new Skin(skinMap.name);
-        skin.bones.push(...bonesOf(skinMap.bones, `skin ${skinMap.name}`));
+        const skin2 = new Skin(skinMap.name);
+        skin2.bones.push(...bonesOf(skinMap.bones, `skin ${skinMap.name}`));
         const constraint = (names, find, kind) => (names || []).map((n) => {
           const c = find(n);
           if (!c)
             throw new Error(`Couldn't find ${kind} constraint ${n} for skin ${skinMap.name}.`);
           return c;
         });
-        skin.constraints.push(
+        skin2.constraints.push(
           ...constraint(skinMap.ik, (n) => data.findIkConstraint(n), "IK"),
           ...constraint(skinMap.transform, (n) => data.findTransformConstraint(n), "transform"),
           ...constraint(skinMap.path, (n) => data.findPathConstraint(n), "path"),
           ...constraint(skinMap.physics, (n) => data.findPhysicsConstraint(n), "physics")
         );
         for (const slotName of Object.keys(skinMap.attachments || {})) {
-          const slot = data.findSlot(slotName);
-          if (!slot) throw new Error(`Slot not found: ${slotName}`);
+          const slot2 = data.findSlot(slotName);
+          if (!slot2) throw new Error(`Slot not found: ${slotName}`);
           const slotMap = skinMap.attachments[slotName];
           for (const entryName of Object.keys(slotMap)) {
-            const attachment = this.readAttachment(
+            const attachment2 = this.readAttachment(
               slotMap[entryName],
-              skin,
-              slot.index,
+              skin2,
+              slot2.index,
               entryName,
               data
             );
-            if (attachment) skin.setAttachment(slot.index, entryName, attachment);
+            if (attachment2) skin2.setAttachment(slot2.index, entryName, attachment2);
           }
         }
-        data.skins.push(skin);
-        if (skin.name === "default") data.defaultSkin = skin;
+        data.skins.push(skin2);
+        if (skin2.name === "default") data.defaultSkin = skin2;
       }
       for (const linked of this.linkedMeshes) {
-        const skin = linked.skin ? data.findSkin(linked.skin) : data.defaultSkin;
-        if (!skin) throw new Error(`Skin not found: ${linked.skin}`);
-        const parent = skin.getAttachment(linked.slotIndex, linked.parent);
+        const skin2 = linked.skin ? data.findSkin(linked.skin) : data.defaultSkin;
+        if (!skin2) throw new Error(`Skin not found: ${linked.skin}`);
+        const parent = skin2.getAttachment(linked.slotIndex, linked.parent);
         if (!parent) throw new Error(`Parent mesh not found: ${linked.parent}`);
         if (!(parent instanceof MeshAttachment))
           throw new Error(`Linked mesh parent is not a mesh: ${linked.parent}`);
@@ -5336,15 +5336,15 @@ var invisibleRig = function(exports) {
       }
       this.linkedMeshes.length = 0;
       for (const name of Object.keys(root.events || {})) {
-        const map = root.events[name];
+        const map2 = root.events[name];
         const event = new EventData(name);
-        event.intValue = get(map, "int", 0);
-        event.floatValue = get(map, "float", 0);
-        event.stringValue = get(map, "string", "");
-        event.audioPath = get(map, "audio", null);
+        event.intValue = get(map2, "int", 0);
+        event.floatValue = get(map2, "float", 0);
+        event.stringValue = get(map2, "string", "");
+        event.audioPath = get(map2, "audio", null);
         if (event.audioPath) {
-          event.volume = get(map, "volume", 1);
-          event.balance = get(map, "balance", 0);
+          event.volume = get(map2, "volume", 1);
+          event.balance = get(map2, "balance", 0);
         }
         data.events.push(event);
       }
@@ -5352,109 +5352,109 @@ var invisibleRig = function(exports) {
         this.readAnimation(root.animations[name], name, data);
       return data;
     }
-    readSequence(map) {
-      if (map === null || map === void 0) return null;
-      const sequence = new Sequence(get(map, "count", 0));
-      sequence.start = get(map, "start", 1);
-      sequence.digits = get(map, "digits", 0);
-      sequence.setupIndex = get(map, "setup", 0);
-      return sequence;
+    readSequence(map2) {
+      if (map2 === null || map2 === void 0) return null;
+      const sequence2 = new Sequence(get(map2, "count", 0));
+      sequence2.start = get(map2, "start", 1);
+      sequence2.digits = get(map2, "digits", 0);
+      sequence2.setupIndex = get(map2, "setup", 0);
+      return sequence2;
     }
-    readAttachment(map, skin, slotIndex, entryName, data) {
+    readAttachment(map2, skin2, slotIndex, entryName, data) {
       const scale = this.scale;
-      const name = get(map, "name", entryName);
+      const name = get(map2, "name", entryName);
       const loader = this.attachmentLoader;
       const setColor = (target) => {
-        const color = get(map, "color", null);
+        const color = get(map2, "color", null);
         if (color) target.color.setFromString(color);
       };
-      switch (get(map, "type", "region")) {
+      switch (get(map2, "type", "region")) {
         case "region": {
-          const path = get(map, "path", name);
-          const sequence = this.readSequence(get(map, "sequence", null));
-          const region = loader.newRegionAttachment(skin, name, path, sequence);
+          const path2 = get(map2, "path", name);
+          const sequence2 = this.readSequence(get(map2, "sequence", null));
+          const region = loader.newRegionAttachment(skin2, name, path2, sequence2);
           if (!region) return null;
-          region.path = path;
-          region.x = get(map, "x", 0) * scale;
-          region.y = get(map, "y", 0) * scale;
-          region.scaleX = get(map, "scaleX", 1);
-          region.scaleY = get(map, "scaleY", 1);
-          region.rotation = get(map, "rotation", 0);
-          region.width = map.width * scale;
-          region.height = map.height * scale;
-          region.sequence = sequence;
+          region.path = path2;
+          region.x = get(map2, "x", 0) * scale;
+          region.y = get(map2, "y", 0) * scale;
+          region.scaleX = get(map2, "scaleX", 1);
+          region.scaleY = get(map2, "scaleY", 1);
+          region.rotation = get(map2, "rotation", 0);
+          region.width = map2.width * scale;
+          region.height = map2.height * scale;
+          region.sequence = sequence2;
           setColor(region);
           if (region.region) region.updateRegion();
           return region;
         }
         case "boundingbox": {
-          const box = loader.newBoundingBoxAttachment(skin, name);
+          const box = loader.newBoundingBoxAttachment(skin2, name);
           if (!box) return null;
-          this.readVertices(map, box, map.vertexCount << 1);
+          this.readVertices(map2, box, map2.vertexCount << 1);
           setColor(box);
           return box;
         }
         case "mesh":
         case "linkedmesh": {
-          const path = get(map, "path", name);
-          const sequence = this.readSequence(get(map, "sequence", null));
-          const mesh = loader.newMeshAttachment(skin, name, path, sequence);
-          if (!mesh) return null;
-          mesh.path = path;
-          setColor(mesh);
-          mesh.width = get(map, "width", 0) * scale;
-          mesh.height = get(map, "height", 0) * scale;
-          mesh.sequence = sequence;
-          const parent = get(map, "parent", null);
+          const path2 = get(map2, "path", name);
+          const sequence2 = this.readSequence(get(map2, "sequence", null));
+          const mesh2 = loader.newMeshAttachment(skin2, name, path2, sequence2);
+          if (!mesh2) return null;
+          mesh2.path = path2;
+          setColor(mesh2);
+          mesh2.width = get(map2, "width", 0) * scale;
+          mesh2.height = get(map2, "height", 0) * scale;
+          mesh2.sequence = sequence2;
+          const parent = get(map2, "parent", null);
           if (parent) {
             this.linkedMeshes.push(
               new LinkedMesh$1(
-                mesh,
-                get(map, "skin", null),
+                mesh2,
+                get(map2, "skin", null),
                 slotIndex,
                 parent,
-                get(map, "timelines", true)
+                get(map2, "timelines", true)
               )
             );
-            return mesh;
+            return mesh2;
           }
-          const uvs = map.uvs;
-          this.readVertices(map, mesh, uvs.length);
-          mesh.triangles = map.triangles;
-          mesh.regionUVs = uvs;
-          if (mesh.region) mesh.updateRegion();
-          mesh.edges = get(map, "edges", null);
-          mesh.hullLength = get(map, "hull", 0) * 2;
-          return mesh;
+          const uvs = map2.uvs;
+          this.readVertices(map2, mesh2, uvs.length);
+          mesh2.triangles = map2.triangles;
+          mesh2.regionUVs = uvs;
+          if (mesh2.region) mesh2.updateRegion();
+          mesh2.edges = get(map2, "edges", null);
+          mesh2.hullLength = get(map2, "hull", 0) * 2;
+          return mesh2;
         }
         case "path": {
-          const path = loader.newPathAttachment(skin, name);
-          if (!path) return null;
-          path.closed = get(map, "closed", false);
-          path.constantSpeed = get(map, "constantSpeed", true);
-          const vertexCount = map.vertexCount;
-          this.readVertices(map, path, vertexCount << 1);
+          const path2 = loader.newPathAttachment(skin2, name);
+          if (!path2) return null;
+          path2.closed = get(map2, "closed", false);
+          path2.constantSpeed = get(map2, "constantSpeed", true);
+          const vertexCount = map2.vertexCount;
+          this.readVertices(map2, path2, vertexCount << 1);
           const lengths = new Array(vertexCount / 3).fill(0);
-          map.lengths.forEach((l, i) => lengths[i] = l * scale);
-          path.lengths = lengths;
-          setColor(path);
-          return path;
+          map2.lengths.forEach((l, i) => lengths[i] = l * scale);
+          path2.lengths = lengths;
+          setColor(path2);
+          return path2;
         }
         case "point": {
-          const point = loader.newPointAttachment(skin, name);
+          const point = loader.newPointAttachment(skin2, name);
           if (!point) return null;
-          point.x = get(map, "x", 0) * scale;
-          point.y = get(map, "y", 0) * scale;
-          point.rotation = get(map, "rotation", 0);
+          point.x = get(map2, "x", 0) * scale;
+          point.y = get(map2, "y", 0) * scale;
+          point.rotation = get(map2, "rotation", 0);
           setColor(point);
           return point;
         }
         case "clipping": {
-          const clip = loader.newClippingAttachment(skin, name);
+          const clip = loader.newClippingAttachment(skin2, name);
           if (!clip) return null;
-          const end = get(map, "end", null);
+          const end = get(map2, "end", null);
           if (end) clip.endSlot = data.findSlot(end);
-          this.readVertices(map, clip, map.vertexCount << 1);
+          this.readVertices(map2, clip, map2.vertexCount << 1);
           setColor(clip);
           return clip;
         }
@@ -5463,14 +5463,14 @@ var invisibleRig = function(exports) {
     }
     /** Unweighted when the array holds exactly `x, y` per vertex; otherwise per vertex
      * `boneCount, (bone, x, y, weight) × boneCount`. */
-    readVertices(map, attachment, verticesLength) {
+    readVertices(map2, attachment2, verticesLength) {
       const scale = this.scale;
-      attachment.worldVerticesLength = verticesLength;
-      const vertices = map.vertices;
+      attachment2.worldVerticesLength = verticesLength;
+      const vertices = map2.vertices;
       if (verticesLength === vertices.length) {
         const out = new Float32Array(vertices.length);
         for (let i = 0; i < vertices.length; i++) out[i] = vertices[i] * scale;
-        attachment.vertices = out;
+        attachment2.vertices = out;
         return;
       }
       const weights = [];
@@ -5483,17 +5483,17 @@ var invisibleRig = function(exports) {
           weights.push(vertices[i + 1] * scale, vertices[i + 2] * scale, vertices[i + 3]);
         }
       }
-      attachment.bones = bones;
-      attachment.vertices = new Float32Array(weights);
+      attachment2.bones = bones;
+      attachment2.vertices = new Float32Array(weights);
     }
-    readAnimation(map, name, data) {
+    readAnimation(map2, name, data) {
       const scale = this.scale;
       const timelines = [];
-      for (const slotName of Object.keys(map.slots || {})) {
-        const slotMap = map.slots[slotName];
-        const slot = data.findSlot(slotName);
-        if (!slot) throw new Error(`Slot not found: ${slotName}`);
-        const slotIndex = slot.index;
+      for (const slotName of Object.keys(map2.slots || {})) {
+        const slotMap = map2.slots[slotName];
+        const slot2 = data.findSlot(slotName);
+        if (!slot2) throw new Error(`Slot not found: ${slotName}`);
+        const slotIndex = slot2.index;
         for (const timelineName of Object.keys(slotMap)) {
           const keys = slotMap[timelineName];
           if (!keys) continue;
@@ -5545,11 +5545,11 @@ var invisibleRig = function(exports) {
           }
         }
       }
-      for (const boneName of Object.keys(map.bones || {})) {
-        const boneMap = map.bones[boneName];
-        const bone = data.findBone(boneName);
-        if (!bone) throw new Error(`Bone not found: ${boneName}`);
-        const b = bone.index;
+      for (const boneName of Object.keys(map2.bones || {})) {
+        const boneMap = map2.bones[boneName];
+        const bone2 = data.findBone(boneName);
+        if (!bone2) throw new Error(`Bone not found: ${boneName}`);
+        const b = bone2.index;
         for (const timelineName of Object.keys(boneMap)) {
           const keys = boneMap[timelineName];
           const frames = keys.length;
@@ -5617,8 +5617,8 @@ var invisibleRig = function(exports) {
           }
         }
       }
-      for (const constraintName of Object.keys(map.ik || {})) {
-        const keys = map.ik[constraintName];
+      for (const constraintName of Object.keys(map2.ik || {})) {
+        const keys = map2.ik[constraintName];
         if (!keys[0]) continue;
         const constraint = data.findIkConstraint(constraintName);
         if (!constraint) throw new Error(`IK Constraint not found: ${constraintName}`);
@@ -5646,8 +5646,8 @@ var invisibleRig = function(exports) {
         );
         timelines.push(t);
       }
-      for (const constraintName of Object.keys(map.transform || {})) {
-        const keys = map.transform[constraintName];
+      for (const constraintName of Object.keys(map2.transform || {})) {
+        const keys = map2.transform[constraintName];
         if (!keys[0]) continue;
         const constraint = data.findTransformConstraint(constraintName);
         if (!constraint) throw new Error(`Transform constraint not found: ${constraintName}`);
@@ -5680,8 +5680,8 @@ var invisibleRig = function(exports) {
         );
         timelines.push(t);
       }
-      for (const constraintName of Object.keys(map.path || {})) {
-        const constraintMap = map.path[constraintName];
+      for (const constraintName of Object.keys(map2.path || {})) {
+        const constraintMap = map2.path[constraintName];
         const constraint = data.findPathConstraint(constraintName);
         if (!constraint) throw new Error(`Path constraint not found: ${constraintName}`);
         const index = data.pathConstraints.indexOf(constraint);
@@ -5719,8 +5719,8 @@ var invisibleRig = function(exports) {
           }
         }
       }
-      for (const constraintName of Object.keys(map.physics || {})) {
-        const constraintMap = map.physics[constraintName];
+      for (const constraintName of Object.keys(map2.physics || {})) {
+        const constraintMap = map2.physics[constraintName];
         let index = -1;
         if (constraintName.length > 0) {
           const constraint = data.findPhysicsConstraint(constraintName);
@@ -5750,35 +5750,35 @@ var invisibleRig = function(exports) {
           if (Ctor) timelines.push(readTimeline1(keys, new Ctor(frames, frames, index), 0, 1));
         }
       }
-      for (const skinName of Object.keys(map.attachments || {})) {
-        const skinMap = map.attachments[skinName];
-        const skin = data.findSkin(skinName);
-        if (!skin) throw new Error(`Skin not found: ${skinName}`);
+      for (const skinName of Object.keys(map2.attachments || {})) {
+        const skinMap = map2.attachments[skinName];
+        const skin2 = data.findSkin(skinName);
+        if (!skin2) throw new Error(`Skin not found: ${skinName}`);
         for (const slotName of Object.keys(skinMap)) {
           const slotMap = skinMap[slotName];
-          const slot = data.findSlot(slotName);
-          if (!slot) throw new Error(`Slot not found: ${slotName}`);
+          const slot2 = data.findSlot(slotName);
+          if (!slot2) throw new Error(`Slot not found: ${slotName}`);
           for (const attachmentName of Object.keys(slotMap)) {
             const attachmentMap = slotMap[attachmentName];
-            const attachment = skin.getAttachment(slot.index, attachmentName);
+            const attachment2 = skin2.getAttachment(slot2.index, attachmentName);
             for (const timelineName of Object.keys(attachmentMap)) {
               const keys = attachmentMap[timelineName];
               if (!keys[0]) continue;
               if (timelineName === "deform") {
-                if (!attachment) throw new Error(`Deform attachment not found: ${attachmentName}`);
-                if (!(attachment instanceof VertexAttachment))
+                if (!attachment2) throw new Error(`Deform attachment not found: ${attachmentName}`);
+                if (!(attachment2 instanceof VertexAttachment))
                   throw new Error(`Deform keys on an attachment with no vertices: ${attachmentName}`);
-                timelines.push(this.readDeform(keys, slot.index, attachment));
+                timelines.push(this.readDeform(keys, slot2.index, attachment2));
               } else if (timelineName === "sequence") {
-                if (!attachment) throw new Error(`Sequence attachment not found: ${attachmentName}`);
-                if (!attachment.sequence)
+                if (!attachment2) throw new Error(`Sequence attachment not found: ${attachmentName}`);
+                if (!attachment2.sequence)
                   throw new Error(
                     `Sequence keys on an attachment with no sequence: ${attachmentName}`
                   );
                 const t = new SequenceTimeline(
                   keys.length,
-                  slot.index,
-                  attachment
+                  slot2.index,
+                  attachment2
                 );
                 let lastDelay = 0;
                 keys.forEach((k, f) => {
@@ -5793,8 +5793,8 @@ var invisibleRig = function(exports) {
           }
         }
       }
-      if (map.drawOrder) {
-        const keys = map.drawOrder;
+      if (map2.drawOrder) {
+        const keys = map2.drawOrder;
         const t = new DrawOrderTimeline(keys.length);
         const slotCount = data.slots.length;
         keys.forEach((k, f) => {
@@ -5806,9 +5806,9 @@ var invisibleRig = function(exports) {
             let original = 0;
             let u = 0;
             for (const offset of offsets) {
-              const slot = data.findSlot(offset.slot);
-              if (!slot) throw new Error(`Slot not found: ${offset.slot}`);
-              while (original !== slot.index) unchanged[u++] = original++;
+              const slot2 = data.findSlot(offset.slot);
+              if (!slot2) throw new Error(`Slot not found: ${offset.slot}`);
+              while (original !== slot2.index) unchanged[u++] = original++;
               order[original + offset.offset] = original++;
             }
             while (original < slotCount) unchanged[u++] = original++;
@@ -5818,8 +5818,8 @@ var invisibleRig = function(exports) {
         });
         timelines.push(t);
       }
-      if (map.events) {
-        const keys = map.events;
+      if (map2.events) {
+        const keys = map2.events;
         const t = new EventTimeline(keys.length);
         keys.forEach((k, f) => {
           const eventData = data.findEvent(k.name);
@@ -5840,12 +5840,12 @@ var invisibleRig = function(exports) {
       for (const t of timelines) duration = Math.max(duration, t.getDuration());
       data.animations.push(new Animation(name, timelines, duration));
     }
-    readDeform(keys, slotIndex, attachment) {
+    readDeform(keys, slotIndex, attachment2) {
       const scale = this.scale;
-      const weighted = !!attachment.bones;
-      const setup = attachment.vertices;
+      const weighted = !!attachment2.bones;
+      const setup = attachment2.vertices;
       const length = weighted ? setup.length / 3 * 2 : setup.length;
-      const t = new DeformTimeline(keys.length, keys.length, slotIndex, attachment);
+      const t = new DeformTimeline(keys.length, keys.length, slotIndex, attachment2);
       keys.forEach((k, f) => {
         const values = get(k, "vertices", null);
         let deform;
@@ -5864,9 +5864,9 @@ var invisibleRig = function(exports) {
   }
   function readCurves(keys, timeline, valueOf, scales, fixedEnds) {
     for (let f = 0; f < keys.length - 1; f++) {
-      const curve = keys[f].curve;
-      if (!curve) continue;
-      if (curve === "stepped") {
+      const curve2 = keys[f].curve;
+      if (!curve2) continue;
+      if (curve2 === "stepped") {
         timeline.setStepped(f);
         continue;
       }
@@ -5881,10 +5881,10 @@ var invisibleRig = function(exports) {
           v,
           time1,
           v1,
-          curve[i],
-          curve[i + 1] * scales[v],
-          curve[i + 2],
-          curve[i + 3] * scales[v],
+          curve2[i],
+          curve2[i + 1] * scales[v],
+          curve2[i + 2],
+          curve2[i + 3] * scales[v],
           time2,
           v2
         );
@@ -6028,19 +6028,19 @@ var invisibleRig = function(exports) {
       this.clippingPolygons = [];
       this.world = [];
     }
-    clipStart(slot, clip) {
+    clipStart(slot2, clip) {
       if (this.clipAttachment) return 0;
       const n = clip.worldVerticesLength;
       if (n < 6) return 0;
       this.clipAttachment = clip;
       const world = this.world;
       world.length = n;
-      clip.computeWorldVertices(slot, 0, n, world, 0, 2);
+      clip.computeWorldVertices(slot2, 0, n, world, 0, 2);
       this.clippingPolygons = decompose(world, triangulate(world));
       return this.clippingPolygons.length;
     }
-    clipEndWithSlot(slot) {
-      if (this.clipAttachment && this.clipAttachment.endSlot === slot.data) this.clipEnd();
+    clipEndWithSlot(slot2) {
+      if (this.clipAttachment && this.clipAttachment.endSlot === slot2.data) this.clipEnd();
     }
     clipEnd() {
       if (!this.clipAttachment) return;
@@ -6220,8 +6220,8 @@ var invisibleRig = function(exports) {
   const CURVE_STEPPED = 1;
   const CURVE_BEZIER = 2;
   class LinkedMesh {
-    constructor(mesh, skinIndex, slotIndex, parent, inheritTimelines) {
-      this.mesh = mesh;
+    constructor(mesh2, skinIndex, slotIndex, parent, inheritTimelines) {
+      this.mesh = mesh2;
       this.skinIndex = skinIndex;
       this.slotIndex = slotIndex;
       this.parent = parent;
@@ -6263,34 +6263,34 @@ var invisibleRig = function(exports) {
       for (let i = 0, n = input.readInt(true); i < n; i++) {
         const name = required(input.readString(), "Bone name");
         const parent = i === 0 ? null : data.bones[input.readInt(true)];
-        const bone = new BoneData(i, name, parent);
-        bone.rotation = input.readFloat();
-        bone.x = input.readFloat() * scale;
-        bone.y = input.readFloat() * scale;
-        bone.scaleX = input.readFloat();
-        bone.scaleY = input.readFloat();
-        bone.shearX = input.readFloat();
-        bone.shearY = input.readFloat();
-        bone.length = input.readFloat() * scale;
-        bone.inherit = input.readByte();
-        bone.skinRequired = input.readBoolean();
+        const bone2 = new BoneData(i, name, parent);
+        bone2.rotation = input.readFloat();
+        bone2.x = input.readFloat() * scale;
+        bone2.y = input.readFloat() * scale;
+        bone2.scaleX = input.readFloat();
+        bone2.scaleY = input.readFloat();
+        bone2.shearX = input.readFloat();
+        bone2.shearY = input.readFloat();
+        bone2.length = input.readFloat() * scale;
+        bone2.inherit = input.readByte();
+        bone2.skinRequired = input.readBoolean();
         if (nonessential) {
-          Color.rgba8888ToColor(bone.color, input.readInt32());
-          bone.icon = input.readString() ?? void 0;
-          bone.visible = input.readBoolean();
+          Color.rgba8888ToColor(bone2.color, input.readInt32());
+          bone2.icon = input.readString() ?? void 0;
+          bone2.visible = input.readBoolean();
         }
-        data.bones.push(bone);
+        data.bones.push(bone2);
       }
       for (let i = 0, n = input.readInt(true); i < n; i++) {
         const name = required(input.readString(), "Slot name");
-        const slot = new SlotData(i, name, data.bones[input.readInt(true)]);
-        Color.rgba8888ToColor(slot.color, input.readInt32());
+        const slot2 = new SlotData(i, name, data.bones[input.readInt(true)]);
+        Color.rgba8888ToColor(slot2.color, input.readInt32());
         const dark = input.readInt32();
-        if (dark !== -1) Color.rgb888ToColor(slot.darkColor = new Color(), dark);
-        slot.attachmentName = input.readStringRef();
-        slot.blendMode = input.readInt(true);
-        if (nonessential) slot.visible = input.readBoolean();
-        data.slots.push(slot);
+        if (dark !== -1) Color.rgb888ToColor(slot2.darkColor = new Color(), dark);
+        slot2.attachmentName = input.readStringRef();
+        slot2.blendMode = input.readInt(true);
+        if (nonessential) slot2.visible = input.readBoolean();
+        data.slots.push(slot2);
       }
       const readBones = () => {
         const out = [];
@@ -6396,12 +6396,12 @@ var invisibleRig = function(exports) {
         data.skins.push(defaultSkin);
       }
       for (let i = 0, n = input.readInt(true); i < n; i++) {
-        const skin = this.readSkin(input, data, false, nonessential);
-        if (skin) data.skins.push(skin);
+        const skin2 = this.readSkin(input, data, false, nonessential);
+        if (skin2) data.skins.push(skin2);
       }
       for (const linked of this.linkedMeshes) {
-        const skin = data.skins[linked.skinIndex];
-        const parent = linked.parent ? skin.getAttachment(linked.slotIndex, linked.parent) : null;
+        const skin2 = data.skins[linked.skinIndex];
+        const parent = linked.parent ? skin2.getAttachment(linked.slotIndex, linked.parent) : null;
         if (!(parent instanceof MeshAttachment))
           throw new Error(`Parent mesh not found: ${linked.parent}`);
         linked.mesh.timelineAttachment = linked.inheritTimelines ? parent : linked.mesh;
@@ -6428,45 +6428,45 @@ var invisibleRig = function(exports) {
       return data;
     }
     readSkin(input, data, isDefault, nonessential) {
-      let skin;
+      let skin2;
       let slotCount;
       if (isDefault) {
         slotCount = input.readInt(true);
         if (slotCount === 0) return null;
-        skin = new Skin("default");
+        skin2 = new Skin("default");
       } else {
-        skin = new Skin(required(input.readString(), "Skin name"));
-        if (nonessential) Color.rgba8888ToColor(skin.color, input.readInt32());
+        skin2 = new Skin(required(input.readString(), "Skin name"));
+        if (nonessential) Color.rgba8888ToColor(skin2.color, input.readInt32());
         for (let i = 0, n = input.readInt(true); i < n; i++)
-          skin.bones.push(data.bones[input.readInt(true)]);
+          skin2.bones.push(data.bones[input.readInt(true)]);
         for (let i = 0, n = input.readInt(true); i < n; i++)
-          skin.constraints.push(data.ikConstraints[input.readInt(true)]);
+          skin2.constraints.push(data.ikConstraints[input.readInt(true)]);
         for (let i = 0, n = input.readInt(true); i < n; i++)
-          skin.constraints.push(data.transformConstraints[input.readInt(true)]);
+          skin2.constraints.push(data.transformConstraints[input.readInt(true)]);
         for (let i = 0, n = input.readInt(true); i < n; i++)
-          skin.constraints.push(data.pathConstraints[input.readInt(true)]);
+          skin2.constraints.push(data.pathConstraints[input.readInt(true)]);
         for (let i = 0, n = input.readInt(true); i < n; i++)
-          skin.constraints.push(data.physicsConstraints[input.readInt(true)]);
+          skin2.constraints.push(data.physicsConstraints[input.readInt(true)]);
         slotCount = input.readInt(true);
       }
       for (let i = 0; i < slotCount; i++) {
         const slotIndex = input.readInt(true);
         for (let ii = 0, nn = input.readInt(true); ii < nn; ii++) {
           const name = required(input.readStringRef(), "Attachment name");
-          const attachment = this.readAttachment(input, data, skin, slotIndex, name, nonessential);
-          if (attachment) skin.setAttachment(slotIndex, name, attachment);
+          const attachment2 = this.readAttachment(input, data, skin2, slotIndex, name, nonessential);
+          if (attachment2) skin2.setAttachment(slotIndex, name, attachment2);
         }
       }
-      return skin;
+      return skin2;
     }
     readSequence(input) {
-      const sequence = new Sequence(input.readInt(true));
-      sequence.start = input.readInt(true);
-      sequence.digits = input.readInt(true);
-      sequence.setupIndex = input.readInt(true);
-      return sequence;
+      const sequence2 = new Sequence(input.readInt(true));
+      sequence2.start = input.readInt(true);
+      sequence2.digits = input.readInt(true);
+      sequence2.setupIndex = input.readInt(true);
+      return sequence2;
     }
-    readAttachment(input, data, skin, slotIndex, attachmentName, nonessential) {
+    readAttachment(input, data, skin2, slotIndex, attachmentName, nonessential) {
       const scale = this.scale;
       const loader = this.attachmentLoader;
       const flags = input.readByte();
@@ -6476,9 +6476,9 @@ var invisibleRig = function(exports) {
       );
       switch (flags & 7) {
         case ATTACHMENT_REGION: {
-          let path = (flags & 16) !== 0 ? input.readStringRef() : null;
+          let path2 = (flags & 16) !== 0 ? input.readStringRef() : null;
           const color = (flags & 32) !== 0 ? input.readInt32() : 4294967295;
-          const sequence = (flags & 64) !== 0 ? this.readSequence(input) : null;
+          const sequence2 = (flags & 64) !== 0 ? this.readSequence(input) : null;
           const rotation = (flags & 128) !== 0 ? input.readFloat() : 0;
           const x = input.readFloat();
           const y = input.readFloat();
@@ -6486,10 +6486,10 @@ var invisibleRig = function(exports) {
           const scaleY = input.readFloat();
           const width = input.readFloat();
           const height = input.readFloat();
-          if (!path) path = name;
-          const region = loader.newRegionAttachment(skin, name, path, sequence);
+          if (!path2) path2 = name;
+          const region = loader.newRegionAttachment(skin2, name, path2, sequence2);
           if (!region) return null;
-          region.path = path;
+          region.path = path2;
           region.x = x * scale;
           region.y = y * scale;
           region.scaleX = scaleX;
@@ -6498,14 +6498,14 @@ var invisibleRig = function(exports) {
           region.width = width * scale;
           region.height = height * scale;
           Color.rgba8888ToColor(region.color, color);
-          region.sequence = sequence;
-          if (!sequence) region.updateRegion();
+          region.sequence = sequence2;
+          if (!sequence2) region.updateRegion();
           return region;
         }
         case ATTACHMENT_BOUNDINGBOX: {
           const vertices = this.readVertices(input, (flags & 16) !== 0);
           const color = nonessential ? input.readInt32() : 0;
-          const box = loader.newBoundingBoxAttachment(skin, name);
+          const box = loader.newBoundingBoxAttachment(skin2, name);
           if (!box) return null;
           box.worldVerticesLength = vertices.length;
           box.vertices = vertices.vertices;
@@ -6514,9 +6514,9 @@ var invisibleRig = function(exports) {
           return box;
         }
         case ATTACHMENT_MESH: {
-          let path = (flags & 16) !== 0 ? input.readStringRef() : name;
+          let path2 = (flags & 16) !== 0 ? input.readStringRef() : name;
           const color = (flags & 32) !== 0 ? input.readInt32() : 4294967295;
-          const sequence = (flags & 64) !== 0 ? this.readSequence(input) : null;
+          const sequence2 = (flags & 64) !== 0 ? this.readSequence(input) : null;
           const hullLength = input.readInt(true);
           const vertices = this.readVertices(input, (flags & 128) !== 0);
           const uvs = this.readFloats(input, vertices.length, 1);
@@ -6529,33 +6529,33 @@ var invisibleRig = function(exports) {
             width = input.readFloat();
             height = input.readFloat();
           }
-          if (!path) path = name;
-          const mesh = loader.newMeshAttachment(skin, name, path, sequence);
-          if (!mesh) return null;
-          mesh.path = path;
-          Color.rgba8888ToColor(mesh.color, color);
-          mesh.bones = vertices.bones;
-          mesh.vertices = vertices.vertices;
-          mesh.worldVerticesLength = vertices.length;
-          mesh.triangles = triangles;
-          mesh.regionUVs = uvs;
-          if (!sequence) mesh.updateRegion();
-          mesh.hullLength = hullLength << 1;
-          mesh.sequence = sequence;
+          if (!path2) path2 = name;
+          const mesh2 = loader.newMeshAttachment(skin2, name, path2, sequence2);
+          if (!mesh2) return null;
+          mesh2.path = path2;
+          Color.rgba8888ToColor(mesh2.color, color);
+          mesh2.bones = vertices.bones;
+          mesh2.vertices = vertices.vertices;
+          mesh2.worldVerticesLength = vertices.length;
+          mesh2.triangles = triangles;
+          mesh2.regionUVs = uvs;
+          if (!sequence2) mesh2.updateRegion();
+          mesh2.hullLength = hullLength << 1;
+          mesh2.sequence = sequence2;
           if (nonessential) {
-            mesh.edges = edges;
-            mesh.width = width * scale;
-            mesh.height = height * scale;
+            mesh2.edges = edges;
+            mesh2.width = width * scale;
+            mesh2.height = height * scale;
           }
-          return mesh;
+          return mesh2;
         }
         case ATTACHMENT_LINKEDMESH: {
-          const path = required(
+          const path2 = required(
             (flags & 16) !== 0 ? input.readStringRef() : name,
             "Linked mesh path"
           );
           const color = (flags & 32) !== 0 ? input.readInt32() : 4294967295;
-          const sequence = (flags & 64) !== 0 ? this.readSequence(input) : null;
+          const sequence2 = (flags & 64) !== 0 ? this.readSequence(input) : null;
           const inheritTimelines = (flags & 128) !== 0;
           const skinIndex = input.readInt(true);
           const parent = input.readStringRef();
@@ -6565,19 +6565,19 @@ var invisibleRig = function(exports) {
             width = input.readFloat();
             height = input.readFloat();
           }
-          const mesh = loader.newMeshAttachment(skin, name, path, sequence);
-          if (!mesh) return null;
-          mesh.path = path;
-          Color.rgba8888ToColor(mesh.color, color);
-          mesh.sequence = sequence;
+          const mesh2 = loader.newMeshAttachment(skin2, name, path2, sequence2);
+          if (!mesh2) return null;
+          mesh2.path = path2;
+          Color.rgba8888ToColor(mesh2.color, color);
+          mesh2.sequence = sequence2;
           if (nonessential) {
-            mesh.width = width * scale;
-            mesh.height = height * scale;
+            mesh2.width = width * scale;
+            mesh2.height = height * scale;
           }
           this.linkedMeshes.push(
-            new LinkedMesh(mesh, skinIndex, slotIndex, parent, inheritTimelines)
+            new LinkedMesh(mesh2, skinIndex, slotIndex, parent, inheritTimelines)
           );
-          return mesh;
+          return mesh2;
         }
         case ATTACHMENT_PATH: {
           const closed = (flags & 16) !== 0;
@@ -6586,23 +6586,23 @@ var invisibleRig = function(exports) {
           const lengths = new Array(vertices.length / 6);
           for (let i = 0; i < lengths.length; i++) lengths[i] = input.readFloat() * scale;
           const color = nonessential ? input.readInt32() : 0;
-          const path = loader.newPathAttachment(skin, name);
-          if (!path) return null;
-          path.closed = closed;
-          path.constantSpeed = constantSpeed;
-          path.worldVerticesLength = vertices.length;
-          path.vertices = vertices.vertices;
-          path.bones = vertices.bones;
-          path.lengths = lengths;
-          if (nonessential) Color.rgba8888ToColor(path.color, color);
-          return path;
+          const path2 = loader.newPathAttachment(skin2, name);
+          if (!path2) return null;
+          path2.closed = closed;
+          path2.constantSpeed = constantSpeed;
+          path2.worldVerticesLength = vertices.length;
+          path2.vertices = vertices.vertices;
+          path2.bones = vertices.bones;
+          path2.lengths = lengths;
+          if (nonessential) Color.rgba8888ToColor(path2.color, color);
+          return path2;
         }
         case ATTACHMENT_POINT: {
           const rotation = input.readFloat();
           const x = input.readFloat();
           const y = input.readFloat();
           const color = nonessential ? input.readInt32() : 0;
-          const point = loader.newPointAttachment(skin, name);
+          const point = loader.newPointAttachment(skin2, name);
           if (!point) return null;
           point.x = x * scale;
           point.y = y * scale;
@@ -6614,7 +6614,7 @@ var invisibleRig = function(exports) {
           const endSlotIndex = input.readInt(true);
           const vertices = this.readVertices(input, (flags & 16) !== 0);
           const color = nonessential ? input.readInt32() : 0;
-          const clip = loader.newClippingAttachment(skin, name);
+          const clip = loader.newClippingAttachment(skin2, name);
           if (!clip) return null;
           clip.endSlot = data.slots[endSlotIndex];
           clip.worldVerticesLength = vertices.length;
@@ -6898,22 +6898,22 @@ var invisibleRig = function(exports) {
         }
       }
       for (let i = 0, n = input.readInt(true); i < n; i++) {
-        const skin = data.skins[input.readInt(true)];
+        const skin2 = data.skins[input.readInt(true)];
         for (let ii = 0, nn = input.readInt(true); ii < nn; ii++) {
           const slotIndex = input.readInt(true);
           for (let iii = 0, nnn = input.readInt(true); iii < nnn; iii++) {
             const attachmentName = required(input.readStringRef(), "Attachment name");
-            const attachment = skin.getAttachment(slotIndex, attachmentName);
+            const attachment2 = skin2.getAttachment(slotIndex, attachmentName);
             const type = input.readByte();
             const frameCount = input.readInt(true);
             const last = frameCount - 1;
             if (type === 0) {
-              if (!(attachment instanceof VertexAttachment))
+              if (!(attachment2 instanceof VertexAttachment))
                 throw new Error(`Deform attachment not found: ${attachmentName}`);
-              const weighted = !!attachment.bones;
-              const setup = attachment.vertices;
+              const weighted = !!attachment2.bones;
+              const setup = attachment2.vertices;
               const length = weighted ? setup.length / 3 * 2 : setup.length;
-              const t = new DeformTimeline(frameCount, input.readInt(true), slotIndex, attachment);
+              const t = new DeformTimeline(frameCount, input.readInt(true), slotIndex, attachment2);
               let time = input.readFloat();
               for (let frame = 0; ; frame++) {
                 let deform;
@@ -6934,13 +6934,13 @@ var invisibleRig = function(exports) {
               }
               timelines.push(t);
             } else if (type === 1) {
-              if (!attachment) throw new Error(`Sequence attachment not found: ${attachmentName}`);
-              if (!attachment.sequence)
+              if (!attachment2) throw new Error(`Sequence attachment not found: ${attachmentName}`);
+              if (!attachment2.sequence)
                 throw new Error(`Sequence keys on an attachment with no sequence: ${attachmentName}`);
               const t = new SequenceTimeline(
                 frameCount,
                 slotIndex,
-                attachment
+                attachment2
               );
               for (let f = 0; f < frameCount; f++) {
                 const time = input.readFloat();
@@ -7010,6 +7010,492 @@ var invisibleRig = function(exports) {
       const cy2 = input.readFloat() * scale;
       timeline.setBezier(0, frame, value, time1, value1, cx1, cy1, cx2, cy2, time2, value2);
     }
+  }
+  const num = { kind: "num" };
+  const str = { kind: "str" };
+  const bool = { kind: "bool" };
+  const curve = { kind: "curve" };
+  const lit = (...values) => ({ kind: "lit", values });
+  const arr = (of, length) => ({ kind: "arr", of, length });
+  const map = (of) => ({ kind: "map", of });
+  const obj = (fields, required2 = []) => ({ kind: "obj", fields, required: required2 });
+  const variant = (fallback, cases) => ({
+    kind: "variant",
+    fallback,
+    cases
+  });
+  const strings = arr(str);
+  const numbers = arr(num);
+  const header = obj({
+    hash: str,
+    /** The 4.2 header's `spine` version, kept for provenance; nothing reads it. */
+    importedFrom: str,
+    x: num,
+    y: num,
+    width: num,
+    height: num,
+    fps: num,
+    referenceScale: num,
+    images: str,
+    audio: str
+  });
+  const bone = obj(
+    {
+      name: str,
+      parent: str,
+      length: num,
+      x: num,
+      y: num,
+      rotation: num,
+      scaleX: num,
+      scaleY: num,
+      shearX: num,
+      shearY: num,
+      inherit: lit(
+        "normal",
+        "onlyTranslation",
+        "noRotationOrReflection",
+        "noScale",
+        "noScaleOrReflection"
+      ),
+      skin: bool,
+      color: str
+    },
+    ["name"]
+  );
+  const slot = obj(
+    {
+      name: str,
+      bone: str,
+      color: str,
+      dark: str,
+      attachment: str,
+      blend: lit("normal", "additive", "multiply", "screen"),
+      visible: bool
+    },
+    ["name", "bone"]
+  );
+  const constraintBase = { name: str, order: num, skin: bool, bones: strings };
+  const ik = obj(
+    {
+      ...constraintBase,
+      target: str,
+      mix: num,
+      softness: num,
+      bendPositive: bool,
+      compress: bool,
+      stretch: bool,
+      uniform: bool
+    },
+    ["name", "bones", "target"]
+  );
+  const transform = obj(
+    {
+      ...constraintBase,
+      target: str,
+      local: bool,
+      relative: bool,
+      rotation: num,
+      x: num,
+      y: num,
+      scaleX: num,
+      scaleY: num,
+      shearY: num,
+      mixRotate: num,
+      mixX: num,
+      mixY: num,
+      mixScaleX: num,
+      mixScaleY: num,
+      mixShearY: num
+    },
+    ["name", "bones", "target"]
+  );
+  const path = obj(
+    {
+      ...constraintBase,
+      target: str,
+      positionMode: lit("fixed", "percent"),
+      spacingMode: lit("length", "fixed", "percent", "proportional"),
+      rotateMode: lit("tangent", "chain", "chainScale"),
+      rotation: num,
+      position: num,
+      spacing: num,
+      mixRotate: num,
+      mixX: num,
+      mixY: num
+    },
+    ["name", "bones", "target"]
+  );
+  const physics = obj(
+    {
+      name: str,
+      order: num,
+      skin: bool,
+      bone: str,
+      x: num,
+      y: num,
+      rotate: num,
+      scaleX: num,
+      shearX: num,
+      limit: num,
+      fps: num,
+      inertia: num,
+      strength: num,
+      damping: num,
+      mass: num,
+      wind: num,
+      gravity: num,
+      mix: num,
+      inertiaGlobal: bool,
+      strengthGlobal: bool,
+      dampingGlobal: bool,
+      massGlobal: bool,
+      windGlobal: bool,
+      gravityGlobal: bool,
+      mixGlobal: bool
+    },
+    ["name", "bone"]
+  );
+  const sequence = obj({ count: num, start: num, digits: num, setup: num });
+  const vertexFields = { name: str, color: str, vertexCount: num, vertices: numbers };
+  const mesh = obj({
+    name: str,
+    color: str,
+    path: str,
+    width: num,
+    height: num,
+    sequence,
+    parent: str,
+    skin: str,
+    timelines: bool,
+    uvs: numbers,
+    triangles: numbers,
+    vertices: numbers,
+    hull: num,
+    edges: numbers
+  });
+  const attachment = variant("region", {
+    region: obj({
+      name: str,
+      color: str,
+      path: str,
+      x: num,
+      y: num,
+      scaleX: num,
+      scaleY: num,
+      rotation: num,
+      width: num,
+      height: num,
+      sequence,
+      /** Extension: the image's anchor as `[u, v]` across / down, 0..1; centred when absent. */
+      pivot: arr(num, 2)
+    }),
+    mesh,
+    linkedmesh: mesh,
+    boundingbox: obj(vertexFields),
+    path: obj({ ...vertexFields, closed: bool, constantSpeed: bool, lengths: numbers }),
+    point: obj({ name: str, color: str, x: num, y: num, rotation: num }),
+    clipping: obj({ ...vertexFields, end: str })
+  });
+  const skin = obj(
+    {
+      name: str,
+      bones: strings,
+      ik: strings,
+      transform: strings,
+      path: strings,
+      physics: strings,
+      attachments: map(map(attachment))
+    },
+    ["name"]
+  );
+  const eventDef = obj({ int: num, float: num, string: str, audio: str, volume: num, balance: num });
+  const key1 = arr(obj({ time: num, value: num, curve }));
+  const key2 = arr(obj({ time: num, x: num, y: num, curve }));
+  const fxBinding = obj({
+    effectId: str,
+    bone: str,
+    slot: str,
+    continuous: bool,
+    alpha: num,
+    scale: num,
+    delay: num,
+    duration: num,
+    speed: num
+  });
+  const flipbookBinding = obj({
+    clipId: str,
+    bone: str,
+    slot: str,
+    continuous: bool,
+    loop: bool,
+    flipX: bool,
+    flipY: bool,
+    direction: lit("forward", "reverse", "pingpong"),
+    alpha: num,
+    scale: num,
+    delay: num,
+    duration: num,
+    fps: num
+  });
+  const animation = obj({
+    slots: map(
+      obj({
+        attachment: arr(obj({ time: num, name: str })),
+        rgba: arr(obj({ time: num, color: str, curve })),
+        rgb: arr(obj({ time: num, color: str, curve })),
+        alpha: key1,
+        rgba2: arr(obj({ time: num, light: str, dark: str, curve })),
+        rgb2: arr(obj({ time: num, light: str, dark: str, curve }))
+      })
+    ),
+    bones: map(
+      obj({
+        rotate: key1,
+        translate: key2,
+        translatex: key1,
+        translatey: key1,
+        scale: key2,
+        scalex: key1,
+        scaley: key1,
+        shear: key2,
+        shearx: key1,
+        sheary: key1,
+        inherit: arr(obj({ time: num, inherit: bone.fields.inherit }))
+      })
+    ),
+    ik: map(
+      arr(
+        obj({
+          time: num,
+          mix: num,
+          softness: num,
+          bendPositive: bool,
+          compress: bool,
+          stretch: bool,
+          curve
+        })
+      )
+    ),
+    transform: map(
+      arr(
+        obj({
+          time: num,
+          mixRotate: num,
+          mixX: num,
+          mixY: num,
+          mixScaleX: num,
+          mixScaleY: num,
+          mixShearY: num,
+          curve
+        })
+      )
+    ),
+    path: map(
+      obj({
+        position: key1,
+        spacing: key1,
+        mix: arr(obj({ time: num, mixRotate: num, mixX: num, mixY: num, curve }))
+      })
+    ),
+    physics: map(
+      obj({
+        inertia: key1,
+        strength: key1,
+        damping: key1,
+        mass: key1,
+        wind: key1,
+        gravity: key1,
+        mix: key1,
+        reset: arr(obj({ time: num }))
+      })
+    ),
+    attachments: map(
+      map(
+        map(
+          obj({
+            deform: arr(obj({ time: num, offset: num, vertices: numbers, curve })),
+            sequence: arr(
+              obj({
+                time: num,
+                delay: num,
+                index: num,
+                mode: lit(
+                  "hold",
+                  "once",
+                  "loop",
+                  "pingpong",
+                  "onceReverse",
+                  "loopReverse",
+                  "pingpongReverse"
+                )
+              })
+            )
+          })
+        )
+      )
+    ),
+    drawOrder: arr(
+      obj({ time: num, offsets: arr(obj({ slot: str, offset: num }, ["slot", "offset"])) })
+    ),
+    events: arr(
+      obj(
+        {
+          time: num,
+          name: str,
+          int: num,
+          float: num,
+          string: str,
+          volume: num,
+          balance: num,
+          fx: fxBinding,
+          flipbook: flipbookBinding
+        },
+        ["name"]
+      )
+    )
+  });
+  const RIG_FIELDS = {
+    skeleton: header,
+    bones: arr(bone),
+    slots: arr(slot),
+    ik: arr(ik),
+    transform: arr(transform),
+    path: arr(path),
+    physics: arr(physics),
+    skins: arr(skin),
+    events: map(eventDef),
+    animations: map(animation)
+  };
+  const IRIG_VERSION = 1;
+  const IRIG_V1 = obj({ irig: num, ...RIG_FIELDS }, ["irig", "bones"]);
+  const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  const describe = (v) => v === null ? "null" : Array.isArray(v) ? "a list" : `a ${typeof v}`;
+  function clean(field, value, path2, issues) {
+    const fail = (reason) => {
+      issues.push({ path: path2, reason });
+      return void 0;
+    };
+    switch (field.kind) {
+      case "num":
+        return typeof value === "number" ? value : fail(`expected a number, got ${describe(value)}`);
+      case "str":
+        return typeof value === "string" ? value : fail(`expected a string, got ${describe(value)}`);
+      case "bool":
+        return typeof value === "boolean" ? value : fail(`expected true/false, got ${describe(value)}`);
+      case "lit": {
+        if (typeof value !== "string") return fail(`expected a name, got ${describe(value)}`);
+        if (field.values.includes(value)) return value;
+        return fail(`"${value}" is not one of ${field.values.join(", ")}`);
+      }
+      case "curve":
+        if (value === "stepped") return value;
+        if (Array.isArray(value) && value.every((n) => typeof n === "number")) return value;
+        return fail(`expected "stepped" or a list of numbers, got ${describe(value)}`);
+      case "arr": {
+        if (!Array.isArray(value)) return fail(`expected a list, got ${describe(value)}`);
+        if (field.length !== void 0 && value.length !== field.length)
+          return fail(`expected ${field.length} items, got ${value.length}`);
+        const out = [];
+        for (const [i, item] of value.entries()) {
+          const kept = clean(field.of, item, `${path2}[${i}]`, issues);
+          if (kept === void 0) return fail("dropped with its bad item");
+          out.push(kept);
+        }
+        return out;
+      }
+      case "map": {
+        if (!isObject(value)) return fail(`expected an object, got ${describe(value)}`);
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+          const kept = clean(field.of, v, `${path2}.${k}`, issues);
+          if (kept !== void 0) out[k] = kept;
+        }
+        return out;
+      }
+      case "obj":
+        return cleanObject(field.fields, field.required, value, path2, issues);
+      case "variant": {
+        if (!isObject(value)) return fail(`expected an object, got ${describe(value)}`);
+        const type = value.type === void 0 ? field.fallback : value.type;
+        if (typeof type !== "string" || !(type in field.cases))
+          return fail(`unknown attachment type ${JSON.stringify(type)}`);
+        const shape = field.cases[type];
+        return cleanObject(
+          { type: { kind: "str" }, ...shape.fields },
+          shape.required,
+          value,
+          path2,
+          issues
+        );
+      }
+    }
+  }
+  function cleanObject(fields, required2, value, path2, issues) {
+    if (!isObject(value)) {
+      issues.push({ path: path2, reason: `expected an object, got ${describe(value)}` });
+      return void 0;
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const at = path2 ? `${path2}.${k}` : k;
+      const field = fields[k];
+      if (!field) {
+        issues.push({ path: at, reason: "not an irig field" });
+        continue;
+      }
+      const kept = clean(field, v, at, issues);
+      if (kept !== void 0) out[k] = kept;
+    }
+    const missing = required2.filter((k) => !(k in out));
+    if (missing.length) {
+      issues.push({ path: path2, reason: `missing ${missing.join(", ")}` });
+      return void 0;
+    }
+    return out;
+  }
+  function renameKey(o, from, to) {
+    return Object.fromEntries(Object.entries(o).map(([k, v]) => [k === from ? to : k, v]));
+  }
+  function importSpine42Json(json) {
+    const root = typeof json === "string" ? JSON.parse(json) : json;
+    if (!isObject(root)) throw new Error("A skeleton must be a JSON object.");
+    const source = { ...root };
+    if (isObject(source.skeleton))
+      source.skeleton = renameKey(source.skeleton, "spine", "importedFrom");
+    if (isObject(source.skins))
+      source.skins = Object.entries(source.skins).map(([name, attachments]) => ({
+        name,
+        attachments
+      }));
+    const issues = [];
+    const body = cleanObject(RIG_FIELDS, ["bones"], source, "", issues);
+    if (!body) throw new Error(`Not a skeleton: ${issues.map((i) => i.reason).join("; ")}`);
+    return { doc: { irig: IRIG_VERSION, ...body }, issues };
+  }
+  function readIrig(input) {
+    const root = typeof input === "string" ? JSON.parse(input) : input;
+    if (!isObject(root) || typeof root.irig !== "number") throw new Error("Not an irig document.");
+    if (root.irig > IRIG_VERSION)
+      throw new Error(`irig version ${root.irig} is newer than this reader (${IRIG_VERSION}).`);
+    if (root.irig !== IRIG_VERSION) throw new Error(`Unknown irig version ${root.irig}.`);
+    const issues = [];
+    const doc = clean(IRIG_V1, root, "", issues);
+    if (issues.length || !doc) {
+      const list = issues.slice(0, 5).map((i) => `${i.path || "(root)"}: ${i.reason}`);
+      if (issues.length > 5) list.push(`…and ${issues.length - 5} more`);
+      throw new Error(`Invalid irig document — ${list.join("; ")}`);
+    }
+    return doc;
+  }
+  function writeIrig(doc) {
+    return JSON.stringify(doc);
+  }
+  function exportSpine42Json(doc) {
+    const out = { ...doc };
+    delete out.irig;
+    if (isObject(out.skeleton)) out.skeleton = renameKey(out.skeleton, "importedFrom", "spine");
+    return out;
   }
   class ManagedWebGLRenderingContext {
     constructor(canvasOrContext, contextConfig = { alpha: true }) {
@@ -7238,43 +7724,43 @@ var invisibleRig = function(exports) {
       this.loaded = 0;
       this.context = managed(context);
     }
-    start(path) {
+    start(path2) {
       this.toLoad++;
-      return this.pathPrefix + path;
+      return this.pathPrefix + path2;
     }
-    succeed(callback, path, asset) {
+    succeed(callback, path2, asset) {
       this.toLoad--;
       this.loaded++;
-      this.assets[path] = asset;
-      callback == null ? void 0 : callback(path, asset);
+      this.assets[path2] = asset;
+      callback == null ? void 0 : callback(path2, asset);
     }
-    fail(callback, path, message) {
+    fail(callback, path2, message) {
       this.toLoad--;
       this.loaded++;
-      this.errors[path] = message;
-      callback == null ? void 0 : callback(path, message);
+      this.errors[path2] = message;
+      callback == null ? void 0 : callback(path2, message);
     }
     async fetchOk(url) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Couldn't load ${url}: status ${res.status}, ${res.statusText}`);
       return res;
     }
-    loadText(path, success, error) {
-      const url = this.start(path);
+    loadText(path2, success, error) {
+      const url = this.start(path2);
       this.fetchOk(url).then((r) => r.text()).then(
         (t) => this.succeed(success, url, t),
         (e) => this.fail(error, url, e.message)
       );
     }
-    loadJson(path, success, error) {
-      const url = this.start(path);
+    loadJson(path2, success, error) {
+      const url = this.start(path2);
       this.fetchOk(url).then((r) => r.text()).then(
         (t) => this.succeed(success, url, JSON.parse(t)),
         (e) => this.fail(error, url, e.message)
       );
     }
-    loadBinary(path, success, error) {
-      const url = this.start(path);
+    loadBinary(path2, success, error) {
+      const url = this.start(path2);
       this.fetchOk(url).then((r) => r.arrayBuffer()).then(
         (b) => this.succeed(success, url, new Uint8Array(b)),
         (e) => this.fail(error, url, e.message)
@@ -7289,18 +7775,18 @@ var invisibleRig = function(exports) {
         img.src = url;
       });
     }
-    loadTexture(path, success, error) {
-      const url = this.start(path);
+    loadTexture(path2, success, error) {
+      const url = this.start(path2);
       this.image(url).then(
         (img) => this.succeed(success, url, new GLTexture(this.context, img)),
         (e) => this.fail(error, url, e.message)
       );
     }
     /** Loads the atlas text, then each page image from the atlas's folder (or `fileAlias`). */
-    loadTextureAtlas(path, success, error, fileAlias) {
-      const slash = path.lastIndexOf("/");
-      const parent = slash >= 0 ? path.substring(0, slash + 1) : "";
-      const url = this.start(path);
+    loadTextureAtlas(path2, success, error, fileAlias) {
+      const slash = path2.lastIndexOf("/");
+      const parent = slash >= 0 ? path2.substring(0, slash + 1) : "";
+      const url = this.start(path2);
       this.fetchOk(url).then((r) => r.text()).then(async (text) => {
         const atlas = new TextureAtlas(text);
         await Promise.all(
@@ -7315,19 +7801,19 @@ var invisibleRig = function(exports) {
         this.succeed(success, url, atlas);
       }).catch((e) => this.fail(error, url, e.message));
     }
-    get(path) {
-      return this.assets[this.pathPrefix + path];
+    get(path2) {
+      return this.assets[this.pathPrefix + path2];
     }
-    require(path) {
-      const full = this.pathPrefix + path;
+    require(path2) {
+      const full = this.pathPrefix + path2;
       const asset = this.assets[full];
       if (asset !== void 0) return asset;
       const error = this.errors[full];
-      throw new Error(`Asset not found: ${path}${error ? "\n" + error : ""}`);
+      throw new Error(`Asset not found: ${path2}${error ? "\n" + error : ""}`);
     }
-    remove(path) {
+    remove(path2) {
       var _a;
-      const full = this.pathPrefix + path;
+      const full = this.pathPrefix + path2;
       const asset = this.assets[full];
       (_a = asset == null ? void 0 : asset.dispose) == null ? void 0 : _a.call(asset);
       delete this.assets[full];
@@ -7594,17 +8080,17 @@ void main() { gl_FragColor = vColor; }`;
       let inRange = slotRangeStart === -1;
       const world = this.world;
       for (let i = 0; i < skeleton.drawOrder.length; i++) {
-        const slot = skeleton.drawOrder[i];
-        if (slotRangeStart >= 0 && slotRangeStart === slot.data.index) inRange = true;
-        if (!inRange || !slot.bone.active) {
-          clipper.clipEndWithSlot(slot);
-          if (slotRangeEnd >= 0 && slotRangeEnd === slot.data.index) inRange = false;
+        const slot2 = skeleton.drawOrder[i];
+        if (slotRangeStart >= 0 && slotRangeStart === slot2.data.index) inRange = true;
+        if (!inRange || !slot2.bone.active) {
+          clipper.clipEndWithSlot(slot2);
+          if (slotRangeEnd >= 0 && slotRangeEnd === slot2.data.index) inRange = false;
           continue;
         }
-        if (slotRangeEnd >= 0 && slotRangeEnd === slot.data.index) inRange = false;
-        const attachment = slot.getAttachment();
-        if (attachment instanceof ClippingAttachment) {
-          clipper.clipStart(slot, attachment);
+        if (slotRangeEnd >= 0 && slotRangeEnd === slot2.data.index) inRange = false;
+        const attachment2 = slot2.getAttachment();
+        if (attachment2 instanceof ClippingAttachment) {
+          clipper.clipStart(slot2, attachment2);
           continue;
         }
         let positions;
@@ -7612,31 +8098,31 @@ void main() { gl_FragColor = vColor; }`;
         let triangles;
         let region;
         let color;
-        if (attachment instanceof RegionAttachment) {
+        if (attachment2 instanceof RegionAttachment) {
           world.length = 8;
-          attachment.computeWorldVertices(slot, world, 0, 2);
+          attachment2.computeWorldVertices(slot2, world, 0, 2);
           positions = world;
-          uvs = attachment.uvs;
+          uvs = attachment2.uvs;
           triangles = QUAD;
-          region = attachment.region;
-          color = attachment.color;
-        } else if (attachment instanceof MeshAttachment) {
-          const n = attachment.worldVerticesLength;
+          region = attachment2.region;
+          color = attachment2.color;
+        } else if (attachment2 instanceof MeshAttachment) {
+          const n = attachment2.worldVerticesLength;
           world.length = n;
-          attachment.computeWorldVertices(slot, 0, n, world, 0, 2);
+          attachment2.computeWorldVertices(slot2, 0, n, world, 0, 2);
           positions = world;
-          uvs = attachment.uvs;
-          triangles = attachment.triangles;
-          region = attachment.region;
-          color = attachment.color;
+          uvs = attachment2.uvs;
+          triangles = attachment2.triangles;
+          region = attachment2.region;
+          color = attachment2.color;
         } else {
-          clipper.clipEndWithSlot(slot);
+          clipper.clipEndWithSlot(slot2);
           continue;
         }
         const texture = pageTexture(region);
-        const a = sc.a * slot.color.a * color.a;
+        const a = sc.a * slot2.color.a * color.a;
         if (!texture) {
-          clipper.clipEndWithSlot(slot);
+          clipper.clipEndWithSlot(slot2);
           continue;
         }
         if (clipper.isClipping()) {
@@ -7647,10 +8133,10 @@ void main() { gl_FragColor = vColor; }`;
         }
         if (triangles.length) {
           const m = pma ? a : 1;
-          const r = sc.r * slot.color.r * color.r * m;
-          const g = sc.g * slot.color.g * color.g * m;
-          const b = sc.b * slot.color.b * color.b * m;
-          const dark = slot.darkColor;
+          const r = sc.r * slot2.color.r * color.r * m;
+          const g = sc.g * slot2.color.g * color.g * m;
+          const b = sc.b * slot2.color.b * color.b * m;
+          const dark = slot2.darkColor;
           const dr = dark ? dark.r * (pma ? a : 1) : 0;
           const dg = dark ? dark.g * (pma ? a : 1) : 0;
           const db = dark ? dark.b * (pma ? a : 1) : 0;
@@ -7659,7 +8145,7 @@ void main() { gl_FragColor = vColor; }`;
             this.textured,
             this.gl.TRIANGLES,
             texture,
-            this.blendFunc(slot.data.blendMode, pma)
+            this.blendFunc(slot2.data.blendMode, pma)
           );
           const p = positions;
           const t = uvs;
@@ -7678,7 +8164,7 @@ void main() { gl_FragColor = vColor; }`;
             v[at + 11] = t[k * 2 + 1];
           });
         }
-        clipper.clipEndWithSlot(slot);
+        clipper.clipEndWithSlot(slot2);
       }
       clipper.clipEnd();
     }
@@ -7750,22 +8236,22 @@ void main() { gl_FragColor = vColor; }`;
       const d = this.skeletonDebugRenderer;
       const world = this.world;
       const s = d.scale;
-      const visible = (slot) => slot.bone.active;
+      const visible = (slot2) => slot2.bone.active;
       if (d.drawRegionAttachments)
-        for (const slot of skeleton.slots) {
-          const att = slot.getAttachment();
-          if (!(att instanceof RegionAttachment) || !visible(slot)) continue;
+        for (const slot2 of skeleton.slots) {
+          const att = slot2.getAttachment();
+          if (!(att instanceof RegionAttachment) || !visible(slot2)) continue;
           world.length = 8;
-          att.computeWorldVertices(slot, world, 0, 2);
+          att.computeWorldVertices(slot2, world, 0, 2);
           this.polygon(world, 0, 4, d.attachmentLineColor);
         }
       if (d.drawMeshHull || d.drawMeshTriangles)
-        for (const slot of skeleton.slots) {
-          const att = slot.getAttachment();
-          if (!(att instanceof MeshAttachment) || !visible(slot)) continue;
+        for (const slot2 of skeleton.slots) {
+          const att = slot2.getAttachment();
+          if (!(att instanceof MeshAttachment) || !visible(slot2)) continue;
           const n = att.worldVerticesLength;
           world.length = n;
-          att.computeWorldVertices(slot, 0, n, world, 0, 2);
+          att.computeWorldVertices(slot2, 0, n, world, 0, 2);
           if (d.drawMeshTriangles) {
             const t = att.triangles;
             for (let i = 0; i < t.length; i += 3) {
@@ -7790,21 +8276,21 @@ void main() { gl_FragColor = vColor; }`;
           }
         }
       if (d.drawBoundingBoxes)
-        for (const slot of skeleton.slots) {
-          const att = slot.getAttachment();
-          if (!(att instanceof BoundingBoxAttachment) || !visible(slot)) continue;
+        for (const slot2 of skeleton.slots) {
+          const att = slot2.getAttachment();
+          if (!(att instanceof BoundingBoxAttachment) || !visible(slot2)) continue;
           const n = att.worldVerticesLength;
           world.length = n;
-          att.computeWorldVertices(slot, 0, n, world, 0, 2);
+          att.computeWorldVertices(slot2, 0, n, world, 0, 2);
           this.polygon(world, 0, n >> 1, d.aabbColor);
         }
       if (d.drawPaths)
-        for (const slot of skeleton.slots) {
-          const att = slot.getAttachment();
-          if (!(att instanceof PathAttachment) || !visible(slot)) continue;
+        for (const slot2 of skeleton.slots) {
+          const att = slot2.getAttachment();
+          if (!(att instanceof PathAttachment) || !visible(slot2)) continue;
           const n = att.worldVerticesLength;
           world.length = n;
-          att.computeWorldVertices(slot, 0, n, world, 0, 2);
+          att.computeWorldVertices(slot2, 0, n, world, 0, 2);
           for (let i = 2; i + 7 < n + (att.closed ? 2 : 0); i += 6) {
             const x1 = world[i];
             const y1 = world[i + 1];
@@ -7816,22 +8302,22 @@ void main() { gl_FragColor = vColor; }`;
           }
         }
       if (d.drawClipping)
-        for (const slot of skeleton.slots) {
-          const att = slot.getAttachment();
-          if (!(att instanceof ClippingAttachment) || !visible(slot)) continue;
+        for (const slot2 of skeleton.slots) {
+          const att = slot2.getAttachment();
+          if (!(att instanceof ClippingAttachment) || !visible(slot2)) continue;
           const n = att.worldVerticesLength;
           world.length = n;
-          att.computeWorldVertices(slot, 0, n, world, 0, 2);
+          att.computeWorldVertices(slot2, 0, n, world, 0, 2);
           this.polygon(world, 0, n >> 1, d.clipColor);
         }
       if (d.drawBones)
-        for (const bone of skeleton.bones) {
-          if (!bone.active || (ignoredBones == null ? void 0 : ignoredBones.includes(bone.data.name))) continue;
-          const len = bone.data.length;
-          const x = len * bone.a + bone.worldX;
-          const y = len * bone.c + bone.worldY;
-          if (len > 0) this.line(bone.worldX, bone.worldY, x, y, d.boneLineColor);
-          this.circle(true, bone.worldX, bone.worldY, 3 * s, d.boneOriginColor, 8);
+        for (const bone2 of skeleton.bones) {
+          if (!bone2.active || (ignoredBones == null ? void 0 : ignoredBones.includes(bone2.data.name))) continue;
+          const len = bone2.data.length;
+          const x = len * bone2.a + bone2.worldX;
+          const y = len * bone2.c + bone2.worldY;
+          if (len > 0) this.line(bone2.worldX, bone2.worldY, x, y, d.boneLineColor);
+          this.circle(true, bone2.worldX, bone2.worldY, 3 * s, d.boneOriginColor, 8);
         }
       if (d.drawSkeletonXY) this.circle(true, skeleton.x, skeleton.y, 4 * s, d.boneOriginColor, 8);
     }
@@ -7881,6 +8367,7 @@ void main() { gl_FragColor = vColor; }`;
   exports.EventTimeline = EventTimeline;
   exports.EventType = EventType;
   exports.GLTexture = GLTexture;
+  exports.IRIG_VERSION = IRIG_VERSION;
   exports.IkConstraint = IkConstraint;
   exports.IkConstraintData = IkConstraintData;
   exports.IkConstraintTimeline = IkConstraintTimeline;
@@ -7965,11 +8452,15 @@ void main() { gl_FragColor = vColor; }`;
   exports.VertexAttachment = VertexAttachment;
   exports.decompose = decompose;
   exports.enumFromName = enumFromName;
+  exports.exportSpine42Json = exportSpine42Json;
+  exports.importSpine42Json = importSpine42Json;
   exports.managed = managed;
+  exports.readIrig = readIrig;
   exports.setArraySize = setArraySize;
   exports.signum = signum;
   exports.triangulate = triangulate;
   exports.wrapRadians = wrapRadians;
+  exports.writeIrig = writeIrig;
   Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
   return exports;
 }({});

@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import type { Tween } from 'svelte/motion';
 
 import { stateBet } from 'state-shared';
@@ -855,7 +854,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 */
 	const buildBoard = () => {
 		const init = deps.initialBoard();
-		return _.range(deps.boardDimensions().x).map((reelIndex) => {
+		return Array.from({ length: deps.boardDimensions().x }, (_, reelIndex) => {
 			const reel = createReelForSpinning({
 				reelIndex,
 				symbolHeight: () => reelPitch,

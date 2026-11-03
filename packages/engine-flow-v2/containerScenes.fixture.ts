@@ -5,7 +5,7 @@
  * A screen deleted from the Scene Editor (or lost to a bad save) stays in `FlowDoc.containers`, so
  * `showContainer` still mounts it, nothing draws, and a step waiting on it never continues. Live, a
  * game sat on its background forever with no console error. `containersMissingScene` is the one rule
- * the game (boot log) and the launcher (validator, runtime assembly, Publish) read. FIVE claims:
+ * the game (boot log) and the launcher (validator, runtime assembly, Publish) read. SIX claims:
  *
  *  1. THE HELPER REPORTS EXACTLY THE CONTAINERS WHOSE SCENE IS GONE. Containers [a, b, c] against
  *     a layout of [a, c] report [b]; an agreeing pair reports []; a container is judged by its
@@ -21,9 +21,12 @@
  *     editor declares every screen), a hide alone and a show of an undeclared container are not
  *     shows, because none of them mounts anything. The game reads it to decide whether the add-on's
  *     Pots screen is the flow's or its own.
+ *  6. `usedContainerIds` IS WHAT A NODE NAMES. A show or a hide, in any section, inside groups and
+ *     in library function bodies; a declared-only container is not used. The boot log and Publish
+ *     report only used containers, because the editor declares every screen and never drops one.
  */
 
-import { containersMissingScene, shownSceneIds } from './src/containerScenes.ts';
+import { containersMissingScene, shownSceneIds, usedContainerIds } from './src/containerScenes.ts';
 import { validateFlowDoc } from './src/validate.ts';
 import type {
 	ContainerRef,
@@ -223,6 +226,61 @@ check(
 			containers: [ref('pots')],
 		}),
 	),
+	['pots'],
+);
+
+console.log('6. usedContainerIds');
+check('shows and hides in every section count', sorted(usedContainerIds(DOC)), [
+	'background',
+	'loading',
+	'splash',
+]);
+check(
+	'a declared-only container is not used',
+	usedContainerIds({ ...DOC, containers: [...DOC.containers, ref('buyFeature')] }).has(
+		'buyFeature',
+	),
+	false,
+);
+check(
+	'a show inside a group counts',
+	sorted(
+		usedContainerIds({
+			...BARE,
+			graph: {
+				nodes: [
+					{
+						id: 'g',
+						kind: 'group',
+						pos: { x: 0, y: 0 },
+						label: 'Pots',
+						body: showOf('g_s', 'pots'),
+						boundary: [],
+					},
+				],
+				exec: [],
+				data: [],
+			},
+		}),
+	),
+	['pots'],
+);
+const FN_LIBRARY: FunctionLibraryDoc = {
+	version: 2,
+	functions: [
+		{
+			id: 'fn',
+			name: 'ShowPots',
+			inputs: [],
+			outputs: [],
+			body: showOf('fn_s', 'pots'),
+			requires: {},
+		},
+	],
+};
+check(
+	'a show in a library function counts',
+	sorted(usedContainerIds({ ...BARE, graph: { nodes: [], exec: [], data: [] } }, FN_LIBRARY)),
 	['pots'],
 );
 
