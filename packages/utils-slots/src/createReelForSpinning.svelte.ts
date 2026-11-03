@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import { Tween } from 'svelte/motion';
 import { sineOut, backIn, linear } from 'svelte/easing';
 
@@ -225,7 +224,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		start: number;
 		length: number;
 	}) =>
-		_.range(length).map((index) => {
+		// `length` is a multiplier × reel length, often fractional: lodash `range` rounded it up.
+		Array.from({ length: Math.ceil(length) }, (_, index) => {
 			const targetIndex = start + index;
 			return getPaddingRawSymbol({ paddingRawReel, index: targetIndex });
 		});

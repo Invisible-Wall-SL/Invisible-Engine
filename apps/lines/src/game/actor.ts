@@ -1,5 +1,3 @@
-import _ from 'lodash';
-
 import { stateBet } from 'state-shared';
 import { checkIsMultipleRevealEvents } from 'utils-book';
 import { createPrimaryMachines, createIntermediateMachines, createGameActor } from 'utils-xstate';
@@ -21,8 +19,7 @@ import { awaitMatch3Round } from '../families/match3';
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),
 	onResumeGameInactive: (betToResume) => {
-		const lastRevealEvent = _.findLast(
-			betToResume.state,
+		const lastRevealEvent = betToResume.state?.findLast(
 			(bookEvent) => bookEvent?.type === 'reveal',
 		);
 
