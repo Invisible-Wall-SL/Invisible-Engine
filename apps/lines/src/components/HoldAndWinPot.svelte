@@ -1,9 +1,16 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import { Tween } from 'svelte/motion';
 	import { backOut } from 'svelte/easing';
 	import type { ResolvedMeter } from 'game-config';
-	import { Anchor, Container, getContextApp, Rectangle, Sprite } from 'pixi-svelte';
+	import {
+		Anchor,
+		Container,
+		getContextApp,
+		getContextRestart,
+		Rectangle,
+		Sprite,
+	} from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
 	import {
 		fillMaskRect,
@@ -115,6 +122,15 @@
 		pulse
 			.set(look.pulseScale, { duration: 0 })
 			.then(() => pulse.set(1, { duration: 500, easing: backOut }));
+	});
+	// A restart of its screen in place (`getContextRestart`): at rest, as a freshly mounted pot is.
+	const restart = getContextRestart();
+	let restartKey = untrack(() => restart?.());
+	$effect.pre(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		untrack(() => pulse.set(1, { duration: 0 }));
 	});
 
 	const textStyle = (size: number) => ({

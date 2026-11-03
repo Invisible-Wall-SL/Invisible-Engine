@@ -19,11 +19,19 @@ const IN_PLACE_CHANNELS: ReadonlySet<NodeActorChannel> = new Set([
 ]);
 
 /**
- * PROTOTYPE (`?screenDrive=keep`): screens their timelines drive WITHOUT remounting them. A screen
- * qualifies when every timeline hosted on it only moves its nodes (`IN_PLACE_CHANNELS`); each node
- * then takes, for its whole life, the channels any of those timelines keys on it, and samples
- * whichever one drives the screen now — none ⇒ no value ⇒ drawn as authored. Each new play changes
- * the restart key, so the screen's rigs and component machines start again as a remount would.
+ * SCREENS THEIR TIMELINES DRIVE WITHOUT REMOUNTING THEM. A timeline playing on a screen used to
+ * remount it (`<FlowV2Mount>` keyed on the play): every node reads its driver once, at mount. On
+ * `overlay-buffaloduel` that rebuilt the Pots screen — 60 component instances, 60 rigs — as each
+ * pots timeline started, the Hold and Win bonus's worst frames (~1 s with the CPU slowed 4×).
+ *
+ * A screen qualifies when every timeline hosted on it only moves its nodes (`IN_PLACE_CHANNELS`): a
+ * channel that can change which branch draws a node (a mask, a rig scrub, a text track) needs the
+ * node built with it. Each node then takes, for its whole life, the channels any of those timelines
+ * keys on it, and samples whichever one drives the screen now — none ⇒ no value ⇒ drawn as
+ * authored (`foldBoundTransform`). Each new play changes the restart key, and the screen starts
+ * again in place exactly as a remount starts it (`getContextRestart`: rig tracks, component
+ * instances and their machines, effects, flipbooks, Element FX, coded parts), in mount order, so
+ * even a seeded run draws the same pixels.
  */
 export function createScreenSlots(
 	docs: () => readonly CinematicDoc[],

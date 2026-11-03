@@ -79,9 +79,14 @@
 	 */
 	import * as PIXI from 'pixi.js';
 	import * as RIG from 'engine-rig/pixi';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 
-	import { getContextRig, getContextRigLoadScale, createContextParent } from '../context.svelte';
+	import {
+		createContextParent,
+		getContextRestart,
+		getContextRig,
+		getContextRigLoadScale,
+	} from '../context.svelte';
 	import EffectPlayer from './EffectPlayer.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
 	import { particleWallMs } from '../particleClock';
@@ -173,6 +178,20 @@
 	onDestroy(() => {
 		for (const timer of pending) clearTimeout(timer);
 		pending = [];
+	});
+	// A restart (`setContextRestart`): dormant again, as a fresh mount is, before the rig's track
+	// starts over and its first beat fires this again.
+	const restart = getContextRestart();
+	let restartKey = untrack(() => restart?.());
+	$effect.pre(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		for (const timer of pending) clearTimeout(timer);
+		pending = [];
+		stripArmed = false;
+		released = false;
+		runId = 0;
 	});
 
 	// Attached at INIT, not from an effect. The sibling `<RigTrack>` sets the animation and poses

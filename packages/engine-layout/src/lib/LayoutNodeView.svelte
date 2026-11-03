@@ -34,6 +34,7 @@
 		EffectPlayer,
 		Flipbook,
 		Rectangle,
+		Restartable,
 		Sprite,
 		RigBoneAttach,
 		RigPose,
@@ -42,6 +43,7 @@
 		RigTrack,
 		getContextApp,
 		getContextParent,
+		getContextRestart,
 	} from 'pixi-svelte';
 	import type { FederatedPointerEvent } from 'pixi.js';
 	import { getContextLayout } from 'utils-layout';
@@ -56,7 +58,7 @@
 	import { pixiBlendMode } from './blendMode';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { hasInlineImage, stripInlineImage } from './inlineImage';
-	import { getBoundComponent } from './registerBoundComponents';
+	import { boundRestartsInPlace, getBoundComponent } from './registerBoundComponents';
 	import {
 		backgroundCoverAnchor,
 		backgroundCoverScale,
@@ -238,8 +240,22 @@
 	// exactly today's path and this effect returns immediately.
 	let sceneSigAnim = $state<ComponentSignalAnim | undefined>(undefined);
 	let sceneFire = 0;
-	$effect(() =>
-		untrack(() => {
+	// RESTART IN PLACE (`<FlowV2Mount screenSlot>`): each new play of the screen's timeline changes
+	// this key, and the node starts again as a fresh mount would — no cue held, no count-up target,
+	// its subscriptions made again (they re-seed), its clocks (effects, flipbooks, Element FX, a coded
+	// part that does not restart itself) mounted afresh. Off such a screen it never changes.
+	const restart = getContextRestart();
+	let restartKey = untrack(() => restart?.());
+	$effect.pre(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		sceneSigAnim = undefined;
+		countUpTo = undefined;
+	});
+	$effect(() => {
+		void restart?.();
+		return untrack(() => {
 			// An owning instance already drives this node — leave it alone (parity).
 			if (signalAnims) return;
 			// Only the two CUED kinds have a `cues` field at all; everything else exits untouched.
@@ -273,8 +289,8 @@
 			return () => {
 				for (const unsub of unsubs) unsub();
 			};
-		}),
-	);
+		});
+	});
 	// Button-state-driven rig-anim overrides — the interaction sibling of `signalAnims`.
 	// `undefined` for a rig with no interactive `componentInstance` ancestor (parity).
 	const stateAnims = getComponentStateAnims();
@@ -329,6 +345,7 @@
 		() => bindingParams,
 		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
 		timelineDrive,
+		restart,
 	);
 	const { bound, allBindings, fxParamValues } = fold;
 	// A bone-hosted effect (`attachedEffects`) has no view of its own: whether something sets or
@@ -354,6 +371,7 @@
 	});
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
+	const boundRestarts = $derived(!!node.bind && boundRestartsInPlace(node.bind.component));
 	// The author's own nodes inside a coded part (Phase 12c): handed to the part as its `skin`
 	// snippet, so the PART decides where they draw — a skinnable part draws them in place of its
 	// coded drawing and keeps its behaviour; any other part ignores them, as it always has. A part
@@ -728,11 +746,12 @@
 	let countUpTo = $state<number | undefined>(undefined);
 	if (textTrack?.to) {
 		const source = getComponentValueSource(textTrack.to);
-		$effect(() =>
-			source?.subscribe((value) => {
+		$effect(() => {
+			void restart?.();
+			return source?.subscribe((value) => {
 				countUpTo = typeof value === 'number' ? value : Number(value) || 0;
-			}),
-		);
+			});
+		});
 	}
 	const timelineCount = $derived.by(() => {
 		if (timelineText?.mode !== 'countUp') return undefined;
@@ -1266,16 +1285,18 @@
 				zIndex={transform.zIndex}
 			>
 				{#if ownAnchor}<Anchor name={node.id} />{/if}
-				{#if isBackground}
-					<Bound
-						{transform}
-						cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
-						{...node.bind?.props ?? {}}
-						{...boundSkin}
-					/>
-				{:else}
-					<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
-				{/if}
+				{#key boundRestarts ? undefined : restart?.()}
+					{#if isBackground}
+						<Bound
+							{transform}
+							cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
+							{...node.bind?.props ?? {}}
+							{...boundSkin}
+						/>
+					{:else}
+						<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
+					{/if}
+				{/key}
 			</Container>
 		{:else if node.kind === 'container'}
 			<!--
@@ -1683,16 +1704,18 @@
 				-->
 				{#each attachedEffects ?? [] as fx (fx.id)}
 					{@const fxDoc = resolveEffect(fx.effectId)}
-					{#if fxDoc && attachedDrive(fx)}
-						<DrivenEffectPlayer
-							node={fx}
-							doc={fxDoc}
-							drive={attachedDrive(fx)?.drive}
-							scope={signalScope}
-						/>
-					{:else if fxDoc}
-						<EffectPlayer doc={fxDoc} scope={signalScope} />
-					{/if}
+					<Restartable>
+						{#if fxDoc && attachedDrive(fx)}
+							<DrivenEffectPlayer
+								node={fx}
+								doc={fxDoc}
+								drive={attachedDrive(fx)?.drive}
+								scope={signalScope}
+							/>
+						{:else if fxDoc}
+							<EffectPlayer doc={fxDoc} scope={signalScope} />
+						{/if}
+					</Restartable>
 				{/each}
 				<!--
 					Reveal-symbol rider: ride the chosen `stateGame.specialSymbol` on a named bone of THIS
@@ -1844,12 +1867,14 @@
 					zIndex={transform.zIndex}
 					{blendMode}
 				>
-					<EffectPlayer
-						doc={effectDoc}
-						scope={signalScope}
-						params={fxParamValues}
-						instanceKey={node.id}
-					/>
+					<Restartable>
+						<EffectPlayer
+							doc={effectDoc}
+							scope={signalScope}
+							params={fxParamValues}
+							instanceKey={node.id}
+						/>
+					</Restartable>
 				</Container>
 			{/if}
 		{:else if node.kind === 'flipbook'}
@@ -1956,7 +1981,9 @@
 	<Container zIndex={transform.zIndex}>
 		{#if ownAnchor}<Anchor name={node.id} />{/if}
 		{#if transform.visible && revealed}
-			<ElementFxPlayer entries={elementFx} scope={signalScope} pose={elementFxPose} />
+			{#key restart?.()}
+				<ElementFxPlayer entries={elementFx} scope={signalScope} pose={elementFxPose} />
+			{/key}
 		{/if}
 		{@render listened()}
 	</Container>

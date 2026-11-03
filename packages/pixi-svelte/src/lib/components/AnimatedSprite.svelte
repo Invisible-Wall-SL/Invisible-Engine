@@ -20,7 +20,7 @@
 <script lang="ts">
 	import { framesChanged } from '../animatedSpriteFrames';
 	import { propsSyncEffect } from '../utils.svelte';
-	import { getContextParent } from '../context.svelte';
+	import { getContextParent, getContextRestart } from '../context.svelte';
 
 	const props: Props = $props();
 
@@ -92,7 +92,10 @@
 		scale.y = Math.abs(scale.y) * (props.flipY ? -1 : 1);
 	});
 
+	const restart = getContextRestart();
 	$effect(() => {
+		// A restart (`setContextRestart`) starts the clip again from its first frame.
+		void restart?.();
 		const held = heldFrame();
 		if (held !== undefined) {
 			animatedSprite.gotoAndStop(held);

@@ -29,6 +29,8 @@
 
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
+	import { untrack } from 'svelte';
+	import { getContextRestart } from 'pixi-svelte';
 
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
@@ -46,6 +48,15 @@
 	const displayed = new Tween(props.target, { duration: 0 });
 	$effect(() => {
 		displayed.set(props.target, { duration: props.countUp ? 500 : 0 });
+	});
+	// A restart (`setContextRestart`): the value as a fresh mount shows it, no count-up in flight.
+	const restart = getContextRestart();
+	let restartKey = untrack(() => restart?.());
+	$effect.pre(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		untrack(() => displayed.set(props.target, { duration: 0 }));
 	});
 
 	const text = $derived(props.format(displayed.current));

@@ -34,6 +34,7 @@ export function createBoundValues(
 	params: () => Record<string, unknown>,
 	frameCount: () => number | undefined,
 	fxParams?: readonly EffectParam[],
+	restart?: () => unknown,
 ): BoundValues {
 	if (!bindings?.length) return NONE;
 	const fxShapes = fxParams
@@ -137,6 +138,20 @@ export function createBoundValues(
 	$effect(() => () => {
 		if (raf) cancelAnimationFrame(raf);
 		raf = 0;
+	});
+	// A restart of the screen in place (`setContextRestart`): every output snaps to its value, as a
+	// fresh mount's first does.
+	let restartKey = untrack(() => restart?.());
+	$effect.pre(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		untrack(() => {
+			targets.forEach((target, i) => {
+				glides[i] = undefined;
+				shown[i] = target;
+			});
+		});
 	});
 
 	return {

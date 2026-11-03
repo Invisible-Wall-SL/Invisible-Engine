@@ -81,6 +81,7 @@
 	import type { FlowEntranceTransition, MountedContainerRef } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
+		registerBoundRestartsInPlace,
 		registerComponents,
 		registerEffects,
 		registerFlipbooks,
@@ -642,6 +643,9 @@
 		RespinLockedRows,
 		LineOverlayPart,
 	});
+	// The pot meter starts again by itself on a screen restarted in place (`HoldAndWinPot`), so its
+	// author-built skin is not mounted afresh with it.
+	registerBoundRestartsInPlace(['PotMeter']);
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`
 	// nodes of `hudReadout` (see `referenceLayouts/hud.ts`), so this powers the live
@@ -1378,19 +1382,15 @@
 	// re-renders once the flow is built at load. Independent of `flowV2DrivesScreens` — a book-events-only
 	// flow that owns no screens can still author messages. `undefined` with no v2 flow (parity: nothing).
 	let flowV2Handle = $state<LinesFlowV2 | undefined>(undefined);
-	// PROTOTYPE: `?screenDrive=keep` drives a screen whose timelines only move its nodes in place
-	// (`screenSlots.ts`) instead of remounting it on each play.
-	const screenSlot = (() => {
-		if (new URLSearchParams(globalThis.location?.search ?? '').get('screenDrive') !== 'keep')
-			return undefined;
-		const slots = createScreenSlots(bakedCinematics, (sceneId) =>
-			flowV2Handle?.screenDrive(sceneId),
-		);
-		return (sceneId: string) => {
-			const scene = flowV2ResolveScene?.(sceneId);
-			return scene ? slots(scene) : undefined;
-		};
-	})();
+	// A screen whose timelines only move its nodes is driven where it stands and restarted in place
+	// on each play, instead of being remounted (`screenSlots.ts`).
+	const screenSlots = createScreenSlots(bakedCinematics, (sceneId) =>
+		flowV2Handle?.screenDrive(sceneId),
+	);
+	const screenSlot = (sceneId: string) => {
+		const scene = flowV2ResolveScene?.(sceneId);
+		return scene ? screenSlots(scene) : undefined;
+	};
 	// Flow variables, timers and tick (game-families §3.2): one ticker callback advances the flow's
 	// store, the `tickFlights` pattern. Added only when the flow has one, so a slot game's frame is
 	// untouched. It also re-runs on `loaded`: the ticker is not reactive, and a flow built from a
@@ -2670,6 +2670,7 @@
 				scene={flowV2EnginePots.scene}
 				z={flowV2EnginePots.z}
 				flow={flowV2Handle}
+				slot={screenSlots(flowV2EnginePots.scene)}
 			/>
 		{/if}
 

@@ -477,6 +477,7 @@
 		if (loadedSignal) flow?.emitSignal(loadedSignal);
 	};
 	$effect(() => {
+		void restarted();
 		if (!loadedSource) return;
 		return loadedSource.subscribe((value) => {
 			if (!loadedSeeded) {
@@ -675,6 +676,19 @@
 		firedSignals[signal] = (firedSignals[signal] ?? 0) + 1;
 	};
 	setComponentFiredSignals({ counts: firedSignals, fire: fireComponentSignal });
+	// RESTART IN PLACE: on a screen a timeline drives without remounting it (`<FlowV2Mount
+	// screenSlot>`), each new play changes this key and the instance starts again exactly as a fresh
+	// mount would (`restartInstance`, below). The effects a mount runs read it too, so they run
+	// again — a re-subscribe re-seeds, as it does on a mount. Off such a screen it never changes.
+	const restart = getContextRestart();
+	let restartKey = untrack(() => restart?.());
+	const restarted = (): unknown => restart?.();
+	$effect.pre(() => {
+		const key = restart?.();
+		if (key === restartKey) return;
+		restartKey = key;
+		untrack(restartInstance);
+	});
 	// The tap surface arms once its gate signal has fired (or immediately when none is set). Reactive
 	// so the tap-registration `$effect` below re-runs when the arming signal fires (e.g. intro done).
 	const tapArmed = $derived(isTapArmed(tapArmSignal, firedSignals));
@@ -698,8 +712,9 @@
 	// `LayoutScene`'s tap-portal guard). The subscriptions still fire on every LATER emission (those run
 	// outside this effect), and each fire still WRITES `firedSignals` so `hiddenUntilSignal`/`tapArmed`
 	// consumers update — `untrack` suppresses dependency TRACKING, never the writes/notifications.
-	$effect(() =>
-		untrack(() => {
+	$effect(() => {
+		void restarted();
+		return untrack(() => {
 			const unsubs: (() => void)[] = [];
 			for (const [signalKey, targets] of signalToTargets) {
 				// `enter` is fired by THIS instance on its visible edge (see below) — never by a source.
@@ -734,8 +749,8 @@
 			return () => {
 				for (const unsub of unsubs) unsub();
 			};
-		}),
-	);
+		});
+	});
 
 	// `enter` is a COMPONENT-lifecycle signal the instance fires ITSELF — no game source
 	// maps to it, so the game-registered loop above skips it. It plays each rig's `enter`
@@ -757,6 +772,7 @@
 	setSceneVisibleContext(() => selfVisible);
 	let wasVisible = false;
 	$effect(() => {
+		void restarted();
 		if (selfVisible && !wasVisible) {
 			// Through `fireCue` too: a screen gated "Shows during …" can open a SECOND time (free
 			// spins entered twice in one session), and a value-identical re-write would not replay.
@@ -871,13 +887,15 @@
 			: undefined;
 	// A repeater's constants (a segment's `index` / `count`), set before the machine first evaluates.
 	const fixedInputs = untrack(() => inputValues);
-	if (stateMachineRunner && def && fixedInputs) {
+	const applyFixedInputs = (): void => {
+		if (!stateMachineRunner || !def || !fixedInputs) return;
 		for (const input of componentInputs(def)) {
 			const value = fixedInputs[input.id];
 			if (input.kind === 'number' && value !== undefined)
 				stateMachineRunner.setInput(input.id, value);
 		}
-	}
+	};
+	applyFixedInputs();
 	if (stateMachineRunner?.missingTimelines.length && def && !warnedMissingTimelines[def.id]) {
 		warnedMissingTimelines[def.id] = true;
 		console.warn(
@@ -922,8 +940,9 @@
 	}
 	// A timeline signal or a trigger input no cue or gate already listens for still has to reach
 	// the per-instance bus.
-	$effect(() =>
-		untrack(() => {
+	$effect(() => {
+		void restarted();
+		return untrack(() => {
 			if (!timelinePlayer && !stateMachineRunner) return;
 			const unsubs: (() => void)[] = [];
 			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers];
@@ -939,8 +958,8 @@
 			return () => {
 				for (const unsub of unsubs) unsub();
 			};
-		}),
-	);
+		});
+	});
 	// Every fire of a `playOn` signal on the per-instance bus (re)starts its timelines.
 	const timelineFires: Record<string, number> = {};
 	$effect(() => {
@@ -985,8 +1004,9 @@
 	// machine (a bool from on / off or 1 / 0, as a Flow set reads one); a text input keeps the key the
 	// source names, as a Flow set keeps one (game-families §3.1: a `var:<id>` source is a Flow
 	// variable). Untracked: a source emits synchronously on subscribe.
-	$effect(() =>
-		untrack(() => {
+	$effect(() => {
+		void restarted();
+		return untrack(() => {
 			if (!def) return;
 			const unsubs: (() => void)[] = [];
 			const passed = inputSources;
@@ -1014,8 +1034,8 @@
 			return () => {
 				for (const unsub of unsubs) unsub();
 			};
-		}),
-	);
+		});
+	});
 	const timelineEvents =
 		timelinePlayer || stateMachineRunner
 			? getContextEventEmitter<{ type: string }>()?.eventEmitter
@@ -1121,27 +1141,34 @@
 	};
 	timelineTicker?.add(tickTimelines);
 	onDestroy(() => timelineTicker?.remove(tickTimelines));
-	// A restart (its screen's timeline played again without remounting it): back to how this
-	// instance starts — its timelines stopped, its machine on its entry states, `enter` played again
-	// if it is on screen.
-	const restart = getContextRestart();
-	let restartKey = untrack(() => restart?.());
-	$effect(() => {
-		const key = restart?.();
-		if (key === restartKey) return;
-		restartKey = key;
-		untrack(() => {
-			timelinePlayer?.reset();
-			stateMachineRunner?.reset();
-			stateMachineStarted = false;
-			if (stateMachineRunner && selfVisible) startStateMachine();
-			timelineClock += 1;
-			if (selfVisible) {
-				fireCue(signalToTargets.get(ENTER_SIGNAL) ?? []);
-				fireComponentSignal(ENTER_SIGNAL);
-			}
-		});
-	});
+	/**
+	 * Start again as a fresh mount of this instance starts: no cue overrides, nothing fired on its
+	 * bus (so its `hiddenUntilSignal` nodes hide and its tap disarms), its timelines stopped, its
+	 * machine on its entry states with its inputs at their defaults and then its fixed ones, started
+	 * at once if it is shown, its ticker callback re-added last. The effects that read `restarted`
+	 * then run again in their order — subscriptions re-seed, `enter` fires on the visible edge.
+	 */
+	function restartInstance(): void {
+		for (const key of Object.keys(signalAnims)) delete signalAnims[key];
+		for (const key of Object.keys(firedSignals)) delete firedSignals[key];
+		for (const key of Object.keys(timelineFires)) delete timelineFires[key];
+		for (const key of Object.keys(triggerFires)) delete triggerFires[key];
+		for (const key of Object.keys(aligned)) delete aligned[key];
+		loadedSeeded = false;
+		wasLoaded = false;
+		fired = false;
+		wasVisible = false;
+		cueHoldsOf?.releaseAll();
+		eventDispatcher?.reset();
+		timelinePlayer?.reset();
+		stateMachineRunner?.restart();
+		applyFixedInputs();
+		stateMachineStarted = false;
+		if (stateMachineRunner && selfVisible) startStateMachine();
+		timelineClock += 1;
+		timelineTicker?.remove(tickTimelines);
+		timelineTicker?.add(tickTimelines);
+	}
 
 	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
 	// container — no coded `bind` part) has nothing to own the press: `ButtonFrame`

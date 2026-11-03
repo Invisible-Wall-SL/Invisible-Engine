@@ -877,7 +877,7 @@ const hudIntro = () => ({
 	const source = (path) => readFileSync(fileURLToPath(repoFile(path)), 'utf8');
 	const gameSource = source('apps/lines/src/components/Game.svelte');
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
-	check('wiring: Game mounts its own Pots screen through <EngineScreenMount> with the flow handle', /\{#if flowV2EnginePots\}\s*<EngineScreenMount\s+scene=\{flowV2EnginePots\.scene\}\s+z=\{flowV2EnginePots\.z\}\s+flow=\{flowV2Handle\}\s*\/>/.test(gameSource)); // prettier-ignore
+	check('wiring: Game mounts its own Pots screen through <EngineScreenMount> with the flow handle and its in-place slot', /\{#if flowV2EnginePots\}\s*<EngineScreenMount\s+scene=\{flowV2EnginePots\.scene\}\s+z=\{flowV2EnginePots\.z\}\s+flow=\{flowV2Handle\}\s+slot=\{screenSlots\(flowV2EnginePots\.scene\)\}\s*\/>/.test(gameSource)); // prettier-ignore
 	check('wiring: Game hands <FlowV2Cinematics> the flow handle’s onStage, the base game through basegameOnStage', /<FlowV2Cinematics\s+flow=\{flowV2Handle\}\s+onStage=\{\(sceneId\) =>\s+sceneId === basegameScreenId\s+\? basegameOnStage\s+: !!flowV2ResolveScene && !!flowV2Handle\?\.onStage\(sceneId\)\}/.test(gameSource)); // prettier-ignore
 	check('wiring: the base game is on stage only under a flow that drives the screens', /const basegameOnStage = \$derived\(\s*flowV2DrivesScreens && !!flowV2Handle\?\.onStage\(basegameScreenId\),?\s*\);/.test(gameSource)); // prettier-ignore
 	check('wiring: Game takes the base game’s drive while it is on stage', /const basegameDrive = \$derived\(\s*basegameOnStage \? flowV2Handle\?\.screenDrive\(basegameScreenId\) : undefined,?\s*\);/.test(gameSource)); // prettier-ignore
