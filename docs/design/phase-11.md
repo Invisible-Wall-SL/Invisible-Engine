@@ -46,8 +46,10 @@ The owner's order, with the reason for each:
 ### 2.1 The problem
 
 The runtime is one bundle. SvelteKit's `bundleStrategy` is `'inline'` (`'single'` for embed
-builds), set in `packages/config-svelte/index.js`. Both inline every dynamic import, so a lazy
-`import()` does not keep code out of the file ([game-families.md](game-families.md) §6.4;
+builds), set in `packages/config-svelte/index.js`. (Since 2026-11-03 every build is `'single'`
+and only the embed inlines its dynamic imports; see [delivery-builds.md](delivery-builds.md) "How a
+build is served". What follows is the reasoning at the time.) Both inline every dynamic import, so a
+lazy `import()` does not keep code out of the file ([game-families.md](game-families.md) §6.4;
 P10.5's note in the status file). `apps/lines/src/game/online.ts` already loads `engine-rooms` and
 `engine-rooms/predict` lazily, and both still ship in every game. `Game.svelte` imports
 `Match3Input`, `ArcadeStage` and `CardTable` statically and mounts one by `mechanic`. So the code

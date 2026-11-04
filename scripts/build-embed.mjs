@@ -28,12 +28,17 @@
  *
  * ASSETS NEED NOTHING. The game builds its asset URLs from `import.meta.url`, so the module resolves
  * `assets/` against its own location on the CDN. That is what makes the `versionPath` folder move
- * work, and it is exactly what the default inline build breaks — an inline script has no `src` and
- * falls back to `document.baseURI`, i.e. the partner's page.
+ * work. (It is what the old default `inline` build broke: an inline script has no `src`, and fell
+ * back to `document.baseURI`, i.e. the partner's page.)
+ *
+ * ONE FILE. Every game build is now a shell plus `bundle.<hash>.js`, but only an embed build keeps
+ * its dynamic imports inside the bundle (`config-vite` `lazyChunks.js`): the partner uploads one
+ * folder per `versionPath` and our contract (`EMBED.md`) is `game.js` + one bundle. A build with
+ * chunks is refused here, so a delivery cut without `PUBLIC_DELIVERY_EMBED=1` cannot slip through.
  *
  * See `docs/design/delivery-builds.md`.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const buildDir = resolve(process.cwd(), process.argv[2] ?? 'build');
@@ -59,8 +64,16 @@ const bundle = shell.match(/import\("([^"]+bundle[^"]*\.js)"\)/)?.[1];
 if (!kitGlobal || !bundle) {
 	throw new Error(
 		`${shellPath} does not look like a 'single' bundle build ` +
-			`(kit global: ${kitGlobal ?? 'not found'}, bundle: ${bundle ?? 'not found'}). ` +
-			`Was PUBLIC_DELIVERY_EMBED=1 set? The default build inlines the bundle instead.`,
+			`(kit global: ${kitGlobal ?? 'not found'}, bundle: ${bundle ?? 'not found'}).`,
+	);
+}
+
+const chunksDir = resolve(buildDir, '_app/immutable/chunks');
+const chunks = existsSync(chunksDir) ? readdirSync(chunksDir).filter((f) => f.endsWith('.js')) : [];
+if (chunks.length) {
+	throw new Error(
+		`${buildDir} has ${chunks.length} lazy chunk(s) under _app/immutable/chunks/, so it is not a ` +
+			`one-file embed bundle. Was PUBLIC_DELIVERY_EMBED=1 set?`,
 	);
 }
 

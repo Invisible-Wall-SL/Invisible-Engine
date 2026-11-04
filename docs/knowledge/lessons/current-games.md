@@ -11,7 +11,7 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **Cause:** `config-vite`'s `assetsInlineLimit: Infinity` inlined `libktx.{js,wasm}` as base64.
   Emitted instead, the inline (`iife`) build resolved them to `<page>/assets/`, a 404 only a phone
   hits, and Pixi has no fallback (a missing wasm hangs every `.ktx2` load).
-- **Fix:** libktx kept out of inlining; `config-vite/assetUrls.js` anchors URLs on the chunk;
+- **Fix:** libktx kept out of inlining, its URL anchored on the bundle (now `import.meta.url`);
   `pixi-svelte/ktx2Transcoder.ts` checks the files (30 s timeout, one retry); `Asset.fallback`.
 - **Guard:** `pnpm check:ktx2-transcoder` (runtime, inline delivery, embed; transcoder broken).
 - **PR:** not recorded (2026-11-03) · source: `docs/status/engine.md`
