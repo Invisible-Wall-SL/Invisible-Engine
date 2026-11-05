@@ -73,6 +73,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **A screen timeline remounts its whole screen — the Hold and Win bonus's worst frame (fix in
+  review: #1519 restarts such a screen in place, pixel-identical to a remount; close this item when it
+  lands).** A host-`screen` timeline playing on a screen remounts it (`FlowV2Mount` /
+  `EngineScreenMount` `{#key drive?.key}`: a `LayoutNodeView` reads its driver once, at init). On
+  `overlay-buffaloduel` the Pots screen (60 component instances, 60 rigs) remounts as
+  `HideUnderReel_Intro` and `HideUnderReel_Outro` start, twice per bonus, ~0.6–1.1 s each with the
+  CPU slowed 4×; the base game's screen remounts the same way. ~22% of that is Svelte inserting block
+  anchors (~58 per layout node). Driving a mounted screen without the remount would remove it, but
+  it is a visible change: every rig, state machine and effect on the screen stops restarting when a
+  timeline starts — unless the restart reproduces a remount exactly, which is what #1519 does. Measurement
+  tooling and the profile of it: see the 2026-11-03 entry under Recent changes.
 - **A game build's own `assets/` are re-downloaded on every visit** (from the 2026-11-03 shell +
   bundle change, below). The code is now a ~4 KB `no-store` shell over immutable `_app/immutable/`
   chunks, but the build's `assets/` (the boot splash, sound banks, reference art; stable names) are
@@ -323,6 +334,36 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-03 — **Game builds stop lowering `#private` fields; respin cells skip symbols that draw
+  nothing** (branch `claude/hold-and-win-mount-ahead`). From the 2026-11-03 audit of
+  `overlay-buffaloduel`, whose Hold and Win bonus froze up to 1.5 s with the CPU slowed 4×.
+  Profiled per long frame (headless shell on the GPU, `long-animation-frame`, CPU profile aligned to
+  the rAF clock), the freezes were mounts plus the collector, in three groups:
+  - **GC.** `config-vite` set no `build.target`, so Vite's default (`safari14`) made esbuild lower
+    every `#private` class field to a WeakMap. Svelte's runtime is built on them, so every effect
+    and branch paid WeakMap writes and brand checks, and the worst bonus frames were single
+    1–3 s collections in the middle of a mount. Builds now keep class fields, private members and
+    `#x in` checks native (`esbuild.supported`, `NATIVE_CLASSES`) — no floor raised: every game
+    already calls `Array.prototype.at` unpolyfilled at boot (the mode stack). GC inside the long
+    frames fell from seconds to ~76 ms (measured with an `es2022` target, which keeps the same
+    private fields native). Not that target itself: once the client bundle was minified by Terser,
+    the es2022 output kept the HUD clock's stale width when its string changed, moving the game name
+    on some screens; the current-games harness failed 11 games on it, and a local harness run
+    reproduced it and passed with the narrower list. Applies to every build through `config-vite`.
+  - **Respin strips.** A respin cell mounted a whole `Symbol` for every strip symbol rolling past its
+    window; two thirds of a Hold and Win strip are blanks that draw nothing (no art, no placeholder,
+    label, stamp or Element FX). `RespinCell` now leaves those unmounted, rolling or at rest
+    (`game/symbolDraws.ts` `symbolDrawsNothing`, which mirrors `Symbol.svelte`'s draw conditions —
+    keep them in step). Such a symbol never reports completion either, so nothing waits on it.
+  - **Screen timeline remounts** — not fixed; see Open items.
+  Measured on the live build's own data and authoring mock, each side a local build swapped in for
+  the page's document, three interleaved rounds of base + all three pots' bonuses, median:
+  worst bonus frame 1,700 → 1,067 ms, frames over 250 ms 89 → 27, over 100 ms 531 → 357, bonus
+  frame rate 10.7 → 16.3 fps. The remaining worst frame is the Pots screen remount. The texture
+  growth the audit saw in the first bonus (74 → 89) is not art: Pixi texture-pool render targets and
+  one text canvas, allocated once. Notes for re-running the probe: the profile's start trails the
+  page clock by 1–2 s at 4× (fit the shift so no idle sample falls inside a long rAF gap), and other
+  sessions' builds swing a run 2× (raise the headless shell to High priority, interleave rounds).
 - 2026-11-03 — **A game build is a ~4 KB shell plus an immutable bundle; the only code a repeat
   visit downloads is the shell, and runtime source maps reach Sentry again** (branch
   `engine-runtime-shell-bundle`). **Why:** the runtime page is served `no-store`, and it carried the

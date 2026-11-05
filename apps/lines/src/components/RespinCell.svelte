@@ -4,6 +4,7 @@
 
 	import Symbol from './Symbol.svelte';
 	import { respinCellStopState } from '../game/respinLanding';
+	import { symbolDrawsNothing } from '../game/symbolDraws';
 	import { cellWindow, getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
 	import { completeCellLanding, respinCellLook } from '../game/stateRespinBoard.svelte';
 
@@ -52,11 +53,15 @@
 	 * every one of them its own block on every cell of the board, the frame a respin starts, cost a
 	 * 50–80 ms hitch. Recomputed each frame the strip moves; a symbol mounts as it nears the window.
 	 * At rest only the window's symbol (strip index 1) exists, which the opened mask relies on.
+	 * A symbol that draws nothing in its state (`symbolDrawsNothing`: the blanks most of a strip is
+	 * made of) is not mounted at all, rolling or at rest.
 	 */
 	const near = (y: number) => Math.abs(y - (cellBox.top + cellBox.height / 2)) < cellBox.height;
 	const shown = $derived(
-		props.cell.cellReel.reelState.symbols.filter((symbol) =>
-			rolling ? near(yOf(symbol)) : symbol.symbolIndex === 1,
+		props.cell.cellReel.reelState.symbols.filter(
+			(symbol) =>
+				(rolling ? near(yOf(symbol)) : symbol.symbolIndex === 1) &&
+				!symbolDrawsNothing(symbol.rawSymbol, shownState(symbol)),
 		),
 	);
 
