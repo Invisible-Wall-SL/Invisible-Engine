@@ -1572,6 +1572,10 @@
 			onclick={deleteOpenEffect}>🗑 Delete</button
 		>
 		<button onclick={() => (playing = !playing)}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
+		<button
+			title="Play the whole effect again from its start, every layer together"
+			onclick={() => stage?.replay()}>⟲ Replay</button
+		>
 		<button onclick={() => stage?.resetView()}>Reset view</button>
 		<span class="spacer"></span>
 		<!-- Another author (or your own other tab) holds this effect's lease → read-only here.
@@ -1890,6 +1894,7 @@
 					bind:this={stage}
 					layers={doc.layers}
 					{playing}
+					loopBursts
 					{resolveArt}
 					{resolveSkeleton}
 					{rigEntry}

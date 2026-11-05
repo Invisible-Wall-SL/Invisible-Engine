@@ -54,3 +54,59 @@ export const noWebGpuRenderer = () => {
 		},
 	};
 };
+
+/** `pixi.js/lib/environment-browser/browserExt.mjs`, wherever the package is installed. */
+export const BROWSER_EXT = /[\\/]pixi\.js[\\/]lib[\\/]environment-browser[\\/]browserExt\.mjs$/;
+
+/**
+ * The dynamic imports Pixi makes on EVERY browser boot, by the file that makes them: the WebGL
+ * renderer (`InitialiseApplication` asks for WebGL) and the browser environment (`browserAll`:
+ * events, accessibility, DOM), which `autoDetectRenderer` loads before any renderer.
+ */
+export const EAGER_IMPORTS = Object.freeze([
+	{ file: AUTO_DETECT_RENDERER, spec: './gl/WebGLRenderer.mjs' },
+	{ file: BROWSER_EXT, spec: './browserAll.mjs' },
+]);
+
+/**
+ * Keep those two in the bundle. A game build splits its dynamic imports into lazy chunks
+ * (`lazyChunks.js`), so left alone each would be a chunk fetched only once Pixi starts: one round
+ * trip after the bundle on every first visit, and a boot that waits on the network part-way through.
+ * Under the current-games harness's stepped clock that wait cost every game 60–170 frames, which
+ * shifted every time-based animation and changed screens. A static import is what the one-file build
+ * did (it evaluated both with the bundle), so this keeps that exactly; the canvas fallback and the
+ * WebGPU stub stay lazy.
+ */
+export const eagerPixiBoot = () => {
+	let ssr = false;
+	return {
+		name: 'ie-pixi-eager-boot',
+		apply: 'build',
+		enforce: 'pre',
+		configResolved(config) {
+			ssr = Boolean(config.build.ssr);
+		},
+		transform(code, id) {
+			if (ssr) return null;
+			const file = id.split('?')[0];
+			const wanted = EAGER_IMPORTS.filter((e) => e.file.test(file));
+			if (!wanted.length) return null;
+			let out = code;
+			const statics = [];
+			wanted.forEach(({ spec }, i) => {
+				const call = `import('${spec}')`;
+				if (!out.includes(call)) {
+					this.error(
+						`pixi.js's ${file} no longer makes ${call}: update EAGER_IMPORTS in ` +
+							'packages/config-vite/pixiRenderers.js for this Pixi version.',
+					);
+				}
+				const name = `__ieEager${i}`;
+				out = out.replaceAll(call, `Promise.resolve(${name})`);
+				statics.push(`import * as ${name} from '${spec}';`);
+			});
+			// At the end, where no existing line moves: an import is hoisted wherever it is written.
+			return { code: `${out}\n${statics.join('\n')}\n`, map: null };
+		},
+	};
+};

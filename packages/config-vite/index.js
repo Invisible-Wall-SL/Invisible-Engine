@@ -8,9 +8,10 @@ import { defineConfig } from 'vite';
 // The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
-import { chunkAnchoredAssetUrls } from './assetUrls.js';
+import { sentryDebugIds } from './debugIds.js';
 import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
-import { noWebGpuRenderer } from './pixiRenderers.js';
+import { lazyChunks } from './lazyChunks.js';
+import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
@@ -167,9 +168,9 @@ export const buildStamp = (debug) => ({
 
 /**
  * `IE_SOURCEMAPS=hidden` (the runtime release) writes source maps WITHOUT a `sourceMappingURL`
- * comment, for `scripts/sentry-sourcemaps.mjs` to upload to Sentry and then delete. The repo and the
- * bundle are public, so a map must never ship next to the code; unset keeps a production build
- * map-less.
+ * comment, and gives every chunk a debug ID (`debugIds.js`), for `scripts/sentry-sourcemaps.mjs`
+ * to upload to Sentry and then delete. The repo and the bundle are public, so a map must never ship
+ * next to the code; unset keeps a production build map-less.
  */
 const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? 'hidden' : false);
 
@@ -243,10 +244,12 @@ export default () => {
 		plugins: [
 			familySet.plugin,
 			noWebGpuRenderer(),
+			eagerPixiBoot(),
 			terserClient(),
 			sveltekit(),
 			lingui(),
-			chunkAnchoredAssetUrls(),
+			lazyChunks(),
+			sentryDebugIds({ enabled: sourcemap() === 'hidden' }),
 		],
 		logLevel: 'info',
 		define: {
@@ -259,11 +262,11 @@ export default () => {
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
 		ssr: { noExternal: ['error-tracking'] },
 		esbuild: { supported: NATIVE_CLASSES },
-		// Inline every build-time asset into the bundle (single-file game deploy) EXCEPT the KTX2
-		// transcoder (`libktx.{js,wasm}`, ~520 KB gz, imported by `pixi-svelte` via `?url`): only a
-		// phone on the compressed tier ever fetches it, so it ships as a real
-		// `_app/immutable/assets/` file instead of a base64 copy every desktop downloads.
-		// `chunkAnchoredAssetUrls` (`assetUrls.js`) makes its URL resolve beside the bundle, and
+		// Inline every build-time asset into the bundle EXCEPT the KTX2 transcoder
+		// (`libktx.{js,wasm}`, ~520 KB gz, imported by `pixi-svelte` via `?url`): only a phone on the
+		// compressed tier ever fetches it, so it ships as a real `_app/immutable/assets/` file instead
+		// of a base64 copy every desktop downloads. The bundle is an ES module, so its URL is
+		// `new URL(…, import.meta.url)`: beside the bundle, wherever the build is served from.
 		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load.
 		build: {
 			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file),

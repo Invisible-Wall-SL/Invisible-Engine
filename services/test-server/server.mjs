@@ -4,9 +4,9 @@
  * One small Node service that lets the engine games be launched + played from
  * any machine (via the launcher portal's Games section). It does two jobs:
  *
- *   1. Serves each game's built bundle (a single self-contained index.html — the
- *      games build with adapter-static + inline asset strategy, so there are no
- *      runtime asset fetches) under  GET /<gameKey>/.
+ *   1. Serves each game's built bundle under  GET /<gameKey>/: an `index.html` shell
+ *      (no-store) that imports `_app/immutable/bundle.<hash>.js` and its chunks
+ *      (content-hashed, cached immutable), plus the game's `assets/` (no-store).
  *   2. Hosts a mock Play4Fun RGS per game under  /api/<gameKey>/rgs/engine, so
  *      the game has a backend to spin against (fake money, no real spend).
  *
@@ -115,6 +115,10 @@ let runtimePointers = {};
  *  who loaded the old index.html may still fetch its content-hashed chunks; they must not 404 the
  *  moment the pointer moves. Kept for one generation. */
 let retiredImmutable = {};
+/** gameKey -> `_app/immutable/*` files a desktop-published game's previous publish served and its
+ *  current one does not (a re-hashed bundle or lazy chunk; the portal relay prunes them from R2).
+ *  Same reason as `retiredImmutable`, same one generation: kept until the game's files change again. */
+let retiredGameImmutable = {};
 /** gameKey -> mock instance ({ handle }) */
 let mocks = {};
 /** gameKey -> the AUTHORING twin of a runtime game's mock (see `AUTHORING`). Created on the first
@@ -567,6 +571,7 @@ async function hydrateOnce() {
 		bundles = {};
 		runtimeBundles = {};
 		retiredImmutable = {};
+		retiredGameImmutable = {};
 		mocks = {};
 		authoringMocks = {};
 		contracts = {};
@@ -728,12 +733,22 @@ async function hydrateOnce() {
 		);
 	}
 
+	const nextRetiredGames = {};
+	for (const [key, files] of Object.entries(nextBundles)) {
+		const gone = Object.entries(own(bundles, key) ?? {}).filter(
+			([rel]) => rel.startsWith('_app/immutable/') && !own(files, rel),
+		);
+		if (gone.length) nextRetiredGames[key] = Object.fromEntries(gone);
+		else if (own(retiredGameImmutable, key)) nextRetiredGames[key] = retiredGameImmutable[key];
+	}
+
 	// swap in atomically; recreate mocks so balances reset on a refresh
 	registry = nextRegistry;
 	bundles = nextBundles;
 	runtimeBundles = nextRuntimeBundles;
 	runtimePointers = nextPointers;
 	retiredImmutable = nextRetired;
+	retiredGameImmutable = nextRetiredGames;
 	// Drop the poll state with the mocks it described, so the first request after a refresh re-reads
 	// every game's live contract instead of coasting on the previous window.
 	contracts = {};
@@ -966,12 +981,23 @@ const handleRequest = async (req, res) => {
 				: own(bundles, gameKey)
 			: undefined;
 		if (files) {
+			// The shell's URLs are relative (`./_app/…`), so `/<gameKey>` without the slash would
+			// resolve them against `/` and load nothing. Send it to the folder, query and all.
+			if (segments.length === 1) {
+				res.writeHead(301, { Location: `/${gameKey}/${url.search}`, 'Content-Length': 0 });
+				return res.end();
+			}
 			const rel = segments.slice(1).join('/') || 'index.html';
 			const file =
 				own(files, rel) ??
 				(rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined) ??
-				(meta.runtime && rel.startsWith('_app/immutable/')
-					? own(own(retiredImmutable, meta.runtime) ?? {}, rel)
+				(rel.startsWith('_app/immutable/')
+					? own(
+							(meta.runtime
+								? own(retiredImmutable, meta.runtime)
+								: own(retiredGameImmutable, gameKey)) ?? {},
+							rel,
+						)
 					: undefined);
 			const hostConfig = file && rel === 'index.html' ? hostConfigFor(meta, url) : null;
 			const body = hostConfig

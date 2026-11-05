@@ -21,8 +21,9 @@
  *
  * WHAT A DELIVERY BUILD IS, AND HOW IT DIFFERS FROM `pnpm build`:
  *
- *   PUBLIC_DELIVERY_EMBED=1     stop inlining the bundle into the page. A delivery ships game.js
- *                               plus a host page that includes it, not one inlined blob.
+ *   PUBLIC_DELIVERY_EMBED=1     the bundle stays ONE file (no lazy chunks, `config-vite`
+ *                               `lazyChunks.js`), and `game.js` loads it instead of our index.html
+ *                               shell, which a partner's page never serves.
  *   PUBLIC_DELIVERY_PROFILE     bake which RGS this build belongs to. `operator-embed` names no host
  *                               at all, because the operator's own page is the origin.
  *   PUBLIC_RGS_TRANSPORT        the Play4Fun facade instead of the stock transport.
@@ -616,8 +617,8 @@ try {
 	}
 
 	// The shell SvelteKit emits has now been read — `build-embed.mjs` generated `game.js` out of it —
-	// and a delivery must not carry it onward. Embed mode only switches `bundleStrategy`, so the
-	// shell still lands in the build folder, and it is a bundle loader that sets no `window.params`
+	// and a delivery must not carry it onward. Every game build emits that shell, so it still lands
+	// in the build folder, and it is a bundle loader that sets no `window.params`
 	// at all: served on the partner's CDN it boots the game with no session and fails, which reads
 	// as our bug. We overwrite that same name below with a host page that DOES set them.
 	//

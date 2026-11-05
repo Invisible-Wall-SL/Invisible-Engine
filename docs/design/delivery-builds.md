@@ -22,7 +22,10 @@ of the profile.
 
 The build artifact itself needs no work:
 
-- `bundleStrategy: 'inline'` (`packages/config-svelte`) inlines JS + CSS into `index.html`.
+- A build is a small `index.html` shell plus `_app/immutable/` (`packages/config-svelte`,
+  `bundleStrategy: 'single'`): the shell imports `bundle.<hash>.js`, an ES module, whose lazy chunks
+  and assets resolve against its own `import.meta.url`. Until 2026-11-03 the default was
+  `'inline'`, which copied JS + CSS into `index.html`; see "How a build is served" below.
 - Emitted paths are relative (`./favicon.svg`), and baked assets resolve page-relative (`'assets/'`,
   `apps/lines/src/editor-scenes.ts`), so a build survives being dropped in a subdirectory such as
   `https://somecasino.example/games/stargate/`.
@@ -342,9 +345,31 @@ non-script-relative asset paths were caught, and it is why any 404 it logs is wo
 `game.js` at the root, `_app/` and `assets/` beside it, plus two partner-facing files that are not
 part of the runtime: `EMBED.md` (the contract). `embed.html` sits BESIDE the folder, not in it
 (see below). Drop the folder at
-`{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. Without
-`PUBLIC_DELIVERY_EMBED` nothing changes — the default build is still the single droppable
-`index.html`.
+`{cdn}/{brand}/games/{versionPath}/{gameAlias}/` and their two lines work as written. The embed's
+bundle stays ONE file, its dynamic imports inlined (`config-vite` `lazyChunks.js`), and
+`build-embed.mjs` refuses a build with chunks. Without `PUBLIC_DELIVERY_EMBED` the build is the
+droppable folder: an `index.html` shell plus `_app/`.
+
+### How a build is served (2026-11-03)
+
+Every game build — the online runtime, a desktop ☁ Publish, an inline delivery, an embed — is a
+small shell plus content-hashed files under `_app/immutable/`:
+
+| Build | Shell (re-fetched every visit) | Immutable (cached a year) |
+| --- | --- | --- |
+| online runtime / desktop | `index.html`, ~4 KB gz, `no-store` on the test server | `bundle.<hash>.js` (Pixi's WebGL renderer and browser environment included) + CSS, lazy chunks (the Sentry SDK when reporting is on, Pixi's canvas fallback, a family's online code), `assets/libktx.*` |
+| inline delivery | `index.html` (the host's caching) | the same |
+| embed | `game.js` (fixed name; `versionPath` busts it) | `bundle.<hash>.js` alone (no chunks), CSS, `assets/libktx.*` |
+
+Every URL resolves against the file that names it (`./_app/…` from the shell, `import.meta.url` from
+the bundle), so a build works from any folder it is dropped in and an embed follows `game.js` to the
+CDN. A host should serve `_app/immutable/` with `Cache-Control: public, max-age=31536000, immutable`
+and the shell `no-store`; then the only code a repeat visit downloads is the shell (the build's own
+`assets/` are a separate matter: the test server serves them `no-store`). The test server does, and
+keeps the previous release's `_app/immutable/` for one generation (a pointer flip, or a desktop
+game's republish) for pages loaded just before. `pnpm check:runtime-shell` boots each shape (runtime
+and desktop on the real test server, an inline delivery in a nested folder, an embed on a separate
+CDN origin) cold and warm, and checks the URLs, the headers, the cache and the lazy SDK.
 
 **`embed.html` is THEIR page, not ours** (settled 2026-09-24, after two wrong turns worth
 recording because the reasoning keeps re-surfacing).

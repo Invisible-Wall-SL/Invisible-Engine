@@ -1,7 +1,8 @@
 {
-	"$comment": "check:family-runtimes: the most gzip -6 bytes each runtime's index.html may be, by family set. Measured + 2 % (docs/design/phase-11.md §4 #4); re-measure with `pnpm check:family-runtimes --measure`. Sizes: docs/status/game-families.md.",
-	"slot": 713516,
-	"slot,match3": 721721,
-	"slot,arcade": 813870,
-	"slot,card": 725832
+	"$comment": "check:family-runtimes: the most gzip -6 bytes a FIRST visit to each runtime may download (the index.html shell + what it loads: the bundle and its CSS; scripts/lib/build-chunks.mjs), by family set — for a family with an online mode (arcade) an ONLINE boot, which adds its online chunk — and `shell`: the most CODE a repeat visit may download (the shell alone; the code under _app/immutable/ is cached; the build's assets/ are no-store and not counted). Measured + 2 % (docs/design/phase-11.md §4 #4), the shell at least 5000; re-measure with `pnpm check:family-runtimes --measure`. Sizes: docs/status/engine.md.",
+	"slot": 710219,
+	"slot,match3": 718561,
+	"slot,arcade": 797252,
+	"slot,card": 722599,
+	"shell": 5000
 }

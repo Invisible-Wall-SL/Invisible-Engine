@@ -55,12 +55,12 @@ when the twin was chosen but fails (transcoder unreachable or invalid, `.ktx2` 4
   consuming build's own `_app/immutable/assets/` — reaching standalone game builds too (whose
   `static/` comes from the game repo, NOT the engine). They are **real files, not inlined**:
   `config-vite`'s `assetsInlineLimit` inlines everything else but returns `false` for libktx
-  (~520 KB gz that only the compressed tier ever fetches). Their URL is anchored on the bundle
-  chunk: in the default inline (`iife`) build `config-vite/assetUrls.js` replaces Vite's
-  `document.currentScript.src || document.baseURI` anchor (which put them at `<page>/assets/…`)
-  with the chunk's own location, `<page>/_app/immutable/bundle.<hash>.js`, the same fallback
-  SvelteKit uses for `import.meta.url`; the embed (`single`, ES module) build keeps Vite's
-  `import.meta.url` runtime, so it resolves against the CDN folder `game.js` was loaded from.
+  (~520 KB gz that only the compressed tier ever fetches). Every game build is an ES-module
+  bundle (`_app/immutable/bundle.<hash>.js`, imported by the `index.html` shell or the embed's
+  `game.js`), so their URL is Vite's `new URL(…, import.meta.url)`: beside the bundle, i.e.
+  `<page dir>/_app/immutable/assets/…` online and in an inline delivery, the CDN folder `game.js`
+  came from in an embed. (The old inline `iife` build needed `config-vite/assetUrls.js` to anchor
+  them; it went with that build, 2026-11-03.)
   `ktx2Transcoder.ts` fetches both files on the FIRST `.ktx2` load (a desktop never downloads
   them), refuses a non-OK answer, an HTML page or an invalid wasm, and hands Pixi's worker
   same-origin `blob:` URLs of the checked bytes — Pixi's own failure modes are an uncaught

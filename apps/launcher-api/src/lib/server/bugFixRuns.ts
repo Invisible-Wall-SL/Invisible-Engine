@@ -158,6 +158,13 @@ const viewOf = (access: BugAccess, run: BugFixRun): FixRunView =>
 // ── Start and Stop ────────────────────────────────────────────────────────────
 
 /**
+ * A new run's id, `FIX_RUN_ID`'s shape. current-games.yml ignores a push to `fixRunBranch` of it
+ * by that exact shape, so a different id would run model-written code beside the harness's
+ * secrets: `check:bug-fix-runs` matches this against the workflow's own pattern.
+ */
+export const newFixRunId = (): string => randomBytes(5).toString('hex');
+
+/**
  * Start a fix run on a pipeline bug (`POST /api/bugs/<n>/fix-runs`, body `{ requestId }`). In
  * order: the bug (404), both capabilities (403), a known `requestId` (its run; 409 when it is
  * another bug's or another person's), the App (503, before anything is written), and the refusals
@@ -200,7 +207,7 @@ export async function startFixRun(
 	}
 
 	const baseSha = await mainSha(app);
-	const id = randomBytes(5).toString('hex');
+	const id = newFixRunId();
 	let locked = facts;
 	const outcome = await insertFixRun(
 		{
