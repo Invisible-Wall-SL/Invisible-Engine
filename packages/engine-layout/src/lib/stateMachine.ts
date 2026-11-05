@@ -180,6 +180,8 @@ export class ComponentStateMachineRunner {
 	private readonly durations: ReadonlyMap<string, number>;
 	private readonly kinds = new Map<string, ComponentInputKind>();
 	private readonly current = new Map<string, number | boolean>();
+	/** Every bool and number input's default, where a fresh runner starts it ({@link restart}). */
+	private readonly defaults = new Map<string, number | boolean>();
 	private dirty = true;
 	private readonly param: ((key: string) => unknown) | undefined;
 	private readonly random: () => number;
@@ -207,9 +209,10 @@ export class ComponentStateMachineRunner {
 		for (const input of inputs) {
 			if (!input.id || this.kinds.has(input.id)) continue;
 			this.kinds.set(input.id, input.kind);
-			if (input.kind === 'bool') this.current.set(input.id, input.default === true);
-			else if (input.kind === 'number') this.current.set(input.id, asNumber(input.default, 0));
+			if (input.kind === 'bool') this.defaults.set(input.id, input.default === true);
+			else if (input.kind === 'number') this.defaults.set(input.id, asNumber(input.default, 0));
 		}
+		for (const [id, value] of this.defaults) this.current.set(id, value);
 		const missing = new Set<string>();
 		for (const layer of machine.layers ?? []) {
 			if (layer.disabled === true) continue;
@@ -262,6 +265,13 @@ export class ComponentStateMachineRunner {
 		for (let i = 0; i < this.layers.length; i++)
 			this.layers[i] = this.enterLayer(this.layers[i].def);
 		this.dirty = true;
+	}
+
+	/** Back to where a fresh runner starts: every input at its default, every layer on its entry
+	 *  state, nothing pending. */
+	restart(): void {
+		for (const [id, value] of this.defaults) this.current.set(id, value);
+		this.reset();
 	}
 
 	/** A bool or number input's current value. */

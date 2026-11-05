@@ -6,8 +6,9 @@ import type { CinematicNodeDriver, ScreenNodeDrive } from 'engine-layout/svelte'
  * SCREEN TIMELINES on the screens their own mount draws (Rive plan Phase 3): a screen a flow Show
  * put up, or one the game mounts itself (the add-on's Pots screen a driven flow never shows,
  * `enginePotsScreen`). A playing screen-hosted timeline hands its node driver over (`driveScreen`)
- * and that screen's mount remounts with it (`drive`), so the timeline moves the screen the player
- * sees. `<Cinematic>` draws its own copy only of a screen no mount draws (`onStage`). A drive lasts
+ * and that screen's mount remounts with it (`drive`) — or, for a screen its timelines only move,
+ * restarts in place on the play's `key` (`engine-layout` `createScreenSlots`) — so the timeline moves the screen the
+ * player sees. `<Cinematic>` draws its own copy only of a screen no mount draws (`onStage`). A drive lasts
  * while its timeline plays or its screen is up (`isUp`), so the screen holds the last frame until
  * it goes down, and the next mount of it is undriven.
  */

@@ -26,6 +26,14 @@ export interface CinematicNodeDrive {
 
 export type CinematicNodeDriver = (nodeId: string) => CinematicNodeDrive | undefined;
 
+/** A playing screen timeline's hold on the screen it animates. `key` names one play: a node
+ *  asks for its driver once, at mount, so a new play remounts the screen — unless the screen has
+ *  a `screenSlot` (`<FlowV2Mount>`), which samples the play now driving it and restarts in place. */
+export type ScreenNodeDrive = { key: string; driver: CinematicNodeDriver };
+
+/** A screen driven in place: the driver its nodes keep for life, and the key each play changes. */
+export type ScreenSlot = { driver: CinematicNodeDriver; restart: () => unknown };
+
 const KEY = Symbol('engine-layout:cinematicNodes');
 
 interface ScopedDriver {

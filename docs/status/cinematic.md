@@ -163,7 +163,12 @@ through the same player; headless-proven, no editor yet (5b).
   - **In game (2026-10-16).** A screen timeline moves the screen the flow SHOWS: `<FlowV2Cinematics>`
     hands the playing `<Cinematic>`'s node driver to the flow handle (`driveScreen`), and
     `<FlowV2Mount>` remounts that screen with it (`LayoutScene.nodeDriver`, keyed per play); the
-    screen holds the last frame until it hides. Only a timeline whose screen is NOT up still draws
+    screen holds the last frame until it hides. **A screen whose timelines only move its nodes**
+    (x/y/scale/rotation/alpha) **is no longer remounted (2026-11-03):** it keeps its mount, its nodes
+    sample whichever timeline drives it now (`engine-layout` `screenSlots.ts`), and each play
+    restarts it in place exactly as a remount starts it (pixi-svelte `getContextRestart`; see
+    Recent changes). Any other channel (a mask, a rig scrub, a text track, visibility, an Element
+    FX channel) still remounts the screen. Only a timeline whose screen is NOT up still draws
     its own copy inside `<MainContainer>` (Phase 1), mis-framed for a canvas screen (open item 9).
     **The Pots screen the game mounts itself counts as up (2026-10-21):** under a driven flow that
     never shows `pots`, `<EngineScreenMount>` reports it up while the board is
@@ -490,6 +495,37 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-11-03 — **A screen timeline that only moves its screen no longer remounts it** (branch
+  `claude/screen-timeline-in-place`). **Why:** each play of a host-`screen` timeline remounted its
+  whole screen (`FlowV2Mount` / `EngineScreenMount` keyed on the play, because a `LayoutNodeView`
+  reads its driver once, at init). On `overlay-buffaloduel` the Pots screen (60 component instances,
+  60 rigs) remounted as `HideUnderReel_Intro` / `_Outro` started, and the jackpot bar and HUD bar on
+  their own intros: the Hold and Win bonus's worst frames once the GC fix of #1513 was in.
+  **Now:**
+  - `engine-layout` `createScreenSlots`: a screen every hosted timeline of which keys only
+    x/y/scale/scaleX/scaleY/rotation/alpha keeps its mount. Each node takes, for life, the channels
+    any of them keys on it and samples whichever play drives the screen now (asked once a play);
+    with none it samples nothing and draws as authored. Any other channel still remounts.
+  - Each new play changes a restart key (pixi-svelte `setContextRestart` / `onRestart`), and the
+    screen starts again in place exactly as a remount starts it, parent before child: `RigTrack`
+    (setup pose, physics, the animation from frame 0), `ComponentInstance` (`restartInstance`: cue
+    overrides, its signal bus — so `hiddenUntilSignal` re-hides and a tap re-arms — timelines, its
+    machine from its entry states and input defaults via the runner's new `restart()`, the event
+    queue, Flow text inputs; the subscriptions a mount makes are made again and re-seed),
+    `LayoutNodeView` (scene cues, count-up target, smoothed bindings snap), effect players and
+    rig-bound effects and flipbooks and Element FX (mounted afresh, inside a container that keeps
+    their place: `<Restartable>`), and every coded bound component mounted afresh unless it
+    restarts itself (`registerBoundRestartsInPlace`; `PotMeter` does, its pot snapping its pulse).
+  **Proof:** a deterministic rig (the page in `?ie_determinism`, the game's RGS answered by a seeded
+  local twin of its authoring mock built through the test server's `makeMock`) drew 0 differing
+  pixels against `main` over 121 captures of 3,600 frames, for the red and the blue bonus — the
+  seeded random stream included — with the Pots screen mounted once instead of three times and the
+  jackpot bar once instead of four. The rig reads the live game's art: capture both sides back to
+  back (a republish between them made `main` differ from itself). Measured at 4× CPU, three
+  interleaved rounds, on top of #1513: worst bonus frame (median) 1,117 → 467 ms, frames over
+  250 ms 33 → 18, bonus frame rate 12.0 → 15.5 fps. Gate: `check:screen-timeline-mounts` §6.
+  **Not covered:** the base game's own split mount (`basegame`, `<BoardDrive>`) still remounts on
+  its timelines; the feature intro keys a rig animation, so it does too.
 - 2026-10-26 — **The Graph Editor** (game-families P10.9c; branch `claude/p10-9c-graph-editor`, in
   review). The Timeline's opt-in `graph` surface (`/editor` sets it; `/rigger` does not, so its
   markup is unchanged): **📈** in a number channel's gutter opens a graph row under it, the channel's
