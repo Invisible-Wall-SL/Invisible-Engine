@@ -20,7 +20,7 @@
 		"config-storybook": "workspace:*",
 		"@lingui/core": "6.10.1",
 		"@storybook/addon-svelte-csf": "5.1.5",
-		"@sveltejs/vite-plugin-svelte": "5.0.3",
+		"@sveltejs/vite-plugin-svelte": "7.3.1",
 		"svelte-check": "4.7.7"
 	},
 	"dependencies": {
