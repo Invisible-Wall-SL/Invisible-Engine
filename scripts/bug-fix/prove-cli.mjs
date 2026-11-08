@@ -329,7 +329,7 @@ const CALLS = [
 	// Editing ordinary files: a source file, and a package.json (`--restricted` guards "tool
 	// configuration" files; a fix that needs one is shown here, not assumed).
 	['t_read_src', 'Read', { file_path: EDIT.src }],
-	['t_edit_src', 'Edit', { file_path: EDIT.src, old_string: EDIT.srcLine, new_string: `${EDIT.srcLine} ` }],
+	['t_edit_src', 'Edit', { file_path: EDIT.src, old_string: EDIT.srcLine, new_string: EDIT.srcLine.replace('FIX_RUN_WORKFLOW', 'FIX_RUN_WORKFLOW_PROOF') }],
 	['t_read_pkg', 'Read', { file_path: EDIT.pkg }],
 	['t_edit_pkg', 'Edit', { file_path: EDIT.pkg, old_string: EDIT.pkgLine, new_string: EDIT.pkgLine.replace('"launcher-api"', '"launcher-api" ') }],
 	// The same reads with the path built at run time, past the CLI's own reading of the command:
