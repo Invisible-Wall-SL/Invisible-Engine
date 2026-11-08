@@ -85,6 +85,7 @@
 		potPieces,
 		POT_PIECE_LIGHT_PARAM,
 	} from 'engine-layout';
+	import { SPIN_OPTIONS_DEFAULT, SPIN_OPTIONS_FAST } from 'engine-game/src/game/spinOptions';
 	import { onMount, type Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
@@ -1101,19 +1102,35 @@
 	// Spin-FEEL tuning fields (reelGrid node, advanced). Each maps to a
 	// `SpinningReelSpinOptions` key; blank = the game's coded default for that
 	// profile. Authored under `node.spin.{normal,fast}`.
-	const SPIN_FIELDS: { key: keyof ReelSpinProfile; label: string }[] = [
+	const SPIN_FIELDS: { key: keyof ReelSpinProfile; label: string; toggle?: boolean }[] = [
 		{ key: 'reelSpinSpeed', label: 'spin speed' },
 		{ key: 'reelPreSpinSpeed', label: 'pre-spin speed' },
+		{ key: 'reelSpinUpDuration', label: 'spin-up (ms)' },
+		{ key: 'reelWindUp', label: 'wind-up', toggle: true },
 		{ key: 'reelSpinSpeedBeforeBounce', label: 'speed before bounce' },
-		{ key: 'reelBounceBackSpeed', label: 'bounce-back speed' },
+		{ key: 'reelBounceOvershoot', label: 'overshoot bounce', toggle: true },
 		{ key: 'reelBounceSizeMulti', label: 'bounce size' },
+		{ key: 'reelBounceDuration', label: 'bounce time (ms)' },
+		{ key: 'reelBounceBackSpeed', label: 'bounce-back speed' },
 		{ key: 'reelSpinDelay', label: 'reel stagger (ms)' },
+		{ key: 'reelPaddingMultiplierFirst', label: 'first reel length' },
 		{ key: 'reelPaddingMultiplierNormal', label: 'spin length' },
 		{ key: 'reelPaddingMultiplierAnticipated', label: 'anticipation length' },
+		{ key: 'reelMinSpinDuration', label: 'min roll (ms)' },
 	];
+
+	const SPIN_DEFAULTS: Record<'normal' | 'fast', ReelSpinProfile> = {
+		normal: SPIN_OPTIONS_DEFAULT,
+		fast: SPIN_OPTIONS_FAST,
+	};
 
 	function readSpin(n: ReelGridNode, profile: 'normal' | 'fast', key: keyof ReelSpinProfile) {
 		return n.spin?.[profile]?.[key] ?? '';
+	}
+
+	function spinDefault(profile: 'normal' | 'fast', key: keyof ReelSpinProfile): string {
+		const value = SPIN_DEFAULTS[profile][key];
+		return value == null ? '' : String(value);
 	}
 
 	function writeSpin(
@@ -5068,30 +5085,45 @@
 			<details class="spin-tuning">
 				<summary>Spin tuning (advanced)</summary>
 				<p class="muted small">
-					Animation feel, not layout — blank = the game's coded default. Speeds are px/ms; stagger
-					is ms per reel; "length" scales how far the reel spins. Two profiles: <strong
-						>Normal</strong
-					>
-					(also drives anticipation) and <strong>Turbo</strong>.
+					Animation feel, not layout — blank = the house default (shown greyed). Speeds are px/ms on
+					a 120 px row (2.4 = 20 symbols/s); times are ms; "length" scales how far the reel spins
+					(the gap between reel stops is 5 × length rows). Two profiles: <strong>Normal</strong>
+					(also drives anticipation) and <strong>Turbo</strong>, where every reel lands together
+					once "min roll" has passed.
 				</p>
 				{#each [{ profile: 'normal', title: 'Normal' }, { profile: 'fast', title: 'Turbo' }] as p (p.profile)}
+					{@const profile = p.profile as 'normal' | 'fast'}
 					<h4 class="spin-profile">{p.title}</h4>
 					<div class="spin-grid">
 						{#each SPIN_FIELDS as f (f.key)}
 							<label class="field">
 								<span>{f.label}</span>
-								<input
-									type="number"
-									step="0.01"
-									value={readSpin(node, p.profile as 'normal' | 'fast', f.key)}
-									oninput={(e) =>
-										writeSpin(
-											node,
-											p.profile as 'normal' | 'fast',
-											f.key,
-											e.currentTarget.valueAsNumber,
-										)}
-								/>
+								{#if f.toggle}
+									<select
+										value={String(readSpin(node, profile, f.key))}
+										onchange={(e) =>
+											writeSpin(
+												node,
+												profile,
+												f.key,
+												e.currentTarget.value === '' ? NaN : Number(e.currentTarget.value),
+											)}
+									>
+										<option value=""
+											>default ({spinDefault(profile, f.key) === '1' ? 'on' : 'off'})</option
+										>
+										<option value="1">on</option>
+										<option value="0">off</option>
+									</select>
+								{:else}
+									<input
+										type="number"
+										step="0.01"
+										placeholder={spinDefault(profile, f.key)}
+										value={readSpin(node, profile, f.key)}
+										oninput={(e) => writeSpin(node, profile, f.key, e.currentTarget.valueAsNumber)}
+									/>
+								{/if}
 							</label>
 						{/each}
 					</div>

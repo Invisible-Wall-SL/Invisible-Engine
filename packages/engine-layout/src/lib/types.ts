@@ -1046,6 +1046,18 @@ export interface ReelSpinProfile {
 	reelSpinDelay?: number;
 	reelPaddingMultiplierNormal?: number;
 	reelPaddingMultiplierAnticipated?: number;
+	/** The first reel's spin length (× reel length), timed apart from the gap between stops. */
+	reelPaddingMultiplierFirst?: number;
+	/** ms from rest to full speed on the first lap. */
+	reelSpinUpDuration?: number;
+	/** 1 ⇒ a normal spin pulls back before it takes off; 0 ⇒ it ramps straight up. */
+	reelWindUp?: number;
+	/** ms a reel rolls at least; a turbo spin then lands every reel at once. */
+	reelMinSpinDuration?: number;
+	/** 1 ⇒ the reel runs past its seat by the bounce size and back over `reelBounceDuration` ms;
+	 *  0 ⇒ it snaps past the seat and returns at `reelBounceBackSpeed`. */
+	reelBounceOvershoot?: number;
+	reelBounceDuration?: number;
 }
 
 /**

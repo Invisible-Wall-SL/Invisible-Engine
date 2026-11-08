@@ -35,6 +35,20 @@ export type SpinningReelSpinOptions = {
 	reelPaddingMultiplierSequential: number;
 	reelSpinSpeedSequential: number;
 	reelSpinDelay: number;
+	/** The first reel's spin length (× reel length) on a normal spin, so its stop is timed apart
+	 *  from the gap between stops (`reelPaddingMultiplierNormal`). Unset ⇒ the normal length. */
+	reelPaddingMultiplierFirst?: number;
+	/** ms from rest to full speed on the first lap. Set ⇒ the first lap ramps up with no wind-up
+	 *  (unless `reelWindUp` is 1); unset ⇒ the legacy start (wind-up normal, instant turbo). */
+	reelSpinUpDuration?: number;
+	/** 1 ⇒ a normal spin's first lap pulls back before it takes off (`backIn`). */
+	reelWindUp?: number;
+	/** ms a reel rolls at least before it may land. On a turbo spin it then lands at once. */
+	reelMinSpinDuration?: number;
+	/** 1 ⇒ the reel runs past its seat by the bounce size and eases back (a half-sine hump over
+	 *  `reelBounceDuration` ms); unset/0 ⇒ the legacy snap past the seat + `reelBounceBackSpeed`. */
+	reelBounceOvershoot?: number;
+	reelBounceDuration?: number;
 };
 
 export type CascadingReelSpinOptions = {
@@ -101,8 +115,7 @@ export type CascadingReel<TRawSymbol extends object, TSymbolState extends string
 >;
 
 export type Reel<TRawSymbol extends object, TSymbolState extends string> =
-	| SpinningReel<TRawSymbol, TSymbolState>
-	| CascadingReel<TRawSymbol, TSymbolState>;
+	SpinningReel<TRawSymbol, TSymbolState> | CascadingReel<TRawSymbol, TSymbolState>;
 
 export type FallOptionsTurbo = {
 	fallInSpeedTurbo: number;

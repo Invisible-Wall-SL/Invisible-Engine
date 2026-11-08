@@ -1255,6 +1255,42 @@ board edge**. With the **reel grid** node selected, **overflow X** and **overflo
 > declares the box the art is sized by. Overflow is for art that is sized right and is
 > _meant_ to hang outside the reel.
 
+#### Spin tuning (advanced) — how the reels roll
+
+With the **reel grid** node selected, **"Spin tuning (advanced)"** sets how the reels
+move, separately for **Normal** spins (which anticipation also uses) and **Turbo**. A blank
+field uses the house default, shown greyed in the box. The house defaults were measured off
+land-based cabinet footage, so leave them blank unless a game needs its own feel.
+
+Speeds are **px per ms on a 120 px row**: 2.4 is 20 symbols a second. If your grid has a
+row gap, the same number rolls a little slower in symbols per second. Times are ms.
+
+| Field | What it does | Normal | Turbo |
+|---|---|---|---|
+| spin speed | full rolling speed | 2.4 | 2.4 |
+| pre-spin speed | the first lap, before the result is known | 2.4 | 2.4 |
+| spin-up (ms) | time from rest to full speed | 60 | 30 |
+| wind-up | on: the reel pulls back before it takes off (the old feel) | off | — |
+| speed before bounce | the last ~5 rows before a reel stops | 2.4 | — |
+| overshoot bounce | on: the reel runs past its seat and eases back. Off: it snaps past the seat and returns at **bounce-back speed** | on | on |
+| bounce size | how far past the seat, × row height | 0.05 | 0.05 |
+| bounce time (ms) | the whole overshoot, out and back | 130 | 130 |
+| bounce-back speed | the return speed when overshoot is off | 0.06 | 0.06 |
+| reel stagger (ms) | delay before each next reel starts | 0 | — |
+| first reel length | how far reel 1 rolls before it stops, × reel length | 0 | — |
+| spin length | the gap between one reel's stop and the next, × reel length | 1.26 | — |
+| anticipation length | how long an anticipated reel holds, × reel length | 10 | — |
+| min roll (ms) | how long the reels roll at least; on Turbo every reel then lands together | 0 | 170 |
+
+**Reel length** is the rows plus two, so 5 on a 3-row board. The gap between reel stops
+is `reel length × spin length` rows at the spin speed: 5 × 1.26 = 6.3 rows at 20 rows/s
+is about 316 ms.
+
+**Matching a reference video:** count how many symbols pass per second for the speed, then
+time the gap between reel stops for **spin length**. Measure the overshoot as a share of a
+symbol for **bounce size**, and time the whole bounce for **bounce time**. A Turbo spin can
+only land once the game server has answered, so **min roll** sets the earliest it lands.
+
 #### Perspective (advanced)
 
 With the **reel grid** node selected, a **"Perspective (advanced)"** section sits
