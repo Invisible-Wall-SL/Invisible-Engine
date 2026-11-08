@@ -58,13 +58,12 @@ A seed and the same keys replay the same game.
   it moves (a climb, a reel) reaches the device as a correction. Its choices hash the room's seed.
   Change Salmons' rules or river, re-record `fixtures/salmons-traces.json` (`check:online-rules`).
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
-  (`engine-mechanics` `onlineFlow.js` `flowSignalsOf`); its scores and round reach it only as
-  variables with `server`, written by `online.ts` from each state. Flow never writes one
-  (`variable-server-owned`). The own player's `ability` is raised on the press by
-  `createAbilityPredictor`, over `abilities.js`' cooldowns (`check:online-rules`, step for step). The room's echo of a press it raised is
-  dropped, per button; an echo with no press waiting is raised then (`predicted: false`); a
-  refused press expires one state after its input is acknowledged; a round's start or the own join
-  clears the cooldowns of inputs already taken, but not of a press whose echo is still due.
+  (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
+  `server` variables `online.ts` writes from each state (`variable-server-owned`). The own
+  `ability` is raised on the press (`createAbilityPredictor`); the room's echo of it is dropped per
+  button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
+  ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
+  `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
 - **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
@@ -108,7 +107,7 @@ A seed and the same keys replay the same game.
 | Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
-| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
+| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
 | Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
@@ -158,8 +157,9 @@ A seed and the same keys replay the same game.
 - **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** the loop expects the
   spawn layer at the world's origin; one placed off it is culled by its offset (`arcadeLoop.ts`).
   **Guard:** none.
-- **Symptom:** the P10.8 placeholder shapes draw up and left of their bodies. **Cause:** a `rect`'s
-  default anchor plus a `-w/2` offset. **Guard:** none (seen in P10.11, not fixed).
+- **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** data: a `rect` is
+  drawn about its centre, and they also shifted it by `-w/2`. **Guard:** `check:arcade-rules` §10,
+  `check:salmons-export` (an isometric look stands on its place).
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
 - **Symptom:** the owner was never asked to approve the Salmons art pass. **Cause:** S0 had no row

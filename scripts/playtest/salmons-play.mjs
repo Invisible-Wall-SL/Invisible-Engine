@@ -18,8 +18,13 @@
 // a different one, each the river whose sea the server started its salmon at. P11.3: page E, in a
 // room of the authored river that starts its salmon below a waterfall, is stopped at the foot and
 // climbs it by tapping Space; page F, below a sandbank, is grounded on it and jumps off. P11.4: the
-// river screen is isometric, and page A's salmon is drawn at its projected place. The playbook is
-// docs/playtest/salmons.md. It builds its own
+// river screen is isometric, and page A's salmon is drawn at its projected place. After P11.3
+// (the visual fixes): pages G (a salmon on a sandbank) and H (a fisherman on the bank by it) share
+// a room of the authored river: G's salmon, the room's only one, is golden and both pages draw it
+// gold; H's cast hooks it and both draw the line until it is landed, and again until H leaves (the
+// line breaks); page G2 then takes the golden salmon over and shows its banner. The rules' events
+// (`climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `golden`) reach each page's flow. The
+// playbook is docs/playtest/salmons.md. It builds its own
 // snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
 // camera under that netcode; the pages must report the mode they ran.
@@ -142,6 +147,31 @@ const ruleRoom = (name, spawn) => {
 };
 ruleRoom('salmons-falls', { x: FALL_X, y: FALL.y + FALL.h + 22 + 80 });
 ruleRoom('salmons-sand', { x: SAND.x + SAND.w / 2, y: SAND.y + SAND.h + 80 });
+// After P11.3: a salmon starting on the sandbank (held there, grounded) and a fisherman on the bank
+// nearest it, within his cast's reach.
+const LINE_SAND = river.sandbanks.find((sand) => {
+	const band = river.bands.find((b) => sand.y >= b.y && sand.y < b.y + b.h);
+	const cx = sand.x + sand.w / 2;
+	return Math.min(cx - band.left, band.right - cx) < 240;
+});
+const LINE_BAND = river.bands.find((b) => LINE_SAND.y >= b.y && LINE_SAND.y < b.y + b.h);
+const LINE_AT = { x: LINE_SAND.x + LINE_SAND.w / 2, y: LINE_SAND.y + LINE_SAND.h / 2 };
+const FISHER_AT = {
+	x:
+		LINE_AT.x - LINE_BAND.left < LINE_BAND.right - LINE_AT.x
+			? LINE_BAND.left - 40
+			: LINE_BAND.right + 40,
+	y: LINE_AT.y,
+};
+{
+	const game = structuredClone(short);
+	delete game.arcade.online.generator;
+	game.arcade.online.spawn = LINE_AT;
+	for (const character of game.arcade.online.characters)
+		if (character.id === 'fisherman') character.spawns = [FISHER_AT];
+	game.arcade.online.rules.round = authored.arcade.online.rules.round;
+	writeFileSync(join(configs, 'salmons-line.json'), JSON.stringify(normalizeGameConfigDoc(game)));
+}
 
 const HOOK = `(() => {
 	const wire = (window.__AR_WIRE__ = []);
@@ -200,7 +230,7 @@ const snapNoRiver = await serveSnapshot({
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
-	maxRooms: 6,
+	maxRooms: 8,
 	commit: 'playtest',
 	gracefullyShutdown: false,
 });
@@ -275,16 +305,17 @@ function isometricAt(png, arcade, me) {
 	const dx = at.x - (cam.x + cam.view.w / 2);
 	const dy = at.y - (cam.y + cam.view.h / 2);
 	const centre = { x: cam.view.w / 2 + cam.shakeX, y: cam.view.h / 2 + cam.shakeY };
-	// The placeholder look draws up and left of its place by half its size (a known failure mode,
-	// docs/knowledge/families/arcade.md): its middle is where the salmon's colour is sure.
-	const screen = (x, y) => ({ x: Math.round((x - 45) * k), y: Math.round((y - 22) * k) });
+	// The placeholder look stands on its place, 44 px tall: its middle is where its colour is sure.
+	const screen = (x, y) => ({ x: Math.round(x * k), y: Math.round((y - 22) * k) });
 	const projected = screen(centre.x + dx - dy, centre.y + (dx + dy) / 2);
 	const flat = screen(centre.x + dx, centre.y + dy);
 	const salmon = ({ x, y }) => {
 		if (x < 0 || y < 0 || x >= png.width || y >= png.height) return false;
 		const i = (y * png.width + x) * 4;
 		const [r, g, b] = png.data.subarray(i, i + 3);
-		return Math.abs(r - 0xfa) < 12 && Math.abs(g - 0x80) < 12 && Math.abs(b - 0x72) < 12;
+		// Pink, or gold: page A's is the only salmon in its room, so the golden one.
+		const pink = Math.abs(r - 0xfa) < 12 && Math.abs(g - 0x80) < 12 && Math.abs(b - 0x72) < 12;
+		return pink || isGold([r, g, b]);
 	};
 	const apart = Math.hypot(projected.x - flat.x, projected.y - flat.y) > 60;
 	return {
@@ -293,6 +324,57 @@ function isometricAt(png, arcade, me) {
 		flat,
 		apart,
 	};
+}
+/** The salmon's pink through `SpawnLayer`'s gold ramp. */
+const isGold = ([r, g, b]) => r > 190 && g > 150 && g < 225 && b < 110;
+/** A screenshot's pixel at (x, y), design px through `toScreen`; undefined off the image. */
+const rgbAt = (png, { x, y }) => {
+	if (x < 0 || y < 0 || x >= png.width || y >= png.height) return undefined;
+	const i = (y * png.width + x) * 4;
+	return [...png.data.subarray(i, i + 3)];
+};
+/** Where a world point is drawn on a page's isometric screen (as `isometricAt`), in image px,
+ *  raised by `lift` design px. */
+const isoScreen = (png, cam, at, lift = 0) => {
+	const k = png.width / cam.view.w;
+	const dx = at.x - (cam.x + cam.view.w / 2);
+	const dy = at.y - (cam.y + cam.view.h / 2);
+	return {
+		x: Math.round((cam.view.w / 2 + cam.shakeX + dx - dy) * k),
+		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - lift) * k),
+	};
+};
+/** Whether a screenshot shows `id` drawn gold (`engine-layout` `SpawnLayer`'s gold ramp over the
+ *  salmon's pink), sampled at its look's middle. */
+function goldAt(png, arcade, id) {
+	const cam = arcade?.camera;
+	const at = arcade?.online?.drawn.find((d) => d.id === id);
+	if (!cam || !at) return { ok: false, cam, at };
+	const rgb = rgbAt(png, isoScreen(png, cam, at, 22));
+	const ok = !!rgb && isGold(rgb);
+	return { ok, rgb };
+}
+/** Whether a screenshot shows a white line from `by` (raised to his hand) to `target` (its
+ *  middle): near-white pixels near points along the way. */
+function lineAt(png, arcade, by, target) {
+	const cam = arcade?.camera;
+	const from = arcade?.online?.drawn.find((d) => d.id === by);
+	const to = arcade?.online?.drawn.find((d) => d.id === target);
+	if (!cam || !from || !to) return { ok: false, cam, from, to };
+	const a = isoScreen(png, cam, from, 88 * 0.75);
+	const b = isoScreen(png, cam, to, 22);
+	const near = (t) => {
+		const x = Math.round(a.x + (b.x - a.x) * t);
+		const y = Math.round(a.y + (b.y - a.y) * t);
+		for (let oy = -3; oy <= 3; oy++)
+			for (let ox = -3; ox <= 3; ox++) {
+				const rgb = rgbAt(png, { x: x + ox, y: y + oy });
+				if (rgb && rgb.every((v) => v > 235)) return true;
+			}
+		return false;
+	};
+	const hits = [0.3, 0.5, 0.7].filter(near).length;
+	return { ok: hits >= 2, hits, a, b };
 }
 const drawnOf = async (game) => (await game.state()).arcade?.online ?? { drawn: [] };
 const shown = (game) => game.flow('f ? f.ordered().map((c) => c.id) : []');
@@ -626,6 +708,168 @@ try {
 		{ jumped, off, sand: SAND },
 	);
 
+	// The rules' events reach Flow as online events (after P11.3).
+	const signalsOf = async (game, name) =>
+		((await game.state()).arcade?.online?.signals ?? []).filter((sig) => sig.name === name);
+	const climbedE = await signalsOf(e, 'climbed');
+	const groundedF = await signalsOf(f, 'grounded');
+	const jumpedF = await signalsOf(f, 'jumped');
+	verdict(
+		'Flow hears the rules’ events: page E’s climb (`climbed`), page F’s `grounded` and `jumped`',
+		climbedE.some((sig) => sig.payload.player === meE && sig.payload.me && sig.payload.zone) &&
+			groundedF.some((sig) => sig.payload.player === meF && sig.payload.me) &&
+			jumpedF.some((sig) => sig.payload.player === meF && sig.payload.me),
+		{ climbedE, groundedF, jumpedF },
+	);
+
+	// After P11.3, pages G and H: the golden salmon drawn gold, and the fishing line.
+	const LINE_GAME = 'salmons-line';
+	const h = await ready(
+		await boot('h', { rooms_name: 'Hal', rooms_character: 'fisherman', rooms_game: LINE_GAME }),
+	);
+	const g = await ready(
+		await boot('g', { rooms_name: 'Gil', rooms_character: 'salmon', rooms_game: LINE_GAME }),
+	);
+	await settle(g, 600);
+	await settle(h, 600);
+	const { me: meG } = await drawnOf(g);
+	const { me: meH } = await drawnOf(h);
+	const shotOf = async (game, file) => {
+		const png = await game.page.screenshot();
+		writeFileSync(join(out, file), png);
+		result.shots.push(file);
+		return PNG.sync.read(png);
+	};
+	const markedG = (await drawnOf(g)).marked ?? [];
+	const markedH = (await drawnOf(h)).marked ?? [];
+	const goldG = goldAt(await shotOf(g, '10-golden-salmon.png'), (await g.state()).arcade, meG);
+	const goldH = goldAt(
+		await shotOf(h, '11-golden-seen-by-fisherman.png'),
+		(await h.state()).arcade,
+		meG,
+	);
+	verdict(
+		'page G’s salmon (the room’s only one) is golden, and pages G and H both draw it gold',
+		markedG.includes(meG) && markedH.includes(meG) && goldG.ok && goldH.ok,
+		{ markedG, markedH, goldG, goldH },
+	);
+	verdict(
+		'…the room’s `golden` reached page G’s flow',
+		(await signalsOf(g, 'golden')).some((sig) => sig.payload.player === meG && sig.payload.me),
+	);
+	const castUntilHooked = async () => {
+		await h.key('KeyJ', 'down');
+		await h.play([{ op: 'step', frames: 3 }]);
+		await h.key('KeyJ', 'up');
+		for (let i = 0; i < 30; i++) {
+			await settle(h, 100);
+			const online = await drawnOf(h);
+			if (online.lines?.some((l) => l.by === meH && l.target === meG)) return true;
+		}
+		return false;
+	};
+	const hooked = await castUntilHooked();
+	const lineH = lineAt(await shotOf(h, '12-the-line.png'), (await h.state()).arcade, meH, meG);
+	await settle(g, 150);
+	const linesG = (await drawnOf(g)).lines ?? [];
+	const hookedG = await signalsOf(g, 'hooked');
+	const splash = [...((await drawnOf(g)).spawned ?? []), ...((await drawnOf(h)).spawned ?? [])];
+	verdict(
+		'page H’s cast hooks the salmon: both pages draw the line from the fisherman to it',
+		hooked && lineH.ok && linesG.some((l) => l.by === meH && l.target === meG),
+		{ hooked, lineH, linesG },
+	);
+	verdict(
+		'…Flow hears `hooked` on page G (it is on the line) and draws the splash',
+		hookedG.some((sig) => sig.payload.by === meH && sig.payload.me && !sig.payload.mine) &&
+			splash.includes('salmonsSplash'),
+		{ hookedG, splash },
+	);
+	let landed;
+	for (let i = 0; i < 30 && !landed; i++) {
+		await settle(h, 150);
+		landed = (await eventsOf(h)).find((ev) => ev.type === 'caught' && ev.target === meG);
+	}
+	await settle(g, 300);
+	await settle(h, 300);
+	const goneH = await drawnOf(h);
+	const goneG = await drawnOf(g);
+	const lineGone = lineAt(await shotOf(h, '13-landed.png'), (await h.state()).arcade, meH, meG);
+	verdict(
+		'…reeled in and landed (`caught`): the line is gone on both pages',
+		!!landed && !goneH.lines?.length && !goneG.lines?.length && !lineGone.ok,
+		{ landed, linesH: goneH.lines, linesG: goneG.lines, hidden: goneH.hidden },
+	);
+	// Back on the sand after its 4 s out (and its grace), the salmon is hooked again; then the
+	// fisherman leaves and the line breaks.
+	for (let i = 0; i < 40; i++) {
+		await settle(h, 250);
+		if ((await drawnOf(h)).drawn.some((d) => d.id === meG)) break;
+	}
+	await settle(h, 1500);
+	const again = await castUntilHooked();
+	await settle(g, 200);
+	const linedG = (await drawnOf(g)).lines ?? [];
+	for (const [name, game] of [
+		['G', g],
+		['H', h],
+	]) {
+		const wire = await game.page.evaluate('window.__AR_WIRE__');
+		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
+		verdict(`page ${name} sends the RGS nothing`, rgs.length === 0, rgs);
+		const errors = await game.page.evaluate('window.__AR_ERRORS__');
+		verdict(`page ${name}: no page error`, errors.length === 0, errors);
+	}
+	await h.page.close();
+	let escaped;
+	for (let i = 0; i < 40 && !escaped; i++) {
+		await settle(g, 150);
+		escaped = (await signalsOf(g, 'escaped')).find((sig) => sig.payload.target === meG);
+	}
+	await settle(g, 300);
+	const brokenG = await drawnOf(g);
+	verdict(
+		'…hooked again, the fisherman leaves: the line breaks (`escaped` heard on page G) and is gone',
+		again &&
+			linedG.some((l) => l.by === meH) &&
+			!!escaped &&
+			escaped.payload.me === true &&
+			!brokenG.lines?.length,
+		{ again, linedG, escaped, lines: brokenG.lines },
+	);
+	// The golden salmon leaves: the room's other salmon, page G2's, is golden, and G2 shows it.
+	const g2 = await ready(
+		await boot('g2', { rooms_name: 'Gus', rooms_character: 'salmon', rooms_game: LINE_GAME }),
+	);
+	await settle(g2, 400);
+	const { me: meG2 } = await drawnOf(g2);
+	await g.page.close();
+	let banner;
+	for (let i = 0; i < 30 && !banner; i++) {
+		await settle(g2, 150);
+		if ((await shown(g2)).includes('salmonsGolden')) banner = await signalsOf(g2, 'golden');
+	}
+	await settle(g2, 200);
+	const goldG2 = goldAt(
+		await shotOf(g2, '14-golden-passes-on.png'),
+		(await g2.state()).arcade,
+		meG2,
+	);
+	verdict(
+		'the golden salmon leaves: page G2’s salmon turns golden, drawn gold, and its flow shows the banner',
+		!!banner &&
+			banner.some((sig) => sig.payload.player === meG2 && sig.payload.me) &&
+			((await drawnOf(g2)).marked ?? []).includes(meG2) &&
+			goldG2.ok,
+		{ banner, goldG2 },
+	);
+	let bannerGone;
+	for (let i = 0; i < 30 && !bannerGone; i++) {
+		await settle(g2, 200);
+		if (!(await shown(g2)).includes('salmonsGolden')) bannerGone = true;
+	}
+	verdict('…and the banner goes again', !!bannerGone);
+
 	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
 	const NO_RIVER = 'salmons-noriver';
 	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
@@ -662,6 +906,7 @@ try {
 		['C', c],
 		['E', e],
 		['F', f],
+		['G2', g2],
 	]) {
 		const wire = await game.page.evaluate('window.__AR_WIRE__');
 		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
@@ -674,6 +919,7 @@ try {
 	await c.page.close();
 	await e.page.close();
 	await f.page.close();
+	await g2.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();

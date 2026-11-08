@@ -27,6 +27,31 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Salmons' visual fixes (built 2026-11-08; in review).** After P11.3–P11.5; branch
+`arcade/salmons-visual-fixes`. Not deployed. Detail, the files and the owner's re-upload in
+[status/salmons](salmons.md) (2026-11-08).
+
+- **Engine and runtime** (reach the live game with the runtime release): the golden salmon (the
+  room's `mark`) drawn gold over a glow, and a `hook` line from the fisherman to the salmon he
+  holds while it is `hooked`, both from the room's state every frame (`apps/lines` `online.ts`,
+  `engine-mechanics` `onlineFlow.js` `createHookLines`, `engine-layout` `arcadeMarks.svelte.ts`
+  and `<SpawnLayer>`; off until an online room publishes them); the rules' room events
+  `climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `golden` are online Flow events
+  (`ONLINE_FLOW_EVENTS`, `ARCADE_ONLINE_EVENTS`), placed at the player's drawn `x` / `y`.
+- **Project data** (the owner re-uploads): Salmons' flow reacts to them (a splash at a climb or a
+  hook; a banner when the device's own salmon turns golden); the placeholder looks stand on their
+  places. The P10.8 "drawn up and left" offset was placeholder data (a centred `rect` also offset
+  by `-w/2`), not the engine; the arcade sample's looks are fixed too.
+- **Proof:** `check:online-rules` 35 (2 new), `check:arcade-rules` 79 (1 new),
+  `check:salmons-export` 24 (6 new), `check:flow-variables` 48; `check:all` 611 / 611;
+  `salmons-play.mjs` **52 / 52 in each netcode**; `arcade-play` 14, `arcade-characters-play` 14,
+  `arcade-camera-play` 12, `arcade-platformer-play` 15, `online-play` 19; current-games (stand-in
+  fixtures, base `main` d68459f) 0 of 128 screens changed; `check:svelte` at baseline.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6, against `main` d68459f built the same way;
+  all within budget; after the review fixes): slot 698,968 → 699,443 B (+475), match3 +465, card
+  +464 (the `<SpawnLayer>` branch every runtime carries), arcade first visit +1,526, **online boot
+  784,174 → 785,700 B** (budget 797,252).
+
 **Card C4 — Invisible Card Library (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C4 row and §8, in one PR. A launcher tool only: no game runtime change but five exports of
 already-bundled `cards.js` values.
@@ -325,7 +350,7 @@ merged in). Not deployed.
   (`onlineBots.js`; `check:room-bots` 21: a bear bot catches a grounded salmon).
 - **Known limits.** The new events reach the device but are not in `ONLINE_FLOW_EVENTS` yet (no cue
   or sound);
-  the golden salmon is not drawn gold and the line is not drawn; a climb and a reel move a body on
+  the golden salmon is not drawn gold and the line is not drawn (both lifted 2026-11-08); a climb and a reel move a body on
   the server only, so the own device sees them as a correction (a climb is ~100 px, faded, not
   snapped); one tap of jump is read by each rule on its own, so a salmon jumping off a sandbank at
   a waterfall's foot also climbs a quarter (left as is); rocks are rectangles; bots never climb (bots are bears and fishermen); the line and the
@@ -2672,7 +2697,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    design's P10.15 row names both; (b) predicted ability events (a swipe drawn when pressed) and
    hiding an `out` player~~ — done in P11.2 (a–b), 2026-10-29; ~~(c) Salmons' own rules (the climb, the line) as `ONLINE_RULES_MODULES`
    entries and `check:online-rules` on its recorded traces, with the P10.16 rebuild~~ — done in
-   P11.3, 2026-10-29 (left: its events as Flow events, the golden salmon and the line drawn); ~~(d) a
+   P11.3, 2026-10-29 (its events as Flow events, the golden salmon and the line drawn: done
+   2026-11-08, [status/salmons](salmons.md)); ~~(d) a
    `/config` section for `arcade.online.rules`~~ — done in P11.2 (c–e), 2026-10-29; (e) the online
    world camera following the predicted player.
 1. **P10.14 follow-ups:** (a) the **bundle cost** (+59 KB gz for every game; owner): accept it as
@@ -2726,6 +2752,12 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-08 — **Salmons' visual fixes.** The golden salmon drawn gold and the fishing line drawn
+  (engine and runtime, from the room's state); `climbed` / `grounded` / `jumped` / `hooked` /
+  `escaped` / `golden` are online Flow events, with starter reactions in Salmons' flow; the
+  placeholder offset fixed in the looks (data, not the engine). `salmons-play.mjs` 52 / 52 in each
+  netcode; slot +475 B gz, arcade online boot +1.5 KB. Detail above and in
+  [status/salmons](salmons.md).
 - 2026-10-30 — **Game server: a page on another origin can join.** The guard's refusals now answer
   Colyseus' CORS headers for the page's origin (with credentials; the SDK fetches with them, so `*`
   failed in a browser), and a chunked matchmaking body (as a proxy may forward one) is read under
