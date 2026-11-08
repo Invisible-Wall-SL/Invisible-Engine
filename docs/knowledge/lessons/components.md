@@ -7,8 +7,10 @@ only keeps the traps. It covers `ComponentDef`s, the built-ins (`engine-layout`
 runtime bundle). Screen-side traps: [editor.md](editor.md).
 
 ### A component field written by an export vanished in the launcher
-- **Symptom:** `characterClips`, written into the Salmons components by `scripts/salmons/export.mjs`,
-  would never have reached the game: the launcher lost it on read, not only on save.
+- **Symptom:** once `characterClips` was listed in `componentFields.ts` with no normalizer, the
+  field written by `scripts/salmons/export.mjs` was dropped on read as well as on save, so the
+  clips would never have reached the game. An unlisted field survives, through the unknown-field
+  graft.
 - **Cause:** `normalizeComponent` rebuilds every def from an allowlist on READ and save, and the
   unknown-field graft keeps only fields `COMPONENT_DEF_FIELDS` does not list.
 - **Fix:** a new `ComponentDef` field gets its normalizer in `componentStorage.ts` and its key in
