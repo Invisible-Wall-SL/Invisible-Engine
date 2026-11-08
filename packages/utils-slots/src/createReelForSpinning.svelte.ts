@@ -1,5 +1,6 @@
-import { Tween } from 'svelte/motion';
+import type { Tween } from 'svelte/motion';
 import { sineOut, sineIn, backIn, linear } from 'svelte/easing';
+import { FrameTween } from 'pixi-svelte/frameClock';
 
 import { stateBet } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
@@ -143,7 +144,10 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const interruptible = createInterruptible();
 
 	// reactive states
-	const reelY = new Tween(homeY());
+	// The strip's scroll offset: a Svelte `Tween` sampled at each frame's own timestamp instead of at
+	// the moment Svelte's frame callback runs (`pixi-svelte/frameClock`), so every step it draws is a
+	// frame's interval times the speed.
+	const reelY = new FrameTween(homeY());
 	// Height the reel was last HOMED to. Seeded here (reel-creation time) — NOT in
 	// `readyToSpinEffect` — so a reactive pitch change that lands BEFORE the board
 	// mounts (the editor's reelGrid override resolves while the loading screen is up,

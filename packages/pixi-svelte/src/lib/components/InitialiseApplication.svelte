@@ -33,6 +33,7 @@
 	import { disposeCameraEffects } from '../cameraEffects';
 	import { disposeScreenTransitions } from '../screenFx/screenTransition';
 	import { renderSettings } from '../renderTier';
+	import { frameClockTick } from '../frameClock';
 	import { preloadFont } from '../utils.svelte';
 
 	type Props = { children: Snippet };
@@ -100,6 +101,9 @@
 
 		wrap.appendChild(context.stateApp.pixiApplication.canvas);
 
+		// Hands the `?perf=1` probe each frame's moving reels (`frameClock.ts`).
+		context.stateApp.pixiApplication.ticker.add(frameClockTick);
+
 		// to prevent that you can't scroll the page with touch on the canvas. https://github.com/pixijs/pixijs/issues/4824
 		context.stateApp.pixiApplication.renderer.events.autoPreventDefault = false;
 		context.stateApp.pixiApplication.renderer.canvas.style.touchAction = 'auto';
@@ -122,6 +126,7 @@
 
 	onDestroy(() => {
 		if (context.stateApp.pixiApplication) {
+			context.stateApp.pixiApplication.ticker?.remove(frameClockTick);
 			// Before `destroy()`: it kills the ticker first, so a camera effect or a screen transition
 			// can never observe the teardown itself and would leave an awaiting flow chain hanging
 			// forever.

@@ -386,6 +386,10 @@
 	 */
 	const mechanic = gameMechanic();
 
+	/** `?perf=1`: the on-device frame-time readout (`PerfHud`), loaded only with the flag. */
+	const perfHud =
+		typeof location !== 'undefined' && new URLSearchParams(location.search).get('perf') === '1';
+
 	// Live runtime (Invisible Game Maker, Phase 0). `stateApp.assets` was built at
 	// import time by `createApp` (`game/stateApp.ts`), BEFORE `+layout.ts`'s `load()`
 	// fetched the runtime bundle — so its editor-art/font/symbol entries were empty.
@@ -3045,3 +3049,9 @@
 <GameVersion fixed />
 
 <DebugMenu />
+
+{#if perfHud}
+	{#await import('./PerfHud.svelte') then { default: PerfHud }}
+		<PerfHud />
+	{/await}
+{/if}
