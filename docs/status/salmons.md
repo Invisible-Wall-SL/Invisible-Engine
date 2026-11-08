@@ -127,11 +127,12 @@ Left from P11.3 (known limits):
 - One tap of Space can do two things at once: a salmon that jumps off a sandbank at a waterfall's
   foot also gets a quarter of the climb from that tap (each rule reads the tap on its own). S0 runs beside them.
 
-1. **Generate the 22 character clips** in the project `salmons`, following the Salmon repository's
-   `docs/art-pass.md` recipes: `salmon_pink` and `salmon_golden` (`swim`, `hop`, `caught`), `bear`
-   (`idle`, `walk`, `swipe`), `fisherman` (`idle`, `walk`, `cast`, `reel`), each `_se` and `_ne`.
-   The salmon (drawn side-on) and the bear (drawn from above) matter most; they are the off-angle
-   ones. The golden salmon may be the pink one recoloured with a `_colour` FX layer.
+1. **Generate the character clips** in the project `salmons`: the owner's click-by-click steps
+   are [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md) (do its one-clip smoke test
+   first). `salmon_pink` (`swim`, `hop`, `caught`), `bear` (`idle`, `walk`, `swipe`), `fisherman`
+   (`idle`, `walk`, `cast`, `reel`), each `_se` and `_ne`. The salmon (drawn side-on) and the
+   bear (drawn from above) matter most; they are the off-angle ones. What changed from the
+   approved plan, and the owner's choices, are in "S0 on the engine" below.
 2. **The arcade sample's four sprites** (§9 #6), for a result in the shared runtime: the salmon,
    bear, hook and fish stills from item 1 and the props sheet, re-skinning `arcadeSalmon` /
    `arcadeBear` / `arcadeHook` / `arcadeFish` and sizing the config bodies to the art
@@ -139,12 +140,57 @@ Left from P11.3 (known limits):
 3. **Lower priority, from the art pass's list:** the bridge pieces (generated placeholders today)
    and drawn tiles for the riverbed, water surface and sea (drawn in code today; the Salmon client
    needs a small change to use them).
-4. **Back into the Salmon repository:** each generated sheet and clip is downloaded into
-   `art/imported/` and `build-sheets.py` re-run, so today's game shows the new art before the
-   rebuild.
+4. **Optional, back into the Salmon repository:** only if the old game should show the new art
+   before its players move over. Download each sheet and clip into `art/imported/` and re-run
+   `build-sheets.py`. The engine's Salmons does not need this.
 
 Shipping (rule 8): atlases, clips and effects already travel export → deploy → bake → pull →
 register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no asset class.
+
+### S0 on the engine (read 2026-11-08)
+
+The S0 recipe was written for the old client (`GuiltyForever/Salmon-` `docs/art-pass.md`).
+Salmons now plays on the engine, so the art goes into the `salmons` project and ships on
+**Publish**. No FTP download and no `build-sheets.py` are needed.
+
+**The wiring (planned, after the Salmons visual-fixes PR merges).** It follows the old client's
+`characterLook.js` rules:
+- Each player plays `<character>_<state>_<facing>` once that clip is published. Until then it
+  keeps its placeholder.
+- The facing comes from the drawn world velocity, projected for the 2:1 view (screen
+  `dx = vx − vy`, `dy = (vx + vy) / 2`): `se` / `ne` as drawn, `sw` / `nw` mirrored. Standing
+  still keeps the last facing.
+- The clip's ⬚ Bounds box sits with its bottom centre at the body's feet.
+- A missing clip falls back to a near facing, then to a near state.
+
+**Adjustments for the owner.** None of these is changed silently. The runbook assumes the default
+in brackets.
+
+1. **The clip count.** The plan says 22 clips, but its own table lists 13 states × 2 facings = 26.
+   *(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
+   `salmon_golden_*` clips are made; generated golden clips replace the tint if they exist.)*
+2. **States the engine has that the plan lacks** (P11.3). A salmon can be **grounded** on a
+   sandbank (held still until it taps), **hooked** on a line (reeled in), and it **climbs** a
+   waterfall by tapping. *(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
+   hooked play `swim`; a stunned bear or fisherman plays `idle`. Optional: add `salmon_pink_hooked`
+   (loop, thrashing on a line) and `salmon_pink_grounded` (loop, flapping on sand), 4 more
+   clips.)*
+3. **Facing from velocity or from the stick.** The river's current is part of the velocity, so a
+   salmon swimming upstream more slowly than the current is carried downstream and faces
+   downstream. The room also sends each player's input direction (`facing`). *(Default: velocity,
+   as briefed. Alternative: the input's direction while the player steers.)*
+4. **Sizes.** The engine's bodies are bigger than the old client's sizes: salmon 90 × 44 (old: about
+   50 long), bear 92 × 92 (old: 80 wide), fisherman 56 × 88. The clips are drawn at the body's
+   width. *(Default: keep Max px 256 / 320, still about 3× the drawn size. Raise it to 384 if the
+   art looks soft.)*
+5. **Loops that end where they start.** `wan22_i2v_flipbook` doesn't loop, so a loop needs a
+   hand-picked From / To. The library also holds `wanloopingvideo__3_`, which loops but took about
+   17 min a render in its one measured run. *(Default: `wan22_i2v_flipbook` for every clip; try the
+   looping blueprint on `swim` if the seams show.)*
+6. **The fisherman has no source art** (the old client draws him in code), and `gpt_image` needs a
+   reference. *(Default: the locked `bear_se` still is his style reference.)*
+7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. *(Default: 3 s for loops,
+   2 s for one-shots.)*
 
 ## Decided (owner, 2026-10-26)
 
@@ -162,6 +208,11 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-08 — **S0's owner runbook, and what no longer fits.** [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md)
+  is the owner's click-by-click path, starting with a one-clip smoke test. The S0 recipe was
+  checked against the engine's Salmons ("S0 on the engine" above), and seven adjustments wait
+  for the owner. The clip wiring follows the Salmons visual-fixes merge.
 
 - 2026-11-02 — **Salmons plays live.** Owner steps 1 (upload), 3 (publish) and 4 (the config
   credential) are done; a published link joins a room on `rooms.invisiblewall.org`. The three
