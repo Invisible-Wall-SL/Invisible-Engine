@@ -103,8 +103,10 @@ server module, routes, page components, triage, screenshots, the pull-request li
     workspace against the pristine copy and POSTs the result with the CLI's usage; the log shows one
     line. The CLI runs `--restricted` under `env -i`, with settings and agents from the pristine
     copy and the Bash sandbox on: no network, no read of the key, the pristine copy or the runner's
-    own files, fail closed without bubblewrap. `tsx` runs through its loader in the sandbox
-    (`tsx-shim.mjs`). Proved on the pinned CLI with a scripted fake model
+    own files, fail closed without bubblewrap. What later steps run (the pristine copy, the
+    rendered settings, the CLI) and the key are root's, out of reach of the CLI's own file tools.
+    `tsx` runs through its loader in the sandbox (`tsx-shim.mjs`). Step 5 refuses a change that
+    copies the brief or a screenshot. Proved on the pinned CLI with a scripted fake model
     (`bug-fix-proof.yml`, `prove-cli.mjs`); pinned offline by `pnpm check:bug-fix-workflow`.
   - **Storage.** Table `bug_fix_runs` (migration `0037_bug_fix_runs`) and the `fix_run` event kind.
     One live run per bug (a partial unique index); one Actions run per fix run (unique `gh_run_id`).

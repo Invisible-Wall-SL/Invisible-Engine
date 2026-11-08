@@ -815,9 +815,17 @@ code default, so the dashboard need not set it):
        policy, `main`.
     3. **`ANTHROPIC_BUG_FIX_API_KEY`**, an **environment secret** of `bug-fix` (not a repository
        secret): a key of its own, in an Anthropic workspace with a **$200** monthly spend limit.
-  - **The key** reaches step 4 ("Run Claude Code") only. The step writes it to a file under
-    `$RUNNER_TEMP/key`, the CLI reads it through `scripts/bug-fix/apiKeyHelper`, and the sandbox
-    denies that file to the commands the model runs. Missing → step 4 fails, naming the secret.
+  - **The key** reaches step 4 ("Run Claude Code") only. The step writes it to a root-owned file
+    (0600, in a 0700 folder under `$RUNNER_TEMP/key`). The CLI reads it through
+    `scripts/bug-fix/apiKeyHelper`, which uses `sudo -n /bin/cat`. The sandbox sets
+    no-new-privileges, so no command can sudo, and the CLI's file tools cannot read a root file.
+    Missing → step 4 fails, naming the secret.
+  - **Root-owned and read-only once prepared:** the pristine copy that step 5 runs, the rendered
+    settings, agents and prompt, the CLI and the tsx shim. The job relies on the hosted runner's
+    passwordless `sudo` for this; a self-hosted runner is refused by the fixture.
+  - **The `bug-fix` environment has no required reviewers and no wait timer.** A run waits for
+    neither: the person who presses Start fix is the approval, and the launcher gives a run 15
+    minutes to start.
   - **No cache and no artifact, on purpose.** pnpm hard-links its store into `node_modules`, so a
     cache save would publish the model's writes to `main`'s cache.
   - **The CLI is pinned** by version and by the npm tarball's sha512 (`CLAUDE_CODE_VERSION`,

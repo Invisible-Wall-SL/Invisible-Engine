@@ -36,8 +36,9 @@ with a new one. Use this format:
   `apiKeyHelper`, and a Bash sandbox that denies the network and the key file. The proof is
   `scripts/bug-fix/prove-cli.mjs` + `fake-anthropic.mjs`, run on a hosted runner by
   `bug-fix-proof.yml` with no secret. It is the real CLI, through the workflow's own step text,
-  against a scripted fake model; 68 checks, with positive controls and planted mutants. ADR
-  approval item 11 did not trigger: the network and the key file are denied.
+  against a scripted fake model; 76 checks, with positive controls, markers that each probe ran,
+  and planted mutants. ADR approval item 11 did not trigger: the network and the key file are
+  denied.
 - Found by the proof, beyond the ADR, all closed:
   - the sandbox could read the runner's own credentials (`~/actions-runner/…/.credentials`);
   - a bare Grep allow searched outside the workspace;
@@ -47,24 +48,43 @@ with a new one. Use this format:
     its loader instead;
   - pnpm's hard-linked store would make a cache save a poisoning path: no cache;
   - `env -u` would leave the key in the parent shell's `/proc/<pid>/environ`: `exec env -i`.
+- Found by code-reviewer, all closed. The CLI's file tools run OUTSIDE the sandbox, so a link the
+  model plants could carry them to what later steps run.
+  - What later steps run is now root-owned and read-only: the pristine copy, the rendered
+    settings, agents and prompt, the CLI and the tsx shim.
+  - The key is root-only, read by `sudo -n /bin/cat` in the apiKeyHelper; the sandbox cannot sudo.
+  - The proof's planted links reach nothing, and the sandbox alone refuses a `.git` swap.
+  - Step 5:
+    - runs on `always()`, so a stopped run still bills;
+    - uses node's recorded path;
+    - reads each file through one `O_NOFOLLOW` descriptor matched by `fstat`, inside the
+      workspace's real path;
+    - refuses a change that copies the brief or a screenshot;
+    - cuts text to the launcher's caps, and checks the size limits first;
+    - posts once with a 10-minute timeout, and sends a failure body on a 400 or 413.
+  - The tsx shim now replaces tsx's `dist/cli.mjs`, so `check:all` goes through it too.
+  - The protected list matches more of the launcher's.
+  - The proof runs weekly.
 - Files: .github/workflows/bug-fix.yml, bug-fix-proof.yml; scripts/bug-fix/*; package.json
   (`check:bug-fix-workflow`); .claude/agents/pipeline-triage.md; scripts/check-agents-knowledge.mjs;
   docs/INFRA.md, docs/guides/rotate-a-secret.md, docs/status/{bug-reports,infra}.md, PLAN.md.
 - Branch / PR: claude/eager-mendel-366c95, #1525.
 - Tests:
-  - `check:bug-fix-workflow`: 41 rules over the workflow, the settings, the helper, `collect.mjs`
-    and current-games' fix-run skip, with 108 planted workflow mutants and 6 `collect.mjs`
+  - `check:bug-fix-workflow`: 43 rules over the workflow, the settings, the helper, `collect.mjs`
+    and current-games' fix-run skip, with 112 planted workflow mutants and 6 `collect.mjs`
     mutants, all caught. It also runs `collect.mjs` end to end against a fake OIDC endpoint and
     launcher.
-  - Bug fix proof: green on the hosted runner.
+  - Bug fix proof: 76 / 76 on the hosted runner.
   - Reviewed by regression-guardian (fixture audit: ADR §10 met; its bypasses and vacuous checks
     then closed) and code-reviewer.
 - Decisions: PLAN 13B is `review`, not `done`. Its acceptance includes the five-case spike, and a
   run can only start from `main` (OIDC claims and the environment both pin it), so the spike runs
   after the owner's merge. The PR edits `.github/workflows/`, so its `current-games` fails by
   design and the owner merges it with the admin override.
+  Merging #1525 turns Start fix on: 13C (#1523) shows the button as soon as GitHub has an active
+  `bug-fix.yml`.
 - Next: owner merge of #1525; then the live five-case spike on seeded test bugs ($20 cap), results
-  in #1525 and here; 13C.
+  in #1525 and here. 13C's PLAN row still reads `todo` though #1523 merged.
 
 ## 2026-11-08 · Phase 10 · director-frontend (13C: Start fix UI)
 - Did: Start fix / Send and start fix and the run line (status, PR, Actions link, spend, Stop,

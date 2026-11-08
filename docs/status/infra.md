@@ -148,6 +148,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
     - a bare Grep allow searched outside the workspace;
     - Unix sockets: the CLI's messaging socket was offered to every command. The sandbox refuses
       them all, and `--restricted` starts none. tsx, which needs one, runs through its loader.
+  - **Closed after the code review.** The CLI's file tools run outside the sandbox, so what later
+    steps run is now root-owned: the pristine copy, the rendered settings, the CLI and the tsx
+    shim. The key is root-only and read with `sudo` by the apiKeyHelper. Step 5 reads the
+    workspace through `O_NOFOLLOW` descriptors. The proof plants links and a `.git` swap; 76 / 76.
   - **Setup.** The owner's three steps are done. The `bug-fix` environment (branch policy `main`)
     and its secret were checked with `gh api` on 2026-11-08; the App's Actions write shows on the
     first dispatch.
