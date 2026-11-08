@@ -33,6 +33,7 @@
 </script>
 
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { Rectangle, Texture } from 'pixi.js';
 	import { applyClipBounds, resolveClipFrames } from 'engine-flipbook';
 
@@ -107,7 +108,7 @@
 				},
 				bounds,
 			);
-			return new Texture({
+			const restatedTexture = new Texture({
 				source: tex.source,
 				// `frame` is the rect ON THE PAGE and `rotate` how it is packed — both untouched: a
 				// box says where the art sits in ITS OWN space, never which pixels it is.
@@ -117,7 +118,29 @@
 				trim: new Rectangle(box.offX, box.offY, box.artW, box.artH),
 				label: tex.label,
 			});
+			restated[restatedTexture.uid] = restatedTexture;
+			return restatedTexture;
 		});
+	});
+
+	/**
+	 * The restated frames are this component's own, and each one listens to its page's `resize`
+	 * (PIXI's `Texture` subscribes to its source), so the page would keep every one alive. They are
+	 * destroyed once the derived set no longer holds them, and all of them on unmount;
+	 * `destroy(false)` leaves the page itself alone. A clip without a box hands the loaded textures
+	 * through untouched, and those are never destroyed here.
+	 */
+	const restated: Record<number, Texture> = {};
+	$effect(() => {
+		const current = new Set<number>(textures.map((tex) => tex?.uid));
+		for (const uid of Object.keys(restated).map(Number)) {
+			if (current.has(uid)) continue;
+			restated[uid].destroy(false);
+			delete restated[uid];
+		}
+	});
+	onDestroy(() => {
+		for (const tex of Object.values(restated)) tex.destroy(false);
 	});
 
 	// A dropped frame silently SHORTENS the animation — it still plays, so nothing looks broken,

@@ -30,6 +30,7 @@ import {
 	strongestForce,
 	type Camera,
 	type FixedStep,
+	type HookLine,
 	type HookLines,
 	type Interpolator,
 	type OnlineEvent,
@@ -38,21 +39,34 @@ import {
 } from 'engine-mechanics';
 import { serverVariablesOf } from 'engine-flow-v2';
 import {
+	CHARACTER_CLIP_EVENTS,
 	FIELD_DRAWINGS,
+	createCharacterAnimator,
+	flipbookCycleMs,
+	getComponent,
+	resolveFlipbook,
 	sceneCamera,
 	sceneWorld,
 	worldCameraScene,
+	type CharacterAnimator,
+	type CharacterClipEvent,
+	type CharacterClipFrame,
+	type CharacterClips,
 	type LayoutDoc,
 	type LayoutNode,
 	type Scene,
 } from 'engine-layout';
 import {
+	clearClips,
 	clearMarks,
+	clipsOn,
+	setClips,
 	setLinks,
 	setMarks,
 	startMarks,
 	setWorldCameraView,
 	spawnStore,
+	type InstanceClip,
 	type InstanceLink,
 	type InstanceMark,
 } from 'engine-layout/svelte';
@@ -95,6 +109,11 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * (`mark`: Salmons' golden salmon) is drawn gold, and a `hook` ability's line is drawn from the
  * player holding it to the one on it while that one is `hooked` (`createHookLines`), both from the
  * state every frame, so every device shows them as soon as the room changes them.
+ *
+ * CLIPS (Salmons' S0 art): a character whose component has `characterClips` plays its Invisible
+ * Flipbook clips once they are registered (`engine-layout` `characterClips.ts`): its loop from how
+ * it moves as drawn and whether its line holds a player, and a one-shot on a room event about it
+ * (a hop, a swipe, a cast, a catch). One caught by the room is still drawn while its catch plays.
  *
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
@@ -168,6 +187,14 @@ type Session = {
 	abilities: AbilityPredictor | undefined;
 	/** The flow signals raised, newest last (the probe's). */
 	signals: OnlineFlowSignal[];
+	/** Room player id → how its clips play (only for a character whose component has clips). */
+	looks: Map<string, PlayerLook>;
+	/** Component id → its clips, or `null` when it has none; read once each is registered. */
+	clipLooks: Map<string, CharacterClips | null>;
+	/** The clock the clips play by: the frames' time, in ms. */
+	clipClock: number;
+	/** The clips drawn as they changed, `<room id>:<clip id>`, newest last (the probe's). */
+	clipLog: string[];
 	/** The flow's variables the room writes, read once the flow is up. */
 	serverVariables: { id: string; server: string }[] | undefined;
 	/** The room's seed, and the field made from it, drawn in place of the authored node of its id. */
@@ -178,6 +205,32 @@ type Session = {
 };
 
 let session: Session | undefined;
+
+/** A player's clips: its animator, its drawn places of the last moment (its velocity) and, once
+ *  the room put it out, how long its instance waits for its catch and whether the catch started. */
+type PlayerLook = {
+	look: CharacterClips;
+	animator: CharacterAnimator;
+	trail: { x: number; y: number; atMs: number }[];
+	leaving: { until: number; caught: boolean } | undefined;
+	shown: CharacterClipFrame | undefined;
+};
+
+/** Start a player's clips afresh where it is next drawn: no one-shot, no velocity from its last
+ *  place (it was hidden, or the room moved it). */
+const restart = (look: PlayerLook) => {
+	look.leaving = undefined;
+	look.trail.length = 0;
+	look.animator.reset();
+};
+
+/** How long an instance put out is kept waiting for the room's `caught`, which comes just after
+ *  the state that put it out. */
+const CAUGHT_WAIT_MS = 400;
+
+/** How far back a character's velocity is measured: over a frame, a prediction's correction or an
+ *  interpolation's step would turn its facing for that frame alone. */
+const VELOCITY_WINDOW_MS = 150;
 
 /** The world camera of an online game whose play field is a world (P10.16): it follows the own
  *  player as it is drawn, so the device's view answers as fast as its controls. */
@@ -277,6 +330,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	room.onLeave((code: number) => {
 		session = undefined;
 		clearMarks();
+		clearClips();
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
@@ -320,6 +374,10 @@ export async function joinOnlineRoom(): Promise<void> {
 		lines: createHookLines(),
 		drawnLines: [],
 		abilities: undefined,
+		looks: new Map(),
+		clipLooks: new Map(),
+		clipClock: 0,
+		clipLog: [],
 		signals: [],
 		serverVariables: undefined,
 		seed,
@@ -409,10 +467,26 @@ function withRoomField(doc: LayoutDoc): LayoutDoc {
 	};
 }
 
-/** Raise a room event in the flow (an online event). */
+/** The player a signal's one-shot clip is about, for the events a look plays on. */
+function clipSubject(signal: OnlineFlowSignal): CharacterClipEvent | undefined {
+	return (CHARACTER_CLIP_EVENTS as readonly string[]).includes(signal.name)
+		? (signal.name as CharacterClipEvent)
+		: undefined;
+}
+
+/** Raise a room event in the flow (an online event), and start the one-shot clip it plays. */
 function raise(current: Session, signal: OnlineFlowSignal) {
 	current.signals.push(signal);
 	current.signals.splice(0, current.signals.length - EVENTS_KEPT);
+	const event = clipSubject(signal);
+	if (event) {
+		const subject = event === 'caught' ? signal.payload.target : signal.payload.player;
+		// Only a player drawn now: an event that comes after its instance went plays nothing later.
+		if (typeof subject === 'string' && current.drawn.has(subject))
+			current.looks.get(subject)?.animator.event(event);
+	}
+	// A new round puts every player at its start: no velocity from where it was.
+	if (signal.name === 'roundStart') for (const look of current.looks.values()) restart(look);
 	void getFlowV2()?.dispatch(signal.name, signal.payload);
 }
 
@@ -518,25 +592,33 @@ function placeOf(current: Session, id: string, player: PlayerState) {
 }
 
 /** Put every player of the room where it is drawn. */
-function draw(current: Session) {
+function draw(current: Session, dtMs: number) {
 	const live = spawnStore();
 	const { layer } = current.game.online;
 	const players = stateOf(current.room).players;
 	if (!players) return;
+	current.clipClock += dtMs;
+	for (const id of current.looks.keys()) if (!players.has(id)) current.looks.delete(id);
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
-		if (!player || !shownInRoom(player)) {
-			live.despawn(instance);
-			current.drawn.delete(id);
-		}
+		if (player && (shownInRoom(player) || keptForCatch(current, id, player))) continue;
+		live.despawn(instance);
+		current.drawn.delete(id);
+		const look = current.looks.get(id);
+		if (look) restart(look);
 	}
 	const moves: { id: string; x: number; y: number }[] = [];
+	const places = new Map<string, { x: number; y: number }>();
 	players.forEach((player, id) => {
 		if (!shownInRoom(player)) return;
 		const at = placeOf(current, id, player);
+		places.set(id, at);
 		const instance = current.drawn.get(id);
 		if (instance) {
 			moves.push({ id: instance, x: at.x, y: at.y });
+			// Held for its catch and shown again (it respawned): its clips start afresh.
+			const look = current.looks.get(id);
+			if (look?.leaving) restart(look);
 			return;
 		}
 		const character = current.game.online.characters.find((c) => c.id === player.character);
@@ -551,7 +633,109 @@ function draw(current: Session) {
 		}
 	});
 	live.move(moves);
-	drawMarks(current, players);
+	const lines = current.lines.drawn(players);
+	drawMarks(current, players, lines);
+	drawClips(current, players, places, lines);
+}
+
+/** The registered clips, as a character's animator reads them. */
+const CLIP_SOURCE = {
+	has: (clipId: string) => resolveFlipbook(clipId) !== undefined,
+	cycleMs: (clipId: string) => flipbookCycleMs(clipId, false),
+};
+
+/** A component's clips, read once it is registered (the game registers its components as it
+ *  mounts, after the join). */
+function clipLookOf(current: Session, componentId: string): CharacterClips | undefined {
+	if (current.clipLooks.has(componentId)) return current.clipLooks.get(componentId) ?? undefined;
+	const def = getComponent(componentId);
+	if (!def) return undefined;
+	current.clipLooks.set(componentId, def.characterClips ?? null);
+	return def.characterClips;
+}
+
+/** A player's clips, made with its first draw; `undefined` for a character with none. */
+function lookOf(current: Session, id: string, player: PlayerState): PlayerLook | undefined {
+	const known = current.looks.get(id);
+	if (known) return known;
+	const character = current.game.online.characters.find((c) => c.id === player.character);
+	const look = character && clipLookOf(current, character.body);
+	if (!look) return undefined;
+	const made: PlayerLook = {
+		look,
+		animator: createCharacterAnimator(look, CLIP_SOURCE),
+		trail: [],
+		leaving: undefined,
+		shown: undefined,
+	};
+	current.looks.set(id, made);
+	return made;
+}
+
+/**
+ * Whether a player the room put out is still drawn: while its catch plays. The room's `caught`
+ * comes just after the state that put it out, so it is waited for a moment; a character with no
+ * `caught` clip is hidden at once, as before.
+ */
+function keptForCatch(current: Session, id: string, player: PlayerState): boolean {
+	const look = current.looks.get(id);
+	if (!look || !look.animator.plays('caught', player.mark)) return false;
+	const now = current.clipClock;
+	look.leaving ??= { until: now + CAUGHT_WAIT_MS, caught: false };
+	// Once the catch started, it is kept exactly while it plays.
+	if (look.animator.oneShot(now) === look.look.on?.caught) {
+		look.leaving.caught = true;
+		return true;
+	}
+	return !look.leaving.caught && now < look.leaving.until;
+}
+
+/** Each drawn character's clip this frame, from how it moved as drawn since the last one. */
+function drawClips(
+	current: Session,
+	players: Map<string, PlayerState>,
+	places: Map<string, { x: number; y: number }>,
+	lines: readonly HookLine[],
+) {
+	const holders = new Set(lines.map((line) => line.by));
+	const clips = new Map<string, InstanceClip>();
+	const now = current.clipClock;
+	for (const [id, instance] of current.drawn) {
+		const player = players.get(id);
+		const look = player && lookOf(current, id, player);
+		if (!player || !look) continue;
+		const { trail } = look;
+		const at = places.get(id) ?? trail.at(-1) ?? placeOf(current, id, player);
+		trail.push({ x: at.x, y: at.y, atMs: now });
+		while (trail.length > 2 && now - trail[1].atMs >= VELOCITY_WINDOW_MS) trail.shift();
+		const from = trail[0];
+		const dt = now - from.atMs;
+		const vx = dt > 0 ? ((at.x - from.x) * 1000) / dt : 0;
+		const vy = dt > 0 ? ((at.y - from.y) * 1000) / dt : 0;
+		const frame = look.animator.frame({
+			atMs: now,
+			vx,
+			vy,
+			holding: holders.has(id),
+			marked: player.mark,
+		});
+		if (frame?.clipId !== look.shown?.clipId) {
+			current.clipLog.push(`${id}:${frame?.clipId ?? ''}`);
+			current.clipLog.splice(0, current.clipLog.length - EVENTS_KEPT);
+		}
+		look.shown = frame;
+		if (!frame) continue;
+		clips.set(instance, {
+			clipId: frame.clipId,
+			flipX: frame.flipX,
+			loop: frame.loop,
+			play: frame.play,
+			width: look.look.displayWidth,
+			anchorY: look.look.anchorY ?? 1,
+			own: frame.marked,
+		});
+	}
+	if (current.looks.size || clipsOn()) setClips(clips);
 }
 
 /** A body's size on the ground: a box's, or a circle's diameter. */
@@ -571,7 +755,11 @@ const bodyOf = (current: Session, player: PlayerState) =>
  * ends are raised by the bodies' `h`, which in an isometric world is their depth on the ground, not
  * a look's height: right while the looks are sized to their bodies (Salmons' placeholders).
  */
-function drawMarks(current: Session, players: Map<string, PlayerState>) {
+function drawMarks(
+	current: Session,
+	players: Map<string, PlayerState>,
+	lines: readonly HookLine[],
+) {
 	const marks = new Map<string, InstanceMark>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
@@ -580,7 +768,7 @@ function drawMarks(current: Session, players: Map<string, PlayerState>) {
 	setMarks(marks);
 	const links: InstanceLink[] = [];
 	current.drawnLines = [];
-	for (const line of current.lines.drawn(players)) {
+	for (const line of lines) {
 		const from = current.drawn.get(line.by);
 		const to = current.drawn.get(line.target);
 		const by = players.get(line.by);
@@ -666,7 +854,7 @@ export function tickOnline(dtMs: number) {
 		predictAbilities(current, input.buttons, input.seq);
 	});
 	current.me?.frame(dtMs);
-	draw(current);
+	draw(current, dtMs);
 	follow(current, dtMs);
 }
 
@@ -726,6 +914,14 @@ export function onlineProbe() {
 							.filter(([id, p]) => p.mark && current.drawn.has(id))
 							.map(([id]) => id),
 						lines: current.drawnLines.map((line) => ({ ...line })),
+						clips: Object.fromEntries(
+							[...current.looks].flatMap(([id, { shown }]) =>
+								shown && current.drawn.has(id)
+									? [[id, { clipId: shown.clipId, flipX: shown.flipX }]]
+									: [],
+							),
+						),
+						clipLog: [...current.clipLog],
 						signals: current.signals.map((s) => ({ ...s })),
 						spawned: spawnStore()
 							.live(current.game.online.layer)

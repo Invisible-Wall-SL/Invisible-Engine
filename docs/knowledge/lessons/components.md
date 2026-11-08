@@ -6,6 +6,18 @@ only keeps the traps. It covers `ComponentDef`s, the built-ins (`engine-layout`
 `builtinComponents.ts`), the Components side of `/editor` and the ship chain (closure → bake →
 runtime bundle). Screen-side traps: [editor.md](editor.md).
 
+### A component field written by an export vanished in the launcher
+- **Symptom:** once `characterClips` was listed in `componentFields.ts` with no normalizer, the
+  field written by `scripts/salmons/export.mjs` was dropped on read as well as on save, so the
+  clips would never have reached the game. An unlisted field survives, through the unknown-field
+  graft.
+- **Cause:** `normalizeComponent` rebuilds every def from an allowlist on READ and save, and the
+  unknown-field graft keeps only fields `COMPONENT_DEF_FIELDS` does not list.
+- **Fix:** a new `ComponentDef` field gets its normalizer in `componentStorage.ts` and its key in
+  `componentFields.ts` (the `Record<keyof ComponentDef, true>` forces the second).
+- **Guard:** launcher `check:character-clips` (the round trip); `check:save-keeps-unknown-blocks`.
+- **PR:** not recorded (2026-11-08, branch `s0-character-clips`) · source: `docs/status/salmons.md`
+
 ### A pinned component's segment never shipped
 - **Symptom:** the editor drew a counter's first segment; the game drew the default one.
 - **Cause:** the closure walked latest defs only, so a component only an older pinned version

@@ -31,8 +31,10 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   source), with a camera that follows the device's own player and the players' spawn layer.
 - **The looks** — `SALMONS_CHARACTER_COMPONENTS`: three placeholder shapes (salmon pink, bear
   brown disc, fisherman yellow), each standing on its place (its bottom there), and the swipe,
-  cast and splash centred on theirs. The S0 clips are not generated yet
-  ([status/salmons](../status/salmons.md) open item 1); they replace these components. The
+  cast and splash centred on theirs. The three characters carry `characterClips`: each plays its
+  S0 Invisible Flipbook clips (`salmon_pink_*`, `bear_*`, `fisherman_*`) once they are in the
+  project, drawn over the hidden placeholder; the clips are not generated yet
+  ([status/salmons](../status/salmons.md) open item 1). The
   runtime draws the golden salmon (the room's `mark`) gold over a glow, and a fisherman's line to
   the salmon he has hooked, from the room's state: no component carries them.
 
@@ -106,16 +108,27 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
     is gone.
 18. Page G2 (another salmon) joins and G leaves: the golden salmon passes to G2, which draws it
     gold (`14-golden-passes-on.png`) and shows the golden banner, gone again after 2 s.
-19. No page sends the RGS anything; no page error.
+19. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
+    snapshot that registers three stub clips (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
+    `salmon_pink_hop_se`, green 32 × 64 frames with their box, on a sheet in `editorArt`). The probe's
+    `online.clips` (room id → `{ clipId, flipX }`) and `online.clipLog` (each change) say what is
+    played: swimming downstream (screen south-west) is `swim_se` mirrored; swimming upstream is
+    `swim_ne`; grounded on the sand, `15-salmon-clip.png` has the clip standing on its feet, gold
+    (the room's only salmon is golden) from the feet to 180 px up and not above (90 wide, the
+    body's width); Space jumps it off: `hop_se` (the vertical twin, no `hop_ne`) once, then
+    `swim_ne`. T's bear has no clips: no clip in its probe and its brown placeholder in
+    `16-bear-placeholder.png`.
+20. No page sends the RGS anything; no page error.
 
 The bots are bears with a brain that stands still: each room places them on its own river's
 banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
-so it is golden and check 6 takes its colour as pink or gold. 52 verdicts.
+so it is golden and check 6 takes its colour as pink or gold. 61 verdicts.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,
 `08-over-the-waterfall.png`, `09-grounded.png`, `10-golden-salmon.png`,
-`11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`.
+`11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`,
+`15-salmon-clip.png`, `16-bear-placeholder.png`.
 
 ## What the gates already prove (not replayed here)
 
@@ -132,7 +145,8 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
 ## Known gaps
 
 - Placeholder looks (the swipe and cast too; a swipe or cast is drawn over its user); rocks are
-  rectangles.
+  rectangles. The clip path is played with stub clips only: the bear's and fisherman's one-shots,
+  the reel and the `caught` hold are pinned by `pnpm check:character-clips`, not in a browser.
 - A device that joins, or comes near, after a hook does not draw that line (it knows of a line
   only from the room's `hooked`).
 - A climb and a reel move a body on the server only: the own device sees them as a correction.

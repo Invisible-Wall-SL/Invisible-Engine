@@ -1866,8 +1866,40 @@ export interface ComponentDef {
 	 * is ever raised (parity).
 	 */
 	events?: ComponentEvent[];
+	/**
+	 * How an arcade character drawn in an ONLINE room plays its Invisible Flipbook clips
+	 * (`characterClips.ts`; Salmons' S0 art). Absent ⇒ the component's own tree, as before.
+	 */
+	characterClips?: CharacterClips;
 	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
 	guides?: EditorGuideSet;
+}
+
+/** The room events a character's one-shot clip plays on, each naming the player it is about. */
+export const CHARACTER_CLIP_EVENTS = ['jumped', 'climbed', 'ability', 'caught'] as const;
+export type CharacterClipEvent = (typeof CHARACTER_CLIP_EVENTS)[number];
+
+/**
+ * A character's clips, named `<prefix>_<state>_<facing>` (`se`, `sw`, `ne`, `nw`) and resolved
+ * from the registered clips (`registerFlipbooks`). A state or facing with no clip is stood in for
+ * by a near one (`characterClips.ts`); with none, the component's own tree is drawn. The facings
+ * assume an isometric (2:1) world: the velocity is projected as the isometric screen draws it.
+ */
+export interface CharacterClips {
+	/** `marked` is tried first for a player the room marks (the golden salmon); without one the
+	 *  `base` clip is drawn gold, as the placeholder is. */
+	prefixes: { base: string; marked?: string };
+	/** The width the clip's box is drawn at (the body's). */
+	displayWidth: number;
+	/** Where the feet are down the clip's box, 0 (top) to 1 (bottom). Absent ⇒ 1. */
+	anchorY?: number;
+	/** The loops: `idle` standing, `walk` moving (absent ⇒ `idle`), `holding` while its line holds
+	 *  a player. */
+	idle: string;
+	walk?: string;
+	holding?: string;
+	/** The state played once on a room event about the player, before its loop takes over. */
+	on?: Partial<Record<CharacterClipEvent, string>>;
 }
 
 /**

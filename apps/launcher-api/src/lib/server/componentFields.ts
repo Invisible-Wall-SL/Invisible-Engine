@@ -161,6 +161,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	inputs: true,
 	stateMachine: true,
 	events: true,
+	characterClips: true,
 	guides: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {

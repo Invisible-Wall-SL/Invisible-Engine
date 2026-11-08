@@ -25,6 +25,7 @@ import { createSingleFlight, mapWithConcurrency } from './concurrency';
 const REACHABILITY_CONCURRENCY = 6;
 import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
+import { listClipIds } from './flipbookStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
 import { listEffects, loadEffect } from './fxStorage';
 import { exportRigFlipbooks, referencedClipIds } from './rigFlipbookExport';
@@ -54,6 +55,35 @@ export function collectClipIds(value: unknown, into: Set<string>): void {
 }
 
 /**
+ * Every clip PREFIX a component's `characterClips` names (an arcade character plays
+ * `<prefix>_<state>_<facing>`, chosen at run time — `engine-layout` `characterClips.ts`), however
+ * deeply nested. Like {@link collectClipIds}, it over-collects rather than miss one.
+ */
+export function collectClipPrefixes(value: unknown, into: Set<string>): void {
+	if (!value) return;
+	if (Array.isArray(value)) {
+		for (const v of value) collectClipPrefixes(v, into);
+		return;
+	}
+	if (typeof value !== 'object') return;
+	for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+		if (k !== 'characterClips') {
+			collectClipPrefixes(v, into);
+			continue;
+		}
+		const prefixes = (v as { prefixes?: Record<string, unknown> } | null)?.prefixes;
+		for (const p of [prefixes?.base, prefixes?.marked]) if (typeof p === 'string' && p) into.add(p);
+	}
+}
+
+/** The project's clip ids a prefix names: `<prefix>_…`. */
+export function clipIdsOfPrefixes(prefixes: Iterable<string>, clipIds: Iterable<string>): string[] {
+	const heads = [...prefixes].map((prefix) => `${prefix}_`);
+	if (!heads.length) return [];
+	return [...clipIds].filter((id) => heads.some((head) => id.startsWith(head)));
+}
+
+/**
  * The clip ids something in this project plays, or `null` when that cannot be determined — in
  * which case the caller MUST ship everything rather than guess.
  *
@@ -70,6 +100,10 @@ export function collectClipIds(value: unknown, into: Set<string>): void {
  * Component defs are read with `listComponents({ projectKey })` — project + shared, i.e. ALL of
  * them rather than only those the doc currently instantiates. That over-collects on purpose: shipping a clip nothing plays costs
  * bytes, dropping one something plays costs an animation, and the two are not worth trading.
+ *
+ * An arcade character's clips are named by PREFIX only (`characterClips`, which picks
+ * `<prefix>_<state>_<facing>` at run time), so every project clip under a prefix a layout node or
+ * component def names is played ({@link collectClipPrefixes}).
  *
  * A clip played only from a game's own TypeScript is invisible here. That is the known limit, and
  * why an unreferenced clip is REPORTED by its caller rather than silently dropped.
@@ -130,6 +164,14 @@ async function collectPlayedClipIdsUncached(
 		for (const effectDoc of effectDocs) collectClipIds(effectDoc, ids);
 		collectClipIds(flowV2Doc, ids);
 		for (const id of referencedClipIds(rigFlipbooks)) ids.add(id);
+		const prefixes = new Set<string>();
+		collectClipPrefixes(docSrc, prefixes);
+		collectClipPrefixes(defsSrc, prefixes);
+		// Only a project whose characters name clips by prefix lists its clips (one LIST, no reads).
+		if (prefixes.size) {
+			const projectClipIds = await listClipIds(clientKey, projectKey);
+			for (const id of clipIdsOfPrefixes(prefixes, projectClipIds)) ids.add(id);
+		}
 	} catch (e) {
 		// Reachability unknown — the caller ships every clip. Never prune on a guess.
 		console.log(`[clips] reachability undetermined (${e}) — treating every clip as played.`);

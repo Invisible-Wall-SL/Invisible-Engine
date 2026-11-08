@@ -9,7 +9,7 @@
 
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import { Container, Graphics, getContextParent } from 'pixi-svelte';
+	import { Container, Flipbook, Graphics, getContextApp, getContextParent } from 'pixi-svelte';
 	import type { SpawnedInstance } from 'engine-flow-v2';
 	import { ColorMatrixFilter, type Graphics as PixiGraphics } from 'pixi.js';
 
@@ -18,6 +18,13 @@
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
 	import { liftOf, liftsOn } from './arcadeLifts.svelte';
+	import { clipOf, clipsOn } from './arcadeClips.svelte';
+	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
+	import {
+		foldFlipbookPlayback,
+		resolveFlipbook,
+		type FlipbookClipEntry,
+	} from './registerFlipbooks';
 	import { linksOf, markOf, marksOn } from './arcadeMarks.svelte';
 	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
@@ -119,6 +126,56 @@
 		g.stroke(LINE);
 	};
 
+	// A character's clip (`arcadeClips.svelte.ts`), drawn with the bottom centre of its box (its
+	// feet, `anchorY`) at the instance's place, `width` wide. Drawn only once its first frame is
+	// loaded; until then, and with no clip, the instance's own tree shows. Each instance keeps its
+	// folded clip by key, so a frame that publishes the same clip hands `<Flipbook>` the same object.
+	const app = getContextApp();
+	type Played = {
+		clip: FlipbookClipEntry;
+		key: string;
+		scale: number;
+		anchorY: number;
+		own: boolean;
+	};
+	const folded: Record<string, { key: string; clip: FlipbookClipEntry }> = {};
+	$effect(() => {
+		const alive = new Set(instances.map((i) => i.id));
+		for (const id of Object.keys(folded)) if (!alive.has(id)) delete folded[id];
+	});
+	const firstFrameWidth = (clip: FlipbookClipEntry) => {
+		const first = clip.frames[0];
+		if (!first) return undefined;
+		const { assetKey, region } = parseScopedFrameRef(first);
+		const sheet = assetKey ?? clip.assetKey;
+		const assets = app.stateApp.loadedAssets as Record<string, unknown> | undefined;
+		const scoped = isManifestAssetKey(sheet)
+			? assets?.[editorArtTextureKey(sheet, region)]
+			: undefined;
+		return ((scoped ?? assets?.[region]) as { width?: number } | undefined)?.width;
+	};
+	const played = (id: string): Played | undefined => {
+		const look = clipsOn() ? clipOf(id) : undefined;
+		const clip = look && resolveFlipbook(look.clipId);
+		const width = clip && firstFrameWidth(clip);
+		if (!look || !clip || !width) return undefined;
+		const natural = clip.bounds && clip.bounds.w > 0 ? clip.bounds.w : width;
+		const key = `${look.clipId}|${look.flipX}|${look.loop}|${look.play}`;
+		let entry = folded[id];
+		if (entry?.key !== key) {
+			const flipX = (clip.flipX === true) !== look.flipX;
+			entry = { key, clip: foldFlipbookPlayback(clip, { loop: look.loop, flipX }) };
+			folded[id] = entry;
+		}
+		return {
+			clip: entry.clip,
+			key,
+			scale: look.width / natural,
+			anchorY: look.anchorY,
+			own: look.own,
+		};
+	};
+
 	const instanceNode = (instance: SpawnedInstance): ComponentInstanceNode => ({
 		kind: 'componentInstance',
 		id: instance.id,
@@ -131,11 +188,24 @@
 {#snippet look(instance: SpawnedInstance)}
 	{#if marksOn()}
 		{@const mark = markOf(instance.id)}
+		{@const clip = played(instance.id)}
 		{#if mark}
 			<!-- On the ground: a hop's lifted container is raised by `z`, the glow is not. -->
 			<Graphics y={liftsOn() ? (liftOf(instance.id)?.z ?? 0) : 0} draw={glowOf(mark.width)} />
 		{/if}
-		<Container filters={mark ? goldFilters() : []}>
+		{#if clip}
+			<!-- A marked player's own clip is drawn as made; the base one gold. -->
+			<Container filters={mark && !clip.own ? goldFilters() : []}>
+				{#key clip.key}
+					<Flipbook
+						clip={clip.clip}
+						anchor={{ x: 0.5, y: clip.anchorY }}
+						scale={{ x: clip.scale, y: clip.scale }}
+					/>
+				{/key}
+			</Container>
+		{/if}
+		<Container filters={mark ? goldFilters() : []} visible={!clip}>
 			<ComponentInstance node={instanceNode(instance)} {space} />
 		</Container>
 	{:else}
