@@ -8,9 +8,10 @@
 	 * draws nothing). Without a flow handle it is a plain mount at `z`.
 	 */
 	import { elementFxScreenTarget } from 'constants-shared/elementFx';
+	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
 	import type { Scene } from 'engine-layout';
-	import { LayoutScene, type ScreenNodeDrive } from 'engine-layout/svelte';
+	import { LayoutScene, type ScreenNodeDrive, type ScreenSlot } from 'engine-layout/svelte';
 
 	type Props = {
 		scene: Scene;
@@ -19,8 +20,10 @@
 			engineScreenUp: (sceneId: string, up: boolean) => void;
 			screenDrive: (sceneId: string) => ScreenNodeDrive | undefined;
 		};
+		/** Driven in place rather than remounted (`<FlowV2Mount screenSlot>`). Read once, at mount. */
+		slot?: ScreenSlot;
 	};
-	const { scene, z, flow }: Props = $props();
+	const { scene, z, flow, slot }: Props = $props();
 
 	// Keyed on the id alone: a new scene object for the same screen is the same mount, so it must
 	// not report the screen down and up, which would drop a held drive.
@@ -33,10 +36,24 @@
 	});
 
 	const drive = $derived(flow?.screenDrive(sceneId));
+	const inPlace = untrack(() => slot);
 </script>
 
 <Container zIndex={z}>
-	{#key drive?.key}
-		<LayoutScene {scene} nodeDriver={drive?.driver} parentTarget={elementFxScreenTarget(sceneId)} />
-	{/key}
+	{#if inPlace}
+		<LayoutScene
+			{scene}
+			nodeDriver={inPlace.driver}
+			restart={inPlace.restart}
+			parentTarget={elementFxScreenTarget(sceneId)}
+		/>
+	{:else}
+		{#key drive?.key}
+			<LayoutScene
+				{scene}
+				nodeDriver={drive?.driver}
+				parentTarget={elementFxScreenTarget(sceneId)}
+			/>
+		{/key}
+	{/if}
 </Container>

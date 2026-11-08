@@ -87,11 +87,12 @@ export function createNodeFold(
 	params: () => Record<string, unknown>,
 	frameCount: () => number | undefined,
 	drive: CinematicNodeDrive | undefined,
+	restart?: () => unknown,
 ): NodeFold {
 	const bindings = node.valueBindings;
 	const timelineBindings = drive ? nodeActorBindings(drive.channels) : [];
 	const fxParams = fxParamsDriven(node, bindings, timelineBindings);
-	const bound = createBoundValues(bindings, params, frameCount, fxParams);
+	const bound = createBoundValues(bindings, params, frameCount, fxParams, restart);
 	const timelineSample = $derived(drive?.sample());
 	const allBindings = timelineBindings.length
 		? [...(bindings ?? []), ...timelineBindings]

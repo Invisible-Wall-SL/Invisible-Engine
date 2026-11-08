@@ -1,6 +1,8 @@
 <script lang="ts" module>
-	import type { CinematicNodeDriver } from './cinematicNodeContext';
+	import type { ScreenNodeDrive, ScreenSlot } from './cinematicNodeContext';
 	import type { Scene } from './types';
+
+	export type { ScreenNodeDrive, ScreenSlot };
 
 	/** A container the v2 flow currently has mounted — its backing scene + stack position.
 	 *  Structural (mirrors engine-flow-v2's `MountedContainer`) so engine-layout stays free of an
@@ -21,11 +23,10 @@
 		resolveScene: (sceneId: string) => Scene | undefined;
 		/** The screen timeline moving a shown screen, by scene id (reactive). Absent ⇒ none. */
 		screenDrive?: (sceneId: string) => ScreenNodeDrive | undefined;
+		/** A screen its timelines drive WITHOUT remounting it, by scene id: its nodes sample whichever
+		 *  timeline drives it now, and its content restarts on each new play. Absent ⇒ remounted. */
+		screenSlot?: (sceneId: string) => ScreenSlot | undefined;
 	};
-
-	/** A playing screen timeline's hold on the screen it animates. `key` names one play: a node
-	 *  asks for its driver once, at mount, so a new play remounts the screen. */
-	export type ScreenNodeDrive = { key: string; driver: CinematicNodeDriver };
 </script>
 
 <script lang="ts">
@@ -34,7 +35,7 @@
 
 	import LayoutScene from './LayoutScene.svelte';
 
-	const { containers, resolveScene, screenDrive }: Props = $props();
+	const { containers, resolveScene, screenDrive, screenSlot }: Props = $props();
 </script>
 
 <!--
@@ -51,16 +52,26 @@
 {#each containers as container (container.id)}
 	{@const scene = resolveScene(container.sceneId)}
 	{@const drive = screenDrive?.(container.sceneId)}
+	{@const slot = screenSlot?.(container.sceneId)}
 	{#if scene}
 		<Container zIndex={container.z}>
-			{#key drive?.key}
-				<!-- The container is this screen's own: a Flow `elementEffect` aims at it by name. -->
+			{#if slot}
 				<LayoutScene
 					{scene}
-					nodeDriver={drive?.driver}
+					nodeDriver={slot.driver}
+					restart={slot.restart}
 					parentTarget={elementFxScreenTarget(container.sceneId)}
 				/>
-			{/key}
+			{:else}
+				{#key drive?.key}
+					<!-- The container is this screen's own: a Flow `elementEffect` aims at it by name. -->
+					<LayoutScene
+						{scene}
+						nodeDriver={drive?.driver}
+						parentTarget={elementFxScreenTarget(container.sceneId)}
+					/>
+				{/key}
+			{/if}
 		</Container>
 	{/if}
 {/each}

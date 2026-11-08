@@ -15,6 +15,23 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-08 · Phase 10 · director-frontend (13C: Start fix UI)
+- Did: Start fix / Send and start fix and the run line (status, PR, Actions link, spend, Stop,
+  second-bug File it) on the Bugs tab and the /bugs Triage card; the button is hidden until GitHub
+  has an active bug-fix.yml and the App is set (bugFixWorkflow.ts). The escalated bug's fix run
+  shows on the game bug's Repair card (no summary or second bug). Mark ready for review on a draft
+  change (GraphQL as the App, pipelineMerge). The report form reads title/details from the address.
+- Files: bugs/{fixView.ts, FixRunControl.svelte, BugPanel, RepairCard, view.ts, ReportForm,
+  BugTracker}; pipeline/{BugsPanel, ChangeDetailPanel, view.ts, +page}; lib/server/{bugFixWorkflow,
+  bugReports, pipelineMerge}.ts; api/pipeline/{bugs, changes/[number]/ready}; fixtures;
+  docs/tools/{pipeline-bugs,pipeline-changes,game-bugs}.md, docs/status/bug-reports.md.
+- Branch / PR: claude/tender-archimedes-iz0djq, #1523 (merged 2026-11-08 as ef7f94d).
+- Tests: check:bug-fix-runs 118, check:bug-reports 142, check:pipeline-changes 7892, nativeDialogs
+  OK, undefined-names clean, svelte-check 45 (baseline), build OK, eslint clean. Two check-all
+  shards failed once on unrelated timing fixtures (test-server retention, shadergraph ms bounds)
+  and passed on the one re-run. No browser pass yet.
+- Next: 13B (workflow, after the owner's three setup steps); the browser pass; 13D pilot.
+
 ## 2026-11-03 · Phase 10 · coordinator (#1514 merged)
 - Did: the owner merged #1514, so 13B waits only for the owner's three setup steps.
 - Files: PLAN.md (Phase 10 intro, 13B row), docs/status/bug-reports.md (open item 4).

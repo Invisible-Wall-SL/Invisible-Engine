@@ -110,6 +110,21 @@ export function monthStartUtc(nowMs: number): Date {
 	return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
+/**
+ * What a pipeline bug's page learned about Start fix on the server: the viewer holds both
+ * capabilities (`may`), fix runs can run at all (`ready`: the GitHub App is configured and GitHub
+ * has `bug-fix.yml` as an active workflow), and the first start refusal that needs no GitHub, with
+ * its sentence. The decisions a page makes from it are `fixControl` in `routes/(app)/bugs/fixView.ts`.
+ */
+export interface FixFacts {
+	may: boolean;
+	ready: boolean;
+	refusal: { code: FixRunRefusal; message: string } | null;
+}
+
+/** A page where nothing can be started: a game bug, or a viewer without the pair. */
+export const NO_FIX: FixFacts = { may: false, ready: false, refusal: null };
+
 const usd = (n: number): string => `$${n.toFixed(2)}`;
 
 export function refusalMessage(code: FixRunRefusal, number: number, f: StartFacts): string {

@@ -52,18 +52,24 @@ export const coerceInstanceInput = (
 };
 
 /** The handle plus the `notify` the instance calls when its machine starts or changes state, or
- *  it is shown or hidden. */
+ *  it is shown or hidden, and the `restart` that puts its text inputs back at their defaults when it
+ *  restarts in place. */
 export function createFlowInstanceHandle(host: FlowInstanceHost): {
 	handle: FlowInstanceHandle;
 	notify(): void;
+	restart(): void;
 } {
 	const kinds = new Map(host.inputs.map((input) => [input.id, input.kind]));
 	const textInputs = new Map<string, string>();
 	const listeners = new Set<() => void>();
-	for (const input of host.inputs) {
-		if (input.kind === 'text' && typeof input.default === 'string')
-			textInputs.set(input.id, input.default);
-	}
+	const seedTextInputs = (): void => {
+		textInputs.clear();
+		for (const input of host.inputs) {
+			if (input.kind === 'text' && typeof input.default === 'string')
+				textInputs.set(input.id, input.default);
+		}
+	};
+	seedTextInputs();
 	const handle: FlowInstanceHandle = {
 		instanceId: host.instanceId,
 		componentId: host.componentId,
@@ -102,5 +108,6 @@ export function createFlowInstanceHandle(host: FlowInstanceHost): {
 		notify: () => {
 			for (const listener of [...listeners]) listener();
 		},
+		restart: seedTextInputs,
 	};
 }

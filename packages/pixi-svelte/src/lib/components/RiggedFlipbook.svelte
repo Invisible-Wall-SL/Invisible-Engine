@@ -81,9 +81,15 @@
 	 */
 	import * as PIXI from 'pixi.js';
 	import * as RIG from 'engine-rig/pixi';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 
-	import { getContextRig, getContextRigLoadScale, createContextParent } from '../context.svelte';
+	import {
+		createContextParent,
+		getContextRestart,
+		getContextRig,
+		getContextRigLoadScale,
+		onRestart,
+	} from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
@@ -179,6 +185,13 @@
 		timers.push(timer);
 	};
 	onDestroy(clearTimers);
+	// A restart (`setContextRestart`): dormant again, as a fresh mount is, before the rig's track
+	// starts over and its first beat fires this again.
+	const restart = getContextRestart();
+	onRestart(restart, () => {
+		clearTimers();
+		runId = 0;
+	});
 
 	// Attached at INIT, not from an effect. The sibling `<RigTrack>` sets the animation and poses
 	// it (`rig.update(0)`) from ITS effect, and sibling effects run in template order — so a

@@ -4,7 +4,7 @@
 	import { bugRef, bugRefsIn } from '$lib/bugReports';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import { roleLabel } from '$lib/roles';
-	import type { BugSummary, LinkSync } from '$lib/server/bugReports';
+	import type { BugSummary, FixTab, LinkSync } from '$lib/server/bugReports';
 	import type { CatalogueView } from '$lib/blueprintCatalogue';
 	import type { AgentDetail, AgentList, AgentSummary } from '$lib/server/pipelineAgents';
 	import type { ChangeDetail, ChangeList, ChangeSummary } from '$lib/server/pipelineChanges';
@@ -86,7 +86,7 @@
 	let catalogueError = $state<string | null>(null);
 	let catalogueLoading = $state(false);
 	let catalogueSeq = 0;
-	let bugList = $state<{ bugs: BugSummary[]; sync: LinkSync } | null>(null);
+	let bugList = $state<{ bugs: BugSummary[]; sync: LinkSync; fix: FixTab } | null>(null);
 	let bugsError = $state<string | null>(null);
 	let bugsLoading = $state(false);
 	let bugsSeq = 0;
@@ -237,7 +237,9 @@
 		const seq = ++bugsSeq;
 		bugsLoading = true;
 		try {
-			const next = await getJson<{ bugs: BugSummary[]; sync: LinkSync }>('/api/pipeline/bugs');
+			const next = await getJson<{ bugs: BugSummary[]; sync: LinkSync; fix: FixTab }>(
+				'/api/pipeline/bugs',
+			);
 			if (seq !== bugsSeq) return;
 			bugList = next;
 			bugsError = null;
@@ -673,6 +675,8 @@
 				{#if bugList.bugs.length}
 					<BugsPanel
 						bugs={bugList.bugs}
+						fix={bugList.fix}
+						onfixchanged={loadBugs}
 						projects={data.projects}
 						openChanges={new Set(list?.changes.map((c) => c.number) ?? [])}
 						canOpenBugs={data.tools.some((t) => t.id === 'pipelineBugs')}
