@@ -72,6 +72,16 @@
 			"svelte": "./src/lib/particleBudget.ts",
 			"default": "./src/lib/particleBudget.ts"
 		},
+		"./frameClock": {
+			"types": "./src/lib/frameClock.ts",
+			"svelte": "./src/lib/frameClock.ts",
+			"default": "./src/lib/frameClock.ts"
+		},
+		"./frameTween": {
+			"types": "./src/lib/frameTween.svelte.ts",
+			"svelte": "./src/lib/frameTween.svelte.ts",
+			"default": "./src/lib/frameTween.svelte.ts"
+		},
 		"./elementFx": {
 			"types": "./src/lib/elementFx/index.ts",
 			"svelte": "./src/lib/elementFx/index.ts",

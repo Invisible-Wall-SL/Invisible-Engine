@@ -70,6 +70,22 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
+- **Reel motion on the frame clock + `?perf=1`** (2026-11-08) — a reel strip's position is DRAWN
+  from `FrameTween.drawn` (`pixi-svelte/frameTween`, `frameClock.ts`): sampled at the frame's own
+  rAF timestamp in a callback that runs before the Pixi tick of the same frame, so each frame draws
+  its own sample and a step is the frame's interval × the speed. The reel's logic (`current`, the
+  promise each slide awaits, when a lap or the bounce ends) is still Svelte's `Tween`, unchanged,
+  so landings and everything they start happen on the same frame and at the same point in it as
+  before. A lap that continues another starts from where the last one was drawn, `runOn` slides
+  (laps, the long slide) are drawn past their end on the frame they end, and a strip relaid while
+  moving stays where it is drawn. Only `symbolY` reads `drawn`. Each slide still ends on its old
+  frame, so time the old schedule loses at a lap end (the overshoot, and how late in the frame the
+  next lap is set) is spread over the next lap instead of stopping the strip.
+  **`?perf=1`** shows an on-device frame-time readout (top-left, tap to open; `PerfHud.svelte`,
+  numbers in `perfStats.ts`): display refresh estimate, fps, frame-interval p50/p95/max and
+  hitches over 33/50/100 ms for idle and spinning, the reel step error in px, a 30 fps cap flag
+  (Low Power Mode), and Copy (one JSON line: UA, DPR, render tier, canvas size, the numbers) and
+  Reset. Without the flag its chunk is never loaded and the frame clock has no probe.
 
 ## Open items / next
 
@@ -105,6 +121,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `build/` (every in-repo publish path does); without it a desktop-published game falls back to
   uncompressed pages on phones. Since the shell + bundle change (2026-11-03) `_app/` holds the
   game's code itself, so without it a desktop-published game does not boot at all.
+
+- **Reel smoothness on a real iPhone (120 Hz ProMotion).** The frame clock is measured in headless
+  Chromium only. Ask the owner for a `?perf=1` Copy from the iPhone 17 during spins: the display
+  refresh it reports (Safari may run rAF at 60 Hz on a 120 Hz screen), the spinning p95 and
+  hitches, and the reel step error (≈0 means each frame draws its own sample; a steady non-zero
+  value means the clock is running after the Pixi tick there).
 
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
@@ -323,6 +345,53 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-08 — **Reels move by the frame's own clock; `?perf=1` reads frame times on a device**
+  (branch `claude/nice-albattani-a03tcm`). Owner report: spins "still not smooth" on an iPhone 17
+  (Safari, 120 Hz). **Cause, confirmed by measurement:** the reel strip was a Svelte `Tween`, which
+  samples `performance.now()` in Svelte's own rAF callback. That callback ran LAST in each frame
+  (`app > shared > run_tasks`, recorded), so every frame drew the previous frame's sample, late by
+  that frame's render time. At 3–5 px/ms that is tens of px of per-frame error. A lap's end also
+  stopped the strip for one frame and the next lap started late.
+  - **Fix:** `FrameTween` (`pixi-svelte/frameTween`) pairs the reel's Svelte `Tween` (logic,
+    unchanged) with a `FrameMotion` (`frameClock.ts`) that decides only where the strip is drawn.
+    `frameClockPre` is a rAF callback requested from inside the Pixi tick (Pixi requests its next
+    frame at the end of its tick), so it runs first in the next frame. The microtask checkpoint
+    between the two callbacks flushes the symbol containers' `y` effects before Pixi draws, so no
+    `flushSync` is needed. `createReelForSpinning`'s `symbolY` reads `reelY.drawn`; the slide
+    logic, `onScreenTail`, `readyToSpin` and the awaited promises read the tween as before.
+    `InitialiseApplication` binds the clock to the app ticker.
+  - **Trap found on the way:** a first cut drove the reel's LOGICAL value from the frame clock. A
+    lap's `current` then reached home in the clock's callback, so `readyToSpin` fired before
+    Svelte's callback and the spin took over before the lap's promise resolved. That was one fewer
+    `preSpinPadding`, so one fewer `Math.random`, and the seeded big win's coin fountain changed.
+    The tween stays the source of logic; the clock only draws.
+  - **Measured** in headless Chromium (unminified release-env `apps/lines`, book mock, reel `y` read
+    at every Pixi render against the frame's rAF time). Error is the step minus a constant-speed
+    step inside each linear segment, in px:
+
+    | Run | Inside a slide, baseline → branch | Lap handovers, baseline → branch |
+    |---|---|---|
+    | ~60 fps, 320×180 (70 px steps) | 22.2 / 41.5 / 65.2 → 0 / 0 / 0 | 35.7 / 94.5 / 112 → 0.07 / 0.34 / 0.63 |
+    | 20–30 fps, 640×360 | 25.4 / 54.4 / 124 → 0 / 0 / 0 | 45.5 / 145 / 145 → 0.41 / 4.5 / 4.5 |
+    | 4× CPU, ~13 fps | 38.5 / 105 / 156 → 0 / 0 / 0 | 134 / 266 / 266 → 9.0 / 36 / 36 |
+
+    The cost: a lap's speed differs from its nominal by the time absorbed (above). At ~60 fps here,
+    with 6–22 ms renders, that averaged 5.6%; one lap ran at 72% after its end met two dropped
+    frames. On a 120 Hz phone with short renders, expect a few %.
+  - **Determinism:** under `?ie_determinism`, `performance.now()` and the frame timestamp are one
+    virtual clock, so `drawn` equals what the tween samples. The determinism proof (book-base,
+    book-line, book-big, hw-classic), branch against main: capture frames identical, and 19 of 20
+    screens byte-identical, including every win, big-win, Hold and Win and settled screen. The one
+    changed screen is `base-mid` (20 frames into a spin, reel 0's column). Every reel `set()` call
+    (59: from, to, duration, easing) is identical on both sides. On un-carried motion the branch
+    draws at frame N exactly what main drew at N + 1 (58 of 58 moving reel-frames). Expect the
+    current-games `spin` screen to change the same way and the rest to hold.
+  - **`?perf=1`:** see Current state. Verified at 390×844, DPR 3, iPhone UA: the panel shows, opens,
+    Copy puts the JSON on the clipboard, and Reset clears. Without the flag there is no element and
+    its chunk is not requested. At ~60 fps its reel number agreed with the external measurement
+    (mean 0.2, p95 0 px).
+  - Fixtures: `packages/pixi-svelte/frameClock.fixture.ts` (against Svelte's `Tween` on one fake
+    clock) and `apps/lines/src/game/perfStats.fixture.ts`. **Not verified on a physical iPhone.**
 - 2026-11-03 — **A game build is a ~4 KB shell plus an immutable bundle; the only code a repeat
   visit downloads is the shell, and runtime source maps reach Sentry again** (branch
   `engine-runtime-shell-bundle`). **Why:** the runtime page is served `no-store`, and it carried the
