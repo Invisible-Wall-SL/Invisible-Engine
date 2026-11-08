@@ -45,14 +45,19 @@ export const openingOf = (body) => textOf(body?.messages?.[0]?.content);
 export const turnOf = (body) =>
 	(body?.messages ?? []).filter((m) => m?.role === 'assistant').length;
 
-/** The tool results of the last user message, by the tool_use id they answer. */
-export function lastResults(body) {
-	const last = (body?.messages ?? []).at(-1);
+/**
+ * Every tool result the conversation holds, by the tool_use id it answers. Each request carries
+ * the whole history, and the CLI may put other user messages after the results, so all user
+ * messages are read, not only the last.
+ */
+export function toolResults(body) {
 	const out = new Map();
-	if (last?.role !== 'user' || !Array.isArray(last.content)) return out;
-	for (const b of last.content) {
-		if (b?.type === 'tool_result') {
-			out.set(b.tool_use_id, { text: textOf(b.content), isError: b.is_error === true });
+	for (const m of body?.messages ?? []) {
+		if (m?.role !== 'user' || !Array.isArray(m.content)) continue;
+		for (const b of m.content) {
+			if (b?.type === 'tool_result') {
+				out.set(b.tool_use_id, { text: textOf(b.content), isError: b.is_error === true });
+			}
 		}
 	}
 	return out;

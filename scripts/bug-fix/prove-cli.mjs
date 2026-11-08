@@ -33,7 +33,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { lastResults, openingOf, startFakeAnthropic, turnOf } from './fake-anthropic.mjs';
+import { openingOf, startFakeAnthropic, toolResults, turnOf } from './fake-anthropic.mjs';
 import { parseYaml } from './yaml.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -178,6 +178,10 @@ check('control: outside the sandbox the pristine copy reads and the target answe
 
 const PATCH_FROM = 'exec env -i \\';
 const PATCH_TO = 'exec env -i ANTHROPIC_BASE_URL="$PROOF_BASE_URL" \\';
+/** The CLI's debug log, for the diagnostics printed when a check fails. */
+const DEBUG_FROM = '"$c/bin/claude" -p \\';
+const DEBUG_TO = '"$c/bin/claude" -p --debug-file "$PROOF_DEBUG" \\';
+const DEBUG_LOG = join(RT, 'proof-debug.log');
 
 /**
  * Run step 4's text once, with the fake model `script`. `mutate.settings` edits the rendered
@@ -190,11 +194,13 @@ async function runCli(script, mutate = {}) {
 	writeFileSync(SETTINGS, JSON.stringify(settings, null, '\t'));
 	let text = CLI.run;
 	if (text.split(PATCH_FROM).length !== 2) throw new Error('step 4 no longer reads "exec env -i \\" once');
-	text = text.replace(PATCH_FROM, PATCH_TO);
+	text = text.replace(PATCH_FROM, PATCH_TO).replace(DEBUG_FROM, DEBUG_TO);
 	if (mutate.step) text = mutate.step(text);
 	rmSync(join(P.claude, 'stream.jsonl'), { force: true });
+	rmSync(DEBUG_LOG, { force: true });
 	const env = stepEnv(CLI, {
 		PROOF_BASE_URL: fake.url,
+		PROOF_DEBUG: DEBUG_LOG,
 		ACTIONS_ID_TOKEN_REQUEST_URL: CANARY.oidcUrl,
 		ACTIONS_ID_TOKEN_REQUEST_TOKEN: CANARY.oidcToken,
 		ACTIONS_RUNTIME_TOKEN: CANARY.runtimeToken,
@@ -205,14 +211,28 @@ async function runCli(script, mutate = {}) {
 	await fake.close();
 	writeFileSync(SETTINGS, settingsAsPrepared);
 	const results = new Map();
-	for (const r of fake.requests) for (const [id, v] of lastResults(r.body)) results.set(id, v);
+	for (const r of fake.requests) for (const [id, v] of toolResults(r.body)) results.set(id, v);
 	const stream = existsSync(join(P.claude, 'stream.jsonl')) ? readFileSync(join(P.claude, 'stream.jsonl'), 'utf8') : '';
 	const end = stream
 		.split('\n')
 		.filter((l) => l.startsWith('{'))
 		.map((l) => JSON.parse(l))
 		.find((m) => m.type === 'result');
-	return { code: ran.code, out: ran.out, requests: fake.requests, results, end };
+	const debug = existsSync(DEBUG_LOG) ? readFileSync(DEBUG_LOG, 'utf8') : '';
+	const stderr = existsSync(join(P.claude, 'stderr.log')) ? readFileSync(join(P.claude, 'stderr.log'), 'utf8') : '';
+	return { code: ran.code, out: ran.out, requests: fake.requests, results, end, debug, stderr };
+}
+
+/** What a run says about its sandbox and its Bash calls, for a failing check's reader. */
+function diagnose(label, run) {
+	const lines = run.debug
+		.split('\n')
+		.filter((l) => /sandbox|bwrap|seccomp|socat|bash|permission|denied|refus/i.test(l))
+		.slice(0, 60);
+	console.log(`\n--- diagnostics: ${label} (exit ${run.code}, ${run.end?.subtype ?? 'no result'})`);
+	console.log(`stderr: ${run.stderr.slice(-1500)}`);
+	console.log(`first results: ${JSON.stringify([...run.results].slice(0, 4)).slice(0, 2500)}`);
+	console.log(lines.map((l) => l.slice(0, 400)).join('\n'));
 }
 
 /** A conversation that makes `calls` one per turn, then says it is done. */
@@ -361,6 +381,7 @@ check('positive: Bash runs and may write in the workspace', existsSync(files.bas
 check('gates: pnpm check:bug-fix-workflow runs in the sandbox', /gate=0/.test(r1('t_gate').text), r1('t_gate').text);
 check('gates: a launcher fixture (tsx) runs in the sandbox', /gate=0/.test(r1('t_gate_ts').text), r1('t_gate_ts').text);
 
+if (checks.some((c) => !c.ok)) diagnose('containment', run1);
 for (const path of [files.toolOut, files.toolWs, files.bashWs]) rmSync(path, { force: true });
 hits.length = 0;
 hits.push('/control');
@@ -405,6 +426,7 @@ const unsandboxedMarker = join(WS, 'proof-unsandboxed.txt');
 const markerScript = scripted(conversation([['u_bash', 'Bash', { command: `echo ran > ${q(unsandboxedMarker)}` }]]));
 const noSandbox = await runCli(markerScript, { env: { PATH: `${fakeBin}:${process.env.PATH}` } });
 check('fail closed: with no working bubblewrap the CLI refuses to start', !existsSync(unsandboxedMarker) && noSandbox.code !== 0, `${noSandbox.code} ${noSandbox.out}`);
+if (!checks.at(-1).ok) diagnose('no bubblewrap', noSandbox);
 
 // ── Planted mutants: each must be caught ──────────────────────────────────────
 
@@ -437,8 +459,12 @@ check(
 		},
 	}),
 );
-await runCli(markerScript, { env: { PATH: `${fakeBin}:${process.env.PATH}` }, settings: (s) => (s.sandbox.failIfUnavailable = false) });
+const openRun = await runCli(markerScript, {
+	env: { PATH: `${fakeBin}:${process.env.PATH}` },
+	settings: (s) => (s.sandbox.failIfUnavailable = false),
+});
 check('mutant caught: failIfUnavailable false runs Bash unconfined', existsSync(unsandboxedMarker));
+if (!checks.at(-1).ok) diagnose('failIfUnavailable false', openRun);
 rmSync(unsandboxedMarker, { force: true });
 
 finish();

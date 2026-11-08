@@ -22,7 +22,7 @@ import {
 	readdirSync,
 	writeFileSync,
 } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
@@ -106,16 +106,20 @@ function fixRunId() {
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
-/** Where everything lives, all outside the workspace but the workspace itself. */
+/**
+ * Where everything lives, all outside the workspace but the workspace itself. POSIX paths: they
+ * are rendered into the settings and the prompt, and the job runs on Linux.
+ */
 export function paths(runnerTemp, workspace) {
+	const at = (name) => posix.join(runnerTemp, name);
 	return {
 		runnerTemp,
 		workspace,
-		main: join(runnerTemp, 'main'),
-		bug: join(runnerTemp, 'bug'),
-		key: join(runnerTemp, 'key'),
-		out: join(runnerTemp, 'out'),
-		claude: join(runnerTemp, 'claude'),
+		main: at('main'),
+		bug: at('bug'),
+		key: at('key'),
+		out: at('out'),
+		claude: at('claude'),
 	};
 }
 
@@ -236,10 +240,10 @@ export function templateValues(p, run) {
 		KEY: p.key,
 		OUT: p.out,
 		CLAUDE: p.claude,
-		BRIEF: join(p.bug, 'brief.md'),
-		RESULT: join(p.out, 'result.json'),
+		BRIEF: posix.join(p.bug, 'brief.md'),
+		RESULT: posix.join(p.out, 'result.json'),
 		SCREENSHOTS: run.screenshots.length
-			? run.screenshots.map((s) => `- ${join(p.bug, s)}`).join('\n')
+			? run.screenshots.map((s) => `- ${posix.join(p.bug, s)}`).join('\n')
 			: '- (none)',
 	};
 }
