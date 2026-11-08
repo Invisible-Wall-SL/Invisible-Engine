@@ -5326,10 +5326,11 @@ var invisibleRig = function(exports) {
     duration: num,
     fps: num
   });
-  const savedBy = obj(
-    { uid: str, name: str, tool: str, at: str, rev: str, agent: str, runId: str },
-    ["tool", "at", "rev"]
-  );
+  const savedBy = obj({ uid: str, name: str, tool: str, at: str, rev: str, agent: str, runId: str }, [
+    "tool",
+    "at",
+    "rev"
+  ]);
   const animation = obj({
     slots: map(
       obj({
