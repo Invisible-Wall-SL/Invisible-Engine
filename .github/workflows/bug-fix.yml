@@ -27,8 +27,11 @@
 #      copy, rendered into $RUNNER_TEMP/claude/ (`--setting-sources ''`: no project, local or user
 #      settings, so nothing the model writes in the workspace configures the CLI); the agents come
 #      from the pristine copy through `--agents`. `failIfUnavailable` makes a missing sandbox a
-#      refusal to start, never an unsandboxed run. scripts/bug-fix/prove-cli.mjs proves each claim on
-#      the pinned CLI with a scripted fake model (bug-fix-proof.yml runs it on every change here).
+#      refusal to start, never an unsandboxed run. `--restricted` confines the file tools to the
+#      workspace and the bug's folders and starts no messaging socket. The sandbox refuses every Unix
+#      socket, which tsx's CLI needs, so `prepare` points the workspace's `tsx` at its loader
+#      (scripts/bug-fix/tsx-shim.mjs). scripts/bug-fix/prove-cli.mjs proves each claim on the pinned
+#      CLI with a scripted fake model (bug-fix-proof.yml runs it on every change here).
 #   4. The launcher re-checks the change (apps/launcher-api/src/lib/server/bugFixRunsChange.ts).
 #   5. GitHub refuses the App any edit to .github/workflows/ (it has no `workflows` permission).
 #   6. Nothing merges without the owner: a draft PR, the six required checks, current-games, and
@@ -172,7 +175,7 @@ jobs:
             --settings "$c/settings.json" --setting-sources '' \
             --agents "$c/agents.json" \
             --tools Bash,Read,Glob,Grep,Edit,Write,Agent \
-            --strict-mcp-config --disable-slash-commands \
+            --restricted --strict-mcp-config --disable-slash-commands \
             --permission-mode dontAsk --permission-prompts none \
             --add-dir "$RUNNER_TEMP/bug" --add-dir "$RUNNER_TEMP/out" \
             --no-session-persistence --output-format stream-json --verbose \

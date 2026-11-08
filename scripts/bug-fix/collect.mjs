@@ -20,6 +20,8 @@ import {
 	mkdirSync,
 	readFileSync,
 	readdirSync,
+	realpathSync,
+	rmSync,
 	writeFileSync,
 } from 'node:fs';
 import { basename, join, posix } from 'node:path';
@@ -120,6 +122,7 @@ export function paths(runnerTemp, workspace) {
 		key: at('key'),
 		out: at('out'),
 		claude: at('claude'),
+		tsxShim: at('tsx-shim'),
 	};
 }
 
@@ -248,6 +251,35 @@ export function templateValues(p, run) {
 	};
 }
 
+const shq = (s) => `'${s.replace(/'/g, "'\\''")}'`;
+
+/**
+ * Every `node_modules/.bin/tsx` the workspace's packages run, swapped for a script that runs
+ * tsx-shim.mjs from `shim` (see that file: tsx's CLI needs a Unix socket the sandbox refuses).
+ * `node_modules` is ignored by git, so the swap is never part of the change. Answers the count.
+ */
+export function sandboxTsx(workspace, shim) {
+	const groups = ['apps', 'packages', 'services', 'tools'].flatMap((g) => {
+		try {
+			return readdirSync(join(workspace, g)).map((d) => join(workspace, g, d));
+		} catch {
+			return [];
+		}
+	});
+	let swapped = 0;
+	for (const dir of [workspace, ...groups]) {
+		const bin = join(dir, 'node_modules', '.bin', 'tsx');
+		const pkg = join(dir, 'node_modules', 'tsx');
+		if (!existsSync(bin) || !existsSync(pkg)) continue;
+		const loader = join(realpathSync(pkg), 'dist', 'loader.mjs');
+		if (!existsSync(loader)) fail('tsx has no dist/loader.mjs: the shim no longer fits it.');
+		rmSync(bin, { force: true });
+		writeFileSync(bin, `#!/bin/sh\nexec node ${shq(shim)} ${shq(loader)} "$@"\n`, { mode: 0o755 });
+		swapped++;
+	}
+	return swapped;
+}
+
 function prepare() {
 	const p = jobPaths();
 	const run = JSON.parse(readFileSync(join(p.bug, 'run.json'), 'utf8'));
@@ -261,7 +293,12 @@ function prepare() {
 	writeFileSync(join(p.claude, 'prompt.md'), render(readFileSync(join(own, 'coordinator.md'), 'utf8'), values));
 	const agents = agentsJson(join(p.main, '.claude', 'agents'));
 	writeFileSync(join(p.claude, 'agents.json'), JSON.stringify(agents));
-	console.log(`fix run ${run.fixRun}: prepared ${Object.keys(agents).length} agents.`);
+	// Outside the workspace and every denied folder: commands may read the shim, never change it.
+	mkdirSync(p.tsxShim, { recursive: true });
+	const shim = join(p.tsxShim, 'tsx.mjs');
+	writeFileSync(shim, readFileSync(join(own, 'tsx-shim.mjs')));
+	const swapped = sandboxTsx(p.workspace, shim);
+	console.log(`fix run ${run.fixRun}: prepared ${Object.keys(agents).length} agents, ${swapped} tsx shims.`);
 }
 
 // ── Step 5: the change ────────────────────────────────────────────────────────

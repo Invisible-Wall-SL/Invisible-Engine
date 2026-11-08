@@ -171,6 +171,11 @@ export function problems(files) {
 		(line.match(/--settings/g) ?? []).length === 1);
 	rule('agents-pristine', line.includes('--agents "$c/agents.json"') &&
 		files.collect.includes("agentsJson(join(p.main, '.claude', 'agents'))"));
+	// tsx's CLI cannot start in the sandbox; prepare points tsx at its loader through a shim the
+	// commands may read but not change (outside the workspace, the out folder and every deny).
+	rule('tsx-shim', files.collect.includes('const swapped = sandboxTsx(p.workspace, shim);') &&
+		files.collect.includes("tsxShim: at('tsx-shim'),") &&
+		!/tsx-shim/.test(JSON.stringify(settings.sandbox?.filesystem ?? {})));
 	// ADR §10: an upload-artifact step. And no cache: the store is hard-linked into node_modules.
 	rule('no-artifact', !steps.some((s) => /upload-artifact|actions\/cache|download-artifact/.test(String(s.uses ?? ''))));
 	rule('no-cache', !steps.some((s) => s.with?.cache !== undefined || /actions\/cache/.test(String(s.uses ?? ''))));
@@ -199,7 +204,7 @@ export function problems(files) {
 		cli.env?.BUDGET === '${{ steps.brief.outputs.budget }}' &&
 		cli['timeout-minutes'] === '60' && job['timeout-minutes'] === '75');
 	rule('cli-flags', line.includes(`--tools ${TOOLS} `) && (line.match(/--tools/g) ?? []).length === 1 &&
-		line.includes('--strict-mcp-config') &&
+		line.includes('--restricted --strict-mcp-config') &&
 		line.includes('--permission-mode dontAsk --permission-prompts none') &&
 		line.includes('--disable-slash-commands') && line.includes('--no-session-persistence') &&
 		!/dangerously|bypassPermissions|--mcp-config|--plugin/.test(line) &&
@@ -301,6 +306,8 @@ const MUTANTS = [
 	['settings-pristine', 'workflow', 'run: node "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" prepare', 'run: node scripts/bug-fix/collect.mjs prepare'],
 	['settings-pristine', 'collect', "const own = join(p.main, 'scripts', 'bug-fix');", "const own = join(p.workspace, 'scripts', 'bug-fix');"],
 	['agents-pristine', 'collect', "agentsJson(join(p.main, '.claude', 'agents'))", "agentsJson(join(p.workspace, '.claude', 'agents'))"],
+	['tsx-shim', 'collect', 'const swapped = sandboxTsx(p.workspace, shim);', 'const swapped = 0;'],
+	['tsx-shim', 'settings', '"allowWrite": ["{{OUT}}"]', '"allowWrite": ["{{OUT}}", "{{RUNNER_TEMP}}/tsx-shim"]'],
 	['no-artifact', 'workflow', '      # Nothing of the bug', '      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n          name: x\n          path: x\n\n      # Nothing of the bug'],
 	['no-cache', 'workflow', '          node-version: 22\n', '          node-version: 22\n          cache: pnpm\n'],
 	['step-4-env', 'workflow', '            HOME="$HOME" PATH="$PATH"', '            HOME="$HOME" PATH="$PATH" ACTIONS_ID_TOKEN_REQUEST_URL="$ACTIONS_ID_TOKEN_REQUEST_URL"'],
@@ -322,6 +329,7 @@ const MUTANTS = [
 	['cli-flags', 'workflow', '--tools Bash,Read,Glob,Grep,Edit,Write,Agent', '--tools Bash,Read,Glob,Grep,Edit,Write,Agent,WebFetch'],
 	['cli-flags', 'workflow', '--permission-mode dontAsk', '--permission-mode bypassPermissions'],
 	['cli-flags', 'workflow', '--strict-mcp-config ', ''],
+	['cli-flags', 'workflow', '--restricted ', ''],
 	['key-file', 'workflow', '          umask 077\n', ''],
 	['key-file', 'workflow', '          c="$RUNNER_TEMP/claude"\n', '          echo "key: $ANTHROPIC_BUG_FIX_API_KEY"\n          c="$RUNNER_TEMP/claude"\n'],
 	['clean-up', 'workflow', '        if: ${{ always() }}\n', '        if: ${{ success() }}\n'],
@@ -394,6 +402,20 @@ check(JSON.stringify(agents.b?.tools) === JSON.stringify(['Bash', 'Read', 'Glob'
 check(!('bad' in agents), 'agentsJson skips a file with no frontmatter');
 const real = C.agentsJson(join(ROOT, '.claude/agents'));
 check(real['pipeline-triage'] && real['code-reviewer'] && Object.values(real).every((a) => a.tools.every((t) => C.TOOLS.includes(t))), 'the repository agents all load with the run\'s tools');
+
+// tsx in the sandbox: the CLI's flags as node's, and every workspace `.bin/tsx` swapped for it.
+const { translate } = await import(pathToFileURL(join(ROOT, 'scripts/bug-fix/tsx-shim.mjs')).href);
+const [shimEnv, shimArgs] = translate('/l/dist/loader.mjs', ['--tsconfig', 't.json', '--experimental-test-module-mocks', '--import', './m.mjs', 's.ts', '--check', '--tsconfig']);
+check(shimEnv.TSX_TSCONFIG_PATH === 't.json' && JSON.stringify(shimArgs) === JSON.stringify(['--import', pathToFileURL('/l/dist/loader.mjs').href, '--experimental-test-module-mocks', '--import', './m.mjs', 's.ts', '--check', '--tsconfig']), `tsx-shim translates tsx's flags: ${JSON.stringify([shimEnv, shimArgs])}`);
+const shimWs = join(tmp, 'shim-ws');
+for (const d of ['', 'apps/a']) {
+	mkdirSync(join(shimWs, d, 'node_modules', '.bin'), { recursive: true });
+	mkdirSync(join(shimWs, d, 'node_modules', 'tsx', 'dist'), { recursive: true });
+	writeFileSync(join(shimWs, d, 'node_modules', 'tsx', 'dist', 'loader.mjs'), '');
+	writeFileSync(join(shimWs, d, 'node_modules', '.bin', 'tsx'), '#!/bin/sh\nexec node cli.mjs "$@"\n');
+}
+mkdirSync(join(shimWs, 'apps', 'b'), { recursive: true });
+check(C.sandboxTsx(shimWs, '/rt/tsx-shim/tsx.mjs') === 2 && readFileSync(join(shimWs, 'apps/a/node_modules/.bin/tsx'), 'utf8').startsWith("#!/bin/sh\nexec node '/rt/tsx-shim/tsx.mjs' '"), 'sandboxTsx swaps each package\'s tsx for the shim');
 
 // The templates render with every placeholder, and refuse an unknown one.
 const values = C.templateValues(C.paths('/rt', '/ws'), { screenshots: ['screenshot-1.png'] });

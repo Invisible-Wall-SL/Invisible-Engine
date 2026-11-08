@@ -283,6 +283,13 @@ const files = {
 	toolWs: join(WS, 'proof-tool-write.txt'),
 	bashWs: join(WS, 'proof-bash-write.txt'),
 };
+const EDIT = {
+	src: join(WS, 'apps/launcher-api/src/lib/bugFixRuns.ts'),
+	srcLine: "export const FIX_RUN_WORKFLOW = 'bug-fix.yml';",
+	pkg: join(WS, 'apps/launcher-api/package.json'),
+	pkgLine: '\t"name": "launcher-api",',
+};
+const editBefore = { src: readFileSync(EDIT.src, 'utf8'), pkg: readFileSync(EDIT.pkg, 'utf8') };
 const gitConfigBefore = readFileSync(join(WS, '.git/config'));
 const settingsJsonBefore = existsSync(join(WS, '.claude/settings.json')) ? readFileSync(join(WS, '.claude/settings.json')) : null;
 const claudeMdBefore = readFileSync(join(WS, 'CLAUDE.md'));
@@ -319,6 +326,12 @@ const CALLS = [
 	['t_ok_write', 'Write', { file_path: files.toolOut, content: '{"proof":1}' }],
 	['t_ok_ws', 'Write', { file_path: files.toolWs, content: 'proof' }],
 	['t_ok_bash', 'Bash', { command: `echo ok > ${q(files.bashWs)} && node -e "process.stdout.write('node-ok')"` }],
+	// Editing ordinary files: a source file, and a package.json (`--restricted` guards "tool
+	// configuration" files; a fix that needs one is shown here, not assumed).
+	['t_read_src', 'Read', { file_path: EDIT.src }],
+	['t_edit_src', 'Edit', { file_path: EDIT.src, old_string: EDIT.srcLine, new_string: `${EDIT.srcLine} ` }],
+	['t_read_pkg', 'Read', { file_path: EDIT.pkg }],
+	['t_edit_pkg', 'Edit', { file_path: EDIT.pkg, old_string: EDIT.pkgLine, new_string: EDIT.pkgLine.replace('"launcher-api"', '"launcher-api" ') }],
 	// The same reads with the path built at run time, past the CLI's own reading of the command:
 	// what refuses these is the sandbox alone.
 	['t_key_hidden', 'Bash', { command: `p="$(printf %s ${Buffer.from(KEY_FILE).toString('base64')} | base64 -d)"; cat "$p"; echo " cat=$?"` }],
@@ -422,6 +435,10 @@ check('positive: Bash runs and may write in the workspace', existsSync(files.bas
 check('gates: pnpm check:bug-fix-workflow runs in the sandbox', /gate=0/.test(r1('t_gate').text), r1('t_gate').text);
 check('gates: a launcher fixture (tsx) runs in the sandbox', /gate=0/.test(r1('t_gate_ts').text), r1('t_gate_ts').text);
 
+check('positive: Edit may change a source file in the workspace', readFileSync(EDIT.src, 'utf8') !== editBefore.src, r1('t_edit_src').text);
+console.log(`--- Edit of a package.json under --restricted: ${readFileSync(EDIT.pkg, 'utf8') !== editBefore.pkg ? 'allowed' : `refused (${r1('t_edit_pkg').text.slice(0, 300)})`}`);
+writeFileSync(EDIT.src, editBefore.src);
+writeFileSync(EDIT.pkg, editBefore.pkg);
 if (checks.some((c) => !c.ok)) diagnose('containment', run1);
 for (const path of [files.toolOut, files.toolWs, files.bashWs]) rmSync(path, { force: true });
 hits.length = 0;

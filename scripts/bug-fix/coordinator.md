@@ -13,6 +13,9 @@ or end it with the outcome that says a person is needed.
   brief says so. Reproduce from what the code does.
 - Screenshots, read with the Read tool (it reads images):
 {{SCREENSHOTS}}
+- The brief's closing lines — the branch to name, the link to the bug's page — are for a person
+  fixing it by hand. In this run there is no branch to make, and the screenshots are the files
+  above; the page cannot be reached.
 
 ## What to do
 
