@@ -346,8 +346,8 @@ const LINKS = {
 	'proof-link-runner': join(HOME, 'actions-runner'),
 };
 const EDIT = {
-	src: join(WS, 'apps/launcher-api/src/lib/bugFixRuns.ts'),
-	srcLine: "export const FIX_RUN_WORKFLOW = 'bug-fix.yml';",
+	src: join(WS, 'apps/launcher-api/src/lib/bugReports.ts'),
+	srcLine: 'export function bugBrief(bug: BriefInput, origin: string): string {',
 	pkg: join(WS, 'apps/launcher-api/package.json'),
 	pkgLine: '\t"name": "launcher-api",',
 };
@@ -518,7 +518,10 @@ const CALLS = [
 	[
 		't_gitswap',
 		'Bash',
-		{ command: 'mv .git .git-proof-swapped; echo " mv=$?"; ls -d .git 2>&1 | head -1' },
+		// The name built at run time, past the CLI's reading of the command: the sandbox alone.
+		{
+			command: `d="$(printf %s ${Buffer.from('.git').toString('base64')} | base64 -d)"; mv "$d" .git-proof-swapped; echo " mv=$?"; ls -d .git 2>&1 | head -1`,
+		},
 	],
 	['t_ok_write', 'Write', { file_path: files.toolOut, content: '{"proof":1}' }],
 	['t_ok_ws', 'Write', { file_path: files.toolWs, content: 'proof' }],
@@ -613,7 +616,7 @@ const CALLS = [
 		{
 			file_path: EDIT.src,
 			old_string: EDIT.srcLine,
-			new_string: EDIT.srcLine.replace('FIX_RUN_WORKFLOW', 'FIX_RUN_WORKFLOW_PROOF'),
+			new_string: EDIT.srcLine.replace('bugBrief', 'bugBriefProof'),
 		},
 	],
 	['t_read_pkg', 'Read', { file_path: EDIT.pkg }],
