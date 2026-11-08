@@ -2,6 +2,7 @@
 // uses (design `docs/design/invisible-cinematic.md` §12.4a).
 //
 //   node tools/rigger-spike/rigtext-panel.mjs
+//   node tools/rigger-spike/rigtext-panel.mjs --irig   # the same round trip on the rig as irig v1
 //
 // This drives the REAL `apps/launcher-api/static/rigger/view.html` in a REAL Chromium, on a
 // REAL shipped rig (`apps/lines/static/assets/spines/anticipation`) and a REAL shipped bitmap
@@ -49,6 +50,13 @@ const { normalizeRigTextDoc, textAtlasBlock } = await import(pathToFileURL(outfi
 const DIR_B64 = Buffer.from('anticipation', 'utf8').toString('base64url');
 const baseAtlas = readFileSync(join(RIG_DIR, 'anticipation.atlas'), 'utf8');
 let skeletonJson = readFileSync(join(RIG_DIR, 'anticipation.json'), 'utf8');
+// `--irig`: the rig is served as irig v1, which the Rigger's runtime reads strictly, so a text
+// attachment written with a key outside the schema fails here (docs/design/irig-format.md, Phase 3).
+if (process.argv.includes('--irig')) {
+	const { RIG_CORE } = await import('./rig.mjs');
+	const { importSpine42Json, writeIrig } = await import(RIG_CORE);
+	skeletonJson = writeIrig(importSpine42Json(skeletonJson).doc);
+}
 // The rig's `.atlas` names `anticipation.webp`; the tool asks with `pp=1` (prefer PNG), which
 // the real server rewrites to a `.png` sibling when one exists — both are in the bundle, so
 // serve whichever name is asked for.

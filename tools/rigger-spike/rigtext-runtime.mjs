@@ -247,7 +247,7 @@ console.log('\n4. a MESH text element swaps too (the linked-mesh shape the Rigge
 			vertices: [0, 0, 220, 0, 220, -60, 0, -60],
 			hull: 4,
 		},
-		'title@de': { type: 'linkedmesh', path: 'text/title/de', skin: 'default', parent: 'title@en', deform: true },
+		'title@de': { type: 'linkedmesh', path: 'text/title/de', skin: 'default', parent: 'title@en', timelines: true },
 	};
 	const sk = makeSkeleton(doc, skeletonDoc(atts, 'title@en'));
 	ok('the swap works on a mesh element', applyLocaleAttachments(sk, 'de') === 1);

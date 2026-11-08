@@ -2,6 +2,7 @@
 //
 //   node tools/rigger-spike/rig-undo.mjs
 //   node tools/rigger-spike/rig-undo.mjs --mutants   # every planted mutant must fail the gate
+//   node tools/rigger-spike/rig-undo.mjs --irig      # the same edits on the rigs as irig v1
 //
 // Drives the REAL `apps/launcher-api/static/rigger/view.html` in a REAL Chromium against a fake
 // launcher API, and edits rigs the way an author does — typing into the inspector, dragging on the
@@ -183,6 +184,16 @@ const LIBRARY_RIG = {
 		animations: {},
 	},
 };
+// `--irig`: every rig and the library rig are served as irig v1, which the Rigger's runtime reads
+// strictly, so an edit that writes a key or a type outside the schema fails here
+// (docs/design/irig-format.md, Phase 3).
+if (process.argv.includes('--irig')) {
+	const { RIG_CORE } = await import('./rig.mjs');
+	const { importSpine42Json, writeIrig } = await import(RIG_CORE);
+	const toIrig = (doc) => JSON.parse(writeIrig(importSpine42Json(doc).doc));
+	for (const rig of Object.values(RIGS)) rig.doc = toIrig(rig.doc);
+	LIBRARY_RIG.skeleton = toIrig(LIBRARY_RIG.skeleton);
+}
 const etags = {};
 const posted = { saves: [] };
 

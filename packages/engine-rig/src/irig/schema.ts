@@ -109,6 +109,9 @@ const header = obj({
 	referenceScale: num,
 	images: str,
 	audio: str,
+	/** Extension: the Rigger's "the frame was set by hand" flag, so a save does not re-fit it. Read
+	 * by nothing at runtime. */
+	iwLockBounds: bool,
 });
 
 const bone = obj(
@@ -468,6 +471,16 @@ export const RIG_FIELDS = {
 };
 
 export const IRIG_VERSION = 1;
+
+/**
+ * Which v1 fields this reader knows, as a number that only grows: a field added to the schema is one
+ * more revision. A v1 file can carry any field the launcher on `main` writes, and a reader refuses a
+ * field it does not know, so the "Runtime rollback" workflow refuses a release that reads an older
+ * revision than `main`'s (`apps/launcher-api/scripts/lib/runtime-releases.mjs`). 3 = `saved_by`
+ * (Phase 2) and `iwLockBounds` (Phase 3). `irig.fixture.ts` fails when the fields change and this
+ * does not.
+ */
+export const IRIG_SCHEMA_REVISION = 3;
 
 export const IRIG_V1 = obj({ irig: num, ...RIG_FIELDS }, ['irig', 'bones']);
 

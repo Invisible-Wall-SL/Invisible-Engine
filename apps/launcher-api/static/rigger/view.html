@@ -3706,7 +3706,7 @@ function placeTextAttachments(element, attachments){
     if (src && isRawMeshDef(src) && src.type !== "linkedmesh"){
       // The source locale has already been given a mesh (and possibly weights + deform). A new
       // locale must INHERIT that geometry, not arrive as a flat quad beside it.
-      bag[attName] = { type: "linkedmesh", parent: sourceName, skin: skinName, deform: true, path: att.region };
+      bag[attName] = { type: "linkedmesh", parent: sourceName, skin: skinName, timelines: true, path: att.region };
       continue;
     }
     const region = findRegion(att.region);
@@ -3730,7 +3730,7 @@ function placeTextAttachments(element, attachments){
 
 /**
  * Make every non-source locale of a text element follow the source locale's MESH, as a rig
- * `linkedmesh` (same vertices / triangles / hull / weights, its own `path`, `deform: true` so
+ * `linkedmesh` (same vertices / triangles / hull / weights, its own `path`, `timelines: true` so
  * one deform timeline drives them all).
  *
  * This is what keeps §12.4a's promise honest. Mesh, weights and deform are authored ONCE, on
@@ -3758,7 +3758,7 @@ function syncTextLocaleMeshes(elementId){
         type: "linkedmesh",
         parent: sourceName,
         skin: sk.name,
-        deform: true,
+        timelines: true,
         path: bag[key].path || ("text/" + el.id + "/" + locale),
       };
       changed = true;

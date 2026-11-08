@@ -22,7 +22,11 @@ const DEFAULT_DIR =
 	'C:/Invisible Wall SL/Projects/iGaming/Borut/HotFruits/engine/apps/cluster/static/assets/spines';
 
 /** Slug rule — byte-identical to `r2Slug` in the launcher + the Python tools. */
-const r2Slug = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'default';
+const r2Slug = (name) =>
+	name
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, '_')
+		.slice(0, 60) || 'default';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
@@ -60,13 +64,18 @@ async function walk(dir, out = []) {
 	return out;
 }
 
+// An irig document leads with its `irig` stamp and may have no header.
 function isSkeletonJson(head) {
-	return head.includes('"skeleton"') && head.includes('"bones"');
+	return (
+		(head.includes('"skeleton"') || /^\s*\{\s*"irig"\s*:/.test(head)) && head.includes('"bones"')
+	);
 }
 
 function detectVersion(file, headBytes) {
 	const head = headBytes.toString('latin1');
 	if (extname(file).toLowerCase() === '.json') {
+		const irig = head.match(/^\s*\{\s*"irig"\s*:\s*(\d+)/);
+		if (irig) return `irig ${irig[1]}`;
 		const m = head.match(/"spine"\s*:\s*"([^"]+)"/);
 		if (m) return m[1];
 	}

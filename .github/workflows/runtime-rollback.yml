@@ -12,6 +12,8 @@
 #   list       print the releases kept, the pointer and the pins
 #
 # A version is its full name or any unique prefix (a short commit works) — `list` shows them.
+# A release reading an older irig schema revision than `main` writes is refused: it would fail to load
+# every rig saved since (docs/design/irig-format.md §7).
 #
 # `main` still holds whatever commit was rolled back, so the NEXT engine merge releases it again
 # unless it is reverted too. See "Runtime releases" in docs/design/games-deploy.md.

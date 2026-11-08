@@ -360,7 +360,7 @@ console.log('\n4. a text variant is an ORDINARY attachment — region, mesh, and
 							path: RT.rigTextRegionName('title', 'de'),
 							skin: 'default',
 							parent: en,
-							deform: true,
+							timelines: true,
 						},
 					},
 				},

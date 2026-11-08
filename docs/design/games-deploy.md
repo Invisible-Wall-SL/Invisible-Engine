@@ -188,6 +188,12 @@ every such region distorted, in every game at once. So never `rollback` or `pin`
 release whose commit includes #1241 (`list` shows each release's commit); to undo a newer release,
 roll back to one at or above it.
 
+**A second floor is enforced, not just written down: irig rigs.** New rigs are irig v1, and a rig
+reader refuses a field it does not know. Each release records the irig schema revision it reads
+(`rigReader`), and the workflow refuses a `rollback`, `promote` or `pin` to a release that reads less
+than `main`'s `IRIG_SCHEMA_REVISION`; `list` marks such releases. Every release before the irig
+Phase 3 release records none, so it is below the floor ([irig-format](irig-format.md) §7).
+
 **A second floor: the first release with Invisible Shader Graph step 6 (#1333).** Publish compiles a
 project's shader graphs into the game's bundle, and the runtime links the GLSL library functions
 they call from its own copy. Step 6 added library functions for its new nodes, so a graph that
