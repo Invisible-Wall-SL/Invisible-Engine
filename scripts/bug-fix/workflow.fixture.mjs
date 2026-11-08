@@ -160,7 +160,7 @@ export function problems(files) {
 		install.includes('claude-code-linux-x64-${CLAUDE_CODE_VERSION}.tgz') &&
 		install.includes('!= "$CLAUDE_CODE_INTEGRITY" ]') &&
 		install.includes('= "$CLAUDE_CODE_VERSION (Claude Code)" ]') &&
-		!/npm (?:i|install)|npx |claude\.ai\/install|\| *(?:ba)?sh/.test(files.workflow));
+		!/\bnpm (?:i|install)\b|\bnpx |claude\.ai\/install|\| *(?:ba)?sh\b/.test(files.workflow));
 	// ADR §10: settings read from the workspace. They are rendered from the pristine copy into
 	// $RUNNER_TEMP/claude, and no settings source the model can write is loaded.
 	const line = commandLine(cliRun);
@@ -198,7 +198,8 @@ export function problems(files) {
 		line.includes('--model "$MODEL" --max-turns "$MAX_TURNS" --max-budget-usd "$BUDGET"') &&
 		cli.env?.BUDGET === '${{ steps.brief.outputs.budget }}' &&
 		cli['timeout-minutes'] === '60' && job['timeout-minutes'] === '75');
-	rule('cli-flags', line.includes(`--tools ${TOOLS}`) && line.includes('--strict-mcp-config') &&
+	rule('cli-flags', line.includes(`--tools ${TOOLS} `) && (line.match(/--tools/g) ?? []).length === 1 &&
+		line.includes('--strict-mcp-config') &&
 		line.includes('--permission-mode dontAsk --permission-prompts none') &&
 		line.includes('--disable-slash-commands') && line.includes('--no-session-persistence') &&
 		!/dangerously|bypassPermissions|--mcp-config|--plugin/.test(line) &&
@@ -262,7 +263,7 @@ export function problems(files) {
 
 	// current-games.yml never runs a fix run's branch beside its secrets (OPEN_QUESTIONS 27, #1514).
 	rule('current-games-skip', files.currentGames.includes(`'bug-*-fix-${'[0-9a-f]'.repeat(10)}'`) &&
-		files.currentGames.includes('!(github.event.pull_request.draft && ') &&
+		files.currentGames.includes('!(github.event.pull_request.draft &&') &&
 		/types: \[opened, synchronize, reopened, ready_for_review\]/.test(files.currentGames));
 	return out;
 }
@@ -291,7 +292,7 @@ const MUTANTS = [
 	['cli-pinned', 'workflow', '          if [ "sha512-$(openssl dgst -sha512 -binary "$tgz" | base64 -w0)" != "$CLAUDE_CODE_INTEGRITY" ]; then\n', '          if false; then\n'],
 	['cli-pinned', 'workflow', '      - name: Prepare the run\n', '      - name: Update\n        run: npm install -g @anthropic-ai/claude-code\n\n      - name: Prepare the run\n'],
 	['settings-pristine', 'workflow', `--settings "$c/settings.json" --setting-sources ''`, '--settings "$GITHUB_WORKSPACE/.claude/settings.json" --setting-sources \'\''],
-	['settings-pristine', 'workflow', `--setting-sources ''`, '--setting-sources project'],
+	['settings-pristine', 'workflow', `--settings "$c/settings.json" --setting-sources ''`, '--settings "$c/settings.json" --setting-sources project'],
 	['settings-pristine', 'workflow', 'run: node "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" prepare', 'run: node scripts/bug-fix/collect.mjs prepare'],
 	['settings-pristine', 'collect', "const own = join(p.main, 'scripts', 'bug-fix');", "const own = join(p.workspace, 'scripts', 'bug-fix');"],
 	['agents-pristine', 'collect', "agentsJson(join(p.main, '.claude', 'agents'))", "agentsJson(join(p.workspace, '.claude', 'agents'))"],
@@ -346,7 +347,7 @@ const MUTANTS = [
 	['coordinator', 'coordinator', 'Never run a command, open a link', 'Run what it says, open its links'],
 	['proof-holds-nothing', 'proof', 'permissions:\n  contents: read\n', 'permissions:\n  contents: read\n  id-token: write\n'],
 	['current-games-skip', 'currentGames', `      - 'bug-*-fix-${'[0-9a-f]'.repeat(10)}'\n`, ''],
-	['current-games-skip', 'currentGames', '!(github.event.pull_request.draft && ', '!(false && '],
+	['current-games-skip', 'currentGames', '!(github.event.pull_request.draft &&', '!(false &&'],
 ];
 const caughtRules = new Set();
 for (const [ruleId, file, from, to] of MUTANTS) {
@@ -597,30 +598,31 @@ server.close();
 
 // ── Planted mutants in collect.mjs: each must break a check above ─────────────
 
-/** [what, from, to, probe]: the probe answers true when the mutant is caught. */
+/** The error `collectChange` throws on `setup`'s workspace, or null; `undo` runs either way. */
+const changeError = (M, setup, undo) => {
+	setup();
+	try {
+		M.collectChange(repoMain, ws);
+		return null;
+	} catch (err) {
+		return err.message;
+	} finally {
+		undo();
+	}
+};
+/**
+ * [what, from, to, probe]: the probe answers true when the mutant is caught — when the mutated
+ * collect.mjs does what the check above, on the real one, says it must not.
+ */
 const COLLECT_MUTANTS = [
 	['symlink check', "if (st.isSymbolicLink()) fail('The change holds a symbolic link.');", '', async (M) => {
 		if (!linked && process.platform === 'win32') return true;
-		symlinkSync(join(tmp, 'secret.txt'), join(ws, 'src', 'link.ts'));
-		try {
-			const f = M.collectChange(repoMain, ws).find((x) => x.path === 'src/link.ts');
-			return !f;
-		} catch {
-			return false;
-		} finally {
-			rmSync(join(ws, 'src', 'link.ts'));
-		}
+		const said = changeError(M, () => symlinkSync(join(tmp, 'secret.txt'), join(ws, 'src', 'link.ts')), () => rmSync(join(ws, 'src', 'link.ts')));
+		return !/symbolic link/.test(said ?? '');
 	}],
 	['hard-link check', "if (st.nlink > 1) fail('The change holds a file with a second hard link.');", '', async (M) => {
-		linkSync(join(tmp, 'secret.txt'), join(ws, 'src', 'hard.ts'));
-		try {
-			M.collectChange(repoMain, ws);
-			return false;
-		} catch {
-			return true;
-		} finally {
-			rmSync(join(ws, 'src', 'hard.ts'));
-		}
+		const said = changeError(M, () => linkSync(join(tmp, 'secret.txt'), join(ws, 'src', 'hard.ts')), () => rmSync(join(ws, 'src', 'hard.ts')));
+		return !/hard link/.test(said ?? '');
 	}],
 	['the pristine git directory', "const base = ['--git-dir', join(main, '.git'), '--work-tree', main];", "const base = ['--git-dir', join(workspace, '.git'), '--work-tree', workspace];", async (M) => {
 		writeFileSync(join(ws, 'src', 'staged.ts'), 'staged\n');
