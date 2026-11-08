@@ -84,7 +84,7 @@ with a new one. Use this format:
   Merging #1525 turns Start fix on: 13C (#1523) shows the button as soon as GitHub has an active
   `bug-fix.yml`.
 - Next: owner merge of #1525; then the live five-case spike on seeded test bugs ($20 cap), results
-  in #1525 and here. 13C's PLAN row still reads `todo` though #1523 merged.
+  in #1525 and here.
 
 ## 2026-11-08 · Phase 10 · director-frontend (13C: Start fix UI)
 - Did: Start fix / Send and start fix and the run line (status, PR, Actions link, spend, Stop,
