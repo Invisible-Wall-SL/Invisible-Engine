@@ -5326,6 +5326,10 @@ var invisibleRig = function(exports) {
     duration: num,
     fps: num
   });
+  const savedBy = obj(
+    { uid: str, name: str, tool: str, at: str, rev: str, agent: str, runId: str },
+    ["tool", "at", "rev"]
+  );
   const animation = obj({
     slots: map(
       obj({
@@ -5453,7 +5457,8 @@ var invisibleRig = function(exports) {
     physics: arr(physics),
     skins: arr(skin),
     events: map(eventDef),
-    animations: map(animation)
+    animations: map(animation),
+    saved_by: savedBy
   };
   const IRIG_VERSION = 1;
   const IRIG_V1 = obj({ irig: num, ...RIG_FIELDS }, ["irig", "bones"]);

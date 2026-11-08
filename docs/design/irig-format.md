@@ -133,7 +133,8 @@ JSON, so diffs, backups and the R2 viewers stay readable. The field list is fixe
 
 What changes versus 4.2: the `irig` version; the header's `spine` becomes `importedFrom` (provenance
 only); skins are always a list; `pivot` (a region's `[u, v]`), `fx` and `flipbook` (an animation
-event's bindings, every field the Rigger writes) are declared fields. What Phase 0 decided against:
+event's bindings, every field the Rigger writes) and the top-level `saved_by` stamp (who saved it
+last; Invisible Director stamps every rig it writes, added in Phase 2) are declared fields. What Phase 0 decided against:
 
 - **`source.json` stays a sidecar.** It records the rig BUNDLE's atlas sync (`rigBundleSync.ts`),
   one per bundle and written by the sync, not by an author editing the rig.
@@ -192,8 +193,15 @@ the same `SkeletonData` as the 4.2 file; a newer version, an unknown key or a wr
 refused at load. Equal `SkeletonData` means equal poses and events, because the same runtime
 animates both. Merge = runtime release. Nothing writes v1 yet, so this is invisible.
 
-**Phase 2 — server consumers read through the doc.** The raw-JSON readers in §5 accept both layouts
-via `readIrig` / import. Still nothing writes v1.
+**Phase 2 — server consumers read through the doc.** _Built 2026-11-08._ `irigDocProblem` is the
+doc validator: a stamped document is checked with `readIrig` first (what a game refuses, the save
+refuses), then for the references `SkeletonJson` resolves, as a 4.2 document is. Every save,
+restore and Director rig write goes through it. The rig library save no longer adds a 4.2 `spine`
+header to an irig document, which would have made it unloadable. `saved_by` joined the schema,
+because Director stamps it on every rig it writes. The other §5 readers (`resolveEditorRigMeta`,
+`rigFxExport.ts`, `rigFlipbookExport.ts`) read only names and event bindings that v1 keeps under
+the same keys, so they read v1 unchanged; `animationPlist.ts` reads a flipbook plist, not a rig.
+Gate: `check-rigger-writes.ts`. Still nothing writes v1.
 
 **Phase 3 — new rigs and the importer UI.** `riggerNewRig.ts` writes v1. Uploading a 4.2 export
 (`/api/rigger/upload`) imports it to v1 beside the artist's source, the way the Rigger saves an
@@ -222,9 +230,10 @@ Any real semantic divergence (irig v2) is a new decision after Phase 6, with its
 
 ## 7. Risks
 
-- **Runtime rollback below the Phase 1 reader** would blank every v1 rig in every online game. After
-  Phase 3, the "Runtime rollback" workflow needs a floor (refuse a target older than the reader), or
-  Phase 1 needs to sit long enough that no rollback target predates it.
+- **Runtime rollback below the Phase 2 reader** would blank every v1 rig in every online game (Phase
+  1 reads v1, but refuses a Director-stamped one). After Phase 3, the "Runtime rollback" workflow
+  needs a floor (refuse a target older than the reader), or Phase 2 needs to sit long enough that no
+  rollback target predates it.
 - **Published snapshots** carry the files they were published with, so an old snapshot keeps its 4.2
   files and keeps working. A re-publish takes the current runtime and the migrated files together.
 - **Re-importing over Rigger edits.** An artist who changes a rig in the external editor and sends a

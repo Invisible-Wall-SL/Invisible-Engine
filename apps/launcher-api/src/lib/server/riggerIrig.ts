@@ -1,3 +1,4 @@
+import { isIrigDocument, readIrig } from 'engine-rig';
 import { projectPrefix } from './projectPaths';
 import { copyObject, deleteObjects, getObjectText, headObject, listAllObjects } from './r2';
 
@@ -120,7 +121,11 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
 }
 
 /**
- * Why `doc` would not load as a 4.2-format skeleton, or null when it would.
+ * Why `doc` would not load as a rig, or null when it would.
+ *
+ * An irig document (one with an `irig` stamp) is first checked as the runtime checks it: any key
+ * or value outside the schema refuses it (`readIrig`), because a game refuses it at load. Every
+ * document, irig or 4.2, is then checked for the references below.
  *
  * Mirrors the references `SkeletonJson.readSkeletonData` resolves by NAME and throws on when one
  * is missing — a parent bone, a slot's bone, a constraint's bones/target, a skin's slot and the
@@ -128,13 +133,20 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
  * constraint keys, draw-order slots and events, and the skin/slot/attachment its deform and
  * sequence keys name — and, for those last two, that the attachment found is one the loader can
  * read (a mesh parent, vertices to deform, a declared sequence). A doc that fails any of them opens
- * as "Load failed" in the Rigger and blanks the rig in every game that binds it. It deliberately
- * does NOT validate field values: the client re-parses through the real loader before posting, and
- * a stricter schema here would refuse documents a newer Rigger wrote. Where the loader reads a
+ * as "Load failed" in the Rigger and blanks the rig in every game that binds it. A 4.2 document's
+ * field values are deliberately NOT validated: the client re-parses through the real loader before
+ * posting, and the 4.2 reader coerces what it can. Where the loader reads a
  * falsy field (`null`, `0`, `""`, `false`) as absent, so does this.
  */
 export function irigDocProblem(doc: unknown): string | null {
 	if (!isRecord(doc)) return 'the skeleton is not a JSON object';
+	if (isIrigDocument(doc)) {
+		try {
+			readIrig(doc);
+		} catch (e) {
+			return (e as Error).message;
+		}
+	}
 	if (doc.skeleton && !isRecord(doc.skeleton)) return '"skeleton" is not an object';
 	if (!Array.isArray(doc.bones) || doc.bones.length === 0) return 'the skeleton has no bones';
 

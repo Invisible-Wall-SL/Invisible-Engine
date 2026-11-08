@@ -182,6 +182,8 @@ const newRig = await import(`${routes}/rigger/new/+server.ts`);
 const upload = await import(`${routes}/rigger/upload/+server.ts`);
 const del = await import(`${routes}/rigger/delete/+server.ts`);
 const irigSave = await import(`${routes}/rigger/save/+server.ts`);
+const { irigDocProblem } = await import('../src/lib/server/riggerIrig.ts');
+const { stampSavedBy } = await import('../src/lib/server/savedBy.ts');
 const reindex = await import(`${routes}/editor/rigs/reindex/+server.ts`);
 
 let checks = 0;
@@ -460,6 +462,90 @@ const PAGE = Buffer.from('png').toString('base64');
 		"save: a person's save drops the Director stamp the rig carried",
 		[res.status, 'saved_by' in JSON.parse(text(key) ?? '{}'), JSON.parse(text(key) ?? '{}').name],
 		[200, false, 'A'],
+	);
+}
+
+// ── irig v1 (docs/design/irig-format.md, Phase 2): the server checks it as the runtime does ─────
+{
+	const v1 = (extra: Record<string, unknown> = {}) => ({
+		irig: 1,
+		skeleton: { importedFrom: '4.2.40' },
+		bones: [{ name: 'root' }],
+		slots: [{ name: 's', bone: 'root' }],
+		...extra,
+	});
+	check('irig: a v1 document passes the check', irigDocProblem(v1()), null);
+	check(
+		'irig: a v1 document with a key outside the schema is refused',
+		/not an irig field/.test(irigDocProblem(v1({ name: 'A' })) ?? ''),
+		true,
+	);
+	check(
+		'irig: a v1 document with a wrong-typed value is refused (a 4.2 file would coerce it)',
+		/expected a number/.test(irigDocProblem(v1({ bones: [{ name: 'root', x: '1' }] })) ?? ''),
+		true,
+	);
+	check(
+		'irig: a v1 document still gets the reference checks',
+		/does not exist/.test(irigDocProblem(v1({ slots: [{ name: 's', bone: 'ghost' }] })) ?? ''),
+		true,
+	);
+	check(
+		'irig: a newer irig version is refused',
+		/newer/.test(irigDocProblem(v1({ irig: 2 })) ?? ''),
+		true,
+	);
+	const stamp = { tool: 'director', agent: 'animator', runId: 'r1', at: 't', rev: 'r' };
+	check(
+		"irig: Director's saved_by stamp keeps a v1 document loadable",
+		irigDocProblem(stampSavedBy(v1(), stamp)),
+		null,
+	);
+
+	seedProject();
+	const key = `${RIGS}/A/A.irig`;
+	const saved = await call(irigSave.POST, {
+		dir: b64('A'),
+		stem: 'A',
+		skeleton: v1(),
+		baseEtag: bucket.get(key)?.etag,
+	});
+	check(
+		'irig: the Rigger save stores a v1 document as sent',
+		[saved.status, JSON.parse(text(key) ?? '{}')],
+		[200, v1()],
+	);
+	const before = text(key);
+	const refused = await call(irigSave.POST, {
+		dir: b64('A'),
+		stem: 'A',
+		skeleton: v1({ name: 'A' }),
+		baseEtag: bucket.get(key)?.etag,
+	});
+	check(
+		'irig: the Rigger save refuses a v1 document the runtime would refuse, and writes nothing',
+		[refused.status, refused.body.error, text(key) === before],
+		[422, 'invalid-skeleton', true],
+	);
+
+	reset();
+	await call(rigSave.POST, { name: 'Lib', skeleton: v1(), baseEtag: null });
+	const libDoc = JSON.parse(text('_shared/rigs/lib.json') ?? '{}').skeleton;
+	check(
+		'irig: the rig library stores a v1 document without a 4.2 header version',
+		[libDoc?.skeleton, irigDocProblem(libDoc)],
+		[{ importedFrom: '4.2.40' }, null],
+	);
+	reset();
+	await call(rigSave.POST, {
+		name: 'Old',
+		skeleton: { bones: [{ name: 'root' }] },
+		baseEtag: null,
+	});
+	check(
+		'irig: the rig library still gives a 4.2 skeleton its version',
+		JSON.parse(text('_shared/rigs/old.json') ?? '{}').skeleton?.skeleton,
+		{ spine: '4.2' },
 	);
 }
 

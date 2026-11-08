@@ -326,6 +326,14 @@ const flipbookBinding = obj({
 	fps: num,
 });
 
+/** Extension: who saved the rig last (`savedBy.ts` in the launcher); Invisible Director stamps
+ * every rig it writes. Read by nothing at runtime. */
+const savedBy = obj({ uid: str, name: str, tool: str, at: str, rev: str, agent: str, runId: str }, [
+	'tool',
+	'at',
+	'rev',
+]);
+
 const animation = obj({
 	slots: map(
 		obj({
@@ -456,6 +464,7 @@ export const RIG_FIELDS = {
 	skins: arr(skin),
 	events: map(eventDef),
 	animations: map(animation),
+	saved_by: savedBy,
 };
 
 export const IRIG_VERSION = 1;
