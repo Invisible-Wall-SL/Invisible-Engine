@@ -153,15 +153,27 @@ The S0 recipe was written for the old client (`GuiltyForever/Salmon-` `docs/art-
 Salmons now plays on the engine, so the art goes into the `salmons` project and ships on
 **Publish**. No FTP download and no `build-sheets.py` are needed.
 
-**The wiring (planned, after the Salmons visual-fixes PR merges).** It follows the old client's
-`characterLook.js` rules:
-- Each player plays `<character>_<state>_<facing>` once that clip is published. Until then it
-  keeps its placeholder.
+**The wiring (planned, after the Salmons visual-fixes PR merges; not built).** It follows the old
+client's `characterLook.js` rules:
+- Each player plays `<character>_<state>_<facing>` once that clip is published, and keeps its
+  placeholder while it has none. The character prefixes are `salmon_pink`, `bear` and
+  `fisherman`. The golden salmon (the player's `mark`) plays `salmon_golden_*` if there is one,
+  and otherwise the pink clip tinted gold.
+- The states come from what the room sends:
+  - salmon: `swim`, with `hop` once on `jumped` / `climbed`, and `caught` once on a catch before it
+    is hidden (with no `caught` clip it hides as it does today);
+  - bear: `walk` while `moving`, otherwise `idle`, and `swipe` once on its ability;
+  - fisherman: `walk` / `idle`, `cast` once on its ability, and `reel` while its line holds a
+    salmon.
+  A one-shot plays to its end before a loop takes over.
+- A missing clip is stood in for:
+  1. first by a near facing: the mirror twin, then the vertical twin, then that twin's mirror;
+  2. then by a near state: `hop` → `swim`, `swipe` → `idle`, `cast` → `reel` → `idle`,
+     `walk` ↔ `idle`.
 - The facing comes from the drawn world velocity, projected for the 2:1 view (screen
-  `dx = vx − vy`, `dy = (vx + vy) / 2`): `se` / `ne` as drawn, `sw` / `nw` mirrored. Standing
-  still keeps the last facing.
+  `dx = vx − vy`, `dy = (vx + vy) / 2`). `se` and `ne` are drawn as made, and `sw` and `nw` are
+  them mirrored. Standing still keeps the last facing.
 - The clip's ⬚ Bounds box sits with its bottom centre at the body's feet.
-- A missing clip falls back to a near facing, then to a near state.
 
 **Adjustments for the owner.** None of these is changed silently. The runbook assumes the default
 in brackets.
@@ -172,7 +184,7 @@ in brackets.
 2. **States the engine has that the plan lacks** (P11.3). A salmon can be **grounded** on a
    sandbank (held still until it taps), **hooked** on a line (reeled in), and it **climbs** a
    waterfall by tapping. *(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
-   hooked play `swim`; a stunned bear or fisherman plays `idle`. Optional: add `salmon_pink_hooked`
+   hooked play `swim`. Optional: add `salmon_pink_hooked`
    (loop, thrashing on a line) and `salmon_pink_grounded` (loop, flapping on sand), 4 more
    clips.)*
 3. **Facing from velocity or from the stick.** The river's current is part of the velocity, so a
@@ -181,16 +193,27 @@ in brackets.
    as briefed. Alternative: the input's direction while the player steers.)*
 4. **Sizes.** The engine's bodies are bigger than the old client's sizes: salmon 90 × 44 (old: about
    50 long), bear 92 × 92 (old: 80 wide), fisherman 56 × 88. The clips are drawn at the body's
-   width. *(Default: keep Max px 256 / 320, still about 3× the drawn size. Raise it to 384 if the
-   art looks soft.)*
+   width. The blueprint writes 320 × 320 frames, and Max px only shrinks, so 320 changes nothing.
+   *(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
+   the blueprint's Output frame width / height towards its 512 maximum.)*
 5. **Loops that end where they start.** `wan22_i2v_flipbook` doesn't loop, so a loop needs a
    hand-picked From / To. The library also holds `wanloopingvideo__3_`, which loops but took about
    17 min a render in its one measured run. *(Default: `wan22_i2v_flipbook` for every clip; try the
    looping blueprint on `swim` if the seams show.)*
 6. **The fisherman has no source art** (the old client draws him in code), and `gpt_image` needs a
-   reference. *(Default: the locked `bear_se` still is his style reference.)*
+   reference image, which it *edits* rather than only borrowing its style. *(Default: the locked
+   `bear_se` still is redrawn as the fisherman. Alternative: upload any drawing of a fisherman in
+   the house style.)*
 7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. *(Default: 3 s for loops,
    2 s for one-shots.)*
+8. **The cutout models.** The plan names a BiRefNet cutout for the stills. The `gpt_image` builder
+   uses the `RMBG` node, whose clean choice is **BEN2**
+   ([model-licences](../reference/model-licences.md) recommendation 1: first confirm the re-host is
+   the MIT base). BiRefNet needs a builder change. The video's default matting, `BiRefNet_toonout`,
+   has no recorded licence, against the owner's licence-clean-only rule. *(Default: BEN2 for the
+   stills, and `BiRefNet_toonout` for the videos as the plan approved, pending your call.
+   Alternative: `BiRefNet-general` or `BiRefNet-matting` (MIT), which may lose some edge quality
+   on toon art.)*
 
 ## Decided (owner, 2026-10-26)
 
@@ -211,7 +234,7 @@ in brackets.
 
 - 2026-11-08 — **S0's owner runbook, and what no longer fits.** [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md)
   is the owner's click-by-click path, starting with a one-clip smoke test. The S0 recipe was
-  checked against the engine's Salmons ("S0 on the engine" above), and seven adjustments wait
+  checked against the engine's Salmons ("S0 on the engine" above), and eight adjustments wait
   for the owner. The clip wiring follows the Salmons visual-fixes merge.
 
 - 2026-11-02 — **Salmons plays live.** Owner steps 1 (upload), 3 (publish) and 4 (the config
