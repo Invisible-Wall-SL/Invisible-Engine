@@ -326,12 +326,6 @@ const CALLS = [
 	['t_ok_write', 'Write', { file_path: files.toolOut, content: '{"proof":1}' }],
 	['t_ok_ws', 'Write', { file_path: files.toolWs, content: 'proof' }],
 	['t_ok_bash', 'Bash', { command: `echo ok > ${q(files.bashWs)} && node -e "process.stdout.write('node-ok')"` }],
-	// Editing ordinary files: a source file, and a package.json (`--restricted` guards "tool
-	// configuration" files; a fix that needs one is shown here, not assumed).
-	['t_read_src', 'Read', { file_path: EDIT.src }],
-	['t_edit_src', 'Edit', { file_path: EDIT.src, old_string: EDIT.srcLine, new_string: EDIT.srcLine.replace('FIX_RUN_WORKFLOW', 'FIX_RUN_WORKFLOW_PROOF') }],
-	['t_read_pkg', 'Read', { file_path: EDIT.pkg }],
-	['t_edit_pkg', 'Edit', { file_path: EDIT.pkg, old_string: EDIT.pkgLine, new_string: EDIT.pkgLine.replace('"launcher-api"', '"launcher-api" ') }],
 	// The same reads with the path built at run time, past the CLI's own reading of the command:
 	// what refuses these is the sandbox alone.
 	['t_key_hidden', 'Bash', { command: `p="$(printf %s ${Buffer.from(KEY_FILE).toString('base64')} | base64 -d)"; cat "$p"; echo " cat=$?"` }],
@@ -348,6 +342,12 @@ const CALLS = [
 	['t_glob_ws', 'Glob', { pattern: 'scripts/bug-fix/*.mjs', path: WS }],
 	['t_gate', 'Bash', { command: 'pnpm --silent check:bug-fix-workflow > "$TMPDIR/proof-gate.log" 2>&1; echo " gate=$?"; tail -3 "$TMPDIR/proof-gate.log"' }],
 	['t_gate_ts', 'Bash', { command: 'pnpm --filter launcher-api --silent check:bug-fix-runs > "$TMPDIR/proof-gate-ts.log" 2>&1; echo " gate=$?"; tail -40 "$TMPDIR/proof-gate-ts.log"', timeout: 600000 }],
+	// Editing ordinary files, after the gates (they read these): a source file, and a package.json
+	// (`--restricted` guards "tool configuration" files; whether that covers one is shown, not assumed).
+	['t_read_src', 'Read', { file_path: EDIT.src }],
+	['t_edit_src', 'Edit', { file_path: EDIT.src, old_string: EDIT.srcLine, new_string: EDIT.srcLine.replace('FIX_RUN_WORKFLOW', 'FIX_RUN_WORKFLOW_PROOF') }],
+	['t_read_pkg', 'Read', { file_path: EDIT.pkg }],
+	['t_edit_pkg', 'Edit', { file_path: EDIT.pkg, old_string: EDIT.pkgLine, new_string: EDIT.pkgLine.replace('"launcher-api"', '"launcher-api" ') }],
 ];
 const SUB_TRIAGE = [
 	['s_env', 'Bash', { command: 'env | sort' }],
