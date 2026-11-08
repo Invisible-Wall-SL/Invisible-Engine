@@ -1,12 +1,8 @@
 #!/bin/sh
 # Claude Code's apiKeyHelper for a fix run (ADR-0013 §4; settings.json names it). Prints the run's
 # Anthropic key from the file step 4 wrote outside the workspace, so the key reaches the CLI without
-# being in the environment of the commands the model runs. The sandbox denies those commands the
-# file; the CLI itself runs this script, outside the sandbox.
+# being in the environment of the commands the model runs. The file belongs to root (0600, in a 0700
+# folder): the CLI's own file tools cannot read it, and the sandbox, which sets no-new-privileges,
+# cannot sudo. Only this script, run by the CLI outside the sandbox, reads it.
 set -eu
-key_file="${1:?apiKeyHelper: name the key file}"
-if [ ! -f "$key_file" ] || [ -L "$key_file" ] || [ ! -s "$key_file" ]; then
-	echo 'apiKeyHelper: the key file is missing or empty' >&2
-	exit 1
-fi
-exec cat -- "$key_file"
+exec /usr/bin/sudo -n /bin/cat -- "${1:?apiKeyHelper: name the key file}"

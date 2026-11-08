@@ -15,16 +15,21 @@ import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
 	appendFileSync,
+	closeSync,
+	constants as fsConstants,
 	existsSync,
+	fstatSync,
 	lstatSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
+	readSync,
 	readdirSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
-import { basename, join, posix } from 'node:path';
+import { basename, dirname, join, posix, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
@@ -61,18 +66,22 @@ function env(name) {
 
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
-/** `fetch` with a timeout, tried again on a network error or a 5xx (at most 3 tries). */
-async function request(url, init, doing) {
+/**
+ * `fetch` with a timeout, tried again on a network error or a 5xx (at most `tries`). The result's
+ * POST is tried once: the launcher opens the pull request inside it, so a second POST of a result
+ * still being opened would only be refused.
+ */
+async function request(url, init, doing, { tries = 3, timeoutMs = HTTP_TIMEOUT_MS } = {}) {
 	for (let attempt = 0; ; attempt++) {
 		let res;
 		try {
-			res = await fetch(url, { ...init, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
+			res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 		} catch {
-			if (attempt >= 2) fail(`The launcher could not be reached ${doing}.`);
+			if (attempt >= tries - 1) fail(`The launcher could not be reached ${doing}.`);
 			await pause(2000 * 2 ** attempt);
 			continue;
 		}
-		if (res.status >= 500 && attempt < 2) {
+		if (res.status >= 500 && attempt < tries - 1) {
 			await pause(2000 * 2 ** attempt);
 			continue;
 		}
@@ -81,11 +90,30 @@ async function request(url, init, doing) {
 }
 
 /**
+ * Only GitHub's token service and the launcher are ever called — a URL from the environment that
+ * points anywhere else is refused, whatever set it (loopback is the fixture's).
+ */
+export function trustedUrl(raw, hosts) {
+	let url;
+	try {
+		url = new URL(raw);
+	} catch {
+		return fail('A URL the job calls is not a URL.');
+	}
+	const loopback = url.protocol === 'http:' && url.hostname === '127.0.0.1';
+	const known =
+		url.protocol === 'https:' &&
+		hosts.some((h) => (h.startsWith('.') ? url.hostname.endsWith(h) : url.hostname === h));
+	if (!loopback && !known) fail('A URL the job calls is not GitHub’s or the launcher’s.');
+	return url;
+}
+
+/**
  * A GitHub OIDC token for the launcher. The request URL and token are the job's own, which
  * `id-token: write` gives every step — but step 4 starts the CLI without them.
  */
 export async function oidcToken() {
-	const url = new URL(env('ACTIONS_ID_TOKEN_REQUEST_URL'));
+	const url = trustedUrl(env('ACTIONS_ID_TOKEN_REQUEST_URL'), ['.actions.githubusercontent.com']);
 	url.searchParams.set('audience', AUDIENCE);
 	const res = await request(
 		url,
@@ -99,7 +127,7 @@ export async function oidcToken() {
 }
 
 const launcher = (path) =>
-	`${env('LAUNCHER_URL').replace(/\/+$/, '')}/api/pipeline/fix-runs/${path}`;
+	`${trustedUrl(env('LAUNCHER_URL'), ['app.invisiblewall.org']).origin}/api/pipeline/fix-runs/${path}`;
 
 function fixRunId() {
 	const id = env('FIX_RUN');
@@ -123,6 +151,8 @@ export function paths(runnerTemp, workspace) {
 		key: at('key'),
 		out: at('out'),
 		claude: at('claude'),
+		/** The rendered settings, agents and prompt; root's and read-only once prepared. */
+		conf: posix.join(runnerTemp, 'claude', 'conf'),
 		tsxShim: at('tsx-shim'),
 	};
 }
@@ -269,12 +299,13 @@ export function templateValues(p, run) {
 	};
 }
 
-const shq = (s) => `'${s.replace(/'/g, "'\\''")}'`;
-
 /**
- * Every `node_modules/.bin/tsx` the workspace's packages run, swapped for a script that runs
- * tsx-shim.mjs from `shim` (see that file: tsx's CLI needs a Unix socket the sandbox refuses).
- * `node_modules` is ignored by git, so the swap is never part of the change. Answers the count.
+ * tsx's own CLI (`dist/cli.mjs`) in every copy the workspace's packages resolve, swapped for a
+ * script that runs tsx-shim.mjs from `shim` (tsx's CLI needs a Unix socket the sandbox refuses).
+ * Both ways a gate starts tsx go through it: `node_modules/.bin/tsx` and check-all's
+ * `node <tsx/cli>`. The file is removed before it is written, so pnpm's store, hard-linked into
+ * node_modules, keeps the original. `node_modules` is ignored by git: the swap is never part of
+ * the change. Answers the count.
  */
 export function sandboxTsx(workspace, shim) {
 	const groups = ['apps', 'packages', 'services', 'tools'].flatMap((g) => {
@@ -284,18 +315,27 @@ export function sandboxTsx(workspace, shim) {
 			return [];
 		}
 	});
-	let swapped = 0;
+	const packages = new Set();
 	for (const dir of [workspace, ...groups]) {
-		const bin = join(dir, 'node_modules', '.bin', 'tsx');
 		const pkg = join(dir, 'node_modules', 'tsx');
-		if (!existsSync(bin) || !existsSync(pkg)) continue;
-		const loader = join(realpathSync(pkg), 'dist', 'loader.mjs');
-		if (!existsSync(loader)) fail('tsx has no dist/loader.mjs: the shim no longer fits it.');
-		rmSync(bin, { force: true });
-		writeFileSync(bin, `#!/bin/sh\nexec node ${shq(shim)} ${shq(loader)} "$@"\n`, { mode: 0o755 });
-		swapped++;
+		if (existsSync(pkg)) packages.add(realpathSync(pkg));
 	}
-	return swapped;
+	for (const pkg of packages) {
+		const loader = join(pkg, 'dist', 'loader.mjs');
+		const cli = join(pkg, 'dist', 'cli.mjs');
+		if (!existsSync(loader) || !existsSync(cli)) {
+			fail('tsx has no dist/loader.mjs or dist/cli.mjs: the shim no longer fits it.');
+		}
+		rmSync(cli, { force: true });
+		writeFileSync(
+			cli,
+			"// tsx's CLI for a fix run's sandbox: bug-fix.yml, scripts/bug-fix/tsx-shim.mjs.\n" +
+				"import { spawnSync } from 'node:child_process';\n" +
+				`const r = spawnSync(process.execPath, [${JSON.stringify(shim)}, ${JSON.stringify(loader)}, ...process.argv.slice(2)], { stdio: 'inherit' });\n` +
+				'process.exit(r.status ?? 1);\n',
+		);
+	}
+	return packages.size;
 }
 
 function prepare() {
@@ -303,17 +343,18 @@ function prepare() {
 	const run = JSON.parse(readFileSync(join(p.bug, 'run.json'), 'utf8'));
 	const values = templateValues(p, run);
 	const own = join(p.main, 'scripts', 'bug-fix');
-	mkdirSync(join(p.claude, 'config'), { recursive: true });
+	mkdirSync(p.conf, { recursive: true });
 	mkdirSync(p.out, { recursive: true });
 	const settings = render(readFileSync(join(own, 'settings.json'), 'utf8'), values);
 	JSON.parse(settings);
-	writeFileSync(join(p.claude, 'settings.json'), settings);
+	writeFileSync(join(p.conf, 'settings.json'), settings);
 	writeFileSync(
-		join(p.claude, 'prompt.md'),
+		join(p.conf, 'prompt.md'),
 		render(readFileSync(join(own, 'coordinator.md'), 'utf8'), values),
 	);
 	const agents = agentsJson(join(p.main, '.claude', 'agents'));
-	writeFileSync(join(p.claude, 'agents.json'), JSON.stringify(agents));
+	writeFileSync(join(p.conf, 'agents.json'), JSON.stringify(agents));
+	appendFileSync(env('GITHUB_OUTPUT'), `node=${process.execPath}\n`);
 	// Outside the workspace and every denied folder: commands may read the shim, never change it.
 	mkdirSync(p.tsxShim, { recursive: true });
 	const shim = join(p.tsxShim, 'tsx.mjs');
@@ -346,26 +387,59 @@ const git = (args, opts = {}) => {
 /** Strict UTF-8 that keeps a byte-order mark, so a file reads back byte for byte. */
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
-/** A plain file of the workspace, never through a link: refused when it is anything else. */
-function plainFile(path) {
-	const st = lstatSync(path);
-	if (st.isSymbolicLink()) fail('The change holds a symbolic link.');
-	if (!st.isFile()) fail('The change holds something that is not a file.');
-	if (st.nlink > 1) fail('The change holds a file with a second hard link.');
-	return st;
+const modeOf = (st) => ((st.mode & 0o111) !== 0 ? '100755' : '100644');
+
+/**
+ * A plain file of the workspace, read through ONE descriptor: its folder must really be inside the
+ * workspace (no linked folder on the way), the file itself no link (`O_NOFOLLOW`), no FIFO or device
+ * (`O_NONBLOCK`, then `fstat`), the same file `lstat` saw (nothing swapped in between), with no
+ * second hard link, and at most `limit` bytes. Anything else is refused, never followed.
+ */
+function readPlain(workspaceReal, path, limit) {
+	const dir = realpathSync(dirname(path));
+	if (dir !== workspaceReal && !dir.startsWith(workspaceReal + sep)) {
+		fail('The change reaches outside the workspace through a linked folder.');
+	}
+	const seen = lstatSync(path);
+	if (seen.isSymbolicLink()) fail('The change holds a symbolic link.');
+	if (!seen.isFile()) fail('The change holds something that is not a file.');
+	let fd;
+	try {
+		fd = openSync(
+			path,
+			fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0),
+		);
+	} catch {
+		return fail('A changed file could not be opened as a plain file.');
+	}
+	try {
+		const st = fstatSync(fd);
+		if (!st.isFile() || st.ino !== seen.ino || st.dev !== seen.dev) {
+			fail('A changed file was replaced while it was read.');
+		}
+		if (st.nlink > 1) fail('The change holds a file with a second hard link.');
+		if (st.size > limit) fail('A changed file is larger than 2 MB.');
+		const bytes = Buffer.alloc(st.size);
+		let got = 0;
+		while (got < st.size) {
+			const n = readSync(fd, bytes, got, st.size - got, got);
+			if (n === 0) break;
+			got += n;
+		}
+		return { bytes: bytes.subarray(0, got), mode: modeOf(st) };
+	} finally {
+		closeSync(fd);
+	}
 }
 
-/** A changed file's text, which must be UTF-8 and at most 2 MB. */
-function textOf(path, st) {
-	if (st.size > MAX_RESULT_BYTES) fail('A changed file is larger than 2 MB.');
+/** A changed file's text, which must be UTF-8. */
+function textOf(bytes) {
 	try {
-		return decoder.decode(readFileSync(path));
+		return decoder.decode(bytes);
 	} catch {
 		return fail('A changed file is not UTF-8 text.');
 	}
 }
-
-const modeOf = (st) => ((st.mode & 0o111) !== 0 ? '100755' : '100644');
 
 /**
  * The files that differ between the pristine copy (main at the run's base, its own `.git`) and the
@@ -375,7 +449,8 @@ const modeOf = (st) => ((st.mode & 0o111) !== 0 ? '100755' : '100644');
  */
 export function collectChange(main, workspace) {
 	const files = [];
-	const base = ['--git-dir', join(main, '.git'), '--work-tree', main];
+	const real = realpathSync(workspace);
+	const base = ['-c', 'safe.directory=*', '--git-dir', join(main, '.git'), '--work-tree', main];
 	const tracked = git([...base, 'ls-files', '-z', '-s']).map((line) => {
 		const [meta, path] = line.split('\t');
 		return { path, mode: meta.split(' ')[0] };
@@ -394,17 +469,20 @@ export function collectChange(main, workspace) {
 			files.push({ path, content: null });
 			continue;
 		}
-		const st = plainFile(now);
 		const was = readFileSync(join(main, path));
-		if (st.size === was.length && modeOf(st) === mode && readFileSync(now).equals(was)) continue;
+		const after = readPlain(real, now, Math.max(was.length, MAX_RESULT_BYTES));
+		if (after.mode === mode && after.bytes.equals(was)) continue;
+		if (after.bytes.length > MAX_RESULT_BYTES) fail('A changed file is larger than 2 MB.');
 		files.push({
 			path,
-			...(modeOf(st) !== mode ? { mode: modeOf(st) } : {}),
-			content: textOf(now, st),
+			...(after.mode !== mode ? { mode: after.mode } : {}),
+			content: textOf(after.bytes),
 		});
 	}
 	const known = new Set(tracked.map((t) => t.path));
 	const added = git([
+		'-c',
+		'safe.directory=*',
 		'--git-dir',
 		join(main, '.git'),
 		'--work-tree',
@@ -419,14 +497,14 @@ export function collectChange(main, workspace) {
 		'--exclude-standard',
 	]);
 	for (const path of added) {
-		if (path.endsWith('/') || known.has(path) || path === '.git' || path.startsWith('.git/'))
-			continue;
-		const now = join(workspace, path);
-		const st = plainFile(now);
+		if (known.has(path) || path === '.git' || path.startsWith('.git/')) continue;
+		// git lists a folder holding a repository of its own as `dir/`: its files would drop out.
+		if (path.endsWith('/')) fail('The change holds a nested git repository.');
+		const after = readPlain(real, join(workspace, path), MAX_RESULT_BYTES);
 		files.push({
 			path,
-			...(modeOf(st) === '100755' ? { mode: '100755' } : {}),
-			content: textOf(now, st),
+			...(after.mode === '100755' ? { mode: '100755' } : {}),
+			content: textOf(after.bytes),
 		});
 	}
 	return files.sort((a, b) => (a.path < b.path ? -1 : 1));
@@ -471,7 +549,11 @@ export function readStream(text) {
 		prior.cacheWriteTokens += count(u.cacheWriteTokens);
 		usage.set(model, prior);
 	};
-	if (result?.modelUsage && typeof result.modelUsage === 'object') {
+	if (
+		result?.modelUsage &&
+		typeof result.modelUsage === 'object' &&
+		Object.keys(result.modelUsage).length
+	) {
 		for (const [model, u] of Object.entries(result.modelUsage)) {
 			add(model, {
 				inputTokens: u?.inputTokens,
@@ -508,42 +590,104 @@ export function failureOf(ended) {
 			return 'The run reached its turn cap before it finished.';
 		case 'none':
 			return 'The run stopped before Claude Code reported an end (a timeout or a crash).';
+		case 'absent':
+			return 'Claude Code never started: a step before it failed.';
 		default:
 			return 'Claude Code ended the run with an error.';
 	}
 }
 
-/** The model's `result.json`, read as data: the fields the launcher takes, nothing else. */
+/**
+ * What the launcher keeps of each text field (`TEXT_CAPS` in bugFixRunsChange.ts), in code points.
+ * It refuses a whole result whose field runs past four times its cap, so the job cuts each to it.
+ */
+export const CAPS = {
+	title: 120,
+	scope: 40,
+	summary: 2_000,
+	lesson: 4_000,
+	command: 300,
+	area: 40,
+	evidence: 2_000,
+};
+const cut = (x, max) => (typeof x === 'string' ? Array.from(x).slice(0, max).join('') : '');
+
+/**
+ * The model's `result.json`, read as data — through the same one-descriptor read as the change, no
+ * link followed — the fields the launcher takes and nothing else, each cut to the launcher's cap.
+ */
 export function readResultJson(path) {
 	if (!existsSync(path)) return null;
-	const st = lstatSync(path);
-	if (!st.isFile() || st.size > MAX_RESULT_JSON) return null;
 	let v;
 	try {
-		v = JSON.parse(readFileSync(path, 'utf8'));
+		v = JSON.parse(
+			readPlain(realpathSync(dirname(path)), path, MAX_RESULT_JSON).bytes.toString('utf8'),
+		);
 	} catch {
 		return null;
 	}
 	if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
-	const text = (x) => (typeof x === 'string' ? x : '');
 	const gates = Array.isArray(v.gates)
 		? v.gates
 				.filter((g) => g && typeof g.command === 'string' && typeof g.ok === 'boolean')
 				.slice(0, 50)
-				.map((g) => ({ command: g.command, ok: g.ok }))
+				.map((g) => ({ command: cut(g.command, CAPS.command), ok: g.ok }))
 		: [];
 	const sb = v.secondBug ?? v.second_bug;
 	return {
 		outcome: OUTCOMES.includes(v.outcome) ? v.outcome : null,
-		title: text(v.title),
-		scope: text(v.scope),
-		summary: text(v.summary),
-		lesson: text(v.lesson),
+		title: cut(v.title, CAPS.title),
+		scope: cut(v.scope, CAPS.scope),
+		summary: cut(v.summary, CAPS.summary),
+		lesson: cut(v.lesson, CAPS.lesson),
 		gates,
 		...(sb && typeof sb === 'object' && typeof sb.area === 'string' && typeof sb.title === 'string'
-			? { secondBug: { area: sb.area, title: sb.title, evidence: text(sb.evidence) } }
+			? {
+					secondBug: {
+						area: cut(sb.area, CAPS.area),
+						title: cut(sb.title, CAPS.title),
+						evidence: cut(sb.evidence, CAPS.evidence),
+					},
+				}
 			: {}),
 	};
+}
+
+/** The launcher's limits on a change (bugFixRunsChange.ts): checked here first, in the job's words. */
+const MAX_FILES = 40;
+const MAX_CHANGE_BYTES = 400 * 1024;
+
+export function sizeProblem(files) {
+	if (files.length > MAX_FILES) return `The change has more than ${MAX_FILES} files.`;
+	const bytes = files.reduce((n, f) => n + (f.content ? Buffer.byteLength(f.content) : 0), 0);
+	return bytes > MAX_CHANGE_BYTES ? 'The change adds more than 400 KB.' : null;
+}
+
+/**
+ * Whether the change carries the bug itself into the public pull request: a line of the brief
+ * (40 characters or more, its fixed opening aside), or a run of a screenshot's bytes in base64.
+ * The sentence names the rule, never what was copied.
+ */
+export function copiesBug(files, briefText, screenshots) {
+	const lines = briefText
+		.split('\n')
+		.map((l) => l.trim())
+		.filter((l) => l.length >= 40 && !l.startsWith('Reported by people.'));
+	const windows = screenshots.flatMap((bytes) => {
+		const b64 = bytes.toString('base64');
+		if (b64.length < 400) return [];
+		return [0.25, 0.5, 0.75].map((at) =>
+			b64.slice(Math.floor(b64.length * at), Math.floor(b64.length * at) + 64),
+		);
+	});
+	for (const f of files) {
+		if (f.content === null) continue;
+		if (lines.some((l) => f.content.includes(l)))
+			return 'The change copies text from the bug’s brief.';
+		if (windows.some((w) => f.content.includes(w)))
+			return 'The change copies a screenshot of the bug.';
+	}
+	return null;
 }
 
 /**
@@ -615,42 +759,48 @@ async function result() {
 	const run = JSON.parse(readFileSync(join(p.bug, 'run.json'), 'utf8'));
 	if (run.fixRun !== id || !SHA.test(run.baseSha)) fail('run.json is not this fix run’s.');
 	const streamFile = join(p.claude, 'stream.jsonl');
-	const { usage, ended } = readStream(
-		existsSync(streamFile) ? readFileSync(streamFile, 'utf8') : '',
-	);
-	const keyFile = join(p.key, 'anthropic');
-	const key = existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : '';
-	const given = { baseSha: run.baseSha, ended, usage, key };
+	let stream = { usage: [], ended: 'absent' };
+	try {
+		if (existsSync(streamFile)) stream = readStream(readFileSync(streamFile, 'utf8'));
+	} catch {
+		stream = { usage: [], ended: 'none' };
+	}
+	const { usage, ended } = stream;
+	const given = { baseSha: run.baseSha, ended, usage, key: readKey(join(p.key, 'anthropic')) };
 	let body;
 	try {
 		const parsed = failureOf(ended) ? null : readResultJson(join(p.out, 'result.json'));
 		const changes = parsed?.outcome === 'fixed' || parsed?.outcome === 'second_area';
 		const files = changes ? collectChange(p.main, p.workspace) : [];
-		body = resultBody({ ...given, result: parsed, files });
+		const shots = (run.screenshots ?? []).map((s) => readFileSync(join(p.bug, basename(s))));
+		const refused =
+			sizeProblem(files) ?? copiesBug(files, readFileSync(join(p.bug, 'brief.md'), 'utf8'), shots);
+		body = resultBody({ ...given, result: parsed, files, failure: refused });
 	} catch (err) {
 		if (!(err instanceof JobError)) throw err;
 		body = resultBody({ ...given, result: null, files: [], failure: err.message });
 	}
-	const sent =
-		encodeBody(body) ??
-		encodeBody(
-			resultBody({
-				...given,
-				result: null,
-				files: [],
-				failure: 'The change is too large to send (over 2 MB).',
-			}),
+	const failed = (why) => resultBody({ ...given, result: null, files: [], failure: why });
+	const post = async (b) => {
+		const sent =
+			encodeBody(b) ?? encodeBody(failed('The change is too large to send (over 2 MB).'));
+		const token = await oidcToken();
+		return request(
+			launcher(`${id}/result`),
+			{
+				method: 'POST',
+				headers: { ...sent.headers, authorization: `Bearer ${token}` },
+				body: sent.bytes,
+			},
+			'with the result',
+			{ tries: 1, timeoutMs: 10 * 60_000 },
 		);
-	const token = await oidcToken();
-	const res = await request(
-		launcher(`${id}/result`),
-		{
-			method: 'POST',
-			headers: { ...sent.headers, authorization: `Bearer ${token}` },
-			body: sent.bytes,
-		},
-		'with the result',
-	);
+	};
+	let res = await post(body);
+	// A body the launcher could not take (400, 413) still ends the run, with its spend.
+	if ((res.status === 400 || res.status === 413) && !body.failure) {
+		res = await post(failed(`The launcher refused the result as sent (HTTP ${res.status}).`));
+	}
 	const answer = await res.json().catch(() => null);
 	if (!res.ok) {
 		printFenced(`fix run ${id}: the launcher answered ${res.status}`);
@@ -658,6 +808,19 @@ async function result() {
 		return;
 	}
 	printFenced(logLine(id, answer));
+}
+
+/**
+ * The run's key, only to make sure the result does not carry it. The file is root's: read with
+ * sudo, as the apiKeyHelper does; empty when it cannot be read (the scan then has nothing to find).
+ */
+function readKey(file) {
+	try {
+		return readFileSync(file, 'utf8').trim();
+	} catch {
+		const r = spawnSync('/usr/bin/sudo', ['-n', '/bin/cat', '--', file], { encoding: 'utf8' });
+		return r.status === 0 ? r.stdout.trim() : '';
+	}
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────

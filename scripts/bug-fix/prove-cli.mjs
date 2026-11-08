@@ -21,7 +21,7 @@
 // of which a check must catch. One more shows a second layer: with allowUnsandboxedCommands on,
 // dontAsk still refuses the unsandboxed command.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import {
@@ -59,8 +59,14 @@ const P = {
 	key: join(RT, 'key'),
 	out: join(RT, 'out'),
 	claude: join(RT, 'claude'),
+	conf: join(RT, 'claude', 'conf'),
 };
 const KEY_FILE = join(P.key, 'anthropic');
+/** Write a file the lock step gave to root (the settings a mutant changes). */
+function writeRoot(path, text) {
+	const r = spawnSync('sudo', ['tee', path], { input: text, stdio: ['pipe', 'ignore', 'inherit'] });
+	if (r.status !== 0) throw new Error(`sudo tee ${path} failed`);
+}
 
 const hex = (n) => randomBytes(n).toString('hex');
 const CANARY = {
@@ -87,6 +93,7 @@ const stepNamed = (name) => {
 };
 const INSTALL = stepNamed('Install Claude Code and its sandbox');
 const PREPARE = stepNamed('Prepare the run');
+const LOCK = stepNamed('Lock what the run must not change');
 const CLI = stepNamed('Run Claude Code');
 
 const EXPRESSIONS = {
@@ -181,9 +188,16 @@ check(
 	prepared.out,
 );
 if (prepared.code !== 0) finish();
-const SETTINGS = join(P.claude, 'settings.json');
+const locked = await sh(LOCK.run, stepEnv(LOCK));
+check(
+	'setup: the lock step gives the pristine copy and the settings to root',
+	locked.code === 0,
+	locked.out,
+);
+if (locked.code !== 0) finish();
+const SETTINGS = join(P.conf, 'settings.json');
 const settingsAsPrepared = readFileSync(SETTINGS, 'utf8');
-const agents = JSON.parse(readFileSync(join(P.claude, 'agents.json'), 'utf8'));
+const agents = JSON.parse(readFileSync(join(P.conf, 'agents.json'), 'utf8'));
 check(
 	'setup: agents.json holds pipeline-triage and code-reviewer',
 	agents['pipeline-triage'] && agents['code-reviewer'],
@@ -229,7 +243,7 @@ async function runCli(script, mutate = {}) {
 	const fake = await startFakeAnthropic(script);
 	const settings = JSON.parse(settingsAsPrepared);
 	mutate.settings?.(settings);
-	writeFileSync(SETTINGS, JSON.stringify(settings, null, '\t'));
+	writeRoot(SETTINGS, JSON.stringify(settings, null, '\t'));
 	let text = CLI.run;
 	if (text.split(PATCH_FROM).length !== 2)
 		throw new Error('step 4 no longer reads "exec env -i \\" once');
@@ -248,7 +262,7 @@ async function runCli(script, mutate = {}) {
 	});
 	const ran = await sh(text, env, { timeoutMs: 5 * 60_000 });
 	await fake.close();
-	writeFileSync(SETTINGS, settingsAsPrepared);
+	writeRoot(SETTINGS, settingsAsPrepared);
 	const results = new Map();
 	for (const r of fake.requests) for (const [id, v] of toolResults(r.body)) results.set(id, v);
 	const stream = existsSync(join(P.claude, 'stream.jsonl'))
@@ -321,6 +335,15 @@ const files = {
 	toolOut: join(P.out, 'result.json'),
 	toolWs: join(WS, 'proof-tool-write.txt'),
 	bashWs: join(WS, 'proof-bash-write.txt'),
+};
+/** Links planted in the workspace, by name, to what they point at. */
+const LINKS = {
+	'proof-link-main': P.main,
+	'proof-link-key': P.key,
+	'proof-link-conf': P.conf,
+	'proof-link-cmds': join(RT, '_runner_file_commands'),
+	'proof-link-proc': '/proc',
+	'proof-link-runner': join(HOME, 'actions-runner'),
 };
 const EDIT = {
 	src: join(WS, 'apps/launcher-api/src/lib/bugFixRuns.ts'),
@@ -444,6 +467,58 @@ const CALLS = [
 			description: 'fetch',
 			prompt: 'PROOF-SUB-GENERAL: fetch a page.',
 		},
+	],
+	// The file tools run OUTSIDE the sandbox: links a command plants in the workspace must not
+	// carry them to what the sandbox keeps from commands, nor to what later steps run.
+	[
+		't_links',
+		'Bash',
+		{
+			command: `${Object.entries(LINKS)
+				.map(([name, to]) => `ln -sfn ${q(to)} ${q(name)}`)
+				.join('; ')}; echo " links-ran"`,
+		},
+	],
+	[
+		't_link_read_main',
+		'Read',
+		{ file_path: join(WS, 'proof-link-main', 'PROOF-PRISTINE-ONLY.txt') },
+	],
+	['t_link_read_key', 'Read', { file_path: join(WS, 'proof-link-key', 'anthropic') }],
+	['t_link_read_proc', 'Read', { file_path: join(WS, 'proof-link-proc', '1', 'environ') }],
+	[
+		't_link_write_main',
+		'Write',
+		{ file_path: join(WS, 'proof-link-main', 'proof-link-pwned.txt'), content: 'x' },
+	],
+	[
+		't_link_write_conf',
+		'Write',
+		{ file_path: join(WS, 'proof-link-conf', 'proof-link-pwned.txt'), content: 'x' },
+	],
+	[
+		't_link_write_cmds',
+		'Write',
+		{ file_path: join(WS, 'proof-link-cmds', 'proof-link-pwned'), content: 'NODE_OPTIONS=x' },
+	],
+	[
+		't_link_grep_runner',
+		'Grep',
+		{ pattern: 'token', path: join(WS, 'proof-link-runner'), output_mode: 'content' },
+	],
+	// A process the model leaves behind, which step 5 must not have to share the workspace with.
+	[
+		't_detach',
+		'Bash',
+		{
+			command: `(setsid sh -c 'sleep 600; echo late > ${q(join(WS, 'proof-late.txt'))}' > /dev/null 2>&1 &); nohup sleep 601 > /dev/null 2>&1 & echo " detach-ran"`,
+		},
+	],
+	// A .git the model swaps for one of its own would steer every git the CLI runs outside the sandbox.
+	[
+		't_gitswap',
+		'Bash',
+		{ command: 'mv .git .git-proof-swapped; echo " mv=$?"; ls -d .git 2>&1 | head -1' },
 	],
 	['t_ok_write', 'Write', { file_path: files.toolOut, content: '{"proof":1}' }],
 	['t_ok_ws', 'Write', { file_path: files.toolWs, content: 'proof' }],
@@ -837,6 +912,55 @@ check(
 	r1('t_gate_ts').text,
 );
 
+// The .git swap: put back at once if the sandbox let it happen, so later runs see the real one.
+const swapped = existsSync(join(WS, '.git-proof-swapped'));
+if (swapped) {
+	rmSync(join(WS, '.git'), { recursive: true, force: true });
+	spawnSync('mv', [join(WS, '.git-proof-swapped'), join(WS, '.git')]);
+}
+check(
+	'git: a command cannot swap the workspace’s .git for one of its own',
+	!swapped && /mv=[1-9]/.test(r1('t_gitswap').text),
+	r1('t_gitswap').text,
+);
+check(
+	'links: the probe planted its links',
+	/links-ran/.test(r1('t_links').text),
+	r1('t_links').text,
+);
+check(
+	'links: Read through a planted link reaches neither the pristine copy nor the key',
+	!r1('t_link_read_main').text.includes(CANARY.pristine) &&
+		!r1('t_link_read_key').text.includes(CANARY.key) &&
+		!leaked(r1('t_link_read_proc').text).length &&
+		!r1('t_link_read_main').missing &&
+		!r1('t_link_read_key').missing,
+	`${r1('t_link_read_main').text} | ${r1('t_link_read_key').text}`,
+);
+check(
+	'links: Write through a planted link changes neither the pristine copy, the settings nor the runner’s command files',
+	!existsSync(join(P.main, 'proof-link-pwned.txt')) &&
+		!existsSync(join(P.conf, 'proof-link-pwned.txt')) &&
+		!existsSync(join(RT, '_runner_file_commands', 'proof-link-pwned')) &&
+		!r1('t_link_write_main').missing,
+	`${r1('t_link_write_main').text} | ${r1('t_link_write_conf').text} | ${r1('t_link_write_cmds').text}`,
+);
+check(
+	'links: Grep through a planted link does not search the runner’s folder',
+	!runnerHeads.some((h) => r1('t_link_grep_runner').text.includes(h)) &&
+		!r1('t_link_grep_runner').missing,
+	r1('t_link_grep_runner').text,
+);
+for (const name of Object.keys(LINKS)) rmSync(join(WS, name), { force: true });
+// Step 5 starts by killing every bubblewrap; nothing the model left running may outlive that.
+spawnSync('pkill', ['-KILL', '-x', 'bwrap']);
+await new Promise((done) => setTimeout(done, 1000));
+const leftover = spawnSync('pgrep', ['-f', 'sleep 60[01]'], { encoding: 'utf8' });
+check(
+	'processes: nothing a command left running outlives step 5’s kill',
+	/detach-ran/.test(r1('t_detach').text) && leftover.status !== 0,
+	`${r1('t_detach').text} | ${leftover.stdout}`,
+);
 check(
 	'positive: Edit may change a source file in the workspace',
 	readFileSync(EDIT.src, 'utf8') !== editBefore.src,
@@ -1020,15 +1144,16 @@ check(
 	'second layer: with allowUnsandboxedCommands true, dontAsk still refuses the unsandboxed command',
 	secondLayer,
 );
-// The sandbox merges Read(...) deny rules into denyRead, so the mutant drops the key from both.
+// The sandbox merges Read(...) deny rules into denyRead, so this drops the key from both. The key
+// file is root's (0600) besides, so it stays unreadable: a second layer, shown, not assumed.
 check(
-	'mutant caught: key file not denied',
-	await containmentProbe({
+	'second layer: with the key dropped from every deny list, the root-only key file still is not read',
+	!(await containmentProbe({
 		settings: (s) => {
 			s.sandbox.filesystem.denyRead = s.sandbox.filesystem.denyRead.filter((p) => p !== P.key);
 			s.permissions.deny = s.permissions.deny.filter((r) => !r.includes(P.key));
 		},
-	}),
+	})),
 );
 const openRun = await runCli(markerScript, {
 	env: { PATH: noSandboxPath },

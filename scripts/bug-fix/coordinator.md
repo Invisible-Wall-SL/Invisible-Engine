@@ -32,10 +32,11 @@ or end it with the outcome that says a person is needed.
    area. When the cause is in a second area, fix the first area if it can be fixed alone and name
    the second as `secondBug`; when nothing can be fixed alone, `outcome: "second_area"` with no
    change.
-5. **Gates.** Run the gates the packet and the owning agent name: the area's `pnpm check:*`
-   fixtures, `pnpm lint` from the repository root when TypeScript or Svelte changed, and
-   `pnpm check:svelte --only <package>` when a `.svelte` file changed. Every gate is offline: the
-   network is closed to every command here. Record each command and whether it passed.
+5. **Gates.** Run the gates the packet and the owning agent name: the area's own `pnpm check:*`
+   fixtures by name, `pnpm lint` from the repository root when TypeScript or Svelte changed, and
+   `pnpm check:svelte --only <package>` when a `.svelte` file changed. Not `pnpm check:all`: it
+   runs hundreds of checks this run does not need, some of which need the network. Every gate here
+   is offline: the network is closed to every command. Record each command and whether it passed.
 6. **Review.** Run the `code-reviewer` agent on the change (`git diff`, and `git status` for new
    files). Fix what it finds inside the same area, then run the gates again.
 7. **Write the result** (below), and end.
@@ -55,9 +56,13 @@ which this run overrides: nothing is committed or pushed here, and an update to 
 - Edit a protected path: `.github/`, `.claude/`, any `CLAUDE.md`, `CODEOWNERS`, `.git/`,
   `scripts/git-hooks/`, `scripts/check-secrets.mjs`, `scripts/bug-fix/`, `scripts/current-games/`,
   `services/director-worker/agents/`, `services/director-worker/families/`, `docs/knowledge/`,
-  `docs/director/DECISIONS/`, `pnpm-lock.yaml`, the `dependencies` of a `package.json`,
-  `svelte-check-baseline.json` or `eslint-suppressions.json`. A fix that needs one ends
-  `needs_person`.
+  `docs/director/DECISIONS/`, `.vscode/`, `apps/launcher-api/drizzle/` (migrations),
+  `scripts/check-all.mjs`, `scripts/commit-scope.mjs`, any ESLint config, Dockerfile or
+  `railway.json`, the launcher's fix-run code (`apps/launcher-api/src/lib/bugFixRuns.ts`,
+  `src/lib/server/bugFixRuns*.ts`, `githubOidc.ts`, `src/routes/api/pipeline/fix-runs/`),
+  `pnpm-lock.yaml`, a `package.json`'s dependencies or existing scripts,
+  `svelte-check-baseline.json` or `eslint-suppressions.json` (they may only shrink). A fix that
+  needs one ends `needs_person`. At most 40 files and 400 KB, text only.
 - Add a suppression comment (`eslint-disable`, `@ts-ignore`, `@ts-expect-error`, `svelte-ignore`).
 - Copy the bug's text, its reporter, its project or its client into the title, the summary, the
   lesson or any file. Describe the defect in the code's own terms. The pull request is public; the
@@ -72,7 +77,7 @@ Write `{{RESULT}}` with the Write tool, as JSON:
 ```json
 {
 	"outcome": "fixed | not_reproduced | needs_person | second_area",
-	"title": "one line, under 100 characters, in the code's terms",
+	"title": "one line, at most 100 characters, in the code's terms",
 	"scope": "a scope from scripts/commit-scope.mjs SCOPES, e.g. launcher, engine, editor",
 	"summary": "what was wrong, what changed, what was run; plain text",
 	"lesson": "## Lesson\n- Area: …\n- Symptom: …\n- Cause: …\n- Fix: …\n- Guard: …",
@@ -82,6 +87,8 @@ Write `{{RESULT}}` with the Write tool, as JSON:
 ```
 
 - `fixed` needs a changed file and at least one gate that passed; otherwise it is `needs_person`.
+- The summary and a second bug's evidence are at most 2,000 characters, the lesson 4,000, a gate
+  command 300; longer text is cut.
 - `secondBug` only when the packet names one; its `area` is a launcher tool id, `engine`,
   `launcher` or `other`.
 - The title gets `<scope>: BUG-<n>` in front of it from the launcher: never write a bug reference

@@ -19,6 +19,10 @@ on:
       - .github/workflows/bug-fix.yml
       - .github/workflows/bug-fix-proof.yml
       - scripts/bug-fix/**
+  # Weekly too: what the run leans on also comes from the runner image (bubblewrap from apt, the
+  # AppArmor switch, where the runner keeps its own files), which changes without a push here.
+  schedule:
+    - cron: '17 5 * * 1'
   workflow_dispatch:
 
 permissions:

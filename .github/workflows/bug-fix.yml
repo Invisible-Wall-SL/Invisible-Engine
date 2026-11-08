@@ -143,8 +143,21 @@ jobs:
           # Docker's socket is root on this machine, and nothing in a fix run needs it.
           sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
 
+      # Also records node's path: step 5 runs it by that path, whatever a later PATH says.
       - name: Prepare the run
+        id: prepare
         run: node "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" prepare
+
+      # The CLI's own file tools run outside the sandbox. Whatever links the model plants, they cannot
+      # change what later runs: the pristine copy (step 5's code), the rendered settings, agents and
+      # prompt, the CLI and the tsx shim belong to root and are read-only from here on.
+      - name: Lock what the run must not change
+        run: |
+          set -euo pipefail
+          for d in "$RUNNER_TEMP/main" "$RUNNER_TEMP/claude/conf" "$RUNNER_TEMP/claude/bin" "$RUNNER_TEMP/tsx-shim"; do
+            sudo chown -R root:root "$d"
+            sudo chmod -R go-w,u-w "$d"
+          done
 
       # Step 4: the only step with the key. `exec env -i` replaces this shell with the CLI and hands
       # it only the variables named here; everything it prints goes to $RUNNER_TEMP/claude/.
@@ -161,37 +174,47 @@ jobs:
             exit 1
           fi
           umask 077
-          mkdir -p "$RUNNER_TEMP/key"
-          printf '%s' "$ANTHROPIC_BUG_FIX_API_KEY" > "$RUNNER_TEMP/key/anthropic"
+          sudo install -d -o root -g root -m 0700 "$RUNNER_TEMP/key"
+          printf '%s' "$ANTHROPIC_BUG_FIX_API_KEY" | sudo tee "$RUNNER_TEMP/key/anthropic" > /dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/key/anthropic"
           c="$RUNNER_TEMP/claude"
+          mkdir -p "$c/config"
           cd "$GITHUB_WORKSPACE"
           exec env -i \
             HOME="$HOME" PATH="$PATH" SHELL=/bin/bash LANG=C.UTF-8 TERM=dumb CI=true \
             CLAUDE_CONFIG_DIR="$c/config" \
             DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null \
             "$c/bin/claude" -p \
             --model "$MODEL" --max-turns "$MAX_TURNS" --max-budget-usd "$BUDGET" \
-            --settings "$c/settings.json" --setting-sources '' \
-            --agents "$c/agents.json" \
+            --settings "$c/conf/settings.json" --setting-sources '' \
+            --agents "$c/conf/agents.json" \
             --tools Bash,Read,Glob,Grep,Edit,Write,Agent \
             --restricted --strict-mcp-config --disable-slash-commands \
             --permission-mode dontAsk --permission-prompts none \
             --add-dir "$RUNNER_TEMP/bug" --add-dir "$RUNNER_TEMP/out" \
             --no-session-persistence --output-format stream-json --verbose \
-            < "$c/prompt.md" > "$c/stream.jsonl" 2> "$c/stderr.log"
+            < "$c/conf/prompt.md" > "$c/stream.jsonl" 2> "$c/stderr.log"
 
       # Step 5, from the pristine copy: the change, the result and the usage, POSTed with an OIDC
-      # token. Runs after a failed or timed-out step 4 too, so the run ends with its usage at once.
+      # token. Runs after a failed, timed-out or stopped step 4 too, so the spend is always recorded.
+      # Killing every bubblewrap kills each sandbox's whole process namespace: nothing the model
+      # started is left to change the workspace while it is read.
       - name: Post the result
-        if: ${{ !cancelled() && steps.base.outcome == 'success' }}
+        if: ${{ always() && steps.base.outcome == 'success' }}
+        timeout-minutes: 12
         working-directory: ${{ runner.temp }}/main
+        env:
+          NODE: ${{ steps.prepare.outputs.node }}
         run: |
           pkill -KILL -x bwrap 2>/dev/null || true
-          node "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" result
+          "$NODE" "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" result
 
-      # Nothing of the bug or the key outlives the steps; the workspace's .git goes too, so no post
-      # step runs git in a repository the model could write in.
+      # Nothing of the bug, the transcript or the key outlives the steps; the workspace's .git goes
+      # too, so no post step runs git in a repository the model could write in.
       - name: Clean up
         if: ${{ always() }}
-        run: rm -rf "$RUNNER_TEMP/key" "$RUNNER_TEMP/bug" "$RUNNER_TEMP/out" "$GITHUB_WORKSPACE/.git"
+        run: sudo rm -rf "$RUNNER_TEMP/key" "$RUNNER_TEMP/bug" "$RUNNER_TEMP/out" "$RUNNER_TEMP/claude" "$GITHUB_WORKSPACE/.git"

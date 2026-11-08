@@ -8,6 +8,7 @@
 //   node tsx-shim.mjs <tsx loader.mjs> [--tsconfig f] [node flags] <script> [args]
 
 import { spawnSync } from 'node:child_process';
+import { constants } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 /** The tsx-style argument list as node's: [env additions, node argv]. */
@@ -43,5 +44,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		stdio: 'inherit',
 		env: { ...process.env, ...env },
 	});
-	process.exit(r.status ?? (r.signal ? 128 + 1 : 1));
+	process.exit(r.status ?? 128 + (constants.signals[r.signal] ?? 1));
 }

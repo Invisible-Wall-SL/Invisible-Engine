@@ -50,7 +50,20 @@
 			"Edit(/{{WORKSPACE}}/services/director-worker/agents/**)",
 			"Edit(/{{WORKSPACE}}/services/director-worker/families/**)",
 			"Edit(/{{WORKSPACE}}/docs/knowledge/**)",
-			"Edit(/{{WORKSPACE}}/docs/director/DECISIONS/**)"
+			"Edit(/{{WORKSPACE}}/docs/director/DECISIONS/**)",
+			"Edit(/{{WORKSPACE}}/.vscode/**)",
+			"Edit(/{{WORKSPACE}}/**/eslint.config.*)",
+			"Edit(/{{WORKSPACE}}/**/Dockerfile*)",
+			"Edit(/{{WORKSPACE}}/**/railway.json)",
+			"Edit(/{{WORKSPACE}}/**/railway.toml)",
+			"Edit(/{{WORKSPACE}}/scripts/check-all.mjs)",
+			"Edit(/{{WORKSPACE}}/scripts/commit-scope.mjs)",
+			"Edit(/{{WORKSPACE}}/scripts/check-commit-scope.mjs)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/drizzle/**)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/bugFixRuns.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/bugFixRuns*.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/githubOidc.ts)",
+			"Edit(/{{WORKSPACE}}/apps/launcher-api/src/routes/api/pipeline/fix-runs/**)"
 		]
 	},
 	"sandbox": {
