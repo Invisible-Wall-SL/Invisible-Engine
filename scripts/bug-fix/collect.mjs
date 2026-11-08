@@ -98,7 +98,8 @@ export async function oidcToken() {
 	return body.value;
 }
 
-const launcher = (path) => `${env('LAUNCHER_URL').replace(/\/+$/, '')}/api/pipeline/fix-runs/${path}`;
+const launcher = (path) =>
+	`${env('LAUNCHER_URL').replace(/\/+$/, '')}/api/pipeline/fix-runs/${path}`;
 
 function fixRunId() {
 	const id = env('FIX_RUN');
@@ -143,8 +144,11 @@ export function checkBrief(body, id) {
 	if (typeof budget !== 'number' || !(budget > 0) || budget > 100) {
 		fail('The brief has no budget between $0 and $100.');
 	}
-	const shots = Array.isArray(body.screenshots) ? body.screenshots : fail('The brief lists no screenshots.');
-	if (shots.length > MAX_SCREENSHOTS) fail(`The brief lists more than ${MAX_SCREENSHOTS} screenshots.`);
+	const shots = Array.isArray(body.screenshots)
+		? body.screenshots
+		: fail('The brief lists no screenshots.');
+	if (shots.length > MAX_SCREENSHOTS)
+		fail(`The brief lists more than ${MAX_SCREENSHOTS} screenshots.`);
 	for (const s of shots) {
 		if (typeof s?.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(s.id)) {
 			fail('The brief lists a screenshot with no id.');
@@ -165,7 +169,11 @@ async function brief() {
 	writeFileSync(join(p.bug, 'brief.md'), `${got.brief.replace(/\r\n?/g, '\n').trimEnd()}\n`);
 	const screenshots = [];
 	for (const [i, shot] of got.shots.entries()) {
-		const r = await request(launcher(`${id}/screenshots/${shot.id}`), { headers: { authorization: auth.authorization } }, 'for a screenshot');
+		const r = await request(
+			launcher(`${id}/screenshots/${shot.id}`),
+			{ headers: { authorization: auth.authorization } },
+			'for a screenshot',
+		);
 		if (!r.ok) fail(`The launcher answered ${r.status} for a screenshot.`);
 		const ext = MEDIA[(r.headers.get('content-type') ?? '').split(';')[0].trim()];
 		if (!ext) fail('A screenshot is not a PNG, JPEG or WebP image.');
@@ -177,7 +185,13 @@ async function brief() {
 	}
 	writeFileSync(
 		join(p.bug, 'run.json'),
-		JSON.stringify({ fixRun: id, bug: got.bug, baseSha: got.baseSha, budgetUsd: got.budgetUsd, screenshots }),
+		JSON.stringify({
+			fixRun: id,
+			bug: got.bug,
+			baseSha: got.baseSha,
+			budgetUsd: got.budgetUsd,
+			screenshots,
+		}),
 	);
 	appendFileSync(env('GITHUB_OUTPUT'), `base_sha=${got.baseSha}\nbudget=${got.budgetUsd}\n`);
 	console.log(`fix run ${id}: brief read, ${screenshots.length} screenshot(s).`);
@@ -212,7 +226,9 @@ function frontmatter(text) {
  */
 export function agentsJson(agentsDir) {
 	const out = {};
-	for (const file of readdirSync(agentsDir).filter((f) => f.endsWith('.md')).sort()) {
+	for (const file of readdirSync(agentsDir)
+		.filter((f) => f.endsWith('.md'))
+		.sort()) {
 		const parsed = frontmatter(readFileSync(join(agentsDir, file), 'utf8'));
 		if (!parsed) continue;
 		const { fields, body } = parsed;
@@ -222,7 +238,9 @@ export function agentsJson(agentsDir) {
 			.split(',')
 			.map((t) => t.trim())
 			.filter(Boolean);
-		const tools = listed.length ? listed.filter((t) => TOOLS.includes(t)) : TOOLS.filter((t) => t !== 'Agent');
+		const tools = listed.length
+			? listed.filter((t) => TOOLS.includes(t))
+			: TOOLS.filter((t) => t !== 'Agent');
 		out[name] = {
 			description: fields.description,
 			prompt: body,
@@ -290,7 +308,10 @@ function prepare() {
 	const settings = render(readFileSync(join(own, 'settings.json'), 'utf8'), values);
 	JSON.parse(settings);
 	writeFileSync(join(p.claude, 'settings.json'), settings);
-	writeFileSync(join(p.claude, 'prompt.md'), render(readFileSync(join(own, 'coordinator.md'), 'utf8'), values));
+	writeFileSync(
+		join(p.claude, 'prompt.md'),
+		render(readFileSync(join(own, 'coordinator.md'), 'utf8'), values),
+	);
 	const agents = agentsJson(join(p.main, '.claude', 'agents'));
 	writeFileSync(join(p.claude, 'agents.json'), JSON.stringify(agents));
 	// Outside the workspace and every denied folder: commands may read the shim, never change it.
@@ -298,7 +319,9 @@ function prepare() {
 	const shim = join(p.tsxShim, 'tsx.mjs');
 	writeFileSync(shim, readFileSync(join(own, 'tsx-shim.mjs')));
 	const swapped = sandboxTsx(p.workspace, shim);
-	console.log(`fix run ${run.fixRun}: prepared ${Object.keys(agents).length} agents, ${swapped} tsx shims.`);
+	console.log(
+		`fix run ${run.fixRun}: prepared ${Object.keys(agents).length} agents, ${swapped} tsx shims.`,
+	);
 }
 
 // ── Step 5: the change ────────────────────────────────────────────────────────
@@ -307,7 +330,13 @@ const git = (args, opts = {}) => {
 	const r = spawnSync('git', args, {
 		encoding: 'buffer',
 		maxBuffer: 256 * 1024 * 1024,
-		env: { PATH: process.env.PATH ?? '', HOME: '/nonexistent', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', LANG: 'C' },
+		env: {
+			PATH: process.env.PATH ?? '',
+			HOME: '/nonexistent',
+			GIT_CONFIG_NOSYSTEM: '1',
+			GIT_CONFIG_GLOBAL: '/dev/null',
+			LANG: 'C',
+		},
 		...opts,
 	});
 	if (r.status !== 0) fail('git could not list the files.');
@@ -390,7 +419,8 @@ export function collectChange(main, workspace) {
 		'--exclude-standard',
 	]);
 	for (const path of added) {
-		if (path.endsWith('/') || known.has(path) || path === '.git' || path.startsWith('.git/')) continue;
+		if (path.endsWith('/') || known.has(path) || path === '.git' || path.startsWith('.git/'))
+			continue;
 		const now = join(workspace, path);
 		const st = plainFile(now);
 		files.push({
@@ -428,7 +458,13 @@ export function readStream(text) {
 	}
 	const usage = new Map();
 	const add = (model, u) => {
-		const prior = usage.get(model) ?? { model, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+		const prior = usage.get(model) ?? {
+			model,
+			inputTokens: 0,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		};
 		prior.inputTokens += count(u.inputTokens);
 		prior.outputTokens += count(u.outputTokens);
 		prior.cacheReadTokens += count(u.cacheReadTokens);
@@ -547,7 +583,8 @@ export function resultBody({ baseSha, ended, result, files, usage, key, failure:
 export function encodeBody(body) {
 	const raw = Buffer.from(JSON.stringify(body), 'utf8');
 	if (raw.length > MAX_RESULT_BYTES) return null;
-	if (raw.length <= GZIP_OVER) return { bytes: raw, headers: { 'content-type': 'application/json' } };
+	if (raw.length <= GZIP_OVER)
+		return { bytes: raw, headers: { 'content-type': 'application/json' } };
 	return {
 		bytes: gzipSync(raw),
 		headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
@@ -557,7 +594,10 @@ export function encodeBody(body) {
 /** The one line the log shows, from the launcher's answer — nothing of the run's own words. */
 export function logLine(id, answer) {
 	const status = STATUSES.includes(answer?.status) ? answer.status : 'unknown';
-	const spend = typeof answer?.spendUsd === 'number' && Number.isFinite(answer.spendUsd) ? `$${answer.spendUsd.toFixed(2)}` : 'spend unknown';
+	const spend =
+		typeof answer?.spendUsd === 'number' && Number.isFinite(answer.spendUsd)
+			? `$${answer.spendUsd.toFixed(2)}`
+			: 'spend unknown';
 	return `fix run ${id}: ${status}, ${spend}`;
 }
 
@@ -575,7 +615,9 @@ async function result() {
 	const run = JSON.parse(readFileSync(join(p.bug, 'run.json'), 'utf8'));
 	if (run.fixRun !== id || !SHA.test(run.baseSha)) fail('run.json is not this fix run’s.');
 	const streamFile = join(p.claude, 'stream.jsonl');
-	const { usage, ended } = readStream(existsSync(streamFile) ? readFileSync(streamFile, 'utf8') : '');
+	const { usage, ended } = readStream(
+		existsSync(streamFile) ? readFileSync(streamFile, 'utf8') : '',
+	);
 	const keyFile = join(p.key, 'anthropic');
 	const key = existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : '';
 	const given = { baseSha: run.baseSha, ended, usage, key };
@@ -602,7 +644,11 @@ async function result() {
 	const token = await oidcToken();
 	const res = await request(
 		launcher(`${id}/result`),
-		{ method: 'POST', headers: { ...sent.headers, authorization: `Bearer ${token}` }, body: sent.bytes },
+		{
+			method: 'POST',
+			headers: { ...sent.headers, authorization: `Bearer ${token}` },
+			body: sent.bytes,
+		},
 		'with the result',
 	);
 	const answer = await res.json().catch(() => null);
@@ -628,7 +674,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		await command();
 	} catch (err) {
 		// A JobError is a sentence of this file's; anything else could carry a value, so it is not printed.
-		console.log(`::error title=bug-fix::${err instanceof JobError ? err.message : 'The step failed (an unexpected error).'}`);
+		console.log(
+			`::error title=bug-fix::${err instanceof JobError ? err.message : 'The step failed (an unexpected error).'}`,
+		);
 		process.exit(1);
 	}
 }

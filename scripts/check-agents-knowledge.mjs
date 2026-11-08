@@ -95,7 +95,8 @@ for (const file of agentFiles) {
 // The fix run's fixed coordinator prompt (ADR-0013 §10) names only paths that exist.
 const COORDINATOR = 'scripts/bug-fix/coordinator.md';
 for (const path of namedPaths(readFileSync(join(ROOT, COORDINATOR), 'utf8'))) {
-	if (!existsSync(join(ROOT, path))) fail(`${COORDINATOR}: names \`${path}\`, which does not exist`);
+	if (!existsSync(join(ROOT, path)))
+		fail(`${COORDINATOR}: names \`${path}\`, which does not exist`);
 }
 
 const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {};

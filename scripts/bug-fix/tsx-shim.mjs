@@ -39,6 +39,9 @@ export function translate(loader, argv) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	const [loader, ...argv] = process.argv.slice(2);
 	const [env, args] = translate(loader, argv);
-	const r = spawnSync(process.execPath, args, { stdio: 'inherit', env: { ...process.env, ...env } });
+	const r = spawnSync(process.execPath, args, {
+		stdio: 'inherit',
+		env: { ...process.env, ...env },
+	});
 	process.exit(r.status ?? (r.signal ? 128 + 1 : 1));
 }

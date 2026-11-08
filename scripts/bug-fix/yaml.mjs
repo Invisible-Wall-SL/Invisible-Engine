@@ -17,7 +17,8 @@ function unquote(raw, lineNo) {
 		if (!m) throw new Error(`line ${lineNo}: an unclosed double-quoted scalar`);
 		return JSON.parse(m[1]);
 	}
-	if (/^[[{&*!%@`]/.test(raw)) throw new Error(`line ${lineNo}: "${raw[0]}" starts a form this reader refuses`);
+	if (/^[[{&*!%@`]/.test(raw))
+		throw new Error(`line ${lineNo}: "${raw[0]}" starts a form this reader refuses`);
 	return raw.replace(/\s+#.*$/, '').trim();
 }
 
@@ -48,7 +49,8 @@ export function parseYaml(text) {
 			}
 			if (l.indent <= parentIndent) break;
 			indent ??= l.indent;
-			if (l.indent < indent) throw new Error(`line ${l.no}: a block scalar line indented less than its first`);
+			if (l.indent < indent)
+				throw new Error(`line ${l.no}: a block scalar line indented less than its first`);
 			body.push(l.raw.slice(indent));
 			at++;
 		}
@@ -92,7 +94,8 @@ export function parseYaml(text) {
 			out[key] = value(m[2], indent, line.no);
 			const next = peek();
 			if (!next || next.indent !== indent || /^-(\s|$)/.test(next.raw.trimStart())) {
-				if (next && next.indent > indent) throw new Error(`line ${next.no}: unexpected indentation`);
+				if (next && next.indent > indent)
+					throw new Error(`line ${next.no}: unexpected indentation`);
 				return out;
 			}
 			at++;
@@ -122,7 +125,8 @@ export function parseYaml(text) {
 
 	const first = peek();
 	if (!first) return null;
-	if (first.indent !== 0) throw new Error(`line ${first.no}: the document does not start at column 0`);
+	if (first.indent !== 0)
+		throw new Error(`line ${first.no}: the document does not start at column 0`);
 	const doc = block(0);
 	if (peek()) throw new Error(`line ${peek().no}: text after the document`);
 	return doc;
