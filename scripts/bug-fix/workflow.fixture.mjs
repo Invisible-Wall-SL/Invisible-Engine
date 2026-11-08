@@ -244,8 +244,13 @@ export function problems(files) {
 	rule('permissions-mode', perms.defaultMode === 'dontAsk' && perms.disableBypassPermissionsMode === 'disable');
 	rule('deny-web', ['WebFetch', 'WebSearch'].every((t) => deny.includes(t)) &&
 		!allow.some((r) => /^(WebFetch|WebSearch|mcp__)/.test(r)));
-	rule('deny-reads', ['Read(/{{KEY}}/**)', 'Read(/{{MAIN}}/**)', 'Read(//proc/**)'].every((r) => deny.includes(r)) &&
-		!allow.some((r) => r === 'Read' || r === 'Edit' || r === 'Write'));
+	rule('deny-reads', ['Read(/{{KEY}}/**)', 'Read(/{{MAIN}}/**)', 'Read(//proc/**)'].every((r) => deny.includes(r)));
+	// The file tools reach only the workspace and the bug's folders: no bare Read, Glob or Grep
+	// (a bare Grep searched the runner's own credentials in the proof), no bare Edit or Write.
+	rule('file-tools-scoped', !allow.some((r) => /^(Read|Glob|Grep|Edit|Write|NotebookEdit)$/.test(r)) &&
+		allow.filter((r) => /^(Read|Edit)\(/.test(r)).every((r) => /^(Read|Edit)\(\/\{\{(WORKSPACE|BUG|OUT)\}\}\/\*\*\)$/.test(r)));
+	// The runner's own folder holds its credentials (`.credentials`): no tool and no command reads it.
+	rule('deny-runner', deny.includes('Read(~/actions-runner/**)') && fsDeny('denyRead').includes('~/actions-runner'));
 	rule('deny-protected', PROTECTED.every((p) => deny.includes(`Edit(/{{WORKSPACE}}/${p})`)));
 	rule('no-hooks-or-env', settings.disableAllHooks === true && settings.hooks === undefined && settings.env === undefined &&
 		settings.enableAllProjectMcpServers === false);
@@ -331,12 +336,16 @@ const MUTANTS = [
 	['sandbox-on', 'settings', '"autoAllowBashIfSandboxed": true,', '"autoAllowBashIfSandboxed": true,\n\t\t"excludedCommands": ["pnpm *"],'],
 	['sandbox-network', 'settings', '"allowedDomains": []', '"allowedDomains": ["registry.npmjs.org"]'],
 	['sandbox-network', 'settings', '"strictAllowlist": true', '"strictAllowlist": false'],
-	['sandbox-files', 'settings', '"denyRead": ["{{KEY}}", "{{MAIN}}", "{{CLAUDE}}"]', '"denyRead": ["{{MAIN}}", "{{CLAUDE}}"]'],
+	['sandbox-files', 'settings', '"denyRead": ["{{KEY}}", ', '"denyRead": ['],
 	['sandbox-files', 'settings', '"allowWrite": ["{{OUT}}"]', '"allowWrite": ["{{OUT}}", "{{CLAUDE}}"]'],
 	['permissions-mode', 'settings', '"defaultMode": "dontAsk"', '"defaultMode": "acceptEdits"'],
 	['deny-web', 'settings', '\t\t\t"WebFetch",\n', ''],
 	['deny-reads', 'settings', '\t\t\t"Read(//proc/**)",\n', ''],
-	['deny-reads', 'settings', '\t\t\t"Agent",\n', '\t\t\t"Agent",\n\t\t\t"Read",\n'],
+	['file-tools-scoped', 'settings', '\t\t\t"Agent",\n', '\t\t\t"Agent",\n\t\t\t"Read",\n'],
+	['file-tools-scoped', 'settings', '\t\t\t"Agent",\n', '\t\t\t"Agent",\n\t\t\t"Grep",\n'],
+	['file-tools-scoped', 'settings', '\t\t\t"Read(/{{OUT}}/**)",\n', '\t\t\t"Read(/{{OUT}}/**)",\n\t\t\t"Read(~/**)",\n'],
+	['deny-runner', 'settings', '\t\t\t"Read(~/actions-runner/**)",\n', ''],
+	['deny-runner', 'settings', ', "~/actions-runner"]', ']'],
 	['deny-protected', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/.github/**)",\n', ''],
 	['deny-protected', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/docs/knowledge/**)",\n', ''],
 	['no-hooks-or-env', 'settings', '"disableAllHooks": true,', '"disableAllHooks": true,\n\t"env": { "ANTHROPIC_BASE_URL": "https://example.com" },'],

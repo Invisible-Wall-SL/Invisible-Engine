@@ -8,8 +8,6 @@
 		"allow": [
 			"Agent",
 			"Bash",
-			"Glob",
-			"Grep",
 			"Read(/{{WORKSPACE}}/**)",
 			"Read(/{{BUG}}/**)",
 			"Read(/{{OUT}}/**)",
@@ -22,6 +20,7 @@
 			"Read(/{{KEY}}/**)",
 			"Read(/{{MAIN}}/**)",
 			"Read(/{{CLAUDE}}/**)",
+			"Read(~/actions-runner/**)",
 			"Read(//proc/**)",
 			"Read(//sys/**)",
 			"Edit(/{{BUG}}/**)",
@@ -65,7 +64,7 @@
 		},
 		"filesystem": {
 			"allowWrite": ["{{OUT}}"],
-			"denyRead": ["{{KEY}}", "{{MAIN}}", "{{CLAUDE}}"],
+			"denyRead": ["{{KEY}}", "{{MAIN}}", "{{CLAUDE}}", "~/actions-runner"],
 			"denyWrite": ["{{KEY}}", "{{MAIN}}", "{{CLAUDE}}", "{{BUG}}"]
 		}
 	}
