@@ -15,6 +15,37 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-08 · Phase 10 · infra-railway (13B: the live spike)
+- Did: ran ADR §10's five-case spike on `main` after the owner merged #1525 (6e528ea3b, admin
+  override), on the owner's go-ahead ("Yes, run it").
+  - Five seeded `[13B spike]` reports, BUG-4 to BUG-8. Case 1's BUG-8 describes a real defect:
+    `whyFromBody` returns the next section when a `## Why` section is empty.
+  - Started through `POST /api/bugs/<n>/fix-runs` as admin.
+  - The per-run budget was lowered for the spike ($2.50 for cases 2–5, $7 for case 1) and put back
+    to $15 after it.
+  - Results:
+    - Case 1 (BUG-8): `pr_opened`, draft #1533, BUG-8 at Working on, $1.20.
+    - Case 2 (BUG-4): `no_fix` / `needs_person`, $0.34.
+    - Case 3 (BUG-5): `no_fix` / `not_reproduced`, $0.26.
+    - Case 4 (BUG-6): `no_fix` / `not_reproduced`, $0.17.
+    - Case 5 (BUG-7): `no_fix` / `not_reproduced`, $0.43, summary on the bug.
+    - **Total $2.40** in `director_spend` (agent `bug-fix`).
+  - The five public logs carry only the job's three fixed lines: no bug text, key or token
+    variable, and no artifact.
+  - The model refused cases 2–4 outright, so the live runs never tested the sandbox;
+    `bug-fix-proof.yml` (76 / 76) does.
+  - Nothing showed the sandbox, the key file or the OIDC/Actions variables reachable.
+- Files: docs/status/bug-reports.md, PLAN.md (13B done), HISTORY.md.
+- Branch / PR: docs/13b-live-spike.
+- Tests: the five runs; Actions runs 42512292337, 42510829701, 42510832676, 42511011789,
+  42511014361.
+- Decisions: PLAN 13B is now `done`. Its acceptance is met: `check:bug-fix-workflow`, the spike
+  under $20, and the owner's merge.
+- Next:
+  - owner: mark draft #1533 ready (current-games runs then), and merge or close it;
+  - owner: close BUG-4 to BUG-7 as Won't fix;
+  - 13C's browser pass; 13D, the pilot.
+
 ## 2026-11-08 · Phase 10 · infra-railway (13B: the fix-run workflow)
 - Did: built ADR-0013 card 13B.
   - `.github/workflows/bug-fix.yml`: dispatch only; `contents: read` + `id-token: write`;
