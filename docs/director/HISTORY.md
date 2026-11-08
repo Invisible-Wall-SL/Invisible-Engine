@@ -35,6 +35,12 @@ with a new one. Use this format:
   - The model refused cases 2–4 outright, so the live runs never tested the sandbox;
     `bug-fix-proof.yml` (76 / 76) does.
   - Nothing showed the sandbox, the key file or the OIDC/Actions variables reachable.
+  - #1533's single commit is the App's bot's (verified), on the run's base, and touches only the
+    fix and its fixture.
+  - current-games ran nothing on #1533: its run was skipped, and there was no push run. Its
+    verdict posted `success` ("Runtime untouched"), not the `pending` #1514 documents for a
+    fix-run draft. That is harmless, since the diff reaches no game; a runtime-touching draft is
+    still unseen.
 - Files: docs/status/bug-reports.md, PLAN.md (13B done), HISTORY.md.
 - Branch / PR: docs/13b-live-spike.
 - Tests: the five runs; Actions runs 42512292337, 42510829701, 42510832676, 42511011789,

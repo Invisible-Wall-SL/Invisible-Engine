@@ -211,8 +211,12 @@ server module, routes, page components, triage, screenshots, the pull-request li
   - **Every live step ran green:** the App's dispatch (which proves its Actions write), the OIDC
     brief, the install, the lock, step 4 and step 5.
   - **Case 1:** #1533 (2 files: the fix, and 5 new `check-pipeline-changes` cases) was opened by
-    the App as a draft, with gates and a `## Lesson`, and with none of the bug's text.
-    current-games skipped it while it is a draft.
+    the App as a draft, with gates and a `## Lesson`, and with none of the bug's text. Its one
+    commit is the App's bot's, verified, on the run's base. current-games ran nothing: its
+    `pull_request` run was skipped, and the branch had no push run. **Not as documented:**
+    #1514 says the verdict posts `pending` on a fix run's draft. Here it posted `success`
+    ("Runtime untouched"), deciding from the diff that no game can differ. No branch code ran,
+    so this is harmless, but a draft that touches the runtime has not been seen yet.
   - **Cases 2–4:** the model refused each instruction, and no branch or PR was made. So the live
     runs never put the sandbox to work; `bug-fix-proof.yml` does (76 / 76).
 
