@@ -11,6 +11,7 @@ import {
 	createAbilityPredictor,
 	createCamera,
 	createFixedStep,
+	createHookLines,
 	flowSignalsOf,
 	serverValuesOf,
 	shownInRoom,
@@ -29,6 +30,7 @@ import {
 	strongestForce,
 	type Camera,
 	type FixedStep,
+	type HookLines,
 	type Interpolator,
 	type OnlineEvent,
 	type Predictor,
@@ -44,7 +46,16 @@ import {
 	type LayoutNode,
 	type Scene,
 } from 'engine-layout';
-import { setWorldCameraView, spawnStore } from 'engine-layout/svelte';
+import {
+	clearMarks,
+	setLinks,
+	setMarks,
+	startMarks,
+	setWorldCameraView,
+	spawnStore,
+	type InstanceLink,
+	type InstanceMark,
+} from 'engine-layout/svelte';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
 import {
@@ -80,7 +91,10 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * room's scores and round are written, on each state, into the variables the flow declares the
  * room owns (`FlowVariable.server`), which its HUD binds as `var:<id>`. The own player's abilities
  * are raised on the press (`createAbilityPredictor`), not when the room answers, so a swipe is
- * drawn at once. A player that is out is not drawn until it respawns.
+ * drawn at once. A player that is out is not drawn until it respawns. A player the room marks
+ * (`mark`: Salmons' golden salmon) is drawn gold, and a `hook` ability's line is drawn from the
+ * player holding it to the one on it while that one is `hooked` (`createHookLines`), both from the
+ * state every frame, so every device shows them as soon as the room changes them.
  *
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
@@ -107,6 +121,7 @@ type PlayerState = {
 	ack: number;
 	status: number;
 	score: number;
+	mark: boolean;
 };
 type RoomState = {
 	step: number;
@@ -143,6 +158,12 @@ type Session = {
 	drawn: Map<string, string>;
 	refused: Set<string>;
 	events: OnlineEvent[];
+	/** Character id → its body's size on the ground (what sizes a glow and lifts a line's ends). */
+	sizes: Map<string, { w: number; h: number }>;
+	/** The fishing lines the room's events tell of. */
+	lines: HookLines;
+	/** The lines drawn, room ids (the probe's). */
+	drawnLines: { by: string; target: string }[];
 	/** The own player's abilities, raised on the press; made with its first place. */
 	abilities: AbilityPredictor | undefined;
 	/** The flow signals raised, newest last (the probe's). */
@@ -255,6 +276,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	// play: say so on the same screen rather than freeze on the last state.
 	room.onLeave((code: number) => {
 		session = undefined;
+		clearMarks();
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
@@ -292,6 +314,11 @@ export async function joinOnlineRoom(): Promise<void> {
 		drawn: new Map(),
 		refused: new Set(),
 		events: [],
+		sizes: new Map(
+			played.game.online.characters.map((c) => [c.id, sizeOf(played.game.bodies[c.body])]),
+		),
+		lines: createHookLines(),
+		drawnLines: [],
 		abilities: undefined,
 		signals: [],
 		serverVariables: undefined,
@@ -300,11 +327,14 @@ export async function joinOnlineRoom(): Promise<void> {
 		fieldDrawn: undefined,
 	};
 	session = current;
+	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
+	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
 	room.onStateChange(() => received(current, performance.now()));
 	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
+		current.lines.events(events);
 		const players = stateOf(current.room).players;
 		for (const signal of flowSignalsOf(
 			events,
@@ -521,6 +551,50 @@ function draw(current: Session) {
 		}
 	});
 	live.move(moves);
+	drawMarks(current, players);
+}
+
+/** A body's size on the ground: a box's, or a circle's diameter. */
+const sizeOf = (spec: OnlineGame['bodies'][string] | undefined) =>
+	spec?.shape === 'box'
+		? { w: spec.w, h: spec.h }
+		: spec?.shape === 'circle'
+			? { w: spec.r * 2, h: spec.r * 2 }
+			: { w: 0, h: 0 };
+
+/** The body of the player's character. */
+const bodyOf = (current: Session, player: PlayerState) =>
+	current.sizes.get(player.character) ?? { w: 0, h: 0 };
+
+/**
+ * The marked players drawn gold, and the fishing lines from holder to hooked, as drawn. A line's
+ * ends are raised by the bodies' `h`, which in an isometric world is their depth on the ground, not
+ * a look's height: right while the looks are sized to their bodies (Salmons' placeholders).
+ */
+function drawMarks(current: Session, players: Map<string, PlayerState>) {
+	const marks = new Map<string, InstanceMark>();
+	for (const [id, instance] of current.drawn) {
+		const player = players.get(id);
+		if (player?.mark) marks.set(instance, { width: bodyOf(current, player).w });
+	}
+	setMarks(marks);
+	const links: InstanceLink[] = [];
+	current.drawnLines = [];
+	for (const line of current.lines.drawn(players)) {
+		const from = current.drawn.get(line.by);
+		const to = current.drawn.get(line.target);
+		const by = players.get(line.by);
+		const target = players.get(line.target);
+		if (!from || !to || !by || !target) continue;
+		current.drawnLines.push(line);
+		links.push({
+			from,
+			to,
+			fromLift: bodyOf(current, by).h * 0.75,
+			toLift: bodyOf(current, target).h / 2,
+		});
+	}
+	setLinks(current.game.online.layer, links);
 }
 
 /**
@@ -648,6 +722,10 @@ export function onlineProbe() {
 						),
 						events: [...current.events],
 						hidden,
+						marked: [...(state.players ?? new Map<string, PlayerState>())]
+							.filter(([id, p]) => p.mark && current.drawn.has(id))
+							.map(([id]) => id),
+						lines: current.drawnLines.map((line) => ({ ...line })),
 						signals: current.signals.map((s) => ({ ...s })),
 						spawned: spawnStore()
 							.live(current.game.online.layer)

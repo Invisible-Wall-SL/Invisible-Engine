@@ -6,8 +6,10 @@
 review)**, with its own rules since P11.3 (the climb, sandbanks, the line, the golden salmon;
 in review) and drawn isometric since P11.4 (in review): its river, rules, characters, bots and layout run on the shared runtime and the game
 server, with placeholder looks, and play in two browsers and a room of bots
-([playtest/salmons.md](../playtest/salmons.md)). It is not in the `salmons` portal project yet, and
-its players are not moved over: both are owner steps (below). The art pass (S0) was approved on
+([playtest/salmons.md](../playtest/salmons.md)). It plays live on `rooms.invisiblewall.org` from
+the `salmons` project (2026-11-02); its players are not moved over yet (owner step 5). Since
+2026-11-08 (in review) the golden salmon is drawn gold, the fishing line is drawn, and the rules'
+events are Flow events; taking the new looks and flow live is an owner re-upload (below). The art pass (S0) was approved on
 2026-10-26; its 22 character clips are still to be generated in the launcher's tools, and replace
 the placeholders when they are.
 
@@ -48,7 +50,23 @@ the placeholders when they are.
     authored `salmons-1` river is what `/editor` and `/config` show;
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
-    (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`);
+    (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`) standing on their places (their bottom
+    there, as the S0 art's bottom-centre anchor), the swipe, cast and splash centred on theirs;
+  - **the golden salmon and the line (2026-11-08; in review)**, drawn by the runtime from the
+    room's state, so no look carries them: a player the room marks (`mark`) is drawn gold (its
+    brightness on a gold ramp) over a gold glow at its feet, on every device, as soon as the state
+    says so, and again on the next one when it passes on; while a salmon is `hooked`, a white line
+    runs from its fisherman's hand (¾ of his body's height) to its middle, at both ends' projected
+    places, until it is landed (`caught`), escapes, either leaves or the round ends
+    (`apps/lines` `online.ts`, `engine-mechanics` `onlineFlow.js` `createHookLines`,
+    `engine-layout` `arcadeMarks.svelte.ts` and `<SpawnLayer>`);
+  - **the rules' events in Flow (2026-11-08; in review)**: `climbed`, `grounded`, `jumped`,
+    `hooked`, `escaped` and `golden` are online Flow events (`onlineFlow.js`
+    `ONLINE_FLOW_EVENTS`, `engine-flow-v2` `ARCADE_ONLINE_EVENTS`, so `/flow-v2`'s arcade palette
+    offers them), each with the player's drawn `x` / `y` and `me` (the line's with `by`, `target`,
+    `mine`). Salmons' flow plays a splash (`salmonsSplash`, 400 ms) where a salmon climbed or was
+    hooked, and a banner (`salmonsGolden`, "GOLDEN SALMON — WORTH 3×", 2 s) when the device's own
+    salmon turns golden;
   - **the HUD and the round over (P11.2 a–b, built 2026-10-29; in review)**: Salmons' own flow
     (`engine-flow-v2` `reference/salmonsSeed.ts`) shows a HUD of the room's own values — SCORE,
     ROUND, TIME (`score`, `round`, `secondsLeft`, variables the room owns) — and a round-over
@@ -59,10 +77,13 @@ the placeholders when they are.
     and wins; a bear bot on its bank catches one near the shore; the config validates clean; a
     room plays its seed's river and replays it; live, two rooms of one game play two rivers, each
     the one its devices make), `check:online-rules` (Salmons' recorded traces: the climb, the
-    sandbank, the line, the golden salmon), `scripts/playtest/salmons-play.mjs` (36 / 36 in each
-    netcode: the HUD, the swipe, a round over, two rooms with two rivers, a waterfall climbed and
-    a sandbank jumped off), and the 100-device load test ([status/game-families](game-families.md)
-    P10.16, P11.3).
+    sandbank, the line, the golden salmon; their events as Flow signals; the line drawn exactly
+    while a salmon is hooked), `check:salmons-export` (the export's keys; each look sits on its
+    place), `scripts/playtest/salmons-play.mjs` (52 / 52 in each netcode: the HUD, the swipe, a
+    round over, two rooms with two rivers, a waterfall climbed and a sandbank jumped off, the
+    golden salmon drawn gold on two devices and passed on, the line drawn while hooked and gone
+    when landed or broken, the rules' events in Flow), and the 100-device load test
+    ([status/game-families](game-families.md) P10.16, P11.3).
 - **The Salmons that players reach today is not built from this repository.** It lives in
   `GuiltyForever/Salmon-` (a Colyseus 0.15 server and a PixiJS client) and deploys from there.
   Nothing merged here changes it until its players are moved over (owner steps below).
@@ -94,6 +115,23 @@ the placeholders when they are.
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
 
+**Re-upload for the 2026-11-08 visual fixes** (after the branch merges, so the launcher knows the
+new Flow events and the runtime draws them). The gold and the line need no upload: they arrive
+with the runtime release. The flow's reactions and the looks standing on their places do: run the
+export as in step 1 and upload, at the same keys (back up first), the files that differ from the
+current ones:
+
+- `invisible_wall/salmons/editor/flow-v2.json` (the splash and golden-banner reactions);
+- `invisible_wall/salmons/editor/scenes.json` (the `salmonsGolden` banner screen; `salmonsSplash`
+  spawnable on the players' layer);
+- `editor/salmons/components/salmonssalmon.json`, `salmonsbear.json`, `salmonsfisherman.json`,
+  `salmonsswipe.json`, `salmonscast.json` (placed on their places, not up and left);
+- `editor/salmons/components/salmonssplash.json` (new).
+
+`invisible_wall/salmons/config/config.json` is unchanged. Then publish `salmons` again (step 3).
+Until the looks are re-uploaded, the line's ends and the gold glow sit at the place while the old
+looks still draw up and left of it.
+
 1. **Put Salmons in the `salmons` project.** Run
    `node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/salmons/export.mjs --out <dir>`
    and upload what it writes, at the same keys, into R2 (the FTP Browser, admin full-bucket):
@@ -119,13 +157,27 @@ players upright in depth order; the S0 art should be drawn for it: diamond groun
 characters, their place at their feet); its HUD and round over, the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
 Left from P11.3 (known limits):
 
-- The rules' room events `climbed`, `grounded`, `jumped`, `hooked`, `escaped` and `golden` reach the
-  device's probe but are not in `onlineFlow.js` `ONLINE_FLOW_EVENTS` (nor `engine-flow-v2`
-  `ARCADE_ONLINE_EVENTS`), so Flow cannot play a cue or sound on them yet. A landing is `caught`
-  (effect `hook`), which Flow does hear.
-- The golden salmon is not drawn gold and the line is not drawn.
 - One tap of Space can do two things at once: a salmon that jumps off a sandbank at a waterfall's
-  foot also gets a quarter of the climb from that tap (each rule reads the tap on its own). S0 runs beside them.
+  foot also gets a quarter of the climb from that tap (each rule reads the tap on its own).
+- A climb and a reel move a body on the server only, so the own device sees them as a correction
+  (a climb ~100 px, faded, not snapped). Follow-up: the device could predict a climb (it knows
+  the waterfall and counts its own taps) or ease a reel; not small, since the rule decides on the
+  server.
+- Rocks are rectangles (`salmonsRiverNode`). Follow-up: a rounded, rock-like placeholder; it is
+  drawn by the device from the river, so it needs no upload, but the river drawing's rects carry
+  no corner radius today.
+- A device that joins, or comes near, after a hook does not draw that line: it learns of a line
+  only from the room's `hooked` (the state has no line). Follow-up if it matters: a `hookedBy`
+  field in the player's state.
+- The line's ends are raised by the bodies' heights (`online.ts` `drawMarks`: ¾ of the
+  fisherman's body `h`, half the salmon's), and an isometric body's `h` is its depth on the
+  ground, not its look's height. It matches today only because the placeholders are sized to their
+  bodies. Follow-up when the S0 art lands: let the look declare its hand and middle (a rod-tip
+  point on the component), or retune the two fractions to the art.
+- The line, the gold and the splash are placeholders: no sound plays (there are no Salmons sounds
+  yet; the Flow events are there for them).
+
+S0 runs beside them.
 
 1. **Generate the character clips** in the project `salmons`: the owner's click-by-click steps
    are [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md) (do its one-clip smoke test
@@ -231,6 +283,34 @@ in brackets.
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-08 — **The golden salmon drawn gold, the line drawn, the rules' events in Flow, the looks
+  on their places** (branch `arcade/salmons-visual-fixes`; in review). Engine and runtime (no
+  upload): `online.ts` publishes, every frame, the marked players and the `hook` lines
+  (`onlineFlow.js` `createHookLines`); `engine-layout` `arcadeMarks.svelte.ts` holds them and
+  `<SpawnLayer>` draws a marked look through a gold colour matrix over a glow, and each line above
+  every instance between the projected places, raised by the bodies' heights. `climbed`,
+  `grounded`, `jumped`, `hooked`, `escaped`, `golden` join `ONLINE_FLOW_EVENTS` /
+  `ARCADE_ONLINE_EVENTS`, with `x` / `y` where the player is drawn. Project data (re-upload above):
+  the flow's splash and golden banner, the `salmonsGolden` screen, the `salmonsSplash` look, and
+  every look placed on its place. **The offset** ("drawn up and left") was not the engine: a
+  `rect` is drawn about its centre and the placeholders also shifted it by `-w/2, -h/2`
+  (`referenceLayouts/salmons.ts`, and the P10.8 sample's `arcade.ts`, fixed too); guarded by
+  `check:salmons-export` and `check:arcade-rules`. Gates: `check:online-rules` 35,
+  `check:salmons-export` 24, `check:arcade-rules` 79, `check:flow-variables` 48, `check:all`
+  611 / 611 (one timing flake in `fx-playback-page`, green on re-run), `check:svelte` at baseline;
+  `salmons-play.mjs` **52 / 52 in each netcode** (15 new: gold on two devices and passed on, the
+  line while hooked and gone when landed or broken, the events in Flow, the banner); the four
+  arcade playbooks and `online-play` pass; the current-games harness on the stand-in fixtures
+  (base `main` d68459f) 10 / 10 games pass, 0 of 128 screens changed (all byte-identical). Runtime
+  sizes in [status/game-families](game-families.md).
+  Review fixes (same day): the gold filter is destroyed with its layer; the online runtime turns
+  marks on at its join, before anything is spawned (so no look is remounted to be wrapped), and
+  clears them when the room is gone (no line left over the refuse screen); the glow stays on the
+  ground during a hop; body sizes are read from a map made at the join.
+  Chosen here, owner may overturn: gold by a brightness ramp (any look turns gold, not a second
+  look), a white 3 px line from ¾ of the holder's height to the middle of the one on it, the
+  splash at a climb and a hook, the banner only on the golden salmon's own device.
 
 - 2026-11-08 — **S0's owner runbook, and what no longer fits.** [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md)
   is the owner's click-by-click path, starting with a one-clip smoke test. The S0 recipe was

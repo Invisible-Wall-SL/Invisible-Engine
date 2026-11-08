@@ -44,8 +44,10 @@ import {
 	STATUS,
 } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
+	ONLINE_FLOW_EVENTS,
 	SERVER_VALUE_KINDS,
 	createAbilityPredictor,
+	createHookLines,
 	flowSignalsOf,
 	serverValuesOf,
 	shownInRoom,
@@ -818,8 +820,9 @@ const salmonsGame = (() => {
 })();
 const thousandths = (v) => Math.round(v * 1000) / 1000;
 
-/** Play a trace and return what the room did: its events, a track and the end. */
-function playTrace(trace) {
+/** Play a trace and return what the room did: its events, a track and the end. `each(sim, got)`
+ *  is told of every step and the events it raised. */
+function playTrace(trace, each = () => {}) {
 	const sim = createRoomSim(salmonsGame, { seed: trace.seed });
 	for (const [id, character] of trace.joins) sim.join(id, { character });
 	for (const [id, x, y] of trace.place) Object.assign(sim.players.get(id).body, { x, y });
@@ -840,6 +843,7 @@ function playTrace(trace) {
 			return [clampInput({ seq, view: sim.steps, moveX, moveY, buttons: press }, sim.game.field)];
 		});
 		for (const e of got) events.push({ step, ...e });
+		each(sim, got);
 		if (step % 10 === 0)
 			track.push([
 				step,
@@ -1035,6 +1039,83 @@ await check(
 		assert.ok(LINE.escapeTaps === 5);
 	},
 );
+
+await check("Salmons: its rules' events reach Flow as online events, for each device", () => {
+	const signalsOf = (name, me) => flowSignalsOf(played[name].result.events, me);
+	const one = (name, me, event) => signalsOf(name, me).filter((s) => s.name === event);
+	assert.deepEqual(
+		one('climb', 's', 'climbed').map((s) => s.payload),
+		[{ player: 's', zone: 'waterfall0', x: 0, y: 0, me: true }],
+	);
+	assert.deepEqual(
+		one('sandbank', 's', 'grounded').map((s) => s.payload),
+		[{ player: 's', zone: 'sandbank0', x: 0, y: 0, me: true }],
+	);
+	assert.deepEqual(
+		one('sandbank', 'x', 'jumped').map((s) => s.payload),
+		[{ player: 's', x: 0, y: 0, me: false }],
+	);
+	assert.deepEqual(
+		one('line', 'f', 'hooked').map((s) => s.payload),
+		[
+			{ by: 'f', target: 'a', x: 0, y: 0, mine: true, me: false },
+			{ by: 'f', target: 'b', x: 0, y: 0, mine: true, me: false },
+		],
+	);
+	assert.deepEqual(
+		one('line', 'b', 'escaped').map((s) => s.payload),
+		[{ by: 'f', target: 'b', x: 0, y: 0, mine: false, me: true }],
+	);
+	const golden = played.golden.result.events.filter((e) => e.type === 'golden');
+	assert.deepEqual(
+		one('golden', golden[0].id, 'golden').map((s) => s.payload),
+		golden.map((e) => ({ player: e.id, x: 0, y: 0, me: e.id === golden[0].id })),
+	);
+	const where = (id) => ({ x: id === 'b' ? 11 : 0, y: 22, character: 'salmon' });
+	const placedB = flowSignalsOf(played.line.result.events, 'f', where).filter(
+		(s) => s.name === 'escaped',
+	);
+	assert.deepEqual(
+		placedB.map((s) => [s.payload.x, s.payload.y]),
+		[[11, 22]],
+		'a line event is placed at the player on the line, as drawn',
+	);
+	const vocabulary = new Set(Object.values(ONLINE_FLOW_EVENTS));
+	for (const type of ['climbed', 'grounded', 'jumped', 'hooked', 'escaped', 'golden'])
+		assert.ok(vocabulary.has(type), `${type} is an online Flow event`);
+});
+
+await check('Salmons: a device draws the line exactly while its salmon is hooked', () => {
+	const lines = createHookLines();
+	const seen = [];
+	playTrace(TRACES.line, (sim, got) => {
+		lines.events(got);
+		const drawn = lines.drawn(sim.players);
+		const hooked = [...sim.players.values()].filter((p) => p.status === STATUS.hooked);
+		assert.deepEqual(
+			drawn.map((l) => l.target),
+			hooked.map((p) => p.id),
+			`step ${sim.steps}: a line to every hooked salmon, and none else`,
+		);
+		const now = drawn.map((l) => `${l.by}>${l.target}`).join() || '-';
+		if (seen.at(-1) !== now) seen.push(now);
+	});
+	assert.deepEqual(seen, ['-', 'f>a', '-', 'f>b', '-'], 'hooked, landed, hooked, escaped');
+	const left = createHookLines();
+	left.events([{ type: 'hooked', by: 'f', target: 'a' }]);
+	const room = new Map([
+		['f', { status: STATUS.free }],
+		['a', { status: STATUS.hooked }],
+	]);
+	assert.deepEqual(left.drawn(room), [{ by: 'f', target: 'a' }]);
+	left.events([{ type: 'left', id: 'f' }]);
+	assert.deepEqual(left.drawn(room), [], 'gone when the fisherman leaves');
+	left.events([
+		{ type: 'hooked', by: 'f', target: 'a' },
+		{ type: 'roundStart', round: 2 },
+	]);
+	assert.deepEqual(left.drawn(room), [], 'gone at the next round');
+});
 
 await check('Salmons: one golden salmon, worth more; it passes on when it leaves', () => {
 	const { trace, result } = played.golden;

@@ -83,10 +83,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     change what newly keyed IK plays. That is the owner's call.
 18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
-    fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0 and 1 built (Recent
-    changes); Phase 2 (server consumers read through the doc) is next. **Before Phase 3 writes the
-    first v1 file,** the "Runtime rollback" workflow needs a floor at the Phase 1 release, or a
-    rollback below it blanks every v1 rig (design §7).
+    fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0–3 built (Recent
+    changes): new rigs are irig v1, and a runtime rollback below the Phase 3 release is refused.
+    Phase 4 (the Rigger saves v1; 4a, the adapter, brings the importer and the sidecar fold-in) is
+    next.
 
 ## Blocked (owner / external)
 
@@ -95,6 +95,27 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-08 — **irig v1, Phase 3: new rigs write irig v1** ([irig-format](../design/irig-format.md)
+  §6). `/api/rigger/new` and `/api/rigger/upload` write v1; a 4.2 library rig applied at creation
+  is imported unless the import would change a value, and then stays 4.2. The rig index lists a v1
+  file with no header (`irig 1`). Two Rigger writes the strict reader refuses, found before the
+  first v1 file: the header's `iwLockBounds` (now an irig field) and the text panel's linked-mesh
+  `deform: true` (now the 4.2 key `timelines`, same meaning). `rig-undo.mjs` and
+  `rigtext-panel.mjs` gained an `--irig` run in check:all (the text panel failed it before the fix).
+  The runtime rollback floor: releases record `rigReader` (`IRIG_SCHEMA_REVISION`, now 3), and
+  `runtime-pointer.mjs` refuses a release reading less than `main`'s; every earlier release is
+  below it. Gates: 6 new checks in `check-rigger-writes.ts` (4 mutants caught),
+  `runtime-releases.fixture.ts`, the schema-revision check in `irig.fixture.ts`. Engine change, so
+  this merge is a runtime release.
+- 2026-11-08 — **irig v1, Phase 2: server consumers read irig v1**
+  ([irig-format](../design/irig-format.md) §6). `irigDocProblem` checks a stamped document with
+  `readIrig` before its reference checks, so the Rigger save, the backup restore, the rig library
+  save and Director's rig writes refuse what a game would refuse at load. The rig library save no
+  longer stamps a 4.2 `spine` header on an irig document. `saved_by` is now an irig field, since
+  Director stamps it on every rig it writes and the reader refuses unknown keys; that makes this an
+  engine change (runtime release), so the rollback floor moves to this release. The vendored WebGL
+  bundle is rebuilt. Gate: 10 new checks in `check-rigger-writes.ts` (a mutant that skips the
+  `readIrig` check fails 4). Nothing writes v1 yet.
 - 2026-11-03 — **irig v1, Phase 1: the runtime reads irig v1**
   ([irig-format](../design/irig-format.md) §6). `SkeletonJson.readSkeletonData` recognises the
   `irig` stamp, checks the document with `readIrig` and reads it with the same walk (v1 keeps every

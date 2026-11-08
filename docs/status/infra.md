@@ -134,6 +134,29 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-08 — **Fix runs: `bug-fix.yml` and its proof (ADR-0013 card 13B, #1525).**
+  - **The run.** The App dispatches `bug-fix.yml` on `main`. The job runs Claude Code 2.1.311,
+    pinned by version and by its npm tarball's sha512, in Claude Code's bubblewrap sandbox under the
+    `bug-fix` environment, and POSTs the change to the launcher. No cache, no artifact; the log
+    shows one line.
+  - **The proof.** `bug-fix-proof.yml` (push on the harness paths; `contents: read`, no secret)
+    runs `scripts/bug-fix/prove-cli.mjs`. It drives the real CLI through `bug-fix.yml`'s own step
+    text with a scripted fake model, and checks what each command saw. Mutants and positive
+    controls keep it honest.
+  - **Holes the proof found, now closed:**
+    - the sandbox could read `~/actions-runner/…/.credentials`;
+    - a bare Grep allow searched outside the workspace;
+    - Unix sockets: the CLI's messaging socket was offered to every command. The sandbox refuses
+      them all, and `--restricted` starts none. tsx, which needs one, runs through its loader.
+  - **Closed after the code review.** The CLI's file tools run outside the sandbox, so what later
+    steps run is now root-owned: the pristine copy, the rendered settings, the CLI and the tsx
+    shim. The key is root-only and read with `sudo` by the apiKeyHelper. Step 5 reads the
+    workspace through `O_NOFOLLOW` descriptors. The proof plants links and a `.git` swap; 76 / 76.
+  - **Setup.** The owner's three steps are done. The `bug-fix` environment (branch policy `main`)
+    and its secret were checked with `gh api` on 2026-11-08; the App's Actions write shows on the
+    first dispatch.
+  - INFRA "Fix runs (bug-fix.yml)", the GitHub App's Actions read & write, and the key's rotation
+    row.
 - 2026-11-03 — **Runtime source maps reach Sentry again** (closes open item 7). The game is now an
   `index.html` shell plus ES-module chunks, each with its own hidden map and a debug ID, and the
   release uploads one map per shipped chunk; `pnpm check:sentry-sourcemaps` (CI) builds a real app

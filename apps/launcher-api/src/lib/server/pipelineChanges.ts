@@ -460,8 +460,10 @@ export function whyFromBody(body: string | null): string | null {
 		.replace(/<!--[\s\S]*?-->/g, '')
 		.replace(/\u2060/g, '')
 		.trim();
-	const heading = /(?:^|\n)#{1,6}[ \t]*why\b[^\n]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i.exec(text);
-	if (heading) return clip(heading[1]);
+	// The section ends at the next heading at the start of any line, or at the end of the text. An
+	// empty section (nothing, or only a stripped comment) is the same as no section.
+	const heading = /^#{1,6}[ \t]*why\b[^\n]*\n*([\s\S]*?)(?=^#{1,6}[ \t]|(?![\s\S]))/im.exec(text);
+	if (heading && heading[1].trim()) return clip(heading[1]);
 	const lead =
 		/(?:^|\n)[ \t]*(?:\*\*why:?\*\*:?|__why:?__:?|why:)[ \t]*([^\n]+(?:\n(?![ \t]*\n)[^\n]+)*)/i.exec(
 			text,

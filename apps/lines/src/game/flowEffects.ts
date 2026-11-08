@@ -907,9 +907,9 @@ const dropInRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
  * Default ms between one column starting its swap and the next one starting — the `columnCascade`
  * sweep's speed when the author sets no `columnStaggerMs`.
  *
- * 140 sits beside the reel spin's own per-reel stagger (`reelSpinDelay: 145` in the engine's spin
- * constants), so a swapping board sweeps left to right at the speed the reels already do — the
- * number an author's eye is calibrated on. It is also comfortably SHORTER than the floor a column
+ * 140 was the reel spin's per-reel start stagger until the house spin feel (2026-11) started every
+ * reel together; it stays because it reads as a quick left-to-right sweep. It is also comfortably
+ * SHORTER than the floor a column
  * takes (its drain plus its slide, before a single `land` beat), which is what makes the default
  * read as a WAVE: column `i + 1` always starts while column `i` is still moving. Author a stagger
  * longer than a whole column to get the strictly sequential reading instead — that is the one knob

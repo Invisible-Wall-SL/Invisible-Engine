@@ -22,6 +22,8 @@ import {
 	r2FromEnv,
 	readHistory,
 	readPointerForSwap,
+	rigReaderProblem,
+	rigReaderRevision,
 	setPin,
 } from './lib/runtime-releases.mjs';
 
@@ -45,6 +47,14 @@ const r2 = await r2FromEnv();
 const history = await readHistory(r2, runtimeId);
 const swap = await readPointerForSwap(r2, runtimeId);
 const pointer = swap.pointer;
+const rigFloor = await rigReaderRevision();
+
+/** A release a game may be pointed at: whole in R2, and reading every rig the launcher writes. */
+async function assertCanServe(release) {
+	const problem = rigReaderProblem(release, rigFloor);
+	if (problem) throw new Error(problem);
+	await assertReleaseComplete(r2, runtimeId, release);
+}
 
 function find(ref) {
 	const matches = history.filter(
@@ -76,7 +86,8 @@ function line(r) {
 	]
 		.filter(Boolean)
 		.join(', ');
-	return `  ${r.version.padEnd(26)} ${r.shortCommit}  built ${r.builtAt}  ${r.marker}${tags ? `  ← ${tags}` : ''}`;
+	const rig = rigReaderProblem(r, rigFloor) ? `  (below the rig floor ${rigFloor})` : '';
+	return `  ${r.version.padEnd(26)} ${r.shortCommit}  built ${r.builtAt}  ${r.marker}${tags ? `  ← ${tags}` : ''}${rig}`;
 }
 
 switch (action) {
@@ -112,7 +123,7 @@ switch (action) {
 		if (target.version === pointer?.version) {
 			console.info(`'${runtimeId}' already serves ${target.version} — pointer unchanged.`);
 		} else {
-			await assertReleaseComplete(r2, runtimeId, target);
+			await assertCanServe(target);
 			await promote(r2, runtimeId, target, action, swap);
 			console.info(
 				`${action}: '${runtimeId}' pointer ${pointer?.version ?? 'none'} → ${target.version} (${target.shortCommit}, ${target.marker})`,
@@ -125,7 +136,7 @@ switch (action) {
 		const [game, ref] = rest;
 		if (!game || !ref) throw new Error(USAGE);
 		const target = find(ref);
-		await assertReleaseComplete(r2, runtimeId, target);
+		await assertCanServe(target);
 		await setPin(r2, runtimeId, game, target.version);
 		console.info(
 			`pin: '${game}' → ${runtimeId}@${target.version} (${target.marker}); every other game stays on ${pointer?.version ?? 'the flat layout'}`,

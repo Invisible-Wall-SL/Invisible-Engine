@@ -8,7 +8,8 @@
  * checks what can be checked mechanically:
  *
  *   1. every `.claude/agents/*.md` has `name` (= its file name), `description` and `tools`;
- *   2. every repo path an agent names exists;
+ *   2. every repo path an agent names exists, and every one the fix run's coordinator prompt
+ *      (`scripts/bug-fix/coordinator.md`) names;
  *   3. no agent gains a `[[…]]` personal-memory link (a ratchet: the baseline only shrinks);
  *   4. every launcher tool (`TOOLS`) and every game kind (`GAME_KINDS`) is in
  *      `docs/knowledge/owners.json`, every owner is a real agent, and an ownerless entry is a
@@ -89,6 +90,13 @@ for (const file of agentFiles) {
 	}
 	const links = (text.match(/\[\[[^\]\n]+\]\]/g) ?? []).length;
 	if (links) memoryLinks[file] = links;
+}
+
+// The fix run's fixed coordinator prompt (ADR-0013 §10) names only paths that exist.
+const COORDINATOR = 'scripts/bug-fix/coordinator.md';
+for (const path of namedPaths(readFileSync(join(ROOT, COORDINATOR), 'utf8'))) {
+	if (!existsSync(join(ROOT, path)))
+		fail(`${COORDINATOR}: names \`${path}\`, which does not exist`);
 }
 
 const baseline = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : {};

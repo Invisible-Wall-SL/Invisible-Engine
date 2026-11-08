@@ -1,5 +1,5 @@
 import type { Tween } from 'svelte/motion';
-import { sineOut, backIn, linear } from 'svelte/easing';
+import { sineOut, sineIn, backIn, linear } from 'svelte/easing';
 import { FrameTween } from 'pixi-svelte/frameClock';
 
 import { stateBet } from 'state-shared';
@@ -205,6 +205,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	// (under half a row; `generalSpinWith`). The slide that follows spends the time it would have
 	// spent from there, so every reel still lands on the frame it always did.
 	let handoverShift = 0;
+	// When this round's roll started (`preSpinSlideDownLoop`), for `reelMinSpinDuration`.
+	let rollStartedAt: number | undefined;
 
 	const getPaddingRawSymbol = ({
 		paddingRawReel,
@@ -257,28 +259,58 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelY: targetY,
 		speed,
 		easing = undefined,
+		rampMs = undefined,
 	}: {
 		reelY: number;
 		speed: number;
 		easing?: (value: number) => number;
+		/** Accelerate from rest to `speed` over this many ms, then hold it (no wind-up). */
+		rampMs?: number;
 	}) => {
 		const distance = Math.abs(targetY - (reelY.current - handoverShift));
 		handoverShift = 0;
-		const duration = distance / speed; // (speed unit: pixel / ms)
-
-		await reelY.set(targetY, { duration, easing });
+		const cruise = distance / speed; // (speed unit: pixel / ms)
+		if (rampMs == null || rampMs <= 0 || distance === 0) {
+			await reelY.set(targetY, { duration: cruise, easing });
+			return;
+		}
+		// A linear ramp covers half the distance it would at full speed, so it costs `ramp / 2`.
+		const ramp = Math.min(rampMs, 2 * cruise);
+		const duration = cruise + ramp / 2;
+		const rampIn = (t: number) => {
+			const ms = t * duration;
+			const covered = ms < ramp ? (speed * ms * ms) / (2 * ramp) : speed * (ms - ramp / 2);
+			return Math.min(covered / distance, 1);
+		};
+		await reelY.set(targetY, { duration, easing: rampIn });
 	};
 
 	const placeY = (targetY: number) => reelY.set(targetY, { duration: 0 });
 
+	const bounceSize = () => getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
+	const overshoots = () => (reelState.spinOptions().reelBounceOvershoot ?? 0) > 0;
+	// Where the slide down ends: past the seat for the legacy snap-back, on it for the overshoot,
+	// which runs on past the seat itself.
+	const slideEndY = () => homeY() + (overshoots() ? 0 : bounceSize());
+	// Where the cruise hands over to `reelSpinSpeedBeforeBounce` — never behind the strip, which a
+	// short first-reel spin (`reelPaddingMultiplierFirst`) starts below.
+	const cruiseEndY = () => Math.max(reelY.current, homeY() * basePaddingSize());
+
 	const removePaddingAndBounceBack = async () => {
 		reelState.symbols = [...targetSymbols];
-		placeY(homeY() + getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti);
-		await slideY({
-			reelY: homeY(),
-			speed: reelState.spinOptions().reelBounceBackSpeed,
-			easing: sineOut,
-		});
+		if (overshoots()) {
+			placeY(homeY());
+			const half = (reelState.spinOptions().reelBounceDuration ?? 130) / 2;
+			await reelY.set(homeY() + bounceSize(), { duration: half, easing: sineOut });
+			await reelY.set(homeY(), { duration: half, easing: sineIn });
+		} else {
+			placeY(homeY() + bounceSize());
+			await slideY({
+				reelY: homeY(),
+				speed: reelState.spinOptions().reelBounceBackSpeed,
+				easing: sineOut,
+			});
+		}
 		setSymbolsWithReelSymbols(targetSymbols);
 	};
 
@@ -312,12 +344,15 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		preSpinPaddingRawReel: TRawSymbol[];
 	}) => {
 		let started = false;
+		rollStartedAt = performance.now();
 		while (isPreSpinning) {
-			const speed = started
-				? reelState.spinOptions().reelSpinSpeed
-				: reelState.spinOptions().reelPreSpinSpeed;
-			const easing = started || isTurboBeforeAll ? linear : backIn;
-			await slideY({ reelY: homeY(), speed, easing });
+			const options = reelState.spinOptions();
+			const speed = started ? options.reelSpinSpeed : options.reelPreSpinSpeed;
+			const legacyStart = options.reelSpinUpDuration == null;
+			const windUp = !isTurboBeforeAll && (legacyStart || (options.reelWindUp ?? 0) > 0);
+			const easing = started || !windUp ? linear : backIn;
+			const rampMs = started || windUp ? undefined : options.reelSpinUpDuration;
+			await slideY({ reelY: homeY(), speed, easing, rampMs });
 			// The spin took over while this lap was sliding: the strip is its strip now.
 			if (!isPreSpinning) break;
 			await preSpinPadding({ preSpinPaddingRawReel });
@@ -388,7 +423,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		// subscriber order: `runSpinOrSlamStop` trips `roundSkip` synchronously BEFORE broadcasting
 		// `stopButtonClick`, so by the time any subscriber (including the board's `stop()`) runs,
 		// and for every reel that starts rolling afterwards, `isSkipped()` is already true.
-		if (roundSkip.isSkipped() || (!noStop && stateBet.isTurbo && isSpinning)) {
+		// A turbo spin with a minimum roll has rolled it by now (`spin`), so it lands at once.
+		const landsAtOnce = isSpinning || (reelState.spinOptions().reelMinSpinDuration ?? 0) > 0;
+		if (roundSkip.isSkipped() || (!noStop && stateBet.isTurbo && landsAtOnce)) {
 			// The slide it was meant for is skipped: the bounce-back must not inherit it.
 			handoverShift = 0;
 		} else {
@@ -408,10 +445,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const fastSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
-
 				await slideY({
-					reelY: homeY() + bounceSize,
+					reelY: slideEndY(),
 					speed: reelState.spinOptions().reelSpinSpeed,
 				});
 			},
@@ -420,14 +455,12 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const normalSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
-
 				await slideY({
-					reelY: homeY() * basePaddingSize(),
+					reelY: cruiseEndY(),
 					speed: reelState.spinOptions().reelSpinSpeed,
 				});
 				await slideY({
-					reelY: homeY() + bounceSize,
+					reelY: slideEndY(),
 					speed: reelState.spinOptions().reelSpinSpeedBeforeBounce,
 				});
 			},
@@ -436,14 +469,12 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const anticipatedSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
-
 				await slideY({
-					reelY: homeY() * basePaddingSize(),
+					reelY: cruiseEndY(),
 					speed: reelState.spinOptions().reelSpinSpeed,
 				});
 				await slideY({
-					reelY: homeY() + bounceSize,
+					reelY: slideEndY(),
 					speed: reelState.spinOptions().reelSpinSpeedBeforeBounce,
 				});
 			},
@@ -452,14 +483,12 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const sequentialSpin = () =>
 		generalSpinWith({
 			slideDown: async () => {
-				const bounceSize = getSymbolHeight() * reelState.spinOptions().reelBounceSizeMulti;
-
 				await slideY({
-					reelY: homeY() * basePaddingSize(),
+					reelY: cruiseEndY(),
 					speed: reelState.spinOptions().reelSpinSpeedSequential,
 				});
 				await slideY({
-					reelY: homeY() + bounceSize,
+					reelY: slideEndY(),
 					speed: reelState.spinOptions().reelSpinSpeedBeforeBounce,
 				});
 			},
@@ -490,9 +519,14 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		paddingRawReel = prepareToSpinOptions.paddingReel;
 		onSpinFinishing = prepareToSpinOptions.onSpinFinishing;
 
+		const firstMultiplier = reelState.spinOptions().reelPaddingMultiplierFirst;
+		const normalPaddingSize =
+			reelOptions.reelIndex === 0 && firstMultiplier != null
+				? reelLength * firstMultiplier
+				: basePaddingSize();
 		const GET_PADDING_SIZE_MAP = {
 			fast: prepareToSpinOptions.previousPaddingSize + 0,
-			normal: prepareToSpinOptions.previousPaddingSize + basePaddingSize(),
+			normal: prepareToSpinOptions.previousPaddingSize + normalPaddingSize,
 			anticipated: prepareToSpinOptions.previousPaddingSize + anticipatedPaddingSize(),
 			sequential: prepareToSpinOptions.previousPaddingSize + sequentialPaddingSize(),
 		};
@@ -502,7 +536,18 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		return paddingSize;
 	};
 
+	// How much of `reelMinSpinDuration` the pre-spin loop still has to roll (0 once a slam is in).
+	const minimumRollLeft = () => {
+		const minimum = reelState.spinOptions().reelMinSpinDuration ?? 0;
+		const startedAt = rollStartedAt;
+		rollStartedAt = undefined;
+		if (!isPreSpinning || startedAt == null || roundSkip.isSkipped()) return 0;
+		return minimum - (performance.now() - startedAt);
+	};
+
 	const spin = async () => {
+		const rollLeft = minimumRollLeft();
+		if (rollLeft > 0) await interruptible.add(() => waitForTimeout(rollLeft));
 		isPreSpinning = false;
 
 		await SPIN_MAP[reelState.spinType]();

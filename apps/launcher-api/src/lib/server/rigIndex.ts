@@ -115,13 +115,18 @@ function stemOf(name: string): string {
 	return dot === -1 ? base : base.slice(0, dot);
 }
 
+// An irig document leads with its `irig` stamp and may have no header.
 function isSkeletonJson(head: string): boolean {
-	return head.includes('"skeleton"') && head.includes('"bones"');
+	return (
+		(head.includes('"skeleton"') || /^\s*\{\s*"irig"\s*:/.test(head)) && head.includes('"bones"')
+	);
 }
 
 function detectVersion(file: string, head: string): string {
 	const ext = rigExt(file);
 	if (ext === '.json' || ext === '.irig') {
+		const irig = head.match(/^\s*\{\s*"irig"\s*:\s*(\d+)/);
+		if (irig) return `irig ${irig[1]}`;
 		const m = head.match(/"spine"\s*:\s*"([^"]+)"/);
 		if (m) return m[1];
 	}

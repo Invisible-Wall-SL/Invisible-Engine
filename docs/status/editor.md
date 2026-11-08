@@ -171,6 +171,14 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-08 — **Spin tuning grew the options a measured reel feel needs, and shows the house
+  defaults.** The reel grid's "Spin tuning (advanced)" adds spin-up (ms), wind-up, overshoot
+  bounce, bounce time (ms), first reel length and min roll (ms), and each blank box shows the
+  profile's house default (`SPIN_OPTIONS_DEFAULT` / `SPIN_OPTIONS_FAST`, imported from
+  `engine-game`). The engine side and the measurement are in [engine status](engine.md). Guide:
+  `docs/tools/invisible-editor.md` § "Spin tuning". Not yet seen rendered in a running
+  editor: the local launcher would not boot in the worktree, so it is proven by the build and
+  svelte-check only.
 - 2026-11-02 — Removed the legacy Game Settings overlay-swap flags (owner decision): the coded
   Transition, win, free-spin intro/outro and button frame are the only path; a stored layout that
   still carries the old field loads as with it off.

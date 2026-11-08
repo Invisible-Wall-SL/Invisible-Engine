@@ -26,12 +26,18 @@ export const SALMONS_FIELD = { id: 'field', cap: 120 } as const;
 /** How the camera follows the device's own player (`online.ts` gives it the target). */
 export const SALMONS_CAMERA = { deadZone: { w: 320, h: 200 }, smoothing: 0.1 } as const;
 
+/** How a placeholder sits on its place: a character stands on it (its feet there, as the S0 art's
+ *  bottom-centre anchor), an ability's reach is centred on it. A `rect` is drawn about its centre
+ *  (anchor 0.5), so its x / y is where its middle goes. */
+type Seat = 'stand' | 'centre';
+
 const placeholder = (
 	id: string,
 	name: string,
 	w: number,
 	h: number,
 	color: number,
+	seat: Seat,
 	round = false,
 ): ComponentDef => ({
 	id,
@@ -49,8 +55,8 @@ const placeholder = (
 			{
 				id: `${id}-shape`,
 				kind: 'rect',
-				x: -w / 2,
-				y: -h / 2,
+				x: 0,
+				y: seat === 'stand' ? -h / 2 : 0,
 				width: w,
 				height: h,
 				color,
@@ -60,18 +66,24 @@ const placeholder = (
 	},
 });
 
-/** The three characters' looks, sized to their bodies in `salmonsConfig`, and the looks of the
- *  bear's swipe and the fisherman's cast, sized to their reaches. Placeholders. */
+/** The three characters' looks, sized to their bodies in `salmonsConfig`, the looks of the
+ *  bear's swipe and the fisherman's cast, sized to their reaches, and the splash the flow draws at
+ *  a climb or a hook. Placeholders. */
 export const SALMONS_CHARACTER_COMPONENTS: readonly ComponentDef[] = [
-	placeholder('salmonsSalmon', 'Salmon (placeholder)', 90, 44, 0xfa8072),
-	placeholder('salmonsBear', 'Bear (placeholder)', 92, 92, 0x6b4423, true),
-	placeholder('salmonsFisherman', 'Fisherman (placeholder)', 56, 88, 0xe0b04a),
-	placeholder('salmonsSwipe', 'Swipe (placeholder)', 220, 220, 0xffe08a, true),
-	placeholder('salmonsCast', 'Cast (placeholder)', 560, 560, 0xc8e6ff, true),
+	placeholder('salmonsSalmon', 'Salmon (placeholder)', 90, 44, 0xfa8072, 'stand'),
+	placeholder('salmonsBear', 'Bear (placeholder)', 92, 92, 0x6b4423, 'stand', true),
+	placeholder('salmonsFisherman', 'Fisherman (placeholder)', 56, 88, 0xe0b04a, 'stand'),
+	placeholder('salmonsSwipe', 'Swipe (placeholder)', 220, 220, 0xffe08a, 'centre', true),
+	placeholder('salmonsCast', 'Cast (placeholder)', 560, 560, 0xc8e6ff, 'centre', true),
+	placeholder('salmonsSplash', 'Splash (placeholder)', 150, 70, 0x9fd8ff, 'centre', true),
 ];
 
 /** The screens the Salmons flow shows over the river. */
-export const SALMONS_SCREENS = { hud: 'salmonsHud', over: 'salmonsRoundOver' } as const;
+export const SALMONS_SCREENS = {
+	hud: 'salmonsHud',
+	over: 'salmonsRoundOver',
+	golden: 'salmonsGolden',
+} as const;
 
 /** One HUD readout: its caption, and its value bound to a variable the room owns. */
 const readout = (key: string, caption: string, y: number): LayoutNode[] => [
@@ -133,10 +145,28 @@ const roundOver = (): Scene => ({
 	],
 });
 
+/** The device's own salmon turned golden: a banner across the top for a moment. */
+const golden = (): Scene => ({
+	id: SALMONS_SCREENS.golden,
+	name: 'Golden salmon',
+	space: 'canvas',
+	nodes: [
+		{
+			...textBox('sm-golden-title', 'Golden salmon', 0, 60, {
+				text: 'GOLDEN SALMON — WORTH 3×',
+				fontSize: 48,
+				boxWidth: 1000,
+				align: 'center',
+			}),
+			screenAnchor: { x: 0.5, y: 0 },
+		},
+	],
+});
+
 /**
  * Salmons' layout: the arcade scene set's loading and background screens, its play field as the
  * river's world with the players' spawn layer (which also holds the swipes and casts the flow
- * draws), the HUD and the round-over screen.
+ * draws), the HUD, the golden salmon's banner and the round-over screen.
  */
 export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 	const base = arcadeReferenceLayout();
@@ -168,6 +198,7 @@ export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 				],
 			},
 			hud(),
+			golden(),
 			roundOver(),
 		],
 	};

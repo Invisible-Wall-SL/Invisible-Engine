@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { isIrigDocument } from 'engine-rig';
 import { r2Slug, sharedRigKey } from '$lib/server/projectPaths';
 import { saveRig } from '$lib/server/riggerLibrary';
 import { putLibraryEntry } from '$lib/server/riggerLibraryWrite';
@@ -58,12 +59,15 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		animations,
 	};
 
-	// Force a valid rig version on the stored skeleton so an applied rig always loads.
-	const skelBlock = (skeleton.skeleton ?? {}) as Record<string, unknown>;
-	skeleton.skeleton = {
-		...skelBlock,
-		spine: typeof skelBlock.spine === 'string' ? skelBlock.spine : '4.2',
-	};
+	// Force a valid rig version on a stored 4.2 skeleton so an applied rig always loads. An irig
+	// document needs none, and refuses the 4.2 header field.
+	if (!isIrigDocument(skeleton)) {
+		const skelBlock = (skeleton.skeleton ?? {}) as Record<string, unknown>;
+		skeleton.skeleton = {
+			...skelBlock,
+			spine: typeof skelBlock.spine === 'string' ? skelBlock.spine : '4.2',
+		};
+	}
 
 	const sourceRig = typeof body.sourceRig === 'string' && body.sourceRig ? body.sourceRig : null;
 	const savedAt = new Date().toISOString();

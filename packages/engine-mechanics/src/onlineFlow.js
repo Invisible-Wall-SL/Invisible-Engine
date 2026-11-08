@@ -20,6 +20,12 @@ export const ONLINE_FLOW_EVENTS = Object.freeze({
 	roundStart: 'roundStart',
 	roundEnd: 'roundEnd',
 	ability: 'ability',
+	climbed: 'climbed',
+	grounded: 'grounded',
+	jumped: 'jumped',
+	hooked: 'hooked',
+	escaped: 'escaped',
+	golden: 'golden',
 });
 
 /** The room values a server-owned variable mirrors, and their kinds (`engine-flow-v2`
@@ -52,6 +58,9 @@ export function abilitySignal(by, button, me, at, predicted) {
 	};
 }
 
+/** Where a player is drawn, as a signal's `x` / `y` (0, 0 when it is not drawn). */
+const placed = (drawn) => ({ x: drawn?.x ?? 0, y: drawn?.y ?? 0 });
+
 /**
  * The Flow signals a batch of room events raises, in order, for the device whose player is `me`.
  * `at(id)` is a player as drawn (where, which character), if it is. With the device's `predictor`
@@ -71,6 +80,38 @@ export function flowSignalsOf(events, me, at = () => undefined, predictor = unde
 			// falls through
 			case 'left':
 				signals.push({ name, payload: { player: event.id, me: event.id === me } });
+				break;
+			case 'jumped':
+			case 'golden':
+				signals.push({
+					name,
+					payload: { player: event.id, ...placed(at(event.id)), me: event.id === me },
+				});
+				break;
+			case 'climbed':
+			case 'grounded':
+				signals.push({
+					name,
+					payload: {
+						player: event.id,
+						zone: event.zone,
+						...placed(at(event.id)),
+						me: event.id === me,
+					},
+				});
+				break;
+			case 'hooked':
+			case 'escaped':
+				signals.push({
+					name,
+					payload: {
+						by: event.by,
+						target: event.target,
+						...placed(at(event.target)),
+						mine: event.by === me,
+						me: event.target === me,
+					},
+				});
 				break;
 			case 'hit':
 			case 'caught':
@@ -123,6 +164,38 @@ export function serverValuesOf(state, me, tickHz) {
 
 /** Whether a player of the room is drawn: one that is out is hidden until it respawns. */
 export const shownInRoom = (player) => player.status !== STATUS.out;
+
+/**
+ * The fishing lines a device draws (a `hook` ability's, e.g. Salmons' `fishingLine`): fed the
+ * room's events, it holds which player hooked which, from `hooked` until the target's `caught` or
+ * `escaped`, either one leaving, or the next round. {@link HookLines.drawn} gives the lines whose
+ * target is still `hooked` in the room's state and whose two players are both in it, so a missed
+ * event never leaves a line behind. A device that joins (or comes near) after the hook does not
+ * draw that line.
+ */
+export function createHookLines() {
+	/** Hooked player id → the player holding the line. */
+	const lines = new Map();
+	return {
+		events(events) {
+			for (const event of events) {
+				if (event.type === 'hooked') lines.set(event.target, event.by);
+				else if (event.type === 'caught' || event.type === 'escaped') lines.delete(event.target);
+				else if (event.type === 'roundStart') lines.clear();
+				else if (event.type === 'left')
+					for (const [target, by] of lines)
+						if (target === event.id || by === event.id) lines.delete(target);
+			}
+		},
+		drawn(players) {
+			const drawn = [];
+			for (const [target, by] of lines)
+				if (players.get(target)?.status === STATUS.hooked && players.get(by))
+					drawn.push({ by, target });
+			return drawn;
+		},
+	};
+}
 
 /**
  * The own player's abilities, raised on the press (§6's predicted events): stepped once per input

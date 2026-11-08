@@ -33,6 +33,7 @@ import {
 	writeIrig,
 	type IrigIssue,
 } from './irig.ts';
+import { IRIG_SCHEMA_REVISION, IRIG_V1 } from './schema.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const SKIP = [
@@ -237,7 +238,15 @@ const flipbook = {
 	fps: 24,
 };
 const extended = {
-	skeleton: { hash: 'h', spine: '4.2.36', x: -10, y: -10, width: 20, height: 20 },
+	skeleton: {
+		hash: 'h',
+		spine: '4.2.36',
+		x: -10,
+		y: -10,
+		width: 20,
+		height: 20,
+		iwLockBounds: true,
+	},
 	bones: [{ name: 'root' }, { name: 'arm', parent: 'root', inherit: 'noScale', length: 5 }],
 	slots: [{ name: 'body', bone: 'root', attachment: 'body', blend: 'additive' }],
 	skins: [
@@ -265,6 +274,7 @@ const extended = {
 			events: [{ time: 0.5, name: 'hit', fx, flipbook }],
 		},
 	},
+	saved_by: { tool: 'director', agent: 'animator', runId: 'r1', at: 't', rev: 'r' },
 };
 {
 	const { doc, issues } = importSpine42Json(extended);
@@ -282,6 +292,8 @@ const extended = {
 		'extensions: the Flipbook binding changed',
 	);
 	check(reread.skeleton?.importedFrom === '4.2.36', 'extensions: the source version was not kept');
+	check(reread.saved_by?.agent === 'animator', 'extensions: the saved_by stamp was not kept');
+	check(reread.skeleton?.iwLockBounds === true, 'extensions: the bounds lock was not kept');
 	check(diff(extended, exportSpine42Json(reread)).length === 0, 'extensions: 4.2 out ≠ 4.2 in');
 }
 
@@ -377,6 +389,19 @@ const throws = (fn: () => unknown, what: string): void => {
 	check(
 		new SkeletonJson(stubLoader).readSkeletonData(headless).bones.length === 2,
 		'an irig document needs no header',
+	);
+}
+
+// ── The schema revision moves with the fields ─────────────────────────────────────────────────────
+// The rollback floor compares revisions, so a field added without a new revision would let the
+// "Runtime rollback" workflow pick a release that refuses files the launcher now writes. When this
+// fails: add 1 to IRIG_SCHEMA_REVISION (schema.ts) and set both values here.
+{
+	const fingerprint = createHash('sha1').update(JSON.stringify(IRIG_V1)).digest('hex');
+	const recorded = { revision: 3, fingerprint: 'c96741aa9f62a31fa2b726470781723526cc6ad8' }; // pragma: allowlist secret — a hash of the schema, not a credential
+	check(
+		IRIG_SCHEMA_REVISION === recorded.revision && fingerprint === recorded.fingerprint,
+		`the irig fields changed (fingerprint ${fingerprint}) without a new IRIG_SCHEMA_REVISION (${IRIG_SCHEMA_REVISION})`,
 	);
 }
 

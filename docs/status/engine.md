@@ -412,6 +412,38 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - Fixtures: `packages/pixi-svelte/frameClock.fixture.ts` (against Svelte's `Tween` on one fake
     clock, with a lagging callback, and with no timeline) and
     `apps/lines/src/game/perfStats.fixture.ts`. **Not verified on a physical iPhone.**
+- 2026-11-08 — **New house reel feel, measured off cabinet footage, for every game that leaves spin
+  tuning blank** (branch `claude/reel-speed-video-calc-6d6cea`). The owner supplied two phone videos
+  of land-based cabinets (normal and turbo, 30 fps). Each reel was tracked frame to frame by phase
+  correlation; the 30 fps alias was resolved by following individual symbols. Both cabinets roll
+  at 20.0 symbols/s. The normal spin starts every reel together, reaches speed in ~60 ms with no
+  wind-up and stops reels ~316 ms apart. Turbo lands every reel together ~170 ms after the start.
+  Both bounce 5% of a row past the seat and back in ~130 ms. `SPIN_OPTIONS_DEFAULT` /
+  `SPIN_OPTIONS_FAST` (now in their own import-free `engine-game/src/game/spinOptions.ts`, which
+  `constants.ts` re-exports and the Scene Editor reads for its placeholders) carry those values (2.4 px/ms on a
+  120 px row, stagger 0, spin length 1.26, bounce 0.05), and `createReelForSpinning` gained the
+  options the old model could not express. All are optional, and a reel that sets none behaves as
+  before — that covers the dev apps' own constants:
+  - `reelSpinUpDuration` — a linear ramp to full speed in place of the `backIn` wind-up
+    (`reelWindUp: 1` brings the wind-up back);
+  - `reelBounceOvershoot` + `reelBounceDuration` — run past the seat and back as a half-sine
+    (two `sineOut`/`sineIn` tweens, since a Svelte `Tween` always ends on its target) instead of
+    snapping past and easing back;
+  - `reelMinSpinDuration` — the reels roll at least this long; on turbo, every reel then lands at
+    once from wherever its strip is. `createEnhanceBoardSpin` skips its wait for each reel's
+    pre-spin lap to come round in that case, which was what held turbo to ≥265 ms;
+  - `reelPaddingMultiplierFirst` — reel 1's spin length apart from the gap between stops (house
+    0), so the first stop no longer costs a whole extra gap. The cruise→before-bounce handover
+    clamps to the strip, so a short first reel never slides backwards.
+  Measured on the dev game on a real clock (headless shell on the GPU, 60 fps, book mock): normal
+  rolls 20.0 sym/s with no wind-up, reaches speed in ~50 ms, stops 350/316/301/333 ms apart (the
+  cabinet averages 316; padding rounds up to whole rows) and overshoots 6 px = 0.05 row. Turbo
+  lands all five reels on the same frame 175 ms after they start (cabinet ~170). Differences that
+  remain: the normal first stop is ~535 ms against the cabinet's ~490 ms, because the board still
+  waits for the pre-spin lap before a normal
+  spin starts its stops, and the turbo landing frame hitches ~60 ms while the result board mounts
+  (it did before this change too). **Every online game picks this up on the runtime release**
+  unless its reel grid authors its own spin tuning.
 - 2026-11-03 — **Game builds stop lowering `#private` fields; respin cells skip symbols that draw
   nothing** (branch `claude/hold-and-win-mount-ahead`). From the 2026-11-03 audit of
   `overlay-buffaloduel`, whose Hold and Win bonus froze up to 1.5 s with the CPU slowed 4×.

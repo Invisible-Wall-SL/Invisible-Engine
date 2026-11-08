@@ -64,8 +64,8 @@ cheaper than a leaked write key.
    - A change only **stages**. Click **Apply changes / Deploy** on every affected service; a plain
      Redeploy does not apply staged variables (the "Railway gotcha" box at the end of
      [INFRA § Auto-migrate on boot](../INFRA.md#auto-migrate-on-boot-2026-06-13)).
-   - **GitHub:** Settings → Secrets and variables → Actions for repo secrets. The `backups`
-     environment holds its own secrets.
+   - **GitHub:** Settings → Secrets and variables → Actions for repo secrets. The `backups` and
+     `bug-fix` environments hold their own secrets (Settings → Environments).
    - **Everything else:** RunPod, the owner's machine and the owner's password manager. The entry
      names them.
 5. **Verify the runtime, not the dashboard.** Each entry gives a check that exercises the new
@@ -88,6 +88,7 @@ cheaper than a leaked write key.
 | Railway **draft-player** | `DRAFT_PLAYER_SECRET` only (no R2 or database credential) |
 | GitHub Actions repo secrets | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `TEST_SERVER_SECRET` (runtime release and rollback), `PUBLIC_SENTRY_DSN` (baked into the game runtime) |
 | GitHub environment `backups` | the five backup secrets; the age public keys are a variable ([INFRA § Backups](../INFRA.md#backups-2026-09-29)) |
+| GitHub environment `bug-fix` | `ANTHROPIC_BUG_FIX_API_KEY` only (deployment branches `main` only; INFRA "Fix runs (bug-fix.yml)" under [§ Environment variables](../INFRA.md#environment-variables-names-only)) |
 | RunPod | the Serverless endpoint's environment variables (`RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`); a Container Registry Credential (a GitHub token that can read our private GHCR images) |
 | Launcher database | the deploy token (`app_settings`, key `deployToken`); each project's read token; user password hashes and sessions |
 | R2 | the tunnel credential bundle at `tools/invisible-launcher/cloudflared-bundle.json` |
@@ -524,6 +525,27 @@ Changes)](../INFRA.md#github-app-pipeline-changes)).
 
 `GITHUB_APP_ID` and `GITHUB_APP_INSTALLATION_ID` are identifiers, not secrets: the first never
 changes, the second only if the App is uninstalled from the repository and installed again.
+
+### Fix-run Anthropic key (`ANTHROPIC_BUG_FIX_API_KEY`)
+
+The key a fix run on a pipeline bug spends (ADR-0013). It lives in GitHub → Settings →
+Environments → `bug-fix` → Environment secrets, never as a repository secret. A key of its own, in
+an Anthropic workspace with its own monthly spend limit. Setup: INFRA "Fix runs (bug-fix.yml)"
+under [§ Environment variables](../INFRA.md#environment-variables-names-only).
+
+**Consumers:** `.github/workflows/bug-fix.yml` step 4 ("Run Claude Code") only. No Railway service
+holds it.
+
+**Pattern: overlap.**
+
+1. Create a new key in the same Anthropic workspace.
+2. Replace the `bug-fix` environment secret `ANTHROPIC_BUG_FIX_API_KEY` with it.
+3. Revoke the old key in the Anthropic console.
+
+Nothing to redeploy.
+
+**Verify:** the next fix run. For the workflow side alone, Actions → **Bug fix proof** → Run
+workflow; it needs no key.
 
 ### Cloudflare API tokens (`CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`)
 

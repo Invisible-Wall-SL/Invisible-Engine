@@ -13,6 +13,12 @@ export const ONLINE_FLOW_EVENTS: Readonly<{
 	roundStart: 'roundStart';
 	roundEnd: 'roundEnd';
 	ability: 'ability';
+	climbed: 'climbed';
+	grounded: 'grounded';
+	jumped: 'jumped';
+	hooked: 'hooked';
+	escaped: 'escaped';
+	golden: 'golden';
 }>;
 
 export type ServerValueKind = 'number' | 'string' | 'bool';
@@ -62,6 +68,18 @@ export type ServerValuesState = {
 export function serverValuesOf(state: ServerValuesState, me: string, tickHz: number): ServerValues;
 
 export function shownInRoom(player: { status: number }): boolean;
+
+/** One fishing line: `by` holds it, `target` is hooked on it (room player ids). */
+export type HookLine = { by: string; target: string };
+
+export type HookLines = {
+	/** A batch of the room's events, in order. */
+	events(events: readonly OnlineEvent[]): void;
+	/** The lines to draw now: each target still `hooked` in the state, both players in it. */
+	drawn(players: { get(id: string): { status: number } | undefined }): HookLine[];
+};
+
+export function createHookLines(): HookLines;
 
 export type AbilityPredictor = {
 	/** One sent input's buttons; `free` when the round runs and the own player is free; `seq` the

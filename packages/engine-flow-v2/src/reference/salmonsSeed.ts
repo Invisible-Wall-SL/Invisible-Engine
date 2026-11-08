@@ -10,6 +10,10 @@
  *     `roundStart` hides it.
  *   - `ability` draws a bear's swipe or a fisherman's cast where it is used, for 300 ms. The
  *     device's own is raised on the press (`predicted`), so it is drawn before the room answers.
+ *   - The rules' events (after P11.3): a splash where a salmon `climbed` a waterfall or was
+ *     `hooked`, for 400 ms; and when the device's own salmon turns `golden`, a banner for 2 s.
+ *     The golden salmon's gold and the line itself are drawn by the runtime from the room's state,
+ *     not here.
  *
  * Played by `scripts/playtest/salmons-play.mjs`; written into the project by
  * `scripts/salmons/export.mjs`. Not exported from the package entry, so no game bundles it.
@@ -28,7 +32,11 @@ import type {
 import { ARCADE_FIELD_LAYER, ARCADE_SCREENS, ARCADE_TEMPLATE_ID } from './arcadeSeed';
 
 /** The Salmons layout's own screens (`engine-layout` `SALMONS_SCREENS`). */
-export const SALMONS_FLOW_SCREENS = { hud: 'salmonsHud', over: 'salmonsRoundOver' } as const;
+export const SALMONS_FLOW_SCREENS = {
+	hud: 'salmonsHud',
+	over: 'salmonsRoundOver',
+	golden: 'salmonsGolden',
+} as const;
 
 /** The ability looks (`engine-layout` `SALMONS_CHARACTER_COMPONENTS`), by the character using one. */
 export const SALMONS_ABILITY_LOOKS = { bear: 'salmonsSwipe', fisherman: 'salmonsCast' } as const;
@@ -36,9 +44,15 @@ export const SALMONS_ABILITY_LOOKS = { bear: 'salmonsSwipe', fisherman: 'salmons
 /** How long a swipe or a cast stays drawn. */
 export const SALMONS_ABILITY_MS = 300;
 
+/** The splash a climb or a hook draws (`engine-layout` `SALMONS_CHARACTER_COMPONENTS`), and for how
+ *  long; how long the golden banner stays up. */
+export const SALMONS_SPLASH = { componentId: 'salmonsSplash', ms: 400 } as const;
+export const SALMONS_GOLDEN_MS = 2000;
+
 const CONTAINERS: ContainerRef[] = [
 	{ id: ARCADE_SCREENS.basegame, sceneId: ARCADE_SCREENS.basegame, z: 0 },
 	{ id: SALMONS_FLOW_SCREENS.hud, sceneId: SALMONS_FLOW_SCREENS.hud, z: 60 },
+	{ id: SALMONS_FLOW_SCREENS.golden, sceneId: SALMONS_FLOW_SCREENS.golden, z: 70 },
 	{ id: SALMONS_FLOW_SCREENS.over, sceneId: SALMONS_FLOW_SCREENS.over, z: 80 },
 	{ id: ARCADE_SCREENS.loading, sceneId: ARCADE_SCREENS.loading, z: 100 },
 ];
@@ -48,6 +62,8 @@ const trigger = (member: string): DataSource => ({
 	path: { on: 'trigger', member },
 });
 const text = (value: string): DataSource => ({ kind: 'literal', type: { t: 'string' }, value });
+const bool = (value: boolean): DataSource => ({ kind: 'literal', type: { t: 'bool' }, value });
+const ms = (value: number): DataSource => ({ kind: 'literal', type: { t: 'ms' }, value });
 const wired: DataSource = { kind: 'wire' };
 
 /** A node before it is placed on the canvas. */
@@ -113,7 +129,7 @@ const buildGraph = (): FlowDoc['graph'] => {
 		const wait = add({
 			id: `sm_ability_${character}_wait`,
 			kind: 'delay',
-			inputs: { ms: { kind: 'literal', type: { t: 'ms' }, value: SALMONS_ABILITY_MS } },
+			inputs: { ms: ms(SALMONS_ABILITY_MS) },
 		});
 		const gone = add({
 			id: `sm_ability_${character}_gone`,
@@ -129,6 +145,38 @@ const buildGraph = (): FlowDoc['graph'] => {
 			to: { node: branch, pin: 'exec' },
 		}),
 	);
+
+	// A splash where a salmon climbed a waterfall or was hooked, gone again after a moment.
+	for (const event of ['climbed', 'hooked']) {
+		const spawn = add({
+			id: `sm_${event}_splash`,
+			kind: 'spawn',
+			layer: ARCADE_FIELD_LAYER,
+			componentId: SALMONS_SPLASH.componentId,
+			inputs: { x: trigger('x'), y: trigger('y') },
+		});
+		const wait = add({
+			id: `sm_${event}_wait`,
+			kind: 'delay',
+			inputs: { ms: ms(SALMONS_SPLASH.ms) },
+		});
+		const gone = add({ id: `sm_${event}_gone`, kind: 'despawn', inputs: { instance: wired } });
+		data.push({ from: { node: spawn, pin: 'instance' }, to: { node: gone, pin: 'instance' } });
+		chain(pin(event), [spawn, wait, gone]);
+	}
+
+	// The device's own salmon turned golden: a banner for a moment.
+	const mine = add({
+		id: 'sm_golden_mine',
+		kind: 'branch',
+		guard: { all: [{ left: trigger('me'), op: 'eq', right: bool(true) }] },
+	});
+	exec.push({ from: pin('golden'), to: { node: mine, pin: 'exec' } });
+	chain({ node: mine, pin: 'then' }, [
+		show('sm_golden_show', SALMONS_FLOW_SCREENS.golden),
+		add({ id: 'sm_golden_wait', kind: 'delay', inputs: { ms: ms(SALMONS_GOLDEN_MS) } }),
+		hide('sm_golden_hide', SALMONS_FLOW_SCREENS.golden),
+	]);
 	return { nodes, exec, data };
 };
 

@@ -37,7 +37,8 @@ export const ARCADE_FIELD = {
 
 /**
  * A placeholder body: a flat shape centred on the instance's origin, as a body's `x` / `y` is its
- * centre. `round` draws it as a disc. The owner swaps these for the Salmons art (S0).
+ * centre. A `rect` is drawn about its own centre (anchor 0.5), so it sits at 0, 0. `round` draws
+ * it as a disc. The owner swaps these for the Salmons art (S0).
  */
 const placeholder = (
 	id: string,
@@ -62,8 +63,8 @@ const placeholder = (
 			{
 				id: `${id}-shape`,
 				kind: 'rect',
-				x: -w / 2,
-				y: -h / 2,
+				x: 0,
+				y: 0,
 				width: w,
 				height: h,
 				color,
