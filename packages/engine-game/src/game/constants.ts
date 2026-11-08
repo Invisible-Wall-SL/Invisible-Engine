@@ -40,31 +40,4 @@ export const SYMBOL_DIM_TINT = 0x666666;
 
 export const INITIAL_SYMBOL_STATE: SymbolState = 'static';
 
-const SPIN_OPTIONS_SHARED = {
-	reelBounceBackSpeed: 0.15,
-	reelSpinSpeedBeforeBounce: 4,
-	reelPaddingMultiplierNormal: 1.2,
-	reelPaddingMultiplierAnticipated: 10,
-	// Free-spin sequential-stop padding knob (higher = longer gap between reel stops). Only
-	// applies when the sequential-stop flag selects the `sequential` spinType, so the base game
-	// is unaffected.
-	reelPaddingMultiplierSequential: 4,
-	// Sequential-cascade spin speed (higher = faster reels, which also shortens the gap between
-	// stops for a given `reelPaddingMultiplierSequential`). Matches `reelSpinSpeed` by default.
-	reelSpinSpeedSequential: 3,
-	reelSpinDelay: 145,
-};
-
-export const SPIN_OPTIONS_DEFAULT = {
-	...SPIN_OPTIONS_SHARED,
-	reelPreSpinSpeed: 2,
-	reelSpinSpeed: 3,
-	reelBounceSizeMulti: 0.3,
-};
-
-export const SPIN_OPTIONS_FAST = {
-	...SPIN_OPTIONS_SHARED,
-	reelPreSpinSpeed: 5,
-	reelSpinSpeed: 5,
-	reelBounceSizeMulti: 0.05,
-};
+export { SPIN_OPTIONS_DEFAULT, SPIN_OPTIONS_FAST } from './spinOptions';

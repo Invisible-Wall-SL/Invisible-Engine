@@ -3,7 +3,12 @@ import { waitForResolve } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { stateSlots } from './stateSlots.svelte';
-import type { Reel, GetRawSymbolFromReel, ReelAnticipationArming } from './types';
+import type {
+	Reel,
+	GetRawSymbolFromReel,
+	ReelAnticipationArming,
+	SpinningReelSpinOptions,
+} from './types';
 
 export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 	board,
@@ -36,7 +41,16 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 		// the engine stays config-agnostic.
 		computeArming?: (reelIndex: number) => ReelAnticipationArming | null;
 	}) {
-		if (stateSlots.isPreSpinning) {
+		// A turbo spin with a minimum roll lands from wherever its strip is drawn (the reel hands over
+		// mid-lap), so it does not wait for every reel's pre-spin lap to come round first.
+		const landsMidLap =
+			stateBet.isTurbo &&
+			board.every(
+				(reel) =>
+					((reel.reelState.spinOptions() as Partial<SpinningReelSpinOptions>).reelMinSpinDuration ??
+						0) > 0,
+			);
+		if (stateSlots.isPreSpinning && !landsMidLap) {
 			await Promise.all(
 				board.map(async (reel) => {
 					await waitForResolve((resolve) => (reel.reelState.readyToSpin = resolve));
