@@ -346,11 +346,17 @@ the runbook follows them.
   / swim_ne / hop_se; downstream plays swim_se mirrored, upstream swim_ne, the grounded clip
   stands on its feet 180 px tall and gold, the sandbank jump plays hop then swim, the bear
   without clips keeps its placeholder); the arcade, characters, platformer, camera, spawn and
-  online playbooks pass; `check:svelte` at baseline. Runtime JS +5.3 KB (+2.1 KB gzip).
+  online playbooks pass; `check:svelte` at baseline. Runtime JS +5.8 KB (+2.4 KB gzip).
   **Owner:** after the merge and the next runtime release, re-upload the three character
   components ("Re-upload" above: the ones in R2 have no `characterClips`) and publish; the clips
   then play. A clip is found by its id, which the Flipbook tool makes from its name at the first
   save: renaming a clip later does not rename its id (save it as a new clip instead).
+  Review fixes (same day): `pixi-svelte` `<Flipbook>` destroys the frames it restates for a
+  clip's box (`destroy(false)`) once replaced and on unmount, so the clips' remounts no longer
+  leak textures held by the page (every game's boxed clips gain this); reachability lists the
+  project's clip keys only when a component names a prefix (one LIST, no clip reads); a player's
+  clips restart when it respawns or a round starts, an event for a player no longer drawn plays
+  nothing, and the catch hold ends with the `caught` clip.
 
 - 2026-11-08 — **S0's owner runbook, and what no longer fits.** [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md)
   is the owner's click-by-click path, starting with a one-clip smoke test. The S0 recipe was

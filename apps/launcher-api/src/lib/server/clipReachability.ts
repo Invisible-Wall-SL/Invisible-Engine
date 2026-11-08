@@ -25,7 +25,7 @@ import { createSingleFlight, mapWithConcurrency } from './concurrency';
 const REACHABILITY_CONCURRENCY = 6;
 import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
-import { loadFlipbookDoc } from './flipbookStorage';
+import { listClipIds } from './flipbookStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
 import { listEffects, loadEffect } from './fxStorage';
 import { exportRigFlipbooks, referencedClipIds } from './rigFlipbookExport';
@@ -135,32 +135,29 @@ async function collectPlayedClipIdsUncached(
 ): Promise<Set<string> | null> {
 	const ids = new Set<string>();
 	try {
-		// SEVEN INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
+		// SIX INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
 		// `art:clips:walk` and, since the two callers were merged onto one run, it sits directly on
 		// the assemble's critical path — so its cost is the assemble's cost. Nothing here depends on
 		// anything else here: each source is read, then folded into one Set, and a Set union does
 		// not care what order it happens in. They were simply written one `await` after another.
-		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks, clipsDoc] =
-			await Promise.all([
-				preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
-				preloaded?.defs ?? listComponents({ projectKey }),
-				loadSymbolsDoc(clientKey, projectKey),
-				// The effects are a loop within the group: list them, then load each one concurrently
-				// rather than one per round-trip.
-				listEffects(clientKey, projectKey).then((rows) =>
-					mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
-						const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
-						return effectDoc;
-					}),
-				),
-				loadFlowV2Doc(clientKey, projectKey),
-				// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
-				// manifest), so calling it here costs a listing, not a write — which is also why it is
-				// safe to run beside the others rather than after them.
-				exportRigFlipbooks(clientKey, projectKey),
-				// The project's clips, for the ones a character names by prefix only.
-				loadFlipbookDoc(clientKey, projectKey),
-			]);
+		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks] = await Promise.all([
+			preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
+			preloaded?.defs ?? listComponents({ projectKey }),
+			loadSymbolsDoc(clientKey, projectKey),
+			// The effects are a loop within the group: list them, then load each one concurrently
+			// rather than one per round-trip.
+			listEffects(clientKey, projectKey).then((rows) =>
+				mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
+					const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+					return effectDoc;
+				}),
+			),
+			loadFlowV2Doc(clientKey, projectKey),
+			// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
+			// manifest), so calling it here costs a listing, not a write — which is also why it is
+			// safe to run beside the others rather than after them.
+			exportRigFlipbooks(clientKey, projectKey),
+		]);
 		collectClipIds(docSrc, ids);
 		collectClipIds(defsSrc, ids);
 		collectClipIds(symbolsDoc, ids);
@@ -170,8 +167,11 @@ async function collectPlayedClipIdsUncached(
 		const prefixes = new Set<string>();
 		collectClipPrefixes(docSrc, prefixes);
 		collectClipPrefixes(defsSrc, prefixes);
-		const projectClipIds = clipsDoc.clips.map((clip) => clip.id);
-		for (const id of clipIdsOfPrefixes(prefixes, projectClipIds)) ids.add(id);
+		// Only a project whose characters name clips by prefix lists its clips (one LIST, no reads).
+		if (prefixes.size) {
+			const projectClipIds = await listClipIds(clientKey, projectKey);
+			for (const id of clipIdsOfPrefixes(prefixes, projectClipIds)) ids.add(id);
+		}
 	} catch (e) {
 		// Reachability unknown — the caller ships every clip. Never prune on a guess.
 		console.log(`[clips] reachability undetermined (${e}) — treating every clip as played.`);

@@ -117,9 +117,6 @@ A seed and the same keys replay the same game.
 
 ## Known failure modes
 
-- **Symptom:** a `ComponentDef` field an export writes is gone once the launcher reads it.
-  **Cause:** `normalizeComponent` keeps an allowlist on read and save. **Fix:** normalize it there,
-  list it in `componentFields.ts`. **Guard:** `check:character-clips` (launcher and root).
 - **Symptom:** after switching `salmons` to arcade and re-scaffolding, the published game was an
   arcade runtime driven by a slot flow and was broken. **Cause:** re-scaffold only creates missing
   files, so the old Book-of `editor/flow-v2.json` survived
@@ -195,6 +192,7 @@ A seed and the same keys replay the same game.
 - `services/director-worker/families/arcade.md`: Director's runtime agents' pack (edit it there).
 - `docs/status/game-families.md`: P10.8, P10.11–P10.14 sections and open items 0, 9–14.
 - `docs/status/salmons.md`: the S0 art pass and the `salmons` project.
+- `docs/knowledge/lessons/arcade.md` (clips, the S0 approval) and `lessons/components.md`.
 - `docs/design/game-families.md` §1 (Salmons), §4.2–§4.5, §8; `docs/design/realtime-multiplayer.md`.
 - `docs/tools/invisible-characters.md`, `docs/tools/invisible-editor.md`, `docs/tools/game-config.md`.
 - `docs/INFRA.md` "Invisible Game Server" (env, local run, the owner's deploy steps).

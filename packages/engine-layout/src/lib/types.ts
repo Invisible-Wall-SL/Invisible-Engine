@@ -1882,7 +1882,8 @@ export type CharacterClipEvent = (typeof CHARACTER_CLIP_EVENTS)[number];
 /**
  * A character's clips, named `<prefix>_<state>_<facing>` (`se`, `sw`, `ne`, `nw`) and resolved
  * from the registered clips (`registerFlipbooks`). A state or facing with no clip is stood in for
- * by a near one (`characterClips.ts`); with none, the component's own tree is drawn.
+ * by a near one (`characterClips.ts`); with none, the component's own tree is drawn. The facings
+ * assume an isometric (2:1) world: the velocity is projected as the isometric screen draws it.
  */
 export interface CharacterClips {
 	/** `marked` is tried first for a player the room marks (the golden salmon); without one the

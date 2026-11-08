@@ -30,6 +30,7 @@ import {
 	strongestForce,
 	type Camera,
 	type FixedStep,
+	type HookLine,
 	type HookLines,
 	type Interpolator,
 	type OnlineEvent,
@@ -206,13 +207,21 @@ type Session = {
 let session: Session | undefined;
 
 /** A player's clips: its animator, its drawn places of the last moment (its velocity) and, once
- *  the room put it out, how long its instance is kept for its catch. */
+ *  the room put it out, how long its instance waits for its catch and whether the catch started. */
 type PlayerLook = {
 	look: CharacterClips;
 	animator: CharacterAnimator;
 	trail: { x: number; y: number; atMs: number }[];
-	leaving: number | undefined;
+	leaving: { until: number; caught: boolean } | undefined;
 	shown: CharacterClipFrame | undefined;
+};
+
+/** Start a player's clips afresh where it is next drawn: no one-shot, no velocity from its last
+ *  place (it was hidden, or the room moved it). */
+const restart = (look: PlayerLook) => {
+	look.leaving = undefined;
+	look.trail.length = 0;
+	look.animator.reset();
 };
 
 /** How long an instance put out is kept waiting for the room's `caught`, which comes just after
@@ -472,8 +481,12 @@ function raise(current: Session, signal: OnlineFlowSignal) {
 	const event = clipSubject(signal);
 	if (event) {
 		const subject = event === 'caught' ? signal.payload.target : signal.payload.player;
-		if (typeof subject === 'string') current.looks.get(subject)?.animator.event(event);
+		// Only a player drawn now: an event that comes after its instance went plays nothing later.
+		if (typeof subject === 'string' && current.drawn.has(subject))
+			current.looks.get(subject)?.animator.event(event);
 	}
+	// A new round puts every player at its start: no velocity from where it was.
+	if (signal.name === 'roundStart') for (const look of current.looks.values()) restart(look);
 	void getFlowV2()?.dispatch(signal.name, signal.payload);
 }
 
@@ -592,10 +605,7 @@ function draw(current: Session, dtMs: number) {
 		live.despawn(instance);
 		current.drawn.delete(id);
 		const look = current.looks.get(id);
-		if (look) {
-			look.leaving = undefined;
-			look.trail.length = 0;
-		}
+		if (look) restart(look);
 	}
 	const moves: { id: string; x: number; y: number }[] = [];
 	const places = new Map<string, { x: number; y: number }>();
@@ -606,8 +616,9 @@ function draw(current: Session, dtMs: number) {
 		const instance = current.drawn.get(id);
 		if (instance) {
 			moves.push({ id: instance, x: at.x, y: at.y });
+			// Held for its catch and shown again (it respawned): its clips start afresh.
 			const look = current.looks.get(id);
-			if (look) look.leaving = undefined;
+			if (look?.leaving) restart(look);
 			return;
 		}
 		const character = current.game.online.characters.find((c) => c.id === player.character);
@@ -622,8 +633,9 @@ function draw(current: Session, dtMs: number) {
 		}
 	});
 	live.move(moves);
-	drawMarks(current, players);
-	drawClips(current, players, places);
+	const lines = current.lines.drawn(players);
+	drawMarks(current, players, lines);
+	drawClips(current, players, places, lines);
 }
 
 /** The registered clips, as a character's animator reads them. */
@@ -669,8 +681,13 @@ function keptForCatch(current: Session, id: string, player: PlayerState): boolea
 	const look = current.looks.get(id);
 	if (!look || !look.animator.plays('caught', player.mark)) return false;
 	const now = current.clipClock;
-	look.leaving ??= now + CAUGHT_WAIT_MS;
-	return now < look.leaving || look.animator.busy(now);
+	look.leaving ??= { until: now + CAUGHT_WAIT_MS, caught: false };
+	// Once the catch started, it is kept exactly while it plays.
+	if (look.animator.oneShot(now) === look.look.on?.caught) {
+		look.leaving.caught = true;
+		return true;
+	}
+	return !look.leaving.caught && now < look.leaving.until;
 }
 
 /** Each drawn character's clip this frame, from how it moved as drawn since the last one. */
@@ -678,8 +695,9 @@ function drawClips(
 	current: Session,
 	players: Map<string, PlayerState>,
 	places: Map<string, { x: number; y: number }>,
+	lines: readonly HookLine[],
 ) {
-	const holders = new Set(current.lines.drawn(players).map((line) => line.by));
+	const holders = new Set(lines.map((line) => line.by));
 	const clips = new Map<string, InstanceClip>();
 	const now = current.clipClock;
 	for (const [id, instance] of current.drawn) {
@@ -737,7 +755,11 @@ const bodyOf = (current: Session, player: PlayerState) =>
  * ends are raised by the bodies' `h`, which in an isometric world is their depth on the ground, not
  * a look's height: right while the looks are sized to their bodies (Salmons' placeholders).
  */
-function drawMarks(current: Session, players: Map<string, PlayerState>) {
+function drawMarks(
+	current: Session,
+	players: Map<string, PlayerState>,
+	lines: readonly HookLine[],
+) {
 	const marks = new Map<string, InstanceMark>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
@@ -746,7 +768,7 @@ function drawMarks(current: Session, players: Map<string, PlayerState>) {
 	setMarks(marks);
 	const links: InstanceLink[] = [];
 	current.drawnLines = [];
-	for (const line of current.lines.drawn(players)) {
+	for (const line of lines) {
 		const from = current.drawn.get(line.by);
 		const to = current.drawn.get(line.target);
 		const by = players.get(line.by);

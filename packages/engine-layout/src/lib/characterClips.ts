@@ -53,6 +53,9 @@ export const CLIP_STILL_SPEED = 15;
  *  holds it in place does not flick its walk to idle and back. */
 export const CLIP_MOVING_HOLD_MS = 200;
 
+/** How long a one-shot plays when its clip's length cannot be read. */
+export const CLIP_ONE_SHOT_MS = 1000;
+
 /** How long a new facing must hold before the character turns: one pushed back and forth (by a
  *  bank's push, or a prediction corrected at a waterfall's foot) keeps the facing it had. */
 export const CLIP_TURN_MS = 150;
@@ -158,8 +161,11 @@ export type CharacterAnimator = {
 	frame(frame: CharacterFrame): CharacterClipFrame | undefined;
 	/** Whether `event`'s one-shot has a clip in some facing, without a fallback state. */
 	plays(event: CharacterClipEvent, marked: boolean): boolean;
-	/** Whether a one-shot is waiting to start or playing at `atMs`. */
-	busy(atMs: number): boolean;
+	/** The state of the one-shot waiting to start or playing at `atMs`, if any. */
+	oneShot(atMs: number): string | undefined;
+	/** Forget the one-shot and the turn in hand (a player gone, or moved by the room); the facing
+	 *  is kept. */
+	reset(): void;
 	readonly facing: ClipFacing;
 };
 
@@ -191,8 +197,13 @@ export function createCharacterAnimator(
 			// From `se` every facing is tried, its own state first.
 			return resolveCharacterClip(look, state, 'se', marked, has)?.state === state;
 		},
-		busy(atMs) {
-			return pending !== undefined || (!!oneShot && atMs < oneShot.until);
+		oneShot(atMs) {
+			return pending ?? (oneShot && atMs < oneShot.until ? oneShot.state : undefined);
+		},
+		reset() {
+			pending = undefined;
+			oneShot = undefined;
+			turning = undefined;
 		},
 		frame({ atMs, vx, vy, holding, marked }) {
 			if (Math.hypot(vx, vy) > CLIP_STILL_SPEED) {
@@ -205,7 +216,7 @@ export function createCharacterAnimator(
 					turning = undefined;
 				}
 				lastMovedAt = atMs;
-			}
+			} else turning = undefined;
 			const moving = atMs - lastMovedAt <= CLIP_MOVING_HOLD_MS;
 			const loopState =
 				holding && look.holding ? look.holding : moving ? (look.walk ?? look.idle) : look.idle;
@@ -216,7 +227,8 @@ export function createCharacterAnimator(
 				// A one-shot that falls back to the loop already playing would only restart it.
 				if (next && next.state !== loop?.state) {
 					plays += 1;
-					oneShot = { ...next, until: atMs + (clips.cycleMs(next.clipId) ?? 0), play: plays };
+					const ms = clips.cycleMs(next.clipId) ?? CLIP_ONE_SHOT_MS;
+					oneShot = { ...next, until: atMs + ms, play: plays };
 				}
 			}
 			if (oneShot && atMs < oneShot.until) {

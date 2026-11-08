@@ -77,6 +77,13 @@ function clipIdFromKey(key: string): string {
 	return base.slice(0, -CLIP_DOC_SUFFIX.length);
 }
 
+/** A project's clip ids, from the key listing alone (one LIST, no clip read): what a clip prefix
+ *  is matched against (`clipReachability`). */
+export async function listClipIds(clientKey: string, projectKey: string): Promise<string[]> {
+	const listed = await listObjects(`${clipsPrefix(clientKey, projectKey)}/`, 1000);
+	return listed.keys.map(clipIdFromKey).filter((id) => id !== '');
+}
+
 /** List a project's clips (the `*.clip.json` files under `clips/`), sorted by label. */
 export async function listClips(clientKey: string, projectKey: string): Promise<FlipbookClipRow[]> {
 	const prefix = `${clipsPrefix(clientKey, projectKey)}/`;

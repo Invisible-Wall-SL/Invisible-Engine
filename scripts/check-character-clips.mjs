@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 
 import {
 	CLIP_MOVING_HOLD_MS,
+	CLIP_ONE_SHOT_MS,
 	CLIP_TURN_MS,
 	clipFacingOf,
 	createCharacterAnimator,
@@ -176,14 +177,14 @@ check('a one-shot plays to its end before the loop, and again when repeated', ()
 		'swimming upstream faces ne',
 	);
 	assert.equal(a.event('jumped'), true);
-	assert.equal(a.busy(200), true, 'the one-shot waits for the next frame');
+	assert.equal(a.oneShot(200), 'hop', 'the one-shot waits for the next frame');
 	const hop = step(216);
 	assert.deepEqual([hop.clipId, hop.flipX, hop.loop], ['salmon_pink_hop_se', false, false]);
 	assert.equal(step(500, -200).clipId, 'salmon_pink_hop_se', 'still hopping');
-	assert.equal(a.busy(500), true);
+	assert.equal(a.oneShot(500), 'hop');
 	const after = step(720, -200);
 	assert.deepEqual([after.clipId, after.loop], ['salmon_pink_swim_ne', true], 'then swims on');
-	assert.equal(a.busy(720), false);
+	assert.equal(a.oneShot(720), undefined);
 	a.event('climbed');
 	const again = step(740);
 	assert.equal(again.clipId, 'salmon_pink_hop_se');
@@ -200,13 +201,34 @@ check('pushed back and forth, a character keeps its facing; a held turn turns it
 	assert.equal(step(1000 + CLIP_TURN_MS, -200), 'salmon_pink_swim_ne');
 });
 
+check(
+	'a reset forgets the one-shot; still, a turn in hand is dropped; no length: a real one',
+	() => {
+		const ids = ['salmon_pink_swim_se', 'salmon_pink_swim_ne', 'salmon_pink_hop_se'];
+		const a = createCharacterAnimator(salmon, source(ids));
+		const step = (atMs, vy = 0) => a.frame({ atMs, vx: 0, vy, holding: false, marked: false });
+		a.event('jumped');
+		assert.equal(step(0).clipId, 'salmon_pink_hop_se');
+		assert.equal(a.oneShot(CLIP_ONE_SHOT_MS - 1), 'hop', 'no cycle length: CLIP_ONE_SHOT_MS');
+		a.reset();
+		assert.equal(a.oneShot(1), undefined);
+		assert.equal(step(2).clipId, 'salmon_pink_swim_se');
+		step(10, -200);
+		step(20);
+		step(30 + CLIP_TURN_MS, -200);
+		assert.equal(a.facing, 'se', 'a stop in between restarts the turn');
+		step(40 + 2 * CLIP_TURN_MS, -200);
+		assert.equal(a.facing, 'ne');
+	},
+);
+
 check('a one-shot that falls back to the loop playing is not played (no restart)', () => {
 	const a = createCharacterAnimator(salmon, source(['salmon_pink_swim_se']));
 	a.frame({ atMs: 0, vx: 0, vy: 0, holding: false, marked: false });
 	a.event('jumped');
 	const next = a.frame({ atMs: 16, vx: 0, vy: 0, holding: false, marked: false });
 	assert.deepEqual([next.clipId, next.loop], ['salmon_pink_swim_se', true]);
-	assert.equal(a.busy(16), false);
+	assert.equal(a.oneShot(16), undefined);
 });
 
 check('caught: played once if it has a clip, with no stand-in', () => {
@@ -218,8 +240,8 @@ check('caught: played once if it has a clip, with no stand-in', () => {
 	withCaught.event('caught');
 	const c = withCaught.frame({ atMs: 0, vx: 0, vy: 0, holding: false, marked: false });
 	assert.deepEqual([c.clipId, c.loop], ['salmon_pink_caught_ne', false]);
-	assert.equal(withCaught.busy(799), true);
-	assert.equal(withCaught.busy(801), false);
+	assert.equal(withCaught.oneShot(799), 'caught');
+	assert.equal(withCaught.oneShot(801), undefined);
 	const without = createCharacterAnimator(salmon, source(['salmon_pink_swim_se']));
 	assert.equal(without.plays('caught', false), false, 'no caught clip: hidden at once, as before');
 	assert.equal(
