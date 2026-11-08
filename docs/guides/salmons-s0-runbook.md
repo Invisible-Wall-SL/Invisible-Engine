@@ -4,9 +4,11 @@ Make Salmons' character animations in the launcher. Everything runs in the proje
 **`salmons`** (client `invisible_wall`) at `app.invisiblewall.org`. The tools save straight into
 the project, so no files are downloaded and only two are uploaded, once (step A).
 
-> **The game can't play these clips yet.** The game-side wiring is a separate change that is not
-> merged yet. Until it is, you can make and check clips (steps A to C, except B4), but the published
-> game still shows the placeholder shapes. B4 says when to look.
+> **The game plays these clips once the wiring ships.** The game-side wiring is built (in review,
+> branch `s0-character-clips`). The clips play in the published game after it merges, the next
+> runtime release goes out, the three character components are re-uploaded
+> ([status/salmons.md](../status/salmons.md) "Re-upload") and `salmons` is published again. Until
+> then you can make and check clips (steps A to C, except B4). B4 says when to look.
 
 The plan, the decisions and how the game picks a clip are in
 [status/salmons.md](../status/salmons.md) "S0 on the engine". This page is only the clicks. The

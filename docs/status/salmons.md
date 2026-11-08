@@ -10,8 +10,9 @@ server, with placeholder looks, and play in two browsers and a room of bots
 the `salmons` project (2026-11-02); its players are not moved over yet (owner step 5). Since
 2026-11-08 (in review) the golden salmon is drawn gold, the fishing line is drawn, and the rules'
 events are Flow events; taking the new looks and flow live is an owner re-upload (below). The art pass (S0) was approved on
-2026-10-26; its 22 character clips are still to be generated in the launcher's tools, and replace
-the placeholders when they are.
+2026-10-26; its 20 character clips (owner, 2026-11-08) are still to be generated in the launcher's
+tools. The game side that plays them is built (2026-11-08, in review): each character plays its
+clips once they are in the project, and keeps its placeholder until then.
 
 ## Current state
 
@@ -129,6 +130,9 @@ current ones:
 - `editor/salmons/components/salmonssplash.json` (new).
 
 `invisible_wall/salmons/config/config.json` is unchanged. Then publish `salmons` again (step 3).
+Once the S0 wiring merges too, the export writes `characterClips` into `salmonssalmon.json`,
+`salmonsbear.json` and `salmonsfisherman.json`: upload those after that merge (one re-upload can
+cover both), or the characters keep their placeholders whatever clips are made.
 Until the looks are re-uploaded, the line's ends and the gold glow sit at the place while the old
 looks still draw up and left of it.
 
@@ -205,8 +209,10 @@ The S0 recipe was written for the old client (`GuiltyForever/Salmon-` `docs/art-
 Salmons now plays on the engine, so the art goes into the `salmons` project and ships on
 **Publish**. No FTP download and no `build-sheets.py` are needed.
 
-**The wiring (planned, after the Salmons visual-fixes PR merges; not built).** It follows the old
-client's `characterLook.js` rules:
+**The wiring (built 2026-11-08, in review; branch `s0-character-clips`).** It follows the old
+client's `characterLook.js` rules. The three character components carry `characterClips`
+(`referenceLayouts/salmons.ts`), resolved by `engine-layout` `characterClips.ts` and drawn by
+`SpawnLayer` (detail in Recent changes):
 - Each player plays `<character>_<state>_<facing>` once that clip is published, and keeps its
   placeholder while it has none. The character prefixes are `salmon_pink`, `bear` and
   `fisherman`. The golden salmon (the player's `mark`) plays `salmon_golden_*` if there is one,
@@ -226,13 +232,18 @@ client's `characterLook.js` rules:
   `dx = vx − vy`, `dy = (vx + vy) / 2`). `se` and `ne` are drawn as made, and `sw` and `nw` are
   them mirrored. Standing still keeps the last facing.
 - The clip's ⬚ Bounds box sits with its bottom centre at the body's feet.
+- Two choices made in the build (owner may overturn): a state with no clip in any facing and no
+  stand-in keeps the placeholder (the old client drew any clip of the character instead); a new
+  facing must hold 150 ms before the character turns, so one pushed back and forth by a bank or
+  corrected at a waterfall's foot does not flick between two facings every frame.
 
-**Adjustments for the owner.** None of these is changed silently. The runbook assumes the default
-in brackets.
+**Adjustments — Decided (owner, 2026-11-08: "defaults ok").** Each takes the default in brackets;
+the runbook follows them.
 
 1. **The clip count.** The plan says 22 clips, but its own table lists 13 states × 2 facings = 26.
    *(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
-   `salmon_golden_*` clips are made; generated golden clips replace the tint if they exist.)*
+   `salmon_golden_*` clips are made; generated golden clips replace the tint if they exist. The
+   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)*
 2. **States the engine has that the plan lacks** (P11.3). A salmon can be **grounded** on a
    sandbank (held still until it taps), **hooked** on a line (reeled in), and it **climbs** a
    waterfall by tapping. *(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
@@ -311,6 +322,35 @@ in brackets.
   Chosen here, owner may overturn: gold by a brightness ramp (any look turns gold, not a second
   look), a white 3 px line from ¾ of the holder's height to the middle of the one on it, the
   splash at a climb and a hook, the banner only on the golden salmon's own device.
+
+- 2026-11-08 — **S0 wiring: each player plays its Invisible Flipbook clips (in review).** In an
+  online room a character whose component has `characterClips` plays `<prefix>_<state>_<facing>`
+  as soon as the clip is registered, else its placeholder:
+  - `engine-layout` `characterClips.ts` (pure): the facing from the drawn velocity projected 2:1
+    (measured over 150 ms; a turn holds 150 ms), the near-facing then near-state stand-ins, the
+    golden prefix before the base one, the loops (idle / walk / holding) and the one-shots on
+    `jumped`, `climbed`, `ability` and `caught`;
+  - `apps/lines` `game/online.ts` runs one animator per player and publishes the clips
+    (`arcadeClips.svelte.ts`); the own ability starts on the press. A salmon the room puts out is
+    kept drawn until its `caught` clip ends (the room's `caught` comes just after the state); with
+    no `caught` clip it hides at once, as before;
+  - `SpawnLayer` draws the clip over the hidden placeholder (the Flow handle stays mounted), its
+    box's bottom centre at the feet, the body's width wide, gold for the golden salmon unless a
+    `salmon_golden_*` clip played; until the clip's first frame is loaded the placeholder shows;
+  - rule 8: `clipReachability` ships every project clip under a prefix a component names, so the
+    clip export and the art export ship them; the save keeps `characterClips`
+    (`normalizeComponent`, `componentFields`).
+
+  Gates: root `check:character-clips` 10, launcher `check:character-clips` 18,
+  `salmons-play.mjs` 61 / 61 in each netcode (9 new verdicts on two new pages: stub clips swim_se
+  / swim_ne / hop_se; downstream plays swim_se mirrored, upstream swim_ne, the grounded clip
+  stands on its feet 180 px tall and gold, the sandbank jump plays hop then swim, the bear
+  without clips keeps its placeholder); the arcade, characters, platformer, camera, spawn and
+  online playbooks pass; `check:svelte` at baseline. Runtime JS +5.3 KB (+2.1 KB gzip).
+  **Owner:** after the merge and the next runtime release, re-upload the three character
+  components ("Re-upload" above: the ones in R2 have no `characterClips`) and publish; the clips
+  then play. A clip is found by its id, which the Flipbook tool makes from its name at the first
+  save: renaming a clip later does not rename its id (save it as a new clip instead).
 
 - 2026-11-08 — **S0's owner runbook, and what no longer fits.** [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md)
   is the owner's click-by-click path, starting with a one-clip smoke test. The S0 recipe was

@@ -64,6 +64,7 @@ A seed and the same keys replay the same game.
   button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
+- **Character clips (S0)**: `characterClips.ts`, online rooms only, shipped by prefix.
 - **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
@@ -107,7 +108,7 @@ A seed and the same keys replay the same game.
 | Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
-| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
+| Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `arcadeClips.svelte.ts`, `characterClips.ts`, `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
 | Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
@@ -116,6 +117,9 @@ A seed and the same keys replay the same game.
 
 ## Known failure modes
 
+- **Symptom:** a `ComponentDef` field an export writes is gone once the launcher reads it.
+  **Cause:** `normalizeComponent` keeps an allowlist on read and save. **Fix:** normalize it there,
+  list it in `componentFields.ts`. **Guard:** `check:character-clips` (launcher and root).
 - **Symptom:** after switching `salmons` to arcade and re-scaffolding, the published game was an
   arcade runtime driven by a slot flow and was broken. **Cause:** re-scaffold only creates missing
   files, so the old Book-of `editor/flow-v2.json` survived
@@ -162,21 +166,18 @@ A seed and the same keys replay the same game.
   `check:salmons-export` (an isometric look stands on its place).
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
-- **Symptom:** the owner was never asked to approve the Salmons art pass. **Cause:** S0 had no row
-  in game-families §8, the table the coordinator walks. **Guard:** S0 now has a §8 row and a
-  `docs/STATUS.md` owner entry.
 
 ## How to test
 
 - **Root gates:** `pnpm check:arcade-motion`, `pnpm check:arcade-characters`,
-  `pnpm check:arcade-platformer`, `pnpm check:room-sim` (starts a real Colyseus server, ~30 s),
-  `pnpm check:game-app-deps`. Each mechanics gate compares a committed replay (`--update` rewrites
-  it; only when the change is meant to move it).
+  `pnpm check:arcade-platformer`, `pnpm check:character-clips`, `pnpm check:room-sim` (starts a
+  real Colyseus server, ~30 s), `pnpm check:game-app-deps`. Each mechanics gate compares a
+  committed replay (`--update` rewrites it; only when the change is meant to move it).
 - **Launcher gates** (`pnpm --filter launcher-api <name>`): `check:arcade-rules`,
-  `check:arcade-camera`, `check:arcade-characters`, `check:arcade-platformer`,
-  `check:characters-tool`, `check:editor-tilemap`, `check:editor-world-camera`,
-  `check:layout-path`, `check:game-config-family`, `check:family-tools`, `check:art-scope`,
-  `check:component-state-machine`.
+  `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
+  `check:arcade-platformer`, `check:characters-tool`, `check:editor-tilemap`,
+  `check:editor-world-camera`, `check:layout-path`, `check:game-config-family`,
+  `check:family-tools`, `check:art-scope`, `check:component-state-machine`.
 - **Playbooks** (headless browser, branch runtime): `docs/playtest/arcade-sample.md`
   (`scripts/playtest/arcade-play.mjs`), `docs/playtest/arcade-characters.md`,
   `docs/playtest/arcade-platformer.md`, `docs/playtest/online-sample.md` (two pages, local game
@@ -191,8 +192,7 @@ A seed and the same keys replay the same game.
 
 ## Read more
 
-- `services/director-worker/families/arcade.md`: what Director's runtime agents read about this
-  family (the whole pack). The pack is the one home of that text; edit it there.
+- `services/director-worker/families/arcade.md`: Director's runtime agents' pack (edit it there).
 - `docs/status/game-families.md`: P10.8, P10.11–P10.14 sections and open items 0, 9–14.
 - `docs/status/salmons.md`: the S0 art pass and the `salmons` project.
 - `docs/design/game-families.md` §1 (Salmons), §4.2–§4.5, §8; `docs/design/realtime-multiplayer.md`.

@@ -1,4 +1,4 @@
-import type { ComponentDef, LayoutDoc, LayoutNode, Scene } from '../types';
+import type { CharacterClips, ComponentDef, LayoutDoc, LayoutNode, Scene } from '../types';
 import { arcadeReferenceLayout, textBox } from './arcade';
 import { salmonsRiverNode, type SalmonsRiverDrawing } from './salmonsRiver';
 
@@ -39,6 +39,7 @@ const placeholder = (
 	color: number,
 	seat: Seat,
 	round = false,
+	characterClips?: CharacterClips,
 ): ComponentDef => ({
 	id,
 	name,
@@ -46,6 +47,7 @@ const placeholder = (
 	scope: 'project',
 	category: 'ui',
 	params: [],
+	...(characterClips ? { characterClips } : {}),
 	root: {
 		id: `${id}-root`,
 		kind: 'container',
@@ -66,13 +68,48 @@ const placeholder = (
 	},
 });
 
+/**
+ * The S0 clips each character plays once they are in the project (`characterClips.ts`), drawn at
+ * its body's width: `salmon_pink_*` (the golden salmon's are `salmon_golden_*` if made, else the
+ * pink ones drawn gold), `bear_*` and `fisherman_*`. With none, the placeholder is drawn.
+ */
+export const SALMONS_CHARACTER_CLIPS = {
+	salmon: {
+		prefixes: { base: 'salmon_pink', marked: 'salmon_golden' },
+		displayWidth: 90,
+		idle: 'swim',
+		on: { jumped: 'hop', climbed: 'hop', caught: 'caught' },
+	},
+	bear: {
+		prefixes: { base: 'bear' },
+		displayWidth: 92,
+		idle: 'idle',
+		walk: 'walk',
+		on: { ability: 'swipe' },
+	},
+	fisherman: {
+		prefixes: { base: 'fisherman' },
+		displayWidth: 56,
+		idle: 'idle',
+		walk: 'walk',
+		holding: 'reel',
+		on: { ability: 'cast' },
+	},
+} as const satisfies Record<string, CharacterClips>;
+
 /** The three characters' looks, sized to their bodies in `salmonsConfig`, the looks of the
  *  bear's swipe and the fisherman's cast, sized to their reaches, and the splash the flow draws at
- *  a climb or a hook. Placeholders. */
+ *  a climb or a hook. Placeholders, until each character's clips are in the project. */
 export const SALMONS_CHARACTER_COMPONENTS: readonly ComponentDef[] = [
-	placeholder('salmonsSalmon', 'Salmon (placeholder)', 90, 44, 0xfa8072, 'stand'),
-	placeholder('salmonsBear', 'Bear (placeholder)', 92, 92, 0x6b4423, 'stand', true),
-	placeholder('salmonsFisherman', 'Fisherman (placeholder)', 56, 88, 0xe0b04a, 'stand'),
+	placeholder('salmonsSalmon', 'Salmon (placeholder)', 90, 44, 0xfa8072, 'stand', false, {
+		...SALMONS_CHARACTER_CLIPS.salmon,
+	}),
+	placeholder('salmonsBear', 'Bear (placeholder)', 92, 92, 0x6b4423, 'stand', true, {
+		...SALMONS_CHARACTER_CLIPS.bear,
+	}),
+	placeholder('salmonsFisherman', 'Fisherman (placeholder)', 56, 88, 0xe0b04a, 'stand', false, {
+		...SALMONS_CHARACTER_CLIPS.fisherman,
+	}),
 	placeholder('salmonsSwipe', 'Swipe (placeholder)', 220, 220, 0xffe08a, 'centre', true),
 	placeholder('salmonsCast', 'Cast (placeholder)', 560, 560, 0xc8e6ff, 'centre', true),
 	placeholder('salmonsSplash', 'Splash (placeholder)', 150, 70, 0x9fd8ff, 'centre', true),

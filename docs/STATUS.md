@@ -199,9 +199,10 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
-- **Salmons' art pass (S0)** — approved and its choices made 2026-10-26. Left for a person in the
-  launcher: generate the 22 character clips (the recipes are in the Salmon repository's
-  `docs/art-pass.md`), and turn `salmons` into an arcade project in `/admin`.
+- **Salmons' art pass (S0)** — approved 2026-10-26; the eight adjustments decided 2026-11-08 (the
+  defaults); the game side that plays the clips is built (in review). Left for a person in the
+  launcher: generate the 20 character clips ([guides/salmons-s0-runbook](guides/salmons-s0-runbook.md)),
+  and after the merge re-upload the three character components and publish.
   ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))

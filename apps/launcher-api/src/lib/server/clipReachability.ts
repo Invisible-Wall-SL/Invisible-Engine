@@ -25,6 +25,7 @@ import { createSingleFlight, mapWithConcurrency } from './concurrency';
 const REACHABILITY_CONCURRENCY = 6;
 import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
+import { loadFlipbookDoc } from './flipbookStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
 import { listEffects, loadEffect } from './fxStorage';
 import { exportRigFlipbooks, referencedClipIds } from './rigFlipbookExport';
@@ -54,6 +55,35 @@ export function collectClipIds(value: unknown, into: Set<string>): void {
 }
 
 /**
+ * Every clip PREFIX a component's `characterClips` names (an arcade character plays
+ * `<prefix>_<state>_<facing>`, chosen at run time — `engine-layout` `characterClips.ts`), however
+ * deeply nested. Like {@link collectClipIds}, it over-collects rather than miss one.
+ */
+export function collectClipPrefixes(value: unknown, into: Set<string>): void {
+	if (!value) return;
+	if (Array.isArray(value)) {
+		for (const v of value) collectClipPrefixes(v, into);
+		return;
+	}
+	if (typeof value !== 'object') return;
+	for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+		if (k !== 'characterClips') {
+			collectClipPrefixes(v, into);
+			continue;
+		}
+		const prefixes = (v as { prefixes?: Record<string, unknown> } | null)?.prefixes;
+		for (const p of [prefixes?.base, prefixes?.marked]) if (typeof p === 'string' && p) into.add(p);
+	}
+}
+
+/** The project's clip ids a prefix names: `<prefix>_…`. */
+export function clipIdsOfPrefixes(prefixes: Iterable<string>, clipIds: Iterable<string>): string[] {
+	const heads = [...prefixes].map((prefix) => `${prefix}_`);
+	if (!heads.length) return [];
+	return [...clipIds].filter((id) => heads.some((head) => id.startsWith(head)));
+}
+
+/**
  * The clip ids something in this project plays, or `null` when that cannot be determined — in
  * which case the caller MUST ship everything rather than guess.
  *
@@ -70,6 +100,10 @@ export function collectClipIds(value: unknown, into: Set<string>): void {
  * Component defs are read with `listComponents({ projectKey })` — project + shared, i.e. ALL of
  * them rather than only those the doc currently instantiates. That over-collects on purpose: shipping a clip nothing plays costs
  * bytes, dropping one something plays costs an animation, and the two are not worth trading.
+ *
+ * An arcade character's clips are named by PREFIX only (`characterClips`, which picks
+ * `<prefix>_<state>_<facing>` at run time), so every project clip under a prefix a layout node or
+ * component def names is played ({@link collectClipPrefixes}).
  *
  * A clip played only from a game's own TypeScript is invisible here. That is the known limit, and
  * why an unreferenced clip is REPORTED by its caller rather than silently dropped.
@@ -101,35 +135,43 @@ async function collectPlayedClipIdsUncached(
 ): Promise<Set<string> | null> {
 	const ids = new Set<string>();
 	try {
-		// SIX INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
+		// SEVEN INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
 		// `art:clips:walk` and, since the two callers were merged onto one run, it sits directly on
 		// the assemble's critical path — so its cost is the assemble's cost. Nothing here depends on
 		// anything else here: each source is read, then folded into one Set, and a Set union does
 		// not care what order it happens in. They were simply written one `await` after another.
-		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks] = await Promise.all([
-			preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
-			preloaded?.defs ?? listComponents({ projectKey }),
-			loadSymbolsDoc(clientKey, projectKey),
-			// The effects are a loop within the group: list them, then load each one concurrently
-			// rather than one per round-trip.
-			listEffects(clientKey, projectKey).then((rows) =>
-				mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
-					const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
-					return effectDoc;
-				}),
-			),
-			loadFlowV2Doc(clientKey, projectKey),
-			// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
-			// manifest), so calling it here costs a listing, not a write — which is also why it is
-			// safe to run beside the others rather than after them.
-			exportRigFlipbooks(clientKey, projectKey),
-		]);
+		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks, clipsDoc] =
+			await Promise.all([
+				preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
+				preloaded?.defs ?? listComponents({ projectKey }),
+				loadSymbolsDoc(clientKey, projectKey),
+				// The effects are a loop within the group: list them, then load each one concurrently
+				// rather than one per round-trip.
+				listEffects(clientKey, projectKey).then((rows) =>
+					mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
+						const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+						return effectDoc;
+					}),
+				),
+				loadFlowV2Doc(clientKey, projectKey),
+				// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
+				// manifest), so calling it here costs a listing, not a write — which is also why it is
+				// safe to run beside the others rather than after them.
+				exportRigFlipbooks(clientKey, projectKey),
+				// The project's clips, for the ones a character names by prefix only.
+				loadFlipbookDoc(clientKey, projectKey),
+			]);
 		collectClipIds(docSrc, ids);
 		collectClipIds(defsSrc, ids);
 		collectClipIds(symbolsDoc, ids);
 		for (const effectDoc of effectDocs) collectClipIds(effectDoc, ids);
 		collectClipIds(flowV2Doc, ids);
 		for (const id of referencedClipIds(rigFlipbooks)) ids.add(id);
+		const prefixes = new Set<string>();
+		collectClipPrefixes(docSrc, prefixes);
+		collectClipPrefixes(defsSrc, prefixes);
+		const projectClipIds = clipsDoc.clips.map((clip) => clip.id);
+		for (const id of clipIdsOfPrefixes(prefixes, projectClipIds)) ids.add(id);
 	} catch (e) {
 		// Reachability unknown — the caller ships every clip. Never prune on a guess.
 		console.log(`[clips] reachability undetermined (${e}) — treating every clip as played.`);

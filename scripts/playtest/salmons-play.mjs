@@ -39,6 +39,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { deflateSync } from 'node:zlib';
 
 import { PNG } from 'pngjs';
 
@@ -147,6 +148,7 @@ const ruleRoom = (name, spawn) => {
 };
 ruleRoom('salmons-falls', { x: FALL_X, y: FALL.y + FALL.h + 22 + 80 });
 ruleRoom('salmons-sand', { x: SAND.x + SAND.w / 2, y: SAND.y + SAND.h + 80 });
+ruleRoom('salmons-clips', { x: SAND.x + SAND.w / 2, y: SAND.y + SAND.h + 80 });
 // After P11.3: a salmon starting on the sandbank (held there, grounded) and a fisherman on the bank
 // nearest it, within his cast's reach.
 const LINE_SAND = river.sandbanks.find((sand) => {
@@ -227,6 +229,67 @@ const snapNoRiver = await serveSnapshot({
 	snapshotId: 'salmons-noriver',
 	assetBase: `${server.origin}/${KEY}/`,
 });
+// S0: the same game with three stub clips of the salmon (no bear or fisherman clips), exported as
+// a publish would: a sheet under `deploy/editor-art/`, listed in `editorArt`, and the clips in
+// `flipbooks`. Each frame is a 32 × 64 box, drawn 90 wide (the salmon's body): 180 px tall, far
+// above the 44 px placeholder.
+const CLIP_SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_SalmonStub.json';
+const CLIP_RGB = [0x30, 0xd0, 0x30];
+mkdirSync(join(snapshot, 'deploy', 'editor-art'), { recursive: true });
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'S_SalmonStub.png'),
+	png(128, 64, () => CLIP_RGB),
+);
+const stubFrame = (i) => ({
+	frame: { x: i * 32, y: 0, w: 32, h: 64 },
+	rotated: false,
+	trimmed: false,
+	spriteSourceSize: { x: 0, y: 0, w: 32, h: 64 },
+	sourceSize: { w: 32, h: 64 },
+});
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'S_SalmonStub.json'),
+	JSON.stringify({
+		frames: Object.fromEntries([0, 1, 2, 3].map((i) => [`stub${i}`, stubFrame(i)])),
+		meta: { image: 'S_SalmonStub.png', format: 'RGBA8888', size: { w: 128, h: 64 }, scale: '1' },
+	}),
+);
+const stubClip = (id, frames, loop) => ({
+	id,
+	name: id,
+	assetKey: CLIP_SHEET,
+	frames: frames.map((i) => `stub${i}`),
+	fps: 8,
+	loop,
+	bounds: { x: -16, y: -32, w: 32, h: 64 },
+});
+const STUB_CLIPS = [
+	stubClip('salmon_pink_swim_se', [0, 1], true),
+	stubClip('salmon_pink_swim_ne', [2, 3], true),
+	stubClip('salmon_pink_hop_se', [0, 1, 2, 3, 0, 1, 2, 3], false),
+];
+const withClips = join(work, 'runtime-clips.json');
+writeFileSync(
+	withClips,
+	JSON.stringify({
+		doc,
+		componentDefs,
+		componentDefaults: {},
+		config,
+		flowV2: SALMONS_SEED_DOC,
+		flipbooks: STUB_CLIPS,
+		editorArt: {
+			sheets: [{ key: CLIP_SHEET, json: 'editor-art/S_SalmonStub.json' }],
+			images: [],
+		},
+	}),
+);
+const snapClips = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withClips,
+	name: 'Salmons',
+	snapshotId: 'salmons-clips',
+});
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
@@ -278,7 +341,7 @@ async function ready(page) {
 				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
 				key: { KeyJ: 'j', Space: ' ' }[name] ?? name,
 				code: name,
-				windowsVirtualKeyCode: { ArrowUp: 38, KeyJ: 74, Space: 32 }[name],
+				windowsVirtualKeyCode: { ArrowUp: 38, ArrowDown: 40, KeyJ: 74, Space: 32 }[name],
 			}),
 		flow: (expr) => page.evaluate(`(() => { const f = window.__IE_FLOW_V2__; return ${expr}; })()`),
 	};
@@ -324,6 +387,40 @@ function isometricAt(png, arcade, me) {
 		flat,
 		apart,
 	};
+}
+/** An RGBA PNG of `w × h` whose pixel colour `paint(x, y)` returns (`[r, g, b]`). */
+function png(w, h, paint) {
+	const table = Array.from({ length: 256 }, (_, n) => {
+		let c = n;
+		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+		return c >>> 0;
+	});
+	const crc = (buf) => {
+		let c = 0xffffffff;
+		for (const b of buf) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
+		return (c ^ 0xffffffff) >>> 0;
+	};
+	const chunk = (type, data) => {
+		const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+		const out = Buffer.alloc(body.length + 8);
+		out.writeUInt32BE(data.length, 0);
+		body.copy(out, 4);
+		out.writeUInt32BE(crc(body), body.length + 4);
+		return out;
+	};
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(w, 0);
+	header.writeUInt32BE(h, 4);
+	header.set([8, 6, 0, 0, 0], 8);
+	const rows = Buffer.alloc((w * 4 + 1) * h);
+	for (let y = 0; y < h; y++)
+		for (let x = 0; x < w; x++) rows.set([...paint(x, y), 255], y * (w * 4 + 1) + 1 + x * 4);
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk('IHDR', header),
+		chunk('IDAT', deflateSync(rows)),
+		chunk('IEND', Buffer.alloc(0)),
+	]);
 }
 /** The salmon's pink through `SpawnLayer`'s gold ramp. */
 const isGold = ([r, g, b]) => r > 190 && g > 150 && g < 225 && b < 110;
@@ -870,6 +967,102 @@ try {
 	}
 	verdict('…and the banner goes again', !!bannerGone);
 
+	// S0: page S's salmon plays the stub clips the snapshot registers (`characterClips`), and page
+	// T's bear, which has none, keeps its placeholder. S is the room's only salmon, so golden: no
+	// `salmon_golden_*` clip, so the pink one drawn gold.
+	const CLIPS_GAME = 'salmons-clips';
+	const sPage = await ready(
+		await boot('s', {
+			rooms_name: 'Sal',
+			rooms_character: 'salmon',
+			rooms_game: CLIPS_GAME,
+			editorDocBase: snapClips.origin,
+		}),
+	);
+	const tPage = await ready(
+		await boot('t', {
+			rooms_name: 'Ted',
+			rooms_character: 'bear',
+			rooms_game: CLIPS_GAME,
+			editorDocBase: snapClips.origin,
+		}),
+	);
+	await settle(sPage, 600);
+	await settle(tPage, 400);
+	const { me: meS } = await drawnOf(sPage);
+	const { me: meT } = await drawnOf(tPage);
+	const clipOfS = async () => (await drawnOf(sPage)).clips?.[meS];
+	await sPage.key('ArrowDown', 'down');
+	let down;
+	for (let i = 0; i < 10; i++) {
+		await settle(sPage, 100);
+		down = await clipOfS();
+		if (down?.flipX) break;
+	}
+	// Further down, so the swim back up to the sandbank is long enough to turn on the way.
+	await settle(sPage, 500);
+	await sPage.key('ArrowDown', 'up');
+	verdict(
+		'page S: swimming downstream (screen south-west) plays swim_se mirrored',
+		down?.clipId === 'salmon_pink_swim_se' && down.flipX === true,
+		down,
+	);
+	await sPage.key('ArrowUp', 'down');
+	let up;
+	let groundedS;
+	for (let i = 0; i < 30 && !groundedS; i++) {
+		await settle(sPage, 150);
+		const now = await clipOfS();
+		if (now?.clipId === 'salmon_pink_swim_ne') up = now;
+		groundedS = (await eventsOf(sPage)).find((ev) => ev.type === 'grounded' && ev.id === meS);
+	}
+	verdict(
+		'…swimming upstream (world −y, screen north-east) plays swim_ne as drawn',
+		up?.clipId === 'salmon_pink_swim_ne' && up.flipX === false,
+		up,
+	);
+	await settle(sPage, 400);
+	const clipShot = await shotOf(sPage, '15-salmon-clip.png');
+	const arcadeS = (await sPage.state()).arcade;
+	const atS = arcadeS?.online?.drawn.find((d) => d.id === meS);
+	// The clip's box, 90 × 180 with its bottom centre at the feet: gold from the feet up to 180 px,
+	// and not above it.
+	const liftRgb = (lift) =>
+		arcadeS?.camera && atS && rgbAt(clipShot, isoScreen(clipShot, arcadeS.camera, atS, lift));
+	const column = Object.fromEntries([8, 120, 170, 200].map((lift) => [lift, liftRgb(lift)]));
+	verdict(
+		'…grounded, the clip stands on its feet, 180 px tall (its box at the body’s width), drawn gold',
+		!!groundedS &&
+			[8, 120, 170].every((lift) => column[lift] && isGold(column[lift])) &&
+			!!column[200] &&
+			!isGold(column[200]),
+		{ groundedS, column, marked: arcadeS?.online?.marked },
+	);
+	await tap(sPage);
+	for (let i = 0; i < 16; i++) await settle(sPage, 150);
+	await sPage.key('ArrowUp', 'up');
+	const logS = ((await drawnOf(sPage)).clipLog ?? []).filter((e) => e.startsWith(`${meS}:`));
+	const hopAt = logS.lastIndexOf(`${meS}:salmon_pink_hop_se`);
+	const jumpedS = (await eventsOf(sPage)).find((ev) => ev.type === 'jumped' && ev.id === meS);
+	verdict(
+		'…Space jumps it off the sandbank: hop (its vertical twin, hop_se) once, then swim_ne again',
+		!!jumpedS && hopAt >= 0 && logS.slice(hopAt + 1).includes(`${meS}:salmon_pink_swim_ne`),
+		{ jumpedS, logS },
+	);
+	const bearShot = await shotOf(tPage, '16-bear-placeholder.png');
+	const arcadeT = (await tPage.state()).arcade;
+	const atT = arcadeT?.online?.drawn.find((d) => d.id === meT);
+	const bearRgb =
+		arcadeT?.camera && atT && rgbAt(bearShot, isoScreen(bearShot, arcadeT.camera, atT, 46));
+	const brown = [0x6b, 0x44, 0x23];
+	verdict(
+		'page T: the bear, with no clips, plays none and keeps its placeholder',
+		!(meT in ((await drawnOf(tPage)).clips ?? {})) &&
+			!!bearRgb &&
+			bearRgb.every((v, i) => Math.abs(v - brown[i]) < 14),
+		{ bearRgb, clips: (await drawnOf(tPage)).clips },
+	);
+
 	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
 	const NO_RIVER = 'salmons-noriver';
 	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
@@ -907,6 +1100,8 @@ try {
 		['E', e],
 		['F', f],
 		['G2', g2],
+		['S', sPage],
+		['T', tPage],
 	]) {
 		const wire = await game.page.evaluate('window.__AR_WIRE__');
 		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
@@ -920,12 +1115,15 @@ try {
 	await e.page.close();
 	await f.page.close();
 	await g2.page.close();
+	await sPage.page.close();
+	await tPage.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();
 	await server.close?.();
 	await snap.close?.();
 	await snapNoRiver.close?.();
+	await snapClips.close?.();
 	rmSync(work, { recursive: true, force: true });
 }
 

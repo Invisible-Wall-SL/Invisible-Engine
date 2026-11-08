@@ -23,6 +23,7 @@ import {
 	COMPONENT_PARAM_KINDS,
 	isLocalizationKey,
 	mergeBuiltinCodedParams,
+	normalizeCharacterClips,
 	normalizeEditorGuides,
 	normalizeRepeaterCountFields,
 	pruneOrphanParamBindings,
@@ -901,6 +902,9 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	if (typeof raw.standsFor === 'string' && raw.standsFor) def.standsFor = raw.standsFor;
 	const slots = normalizeSlots(raw.slots);
 	if (slots.length) def.slots = slots;
+	// The clips an arcade character plays in an online room (Salmons' S0 art).
+	const characterClips = normalizeCharacterClips(raw.characterClips);
+	if (characterClips) def.characterClips = characterClips;
 	// Enforce "no binding without its param": drop node bindings that point at a param
 	// dropped above (or deleted in the editor), so a corrupt def can't be saved and an
 	// already-orphaned one self-heals on its next load/save.
