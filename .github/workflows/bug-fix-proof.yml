@@ -1,0 +1,51 @@
+# Bug fix proof — what bug-fix.yml relies on, proved on the pinned Claude Code CLI (ADR-0013 §4,
+# §10; docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md).
+#
+# scripts/bug-fix/prove-cli.mjs runs bug-fix.yml's own install, prepare and step-4 text with a
+# scripted fake model in place of the API, and checks what every command the "model" asks for
+# actually saw: no key, no Actions token, no network, no pristine copy, no protected path, the
+# budget and turn caps, a refusal to start without a sandbox, the agents from the pristine copy —
+# with positive controls and planted mutants so no check passes by not running.
+#
+# NO SECRET, NO MODEL, NO SPEND. The key and the Actions tokens are canaries the proof makes; the job
+# holds `contents: read` and nothing else. It runs on every push that changes the fix-run harness,
+# so bumping the CLI pin, the settings or step 4 is proved before it merges.
+
+name: Bug fix proof
+
+on:
+  push:
+    paths:
+      - .github/workflows/bug-fix.yml
+      - .github/workflows/bug-fix-proof.yml
+      - scripts/bug-fix/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # As bug-fix.yml keeps one, before the install.
+      - name: Keep a pristine copy
+        run: cp -a "$GITHUB_WORKSPACE" "$RUNNER_TEMP/main"
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prove the CLI
+        run: node scripts/bug-fix/prove-cli.mjs
