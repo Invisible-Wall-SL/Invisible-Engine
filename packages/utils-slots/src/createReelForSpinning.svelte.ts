@@ -1,6 +1,6 @@
 import type { Tween } from 'svelte/motion';
 import { sineOut, backIn, linear } from 'svelte/easing';
-import { FrameTween } from 'pixi-svelte/frameTween';
+import { FrameTween } from 'pixi-svelte/frameClock';
 
 import { stateBet } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
@@ -36,7 +36,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		const symbolIndex = reelSymbolOptions.symbolIndex;
 		const symbolState = reelOptions.initialSymbolState;
 		const symbolY = () =>
-			reelY.drawn + (reelSymbol.symbolIndex + getSymbolLead()) * getSymbolHeight();
+			reelY.current + (reelSymbol.symbolIndex + getSymbolLead()) * getSymbolHeight();
 		const oncomplete = () => {};
 
 		const reelSymbol = $state({
@@ -144,9 +144,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const interruptible = createInterruptible();
 
 	// reactive states
-	// The strip's scroll offset. `current` and every promise below are a Svelte `Tween`'s, as they
-	// always were; `drawn`, which only `symbolY` reads, is sampled at each frame's timestamp and drawn
-	// in that frame (`pixi-svelte/frameClock`), so a step on screen is the frame's interval × the speed.
+	// The strip's scroll offset: a Svelte `Tween` sampled at each frame's own timestamp instead of at
+	// the moment Svelte's frame callback runs (`pixi-svelte/frameClock`), so every step it draws is a
+	// frame's interval times the speed.
 	const reelY = new FrameTween(homeY());
 	// Height the reel was last HOMED to. Seeded here (reel-creation time) — NOT in
 	// `readyToSpinEffect` — so a reactive pitch change that lands BEFORE the board
@@ -253,24 +253,20 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		return reelYAbove(tailY, targetSymbols.length + paddingSymbols.length, getSymbolHeight());
 	};
 
-	// `runOn`: the slide that follows carries on the same way (a lap into the next lap, the long slide
-	// into the last stretch), so the frame this one ends on draws the strip where that one has it.
 	const slideY = async ({
 		reelY: targetY,
 		speed,
 		easing = undefined,
-		runOn = false,
 	}: {
 		reelY: number;
 		speed: number;
 		easing?: (value: number) => number;
-		runOn?: boolean;
 	}) => {
 		const distance = Math.abs(targetY - (reelY.current - handoverShift));
 		handoverShift = 0;
 		const duration = distance / speed; // (speed unit: pixel / ms)
 
-		await reelY.set(targetY, { duration, easing, runOn });
+		await reelY.set(targetY, { duration, easing });
 	};
 
 	const placeY = (targetY: number) => reelY.set(targetY, { duration: 0 });
@@ -321,7 +317,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				? reelState.spinOptions().reelSpinSpeed
 				: reelState.spinOptions().reelPreSpinSpeed;
 			const easing = started || isTurboBeforeAll ? linear : backIn;
-			await slideY({ reelY: homeY(), speed, easing, runOn: true });
+			await slideY({ reelY: homeY(), speed, easing });
 			// The spin took over while this lap was sliding: the strip is its strip now.
 			if (!isPreSpinning) break;
 			await preSpinPadding({ preSpinPaddingRawReel });
@@ -429,7 +425,6 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				await slideY({
 					reelY: homeY() * basePaddingSize(),
 					speed: reelState.spinOptions().reelSpinSpeed,
-					runOn: true,
 				});
 				await slideY({
 					reelY: homeY() + bounceSize,
@@ -446,7 +441,6 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				await slideY({
 					reelY: homeY() * basePaddingSize(),
 					speed: reelState.spinOptions().reelSpinSpeed,
-					runOn: true,
 				});
 				await slideY({
 					reelY: homeY() + bounceSize,
@@ -463,7 +457,6 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				await slideY({
 					reelY: homeY() * basePaddingSize(),
 					speed: reelState.spinOptions().reelSpinSpeedSequential,
-					runOn: true,
 				});
 				await slideY({
 					reelY: homeY() + bounceSize,

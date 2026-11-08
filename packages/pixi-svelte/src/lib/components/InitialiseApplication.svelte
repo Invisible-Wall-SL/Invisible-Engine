@@ -33,7 +33,7 @@
 	import { disposeCameraEffects } from '../cameraEffects';
 	import { disposeScreenTransitions } from '../screenFx/screenTransition';
 	import { renderSettings } from '../renderTier';
-	import { bindFrameClock, frameClockTick } from '../frameClock';
+	import { frameClockTick } from '../frameClock';
 	import { preloadFont } from '../utils.svelte';
 
 	type Props = { children: Snippet };
@@ -43,7 +43,6 @@
 
 	let wrap: HTMLDivElement;
 	let initialised = $state(false);
-	let releaseFrameClock: (() => void) | undefined;
 
 	const initialiseApplication = async () => {
 		PIXI.Assets.reset();
@@ -102,10 +101,8 @@
 
 		wrap.appendChild(context.stateApp.pixiApplication.canvas);
 
-		// Keeps the frame clock's callback ahead of this ticker's, so reel motion sampled at a frame's
-		// timestamp is the motion this ticker draws in that frame (`frameClock.ts`).
+		// Hands the `?perf=1` probe each frame's moving reels (`frameClock.ts`).
 		context.stateApp.pixiApplication.ticker.add(frameClockTick);
-		releaseFrameClock = bindFrameClock();
 
 		// to prevent that you can't scroll the page with touch on the canvas. https://github.com/pixijs/pixijs/issues/4824
 		context.stateApp.pixiApplication.renderer.events.autoPreventDefault = false;
@@ -128,7 +125,6 @@
 	});
 
 	onDestroy(() => {
-		releaseFrameClock?.();
 		if (context.stateApp.pixiApplication) {
 			context.stateApp.pixiApplication.ticker?.remove(frameClockTick);
 			// Before `destroy()`: it kills the ticker first, so a camera effect or a screen transition

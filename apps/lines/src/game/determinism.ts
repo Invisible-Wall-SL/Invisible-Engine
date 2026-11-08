@@ -7,12 +7,13 @@
  * `registerDeterminismProbe()` at its first line: nothing below runs, nothing global is replaced.
  *
  * With it, installed from `hooks.client.ts` before any game module evaluates:
- * - **Clock.** `requestAnimationFrame`, `setTimeout`/`setInterval`, `performance.now` and `Date`
- *   read one virtual clock that moves only when the harness steps it, 1/60 s per frame. That covers
- *   the Pixi ticker (and so rig and the particle emitters, which ride `Ticker.shared`), Svelte's
- *   `Tween`/`raf`, and any presentation `Date.now`. GSAP would ride the same rAF + clock; the
- *   runtime does not ship it. CSS and Web Animations (Svelte transitions) are paused, seeked to
- *   the clock and finished at their end.
+ * - **Clock.** `requestAnimationFrame`, `setTimeout`/`setInterval`, `performance.now`, `Date` and
+ *   `document.timeline.currentTime` read one virtual clock that moves only when the harness steps
+ *   it, 1/60 s per frame. That covers the Pixi ticker (and so rig and the particle emitters, which
+ *   ride `Ticker.shared`), Svelte's `Tween`/`raf`, the reels' frame timestamp
+ *   (`pixi-svelte/frameClock`), and any presentation `Date.now`. GSAP would ride the same rAF +
+ *   clock; the runtime does not ship it. CSS and Web Animations (Svelte transitions) are paused,
+ *   seeked to the clock and finished at their end.
  * - **Randomness.** `Math.random` is a PRNG seeded from the flag. Only cosmetic code reads it: the
  *   outcome (the book) comes from the RGS, and the client draws nothing that changes it.
  * - **I/O.** A frame does not start while a fetch, XHR, image, external script or stylesheet,
@@ -378,6 +379,9 @@ export function installDeterminism(): void {
 
 	// ---- clock ----
 	performance.now = () => now;
+	// The frame's timestamp, as a reel's tween samples it (`pixi-svelte/frameClock`).
+	if (typeof document !== 'undefined' && document.timeline)
+		Object.defineProperty(document.timeline, 'currentTime', { configurable: true, get: () => now });
 	globalThis.Date = new Proxy(RealDate, {
 		construct: (target, args: unknown[], newTarget) =>
 			Reflect.construct(target, args.length ? args : [EPOCH_MS + now], newTarget),
