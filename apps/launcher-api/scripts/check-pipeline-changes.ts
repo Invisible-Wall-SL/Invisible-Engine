@@ -2217,6 +2217,31 @@ check(
 	'Because QA asked.',
 );
 check(
+	'whyFromBody: an empty Why heading falls back',
+	changes.whyFromBody('Intro.\n\n## Why\n\n## How\nSteps.'),
+	'Intro.',
+);
+check(
+	'whyFromBody: a comment-only Why heading falls back',
+	changes.whyFromBody('Intro.\n\n## Why\n<!-- say why -->\n\n## How\nSteps.'),
+	'Intro.',
+);
+check(
+	'whyFromBody: a blank-only Why heading falls back',
+	changes.whyFromBody('Intro.\n\n## Why\n   \n## How\nSteps.'),
+	'Intro.',
+);
+check(
+	'whyFromBody: a Why heading on the last line falls back',
+	changes.whyFromBody('Intro.\n\n## Why'),
+	'Intro.',
+);
+check(
+	'whyFromBody: a Why section stops at the next heading after blank lines',
+	changes.whyFromBody('Intro.\n\n## Why\n\nBecause.\n\n\n## How\nSteps.'),
+	'Because.',
+);
+check(
 	'whyFromBody: a bold lead-in',
 	changes.whyFromBody('Intro.\r\n\r\n**Why:** QA spotted it\non two lines.\r\n\r\nMore.'),
 	'QA spotted it\non two lines.',
