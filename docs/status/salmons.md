@@ -169,6 +169,11 @@ Left from P11.3 (known limits):
 - A device that joins, or comes near, after a hook does not draw that line: it learns of a line
   only from the room's `hooked` (the state has no line). Follow-up if it matters: a `hookedBy`
   field in the player's state.
+- The line's ends are raised by the bodies' heights (`online.ts` `drawMarks`: ¾ of the
+  fisherman's body `h`, half the salmon's), and an isometric body's `h` is its depth on the
+  ground, not its look's height. It matches today only because the placeholders are sized to their
+  bodies. Follow-up when the S0 art lands: let the look declare its hand and middle (a rod-tip
+  point on the component), or retune the two fractions to the art.
 - The line, the gold and the splash are placeholders: no sound plays (there are no Salmons sounds
   yet; the Flow events are there for them).
 
@@ -230,6 +235,10 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   arcade playbooks and `online-play` pass; the current-games harness on the stand-in fixtures
   (base `main` d68459f) 10 / 10 games pass, 0 of 128 screens changed (all byte-identical). Runtime
   sizes in [status/game-families](game-families.md).
+  Review fixes (same day): the gold filter is destroyed with its layer; the online runtime turns
+  marks on at its join, before anything is spawned (so no look is remounted to be wrapped), and
+  clears them when the room is gone (no line left over the refuse screen); the glow stays on the
+  ground during a hop; body sizes are read from a map made at the join.
   Chosen here, owner may overturn: gold by a brightness ramp (any look turns gold, not a second
   look), a white 3 px line from ¾ of the holder's height to the middle of the one on it, the
   splash at a climb and a hook, the banner only on the golden salmon's own device.

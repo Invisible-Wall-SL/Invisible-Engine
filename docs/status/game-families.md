@@ -48,9 +48,9 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
   `arcade-camera-play` 12, `arcade-platformer-play` 15, `online-play` 19; current-games (stand-in
   fixtures, base `main` d68459f) 0 of 128 screens changed; `check:svelte` at baseline.
 - **Runtime sizes** (`check:family-runtimes`, gzip -6, against `main` d68459f built the same way;
-  all within budget): slot 698,968 → 699,396 B (+428), match3 +415, card +421 (the
-  `<SpawnLayer>` branch every runtime carries), arcade first visit +1,461, **online boot 784,174 →
-  785,635 B** (budget 797,252).
+  all within budget; after the review fixes): slot 698,968 → 699,443 B (+475), match3 +465, card
+  +464 (the `<SpawnLayer>` branch every runtime carries), arcade first visit +1,526, **online boot
+  784,174 → 785,700 B** (budget 797,252).
 
 **Card C4 — Invisible Card Library (built 2026-10-28; in review).** [card-games.md](../design/card-games.md)
 §12's C4 row and §8, in one PR. A launcher tool only: no game runtime change but five exports of
@@ -2756,7 +2756,7 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   (engine and runtime, from the room's state); `climbed` / `grounded` / `jumped` / `hooked` /
   `escaped` / `golden` are online Flow events, with starter reactions in Salmons' flow; the
   placeholder offset fixed in the looks (data, not the engine). `salmons-play.mjs` 52 / 52 in each
-  netcode; slot +428 B gz, arcade online boot +1.5 KB. Detail above and in
+  netcode; slot +475 B gz, arcade online boot +1.5 KB. Detail above and in
   [status/salmons](salmons.md).
 - 2026-10-30 — **Game server: a page on another origin can join.** The guard's refusals now answer
   Colyseus' CORS headers for the page's origin (with credentials; the SDK fetches with them, so `*`

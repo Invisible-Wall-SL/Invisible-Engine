@@ -5,7 +5,9 @@
  * The online runtime writes both once a frame from the room's state; `<SpawnLayer>` draws them.
  * Generic: engine-layout knows only that some spawned instances are marked or linked.
  *
- * Nothing turns it on but an online room, so every other spawn layer renders as before.
+ * Nothing turns it on but an online room, which does at its join (before anything is spawned, so
+ * no look is remounted to be wrapped) and turns it off when the room is gone; every other spawn
+ * layer renders as before.
  */
 
 import { SvelteMap } from 'svelte/reactivity';
@@ -54,4 +56,16 @@ const sameLinks = (a: readonly InstanceLink[], b: readonly InstanceLink[]) =>
 export const setLinks = (layer: string, next: readonly InstanceLink[]): void => {
 	if (!state.on) state.on = true;
 	if (!sameLinks(linksOf(layer), next)) links.set(layer, next);
+};
+
+/** Turn marks and lines on with none yet: an online room's join, before anything is spawned. */
+export const startMarks = (): void => {
+	state.on = true;
+};
+
+/** The room is gone: no marks or lines, and off again. */
+export const clearMarks = (): void => {
+	marks.clear();
+	links.clear();
+	state.on = false;
 };

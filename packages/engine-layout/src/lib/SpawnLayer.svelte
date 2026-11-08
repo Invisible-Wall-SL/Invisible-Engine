@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { Container, Graphics, getContextParent } from 'pixi-svelte';
 	import type { SpawnedInstance } from 'engine-flow-v2';
 	import { ColorMatrixFilter, type Graphics as PixiGraphics } from 'pixi.js';
@@ -85,8 +85,10 @@
 	};
 
 	// An online room's marked players and lines (`arcadeMarks.svelte.ts`). A marked look is drawn
-	// gold (its brightness on a gold ramp) over a gold glow at its place; the wrapping container is
-	// there for every instance while marks are on, so a mark coming or going never remounts a look.
+	// gold (its brightness on a gold ramp) over a gold glow on the ground at its place. While marks
+	// are on, every instance is wrapped, so a mark coming or going never remounts a look; the online
+	// runtime turns marks on at its join, before anything is spawned, so the wrapping is there from
+	// each instance's first mount (turning them on or off later would remount the live ones).
 	const GOLD = 0xffd447;
 	const LINE = { width: 3, color: 0xffffff, alpha: 0.95 };
 	const glowOf = (width: number) => (g: PixiGraphics) => {
@@ -102,6 +104,7 @@
 		];
 		return (gold = [filter]);
 	};
+	onDestroy(() => gold?.[0].destroy());
 	const placeOf = (id: string) => places[id] ?? instances.find((i) => i.id === id);
 	const drawLinks = (g: PixiGraphics) => {
 		for (const link of linksOf(node.id)) {
@@ -129,7 +132,8 @@
 	{#if marksOn()}
 		{@const mark = markOf(instance.id)}
 		{#if mark}
-			<Graphics draw={glowOf(mark.width)} />
+			<!-- On the ground: a hop's lifted container is raised by `z`, the glow is not. -->
+			<Graphics y={liftsOn() ? (liftOf(instance.id)?.z ?? 0) : 0} draw={glowOf(mark.width)} />
 		{/if}
 		<Container filters={mark ? goldFilters() : []}>
 			<ComponentInstance node={instanceNode(instance)} {space} />

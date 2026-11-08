@@ -47,8 +47,10 @@ import {
 	type Scene,
 } from 'engine-layout';
 import {
+	clearMarks,
 	setLinks,
 	setMarks,
+	startMarks,
 	setWorldCameraView,
 	spawnStore,
 	type InstanceLink,
@@ -156,6 +158,8 @@ type Session = {
 	drawn: Map<string, string>;
 	refused: Set<string>;
 	events: OnlineEvent[];
+	/** Character id → its body's size on the ground (what sizes a glow and lifts a line's ends). */
+	sizes: Map<string, { w: number; h: number }>;
 	/** The fishing lines the room's events tell of. */
 	lines: HookLines;
 	/** The lines drawn, room ids (the probe's). */
@@ -272,6 +276,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	// play: say so on the same screen rather than freeze on the last state.
 	room.onLeave((code: number) => {
 		session = undefined;
+		clearMarks();
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
@@ -309,6 +314,9 @@ export async function joinOnlineRoom(): Promise<void> {
 		drawn: new Map(),
 		refused: new Set(),
 		events: [],
+		sizes: new Map(
+			played.game.online.characters.map((c) => [c.id, sizeOf(played.game.bodies[c.body])]),
+		),
 		lines: createHookLines(),
 		drawnLines: [],
 		abilities: undefined,
@@ -319,6 +327,8 @@ export async function joinOnlineRoom(): Promise<void> {
 		fieldDrawn: undefined,
 	};
 	session = current;
+	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
+	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
 	room.onStateChange(() => received(current, performance.now()));
 	room.onMessage(ONLINE_EVENT, (events: OnlineEvent[]) => {
@@ -554,13 +564,13 @@ const sizeOf = (spec: OnlineGame['bodies'][string] | undefined) =>
 
 /** The body of the player's character. */
 const bodyOf = (current: Session, player: PlayerState) =>
-	sizeOf(
-		current.game.bodies[
-			current.game.online.characters.find((c) => c.id === player.character)?.body ?? ''
-		],
-	);
+	current.sizes.get(player.character) ?? { w: 0, h: 0 };
 
-/** The marked players drawn gold, and the fishing lines from holder to hooked, as drawn. */
+/**
+ * The marked players drawn gold, and the fishing lines from holder to hooked, as drawn. A line's
+ * ends are raised by the bodies' `h`, which in an isometric world is their depth on the ground, not
+ * a look's height: right while the looks are sized to their bodies (Salmons' placeholders).
+ */
 function drawMarks(current: Session, players: Map<string, PlayerState>) {
 	const marks = new Map<string, InstanceMark>();
 	for (const [id, instance] of current.drawn) {
