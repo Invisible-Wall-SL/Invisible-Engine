@@ -91,5 +91,30 @@ try {
 	rmSync(out, { recursive: true, force: true });
 }
 
+// The looks sit on their places (the P10.8 offset, docs/knowledge/families/arcade.md): a `rect`
+// is drawn about its centre unless it sets an anchor, so its x / y is where its middle goes. A
+// character stands on its place (feet there, upright in the isometric river); a reach is centred.
+const boxOf = (def: (typeof SALMONS_CHARACTER_COMPONENTS)[number]) => {
+	const shape = def.root.children?.[0];
+	if (shape?.kind !== 'rect') return undefined;
+	const anchor = shape.anchor ?? { x: 0.5, y: 0.5 };
+	const left = shape.x - anchor.x * shape.width;
+	const top = shape.y - anchor.y * shape.height;
+	return { left, right: left + shape.width, top, bottom: top + shape.height };
+};
+const STANDING = new Set(['salmonsSalmon', 'salmonsBear', 'salmonsFisherman']);
+for (const def of SALMONS_CHARACTER_COMPONENTS) {
+	const box = boxOf(def);
+	const seated =
+		!!box &&
+		box.left === -box.right &&
+		(STANDING.has(def.id) ? box.bottom === 0 : box.top === -box.bottom);
+	check(
+		`${def.id} is drawn ${STANDING.has(def.id) ? 'standing on' : 'centred on'} its place`,
+		seated,
+		JSON.stringify(box),
+	);
+}
+
 console.log(`check:salmons-export — ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

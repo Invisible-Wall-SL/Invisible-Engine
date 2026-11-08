@@ -11,13 +11,14 @@
 	import { untrack } from 'svelte';
 	import { Container, Graphics, getContextParent } from 'pixi-svelte';
 	import type { SpawnedInstance } from 'engine-flow-v2';
-	import type { Graphics as PixiGraphics } from 'pixi.js';
+	import { ColorMatrixFilter, type Graphics as PixiGraphics } from 'pixi.js';
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { getSceneIdContext } from './sceneIdContext';
 	import { spawnLayerSpec } from './spawnLayerFields';
 	import { registerSpawnLayerSpace, spawnStore } from './spawnLayers';
 	import { liftOf, liftsOn } from './arcadeLifts.svelte';
+	import { linksOf, markOf, marksOn } from './arcadeMarks.svelte';
 	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
@@ -83,6 +84,38 @@
 		if (width > 0) g.ellipse(0, 0, width / 2, width / 6).fill({ color: 0x000000, alpha: 0.28 });
 	};
 
+	// An online room's marked players and lines (`arcadeMarks.svelte.ts`). A marked look is drawn
+	// gold (its brightness on a gold ramp) over a gold glow at its place; the wrapping container is
+	// there for every instance while marks are on, so a mark coming or going never remounts a look.
+	const GOLD = 0xffd447;
+	const LINE = { width: 3, color: 0xffffff, alpha: 0.95 };
+	const glowOf = (width: number) => (g: PixiGraphics) => {
+		if (width > 0) g.ellipse(0, 0, width * 0.7, width * 0.24).fill({ color: GOLD, alpha: 0.6 });
+	};
+	let gold: [ColorMatrixFilter] | undefined;
+	const goldFilters = () => {
+		if (gold) return gold;
+		// Each colour channel from the brightness (0.3 r + 0.59 g + 0.11 b), on a ramp to gold.
+		const filter = new ColorMatrixFilter();
+		filter.matrix = [
+			0.435, 0.856, 0.16, 0, 0, 0.36, 0.708, 0.132, 0, 0, 0.114, 0.224, 0.042, 0, 0, 0, 0, 0, 1, 0,
+		];
+		return (gold = [filter]);
+	};
+	const placeOf = (id: string) => places[id] ?? instances.find((i) => i.id === id);
+	const drawLinks = (g: PixiGraphics) => {
+		for (const link of linksOf(node.id)) {
+			const from = placeOf(link.from);
+			const to = placeOf(link.to);
+			if (!from || !to) continue;
+			const a = projection ? projection.project(from.x, from.y) : from;
+			const b = projection ? projection.project(to.x, to.y) : to;
+			g.moveTo(a.x, a.y - (projection ? link.fromLift : 0));
+			g.lineTo(b.x, b.y - (projection ? link.toLift : 0));
+		}
+		g.stroke(LINE);
+	};
+
 	const instanceNode = (instance: SpawnedInstance): ComponentInstanceNode => ({
 		kind: 'componentInstance',
 		id: instance.id,
@@ -91,6 +124,20 @@
 		y: 0,
 	});
 </script>
+
+{#snippet look(instance: SpawnedInstance)}
+	{#if marksOn()}
+		{@const mark = markOf(instance.id)}
+		{#if mark}
+			<Graphics draw={glowOf(mark.width)} />
+		{/if}
+		<Container filters={mark ? goldFilters() : []}>
+			<ComponentInstance node={instanceNode(instance)} {space} />
+		</Container>
+	{:else}
+		<ComponentInstance node={instanceNode(instance)} {space} />
+	{/if}
+{/snippet}
 
 {#each instances as instance, seq (instance.id)}
 	{#if projection}
@@ -109,7 +156,7 @@
 				<Graphics y={lift.foot} draw={shadowOf(lift.shadow)} />
 			{/if}
 			<Container y={-(lift?.z ?? 0)}>
-				<ComponentInstance node={instanceNode(instance)} {space} />
+				{@render look(instance)}
 			</Container>
 		</Container>
 	{:else if liftsOn()}
@@ -123,7 +170,7 @@
 				<Graphics y={lift.foot} draw={shadowOf(lift.shadow)} />
 			{/if}
 			<Container y={-(lift?.z ?? 0)}>
-				<ComponentInstance node={instanceNode(instance)} {space} />
+				{@render look(instance)}
 			</Container>
 		</Container>
 	{:else if culling}
@@ -132,11 +179,15 @@
 			y={places[instance.id]?.y ?? instance.y}
 			visible={!isCulled(instance.id)}
 		>
-			<ComponentInstance node={instanceNode(instance)} {space} />
+			{@render look(instance)}
 		</Container>
 	{:else}
 		<Container x={places[instance.id]?.x ?? instance.x} y={places[instance.id]?.y ?? instance.y}>
-			<ComponentInstance node={instanceNode(instance)} {space} />
+			{@render look(instance)}
 		</Container>
 	{/if}
 {/each}
+{#if marksOn() && linksOf(node.id).length}
+	<!-- Above every instance: a projected layer's instances are ordered by depth (zIndex). -->
+	<Graphics zIndex={Number.MAX_SAFE_INTEGER} draw={drawLinks} />
+{/if}

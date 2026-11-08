@@ -18,8 +18,9 @@
  *    `cameraFollow`, `cameraMoveTo`, `cameraShake`, `cameraSetAutoScroll`, and `cameraX` /
  *    `cameraY` / `viewWidth` / `viewHeight`, so Flow can spawn ahead of the view.
  *  - an online room's events (P11.2): `playerJoined` / `playerLeft`, `hit` / `caught`,
- *    `roundStart` / `roundEnd`, and `ability` (the device's own raised on the press). Its scores and
- *    round are variables the room writes (`FlowVariable.server`), which Flow only reads.
+ *    `roundStart` / `roundEnd`, and `ability` (the device's own raised on the press); a rules
+ *    module's `climbed`, `grounded`, `jumped`, `hooked`, `escaped` and `golden` (Salmons). Its
+ *    scores and round are variables the room writes (`FlowVariable.server`), which Flow only reads.
  *  - abilities offline (P11.5): the loop raises `ability`, `hit` and `caught` too, from the same
  *    code (`engine-mechanics` `abilities.js`), with the instances added; `useAbility` uses one.
  *
@@ -157,6 +158,21 @@ const HIT_PAYLOAD = [
 	},
 ];
 
+/** Where the player an event is about is drawn (a rules module's events). */
+const AT = [
+	{ name: 'x', type: FLOAT, description: 'Where that player is drawn, field px.' },
+	{ name: 'y', type: FLOAT, description: 'Field px.' },
+];
+
+/** Who holds a line, and who is on it (`hooked`, `escaped`). */
+const LINE_PAYLOAD = [
+	{ name: 'by', type: STRING, description: 'The player holding the line.' },
+	{ name: 'target', type: STRING, description: 'The player on it.' },
+	...AT,
+	{ name: 'mine', type: BOOL, description: 'This device’s player holds the line.' },
+	ME('This device’s player is on it.'),
+];
+
 /**
  * An online room's events (`docs/design/realtime-multiplayer.md` §4, P11.2), raised on the device
  * from the room's `event` messages (`engine-mechanics` `flowSignalsOf`). Device Flow presents them;
@@ -226,6 +242,57 @@ const ONLINE_EVENTS: EventDecl[] = [
 		category: 'book',
 		description:
 			"A character used an ability (a swipe, a cast). Online, this device's own is raised on the press, so draw it here at once; everyone else's when the room tells. Offline it is raised on the step it is used.",
+	},
+	{
+		name: 'climbed',
+		payload: [
+			PLAYER('The salmon that climbed.'),
+			{ name: 'zone', type: STRING, description: "The waterfall's zone id." },
+			...AT,
+			ME('It is this device’s player.'),
+		],
+		category: 'book',
+		description:
+			'Online (a rules module, e.g. Salmons): a player climbed a waterfall and is over it. The room moved it.',
+	},
+	{
+		name: 'grounded',
+		payload: [
+			PLAYER('The salmon on the sand.'),
+			{ name: 'zone', type: STRING, description: "The sandbank's zone id." },
+			...AT,
+			ME('It is this device’s player.'),
+		],
+		category: 'book',
+		description:
+			'Online (a rules module): a player is grounded on a sandbank, held until it jumps off. It can still be caught.',
+	},
+	{
+		name: 'jumped',
+		payload: [PLAYER('The salmon that jumped off.'), ...AT, ME('It is this device’s player.')],
+		category: 'book',
+		description: 'Online (a rules module): a grounded player jumped off its sandbank and is free.',
+	},
+	{
+		name: 'hooked',
+		payload: LINE_PAYLOAD,
+		category: 'book',
+		description:
+			'Online (a rules module): a `hook` ability hooked a player. It is reeled in until it is landed (`caught`, effect `hook`) or gets away (`escaped`). The runtime draws the line.',
+	},
+	{
+		name: 'escaped',
+		payload: LINE_PAYLOAD,
+		category: 'book',
+		description:
+			'Online (a rules module): a hooked player shook the hook, or the line broke. It is free again.',
+	},
+	{
+		name: 'golden',
+		payload: [PLAYER('The player who is golden now.'), ...AT, ME('It is this device’s player.')],
+		category: 'book',
+		description:
+			'Online (a rules module): a player became the marked one (Salmons’ golden salmon, worth more). The runtime draws it gold.',
 	},
 ];
 

@@ -903,6 +903,13 @@ const playGame = (seed: string | number, doc: FlowDoc = ARCADE_DRIVEN_SEED_DOC) 
 		) === JSON.stringify(Object.values(ARCADE_SIGNALS).sort()),
 	);
 	check(
+		'10. each sample look is centred on its body (a rect is drawn about its centre: the P10.8 offset)',
+		ARCADE_SAMPLE_COMPONENTS.every((def) => {
+			const shape = def.root.children?.[0];
+			return shape?.kind === 'rect' && !shape.anchor && shape.x === 0 && shape.y === 0;
+		}),
+	);
+	check(
 		'10. the scene set has every screen the flow shows',
 		Object.values(ARCADE_SCREENS).every((id) => LAYOUT.scenes.some((s) => s.id === id)),
 	);

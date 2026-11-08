@@ -1069,6 +1069,10 @@ shows them. `ability`, `hit` and `caught` also fire offline, above). A player is
 | `roundStart` | `round` | A round started: everyone is back at the spawn with no score. |
 | `roundEnd` | `round`, `winner`, `won` | A round ended, at the goal or on its clock; the next one starts by itself. |
 | `ability` | `player`, `character`, `button`, `x`, `y`, `mine`, `predicted` | A player used an ability (a swipe, a cast) at `x`, `y`. This device's own fires on the key press (`predicted`), before the room answers, so draw it here; everyone else's when the room tells. |
+| `climbed` / `grounded` | `player`, `zone`, `x`, `y`, `me` | A rules module (Salmons): a player climbed a waterfall, or is held on a sandbank (`zone` is its id) until it jumps. |
+| `jumped` | `player`, `x`, `y`, `me` | A grounded player jumped off its sandbank. |
+| `hooked` / `escaped` | `by`, `target`, `x`, `y`, `mine`, `me` | A `hook` ability hooked `target` (it is reeled in until it is landed, which is `caught`), or it got away / the line broke. `x`, `y` is the player on the line. The runtime draws the line itself. |
+| `golden` | `player`, `x`, `y`, `me` | A player became the room's marked one (Salmons' golden salmon). The runtime draws it gold itself. |
 
 **Room values.** A variable can mirror a value the room owns: give it `server` — `score` or `status`
 (this device's player), `round`, `phase`, `secondsLeft` (in the round, or until the next), `winner`

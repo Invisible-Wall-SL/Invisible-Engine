@@ -30,8 +30,11 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   screens, and the river as the play field's world (banks, water, rapids, whirlpools, the sea, the
   source), with a camera that follows the device's own player and the players' spawn layer.
 - **The looks** — `SALMONS_CHARACTER_COMPONENTS`: three placeholder shapes (salmon pink, bear
-  brown disc, fisherman yellow). The S0 clips are not generated yet
-  ([status/salmons](../status/salmons.md) open item 1); they replace these components.
+  brown disc, fisherman yellow), each standing on its place (its bottom there), and the swipe,
+  cast and splash centred on theirs. The S0 clips are not generated yet
+  ([status/salmons](../status/salmons.md) open item 1); they replace these components. The
+  runtime draws the golden salmon (the room's `mark`) gold over a glow, and a fisherman's line to
+  the salmon he has hooked, from the room's state: no component carries them.
 
 It is not a published project: the playtest builds its own snapshot and config and starts its own
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
@@ -88,14 +91,31 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
 13. Page F joins `salmons-sand` (its salmon starting just below the first sandbank): swimming up,
     it is grounded on the sand (`grounded`) and stays put with ArrowUp held; Space jumps it off
     (`jumped`) and it swims on upstream.
-14. No page sends the RGS anything; no page error.
+14. The rules' events are Flow events: page E's flow heard its `climbed`, page F's its `grounded`
+    and `jumped` (each with `me`).
+15. Pages H (a fisherman) and G (a salmon) join `salmons-line` (the authored river, no bots; the
+    salmon starts on a sandbank, held there, and the fisherman on the bank nearest it, within his
+    cast's reach). G's salmon, the room's only one, is golden: both pages list it as marked and
+    draw it gold (read off `10-golden-salmon.png` and `11-golden-seen-by-fisherman.png` at its
+    look's middle); G's flow heard `golden`.
+16. H's J hooks it: both pages draw the line (H's `12-the-line.png` has white pixels along the way
+    from his hand to the salmon's middle, projected), G's flow heard `hooked` (`me`, not `mine`)
+    and the flow drew the splash; reeled in and landed (`caught`), the line is gone on both pages
+    and off `13-landed.png`.
+17. Back on the sand, it is hooked again and H leaves: the line breaks (`escaped`, heard on G) and
+    is gone.
+18. Page G2 (another salmon) joins and G leaves: the golden salmon passes to G2, which draws it
+    gold (`14-golden-passes-on.png`) and shows the golden banner, gone again after 2 s.
+19. No page sends the RGS anything; no page error.
 
 The bots are bears with a brain that stands still: each room places them on its own river's
-banks, so the hunt (`check:room-bots`') stays out of this test. 37 verdicts.
+banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
+so it is golden and check 6 takes its colour as pink or gold. 52 verdicts.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,
-`08-over-the-waterfall.png`, `09-grounded.png`.
+`08-over-the-waterfall.png`, `09-grounded.png`, `10-golden-salmon.png`,
+`11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`.
 
 ## What the gates already prove (not replayed here)
 
@@ -111,9 +131,11 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
 
 ## Known gaps
 
-- Placeholder looks (the swipe and cast too; a swipe is drawn over its bear); the golden salmon is
-  not drawn gold yet (the room sends it as the player's `mark`), and the line is not drawn.
-- The line, the climb, the sandbank and the golden salmon raise room events (`hooked`, `escaped`,
-  `climbed`, `grounded`, `jumped`, `golden`) that Flow does not hear yet: no sound or cue.
+- Placeholder looks (the swipe and cast too; a swipe or cast is drawn over its user); rocks are
+  rectangles.
+- A device that joins, or comes near, after a hook does not draw that line (it knows of a line
+  only from the room's `hooked`).
+- A climb and a reel move a body on the server only: the own device sees them as a correction.
+- A device that closed stays in the room for its reconnection window and is still drawn there
+  (seen in `14-golden-passes-on.png`).
 - Salmon are kept off the banks by a push, not a wall.
-- The line and the golden salmon are played by the gates only, not in a browser here.
