@@ -194,6 +194,8 @@ const gh = {
 	jobs: new Map<number, Json[]>(),
 	zips: new Map<number, Buffer>(),
 	posts: [] as { sha: string; body: Json }[],
+	graphql: [] as { query: string; variables: { id: string } }[],
+	graphqlError: null as string | null,
 	mints: 0,
 	jwts: [] as string[],
 	tokens: [] as string[],
@@ -598,6 +600,17 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	if (!gh.tokens.includes(token) || gh.revoked.has(token)) {
 		return jsonResponse(401, { message: 'Bad credentials' });
 	}
+	if (path === '/graphql' && method === 'POST') {
+		const body = JSON.parse(String(init?.body)) as { query: string; variables: { id: string } };
+		gh.graphql.push(body);
+		const pr = gh.pulls.get(Number(body.variables.id.replace('PR_node_', '')));
+		if (gh.graphqlError) return jsonResponse(200, { errors: [{ message: gh.graphqlError }] });
+		if (!pr) return jsonResponse(200, { errors: [{ message: 'Could not resolve to a node' }] });
+		pr.draft = false;
+		return jsonResponse(200, {
+			data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } },
+		});
+	}
 	const seg = path.split('/').filter(Boolean);
 	if (seg[0] !== 'repos' || `${seg[1]}/${seg[2]}` !== REPO) {
 		return jsonResponse(404, { message: 'Not Found' });
@@ -631,7 +644,7 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		const pull = gh.pulls.get(Number(rest[1]));
 		if (!pull) return jsonResponse(404, { message: 'Not Found' });
 		const { files: _files, ...rest2 } = pull;
-		return jsonResponse(200, rest2);
+		return jsonResponse(200, { ...rest2, node_id: `PR_node_${pull.number}` });
 	}
 	if (rest[0] === 'pulls' && rest[2] === 'files') {
 		const pull = gh.pulls.get(Number(rest[1]));
@@ -1913,6 +1926,7 @@ const reportRoute = await import(
 	src('routes/api/pipeline/changes/[number]/report/[...path]/+server.ts')
 );
 const mergeRoute = await import(src('routes/api/pipeline/changes/[number]/merge/+server.ts'));
+const readyRoute = await import(src('routes/api/pipeline/changes/[number]/ready/+server.ts'));
 const historyRoute = await import(src('routes/api/pipeline/merges/+server.ts'));
 const revertRoute = await import(src('routes/api/pipeline/merges/[number]/revert/+server.ts'));
 const view = await import(src('routes/(app)/pipeline/view.ts'));
@@ -5966,7 +5980,7 @@ check(
 			'10',
 			sha(10),
 			409,
-			'This change is a draft: mark it ready for review on GitHub first.',
+			'This change is a draft: mark it ready for review first.',
 		],
 		['#20 is still testing', '20', sha(20), 409, 'Still testing: 7 of 8 checks have passed.'],
 		['#15 is blocked by a conflict', '15', sha(15), 409, 'Merge conflict with main'],
@@ -7231,7 +7245,7 @@ check(
 				action: 'merge',
 				text: `Squash-merges head ${short(H40)} into main. You can roll back from History.`,
 			},
-			{ action: 'draft', text: 'Mark the pull request ready for review on GitHub first.' },
+			{ action: 'draft', text: 'This change is a draft: mark it ready for review first.' },
 			{ action: null, text: readOnly },
 			{ action: null, text: readOnly },
 			{
@@ -7421,6 +7435,89 @@ check(
 		[{ kind: 'ready' }, 200, false, 'agents: mockup-analyst — sharper brief'],
 	);
 	check('…in one PUT', puts().slice(before), [`PUT /repos/${REPO}/pulls/86/merge`]);
+}
+
+// ── Mark ready for review (ADR-0013 §8) ───────────────────────────────────────
+{
+	const ready = (locals: Locals, number: string) => call(readyRoute.POST, locals, { number }, {});
+	const asked = () => gh.graphql.length;
+	const before = asked();
+	userOverrides.delete('u-tester');
+	check('ready: no session is a 401', (await ready(ANON, '10')).status, 401);
+	const tester = await ready(TESTER, '10');
+	check(
+		'ready: without pipelineMerge → 403, and GitHub is not asked',
+		[tester.status, asked() - before],
+		[403, 0],
+	);
+	check(
+		'…and says what it needs',
+		tester.body.error,
+		'Marking a change ready for review needs the "Merge pipeline changes" capability.',
+	);
+	const nonDraft = await ready(ADMIN, '20');
+	check(
+		'ready: a change that is not a draft → 409, and GitHub is not asked',
+		[nonDraft.status, nonDraft.body.error, asked() - before],
+		[409, '#20 is not a draft: it is ready for review.', 0],
+	);
+	check('ready: a change that does not exist → 404', (await ready(ADMIN, '999')).status, 404);
+	gh.graphqlError = 'Resource not accessible by integration';
+	const refused = await ready(ADMIN, '10');
+	gh.graphqlError = null;
+	check(
+		'ready: GitHub refusing the mutation → 502 with its sentence; the change stays a draft',
+		[refused.status, refused.body.error, gh.pulls.get(10)?.draft],
+		[
+			502,
+			'GitHub refused to mark #10 ready for review: Resource not accessible by integration',
+			true,
+		],
+	);
+	const done = await ready(ADMIN, '10');
+	check(
+		'ready: a draft with pipelineMerge → the mutation is made on its node id, as the App',
+		[
+			done.status,
+			done.body,
+			gh.graphql.slice(-1).map((g) => [g.variables, /markPullRequestReadyForReview/.test(g.query)]),
+			gh.pulls.get(10)?.draft,
+		],
+		[200, { number: 10, draft: false }, [[{ id: 'PR_node_10' }, true]], false],
+	);
+	const again = await ready(ADMIN, '10');
+	check(
+		'ready: a second click finds it no longer a draft → 409, no second mutation',
+		[again.status, gh.graphql.length - before],
+		[409, 2],
+	);
+	const gone = gh.pulls.get(10) as Pull;
+	gone.draft = true;
+	changes.forgetChanges();
+	gone.state = 'closed';
+	check(
+		'ready: a closed draft → 409',
+		[(await ready(ADMIN, '10')).status, gh.graphql.length - before],
+		[409, 2],
+	);
+	gone.state = 'open';
+	check(
+		'the page: a draft offers Mark ready for review to a merger, says why not to anyone else, and nothing for a non-draft',
+		[
+			view.readyBar({ draft: true, state: 'open' }, true)?.action,
+			view.readyBar({ draft: true, state: 'open' }, false)?.action,
+			view.readyBar({ draft: true, state: 'open' }, false)?.text,
+			view.readyBar({ draft: false, state: 'open' }, true),
+			view.readyBar({ draft: true, state: 'closed' }, true),
+		],
+		[
+			'ready',
+			null,
+			'This change is a draft. Marking it ready for review needs the “Merge pipeline changes” permission.',
+			null,
+			null,
+		],
+	);
 }
 
 // ── No secret anywhere ────────────────────────────────────────────────────────

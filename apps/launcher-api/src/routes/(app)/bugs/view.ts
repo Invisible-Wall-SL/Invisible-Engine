@@ -3,6 +3,8 @@ import {
 	BUG_PRIORITY_LABELS,
 	BUG_STATUSES,
 	BUG_STATUS_LABELS,
+	MAX_DESCRIPTION,
+	MAX_TITLE,
 	NO_PRIORITY_LABEL,
 	bugAreaName,
 	bugRef,
@@ -467,12 +469,28 @@ export function askedBug(url: URL): number | null {
 	return Number.isSafeInteger(asked) && asked > 0 ? asked : null;
 }
 
-/** `?new=1[&for=<area>][&page=<address>]`: the report form a link opens, an unknown area dropped. */
-export function askedReport(
-	url: URL,
-	known: (area: string) => boolean,
-): { area: string; pageUrl: string } | null {
+/** What a link to the report form fills in. */
+export interface AskedReport {
+	area: string;
+	pageUrl: string;
+	title: string;
+	description: string;
+}
+
+export const NO_REPORT: AskedReport = { area: '', pageUrl: '', title: '', description: '' };
+
+/**
+ * `?new=1[&for=<area>][&page=<address>][&title=<text>][&details=<text>]`: the report form a link
+ * opens, an unknown area dropped, the text capped at the form's own limits. `title` and `details`
+ * are how a fix run's proposed second bug is filed (ADR-0013 §7).
+ */
+export function askedReport(url: URL, known: (area: string) => boolean): AskedReport | null {
 	if (url.searchParams.get('new') !== '1') return null;
 	const area = url.searchParams.get('for') ?? '';
-	return { area: known(area) ? area : '', pageUrl: url.searchParams.get('page') ?? '' };
+	return {
+		area: known(area) ? area : '',
+		pageUrl: url.searchParams.get('page') ?? '',
+		title: (url.searchParams.get('title') ?? '').slice(0, MAX_TITLE),
+		description: (url.searchParams.get('details') ?? '').slice(0, MAX_DESCRIPTION),
+	};
 }

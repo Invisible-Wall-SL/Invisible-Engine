@@ -39,6 +39,8 @@
 		statusLabel,
 		statusTone,
 		syncText,
+		NO_REPORT,
+		type AskedReport,
 		type BugFilters,
 		type PriorityFilter,
 		type RepairFacts,
@@ -74,7 +76,7 @@
 		/** The bug a shared link opens. */
 		selected: number | null;
 		/** The report form a link opens, with what it already knows. */
-		report: { area: string; pageUrl: string } | null;
+		report: AskedReport | null;
 		areas: { id: string; name: string }[];
 		/** A game list's project, which is also the top bar's scope; null for the pipeline list. */
 		scope: { clientKey: string; projectKey: string } | null;
@@ -529,7 +531,7 @@
 						{areas}
 						{projects}
 						project={projectKey}
-						initial={initialReport ?? { area: '', pageUrl: '' }}
+						initial={initialReport ?? NO_REPORT}
 						oncreated={onCreated}
 						oncancel={cancelReport}
 					/>

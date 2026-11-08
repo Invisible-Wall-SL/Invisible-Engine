@@ -29,7 +29,9 @@ export const NO_CHECKS_TEXT = 'No checks have reported on this head yet.';
 export const BLOCKED_CONFLICT_TEXT = 'Merge conflict with main: bring main in and resolve it.';
 export const APPROVE_HINT = 'Approve each changed screen below, or push a fix.';
 export const MERGE_NEEDS_CAPABILITY_TEXT = 'Merging needs the “Merge pipeline changes” permission.';
-export const MERGE_DRAFT_TEXT = 'Mark the pull request ready for review on GitHub first.';
+export const MERGE_DRAFT_TEXT = 'This change is a draft: mark it ready for review first.';
+export const READY_NEEDS_CAPABILITY_TEXT =
+	'This change is a draft. Marking it ready for review needs the “Merge pipeline changes” permission.';
 export const MERGE_RETRY_TEXT = 'Try again resends the same request, so it never merges twice.';
 export const ROLLBACK_NEEDS_CAPABILITY_TEXT =
 	'Rolling back needs the Merge pipeline changes capability.';
@@ -360,7 +362,7 @@ export function mergeConfirmMessage(
 }
 
 export interface MergeBar {
-	/** `draft` shows the button disabled; `null` shows none. */
+	/** `draft` shows no merge button (the draft bar offers Mark ready for review); `null` shows none. */
 	action: 'merge' | 'draft' | null;
 	text: string;
 }
@@ -383,6 +385,29 @@ export function mergeBar(
 	return {
 		action: 'merge',
 		text: `Squash-merges head ${shortSha(detail.headSha)} into main. You can roll back from History.`,
+	};
+}
+
+export interface ReadyBar {
+	/** `ready` offers Mark ready for review; `null` only says why it is not offered. */
+	action: 'ready' | null;
+	text: string;
+}
+
+/**
+ * The bar under an OPEN DRAFT change, whatever its checks say (ADR-0013 §8; a fix run's pull
+ * request opens as a draft): `pipelineMerge` holders get Mark ready for review, who cannot merge
+ * are told why they cannot. Nothing for a change that is not an open draft.
+ */
+export function readyBar(
+	detail: Pick<ChangeDetail, 'draft' | 'state'>,
+	canMerge: boolean,
+): ReadyBar | null {
+	if (detail.state !== 'open' || !detail.draft) return null;
+	if (!canMerge) return { action: null, text: READY_NEEDS_CAPABILITY_TEXT };
+	return {
+		action: 'ready',
+		text: 'This change is a draft, and a draft cannot merge. Marking it ready for review does not merge it.',
 	};
 }
 

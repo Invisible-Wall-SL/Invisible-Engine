@@ -29,8 +29,8 @@ bugs took.
   per user in Admin › Users, beside the card. Game bugs have their own, **Triage game bugs**. The
   page header shows which one you are: `<your name> · <role> · can triage` or `· can report`.
 - **Start fix runs on pipeline bugs** (`pipelineBugFix`, default `admin` only, set per role or per
-  user in the same group) is the permission for the **Start fix** button that card 13C of ADR-0013
-  adds. A run needs it **and** Triage pipeline bugs. The button is not on the page yet.
+  user in the same group) is the permission for the **Start fix** button (see "Fix runs" below). A
+  run needs it **and** Triage pipeline bugs; with only one of them there is no button.
 - **Who can do what on a bug:**
   - See it, comment, add a screenshot, copy its link and its fix brief: anyone with the tool who
     can see the bug.
@@ -88,7 +88,9 @@ bugs took.
    anything.
 
 A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<address>` fills in
-**Tool or area** and **Where it happened**. An unknown tool id leaves the area blank.
+**Tool or area** and **Where it happened**, and `&title=<text>&details=<text>` the **Title** and
+the **Description** (this is how **File it** on a fix run's proposed second bug opens the form). An
+unknown tool id leaves the area blank.
 
 ### Find a bug
 
@@ -148,6 +150,32 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
    - Sent: "In Pipeline Changes since `<when>`, sent by `<name>`." **Open in Pipeline Changes**
      (shown if you have that tool) opens `/pipeline?tab=bugs`. Triagers also see **Take back**,
      which takes the bug off that tab.
+   - **Fix runs.** Under the same text, for someone who holds Start fix runs and Triage pipeline
+     bugs, once GitHub has the `bug-fix.yml` workflow and the GitHub App is configured (until then
+     there is no button, because it could only fail):
+     - **Send and start fix** on a bug that is not sent yet: it sends the bug to Pipeline Changes
+       and starts the run in one action. **Start fix** on a bug that is. Both ask first: a run
+       spends on the Anthropic API and opens a public draft pull request; nothing merges without
+       the owner. Each click carries its own request id, so a resend after a dropped connection
+       gives the same run, never two.
+     - A refusal greys the button and says why: "BUG-`<n>` is closed. Reopen it to start a fix
+       run.", "A fix is already in review: #`<n>`.", "BUG-`<n>` already has a fix run going (fix run
+       `<id>`).", "`N` fix runs are going already, the most at once (Admin › Settings). …", "Fix
+       runs have spent $X of this month's $Y (Admin › Settings). …". If the server still refuses
+       after the click (the bug moved), the same words show in red and the bug is read again.
+     - The **run line** under it, newest first (the latest five): a pill (Queued, Working, Fix
+       proposed, No fix, Failed, Stopped), a sentence ("Fix run `<id>` opened draft pull request
+       #12.", "… found no fix: it did not reproduce.", "… failed: the run timed out."), links to
+       the pull request and the Actions run, the spend ("$1.20", or "spend unknown" when no result
+       came back), and **Stop** while the run goes (a dialog first). What the run wrote is shown
+       under the line as plain text, never as markup or a link. A run that finds a cause in
+       another area adds "Proposed second bug: `<area>` — `<title>`" with **File it**, for triagers
+       with this tool, which opens the report form filled in; nothing is filed until you press
+       **Report bug**.
+     - The same button and run line are on the bug's card in the **Bugs** tab of
+       [Invisible Pipeline Changes](pipeline-changes.md). A run never changes the bug's status:
+       the draft pull request it opens is linked like any `bug-<n>` branch, so the bug turns
+       Working on, and Resolved when you merge it.
    - **Copy fix brief** is there for everyone. It copies the bug as plain text to paste where the
      fix starts, such as a Claude Code session or an issue: "Fix brief copied: …". The brief
      reads:

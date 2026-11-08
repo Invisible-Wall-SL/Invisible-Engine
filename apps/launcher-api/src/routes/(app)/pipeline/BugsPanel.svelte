@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { bugAreaName, bugBrief, bugPath, bugRef } from '$lib/bugReports';
-	import type { BugSummary } from '$lib/server/bugReports';
+	import type { BugSummary, FixTab } from '$lib/server/bugReports';
+	import FixRunControl from '../bugs/FixRunControl.svelte';
 	import { linkTone, priorityLabel, priorityTone, statusLabel, statusTone } from '../bugs/view';
 	import Pill from './Pill.svelte';
 	import { timeAgo } from './view';
 
 	let {
 		bugs,
+		fix,
+		onfixchanged,
 		projects,
 		openChanges,
 		canOpenBugs,
@@ -15,6 +18,10 @@
 	}: {
 		/** Still to do first: the server's order. */
 		bugs: BugSummary[];
+		/** Fix runs per bug, and whether the viewer may start one (ADR-0013). */
+		fix: FixTab;
+		/** A run started or stopped: read the list again. */
+		onfixchanged: () => void;
 		projects: { key: string; name: string; clientName: string | null }[];
 		/** The numbers the Changes tab lists, so a linked pull request opens there. */
 		openChanges: Set<number>;
@@ -98,6 +105,15 @@
 				<a class="btn" href={bugPath(b)}>Open in Pipeline Bug Reports</a>
 			{/if}
 		</div>
+		<FixRunControl
+			number={b.number}
+			sent={b.sentAt !== null}
+			runs={fix.byBug[b.number]?.runs ?? []}
+			facts={{ may: fix.may, ready: fix.ready, refusal: fix.byBug[b.number]?.refusal ?? null }}
+			canFile={fix.triage && canOpenBugs}
+			showControl={!done(b)}
+			onchanged={onfixchanged}
+		/>
 	</li>
 {/snippet}
 
