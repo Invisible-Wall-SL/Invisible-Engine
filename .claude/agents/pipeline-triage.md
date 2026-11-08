@@ -43,7 +43,8 @@ hand it over with the evidence. You do not write the fix (ADR-0009 §2,
 1. **Read the bug.** The brief (Copy fix brief on `/bugs` or on Pipeline Changes' Bugs tab) has
    the reference, the area, the project, the page, the reporter and the text. Bug Reports' API needs
    a signed-in session, so a cloud session cannot read `BUG-<n>` by number: if you were given only
-   the number, ask for the brief. A bug a **Director run** filed is reported as `Director run <id>`
+   the number, ask for the brief. In a fix run the brief is at the path the coordinator gives; read
+   it instead of asking for it. A bug a **Director run** filed is reported as `Director run <id>`
    and names the run, and its project or template when the bug may show one: it is usually a
    template or tool lacking something the run needed (a region, an FX slot). Treat it like any
    other — the template is a pipeline change — and remember a triager has not necessarily sent it

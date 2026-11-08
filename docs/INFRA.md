@@ -771,7 +771,7 @@ code default, so the dashboard need not set it):
   PR is a draft, `prepare` is skipped and `current-games` stays `pending`. **Ready for review**
   starts the run. Every other branch and PR runs as before. Marking an ordinary draft ready now
   makes a run whose jobs are all skipped, and the verdict posts nothing for it (playtest doc, "A
-  fix run waits for "Ready for review"").
+  fix run waits for "Ready for review""). The fix run itself: "Fix runs (bug-fix.yml)" below.
 - **Current-games verdict (GitHub Actions *environment* secrets, environment
   `current-games-verdict`):** `CURRENT_GAMES_VERDICT_APP_ID` and
   `CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY` — the GitHub App the verdict posts `current-games` as.
@@ -798,6 +798,46 @@ code default, so the dashboard need not set it):
   beside the key (`.github/workflows/**`, `services/director-worker/{scripts,src/eval}/**`) is
   mapped to the owner in `CODEOWNERS` (review is auto-requested; it is not a required review).
   See "GitHub App (Pipeline Changes)" for how the launcher opens those PRs.
+- **Fix runs (bug-fix.yml)** (`.github/workflows/bug-fix.yml`, ADR-0013
+  `docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md`): **Start fix** on a pipeline bug makes
+  the launcher's GitHub App dispatch `bug-fix.yml` on `main` with one input, `fix_run` (the run id;
+  inputs are public, so never the bug's number or text). The job reads the bug with a GitHub OIDC
+  token (audience `invisible-launcher-bug-fix`), runs Claude Code headless, and POSTs the change to
+  `https://app.invisiblewall.org/api/pipeline/fix-runs/<id>/result`. It never commits or pushes: the
+  launcher re-checks the change and opens the draft PR as the App. The launcher URL is hard-coded in
+  the workflow's `LAUNCHER_URL`; it is neither a secret nor a variable.
+  - **Owner setup (all three done by the owner by 2026-11-08; the environment and its secret
+    checked with `gh api` that day, the App's Actions write is proved by the first dispatch):**
+    1. The App's **Actions** permission raised to **Read and write** and accepted on the
+       installation; the `workflows` permission stays off ("GitHub App (Pipeline Changes)").
+    2. The Actions environment **`bug-fix`**, deployment branches **`main` only**. Check:
+       `gh api repos/Invisible-Wall-SL/Invisible-Engine/environments/bug-fix` → a custom branch
+       policy, `main`.
+    3. **`ANTHROPIC_BUG_FIX_API_KEY`**, an **environment secret** of `bug-fix` (not a repository
+       secret): a key of its own, in an Anthropic workspace with a **$200** monthly spend limit.
+  - **The key** reaches step 4 ("Run Claude Code") only. The step writes it to a root-owned file
+    (0600, in a 0700 folder under `$RUNNER_TEMP/key`). The CLI reads it through
+    `scripts/bug-fix/apiKeyHelper`, which uses `sudo -n /bin/cat`. The sandbox sets
+    no-new-privileges, so no command can sudo, and the CLI's file tools cannot read a root file.
+    Missing → step 4 fails, naming the secret.
+  - **Root-owned and read-only once prepared:** the pristine copy that step 5 runs, the rendered
+    settings, agents and prompt, the CLI and the tsx shim. The job relies on the hosted runner's
+    passwordless `sudo` for this; a self-hosted runner is refused by the fixture.
+  - **The `bug-fix` environment has no required reviewers and no wait timer.** A run waits for
+    neither: the person who presses Start fix is the approval, and the launcher gives a run 15
+    minutes to start.
+  - **No cache and no artifact, on purpose.** pnpm hard-links its store into `node_modules`, so a
+    cache save would publish the model's writes to `main`'s cache.
+  - **The CLI is pinned** by version and by the npm tarball's sha512 (`CLAUDE_CODE_VERSION`,
+    `CLAUDE_CODE_INTEGRITY` in the workflow's `env`): `2.1.311` today, npm's `stable` tag on
+    2026-11-08. To bump it, change both together and push. `.github/workflows/bug-fix-proof.yml`
+    (runs on a push touching `.github/workflows/bug-fix*.yml` or `scripts/bug-fix/**`; no secrets,
+    `contents: read`) proves the new pair with a scripted fake model. `pnpm check:bug-fix-workflow`
+    pins the workflow's rules offline.
+  - **The runner:** each run apt-installs `bubblewrap` and `socat` (the CLI's sandbox) and stops
+    Docker before the CLI starts.
+  - **Caps:** the per-run budget is Admin › Settings `PIPELINE_FIX_BUDGET_USD`, passed to
+    `--max-budget-usd`; 150 turns; step 4 times out at 60 minutes, the job at 75.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
@@ -1499,8 +1539,8 @@ check it from a terminal:
 Invisible Pipeline Changes (`/pipeline`, `docs/director/DECISIONS/0007-pipeline-change-mechanics.md`)
 reads pull requests, check runs, workflow runs and the current-games report artifact, posts the
 `current-games` commit status once every changed screen on a head is approved, squash-merges a Ready
-change with its head pinned, and opens revert pull requests (a branch, one commit and a PR through the
-Git Data API), as a **GitHub App** the owner created and installed on this repository only. Three env vars, all secrets with no code
+change with its head pinned, opens revert pull requests (a branch, one commit and a PR through the
+Git Data API), and dispatches and stops fix runs ("Fix runs (bug-fix.yml)"), as a **GitHub App** the owner created and installed on this repository only. Three env vars, all secrets with no code
 default, set on the **launcher-api** Railway service and nowhere else (no other service, no GitHub
 Actions secret — unless the current-games verdict is set up with this App, then with a SEPARATE key, see "Who may post
 `current-games`" — and never the browser — `apps/launcher-api/src/lib/server/githubApp.ts` turns them
@@ -1515,7 +1555,12 @@ into short-lived installation tokens server-side and logs neither):
 Permissions the App needs (Repository): Pull requests **read & write** (the list and detail; the
 merge; opening a revert PR; the agent-edit PRs of the Agents tab), Contents **read & write** (the
 revert branch and its commit; the agent-definition commits), Commit statuses **read & write**,
-Checks **read**, Actions **read** (the report artifacts), Metadata **read**. The Agents tab (card 5D)
+Checks **read**, Actions **read & write**, Metadata **read**. Actions read is for the report
+artifacts and the fix runs' Actions runs; write is for dispatching `bug-fix.yml` and cancelling a
+fix run (**Stop**). Write adds dispatching, cancelling and re-running workflow runs and deleting runs
+and artifacts. It does **not** add editing workflow files: that is the `workflows` permission, which
+stays off. Without write, Start fix records the run failed with "The GitHub App needs Actions: Read
+and write (docs/INFRA.md)". The Agents tab (card 5D)
 turns an edited runtime-agent definition into a branch `agents/<name>-<short>` off `main`, one
 commit changing only `services/director-worker/agents/<name>.md` (the Git Data API: blob → tree →
 commit → ref, never a push to `main`), and a PR titled `agents: <name> — <why>` labelled
@@ -1575,6 +1620,7 @@ apply staged vars.
 | **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
 | **`GAME_SERVER_CONFIG_SECRET`** (launcher) = **`GAME_SERVER_CONFIG_TOKEN`** (game-server) | The **launcher** and the **game-server** service, one value. Grants only the read-only published-config read `GET /api/game-server/config`. | New random value (e.g. `openssl rand -hex 32`), set in both places at once. | Launcher + game-server → Apply changes / Deploy. Between the two updates config reads get a 401: running rooms keep the config they started with, a game that has loaded once keeps its last good config, and a game with none fails to open. |
 | **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
+| **`ANTHROPIC_BUG_FIX_API_KEY`** (fix runs, ADR-0013) | GitHub → Settings → Environments → `bug-fix` → Environment secrets (not a repository secret). Read only by `bug-fix.yml` step 4 ("Run Claude Code"). | Create a new key in the same Anthropic workspace, replace the environment secret, then revoke the old key. | Nothing to redeploy. Verify with the next fix run, or for the workflow side alone, Actions → **Bug fix proof** → Run workflow (it needs no key). |
 | **`DIRECTOR_SERVICE_TOKEN`** | The **launcher**; the `director-worker` service once it exists (PLAN 3.x). Lets the worker call the Director adapters as a run's owner; no publish, Game Config, roles or merge op exists behind it. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher + worker → Apply changes / Deploy. Adapter calls between the two updates get a 401; the worker retries them with the same `opId`. |
 | **`DRAFT_PLAYER_SECRET`** | The **launcher** and the `draft-player` service (the same value on both). Signs the launcher's `/play` · `/progress` · `/cancel` and the player's callback. Holds no data access of its own. | New random value (`openssl rand -hex 32`), set on both, while no QA play is running. | Draft player + launcher → Apply changes / Deploy. A play between the two updates fails its submit or its callback (401/400); the fallback watch then fails the job and QA reports it not played. |
 | **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |

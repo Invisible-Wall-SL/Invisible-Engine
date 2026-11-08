@@ -1,0 +1,220 @@
+# Bug fix — a fix run on a pipeline bug (ADR-0013, docs/director/DECISIONS/0013-pipeline-bug-fix-runs.md).
+#
+# The launcher dispatches this on `main` through its GitHub App when a person presses Start fix,
+# with ONE input, the fix run's id (inputs are public; the bug's number and text never are). The job
+# reads the bug back from the launcher with a GitHub OIDC token, runs Claude Code headless with the
+# repository's build agents (pipeline-triage → the owning agent → the gates → code-reviewer), and
+# POSTs the change it leaves in the checkout. It never commits, pushes or opens anything: the
+# launcher re-checks the change and opens it as a DRAFT pull request on `bug-<n>-fix-<id>`, as the
+# App. Until a person marks that PR ready for review, current-games.yml runs nothing on it.
+#
+# THE REPOSITORY IS PUBLIC: this run's log is too. The bug's text and screenshots live only in
+# $RUNNER_TEMP/bug/, outside the workspace; no step prints them, no artifact is uploaded, and the
+# CLI's output goes to $RUNNER_TEMP/claude/, never to the log. The one line the log shows is
+# `fix run <id>: <status>, $<spend>`, printed by step 5 inside a stop-commands span.
+#
+# SIX LAYERS bound what the bug's text can steer the model to do (ADR §4):
+#   1. The prompt is fixed (scripts/bug-fix/coordinator.md, from the pristine copy); it names the
+#      brief's path, never its text.
+#   2. No credential in reach: `contents: read`, no token left in the checkout, no App key, no R2,
+#      Railway or deploy secret. The Anthropic key is an environment secret of `bug-fix` (deployment
+#      branches: main only), given to step 4 alone, written to a file the sandbox denies, and read
+#      by the CLI through scripts/bug-fix/apiKeyHelper. Step 4 `exec`s the CLI under `env -i` with a
+#      fixed list of variables: no OIDC request URL or token, no Actions runtime token or results
+#      URL, no key — and, being exec'd, no parent process still holding them.
+#   3. Claude Code's sandbox on every Bash command: no network, no read of the key or the pristine
+#      copy, writes only in the workspace and $RUNNER_TEMP/out. Settings come from the pristine
+#      copy, rendered into $RUNNER_TEMP/claude/ (`--setting-sources ''`: no project, local or user
+#      settings, so nothing the model writes in the workspace configures the CLI); the agents come
+#      from the pristine copy through `--agents`. `failIfUnavailable` makes a missing sandbox a
+#      refusal to start, never an unsandboxed run. `--restricted` confines the file tools to the
+#      workspace and the bug's folders and starts no messaging socket. The sandbox refuses every Unix
+#      socket, which tsx's CLI needs, so `prepare` points the workspace's `tsx` at its loader
+#      (scripts/bug-fix/tsx-shim.mjs). scripts/bug-fix/prove-cli.mjs proves each claim on the pinned
+#      CLI with a scripted fake model (bug-fix-proof.yml runs it on every change here).
+#   4. The launcher re-checks the change (apps/launcher-api/src/lib/server/bugFixRunsChange.ts).
+#   5. GitHub refuses the App any edit to .github/workflows/ (it has no `workflows` permission).
+#   6. Nothing merges without the owner: a draft PR, the six required checks, current-games, and
+#      pipelineMerge.
+#
+# NO CACHE, on purpose. pnpm hard-links its store into node_modules, so a write the model makes
+# under node_modules changes the store; a post-job cache save would hand that to main's next run.
+#
+# Pinned: the Claude Code CLI by version AND by the npm tarball's sha512 (bump both together, then
+# let bug-fix-proof.yml prove the new pair). check:bug-fix-workflow (scripts/bug-fix/
+# workflow.fixture.mjs) pins every rule above with a planted mutant each. Setup: docs/INFRA.md
+# "Fix runs (bug-fix.yml)".
+
+name: Bug fix
+
+# The launcher binds the run by this title (`fixRunName`, apps/launcher-api/src/lib/bugFixRuns.ts).
+run-name: Fix run ${{ inputs.fix_run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      fix_run:
+        description: The launcher's fix run id (10 lowercase hex characters)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FIX_RUN: ${{ inputs.fix_run }}
+  LAUNCHER_URL: https://app.invisiblewall.org
+  CLAUDE_CODE_VERSION: 2.1.311
+  CLAUDE_CODE_INTEGRITY: sha512-dk1lVMt7n+NlYucKM7dLp/PfrK32pa/4oKQkacfazlSj8rG+hkH67wnDnaFG9Gs2al3OjK8PTVHgZ2WGHXoWUg==
+  MODEL: claude-opus-5-5
+  MAX_TURNS: 150
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    environment: bug-fix
+    steps:
+      - name: Check the fix run id
+        run: |
+          if [[ ! "$FIX_RUN" =~ ^[0-9a-f]{10}$ ]]; then
+            echo '::error title=bug-fix::fix_run is not a fix run id'
+            exit 1
+          fi
+
+      # Main as dispatched, before anything the model writes exists: the brief step runs from it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      # Step 3 of the ADR: the brief and screenshots, to $RUNNER_TEMP/bug/. Moves the run to running.
+      - name: Read the bug
+        id: brief
+        run: node scripts/bug-fix/collect.mjs brief
+
+      # The commit the launcher gave the run (main when it was started), and a pristine copy of it
+      # that every later script runs from and the change is measured against.
+      - name: Check out the run's base
+        id: base
+        env:
+          BASE_SHA: ${{ steps.brief.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$BASE_SHA" ]; then
+            git fetch --quiet --no-tags --depth=1 origin "$BASE_SHA"
+            git checkout --quiet --detach "$BASE_SHA"
+          fi
+          [ "$(git rev-parse HEAD)" = "$BASE_SHA" ]
+          [ -z "$(git status --porcelain)" ]
+          cp -a "$GITHUB_WORKSPACE" "$RUNNER_TEMP/main"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Claude Code and its sandbox
+        run: |
+          set -euo pipefail
+          tgz="$RUNNER_TEMP/claude-code.tgz"
+          curl -fsSL --retry 3 -o "$tgz" \
+            "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-${CLAUDE_CODE_VERSION}.tgz"
+          if [ "sha512-$(openssl dgst -sha512 -binary "$tgz" | base64 -w0)" != "$CLAUDE_CODE_INTEGRITY" ]; then
+            echo '::error title=bug-fix::the Claude Code package does not match its pinned sha512'
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/claude/bin"
+          tar -xzf "$tgz" -C "$RUNNER_TEMP/claude/bin" --strip-components=1 package/claude
+          chmod 0755 "$RUNNER_TEMP/claude/bin/claude"
+          [ "$("$RUNNER_TEMP/claude/bin/claude" --version)" = "$CLAUDE_CODE_VERSION (Claude Code)" ]
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bubblewrap socat
+          # Ubuntu 24.04's AppArmor can refuse the unprivileged user namespaces bubblewrap needs.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --dev /dev --unshare-net true
+          # Docker's socket is root on this machine, and nothing in a fix run needs it.
+          sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
+
+      # Also records node's path: step 5 runs it by that path, whatever a later PATH says.
+      - name: Prepare the run
+        id: prepare
+        run: node "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" prepare
+
+      # The CLI's own file tools run outside the sandbox. Whatever links the model plants, they cannot
+      # change what later runs: the pristine copy (step 5's code), the rendered settings, agents and
+      # prompt, the CLI and the tsx shim belong to root and are read-only from here on.
+      - name: Lock what the run must not change
+        run: |
+          set -euo pipefail
+          for d in "$RUNNER_TEMP/main" "$RUNNER_TEMP/claude/conf" "$RUNNER_TEMP/claude/bin" "$RUNNER_TEMP/tsx-shim"; do
+            sudo chown -R root:root "$d"
+            sudo chmod -R go-w,u-w "$d"
+          done
+
+      # Step 4: the only step with the key. `exec env -i` replaces this shell with the CLI and hands
+      # it only the variables named here; everything it prints goes to $RUNNER_TEMP/claude/.
+      - name: Run Claude Code
+        id: cli
+        timeout-minutes: 60
+        env:
+          ANTHROPIC_BUG_FIX_API_KEY: ${{ secrets.ANTHROPIC_BUG_FIX_API_KEY }}
+          BUDGET: ${{ steps.brief.outputs.budget }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANTHROPIC_BUG_FIX_API_KEY" ]; then
+            echo '::error title=bug-fix: missing secret::Add ANTHROPIC_BUG_FIX_API_KEY to the bug-fix environment (docs/INFRA.md)'
+            exit 1
+          fi
+          umask 077
+          sudo install -d -o root -g root -m 0700 "$RUNNER_TEMP/key"
+          printf '%s' "$ANTHROPIC_BUG_FIX_API_KEY" | sudo tee "$RUNNER_TEMP/key/anthropic" > /dev/null
+          sudo chmod 0600 "$RUNNER_TEMP/key/anthropic"
+          c="$RUNNER_TEMP/claude"
+          mkdir -p "$c/config"
+          cd "$GITHUB_WORKSPACE"
+          exec env -i \
+            HOME="$HOME" PATH="$PATH" SHELL=/bin/bash LANG=C.UTF-8 TERM=dumb CI=true \
+            CLAUDE_CONFIG_DIR="$c/config" \
+            DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=2 \
+            GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0=false \
+            GIT_CONFIG_KEY_1=core.hooksPath GIT_CONFIG_VALUE_1=/dev/null \
+            "$c/bin/claude" -p \
+            --model "$MODEL" --max-turns "$MAX_TURNS" --max-budget-usd "$BUDGET" \
+            --settings "$c/conf/settings.json" --setting-sources '' \
+            --agents "$c/conf/agents.json" \
+            --tools Bash,Read,Glob,Grep,Edit,Write,Agent \
+            --restricted --strict-mcp-config --disable-slash-commands \
+            --permission-mode dontAsk --permission-prompts none \
+            --add-dir "$RUNNER_TEMP/bug" --add-dir "$RUNNER_TEMP/out" \
+            --no-session-persistence --output-format stream-json --verbose \
+            < "$c/conf/prompt.md" > "$c/stream.jsonl" 2> "$c/stderr.log"
+
+      # Step 5, from the pristine copy: the change, the result and the usage, POSTed with an OIDC
+      # token. Runs after a failed, timed-out or stopped step 4 too, so the spend is always recorded.
+      # Killing every bubblewrap kills each sandbox's whole process namespace: nothing the model
+      # started is left to change the workspace while it is read.
+      - name: Post the result
+        if: ${{ always() && steps.base.outcome == 'success' }}
+        timeout-minutes: 12
+        working-directory: ${{ runner.temp }}/main
+        env:
+          NODE: ${{ steps.prepare.outputs.node }}
+        run: |
+          pkill -KILL -x bwrap 2>/dev/null || true
+          "$NODE" "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" result
+
+      # Nothing of the bug, the transcript or the key outlives the steps; the workspace's .git goes
+      # too, so no post step runs git in a repository the model could write in.
+      - name: Clean up
+        if: ${{ always() }}
+        run: sudo rm -rf "$RUNNER_TEMP/key" "$RUNNER_TEMP/bug" "$RUNNER_TEMP/out" "$RUNNER_TEMP/claude" "$GITHUB_WORKSPACE/.git"
