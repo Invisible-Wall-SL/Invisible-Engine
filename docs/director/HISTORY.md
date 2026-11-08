@@ -15,6 +15,57 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-08 · Phase 10 · infra-railway (13B: the fix-run workflow)
+- Did: built ADR-0013 card 13B.
+  - `.github/workflows/bug-fix.yml`: dispatch only; `contents: read` + `id-token: write`;
+    environment `bug-fix`; `run-name: Fix run <id>`. The brief is read with OIDC; a pristine copy of
+    the run's base is kept; step 4 (the only step with the key) `exec`s the CLI under `env -i`; step
+    5 posts from the pristine copy; no cache, no artifact.
+  - `scripts/bug-fix/`:
+    - `coordinator.md`, the fixed prompt;
+    - `settings.json`, the template: `dontAsk`, file tools scoped, the sandbox on and failing
+      closed, no network;
+    - `apiKeyHelper`;
+    - `collect.mjs`: `brief`, `prepare` and `result`;
+    - `tsx-shim.mjs`.
+  - The `pipeline-triage.md` sentence. `check:agents-knowledge` now checks the coordinator's paths.
+  - The owner's three setup steps are done (2026-11-08). The `bug-fix` environment (branch policy
+    `main`) and its environment secret were checked with `gh api`.
+- First, proved the three features ADR §4 relies on, on the pinned CLI (2.1.311, npm `stable`,
+  tarball sha512-checked): the per-run budget cap (`--max-budget-usd`, sub-agent spend included),
+  `apiKeyHelper`, and a Bash sandbox that denies the network and the key file. The proof is
+  `scripts/bug-fix/prove-cli.mjs` + `fake-anthropic.mjs`, run on a hosted runner by
+  `bug-fix-proof.yml` with no secret. It is the real CLI, through the workflow's own step text,
+  against a scripted fake model; 68 checks, with positive controls and planted mutants. ADR
+  approval item 11 did not trigger: the network and the key file are denied.
+- Found by the proof, beyond the ADR, all closed:
+  - the sandbox could read the runner's own credentials (`~/actions-runner/…/.credentials`);
+  - a bare Grep allow searched outside the workspace;
+  - the CLI's messaging socket, whose token is in every command's environment, can inject user
+    messages. The sandbox refuses all Unix sockets, and `--restricted` starts none;
+  - so tsx's CLI cannot start in the sandbox (148 of 159 launcher checks use it): the tsx shim runs
+    its loader instead;
+  - pnpm's hard-linked store would make a cache save a poisoning path: no cache;
+  - `env -u` would leave the key in the parent shell's `/proc/<pid>/environ`: `exec env -i`.
+- Files: .github/workflows/bug-fix.yml, bug-fix-proof.yml; scripts/bug-fix/*; package.json
+  (`check:bug-fix-workflow`); .claude/agents/pipeline-triage.md; scripts/check-agents-knowledge.mjs;
+  docs/INFRA.md, docs/guides/rotate-a-secret.md, docs/status/{bug-reports,infra}.md, PLAN.md.
+- Branch / PR: claude/eager-mendel-366c95, #1525.
+- Tests:
+  - `check:bug-fix-workflow`: 41 rules over the workflow, the settings, the helper, `collect.mjs`
+    and current-games' fix-run skip, with 108 planted workflow mutants and 6 `collect.mjs`
+    mutants, all caught. It also runs `collect.mjs` end to end against a fake OIDC endpoint and
+    launcher.
+  - Bug fix proof: green on the hosted runner.
+  - Reviewed by regression-guardian (fixture audit: ADR §10 met; its bypasses and vacuous checks
+    then closed) and code-reviewer.
+- Decisions: PLAN 13B is `review`, not `done`. Its acceptance includes the five-case spike, and a
+  run can only start from `main` (OIDC claims and the environment both pin it), so the spike runs
+  after the owner's merge. The PR edits `.github/workflows/`, so its `current-games` fails by
+  design and the owner merges it with the admin override.
+- Next: owner merge of #1525; then the live five-case spike on seeded test bugs ($20 cap), results
+  in #1525 and here; 13C.
+
 ## 2026-11-08 · Phase 10 · director-frontend (13C: Start fix UI)
 - Did: Start fix / Send and start fix and the run line (status, PR, Actions link, spend, Stop,
   second-bug File it) on the Bugs tab and the /bugs Triage card; the button is hidden until GitHub
