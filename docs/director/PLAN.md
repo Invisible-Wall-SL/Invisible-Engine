@@ -144,7 +144,7 @@ for the owner's three setup steps (the GitHub App's Actions write, the `bug-fix`
 |---|---|---|---|---|
 | 13A | `bug_fix_runs` + `fix_run` event kind; `pipelineBugFix` capability; caps in Settings; start with its refusals; App dispatch; OIDC check; brief, screenshot and result endpoints; validation, App commit, draft PR; sync backstop; Stop; spend rows | launcher-studio (App calls reviewed by director-backend) | done (#1512) | `check:bug-fix-runs`, `check:bug-reports`, `check:migration-order` |
 | 13B | `bug-fix.yml`, `scripts/bug-fix/*`, the `pipeline-triage.md` sentence, INFRA; `current-games.yml` skips fix-run branches and draft fix PRs (OPEN_QUESTIONS 27; done in #1514) | infra-railway | todo (blocked: owner setup) | `check:bug-fix-workflow`; the five-case spike under $20 |
-| 13C | **Start fix** / **Send and start fix**, the run line, the fix run on the escalated game bug, **Mark ready for review** in Pipeline Changes; tool guides and status | director-frontend + launcher-studio + docs-keeper | todo | `check:bug-fix-runs` page facts; browser pass |
+| 13C | **Start fix** / **Send and start fix**, the run line, the fix run on the escalated game bug, **Mark ready for review** in Pipeline Changes; tool guides and status | director-frontend + launcher-studio + docs-keeper | done (#1523; browser pass owed) | `check:bug-fix-runs` page facts; browser pass |
 | 13D | Pilot on three real, low-risk pipeline bugs; measured cost replaces the estimate | regression-guardian | todo | Each PR merged or closed by the owner; spend per run recorded |
 
 ## Phase 6 — Pilot
