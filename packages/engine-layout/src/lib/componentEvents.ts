@@ -353,6 +353,12 @@ export class ComponentEventDispatcher {
 		}
 	}
 
+	/** Back to how a fresh dispatcher starts: nothing queued, no pointer held. */
+	reset(): void {
+		this.queue = [];
+		this.at = undefined;
+	}
+
 	/** The instance is gone: nothing queued or later raised leaves. */
 	destroy(): void {
 		this.destroyed = true;

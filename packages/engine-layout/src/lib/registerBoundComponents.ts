@@ -22,10 +22,23 @@ export function registerBoundComponents(map: Record<string, BoundComponent>): vo
 	}
 }
 
+/** Bound components that start again by themselves when their screen restarts in place
+ *  (`getContextRestart`); every other one is mounted afresh, as a remount of the screen would. */
+const restartsInPlace = new Set<string>();
+
+export function registerBoundRestartsInPlace(names: readonly string[]): void {
+	for (const name of names) restartsInPlace.add(name);
+}
+
+export function boundRestartsInPlace(name: string): boolean {
+	return restartsInPlace.has(name);
+}
+
 export function getBoundComponent(name: string): BoundComponent | undefined {
 	return registry.get(name);
 }
 
 export function clearBoundComponents(): void {
 	registry.clear();
+	restartsInPlace.clear();
 }

@@ -293,7 +293,7 @@ export async function mergeChange(
 			);
 		}
 		if (change.draft) {
-			throw error(409, 'This change is a draft: mark it ready for review on GitHub first.');
+			throw error(409, 'This change is a draft: mark it ready for review first.');
 		}
 		if (change.filesTruncated || harnessFilesOf(change.files).length) {
 			throw error(409, change.harness.unapprovable ?? 'This change edits the harness.');
@@ -373,6 +373,56 @@ export async function mergeChange(
 		forgetChanges();
 		return { merge: await completeMerge(claim, mergeSha), already: false };
 	});
+}
+
+const READY_MUTATION = `mutation($id: ID!) {
+  markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+    pullRequest { isDraft }
+  }
+}`;
+
+/**
+ * Take a DRAFT change out of draft (ADR-0013 §8): GitHub's `markPullRequestReadyForReview`, which
+ * exists only in its GraphQL API, as the App. A fix run opens its pull request as a draft, and
+ * `mergeChange` refuses a draft, so this is the owner's step between reading the diff and merging.
+ * The caller has passed the `pipelineMerge` gate. The pull request is read first and anything but
+ * an open draft is a 409 before GitHub is asked; GitHub's own refusal comes back as a
+ * `GithubAppError`. It merges nothing and approves nothing.
+ */
+export async function markReadyForReview(
+	input: { number: number },
+	app: GithubApp = githubApp,
+): Promise<{ number: number; draft: false }> {
+	const { number } = input;
+	const pr = await app.json<{
+		node_id?: unknown;
+		draft?: unknown;
+		state?: unknown;
+		merged?: unknown;
+	}>(`/repos/${repo()}/pulls/${number}`);
+	if (pr.merged === true) throw error(409, `#${number} is already merged.`);
+	if (pr.state !== 'open') throw error(409, `#${number} is closed.`);
+	if (pr.draft !== true) throw error(409, `#${number} is not a draft: it is ready for review.`);
+	if (typeof pr.node_id !== 'string') {
+		throw new GithubAppError(`GitHub did not name #${number}'s GraphQL id.`);
+	}
+	const res = await app.fetch('https://api.github.com/graphql', {
+		method: 'POST',
+		body: JSON.stringify({ query: READY_MUTATION, variables: { id: pr.node_id } }),
+	});
+	const body = (await res.json().catch(() => null)) as {
+		message?: string;
+		errors?: { message?: string }[];
+	} | null;
+	if (!res.ok || body?.errors?.length) {
+		const why = body?.errors?.[0]?.message ?? body?.message ?? 'no reason given';
+		throw new GithubAppError(
+			`GitHub refused to mark #${number} ready for review: ${why}`,
+			res.status,
+		);
+	}
+	forgetChanges();
+	return { number, draft: false };
 }
 
 /**

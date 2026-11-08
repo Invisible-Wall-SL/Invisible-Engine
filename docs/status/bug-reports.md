@@ -133,8 +133,21 @@ server module, routes, page components, triage, screenshots, the pull-request li
     - an Actions run that completed without a result → `failed` / `cancelled`;
     - any run past 90 minutes → `failed`;
     - a stalled commit → the PR is looked up first.
-  - **Page data.** `BugDetail.fixRuns` and `canStartFix`, and the `fix_run` activity lines. There is
-    no button yet (card 13C).
+  - **Page data.** `BugDetail.fixRuns`, `fix` (`FixFacts`: `may`, `ready`, the first `refusal`),
+    `canStartFix`, `escalatedFix` (a game bug's escalated pipeline bug's latest run, status and PR
+    only), and the `fix_run` activity lines.
+- **Start fix UI (ADR-0013 card 13C).** `FixRunControl.svelte` (button + run lines + Stop + File it)
+  sits in the Triage card of `/bugs` and on each card of the Bugs tab; the decisions are pure
+  functions in `routes/(app)/bugs/fixView.ts` (`fixControl`, `fixRunLine`, `fileSecondBugHref`),
+  pinned by `check:bug-fix-runs`. **Hidden while the workflow is absent:** `bugFixWorkflow.ts`
+  asks GitHub (as the App, Actions read) for `bug-fix.yml` and treats only an active workflow as
+  ready; the answer is kept a minute (10 seconds when GitHub did not answer) and `FixFacts.ready`
+  is false without it, or without the App. `GET /api/pipeline/bugs` now also returns `fix`
+  (`FixTab`: `triage`, `may`, `ready`, per-bug runs and refusal). The report form reads `title`
+  and `details` from the address. **Mark ready for review:** `POST
+  /api/pipeline/changes/<n>/ready` (`markReadyForReview` in `pipelineMerge.ts`, GitHub's GraphQL
+  `markPullRequestReadyForReview` as the App; `pipelineMerge`; 409 unless an open draft), a bar
+  with the button above the merge bar of a draft change in Pipeline Changes; `check:pipeline-changes`.
 - **Fixtures:** `pnpm --filter launcher-api check:bug-reports` and `check:bug-fix-runs` (both run
   by `check:all`). Each runs the real modules with the database, R2, grants, tool scope, GitHub and
   (for fix runs) the OIDC keys faked at their seams.
@@ -155,7 +168,7 @@ server module, routes, page components, triage, screenshots, the pull-request li
    - **13B**, the workflow. It waits for the owner's three setup steps. Director OPEN_QUESTIONS
      27 is settled: since #1514, `current-games.yml` skips fix-run branches and draft fix PRs, so a
      fix run's branch code never runs next to CI secrets before **Mark ready for review**.
-   - **13C**, the buttons and **Mark ready for review**.
+   - **13C**, built 2026-11-08 (see "Start fix UI" above); browser pass owed.
    - **13D**, the pilot.
 
    Until then a pipeline bug is fixed from **Copy fix brief**. The fixture fakes the store, so the
@@ -163,6 +176,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
    by the migration applying in CI's `postgres-proofs`. A two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-08 — **Start fix UI and Mark ready for review (ADR-0013 card 13C).** Start fix / Send
+  and start fix, the run line (status, PR, Actions link, spend, Stop, a second bug's File it) on
+  the Bugs tab and the `/bugs` Triage card; hidden until GitHub has `bug-fix.yml` and the App is
+  set; the fix run of an escalated bug on the game bug's Repair card; Mark ready for review on a
+  draft change. Fixtures: `check:bug-fix-runs` (page facts for each state, status and outcome),
+  `check:pipeline-changes` (ready), `check:bug-reports` (report link). Not clicked in a browser.
 
 - 2026-11-03 — **Fix runs, back end (ADR-0013 card 13A, #1512).** `bug_fix_runs` (migration
   0037), `fix_run` events, the `pipelineBugFix` capability, three Settings caps, Start / Stop,

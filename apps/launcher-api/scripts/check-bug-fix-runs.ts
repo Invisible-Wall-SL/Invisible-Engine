@@ -127,6 +127,8 @@ const pushEvent = (bugNumber: number, actor: Actor, kind: string, data: Record<s
 		actor: actor.name,
 		data,
 	});
+/** Game bug → the pipeline bug it was escalated to. */
+const escalations = new Map<number, { toBug: number; toStatus: BugReport['status'] }>();
 const bugOf = (n: number) => db.bugs.find((b) => b.number === n)!;
 const eventsOf = (n: number, kind?: string) =>
 	db.events.filter((e) => e.bugNumber === n && (!kind || e.kind === kind));
@@ -144,7 +146,18 @@ fake('lib/server/bugReportsStore.ts', {
 	},
 	getScreenshot: async (number: number, id: string) =>
 		db.shots.find((s) => s.bugNumber === number && s.id === id) ?? null,
-	escalationsFor: async () => new Map(),
+	listBugRows: async (where: { kind: string }) => {
+		const bugs = db.bugs.filter((b) => b.kind === where.kind);
+		return {
+			bugs,
+			screenshots: new Map(
+				bugs.map((b) => [b.number, db.shots.filter((x) => x.bugNumber === b.number).length]),
+			),
+			links: new Map(bugs.map((b) => [b.number, db.links.filter((l) => l.bugNumber === b.number)])),
+		};
+	},
+	escalationsFor: async (numbers: number[]) =>
+		new Map([...escalations].filter(([from]) => numbers.includes(from))),
 	fixedAwaitingPublish: async () => new Set(),
 	listOpenLinks: async () =>
 		db.links
@@ -508,6 +521,8 @@ const gh = {
 	/** Calls held until released, each once. */
 	gates: [] as Gate[],
 	slugFails: false,
+	/** What GitHub says of bug-fix.yml: a state, 'absent' (404), or 'down' (500). */
+	workflow: 'active' as string,
 };
 function answer(status: number, body?: unknown, headers: Record<string, string> = {}): Response {
 	return new Response(body === undefined || status === 204 ? null : JSON.stringify(body), {
@@ -541,6 +556,11 @@ function treeListing() {
 }
 async function route(method: string, path: string, body: Record<string, unknown> | null) {
 	let m: RegExpExecArray | null;
+	if (method === 'GET' && path === `${R}/actions/workflows/bug-fix.yml`) {
+		if (gh.workflow === 'absent') return answer(404, { message: 'Not Found' });
+		if (gh.workflow === 'down') return answer(500, { message: 'boom' });
+		return answer(200, { id: 1, state: gh.workflow });
+	}
 	if (method === 'GET' && path === `${R}/git/ref/heads/main`) {
 		return answer(200, { object: { sha: BASE } });
 	}
@@ -3273,6 +3293,422 @@ check(
 		'Ran it.',
 	],
 );
+
+// ── What the pages show (card 13C) ────────────────────────────────────────────
+const fixPage = await import(src('routes/(app)/bugs/fixView.ts'));
+const workflow = await import(src('lib/server/bugFixWorkflow.ts'));
+const tabRoute = await import(src('routes/api/pipeline/bugs/+server.ts'));
+type Facts = {
+	may: boolean;
+	ready: boolean;
+	refusal: { code: FixRunRefusal; message: string } | null;
+};
+const refusal = (code: FixRunRefusal, over: Record<string, unknown> = {}) => ({
+	code,
+	message: shared.refusalMessage(code, 12, {
+		status: 'open',
+		openPr: 77,
+		liveRun: 'abc',
+		liveTotal: 2,
+		maxLive: 2,
+		monthSpendUsd: 150,
+		monthlyCapUsd: 150,
+		...over,
+	}),
+});
+const open: Facts = { may: true, ready: true, refusal: null };
+const control = (facts: Facts, sent: boolean) => {
+	const c = fixPage.fixControl(facts, sent);
+	return c.kind === 'hidden' ? 'hidden' : `${c.kind}: ${c.label}${c.why ? ` · ${c.why}` : ''}`;
+};
+check(
+	'page: the button a caller sees in each state — unsent says Send and start fix, sent says Start fix',
+	[
+		control(open, false),
+		control(open, true),
+		control({ ...open, refusal: refusal('bug_closed') }, true),
+		control({ ...open, refusal: refusal('bug_closed') }, false),
+		control({ ...open, refusal: refusal('pr_open') }, true),
+		control({ ...open, refusal: refusal('fix_run_live') }, true),
+		control({ ...open, refusal: refusal('too_many_fix_runs') }, true),
+		control({ ...open, refusal: refusal('fix_budget_spent') }, false),
+		control({ ...open, may: false }, true),
+		control({ may: false, ready: false, refusal: null }, false),
+		control({ ...open, ready: false }, true),
+		control({ ...open, ready: false }, false),
+	],
+	[
+		'start: Send and start fix',
+		'start: Start fix',
+		'blocked: Start fix · BUG-12 is closed. Reopen it to start a fix run.',
+		'blocked: Send and start fix · BUG-12 is closed. Reopen it to start a fix run.',
+		'blocked: Start fix · A fix is already in review: #77.',
+		'hidden',
+		'blocked: Start fix · 2 fix runs are going already, the most at once (Admin › Settings). Start this one when one ends.',
+		"blocked: Send and start fix · Fix runs have spent $150.00 of this month's $150.00 (Admin › Settings). New fix runs start next month.",
+		'hidden',
+		'hidden',
+		'hidden',
+		'hidden',
+	],
+);
+check(
+	'page: Send and start fix sends; Start fix does not',
+	[fixPage.fixControl(open, false).sends, fixPage.fixControl(open, true).sends],
+	[true, false],
+);
+
+// The run line, for each status and outcome.
+const RUN = {
+	id: 'abc0123456',
+	status: 'running',
+	outcome: null,
+	prNumber: null,
+	prUrl: null,
+	branch: null,
+	actionsUrl: null,
+	reason: null,
+	summary: null,
+	secondBug: null,
+	spendUsd: null,
+	startedBy: 'Ana',
+	createdAt: '2026-11-08T10:00:00.000Z',
+	finishedAt: null,
+	canStop: true,
+};
+const lineOf = (over: Record<string, unknown>) => {
+	const l = fixPage.fixRunLine({ ...RUN, ...over });
+	return [l.label, l.tone, l.text, l.spend, l.live];
+};
+check(
+	'page: the run line for each status and outcome',
+	[
+		lineOf({ status: 'dispatched' }),
+		lineOf({}),
+		lineOf({ status: 'pr_opened', outcome: 'fixed', prNumber: 12, spendUsd: 2.5 }),
+		lineOf({ status: 'pr_opened', outcome: 'second_area', prNumber: 12 }),
+		lineOf({ status: 'no_fix', outcome: 'not_reproduced', spendUsd: 0.4 }),
+		lineOf({ status: 'no_fix', outcome: 'needs_person' }),
+		lineOf({ status: 'no_fix', outcome: 'second_area' }),
+		lineOf({
+			status: 'no_fix',
+			outcome: 'needs_person',
+			reason: 'The change was refused (scope).',
+		}),
+		lineOf({ status: 'failed' }),
+		lineOf({ status: 'failed', reason: 'The run timed out.' }),
+		lineOf({ status: 'cancelled', reason: 'Stopped by Ana.' }),
+		lineOf({ status: 'cancelled' }),
+	],
+	[
+		['Queued', 'blue', 'Fix run abc0123456 is queued: the job has not started yet.', null, true],
+		['Working', 'blue', 'Fix run abc0123456 is working on it.', null, true],
+		['Fix proposed', 'green', 'Fix run abc0123456 opened draft pull request #12.', '$2.50', false],
+		[
+			'Fix proposed',
+			'green',
+			'Fix run abc0123456 opened draft pull request #12 for one area and found the cause also lies in another.',
+			'spend unknown',
+			false,
+		],
+		['No fix', 'amber', 'Fix run abc0123456 found no fix: it did not reproduce.', '$0.40', false],
+		[
+			'No fix',
+			'amber',
+			'Fix run abc0123456 found no fix: it needs a person.',
+			'spend unknown',
+			false,
+		],
+		[
+			'No fix',
+			'amber',
+			'Fix run abc0123456 found no fix: the cause is in another area.',
+			'spend unknown',
+			false,
+		],
+		[
+			'No fix',
+			'amber',
+			'Fix run abc0123456 found no fix: The change was refused (scope).',
+			'spend unknown',
+			false,
+		],
+		['Failed', 'red', 'Fix run abc0123456 failed.', 'spend unknown', false],
+		['Failed', 'red', 'Fix run abc0123456 failed: The run timed out.', 'spend unknown', false],
+		['Stopped', 'muted', 'Fix run abc0123456 was stopped. Stopped by Ana.', 'spend unknown', false],
+		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', 'spend unknown', false],
+	],
+);
+const hostile = '<img src=x onerror=alert(1)> [x](http://evil.example) BUG-3';
+check(
+	"page: the run's words reach the page unchanged, as the note, for the page to render as text",
+	fixPage.fixRunLine({ ...RUN, status: 'no_fix', summary: hostile }).note,
+	hostile,
+);
+
+// File it: the report form for a proposed second bug.
+const second = {
+	area: 'rigger',
+	title: 'Rigger drops a bone',
+	evidence: 'Seen in step 3.\nAgain.',
+};
+const fileHref = fixPage.fileSecondBugHref({ id: RUN.id, secondBug: second }, 12) as string;
+const asked = view.askedReport(
+	new URL(`https://app.example${fileHref}`),
+	(a: string) => a === 'rigger',
+);
+check(
+	'page: File it opens /bugs?new=1 with the area, the title and the evidence led by where it came from',
+	[
+		fileHref.startsWith('/bugs?new=1&'),
+		asked,
+		fixPage.fileSecondBugHref({ id: RUN.id, secondBug: null }, 12),
+		fixPage.secondBugText(second),
+	],
+	[
+		true,
+		{
+			area: 'rigger',
+			pageUrl: '',
+			title: 'Rigger drops a bone',
+			description: 'Proposed by fix run abc0123456 on BUG-12.\n\nSeen in step 3.\nAgain.',
+		},
+		null,
+		'Proposed second bug: Invisible Rigger — Rigger drops a bone',
+	],
+);
+check(
+	'page: a report link caps its text at the form’s limits and drops an unknown area',
+	(() => {
+		const r = view.askedReport(
+			new URL(
+				`https://app.example/bugs?new=1&for=nope&title=${'t'.repeat(500)}&details=${'d'.repeat(30000)}`,
+			),
+			() => false,
+		);
+		return [r.area, r.title.length, r.description.length];
+	})(),
+	['', bugShared.MAX_TITLE, bugShared.MAX_DESCRIPTION],
+);
+
+// The server's facts, per viewer, with the workflow present and absent.
+const unsentBug = addBug({}).number;
+const sentBug = addBug({ sentAt: tick(), sentBy: 'Dana' }).number;
+const closedBug = addBug({ status: 'wontFix', sentAt: tick() }).number;
+const reviewBug = addBug({ sentAt: tick() }).number;
+db.links.push({
+	bugNumber: reviewBug,
+	prNumber: 650,
+	title: 'launcher: fix',
+	url: `https://github.com/${REPO}/pull/650`,
+	state: 'open',
+	updatedAt: tick(),
+});
+const liveBug = addBug({ sentAt: tick() }).number;
+liveRun(liveBug);
+const endedBug = addBug({ sentAt: tick() }).number;
+Object.assign(runOf(liveRun(endedBug).id), { status: 'no_fix', outcome: 'not_reproduced' });
+settings.maxLive = 5;
+const seen = async (user: TestUser, n: number) => {
+	const a = await call(bugRoute.GET, { user, params: { number: String(n) } });
+	const fix = a.body.fix as Facts;
+	return a.status === 200 ? control(fix, a.body.sentAt !== null) : `HTTP ${a.status}`;
+};
+workflow.forgetFixWorkflow();
+check(
+	'page: the button per bug and caller — unsent, sent, closed, a pull request open, a run live, a past run; no button without both capabilities',
+	[
+		await seen(FIXER, unsentBug),
+		await seen(FIXER, sentBug),
+		await seen(ADMIN, sentBug),
+		await seen(FIXER, closedBug),
+		await seen(FIXER, reviewBug),
+		await seen(FIXER, liveBug),
+		await seen(FIXER, endedBug),
+		await seen(DEV, sentBug),
+	],
+	[
+		'start: Send and start fix',
+		'start: Start fix',
+		'start: Start fix',
+		`blocked: Start fix · BUG-${closedBug} is closed. Reopen it to start a fix run.`,
+		'blocked: Start fix · A fix is already in review: #650.',
+		'hidden',
+		'start: Start fix',
+		'hidden',
+	],
+);
+check(
+	'page: fix without triage is no button either (the server checks the same pair)',
+	await seen(FIXONLY, sentBug),
+	'hidden',
+);
+settings.maxLive = 2;
+
+for (const state of ['absent', 'disabled_manually', 'down']) {
+	gh.workflow = state;
+	workflow.forgetFixWorkflow();
+	const a = await call(bugRoute.GET, { user: FIXER, params: { number: String(sentBug) } });
+	check(
+		`page: GitHub's bug-fix.yml is ${state} → no button, and nothing offered to start`,
+		[control(a.body.fix as Facts, true), a.body.canStartFix, (a.body.fix as Facts).ready],
+		['hidden', false, false],
+	);
+}
+gh.workflow = 'active';
+gh.missing = 'GITHUB_APP_ID is not set';
+workflow.forgetFixWorkflow();
+check(
+	'page: the App unset → no button',
+	control(
+		(await call(bugRoute.GET, { user: FIXER, params: { number: String(sentBug) } })).body
+			.fix as Facts,
+		true,
+	),
+	'hidden',
+);
+gh.missing = null;
+workflow.forgetFixWorkflow();
+check(
+	'page: the workflow back → the button is back',
+	control(
+		(await call(bugRoute.GET, { user: FIXER, params: { number: String(sentBug) } })).body
+			.fix as Facts,
+		true,
+	),
+	'start: Start fix',
+);
+{
+	const probe = { ...app, fetch: async (p: string, i?: RequestInit) => await app.fetch(p, i) };
+	gh.calls.length = 0;
+	const asks = () => gh.calls.filter((c) => c.path.endsWith('/workflows/bug-fix.yml')).length;
+	workflow.forgetFixWorkflow();
+	await workflow.fixWorkflowReady(probe, 1_000_000);
+	await workflow.fixWorkflowReady(probe, 1_030_000);
+	const withinMinute = asks();
+	await workflow.fixWorkflowReady(probe, 1_061_000);
+	gh.workflow = 'down';
+	await workflow.fixWorkflowReady(probe, 1_130_000);
+	const asked2 = asks();
+	await workflow.fixWorkflowReady(probe, 1_135_000);
+	await workflow.fixWorkflowReady(probe, 1_141_000);
+	check(
+		'page: the workflow is asked of GitHub once a minute; an unreachable GitHub is asked again after 10 seconds',
+		[withinMinute, asked2, asks()],
+		[1, 3, 4],
+	);
+	gh.workflow = 'active';
+	workflow.forgetFixWorkflow();
+}
+
+// The Bugs tab of Pipeline Changes.
+{
+	const tab = async (user: TestUser) => {
+		const a = await call(tabRoute.GET, { user });
+		const fix = a.body.fix as {
+			triage: boolean;
+			may: boolean;
+			ready: boolean;
+			byBug: Record<string, { runs: { id: string }[]; refusal: { code: string } | null }>;
+		};
+		return { status: a.status, fix, bugs: a.body.bugs as { number: number }[] };
+	};
+	const TABFIX: TestUser = {
+		id: 'u-tabfix',
+		email: 'tf@example.com',
+		name: 'Tess',
+		role: 'pipelineTester',
+	};
+	const TABTRIAGE: TestUser = { ...TABFIX, id: 'u-tabtriage', email: 'tt@example.com' };
+	grants[TABFIX.id] = ['cloud'];
+	grants[TABTRIAGE.id] = ['cloud'];
+	userOverrides[TABFIX.id] = { pipelineBugFix: true };
+	const asFixer = await tab(TABFIX);
+	const asDev = await tab(TABTRIAGE);
+	const mine = (t: Awaited<ReturnType<typeof tab>>, n: number) => t.fix?.byBug[n];
+	check(
+		'tab: a caller with the pair gets the capability, the workflow and each listed bug’s refusal and runs',
+		[
+			asFixer.status,
+			[asFixer.fix.triage, asFixer.fix.may, asFixer.fix.ready],
+			[sentBug, closedBug, reviewBug, liveBug, endedBug].map(
+				(n) => mine(asFixer, n)?.refusal?.code ?? null,
+			),
+			mine(asFixer, liveBug)?.runs.length,
+			mine(asFixer, endedBug)?.runs.length,
+		],
+		[200, [true, true, true], [null, 'bug_closed', 'pr_open', 'fix_run_live', null], 1, 1],
+	);
+	check(
+		'tab: a triager without the fix capability sees runs, may file a second bug, and has no refusals to show',
+		[
+			asDev.status,
+			[asDev.fix.triage, asDev.fix.may],
+			mine(asDev, liveBug)?.runs.length,
+			mine(asDev, closedBug)?.refusal,
+		],
+		[200, [true, false], 1, null],
+	);
+	gh.workflow = 'absent';
+	workflow.forgetFixWorkflow();
+	const absent = await tab(TABFIX);
+	check(
+		'tab: the workflow absent → ready is false, so the tab shows no button',
+		[absent.fix.may, absent.fix.ready],
+		[true, false],
+	);
+	gh.workflow = 'active';
+	workflow.forgetFixWorkflow();
+}
+
+// The game bug page: the fix run of its escalated pipeline bug, and no button of its own.
+{
+	const piped = addBug({ sentAt: tick() }).number;
+	const gameBug = addBug({ kind: 'game', projectKey: 'borut', area: 'wins' }).number;
+	const alone = addBug({ kind: 'game', projectKey: 'borut', area: 'wins' }).number;
+	escalations.set(gameBug, { toBug: piped, toStatus: 'open' });
+	const none = await call(bugRoute.GET, { user: DEV, params: { number: String(gameBug) } });
+	const run = liveRun(piped);
+	runOf(run.id).summary = 'Secret client words';
+	runOf(run.id).reason = 'a reason';
+	runOf(run.id).secondBug = { area: 'rigger', title: 't', evidence: 'e' };
+	const live = await call(bugRoute.GET, { user: FIXER, params: { number: String(gameBug) } });
+	Object.assign(runOf(run.id), { status: 'pr_opened', prNumber: 801, outcome: 'fixed' });
+	const opened = await call(bugRoute.GET, { user: ADMIN, params: { number: String(gameBug) } });
+	const plain = await call(bugRoute.GET, { user: DEV, params: { number: String(alone) } });
+	const ef = (a: Answer) => a.body.escalatedFix as Record<string, unknown> | null;
+	check(
+		'game bug: no run yet → none; a live run shows its status, never Stop; an opened one links its pull request; no run text, no second bug',
+		[
+			ef(none),
+			[
+				ef(live)?.status,
+				ef(live)?.canStop,
+				ef(live)?.summary,
+				ef(live)?.reason,
+				ef(live)?.secondBug,
+			],
+			[ef(opened)?.status, ef(opened)?.prUrl, ef(opened)?.canStop],
+			ef(plain),
+		],
+		[
+			null,
+			['running', false, null, null, null],
+			['pr_opened', `https://github.com/${REPO}/pull/801`, false],
+			null,
+		],
+	);
+	check(
+		'game bug: it has no fix controls of its own, whoever looks',
+		[opened, live, plain].map((a) => [(a.body.fix as Facts).may, a.body.canStartFix]),
+		[
+			[false, false],
+			[false, false],
+			[false, false],
+		],
+	);
+	escalations.clear();
+}
 
 if (failures) {
 	console.error(`\n${failures} of ${checks} bug-fix-runs checks failed.`);

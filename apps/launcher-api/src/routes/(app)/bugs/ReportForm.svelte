@@ -11,7 +11,7 @@
 	import type { BugDetail } from '$lib/server/bugReports';
 	import { apiErrorText } from '../pipeline/view';
 	import ShotDrop from './ShotDrop.svelte';
-	import { formatBytes } from './view';
+	import { formatBytes, type AskedReport } from './view';
 
 	let {
 		kind,
@@ -27,7 +27,7 @@
 		projects: { key: string; name: string; clientName: string | null }[];
 		/** A game bug's project: fixed, as the list is that project's. */
 		project: string | null;
-		initial: { area: string; pageUrl: string };
+		initial: AskedReport;
 		/** The bug is reported; `failed` names each screenshot that did not upload, with why. */
 		oncreated: (bug: BugDetail, failed: string[]) => void;
 		oncancel: () => void;
@@ -41,7 +41,7 @@
 
 	// The form starts from what the link asked for, then is the reporter's.
 	const start = untrack(() => initial);
-	let title = $state('');
+	let title = $state(start.title);
 	let area = $state(start.area);
 	const game = untrack(() => kind === 'game');
 	let project = $state(untrack(() => fixedProject) ?? '');
@@ -51,7 +51,7 @@
 	};
 	let pageUrl = $state(start.pageUrl);
 	let priority = $state('');
-	let description = $state('');
+	let description = $state(start.description);
 	let shots = $state<{ file: File; url: string }[]>([]);
 	let formEl = $state<HTMLFormElement | null>(null);
 	let busy = $state<string | null>(null);

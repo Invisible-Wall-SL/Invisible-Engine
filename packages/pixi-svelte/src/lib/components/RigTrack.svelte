@@ -27,10 +27,10 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 
 	import { propsSyncEffect } from '../utils.svelte';
-	import { getContextRig } from '../context.svelte';
+	import { getContextRestart, getContextRig, onRestart } from '../context.svelte';
 	import { shouldApplyRigAnimation } from '../rigTrackReplay';
 
 	const props: Props = $props();
@@ -38,6 +38,19 @@
 
 	let track = $state(rig.state.tracks[props.trackIndex]);
 	let appliedReplay: number | undefined = undefined;
+
+	// A restart (the screen's timeline played again without remounting it) puts the rig where a
+	// fresh one starts: the setup pose with no track, so the effect below applies the animation
+	// from its first frame.
+	const restart = getContextRestart();
+	onRestart(restart, () => {
+		rig.state.clearTracks();
+		rig.skeleton.setToSetupPose();
+		rig.skeleton.time = 0;
+		for (const constraint of rig.skeleton.physicsConstraints) constraint.reset();
+		appliedReplay = undefined;
+		track = null;
+	});
 
 	// Fall back to the skeleton's first animation when no name is given — matches the
 	// Symbols tool's "(first animation)" option and its preview (SymbolRigPreview),

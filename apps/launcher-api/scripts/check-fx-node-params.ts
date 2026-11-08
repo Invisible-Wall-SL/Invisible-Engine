@@ -1096,8 +1096,8 @@ export function mountLive(node, initial) {
 	const view = readFileSync(new URL('LayoutNodeView.svelte', LIB), 'utf8');
 	const driven = readFileSync(new URL('DrivenEffectPlayer.svelte', LIB), 'utf8');
 	ok(
-		'LayoutNodeView runs the shared fold with its node and its timeline drive, and hands the placed effect its getter',
-		/const fold = createNodeFold\(\s*node,\s*\(\) => bindingParams,[\s\S]{0,120}?timelineDrive,\s*\);/.test(
+		'LayoutNodeView runs the shared fold with its node, its timeline drive and its restart key, and hands the placed effect its getter',
+		/const fold = createNodeFold\(\s*node,\s*\(\) => bindingParams,[\s\S]{0,120}?timelineDrive,\s*restart,\s*\);/.test(
 			view,
 		) &&
 			view.includes('const { bound, allBindings, fxParamValues } = fold;') &&

@@ -165,6 +165,12 @@ A link can open the form already filled in:
     - **Pipeline: won't fix** when the pipeline bug is Won't fix. A triager decides what is next.
     - **Fixed, waiting on publish** after you approved a repair run's fix. The bug stays **Working
       on** until the project's next publish in Game Maker, which resolves it ("Game Maker publish").
+    - When the bug was escalated, the card also shows the **fix run** of that pipeline bug, read
+      through the link between the two: a pill and a sentence ("Fix run `<id>` is working on it.",
+      "… opened draft pull request #12." with the pull request link, "… found no fix: …"). It
+      shows status and pull request only, never what the run wrote. The game bug has no Start
+      fix button of its own: starting a fix run is done on the pipeline bug, in Pipeline Bug
+      Reports or the Bugs tab of Pipeline Changes.
 13. **Activity** reads the run's work in plain words: "Director run `<id>` started a repair", "…
     fixed it: it ships with the next publish" (with the doctor's summary under it), "… ended the
     repair: needs a person", "… handed it to the pipeline as BUG-`<m>`", and "Game Maker publish
