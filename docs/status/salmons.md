@@ -227,7 +227,9 @@ register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no
   611 / 611 (one timing flake in `fx-playback-page`, green on re-run), `check:svelte` at baseline;
   `salmons-play.mjs` **52 / 52 in each netcode** (15 new: gold on two devices and passed on, the
   line while hooked and gone when landed or broken, the events in Flow, the banner); the four
-  arcade playbooks and `online-play` pass. Runtime sizes in [status/game-families](game-families.md).
+  arcade playbooks and `online-play` pass; the current-games harness on the stand-in fixtures
+  (base `main` d68459f) 10 / 10 games pass, 0 of 128 screens changed (all byte-identical). Runtime
+  sizes in [status/game-families](game-families.md).
   Chosen here, owner may overturn: gold by a brightness ramp (any look turns gold, not a second
   look), a white 3 px line from ¾ of the holder's height to the middle of the one on it, the
   splash at a climb and a hook, the banner only on the golden salmon's own device.

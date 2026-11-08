@@ -45,7 +45,8 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 - **Proof:** `check:online-rules` 35 (2 new), `check:arcade-rules` 79 (1 new),
   `check:salmons-export` 24 (6 new), `check:flow-variables` 48; `check:all` 611 / 611;
   `salmons-play.mjs` **52 / 52 in each netcode**; `arcade-play` 14, `arcade-characters-play` 14,
-  `arcade-camera-play` 12, `arcade-platformer-play` 15, `online-play` 19.
+  `arcade-camera-play` 12, `arcade-platformer-play` 15, `online-play` 19; current-games (stand-in
+  fixtures, base `main` d68459f) 0 of 128 screens changed; `check:svelte` at baseline.
 - **Runtime sizes** (`check:family-runtimes`, gzip -6, against `main` d68459f built the same way;
   all within budget): slot 698,968 → 699,396 B (+428), match3 +415, card +421 (the
   `<SpawnLayer>` branch every runtime carries), arcade first visit +1,461, **online boot 784,174 →
