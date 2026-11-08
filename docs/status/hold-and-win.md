@@ -56,6 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
+| 14 | Collector bonus with random enhancements ([plan](../design/hold-and-win-enhancements.md)): 14a `run` + `chance` triggers · 14b top-up before the feature · 14c enhancements engine (boost / multiply / extra row / extra respins) · 14d enhancement dials + beats · 14e ante reel set · 14f preset + sample | **planned** (2026-11-08); open owner questions in the plan's §5 | — | plan only |
 
 ## Current state
 
@@ -79,6 +80,16 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-11-08 — **Phase 14 planned: a game shaped like the partner's Fortune Vault Force 5.** The
+  owner wants its mechanics with our own art. About 70% is already config (collector on one reel
+  with instant collect, coins on chosen reels, a second respin mode, buys, an ante). The rest is
+  in [hold-and-win-enhancements.md](../design/hold-and-win-enhancements.md):
+  - consecutive-reel and symbol-gated chance triggers;
+  - a top-up before the feature;
+  - four random entry enhancements;
+  - an ante that swaps the base strips.
+
+  Because that game runs on the partner's RGS, capturing its rounds could unblock Phase 10.
 - 2026-10-14 — **A Hold and Win with no line game (Phase 13, planned).** The owner made `holdandwintestsolo` from the plain template and expected the whole game to be the coin board. The template is a lines base game with Hold and Win as its bonus, which is the 3 Oaks shape (design §1.1), and `validateGameModes` refuses any other base. The owner chose: the coin board on every spin; paying lines fixed in Game Config or picked by the player; all three pay rules as options; coins off the paying lines ignored entirely. Plan: [hold-and-win-coin-board.md](../design/hold-and-win-coin-board.md).
 - 2026-10-02 — **Phase 12c: how a coded part is skinned** (session "Hold and Win Phase 12c
   skinnable parts", #1006). Pinned by `packages/engine-layout/scripts/test-pot-skin.mjs`.
