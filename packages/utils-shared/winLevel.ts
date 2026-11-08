@@ -1,5 +1,3 @@
-import _, { type Dictionary } from 'lodash';
-
 import { bookEventAmountToBetAmountMultiplier } from './amount';
 
 type AmountMultiplierThreshold = number;
@@ -14,7 +12,7 @@ function createGetWinLevelDataByWinLevelAlias<
 	type WinLevelAlias = (typeof winLevelMap)[TWinLevel]['alias'];
 
 	const getWinLevelDataByWinLevelAlias = (winLevelAlias: WinLevelAlias) => {
-		const winLevelData = _.values(winLevelMap as Record<string, TWinLevelData>).find(
+		const winLevelData = Object.values(winLevelMap as Record<string, TWinLevelData>).find(
 			(data) => data.alias === winLevelAlias,
 		);
 
@@ -46,8 +44,8 @@ function createGetWinLevelDataByBookEventAmount<
 		const betAmountMultiplier = bookEventAmountToBetAmountMultiplier(bookEventAmount);
 		const winLevelToBetAmountMultiplierThresholdMap = winLevelToBetAmountMultiplierThresholdMaps[
 			gameType
-		] as Dictionary<AmountMultiplierThreshold>;
-		const winLevelToBetAmountMultiplierThreshold = _.entries(
+		] as Record<string, AmountMultiplierThreshold>;
+		const winLevelToBetAmountMultiplierThreshold = Object.entries(
 			winLevelToBetAmountMultiplierThresholdMap,
 		)
 			.sort((a, b) => b[1] - a[1])

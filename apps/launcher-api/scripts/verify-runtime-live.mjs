@@ -133,9 +133,12 @@ if (!probe) {
 
 const refresh = () => refreshTestServer(ORIGIN);
 
-/** Does `html` load `file` with a `<script src>` (rather than carrying it inline)? */
-const loadsBySrc = (html, file) =>
-	new RegExp(`<script[^>]*\\ssrc=["'][^"']*${file.replace(/[.]/g, '\\.')}["']`).test(html);
+/** Does `html` load `file` by URL (the shell's `import("./_app/immutable/bundle.<hash>.js")`, or an
+ *  older build's `<script src>`), rather than carrying it inline? */
+const loadsByUrl = (html, file) => {
+	const name = file.replace(/[.]/g, '\\.');
+	return new RegExp(`(?:<script[^>]*\\ssrc=|\\bimport\\()\\s*["'][^"']*${name}["']`).test(html);
+};
 
 async function served() {
 	try {
@@ -150,11 +153,10 @@ async function served() {
 		if (wantRelease && release !== wantRelease)
 			return `${name} from ${release ?? 'the flat layout'}`;
 		if (name !== marker) return name;
-		// An inline build carries the bundle IN this index.html, and SvelteKit ≥ 2.70 deletes the
-		// emitted file, so the hashed name here is the served bundle. Only a page that loads it by
-		// `src` (an embed build) needs the file served too. `?cb=` keeps the HEAD off the bare
+		// The shell loads the bundle by URL, so the file must be served too (a release rolled back
+		// to an old inline build carries it in the page instead). `?cb=` keeps the HEAD off the bare
 		// immutable URL's cache key (see the header).
-		if (!loadsBySrc(html, marker)) return name;
+		if (!loadsByUrl(html, marker)) return name;
 		const bundle = await fetch(`${ORIGIN}/${probe}/_app/immutable/${marker}?cb=${Date.now()}`, {
 			method: 'HEAD',
 			cache: 'no-store',

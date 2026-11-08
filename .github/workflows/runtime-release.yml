@@ -223,9 +223,9 @@ jobs:
       # secret the bundle carries no SDK at all. PUBLIC_BUILD_SHA names the commit in every report,
       # the same prefix the release is stored under (`_runtime/<id>@<sha12>`).
       #
-      # IE_SOURCEMAPS=hidden writes the bundle's source map with no reference to it, for the next
-      # step to upload to Sentry and delete. Always on, token or not, so the strip + gate below run
-      # on every release rather than only once someone configures Sentry.
+      # IE_SOURCEMAPS=hidden writes each chunk's source map with no reference to it, and a debug ID
+      # into the chunk, for the next step to upload to Sentry and delete. Always on, token or not, so
+      # the strip + gate below run on every release rather than only once someone configures Sentry.
       - name: Build the ${{ matrix.runtime }} runtime
         env:
           PUBLIC_IE_FAMILIES: ${{ steps.families.outputs.families }}
@@ -235,20 +235,28 @@ jobs:
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           PUBLIC_SENTRY_SAMPLE_RATE: ${{ vars.PUBLIC_SENTRY_SAMPLE_RATE }}
           IE_SOURCEMAPS: hidden
+          # A hidden-map build (terser + a map per chunk) outgrows Node's default heap: it dies at
+          # ~2.1 GB on a 16 GB machine, on main as on this build. Headroom, not a fix of a leak.
+          NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm --filter lines build
 
       # The bundle carries exactly the families its id names: its `__IE_FAMILIES__` and no left-out
-      # family's code. Over its size budget is a warning only (no PR check runs the budget).
+      # family's code, in any of its files. Over its size budgets (a first visit: the shell, the
+      # bundle and its CSS; a repeat visit's code: the shell) is a warning only
+      # (no PR check runs the budget).
       - name: 'Gate: the ${{ matrix.runtime }} bundle carries its families only'
         env:
           FAMILIES: ${{ steps.families.outputs.families }}
         run: |
           node scripts/check-family-runtime.mjs --id "$RUNTIME" --families "$FAMILIES" apps/lines/build
 
-      # The repo and every served bundle are PUBLIC, so the map goes to Sentry and nowhere else. The
-      # script re-bases it onto index.html (the game is one inlined file, so frames are numbered by
-      # the page, not the bundle), tags page + map with one debug ID, uploads them for the release
-      # the SDK reports (the commit's first 12 chars), then deletes every .map from the build.
+      # The repo and every served bundle are PUBLIC, so the maps go to Sentry and nowhere else. The
+      # page is a shell that imports `_app/immutable/bundle.<hash>.js` and its lazy chunks; the
+      # script pairs each shipped chunk with its map by the debug ID the build wrote into it, uploads
+      # them for the release the SDK reports (the commit's first 12 chars), then deletes every .map
+      # from the build. A shipped chunk with no map is a ::warning:: (its frames stay minified; this
+      # went unnoticed for a month as a notice — check:sentry-sourcemaps, run by check:all, now builds
+      # one).
       # No SENTRY_AUTH_TOKEN (or org/project) → the upload is skipped with a notice; a failed upload
       # is a warning. Neither ever fails the release — only a map left in the build does.
       - name: Upload source maps to Sentry and strip them from the build
@@ -279,7 +287,8 @@ jobs:
       # The test server hydrates every bundle from R2 on boot and on POST /refresh — nowhere else,
       # there is no timer — and /refresh answers 202 before the hydrate runs. So this step POSTs
       # /refresh, then polls a game that follows the pointer until its served index.html names the
-      # `bundle.<hash>.js` this job just built from the release it just promoted (`X-Runtime-Release`),
+      # `bundle.<hash>.js` this job just built from the release it just promoted (`X-Runtime-Release`)
+      # and that bundle file is served too,
       # re-POSTing /refresh with backoff (a hydrate that read the pointer before the flip finishes on
       # the old release; a rebooting server drops the request).
       # If it never matches, the job FAILS: the bundle is in R2 but every online game on this id is

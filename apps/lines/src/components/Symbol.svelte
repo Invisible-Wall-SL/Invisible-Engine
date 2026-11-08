@@ -100,6 +100,7 @@
 	// the RIG renderer, so falling through would hand it an undefined bundle — the blank-binding
 	// crash one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
 	// multiplier) still draws, because that is the part the player needs to read.
+	// What this draws without art is mirrored by `symbolDrawsNothing` (`game/symbolDraws.ts`).
 	const hasArt = $derived(!symbolInfo.missingArt);
 	const placeholder = $derived(
 		hasArt ? undefined : symbolPlaceholder(getActiveGameConfig(), props.rawSymbol.name),

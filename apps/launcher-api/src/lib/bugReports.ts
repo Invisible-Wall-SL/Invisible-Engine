@@ -1,6 +1,7 @@
 import {
 	CAPABILITIES,
 	GAME_BUG_TRIAGE_CAPABILITY,
+	PIPELINE_BUG_FIX_CAPABILITY,
 	PIPELINE_BUG_TRIAGE_CAPABILITY,
 	TOOLS,
 } from '$lib/roles';
@@ -30,6 +31,15 @@ export const BUG_TOOL: Record<BugKind, string> = { pipeline: 'pipelineBugs', gam
 export const BUG_TRIAGE: Record<BugKind, string> = {
 	pipeline: PIPELINE_BUG_TRIAGE_CAPABILITY,
 	game: GAME_BUG_TRIAGE_CAPABILITY,
+};
+
+/**
+ * The capabilities Admin › Roles and Admin › Users show beside each kind's tool, in its group:
+ * triage, and for a pipeline bug starting fix runs (ADR-0013).
+ */
+export const BUG_CAPABILITIES: Record<BugKind, readonly string[]> = {
+	pipeline: [PIPELINE_BUG_TRIAGE_CAPABILITY, PIPELINE_BUG_FIX_CAPABILITY],
+	game: [GAME_BUG_TRIAGE_CAPABILITY],
 };
 
 /** How the triage capability of a kind is named, as Admin › Roles names it. */

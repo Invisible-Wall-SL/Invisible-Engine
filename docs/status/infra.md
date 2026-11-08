@@ -93,12 +93,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
    carries errors; the largest share in `apps/lines` is the tracked `static/assets/**/index.ts`
    asset indexes. Lower an entry with `pnpm check:svelte --only <pkg> --update` in the PR that fixes
    it — the job prints a notice when a package is below its baseline.
-7. **Runtime source maps stopped reaching Sentry with SvelteKit 2.70.** Under
-   `bundleStrategy: 'inline'`, kit now deletes the client bundle after inlining it, and with it
-   the map. `scripts/sentry-sourcemaps.mjs` finds no map, warns "nothing to upload" and stays green.
-   This is harmless while Sentry is dormant (owner setup, Blocked) but must be fixed before it goes
-   live. The likely fix is a Vite `generateBundle` hook in `config-vite` that writes the bundle's
-   map aside before kit deletes it.
+
 ## Blocked (owner / external)
 
 - **Dependabot security updates (owner, ~2 min, GitHub → Settings → Advanced Security):** switch on
@@ -139,6 +134,25 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-03 — **Runtime source maps reach Sentry again** (closes open item 7). The game is now an
+  `index.html` shell plus ES-module chunks, each with its own hidden map and a debug ID, and the
+  release uploads one map per shipped chunk; `pnpm check:sentry-sourcemaps` (CI) builds a real app
+  to prove it. `runtime-release.yml`'s comments and `verify-runtime-live.mjs` (which HEADs the
+  bundle again, now that the shell loads it by URL) follow. Detail: [engine](engine.md) 2026-11-03.
+- 2026-11-03 — **The fix-run push filter is pinned to the launcher's ids.** `check:bug-fix-runs`
+  reads current-games.yml's `push.branches-ignore` and fails unless it ignores
+  `fixRunBranch(n, id)` for every id `newFixRunId` makes (now an export of
+  `server/bugFixRuns.ts`) and accepts exactly what `FIX_RUN_ID` does. A launcher id of another
+  length, a narrower glob, or a deleted glob each fail it (three planted mutants).
+- 2026-11-03 — **current-games waits for a fix run's "Ready for review" (ADR-0013, owner-approved
+  default; #1514).** A push to `bug-*-fix-` plus 10
+  lowercase hex characters is ignored. `ready_for_review` is now a `pull_request` type. `prepare`
+  is skipped for a fix run's draft (user type `Bot`, branch `bug-…-fix-…`) and for a
+  `ready_for_review` on any other PR. The verdict posts `pending` for the draft and nothing for the
+  other skipped runs, which also get a concurrency group of their own. `triggers.fixture.mjs`
+  evaluates the workflow text over 38 events against the old workflow, and 13 planted mutants each
+  fail it. Pipeline Changes' `harnessRunOf` skips a run that concluded `skipped`, so an ordinary
+  PR marked ready keeps its report (`check:pipeline-changes`).
 - 2026-10-28 — **Four runtimes, one per family (P11.1b, branch `ci/p11-1b-runtime-matrix`, not
   merged; needs the P11.1b engine branch's `scripts/check-family-runtime.mjs` beside it).**
   `runtime-release.yml` runs the gates once (`gates`), then a `publish` matrix over `lines`,

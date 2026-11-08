@@ -119,6 +119,16 @@ import {
 	DIRECTOR_RUN_BUDGET_MAX_USD,
 	DIRECTOR_RUN_BUDGET_MIN_USD,
 	MIN_DEPLOY_TOKEN,
+	PIPELINE_FIX_BUDGET_DEFAULT_USD,
+	PIPELINE_FIX_BUDGET_KEY,
+	PIPELINE_FIX_MAX_LIVE_DEFAULT,
+	PIPELINE_FIX_MAX_LIVE_KEY,
+	PIPELINE_FIX_MAX_LIVE_MAX,
+	PIPELINE_FIX_MAX_LIVE_MIN,
+	PIPELINE_FIX_MONTHLY_DEFAULT_USD,
+	PIPELINE_FIX_MONTHLY_KEY,
+	PIPELINE_FIX_MONTHLY_MAX_USD,
+	PIPELINE_FIX_MONTHLY_MIN_USD,
 	RUNPOD_IDLE_ENABLED_KEY,
 	RUNPOD_IDLE_MINUTES_DEFAULT,
 	RUNPOD_IDLE_MINUTES_KEY,
@@ -128,6 +138,9 @@ import {
 	getDirectorPendingMockupDays,
 	getDirectorRepairBudget,
 	getDirectorRunBudget,
+	getPipelineFixBudget,
+	getPipelineFixMaxLive,
+	getPipelineFixMonthlyCap,
 	getRunpodIdleConfig,
 	getRunpodPods,
 	setAppSetting,
@@ -253,13 +266,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const runpodStored = await getRunpodPods();
 	const runpodPods = runpodConfigured ? await probeFleet() : [];
 
-	const [directorBudgetUsd, directorRepairBudgetUsd, directorPricing, directorPendingMockupDays] =
-		await Promise.all([
-			getDirectorRunBudget(),
-			getDirectorRepairBudget(),
-			getDirectorPricing(),
-			getDirectorPendingMockupDays(),
-		]);
+	const [
+		directorBudgetUsd,
+		directorRepairBudgetUsd,
+		directorPricing,
+		directorPendingMockupDays,
+		fixBudgetUsd,
+		fixMonthlyUsd,
+		fixMaxLive,
+	] = await Promise.all([
+		getDirectorRunBudget(),
+		getDirectorRepairBudget(),
+		getDirectorPricing(),
+		getDirectorPendingMockupDays(),
+		getPipelineFixBudget(),
+		getPipelineFixMonthlyCap(),
+		getPipelineFixMaxLive(),
+	]);
 
 	// The own-bundle (desktop) entries of the test-server manifest, for the table-capable stamp
 	// control. One R2 read; a failure is shown on that control, never fails the page.
@@ -362,6 +385,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 			pendingMockupDaysDefault: DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT,
 			pendingMockupDaysMin: DIRECTOR_PENDING_MOCKUP_DAYS_MIN,
 			pendingMockupDaysMax: DIRECTOR_PENDING_MOCKUP_DAYS_MAX,
+		},
+		pipelineFix: {
+			budgetUsd: fixBudgetUsd,
+			budgetDefaultUsd: PIPELINE_FIX_BUDGET_DEFAULT_USD,
+			monthlyUsd: fixMonthlyUsd,
+			monthlyDefaultUsd: PIPELINE_FIX_MONTHLY_DEFAULT_USD,
+			monthlyMinUsd: PIPELINE_FIX_MONTHLY_MIN_USD,
+			monthlyMaxUsd: PIPELINE_FIX_MONTHLY_MAX_USD,
+			maxLive: fixMaxLive,
+			maxLiveDefault: PIPELINE_FIX_MAX_LIVE_DEFAULT,
+			maxLiveMin: PIPELINE_FIX_MAX_LIVE_MIN,
+			maxLiveMax: PIPELINE_FIX_MAX_LIVE_MAX,
 		},
 	};
 };
@@ -488,7 +523,7 @@ export const actions: Actions = {
 		// 'grant' | 'revoke' | 'default'
 		const mode = String(data.get('mode') ?? '');
 
-		// A tool, or one of the few capabilities set per user (the bug-triage ones).
+		// A tool, or one of the few capabilities set per user (bug triage, starting fix runs).
 		if (!TOOLS[toolKey] && !USER_CAPABILITIES.includes(toolKey)) {
 			return fail(400, { action: 'setToolAccess', error: 'Unknown tool.' });
 		}
@@ -1359,6 +1394,76 @@ export const actions: Actions = {
 		return {
 			action: 'setDirectorRepairBudget',
 			ok: `Repair budget set to $${budget.toFixed(2)}.`,
+		};
+	},
+
+	/** Save the cap of one pipeline bug fix run (ADR-0013), bounded like the run cap. */
+	setPipelineFixBudget: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const raw = String(data.get('budgetUsd') ?? '').trim();
+		const value = Number(raw);
+		if (!raw || !Number.isFinite(value)) {
+			return fail(400, { action: 'setPipelineFixBudget', error: 'Enter the budget as a number.' });
+		}
+		if (value < DIRECTOR_RUN_BUDGET_MIN_USD || value > DIRECTOR_RUN_BUDGET_MAX_USD) {
+			return fail(400, {
+				action: 'setPipelineFixBudget',
+				error: `The budget must be between $${DIRECTOR_RUN_BUDGET_MIN_USD} and $${DIRECTOR_RUN_BUDGET_MAX_USD}.`,
+			});
+		}
+		const budget = Math.round(value * 100) / 100;
+		await setAppSetting(PIPELINE_FIX_BUDGET_KEY, String(budget), admin.id);
+		return { action: 'setPipelineFixBudget', ok: `Fix run budget set to $${budget.toFixed(2)}.` };
+	},
+
+	/** Save the month's ceiling on fix-run spend; past it, new fix runs are refused. */
+	setPipelineFixMonthly: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const raw = String(data.get('monthlyUsd') ?? '').trim();
+		const value = Number(raw);
+		if (!raw || !Number.isFinite(value)) {
+			return fail(400, {
+				action: 'setPipelineFixMonthly',
+				error: 'Enter the ceiling as a number.',
+			});
+		}
+		if (value < PIPELINE_FIX_MONTHLY_MIN_USD || value > PIPELINE_FIX_MONTHLY_MAX_USD) {
+			return fail(400, {
+				action: 'setPipelineFixMonthly',
+				error: `The ceiling must be between $${PIPELINE_FIX_MONTHLY_MIN_USD} and $${PIPELINE_FIX_MONTHLY_MAX_USD}.`,
+			});
+		}
+		const monthly = Math.round(value * 100) / 100;
+		await setAppSetting(PIPELINE_FIX_MONTHLY_KEY, String(monthly), admin.id);
+		return {
+			action: 'setPipelineFixMonthly',
+			ok: `Monthly fix run ceiling set to $${monthly.toFixed(2)}.`,
+		};
+	},
+
+	/** Save how many fix runs may be live at once, over every bug. */
+	setPipelineFixMaxLive: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const raw = String(data.get('maxLive') ?? '').trim();
+		const value = Number(raw);
+		if (
+			!raw ||
+			!Number.isInteger(value) ||
+			value < PIPELINE_FIX_MAX_LIVE_MIN ||
+			value > PIPELINE_FIX_MAX_LIVE_MAX
+		) {
+			return fail(400, {
+				action: 'setPipelineFixMaxLive',
+				error: `Enter a whole number from ${PIPELINE_FIX_MAX_LIVE_MIN} to ${PIPELINE_FIX_MAX_LIVE_MAX}.`,
+			});
+		}
+		await setAppSetting(PIPELINE_FIX_MAX_LIVE_KEY, String(value), admin.id);
+		return {
+			action: 'setPipelineFixMaxLive',
+			ok: `At most ${value} fix run${value === 1 ? '' : 's'} at once.`,
 		};
 	},
 

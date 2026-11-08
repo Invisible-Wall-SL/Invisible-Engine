@@ -28,6 +28,9 @@ bugs took.
   `admin`, `developer` and `pipelineTester` have it; admins set it per role in Admin › Roles or
   per user in Admin › Users, beside the card. Game bugs have their own, **Triage game bugs**. The
   page header shows which one you are: `<your name> · <role> · can triage` or `· can report`.
+- **Start fix runs on pipeline bugs** (`pipelineBugFix`, default `admin` only, set per role or per
+  user in the same group) is the permission for the **Start fix** button that card 13C of ADR-0013
+  adds. A run needs it **and** Triage pipeline bugs. The button is not on the page yet.
 - **Who can do what on a bug:**
   - See it, comment, add a screenshot, copy its link and its fix brief: anyone with the tool who
     can see the bug.

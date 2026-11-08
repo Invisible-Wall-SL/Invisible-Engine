@@ -8,8 +8,10 @@ import { defineConfig } from 'vite';
 // The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
-import { chunkAnchoredAssetUrls } from './assetUrls.js';
+import { sentryDebugIds } from './debugIds.js';
 import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
+import { lazyChunks } from './lazyChunks.js';
+import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
@@ -166,9 +168,9 @@ export const buildStamp = (debug) => ({
 
 /**
  * `IE_SOURCEMAPS=hidden` (the runtime release) writes source maps WITHOUT a `sourceMappingURL`
- * comment, for `scripts/sentry-sourcemaps.mjs` to upload to Sentry and then delete. The repo and the
- * bundle are public, so a map must never ship next to the code; unset keeps a production build
- * map-less.
+ * comment, and gives every chunk a debug ID (`debugIds.js`), for `scripts/sentry-sourcemaps.mjs`
+ * to upload to Sentry and then delete. The repo and the bundle are public, so a map must never ship
+ * next to the code; unset keeps a production build map-less.
  */
 const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? 'hidden' : false);
 
@@ -187,6 +189,50 @@ const families = () => {
 };
 
 /**
+ * Class syntax a game build keeps as written. Vite's default target (`safari14`, `chrome87`) made
+ * esbuild LOWER every `#private` class field — Svelte's runtime is built on them — to a WeakMap per
+ * field, so each effect and branch Svelte creates paid a WeakMap write and every read a brand check,
+ * and the entries fed the collector: on `overlay-buffaloduel`'s Hold and Win bonus (CPU slowed 4×)
+ * its worst frames were single 1–3 s collections in the middle of a mount. esbuild lowers a class
+ * whole or not at all, so the field features are listed together. Only these, not an `es2022`
+ * target: Terser minifying the es2022 output kept a text's stale width after its string changed
+ * (the HUD clock moved the game name on some screens: the current-games harness caught it), and
+ * static blocks need Safari 16.4. Every browser the runtime runs on has the rest: every game calls
+ * `Array.prototype.at` unpolyfilled at boot (the mode stack), which is newer than all of them.
+ */
+const NATIVE_CLASSES = Object.fromEntries(
+	[
+		'class-field',
+		'class-static-field',
+		'class-private-field',
+		'class-private-method',
+		'class-private-accessor',
+		'class-private-static-field',
+		'class-private-static-method',
+		'class-private-static-accessor',
+		'class-private-brand-check',
+	].map((feature) => [feature, true]),
+);
+
+/**
+ * Terser, not esbuild, minifies the client bundle: ~35 KB gz less on the slot runtime for ~25 s
+ * more per build. Its defaults make only safe transforms, and its mangling renames locals as
+ * esbuild's did, so nothing that relied on a name survived either. The SSR pass (which prerenders
+ * `index.html`) stays unminified, as it was: `build.minify` set in the config would reach it too,
+ * and SvelteKit hands the config's `minify` on to its client pass.
+ */
+const terserClient = () => ({
+	name: 'ie-terser-client',
+	apply: 'build',
+	// After sveltekit(), whose own config hook is what marks its first pass `build.ssr`.
+	enforce: 'post',
+	config: (config) =>
+		config.build?.ssr || config.build?.minify !== undefined
+			? undefined
+			: { build: { minify: 'terser', terserOptions: { compress: { passes: 2 } } } },
+});
+
+/**
  * Every game build passes through this factory — the engine's apps and every standalone game repo's
  * `vite.config.js` alike — so it is where a game repo whose Svelte pins drifted from the engine's is
  * stopped, before anything compiles (`svelteVersions.js`).
@@ -195,7 +241,16 @@ export default () => {
 	assertSvelteVersions();
 	const familySet = families();
 	return defineConfig({
-		plugins: [familySet.plugin, sveltekit(), lingui(), chunkAnchoredAssetUrls()],
+		plugins: [
+			familySet.plugin,
+			noWebGpuRenderer(),
+			eagerPixiBoot(),
+			terserClient(),
+			sveltekit(),
+			lingui(),
+			lazyChunks(),
+			sentryDebugIds({ enabled: sourcemap() === 'hidden' }),
+		],
 		logLevel: 'info',
 		define: {
 			...gameBuildDefine(),
@@ -206,11 +261,12 @@ export default () => {
 		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
 		ssr: { noExternal: ['error-tracking'] },
-		// Inline every build-time asset into the bundle (single-file game deploy) EXCEPT the KTX2
-		// transcoder (`libktx.{js,wasm}`, ~520 KB gz, imported by `pixi-svelte` via `?url`): only a
-		// phone on the compressed tier ever fetches it, so it ships as a real
-		// `_app/immutable/assets/` file instead of a base64 copy every desktop downloads.
-		// `chunkAnchoredAssetUrls` (`assetUrls.js`) makes its URL resolve beside the bundle, and
+		esbuild: { supported: NATIVE_CLASSES },
+		// Inline every build-time asset into the bundle EXCEPT the KTX2 transcoder
+		// (`libktx.{js,wasm}`, ~520 KB gz, imported by `pixi-svelte` via `?url`): only a phone on the
+		// compressed tier ever fetches it, so it ships as a real `_app/immutable/assets/` file instead
+		// of a base64 copy every desktop downloads. The bundle is an ES module, so its URL is
+		// `new URL(…, import.meta.url)`: beside the bundle, wherever the build is served from.
 		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load.
 		build: {
 			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file),

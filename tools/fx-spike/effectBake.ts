@@ -9,8 +9,11 @@
  *  2. the stale hash — stable under key order, blind to name / `enabled` / the result, moved by any
  *     layer or capture-setting change;
  *  3. what may bake (`effectBakeBlockers`) and the warm-up;
- *  4. the sheet plan and its TexturePacker JSON (fits the page, cells never overlap, start on a
- *     4-px block with a transparent gutter), and the frame names of each blend group;
+ *  4. the sheet: the plan's scale, each cell trimmed to what it draws (plus a transparent pixel; a
+ *     multiply cell's white is nothing), the trims packed (on the page, never overlapping, on 4-px
+ *     blocks with a 2 px gutter, no KTX2 block shared, never larger than the untrimmed grid,
+ *     deterministic), and the TexturePacker JSON — every cell rebuilt from it the way Pixi builds a
+ *     trimmed texture is pixel-identical to the cell composed — and each blend group's frame names;
  *  5. the runtime choice — bake on + every frame loaded ⇒ baked, one texture row per blend group;
  *     off / absent / driven / one frame missing / a pre-group bake that flattened mixed blends ⇒
  *     live — and that the default path reads no asset at all;
@@ -30,7 +33,6 @@ import {
 	effectBakeBeatFades,
 	effectBakeBeatRate,
 	effectBakeBlockers,
-	effectBakeCellOrigin,
 	effectBakeChoice,
 	effectBakeFrameAt,
 	effectBakeFrameCount,
@@ -47,10 +49,12 @@ import {
 	effectBakeShips,
 	effectBakeStale,
 	effectBakeStartFrame,
+	effectBakeTrim,
 	effectBakeWarmup,
 	exportableEffectDoc,
 	normalizeEffectBake,
 	normalizeEffectDoc,
+	packEffectBakeFrames,
 	planEffectBakeSheet,
 	type EffectDoc,
 } from 'engine-fx';
@@ -289,65 +293,222 @@ console.log('4. the sheet plan');
 	assert(big.scale < 1, '… and reports the lower scale');
 	assert(planEffectBakeSheet(1e6, 1e6, 120, 1) === undefined, 'an impossible sheet is refused');
 
-	const json = effectBakeSheetJson(plan, 48, 'fxbake_x_00000000.png', '0badf00d');
-	const rects = Object.values(json.frames).map(
-		(f) => (f as { frame: { x: number; y: number; w: number; h: number } }).frame,
-	);
-	assert(rects.length === 48, 'the JSON lists every frame');
+	// A cell `w × h` (RGBA, straight alpha) with `boxes` painted in it.
+	type Box = { x: number; y: number; w: number; h: number; rgba?: number[] };
+	const paint = (w: number, h: number, boxes: Box[], ground = [0, 0, 0, 0]): Uint8ClampedArray => {
+		const px = new Uint8ClampedArray(w * h * 4);
+		for (let i = 0; i < w * h; i++) px.set(ground, i * 4);
+		for (const b of boxes)
+			for (let y = b.y; y < b.y + b.h; y++)
+				for (let x = b.x; x < b.x + b.w; x++)
+					px.set(b.rgba ?? [200, 120, 40, 180], (y * w + x) * 4);
+		return px;
+	};
+
 	assert(
-		Object.keys(json.frames)[0] === effectBakeFrameName('0badf00d', 0) &&
-			Object.keys(json.frames)[0] === 'bake_0badf00d_000',
+		eq(effectBakeTrim(paint(20, 16, [{ x: 5, y: 4, w: 4, h: 3 }]), 20, 16, 'add'), {
+			x: 4,
+			y: 3,
+			w: 6,
+			h: 5,
+		}),
+		'a trim is the drawn box grown by one transparent pixel each side',
+	);
+	assert(
+		eq(effectBakeTrim(paint(20, 16, [{ x: 0, y: 13, w: 20, h: 3 }]), 20, 16, 'normal'), {
+			x: 0,
+			y: 12,
+			w: 20,
+			h: 4,
+		}),
+		'… clamped to the cell where the art reaches its edge',
+	);
+	assert(
+		eq(effectBakeTrim(paint(20, 16, []), 20, 16, 'add'), { x: 0, y: 0, w: 1, h: 1 }),
+		'a cell that draws nothing keeps one transparent pixel',
+	);
+	const overWhite = paint(
+		20,
+		16,
+		[
+			{ x: 2, y: 2, w: 3, h: 3, rgba: [255, 255, 255, 128] },
+			{ x: 10, y: 8, w: 2, h: 2, rgba: [90, 60, 60, 255] },
+		],
+		[255, 255, 255, 255],
+	);
+	assert(
+		eq(effectBakeTrim(overWhite, 20, 16, 'multiply'), { x: 9, y: 7, w: 4, h: 4 }),
+		'a multiply cell trims away its white (white at any alpha multiplies by 1)',
+	);
+	assert(
+		eq(effectBakeTrim(overWhite, 20, 16, 'normal'), { x: 0, y: 0, w: 20, h: 16 }),
+		'… but white is paint in any other blend',
+	);
+
+	// 2 blend groups × 48 frames of the 300×200 effect at 0.5: a spark drifting across its cell.
+	const cellW = plan.cellW;
+	const cellH = plan.cellH;
+	const cells: Uint8ClampedArray[] = [];
+	for (let i = 0; i < 96; i++) {
+		const s = 4 + ((i * 7) % 23);
+		const at = { x: (i * 13) % (cellW - s), y: (i * 29) % (cellH - s) };
+		cells.push(
+			paint(cellW, cellH, [
+				{ ...at, w: s, h: s, rgba: [255, 200, 90, 40 + (i % 200)] },
+				{ x: at.x + s, y: at.y, w: 1, h: 1, rgba: [255, 255, 255, 1] },
+			]),
+		);
+	}
+	// One empty cell, and one that is drawn edge to edge.
+	cells[5] = paint(cellW, cellH, []);
+	cells[60] = paint(cellW, cellH, [{ x: 0, y: 0, w: cellW, h: cellH }]);
+	const blendOf = (i: number): 'normal' | 'add' => (i < 48 ? 'normal' : 'add');
+	const trims = cells.map((px, i) => effectBakeTrim(px, cellW, cellH, blendOf(i)));
+	const layout = packEffectBakeFrames(cellW, cellH, trims)!;
+	assert(!!layout, 'the trimmed frames pack');
+	// One 3068×30 shelf is the smallest page for these, by under 5%.
+	const flat = Array.from({ length: 48 }, () => ({ x: 0, y: 0, w: 60, h: 30 }));
+	const squarish = packEffectBakeFrames(200, 100, flat)!;
+	assert(
+		Math.max(squarish.width, squarish.height) < 1024,
+		`flat frames pack into a block, not a 3068-px strip (${squarish.width}×${squarish.height})`,
+	);
+	assert(
+		eq(packEffectBakeFrames(cellW, cellH, trims), layout),
+		'packing is deterministic (the page and /api/fx/bake lay out the same page)',
+	);
+	const two = planEffectBakeSheet(300, 200, 96, 0.5)!;
+	assert(
+		layout.width * layout.height < 0.5 * two.width * two.height,
+		`the packed page is a fraction of the grid (${layout.width}×${layout.height} vs ` +
+			`${two.width}×${two.height})`,
+	);
+	const full = Array.from({ length: 96 }, () => ({ x: 0, y: 0, w: cellW, h: cellH }));
+	const untrimmed = packEffectBakeFrames(cellW, cellH, full)!;
+	assert(
+		untrimmed.width * untrimmed.height <= 1.05 * two.width * two.height &&
+			untrimmed.width <= EFFECT_BAKE_LIMITS.sheetSide &&
+			untrimmed.height <= EFFECT_BAKE_LIMITS.sheetSide,
+		'full-cell frames pack onto a page that fits, about the grid the plan fitted',
+	);
+	const huge = planEffectBakeSheet(2048, 2048, 120, 1)!;
+	const hugeFull = Array.from({ length: 120 }, () => ({
+		x: 0,
+		y: 0,
+		w: huge.cellW,
+		h: huge.cellH,
+	}));
+	assert(
+		!!packEffectBakeFrames(huge.cellW, huge.cellH, hugeFull),
+		'… even at the largest sheet the plan allows',
+	);
+
+	const pageRects = layout.frames.map((f) => ({ x: f.x, y: f.y, w: f.trim.w, h: f.trim.h }));
+	assert(
+		pageRects.every((r) => r.x + r.w <= layout.width && r.y + r.h <= layout.height),
+		'every frame lies on the page',
+	);
+	assert(
+		pageRects.every((r) => r.x % 4 === 0 && r.y % 4 === 0),
+		'every frame starts on a 4-px block',
+	);
+	let crowded = false;
+	for (let i = 0; i < pageRects.length; i++)
+		for (let j = i + 1; j < pageRects.length; j++) {
+			const a = pageRects[i];
+			const b = pageRects[j];
+			const apart =
+				a.x + a.w + 2 <= b.x ||
+				b.x + b.w + 2 <= a.x ||
+				a.y + a.h + 2 <= b.y ||
+				b.y + b.h + 2 <= a.y;
+			if (!apart) crowded = true;
+		}
+	assert(!crowded, 'no two frames overlap, and at least 2 transparent pixels part any two');
+	const blockOwner = new Map<string, number>();
+	let shared = false;
+	pageRects.forEach((r, i) => {
+		for (let by = Math.floor(r.y / 4); by <= Math.floor((r.y + r.h - 1) / 4); by++)
+			for (let bx = Math.floor(r.x / 4); bx <= Math.floor((r.x + r.w - 1) / 4); bx++) {
+				const owner = blockOwner.get(`${bx},${by}`);
+				if (owner !== undefined && owner !== i) shared = true;
+				blockOwner.set(`${bx},${by}`, i);
+			}
+	});
+	assert(!shared, 'no 4×4 block (a KTX2 block) holds pixels of two frames');
+	assert(
+		layout.width === Math.max(...pageRects.map((r) => r.x + r.w)) &&
+			layout.height === Math.max(...pageRects.map((r) => r.y + r.h)),
+		'the page is no larger than its frames need',
+	);
+
+	// The page as the canvas composes it, then every cell rebuilt from the JSON the way Pixi builds
+	// a trimmed texture (`frame` on the page, placed at `spriteSourceSize` inside `sourceSize`).
+	const page = new Uint8ClampedArray(layout.width * layout.height * 4);
+	layout.frames.forEach(({ x, y, trim }, i) => {
+		for (let r = 0; r < trim.h; r++)
+			for (let c = 0; c < trim.w; c++) {
+				const from = ((trim.y + r) * cellW + trim.x + c) * 4;
+				page.set(cells[i].subarray(from, from + 4), ((y + r) * layout.width + x + c) * 4);
+			}
+	});
+	const sheet = effectBakeSheetJson(layout, 'p.png', '0badf00d');
+	type Frame = {
+		frame: { x: number; y: number; w: number; h: number };
+		trimmed: boolean;
+		spriteSourceSize: { x: number; y: number; w: number; h: number };
+		sourceSize: { w: number; h: number };
+	};
+	let misplaced = 0;
+	let wrongSize = 0;
+	const names = effectBakeGroupFrameNames('0badf00d', 48, 2).flat();
+	names.forEach((name, i) => {
+		const f = sheet.frames[name] as Frame;
+		if (f.sourceSize.w !== cellW || f.sourceSize.h !== cellH) wrongSize++;
+		const { frame, spriteSourceSize: sss } = f;
+		if (frame.w !== sss.w || frame.h !== sss.h) wrongSize++;
+		for (let cy = 0; cy < cellH; cy++)
+			for (let cx = 0; cx < cellW; cx++) {
+				const inside = cx >= sss.x && cx < sss.x + sss.w && cy >= sss.y && cy < sss.y + sss.h;
+				const at = ((frame.y + cy - sss.y) * layout.width + frame.x + cx - sss.x) * 4;
+				const want = cells[i].subarray((cy * cellW + cx) * 4, (cy * cellW + cx) * 4 + 4);
+				for (let k = 0; k < 4; k++) if ((inside ? page[at + k] : 0) !== want[k]) misplaced++;
+			}
+	});
+	assert(
+		wrongSize === 0,
+		'every frame keeps the full cell as its sourceSize and its trim as its size',
+	);
+	assert(
+		misplaced === 0,
+		'rebuilt from the JSON, every cell is pixel-identical to the one composed (96 cells)',
+	);
+	assert(
+		Object.keys(sheet.frames)[0] === effectBakeFrameName('0badf00d', 0) &&
+			Object.keys(sheet.frames)[0] === 'bake_0badf00d_000',
 		'frames are named in order, by the bake',
 	);
 	assert(
-		rects.every((r) => r.x + r.w <= plan.width && r.y + r.h <= plan.height),
-		'every cell lies on the page',
-	);
-	let overlap = false;
-	for (let i = 0; i < rects.length; i++)
-		for (let j = i + 1; j < rects.length; j++) {
-			const a = rects[i];
-			const b = rects[j];
-			if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) overlap = true;
-		}
-	assert(!overlap, 'no two cells overlap');
-	assert(
-		rects.every((r) => r.x % 4 === 0 && r.y % 4 === 0),
-		'every cell starts on a 4-px block (a KTX2 block never spans two cells)',
-	);
-	const gutter = Math.min(
-		...rects.flatMap((a) =>
-			rects
-				.filter((b) => b !== a && b.y === a.y && b.x > a.x)
-				.map((b) => b.x - (a.x + a.w))
-				.concat(
-					rects.filter((b) => b !== a && b.x === a.x && b.y > a.y).map((b) => b.y - (a.y + a.h)),
-				),
-		),
-	);
-	assert(gutter >= plan.gap && plan.gap >= 2, `cells keep a transparent gutter (${gutter} px)`);
-	assert(
-		plan.width === Math.max(...rects.map((r) => r.x + r.w)) &&
-			plan.height === Math.max(...rects.map((r) => r.y + r.h)),
-		'the page is no larger than its cells need',
-	);
-	const two = planEffectBakeSheet(300, 200, 96, 0.5)!;
-	const names = effectBakeGroupFrameNames('0badf00d', 48, 2);
-	const twoJson = effectBakeSheetJson(two, 96, 'p.png', '0badf00d');
-	assert(
-		names.length === 2 &&
-			names.every((g) => g.length === 48) &&
-			names.flat().every((n) => n in twoJson.frames) &&
-			new Set(names.flat()).size === 96,
-		'each blend group names its own 48 cells of the sheet',
+		names.every((n) => n in sheet.frames) && Object.keys(sheet.frames).length === 96,
+		'each blend group names its own 48 frames of the sheet',
 	);
 	assert(
-		eq((twoJson.frames[names[1][0]] as { frame: { x: number; y: number } }).frame, {
-			...effectBakeCellOrigin(two, 48),
-			w: two.cellW,
-			h: two.cellH,
-		}),
-		'group 1 frame 0 is cell 48, where the capture draws it',
+		(sheet.frames[names[5]] as Frame).trimmed &&
+			!(sheet.frames[names[60]] as Frame).trimmed &&
+			eq((sheet.frames[names[60]] as Frame).spriteSourceSize, { x: 0, y: 0, w: cellW, h: cellH }),
+		'a trimmed frame says so; one drawn edge to edge is the whole cell, untrimmed',
+	);
+	assert(
+		eq(sheet.meta.size, { w: layout.width, h: layout.height }) && sheet.meta.image === 'p.png',
+		'the JSON names the page and its packed size',
+	);
+	assert(
+		packEffectBakeFrames(cellW, cellH, [{ x: cellW - 4, y: 0, w: 8, h: 4 }]) === undefined &&
+			packEffectBakeFrames(cellW, cellH, [{ x: 0, y: 0, w: 0, h: 4 }]) === undefined &&
+			packEffectBakeFrames(cellW, cellH, [{ x: 0.5, y: 0, w: 4, h: 4 }]) === undefined &&
+			packEffectBakeFrames(cellW, cellH, ['x']) === undefined &&
+			packEffectBakeFrames(cellW, cellH, []) === undefined,
+		'a trim outside its cell, empty, fractional or malformed — or no trims — is refused',
 	);
 }
 

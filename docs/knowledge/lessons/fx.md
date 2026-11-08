@@ -11,6 +11,20 @@ a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for
 
 ## Invisible FX, Element FX and particles
 
+### A burst effect played once in /fx and could not be seen whole again
+- **Symptom:** in `/fx` a one-shot effect (Buffalo Duel's `explosion`: every layer
+  `emitterLifetime` 0.12 s) fired once on load, then the stage stayed empty; editing a layer
+  re-fired only that layer, so the layers could never be judged together.
+- **Cause:** not a regression: the stage never re-fired a finished emitter (the library sets
+  `emit = false` when its lifetime runs out), and a rebuild re-inits only the changed layer. The
+  only way back was Pause then Play, which the guide documented and nobody found.
+- **Fix:** `FxStage` `loopBursts` (on in `/fx`): when every one-shot layer is spent and empty, all
+  re-fire together after 600 ms, and a rebuilt one-shot layer re-fires them all; a **⟲ Replay**
+  button restarts every layer. Off for `/symbols`, which fires its bursts through `emitting`.
+- **Guard:** `fx-spike` `fx-playback-page` (looping and one-shot effects in the real page,
+  particles counted per emitter on the stage); red on `main` before the fix (the bursts never re-fire).
+- **PR:** not recorded (2026-11-03) · branch `claude/fx-stage-playback-fix`
+
 ### A baked effect had a dark outline the live one did not
 - **Symptom:** Buffalo Duel's baked sparks had a strong dark outline; live they blended fine.
 - **Cause:** Normal + Add layers were flattened into one sheet drawn Normal: the additive capture's

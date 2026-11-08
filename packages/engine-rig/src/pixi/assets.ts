@@ -14,6 +14,7 @@ import {
 } from 'pixi.js';
 import { TextureAtlas, type TextureAtlasPage } from '../atlas';
 import { RigPageTexture } from './pageTexture';
+import { isIrigDocument } from '../irig/irig';
 
 /** Optional `data` for an `.atlas` asset: page images to use instead of the files the atlas names
  * (one source for a single page, or a map by page name), and extra options for loading them. */
@@ -63,7 +64,11 @@ export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 					if (provided instanceof TextureSource) source = provided;
 					else {
 						if (!loader) throw new Error(`No loader to fetch atlas page ${page.name}`);
-						const url = copySearchParams(path.join(base, provided ?? page.name), src);
+						// Pixi's loader caches by url alone, whatever the alpha mode asked for, and a sheet loads
+						// the same shared page (`pixi-svelte` `sharedSheetPages.ts`) premultiplying on upload. A
+						// `pma` page keeps a key of its own; the fragment never reaches the request.
+						const joined = copySearchParams(path.join(base, provided ?? page.name), src);
+						const url = page.pma ? `${joined}#pma` : joined;
 						const texture = await loader.load<Texture>({
 							src: url,
 							data: {
@@ -99,8 +104,10 @@ export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 	},
 } as unknown as AssetExtension<TextureAtlas, RigAtlasMetadata>;
 
-const isSkeletonJson = (value: unknown): boolean =>
-	!!value && typeof value === 'object' && 'skeleton' in value && 'bones' in value;
+/** A 4.2 skeleton (header + bones) or an irig document, whose header is optional. */
+export const isSkeletonJson = (value: unknown): boolean =>
+	isIrigDocument(value) ||
+	(!!value && typeof value === 'object' && 'skeleton' in value && 'bones' in value);
 
 /** `.skel` → `Uint8Array`; `.irig` → its parsed skeleton JSON (a skeleton `.json` already
  * arrives parsed through Pixi's JSON loader, which is all the readers need). */

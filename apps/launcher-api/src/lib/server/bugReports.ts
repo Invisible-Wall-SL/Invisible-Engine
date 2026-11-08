@@ -31,7 +31,19 @@ import {
 	type BugStatus,
 	type LinkState,
 } from '$lib/bugReports';
-import { TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
+import {
+	FIX_RUN_AGENT,
+	fixRunView,
+	isLiveFixRun,
+	monthStartUtc,
+	startRefusal,
+	type FixRunView,
+	type StartFacts,
+} from '$lib/bugFixRuns';
+import { PIPELINE_BUG_FIX_CAPABILITY, TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
+import { getPipelineFixMaxLive, getPipelineFixMonthlyCap } from './appSettings';
+import { backstopFixRuns } from './bugFixRunsActions';
+import { fixRunsOfBug, fixSpendSince, liveFixRunCount, type BugFixRun } from './bugFixRunsStore';
 import {
 	bugsReportedAs,
 	deleteScreenshot,
@@ -78,7 +90,9 @@ import { getToolOverrides } from './userToolAccess';
  *  - edit the text: the reporter, or a triager;
  *  - add a screenshot: anyone who sees the bug; remove one: its uploader, the reporter or a triager;
  *  - priority, status, send to / take back from Pipeline Changes: the kind's own triage capability
- *    (`BUG_TRIAGE` — "Triage pipeline bugs", "Triage game bugs"), set per role or per user.
+ *    (`BUG_TRIAGE` — "Triage pipeline bugs", "Triage game bugs"), set per role or per user;
+ *  - start or stop a fix run on a pipeline bug (ADR-0013, `bugFixRuns.ts`): "Start fix runs on
+ *    pipeline bugs" AND pipeline triage, as the run's pull request moves the status.
  */
 
 type User = NonNullable<App.Locals['user']>;
@@ -88,6 +102,8 @@ export interface BugAccess {
 	actor: Actor;
 	/** The kinds the user triages: each kind has its own capability (`BUG_TRIAGE`). */
 	triage: Set<BugKind>;
+	/** The user holds "Start fix runs on pipeline bugs" (`pipelineBugFix`); a run also needs triage. */
+	fix: boolean;
 	/** The projects the user may name on a bug. */
 	projects: Set<string>;
 	/** An admin sees every bug, whatever project it names. */
@@ -110,7 +126,7 @@ export const AUTO_ACTOR: Actor = { id: null, name: 'GitHub' };
 export async function bugScopeOf(
 	user: User,
 	kinds: readonly BugKind[],
-): Promise<Omit<BugAccess, 'triage'>> {
+): Promise<Omit<BugAccess, 'triage' | 'fix'>> {
 	const projects = new Set((await accessibleProjects(user.id, user.role)).map((p) => p.key));
 	return {
 		user,
@@ -137,8 +153,13 @@ export async function requireBugAccess(locals: App.Locals): Promise<BugAccess> {
 		triage: new Set(
 			BUG_KINDS.filter((k) => roleHasCapability(role, BUG_TRIAGE[k], roleOverrides, overrides)),
 		),
+		fix: roleHasCapability(role, PIPELINE_BUG_FIX_CAPABILITY, roleOverrides, overrides),
 	};
 }
+
+/** Both capabilities a fix run needs: starting fix runs, and triaging pipeline bugs. */
+export const canRunFixes = (access: Pick<BugAccess, 'fix' | 'triage'>): boolean =>
+	access.fix && access.triage.has('pipeline');
 
 /** The kind a request names, refused when it is not one or the user lacks its tool. */
 export function requireKind(access: Pick<BugAccess, 'kinds'>, v: unknown): BugKind {
@@ -233,6 +254,14 @@ export interface BugDetail extends BugSummary {
 	canEdit: boolean;
 	screenshotList: BugScreenshotView[];
 	events: BugEventView[];
+	/** A pipeline bug's fix runs (ADR-0013), newest first, at most ten; none on a game bug. */
+	fixRuns: FixRunView[];
+	/**
+	 * The viewer may start a fix run now: they hold both capabilities, the App is configured, and
+	 * no refusal that needs no GitHub applies (closed, a pull request open, a run live, too many
+	 * live, the month's ceiling spent).
+	 */
+	canStartFix: boolean;
 }
 
 /** Whether a linked pull request can move statuses, and when GitHub last answered. */
@@ -305,6 +334,7 @@ const isReporter = (access: BugAccess, bug: BugReport) => bug.reporterId === acc
 function detailOf(
 	access: BugAccess,
 	full: BugFull,
+	fix: { runs: FixRunView[]; canStart: boolean },
 	escalated?: { toBug: number; toStatus: BugStatus },
 	fixed = false,
 ): BugDetail {
@@ -312,6 +342,8 @@ function detailOf(
 	const mine = isReporter(access, bug);
 	return {
 		...summaryOf(access.user.id, bug, full.screenshots.length, full.links, escalated, fixed),
+		fixRuns: fix.runs,
+		canStartFix: fix.canStart,
 		revision: bug.revision,
 		canEdit: mine || access.triage.has(bug.kind),
 		screenshotList: full.screenshots.map((s) => ({
@@ -336,7 +368,7 @@ function detailOf(
 
 /** Every bug of one kind the viewer may see, newest first; a game list is one project's. */
 export async function listBugs(
-	scope: Omit<BugAccess, 'triage'>,
+	scope: Omit<BugAccess, 'triage' | 'fix'>,
 	where: { kind: BugKind; projectKey?: string },
 ): Promise<BugSummary[]> {
 	const rows = await listBugRows(where);
@@ -364,7 +396,9 @@ const STATUS_RANK: Record<BugStatus, number> = { working: 0, open: 1, resolved: 
  * The pipeline bugs sent to Invisible Pipeline Changes, for its Bugs tab: still to do first
  * (Working on, then Open), each by priority (unset last), then newest.
  */
-export async function listSentBugs(scope: Omit<BugAccess, 'triage'>): Promise<BugSummary[]> {
+export async function listSentBugs(
+	scope: Omit<BugAccess, 'triage' | 'fix'>,
+): Promise<BugSummary[]> {
 	const rank = (p: BugPriority | null) => (p ? PRIORITY_RANK[p] : 4);
 	return (await listBugs(scope, { kind: 'pipeline' }))
 		.filter((b) => b.sentAt !== null)
@@ -377,7 +411,10 @@ export async function listSentBugs(scope: Omit<BugAccess, 'triage'>): Promise<Bu
 }
 
 /** One bug the viewer may see, or the 404 that never says whether it exists. */
-async function readVisible(access: BugAccess, number: number): Promise<BugFull> {
+export async function readVisible(
+	access: Pick<BugAccess, 'projects' | 'seesAll' | 'kinds' | 'user'>,
+	number: number,
+): Promise<BugFull> {
 	const full = await getBugFull(number);
 	if (!full || !canSee(access, full.bug)) throw error(404, `There is no BUG-${number}.`);
 	return full;
@@ -388,7 +425,49 @@ export async function getBug(access: BugAccess, number: number): Promise<BugDeta
 	const escalated =
 		full.bug.kind === 'game' ? (await escalationsFor([number])).get(number) : undefined;
 	const fixed = full.bug.kind === 'game' && (await fixedAwaitingPublish([number])).has(number);
-	return detailOf(access, full, escalated, fixed);
+	return detailOf(access, full, await fixRunsFor(access, full), escalated, fixed);
+}
+
+/**
+ * What the start refusals read that needs no GitHub (ADR-0013 §1): the bug's status, an open
+ * linked pull request, its live run, every live run against the cap, and the calendar month's
+ * (UTC) fix-run spend against the ceiling. `runs` are the bug's own, newest first.
+ */
+export async function fixStartFacts(
+	bug: Pick<BugReport, 'status'>,
+	links: Pick<BugReportLink, 'prNumber' | 'state'>[],
+	runs: Pick<BugFixRun, 'id' | 'status'>[],
+	nowMs = Date.now(),
+): Promise<StartFacts> {
+	const [maxLive, monthlyCapUsd, liveTotal, monthSpendUsd] = await Promise.all([
+		getPipelineFixMaxLive(),
+		getPipelineFixMonthlyCap(),
+		liveFixRunCount(),
+		fixSpendSince(monthStartUtc(nowMs), FIX_RUN_AGENT),
+	]);
+	return {
+		status: bug.status,
+		openPr: links.find((l) => l.state === 'open')?.prNumber ?? null,
+		liveRun: runs.find((r) => isLiveFixRun(r.status))?.id ?? null,
+		liveTotal,
+		maxLive,
+		monthSpendUsd,
+		monthlyCapUsd,
+	};
+}
+
+/** A pipeline bug's fix runs as its page shows them, and whether the viewer may start one now. */
+async function fixRunsFor(
+	access: BugAccess,
+	full: BugFull,
+): Promise<{ runs: FixRunView[]; canStart: boolean }> {
+	if (full.bug.kind !== 'pipeline') return { runs: [], canStart: false };
+	const rows = await fixRunsOfBug(full.bug.number);
+	const may = canRunFixes(access);
+	const runs = rows.map((r) => fixRunView(r, ENV.GITHUB_ENGINE_REPO, may));
+	if (!may || githubApp.missing()) return { runs, canStart: false };
+	const facts = await fixStartFacts(full.bug, full.links, rows);
+	return { runs, canStart: startRefusal(facts) === null };
 }
 
 export function parseBugNumber(param: string): number {
@@ -879,7 +958,7 @@ export async function removeScreenshot(
 }
 
 /** A bug's screenshot bytes, only through the row that lists it; null when no row or object. */
-async function screenshotBytes(
+export async function screenshotBytes(
 	number: number,
 	id: string,
 ): Promise<{ bytes: Uint8Array<ArrayBuffer>; mediaType: string } | null> {
@@ -1152,7 +1231,8 @@ async function readPulls(
  * Read the engine repository's pull requests and move the pipeline bugs they name: at most once a
  * minute, one read at a time, whatever asks. A game bug is fixed in its project, never by a pull
  * request, so none is linked. Off (and says why) until the GitHub App is configured; a GitHub
- * failure is reported as a state, never thrown.
+ * failure is reported as a state, never thrown. The same pass then settles the fix runs whose job
+ * died without calling back (`backstopFixRuns`, ADR-0013 §5), whose failure is not the sync's.
  */
 export function syncBugLinks(app: GithubApp = githubApp): Promise<LinkSync> {
 	const missing = app.missing();
@@ -1192,6 +1272,14 @@ export function syncBugLinks(app: GithubApp = githubApp): Promise<LinkSync> {
 				message: `GitHub did not answer: ${why}`,
 				at: new Date().toISOString(),
 			};
+		}
+		try {
+			await backstopFixRuns(app);
+		} catch (err) {
+			console.warn(
+				'[bugs] the fix-run backstop did not finish:',
+				err instanceof Error ? err.message : err,
+			);
 		}
 		lastSync = { at: Date.now(), result };
 		return result;

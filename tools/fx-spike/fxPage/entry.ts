@@ -16,13 +16,19 @@
  * exposes `window.fxPage`: the requests made, the docs saved and the baked pages uploaded.
  *
  * `?bake=1` opens a saved, bakeable effect: a normal puff under additive sparks, both on the dot —
- * two blend groups.
+ * two blend groups. `?bursts=1` opens one of three one-shot layers over a continuous one.
+ *
+ * `fxPage.apps` holds every Pixi `Application` the page made, and `fxPage.emitters` every particle
+ * `Emitter`, so a driver can read the stage.
  */
 import { mount } from 'svelte';
+import { Application } from 'pixi.js';
+import { Emitter } from '@barvynkoa/particle-emitter';
 import {
 	effectBakeGroupFrameNames,
 	effectBakeSheetJson,
 	normalizeEffectDoc,
+	packEffectBakeFrames,
 	type EffectDoc,
 } from 'engine-fx';
 import {
@@ -43,6 +49,19 @@ HTMLCanvasElement.prototype.getContext = function (
 	const keep = kind.startsWith('webgl') ? { ...options, preserveDrawingBuffer: true } : options;
 	return getContext.call(this, kind, keep);
 } as typeof HTMLCanvasElement.prototype.getContext;
+
+const apps: Application[] = [];
+const appInit = Application.prototype.init;
+Application.prototype.init = function (this: Application, ...args: Parameters<typeof appInit>) {
+	apps.push(this);
+	return appInit.apply(this, args);
+};
+const emitters: Emitter[] = [];
+const emitterInit = Emitter.prototype.init;
+Emitter.prototype.init = function (this: Emitter, ...args: Parameters<typeof emitterInit>) {
+	if (!emitters.includes(this)) emitters.push(this);
+	return emitterInit.apply(this, args);
+};
 
 const ATLAS = 'client/project/manifests/atlas_manifest_sparks.json';
 const REGIONS = [
@@ -199,6 +218,41 @@ const sparks = normalizeEffectDoc(
 	'sparks',
 );
 store.set('sparks', { text: JSON.stringify(sparks), meta: {}, etag: '"s"' });
+
+const bursting = new URLSearchParams(location.search).has('bursts');
+/** A layer on the dot: a burst of `emitterLifetime` seconds, or continuous at -1. */
+const dotLayer = (key: string, emitterLifetime: number, x: number) => ({
+	key,
+	particleKind: 'sprite',
+	art: { assetKey: ATLAS, frames: ['dot'] },
+	placement: { space: 'free', offset: { x, y: 0 } },
+	config: {
+		lifetime: { min: 0.4, max: 0.8 },
+		frequency: emitterLifetime > 0 ? 0.002 : 0.02,
+		emitterLifetime,
+		maxParticles: 200,
+		pos: { x: 0, y: 0 },
+		addAtBack: false,
+		behaviors: [
+			{ type: 'moveSpeedStatic', config: { min: 60, max: 120 } },
+			{ type: 'spawnBurst', config: { start: 0, spacing: 30, distance: 0 } },
+		],
+	},
+});
+const bursts = normalizeEffectDoc(
+	{
+		version: 1,
+		id: 'bursts',
+		name: 'Bursts',
+		layers: [
+			dotLayer('ambient', -1, 0),
+			dotLayer('burst-a', 0.12, -200),
+			dotLayer('burst-b', 0.12, 0),
+			dotLayer('burst-c', 0.06, 200),
+		],
+	},
+	'bursts',
+);
 /** Baked pages PUT to the fake R2, by key; and each bake's sheet JSON. */
 const r2 = new Map<string, Blob>();
 const sheets = new Map<string, unknown>();
@@ -210,6 +264,9 @@ const json = (body: unknown, status = 200): Response =>
 const realFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 	const url = new URL(typeof input === 'string' ? input : String(input), location.href);
+	// On Windows a root-relative URL resolved on a file:// page keeps the drive: `/C:/api/…`.
+	if (url.protocol === 'file:')
+		url.pathname = url.pathname.replace(/^\/[A-Za-z]:(?=\/(api|rig))/, '');
 	const method = init?.method ?? 'GET';
 	if (
 		url.protocol === 'file:' &&
@@ -232,7 +289,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 		case '/api/editor/regions': {
 			const sheet = sheets.get(url.searchParams.get('sheet') ?? '') as
 				| {
-						frames: Record<string, { frame: { x: number; y: number; w: number; h: number } }>;
+						frames: Record<
+							string,
+							{
+								frame: { x: number; y: number; w: number; h: number };
+								spriteSourceSize: { x: number; y: number };
+								sourceSize: { w: number; h: number };
+							}
+						>;
 						meta: { size: { w: number; h: number } };
 				  }
 				| undefined;
@@ -242,7 +306,15 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 					pageKey: png,
 					pageWidth: sheet.meta.size.w,
 					pageHeight: sheet.meta.size.h,
-					regions: Object.entries(sheet.frames).map(([name, f]) => ({ name, ...f.frame })),
+					// As `texturePackerToInvisible` reads a trimmed frame.
+					regions: Object.entries(sheet.frames).map(([name, f]) => ({
+						name,
+						...f.frame,
+						offX: f.spriteSourceSize.x,
+						offY: f.spriteSourceSize.y,
+						origW: f.sourceSize.w,
+						origH: f.sourceSize.h,
+					})),
 				});
 			}
 			return json({ pageKey: 'page.png', pageWidth: 128, pageHeight: 64, regions: REGIONS });
@@ -264,22 +336,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 				hash: string;
 				frames: number;
 				groups?: number;
-				plan: {
-					cellW: number;
-					cellH: number;
-					gap: number;
-					cols: number;
-					width: number;
-					height: number;
-				};
+				sheet: { cellW: number; cellH: number; trims: unknown[] };
 			};
 			const stem = `client/project/fx-bakes/${body.effectId}/fxbake_${body.effectId}_${body.hash}`;
 			if (!r2.has(`${stem}.png`)) return json({ message: 'no page' }, 409);
 			const groups = body.groups ?? 1;
-			sheets.set(
-				`${stem}.json`,
-				effectBakeSheetJson(body.plan, body.frames * groups, `${stem}.png`, body.hash),
-			);
+			const layout = packEffectBakeFrames(body.sheet.cellW, body.sheet.cellH, body.sheet.trims);
+			if (!layout) return json({ message: 'bad layout' }, 400);
+			sheets.set(`${stem}.json`, effectBakeSheetJson(layout, `${stem}.png`, body.hash));
 			return json({
 				ok: true,
 				assetKey: `${stem}.json`,
@@ -310,7 +374,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 	return json({ message: `fxPage: nothing answers ${method} ${url.pathname}` }, 404);
 };
 
-Object.assign(window, { fxPage: { requests, saved, uploads, r2 } });
+Object.assign(window, { fxPage: { requests, saved, uploads, r2, apps, emitters } });
 
 mount(DialogHost, { target: document.body });
 mount(Page, {
@@ -325,7 +389,7 @@ mount(Page, {
 				{ id: 'ghost', name: 'Ghost' },
 				...(baking ? [{ id: 'sparks', name: 'Sparks' }] : []),
 			],
-			openedDoc: baking ? sparks : opening ? opened : null,
+			openedDoc: bursting ? bursts : baking ? sparks : opening ? opened : null,
 			openedMeta: null,
 			openedEtag: null,
 			eventTypes: [],

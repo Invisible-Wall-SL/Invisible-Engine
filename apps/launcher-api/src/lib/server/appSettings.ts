@@ -39,6 +39,25 @@ export const DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT = 14;
 export const DIRECTOR_PENDING_MOCKUP_DAYS_MIN = 1;
 export const DIRECTOR_PENDING_MOCKUP_DAYS_MAX = 365;
 
+/**
+ * Settings keys for fix runs on pipeline bugs (ADR-0013). Launcher-only: the launcher hands the
+ * per-run cap to the job with its brief, and refuses a start past the other two.
+ *  - `PIPELINE_FIX_BUDGET_USD`: one run's cap, bounded like a Director run's;
+ *  - `PIPELINE_FIX_MONTHLY_USD`: the calendar month's (UTC) ceiling on fix-run spend — it refuses
+ *    new starts, never stops a live run;
+ *  - `PIPELINE_FIX_MAX_LIVE`: how many runs may be live at once, over every bug.
+ */
+export const PIPELINE_FIX_BUDGET_KEY = 'PIPELINE_FIX_BUDGET_USD';
+export const PIPELINE_FIX_BUDGET_DEFAULT_USD = 15;
+export const PIPELINE_FIX_MONTHLY_KEY = 'PIPELINE_FIX_MONTHLY_USD';
+export const PIPELINE_FIX_MONTHLY_DEFAULT_USD = 150;
+export const PIPELINE_FIX_MONTHLY_MIN_USD = 1;
+export const PIPELINE_FIX_MONTHLY_MAX_USD = 5000;
+export const PIPELINE_FIX_MAX_LIVE_KEY = 'PIPELINE_FIX_MAX_LIVE';
+export const PIPELINE_FIX_MAX_LIVE_DEFAULT = 2;
+export const PIPELINE_FIX_MAX_LIVE_MIN = 1;
+export const PIPELINE_FIX_MAX_LIVE_MAX = 10;
+
 // The Director budget and pricing keys and the cap's clamp are shared with the worker, which reads
 // the same settings (ADR-0006).
 export {
@@ -170,6 +189,77 @@ export async function getDirectorRepairBudget(): Promise<number> {
 		);
 		return DIRECTOR_REPAIR_BUDGET_DEFAULT_USD;
 	}
+}
+
+/** A stored number within `[min, max]` (whole when `integer`); the fallback when unset or unparseable. */
+function boundedSetting(
+	raw: string | undefined,
+	fallback: number,
+	min: number,
+	max: number,
+	integer = false,
+): number {
+	if (raw == null || raw.trim() === '') return fallback;
+	const n = Number(raw);
+	if (!Number.isFinite(n) || (integer && !Number.isInteger(n))) return fallback;
+	return Math.min(max, Math.max(min, n));
+}
+
+/** Read one fix-run setting, failing SAFE to its default on a DB error. Never throws. */
+async function fixRunSetting(
+	key: string,
+	read: (raw: string | undefined) => number,
+	fallback: number,
+): Promise<number> {
+	try {
+		return read(await getAppSetting(key));
+	} catch (err) {
+		console.warn(
+			`[appSettings] ${key} DB read failed — using the default:`,
+			err instanceof Error ? err.message : err,
+		);
+		return fallback;
+	}
+}
+
+/** One fix run's cap in USD ({@link PIPELINE_FIX_BUDGET_KEY}), clamped like a Director run's. */
+export function getPipelineFixBudget(): Promise<number> {
+	return fixRunSetting(
+		PIPELINE_FIX_BUDGET_KEY,
+		(raw) => budgetFromSetting(raw, PIPELINE_FIX_BUDGET_DEFAULT_USD),
+		PIPELINE_FIX_BUDGET_DEFAULT_USD,
+	);
+}
+
+/** The month's fix-run ceiling in USD ({@link PIPELINE_FIX_MONTHLY_KEY}). */
+export function getPipelineFixMonthlyCap(): Promise<number> {
+	return fixRunSetting(
+		PIPELINE_FIX_MONTHLY_KEY,
+		(raw) =>
+			boundedSetting(
+				raw,
+				PIPELINE_FIX_MONTHLY_DEFAULT_USD,
+				PIPELINE_FIX_MONTHLY_MIN_USD,
+				PIPELINE_FIX_MONTHLY_MAX_USD,
+			),
+		PIPELINE_FIX_MONTHLY_DEFAULT_USD,
+	);
+}
+
+/** How many fix runs may be live at once ({@link PIPELINE_FIX_MAX_LIVE_KEY}), a whole number. */
+export function getPipelineFixMaxLive(): Promise<number> {
+	return fixRunSetting(
+		PIPELINE_FIX_MAX_LIVE_KEY,
+		(raw) =>
+			boundedSetting(
+				raw,
+				PIPELINE_FIX_MAX_LIVE_DEFAULT,
+				PIPELINE_FIX_MAX_LIVE_MIN,
+				PIPELINE_FIX_MAX_LIVE_MAX,
+				true,
+			),
+		PIPELINE_FIX_MAX_LIVE_DEFAULT,
+	);
 }
 
 /**

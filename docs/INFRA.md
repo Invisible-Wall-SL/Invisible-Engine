@@ -766,6 +766,12 @@ code default, so the dashboard need not set it):
   harness itself posts nothing: `.github/workflows/current-games-verdict.yml` (`workflow_run`, main's
   code) reads the finished run and posts the status — see "Who may post `current-games`" under
   "Branch ruleset on `main`". How to run and read it: `docs/playtest/current-games.md`.
+  **A fix run's code never meets these secrets before a person has read it (ADR-0013).** A push to
+  a fix-run branch (`bug-<n>-fix-` + 10 lowercase hex characters) is ignored. While the App's draft
+  PR is a draft, `prepare` is skipped and `current-games` stays `pending`. **Ready for review**
+  starts the run. Every other branch and PR runs as before. Marking an ordinary draft ready now
+  makes a run whose jobs are all skipped, and the verdict posts nothing for it (playtest doc, "A
+  fix run waits for "Ready for review"").
 - **Current-games verdict (GitHub Actions *environment* secrets, environment
   `current-games-verdict`):** `CURRENT_GAMES_VERDICT_APP_ID` and
   `CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY` — the GitHub App the verdict posts `current-games` as.
@@ -917,10 +923,20 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 > CNAME to Railway (checked 2026-09-29: responses come from Railway's edge with no Cloudflare
 > headers), so there is no CDN copy to purge. Freshness is the test server's own headers: a game's
 > `index.html` and `assets/…` are `no-store, must-revalidate`, and `_app/immutable/…` is
-> content-hashed and cached for a year. After `POST /api/launcher/register-game` the launcher still
-> calls Cloudflare's purge for the game's URLs (`cfPurge.ts`); with `games` DNS-only that call has
-> no effect, and with `CF_API_TOKEN` / `CF_ZONE_ID` unset it is skipped. The two vars only matter
-> if `games` is ever switched to proxied.
+> content-hashed and cached for a year (`public, max-age=31536000, immutable`). Since 2026-11-03 the
+> page is a ~4 KB gz SHELL that imports `_app/immutable/bundle.<hash>.js` and its chunks, so the
+> only CODE a repeat visit downloads is the shell (until then the ~700 KB gz bundle was inlined into
+> the `no-store` page and re-downloaded on every visit). The build's own `assets/` (art, audio under
+> stable names) are still `no-store` and fetched again on every visit; giving them content-versioned
+> names or `no-cache` + ETag revalidation is an open follow-up (`docs/status/engine.md`). The
+> previous release's `_app/immutable/…` stays servable for one generation after a pointer flip
+> (runtime games) or a republish (desktop games), so a page loaded just before still finds its lazy
+> chunks. Any other host of a game build (a partner, an inline delivery) should serve it the same
+> way: `_app/immutable/` long-cached and immutable, the page no-store. `pnpm check:runtime-shell`
+> boots each shape and proves it. After `POST /api/launcher/register-game` the launcher still calls
+> Cloudflare's purge for the game's URLs (`cfPurge.ts`); with `games` DNS-only that call has no
+> effect, and with `CF_API_TOKEN` / `CF_ZONE_ID` unset it is skipped. The two vars only matter if
+> `games` is ever switched to proxied.
 
 > **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` let the login throttle (B38) see real client IPs** — they default in `apps/launcher-api/scripts/start.mjs` (a dashboard value still wins, so the vars no longer need setting). They are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses the `X-Forwarded-For` Railway's edge adds instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted hop (Railway's edge; `app.` is DNS-only on Cloudflare, so nothing else sits in front); raise it only if another proxy is added. Without them every request looks like one shared IP and the per-IP bucket collapses into a global counter. Railway also documents an `X-Real-IP` header with the client address. A local `node scripts/start.mjs` needs an `X-Forwarded-For` on login requests (or `ADDRESS_HEADER=` blank).
 
@@ -1043,10 +1059,11 @@ it would need an ingest endpoint, storage, grouping of the same error across pla
 readable through minification, per-release filtering, alert rules, and a Python client — Sentry
 ships all of that for the three runtimes we have (browser, Node, Python) and its free plan (5k
 errors/month, 1 seat, 30-day retention) covers our volume; `sampleRate` is the lever if it doesn't.
-The costs we accept: the 1-seat limit (Team plan if more people need to triage), and ~97 KB minified
-added to the game bundle **only in a build that has a DSN** (the game is a single inlined file, so
-the SDK cannot be a lazy chunk there; the launcher lazy-loads it). **Create the org in the EU region**
-(`de.sentry.io`) — player-side errors from EU players should stay in the EU.
+The costs we accept: the 1-seat limit (Team plan if more people need to triage), and the SDK (~92 KB
+minified, ~31 KB gz) **only in a build that has a DSN**, as a lazy chunk (`_app/immutable/chunks/…`)
+fetched after the bundle once reporting starts — a delivery that has not opted in never requests it.
+The one-file embed build carries it inside its bundle. The launcher lazy-loads it too. **Create the
+org in the EU region** (`de.sentry.io`) — player-side errors from EU players should stay in the EU.
 
 **Everything is a no-op without a DSN** — no SDK loaded, nothing sent — so every env var below is
 optional and unset means today's behaviour. DSNs live in env/secrets only (the repo is PUBLIC).
@@ -1083,23 +1100,25 @@ the facade, so it is not reported (changing it changes boot behaviour).
 ### Readable stack traces — source maps (Sentry only, never served)
 
 The repo and every served bundle are **public**, so a source map must never sit next to the code:
-maps are built, uploaded to Sentry, and **deleted from the build before anything is published**.
-All of it lives in `scripts/sentry-sourcemaps.mjs`; the fixture is
-`node scripts/sentry-sourcemaps.fixture.mjs` (run by `check:all`).
+maps are built, uploaded to Sentry, and **deleted from the build before anything is published**. All
+of it lives in `scripts/sentry-sourcemaps.mjs`; `pnpm check:sentry-sourcemaps` (CI) runs its
+fixture and `sentry-sourcemaps-build.fixture.mjs`, which builds a three-file SvelteKit app through
+`config-svelte` + `config-vite` with `IE_SOURCEMAPS=hidden` and fails unless every shipped chunk
+leaves a map the script stages under the chunk's debug ID.
 
 | Surface | How | Release the maps are filed under |
 | --- | --- | --- |
-| **Game runtime** (`runtime-release.yml`) | Always built with `IE_SOURCEMAPS=hidden` (a map, no `sourceMappingURL`). Step *Upload source maps to Sentry and strip them* re-bases the map onto `index.html`, adds a debug-ID snippet to the page, uploads, deletes every `.map`; step *Gate: no source map or sourceMappingURL ships* re-checks; `publish-runtime-bundle.mjs` also refuses any `.map`. | the commit's first 12 chars — what the SDK reports (`__IE_BUILD__.sha`) and the `_runtime/lines@<sha12>` prefix |
+| **Game runtime** (`runtime-release.yml`) | Always built with `IE_SOURCEMAPS=hidden`: a map per chunk, no `sourceMappingURL`, and a debug ID written into each chunk (`config-vite/debugIds.js`: the `_sentryDebugIds` snippet + `//# debugId=`). Step *Upload source maps to Sentry and strip them* stages every chunk + its map under that ID, uploads, deletes every `.map` (a shipped chunk with no map is a `::warning::`); step *Gate: no source map or sourceMappingURL ships* re-checks; `publish-runtime-bundle.mjs` also refuses any `.map`. | the commit's first 12 chars — what the SDK reports (`__IE_BUILD__.sha`) and the `_runtime/lines@<sha12>` prefix |
 | **Launcher** (Railway build) | `vite.config.js` writes hidden maps **only when `SENTRY_AUTH_TOKEN` is set**; the `build` script's `sentry-sourcemaps.mjs launcher build` step runs `sentry-cli sourcemaps inject` on `build/client/_app`, uploads, deletes every `.map` under `build/`, and fails the build if one is left in `client/_app`. Server code is not minified, so its frames read fine without maps. | `RAILWAY_GIT_COMMIT_SHA` (the server SDK's release; the client SDK sets none — debug IDs resolve without it) |
 
-**Why the game's map is re-based.** The game is ONE inlined file: SvelteKit copies
-`bundle.<hash>.js` byte for byte into a `<script>` in `index.html`, and that copy is what runs. A
-browser numbers an inline script's frames by *document* line/column (the bundle starts at line
-~127), so the staged map describes `index.html` — the same mappings shifted by the bundle's offset —
-and frames find it by **debug ID**, not by URL (the page URL is a different game key on every online
-game). Verified in a real browser: a frame at `/:1956:14340` resolved through the staged map to
-`@sentry/browser/…/helpers.js:63`, the exact call site. `embed` delivery builds and desktop builds
-upload nothing (the release job is the only uploader).
+**How a frame finds its map.** The page is a shell; the code runs from
+`_app/immutable/bundle.<hash>.js` and its chunks, so a frame names a chunk URL and that chunk's own
+map describes it as built. Frames find the map by **debug ID**, not by URL (the URL is a different
+game key on every online game). Until 2026-11-03 the game was ONE inlined file and the map was
+re-based onto `index.html`; from the SvelteKit 2.70 upgrade (2026-10-01) that inline build deleted
+the bundle's map before the step ran, so every release printed "nothing to upload" and Sentry got no
+maps ([lesson](knowledge/lessons/infra.md)). `embed` delivery builds and desktop builds upload
+nothing (the release job is the only uploader).
 
 **No token → the upload is skipped with a notice; a failed upload is a `::warning::`.** Neither ever
 fails a release or a launcher deploy — only a map left in the build does. Dry run of the upload (the
@@ -1130,11 +1149,13 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
    ticked). Green, with step *Upload source maps…* printing `Uploaded source maps for release
    <sha12>` (a `Source maps not uploaded:` line means a secret/variable is missing). In Sentry →
    Settings → Projects → game-runtime → **Source Maps → Artifact Bundles**, the new bundle lists
-   `~/index.html.js` + `~/index.html.js.map` with one debug ID, release `<sha12>`.
+   `~/_app/immutable/bundle.<hash>.js` and each `~/_app/immutable/chunks/<hash>.js`, each with its
+   `.map` under one debug ID, release `<sha12>`.
 5. **Check a readable stack.** Open any online game, and in the browser console run
    `setTimeout(() => { throw new Error('sourcemap check') })`. The Sentry issue's in-bundle frame
    must read `helpers.js` in `@sentry/browser` (line 63, `fn.apply(this, wrappedArguments)`), not
-   `/:1956:…`. If it shows raw positions, open the event's *Unminify Code* / processing-error panel.
+   `chunks/<hash>.js:1:…`. If it shows raw positions, open the event's *Unminify Code* /
+   processing-error panel.
    The launcher's first deploy after step 3 uploads its maps the same way (project `launcher`).
 6. **Confirm nothing leaked** (any time): `curl -s https://games.invisiblewall.org/<gameKey>/ | grep -c sourceMappingURL`
    prints `0`, and the bundle's `….js.map` URL is a 404.

@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import { freeSpinsGaveWay } from 'engine-game';
 
 import { type BookEventHandlerMap } from 'utils-book';
@@ -472,7 +471,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		const { bookEvents } = bookEvent;
 
 		function findLastBookEvent<T>(type: T) {
-			return _.findLast(bookEvents, (bookEvent) => bookEvent.type === type) as
+			return bookEvents.findLast((bookEvent) => bookEvent.type === type) as
 				BookEventOfType<T> | undefined;
 		}
 

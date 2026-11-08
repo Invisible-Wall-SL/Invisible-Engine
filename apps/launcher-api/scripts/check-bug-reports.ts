@@ -411,6 +411,14 @@ fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', {
 	getToolOverrides: async (userId: string) => userOverrides[userId] ?? {},
 });
+// Fix runs have their own fixture (`check:bug-fix-runs`); here none exist, and the sync's backstop
+// finds nothing live.
+fake('lib/server/bugFixRunsStore.ts', {
+	fixRunsOfBug: async () => [],
+	liveFixRuns: async () => [],
+	liveFixRunCount: async () => 0,
+	fixSpendSince: async () => 0,
+});
 
 // ── The modules under test ────────────────────────────────────────────────────
 const shared = await import(src('lib/bugReports.ts'));
@@ -655,13 +663,25 @@ check(
 	[true, false, false, true],
 );
 check(
-	'Admin lists both triage capabilities by name, and only they are also set per user',
+	'Admin lists both triage capabilities by name; only they and starting fix runs are also set per user',
 	[[shared.bugTriageName('pipeline'), shared.bugTriageName('game')], [...roles.USER_CAPABILITIES]],
 	[
 		['Triage pipeline bugs', 'Triage game bugs'],
-		['pipelineBugTriage', 'gameBugTriage'],
+		['pipelineBugTriage', 'gameBugTriage', 'pipelineBugFix'],
 	],
 );
+{
+	const schema = readFileSync(fileURLToPath(src('lib/server/db/schema.ts')), 'utf8');
+	const kindType = /export type BugEventKind =([^;]+);/.exec(schema)?.[1] ?? '';
+	const kindCheck =
+		/'bug_report_events_kind_check',\s*sql`[^`]*in \(([^)]+)\)/.exec(schema)?.[1] ?? '';
+	const listed = (text: string) => [...text.matchAll(/'(\w+)'/g)].map((m) => m[1]);
+	check(
+		'the fix_run event kind (ADR-0013) is in BugEventKind and in the events CHECK, which list the same kinds',
+		[listed(kindType).includes('fix_run'), listed(kindCheck).includes('fix_run'), listed(kindType)],
+		[true, true, listed(kindCheck)],
+	);
+}
 const stageOf = (id: string) => roles.stageOfTool(id)?.id;
 check(
 	'pipeline bugs in the Pipeline section beside Pipeline Changes; game bugs in Create',
@@ -2000,6 +2020,22 @@ check('activity lines read as sentences', lines, [
 		'Found while repairing bug #41 in cloud (Director run r).\n\nCause:\nSee bug #3\n\nWhat was found:\nok',
 	);
 }
+
+// Last: a new bug here would change the lists the checks above read.
+const fixRunBug = Number(
+	(await report(ARTIST, { title: 'Fix run target', area: 'rigger' })).body.number,
+);
+const fixBranch = `bug-${fixRunBug}-fix-0a1b2c3d4e`;
+pull(513, 'launcher: a fix run’s draft', { head: { ref: fixBranch, repo: { full_name: REPO } } });
+await sync();
+const fixOpened = [bug(fixRunBug).status, linksOf(fixRunBug)];
+pulls.set(513, { ...pulls.get(513)!, state: 'closed', merged_at: '2099-01-01T00:00:00Z' });
+await sync();
+check(
+	"sync: a fix run's branch bug-<n>-fix-<id> moves the bug like any bug-<n> branch (Working on, then Resolved)",
+	[fixOpened, bug(fixRunBug).status],
+	[['working', [[513, 'open']]], 'resolved'],
+);
 
 if (failures) {
 	console.error(`\n${failures} of ${checks} bug-reports checks failed.`);

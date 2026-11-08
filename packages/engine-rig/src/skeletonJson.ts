@@ -68,6 +68,7 @@ import {
 } from './animation';
 import { Event } from './event';
 import type { AttachmentLoader } from './atlas';
+import { isIrigDocument, readIrig } from './irig/irig';
 
 // The reader walks untyped JSON; every value is checked or defaulted where it is read.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -88,7 +89,7 @@ class LinkedMesh {
 	) {}
 }
 
-/** Reads Spine-format 4.x skeleton JSON (and so `.irig`) into `SkeletonData`. */
+/** Reads Spine-format 4.x skeleton JSON, and an irig v1 document, into `SkeletonData`. */
 export class SkeletonJson {
 	/** Multiplies every length and position as it is read. */
 	scale = 1;
@@ -100,6 +101,10 @@ export class SkeletonJson {
 		const scale = this.scale;
 		const data = new SkeletonData();
 		const root: Json = typeof json === 'string' ? JSON.parse(json) : json;
+		// irig v1 keeps every 4.2 field under its 4.2 name (docs/design/irig-format.md), so once the
+		// document is checked the same walk reads it; only the header's version is named differently.
+		const irig = isIrigDocument(root);
+		if (irig) readIrig(root);
 
 		const skeletonMap = root.skeleton;
 		if (skeletonMap) {
@@ -107,7 +112,7 @@ export class SkeletonJson {
 			// one the header lacks is undefined (hash/version too, not their `null` defaults), and
 			// consumers read a missing x/y as "box centred on the origin" (see `authoredRigBox`).
 			data.hash = skeletonMap.hash;
-			data.version = skeletonMap.spine;
+			data.version = irig ? skeletonMap.importedFrom : skeletonMap.spine;
 			data.x = skeletonMap.x;
 			data.y = skeletonMap.y;
 			data.width = skeletonMap.width;

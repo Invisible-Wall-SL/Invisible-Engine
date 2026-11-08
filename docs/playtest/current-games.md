@@ -362,6 +362,22 @@ no status (next section):
    Invisible Pipeline Changes reads), prints the **digest** to the log, and ends with a `Verdict`
    step that fails the job exactly when the status will be a failure.
 
+**A fix run waits for "Ready for review".** A fix run (ADR-0013) is model-written code that the
+launcher's GitHub App commits to `bug-<n>-fix-<id>` and opens as a draft PR. The jobs after
+`prepare` hold the secrets, so that code does not run until a person has read it. A push to
+`bug-*-fix-` followed by exactly 10 lowercase hex characters is ignored. While the PR is a draft
+(user type `Bot`, branch `bug-…-fix-…`), `prepare` is skipped, so every job is. The PR's
+`current-games` then stays `pending` ("A fix run's draft: current-games runs once it is marked
+ready for review"), and marking it **Ready for review** starts the run. Ordinary branches and PRs
+run exactly as before, a person's `bug-12-fix-login` included. One thing is new. GitHub cannot
+filter `ready_for_review` by author, so marking any other draft ready now makes a run whose jobs
+are all skipped. That run has its own concurrency group, so it never cancels the run on its head,
+and the verdict posts nothing for it. `triggers.fixture.mjs` evaluates the workflow's own trigger
+text over every case and compares each one with the workflow as it was. The other half of that
+push filter is the launcher's: `check:bug-fix-runs` reads the workflow's `branches-ignore` and
+fails unless it ignores the branch of every id `newFixRunId` makes, and accepts exactly the ids
+`FIX_RUN_ID` does, so a change to either side alone cannot let a fix run's push run.
+
 **Who posts the status.** The harness runs the pull request's own tree, so nothing it writes can be
 trusted as the answer: it holds no `statuses` permission and calls no statuses API. The required
 status `current-games` is posted by `.github/workflows/current-games-verdict.yml`, a `workflow_run`

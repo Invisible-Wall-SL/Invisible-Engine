@@ -73,6 +73,39 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **A screen timeline remounts its whole screen — the Hold and Win bonus's worst frame (fix in
+  review: #1519 restarts such a screen in place, pixel-identical to a remount; close this item when it
+  lands).** A host-`screen` timeline playing on a screen remounts it (`FlowV2Mount` /
+  `EngineScreenMount` `{#key drive?.key}`: a `LayoutNodeView` reads its driver once, at init). On
+  `overlay-buffaloduel` the Pots screen (60 component instances, 60 rigs) remounts as
+  `HideUnderReel_Intro` and `HideUnderReel_Outro` start, twice per bonus, ~0.6–1.1 s each with the
+  CPU slowed 4×; the base game's screen remounts the same way. ~22% of that is Svelte inserting block
+  anchors (~58 per layout node). Driving a mounted screen without the remount would remove it, but
+  it is a visible change: every rig, state machine and effect on the screen stops restarting when a
+  timeline starts — unless the restart reproduces a remount exactly, which is what #1519 does. Measurement
+  tooling and the profile of it: see the 2026-11-03 entry under Recent changes.
+- **A game build's own `assets/` are re-downloaded on every visit** (from the 2026-11-03 shell +
+  bundle change, below). The code is now a ~4 KB `no-store` shell over immutable `_app/immutable/`
+  chunks, but the build's `assets/` (the boot splash, sound banks, reference art; stable names) are
+  `no-store` on the test server, as a republish must not serve stale art. Next: content-versioned
+  names, or `no-cache` + ETag so a repeat visit revalidates instead of re-downloading. Editor art
+  loaded from the launcher (`?runtime=1`) is not covered by this and was not measured.
+- **`overlay-buffaloduel` texture memory — owner content left** (2026-11-03 audit; engine part
+  in Recent changes). Desktop stays uncompressed by design, so only smaller or fewer pages help.
+  **Republish this game** (☁ Publish): the export now records sheet frame names, and with them the
+  runtime leaves test6's 4096² `S_UI` page unloaded (67 MB; `R_SpinButtonNew`, 27 MB, needs only
+  the runtime release). **Fix the shared `hudReadout` def's default** (Component Editor, v10): its
+  frame defaults to test6's `UI_0005_WidgetBig`, so a project placing it without a frame of its
+  own draws test6 art from a 4096² page — `commonoverlayproject` does. The symbol art is eight
+  sheets at 1300² and four at 2048 wide (`H1`–`H3`, 14–17 MB each, 26–63% drawn). Stock art the
+  project still reaches: `reels_frame` 13.7 MB (the `freeSpinCounter` instance stays mounted
+  hidden; pick an own `frameImage` or drop the counter and the flow's `showContainer`),
+  `symbols3` 10 MB (the `BONUS`/`JACKPOT`/`MULTI` explosion state bound to stock `explosion`),
+  `SD2_Coin` 8.7 MB (the big win's coins; `showCoins` off or own art), `transition` 5.1 MB (a
+  `Transition` node in `basegameOverlays` nothing fires; kept because an awaited show of that
+  screen measures it), `anticipation` 4.7 MB (no authored anticipation `spineKey`). `sounds.mp3` (4.9 MB) stays: the coded game plays stock names (`sfx_btn_spin`,
+  `sfx_reel_stop_*`) the project's 17 sounds do not replace.
+
 - **KTX2 transcoder follow-ups** (2026-11-03 change, below). (1) Serve one copy of
   `libktx.<hash>.*` from a shared path (e.g. `/_shared/`) so a phone moving between games reuses
   one cached transcoder; today every game key caches its own. (2) `check:ktx2-transcoder` is
@@ -81,7 +114,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `libktx` in remote DevTools). (4) **Owner:** confirm the desktop launcher's uploader
   (`Invisible_Launcher.py`, not in this repo) uploads `_app/immutable/assets/` with the rest of
   `build/` (every in-repo publish path does); without it a desktop-published game falls back to
-  uncompressed pages on phones.
+  uncompressed pages on phones. Since the shell + bundle change (2026-11-03) `_app/` holds the
+  game's code itself, so without it a desktop-published game does not boot at all.
 
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
   `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
@@ -300,6 +334,238 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-03 — **Game builds stop lowering `#private` fields; respin cells skip symbols that draw
+  nothing** (branch `claude/hold-and-win-mount-ahead`). From the 2026-11-03 audit of
+  `overlay-buffaloduel`, whose Hold and Win bonus froze up to 1.5 s with the CPU slowed 4×.
+  Profiled per long frame (headless shell on the GPU, `long-animation-frame`, CPU profile aligned to
+  the rAF clock), the freezes were mounts plus the collector, in three groups:
+  - **GC.** `config-vite` set no `build.target`, so Vite's default (`safari14`) made esbuild lower
+    every `#private` class field to a WeakMap. Svelte's runtime is built on them, so every effect
+    and branch paid WeakMap writes and brand checks, and the worst bonus frames were single
+    1–3 s collections in the middle of a mount. Builds now keep class fields, private members and
+    `#x in` checks native (`esbuild.supported`, `NATIVE_CLASSES`) — no floor raised: every game
+    already calls `Array.prototype.at` unpolyfilled at boot (the mode stack). GC inside the long
+    frames fell from seconds to ~76 ms (measured with an `es2022` target, which keeps the same
+    private fields native). Not that target itself: once the client bundle was minified by Terser,
+    the es2022 output kept the HUD clock's stale width when its string changed, moving the game name
+    on some screens; the current-games harness failed 11 games on it, and a local harness run
+    reproduced it and passed with the narrower list. Applies to every build through `config-vite`.
+  - **Respin strips.** A respin cell mounted a whole `Symbol` for every strip symbol rolling past its
+    window; two thirds of a Hold and Win strip are blanks that draw nothing (no art, no placeholder,
+    label, stamp or Element FX). `RespinCell` now leaves those unmounted, rolling or at rest
+    (`game/symbolDraws.ts` `symbolDrawsNothing`, which mirrors `Symbol.svelte`'s draw conditions —
+    keep them in step). Such a symbol never reports completion either, so nothing waits on it.
+  - **Screen timeline remounts** — not fixed; see Open items.
+  Measured on the live build's own data and authoring mock, each side a local build swapped in for
+  the page's document, three interleaved rounds of base + all three pots' bonuses, median:
+  worst bonus frame 1,700 → 1,067 ms, frames over 250 ms 89 → 27, over 100 ms 531 → 357, bonus
+  frame rate 10.7 → 16.3 fps. The remaining worst frame is the Pots screen remount. The texture
+  growth the audit saw in the first bonus (74 → 89) is not art: Pixi texture-pool render targets and
+  one text canvas, allocated once. Notes for re-running the probe: the profile's start trails the
+  page clock by 1–2 s at 4× (fit the shift so no idle sample falls inside a long rAF gap), and other
+  sessions' builds swing a run 2× (raise the headless shell to High priority, interleave rounds).
+- 2026-11-03 — **A game build is a ~4 KB shell plus an immutable bundle; the only code a repeat
+  visit downloads is the shell, and runtime source maps reach Sentry again** (branch
+  `engine-runtime-shell-bundle`). **Why:** the runtime page is served `no-store`, and it carried the
+  whole bundle inline, so every visit re-downloaded ~700 KB gz (~733 KB in production, with the
+  Sentry SDK inline).
+  - **Shape (all builds, `config-svelte`):** `bundleStrategy: 'single'` instead of `'inline'`. The
+    `index.html` shell imports `_app/immutable/bundle.<hash>.js`, an ES module (modulepreloaded, CSS
+    linked). `config-vite/lazyChunks.js` turns kit's `inlineDynamicImports` off for every client
+    build but an embed, makes kit's route nodes and its fallback error page static imports (else the
+    whole game would be a chunk one round trip behind the bundle, and the error page would need the
+    network just when something failed; it costs ~0.6 KB gz) and sets `preserveEntrySignatures:
+    'allow-extension'` (else the bundle is a one-line facade over a chunk).
+    `config-vite/pixiRenderers.js` `eagerPixiBoot` (client pass only) makes the two `import()`s Pixi
+    makes on every boot (the WebGL renderer, `browserAll`) static: left lazy they were a ~52 KB gz
+    chunk fetched one round trip after the bundle, and under the current-games harness's stepped
+    clock that network wait cost each game 60–170 boot frames and changed 21 screens (verified:
+    frames identical once static). So the bundle holds what the inline page held, and only optional
+    code splits: the Sentry SDK (~31 KB gz, only with a DSN, only when reporting starts), Pixi's
+    canvas fallback, the WebGPU stub, and on `arcade` the online code (`engine-rooms` + Colyseus,
+    ~58 KB gz, fetched by every online arcade game and by no offline one). **Why ESM and not kit's
+    iife:** Rollup's iife cannot split, so a lazy chunk needs ESM; the embed delivery has run the
+    same code as an ES module since 2026-09, and the `bundle.<hash>.js` marker every publisher and
+    verifier reads is unchanged. `config-vite/assetUrls.js` is gone: an ES chunk's asset URL is `new
+    URL(…, import.meta.url)`, right in every context.
+  - **URLs.** Everything is relative to the file naming it (`./_app/…` from the shell,
+    `import.meta.url` below it): runtime and desktop at `/<gameKey>/_app/immutable/…`, an inline
+    delivery under whatever folder holds it, an embed under the CDN folder `game.js` came from. The
+    embed stays ONE bundle file (dynamic imports inlined); `build-embed.mjs` now refuses a build
+    with chunks.
+  - **Serving.** The test server already sent `_app/immutable/*` `max-age=31536000, immutable` and
+    the page `no-store`, and kept the previous runtime release's `_app/immutable/*` for one
+    generation. It now does the same for a desktop-published game's own files
+    (`retiredGameImmutable`: the portal relay prunes re-hashed chunks, which would 404 a lazy chunk
+    for a page loaded just before a republish; held in memory, so a test-server restart in between
+    drops it, as it already did for the runtime's), and answers a bare `/<gameKey>` with a 301 to
+    `/<gameKey>/`, query kept (the shell's relative URLs would otherwise resolve against `/`).
+    `verify-runtime-live.mjs` HEADs the bundle again (the shell loads it by URL). The build's own
+    `assets/` stay `no-store` (open item).
+  - **Sentry (regression fixed).** Root cause: the SvelteKit 2.17 → 2.70 bump (#929/#936,
+    2026-10-01, a day after the upload shipped) made the `inline` strategy unlink the emitted bundle
+    AND its `.map` after inlining; every release since printed "nothing to upload" (confirmed in the
+    bfa9541 release log). Not #1510: kit is 2.70.3 at 6bd8a6f, 13c5885 and bfa9541 alike, and an
+    `IE_SOURCEMAPS=hidden` build at bfa9541 leaves no map. Now each chunk gets a debug ID at build
+    time (`config-vite/debugIds.js`, `renderChunk` `order: 'post'`: the `_sentryDebugIds` snippet +
+    `//# debugId=` appended, so no mapping moves and the file hash covers it), and
+    `sentry-sourcemaps.mjs runtime` stages every shipped chunk + its map under that ID (the
+    `index.html` re-base is gone); a shipped chunk with no map is a `::warning::`, `--strict` fatal.
+    Dry run on a release-shaped `lines` build: every chunk's map assembled by the real `sentry-cli`
+    under its own debug ID. The release build step gets `NODE_OPTIONS=--max-old-space-size=8192`: a
+    hidden-map build dies at Node's default ~2.1 GB heap on a 16 GB machine (reproduced locally on
+    main and on this branch; the bfa9541 CI release got through).
+  - **Gates.** `pnpm check:sentry-sourcemaps` (new, run by CI's `check:all`, ~10 s): the
+    synthetic fixture plus `sentry-sourcemaps-build.fixture.mjs`, which builds a three-file kit app through `config-svelte`
+    + `config-vite` with hidden maps and checks a shell, a lazy chunk, a map + debug ID per chunk,
+    exactly those staged, and frames mapping back to the source line; with `bundleStrategy:
+    'inline'` restored it fails 5 checks. `pnpm check:test-server-caching` (new, run by
+    `check:all`, seconds): the real test server in local mode, the caching headers, one generation of retired chunks after
+    a runtime flip and after two desktop republishes (4 checks fail without `retiredGameImmutable`),
+    and the 301. `pnpm check:runtime-shell` (new, local, Playwright, skipped by `check:all`):
+    runtime and desktop on the real test server, an inline delivery in a nested folder, an embed on
+    a CDN origin; cold visit boots, every `_app/immutable/` request is 200 from the build's own
+    folder with immutable headers, the shell is `no-store`, the Sentry chunk is fetched after the
+    bundle (and never by a delivery without `telemetry.errors`), the bundle's debug ID is
+    registered, a boot loads exactly what `check:family-runtimes` counts (plus the SDK); warm visit
+    fetches the shell and takes every `_app/immutable/` file from cache; an online `arcade` boot
+    fetches the online chunk from the build's folder (its room server is a closed port, so the join
+    fails after the import); a pointer flip and a desktop republish keep the old chunk one
+    generation. 60/60. `pnpm check:ktx2-transcoder` 93/93 (builds shared:
+    `scripts/lib/game-build-variants.mjs`; its inline delivery uses a gate profile `rgs_url` may
+    repoint, because request interception turns the HTTP cache off). After merging main it failed
+    18 checks, the same on main: #1506 skips exported art nothing names (`editorArtUnused`), and
+    the probe's scene drew nothing, so `probe.ktx2`/`probe.png` were never requested. The fixture
+    scene now draws the image and the sheet frame, as a game's would (fixture only).
+  - **Sizes** (`check:family-runtimes --measure`, gzip -6 per file as served; the measure builds
+    with a stand-in DSN like the release and checks family markers across every file). First visit =
+    shell + what it loads (bundle + CSS; `scripts/lib/build-chunks.mjs`); online boot = that + the
+    family's online chunk (`ONLINE_MARKERS`), what `arcade`'s budget holds; repeat-visit code = the
+    shell (the build's `assets/` are `no-store` and not counted).
+
+    | Runtime | Before (one page, no DSN) | First visit | Online boot | Repeat-visit code |
+    |---|---|---|---|---|
+    | `lines` | 699,525 | 696,293 | — | 3,952 |
+    | `match3` | 707,569 | 704,471 | — | 3,951 |
+    | `arcade` | 797,911 | 724,029 | 781,619 | 3,950 |
+    | `card` | 711,600 | 708,430 | — | 3,951 |
+
+    In production (real DSN) the `lines` page was 732,541 (bfa9541 release log); its first visit is
+    now 696,414 (a release-shaped build: hidden maps, debug IDs) and a repeat visit's code ~3.95 KB.
+    Budgets (`family-runtime-budget.json`) are measured + 2 % (710,219 / 718,561 / 797,252 for an
+    online arcade boot / 722,599) plus a `shell` budget of 5,000 (a floor: 2 % of 4 KB is noise;
+    what it catches is code creeping back into the uncacheable page).
+  - **Parity:** the current-games harness on the 10 stand-in games (`fixtures.mjs`, then `run.mjs
+    --games-file … --no-gates`, main bfa9541 vs this branch): 10 pass, 0 changed screens (run after
+    the review fixes too: error page static, `eagerPixiBoot` client-only). The first run, with
+    Pixi's boot imports still lazy, was 0 pass / 21 changed screens: every head boot reached the
+    same states 60–170 frames later, shifting time-based animation; with `eagerPixiBoot` the
+    per-screen frame numbers are identical on both sides. No harness file changed.
+  - ⏳ Needs a **runtime release** (automatic on merge). A desktop build gets it on its next build;
+    the desktop launcher's own uploader (`Invisible_Launcher.py`, not in this repo) must upload
+    `_app/` with the rest of `build/` — now the whole game, not just the KTX2 transcoder (Open
+    items, KTX2 follow-up (4), is now blocking for desktop publishes).
+  - **Desktop launcher checked** (`invisible-launcher` @ b5daea6, `Invisible_Launcher.py`): both
+    publish routes (`publish_game_via_portal` and direct R2) upload every file of the build, sorted,
+    so `_app/` goes up before `index.html`; a delivery zips everything but OS junk; `_GAME_MIME`
+    types `.wasm`. Its post-publish verify reads `bundle\.[A-Za-z0-9_-]+\.js` from the local
+    `index.html`, and the shell still names `_app/immutable/bundle.<hash>.js`. Every desktop game
+    needs `_app/` to boot now, and gets this shape on its next build from `origin/main`.
+- 2026-11-03 — **A shared page loads once, and the stock walk drops free-spin and undealt-symbol
+  art** (branch `claude/buffaloduel-texture-memory`). Audit of `overlay-buffaloduel`: 513 MB of
+  resident textures on desktop (build of 2026-11-02 20:28; the owner's 2026-11-03 09:32 rebuild
+  is 488.7 MB). Measured on that rebuild's baked bundle and published assets, `main` vs
+  this branch built the same way (Play4Fun transport): **59 → 49 textures, 488.7 → 415.3 MB
+  resident, 31.3 → 27.6 MB downloaded** at boot. Three engine changes:
+  (1) `pixi-svelte` `sharedSheetPages.ts`: Pixi's spritesheet parser loads `dirname(json) +
+  meta.image` unnormalized and caches by that string, so a page in the shared `_pages/` store
+  (`../../_pages/<hash>`) loaded once per sheet folder and once more for a rig. The parser now loads
+  the joined url, the one the rig loader already used. Here: `S_StaticElements` (editor-art and
+  editor-symbols copies) and the pages `S_UI_2`, `S_BigWin`, `S_FireCracker`,
+  `S_HolographicBackdrop` share with rigs, 43 MB. Fixture `fixtures/sharedSheetPages.fixture.ts`.
+  (2) `stockAssets.ts`: the symbols doc's `map` is read only for symbols the board can show; the
+  project's entries for undealt `BOOST`/`COLLECT`/`MYSTERY` named the stock `M` and `W` rigs and
+  kept `symbols2` (9.6 MB). (3) A game that can never enter free spins (rule off, no bonus route
+  to `freeSpins`, no reels mode of its own, no authored doc firing a free-spin cue — all in
+  `freeSpinsReachable`) keeps nothing for `FreeSpinIntroVisual`, `FreeSpinOutroVisual`,
+  `FreeSpinCounter` or the coded `BoardFrame` glow, which mount nothing until a free-spin cue:
+  `fsIntro`, `freeSpins`, `winSmall`, `reelhouse` (21 MB). A component instance a free-spin feed
+  hides stays mounted, so its stock art is still kept. Fixture cases 9–10 in
+  `stockAssets.fixture.ts`, mutation-checked against `main`. The `[Cache] already has key`
+  warnings for `H1_static`… remain (both copies of `S_StaticElements` register the bare frame
+  names; same texture now). Systemic, not one game's: `commonoverlayproject` (same method) goes
+  34 → 27 textures, 214.7 → 176.8 MB, 16.45 → 15.08 MB downloaded (two `S_Reel` sheets and two
+  sheet/rig pairs sharing a page, plus the same free-spin art). A rig page declaring `pma: true`
+  keeps its own cache key (`engine-rig` `assets.ts`, `#pma`, never sent on the wire): Pixi's cache
+  ignores the alpha mode a load asks for, and the page store shares one WebP between a sheet and a
+  `pma` rig. A cinematic's scoped cue (`signal:boardFrameGlowShow`) counts as a free-spin switch.
+  **Art only an overridden component default names stays unloaded.** The editor-art export ships
+  every image/rig default a component declares, and the game loaded all of it: here test6's
+  `S_UI` (67 MB, the shared `hudReadout`'s frame default) and `R_SpinButtonNew` (27 MB, a shared
+  button's rig default), both overridden by every placement. The walk now also judges the
+  project's exported sheets, images and rigs (`editorArtUnused`), each reached by any name the
+  reachable game holds (effective params; a node's own `assetKey`/`region` only where the
+  renderer reads them), by everything in a def the walk never expanded or the engine mounts from
+  scenes it builds itself, and by project param defaults and shader effects. A sheet needs its
+  frame names for that (frames also register bare), which the export now records
+  (`editorArtExport.ts` `names`); an older bundle keeps every sheet. Measured: 415.3 → 388.7 MB on
+  the published bundle, → 321.6 MB once republished (−93.7 MB); `commonoverlayproject` unchanged
+  (its readouts draw the default); board, HUD and spin button identical, same console. Fixture §11.
+  **Desktop stays uncompressed — measured, not assumed.** The KTX2 twins (UASTC q1) transcode to
+  BC7 on a desktop GPU at ¼ of the memory, but drawn 1:1 against the WebP on `overlay-buffaloduel`'s
+  4-aligned pages they move **9.8k–22.5k fully opaque pixels by more than 20/255, worst 76–107**
+  (PSNR 34–38 dB) — the same order as the lossy WebP the 2026-09-23 `nearLossless` decision
+  rejected for banding (51,588 px, worst 92). Phones already take that trade; a desktop default
+  would show it. Residency stays too: sparing rarely-shown art from the warm-up brings back the
+  0.1–1.6 s first-show uploads it removed (2026-10-27). **Page size is not the pipeline's
+  problem:** every page over 1 Mpx already has a twin, floored to 4×4 blocks (`ktx2Dimensions.ts`,
+  revision 2) — `3593×2573` was never barred from KTX2. What costs desktop memory is EMPTY page:
+  test6's 4096² `S_UI` page (14% drawn), which both games load through the shared `hudReadout`
+  def's default (open item above); the FX bake's pages are 9–15% drawn (`engine-fx` `bake.ts` packs untrimmed
+  full-bounds cells). **Not verified:** a spin, since the build URL answers a fresh demo session
+  with `not found` at the RGS on `main` and live too. **Owner-side content** for this game: see
+  the open item below.
+- 2026-11-03 — **The runtimes are ~79 KB gz smaller: no lodash, terser, no WebGPU renderer**
+  (branch `engine-bundle-trim`). Three changes, sizes from `check:family-runtimes --measure`
+  (release env, gzip -6), `main` 13c5885 (after the KTX2 transcoder left the page) → this branch:
+
+  | Runtime | Before B | After B | Δ |
+  |---|---|---|---|
+  | `lines` (`slot`) | 778,557 | 699,525 | −79,032 (−10.2 %) |
+  | `match3` | 786,791 | 707,569 | −79,222 |
+  | `arcade` | 881,386 | 797,911 | −83,475 |
+  | `card` | 791,155 | 711,600 | −79,555 |
+
+  On the slot runtime, one change at a time (measured on 6bd8a6f, before the transcoder change):
+  lodash −28,097, the WebGPU stub −15,727, terser −34,939.
+  - **lodash → native.** The runtime's only uses (`_.range`, `_.flatten`, `_.findLast` in
+    `engine-game`, `utils-book`, `utils-slots`, `apps/lines`; `_.merge`, `_.values`, `_.entries`
+    in `utils-shared`) are `Array.from`, `.flat(2)`, `findLast`, `Object.values/entries` and a
+    small deep merge in `utils-shared/i18n.ts` that keeps lodash `merge`'s rules for a messages map
+    (arrays merge by index, `undefined` never overwrites; 20,000 random catalogs gave the same result
+    as lodash). `_.range` rounded a fractional length up, which the reel's padding (a multiplier
+    × the reel length, e.g. 1.2 × 6) relies on, so that one keeps `Math.ceil`. lodash is no longer a
+    dependency of any runtime package; the reference apps (`price`, `scatter`, `ways`,
+    `number-picker`, `cluster`) keep their own.
+  - **Terser minifies the client bundle** (`config-vite` `terserClient`, `compress.passes: 2`,
+    `terser` 5.51.2 a `config-vite` dependency, so a game repo resolves it too). The SSR pass that
+    prerenders `index.html` stays unminified as on `main` — `build.minify` in the config would reach
+    it, so the plugin runs after `sveltekit()` and skips a `build.ssr` pass. Nothing in the engine
+    reads a function or class name, and esbuild already mangled them. Build time: the four-runtime
+    `--measure` run 178 s → 250 s (one `lines` build ≈ 34 → 55 s). Hidden source maps still come
+    out right: a captured terser bundle + map went through `sentry-sourcemaps.mjs runtime --dry-run`
+    (one debug ID, upload OK) and a page position maps back to the right Pixi line.
+  - **The WebGPU renderer is stubbed** (`config-vite/pixiRenderers.js`): only for imports from Pixi's
+    `autoDetectRenderer.mjs`, `isWebGPUSupported` answers `false` and `./gpu/WebGPURenderer.mjs` is
+    a module that throws if ever constructed. A device without WebGL still falls through to the canvas
+    renderer. The WGSL strings filters carry for both renderers stay. `pixiRenderers.fixture.mjs`
+    (in `check:all`) fails if the installed Pixi moves that file or stops making those imports, and
+    the plugin fails a build in which `autoDetectRenderer` was bundled but an import was not stubbed.
+  - **Budgets lowered** to these sizes + 2 % (`family-runtime-budget.json`: 713,516 / 721,721 /
+    813,870 / 725,832), as the KTX2 change did.
+  - **Found, not fixed here (pre-existing on `main`):** an `IE_SOURCEMAPS=hidden` build no longer
+    leaves `_app/immutable/bundle.*.js` + its map in `apps/lines/build`, so `sentry-sourcemaps.mjs
+    runtime` printed "nothing to upload". **Fixed by the shell + bundle change (entry above).**
 - 2026-11-03 — **The KTX2 transcoder is no longer inlined into every build, and a compressed texture
   that fails falls back to its WebP/PNG twin** (branch `engine-ktx2-transcoder-external`). **Why:**
   `config-vite`'s `assetsInlineLimit: Infinity` turned `libktx.{js,wasm}` (imported by `pixi-svelte`
