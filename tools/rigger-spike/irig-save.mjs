@@ -613,7 +613,7 @@ console.log('\n8. ＋ New rig → Apply saved rig: resolveRigSkeletonBody refuse
 	broken.skins[0].attachments.cape.flap.parent = 'ghost';
 	store('broken', broken);
 	const applied = await M.resolveRigSkeletonBody('fine');
-	ok('a library rig that loads is applied', M.irigDocProblem(applied) === null && applied.skeleton.spine === '4.2');
+	ok('a library rig that loads is applied, as irig v1', M.irigDocProblem(applied) === null && applied.irig === 1);
 	let thrown = null;
 	try { await M.resolveRigSkeletonBody('broken'); } catch (e) { thrown = e; }
 	ok('one that would not load is a 422 naming why', thrown?.status === 422 && /would not load .*"ghost"/.test(thrown?.body?.message ?? ''), thrown ? `${thrown.status} ${thrown.body?.message}` : 'did not throw');

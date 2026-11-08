@@ -549,6 +549,95 @@ const PAGE = Buffer.from('png').toString('base64');
 	);
 }
 
+// ── irig v1, Phase 3: new rigs and uploads are written as irig v1 ─────────────────────────────
+{
+	type Entry = { folder: string; version: string; runtime: string };
+	const entry = (folder: string): Entry | undefined =>
+		(
+			JSON.parse(text(`${RIGS}/skeletons.json`) ?? '{"skeletons":[]}') as { skeletons: Entry[] }
+		).skeletons.find((s) => s.folder === folder);
+	const stored = (folder: string) => JSON.parse(text(`${RIGS}/${folder}/${folder}.irig`) ?? '{}');
+
+	seedProject();
+	seedStore(`${RIGS}/H/H.irig`, JSON.stringify({ irig: 1, bones: [{ name: 'root' }] }));
+	seedStore(`${RIGS}/H/H.atlas`, 'H.png\nsize: 1,1\n');
+	const created = await call(newRig.POST, { noAtlas: true, name: 'C' });
+	check(
+		'irig: a new blank rig is irig v1, loads, and is indexed as irig on the 4.2 runtime line',
+		[
+			created.status,
+			stored('C').irig,
+			irigDocProblem(stored('C')),
+			entry('C')?.version,
+			entry('C')?.runtime,
+		],
+		[200, 1, null, 'irig 1', '4.2'],
+	);
+	check('irig: a v1 rig with no header is still indexed', entry('H')?.version, 'irig 1');
+
+	seedProject();
+	const uploaded = await call(upload.POST, {
+		name: 'D',
+		page: PAGE,
+		pageWidth: 1,
+		pageHeight: 1,
+		regions: [{ name: 'r', x: 0, y: 0, w: 1, h: 1 }],
+	});
+	check(
+		'irig: a rig built from uploaded images is irig v1',
+		[uploaded.status, stored('D').irig, irigDocProblem(stored('D'))],
+		[200, 1, null],
+	);
+
+	const fromLibrary = async (skeleton: Record<string, unknown>) => {
+		seedProject();
+		seedStore('_shared/rigs/lib.json', JSON.stringify({ name: 'Lib', skeleton }));
+		const res = await call(newRig.POST, { noAtlas: true, name: 'L', rigId: 'lib' });
+		return { status: res.status, doc: stored('L') };
+	};
+	const lib42 = {
+		skeleton: { spine: '4.2.40' },
+		bones: [
+			{ name: 'root', icon: 'editor-only' },
+			{ name: 'arm', parent: 'root', x: 5 },
+		],
+	};
+	const imported = await fromLibrary(lib42);
+	check(
+		'irig: a 4.2 library rig is imported to v1 when applied (an ignored key drops)',
+		[
+			imported.status,
+			imported.doc.irig,
+			imported.doc.skeleton,
+			imported.doc.bones,
+			irigDocProblem(imported.doc),
+		],
+		[
+			200,
+			1,
+			{ importedFrom: '4.2.40' },
+			[{ name: 'root' }, { name: 'arm', parent: 'root', x: 5 }],
+			null,
+		],
+	);
+	const coerced = await fromLibrary({
+		...lib42,
+		bones: [{ name: 'root' }, { name: 'arm', parent: 'root', x: '5' }],
+	});
+	check(
+		'irig: a 4.2 library rig whose import would change a value stays 4.2, as it always loaded',
+		[coerced.status, coerced.doc.irig, coerced.doc.skeleton, coerced.doc.bones[1].x],
+		[200, undefined, { spine: '4.2' }, '5'],
+	);
+	const v1Lib = {
+		irig: 1,
+		skeleton: { importedFrom: '4.2.40', iwLockBounds: true },
+		bones: [{ name: 'root' }],
+	};
+	const kept = await fromLibrary(v1Lib);
+	check('irig: a v1 library rig is applied as stored', [kept.status, kept.doc], [200, v1Lib]);
+}
+
 // ── 6b: `Hero` and `hero` created at once — at most one survives ─────────────────────────────
 /**
  * Resolves once `n` callers have arrived — or after a short wait, so a route that never arrives

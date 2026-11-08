@@ -5125,7 +5125,10 @@ var invisibleRig = function(exports) {
     fps: num,
     referenceScale: num,
     images: str,
-    audio: str
+    audio: str,
+    /** Extension: the Rigger's "the frame was set by hand" flag, so a save does not re-fit it. Read
+     * by nothing at runtime. */
+    iwLockBounds: bool
   });
   const bone = obj(
     {

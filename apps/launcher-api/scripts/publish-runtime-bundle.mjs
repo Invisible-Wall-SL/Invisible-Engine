@@ -43,6 +43,7 @@ import {
 	readJson,
 	readPointer,
 	readPointerForSwap,
+	rigReaderRevision,
 	writeHistory,
 	writeJson,
 } from './lib/runtime-releases.mjs';
@@ -237,6 +238,7 @@ const release = {
 	files: files.length,
 	bytes,
 	runUrl,
+	rigReader: await rigReaderRevision(),
 };
 const history = await readHistory(r2, runtimeId);
 await writeHistory(r2, runtimeId, [release, ...history.filter((r) => r.version !== version)]);

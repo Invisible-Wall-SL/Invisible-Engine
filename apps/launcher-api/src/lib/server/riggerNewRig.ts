@@ -1,12 +1,14 @@
 import { error } from '@sveltejs/kit';
+import { IRIG_VERSION, importSpine42Json, isIrigDocument, writeIrig } from 'engine-rig';
 import { r2Slug, sharedRigKey } from './projectPaths';
 import { getObjectText } from './r2';
 import { irigDocProblem } from './riggerIrig';
 
-/** The minimal blank skeleton both `new` and `upload` write when no rig is applied. */
+/** The minimal blank rig both `new` and `upload` write when no rig is applied, as irig v1. */
 function blankSkeleton(): Record<string, unknown> {
 	return {
-		skeleton: { spine: '4.2' },
+		irig: IRIG_VERSION,
+		skeleton: {},
 		bones: [{ name: 'root' }],
 		slots: [],
 		skins: [{ name: 'default', attachments: {} }],
@@ -15,10 +17,13 @@ function blankSkeleton(): Record<string, unknown> {
 }
 
 /**
- * Resolve the `.irig` body to write when creating a new rig. When `rigId` is empty the
- * result is a blank skeleton (existing behavior, unchanged). When supplied it is the
- * deep-cloned `skeleton` of the saved library rig at `_shared/rigs/<id>.json`, with its
- * Rig version forced to 4.2. The applied skeleton's attachment region names are NOT
+ * Resolve the `.irig` body to write when creating a new rig: irig v1 (docs/design/irig-format.md,
+ * Phase 3). When `rigId` is empty the result is a blank rig. When supplied it is the deep-cloned
+ * `skeleton` of the saved library rig at `_shared/rigs/<id>.json`, imported when it is a 4.2
+ * skeleton. An import that would change a value (a wrong type the 4.2 reader coerces) keeps the 4.2
+ * skeleton instead, with its Rig version forced to 4.2, so the rig loads as it always has; an import
+ * that only drops keys the 4.2 reader ignores changes nothing. The applied skeleton's attachment
+ * region names are NOT
  * remapped to the new atlas — they intentionally stay as authored and won't resolve
  * until the user re-attaches the new object's art (documented behavior); the bones,
  * animations, and constraints come over intact. Throws 404 when the rig is missing, and 422
@@ -42,12 +47,24 @@ export async function resolveRigSkeletonBody(rigId: string): Promise<Record<stri
 	if (!skel || typeof skel !== 'object' || Array.isArray(skel)) {
 		throw error(500, 'saved rig has no skeleton');
 	}
-	const cloned = JSON.parse(JSON.stringify(skel)) as Record<string, unknown>;
-	const skelBlock = (cloned.skeleton ?? {}) as Record<string, unknown>;
-	cloned.skeleton = { ...skelBlock, spine: '4.2' };
+	const cloned = asIrig(JSON.parse(JSON.stringify(skel)) as Record<string, unknown>);
 	const problem = irigDocProblem(cloned);
 	if (problem) {
 		throw error(422, `The saved rig "${id}" would not load (${problem}), so no rig was created.`);
 	}
 	return cloned;
+}
+
+function asIrig(skel: Record<string, unknown>): Record<string, unknown> {
+	if (isIrigDocument(skel)) return skel;
+	let imported: ReturnType<typeof importSpine42Json> | null = null;
+	try {
+		imported = importSpine42Json(skel);
+	} catch {
+		// Not a skeleton the importer can read: the 4.2 path below reports why it would not load.
+	}
+	if (imported && imported.issues.every((i) => i.reason === 'not an irig field'))
+		return JSON.parse(writeIrig(imported.doc)) as Record<string, unknown>;
+	const skelBlock = (skel.skeleton ?? {}) as Record<string, unknown>;
+	return { ...skel, skeleton: { ...skelBlock, spine: '4.2' } };
 }

@@ -12,6 +12,8 @@
 // the pointer is ONE object write, so a release is atomic: a hydrate sees the whole old release or the
 // whole new one, never a mix. See "Runtime releases" in docs/design/games-deploy.md.
 
+import { readFile } from 'node:fs/promises';
+
 export const RUNTIME_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /** Mirrored in `services/test-server/server.mjs` (`validVersion`), which reads it from R2. */
 export const VERSION_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -132,6 +134,37 @@ export async function assertReleaseComplete(r2, id, release) {
 			`${id}@${release.version} has ${n} of ${release.files ?? '?'} file(s) in R2 — not pointing games at it.`,
 		);
 	}
+}
+
+const SCHEMA = new URL('../../../../packages/engine-rig/src/irig/schema.ts', import.meta.url);
+
+/**
+ * The irig schema revision of this checkout's `engine-rig` (`IRIG_SCHEMA_REVISION`): recorded on
+ * each release as `rigReader`, and the floor a rollback checks against, because the launcher on
+ * `main` may already have written rig files with every field of this revision.
+ */
+export async function rigReaderRevision(schemaFile = SCHEMA) {
+	const m = /export const IRIG_SCHEMA_REVISION = (\d+);/.exec(await readFile(schemaFile, 'utf8'));
+	if (!m)
+		throw new Error(
+			`No IRIG_SCHEMA_REVISION in ${schemaFile} — the rollback floor cannot be read.`,
+		);
+	return Number(m[1]);
+}
+
+/**
+ * Why `release` must not serve games when rig files may hold irig revision `need`, or null. A
+ * release from before revisions were recorded reads none. A reader refuses a field it does not know,
+ * so serving such a release would blank every rig written with one (docs/design/irig-format.md §7).
+ */
+export function rigReaderProblem(release, need) {
+	const has = release.rigReader ?? 0;
+	if (has >= need) return null;
+	return (
+		`${release.version} reads irig revision ${has || 'none (it predates the record)'}, but the ` +
+		`launcher writes revision ${need}: every rig saved since would fail to load. Pick a newer ` +
+		`release (see 'list').`
+	);
 }
 
 export async function writeHistory(r2, id, releases) {

@@ -84,6 +84,9 @@ const RIG_EXTRA = {
 	'tools/rigger-spike/delete.mjs @S': rigs('symbols2', 'S', 'symbols2'),
 };
 
+/** Rigger browser gates run a second time with the rigs as irig v1 (docs/design/irig-format.md). */
+const IRIG_RUNS = ['tools/rigger-spike/rig-undo.mjs', 'tools/rigger-spike/rigtext-panel.mjs'];
+
 /** Extra arguments for a check that needs an input to have anything to check. */
 const ARGS = {
 	// The config inspector refuses a config that would not save — pointed at the shipped one.
@@ -271,6 +274,8 @@ function discover() {
 	}
 	for (const [id, rig] of Object.entries(RIG_EXTRA))
 		checks.push({ id, cwd: ROOT, cmd: [nodeBin, id.split(' @')[0], ...rig] });
+	for (const file of IRIG_RUNS)
+		checks.push({ id: `${file} @irig`, cwd: ROOT, cmd: [nodeBin, file, '--irig'], browser: true });
 	return checks.sort((a, b) => a.id.localeCompare(b.id));
 }
 
