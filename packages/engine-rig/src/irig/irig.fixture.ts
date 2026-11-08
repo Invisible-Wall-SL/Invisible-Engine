@@ -265,6 +265,7 @@ const extended = {
 			events: [{ time: 0.5, name: 'hit', fx, flipbook }],
 		},
 	},
+	saved_by: { tool: 'director', agent: 'animator', runId: 'r1', at: 't', rev: 'r' },
 };
 {
 	const { doc, issues } = importSpine42Json(extended);
@@ -282,6 +283,7 @@ const extended = {
 		'extensions: the Flipbook binding changed',
 	);
 	check(reread.skeleton?.importedFrom === '4.2.36', 'extensions: the source version was not kept');
+	check(reread.saved_by?.agent === 'animator', 'extensions: the saved_by stamp was not kept');
 	check(diff(extended, exportSpine42Json(reread)).length === 0, 'extensions: 4.2 out ≠ 4.2 in');
 }
 
