@@ -73,17 +73,6 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
-- **A screen timeline remounts its whole screen — the Hold and Win bonus's worst frame (fix in
-  review: #1519 restarts such a screen in place, pixel-identical to a remount; close this item when it
-  lands).** A host-`screen` timeline playing on a screen remounts it (`FlowV2Mount` /
-  `EngineScreenMount` `{#key drive?.key}`: a `LayoutNodeView` reads its driver once, at init). On
-  `overlay-buffaloduel` the Pots screen (60 component instances, 60 rigs) remounts as
-  `HideUnderReel_Intro` and `HideUnderReel_Outro` start, twice per bonus, ~0.6–1.1 s each with the
-  CPU slowed 4×; the base game's screen remounts the same way. ~22% of that is Svelte inserting block
-  anchors (~58 per layout node). Driving a mounted screen without the remount would remove it, but
-  it is a visible change: every rig, state machine and effect on the screen stops restarting when a
-  timeline starts — unless the restart reproduces a remount exactly, which is what #1519 does. Measurement
-  tooling and the profile of it: see the 2026-11-03 entry under Recent changes.
 - **A game build's own `assets/` are re-downloaded on every visit** (from the 2026-11-03 shell +
   bundle change, below). The code is now a ~4 KB `no-store` shell over immutable `_app/immutable/`
   chunks, but the build's `assets/` (the boot splash, sound banks, reference art; stable names) are

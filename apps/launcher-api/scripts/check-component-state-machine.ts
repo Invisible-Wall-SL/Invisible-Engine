@@ -507,6 +507,14 @@ eq(
 		[r.stateOf('main'), r.input('amount')],
 		['idle', 500],
 	);
+	r.setInput('amount', 7);
+	r.advance(0.1);
+	r.restart();
+	eq(
+		'restart is a fresh runner: the entry, every input back at its default',
+		[r.stateOf('main'), r.input('amount'), r.needsTick()],
+		['idle', 0, true],
+	);
 }
 {
 	// "Finish the loop, then play win": a trigger a transition leaving the current state reads

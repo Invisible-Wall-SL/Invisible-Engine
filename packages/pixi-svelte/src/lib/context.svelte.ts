@@ -1,5 +1,5 @@
 import type * as PIXI from 'pixi.js';
-import { setContext, getContext, onMount } from 'svelte';
+import { setContext, getContext, onMount, untrack } from 'svelte';
 import * as RIG from 'engine-rig/pixi';
 
 import type { App as ContextApp } from './createApp.svelte';
@@ -69,6 +69,34 @@ export function setContextRigLoadScale(value: () => number) {
 /** The host rig's load scale as a getter; `1` outside a `<RigProvider>`. */
 export function getContextRigLoadScale(): () => number {
 	return (getContext(RIG_LOAD_SCALE_NS) as (() => number) | undefined) ?? (() => 1);
+}
+
+// A screen that a timeline drives without remounting it hands its content a RESTART key: each new
+// play changes it, and what a remount would have restarted (a rig's track, a component's state
+// machine, an effect) starts again from the top.
+const RESTART_NS = '@@pixi_restart';
+export function setContextRestart(value: () => unknown) {
+	setContext(RESTART_NS, value);
+}
+/** The restart key as a getter; `undefined` outside such a screen. */
+export function getContextRestart(): (() => unknown) | undefined {
+	return getContext(RESTART_NS) as (() => unknown) | undefined;
+}
+/**
+ * Run `fn`, untracked, each time `restart`'s key changes from now on — before the render effects
+ * and the user effects of that flush, so what it resets is reset before anything that reads it runs
+ * again, parent before child, as a mount orders them. Without a key (every screen that is remounted
+ * instead) it adds nothing.
+ */
+export function onRestart(restart: (() => unknown) | undefined, fn: () => void): void {
+	if (!restart) return;
+	let key = untrack(restart);
+	$effect.pre(() => {
+		const next = restart();
+		if (next === key) return;
+		key = next;
+		untrack(fn);
+	});
 }
 
 // Rig event context
