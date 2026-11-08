@@ -211,9 +211,9 @@ in brackets.
    ([model-licences](../reference/model-licences.md) recommendation 1: first confirm the re-host is
    the MIT base). BiRefNet needs a builder change. The video's default matting, `BiRefNet_toonout`,
    has no recorded licence, against the owner's licence-clean-only rule. *(Default: BEN2 for the
-   stills, and `BiRefNet_toonout` for the videos as the plan approved, pending your call.
-   Alternative: `BiRefNet-general` or `BiRefNet-matting` (MIT), which may lose some edge quality
-   on toon art.)*
+   stills and `BiRefNet-general` (MIT) for the videos, to keep the licence-clean rule.
+   Alternative: allow `BiRefNet_toonout`, the plan's choice, which may cut toon edges better, once
+   its licence is confirmed.)*
 
 ## Decided (owner, 2026-10-26)
 

@@ -78,7 +78,8 @@ and the names.
    - **Duration (s)** 3;
    - **FPS** 16;
    - **Cut background to alpha (BiRefNet)** on;
-   - **BiRefNet model** left at `BiRefNet_toonout` (question 8);
+   - **BiRefNet model** `BiRefNet-general` (licence-clean; the default `BiRefNet_toonout` is not
+     recorded as clean, see question 8);
    - everything else as it is.
 5. **Variations** `2`, then **▶ Generate**.
 6. Pick the better variation and press **🎞 Make flipbook**:
