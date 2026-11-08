@@ -22,6 +22,7 @@
 		mergeConfirmMessage,
 		mergedText,
 		plural,
+		readyBar,
 		reportImageUrl,
 		rowCells,
 		safeHref,
@@ -59,6 +60,7 @@
 	let mergeRequest = $state<{ requestId: string; headSha: string } | null>(null);
 	let mergeError = $state<{ text: string; retry: boolean } | null>(null);
 	let merged = $state<MergeResult | null>(null);
+	let readyError = $state<string | null>(null);
 
 	const harness = $derived({
 		...detail.harness,
@@ -95,6 +97,7 @@
 	const runUrl = $derived(safeHref(harness.run?.url));
 	const statusUrl = $derived(safeHref(harness.status?.url));
 	const bar = $derived(mergeBar(detail, canMerge, blocker?.byHand ?? false));
+	const draftBar = $derived(readyBar(detail, canMerge));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -194,6 +197,29 @@
 			await reread();
 		} catch (err) {
 			mergeError = { text: err instanceof Error ? err.message : String(err), retry: true };
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function markReady(): Promise<void> {
+		if (busy) return;
+		const { number, title } = detail;
+		const confirmed = await askConfirm({
+			title: `Mark #${number} ready for review`,
+			message: `${title}\n\nTakes the pull request out of draft on GitHub. It does not merge it.`,
+			confirmLabel: 'Mark ready',
+		});
+		if (!confirmed) return;
+		busy = 'ready';
+		readyError = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${number}/ready`, { method: 'POST' });
+			const body: unknown = await res.json().catch(() => null);
+			if (!res.ok) readyError = apiErrorText(res.status, body);
+			await reread();
+		} catch (err) {
+			readyError = err instanceof Error ? err.message : String(err);
 		} finally {
 			busy = null;
 		}
@@ -533,6 +559,25 @@
 		{/if}
 	</section>
 
+	{#if draftBar && !merged}
+		<div class="bar amber">
+			<div class="bar-text">
+				<span class="bar-title">Draft</span>
+				<span class="bar-sub">{draftBar.text}</span>
+			</div>
+			{#if draftBar.action === 'ready'}
+				<button
+					type="button"
+					class="btn primary large"
+					disabled={busy !== null}
+					onclick={markReady}
+				>
+					{busy === 'ready' ? 'Marking ready…' : 'Mark ready for review'}
+				</button>
+			{/if}
+		</div>
+		{#if readyError}<div class="callout red" role="alert">{readyError}</div>{/if}
+	{/if}
 	{#if merged}
 		<div class="bar green" role="status">
 			<div class="bar-text">
@@ -546,13 +591,8 @@
 				<span class="bar-title">All checks passed</span>
 				<span class="bar-sub">{bar.text}</span>
 			</div>
-			{#if bar.action}
-				<button
-					type="button"
-					class="btn primary large"
-					disabled={bar.action === 'draft' || busy !== null}
-					onclick={merge}
-				>
+			{#if bar.action === 'merge'}
+				<button type="button" class="btn primary large" disabled={busy !== null} onclick={merge}>
 					<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
 						<circle cx="4.5" cy="3.5" r="1.5"></circle>
 						<circle cx="4.5" cy="12.5" r="1.5"></circle>
@@ -1066,6 +1106,10 @@
 		background: #17212a;
 		border-color: #27404f;
 	}
+	.bar.amber {
+		background: #2d2516;
+		border-color: #5a4620;
+	}
 	.bar-title {
 		font-size: 15px;
 		font-weight: 700;
@@ -1074,5 +1118,9 @@
 	.bar.green .bar-sub {
 		font-size: 12px;
 		color: #9fd9c2;
+	}
+	.bar.amber .bar-sub {
+		font-size: 12px;
+		color: #f5b95c;
 	}
 </style>

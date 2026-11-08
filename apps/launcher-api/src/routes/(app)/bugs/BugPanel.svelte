@@ -18,6 +18,7 @@
 	import { resolve } from '$app/paths';
 	import Pill from '../pipeline/Pill.svelte';
 	import { apiErrorText, timeAgo } from '../pipeline/view';
+	import FixRunControl from './FixRunControl.svelte';
 	import RepairCard from './RepairCard.svelte';
 	import ShotDrop from './ShotDrop.svelte';
 	import {
@@ -454,6 +455,17 @@
 					{/if}
 					<button type="button" class="btn" onclick={copyBrief}>Copy fix brief</button>
 				</div>
+			{/if}
+			{#if !game}
+				<FixRunControl
+					number={detail.number}
+					sent={detail.sentAt !== null}
+					runs={detail.fixRuns}
+					facts={detail.fix}
+					canFile={canTriage && canOpenPipelineBugs}
+					limit={5}
+					onchanged={onreload}
+				/>
 			{/if}
 		</div>
 	</section>

@@ -725,7 +725,7 @@ const loaded = (await loadPage(
 check(
 	'page: ?bug= selects; ?new=1 opens the form with the tool and page it names',
 	[loaded.selected, loaded.report, loaded.canTriage],
-	[7, { area: 'rigger', pageUrl: 'https://x.example/' }, false],
+	[7, { area: 'rigger', pageUrl: 'https://x.example/', title: '', description: '' }, false],
 );
 const fromRigger = reportBugHref('/bugs', 'rigger', 'https://app.example/rigger', 'borut');
 check(
@@ -740,13 +740,18 @@ check(
 	],
 	[
 		'/bugs?new=1&for=rigger&page=https%3A%2F%2Fapp.example%2Frigger%3Fproject%3Dborut',
-		{ area: 'rigger', pageUrl: 'https://app.example/rigger?project=borut' },
+		{
+			area: 'rigger',
+			pageUrl: 'https://app.example/rigger?project=borut',
+			title: '',
+			description: '',
+		},
 	],
 );
 check(
 	'page: an unknown ?for= is dropped',
 	((await loadPage([{ id: 'pipelineBugs' }], '?new=1&for=bogus')) as { report: unknown }).report,
-	{ area: '', pageUrl: '' },
+	{ area: '', pageUrl: '', title: '', description: '' },
 );
 check(
 	'game page: 403 without its own tool',
@@ -761,7 +766,7 @@ const gamePage = (await loadPage(
 check(
 	"game page: scoped to the project the link names (when the user can open it); the game's parts; its own triage",
 	[gamePage.projectKey, gamePage.report, gamePage.areas.length, gamePage.canTriage],
-	['borut', { area: 'wins', pageUrl: '' }, 9, true],
+	['borut', { area: 'wins', pageUrl: '', title: '', description: '' }, 9, true],
 );
 check(
 	"game page: a pipeline area is not a part of the game; a project the user can't open falls back",
@@ -777,7 +782,7 @@ check(
 			}
 		).projectKey,
 	],
-	[{ area: '', pageUrl: '' }, 'cloud'],
+	[{ area: '', pageUrl: '', title: '', description: '' }, 'cloud'],
 );
 
 // ── Gates ──────────────────────────────────────────────────────────────────────

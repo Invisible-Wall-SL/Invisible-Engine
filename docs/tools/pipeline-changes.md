@@ -182,8 +182,14 @@ its record of each merge made from here (who merged, the approvals that counted,
      change leaves the list (the detail stays until you pick another). The merge is recorded: who
      merged, the approvals that counted (game, screen, approver, note), when, the head and the
      merge commit.
-   - A **draft** shows you the button disabled: "Mark the pull request ready for review on GitHub
-     first."
+   - A **draft** has no merge button. A bar above says "Draft: This change is a draft, and a draft
+     cannot merge. Marking it ready for review does not merge it." (whatever its checks say).
+     With Merge pipeline changes it has **Mark ready for review**: a dialog, then GitHub's
+     "ready for review" is set as the launcher's GitHub App. The change is read again, the
+     `draft` tag goes and the merge button appears once the checks pass. This is the step a fix
+     run's draft pull request needs after you have read its diff. Without the capability the bar
+     says: "This change is a draft. Marking it ready for review needs the “Merge pipeline changes”
+     permission." A refusal (not a draft any more, closed, GitHub's own) is one red sentence.
    - "**Merge by hand on GitHub after review**: this change edits the harness." (or "… is too large
      to check"): no button, for anyone — the same changes step 5 cannot approve.
    - Without the capability: "Merging needs the “Merge pipeline changes” permission."
@@ -193,7 +199,7 @@ its record of each merge made from here (who merged, the approvals that counted,
 
    The merge is checked again on the server, against a fresh read of the pull request, before
    GitHub is asked; a refusal is one red sentence under the bar, and nothing merges. The change
-   must still be open, not a draft, Ready ("Still testing: 3 of 5 checks have passed.", or the
+   must still be open, not a draft (mark it ready for review first), Ready ("Still testing: 3 of 5 checks have passed.", or the
    blocked reason), without a conflict, and at the head you confirmed: "The head moved: you looked
    at `abc1234` and the branch is now at `def5678`. Reload the change." — the page re-reads it so
    you can look again. A title carrying a CI-skip directive (`[skip ci]` and its variants) is
@@ -390,6 +396,17 @@ read the definition, the validation preview and the open changes, and open those
       (for example `fix/bug-12-…`). The button then reads "Copied".
     - **Open in Pipeline Bug Reports** (if you have that tool) opens the bug, with its
       screenshots, triage and comments.
+    - **Start fix** (on a bug sent here; **Send and start fix** on the bug page when it is not
+      sent yet) and the **run line**: see "Fix runs" in
+      [Invisible Pipeline Bug Reports](pipeline-bugs.md). The button shows only to someone who holds
+      both **Start fix runs on pipeline bugs** and **Triage pipeline bugs**, and only once GitHub
+      has the `bug-fix.yml` workflow and the GitHub App is set up; until then no button shows. A
+      refusal greys it and says why ("A fix is already in review: #12.", "BUG-12 already has a fix
+      run going …", the cap on live runs, the month's ceiling, or that the bug is closed). Under the
+      button each of the bug's latest fix runs reads as one line: its status, a link to the draft
+      pull request, a link to the Actions run, its spend (or "spend unknown"), **Stop** while it
+      goes, and for a proposed second bug its area and title with **File it**. Finished bugs under
+      **Done** show their runs but no button.
 
     The fix is a pipeline change like any other. Name the bug's `BUG-<n>` in the pull request's
     title or branch (a mention in the description does not count). The bug then shows Working on

@@ -11,7 +11,8 @@
 		resend,
 	} from '../director/director.client';
 	import Pill from '../pipeline/Pill.svelte';
-	import { apiErrorText, timeAgo } from '../pipeline/view';
+	import { apiErrorText, safeHref, timeAgo } from '../pipeline/view';
+	import { fixRunLine } from './fixView';
 	import {
 		derivedLabels,
 		repairRuns,
@@ -45,6 +46,9 @@
 	const runs = $derived(repairRuns(detail.events));
 	const canRepair = $derived(showRepairWithDirector(repair, detail));
 	const canEscalate = $derived(showEscalate(repair, detail));
+	/** The escalated pipeline bug's fix run: status and pull request only, nothing to press here. */
+	const fixLine = $derived(detail.escalatedFix ? fixRunLine(detail.escalatedFix) : null);
+	const fixPr = $derived(safeHref(detail.escalatedFix?.prUrl));
 
 	let busy = $state<'repair' | 'escalate' | null>(null);
 	let failure = $state<string | null>(null);
@@ -99,7 +103,7 @@
 	}
 </script>
 
-{#if labels.length || runs.length || canRepair || canEscalate}
+{#if labels.length || runs.length || fixLine || canRepair || canEscalate}
 	<section class="card" aria-labelledby="repair-h">
 		<div class="card-head">
 			<h3 id="repair-h">Repair</h3>
@@ -113,6 +117,18 @@
 				{/if}
 			</p>
 		{/each}
+
+		{#if fixLine && detail.escalatedFix}
+			<p class="line">
+				<Pill tone={fixLine.tone}>{fixLine.label}</Pill>
+				<span>{fixLine.text}</span>
+				{#if fixPr}
+					<a href={fixPr} target="_blank" rel="external noopener noreferrer"
+						>#{detail.escalatedFix.prNumber} ↗</a
+					>
+				{/if}
+			</p>
+		{/if}
 
 		{#if runs.length}
 			<ul class="runs">

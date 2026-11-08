@@ -36,13 +36,17 @@ import {
 	fixRunView,
 	isLiveFixRun,
 	monthStartUtc,
+	refusalMessage,
 	startRefusal,
+	NO_FIX,
+	type FixFacts,
 	type FixRunView,
 	type StartFacts,
 } from '$lib/bugFixRuns';
 import { PIPELINE_BUG_FIX_CAPABILITY, TOOLS, roleHasCapability, roleHasTool } from '$lib/roles';
 import { getPipelineFixMaxLive, getPipelineFixMonthlyCap } from './appSettings';
 import { backstopFixRuns } from './bugFixRunsActions';
+import { fixWorkflowReady } from './bugFixWorkflow';
 import { fixRunsOfBug, fixSpendSince, liveFixRunCount, type BugFixRun } from './bugFixRunsStore';
 import {
 	bugsReportedAs,
@@ -256,12 +260,19 @@ export interface BugDetail extends BugSummary {
 	events: BugEventView[];
 	/** A pipeline bug's fix runs (ADR-0013), newest first, at most ten; none on a game bug. */
 	fixRuns: FixRunView[];
+	/** What the page decides Start fix from (`fixControl`); none on a game bug. */
+	fix: FixFacts;
 	/**
-	 * The viewer may start a fix run now: they hold both capabilities, the App is configured, and
-	 * no refusal that needs no GitHub applies (closed, a pull request open, a run live, too many
-	 * live, the month's ceiling spent).
+	 * The viewer may start a fix run now: they hold both capabilities, fix runs can run (the App
+	 * is configured and the workflow is on GitHub), and no refusal that needs no GitHub applies
+	 * (closed, a pull request open, a run live, too many live, the month's ceiling spent).
 	 */
 	canStartFix: boolean;
+	/**
+	 * A game bug's escalated pipeline bug's latest fix run, read through the relation (ADR-0013 §6):
+	 * its status and pull request only, never the run's words, and nothing to stop or start here.
+	 */
+	escalatedFix: FixRunView | null;
 }
 
 /** Whether a linked pull request can move statuses, and when GitHub last answered. */
@@ -334,16 +345,19 @@ const isReporter = (access: BugAccess, bug: BugReport) => bug.reporterId === acc
 function detailOf(
 	access: BugAccess,
 	full: BugFull,
-	fix: { runs: FixRunView[]; canStart: boolean },
+	fix: { runs: FixRunView[]; facts: FixFacts },
 	escalated?: { toBug: number; toStatus: BugStatus },
 	fixed = false,
+	escalatedFix: FixRunView | null = null,
 ): BugDetail {
 	const { bug } = full;
 	const mine = isReporter(access, bug);
 	return {
 		...summaryOf(access.user.id, bug, full.screenshots.length, full.links, escalated, fixed),
 		fixRuns: fix.runs,
-		canStartFix: fix.canStart,
+		fix: fix.facts,
+		canStartFix: fix.facts.may && fix.facts.ready && fix.facts.refusal === null,
+		escalatedFix,
 		revision: bug.revision,
 		canEdit: mine || access.triage.has(bug.kind),
 		screenshotList: full.screenshots.map((s) => ({
@@ -425,7 +439,29 @@ export async function getBug(access: BugAccess, number: number): Promise<BugDeta
 	const escalated =
 		full.bug.kind === 'game' ? (await escalationsFor([number])).get(number) : undefined;
 	const fixed = full.bug.kind === 'game' && (await fixedAwaitingPublish([number])).has(number);
-	return detailOf(access, full, await fixRunsFor(access, full), escalated, fixed);
+	return detailOf(
+		access,
+		full,
+		await fixRunsFor(access, full),
+		escalated,
+		fixed,
+		escalated ? await escalatedFixRun(escalated.toBug) : null,
+	);
+}
+
+/**
+ * The latest fix run of a game bug's escalated pipeline bug. Only where it stands and its pull
+ * request go to a game page: what the run wrote stays with the pipeline bug.
+ */
+async function escalatedFixRun(pipelineBug: number): Promise<FixRunView | null> {
+	const [run] = await fixRunsOfBug(pipelineBug, 1);
+	if (!run) return null;
+	return {
+		...fixRunView(run, ENV.GITHUB_ENGINE_REPO, false),
+		reason: null,
+		summary: null,
+		secondBug: null,
+	};
 }
 
 /**
@@ -439,36 +475,98 @@ export async function fixStartFacts(
 	runs: Pick<BugFixRun, 'id' | 'status'>[],
 	nowMs = Date.now(),
 ): Promise<StartFacts> {
+	return startFactsOf(await fixGlobals(nowMs), bug, links, runs);
+}
+
+type FixGlobals = Pick<StartFacts, 'liveTotal' | 'maxLive' | 'monthSpendUsd' | 'monthlyCapUsd'>;
+
+/** The facts that are the same for every bug: the caps, every live run, the month's spend. */
+async function fixGlobals(nowMs: number): Promise<FixGlobals> {
 	const [maxLive, monthlyCapUsd, liveTotal, monthSpendUsd] = await Promise.all([
 		getPipelineFixMaxLive(),
 		getPipelineFixMonthlyCap(),
 		liveFixRunCount(),
 		fixSpendSince(monthStartUtc(nowMs), FIX_RUN_AGENT),
 	]);
-	return {
-		status: bug.status,
-		openPr: links.find((l) => l.state === 'open')?.prNumber ?? null,
-		liveRun: runs.find((r) => isLiveFixRun(r.status))?.id ?? null,
-		liveTotal,
-		maxLive,
-		monthSpendUsd,
-		monthlyCapUsd,
-	};
+	return { liveTotal, maxLive, monthSpendUsd, monthlyCapUsd };
 }
 
-/** A pipeline bug's fix runs as its page shows them, and whether the viewer may start one now. */
+const startFactsOf = (
+	globals: FixGlobals,
+	bug: Pick<BugReport, 'status'>,
+	links: Pick<BugReportLink, 'prNumber' | 'state'>[],
+	runs: Pick<BugFixRun, 'id' | 'status'>[],
+): StartFacts => ({
+	status: bug.status,
+	openPr: links.find((l) => l.state === 'open')?.prNumber ?? null,
+	liveRun: runs.find((r) => isLiveFixRun(r.status))?.id ?? null,
+	...globals,
+});
+
+const refusalOf = (number: number, facts: StartFacts): FixFacts['refusal'] => {
+	const code = startRefusal(facts);
+	return code && { code, message: refusalMessage(code, number, facts) };
+};
+
+/** A pipeline bug's fix runs as its page shows them, and what it may do about starting one. */
 async function fixRunsFor(
 	access: BugAccess,
 	full: BugFull,
-): Promise<{ runs: FixRunView[]; canStart: boolean }> {
-	if (full.bug.kind !== 'pipeline') return { runs: [], canStart: false };
+): Promise<{ runs: FixRunView[]; facts: FixFacts }> {
+	if (full.bug.kind !== 'pipeline') return { runs: [], facts: NO_FIX };
 	const rows = await fixRunsOfBug(full.bug.number);
 	const may = canRunFixes(access);
 	const runs = rows.map((r) => fixRunView(r, ENV.GITHUB_ENGINE_REPO, may));
-	if (!may || githubApp.missing()) return { runs, canStart: false };
+	if (!may) return { runs, facts: NO_FIX };
+	const ready = !githubApp.missing() && (await fixWorkflowReady());
 	const facts = await fixStartFacts(full.bug, full.links, rows);
-	return { runs, canStart: startRefusal(facts) === null };
+	return { runs, facts: { may, ready, refusal: refusalOf(full.bug.number, facts) } };
 }
+
+/** What the Bugs tab of Pipeline Changes knows of fix runs: one entry per bug listed. */
+export interface FixTab {
+	/** The viewer triages pipeline bugs (they may file a run's proposed second bug). */
+	triage: boolean;
+	/** Triage and the fix capability both. */
+	may: boolean;
+	ready: boolean;
+	byBug: Record<number, { runs: FixRunView[]; refusal: FixFacts['refusal'] }>;
+}
+
+/**
+ * The fix runs of the bugs a viewer's Bugs tab lists (their latest three each) and, when they hold
+ * both capabilities, whether Start fix can run and what would refuse it. The pair is resolved here
+ * as `requireBugAccess` does, since the tab's own gate is the Pipeline Changes tool.
+ */
+export async function fixTabFor(
+	user: User,
+	bugs: Pick<BugSummary, 'number' | 'status' | 'links'>[],
+	nowMs = Date.now(),
+): Promise<FixTab> {
+	const roleOverrides = await getRoleOverrides(user.role);
+	const overrides = await getToolOverrides(user.id);
+	const triage = roleHasCapability(user.role, BUG_TRIAGE.pipeline, roleOverrides, overrides);
+	const may =
+		triage && roleHasCapability(user.role, PIPELINE_BUG_FIX_CAPABILITY, roleOverrides, overrides);
+	const runs = await Promise.all(bugs.map((b) => fixRunsOfBug(b.number, 3)));
+	const ready = may && !githubApp.missing() && (await fixWorkflowReady());
+	const globals = may ? await fixGlobals(nowMs) : null;
+	const byBug: FixTab['byBug'] = {};
+	bugs.forEach((b, i) => {
+		byBug[b.number] = {
+			runs: runs[i].map((r) => fixRunView(r, ENV.GITHUB_ENGINE_REPO, may)),
+			refusal: globals
+				? refusalOf(b.number, startFactsOf(globals, b, b.links.map(linkFact), runs[i]))
+				: null,
+		};
+	});
+	return { triage, may, ready, byBug };
+}
+
+const linkFact = (l: BugLinkView): Pick<BugReportLink, 'prNumber' | 'state'> => ({
+	prNumber: l.number,
+	state: l.state,
+});
 
 export function parseBugNumber(param: string): number {
 	const n = Number(param);
