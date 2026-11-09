@@ -81,6 +81,27 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-09 — **Login throttle counts a parallel burst; owner-only admin secrets; admin audit
+  log.** Three findings from a code review. (1) `loginThrottle.ts` read a scope's count, added one
+  in JS and wrote it back, so N parallel bad logins counted as about one; `countFailure` is now one
+  `INSERT … ON CONFLICT DO UPDATE SET failures = CASE <fresh> THEN failures + 1 ELSE 1 END …
+  RETURNING failures`, and the lock (same policy, `lockedUntilFor`) is written for the returned
+  count only while the row still holds it. Both sign-in routes refuse a password over 256
+  characters (`$lib/passwordLimit.ts`) before the throttle or any scrypt; `verifyCredentials`
+  refuses it too, and a new password may not be longer. (2)+(3) `adminPanel` is delegable, and a
+  delegate could reveal/set/rotate the deploy token (owner-only at `PUT
+  /api/launcher/deploy-token`), reset any non-admin's password, grant its own role every
+  capability and purge projects. `withAdminGuards` (`$lib/server/adminActions.ts`) wraps the
+  `/admin` actions table: `OWNER_ONLY_ADMIN_ACTIONS` + `ownerActionDenial` (`accessRules.ts`, on
+  `isOwnerRole` from `launcherGates.ts`) refuse those to a non-owner with a 403 before the action
+  runs — a delegate may still reset their own password and set a user's tools, not a per-user
+  capability. The same wrapper writes one row per mutating action (refusals included) to the new
+  append-only `admin_audit` table (migration 0038, triggers reject UPDATE/DELETE/TRUNCATE): actor,
+  action, `field=value` target, the submitted fields with `password`/`token`/`secret` fields
+  redacted. No viewer yet — read it in the FTP Browser's Railway tab. The panel hides or disables
+  the owner-only controls for a delegate. Guards: `check:login-throttle` (29), `check:admin-guards`
+  (47, the real actions table), `check:launcher-gates` (+ owner-only decisions); both new checks
+  mutant-tested. The SQL was also run once against PGlite: 20 parallel bumps store 20 (old code: 1).
 - 2026-11-09 — **Deploy-token gates compare in constant time; a ComfyUI can no longer be
   registered at a private address.** (1) The fifteen `?k=` routes (`api/deploy`, the ten
   `api/editor/export-*`, `editor/symbol-defaults`, `game-config/doc`, `localization/strings`,

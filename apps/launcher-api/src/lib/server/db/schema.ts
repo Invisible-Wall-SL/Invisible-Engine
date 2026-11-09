@@ -227,6 +227,26 @@ export const loginAttempts = pgTable('login_attempts', {
 });
 
 /**
+ * Append-only log of every mutating `/admin` action: who, when, which action, on what, and the
+ * submitted fields with secrets redacted (`$lib/server/adminAudit.ts`). A refused attempt is logged
+ * too. `actor_id` carries no foreign key on purpose — deleting a user must not erase or rewrite
+ * what they did. The migration adds a trigger that rejects UPDATE, DELETE and TRUNCATE.
+ */
+export const adminAudit = pgTable(
+	'admin_audit',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		actorId: text('actor_id').notNull(),
+		action: text('action').notNull(),
+		/** The user, project, role, … the action was aimed at; null for panel-wide settings. */
+		target: text('target'),
+		details: jsonb('details').notNull().default({}),
+	},
+	(table) => [index('admin_audit_at_idx').on(table.at)],
+);
+
+/**
  * Generic key/value app settings — admin-managed runtime config that should live
  * in the DB (not just a Railway env var) so it can be edited + rotated from the
  * admin panel. First use: the shared build/deploy token (`deployToken`), which

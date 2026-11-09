@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { passwordTooLong } from '$lib/passwordLimit';
 import { createSession, verifyCredentials } from '$lib/server/auth';
 import {
 	checkLoginThrottle,
@@ -27,6 +28,10 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 
 	const { email, password } = (body ?? {}) as { email?: unknown; password?: unknown };
 	if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) {
+		return json({ error: 'Invalid email or password.' }, { status: 401 });
+	}
+	// Refused on length before the throttle's DB reads or any scrypt; it can never be right.
+	if (passwordTooLong(password)) {
 		return json({ error: 'Invalid email or password.' }, { status: 401 });
 	}
 

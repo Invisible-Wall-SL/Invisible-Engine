@@ -386,6 +386,32 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   they draw from whichever tier the sheet loaded. `art-tier-probe.mjs` now plays a flipbook clip
   over a tiered sheet: half and full draw it the same size (whole frame 0.35% apart). Bitmap-font
   pages and the boot splash stay untiered on purpose.
+- 2026-11-09 — **The RGS facade: a 2xx without a protocol body is an error, and an unpriced bet is
+  refused** (`packages/rgs-translator-eagaming`, branch `rgs-facade-non-json-and-line-fallback`).
+  - **Body-less 2xx.** The fetcher parses an answer to `null` when it is not JSON. An empty 200 is
+    resent (the partner's rule) and never reaches the facade, but a 200 PAGE (an edge's challenge,
+    a proxy's HTML) did. `httpFailure` only failed a body-less answer outside 2xx, so a bet answered
+    by a page went on to `translateBetResponse` and threw a `TypeError`. It is now an error at any
+    status: `ERR_HTTP_BAD_BODY`, "The game server answered HTTP 200 without a protocol body", in the
+    engine's error shape, for the bet, the collect, the end-of-round heartbeat and the match-3 move.
+    Rounds driven inside a feature and resumes log the same reason. `seq` was already safe: the
+    fetcher advances only on an accepted answer, so the next request goes where the page answered.
+    Unchanged: the background balance poll (a body-less answer leaves the HUD balance alone, as
+    before) and `requestAuthenticate`, which never used `httpFailure` and still boots with no balance
+    on a body-less or 4xx/5xx answer. The first bet then fails, or is refused (below), before
+    anything is charged.
+  - **No 5-line guess.** `betLineCount` returned 5 (Hot Fruits' count) when the server declared no
+    payline set. Every mock declares one and the partner's client cannot boot without its `config`,
+    so the guess only happened when the boot config never arrived. In that case a server with an
+    option table would have read the 5 as an option index. Such a bet is now refused before anything
+    is sent (`refuseUnpricedBet`, `ERR_GE`); `buildBetActions` takes a required `lineCount`. Games
+    with an option table and coin boards are unaffected.
+  - **Guards:** `check:connection` §2b (transport: a 200 page is not resent and moves nothing,
+    opening bet and mid-round), §11 (facade: legit heartbeat/poll/boot still answer; page on the
+    bet, heartbeat and collect → `ERR_HTTP_BAD_BODY`, nothing charged, the next bet at 0 and the next
+    collect at 2), §12 (no declared paylines → `ERR_GE`, nothing sent; a reload told its four lines
+    bets `[4, 25]`). Both fixes were checked against planted mutants (the old 2xx pass-through
+    crashes §11; the old `?? 5` fails §12 four times). Needs a **runtime release** (automatic on merge).
 
 - 2026-11-09 — **Reels draw in the frame they are sampled for, carry through lap ends, and place
   their cells without Svelte** (branch `claude/nice-albattani-a03tcm`, restarted from `main`; the
