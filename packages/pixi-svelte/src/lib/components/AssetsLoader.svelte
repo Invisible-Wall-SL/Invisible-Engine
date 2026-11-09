@@ -48,14 +48,23 @@
 
 	/** `entry` is read once by the caller: `stateApp.assets` is reassigned while loads are in flight
 	 *  (the runtime re-merge, the stock-asset skip in `Game.svelte`), so it is not re-read here. */
-	const loadAsset = async (key: string, entry: Asset, src: Asset['src']) => {
+	const loadAsset = async (
+		key: string,
+		entry: Asset,
+		src: Asset['src'],
+		resolution: number | undefined,
+	) => {
 		const { type, namespace, family } = entry;
 		const loadSrc =
-			type === 'spine' ? Object.values(src).filter((item) => typeof item === 'string') : src;
+			type === 'spine'
+				? Object.values(src).filter((item) => typeof item === 'string')
+				: resolution !== undefined && typeof src === 'string'
+					? { src, data: { resolution } }
+					: src;
 		const rawAsset = await PIXI.Assets.load<RawAsset>(loadSrc, onProgress);
 		collectTextureSources(rawAsset, loadedSources);
 		if (type === 'spine') loadedRigs = true;
-		return getProcessed({ key, rawAsset, type, src, namespace, family });
+		return getProcessed({ key, rawAsset, type, src, namespace, family, resolution });
 	};
 
 	const loadAssets = async (nameList: string[]) => {
@@ -64,7 +73,7 @@
 				const entry = context.stateApp.assets?.[key];
 				if (!entry) return;
 				try {
-					return await loadAsset(key, entry, entry.src);
+					return await loadAsset(key, entry, entry.src, entry.resolution);
 				} catch (error) {
 					if (!entry.fallback) {
 						console.error(error);
@@ -72,7 +81,7 @@
 					}
 					noteKtx2Fallback(key, error);
 					try {
-						return await loadAsset(key, entry, entry.fallback);
+						return await loadAsset(key, entry, entry.fallback, entry.fallbackResolution);
 					} catch (fallbackError) {
 						console.error(fallbackError);
 					}
