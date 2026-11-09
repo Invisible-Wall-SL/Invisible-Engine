@@ -29,7 +29,7 @@ export type ModeControllerDeps = {
 
 /**
  * The game's MODE STACK as reactive state, driven from the play pipeline's seam (`playBook.ts`) so
- * every dispatch path — coded, v1 flow, v2 flow — moves it the same way. The rules live in
+ * every dispatch path — coded, v2 flow — moves it the same way. The rules live in
  * `modeStack.ts`; this holder applies them, keeps `stateGame.gameType` in step, and presents each
  * transition.
  *

@@ -84,7 +84,7 @@ check(
 // 2. ONE READER
 const state = read('apps/lines/src/game/stateHoldAndWin.svelte.ts');
 const game = read('apps/lines/src/components/Game.svelte');
-const flow = read('apps/lines/src/game/flowRuntime.svelte.ts');
+const flow = read('apps/lines/src/game/flowEngineReader.ts');
 const actor = read('apps/lines/src/game/actor.ts');
 check(
 	'reader: featureWorth() is featureWorthOf(stateHoldAndWin)',

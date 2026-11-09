@@ -56,7 +56,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { SECOND } from 'constants-shared/time';
-import type { FlowEffect } from 'engine-flow';
+import type { FlowV2Effect } from 'engine-flow-v2';
 import {
 	formatWinText,
 	resolveSymbolName,
@@ -176,7 +176,7 @@ export const winLevelSoundsStop = () => {
  * stalls the round outright until the player taps.
  *
  * The race lives here, per broadcast, and NOT around the whole effect registry
- * (`flowRuntime`/`flowV2Runtime` hand `flowEffect` to the interpreter directly). Racing the
+ * (`flowV2Runtime` hands `flowEffect` to the interpreter directly). Racing the
  * registry would look like a tidier catch-all but would DETACH board-driving effects: on a
  * whole-feature skip `revealBoard` resolves instantly for all ten free spins, so ten reveals would
  * run concurrently on the same reels and the board would land on whichever finished last. Effects
@@ -760,7 +760,7 @@ const beat =
 	<T extends BookEvent['type']>(
 		type: T,
 		present: (event: BookEventOfType<T>) => Promise<void>,
-	): FlowEffect =>
+	): FlowV2Effect =>
 	(payload) => {
 		const event = payload.bookEvent as BookEvent | undefined;
 		if (event?.type === type) return present(event as BookEventOfType<T>);
@@ -1186,10 +1186,10 @@ export const presentReveal = async ({
 
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
-// Flow (`FlowEffect`). Bodies are the coded handler leaves, verbatim.
+// Flow (`FlowV2Effect`). Bodies are the coded handler leaves, verbatim.
 // ---------------------------------------------------------------------------
 
-const effects: Record<string, FlowEffect> = {
+const effects: Record<string, FlowV2Effect> = {
 	/**
 	 * Full-screen camera effect (`cameraEffect`) — shake / flash / zoom punch / chromatic wobble,
 	 * played over the whole game. The kinds are engine-generic (`pixi-svelte`'s `cameraEffects`
@@ -1892,7 +1892,7 @@ const effects: Record<string, FlowEffect> = {
 
 /** The effect resolver the runtime injects (`FlowRuntime.effect` / v2 `FlowV2Env.effect`). Unknown
  *  name ⇒ no-op. */
-export const flowEffect = (name: string): FlowEffect | undefined => effects[name];
+export const flowEffect = (name: string): FlowV2Effect | undefined => effects[name];
 
 /** The names of every implemented effect/command (v2 vocabulary coverage — the runtime asserts every
  *  declared `BOOK_OF_VOCAB` action resolves here). */

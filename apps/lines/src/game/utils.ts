@@ -18,7 +18,6 @@ import {
 	showAllWinLines,
 	winsOnThisBoard,
 } from './flowEffects';
-import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { trackCascadeStep } from './soundBindings';
@@ -62,7 +61,6 @@ export const { getSymbolInfo, hasAuthoredSymbolState } = createSymbolInfo({
  */
 export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } = createPlayBook({
 	bookEventHandlerMap,
-	getFlowInterpreter,
 	getFlowV2,
 	eventEmitter,
 	runBookEventPresentation,

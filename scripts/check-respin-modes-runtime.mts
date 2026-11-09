@@ -966,7 +966,6 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 	const noop = () => {};
 	const book = createPlayBook({
 		bookEventHandlerMap: handlers,
-		getFlowInterpreter: () => undefined,
 		getFlowV2: () =>
 			flow
 				? {

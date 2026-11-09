@@ -4,15 +4,15 @@
  * Sources: each game's `typesEmitterEvent.ts` union + `flowEffects.ts` catalog.
  * Regenerate: `pnpm gen:flow-vocab`. Verified by `flow-spike run vocab`.
  *
- * The `/flow` choreography palette offers the game's REAL Broadcast events + effect names
- * instead of the bundled `DEFAULT_EMITTER_VOCABULARY` (design doc §3, Phase 7). The launcher
- * loads a project from R2 (not game source), so the catalog is passed in as DATA the same way
- * the LayoutDoc + component defs are. Selection is by the LayoutDoc `gameType`; any game with
- * no exported vocabulary falls back to the default (parity-safe, §7). Authoring-fidelity only:
- * the runtime executor broadcasts/invokes whatever the FlowDoc declares regardless of this list.
+ * The authoring surfaces (the FX tool's event triggers) offer the game's REAL emitter events +
+ * effect names instead of the bundled `DEFAULT_EMITTER_VOCABULARY`. The launcher loads a project
+ * from R2 (not game source), so the catalog is passed in as DATA the same way the LayoutDoc +
+ * component defs are. Selection is by the LayoutDoc `gameType`; any game with no exported
+ * vocabulary falls back to the default (parity-safe, §7). Authoring-fidelity only: the runtime
+ * never reads it.
  */
 
-import { DEFAULT_EMITTER_VOCABULARY, type EmitterVocabulary } from 'engine-flow';
+import { DEFAULT_EMITTER_VOCABULARY, type EmitterVocabulary } from 'engine-flow-v2';
 
 /** Exported vocabularies keyed by LayoutDoc `gameType`. */
 export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {

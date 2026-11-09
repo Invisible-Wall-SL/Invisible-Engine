@@ -2,7 +2,7 @@
  * The free-spin counter's readable values — the ONE home for "how many spins, and which one".
  *
  * Two independent consumers read this: the Flow's `$engine.freeSpinsRemaining`/`freeSpinsTotal`
- * engine reads (`flowRuntime.svelte.ts`, so a flow can branch on the count) and the editor-bindable
+ * engine reads (`flowEngineReader.ts`, so a flow can branch on the count) and the editor-bindable
  * `freeSpinsRemaining`/`freeSpinsCurrent` component value sources (`Game.svelte`, so an authored
  * readout can render it). They MUST agree — a flow branching on "2 left" while the panel shows "3"
  * is the kind of drift nobody notices until a player does — so the expression lives here once

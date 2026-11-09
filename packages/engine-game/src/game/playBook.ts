@@ -16,16 +16,13 @@ import type { ModeController } from './modeController.svelte';
 
 /**
  * What a game hands the play pipeline. Every entry is a presentation hook the ROUND SEAM calls
- * whichever path drives an event (coded, v1 flow, v2 flow) — named exactly as the game names it, so
- * the composition root is a plain list of the game's own functions. Each is typed by what the seam
- * consumes, not by the module it comes from.
+ * whichever path drives an event (coded, or a v2 flow that owns it) — named exactly as the game
+ * names it, so the composition root is a plain list of the game's own functions. Each is typed by
+ * what the seam consumes, not by the module it comes from.
  */
 export type PlayBookDeps<TWins> = {
 	/** The coded dispatch — the game's mechanic, run when no flow owns the event. */
 	bookEventHandlerMap: BookEventHandlerMap<BookEvent, GameBookEventContext>;
-	getFlowInterpreter: () =>
-		| { dispatchBookEvent: (bookEvent: BookEvent, context: GameBookEventContext) => Promise<void> }
-		| undefined;
 	getFlowV2: () =>
 		| {
 				ownsEvent: (eventType: string) => boolean;
@@ -114,7 +111,6 @@ export type PlayBookDeps<TWins> = {
 export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 	const {
 		bookEventHandlerMap,
-		getFlowInterpreter,
 		getFlowV2,
 		eventEmitter,
 		runBookEventPresentation,
@@ -143,7 +139,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 	const coded = createPlayBookUtils({ bookEventHandlerMap });
 
 	/**
-	 * What every event crosses around its presentation, on EVERY path (coded, v1 flow, v2 flow):
+	 * What every event crosses around its presentation, on EVERY path (coded or v2 flow):
 	 *  1. its round state is recorded (`recordBookEvent`), so an owning flow reads the same picture;
 	 *  2. GAME MODES: a resume snapshot rebuilds the stack silently (no intro replays); an event that
 	 *     ENTERS a mode opens it first — the event belongs to the mode it opens, so the
@@ -178,21 +174,19 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 	};
 
 	/**
-	 * Play one book event. When the Invisible Flow interpreter is active (a FlowDoc is authored)
-	 * it OWNS dispatch — it runs the event's authored choreography or falls through to the coded
-	 * `bookEventHandlerMap` for an un-authored event, AND lets the macro graph take a `bookEvent`
-	 * transition (design doc §6.1, §7). No flow at all ⇒ the coded `bookEventHandlerMap` presents it,
-	 * inside the same seam (slam carve-out, mode moves, every `dispatchBookEvent` step).
+	 * Play one book event: a v2 flow that OWNS its type presents it, else the coded
+	 * `bookEventHandlerMap` — both inside the same seam (slam carve-out, mode moves, every
+	 * `dispatchBookEvent` step).
 	 */
 	const playBookEvent = (
 		bookEvent: BookEvent,
 		context: { bookEvents: BookEvent[] },
 	): Promise<void> =>
-		// The UNSKIPPABLE carve-out is opened HERE, around the whole dispatch, so it covers whichever of
-		// the three paths below drives the event (coded / v1 flow / v2 flow) — the book reveal and the
-		// free-spin intro run to completion under a slam on all of them. `startsCelebration` additionally
-		// re-arms the slam token before a big win / free-spin outro / retrigger, so those present un-slammed
-		// (the same three paths) — celebrations are never fast-forwarded.
+		// The UNSKIPPABLE carve-out is opened HERE, around the whole dispatch, so it covers whichever
+		// path drives the event (coded / v2 flow) — the book reveal and the free-spin intro run to
+		// completion under a slam on both. `startsCelebration` additionally re-arms the slam token
+		// before a big win / free-spin outro / retrigger, so those present un-slammed (on both paths) —
+		// celebrations are never fast-forwarded.
 		runBookEventPresentation(
 			bookEvent.type,
 			() => aroundPresentation(bookEvent, () => dispatchBookEvent(bookEvent, context)),
@@ -245,8 +239,8 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		trackCascadeStep(bookEvent);
 
 		// ALL-AT-ONCE WIN LINES (Symbols State Machine → "Show all win lines at once"): draw EVERY paying
-		// line of this event together, up front, and leave them on screen. Placed HERE — the one seam all
-		// three dispatch paths cross, the same reason `recordWinCycleWins` lives here — because a
+		// line of this event together, up front, and leave them on screen. Placed HERE — the one seam both
+		// dispatch paths cross, the same reason `recordWinCycleWins` lives here — because a
 		// flow-owned `winInfo` never reaches the coded handler map, and this mode has to look the same on
 		// a flow-driven game as on a coded one. The per-win draws downstream stand down in this mode (the
 		// coded handler skips them, the `showWinLine` effect returns early), and nothing hides the set
@@ -258,7 +252,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 
 		// BIG-WIN RUN-UP (Symbols State Machine → "Count up to cue the big win"): count the amount text
 		// up to the tier threshold BEFORE anything shows the overlay, then hand the number over. Placed
-		// HERE for the same reason as the all-at-once draw above — it is the one seam all three dispatch
+		// HERE for the same reason as the all-at-once draw above — it is the one seam both dispatch
 		// paths cross. It cannot live in the coded `setWin` handler (a flow that OWNS `setWin` never
 		// reaches it) nor in the v2 `winShow` effect (the authored choreography broadcasts `winShow`
 		// BEFORE that effect, so the overlay is already up, and wires no `amount`). Off ⇒ one boolean
@@ -292,15 +286,12 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 			setPendingScatterAwardFs(undefined);
 		}
 
-		// Invisible Flow v2 — EVENT OWNERSHIP (the incremental v1→v2 migration mechanism). When a v2 flow
-		// authors this event (`ownsEvent`), v2 drives it ALONE and the coded/v1 twin is SUPPRESSED — so a
-		// migrated event runs through the flow with NO doubling. Un-owned events fall through unchanged to
-		// the v1 interpreter (if a FlowDoc is authored) or the coded handler map (parity). This lets the
-		// game hand events to v2 one at a time; with no v2 doc, `getFlowV2()` is undefined ⇒ byte-parity.
+		// Invisible Flow v2 — EVENT OWNERSHIP. When a v2 flow authors this event (`ownsEvent`), v2 drives
+		// it ALONE and the coded twin is SUPPRESSED (no doubling). Un-owned events, and every event with
+		// no v2 doc (`getFlowV2()` undefined), go to the coded handler map.
 		const v2 = getFlowV2();
 		if (v2?.ownsEvent(bookEvent.type)) {
-			// Confirm which path drove the event — v2 is a PARITY repro of v1 so it looks identical on
-			// screen; this console line is how you verify v2 (not v1/coded) actually handled it.
+			// Which path drove the event — the flow can look identical to the coded handler on screen.
 			if (import.meta.env.DEV) console.info(`[flow-v2] drove '${bookEvent.type}'`);
 			await beforeFlowOwnedEvent?.(bookEvent);
 			// Pass the whole event as the trigger + the surrounding book list as `$context.bookEvents`
@@ -311,12 +302,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 			return;
 		}
 
-		const interpreter = getFlowInterpreter();
-		if (interpreter) {
-			await interpreter.dispatchBookEvent(bookEvent, context);
-		} else {
-			await coded.playBookEvent(bookEvent, context);
-		}
+		await coded.playBookEvent(bookEvent, context);
 	};
 
 	const playBookEvents = async (
@@ -324,9 +310,9 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		context?: { bookEvents?: BookEvent[] },
 	): Promise<void> => {
 		// ONE serial loop for every game, flow or none: each event goes through `playBookEvent`, which
-		// picks the path (v2 when it OWNS the event, else v1, else the coded map) INSIDE the round seam.
-		// A game with no flow at all (a layout without loading/basegame scenes builds no v1 flow) used to
-		// take a second loop straight to the coded map, skipping the slam carve-out and every
+		// picks the path (v2 when it OWNS the event, else the coded map) INSIDE the round seam. A game
+		// with no flow at all (a layout without loading/basegame scenes) used to take a second loop
+		// straight to the coded map, skipping the slam carve-out and every
 		// `dispatchBookEvent` step — the win cycle, the win meter, the all-at-once lines and the big-win
 		// run-up were silently missing on it.
 		//

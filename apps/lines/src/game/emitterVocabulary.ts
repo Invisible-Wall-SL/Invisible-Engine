@@ -4,13 +4,12 @@
  * Source: `apps/lines/src/game/typesEmitterEvent.ts` (the emitter union) + `apps/lines/src/game/flowEffects.ts` (the effect catalog).
  * Regenerate: `pnpm gen:flow-vocab`. Verified by `flow-spike run vocab`.
  *
- * This is the game's REAL Broadcast/effect vocabulary as DATA, fed to the `/flow` choreography
- * palette in place of the bundled `DEFAULT_EMITTER_VOCABULARY` (design doc §3, Phase 7). It is
- * an authoring-fidelity catalog only — the runtime executor broadcasts/invokes whatever the
- * FlowDoc declares regardless of this list, so there is zero game-parity risk.
+ * This is the game's REAL emitter/effect vocabulary as DATA, for the authoring surfaces in place of
+ * the bundled `DEFAULT_EMITTER_VOCABULARY`. An authoring-fidelity catalog only — the runtime never
+ * reads it, so there is zero game-parity risk.
  */
 
-import type { EmitterVocabulary } from 'engine-flow';
+import type { EmitterVocabulary } from 'engine-flow-v2';
 
 export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 	source: 'lines',

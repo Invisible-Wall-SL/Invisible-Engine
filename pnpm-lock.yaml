@@ -190,9 +190,6 @@ importers:
       engine-flipbook:
         specifier: workspace:*
         version: link:../../packages/engine-flipbook
-      engine-flow:
-        specifier: workspace:*
-        version: link:../../packages/engine-flow
       engine-flow-v2:
         specifier: workspace:*
         version: link:../../packages/engine-flow-v2
@@ -314,9 +311,6 @@ importers:
       delivery-profile:
         specifier: workspace:*
         version: link:../../packages/delivery-profile
-      engine-flow:
-        specifier: workspace:*
-        version: link:../../packages/engine-flow
       engine-flow-v2:
         specifier: workspace:*
         version: link:../../packages/engine-flow-v2
@@ -1333,22 +1327,6 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
-  packages/engine-flow:
-    dependencies:
-      engine-layout:
-        specifier: workspace:*
-        version: link:../engine-layout
-    devDependencies:
-      eslint:
-        specifier: 9.21.0
-        version: 9.21.0(jiti@2.7.0)
-      eslint-config-custom:
-        specifier: workspace:*
-        version: link:../eslint-config-custom
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-
   packages/engine-flow-v2:
     dependencies:
       constants-shared:
@@ -1407,9 +1385,6 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../constants-shared
-      engine-flow:
-        specifier: workspace:*
-        version: link:../engine-flow
       engine-flow-v2:
         specifier: workspace:*
         version: link:../engine-flow-v2
@@ -2151,9 +2126,6 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../../packages/constants-shared
-      engine-flow:
-        specifier: workspace:*
-        version: link:../../packages/engine-flow
       engine-flow-v2:
         specifier: workspace:*
         version: link:../../packages/engine-flow-v2

@@ -380,6 +380,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-09 — **Flow v1 retired from the runtime: the default boot is a direct loading → basegame
+  switch** (branch `engine-retire-flow-v1`). `apps/lines/src/game/bootScreens.ts` replaces the v1
+  interpreter `createLinesFlow` built over a synthesized `loading → basegame` doc; `engine-game`
+  `PlayBookDeps` loses `getFlowInterpreter` (no v2 ownership ⇒ the coded map), and
+  `packages/engine-flow` is deleted. Same scene mount order, same trigger out of loading (a tap or
+  `completeOnLoaded`), same coded dispatch — proved against the real v1 interpreter before it was
+  deleted. Detail in [flow.md](flow.md) Recent changes (same date). A runtime release on merge.
+
 - 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
   big-win run-up** (branch `engine-playbook-single-dispatch`). `engine-game` `playBook.ts`
   `playBookEvents` ran a second loop when neither a v1 nor a v2 flow existed (a layout without

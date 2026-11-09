@@ -3,11 +3,10 @@
  *
  *   pnpm --filter flow-spike run vocab
  *
- * Proves, HEADLESSLY, that the EXPORTED emitter vocabulary replacing the hardcoded
- * `DEFAULT_EMITTER_VOCABULARY` in the `/flow` choreography palette is FAITHFUL to the game's
- * real compile-time vocabulary — an authoring-fidelity step only (it changes which Broadcast
- * events + effect names the picker OFFERS, never the runtime, so there is zero game-parity
- * risk and no submodule bump).
+ * Proves, HEADLESSLY, that the EXPORTED emitter vocabulary the authoring surfaces read in place
+ * of the hardcoded `DEFAULT_EMITTER_VOCABULARY` is FAITHFUL to the game's real compile-time
+ * vocabulary — an authoring-fidelity step only (it changes which events + effect names a picker
+ * OFFERS, never the runtime).
  *
  * Checks:
  *  1. The codegen is IN SYNC with source — `gen-flow-vocabulary.mjs --check` exits 0, i.e. the
@@ -26,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DEFAULT_EMITTER_VOCABULARY } from 'engine-flow';
+import { DEFAULT_EMITTER_VOCABULARY } from 'engine-flow-v2';
 
 import { LINES_EMITTER_VOCABULARY } from '../../apps/lines/src/game/emitterVocabulary';
 
@@ -85,7 +84,7 @@ assert(
 
 // ---------------------------------------------------------------------------
 // 3. The launcher registry maps the right gameTypes + a parity-safe fallback. The registry
-//    module imports `$lib`-free `engine-flow` only but resolves that against launcher-api's
+//    module imports `$lib`-free `engine-flow-v2` only but resolves that against launcher-api's
 //    node_modules, so it is asserted by source (the resolver is a literal `record[k] ?? default`).
 // ---------------------------------------------------------------------------
 
