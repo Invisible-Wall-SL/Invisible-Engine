@@ -15,6 +15,33 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-09 · Phase 10 · infra-railway (13D follow-up: the run is told the launcher's refusals)
+- Did: `scripts/bug-fix/coordinator.md`'s Never list now names everything `bugFixRunsChange.ts`
+  refuses:
+  - every protected path and name, the lockfiles and install keys;
+  - no new `pre*`/`post*`/`pnpm:*`/`install` script, so no `precheck:<x>`; a script-less
+    `check-<x>.ts` runs with `pnpm check:all --only`;
+  - suppression strings anywhere in an added line, and inline ESLint comments;
+  - the raw secret scan: no pragma exemption, so a full SHA counts;
+  - the privacy rule, the caps and the shape rules;
+  - never committing a vendored bundle: the summary asks a person for `build:<name>`.
+
+  Step 6 asks `code-reviewer` for an old-vs-new comparison over generated inputs on a parser or
+  money change. `settings.json` denies the Edit tools 27 more paths and names.
+- Files: `scripts/bug-fix/{coordinator.md,settings.json,workflow.fixture.mjs}`,
+  `docs/status/bug-reports.md`.
+- Branch / PR: `claude/quizzical-dubinsky-6e4985` (#1548); the owner merges it
+  (`scripts/bug-fix/` is protected).
+- Tests: `check:bug-fix-workflow` has 9 new rules (52 rules and 181 mutants in all, 68 of them new). They read the launcher's own lists,
+  its refusal sentences, its pattern sources and the vendored-bundle list, and fail on drift.
+  `check:agents-knowledge` passes. ESLint and Prettier are clean on the fixture. A
+  `code-reviewer` pass found five gaps; all are fixed. No live run (about $2 each, owner's call).
+- Decisions: `invisible-rig.js` is 302 KB, under the cap, but a run still may not commit it.
+  `bugFixWorkflow.ts`, `pipelineMerge.ts` and `$lib/bugReports.ts` stay unprotected: that is a
+  launcher change.
+- Next: with the small items done (below), what 13D left is the owner's calls on
+  `invisible-rig.js` and on protecting those three modules, and the two-connection Postgres proof.
+
 ## 2026-11-09 · Phase 10 · launcher-studio (13D follow-up: the small items)
 - Did: fixed the four small items the pilot left (`docs/status/bug-reports.md`, Recent changes).
   - A run that ends before its job reads the bug records $0, not "spend unknown". `settleFixRun`

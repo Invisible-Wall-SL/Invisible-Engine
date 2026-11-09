@@ -183,34 +183,78 @@ server module, routes, page components, triage, screenshots, the pull-request li
 4. **Start fix on a pipeline bug** (ADR-0013, Director PLAN Phase 10) is live and piloted:
    13A–13D are done (the spike and the pilot are in Recent changes). What the pilot left, each its
    own pipeline change:
-   - **The run is not told two launcher refusals** (`scripts/bug-fix/coordinator.md`, protected,
-     so the owner merges it). A new `pre*`/`post*` package.json script is refused, though every
-     launcher check has a `precheck:<x>` (139 of them) and a run copies the pattern: that is what
-     sank BUG-9's first run, $1.95. Nor does the prompt name every path the launcher protects:
-     `apps/launcher-api/scripts/check-bug-reports.ts` and `check-bug-fix-runs.ts`,
-     `src/routes/api/bugs/[number]/fix-runs/`, `services/director-worker/src/untrusted.ts`, the
-     svelte-check ratchet scripts, the agents-knowledge check and baseline, the `.d.mts` twins and
-     names such as `pyproject.toml`, `requirements*.txt` and `Procfile`. So a bug-list fix that
-     adds its case to `check-bug-reports.ts`, the natural home, ends `no_fix` after the spend.
-   - **A fix inside a vendored bundle can never pass CI on its own.** `static/rigger/vendor/*.js`
-     and `static/rig-viewer/vendor/invisible-rig.js` are 590–670 KB, over a run's 400 KB cap, so
-     `check-vendored-bundles` fails until a person rebuilds the bundle (#1536). At least the run
-     should say so in its summary.
-   - **Review is load-bearing.** #1540 passed its run's own gates and `code-reviewer` yet imported
-     wrong amounts for lines `main` read right (`12,50 €` after a tab as 50, `-12,50` as 50); only
-     an old-vs-new comparison over generated lines found it. For a parser or money change, the
-     run's review could be asked for that comparison.
-   - Small, still open: a run stopped after its job read the bug but before Claude Code starts
-     still reads "spend unknown", and its Actions log ends on "Post the result" failing (exit 127:
-     node's path is recorded only by "Prepare the run"). The workflow change that fixes both is
-     its own pull request, which the owner merges with the admin override (it edits
-     `.github/workflows`).
+   - **The prompt now names the launcher's refusals** (2026-11-09, see Recent changes; protected,
+     so the owner merges it). Not yet proved by a live run: each costs about $2, so that is the
+     owner's call. `check:bug-fix-workflow` fails when the prompt or the Edit deny list drifts from
+     `bugFixRunsChange.ts`'s own lists, or when the launcher gains a refusal sentence.
+   - **Launcher code a run may still change** (a launcher change, not a prompt one): the
+     `bugfixruns[^/]*\.ts` rule does not cover `src/lib/server/bugFixWorkflow.ts`, nor
+     `pipelineMerge.ts` (`CI_SKIP`) and `$lib/bugReports.ts`, which `bugFixRunsChange.ts` imports.
+     A change there only takes effect once a person merges it, so it costs review attention rather
+     than opening a bypass.
+   - **A fix inside a vendored bundle still cannot pass CI on its own**: `check-vendored-bundles`
+     fails until a person rebuilds the bundle (#1536). The run is now told not to commit one, and
+     to ask in its summary for `pnpm --filter launcher-api build:<name>`. `rigger-fx.js` (650 KB)
+     and `rigger-text.js` (578 KB) are each over the 400 KB cap alone; `invisible-rig.js` is
+     302 KB, not 590–670 KB as first recorded, so a run could ship it beside a change under about
+     98 KB. The prompt forbids that for now; allowing it is the owner's call.
+   - The small items (the $0 spend, Check 2 on a draft, tag placeholders, "Post the result" after
+     an early stop) are fixed: #1546 and #1547, in Recent changes.
 
    The fixture fakes the store, so the real SQL (the advisory lock, the conditional updates, the
    run-row lock on spend) is proved only by the migration applying in CI's `postgres-proofs`. The
    live runs have now exercised that SQL, but a two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-09 — **A fix run is told what the launcher refuses** (13D follow-ups; `scripts/bug-fix/`,
+  infra-railway). The pilot paid for runs that broke a rule the prompt never named.
+  - **`coordinator.md` Never** now lists every path and name `bugFixRunsChange.ts` protects, with
+    the `.d.mts` twins, the ratchet and agents-knowledge scripts, `untrusted.ts`, the bug routes and
+    fixtures, `pyproject.toml`, `requirements*.txt`, `Procfile`, `nixpacks.toml` and the lockfiles.
+    It also lists:
+    - the `package.json` keys that change what installs;
+    - the hook-script rule: no new `pre*`, `post*`, `pnpm:*` or `install` script, so no
+      `precheck:<x>`. A plain `check:<x>` script is fine. A new
+      `apps/launcher-api/scripts/check-<x>.ts` or `*.fixture.ts` needs none: run it alone with
+      `pnpm check:all --only <path>`;
+    - every suppression string, refused anywhere in an added line, prose and string literals
+      included (`@ts-nocheck` was missing), and the inline ESLint comments;
+    - the secret scan as the launcher runs it: raw patterns, no `// pragma: allowlist secret`
+      exemption and no placeholder pass, so a full SHA counts. The fixtures' pragma'd SHA lines
+      are the pattern a run would copy;
+    - the privacy rule: gate commands too, names compared on letters and digits inside words;
+    - the caps (a changed file counts whole, not by its diff), and the shape rules from
+      `pathProblem`, `baseProblem` and `collect.mjs`: a name ending in a dot or a space, a file
+      swapped for a folder, hard links, nested repositories, and files over 2 MB;
+    - the vendored bundles: never committed, and the summary asks a person for `build:<name>`.
+  - Step 3 has the run check its planned fix against that list before writing it.
+  - Step 6 asks `code-reviewer` for an old-vs-new comparison over generated inputs when a change
+    rewrites a parser or touches money: #1540's gap.
+  - **`settings.json`** denies the Edit tools what the launcher refuses, so a run finds out at the
+    edit, not after the spend. It adds 27 rules: the missing paths, and each protected name at any
+    depth (`**/…`).
+  - **`check:bug-fix-workflow`** reads the launcher's own lists from `bugFixRunsChange.ts` and the
+    bundle list from `check-vendored-bundles.mjs`. A list it cannot read whole (a spread, another
+    quote, an entry of another shape) counts as broken. Nine new rules (52 in all) fail on drift:
+    - the prompt must name each protected path, name, lockfile, ratchet, `package.json` key, hook
+      prefix, suppression and cap, and each bundle with its build;
+    - every refusal sentence a `…Problem`, `secretIn` or `switchedOff` function returns is in a
+      pinned table with the prompt's words for it, so a new or reworded one fails until someone
+      checks the prompt. The same holds for the launcher's pattern rules, pinned by source, so a
+      widened regex fails too;
+    - the review step must ask for the comparison;
+    - every tracked file the lists refuse (303 today) must be denied to Edit, and no other.
+      Matching is by case (the stricter reading), with `[…]` read as a glob class as gitignore
+      does. A literal `bugs/[number]/` rule would miss the directory, so the rule uses
+      `bugs/*/`;
+    - 68 new planted mutants (181 in all): a list renamed or half-read, a launcher rule or refusal
+      added, a regex widened, a name dropped from the prompt, a deny rule removed, wrong-cased or
+      too wide. A plain check reads the Rigger's two bundles from disk, to keep the prompt's "over
+      the cap" true.
+  - A `code-reviewer` pass on the change found the secret, suppression-anywhere and privacy gaps,
+    and the places the first fixture's rules were weaker than they looked; all are fixed above.
+  - `check:agents-knowledge` passes: every path the prompt names exists.
 
 - 2026-11-09 — **Three small items the 13D pilot left, fixed.**
   - **A run that ends before its job reads the bug spent $0, and says so.** That covers a Stop
