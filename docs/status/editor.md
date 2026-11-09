@@ -171,6 +171,20 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-09 — **Leaving `/editor` for another tool with unsaved work asks first** (branch
+  `launcher-unsaved-work-guards`). The page checked `saveState.dirty` only in `beforeunload`, and
+  the Timeline panel hand-rolled its own `beforeunload`, so a tool-bar click or Back from a layout
+  inside its debounce (or held by an error, conflict, cross-type preview or lease) or from an
+  unsaved timeline left silently. Both now call the shared `guardUnsavedWork` with
+  `isEditorSelfNavigation` (`$lib/componentLinks.ts`, also used by the Components side and by the
+  page's own `beforeNavigate`), so a link to `/editor` itself is still cancelled and applied in
+  place (or reloaded for another project) exactly as before, and every other tool asks. Because
+  the page can hold up to four guards (layout, two Timeline panels, the Components side), the
+  helper now shares ONE question and ONE re-issue ticket per navigation
+  (`src/lib/unsavedGuardCore.ts`); with a ticket per guard, two dirty guards cancelled each
+  other's re-issue and asked forever. Pinned by `check:unsaved-guard` (27, both mutants red) and
+  `check:component-links` (+2). ⏳ Not browser-verified. Still open: a History… restore with a
+  dirty layout gets the browser's "Leave site?" after the modal already warned (unchanged).
 - 2026-11-09 — **"Also publish half-resolution art"** in the Canvas Size panel sets
   `LayoutDoc.resolutionTiers` (saved with the doc, not an undo step); the publish side is in
   [status/launcher](launcher.md) ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 3).
