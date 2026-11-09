@@ -16,6 +16,7 @@ import {
 } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
+import { createMockRgs as createHoldAndWinPartnerMock } from '../../scripts/mock-rgs-server-holdandwin-partner.mjs';
 import { createMockRgs as createMatch3Mock } from '../../scripts/mock-rgs-server-match3.mjs';
 import { withPotsOverlay } from '../../scripts/mock-pots-overlay.mjs';
 
@@ -79,6 +80,18 @@ const CASCADE_PROTOCOLS = new Set(['cluster', 'scatter']);
  */
 const CASCADE_GAMES = new Set(
 	(process.env.CASCADE_GAMES ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean),
+);
+/**
+ * Games whose mock speaks the PARTNER'S collector-respin wire instead of ours, as a comma-separated
+ * list of game keys (`PARTNER_WIRE_GAMES=gettinghot`): `mock-rgs-server-holdandwin-partner.mjs`,
+ * the shapes of docs/reference/play4fun-collector-respin-capture.md (Hold and Win Phase 14, 14d).
+ * Per game, because this one process serves every game; no key here changes any other game's mock.
+ */
+const PARTNER_WIRE_GAMES = new Set(
+	(process.env.PARTNER_WIRE_GAMES ?? '')
 		.split(',')
 		.map((s) => s.trim())
 		.filter(Boolean),
@@ -246,6 +259,9 @@ export const makeMock = (
 ) => {
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
 	const sells = sellsTable({ runtime, tableCapable });
+	// Forcing a beat is an authoring tool, as on our own Hold and Win mock.
+	if (PARTNER_WIRE_GAMES.has(gameKey))
+		return createHoldAndWinPartnerMock({ label, allowForce: twin || !runtime });
 	// A Hold and Win game: a lines contract carrying the base-game Hold and Win inputs (the launcher
 	// sends them for a `holdAndWin`-kind project, with its coin overlay's `potsOverlay` when one
 	// drops; another kind's overlay bonus rides `potsOverlay` alone), or ones
