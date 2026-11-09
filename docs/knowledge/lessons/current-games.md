@@ -6,6 +6,16 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### A reel cell mounted one frame early changed 58 screens
+- **Symptom:** a reel smoothing change failed current-games on the overlay template: settled, win
+  and big-win screens changed, big-win captures a frame apart.
+- **Cause:** a pots rider's rig-event sparkle starts at mount (even held) and draws `Math.random`;
+  mounting earlier, or later in the frame, shifts every particle seed after it.
+- **Fix:** reels draw where `current` is (#1527); recycled reel views start each cell's art on the
+  frame and in the order a new mount did, and rebind only sprites (`game/reelViewPool.ts`).
+- **Guard:** current-games; `reelViewPool.fixture.ts`, `spriteRebind.fixture.ts`.
+- **PR:** #1527 (2026-11-08) · source: `docs/status/engine.md`
+
 ### Every desktop downloaded the phones' KTX2 transcoder
 - **Symptom:** the runtime page was ~1.3 MB gz, 520 KB of it a transcoder only phones run.
 - **Cause:** `config-vite`'s `assetsInlineLimit: Infinity` inlined `libktx.{js,wasm}` as base64.

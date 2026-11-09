@@ -18,6 +18,7 @@
 	import { activeGrid, boardDimensions } from '../game/gameConfig';
 	import { symbolZIndex } from '../game/paintOrder';
 	import { riderToken } from '../game/overlayRiders';
+	import type { FlightSymbol } from '../game/flights.svelte';
 
 	type Props = {
 		reelIndex: number;
@@ -26,9 +27,13 @@
 		 *  above the visible window, which is what {@link PADDING_ROW} takes back off. */
 		row: number;
 		reelSymbol: ReelSymbol;
-		/** Set by `ReelPaddingPool` only: this view is pooled and is handed one roll filler after
+		/** Set by the reel views (`BoardBase`, `ReelPaddingPool`): this view is handed one cell after
 		 *  another, each with its own key, so the art inside restarts per cell as a new mount would. */
 		instanceKey?: number;
+		/** Set by the reel views: this view has no cell to draw right now. It keeps its containers,
+		 *  draws nothing, and follows nothing about `reelSymbol` (the last cell it drew) until it is
+		 *  handed the next one. */
+		vacant?: boolean;
 	};
 
 	const props: Props = $props();
@@ -126,11 +131,13 @@
 	 */
 	const spinning = $derived(stateGame.board[props.reelIndex]?.reelState.motion === 'spinning');
 	const y = $derived(
-		cascade
-			? cascade.y.current
-			: stateGameDerived.boardPerspective() && !spinning
-				? seat.y
-				: props.reelSymbol.symbolY(),
+		props.vacant
+			? 0
+			: cascade
+				? cascade.y.current
+				: stateGameDerived.boardPerspective() && !spinning
+					? seat.y
+					: props.reelSymbol.symbolY(),
 	);
 
 	const symbolInfo = $derived(
@@ -148,7 +155,7 @@
 	// `StackedPictures` doesn't double with the icons it replaces. Empty set when the mode is off ⇒
 	// every cell renders ⇒ byte-parity (docs/design/stacked-picture-mode.md).
 	const covered = $derived(
-		!cascade && stackedCoverage().has(winDimCellKey(props.reelIndex, props.row)),
+		!props.vacant && !cascade && stackedCoverage().has(winDimCellKey(props.reelIndex, props.row)),
 	);
 	// This cell is OFF the board and draws nothing, though it still holds its row. Two beats set it,
 	// and they are the same picture: the win-explosion pop (Invisible Symbols → "Winning symbols
@@ -160,15 +167,34 @@
 	// Undrawn rather than spliced out — every consumer addresses a cell by its row, so shortening the
 	// column would move all of them. `false` on every cell of a project that never turned the pop on
 	// ⇒ byte-parity.
-	const removed = $derived(props.reelSymbol.removed);
+	const removed = $derived(!props.vacant && props.reelSymbol.removed);
 	// A pots overlay's token riding this cell while the strip rolls (`withReel` timing). Drawn only
 	// while the reel moves: at rest the overlay layer draws the tokens that landed. `undefined` on
 	// every cell of a game whose overlay does not roll its tokens ⇒ byte-parity.
 	const rider = $derived(
-		stateGame.board[props.reelIndex]?.reelState.rolling
+		!props.vacant && stateGame.board[props.reelIndex]?.reelState.rolling
 			? riderToken(props.reelSymbol.rider)
 			: undefined,
 	);
+	/**
+	 * The token the rider's `Symbol` is given. A pooled view keeps that `Symbol` once it has drawn a
+	 * token, vacant (drawing nothing) while its cell carries none, so each token's art starts as a
+	 * new one's would and only the bands around it are kept. Unpooled, it is mounted with its token.
+	 */
+	let lastRider: FlightSymbol | undefined;
+	const riderShown = $derived.by(() => {
+		if (props.instanceKey === undefined) return rider;
+		if (rider) lastRider = rider;
+		return lastRider;
+	});
+	/**
+	 * A BOARD cell's view draws its symbol and rider only while it holds a cell in the window, as the
+	 * cell's own component did: outside it they are unmounted, so a cell coming back in mounts them
+	 * afresh (a cell that landed outside the window is settled by that mount's `oncomplete`). Only
+	 * the view's own containers are kept. A filler view keeps its cell's art, hidden, until its next
+	 * cell (`ReelPaddingPool`).
+	 */
+	const mountsInFrameOnly = $derived(props.instanceKey !== undefined && !props.reelSymbol.padding);
 </script>
 
 {#if !covered && !removed}
@@ -180,11 +206,13 @@
 		scale={seat.scale}
 		rolling={stateGame.board[props.reelIndex]?.reelState.rolling}
 		keepMounted={props.instanceKey !== undefined}
+		vacant={props.vacant}
+		contentInFrameOnly={mountsInFrameOnly}
 		animating={symbolInfo.type === 'spine' &&
 			ANIMATING_SYMBOL_STATES.includes(props.reelSymbol.symbolState)}
 	>
 		{#snippet children(held)}
-			<!-- Its own container, so a node the symbol re-mounts (a pooled view handed a cell of another
+			<!-- Its own container, so a node the symbol re-mounts (a view handed a cell of another
 			     symbol) stays under the rider: Pixi appends a re-mounted node last. -->
 			<Container>
 				<Symbol
@@ -193,8 +221,12 @@
 					winLineColor={props.reelSymbol.winLineColor}
 					tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
 					instanceKey={props.instanceKey}
+					vacant={props.vacant}
+					keepSprite
 					{held}
 					oncomplete={() => {
+						// A vacant view's kept sprite still belongs to the last cell; it reports nothing.
+						if (props.vacant) return;
 						const state = props.reelSymbol.symbolState;
 						// EVERY STATE A BEAT DRIVES reports straight through, whoever armed it — and WITHOUT
 						// asking whether a cascade is still holding the cell.
@@ -238,8 +270,14 @@
 					}}
 				/>
 			</Container>
-			{#if rider}
-				<Symbol state="static" rawSymbol={rider} instanceKey={props.instanceKey} {held} />
+			{#if riderShown}
+				<Symbol
+					state="static"
+					rawSymbol={riderShown}
+					instanceKey={props.instanceKey}
+					vacant={props.instanceKey === undefined ? undefined : !rider}
+					{held}
+				/>
 			{/if}
 		{/snippet}
 	</SymbolWrap>

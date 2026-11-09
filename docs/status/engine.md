@@ -87,6 +87,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
   JSON line: UA, DPR, render tier, canvas size, the numbers) and Reset. Without the flag its chunk
   is never loaded and the frame clock has no probe.
+- **Reel cells are drawn through recycled views** (2026-11-09) — not a component per cell that
+  scrolls through the window (`apps/lines/src/game/reelViewPool.ts`).
+  - **Board cells** (flat boards, `BoardBase`): a cell keeps one view for as long as it is in its
+    reel's strip — through the roll, the landing, every win and a cascade, the life its own
+    component had — and the views a board leaves draw the next board's cells. A board view mounts
+    its `Symbol` only while its cell is in the window, exactly as the cell's own component did (a
+    cell that landed outside the window is settled by that mount's `oncomplete`); what it keeps is
+    its `ReelSymbol`, `SymbolWrap` and container.
+  - **Filler** (`ReelPaddingPool`): `rows + 2` views a reel, built once and kept, vacant at rest;
+    a view's rider `Symbol` is kept the same way. Views are handed memoized `{ cell, vacant }`
+    items, so nothing in a view is re-checked per frame unless its cell or vacancy changed.
+  - **Handed its next cell**, a filler view gives a bound sprite the new texture (Pixi lands it
+    where a new sprite would). Everything else starts again, on the frame and in the order a new
+    mount did, because what it does at mount is observable: a rig (its ticker place, its t=0
+    rig-event FX — a rider's sparkle draws `Math.random`), a flipbook (its first frame), Element FX
+    (seed drawn when made) and their beat gate, layers, labels, riders. A band that draws nothing
+    is not rebuilt.
+  - Perspective boards keep a component per cell. Gates: `reelViewPool.fixture.ts`,
+    `spriteRebind.fixture.ts`.
 
 ## Open items / next
 
@@ -132,16 +151,23 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   today, `rigFx` in the overlay template) and a cull band that covers the lead.
 
 - **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
-  `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
-  symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
-  pre-spin lap; ~40% of spin CPU), rigs keep ticking when hidden (their meshes are now rebuilt once a
-  drawn frame, not twice — 2026-11-03, below), and idle
-  particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
-  spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
-  pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
-  (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
-  textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
-  `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
+  `commonoverlayproject`, below). Reel cells no longer get a component each as they scroll: they
+  go through recycled views (2026-11-09, below; on top of the cached geometry and prop sync of
+  `claude/reel-smoothness` and the filler pool of `claude/reel-view-pool`), which cut the
+  components made per spin by a third (overlay template) to a half (reference game). Board cells'
+  symbols and all non-sprite art still mount and unmount per cell, on purpose. What a spin
+  still pays, measured 2026-11-09 at 4× CPU in headless Chromium: ~64 ms of JS a spin frame on
+  the overlay template, unchanged by the views (the churn they removed was ~3% of it). Pixi's
+  render is ~24% of spin JS. Svelte re-checking the moving cells' positions and props is most of
+  the ~42% flush (`propsSyncEffect` ~10%, half of that its `Reflect.ownKeys` per run). Rig ticks
+  are ~10%, rig animation apply allocates ~20 MB a spin there, and rigs keep ticking when hidden.
+  The CPU-side next step is to stop routing every moving cell's `y` through Svelte: set the
+  containers' positions from the reel tween in one ticker pass. Also make `propsSyncEffect` stop
+  allocating a key list per run.
+  Next: confirm on a real phone (Chrome remote-debugging trace, or the owner's `?perf=1` Copy)
+  before tuning the GPU side further. The ~118 MB of resident textures there is mostly
+  uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`, `reels_frame`, `fs_screen`);
+  moving them to KTX2 like the atlas pages would cut it several-fold.
 
 - **Lines-family table games: gaps left by the 2026-09-29 buy fix** (from its `code-reviewer` pass).
   - **Engine-side, need a runtime release:**
@@ -348,6 +374,79 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-09 — **Reel cells are drawn through recycled views, not a component per scrolled
+  symbol** (branch `claude/nice-albattani-a03tcm`). Owner report: reels "still not smooth on
+  iPhone 17". The 10-27 profile put mounting and unmounting symbols at ~40% of spin CPU. #1438 had
+  pooled the roll's filler, but its views were rebuilt every spin and re-mounted all their art for
+  each cell, and every board cell still had a component of its own in both board layers. Counted
+  on `main` (`commonoverlayproject`, 6 spins): 1,696 components and 9,905 Svelte effects created per
+  spin, 108 of them `ReelSymbol`s and 92 sprite symbols.
+  - **What changed** (see Current state): a board cell keeps one view for its life in the strip
+    and the next board reuses the views; filler views and their rider `Symbol` are built once; a
+    filler view hands a sprite the next texture and starts everything else as a new mount would; a
+    band that draws nothing is not rebuilt; `BoardBase` no longer makes an empty `{#each}` item for
+    every filler cell.
+  - **Mount semantics kept, on purpose:** rigs and their rig-event FX, flipbooks, Element FX,
+    layers, labels and riders start again per cell, because their ticker place, first frame and
+    `Math.random` draws are observable (the #1527 lesson, now in
+    `docs/knowledge/lessons/current-games.md`). A board view's `Symbol` mounts and unmounts with the
+    window exactly as before. Keeping it, with its art dropped outside the window, was tried
+    first. It needs a fresh `oncomplete` and beat gate whenever a cell comes back in (otherwise a
+    cell that landed in a padding row re-enters still `land`).
+  - **Trap found on the way (cost, not parity):** the first version halved effect churn but per-frame
+    JS did not drop. A view's prop read a value recomputed every frame (`vacant={shown[slot] ===
+    undefined}`; a board view's art-drop read from `inFrame`), so every derived reading it was
+    marked and re-checked every frame (`mark_reactions` +2.3 ms, `is_dirty` +1 ms per spin frame at
+    4×). A prop a view hands down must come from a keyed `{#each}` item or something else that
+    changes only when its value does.
+  - **Measured** in headless Chromium: an unminified release-env `apps/lines` build served under
+    the live game URL (and the reference `lines` game with the seeded book mock), CPU slowed 4×,
+    412×915 at DPR 1 on software GL, RGS answers replayed so both builds play the same rounds.
+    Six spins a run, `main` and the branch alternated, three runs each; mean [min–max]:
+
+    | | `commonoverlayproject` main | branch | reference `lines` main | branch |
+    |---|---|---|---|---|
+    | Svelte effects created / destroyed per spin | 10,078 / 7,877 | 6,933 / 5,020 | 6,585 / 5,287 | 3,226 / 2,308 |
+    | Pixi nodes created / destroyed per spin (particles aside) | 1,069 / 1,486 | 794 / 1,152 | 621 / 1,159 | 370 / 881 |
+    | sprite symbols mounted per spin | 91 | 40 | 106 | 44 |
+    | components instanced per spin (census, 6 spins) | 1,696 | 1,117 | 1,165 | 564 |
+    | `ReelSymbol`s instanced per spin (the views' one build, over 6 spins) | 108 | 8 | 108 | 8 |
+    | allocated per spin, MB (sampled, collected objects included; 2 runs) | 105, 92 | 78, 72 | 24.1, 21.8 | 18.8, 19.3 |
+    | GC per spin: count / ms / MB freed | 5.4 / 86 / 102 | 5.3 / 76 / 96 | 2.8 / 47 / 19.5 | 2.5 / 43 / 18.6 |
+    | JS per spin frame, ms | 64.0 [61.3–66.2] | 68.7 [61.3–73.5] | 24.7 [21.8–26.5] | 24.6 [23.5–25.7] |
+    | spin frame interval p50 / p95 / max, ms (`?perf=1`) | 100 / 233 / 406 | 100 / 250 / 344 | 50 / 111 / 195 | 50 / 111 / 156 |
+    | frames over 50 / 100 ms per spin | 33.3 / 19.6 | 33.7 / 19.6 | 16.9 / 2.6 | 18.0 / 2.6 |
+
+    **Less churn, the same frame time.** JS per spin frame did not drop on either game.
+    On the overlay template the branch measured equal in one pair and 5–9 ms slower in the other
+    two, mostly on the Pixi side (render, render groups, rig ticks), which this change does not
+    obviously touch; it is unresolved and within the spread these runs show. Creating and
+    destroying effects fell from ~11% to ~8% of spin JS on the overlay template and from ~27% to
+    ~17% on the reference game (~2.3 ms a frame there), and about as much came back as derived
+    re-evaluation in the kept views (`update_derived`, `is_dirty`). The frame is Pixi's render
+    (~24%), Svelte re-checking the moving cells (the flush is ~42%; `propsSyncEffect` ~10%, half
+    of it `Reflect.ownKeys`) and rig ticks (~10%).
+  - **Parity, `main` (`f8e9bfc`) vs this branch:** every capture byte-identical and on the same
+    frame.
+    - Current-games, live R2 snapshots: `commonoverlayproject` 17/17 (all scenarios),
+      `overlay-wallstreet` 17/17, `overlay-wallstreet2` 17/17, `overlay-wishworld` 17/17,
+      `bookofborutremake` 17/17, `test1` 17/17, `holdandwintestsolo` 11/11 (Hold and Win).
+    - Stand-ins: `cg-lines` 17/17, `cg-hw-classic` 12/12, `cg-cluster` 14/14 (cascading),
+      `cg-ways` 14/14. A main-vs-main control: 9/9.
+    - Determinism proof: 20/20.
+    - Frame by frame: a capture every 2nd frame through two whole spins (RGS answers replayed on
+      the live game), 203/203 on `commonoverlayproject` and 203/203 on the reference `lines`
+      game (~190 and ~156 of them mid-roll); the same rounds end on the same frames.
+  - **Gates:**
+    - `pnpm check:all` on the final code: 620/621. The one failure,
+      `tools/fx-spike:fx-playback-page` (an FX-tool browser timing check, run under heavy load),
+      passes on re-run. Two source gates pinned the old code shape and are updated here:
+      `verify-swap-in-place-mode` pins the flat branch keyed by views that follow their cells, and
+      `verify-win-explode-pop` (183 checks) compiles the forward with the view's `vacant`.
+    - New: `reelViewPool.fixture.ts` (58 checks, seven rule mutations each fail it) and
+      `spriteRebind.fixture.ts` (38).
+    - `pnpm check:svelte` at baseline (`apps/lines` 149, `pixi-svelte` 14); ESLint clean.
+  - Not verified on a physical iPhone.
 - 2026-11-08 — **Reels are sampled at the frame's own timestamp; `?perf=1` reads frame times on a
   device** (branch `claude/nice-albattani-a03tcm`). Owner report: spins "still not smooth" on an
   iPhone 17 (Safari, 120 Hz). **Cause, measured:** the reel strip is a Svelte `Tween`, and Svelte's

@@ -27,10 +27,16 @@
 		/** Is this cell's reel strip rolling? Only `ReelSymbol` knows, and only it passes it; it is
 		 *  what lets a rolling symbol be drawn before its centre crosses the window edge. */
 		rolling?: boolean;
-		/** Keep the art mounted, hidden, while it is outside the window: a pooled view
-		 *  (`ReelPaddingPool`) that is handed the next cell instead of being destroyed. Absent ⇒
-		 *  mounted only in the window, as before. */
+		/** Keep this container mounted, hidden, while its cell is outside the window: a view
+		 *  (`BoardBase`, `ReelPaddingPool`) that is handed the next cell instead of being destroyed.
+		 *  Absent ⇒ mounted only in the window, as before. */
 		keepMounted?: boolean;
+		/** A view with no cell (`ReelSymbol`'s `vacant`): kept mounted, never shown. */
+		vacant?: boolean;
+		/** With `keepMounted`: mount the content only while the cell is in the window, keeping just
+		 *  this container — a board cell's view (`BoardBase`), whose symbol mounts and unmounts as the
+		 *  cell's own component's did. */
+		contentInFrameOnly?: boolean;
 		/** Told whether the symbol is drawn ahead of its time (see `held` below). */
 		children: Snippet<[held: boolean]>;
 	};
@@ -102,6 +108,11 @@
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled
 	// symbol's container is left exactly as it was before this prop existed (byte-parity).
 	const scale = $derived(props.scale === 1 ? undefined : props.scale);
+	// A kept container is hidden outside the window; it is not handed the moving `y` while hidden
+	// (nothing draws it), and takes it again with `visible` on the frame it shows.
+	const visible = $derived(
+		props.keepMounted ? !props.vacant && (!!props.debug || inFrame) : undefined,
+	);
 </script>
 
 {#if props.debug || (show && (inFrame || props.keepMounted))}
@@ -112,11 +123,13 @@
 	     identical either way. -->
 	<Container
 		x={props.x}
-		y={props.y}
+		y={visible === false ? undefined : props.y}
 		{scale}
 		zIndex={props.zIndex}
-		visible={props.keepMounted ? props.debug || inFrame : undefined}
+		{visible}
 	>
-		{@render props.children(held)}
+		{#if !props.contentInFrameOnly || (inFrame && !props.vacant)}
+			{@render props.children(held)}
+		{/if}
 	</Container>
 {/if}

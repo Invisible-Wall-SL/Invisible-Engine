@@ -1089,11 +1089,13 @@ console.log('\n--- 5. a removed cell is really not drawn ---');
 	// and a guard a paragraph can trip is a guard nobody keeps.
 	const forwardCode = body.replace(/\/\/[^\n]*/g, '');
 	check('the forward does not ask who is holding the cell', /\bcascade\b/.test(forwardCode), false);
+	// `vacant`: a reel view with no cell keeps a bound sprite, hidden, for its next one. Drawing a
+	// cell it is false; vacant, the forward reports nothing at all.
 	const gate = compileSlice({
 		what: 'verify-win-explode-pop / ReelSymbol.svelte#oncomplete forward',
-		names: ['state'],
+		names: ['state', 'vacant'],
 		body: `let forwarded = 0;
-const props = { reelSymbol: { symbolState: state, oncomplete: () => { forwarded += 1; } } };
+const props = { vacant, reelSymbol: { symbolState: state, oncomplete: () => { forwarded += 1; } } };
 // The body RETURNS EARLY once it has forwarded, so it runs as its own function rather than inline.
 (() => { ${body} })();
 return { forwarded, state: props.reelSymbol.symbolState };`,
@@ -1101,18 +1103,24 @@ return { forwarded, state: props.reelSymbol.symbolState };`,
 	// EVERY STATE A BEAT DRIVES reports, whoever armed it — `win` and `explosion` are the reel
 	// board's, `clearReel` and `intro` are a cascade step's, and one cell answers for both.
 	for (const state of ['win', 'explosion', 'clearReel', 'intro']) {
-		check(`a \`${state}\` cell reports its beat`, gate(state).forwarded, 1);
+		check(`a \`${state}\` cell reports its beat`, gate(state, false).forwarded, 1);
+		check(`…but not from a vacant view's kept sprite`, gate(state, true).forwarded, 0);
 	}
 	// …and a state that is NOBODY's beat reports nothing, which is what keeps a settled win beat
 	// from being re-fired by a looping clip on a cell that has since moved on.
 	for (const state of ['postWinStatic', 'static', 'spin']) {
-		check(`a cell that has moved on to \`${state}\` reports nothing`, gate(state).forwarded, 0);
+		check(
+			`a cell that has moved on to \`${state}\` reports nothing`,
+			gate(state, false).forwarded,
+			0,
+		);
 	}
 	// `land` is the one state BOTH owners arm: a step's callback settles the cell and resolves its
 	// beat; the reel board arms nothing, so its `oncomplete` is the cell's default no-op and the
 	// settle IS the behaviour. Doing both is what lets one cell answer for either owner.
-	check('a `land` cell reports its beat', gate('land').forwarded, 1);
-	check('…and settles itself to `static`', gate('land').state, 'static');
+	check('a `land` cell reports its beat', gate('land', false).forwarded, 1);
+	check('…and settles itself to `static`', gate('land', false).state, 'static');
+	check("…but not from a vacant view's kept sprite", gate('land', true).state, 'land');
 
 	// AND THE FIXTURE AGREES WITH IT. The harness's cell is what every timing above is measured
 	// through, so a cell that reported a beat something else had taken over would make the slam case

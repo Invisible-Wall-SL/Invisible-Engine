@@ -3,6 +3,8 @@
 	import ReelPaddingPool from './ReelPaddingPool.svelte';
 	import { getContext } from '../game/context';
 	import { stateTumble, tumbleBoardCombined } from '../game/stateTumble.svelte';
+	import { createBoardViews, instanceIdOf, type BoardView } from '../game/reelViewPool';
+	import type { ReelSymbol as Cell } from '../game/stateGame.svelte';
 
 	const context = getContext();
 
@@ -58,27 +60,46 @@
 		}
 		return ordered;
 	});
+
+	/**
+	 * A flat board's cells through views (`game/reelViewPool.ts`): each cell keeps one view for as
+	 * long as it is in its reel's strip — the life its own component had, through the roll, the
+	 * landing, every win and a cascade — and the views a board leaves draw the cells that come next
+	 * instead of new components. A roll's filler is drawn by `ReelPaddingPool` and left out here.
+	 */
+	const boardViewsOf: ((column: readonly Cell[]) => BoardView<Cell>[])[] = [];
+	const boardViews = $derived(
+		perspective
+			? []
+			: columns.map((column, reelIndex) =>
+					(boardViewsOf[reelIndex] ??= createBoardViews<Cell>())(column),
+				),
+	);
 </script>
 
 <!--
-	Keyed by the CELL, not by its index. A cascade filters its survivor layer and splices the step's
-	refills in above them, so a surviving symbol's index shifts mid-step; keyed by index it would be
-	handed to a different component and torn down, discarding the very Tween the slide is animating.
-	Identity is stable across both, so Svelte moves it and the fall stays continuous — and it is
-	stable across the seam into and out of a cascade too, because the cascade drives the board's own
-	cells and hands them back rather than cloning them.
+	Keyed by the CELL (perspective) or by a view that follows its cell (flat), never by an index. A
+	cascade filters its survivor layer and splices the step's refills in above them, so a surviving
+	symbol's index shifts mid-step; keyed by index it would be handed to a different component and
+	torn down, discarding the very Tween the slide is animating. Identity is stable across both, so
+	Svelte moves it and the fall stays continuous — and it is stable across the seam into and out of
+	a cascade too, because the cascade drives the board's own cells and hands them back rather than
+	cloning them.
 -->
 {#if perspective}
 	{#each rowOrder as seat (seat.reelSymbol)}
 		<ReelSymbol reelIndex={seat.reelIndex} row={seat.row} reelSymbol={seat.reelSymbol} />
 	{/each}
 {:else}
-	{#each columns as column, reelIndex (reelIndex)}
-		{#each column as reelSymbol, row (reelSymbol)}
-			<!-- A roll's filler is drawn by `ReelPaddingPool`, through views it keeps. -->
-			{#if !reelSymbol.padding}
-				<ReelSymbol {reelIndex} {row} {reelSymbol} />
-			{/if}
+	{#each boardViews as views, reelIndex (reelIndex)}
+		{#each views as view (view.id)}
+			<ReelSymbol
+				{reelIndex}
+				row={view.row}
+				reelSymbol={view.cell}
+				instanceKey={instanceIdOf(view.cell)}
+				vacant={view.vacant}
+			/>
 		{/each}
 	{/each}
 {/if}
