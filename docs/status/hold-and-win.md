@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **planned** (2026-11-09: corrected to the standing model, the partner's math through the translator and our client) | — | plan only |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a–14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" | 14d merged |
 
 ## Current state
 
@@ -1119,6 +1119,40 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-09 — **Phase 14d: our mock speaks the partner's collector-respin wire.** A new mock,
+  `scripts/mock-rgs-server-holdandwin-partner.mjs`, answers as the partner's server does for
+  Fortune Vault Force 5 (Getting Hot), in the order and shapes of the
+  [capture](../reference/play4fun-collector-respin-capture.md).
+  - **Select it** per game on the test server: `PARTNER_WIRE_GAMES=<key>[,<key>…]`
+    (`services/test-server/makeMock.mjs`). Standalone:
+    `node scripts/mock-rgs-server-holdandwin-partner.mjs` (port 7798; `SEED`, `FORCE`,
+    `DISABLED_OPTIONS=1,2,3` refuses the ante and buys as an operator can).
+  - **Wire:** `betOptions` [10, 50, 500, 1000] (Base / Powerup / BuyCenterCoin / goldStrike),
+    `gameCost` 10, cents; `COIN_<n>`, `COIN_<TIER>`, `COLLECT` / `COLLECT_<cents>`; whole
+    reel-major boards; `config` (`jackpots` + `config`), required before the first `bet`
+    (errorCode 110); `boostsAwarded` / `boostsEnabled`, the five-bit bonus id; `boost` /
+    `multiplier` hits on a fresh cash coin, `"X"` misses; one `collect` per collector, each taking
+    every coin's full value; `retrigger {games}`; `playedBonusSpin(s)`, `gameEnd`; a feature or a
+    paying base round closes on the client's `collect`; a bet while one is open is refused.
+  - **Rules:** the ante deals coins, collectors and blanks only; Center Coin guarantees a collector
+    on reel 3; collectors only on reel 3; coins never stick in the bonus; Expand opens a 4th row
+    at entry; Force 5 (`11111`) opens 5×5 with 5 respins.
+  - **Forced beats:** `force:enhancements:<bits>`, `force:boostHit`, `force:multiplyHit`,
+    `force:superBonus`, `force:twoCollectors`, plus `force:trigger` and `force:baseCollect`; comma
+    separated, or held with `…/force?sid=&beat=`. Authoring twin only, as on our own mock.
+  - **Pacing only.** `DEFAULT_PARTNER_PACING` carries the §3.1–§3.4 shapes (`trigger.run` /
+    `chance`, `topUp`, `enhancements` and the super bonus's, `betModeStrips`) with numbers that
+    pace plausible rounds (median 9 respins a bonus, as captured). None of it is Game Config: the
+    partner's server holds the real math, so the fields were not added to `holdAndWin`.
+  - **Ours, not seen in the capture:** the five paylines' rows, `spinTrigger.trigger.from`, the
+    extra `enterBonus` / `playedBonusSpin` fields, Force 5's strength, boost-then-multiply on one
+    coin. A top-up is invisible on the wire (the board is sent whole).
+  - **Gate:** `pnpm check:holdandwin-partner` (in `check:rgs`) replays 400 seeded rounds over HTTP
+    and re-derives every answer: event order, shapes, seq positions, Σ collects + line wins =
+    `gameRoundOver.win`, the collectors' totals, boost/multiply only on fresh cash coins, coins
+    never sticking, the counter, rows, the bonus id; then every forced beat and every refusal.
+    Planted mutants (jackpot boost, split collect, sticky coins, seq, config, pay, close) all fail
+    it. Our own mock is untouched: the `check:holdandwin` parity digests are unchanged.
 - 2026-11-02 — **A new line symbol no longer shows on the Hold and Win board.** `/config`'s
   **unused → in play** badge pushed the symbol onto every strip, the `respin` strip included, so a
   line symbol added to a Hold and Win game (H4, L5) rolled past on the respin board. It now goes
