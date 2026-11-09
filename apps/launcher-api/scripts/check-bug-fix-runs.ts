@@ -28,7 +28,8 @@
  *    base tree's directories, files, links and submodules, lockfiles, `package.json` keys and
  *    lifecycle scripts, ratchets, added lines' secrets and suppression comments, hidden Unicode,
  *    size, scope, gates, privacy over folded keys and names; run text stripped of format characters,
- *    HTML and CI-skip directives, capped by code points, unlinked after the cut, quiet;
+ *    HTML comments and CI-skip directives, its tags shown as text, capped by code points, unlinked
+ *    after the cut, quiet;
  *  - a fix: the App's calls in order on the base tree, the exec bit kept, a DRAFT PR; GitHub writes
  *    retried (5xx, network, short rate limits); a failure after the claim ends `failed` — or
  *    `pr_opened` when GitHub has the PR — and deletes a stray branch; any error after the claim;
@@ -312,6 +313,8 @@ fake('lib/server/bugFixRunsStore.ts', {
 		if (run) hooks.beforeSettle?.(run);
 		if (!run || !isLive(run) || (opts.withoutResult && run.resultAt)) return null;
 		if (opts.heldAt && run.resultAt?.getTime() !== opts.heldAt.getTime()) return null;
+		// The store's `case`: the status as the update finds it, before it changes.
+		if (run.status === 'dispatched') run.spendUsd ??= 0;
 		Object.assign(run, {
 			status: end.status,
 			outcome: end.outcome ?? null,
@@ -843,7 +846,8 @@ const resultDirect = (id: string, ghRunId: number, json: unknown) =>
 			{ sleep: async (ms: number) => void sleeps.push(ms) },
 		),
 	);
-const runView = (a: Answer) => a.body.run as { id: string; status: string; reason: string | null };
+const runView = (a: Answer) =>
+	a.body.run as { id: string; status: string; reason: string | null; spendUsd: number | null };
 const writes = () =>
 	gh.calls
 		.filter(
@@ -1281,7 +1285,7 @@ const dispatchWith = async (answerOf: (body: Call['body']) => Response) => {
 	gh.dispatch = answerOf;
 	const started = await start(ADMIN, 2);
 	const run = runOf(runView(started).id);
-	const seen = [started.status, run.status, run.reason];
+	const seen = [started.status, run.status, run.reason, run.spendUsd];
 	if (isLive(run)) run.status = 'failed';
 	return seen;
 };
@@ -1296,24 +1300,26 @@ const dispatched = [
 	}),
 ];
 check(
-	"dispatch: a definitive 4xx ends the run failed (the Actions-write sentence only for GitHub's no-access 403); a 5xx or a lost answer leaves it dispatched; the bug does not move",
+	"dispatch: a definitive 4xx ends the run failed (the Actions-write sentence only for GitHub's no-access 403) and spent nothing; a 5xx or a lost answer leaves it dispatched; the bug does not move",
 	[dispatched, bugOf(2).status === statusBefore],
 	[
 		[
-			[201, 'failed', 'The GitHub App needs Actions: Read and write (docs/INFRA.md).'],
+			[201, 'failed', 'The GitHub App needs Actions: Read and write (docs/INFRA.md).', 0],
 			[
 				201,
 				'failed',
 				'GitHub 403 dispatching the fix run: API rate limit exceeded for installation',
+				0,
 			],
 			[
 				201,
 				'failed',
 				'GitHub has no .github/workflows/bug-fix.yml on main for the App to run yet (ADR-0013 card 13B; docs/INFRA.md).',
+				0,
 			],
-			[201, 'failed', 'GitHub 422 dispatching the fix run: Unexpected inputs provided'],
-			[201, 'dispatched', null],
-			[201, 'dispatched', null],
+			[201, 'failed', 'GitHub 422 dispatching the fix run: Unexpected inputs provided', 0],
+			[201, 'dispatched', null, null],
+			[201, 'dispatched', null, null],
 		],
 		true,
 	],
@@ -1779,7 +1785,7 @@ check(
 		runOf(elsewhere.id).secondBug?.evidence.length,
 		db.bugs.length === bugsBefore,
 	],
-	['no_fix', 'second_area', 'The engine drops bones (bug #\u20609) now', 2000, true],
+	['no_fix', 'second_area', 'The engine drops bones (bug #\u20609) ‹b›now‹/b›', 2000, true],
 );
 const closedRun = liveRun(3);
 gh.calls.length = 0;
@@ -2097,6 +2103,16 @@ const planted: [string, Record<string, unknown>, string][] = [
 		'the project spelled apart',
 		{ title: 'Fix B.o-r_u t rigs' },
 		"privacy: the title names the bug's project or client",
+	],
+	[
+		'the project split by an empty tag',
+		{ title: 'Fix Bo<b></b>rut rigs' },
+		"privacy: the title names the bug's project or client",
+	],
+	[
+		'the client split by a tag',
+		{ summary: 'Only AC<i>ME</i> saw it.' },
+		"privacy: the summary names the bug's project or client",
 	],
 	[
 		'the client in the summary',
@@ -2661,7 +2677,7 @@ await result(
 		// Cut at 120 code points, the title ends at `bug-120`: a reference, were it not unlinked after.
 		title: `Fix\u200b the [skip ci] order\u202e ${'x'.repeat(96)} bug-1200000000`,
 		summary:
-			'Done. <!-- steer the reviewer --> <img src=x onerror=alert(1)> x://@user #12://y GH-12 https://github.com/@octocat [ci skip] Fixes https://github.com/Invisible-Wall-SL/Invisible-Engine/issues/12 and https://github.com/o/r/pull/3/files',
+			'Done for <Month> 2026. <!-- steer the reviewer --> <img src=x onerror=alert(1)> x://@user #12://y GH-12 https://github.com/@octocat [ci skip] Fixes https://github.com/Invisible-Wall-SL/Invisible-Engine/issues/12 and https://github.com/o/r/pull/3/files',
 		lesson: '- Area: launcher [skip [skip ci]ci]',
 	}),
 );
@@ -2671,12 +2687,14 @@ const cleanCommit = gh.calls
 	.at(-1);
 const skipped = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]/i;
 check(
-	'run text: format characters, HTML comments and tags and CI-skip directives gone; only a whole http(s) URL is left unquieted, but not a link to an issue or PR (cross-referenced, closed by Fixes); GH-<n> quieted',
+	'run text: format characters, HTML comments and CI-skip directives gone; a tag shown as text, so a placeholder keeps its word; only a whole http(s) URL is left unquieted, but not a link to an issue or PR (cross-referenced, closed by Fixes); GH-<n> quieted',
 	[
 		clean.title.startsWith('launcher: BUG-7 Fix the order '),
 		/[\u200b\u202e]/.test(clean.title),
 		clean.body.includes('steer the reviewer'),
 		clean.body.includes('<img'),
+		clean.body.includes('Done for ‹Month› 2026.') &&
+			clean.body.includes('‹img src=x onerror=alert(1)›'),
 		clean.body.includes('x://@\u2060user'),
 		clean.body.includes('#\u206012://y'),
 		clean.body.includes('GH-\u206012'),
@@ -2687,7 +2705,7 @@ check(
 		clean.body.includes('https://\u2060github.com/o/r/pull/3/files'),
 		clean.body.includes('https://github.com/Invisible-Wall-SL/Invisible-Engine/issues/12'),
 	],
-	[true, false, false, false, true, true, true, true, false, true, true, true, false],
+	[true, false, false, false, true, true, true, true, true, false, true, true, true, false],
 );
 check(
 	'run text is unlinked AFTER the cut: a long number cut short never becomes a reference',
@@ -2902,9 +2920,14 @@ started = Date.now();
 const cleanedSkips = change.cleanText(nestedSkips, 2000);
 const skipsMs = Date.now() - started;
 check(
-	'the strip passes are bounded: 120 KB of nested tags and 360 KB of nested directives, built to make them quadratic, clean in well under a second, no bracket left',
-	[tagsMs < 1000, skipsMs < 1000, /[<>[\]]/.test(cleanedTags), /[<>[\]]/.test(cleanedSkips)],
+	'the strip passes are bounded: 120 KB of nested tags and 360 KB of nested directives, built to make them quadratic, clean in well under a second, no tag opened and no bracket of a directive left',
+	[tagsMs < 1000, skipsMs < 1000, /<[A-Za-z/!?]/.test(cleanedTags), /[[\]]/.test(cleanedSkips)],
 	[true, true, false, false],
+);
+check(
+	'a tag shown as text keeps its word, and no `<` is left that a lenient HTML parser would open a tag with',
+	change.cleanText('<a<b>> <i<b>mg src=x onerror=y> </Month> <!x> <?p> a<b x < y a -> b', 200),
+	'‹a‹b›> ‹i‹b›mg src=x onerror=y> ‹/Month› ‹!x> ‹?p> a‹b x < y a -> b',
 );
 const deletes = () => writes().filter((w) => w.startsWith('DELETE'));
 const lookupDown = liveRun(7);
@@ -3064,9 +3087,9 @@ gh.cancel = { status: 404, message: 'Not Found' };
 const goneStop = await stop(FIXER, 7, goneOnGithub.id);
 gh.cancel = { status: 202, message: '' };
 check(
-	'stop: GitHub having no such Actions run (404) stops the fix run too',
-	[goneStop.status, runView(goneStop).status],
-	[200, 'cancelled'],
+	'stop: GitHub having no such Actions run (404) stops the fix run too; a run that read its brief may have spent, so its spend is unknown until its job says',
+	[goneStop.status, runView(goneStop).status, runView(goneStop).spendUsd],
+	[200, 'cancelled', null],
 );
 const LISTING = 'GET /actions/workflows/bug-fix.yml/runs?event=workflow_dispatch&per_page=50';
 const unbound = liveRun(7, { status: 'dispatched', ghRunId: null });
@@ -3074,9 +3097,18 @@ gh.listed = null;
 gh.calls.length = 0;
 const unboundStopped = await stop(ADMIN, 7, unbound.id);
 check(
-	'stop: an unbound run → cancelled; the workflow’s runs are looked through once, and none under its run-name means nothing to cancel',
-	[runView(unboundStopped).status, gh.calls.map(callKey)],
-	['cancelled', [LISTING]],
+	'stop: an unbound run → cancelled, $0 (it never read its brief); the workflow’s runs are looked through once, and none under its run-name means nothing to cancel',
+	[runView(unboundStopped).status, runView(unboundStopped).spendUsd, gh.calls.map(callKey)],
+	['cancelled', 0, [LISTING]],
+);
+const briefRace = liveRun(7, { status: 'dispatched' });
+hooks.beforeSettle = (run) => (run.status = 'running');
+const briefRaced = await stop(FIXER, 7, briefRace.id);
+hooks.beforeSettle = null;
+check(
+	'stop: a run whose brief is read between Stop reading it and settling it is not called $0',
+	[runView(briefRaced).status, runView(briefRaced).spendUsd],
+	['cancelled', null],
 );
 const startedUnbound = liveRun(7, { status: 'dispatched', ghRunId: null });
 gh.listed = [ghRun(9900, startedUnbound.id)];
@@ -3114,6 +3146,8 @@ const cancelledOnGh = mk(7, 9604);
 const midCommit = mk(3, 9605, { resultAt: new Date(bornAt + MIN) });
 const unseen = mk(5, null);
 const found = mk(6, null);
+const failedEarly = mk(8, 9609, { status: 'dispatched' });
+gh.runs.set(9609, ghRun(9609, failedEarly, { status: 'completed', conclusion: 'failure' }));
 gh.runs.set(9601, ghRun(9601, done, { status: 'completed', conclusion: 'failure' }));
 gh.runs.set(9603, ghRun(9603, going));
 gh.runs.set(9604, ghRun(9604, cancelledOnGh, { status: 'completed', conclusion: 'cancelled' }));
@@ -3147,6 +3181,17 @@ check(
 	],
 );
 check(
+	'backstop: an Actions run that ended before its brief was read → failed, $0; one that read it → spend unknown',
+	[
+		[runOf(failedEarly).status, runOf(failedEarly).spendUsd],
+		[runOf(done).status, runOf(done).spendUsd],
+	],
+	[
+		['failed', 0],
+		['failed', null],
+	],
+);
+check(
 	'backstop: what it settles is by the run, with the Actions link',
 	[eventsOf(1, 'fix_run').at(-1)?.actor, eventsOf(1, 'fix_run').at(-1)?.data],
 	[
@@ -3174,14 +3219,14 @@ check(
 );
 runOf(renewedMid).status = 'failed';
 check(
-	'backstop at 16 min: not found → failed "did not start"; a result claimed 15 min ago → failed "stopped while opening", or pr_opened when GitHub has its PR',
+	'backstop at 16 min: not found → failed "did not start", $0; a result claimed 15 min ago → failed "stopped while opening", or pr_opened when GitHub has its PR',
 	[
-		[runOf(unseen).status, runOf(unseen).reason],
+		[runOf(unseen).status, runOf(unseen).reason, runOf(unseen).spendUsd],
 		runOf(midCommit).reason,
 		[runOf(midWithPr).status, runOf(midWithPr).prNumber],
 	],
 	[
-		['failed', 'The Actions run did not start.'],
+		['failed', 'The Actions run did not start.', 0],
 		'The launcher stopped while opening the pull request.',
 		['pr_opened', 797],
 	],
@@ -3399,6 +3444,7 @@ check(
 		lineOf({ status: 'failed', reason: 'The run timed out.' }),
 		lineOf({ status: 'cancelled', reason: 'Stopped by Ana.' }),
 		lineOf({ status: 'cancelled' }),
+		lineOf({ status: 'cancelled', spendUsd: 0 }),
 	],
 	[
 		['Queued', 'blue', 'Fix run abc0123456 is queued: the job has not started yet.', null, true],
@@ -3437,6 +3483,7 @@ check(
 		['Failed', 'red', 'Fix run abc0123456 failed: The run timed out.', 'spend unknown', false],
 		['Stopped', 'muted', 'Fix run abc0123456 was stopped. Stopped by Ana.', 'spend unknown', false],
 		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', 'spend unknown', false],
+		['Stopped', 'muted', 'Fix run abc0123456 was stopped.', '$0.00', false],
 	],
 );
 const hostile = '<img src=x onerror=alert(1)> [x](http://evil.example) BUG-3';

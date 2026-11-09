@@ -60,6 +60,8 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const FORMAT = /\p{Cf}/gu;
 const HTML_COMMENT = /<!--[\s\S]*?(?:-->|$)/g;
 const HTML_TAG = /<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>/g;
+/** A `<` that could open a tag, a comment or a declaration in any HTML parser, however lenient. */
+const TAG_OPEN = /<(?=[A-Za-z/!?])/g;
 const CI_SKIPS = new RegExp(CI_SKIP.source, 'gi');
 const URL_TOKEN = /^https?:\/\/\S+$/i;
 /** A link to an issue or pull request, which GitHub cross-references — and closes, after "Fixes". */
@@ -86,11 +88,26 @@ function stable(text: string, strip: (t: string) => string): string {
 /** `text` with no CI-skip directive left. Newlines are kept. */
 const withoutDirectives = (text: string): string => stable(text, (t) => t.replace(CI_SKIPS, ''));
 
-/** No format characters (zero-width, bidi, tags), HTML comments or tags, or CI-skip directives. */
-const plain = (text: string): string =>
-	stable(text, (t) =>
-		t.replace(FORMAT, '').replace(HTML_COMMENT, '').replace(HTML_TAG, '').replace(CI_SKIPS, ''),
-	);
+/** A tag as text, never markup: a placeholder such as `<Month>` keeps its word, as `‹Month›`. */
+const showTag = (tag: string): string => `‹${tag.slice(1, -1)}›`;
+
+/** One pass: format characters, HTML comments and CI-skip directives out; tags through `tag`, and
+ *  any other `<` that opens a tag replaced by `open`. */
+const scrub = (t: string, tag: (found: string) => string, open: string): string =>
+	t
+		.replace(FORMAT, '')
+		.replace(HTML_COMMENT, '')
+		.replace(HTML_TAG, tag)
+		.replace(TAG_OPEN, open)
+		.replace(CI_SKIPS, '');
+
+/** No format characters (zero-width, bidi, tags), HTML comments or CI-skip directives, and no `<`
+ *  that opens a tag: a tag is shown as text (`showTag`), any other such `<` as `‹`. */
+const plain = (text: string): string => stable(text, (t) => scrub(t, showTag, '‹'));
+
+/** `plain` with every tag taken out instead: a key split by an empty tag (`sk-<b></b>ant-…`)
+ *  reads whole here, which is how the secret scan and the privacy rule still find it. */
+const unmarked = (text: string): string => stable(text, (t) => scrub(t, () => '', ''));
 
 /**
  * `@name` pages someone, and `#12` / `GH-12` link an issue, in a public pull request: a word
@@ -302,9 +319,9 @@ export interface LocalCheck {
 /**
  * The first rule (ADR-0013 §5) a change breaks that needs no GitHub: its base, its proof (a file,
  * a gate that passed), the paths and modes it asks for, its size, its text, the commit scope, a
- * title naming this bug alone, secrets in what is public (as written AND as cleaned: the cleaning
- * takes characters out, which can join a key back together) and in the paths, and the bug's
- * project or client in what is public. Null when none.
+ * title naming this bug alone, secrets in what is public and in the paths, and the bug's project or
+ * client in what is public. The public text is read as written, as cleaned and with its tags taken
+ * out: taking characters out can join a key or a name back together. Null when none.
  */
 export function localProblem(c: LocalCheck): string | null {
 	const r = c.result;
@@ -356,7 +373,7 @@ export function localProblem(c: LocalCheck): string | null {
 		]),
 	];
 	for (const [where, raw, clean] of said) {
-		const found = secretIn(raw) ?? secretIn(clean);
+		const found = secretIn(raw) ?? secretIn(clean) ?? secretIn(unmarked(raw));
 		if (found) return `secret scan: ${found} in ${where}`;
 	}
 	for (const f of r.files) {
@@ -364,7 +381,7 @@ export function localProblem(c: LocalCheck): string | null {
 		if (found) return `secret scan: ${found} in a path`;
 	}
 	for (const [where, raw, clean] of said) {
-		const folded = [fold(raw), fold(clean)];
+		const folded = [fold(raw), fold(clean), fold(unmarked(raw))];
 		if (c.names.some((n) => folded.some((t) => t.includes(n)))) {
 			return `privacy: ${where} names the bug's project or client`;
 		}

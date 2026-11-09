@@ -1915,8 +1915,11 @@ const { createGithubApp, GithubAppError, githubApp, mintAppJwt } = await import(
 	src('lib/server/githubApp.ts')
 );
 const changes = await import(src('lib/server/pipelineChanges.ts'));
-const { MAX_IMAGE_BYTES, openReportEntry, readBounded } = await import(
+const { MAX_IMAGE_BYTES, loadHarnessReport, openReportEntry, readBounded } = await import(
 	src('lib/server/pipelineReport.ts')
+);
+const { describe } = await import(
+	new URL('../../../scripts/current-games/lib/touched.mjs', import.meta.url).href
 );
 const { locateCentralDirectory, readZipEntry } = await import(src('lib/server/zip.ts'));
 const listRoute = await import(src('routes/api/pipeline/changes/+server.ts'));
@@ -4057,6 +4060,56 @@ check(
 		tone: 'amber',
 		label: 'expired',
 	});
+	// A fix run's draft: its run skipped every job, so no run renders the head (`harnessRunOf`),
+	// while the verdict has posted its status (seen on #1536 and #1537 before Mark ready).
+	const withoutRun = async (status: { state: string; description: string } | null) => {
+		const report = await loadHarnessReport(githubApp, REPO, null, sha(37), status);
+		const summary = view.check2Summary({ ...d14.harness, report });
+		return [report.state, summary.tone, summary.label, 'detail' in report ? report.detail : null];
+	};
+	// The verdict's own sentences for a change that reaches no game, from the harness's module.
+	const untouched = describe({ kind: 'untouched' }, 4);
+	const docsOnly = describe({ kind: 'docs' }, 0);
+	check(
+		'Check 2 with no run: the posted status, not "has not started" over the verdict\'s success; a success in other words is not taken for it',
+		[
+			await withoutRun({ state: 'success', description: untouched }),
+			await withoutRun({ state: 'success', description: docsOnly }),
+			await withoutRun({
+				state: 'pending',
+				description: "A fix run's draft: current-games runs once it is marked ready for review",
+			}),
+			await withoutRun({ state: 'success', description: 'All good' }),
+			await withoutRun(null),
+		],
+		[
+			[
+				'skipped',
+				'green',
+				'nothing to render',
+				'No run renders this head, and none needs to: Runtime untouched: no game can differ (4 changed files reach neither the lines runtime, its gates nor the harness).',
+			],
+			[
+				'skipped',
+				'green',
+				'nothing to render',
+				'No run renders this head, and none needs to: Docs-only change: no game can differ.',
+			],
+			[
+				'none',
+				'muted',
+				'not started',
+				'current-games has not started on this head (its pending status: "A fix run\'s draft: current-games runs once it is marked ready for review").',
+			],
+			[
+				'none',
+				'muted',
+				'not started',
+				'current-games has not started on this head (its success status: "All good").',
+			],
+			['none', 'muted', 'not started', 'current-games has not started on this head.'],
+		],
+	);
 	check('no approvals yet', view.approvalState((await detailOf('34')).harness), 'none');
 	const rows = d14.harness.report.state === 'ready' ? d14.harness.report.report.games : [];
 	check(

@@ -166,8 +166,9 @@ unknown tool id leaves the area blank.
      - The **run line** under it, newest first (the latest five): a pill (Queued, Working, Fix
        proposed, No fix, Failed, Stopped), a sentence ("Fix run `<id>` opened draft pull request
        #12.", "… found no fix: it did not reproduce.", "… failed: the run timed out."), links to
-       the pull request and the Actions run, the spend ("$1.20", or "spend unknown" when no result
-       came back), and **Stop** while the run goes (a dialog first). What the run wrote is shown
+       the pull request and the Actions run, the spend ("$1.20"; "$0.00" for a run that ended
+       before its job read the bug; "spend unknown" when no result came back), and **Stop** while
+       the run goes (a dialog first). What the run wrote is shown
        under the line as plain text, never as markup or a link. A run that finds a cause in
        another area adds "Proposed second bug: `<area>` — `<title>`" with **File it**, for triagers
        with this tool, which opens the report form filled in; nothing is filed until you press
