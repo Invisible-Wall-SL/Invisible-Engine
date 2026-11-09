@@ -25,20 +25,15 @@ import {
 	type Play4FunResponse,
 } from './types';
 
-/** API_AMOUNT_MULTIPLIER from constants-shared/bet — Invisible Engine multiplies
- *  the human bet by this when sending. We don't import it here to keep this
- *  package free of internal-engine deps; the caller scales bet/payout as needed. */
-
 export interface EngineBetRequest {
 	/** Bet amount in Invisible Engine's integer units (already multiplied). */
 	amount: number;
 	mode: string;
 	currency: string;
-	/** First element of the bet context tuple. Defaults to 5 (matches the only
-	 *  observed Hot Fruits config). The second element is derived from
-	 *  `amount` divided by this value, but most games will want to pass the
-	 *  exact pair as observed in their network capture. */
-	betLinesOrConfig?: number;
+	/** The line count the stake buys — the first element of the bet context tuple, as the server
+	 *  declared it. The second element is `amount` divided by it. No default: a guessed count prices
+	 *  the bet wrong (see `refuseUnpricedBet` in the facade). */
+	lineCount: number;
 	/** Override `play.context`. Default '' (auto-collect). Pass null to keep
 	 *  the round open and explicitly call buildCollectAction next. */
 	playContext?: PlayContext;
@@ -62,9 +57,8 @@ export interface EngineBetResponse {
 }
 
 const buildBetContext = (req: EngineBetRequest): BetContext => {
-	const linesOrConfig = req.betLinesOrConfig ?? 5;
-	const betPerLine = Math.max(1, Math.round(req.amount / linesOrConfig));
-	return [linesOrConfig, betPerLine];
+	const betPerLine = Math.max(1, Math.round(req.amount / req.lineCount));
+	return [req.lineCount, betPerLine];
 };
 
 /** Build the request body for a bet+play round. Default is auto-collect mode
