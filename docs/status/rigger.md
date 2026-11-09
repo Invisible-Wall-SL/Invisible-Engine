@@ -85,9 +85,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
     fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0–4a built (Recent
     changes): new rigs are irig v1, a Rigger or Director save stores a 4.2 rig as v1, and a runtime
-    rollback below the Phase 3 release is refused. Phase 5's migration script is built and its dry run is
-    clean (250 of 250 would upgrade with the same `SkeletonData`); the `--write` run waits for the
-    owner. 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
+    rollback below the Phase 3 release is refused. Phase 5 ran 2026-11-09: every project rig on R2 is
+    irig v1 (246, each backed up). Left: the `.json` rename on export; Phase 6 (retire the 4.2
+    assumptions); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
 ## Blocked (owner / external)
 
@@ -96,6 +96,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-09 — **irig v1, Phase 5: every project rig on R2 is irig v1** (owner approved the write).
+  `r2-migrate-irig.ts --write` wrote all 246 project rigs through the save's `writeIrig`, each
+  with its 4.2 file in the rig's 🕘 History; a dry run after it reports 246 `already`. Not written,
+  by design: the `_shared/spines/` library (3) and one `test_server/` published copy. 2 written
+  rigs (`borut/hotfruits` `R_AnticipationColumn`, `R_HoefIjzer`) have no atlas and were already
+  missing from that project's index; they still are.
 - 2026-11-09 — **irig v1, Phase 5: the R2 migration, dry run** ([irig-format](../design/irig-format.md)
   §6). `scripts/r2-migrate-irig.ts` (`irigMigration.ts`) gives every `.irig` a verdict and, with
   `--write`, upgrades only rigs whose import drops nothing the reader reads and whose
