@@ -22,8 +22,13 @@ the game page at the same session (the demo client was too slow to animate in a 
 window). About 140 respins, enhancement sets `10000`, `11000`, `01000`, `01001`, `00010`, `00011`,
 `00001`.
 
-Not seen in either session: a line win, a natural (unbought) trigger, Force 5, and a respin with
-both Boost and Multiply on.
+**Third session (2026-11-09):** the boot `config` read directly, then 3 bought rounds. One bonus
+had Expand + Boost + Multiply (`11010`); in its 7 respins Boost and Multiply never both hit, so
+whether they can hit the same coin is still unknown. The session then refused every bet option but
+the base bet (see Transport).
+
+Not seen in any session: a line win, a natural (unbought) trigger, Force 5, and a respin where Boost
+and Multiply both hit.
 
 ## Transport: what this confirms
 
@@ -34,6 +39,16 @@ both Boost and Multiply on.
 - **A respin is a context-less `[{"action":"play"}]`**, as our wire already assumes.
 - **A round with no feature closes in its own batch** (`gameEnd`, `gameRoundOver`); a feature round
   ends with the client's `collect`, answered by `gameRoundOver {win}` and `platform.gameRound`.
+- **A base-game collect also needs the client's `collect`.** A Center Coin round whose collector
+  paid ended with `gameEnd` but no `gameRoundOver`; it closed only after `[{"action":"collect"}]`
+  at `seq=2`. A `bet` sent while it was open was refused.
+- **A new session must send `config` before its first `bet`**; until then every `bet` is refused
+  with `errorCode: 110`.
+- **The server can refuse bet options.** In a later session (launched from a signed link) every
+  option but `Base` was refused with `errorCode: 110`, "unexpected args for action bet". The game's
+  web page calls the ante "operator dependent", so the operator may switch buys and the ante off; it
+  may also have been a limit on that demo after scripted buys. The error looks the same as a
+  malformed bet.
 
 ## The bet: `betOptions`, not a multiplier
 
@@ -55,6 +70,28 @@ already reads for a `betOptions` game. The ante is not a separate flag.
 Cents. `COIN_n` pays `n × gameCost × betPerLine`, i.e. **n × the base total bet, whatever option was
 bought** (an ante coin `COIN_1` showed 0.40 at a 2.00 stake). `jackpots` sends the tiers as
 multiples of the base bet: `{"MINI":25,"MINOR":50,"MAJOR":150,"GRAND":1000}`.
+
+## The boot `config`
+
+`[{"action":"config"}]` answers `jackpots` and `config {symbols, symbolsPay, wildSymbols,
+lineAlign, lineCoinciding, gameCost, betOptions, betOptionNames, maxWinMp, window,
+availablePayLines, paytable}`. `window` is `{reels: 5, rows: 3}`; `availablePayLines` are the five
+lines in `bet`. **No reel strips, symbol weights, coin or enhancement odds, or RTP** are sent; they
+stay on the server.
+
+The paytable pays per line, in multiples of the bet per line (`{"on":{"occurs":[3,4,5],"of":"PIC1",
+"mode":"line"},"pay":[400,600,1000]}`):
+
+| Symbol     | ×3  | ×4  | ×5   |
+| ---------- | --- | --- | ---- |
+| PIC1       | 400 | 600 | 1000 |
+| PIC2       | 300 | 400 | 800  |
+| PIC3       | 200 | 300 | 400  |
+| PIC4, PIC5 | 100 | 150 | 200  |
+| PIC6–PIC8  | 30  | 50  | 80   |
+| PIC9       | 10  | 20  | 30   |
+
+These are the partner's numbers, recorded to read their wire. Our game's math is our own.
 
 ## Symbols and the board
 
@@ -115,7 +152,9 @@ The last respin adds `playedBonusSpins` and `gameEnd`; the client then posts `co
 - **Boost and Multiply hit only a coin that landed this respin**, before the collect (7 of 7 boost
   hits and 5 of 5 multiply hits were on a fresh coin). With no coin landing they show X. Since
   coins do not stick, "a cash value in view" means a coin landing now. Multiply: `startingPay` 200
-  ×2 → `cellPayAmount.value` 10 (`original` 5). Boost adds 1–5× the base bet (40–200 cents seen).
+  ×2 → `cellPayAmount.value` 10 (`original` 5). Boost adds 1–5× the base bet (40–200 cents seen)
+  and raises the coin's value the same way: a 200 coin boosted by 40 → `original` 5, `value` 6,
+  `pay` 240.
   Order in the events: `cellPayAmount`, `boost`, then `collect`.
 - **Neither hits a jackpot coin.** In 4 respins where a jackpot coin landed with Boost or Multiply
   on, none was hit. Jackpot coins travel as `COIN_MINI` (also `COIN_MAJOR` seen), with
