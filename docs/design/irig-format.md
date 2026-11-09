@@ -236,7 +236,7 @@ built (§7). `source.json` and `text.json` stay sidecars, as Phase 0 decided (§
   The Rigger's own channel sampler goes away in favour of `engine-rig`'s, which also closes status
   open item 16.
 
-**Phase 5 — migrate R2.** _Script built 2026-11-09; the write waits for the owner._
+**Phase 5 — migrate R2.** _Built and run 2026-11-09 (owner approved the write)._
 `apps/launcher-api/scripts/r2-migrate-irig.ts` (`irigMigration.ts`) is a dry run unless given
 `--write`. Each `.irig` gets a verdict: `upgrade` only when the import drops nothing but keys the
 4.2 reader ignores AND `skeletonDataSnapshot` (now in `engine-rig`, shared with the Phase 0 gate)
@@ -250,7 +250,13 @@ which 4.2 means as "no attachment", the same as a missing name. The importer now
 missing name, and the Rigger, which wrote it whenever an author keyed "no attachment", now writes
 the missing name too (on a v1 rig the strict reader refused that key since Phase 3). The second
 dry run: 250 of 250 `upgrade`, no key dropped, every rig the same `SkeletonData`. 246 are project
-rigs; 4 are outside a project. Then the `.json` rename on export is dropped.
+rigs; 4 are outside a project.
+
+The `--write` run wrote all 246 project rigs, each with its 4.2 file in the rig's history; 2 of
+them (`borut/hotfruits` `R_AnticipationColumn`, `R_HoefIjzer`) have no atlas and were not in
+the index before either, so their index is unchanged. A dry run after it: 246 `already`, and the 4
+outside a project (`_shared/spines/` ×3, one `test_server/` published copy) still 4.2. Left: the
+`.json` rename on export, dropped once no runtime in use predates the irig reader.
 
 **Phase 6 — retire the 4.2 assumptions.** The 4.2.x pin message in `tools/rigger-spike/rig.mjs` and
 the Rig parity workflow move onto the internal 4.2 writer (§8). The 4.2 importer stays for as long as artists
