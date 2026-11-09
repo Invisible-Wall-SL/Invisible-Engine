@@ -95,6 +95,12 @@ jobs:
         with:
           node-version: 22
 
+      # Step 5 runs node by this path, whatever a later PATH says. Recorded first, so a run stopped
+      # once its base is checked out, before Claude Code starts, still posts "never started" and $0.
+      - name: Record node's path
+        id: node
+        run: echo "path=$(node -p process.execPath)" >> "$GITHUB_OUTPUT"
+
       # Step 3 of the ADR: the brief and screenshots, to $RUNNER_TEMP/bug/. Moves the run to running.
       - name: Read the bug
         id: brief
@@ -143,7 +149,6 @@ jobs:
           # Docker's socket is root on this machine, and nothing in a fix run needs it.
           sudo systemctl stop docker.socket docker.service containerd.service 2>/dev/null || true
 
-      # Also records node's path: step 5 runs it by that path, whatever a later PATH says.
       - name: Prepare the run
         id: prepare
         run: node "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" prepare
@@ -200,7 +205,8 @@ jobs:
             < "$c/conf/prompt.md" > "$c/stream.jsonl" 2> "$c/stderr.log"
 
       # Step 5, from the pristine copy: the change, the result and the usage, POSTed with an OIDC
-      # token. Runs after a failed, timed-out or stopped step 4 too, so the spend is always recorded.
+      # token. Runs after a failed, timed-out or stopped step 4 too, so the spend is always recorded,
+      # and after a run stopped before step 4, which reports $0.
       # Killing every bubblewrap kills each sandbox's whole process namespace: nothing the model
       # started is left to change the workspace while it is read.
       - name: Post the result
@@ -208,7 +214,7 @@ jobs:
         timeout-minutes: 12
         working-directory: ${{ runner.temp }}/main
         env:
-          NODE: ${{ steps.prepare.outputs.node }}
+          NODE: ${{ steps.node.outputs.path }}
         run: |
           pkill -KILL -x bwrap 2>/dev/null || true
           "$NODE" "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" result

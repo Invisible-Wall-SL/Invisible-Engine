@@ -108,6 +108,7 @@ const STEPS = [
 	'uses:actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
 	'uses:pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86',
 	'uses:actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
+	"Record node's path",
 	'Read the bug',
 	"Check out the run's base",
 	'Install dependencies',
@@ -482,14 +483,20 @@ export function problems(files) {
 			String(clean.run ?? '').trim() ===
 				'sudo rm -rf "$RUNNER_TEMP/key" "$RUNNER_TEMP/bug" "$RUNNER_TEMP/out" "$RUNNER_TEMP/claude" "$GITHUB_WORKSPACE/.git"',
 	);
-	// Step 5 runs main's code from the pristine copy, even after a failed step 4.
+	// Step 5 runs main's code from the pristine copy, even after a failed step 4, by node's path as
+	// recorded before the brief: a run stopped before Claude Code starts still reports its $0.
 	const post = named('Post the result');
+	const node = named("Record node's path");
 	rule(
 		'step-5-pristine',
 		String(post.run ?? '').includes(
 			'"$NODE" "$RUNNER_TEMP/main/scripts/bug-fix/collect.mjs" result',
 		) &&
-			post.env?.NODE === '${{ steps.prepare.outputs.node }}' &&
+			post.env?.NODE === '${{ steps.node.outputs.path }}' &&
+			node.id === 'node' &&
+			String(node.run ?? '').trim() ===
+				'echo "path=$(node -p process.execPath)" >> "$GITHUB_OUTPUT"' &&
+			at("Record node's path") < at('Read the bug') &&
 			post['working-directory'] === '${{ runner.temp }}/main' &&
 			post.if === "${{ always() && steps.base.outcome == 'success' }}" &&
 			post['timeout-minutes'] === '12',
@@ -885,6 +892,13 @@ const MUTANTS = [
 		'workflow',
 		"        if: ${{ always() && steps.base.outcome == 'success' }}\n",
 		'        if: ${{ success() }}\n',
+	],
+	// The 13D pilot's run, stopped during the install, had no node path yet: step 5 exited 127.
+	[
+		'step-5-pristine',
+		'workflow',
+		'          NODE: ${{ steps.node.outputs.path }}\n',
+		'          NODE: ${{ steps.prepare.outputs.node }}\n',
 	],
 	['order', 'workflow', '          cp -a "$GITHUB_WORKSPACE" "$RUNNER_TEMP/main"\n', ''],
 	['github-hosted', 'workflow', '    runs-on: ubuntu-24.04\n', '    runs-on: self-hosted\n'],
@@ -1777,6 +1791,23 @@ const capped = JSON.parse(posted.at(-1).raw.toString('utf8'));
 check(
 	/budget/.test(capped.failure ?? '') && capped.files.length === 0 && capped.summary === '',
 	`a run stopped at its cap posts a failure and no change: ${JSON.stringify(capped)}`,
+);
+// Stopped during the install: nothing was prepared, no key written, Claude Code never ran.
+rmSync(join(rt, 'claude', 'stream.jsonl'));
+rmSync(join(rt, 'key', 'anthropic'));
+answer = {
+	status: 200,
+	body: { fixRun: 'abcdef0123', status: 'failed', outcome: null, prNumber: null, spendUsd: 0 },
+};
+const early = await runCollect('result');
+const never = JSON.parse(posted.at(-1).raw.toString('utf8'));
+check(
+	early.code === 0 &&
+		/never started/.test(never.failure ?? '') &&
+		JSON.stringify(never.usage) === '[]' &&
+		never.files.length === 0 &&
+		/fix run abcdef0123: failed, \$0\.00\n/.test(early.out),
+	`a run stopped before Claude Code posts "never started" with no usage: ${JSON.stringify(early.out)}`,
 );
 server.close();
 
