@@ -57,11 +57,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 6. **`<DataTable>` extraction** (`docs/ui-inventory.md` §2): the Pipeline Changes Check 2 games
    table is the 4th matrix instance and the first read-only one, so it is the cheapest to move
    first; localization, win-text and the admin tables follow.
-7. **Relative links inside the in-app tool guides 404.** `/docs/[slug]` renders `docs/tools/*.md`
-   with plain `marked`, so a guide's `fx.md` resolves to `/docs/fx.md` (the route takes `/docs/fx`)
-   and `../design/…` to a route that does not exist. Rewrite hrefs in the route (sibling `<slug>.md`
-   → `/docs/<slug>`, `../…` → the file on GitHub), with a fixture; the markdown stays as is.
-   Found 2026-10-24 while writing the Shader Graph guide.
+7. ~~**Relative links inside the in-app tool guides 404.**~~ **Fixed (pending deploy):**
+   `/docs/[slug]` now renders through `$lib/server/toolDocLinks.ts` (`renderToolDoc`, a local
+   `Marked` instance whose `walkTokens` rewrites each relative href against `docs/tools/`: sibling
+   `<slug>.md` → `/docs/<slug>`, anything else → the file/folder on GitHub `blob|tree/main`).
+   Guard: `pnpm --filter launcher-api check:tool-doc-links` (rules + every real guide renders with
+   no relative href left). Remaining content bug it reports as a note: `game-config.md` and
+   `win-text.md` link `symbols.md`, which has no guide (`symbols-state-machine.md` is the likely
+   target).
 8. **`LeaseState.switchDoc` race** (`src/lib/leaseState.svelte.ts`). An acquire for item A can
    answer after the lease was switched to item B: A's answer is applied to B's state, and A's lease,
    if granted, is never released (it lapses at its TTL). The per-item tools (FX, Flipbook,
