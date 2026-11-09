@@ -44,6 +44,11 @@ export type Asset = {
 	/** Loaded instead when `src` fails: the WebP/PNG twin of a GPU-compressed `.ktx2` variant, so a
 	 * broken transcoder or a missing `.ktx2` costs VRAM, never the art. Same shape as `src`. */
 	fallback?: string | RigSrc;
+	/** `sprite` only: the texture resolution `src` loads at — a smaller copy of an image (a
+	 *  resolution tier, a downscaled KTX2 twin) declares the ratio, so it draws at the image's full
+	 *  size. Absent ⇒ 1, exactly as before. `fallbackResolution` is the same for `fallback`. */
+	resolution?: number;
+	fallbackResolution?: number;
 	preload?: boolean;
 	/** `sprites` only: a key prefix prepended to every frame's `loadedAssets` entry
 	 * (in addition to the bare frame name), so two sheets that reuse a frame name

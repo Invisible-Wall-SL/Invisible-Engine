@@ -1,5 +1,5 @@
 import * as RIG from 'engine-rig/pixi';
-import { BitmapFont, Cache } from 'pixi.js';
+import { BitmapFont, Cache, Texture } from 'pixi.js';
 import type { RawType, RawAsset, RawRig, RawSprites, RigSrc, RawAudio } from './types';
 import { setRigLoadScale } from './rigLoadScale';
 
@@ -21,7 +21,24 @@ const PROCESS_METHOD_MAP = {
 
 		return { [key]: skeletonData };
 	},
-	sprite: ({ key, rawAsset }: { key: string; rawAsset: RawSprites }) => ({ [key]: rawAsset }),
+	/** A sprite with a `resolution` is a smaller copy of an image. Pixi's cache hands back whatever
+	 *  texture first loaded that url, which may have been made before the page's resolution was set
+	 *  (a sheet's `meta.scale` sets it on the shared source after the fact, and a texture keeps the
+	 *  frame it was made with), so the resolution is set on the source and the sprite gets a texture
+	 *  of its own, framed by the source's logical size. */
+	sprite: ({
+		key,
+		rawAsset,
+		resolution,
+	}: {
+		key: string;
+		rawAsset: RawSprites;
+		resolution?: number;
+	}) => {
+		if (resolution === undefined || !(rawAsset instanceof Texture)) return { [key]: rawAsset };
+		rawAsset.source.resolution = resolution;
+		return { [key]: new Texture({ source: rawAsset.source }) };
+	},
 	// A `namespace` registers each frame BOTH bare and under `<namespace><frame>`,
 	// so a sheet scoped by its manifest can't collide with another sheet that reuses
 	// a frame name, while the bare key preserves back-compat for un-scoped lookups.
@@ -66,6 +83,7 @@ export const getProcessed = ({
 	src,
 	namespace,
 	family,
+	resolution,
 }: {
 	key: string;
 	type: RawType;
@@ -73,6 +91,7 @@ export const getProcessed = ({
 	src: string | RigSrc;
 	namespace?: string;
 	family?: string;
+	resolution?: number;
 }) => {
 	if (type === 'font') {
 		// pixi's font loader already cached the `BitmapFont` under its `<info face>`, but
@@ -86,5 +105,5 @@ export const getProcessed = ({
 	if (!processMethod)
 		throw Error('No asset process method found, please check the type of the asset.');
 	// @ts-expect-error
-	return processMethod({ key, rawAsset, src, namespace });
+	return processMethod({ key, rawAsset, src, namespace, resolution });
 };

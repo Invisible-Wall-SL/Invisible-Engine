@@ -93,17 +93,35 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
      page with no copy keeps its full page. The entry gains `tiers.half: { atlas, ktx2Atlas? }`.
    - Pull mirrors `_pages/` and the export folders whole, and 🗜 Optimize only removes unreferenced
      same-name PNG/WebP pairs, so the tier files ship with no change to either.
-   - Nothing reads the tiers yet: the game keeps loading the full pages until Phase 4. A desktop or
-     delivery build of a ticked project carries the tier files until then (about +25% page bytes).
+   - The game picks a tier since Phase 4. A desktop or delivery build of a ticked project carries
+     both tiers (about +25% page bytes); leaving out the one a pinned build never loads is open.
    - Guards: `apps/launcher-api/scripts/check-resolution-tiers.ts` (the real store, resize, Basis
      encode and rig export over an in-memory R2: parity with no tiers, half sizes, twin, cache, half
      atlases), `apps/launcher-api/sheetOnPage.fixture.ts` (tier sheets lay out like the full one,
      image resolutions), `check:doc-readers-unknown-fields` (the doc keeps the switch, drops an
      unknown tier id).
-4. **The runtime picks a tier.** Online: the smallest tier covering `box × fit scale × dpr`, the
-   same seam as `?quality=auto` (`preferCompressedTextures`), with `?tier=` to force it. A cabinet
-   build pins `full` through a delivery profile (`arcade-4k`), which can also carry kiosk/fullscreen
-   and the full render tier.
+4. **The runtime picks a tier** — BUILT (engine, 2026-11-09). `apps/lines/src/game/artTier.ts`
+   `chooseArtTier`: the art's on-screen scale is the window's fit of the canvas box (the box of the
+   window's bucket, as `createLayout` picks it) times the device pixel ratio capped by the render
+   tier; the smallest tier still covering it wins, else `full`. Decided once at boot, before art
+   registers; `?tier=full|half` forces it. A 4K game: full on a 4K cabinet and a 1440p desktop,
+   half on a 1080p desktop and a phone; a 2× iPad in portrait shows it at 71% and keeps full. A game
+   with no tiers has nothing to pick, so every entry falls back to its full files (parity).
+   - `editor-scenes.ts` registers each sheet, image and rig from its tier entry when it has one
+     (`sheetSrc` / `imageSrc` / `rigSrc`), the KTX2/WebP choice unchanged on top; an image carries
+     the resolution its file loads at, and so does a downscaled full KTX2 image (`ktx2Resolution`,
+     the Phase 1 gap).
+   - `pixi-svelte`: `Asset.resolution` / `fallbackResolution` load a `sprite` with
+     `data.resolution`, and give it a texture of its own framed by the source's logical size —
+     Pixi's cache may hand back a texture made before a shared page's resolution was set.
+   - No delivery-profile pin: the profile resolves after the art registers (a `config.json` fetch,
+     awaited at authenticate), and the automatic rule already picks `full` on a 4K screen. A build
+     flag can be added if a cabinet ever needs one.
+   - Guards: `apps/lines/src/game/artTier.fixture.ts` (the rule on real device sizes) and
+     `scripts/playtest/art-tier-probe.mjs`, which boots the built runtime with a synthetic 4K sheet
+     and image published as tiers: auto in a 1280×720 window fetches only the `@half` files,
+     `?tier=full` only the full ones, the two pictures match to 0.29%, and the half image with its
+     resolution removed (the control) differs by 16%.
 5. **Video flipbooks and FX get tiers** (one encode per tier; particle art rides the sheets).
 
 ## Constraints to keep
