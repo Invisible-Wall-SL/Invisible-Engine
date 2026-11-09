@@ -53,10 +53,21 @@ import {
 	type SymbolCell,
 	type SymbolsDoc,
 } from './symbolsStorage';
-import { isBuiltinRegion, parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
+import {
+	isBuiltinRegion,
+	parseScopedFrameRef,
+	scopedFrameRef,
+	type ResolutionTierId,
+} from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
 import { parseRigBundleKey } from '$lib/rigBundleKey';
-import { ktx2SheetTwin, type SheetFrame, type SheetJson } from './ktx2SheetTwin';
+import {
+	sheetOnPage,
+	tierSheets,
+	type SheetFrame,
+	type SheetJson,
+	type SheetTierRefs,
+} from './sheetOnPage';
 
 /**
  * How many rig bundles this export copies at once — the symbols twin of
@@ -82,6 +93,9 @@ export interface SymbolSheet {
 	 *  no twin was encoded (`KTX2_ENCODE` off, page under/over the encoder's size band, no page
 	 *  store), in which case the game ships the WebP/PNG unchanged. */
 	ktx2Json?: string;
+	/** The sheet on each lower-resolution copy of its page (`LayoutDoc.resolutionTiers`; only
+	 *  with a page store). Absent ⇒ none (parity). */
+	tiers?: Partial<Record<ResolutionTierId, SheetTierRefs>>;
 }
 
 /** A rig bundle a symbol binding references. `key` is the binding's full R2
@@ -99,6 +113,8 @@ export interface SymbolRig {
 	 *  could not select what the type did not admit existed, so every symbol rig shipped its page
 	 *  uncompressed while the twin sat unused in the bundle. Absent ⇒ the original `.atlas`. */
 	ktx2Atlas?: string;
+	/** The atlas on each lower-resolution copy of its pages (`exportRigBundle`). */
+	tiers?: Partial<Record<ResolutionTierId, { atlas: string; ktx2Atlas?: string }>>;
 }
 
 /** A frame name bound by a sprite cell that appears in MORE THAN ONE exported
@@ -438,7 +454,7 @@ function stemFromManifestKey(manifestKey: string): string {
 }
 
 /** Build the TexturePacker json-hash the engine's `sprites` loader parses, at the page's full
- *  resolution (its KTX2 variant is derived by `ktx2SheetTwin`). Each frame is keyed
+ *  resolution (its KTX2 variant is derived by `sheetOnPage`). Each frame is keyed
  *  BOTH by its bare name (what a legacy/coded bare `assetKey` looks up) AND by the atlas-scoped
  *  key `<manifest>::<region>` (what a SCOPED sprite cell looks up). The scoped key carries the
  *  manifest, so two symbols reusing a name on distinct atlases resolve to distinct textures — the
@@ -592,6 +608,7 @@ export async function exportEditorSymbols(
 		// sheet is a raw 32 MB upload on exactly the devices the compressed tier exists to protect.
 		// No store ⇒ the old verbatim per-bundle copy, unchanged (parity).
 		let ktx2Json: string | undefined;
+		let tiers: SymbolSheet['tiers'];
 		if (opts?.pageStore) {
 			const shared = await opts.pageStore.ensure(set.pageKey, pageExt);
 			if (!shared) return;
@@ -600,11 +617,11 @@ export async function exportEditorSymbols(
 			written.add(`${deployPrefix}${jsonRel}`);
 			// The twin is a SECOND spritesheet JSON over the same regions, pointing at the `.ktx2`
 			// page with rects rescaled to its dimensions (equal to the source unless the encoder
-			// downscaled it) and `meta.scale` saying so (`ktx2SheetTwin`). The game registers it on
+			// downscaled it) and `meta.scale` saying so (`sheetOnPage`). The game registers it on
 			// the compressed tier; absent ⇒ WebP/PNG.
 			if (shared.ktx2File) {
 				ktx2Json = `${EXPORT_SUBTREE}/${stem}/${stem}.${version}.ktx2.json`;
-				const twin = ktx2SheetTwin(
+				const twin = sheetOnPage(
 					sheet,
 					`${PAGE_REF_PREFIX}${shared.ktx2File}`,
 					shared.ktx2Width,
@@ -613,6 +630,17 @@ export async function exportEditorSymbols(
 				await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
 				written.add(`${deployPrefix}${ktx2Json}`);
 			}
+			const tiered = tierSheets(
+				sheet,
+				shared.tiers,
+				(file) => `${PAGE_REF_PREFIX}${file}`,
+				(suffix) => `${EXPORT_SUBTREE}/${stem}/${stem}.${version}${suffix}`,
+			);
+			for (const { path, sheet: tierSheet } of tiered.files) {
+				await putObjectText(`${deployPrefix}${path}`, sheetText(tierSheet), 'application/json');
+				written.add(`${deployPrefix}${path}`);
+			}
+			tiers = tiered.refs;
 		} else {
 			// Server-side copy the packed page verbatim (no bytes through this process —
 			// keeps peak memory flat); skip if the source page is missing.
@@ -626,7 +654,14 @@ export async function exportEditorSymbols(
 			written.add(`${deployPrefix}${pageRel}`);
 		}
 		const names = set.regions.map((r) => r.name);
-		sheets.push({ key: set.assetKey, json: jsonRel, frames: names.length, names, ktx2Json });
+		sheets.push({
+			key: set.assetKey,
+			json: jsonRel,
+			frames: names.length,
+			names,
+			ktx2Json,
+			...(tiers && { tiers }),
+		});
 		sheetFrameNames.push({ stem, names });
 		for (const r of set.regions) coveredFrames.add(r.name);
 	};

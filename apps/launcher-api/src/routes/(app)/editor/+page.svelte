@@ -51,7 +51,9 @@
 		viewableModeIds,
 		hasWorldCamera,
 		rescaleCanvas,
+		normalizeResolutionTiers,
 		type LayoutProfile,
+		type ResolutionTierId,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
@@ -187,6 +189,17 @@
 	let docLayoutProfile = $state<LayoutProfile | undefined>(
 		data.doc.layoutProfile ? structuredClone(data.doc.layoutProfile) : undefined,
 	);
+	/** Lower-resolution art copies to write at publish (`LayoutDoc.resolutionTiers`): a 4K game ticks
+	 * "half" to ship desktops and phones its art at half size. Saved with the doc; not an undo step. */
+	let resolutionTiers = $state<ResolutionTierId[]>(
+		normalizeResolutionTiers(data.doc.resolutionTiers) ?? [],
+	);
+	function setResolutionTier(tier: ResolutionTierId, on: boolean): void {
+		resolutionTiers = on
+			? [...new Set([...resolutionTiers, tier])]
+			: resolutionTiers.filter((t) => t !== tier);
+		markDirty();
+	}
 	/** The profile actually in force: the project override, else the inherited default. */
 	const activeProfile = $derived<LayoutProfile>(docLayoutProfile ?? data.inheritedLayoutProfile);
 	/** The BASE bucket — edits here write the node's base transform; other buckets write a
@@ -2796,6 +2809,7 @@
 			scenes: Scene[];
 			settings?: GameSettings;
 			layoutProfile?: LayoutProfile;
+			resolutionTiers?: ResolutionTierId[];
 			updatedAt: string;
 		} = {
 			version: data.doc.version,
@@ -2814,6 +2828,7 @@
 		) {
 			payload.layoutProfile = $state.snapshot(docLayoutProfile) as LayoutProfile;
 		}
+		if (resolutionTiers.length > 0) payload.resolutionTiers = [...resolutionTiers];
 		return payload;
 	}
 
@@ -4384,6 +4399,19 @@
 								<button type="button" class="gs-edit-btn" onclick={rescaleCanvasBy}>
 									Rescale canvas…
 								</button>
+								<label class="gs-toggle">
+									<input
+										type="checkbox"
+										checked={resolutionTiers.includes('half')}
+										onchange={(e) => setResolutionTier('half', e.currentTarget.checked)}
+									/>
+									<span>Also publish half-resolution art</span>
+								</label>
+								<p class="gs-note">
+									For a game made at 4K: every publish also writes the art at half size, for
+									desktops and phones. Off for a game made at 1920×1080. The first publish after
+									ticking it takes longer (each page is resized and encoded once).
+								</p>
 								{#if referenceMainSizes && canvasMismatches.length > 0}
 									<div class="cs-warn">
 										<p class="cs-warn-text">

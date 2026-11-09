@@ -42,16 +42,16 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
 
 ## Phases
 
-1. **Twin sheets keep their logical size** — BUILT (launcher, 2026-11-09). `ktx2SheetTwin.ts` is
+1. **Twin sheets keep their logical size** — BUILT (launcher, 2026-11-09). `sheetOnPage.ts` is
    the one place a twin sheet is derived (editor-art and symbol exports both call it): rects
    rescaled, `meta.scale` = the page ratio, borders kept logical. Guard:
-   `apps/launcher-api/ktx2SheetTwin.fixture.ts` parses both through Pixi's own `Spritesheet` and
+   `apps/launcher-api/sheetOnPage.fixture.ts` parses both through Pixi's own `Spritesheet` and
    fails a twin written the old way.
    Not covered: a **standalone image** (a dropped page) over 4096 px still loads its twin at the
    smaller size — the page store does not record the source's dimensions, and recording them means
    bumping `KTX2_ENCODER_REVISION`, which re-encodes every project's pages. Phase 3 records them
-   anyway (a tier needs the ratio), so it lands there. A 3840×2160 background is under both caps and
-   is not downscaled.
+   for a project with tiers (`ktx2Resolution` on the image entry); the runtime reads it in Phase 4.
+   A 3840×2160 background is under both caps and is not downscaled.
 2. **A 4K canvas works end to end** — BUILT (editor, 2026-11-09). Measured first:
    `scripts/playtest/canvas-scale-probe.mjs` boots the built runtime with a reference layout and
    with it ×2, and compares pixels. What it found:
@@ -75,10 +75,31 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
    but not booted by the probe; `renderTier`'s `maxResolution` (2) on a real cabinet GPU.
    `determinism-proof.mjs` does not boot on Windows (the hook holds the loading screen), which is
    why the probe uses a real clock.
-3. **Publish writes resolution tiers.** Between pull and 🗜 Optimize, write each page at the tiers
-   the game asks for — `full` (the master), `half`, and `mobile` (half, KTX2) — each with its own
-   sheet JSON through `ktx2SheetTwin`'s rule and its own KTX2 twin, plus the source dimensions the
-   standalone-image case needs. The 4096 cap must never shrink the `full` tier's WebP/PNG page.
+3. **Publish writes resolution tiers** — BUILT (launcher, 2026-11-09). Opt-in per project:
+   `LayoutDoc.resolutionTiers: ['half']`, ticked in the Scene Editor's Canvas Size panel ("Also
+   publish half-resolution art"). A project that has not ticked it writes exactly what it did, and
+   the assemble costs it one extra small read (the doc).
+   - `PageStore` writes each shared page's half copy (`_pages/<hash>@half.webp`, resized with sharp
+     and re-encoded near-lossless like every shared page) and its own KTX2 twin, cached by a
+     `<hash>@half<variant>.meta.json` sidecar that also records the source's size. The first
+     assemble after ticking pays a resize and an encode per page; later ones one small GET each.
+   - Sheets (editor art, symbols): `tierSheets` writes `<stem>.<v>@half.json` and
+     `@half.ktx2.json` through `sheetOnPage`, so they lay out like the full sheet; the index entry
+     gains `tiers.half: { json, ktx2Json? }`.
+   - Standalone images: `tiers.half: { file, resolution, ktx2?, ktx2Resolution? }`, and the full
+     KTX2 twin's `ktx2Resolution` when the encoder downscaled it.
+   - Rigs (`exportRigBundle`, through a store only): `<atlas>@half.atlas` and `@half.ktx2.atlas`,
+     each page renamed to its copy with its region coords rescaled (the KTX2 atlas rewrite); a
+     page with no copy keeps its full page. The entry gains `tiers.half: { atlas, ktx2Atlas? }`.
+   - Pull mirrors `_pages/` and the export folders whole, and 🗜 Optimize only removes unreferenced
+     same-name PNG/WebP pairs, so the tier files ship with no change to either.
+   - Nothing reads the tiers yet: the game keeps loading the full pages until Phase 4. A desktop or
+     delivery build of a ticked project carries the tier files until then (about +25% page bytes).
+   - Guards: `apps/launcher-api/scripts/check-resolution-tiers.ts` (the real store, resize, Basis
+     encode and rig export over an in-memory R2: parity with no tiers, half sizes, twin, cache, half
+     atlases), `apps/launcher-api/sheetOnPage.fixture.ts` (tier sheets lay out like the full one,
+     image resolutions), `check:doc-readers-unknown-fields` (the doc keeps the switch, drops an
+     unknown tier id).
 4. **The runtime picks a tier.** Online: the smallest tier covering `box × fit scale × dpr`, the
    same seam as `?quality=auto` (`preferCompressedTextures`), with `?tier=` to force it. A cabinet
    build pins `full` through a delivery profile (`arcade-4k`), which can also carry kiosk/fullscreen

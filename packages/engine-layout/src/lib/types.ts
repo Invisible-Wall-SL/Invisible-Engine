@@ -15,6 +15,7 @@ import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
 import type { KindCapabilities } from './kindCapabilities';
 import type { EditorGuideSet } from './editorGuides';
+import type { ResolutionTierId } from './resolutionTiers';
 import type { SliceMode } from './nineSlice';
 
 /**
@@ -1700,6 +1701,12 @@ export interface LayoutDoc {
 	 * sparse: the editor omits it when it equals the resolved default. Bucket ids here
 	 * key this doc's `mainSizesMap` and every node's `overrides`. */
 	layoutProfile?: LayoutProfile;
+	/**
+	 * Lower-resolution copies of the art to write at publish (`RESOLUTION_TIERS`): a 4K game
+	 * asks for `['half']` to ship its art at full size for a cabinet and half size for desktops and
+	 * phones. Absent ⇒ nothing extra is written (parity). Read through `normalizeResolutionTiers`.
+	 */
+	resolutionTiers?: ResolutionTierId[];
 	updatedAt: string;
 }
 
