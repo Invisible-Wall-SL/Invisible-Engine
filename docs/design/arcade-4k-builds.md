@@ -52,12 +52,29 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
    bumping `KTX2_ENCODER_REVISION`, which re-encodes every project's pages. Phase 3 records them
    anyway (a tier needs the ratio), so it lands there. A 3840×2160 background is under both caps and
    is not downscaled.
-2. **A 4K canvas works end to end.** Measure, don't assume: boot one game with a 3840×2160 Canvas
-   Size in the editor and the runtime, and fix whatever is still laid out in 1920 units (coded HUD
-   fallbacks, reference layouts, component defaults, font defaults). Add an editor action that
-   rescales an existing layout to a new Canvas Size (positions, sizes, font sizes, overrides), so a
-   1080p game can become a 4K one and a 4K reference can be seeded. Check `renderTier`'s
-   `maxResolution` (2) on the cabinet's GPU and density.
+2. **A 4K canvas works end to end** — BUILT (editor, 2026-11-09). Measured first:
+   `scripts/playtest/canvas-scale-probe.mjs` boots the built runtime with a reference layout and
+   with it ×2, and compares pixels. What it found:
+   - The runtime already fits any box. A `standard` screen (the HUD bar) uses the layout profile's
+     bucket box, so a 4K project needs those boxes at 4K as well as its Canvas Size.
+   - A `canvas` screen without `scaleWithWindow` is window pixels, and a `background` screen
+     cover-fits the window: neither depends on the canvas, so neither is rescaled.
+   - The only 1920-unit part left is the coded fallback board, used when a layout has no
+     `reelGrid` (the plain lines/ways/cluster/scatter references). It is NOT changed: making it
+     follow the canvas would move every current game whose box drifted from its coded box. A slot
+     rescaled to 4K needs a Reel Grid, and the editor says so.
+   - Result: the Book-of reference ×2 matches to 0.25–0.53% (real-clock animation and HUD-clock
+     noise); the lines reference (coded board) differs by 11–13%.
+
+   The editor's **Rescale canvas…** (Canvas Size panel) runs `engine-layout` `rescaleCanvas`:
+   boxes and profile boxes multiply, each top-level node of a canvas-unit screen moves and scales
+   (children keep their numbers), and a reel grid's nudge and a screen's world/camera/guides
+   multiply. Scaling nodes rather than rewriting every pixel field is exact for the art a project
+   has; when art is re-made at the new size, a natural-size node's scale goes back to 1.
+   Still open: the arcade family (world, camera, spawn layers, tilemaps) is covered by the fixture
+   but not booted by the probe; `renderTier`'s `maxResolution` (2) on a real cabinet GPU.
+   `determinism-proof.mjs` does not boot on Windows (the hook holds the loading screen), which is
+   why the probe uses a real clock.
 3. **Publish writes resolution tiers.** Between pull and 🗜 Optimize, write each page at the tiers
    the game asks for — `full` (the master), `half`, and `mobile` (half, KTX2) — each with its own
    sheet JSON through `ktx2SheetTwin`'s rule and its own KTX2 twin, plus the source dimensions the
