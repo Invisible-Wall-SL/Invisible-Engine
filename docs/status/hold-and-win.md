@@ -48,7 +48,7 @@ titled **"Hold and win game pipeline"**.
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
-| 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
+| 10 | Partner wire (facade + mock brought in line) | blocked on partner — **partly unblocked 2026-11-09**: one partner collector-respin game captured ([capture](../reference/play4fun-collector-respin-capture.md)); jackpot coins, meters and other titles still unseen | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
@@ -80,6 +80,16 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-11-09 — **First real partner respin rounds captured** (Fortune Vault Force 5 demo, in a
+  real browser tab; [capture](../reference/play4fun-collector-respin-capture.md)). It confirms `seq`
+  as a position, context-less `play` respins and the closing `collect`.
+  - Buys and the ante are `betOptions` (`[index, betPerLine]`).
+  - Coins travel as `COIN_<n>` (× base bet), collectors as `COLLECT_<cents>`, and boards whole every
+    spin.
+  - In that game coins do not stick: the collectors gather them each respin.
+  - The enhancement set is five 0/1 flags (`boostsAwarded`) that also name the bonus (`"00011"`).
+
+  The Phase 14 plan was corrected to match (trigger anywhere, collectors-only board, the two buys).
 - 2026-11-08 — **Phase 14 planned: a game shaped like the partner's Fortune Vault Force 5.** The
   owner wants its mechanics with our own art. About 70% is already config (collector on one reel
   with instant collect, coins on chosen reels, a second respin mode, buys, an ante). The rest is

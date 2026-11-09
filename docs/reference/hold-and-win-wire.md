@@ -1,7 +1,8 @@
 # The Hold and Win wire — OURS, a swap seam
 
-> **⚠️ This is not the partner's format.** The partner has never shown us a Hold and Win round, so
-> every Hold and Win event below is invented by us (design §3.2, owner decision 2026-09-30). It is
+> **⚠️ This is not the partner's format.** We have one capture of the partner's own collector respin
+> game (2026-11-09, [play4fun-collector-respin-capture.md](play4fun-collector-respin-capture.md)),
+> not yet mapped. Every Hold and Win event below is still invented by us (design §3.2, owner decision 2026-09-30). It is
 > what our mock (`scripts/mock-rgs-server-holdandwin.mjs`) speaks and what the facade maps into the
 > engine's book events (design §4.3). **When the partner delivers their format (Phase 10), this
 > document and the facade mapping are rewritten; nothing above the facade may depend on it.**
@@ -517,3 +518,9 @@ How coin values, jackpot labels, held cells, the counter and its reset, collecto
 the Lucky Spin flag and the feature total really travel; whether fixed coin jackpots ever use
 `platform.gameRound.jackpot`; how a game's own progressive tier reports its pool (ours:
 `jackpotLevels` and the boot `value`) and whether it is per player or shared; whether a respin board is sent whole (as here) or as a delta.
+
+Partly answered for one game by
+[play4fun-collector-respin-capture.md](play4fun-collector-respin-capture.md): coin values as
+`COIN_<n>` (× base bet), collectors as `COLLECT_<cents>`, whole boards each spin, the counter
+through `left` and `retrigger`, and the buys and the ante as `betOptions`. Still open: jackpot coins,
+persistent meters, the Lucky Spin, and whether other partner games use the same events.
