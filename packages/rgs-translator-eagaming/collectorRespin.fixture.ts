@@ -443,7 +443,9 @@ const facade: Facade = await import('./src/engineFacade.ts');
 const { rgsUrl } = partner;
 const sid = 'fx-collector-respin';
 
-// A bet before the session sent `config` is refused (110), and answered as a clean refusal.
+// A bet before the session sent `config` cannot be priced, so the facade refuses it itself (ERR_GE)
+// without sending it: the partner would answer 110, and either way no round reaches the engine.
+const sentBeforeEarly = partner.log.length;
 const early = (await hush(() =>
 	facade.requestBet({
 		sessionID: 'fx-unconfigured',
@@ -453,7 +455,8 @@ const early = (await hush(() =>
 		rgsUrl,
 	}),
 )) as Answer;
-check('a bet before config: refused as ERR_110', early.status?.statusCode, 'ERR_110');
+check('a bet before config: refused as ERR_GE', early.status?.statusCode, 'ERR_GE');
+check('...and never sent to the partner', partner.log.length, sentBeforeEarly);
 check('...with no round handed to the engine', early.round, undefined);
 
 await hush(() => facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' }));
