@@ -21,7 +21,7 @@
  * Space hotkey / flow `spin` action / invoked intent inherit it for free.
  *
  * WHERE IT RUNS. At the `playBookEvents` seam (`playBook.ts`), AFTER the event's presentation
- * has been awaited, on both dispatch branches — so it behaves the same whether the big win was
+ * has been awaited, whichever path dispatched it — so it behaves the same whether the big win was
  * presented by the coded handler, a v1 flow or a v2-authored `bigWin` container.
  *
  * OFF BY DEFAULT (`winCycle.holdAfterBigWin`, Invisible Symbols State Machine): an un-authored

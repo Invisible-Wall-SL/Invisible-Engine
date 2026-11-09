@@ -26,6 +26,7 @@
 		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/bonusModes.fixture.ts",
 		"check:feature-worth": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-feature-worth-source.mts",
 		"check:respin-modes": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-respin-modes-runtime.mts",
+		"check:play-book-dispatch": "node --no-warnings --experimental-strip-types scripts/check-play-book-dispatch.mts",
 		"check:spins-modes": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-spins-modes.mts",
 		"check:bonus-migration": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-bonus-migration.mts",
 		"check:bonus-modes": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-bonus-modes-protocol.mjs",
