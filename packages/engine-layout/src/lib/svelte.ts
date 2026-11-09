@@ -89,11 +89,13 @@ export {
 export { default as IsoWorld } from './IsoWorld.svelte';
 export { liftOf, liftsOn, setLifts } from './arcadeLifts.svelte';
 export { clearClips, clipOf, clipsOn, setClips, type InstanceClip } from './arcadeClips.svelte';
+export { clearArt, setCodeLooks, setFieldArt, type ArtMount } from './arcadeArt.svelte';
 export {
 	clearMarks,
 	setLinks,
 	setMarks,
 	startMarks,
 	type InstanceLink,
+	type InstanceLinkStyle,
 	type InstanceMark,
 } from './arcadeMarks.svelte';

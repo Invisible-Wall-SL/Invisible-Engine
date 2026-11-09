@@ -25,7 +25,7 @@ COPY packages/engine-mechanics/src/board.js ./packages/engine-mechanics/src/
 # The test server a play deals from, and the mock modules it imports as ../../scripts/…
 COPY services/test-server/server.mjs services/test-server/makeMock.mjs services/test-server/openRounds.mjs services/test-server/hostSettings.mjs ./services/test-server/
 COPY services/test-server/package.json ./services/test-server/
-COPY scripts/mock-rgs-server.mjs scripts/mock-rgs-server-book.mjs scripts/mock-rgs-server-holdandwin.mjs scripts/mock-holdandwin-engine.mjs scripts/mock-pots-overlay.mjs scripts/mock-platform-jackpot.mjs scripts/mock-rgs-server-match3.mjs ./scripts/
+COPY scripts/mock-rgs-server.mjs scripts/mock-rgs-server-book.mjs scripts/mock-rgs-server-holdandwin.mjs scripts/mock-rgs-server-holdandwin-partner.mjs scripts/mock-holdandwin-engine.mjs scripts/mock-pots-overlay.mjs scripts/mock-platform-jackpot.mjs scripts/mock-rgs-server-match3.mjs ./scripts/
 # The service itself.
 COPY services/draft-player/src/ ./services/draft-player/src/
 
