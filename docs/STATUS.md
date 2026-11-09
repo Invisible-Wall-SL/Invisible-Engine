@@ -77,6 +77,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
 - [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js`, the `build-delivery.mjs` handover and the upload to the partner's CDN. Phases 1, 3, 4 and 5 built; Phase 2 (protocol deltas) partly.
+- [arcade-4k-builds](design/arcade-4k-builds.md) — **one 4K master, smaller tiers** (planned 2026-11-09): a game authored on a 3840×2160 canvas, published at full resolution for a cabinet and as lower-resolution tiers for desktop and mobile that lay out identically (Pixi texture resolution). Phase 1 (KTX2 twin sheets keep their logical size) built; Phases 2–5 open.
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
@@ -125,7 +126,11 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    encoding, the host-setting meanings only the partner can confirm (`minNormalBet` units,
    `errorPanel`, `historyClient` — the reference's owed list), and the cascade vocabulary (waits on
    a real capture).
-4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
+4. **4K arcade builds** ([design](design/arcade-4k-builds.md)). Built: KTX2 twin sheets keep
+   their logical size (Phase 1). Open: a 3840×2160 canvas end to end plus a rescale-layout action
+   (2), resolution tiers at publish (3), the runtime tier pick and an `arcade-4k` delivery profile
+   (4), video and FX tiers (5).
+5. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
    no UI yet).
 
 **Recently closed** (2026-10-06): **no third-party licence needed to run a rig** — our own runtime,

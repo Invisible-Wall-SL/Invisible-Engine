@@ -67,18 +67,19 @@ export function emptyArtSlicesDoc(): ArtSlicesDoc {
 }
 
 /**
- * The TexturePacker frame `borders` for a slice, in the sheet's pixel space (`sx`/`sy` rescale it
- * for a downscaled KTX2 page, exactly as the frame rect is rescaled).
+ * The TexturePacker frame `borders` for a slice. PIXI reads them in the texture's LOGICAL units, so
+ * a downscaled KTX2 twin keeps them as authored (its `meta.scale` keeps the frame logical too).
  */
-export function sliceBorders(
-	slice: ArtSlice,
-	sx = 1,
-	sy = 1,
-): { left: number; top: number; right: number; bottom: number } {
+export function sliceBorders(slice: ArtSlice): {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+} {
 	return {
-		left: Math.round(slice.left * sx),
-		top: Math.round(slice.top * sy),
-		right: Math.round(slice.right * sx),
-		bottom: Math.round(slice.bottom * sy),
+		left: Math.round(slice.left),
+		top: Math.round(slice.top),
+		right: Math.round(slice.right),
+		bottom: Math.round(slice.bottom),
 	};
 }
