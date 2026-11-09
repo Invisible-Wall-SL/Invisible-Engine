@@ -179,7 +179,7 @@ const CENTER: ScriptedRound = {
 			ev('collect', { reel: 2, row: 0, pay: 1080 }),
 			ev('bonusWin', { bonus: 'initialspin', pay: 1080, isSpinWin: false }),
 			ev('collectWindow', CENTER_AFTER),
-			ev('playedSpin', CENTER_AFTER),
+			ev('playedSpin', CENTER_DEALT),
 			ev('gameEnd', { win: 1080 }),
 		],
 	],
@@ -208,10 +208,13 @@ const respin = (
 	...inner,
 	ev('collectWindow', after),
 	...(counter.retrigger ? [ev('retrigger', { games: 1 })] : []),
-	ev('playedSpin', after),
-	ev('playedBonusSpin', { played: counter.played, left: counter.left, bonusPlayed: '11011' }),
+	ev('playedSpin', dealt),
+	ev('playedBonusSpin', { played: counter.played, left: counter.left, bonus: '11011' }),
 	...(last
-		? [ev('playedBonusSpins', { played: counter.played }), ev('gameEnd', { win: 13280 })]
+		? [
+				ev('playedBonusSpins', { played: counter.played, left: 0, bonus: '11011' }),
+				ev('gameEnd', { win: 13280 }),
+			]
 		: []),
 ];
 const TRIGGER_DEALT = [
@@ -252,15 +255,22 @@ const BUY: ScriptedRound = {
 				spins: [{ prob: 1, spins: 4 }],
 				occurs: 3,
 				bonus: '11011',
-				trigger: { occurs: [1, 2, 3], from: 0 },
+				trigger: { occurs: [1, 2, 3], from: 'run' },
 			}),
-			ev('playedSpin', TRIGGER_AFTER),
+			ev('playedSpin', TRIGGER_DEALT),
 			ev('enterBonus', {
 				left: 4,
 				triggers: 1,
 				bonusTriggers: '11011',
 				spins: 4,
-				triggering: [0, 1, 2],
+				played: 0,
+				triggering: [
+					{ reel: 0, row: 0 },
+					{ reel: 1, row: 0 },
+					{ reel: 2, row: 1 },
+				],
+				playing: '11011',
+				window: { reels: 5, rows: 4 },
 			}),
 		],
 		// 1: a second collector lands with a 5× coin; boost hits it (+2×), multiply misses.

@@ -69,21 +69,21 @@ const jackpotTiers = (ctx: unknown) =>
  * `events` is the boot answer, whose `jackpots` names the tiers.
  */
 export const readCollectorRespinConfig = (
-	cfg: unknown,
+	boot: unknown,
 	events: readonly WireEvent[] | undefined,
 ): CollectorRespinConfig | null => {
-	const boot = (cfg ?? {}) as BootConfig;
-	const symbols = Array.isArray(boot.symbols) ? boot.symbols : [];
+	const cfg = (boot ?? {}) as BootConfig;
+	const symbols = Array.isArray(cfg.symbols) ? cfg.symbols : [];
 	if (!symbols.includes(COIN) || !symbols.includes(COLLECT)) return null;
-	if (boot.holdAndWin || boot.bonusModes || boot.potsOverlay || boot.match3) return null;
-	const options = Array.isArray(boot.betOptions) ? boot.betOptions : [];
+	if (cfg.holdAndWin || cfg.bonusModes || cfg.potsOverlay || cfg.match3) return null;
+	const options = Array.isArray(cfg.betOptions) ? cfg.betOptions : [];
 	const gameCost =
-		typeof boot.gameCost === 'number' && boot.gameCost > 0
-			? boot.gameCost
+		typeof cfg.gameCost === 'number' && cfg.gameCost > 0
+			? cfg.gameCost
 			: typeof options[0] === 'number' && options[0] > 0
 				? options[0]
 				: 0;
-	const rows = typeof boot.window?.rows === 'number' ? boot.window.rows : 3;
+	const rows = typeof cfg.window?.rows === 'number' ? cfg.window.rows : 3;
 	return {
 		gameCost,
 		rows,

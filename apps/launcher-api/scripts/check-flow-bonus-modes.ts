@@ -26,8 +26,10 @@
  *     additions (the `elementEffect` / `stopElementEffect` actions and the `ElementFxKind` /
  *     `ElementFxTarget` enums), the screen transition additions (Invisible Shader Graph 8e: the
  *     `screenTransition` / `waitForScreenTransition` actions and the `ScreenTransitionKind` enum) and
- *     the lines wild rewrites (`expandWild` / `growWild`, an event and an action each) are pinned on
- *     their own and left out of the vocabulary hash.
+ *     the lines wild rewrites (`expandWild` / `growWild`, an event and an action each) and the Hold
+ *     and Win Phase 14a enhancements (`enhancementHit` / `enhancementMiss`, the
+ *     `HoldAndWinEnhancement` enum, the `run` cause, `enhancements` on the entry and snapshot) are
+ *     pinned on their own and left out of the vocabulary hash.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -345,15 +347,32 @@ const AWARD_CUE = 'respinCounterAward';
 /** The lines wild rewrites (expanding / growing wild), each an event and an action of the Book-of
  *  vocabulary `lines` resolves to, added after `main` 5743911. */
 const WILD_REWRITES = ['expandWild', 'growWild'];
-/** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue
- *  and the wild rewrites. */
+/** The partner collector game's enhancements (Hold and Win Phase 14a), added to the Hold and Win
+ *  vocabulary: two events, an enum, a cause and an `enhancements` field on the entry and snapshot. */
+const ENHANCEMENT_EVENTS = ['enhancementHit', 'enhancementMiss'];
+const ENHANCEMENT_ENUM = 'HoldAndWinEnhancement';
+const RUN_CAUSE = 'run';
+const ENHANCEMENT_STRUCTS = ['HoldAndWinEntry', 'HoldAndWinSnapshot'];
+/** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue,
+ *  the wild rewrites and the Phase 14a enhancements. */
 const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
-	events: vocab.events.filter((e) => !WILD_REWRITES.includes(e.name)),
+	events: vocab.events.filter(
+		(e) => !WILD_REWRITES.includes(e.name) && !ENHANCEMENT_EVENTS.includes(e.name),
+	),
 	actions: vocab.actions.filter(
 		(a) => !ADDED_ACTIONS.includes(a.name) && !WILD_REWRITES.includes(a.name),
 	),
-	enums: vocab.enums.filter((e) => !ADDED_ENUMS.includes(e.name)),
+	enums: vocab.enums
+		.filter((e) => !ADDED_ENUMS.includes(e.name) && e.name !== ENHANCEMENT_ENUM)
+		.map((e) =>
+			e.name === 'HoldAndWinCause' ? { ...e, values: e.values.filter((v) => v !== RUN_CAUSE) } : e,
+		),
+	structs: vocab.structs.map((s) =>
+		ENHANCEMENT_STRUCTS.includes(s.name)
+			? { ...s, fields: s.fields.filter((f) => f.name !== 'enhancements') }
+			: s,
+	),
 	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE),
 });
 
@@ -486,6 +505,20 @@ for (const [name, kind, doc] of currentDocs()) {
 		],
 		['cameraEffect', ...SCREEN_TRANSITION_ACTIONS, ...SCREEN_TRANSITION_ENUMS],
 	);
+	if (docVocab.enums.some((e) => e.name === 'HoldAndWinCause')) {
+		same(
+			`5. ${name} · the Phase 14a enhancements are there`,
+			[
+				...docVocab.events.filter((e) => ENHANCEMENT_EVENTS.includes(e.name)).map((e) => e.name),
+				docVocab.enums.some((e) => e.name === ENHANCEMENT_ENUM),
+				docVocab.enums.find((e) => e.name === 'HoldAndWinCause')?.values.includes(RUN_CAUSE),
+				...ENHANCEMENT_STRUCTS.map((n) =>
+					docVocab.structs.find((s) => s.name === n)?.fields.some((f) => f.name === 'enhancements'),
+				),
+			],
+			[...ENHANCEMENT_EVENTS, true, true, true, true],
+		);
+	}
 	if (kind !== 'holdAndWin') {
 		same(
 			`5. ${name} · the wild rewrite events and actions are there`,
