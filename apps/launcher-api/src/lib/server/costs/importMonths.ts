@@ -91,13 +91,20 @@ const MONTH_NAMES: Record<string, number> = {
 /**
  * Parse a money amount written either way round: `1,234.56` (English) or `1.234,56`
  * (Spanish). Whichever separator appears LAST is the decimal point — the only rule
- * that distinguishes them without knowing the locale up front.
+ * that distinguishes them without knowing the locale up front — except that a comma
+ * between groups of three with no dot (`1,234`, `12,345,678`) is thousands: money seldom
+ * has three decimals. A group led by `0` (`0,125`) is never thousands. A Unicode minus
+ * (`−`, as some dashboards copy it) is a minus.
  */
 export function parseAmount(raw: string): number | null {
-	const cleaned = raw.replace(/[$€\s]/g, '').trim();
+	const cleaned = raw
+		.replace(/−/g, '-')
+		.replace(/[$€\s]/g, '')
+		.trim();
 	if (!cleaned) return null;
-	const normalized =
-		cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
+	const normalized = /^[-+]?[1-9]\d{0,2}(?:,\d{3})+$/.test(cleaned)
+		? cleaned.replace(/,/g, '')
+		: cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
 			? cleaned.replace(/\./g, '').replace(',', '.')
 			: cleaned.replace(/,/g, '');
 	const value = Number(normalized);
@@ -112,24 +119,90 @@ function matchProvider(token: string): ProviderId | null {
 	return null;
 }
 
-/** `2026-03`, `03/2026`, `Mar 2026`, `marzo 2026` → `{year, month}`. */
-function matchMonth(tokens: string[]): { year: number; month: number; used: number } | null {
-	const joined = tokens.join(' ');
-
-	// YYYY-MM / YYYY/MM
-	const iso = joined.match(/^(\d{4})[-/](\d{1,2})\b/);
-	if (iso) return { year: Number(iso[1]), month: Number(iso[2]), used: 1 };
+/**
+ * Read the month off the START of a line — `2026-03`, `03/2026`, `Mar 2026`, `marzo 2026`,
+ * `May 2026,` — and return it with the rest of the line. Matched on the raw line, not on
+ * split fields, so it doesn't matter whether the paste separated "May" from "2026" with the
+ * same character it separates the fields with.
+ */
+function matchMonth(line: string): { year: number; month: number; rest: string } | null {
+	// YYYY-MM / YYYY/MM (anything glued on, like a `-01` day, belongs to the same field).
+	const iso = line.match(/^(\d{4})[-/](\d{1,2})(?!\d)[^\s,;]*/);
+	if (iso) return { year: Number(iso[1]), month: Number(iso[2]), rest: line.slice(iso[0].length) };
 
 	// MM/YYYY
-	const slashed = joined.match(/^(\d{1,2})[-/](\d{4})\b/);
-	if (slashed) return { year: Number(slashed[2]), month: Number(slashed[1]), used: 1 };
+	const slashed = line.match(/^(\d{1,2})[-/](\d{4})(?!\d)[^\s,;]*/);
+	if (slashed)
+		return {
+			year: Number(slashed[2]),
+			month: Number(slashed[1]),
+			rest: line.slice(slashed[0].length),
+		};
 
-	// "March 2026" / "mar 2026" / "marzo 2026" — two tokens.
-	const name = MONTH_NAMES[(tokens[0] ?? '').toLowerCase().replace(/[.,]/g, '')];
-	const year = Number((tokens[1] ?? '').replace(/[^\d]/g, ''));
-	if (name && year >= 2000 && year <= 2200) return { year, month: name, used: 2 };
+	// "March 2026" / "mar. 2026" / "marzo, 2026".
+	const named = line.match(/^(\p{L}+)[\s.,;/-]*(\d{4})(?!\d)/u);
+	const month = named ? MONTH_NAMES[named[1].toLowerCase()] : undefined;
+	const year = named ? Number(named[2]) : 0;
+	if (named && month && year >= 2000 && year <= 2200)
+		return { year, month, rest: line.slice(named[0].length) };
 
 	return null;
+}
+
+/** The word before a thousands comma: `1`, `-12`, `$-1`, `$1,234` (a group of three follows). */
+const THOUSANDS_HEAD = /^[-+−]?[$€]?[-+−]?[1-9]\d{0,2}(?:,\d{3})*$/;
+/** The word before a decimal comma: `12`, `-12`, `$-12`, `0`, `1234`, `1.234`. */
+const DECIMAL_HEAD = /^[-+−]?[$€]?[-+−]?(?:\d+|[1-9]\d{0,2}(?:\.\d{3})+)$/;
+
+/**
+ * Whether the comma between `before` and `after` sits inside one amount: `1,234.56`,
+ * `12,50 €`, `1.234,56`, `$-12,50`, `0,125`, `1234,567`. Only a comma with a digit straight
+ * after it: a group of three after a thousands head is thousands, any other digits after a
+ * decimal head are decimals unless a `.` follows them (`3,12.50` is two fields). `r2,4`,
+ * `12.50,3` and `12, 50` are field separators.
+ */
+function commaInAmount(before: string, after: string): boolean {
+	if (/\s$/.test(before) || !/^\d/.test(after)) return false;
+	const head = before.split(/\s+/).pop() ?? '';
+	const digits = /^\d+/.exec(after)?.[0].length ?? 0;
+	if (THOUSANDS_HEAD.test(head) && digits === 3) return true;
+	return DECIMAL_HEAD.test(head) && !/^\.\d/.test(after.slice(digits));
+}
+
+/**
+ * Split what follows the month into fields: on tabs, runs of two-plus spaces and `;`. Commas
+ * separate fields only when that leaves a single field and the whole line has at least three
+ * comma-separated parts (`commaSeparated`, the month, provider and amount) — and then not a
+ * comma inside an amount (`commaInAmount`). So a tab- or space-separated amount is never split.
+ */
+function splitFields(rest: string, commaSeparated: boolean): string[] {
+	const fields = rest
+		.split(/\t|\s{2,}|;/)
+		.map((f) => f.trim().replace(/,+$/, ''))
+		.filter((f) => /[^\s,]/.test(f));
+	if (fields.length !== 1 || !commaSeparated) return fields;
+	const pieces: string[] = [];
+	for (const piece of fields[0].split(',')) {
+		const last = pieces.length - 1;
+		if (last >= 0 && commaInAmount(pieces[last], piece)) pieces[last] += `,${piece}`;
+		else pieces.push(piece);
+	}
+	return pieces.map((p) => p.trim()).filter(Boolean);
+}
+
+/**
+ * The provider and amount among `pieces` (fields, or single words when the paste used single
+ * spaces): the provider is the first piece naming one; the amount is the last OTHER piece that
+ * parses as money.
+ */
+function readFields(pieces: string[]): { provider: ProviderId | null; usd: number | null } {
+	const providerIndex = pieces.findIndex((p) => matchProvider(p) != null);
+	const provider = providerIndex >= 0 ? matchProvider(pieces[providerIndex]) : null;
+	let usd: number | null = null;
+	for (let i = pieces.length - 1; i >= 0 && usd == null; i--) {
+		if (i !== providerIndex) usd = parseAmount(pieces[i]);
+	}
+	return { provider, usd };
 }
 
 /**
@@ -144,15 +217,7 @@ export function parseCostImport(text: string): ParseResult {
 		const line = rawLine.trim();
 		if (!line || line.startsWith('#')) continue;
 
-		// Commas double as both a field separator and a thousands separator, so split
-		// on tabs and runs of two-plus spaces first; fall back to single commas only
-		// when that leaves one field.
-		let tokens = line.split(/\t|\s{2,}/).filter(Boolean);
-		if (tokens.length < 3) tokens = line.split(/[,;]/).filter((t) => t.trim());
-		if (tokens.length < 3) tokens = line.split(/\s+/).filter(Boolean);
-		tokens = tokens.map((t) => t.trim());
-
-		const month = matchMonth(tokens);
+		const month = matchMonth(line);
 		if (!month) {
 			errors.push(`Couldn't read a month from: "${line}"`);
 			continue;
@@ -162,19 +227,19 @@ export function parseCostImport(text: string): ParseResult {
 			continue;
 		}
 
-		const rest = tokens.slice(month.used);
-		const providerToken = rest.find((t) => matchProvider(t) != null);
-		const provider = providerToken ? matchProvider(providerToken) : null;
+		// Whole fields first (keeps "Cloudflare R2" or "$ 1 234,56" in one piece); a line
+		// separated by single spaces is one field, so fall back to its words.
+		const commaSeparated = line.split(',').filter((t) => t.trim()).length >= 3;
+		const fields = splitFields(month.rest, commaSeparated);
+		const byField = readFields(fields);
+		const byWord = readFields(fields.flatMap((f) => f.split(/\s+/)));
+		const provider = byField.provider ?? byWord.provider;
 		if (!provider) {
 			errors.push(`Couldn't read a provider from: "${line}"`);
 			continue;
 		}
 
-		// The amount is the last token that parses as a number and isn't the provider.
-		const amountToken = [...rest]
-			.reverse()
-			.find((t) => t !== providerToken && parseAmount(t) != null);
-		const usd = amountToken ? parseAmount(amountToken) : null;
+		const usd = byField.provider ? (byField.usd ?? byWord.usd) : byWord.usd;
 		if (usd == null) {
 			errors.push(`Couldn't read an amount from: "${line}"`);
 			continue;
