@@ -1,9 +1,13 @@
 import { json } from '@sveltejs/kit';
 import type { Cookies } from '@sveltejs/kit';
 import { bearerToken } from '$lib/launcherGates';
+import { entitledByAny } from '$lib/accessRules';
 import { SESSION_COOKIE, validateSession } from '$lib/server/auth';
+import { checkComfyUrl, COMFY_REGISTER_TOOLS } from '$lib/server/comfyRegister';
 import { deleteObject, getObjectText, putObjectText } from '$lib/server/r2';
 import { r2Slug } from '$lib/server/projectPaths';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
 // Per-user ComfyUI routing (docs/design/per-user-comfyui-routing.md).
@@ -14,6 +18,10 @@ import type { RequestHandler } from './$types';
 // stored at `_users/<slug>/comfy.json` in the same R2 bucket the atlas-tool
 // reads. `r2Slug` here is byte-identical to the atlas-tool's `r2_slug`, and the
 // atlas handoff forwards the same `?user=<slug>` — so all three agree on the key.
+//
+// The atlas-tool POSTs to the registered URL from inside Railway's network, so registering needs
+// the Atlas Maker or ComfyUI tool and a loopback/private/internal host is refused
+// (`checkComfyUrl`). Reading and clearing your own record need only a session.
 
 function userKey(userId: string): string {
 	return `_users/${r2Slug(userId)}/comfy.json`;
@@ -30,6 +38,16 @@ async function authUser(request: Request, cookies: Cookies) {
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	const user = await authUser(request, cookies);
 	if (!user) return json({ error: 'Unauthorized' }, { status: 401 });
+	const [roleOverrides, userOverrides] = await Promise.all([
+		getRoleOverrides(user.role),
+		getToolOverrides(user.id),
+	]);
+	if (!entitledByAny(user.role, COMFY_REGISTER_TOOLS, roleOverrides, userOverrides)) {
+		return json(
+			{ error: 'Your role does not have access to the Atlas Maker or ComfyUI.' },
+			{ status: 403 },
+		);
+	}
 
 	let body: unknown;
 	try {
@@ -38,12 +56,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ error: 'Body must be JSON' }, { status: 400 });
 	}
 	const b = (body ?? {}) as Record<string, unknown>;
-	const url = String(b.url ?? '')
-		.trim()
-		.replace(/\/+$/, '');
-	if (!/^https?:\/\/.+/i.test(url)) {
-		return json({ error: 'A valid http(s) ComfyUI url is required' }, { status: 400 });
-	}
+	const checked = checkComfyUrl(String(b.url ?? ''));
+	if (!checked.ok) return json({ error: checked.error }, { status: 400 });
+	const { url } = checked;
 	const cfId = String(b.cf_access_id ?? '').trim();
 	const cfSecret = String(b.cf_access_secret ?? '').trim();
 	// A named tunnel (a) carries a per-user CF Access token; a quick tunnel (b)

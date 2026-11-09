@@ -83,6 +83,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
@@ -901,6 +902,26 @@
 		libraryState.markDirty();
 	}
 
+	// Both docs autosave, but an edit inside the debounce — or one held by a failed save, a
+	// conflict or someone else's lease — lives only in this tab: ask before a tool-bar switch,
+	// Back, a reload or a tab close throws it away.
+	guardUnsavedWork(() => {
+		const flow = saveState.dirty;
+		const shared = libraryState.dirty;
+		if (!flow && !shared) return null;
+		const what = flow
+			? shared
+				? 'this flow and the shared function library'
+				: 'this flow'
+			: 'the shared function library';
+		return {
+			title: `You have unsaved changes to ${what}`,
+			message: 'They have not been saved yet (see the save pill). Leaving this page discards them.',
+			confirmLabel: 'Leave anyway',
+			danger: true,
+		};
+	});
+
 	// --- Undo / redo ------------------------------------------------------------
 	// Every edit already funnels through `markDirty` / `markLibraryDirty`, so that is where the
 	// history records. A step is the PAIR `[doc, library]`: "Collapse to Function" edits both in
@@ -1032,6 +1053,11 @@
 			body: JSON.stringify({ id, baseEtag: saveState.etag, projectKey: data.projectKey }),
 		});
 		if (res.ok) {
+			// The history dialog already warned that restoring discards unsaved edits (of both
+			// docs); settle them so the leave guard does not ask again over an applied restore.
+			libraryState.cancelAutosave();
+			saveState.setDirty(false);
+			libraryState.setDirty(false);
 			location.reload();
 			return null;
 		}

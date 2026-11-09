@@ -2,6 +2,17 @@ import { onMount } from 'svelte';
 import type { BeforeNavigate } from '@sveltejs/kit';
 import { beforeNavigate, goto } from '$app/navigation';
 import { askConfirm, type ConfirmOptions } from './dialogs.svelte';
+import { createLeaveGuard } from './unsavedGuardCore';
+
+const leaveGuard = createLeaveGuard({
+	ask: askConfirm,
+	// `svelte/no-navigation-without-resolve` wants `resolve()`, which SvelteKit 2.17 does not
+	// export yet — and `to` is the URL SvelteKit itself resolved for the navigation the guard
+	// cancelled, so it needs no resolving.
+	// eslint-disable-next-line svelte/no-navigation-without-resolve
+	goto: (to) => goto(to),
+	historyGo: (delta) => history.go(delta),
+});
 
 /**
  * "You have unsaved changes — leave anyway?" for a CLIENT-SIDE navigation, asked through the
@@ -22,10 +33,11 @@ import { askConfirm, type ConfirmOptions } from './dialogs.svelte';
  *     with `goto` would push a NEW entry instead of moving within history, quietly turning
  *     Back into Forward. `delta` is on the navigation for exactly this.
  *
- * `approved` is the one-shot re-entry ticket: the re-issued navigation runs this hook again
- * and must pass through. It is consumed by the hook, and also cleared if the `goto` resolves
- * without the hook having fired (a same-URL navigation), so a stale ticket can never let a
- * LATER navigation past unasked.
+ * The re-issued navigation carries a one-shot ticket: it runs every guard's hook again and must
+ * pass through all of them. It is spent once they have run, and also cleared if the `goto`
+ * resolves without the hooks having fired (a same-URL navigation), so a stale ticket can never
+ * let a LATER navigation past unasked. Every guard on the page shares that ticket and, for one
+ * navigation, ONE question (`unsavedGuardCore.ts` says why) — `/editor` holds several.
  *
  * `willUnload` navigations (a real unload — refresh, tab close, an off-app link, the top bar's
  * project switch) skip the dialog: cancelling one only re-triggers the browser's own prompt.
@@ -43,8 +55,6 @@ export function guardUnsavedWork(
 	cost: () => ConfirmOptions | null,
 	handledElsewhere?: (navigation: BeforeNavigate) => boolean,
 ): void {
-	let approved = false;
-
 	onMount(() => {
 		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
 			if (!cost()) return;
@@ -55,40 +65,5 @@ export function guardUnsavedWork(
 		return () => window.removeEventListener('beforeunload', onBeforeUnload);
 	});
 
-	beforeNavigate((navigation) => {
-		if (approved) {
-			approved = false;
-			return;
-		}
-		if (navigation.willUnload || handledElsewhere?.(navigation)) return;
-		const question = cost();
-		if (!question) return;
-
-		const to = navigation.to?.url;
-		const { delta } = navigation;
-		navigation.cancel();
-
-		void (async () => {
-			if (!(await askConfirm(question))) return;
-			approved = true;
-			if (typeof delta === 'number') {
-				// Redoes the exact history move SvelteKit just undid; the hook above eats the ticket.
-				history.go(delta);
-				return;
-			}
-			if (!to) {
-				approved = false;
-				return;
-			}
-			try {
-				// `svelte/no-navigation-without-resolve` wants `resolve()`, which SvelteKit 2.17
-				// does not export yet — and `to` is the URL SvelteKit itself resolved for the
-				// navigation we just cancelled, so it needs no resolving.
-				// eslint-disable-next-line svelte/no-navigation-without-resolve
-				await goto(to);
-			} finally {
-				approved = false;
-			}
-		})();
-	});
+	beforeNavigate((navigation) => leaveGuard(navigation, cost, handledElsewhere));
 }

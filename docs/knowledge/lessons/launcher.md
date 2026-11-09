@@ -56,10 +56,15 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 ### Unsaved work discarded on a tool switch
 - **Symptom:** a tool-bar switch, Back or reload threw away unsaved edits with no question.
 - **Cause:** pages guarded only `beforeunload` (never fires for in-app navigation), or nothing.
-- **Fix:** every manual-Save tool calls `guardUnsavedWork` (`src/lib/unsavedGuard.ts`), which owns
-  both exits; native pop-ups replaced by `dialogs.svelte.ts`.
-- **Guard:** `check:native-dialogs`.
-- **PR:** not recorded (2026-09-29, 2026-09-30) · source: `docs/status/launcher.md`
+  Autosaving tools were missed too (`/flow-v2`, `/editor`, 2026-11-09): an edit inside the
+  debounce, or held by an error/conflict/lease, lives only in the tab.
+- **Fix:** every tool with unsaved state, autosaving or not, calls `guardUnsavedWork`
+  (`src/lib/unsavedGuard.ts`), which owns both exits; native pop-ups replaced by
+  `dialogs.svelte.ts`. Several guards on one page share one question and one re-issue ticket
+  (`unsavedGuardCore.ts`) — a ticket per guard made two dirty guards cancel each other forever.
+- **Guard:** `check:native-dialogs`; `check:unsaved-guard` (the multi-guard coordinator).
+- **PR:** not recorded (2026-09-29, 2026-09-30, 2026-11-09) · source: `docs/status/launcher.md`,
+  `docs/status/editor.md`
 
 ### A manual Save overwrote a colleague's newer save
 - **Symptom:** Save in `/localization`, `/symbols` and `/fx` never raised a conflict.

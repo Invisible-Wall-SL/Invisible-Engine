@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
+import { requireDeployToken } from '$lib/server/deployToken';
 import { exportEditorFlowV2 } from '$lib/server/flowV2Export';
 import {
 	checkFlowV2ForPublish,
@@ -26,9 +26,7 @@ import type { RequestHandler } from './$types';
  * family than the project's kind (`reason: 'flow-wrong-kind'`) is refused with no override.
  */
 export const POST: RequestHandler = async ({ url }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Editor flow export is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
+	await requireDeployToken(url, 'Editor flow export is not configured.');
 
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;

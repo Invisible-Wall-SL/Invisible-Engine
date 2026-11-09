@@ -263,6 +263,7 @@ const PROJECT_CHECKS = [
 	'canAccessProject(',
 	'projectAllowsRead(',
 	'getDeployToken(',
+	'requireDeployToken(',
 	// The game server's secret reads every project's PUBLISHED config, like the deploy token.
 	'gameServerAuthorized(',
 ];
