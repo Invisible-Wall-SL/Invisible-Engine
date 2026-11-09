@@ -1120,7 +1120,8 @@ export const bugFixRuns = pgTable(
 		summary: text('summary'),
 		reason: text('reason'),
 		secondBug: jsonb('second_bug').$type<FixRunSecondBug>(),
-		/** What the run's result reported, priced; null while none was reported ("spend unknown"). */
+		/** What the run's result reported, priced; 0 for a run that ended before its brief (it never ran
+		 *  Claude Code); null while none was reported ("spend unknown"). */
 		spendUsd: doublePrecision('spend_usd'),
 		startedById: text('started_by_id').notNull(),
 		startedBy: text('started_by').notNull(),

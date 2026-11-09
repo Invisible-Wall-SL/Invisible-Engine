@@ -188,6 +188,31 @@ async function readReport(
  *  (`report.summary.line`, cut to 139 characters). */
 const HARNESS_LINE = /^\d+ pass · \d+ fail · /;
 
+/** The verdict's sentence for a change that can reach no game (`describe` in
+ *  scripts/current-games/lib/touched.mjs; check:pipeline-changes holds the two together). */
+const NO_GAME_CAN_DIFFER = /^(?:Docs-only change|Runtime untouched): no game can differ/;
+
+/**
+ * No harness run renders this head — as on a fix run's draft, whose every job is skipped until a
+ * person marks it ready — so the status posted on it is what Check 2 says. A `success` in the
+ * verdict's own words for a change that reaches no game has nothing to render; anything else has
+ * not started, and its status is quoted as posted.
+ */
+function withoutRun(
+	status: { state: string; description: string | null } | null,
+): HarnessReportState {
+	const said = status?.description ?? '';
+	if (status?.state === 'success' && NO_GAME_CAN_DIFFER.test(said)) {
+		return { state: 'skipped', detail: `No run renders this head, and none needs to: ${said}.` };
+	}
+	return {
+		state: 'none',
+		detail: status
+			? `current-games has not started on this head (its ${status.state} status: "${said}").`
+			: 'current-games has not started on this head.',
+	};
+}
+
 /**
  * The report of `run` for `headSha`, or why there is none. `run` is the "Current games" workflow
  * run on the head, `null` when none has started; `status` the `current-games` context on it.
@@ -199,7 +224,7 @@ export async function loadHarnessReport(
 	headSha: string,
 	status: { state: string; description: string | null } | null,
 ): Promise<HarnessReportState> {
-	if (!run) return { state: 'none', detail: 'current-games has not started on this head.' };
+	if (!run) return withoutRun(status);
 	if (run.status !== 'completed') {
 		return { state: 'running', detail: 'current-games is still running on this head.' };
 	}

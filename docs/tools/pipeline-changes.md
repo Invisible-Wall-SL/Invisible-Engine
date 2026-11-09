@@ -142,8 +142,10 @@ its record of each merge made from here (who merged, the approvals that counted,
      `main`. When the report is in, a table lists each game with **Build**, **Game tests** (gates
      passed / run) and **Looks the same** ("Same on 12 screens", "2 of 12 changed", "not
      rendered"); **Show all N** unfolds the rest past the first five. Otherwise one plain sentence
-     says where the report stands: not started, still running, nothing to render (the change
-     cannot reach a game), the run made no report, the report expired (GitHub keeps it 3 days),
+     says where the report stands: not started (quoting the status when one is posted: a fix
+     run's draft is rendered only once it is marked ready for review), still running, nothing to
+     render (the change cannot reach a game, which on a fix run's draft is the posted status's
+     word), the run made no report, the report expired (GitHub keeps it 3 days),
      the report is for another commit or another attempt, or it could not be read.
    - **Changed screens** — under the table, one block per screen that looks different: the game,
      the screen and scenario, the harness's reason, and the three images **before** (main),

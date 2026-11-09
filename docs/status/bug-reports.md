@@ -200,17 +200,40 @@ server module, routes, page components, triage, screenshots, the pull-request li
      wrong amounts for lines `main` read right (`12,50 €` after a tab as 50, `-12,50` as 50); only
      an old-vs-new comparison over generated lines found it. For a parser or money change, the
      run's review could be asked for that comparison.
-   - Small: a run stopped before Claude Code starts reads "spend unknown" though it spent nothing,
-     and its Actions log ends on "Post the result" failing (exit 127, `$NODE` not yet recorded);
-     on a draft fix pull request, Pipeline Changes' Check 2 says current-games "has not started"
-     while GitHub carries a posted `success`; the text cleaner drops a `<word>` placeholder as an
-     HTML tag (#1540's body read " 2026" for the month).
+   - Small, still open: a run stopped after its job read the bug but before Claude Code starts
+     still reads "spend unknown", and its Actions log ends on "Post the result" failing (exit 127:
+     node's path is recorded only by "Prepare the run"). The workflow change that fixes both is
+     its own pull request, which the owner merges with the admin override (it edits
+     `.github/workflows`).
 
    The fixture fakes the store, so the real SQL (the advisory lock, the conditional updates, the
    run-row lock on spend) is proved only by the migration applying in CI's `postgres-proofs`. The
    live runs have now exercised that SQL, but a two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-09 — **Three small items the 13D pilot left, fixed.**
+  - **A run that ends before its job reads the bug spent $0, and says so.** That covers a Stop
+    while queued, a refused dispatch, and "The Actions run did not start" or ended before the
+    brief. Such a run never ran Claude Code, so its line reads "$0.00", not "spend unknown".
+    `settleFixRun` sets it in the same update, from the status as the update finds it, so a
+    brief read between a Stop's look and its settle leaves the spend unknown. Pinned in
+    `check:bug-fix-runs`, with that race planted.
+  - **Check 2 on a draft fix pull request says what the verdict posted.** That run's jobs are all
+    skipped, so no run renders the head, while the verdict has already posted its status (#1536
+    and #1537 read "has not started" over a `success`). A posted `success` now reads "nothing to
+    render", naming the status. Any other posted status shows "not started" and quotes the
+    verdict's sentence ("A fix run's draft: current-games runs once it is marked ready for
+    review"). Only the verdict's own "no game can differ" sentence goes green: a `success` in other
+    words, which anyone with status access could post, stays "not started". The change is in
+    `loadHarnessReport`, pinned in `check:pipeline-changes` against `touched.mjs`'s `describe`.
+  - **The text cleaner keeps a `<word>` placeholder.** In a run's public text a tag is now shown
+    as text, `<Month> 2026` → `‹Month› 2026`, where it used to be dropped (#1540's body read
+    " 2026"). Any other `<` that could open a tag in a lenient HTML parser becomes `‹` too, so no
+    markup survives. The secret scan and the privacy rule also read the text with its tags taken
+    out, so a key split by an empty tag (`sk-<b></b>ant-…`) or a project name split by a tag
+    (`Bo<b></b>rut`) is still refused: without that reading, the fixture's empty-tag case opens a
+    PR. Pinned in `check:bug-fix-runs`.
 
 - 2026-11-09 — **The Start fix pilot (ADR-0013 card 13D).** Three real launcher defects, filed on
   `/bugs` with the owner's yes and started from the **Start fix** button on the live launcher, as

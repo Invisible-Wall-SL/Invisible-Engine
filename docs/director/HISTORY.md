@@ -15,6 +15,34 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-09 · Phase 10 · launcher-studio (13D follow-up: the small items)
+- Did: fixed the four small items the pilot left (`docs/status/bug-reports.md`, Recent changes).
+  - A run that ends before its job reads the bug records $0, not "spend unknown". `settleFixRun`
+    sets it from the status the update finds.
+  - Check 2 on a draft fix PR shows the posted `current-games` status. It goes green only for the
+    verdict's own "no game can differ" sentence.
+  - The run-text cleaner shows a tag as `‹…›`, so `<Month> 2026` keeps its word. Any other
+    tag-opening `<` becomes `‹`. The secret scan and the privacy rule also read the text with
+    its tags taken out.
+  - `bug-fix.yml` records node's path before the brief, so "Post the result" runs after an early
+    stop and reports "never started", $0. Before, it exited 127.
+- Files: apps/launcher-api `bugFixRunsStore.ts`, `bugFixRunsChange.ts`, `pipelineReport.ts`,
+  `db/schema.ts` (a comment), `check-bug-fix-runs.ts`, `check-pipeline-changes.ts`;
+  `.github/workflows/bug-fix.yml`, `scripts/bug-fix/collect.mjs`, `workflow.fixture.mjs`;
+  docs/status/bug-reports.md, docs/tools/pipeline-bugs.md, docs/tools/pipeline-changes.md.
+- Branch / PR: `claude/fixrun-small-items` (the launcher items) and
+  `claude/fixrun-post-result-node-path` (the workflow item, which edits `.github/workflows`, so
+  the owner merges it with the admin override).
+- Tests: `check:bug-fix-runs` (121), `check:pipeline-changes`, `check:bug-fix-workflow` (43
+  rules, 113 mutants). Each new check fails on `main`'s code.
+- Decisions:
+  - Two PRs, so the launcher fixes need no admin override. `collect.mjs` stops recording node's
+    path only in the same PR as the workflow that records it first.
+  - A `success` with no run behind it goes green only in the verdict's words, so a status posted
+    by anyone else still reads "not started".
+- Next: a two-connection Postgres proof of the fix-run store, now with the settle's `case`. Still
+  owed from 13D: the three prompt and review follow-ups, in their own session.
+
 ## 2026-11-09 · Phase 10 · regression-guardian (13D: the Start fix pilot)
 - Did: ran ADR-0013's pilot on three real, low-risk pipeline bugs, end to end, with the owner's
   yes at each step.

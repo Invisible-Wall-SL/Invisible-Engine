@@ -37,6 +37,9 @@ type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
 
 const LIVE = [...LIVE_FIX_RUN_STATUSES];
 const live = () => inArray(bugFixRuns.status, LIVE);
+/** The spend a run ends with: $0 for one still `dispatched`, read as the update finds the row. */
+const endedSpend = () => sql`case when ${bugFixRuns.status} = 'dispatched'
+	then coalesce(${bugFixRuns.spendUsd}, 0) else ${bugFixRuns.spendUsd} end`;
 
 /** A start that loses a race on one bug is told by the partial unique index. */
 const LIVE_INDEX = 'bug_fix_runs_live_idx';
@@ -302,7 +305,8 @@ export interface FixRunEnd {
  * `extra`, in one transaction. `withoutResult`: only while no result is claimed, so neither a Stop
  * nor the backstop ends a run whose result is being opened. `heldAt`: only while the claim is
  * still that one — the request that holds it, or the backstop that read it. Null when it was no
- * longer live (or its claim moved): someone else ended it, or holds it.
+ * longer live (or its claim moved): someone else ended it, or holds it. A run still `dispatched`
+ * as it ends never read its brief, so it never ran Claude Code: its spend is $0, not unknown.
  */
 export async function settleFixRun(
 	id: string,
@@ -322,6 +326,7 @@ export async function settleFixRun(
 				secondBug: end.secondBug ?? null,
 				prNumber: end.prNumber ?? null,
 				branch: end.branch ?? null,
+				spendUsd: endedSpend(),
 				finishedAt: now,
 				updatedAt: now,
 			})
