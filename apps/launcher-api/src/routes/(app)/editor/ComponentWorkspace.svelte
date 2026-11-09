@@ -58,6 +58,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { askConfirm, askMessage, askText, dialogQueue } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
+	import { isEditorSelfNavigation } from '$lib/componentLinks';
 	import ComponentList from './ComponentList.svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
@@ -969,7 +970,7 @@
 		},
 		// A link to `/editor` itself is cancelled by the page and applied in place, where closing
 		// the component asks; asking here too would ask twice.
-		(navigation) => navigation.to?.url.pathname === '/editor',
+		isEditorSelfNavigation,
 	);
 
 	let newName = $state('');
