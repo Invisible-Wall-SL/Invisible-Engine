@@ -3,10 +3,10 @@ import { eq } from 'drizzle-orm';
 import { leaseEntitlingTool } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { getDb } from '$lib/server/db';
-import { userHasTool } from '$lib/server/launcherAuth';
 import { users } from '$lib/server/db/schema';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { canAccessProject, projectClientKey } from '$lib/server/projects';
+import { jsonObjectOrNull, userGrants } from '$lib/server/http';
+import { clientKeyOf } from '$lib/server/projectLookup';
+import { canAccessProject } from '$lib/server/projects';
 import {
 	acquire,
 	heartbeat,
@@ -91,12 +91,8 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	const sessionId = await sessionIdFromToken(cookies.get(SESSION_COOKIE));
 	if (!sessionId) throw error(401, 'Not authenticated');
 
-	let body: Record<string, unknown>;
-	try {
-		body = (await request.json()) as Record<string, unknown>;
-	} catch {
-		return json({ error: 'bad-request' }, { status: 400 });
-	}
+	const body = await jsonObjectOrNull(request);
+	if (!body) return json({ error: 'bad-request' }, { status: 400 });
 
 	const action = str(body.action);
 	if (!action || !ACTIONS.has(action)) {
@@ -111,14 +107,10 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	const tool = leaseEntitlingTool(key.toolId);
 	const user = locals.user;
 	const [toolHeld, projectReachable] = await Promise.all([
-		tool !== null && userHasTool(user, tool),
+		tool !== null && userGrants(user).then((grants) => grants.hasTool(tool)),
 		canAccessProject(user.id, user.role, key.projectKey),
 	]);
-	if (
-		!toolHeld ||
-		!projectReachable ||
-		key.clientKey !== ((await projectClientKey(key.projectKey)) ?? UNASSIGNED_CLIENT)
-	) {
+	if (!toolHeld || !projectReachable || key.clientKey !== (await clientKeyOf(key.projectKey))) {
 		return json({ error: 'forbidden' }, { status: 403 });
 	}
 

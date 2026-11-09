@@ -114,6 +114,7 @@ const KINDS: Record<string, string> = {
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
+		DEFAULT_PROJECT_KEY: 'cloud',
 		projectGameType: async (p: string) => KINDS[p] ?? 'lines',
 		projectClientKey: async () => CLIENT,
 	},

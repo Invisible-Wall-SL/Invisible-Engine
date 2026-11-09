@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { r2Slug, sharedAnimationKey } from '$lib/server/projectPaths';
 import { saveAnimation } from '$lib/server/riggerLibrary';
 import { putLibraryEntry } from '$lib/server/riggerLibraryWrite';
@@ -28,7 +29,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
 
 	const name = typeof body.name === 'string' ? body.name.trim() : '';

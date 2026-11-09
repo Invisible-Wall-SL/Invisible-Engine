@@ -1,29 +1,18 @@
 import { error, json } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { requireEditorAccess } from '$lib/server/editorAccess';
+import { conflictResponse } from '$lib/server/conflict';
+import { readJson } from '$lib/server/http';
 import { type CustomKind, loadKind, saveKind } from '$lib/server/kindStorage';
-import { ConflictError } from '$lib/server/r2';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
-/**
- * Auth + role gate matching the editor template endpoint: logged-in and entitled
- * to the `editor` tool (role + per-user overrides applied). Custom kinds are
- * GLOBAL under `_shared/editor-kinds/` (§21.2), so — like templates — we gate on
- * the tool entitlement alone, with NO project scope.
+/*
+ * Gated on the `editor` tool alone, like templates: custom kinds are GLOBAL under
+ * `_shared/editor-kinds/` (§21.2), with NO project scope.
  */
-async function gate(locals: App.Locals): Promise<void> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Editor.');
-	}
-}
 
 /** Resolve one custom kind's `{ id, name, doc }` (§21.3). 404 when it doesn't exist. */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
+	await requireEditorAccess(locals);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
 	const kind = await loadKind(id);
@@ -41,13 +30,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * Body: `{ id, name, doc, overwrite? }`.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	await gate(locals);
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	await requireEditorAccess(locals);
+	const body = await readJson(request, 'Invalid JSON body.');
 	const overwrite = isRecord(body) && body.overwrite === true;
 	try {
 		const saved = await saveKind(body as CustomKind, { overwrite });
@@ -55,17 +39,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	} catch (e) {
 		// The conflict branch MUST come before the generic 400, else a taken id reads as
 		// "invalid kind" and the author has no idea another kind is being protected.
-		if (e instanceof ConflictError) {
-			const id = isRecord(body) && typeof body.id === 'string' ? body.id : 'that id';
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message: `A game kind "${id}" already exists. Pick a different name, or confirm overwrite.`,
-				},
-				{ status: 409 },
-			);
-		}
+		const id = isRecord(body) && typeof body.id === 'string' ? body.id : 'that id';
+		const conflict = conflictResponse(
+			e,
+			`A game kind "${id}" already exists. Pick a different name, or confirm overwrite.`,
+		);
+		if (conflict) return conflict;
 		throw error(400, e instanceof Error ? e.message : 'Invalid kind.');
 	}
 };

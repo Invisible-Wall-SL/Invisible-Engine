@@ -40,7 +40,6 @@ import {
 	r2Slug,
 	sharedComponentsPrefix,
 	sharedRigBundlePrefix,
-	UNASSIGNED_CLIENT,
 } from './projectPaths';
 import { foreignRigRefs } from '$lib/rigBundleKey';
 import {
@@ -49,7 +48,6 @@ import {
 	normalizeRootListeners,
 } from '../componentEventRows';
 import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
-import { projectClientKey } from './projects';
 import { loadSharedSkeletonIndex } from './rig';
 import { loadedStoredDoc } from './unknownBlocks';
 import {
@@ -61,6 +59,7 @@ import {
 	precondition,
 	putObjectText,
 } from './r2';
+import { clientKeyOf } from './projectLookup';
 
 /**
  * A bad component PAYLOAD — distinct from a storage failure so the route can map the
@@ -316,7 +315,7 @@ async function healForeignRigRefs(def: ComponentDef, projectKey?: string): Promi
 	const own =
 		def.scope === 'project' && projectKey
 			? {
-					client: r2Slug((await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT),
+					client: r2Slug(await clientKeyOf(projectKey)),
 					project: r2Slug(projectKey),
 				}
 			: undefined;

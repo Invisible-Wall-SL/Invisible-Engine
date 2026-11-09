@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
 import { scopeMismatch } from '$lib/server/scopeGuard';
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
 	});
 	// Body `{ projectKey }`: the tab's project, required and refused on a mismatch (`scopeMismatch`).
-	const body = (await request.json().catch(() => null)) as { projectKey?: unknown } | null;
+	const body = await jsonObjectOrNull(request);
 	const mismatch = scopeMismatch(body?.projectKey, projectKey, { required: true });
 	if (mismatch) return mismatch;
 

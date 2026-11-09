@@ -33,6 +33,7 @@
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
 		"precheck:launcher-gates": "node scripts/ensure-svelte-kit.mjs",
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",
+		"check:http-helpers": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-http-helpers.ts",
 		"precheck:director-access": "node scripts/ensure-svelte-kit.mjs",
 		"check:director-access": "tsx --tsconfig tsconfig.scripts.json scripts/check-director-access.ts",
 		"precheck:director-adapters": "node scripts/ensure-svelte-kit.mjs",

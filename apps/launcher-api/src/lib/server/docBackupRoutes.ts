@@ -1,7 +1,8 @@
-import { error, json } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { readBackup, type BackupMode } from './docBackups';
+import { conflictResponse } from './conflict';
+import { objectOrNull, readJson } from './http';
 import { isDocBackupId, type DocBackupTarget } from './projectPaths';
-import { ConflictError } from './r2';
 import { writeBaseEtagJson } from './writeGuard';
 
 /**
@@ -25,18 +26,13 @@ import { writeBaseEtagJson } from './writeGuard';
  * coalesced backup rather than none.
  */
 export function requestedBackupMode(body: unknown): BackupMode {
-	return isRecord(body) && body.backup === 'always' ? 'always' : 'auto';
+	return objectOrNull(body)?.backup === 'always' ? 'always' : 'auto';
 }
 
 /** A restore's JSON object body; 400 when it is not one. */
 export async function restoreBody(request: Request): Promise<Record<string, unknown>> {
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
-	if (!isRecord(body)) throw error(400, 'Invalid JSON body.');
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.'));
+	if (!body) throw error(400, 'Invalid JSON body.');
 	return body;
 }
 
@@ -84,22 +80,12 @@ export async function readBackupForRestore(target: DocBackupTarget, id: string):
  * the author's terms ("this flow"). Callers map their own validation errors to 422 first.
  */
 export function restoreWriteFailed(e: unknown, what: string): Response {
-	if (e instanceof ConflictError) {
-		return json(
-			{
-				ok: false,
-				error: 'conflict',
-				message:
-					`Someone else saved ${what} while you were looking at its history. ` +
-					'Nothing was restored — reload to get their version first.',
-			},
-			{ status: 409 },
-		);
-	}
+	const conflict = conflictResponse(
+		e,
+		`Someone else saved ${what} while you were looking at its history. ` +
+			'Nothing was restored — reload to get their version first.',
+	);
+	if (conflict) return conflict;
 	console.error(`[doc-backups] restoring ${what} failed:`, e);
 	throw error(502, 'Could not restore that backup — storage is unavailable. Please retry.');
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
 }

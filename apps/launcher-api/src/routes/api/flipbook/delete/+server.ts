@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { deleteClip } from '$lib/server/flipbookStorage';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -17,7 +18,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to Invisible Flipbook.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	const rawId = body && typeof body.id === 'string' ? body.id.trim() : '';
 	if (!rawId) throw error(400, 'missing id');
 

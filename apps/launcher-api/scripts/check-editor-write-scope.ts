@@ -28,6 +28,7 @@ mock.module(server('toolScope.ts'), {
 });
 mock.module(server('r2.ts'), {
 	namedExports: {
+		ConflictError: class extends Error {},
 		presignPut: async (key: string) => {
 			signed.push(key);
 			return `https://r2.test/${key}`;

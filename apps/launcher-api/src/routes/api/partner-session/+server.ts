@@ -3,8 +3,7 @@ import { ENV } from '$lib/server/env';
 import { partnerRgsRefusal } from '$lib/server/familyGate';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
 import { getGame } from '$lib/server/games';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { canAccessProject, projectClientKey } from '$lib/server/projects';
+import { canAccessProject } from '$lib/server/projects';
 import { assertAlias, assertVersionPath, listSealedVersions } from '$lib/server/partnerDelivery';
 import {
 	PartnerRgsError,
@@ -12,6 +11,7 @@ import {
 	partnerLaunchUrl,
 	partnerRgsConfig,
 } from '$lib/server/partnerRgs';
+import { clientKeyOf } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -74,7 +74,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	// config: an R2 error refuses rather than mint for a game of unknown family, and no stored config
 	// reads as the slot the runtime would play. A card with no project has no config to read.
 	if (game.projectKey !== null) {
-		const clientKey = (await projectClientKey(game.projectKey)) ?? UNASSIGNED_CLIENT;
+		const clientKey = await clientKeyOf(game.projectKey);
 		const doc = await loadGameConfigDoc(clientKey, game.projectKey).catch(() => undefined);
 		const refusal =
 			doc === undefined ? 'The game config could not be read.' : partnerRgsRefusal(doc);

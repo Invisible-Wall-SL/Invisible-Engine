@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { conflictJson } from './conflict';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 export type LibraryWriteResult =
@@ -53,21 +53,12 @@ async function libraryConflict(
 	const who = project ? ` from project "${project}"` : '';
 	const when = savedAt ? ` (saved ${savedAt.slice(0, 16).replace('T', ' ')} UTC)` : '';
 	const article = noun === 'animation' ? 'an' : 'a';
-	return json(
-		{
-			ok: false,
-			error: kind,
-			id,
-			etag: current?.etag ?? null,
-			project,
-			savedAt,
-			message:
-				kind === 'exists'
-					? `The shared library already has ${article} ${noun} "${name}"${who}${when}. ` +
-						'Saving replaces it for every project.'
-					: `Someone else just saved the library ${noun} "${id}"${who}${when}. ` +
-						'Nothing was overwritten.',
-		},
-		{ status: 409 },
+	return conflictJson(
+		kind === 'exists'
+			? `The shared library already has ${article} ${noun} "${name}"${who}${when}. ` +
+					'Saving replaces it for every project.'
+			: `Someone else just saved the library ${noun} "${id}"${who}${when}. ` +
+					'Nothing was overwritten.',
+		{ code: kind, extra: { id, etag: current?.etag ?? null, project, savedAt } },
 	);
 }

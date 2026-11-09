@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import {
 	IRIG_BACKUP_ID_RE,
 	irigDocProblem,
@@ -39,7 +40,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
 
 	if (typeof body.projectKey === 'string' && body.projectKey !== projectKey) {

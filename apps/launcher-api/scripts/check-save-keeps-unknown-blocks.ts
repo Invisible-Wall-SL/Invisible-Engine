@@ -99,7 +99,9 @@ mock.module(server('r2.ts'), {
 
 // `componentStorage` reaches these only for a cross-project rig ref, which no fixture here has.
 mock.module(server('rig.ts'), { namedExports: { loadSharedSkeletonIndex: async () => [] } });
-mock.module(server('projects.ts'), { namedExports: { projectClientKey: async () => null } });
+mock.module(server('projects.ts'), {
+	namedExports: { DEFAULT_PROJECT_KEY: 'cloud', projectClientKey: async () => null },
+});
 // The routes' gates: an admin with no overrides, and a project key taken as given.
 mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: async () => ({}) } });
 mock.module(server('userToolAccess.ts'), { namedExports: { getToolOverrides: async () => ({}) } });

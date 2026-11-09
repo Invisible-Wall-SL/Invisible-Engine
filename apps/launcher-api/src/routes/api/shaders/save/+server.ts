@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requestedBackupMode } from '$lib/server/docBackupRoutes';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { canWriteCustomGlsl, shaderWriteScope } from '$lib/server/shaderScope';
 import {
@@ -28,7 +29,7 @@ import type { RequestHandler } from './$types';
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await shaderWriteScope(locals, cookies);
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body || typeof body.doc !== 'object' || body.doc === null) throw error(400, 'missing doc');
 	const mismatch = scopeMismatch(body.projectKey, projectKey);
 	if (mismatch) return mismatch;
@@ -50,17 +51,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		if (e instanceof ShaderTooLargeError) {
 			return json({ ok: false, error: 'too-large', message: e.message }, { status: 413 });
 		}
-		if (!(e instanceof ConflictError)) throw e;
-		return json(
-			{
-				ok: false,
-				error: 'conflict',
-				message:
-					baseEtag === null
-						? 'A shader effect with that name already exists in this project. Rename yours, or overwrite it.'
-						: 'Someone else saved this shader effect while you were editing. Reload to get their version first.',
-			},
-			{ status: 409 },
+		const conflict = conflictResponse(
+			e,
+			baseEtag === null
+				? 'A shader effect with that name already exists in this project. Rename yours, or overwrite it.'
+				: 'Someone else saved this shader effect while you were editing. Reload to get their version first.',
 		);
+		if (conflict) return conflict;
+		throw e;
 	}
 };

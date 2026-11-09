@@ -2,7 +2,8 @@ import { error, json } from '@sveltejs/kit';
 import type { CinematicDoc } from 'engine-layout';
 import { canPublishSharedTimeline, cinematicGate } from '$lib/server/cinematicAccess';
 import { isCinematicDoc } from '$lib/server/cinematicStorage';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { SharedPointerCorruptError, promoteSharedCinematic } from '$lib/server/sharedCinematics';
 import { linkOf, sharedTimelineId, toSharedContent } from '$lib/timeline/sharedTimelines';
 import type { RequestHandler } from './$types';
@@ -20,7 +21,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	await cinematicGate(locals, cookies);
 	if (!(await canPublishSharedTimeline(locals)))
 		throw error(403, 'Your role cannot publish to the shared timeline library.');
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body || !isCinematicDoc(body.doc)) throw error(400, 'missing or malformed timeline');
 	if (linkOf(body.doc)) {
 		throw error(400, 'This timeline is a link to a shared one already — detach it first.');
@@ -42,16 +43,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		if (e instanceof SharedPointerCorruptError) {
 			return json({ ok: false, error: 'corrupt', message: e.message }, { status: 409 });
 		}
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message: `Someone else promoted "${name}" to the shared library meanwhile. Reload it, then promote again on top.`,
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			`Someone else promoted "${name}" to the shared library meanwhile. Reload it, then promote again on top.`,
+		);
+		if (conflict) return conflict;
 		console.error('[cinematics/shared/promote] failed:', e);
 		return json(
 			{

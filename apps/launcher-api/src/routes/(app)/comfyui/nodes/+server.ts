@@ -1,10 +1,32 @@
 import { error, json } from '@sveltejs/kit';
-import { requireComfyAccess } from '$lib/server/comfyAccess';
+import { z } from 'zod';
+import { requireComfyAccess, requiredText } from '$lib/server/comfyAccess';
 import { requireComfyAdmin } from '$lib/server/comfyAdmin';
+import { parseBody } from '$lib/server/http';
 import { addNode, readNodeList, removeNode, resolveNode, setNodeProd } from '$lib/server/nodeList';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
+
+const NOT_AN_OBJECT = { message: 'Expected a JSON object.' };
+
+/** `{ url, note?, commit? }` — a non-string `note` is dropped, and only `commit: true` writes. */
+const AddBody = z.object(
+	{
+		url: requiredText('Missing url.'),
+		note: z.unknown().transform((v) => (typeof v === 'string' ? v : undefined)),
+		commit: z.unknown().transform((v) => v === true),
+	},
+	NOT_AN_OBJECT,
+);
+
+const PromoteBody = z.object(
+	{
+		name: requiredText('Missing name.'),
+		prod: z.boolean({ message: 'Expected prod: true | false.' }),
+	},
+	NOT_AN_OBJECT,
+);
 
 /** Who the commit is attributed to. The launcher user — this is their change, not a bot's. */
 function author(locals: App.Locals): { name: string; email: string } {
@@ -38,16 +60,9 @@ export const GET: RequestHandler = async ({ locals }) => {
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
 	await requireComfyAdmin(locals);
-	const body = (await request.json().catch(() => ({}))) as {
-		url?: unknown;
-		note?: unknown;
-		commit?: unknown;
-	};
-	const url = typeof body.url === 'string' ? body.url.trim() : '';
-	if (!url) throw error(400, 'Missing url.');
-	const note = typeof body.note === 'string' ? body.note : undefined;
+	const { url, note, commit } = await parseBody(request, AddBody);
 
-	if (body.commit !== true) {
+	if (!commit) {
 		const resolved = await resolveNode(url);
 		return json(resolved, { status: resolved.error ? 400 : 200, headers: NO_STORE });
 	}
@@ -82,12 +97,9 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
  */
 export const PATCH: RequestHandler = async ({ locals, request }) => {
 	await requireComfyAdmin(locals);
-	const body = (await request.json().catch(() => ({}))) as { name?: unknown; prod?: unknown };
-	const name = typeof body.name === 'string' ? body.name.trim() : '';
-	if (!name) throw error(400, 'Missing name.');
-	if (typeof body.prod !== 'boolean') throw error(400, 'Expected prod: true | false.');
+	const { name, prod } = await parseBody(request, PromoteBody);
 
-	const result = await setNodeProd(name, body.prod, author(locals));
+	const result = await setNodeProd(name, prod, author(locals));
 	return json(
 		{ ...result, list: await readNodeList().then((l) => l.nodes) },
 		{ status: result.ok ? 200 : 400, headers: NO_STORE },
