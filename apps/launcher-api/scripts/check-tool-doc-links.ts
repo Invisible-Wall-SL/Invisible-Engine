@@ -14,11 +14,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-	TOOL_DOC_REPO_URL,
-	renderToolDoc,
-	rewriteToolDocHref,
-} from '../src/lib/server/toolDocLinks.ts';
+import { renderToolDoc, rewriteToolDocHref } from '../src/lib/server/toolDocLinks.ts';
 
 let failures = 0;
 let checks = 0;
@@ -31,34 +27,32 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
 
-const BLOB = `${TOOL_DOC_REPO_URL}/blob/main/`;
-const TREE = `${TOOL_DOC_REPO_URL}/tree/main/`;
+const REPO = 'https://github.com/Invisible-Wall-SL/Invisible-Engine';
+const BLOB = `${REPO}/blob/main/`;
+const TREE = `${REPO}/tree/main/`;
+const rewrite = (href: string): string => rewriteToolDocHref(href, REPO);
 
 // --- Rewrite rules -------------------------------------------------------------------------------
 
-check('sibling guide', rewriteToolDocHref('pipeline-changes.md'), '/docs/pipeline-changes');
-check('sibling guide + anchor', rewriteToolDocHref('x.md#a'), '/docs/x#a');
-check('./sibling + anchor', rewriteToolDocHref('./x.md#a'), '/docs/x#a');
-check('../tools/ round trip', rewriteToolDocHref('../tools/x.md'), '/docs/x');
-check('design doc', rewriteToolDocHref('../design/y.md'), `${BLOB}docs/design/y.md`);
-check('design doc + anchor', rewriteToolDocHref('../design/y.md#s'), `${BLOB}docs/design/y.md#s`);
-check('folder link', rewriteToolDocHref('../conventions/'), `${TREE}docs/conventions/`);
+check('sibling guide', rewrite('pipeline-changes.md'), '/docs/pipeline-changes');
+check('sibling guide + anchor', rewrite('x.md#a'), '/docs/x#a');
+check('./sibling + anchor', rewrite('./x.md#a'), '/docs/x#a');
+check('../tools/ round trip', rewrite('../tools/x.md'), '/docs/x');
+check('design doc', rewrite('../design/y.md'), `${BLOB}docs/design/y.md`);
+check('design doc + anchor', rewrite('../design/y.md#s'), `${BLOB}docs/design/y.md#s`);
+check('folder link', rewrite('../conventions/'), `${TREE}docs/conventions/`);
 check(
 	'repo-root path',
-	rewriteToolDocHref('../../packages/engine-game/src/index.ts'),
+	rewrite('../../packages/engine-game/src/index.ts'),
 	`${BLOB}packages/engine-game/src/index.ts`,
 );
-check('repo-root folder', rewriteToolDocHref('../../packages/'), `${TREE}packages/`);
-check('non-md sibling', rewriteToolDocHref('diagram.png'), `${BLOB}docs/tools/diagram.png`);
-check('guide subfolder', rewriteToolDocHref('sub/x.md'), `${BLOB}docs/tools/sub/x.md`);
-check('escapes repo', rewriteToolDocHref('../../../x.md'), '../../../x.md');
-check('sibling + query + anchor', rewriteToolDocHref('x.md?plain=1#a'), '/docs/x#a');
-check('upper-case .MD', rewriteToolDocHref('X.MD'), `${BLOB}docs/tools/X.MD`);
-check(
-	'query is not a path',
-	rewriteToolDocHref('../design/y.md?a=../b'),
-	`${BLOB}docs/design/y.md?a=../b`,
-);
+check('repo-root folder', rewrite('../../packages/'), `${TREE}packages/`);
+check('non-md sibling', rewrite('diagram.png'), `${BLOB}docs/tools/diagram.png`);
+check('guide subfolder', rewrite('sub/x.md'), `${BLOB}docs/tools/sub/x.md`);
+check('escapes repo', rewrite('../../../x.md'), '../../../x.md');
+check('sibling + query + anchor', rewrite('x.md?plain=1#a'), '/docs/x#a');
+check('upper-case .MD', rewrite('X.MD'), `${BLOB}docs/tools/X.MD`);
+check('query is not a path', rewrite('../design/y.md?a=../b'), `${BLOB}docs/design/y.md?a=../b`);
 
 for (const href of [
 	'?q=1',
@@ -71,8 +65,13 @@ for (const href of [
 	'#section',
 	'',
 ]) {
-	check(`unchanged: ${JSON.stringify(href)}`, rewriteToolDocHref(href), href);
+	check(`unchanged: ${JSON.stringify(href)}`, rewrite(href), href);
 }
+check(
+	'repo from the caller',
+	rewriteToolDocHref('../design/y.md', 'https://github.com/o/r'),
+	'https://github.com/o/r/blob/main/docs/design/y.md',
+);
 
 // --- Rendering ------------------------------------------------------------------------------------
 
@@ -81,6 +80,7 @@ const hrefsOf = (html: string): string[] =>
 
 const sample = await renderToolDoc(
 	'See [a](a.md), [b](./b.md#x), [d](../design/d.md), [r][ref], [w](https://w.example), [h](#h).\n\n[ref]: ../conventions/\n',
+	REPO,
 );
 check('render rewrites inline + reference links', hrefsOf(sample), [
 	'/docs/a',
@@ -101,7 +101,7 @@ const missing: string[] = [];
 let rewritten = 0;
 
 for (const file of guides) {
-	const html = await renderToolDoc(readFileSync(join(guideDir, file), 'utf8'));
+	const html = await renderToolDoc(readFileSync(join(guideDir, file), 'utf8'), REPO);
 	for (const raw of hrefsOf(html)) {
 		const href = raw.replace(/&amp;/g, '&');
 		const docMatch = /^\/docs\/([^/#?]+)(#.*)?$/.exec(href);
@@ -112,7 +112,7 @@ for (const file of guides) {
 			console.log(`FAIL  ${file}: relative href survived rendering: ${href}`);
 			continue;
 		}
-		if (href.startsWith(TOOL_DOC_REPO_URL) || docMatch) rewritten += 1;
+		if (href.startsWith(REPO) || docMatch) rewritten += 1;
 		if (docMatch && !slugs.has(docMatch[1] ?? '')) missing.push(`${file} → ${href}`);
 	}
 }

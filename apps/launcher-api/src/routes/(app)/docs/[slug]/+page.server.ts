@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { ENV } from '$lib/server/env';
 import { toolGuide } from '$lib/server/toolGuides';
 import { renderToolDoc } from '$lib/server/toolDocLinks';
 import type { PageServerLoad } from './$types';
@@ -19,7 +20,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		throw error(404, `No guide found for “${params.slug}”.`);
 	}
 
-	// Guides link each other GitHub-style (`x.md`, `../design/y.md`); fix those for `/docs/<slug>`.
-	const html = await renderToolDoc(source);
+	const html = await renderToolDoc(source, `https://github.com/${ENV.GITHUB_ENGINE_REPO}`);
 	return { slug: params.slug, title: titleFromSlug(params.slug), html };
 };

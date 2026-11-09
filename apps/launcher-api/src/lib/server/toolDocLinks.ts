@@ -7,34 +7,33 @@
  * them against `/docs/<slug>` and every one of them 404s. Here each relative href is resolved
  * against `docs/tools/` instead:
  *
- *   - a target that stays directly inside `docs/tools/` and ends in `.md` → `/docs/<slug>` (+ anchor),
- *     i.e. the sibling guide's launcher page;
+ *   - a target directly inside `docs/tools/` ending in `.md` → `/docs/<slug>` (+ anchor), the
+ *     sibling guide's launcher page;
  *   - anything else in the repo → its GitHub page (`blob/main/…`, or `tree/main/…` for a folder).
  *
- * Absolute URLs (any scheme, incl. `mailto:`), protocol-relative `//…`, site-absolute `/…` and pure
- * `#anchor`/`?query` links are left alone. A query or anchor after a path is kept as written (a
- * guide page keeps only the anchor). Only links are rewritten — image sources and raw HTML `<a>`
+ * Absolute URLs (any scheme, incl. `mailto:`), protocol-relative `//…`, site-absolute `/…` and
+ * pure `#anchor`/`?query` links are left alone. A query or anchor after a path is kept as written
+ * (a guide page keeps only the anchor). Only links are rewritten — image sources and raw HTML `<a>`
  * are not (no guide uses either), and a folder link without a trailing `/` opens as `blob/`, which
- * GitHub redirects to `tree/`. Pure string logic, no SvelteKit imports, so the fixture
- * (`scripts/check-tool-doc-links.ts`) can drive it directly.
+ * GitHub redirects to `tree/`. The repository's URL comes from the caller, so this stays pure
+ * string logic with no SvelteKit imports, and the fixture (`scripts/check-tool-doc-links.ts`)
+ * drives it directly.
  */
 
-import { Marked, type MarkedExtension, type Tokens } from 'marked';
-
-/** The repo the guides live in; non-guide targets open here. */
-export const TOOL_DOC_REPO_URL = 'https://github.com/Invisible-Wall-SL/Invisible-Engine';
+import { Marked, type Tokens } from 'marked';
 
 /** Where the guides live, relative to the repo root. */
 const GUIDE_DIR = ['docs', 'tools'];
 
-/** `scheme:` (http:, https:, mailto:, data:, …) — anything with a URL scheme is already absolute. */
+/** `scheme:` (http:, https:, mailto:, data:, …): anything with a URL scheme is already absolute. */
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
 /**
- * The launcher-side href for a link written inside a `docs/tools/*.md` guide. Returns the href
- * unchanged when it isn't a repo-relative path (or climbs above the repo root).
+ * The launcher-side href for a link written inside a `docs/tools/*.md` guide; `repoUrl` is the
+ * repository's GitHub page (`https://github.com/<owner>/<name>`). Returns the href unchanged when
+ * it isn't a repo-relative path (or climbs above the repo root).
  */
-export function rewriteToolDocHref(href: string): string {
+export function rewriteToolDocHref(href: string, repoUrl: string): string {
 	const trimmed = href.trim();
 	if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('/')) return href;
 	if (SCHEME.test(trimmed)) return href;
@@ -68,24 +67,22 @@ export function rewriteToolDocHref(href: string): string {
 
 	const repoPath = segments.join('/');
 	if (isFolder || repoPath === '') {
-		return `${TOOL_DOC_REPO_URL}/tree/main/${repoPath === '' ? '' : `${repoPath}/`}${anchor}`;
+		return `${repoUrl}/tree/main/${repoPath === '' ? '' : `${repoPath}/`}${anchor}`;
 	}
-	return `${TOOL_DOC_REPO_URL}/blob/main/${repoPath}${anchor}`;
+	return `${repoUrl}/blob/main/${repoPath}${anchor}`;
 }
 
-const toolDocLinksExtension: MarkedExtension = {
-	walkTokens(token) {
-		if (token.type === 'link') {
+/**
+ * Render a tool guide's markdown to HTML with its relative links fixed for `/docs/<slug>`, on a
+ * Marked instance of its own (the global `marked` is never mutated).
+ */
+export async function renderToolDoc(source: string, repoUrl: string): Promise<string> {
+	const marked = new Marked({
+		walkTokens(token) {
+			if (token.type !== 'link') return;
 			const link = token as Tokens.Link;
-			link.href = rewriteToolDocHref(link.href);
-		}
-	},
-};
-
-/** A local Marked instance (the global `marked` is never mutated) with the link rewrite applied. */
-const toolDocMarked = new Marked(toolDocLinksExtension);
-
-/** Render a tool guide's markdown to HTML with its relative links fixed for `/docs/<slug>`. */
-export async function renderToolDoc(source: string): Promise<string> {
-	return toolDocMarked.parse(source, { async: true });
+			link.href = rewriteToolDocHref(link.href, repoUrl);
+		},
+	});
+	return marked.parse(source, { async: true });
 }
