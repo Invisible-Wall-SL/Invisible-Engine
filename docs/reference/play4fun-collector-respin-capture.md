@@ -17,7 +17,13 @@
 | Ante ("Power Roll") ×4 | `[{bet,[1,4]},{play,""}]` at `seq=0` | Only coins and blanks dealt; each round closed in its own batch (`gameEnd`)                              |
 | Buy "Center Coin"      | `[{bet,[2,4]},{play,""}]` at `seq=0` | A collector on reel 3 with coins on reels 4–5 triggered the bonus (Respin only)                          |
 
-Not seen: a line win, a natural (unbought) trigger, a Boost hit, Expand, Force 5, a jackpot coin.
+**Second session (2026-11-09):** 16 more bought bonuses, played by posting the same requests from
+the game page at the same session (the demo client was too slow to animate in a background
+window). About 140 respins, enhancement sets `10000`, `11000`, `01000`, `01001`, `00010`, `00011`,
+`00001`.
+
+Not seen in either session: a line win, a natural (unbought) trigger, Force 5, and a respin with
+both Boost and Multiply on.
 
 ## Transport: what this confirms
 
@@ -78,6 +84,8 @@ Each respin:
 ```text
 jackpots, spinStart, boostsEnabled {expand, boost, powerFive, multiply, respin}
 bonusSymbol … / playWindow / cellPayAmount …
+boost {boost: "X"}                                             (a miss)
+boost [{reel, row, startingPay, boost}]                        (a hit; `boost` in cents is added)
 multiplier {multiplier: "X"}                                   (a miss)
 multiplier [{reel, row, startingPay, multiplier}]              (a hit; the cell's value is multiplied)
 collect {reel, row, pay} (one per collector)   bonusWin {bonus, pay, isSpinWin: false}
@@ -95,16 +103,26 @@ The last respin adds `playedBonusSpins` and `gameEnd`; the client then posts `co
 - **Coins do not stick in the bonus; collectors do.** The bonus board opens with only the
   collector(s), carrying the value they gathered in the trigger spin (the trigger spin's own
   `collect` pays into it). Each respin, new coins are paid into the collectors in view and vanish.
-  With two collectors their totals rose by different amounts; how a coin is split between them is
-  not clear from one round. This is our `stickiness: 'collectorsOnly'` with
-  `collects: 'perRespin'`.
+  This is our `stickiness: 'collectorsOnly'` with `collects: 'perRespin'`.
+- **Two collectors each take the full value of every coin.** With `COLLECT_400` and
+  `COLLECT_1200` in view, an 800 coin made them 1200 and 2000; the next 600 coin made them 1800
+  and 2600. The coin is not split, so with two collectors it pays twice.
 - **Collectors land only on reel 3 in the bonus too** (every `collect` was at `reel: 2`), and each
   keeps its own total. The feature pays the sum of the collectors (`gameRoundOver.win` = 960 +
   2440).
 - **The counter:** `enterBonus.left` was 4 (Respin on). `retrigger {games}` brings `left` back to the
   start when a symbol lands; `games` is the number of respins added back.
-- **Multiply hits a cash coin as it lands**, before the collect: `startingPay` 200 ×2 →
-  `cellPayAmount.value` 10 (`original` 5). Jackpot targets were not seen.
+- **Boost and Multiply hit only a coin that landed this respin**, before the collect (7 of 7 boost
+  hits and 5 of 5 multiply hits were on a fresh coin). With no coin landing they show X. Since
+  coins do not stick, "a cash value in view" means a coin landing now. Multiply: `startingPay` 200
+  ×2 → `cellPayAmount.value` 10 (`original` 5). Boost adds 1–5× the base bet (40–200 cents seen).
+  Order in the events: `cellPayAmount`, `boost`, then `collect`.
+- **Neither hits a jackpot coin.** In 4 respins where a jackpot coin landed with Boost or Multiply
+  on, none was hit. Jackpot coins travel as `COIN_MINI` (also `COIN_MAJOR` seen), with
+  `bonusSymbol.win` and `cellPayAmount.value` = the tier name and `pay` = the tier × base bet
+  (MINI = 1000 at 0.40).
+- **Expand opens the extra row at entry.** Every respin of a bonus with the expand bit has 4-row
+  boards from the first respin on.
 - **The trigger is any run of 3+ adjacent reels**, not only from reel 1: a collector on reel 3 and
   coins on reels 4 and 5 triggered (`trigger.occurs: [3,4,5]`).
 - **"Center Coin" (50×)** deals the ante's coin-only reels with a collector guaranteed on reel 3.

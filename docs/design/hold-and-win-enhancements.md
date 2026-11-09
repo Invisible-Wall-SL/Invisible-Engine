@@ -4,6 +4,10 @@
 > [hold-and-win.md](hold-and-win.md) · Asked for 2026-11-08 by the owner. Owner agent:
 > `hold-and-win-games` (the second respin mode, buy routing and the overlay side are `bonus-games`).
 
+**On the partner's server** (their word, 2026-11-09): the game is named **Getting Hot**, game id
+**8**. Their CDN alias is the name without spaces, `GettingHot`, so the launcher card must be named
+"Getting Hot" for deliveries to find it (or the launch link passes `&alias=GettingHot`).
+
 ## Why this exists
 
 The owner wants a game that plays like the partner's own **Fortune Vault Force 5** (EAGaming /
@@ -136,10 +140,10 @@ coin as it lands, before the collect. The mock's new events should carry the sam
   `activeModifiers`. The respin counter's start is already carried by `respinUpdate.start`, so
   `extraRespins` just changes the server's start. Per respin, after the landed specials:
   - a hit sends `coinPay {source: 'enhancement', cells: [{reel, row, from, to}]}` (boost) or
-    `coinBoost {source: 'enhancement', multiplier, cells}` (multiply), one cash coin each, chosen at
-    random among the cash coins held;
+    `coinBoost {source: 'enhancement', multiplier, cells}` (multiply), on one **cash coin that
+    landed this respin**, never a jackpot coin (capture, second session);
   - a miss sends `enhancementMiss {kind}` (the X);
-  - with no cash coin held, it is a miss.
+  - with no cash coin landing, it is a miss.
     Both events exist today with `source` values for specials and the wheel, so the reducer and the
     sums `check:holdandwin` re-derives keep one rule. Their `payer` / `booster` fields become optional
     when `source` is `enhancement`.
@@ -147,9 +151,10 @@ coin as it lands, before the collect. The mock's new events should carry the sam
   one row below the base grid when the feature starts, through the existing
   `rowsUnlocked {cause: 'enhancement'}` sent right after `holdAndWinTrigger`. `startRows` still
   equals the grid rows, so the validator's rule stays. The reducer already honours `rows`.
-- **Order inside a respin:** the capture shows multiply applied to a newly landed cash coin before
-  the collectors gather it. Boost's place was not seen (assumed the same: boost, then multiply,
-  then the collect).
+- **Order inside a respin:** boost and multiply apply to the landed coin before the collectors
+  gather it. A respin with both on was not seen, so boost-then-multiply stays an assumption.
+- **Collect with two collectors:** each collector adds the full value of every coin (capture), so
+  a coin pays once per collector. 14c checks that our collector streak counts it the same way.
 - **Validation:** `extraRow` requires `expansion` with `maxRows > startRows` and rule `atEntry`.
   `boost` / `multiply` need cash coins in the coin table. `atLeastOne` counts are 1..pool size.
 - **Presentation (14d):**
@@ -229,14 +234,14 @@ medium: a config field, a mock branch, and the runtime's spinning strips.
 
 Answered by the 2026-11-09 capture: adjacent reels anywhere (not only from reel 1); the collector
 gathers every respin and coins do not stick; the two buys (Center Coin 50×, the bonus 100×); the
-ante at 5× with coin values on the base bet; multiply hits a cash coin as it lands.
+ante at 5× with coin values on the base bet. The second session added: boost and multiply hit only
+a cash coin landing that respin, never a jackpot coin; two collectors each take a coin's full
+value; Expand opens its row at entry.
 
-Still open, for the owner:
+Still open:
 
-- **Boost / multiply targets:** can either hit a jackpot coin? Can both hit the same coin in one
-  respin? Not seen in the capture.
-- **Two collectors:** how a coin is shared between two collectors in view. One round showed them
-  rising by different amounts.
+- **Boost and Multiply on the same respin:** can both hit one coin, and in which order? No bonus
+  in 17 had both on. The plan assumes boost, then multiply.
 - **Our names, theme and math.** The math is not copied.
 
 For Phase 10: the capture

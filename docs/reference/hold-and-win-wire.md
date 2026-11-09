@@ -522,5 +522,6 @@ the Lucky Spin flag and the feature total really travel; whether fixed coin jack
 Partly answered for one game by
 [play4fun-collector-respin-capture.md](play4fun-collector-respin-capture.md): coin values as
 `COIN_<n>` (× base bet), collectors as `COLLECT_<cents>`, whole boards each spin, the counter
-through `left` and `retrigger`, and the buys and the ante as `betOptions`. Still open: jackpot coins,
-persistent meters, the Lucky Spin, and whether other partner games use the same events.
+through `left` and `retrigger`, the buys and the ante as `betOptions`, and jackpot coins as
+`COIN_<TIER>`. Still open: persistent meters, the Lucky Spin, and whether other partner games use
+the same events.
