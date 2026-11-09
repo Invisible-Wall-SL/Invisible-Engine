@@ -217,13 +217,20 @@ header's `iwLockBounds` (now a declared field) and the text panel's linked meshe
 `deform: true` (an older key name the 4.2 reader ignores) and now carry the 4.2 key `timelines`.
 `rig-undo.mjs` and `rigtext-panel.mjs` now run a second time with their rigs as v1
 (`--irig`), so a Rigger edit that writes outside the schema fails a gate. The rollback floor is
-built (§7). Text and origin sidecars fold in with the importer, in Phase 4a.
+built (§7). `source.json` and `text.json` stay sidecars, as Phase 0 decided (§4.1).
 
 **Phase 4 — the Rigger.** Two steps:
 
-- **4a, adapter (small):** the Rigger keeps its 4.2-shaped working copy; load = `exportSpine42Json` +
-  extensions re-attached, save = `importSpine42Json` + extensions → `writeIrig`. Ships v1 writes from
-  the Rigger quickly, with the existing spikes still meaningful.
+- **4a, the import on save.** _Built 2026-11-09._ Planned as a load/save adapter around a 4.2
+  working copy; read against the code, half of it was not needed. Phase 3's `--irig` runs show
+  the Rigger already edits a v1 document as it is, so it opens v1 unchanged. The import happens
+  once, on the server, where every save already passes: `asIrigDocument` (`riggerIrig.ts`) on
+  `/api/rigger/save` and on Director's rig writes, the same rule `riggerNewRig.ts` uses for a
+  library rig. A 4.2 skeleton is stored as v1 when its import only drops keys the 4.2 reader
+  ignores; one whose import would change a value is stored as 4.2, as it always was, and waits
+  for Phase 5's report. So the first save of a rig opened from its source `.json`, or from a 4.2
+  `.irig`, is where it is imported. The tab keeps the document it sent until it reopens the rig.
+  Restoring a backup writes the backup as it was.
 - **4b, port (large, incremental):** panels move from `rawDoc` to `IrigDoc` one at a time, starting
   with the extensions (pivot, event bindings, text), which are the ones the adapter makes awkward.
   The Rigger's own channel sampler goes away in favour of `engine-rig`'s, which also closes status

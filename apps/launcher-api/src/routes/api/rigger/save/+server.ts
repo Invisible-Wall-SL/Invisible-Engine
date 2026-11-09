@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { headObject } from '$lib/server/r2';
-import { irigDocProblem } from '$lib/server/riggerIrig';
+import { asIrigDocument, irigDocProblem } from '$lib/server/riggerIrig';
 import { irigTarget, scopeMismatch, writeIrig } from '$lib/server/riggerIrigWrite';
 import { stampSavedBy } from '$lib/server/savedBy';
 import { gate } from '$lib/server/toolScope';
@@ -38,9 +38,11 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 };
 
 /**
- * Save a Rigger-edited skeleton to R2 as `<bundle>/<stem>.irig` (4.2-format JSON under our
- * extension) WITHOUT clobbering the artist's source `.json`, then rebuild the project's
- * `skeletons.json` so the saved edit is listed + re-openable.
+ * Save a Rigger-edited skeleton to R2 as `<bundle>/<stem>.irig` WITHOUT clobbering the artist's
+ * source `.json`, then rebuild the project's `skeletons.json` so the saved edit is listed +
+ * re-openable. A 4.2 skeleton is saved as irig v1 (`asIrigDocument`): the first save of a rig opened
+ * from its source `.json`, or from a 4.2 `.irig`, is where it is imported. One whose import would
+ * change a value is saved as 4.2, as it always was.
  *
  * Guarded like every authoring save (`docs/design/multi-user-concurrency.md`): the caller's
  * `baseEtag` makes the write conditional (a string → `If-Match`, `null` → `If-None-Match: *`), a
@@ -70,6 +72,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			throw error(400, 'skeleton is not valid JSON');
 		}
 	}
+	if (doc && typeof doc === 'object' && !Array.isArray(doc))
+		doc = asIrigDocument(doc as Record<string, unknown>) ?? doc;
 	const problem = irigDocProblem(doc);
 	if (problem) {
 		return json(

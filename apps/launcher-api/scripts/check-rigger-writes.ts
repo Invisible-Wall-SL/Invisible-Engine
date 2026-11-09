@@ -460,8 +460,8 @@ const PAGE = Buffer.from('png').toString('base64');
 	});
 	check(
 		"save: a person's save drops the Director stamp the rig carried",
-		[res.status, 'saved_by' in JSON.parse(text(key) ?? '{}'), JSON.parse(text(key) ?? '{}').name],
-		[200, false, 'A'],
+		[res.status, 'saved_by' in JSON.parse(text(key) ?? '{}'), JSON.parse(text(key) ?? '{}').bones],
+		[200, false, [{ name: 'root' }]],
 	);
 }
 
@@ -546,6 +546,54 @@ const PAGE = Buffer.from('png').toString('base64');
 		'irig: the rig library still gives a 4.2 skeleton its version',
 		JSON.parse(text('_shared/rigs/old.json') ?? '{}').skeleton?.skeleton,
 		{ spine: '4.2' },
+	);
+}
+
+// ── irig v1, Phase 4a: the Rigger save imports a 4.2 skeleton ─────────────────────────────────
+{
+	const key = `${RIGS}/A/A.irig`;
+	const save = async (skeleton: Record<string, unknown>) => {
+		seedProject();
+		const res = await call(irigSave.POST, {
+			dir: b64('A'),
+			stem: 'A',
+			skeleton,
+			baseEtag: bucket.get(key)?.etag,
+		});
+		return { status: res.status, doc: JSON.parse(text(key) ?? '{}') };
+	};
+	const rig42 = {
+		skeleton: { spine: '4.2.40', iwLockBounds: true },
+		bones: [{ name: 'root' }, { name: 'arm', parent: 'root', x: 5, transform: 'normal' }],
+		slots: [{ name: 's', bone: 'arm' }],
+		skins: { default: {} },
+	};
+	const imported = await save(rig42);
+	check(
+		'irig: a 4.2 skeleton saved from the Rigger is stored as irig v1, keys the reader ignores dropped',
+		[imported.status, imported.doc, irigDocProblem(imported.doc)],
+		[
+			200,
+			{
+				irig: 1,
+				skeleton: { importedFrom: '4.2.40', iwLockBounds: true },
+				bones: [{ name: 'root' }, { name: 'arm', parent: 'root', x: 5 }],
+				slots: [{ name: 's', bone: 'arm' }],
+				skins: [{ name: 'default', attachments: {} }],
+			},
+			null,
+		],
+	);
+	const coerced = {
+		...rig42,
+		bones: [{ name: 'root' }, { name: 'arm', parent: 'root', x: '5' }],
+		skins: [{ name: 'default', attachments: {} }],
+	};
+	const kept = await save(coerced);
+	check(
+		'irig: a 4.2 skeleton whose import would change a value is stored as 4.2, as sent',
+		[kept.status, kept.doc],
+		[200, coerced],
 	);
 }
 
