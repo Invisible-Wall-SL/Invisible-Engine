@@ -72,6 +72,21 @@ check('commas, decimal comma, euro after', one('2026-05,runpod,12,50 €'), RUNP
 check('tabs, four decimals', one('2026-05\trunpod\t1,2345'), row('runpod', 2026, 5, 1.2345));
 check('tabs, leading zero', one('2026-05\trunpod\t0,125'), row('runpod', 2026, 5, 0.125));
 check('commas, leading zero', one('2026-05,runpod,0,125'), row('runpod', 2026, 5, 0.125));
+check('spaces, four decimals', one('2026-05 runpod 1,2345'), row('runpod', 2026, 5, 1.2345));
+check('spaces, three decimals', one('2026-05 runpod 1234,567'), row('runpod', 2026, 5, 1234.567));
+check(
+	'spaces, Spanish thousands, three decimals',
+	one('2026-05 runpod 1.234,567'),
+	row('runpod', 2026, 5, 1234.567),
+);
+check('commas, a count then an amount', one('2026-05,runpod,3,12.50'), RUNPOD_MAY);
+check('spaces, bare decimal comma', one('2026-05 runpod ,50'), row('runpod', 2026, 5, 0.5));
+check('tabs, bare decimal comma', one('2026-05\trunpod\t,50'), row('runpod', 2026, 5, 0.5));
+check(
+	'spaces, thousands and millions',
+	one('2026-05 runpod 1,234,567'),
+	row('runpod', 2026, 5, 1234567),
+);
 // Groups of three after a comma, with no dot, are thousands in every layout (a decision).
 check('tabs, thousands only', one('2026-05\trunpod\t1,234'), row('runpod', 2026, 5, 1234));
 
@@ -82,6 +97,8 @@ for (const line of [
 	'2026-05  runpod  -12,50',
 	'2026-05,runpod,-12,50',
 	'May 2026 runpod -1,234.56',
+	'2026-05 runpod $-12,50',
+	'2026-05 runpod −12,50',
 ]) {
 	check(`negative: ${JSON.stringify(line)}`, one(line), {
 		errors: [`Negative amount in: "${line}"`],
@@ -175,6 +192,7 @@ check('parseAmount thousands only', parseAmount('12,345,678'), 12345678);
 check('parseAmount decimal comma', parseAmount('12,5'), 12.5);
 check('parseAmount leading-zero decimal comma', parseAmount('0,125'), 0.125);
 check('parseAmount negative thousands', parseAmount('-1,234'), -1234);
+check('parseAmount Unicode minus', parseAmount('−3'), -3);
 check('parseAmount currency', parseAmount('$ 12.50'), 12.5);
 check('parseAmount empty', parseAmount('$'), null);
 check('parseAmount word', parseAmount('runpod'), null);

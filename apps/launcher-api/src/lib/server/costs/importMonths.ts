@@ -93,10 +93,14 @@ const MONTH_NAMES: Record<string, number> = {
  * (Spanish). Whichever separator appears LAST is the decimal point — the only rule
  * that distinguishes them without knowing the locale up front — except that a comma
  * between groups of three with no dot (`1,234`, `12,345,678`) is thousands: money seldom
- * has three decimals. A group led by `0` (`0,125`) is never thousands.
+ * has three decimals. A group led by `0` (`0,125`) is never thousands. A Unicode minus
+ * (`−`, as some dashboards copy it) is a minus.
  */
 export function parseAmount(raw: string): number | null {
-	const cleaned = raw.replace(/[$€\s]/g, '').trim();
+	const cleaned = raw
+		.replace(/−/g, '-')
+		.replace(/[$€\s]/g, '')
+		.trim();
 	if (!cleaned) return null;
 	const normalized = /^[-+]?[1-9]\d{0,2}(?:,\d{3})+$/.test(cleaned)
 		? cleaned.replace(/,/g, '')
@@ -145,36 +149,38 @@ function matchMonth(line: string): { year: number; month: number; rest: string }
 	return null;
 }
 
-/** The word before a thousands comma: `1`, `-12`, `$1,234` (a group of three follows). */
-const THOUSANDS_HEAD = /^[-+]?[$€]?[1-9]\d{0,2}(?:,\d{3})*$/;
-/** The word before a decimal comma: `12`, `-12`, `1.234` (one or two digits follow). */
-const DECIMAL_HEAD = /^[-+]?[$€]?(?:\d+|[1-9]\d{0,2}(?:\.\d{3})+)$/;
+/** The word before a thousands comma: `1`, `-12`, `$-1`, `$1,234` (a group of three follows). */
+const THOUSANDS_HEAD = /^[-+−]?[$€]?[-+−]?[1-9]\d{0,2}(?:,\d{3})*$/;
+/** The word before a decimal comma: `12`, `-12`, `$-12`, `0`, `1234`, `1.234`. */
+const DECIMAL_HEAD = /^[-+−]?[$€]?[-+−]?(?:\d+|[1-9]\d{0,2}(?:\.\d{3})+)$/;
 
 /**
  * Whether the comma between `before` and `after` sits inside one amount: `1,234.56`,
- * `12,50 €`, `1.234,56`, `-12,50`, `0,125`. Only a comma with a digit straight after it;
- * `r2,4`, `12.50,3` and `12, 50` are field separators.
+ * `12,50 €`, `1.234,56`, `$-12,50`, `0,125`, `1234,567`. Only a comma with a digit straight
+ * after it: a group of three after a thousands head is thousands, any other digits after a
+ * decimal head are decimals unless a `.` follows them (`3,12.50` is two fields). `r2,4`,
+ * `12.50,3` and `12, 50` are field separators.
  */
 function commaInAmount(before: string, after: string): boolean {
 	if (/\s$/.test(before) || !/^\d/.test(after)) return false;
 	const head = before.split(/\s+/).pop() ?? '';
 	const digits = /^\d+/.exec(after)?.[0].length ?? 0;
 	if (THOUSANDS_HEAD.test(head) && digits === 3) return true;
-	if (DECIMAL_HEAD.test(head) && digits <= 2) return true;
-	return /^[-+]?[$€]?0$/.test(head);
+	return DECIMAL_HEAD.test(head) && !/^\.\d/.test(after.slice(digits));
 }
 
 /**
- * Split what follows the month into fields: on tabs, runs of two-plus spaces and `;`. Only
- * when that leaves a single field are commas field separators too — and then not a comma
- * inside an amount (`commaInAmount`). A tab- or space-separated amount is never split.
+ * Split what follows the month into fields: on tabs, runs of two-plus spaces and `;`. Commas
+ * separate fields only when that leaves a single field and the whole line has at least three
+ * comma-separated parts (`commaSeparated`, the month, provider and amount) — and then not a
+ * comma inside an amount (`commaInAmount`). So a tab- or space-separated amount is never split.
  */
-function splitFields(rest: string): string[] {
+function splitFields(rest: string, commaSeparated: boolean): string[] {
 	const fields = rest
 		.split(/\t|\s{2,}|;/)
-		.map((f) => f.replace(/^[\s,]+|[\s,]+$/g, ''))
-		.filter(Boolean);
-	if (fields.length !== 1) return fields;
+		.map((f) => f.trim().replace(/,+$/, ''))
+		.filter((f) => /[^\s,]/.test(f));
+	if (fields.length !== 1 || !commaSeparated) return fields;
 	const pieces: string[] = [];
 	for (const piece of fields[0].split(',')) {
 		const last = pieces.length - 1;
@@ -223,7 +229,8 @@ export function parseCostImport(text: string): ParseResult {
 
 		// Whole fields first (keeps "Cloudflare R2" or "$ 1 234,56" in one piece); a line
 		// separated by single spaces is one field, so fall back to its words.
-		const fields = splitFields(month.rest);
+		const commaSeparated = line.split(',').filter((t) => t.trim()).length >= 3;
+		const fields = splitFields(month.rest, commaSeparated);
 		const byField = readFields(fields);
 		const byWord = readFields(fields.flatMap((f) => f.split(/\s+/)));
 		const provider = byField.provider ?? byWord.provider;
