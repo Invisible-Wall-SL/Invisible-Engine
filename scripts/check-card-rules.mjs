@@ -3,12 +3,15 @@
 // `shield`, simultaneous deaths and trigger order, the loop guard, fatigue, the turn limit, that a
 // seed and an action list replay byte for byte — against the committed trace in
 // packages/engine-mechanics/fixtures/cards-replay.json — and that `apply` never changes its input.
+// C5: the `mixed` turn order (plays and attacks in one main phase, replayed against
+// fixtures/cards-mixed-replay.json; strict stays the default), the `allFriendly` target and the
+// `gainResource` verb.
 //
 // Run: pnpm check:card-rules            (--update rewrites the replay fixture)
 
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRng, rngNext, rngSeed } from '../packages/engine-mechanics/src/board.js';
 import {
@@ -23,6 +26,7 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = join(ROOT, 'packages/engine-mechanics/fixtures');
 const REPLAY_FIXTURE = join(FIXTURES, 'cards-replay.json');
+const MIXED_REPLAY_FIXTURE = join(FIXTURES, 'cards-mixed-replay.json');
 const SAMPLE = JSON.parse(readFileSync(join(FIXTURES, 'cards-sample.library.json'), 'utf8'));
 
 let passed = 0;
@@ -180,6 +184,43 @@ const LIBRARY = [
 	]),
 	spell('ponder', 0, [{ trigger: 'onPlay', verb: 'draw', amount: 3 }]),
 	spell('bloom', 0, [{ trigger: 'onPlay', verb: 'summon', card: 'sproutling', count: 3 }]),
+	spell('tide', 0, [
+		{
+			trigger: 'onPlay',
+			verb: 'damage',
+			amount: 1,
+			target: { kind: 'allFriendly', include: 'characters' },
+		},
+	]),
+	spell('muster', 0, [
+		{
+			trigger: 'onPlay',
+			verb: 'buff',
+			attack: 1,
+			health: 1,
+			until: 'permanent',
+			target: { kind: 'allFriendly', include: 'units' },
+		},
+	]),
+	unit('standard', 1, 1, 1, {
+		effects: [
+			{
+				trigger: 'onDeath',
+				verb: 'giveKeyword',
+				keyword: 'shield',
+				target: { kind: 'allFriendly', include: 'units' },
+			},
+		],
+	}),
+	spell('spark', 0, [{ trigger: 'onPlay', verb: 'gainResource', amount: 2 }]),
+	spell('surge', 0, [{ trigger: 'onPlay', verb: 'gainResource', amount: 10 }]),
+	unit('well', 1, 0, 3, {
+		effects: [{ trigger: 'turnStart', verb: 'gainResource', amount: 1 }],
+	}),
+	unit('ember-well', 1, 0, 2, {
+		effects: [{ trigger: 'onDamaged', verb: 'gainResource', amount: 3 }],
+	}),
+	unit('giant', 7, 7, 7),
 ];
 
 /**
@@ -1147,6 +1188,189 @@ check('the turn limit ends the match as a draw', () => {
 	assert.deepEqual(last.events.at(-1), { type: 'matchEnded', winner: 'draw', reason: 'turnLimit' });
 });
 
+// ---- C5: the mixed turn order ---------------------------------------------------------------
+
+const MIXED = { turnOrder: 'mixed' };
+
+check(
+	'strict, by default or named: no attack in main, no play in combat, two phases to end',
+	() => {
+		for (const rules of [undefined, { turnOrder: 'strict' }]) {
+			const m = table({ rules, mine: { hand: ['ember-imp'], board: ['brute'] } });
+			assert.equal(m.rules.turnOrder, 'strict');
+			assert.deepEqual(
+				legalActions(m).map((a) => a.type),
+				['play', 'endPhase', 'concede'],
+			);
+			illegal('phase', () =>
+				apply(m, { type: 'attack', attacker: uidOf(me(m).board, 'brute'), target: { hero: 1 } }),
+			);
+			const combat = apply(m, { type: 'endPhase' }).match;
+			assert.equal(combat.phase, 'combat');
+			illegal('phase', () => playCard(combat, 'ember-imp'));
+		}
+	},
+);
+
+check('a turn order other than strict or mixed is refused', () => {
+	assert.throws(
+		() =>
+			createMatch({ seed: 'x', decks: [[], []], library: LIBRARY, rules: { turnOrder: 'any' } }),
+		/turnOrder must be "strict" or "mixed"/,
+	);
+});
+
+check('mixed: main lists plays, then attacks, then endPhase and concede', () => {
+	const m = table({
+		rules: MIXED,
+		mine: { hand: ['ember-imp', 'cinder-bolt'], board: ['brute'] },
+		theirs: { board: ['dummy'] },
+	});
+	const brute = uidOf(me(m).board, 'brute');
+	const dummy = uidOf(them(m).board, 'dummy');
+	const legal = legalActions(m);
+	assert.deepEqual(
+		legal.map((a) => a.type),
+		['play', 'play', 'play', 'play', 'play', 'attack', 'attack', 'endPhase', 'concede'],
+	);
+	assert.deepEqual(
+		legal.filter((a) => a.type === 'attack'),
+		[
+			{ type: 'attack', attacker: brute, target: { unit: dummy } },
+			{ type: 'attack', attacker: brute, target: { hero: 1 } },
+		],
+	);
+});
+
+check('mixed: play, attack, play again; endPhase ends the turn without entering combat', () => {
+	const m = table({
+		rules: MIXED,
+		mine: { hand: ['brook-scout', 'cinder-bolt'], board: ['brute'] },
+		theirs: { deck: ['dummy'] },
+	});
+	let next = playCard(m, 'brook-scout').match;
+	const scout = uidOf(me(next).board, 'brook-scout');
+	next = apply(next, { type: 'attack', attacker: scout, target: { hero: 1 } }).match;
+	assert.equal(them(next).health, 28, 'a swift unit attacks the turn it arrives');
+	assert.equal(next.phase, 'main');
+	next = playCard(next, 'cinder-bolt', { target: { hero: 1 } }).match;
+	assert.equal(them(next).health, 25, 'a card is played after an attack');
+	const brute = uidOf(me(next).board, 'brute');
+	next = apply(next, { type: 'attack', attacker: brute, target: { hero: 1 } }).match;
+	assert.equal(them(next).health, 21);
+	illegal('exhausted', () => apply(next, { type: 'attack', attacker: brute, target: { hero: 1 } }));
+	const end = apply(next, { type: 'endPhase' });
+	assert.equal(end.match.active, 1);
+	assert.equal(end.match.phase, 'main');
+	assert.deepEqual(
+		ofType(end.events, 'phaseChanged').map((e) => e.phase),
+		['end', 'start', 'draw', 'main'],
+	);
+});
+
+check('mixed keeps every attack rule: arrived, guard, exhausted', () => {
+	const m = table({
+		rules: MIXED,
+		mine: { hand: ['brute'], board: ['ember-imp'] },
+		theirs: { board: ['dummy', 'lantern-warden'] },
+	});
+	const next = playCard(m, 'brute').match;
+	const warden = uidOf(them(next).board, 'lantern-warden');
+	illegal('arrived', () =>
+		apply(next, {
+			type: 'attack',
+			attacker: uidOf(me(next).board, 'brute'),
+			target: { unit: warden },
+		}),
+	);
+	const imp = uidOf(me(next).board, 'ember-imp');
+	illegal('target', () => apply(next, { type: 'attack', attacker: imp, target: { hero: 1 } }));
+	assert.deepEqual(
+		legalActions(next).filter((a) => a.type === 'attack'),
+		[{ type: 'attack', attacker: imp, target: { unit: warden } }],
+	);
+});
+
+// ---- C5: allFriendly and gainResource --------------------------------------------------------
+
+check('allFriendly hits every unit on its owner side in board order, then the hero', () => {
+	const m = table({
+		mine: { hand: ['tide'], board: ['dummy', 'pillar'] },
+		theirs: { board: ['dummy'] },
+	});
+	const { match, events } = playCard(m, 'tide');
+	assert.deepEqual(
+		ofType(events, 'damaged').map((e) => e.target),
+		[{ unit: uidOf(me(m).board, 'dummy') }, { unit: uidOf(me(m).board, 'pillar') }, { hero: 0 }],
+	);
+	assert.equal(me(match).health, 29);
+	assert.equal(them(match).board[0].damage, 0, 'the enemy is untouched');
+});
+
+check('allFriendly includes a unit itself; a dead source buffs the units left', () => {
+	const m = table({ mine: { hand: ['muster'], board: ['ember-imp', 'pillar'] } });
+	const buffed = playCard(m, 'muster').match;
+	assert.deepEqual(
+		me(buffed).board.map((u) => [u.attack, u.health]),
+		[
+			[2, 3],
+			[1, 3],
+		],
+	);
+	const d = table({
+		mine: { hand: ['cinder-bolt'] },
+		theirs: { board: ['standard', 'pillar'] },
+	});
+	const after = playCard(d, 'cinder-bolt', { target: { unit: uidOf(them(d).board, 'standard') } });
+	assert.deepEqual(
+		them(after.match).board.map((u) => [u.cardId, u.keywords]),
+		[['pillar', ['shield']]],
+	);
+});
+
+check('gainResource adds to current this turn only, up to the cap; max is untouched', () => {
+	const m = table({ resource: 3, mine: { hand: ['spark', 'surge', 'giant'] } });
+	illegal('cost', () => playCard(m, 'giant'));
+	const sparked = playCard(m, 'spark');
+	assert.deepEqual(me(sparked.match).resource, { current: 5, max: 3 });
+	assert.deepEqual(ofType(sparked.events, 'resourceGained'), [
+		{ type: 'resourceGained', player: 0, amount: 2 },
+	]);
+	const surged = playCard(sparked.match, 'surge');
+	assert.deepEqual(me(surged.match).resource, { current: 10, max: 3 }, 'capped at the rules max');
+	assert.deepEqual(ofType(surged.events, 'resourceGained'), [
+		{ type: 'resourceGained', player: 0, amount: 5 },
+	]);
+	const giant = playCard(surged.match, 'giant').match;
+	assert.deepEqual(me(giant).resource, { current: 3, max: 3 });
+	const full = table({ resource: 10, mine: { hand: ['spark'] } });
+	assert.deepEqual(ofType(playCard(full, 'spark').events, 'resourceGained'), [], 'none at the cap');
+	const capped = table({ resource: 4, rules: { resource: { max: 5 } }, mine: { hand: ['surge'] } });
+	assert.equal(me(playCard(capped, 'surge').match).resource.current, 5);
+});
+
+check('gainResource at turn start comes after the refill; gained off-turn, it is gone', () => {
+	const m = table({ resource: 3, mine: { board: ['well'] }, theirs: { deck: ['dummy'] } });
+	let next = apply(apply(m, { type: 'endPhase' }).match, { type: 'endPhase' }).match;
+	next = apply(apply(next, { type: 'endPhase' }).match, { type: 'endPhase' }).match;
+	assert.equal(next.active, 0);
+	assert.deepEqual(me(next).resource, { current: 5, max: 4 });
+	const off = table({
+		active: 1,
+		mine: { hand: ['cinder-bolt'], deck: ['dummy'] },
+		theirs: { board: ['ember-well'], deck: ['dummy'] },
+	});
+	off.players[0].resource = { current: 2, max: 2 };
+	const hit = apply(off, {
+		type: 'play',
+		uid: uidOf(me(off).hand, 'cinder-bolt'),
+		target: { unit: uidOf(off.players[0].board, 'ember-well') },
+	}).match;
+	assert.equal(hit.players[0].resource.current, 5, 'gained on the opponent turn');
+	const back = apply(apply(hit, { type: 'endPhase' }).match, { type: 'endPhase' }).match;
+	assert.deepEqual(back.players[0].resource, { current: 3, max: 3 }, 'the refill replaces it');
+});
+
 // ---- randomness, replay and purity ---------------------------------------------------------
 
 check("the match stream is board.js's mulberry32, held as a number", () => {
@@ -1169,9 +1393,9 @@ check("the match stream is board.js's mulberry32, held as a number", () => {
 });
 
 /** A whole match played by a seeded chooser, which prefers anything to ending a phase. */
-function playOut(seed, chooserSeed = `${seed}:chooser`) {
-	const choose = createRng(chooserSeed);
-	const start = createMatch({ seed, decks: [DECK, DECK], library: LIBRARY });
+function playOut(seed, { rules, deck = DECK } = {}) {
+	const choose = createRng(`${seed}:chooser`);
+	const start = createMatch({ seed, decks: [deck, deck], library: LIBRARY, rules });
 	let match = start.match;
 	const events = [...start.events];
 	const actions = [];
@@ -1190,8 +1414,8 @@ function playOut(seed, chooserSeed = `${seed}:chooser`) {
 	return { seed, actions, events, result: match.result, turn: match.turn };
 }
 
-function replay({ seed, actions }) {
-	const start = createMatch({ seed, decks: [DECK, DECK], library: LIBRARY });
+function replay({ seed, actions }, { rules, deck = DECK } = {}) {
+	const start = createMatch({ seed, decks: [deck, deck], library: LIBRARY, rules });
 	let match = start.match;
 	const events = [...start.events];
 	for (const action of actions) {
@@ -1204,10 +1428,17 @@ function replay({ seed, actions }) {
 
 const SEEDS = ['c1', 20261027, 'guard-wall', 'fatigue-run'];
 
-check('every listed action applies, and apply never changes its input', () => {
-	for (const seed of SEEDS) {
+/** The C5 additions in a deck: the sample's, plus the resource and allFriendly cards. */
+const C5_DECK = [...DECK, 'spark', 'tide', 'muster', 'standard', 'well', 'ember-well'];
+const PURITY_RUNS = [
+	...SEEDS.map((seed) => ({ seed })),
+	...SEEDS.map((seed) => ({ seed, rules: MIXED, deck: C5_DECK })),
+];
+
+check('every listed action applies, and apply never changes its input (strict and mixed)', () => {
+	for (const { seed, rules, deck = DECK } of PURITY_RUNS) {
 		const choose = createRng(`${seed}:purity`);
-		let match = createMatch({ seed, decks: [DECK, DECK], library: LIBRARY }).match;
+		let match = createMatch({ seed, decks: [deck, deck], library: LIBRARY, rules }).match;
 		deepFreeze(match);
 		let steps = 0;
 		while (!isOver(match) && steps++ < 2000) {
@@ -1262,8 +1493,50 @@ check('a seed and an action list replay byte for byte, and match the committed t
 	]) {
 		assert.ok(seen.has(type), `the sample matches should include a ${type} event`);
 	}
-	const fixture = traces.map(({ seed, actions, result, turn, events }) => ({
+	pinTraces(traces, REPLAY_FIXTURE);
+});
+
+/** The mixed runs: the sample decks, and the C5 deck that gains resource and hits allFriendly. */
+const MIXED_RUNS = [
+	...SEEDS.map((seed) => ({ seed, rules: MIXED })),
+	...SEEDS.map((seed) => ({ seed, rules: MIXED, deck: C5_DECK })),
+];
+
+check(
+	'mixed: a seed and an action list replay byte for byte, and match the committed trace',
+	() => {
+		const traces = MIXED_RUNS.map((run) => ({ ...playOut(run.seed, run), run }));
+		for (const trace of traces) {
+			const again = replay(trace, trace.run);
+			assert.equal(
+				JSON.stringify(again.events),
+				JSON.stringify(trace.events),
+				`seed ${trace.seed} replayed differently`,
+			);
+		}
+		const events = traces.flatMap((t) => t.events);
+		assert.ok(
+			!events.some((e) => e.type === 'phaseChanged' && e.phase === 'combat'),
+			'a mixed match never enters combat',
+		);
+		const attacksThenPlays = traces.some(({ actions }) =>
+			actions.some((a, i) => a.type === 'attack' && actions[i + 1]?.type === 'play'),
+		);
+		assert.ok(attacksThenPlays, 'a mixed match plays a card after an attack');
+		for (const type of ['resourceGained', 'attacked', 'died']) {
+			assert.ok(
+				events.some((e) => e.type === type),
+				`the mixed matches include a ${type} event`,
+			);
+		}
+		pinTraces(traces, MIXED_REPLAY_FIXTURE);
+	},
+);
+
+function pinTraces(traces, file) {
+	const fixture = traces.map(({ seed, run, actions, result, turn, events }) => ({
 		seed,
+		...(run?.deck ? { deck: 'c5' } : {}),
 		result,
 		turn,
 		actions,
@@ -1271,15 +1544,15 @@ check('a seed and an action list replay byte for byte, and match the committed t
 		digest: digest(JSON.stringify(events)),
 	}));
 	if (process.argv.includes('--update')) {
-		writeFileSync(REPLAY_FIXTURE, `${JSON.stringify(fixture, null, '\t')}\n`);
+		writeFileSync(file, `${JSON.stringify(fixture, null, '\t')}\n`);
 		return;
 	}
 	assert.deepEqual(
 		fixture,
-		JSON.parse(readFileSync(REPLAY_FIXTURE, 'utf8')),
-		'the replay drifted from cards-replay.json (run with --update only if the change to the rules is meant)',
+		JSON.parse(readFileSync(file, 'utf8')),
+		`the replay drifted from ${basename(file)} (run with --update only if the change to the rules is meant)`,
 	);
-});
+}
 
 function deepFreeze(value) {
 	if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {

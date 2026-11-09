@@ -243,6 +243,7 @@
 		chosen: 'a chosen target',
 		allEnemies: 'all enemies',
 		randomEnemy: 'a random enemy',
+		allFriendly: 'all friendly',
 	};
 	const LOOK_LABEL: Record<edit.PreviewLook, string> = {
 		inHand: 'In hand',
@@ -555,7 +556,7 @@
 												{#each edit.verbChoices(library) as v (v)}<option value={v}>{v}</option
 													>{/each}
 											</select>
-											{#if effect.verb === 'damage' || effect.verb === 'heal' || effect.verb === 'draw'}
+											{#if 'amount' in effect}
 												{@const r = CARD_RANGES[effect.verb]}
 												<label class="num"
 													>amount<input

@@ -308,7 +308,9 @@ async function release(uid: number, at: Point | undefined) {
 	const action = at ? actionAt(uid, at) : undefined;
 	stateCards.picked = 0;
 	const played = action ? await driver?.act(action) : false;
-	if (!played) {
+	// A refused card snaps back; an attacker stays in its zone, so its body, aligned to the pointer,
+	// is reset the same way.
+	if (!played || action?.type === 'attack') {
 		const match = driver?.session?.match;
 		if (match) seat(match, uid);
 	}
