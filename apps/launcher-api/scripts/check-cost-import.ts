@@ -6,9 +6,10 @@
  * Runs the real `parseCostImport` over the shapes a transcribed paste actually takes. Pinned:
  * a month written as a name is read whatever separates it from the fields (`May 2026, …`,
  * `May 2026<TAB>…`, `May 2026  …`), and an amount's thousands/decimal separators are never
- * mistaken for field separators (`2026-05, runpod, 1,234.56` is 1234.56, not 234.56) — plus
- * every form that already worked: single spaces, tabs, ISO and MM/YYYY months, Spanish month
- * names, `$`/`€` prefixes, `;` separators, `#` comments, and the per-line errors.
+ * mistaken for field separators (`2026-05, runpod, 1,234.56` is 1234.56, not 234.56), nor
+ * split from a sign or a currency after it (`12,50 €`, `-12,50`) — plus every form that
+ * already worked: single spaces, tabs, ISO and MM/YYYY months, Spanish month names, `$`/`€`
+ * prefixes, `;` separators, `#` comments, and the per-line errors.
  */
 import { parseAmount, parseCostImport } from '../src/lib/server/costs/importMonths';
 
@@ -59,6 +60,33 @@ check('commas, $ 1 234,56', one('2026-05, runpod, $ 1 234,56'), RUNPOD_MAY_BIG);
 check('commas, thousands only', one('2026-05,runpod,$1,234'), row('runpod', 2026, 5, 1234));
 // A complete amount followed by another column that starts with a digit stays separate.
 check('amount then a note column', one('2026-05,runpod,12.50,7 GPUs'), RUNPOD_MAY);
+
+// A tab- or space-separated amount is never split on its commas, and a currency after the
+// number stays with it.
+check('tabs, Spanish amount, euro after', one('2026-05\trunpod\t1.234,56 €'), RUNPOD_MAY_BIG);
+check('two spaces, decimal comma, euro after', one('2026-05  runpod  12,50 €'), RUNPOD_MAY);
+check('spaces, decimal comma, euro glued', one('2026-05 runpod 12,50€'), RUNPOD_MAY);
+check('spaces, English amount, USD after', one('2026-05 runpod 1,234.56 USD'), RUNPOD_MAY_BIG);
+check('tabs, English amount, USD after', one('2026-05\trunpod\t1,234.56 USD'), RUNPOD_MAY_BIG);
+check('commas, decimal comma, euro after', one('2026-05,runpod,12,50 €'), RUNPOD_MAY);
+check('tabs, four decimals', one('2026-05\trunpod\t1,2345'), row('runpod', 2026, 5, 1.2345));
+check('tabs, leading zero', one('2026-05\trunpod\t0,125'), row('runpod', 2026, 5, 0.125));
+check('commas, leading zero', one('2026-05,runpod,0,125'), row('runpod', 2026, 5, 0.125));
+// Groups of three after a comma, with no dot, are thousands in every layout (a decision).
+check('tabs, thousands only', one('2026-05\trunpod\t1,234'), row('runpod', 2026, 5, 1234));
+
+// A minus sign stays with its amount, so the negative-amount refusal still holds.
+for (const line of [
+	'2026-05 runpod -12,50',
+	'2026-05\trunpod\t-12,50',
+	'2026-05  runpod  -12,50',
+	'2026-05,runpod,-12,50',
+	'May 2026 runpod -1,234.56',
+]) {
+	check(`negative: ${JSON.stringify(line)}`, one(line), {
+		errors: [`Negative amount in: "${line}"`],
+	});
+}
 
 // A provider alias ending in a digit, then a comma: the comma still separates.
 check('alias ending in a digit, commas', one('2026-05,r2,4'), row('r2', 2026, 5, 4));
@@ -145,6 +173,8 @@ check('parseAmount English', parseAmount('1,234.56'), 1234.56);
 check('parseAmount Spanish', parseAmount('1.234,56'), 1234.56);
 check('parseAmount thousands only', parseAmount('12,345,678'), 12345678);
 check('parseAmount decimal comma', parseAmount('12,5'), 12.5);
+check('parseAmount leading-zero decimal comma', parseAmount('0,125'), 0.125);
+check('parseAmount negative thousands', parseAmount('-1,234'), -1234);
 check('parseAmount currency', parseAmount('$ 12.50'), 12.5);
 check('parseAmount empty', parseAmount('$'), null);
 check('parseAmount word', parseAmount('runpod'), null);

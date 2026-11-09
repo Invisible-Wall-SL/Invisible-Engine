@@ -91,13 +91,14 @@ const MONTH_NAMES: Record<string, number> = {
 /**
  * Parse a money amount written either way round: `1,234.56` (English) or `1.234,56`
  * (Spanish). Whichever separator appears LAST is the decimal point — the only rule
- * that distinguishes them without knowing the locale up front.
+ * that distinguishes them without knowing the locale up front — except that a comma
+ * between groups of three with no dot (`1,234`, `12,345,678`) is thousands: money seldom
+ * has three decimals. A group led by `0` (`0,125`) is never thousands.
  */
 export function parseAmount(raw: string): number | null {
 	const cleaned = raw.replace(/[$€\s]/g, '').trim();
 	if (!cleaned) return null;
-	// `1,234` / `12,345,678`: comma groups of three are thousands, not a decimal comma.
-	const normalized = /^\d{1,3}(?:,\d{3})+$/.test(cleaned)
+	const normalized = /^[-+]?[1-9]\d{0,2}(?:,\d{3})+$/.test(cleaned)
 		? cleaned.replace(/,/g, '')
 		: cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')
 			? cleaned.replace(/\./g, '').replace(',', '.')
@@ -144,31 +145,43 @@ function matchMonth(line: string): { year: number; month: number; rest: string }
 	return null;
 }
 
-/**
- * Split what follows the month into fields: on tabs, runs of two-plus spaces, `;`, and
- * commas — except a comma inside an amount (`1,234.56`, `1.234,56`, `12,50`): a comma is
- * kept only when the word before it and the digits after it read as ONE amount together.
- * `r2,4` and `12.50,3` still split.
- */
-const AMOUNT_WITH_COMMA =
-	/^[$€]?(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+,\d{1,2}|\d+,\d{1,2})$/;
+/** The word before a thousands comma: `1`, `-12`, `$1,234` (a group of three follows). */
+const THOUSANDS_HEAD = /^[-+]?[$€]?[1-9]\d{0,2}(?:,\d{3})*$/;
+/** The word before a decimal comma: `12`, `-12`, `1.234` (one or two digits follow). */
+const DECIMAL_HEAD = /^[-+]?[$€]?(?:\d+|[1-9]\d{0,2}(?:\.\d{3})+)$/;
 
+/**
+ * Whether the comma between `before` and `after` sits inside one amount: `1,234.56`,
+ * `12,50 €`, `1.234,56`, `-12,50`, `0,125`. Only a comma with a digit straight after it;
+ * `r2,4`, `12.50,3` and `12, 50` are field separators.
+ */
+function commaInAmount(before: string, after: string): boolean {
+	if (/\s$/.test(before) || !/^\d/.test(after)) return false;
+	const head = before.split(/\s+/).pop() ?? '';
+	const digits = /^\d+/.exec(after)?.[0].length ?? 0;
+	if (THOUSANDS_HEAD.test(head) && digits === 3) return true;
+	if (DECIMAL_HEAD.test(head) && digits <= 2) return true;
+	return /^[-+]?[$€]?0$/.test(head);
+}
+
+/**
+ * Split what follows the month into fields: on tabs, runs of two-plus spaces and `;`. Only
+ * when that leaves a single field are commas field separators too — and then not a comma
+ * inside an amount (`commaInAmount`). A tab- or space-separated amount is never split.
+ */
 function splitFields(rest: string): string[] {
-	const fields: string[] = [];
-	for (const field of rest.split(/\t|\s{2,}|;/)) {
-		const pieces: string[] = [];
-		for (const piece of field.split(',')) {
-			const last = pieces.length - 1;
-			const word = last >= 0 ? pieces[last].trimStart().split(/\s+/).pop() : undefined;
-			if (word && AMOUNT_WITH_COMMA.test(`${word},${piece.trimEnd()}`)) {
-				pieces[last] += `,${piece}`;
-			} else {
-				pieces.push(piece);
-			}
-		}
-		fields.push(...pieces);
+	const fields = rest
+		.split(/\t|\s{2,}|;/)
+		.map((f) => f.replace(/^[\s,]+|[\s,]+$/g, ''))
+		.filter(Boolean);
+	if (fields.length !== 1) return fields;
+	const pieces: string[] = [];
+	for (const piece of fields[0].split(',')) {
+		const last = pieces.length - 1;
+		if (last >= 0 && commaInAmount(pieces[last], piece)) pieces[last] += `,${piece}`;
+		else pieces.push(piece);
 	}
-	return fields.map((f) => f.trim()).filter(Boolean);
+	return pieces.map((p) => p.trim()).filter(Boolean);
 }
 
 /**
