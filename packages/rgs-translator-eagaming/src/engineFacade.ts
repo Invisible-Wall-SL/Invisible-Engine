@@ -525,8 +525,15 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 
 	const declared = new Set(cfg.symbols ?? []);
 	const known = new Set(Object.keys(activeMapping.symbols));
+	// The partner collector game's own `COIN`, `COLLECT` and `BLANK` pass through by design.
+	const collector = capturedCollectorRespin.get(sid)?.hw;
+	const ownNames = new Set(
+		collector
+			? [...Object.keys(collector.roles), ...(collector.blank ? [collector.blank] : [])]
+			: [],
+	);
 
-	const unmapped = [...declared].filter((s) => !known.has(s));
+	const unmapped = [...declared].filter((s) => !known.has(s) && !ownNames.has(s));
 	const orphaned = [...known].filter((s) => !declared.has(s));
 
 	// The declared grid is whatever the game's config says now (Invisible Game Config drives the
