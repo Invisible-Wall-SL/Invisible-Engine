@@ -27,6 +27,50 @@ server; delivery stays slot-only, and live real money waits on the partner (§9 
 
 ## Current state
 
+**Card C5 — the mixed turn order, `allFriendly`, `gainResource` (built 2026-11-09; in review).**
+[card-games.md](../design/card-games.md) §12's C5 row, on the owner's decisions of 2026-11-09 (§13
+#2, #3); what it settled is the design's new §4.5. Branch `cards/c5-switches-lists`. Not deployed.
+Out of scope, as decided: the spendable coin card, imports.
+
+- **The switch:** `card.rules.turnOrder: 'strict' | 'mixed'` (`game-config` `CardGameRules`;
+  `cards.js` `CARD_TURN_ORDERS`, `CardRules.turnOrder`), default strict, stored only when mixed
+  (the normalizer drops any other value). Mixed: one `main` phase listing plays, then attacks;
+  `endPhase` from it ends the turn, so `combat` is never entered and no Flow vocabulary changed.
+  Set in `/config`'s Card game section (**Turn order**, `setCardTurnOrder`). The session and the
+  test match map the rules through one helper, `cardMatchRules`, which names the turn order only
+  when it is mixed. The table needed no change: a board unit's drag already offers whatever
+  `legalActions` lists, so under mixed it lights `ready` and drops onto a target in main.
+- **`allFriendly`** (target, `include`): every unit on the effect owner's side in board order (the
+  card itself included), plus that hero for `characters`; any trigger; rules text "… all friendly
+  units / characters". In the Card Library form as "all friendly".
+- **`gainResource`** (verb, `amount` 1…10, no target): `current += amount` up to the rules'
+  `resource.max`; `max` untouched, so it is resource for this turn only and off-turn gains are gone
+  at the owner's refill. New event `resourceGained {player, amount}` (the amount actually added;
+  none at the cap), no Flow signal; the test match logs it. Rules text "Gain N resource this turn."
+- **A table fix found in the browser (C3's, made visible by mixed):** a taken attack left the
+  attacker's frame body Aligned where it was dropped (only a refused drop was respawned). `release`
+  in `apps/lines` `cards.ts` now respawns an attacker after its drop, as a refused card is.
+- **The AI:** lethal runs wherever attacks are listed; `hard`'s plan extends plays and attacks
+  together inside the same budget; a one-step decision scores a resource gain by the best play it
+  buys (no resource term in `evaluate`, which would move strict games); the lethal pre-check counts
+  an `allFriendly` attack buff on every ready unit.
+- **Strict parity:** `cards-replay.json`, `cards-ai-replay.json`, the full-board apply counts
+  (200 / 600) and normal-vs-easy (61–39) are unchanged. A headless comparison against `main` of the
+  sample (normalized config, validation, rules text, the replay record, Run 100, three whole driver
+  matches' signals and match) is identical but for the in-memory match value's resolved rules, which
+  now carry `turnOrder: 'strict'`. The sample library is unchanged.
+- **Gates:** `check:card-rules` 53 (+10, `cards-mixed-replay.json` new), `check:card-library` 46
+  (+3), `check:card-ai` 27 (+7, `cards-ai-mixed-replay.json` new; mixed full boards 290 / 600 / 600
+  applies), `check:cards-tool` 346 (+61), `check:card-family` 125 (+8), `check:card-runtime` 40
+  (+8); `check:all` 635 / 635; `check:svelte` at baseline. The playbook in the headless shell:
+  `card-play.mjs` 8 / 8, and `--turn-order mixed` (new) 11 / 11 (a board unit dragged onto the
+  enemy hero in main, one End Turn press). Current-games (stand-in fixtures, base `main` d212898):
+  10 pass, 0 of 128 screens changed.
+- **Runtime sizes** (`check:family-runtimes`, gzip -6, first visit, against `main` d212898 built
+  the same way; all within budget): slot 706,927 → 706,996 B (+69), match3 714,997 → 715,074 (+77),
+  arcade 738,558 → 738,646 (+88; online boot 794,983 → 795,071, +88), card 719,170 → 719,641
+  (+471). The non-card runtimes carry `game-config`'s card normalizer and `cards.js`' lists.
+
 **Salmons' visual fixes (built 2026-11-08; in review).** After P11.3–P11.5; branch
 `arcade/salmons-visual-fixes`. Not deployed. Detail, the files and the owner's re-upload in
 [status/salmons](salmons.md) (2026-11-08).
@@ -2752,6 +2796,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-09 — **Card C5: the mixed turn order switch, the `allFriendly` target and the
+  `gainResource` verb**, end to end (rules, AI, validator, rules text, Card Library form, `/config`,
+  runtime). Strict games play byte for byte as before. Detail above.
 - 2026-11-08 — **Salmons' visual fixes.** The golden salmon drawn gold and the fishing line drawn
   (engine and runtime, from the room's state); `climbed` / `grounded` / `jumped` / `hooked` /
   `escaped` / `golden` are online Flow events, with starter reactions in Salmons' flow; the

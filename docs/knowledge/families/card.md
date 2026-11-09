@@ -10,9 +10,13 @@ What is always true about card games, and what has gone wrong with them. Owner a
 - It is **rules-decided only**: free play, no stake, no wallet, no RGS. An RGS card config is a
   validation error and `unplayable` (`packages/game-config/src/cardGame.ts`,
   `packages/engine-game/src/game/mechanic.ts`). Delivery and partner sessions refuse it.
-- **Effects are data from closed lists**: seven verbs, four targets, five triggers, three keywords
-  (§3, decision §13 #3). No scripts. The AI, the validator, the rules text and the Card Library
-  form all read the same lists.
+- **Effects are data from closed lists**: eight verbs, five targets, five triggers, three keywords
+  (§3; decisions §13 #3, and C5's `allFriendly` and `gainResource`, owner 2026-11-09). No scripts.
+  The AI, the validator, the rules text and the Card Library form all read the same lists; an
+  addition touches all of them in one change.
+- **Strict phases are the default.** `card.rules.turnOrder: 'mixed'` (C5) is the only other turn
+  order: one main phase, plays and attacks in any order. A config without it plays exactly as
+  before C5; keep it so (the strict fixtures never move for a mixed-only change).
 - The game runs in the shared runtime (`apps/lines`), never a fork. A card is a component: one
   frame, many cards.
 - The family's tools: everything except Symbols, Win Text and Invisible Characters; Invisible Card
@@ -24,10 +28,11 @@ What is always true about card games, and what has gone wrong with them. Owner a
   imports, `apply` never mutates its input, every random draw comes from the match's own stream.
   Gate: `check:card-rules` (replay byte for byte from `fixtures/cards-replay.json`).
 - **The AI has its own stream.** `cardAi.js` seeds from `${seed}:ai:${side}` and never moves the
-  match RNG; `hard` stays inside its `apply()` budget. Gate: `check:card-ai`.
+  match RNG; `hard` stays inside its `apply()` budget, mixed turn order included. Gate:
+  `check:card-ai`.
 - **The lists and ranges have one source.** `cards.js` exports `CARD_VERBS`, `CARD_TRIGGERS`,
   `CARD_TARGET_KINDS`, `CARD_KEYWORDS`, `CARD_VERB_TARGETS`, `CARD_RANGES`, `CARD_MAX_EFFECTS`,
-  `CARD_SIDES`, `CARD_INCLUDES`, `CARD_UNTILS`. The Card Library's form offers exactly what
+  `CARD_SIDES`, `CARD_INCLUDES`, `CARD_UNTILS`, `CARD_TURN_ORDERS`. The Card Library's form offers exactly what
   `validateLibrary` accepts. Gate: `check:cards-tool` §1.
 - **Readers drop, validators refuse.** `readLibrary` drops unknown fields and values
   (`docs/conventions/doc-readers.md`); `validateLibrary` refuses what an author submits. The Card
@@ -38,8 +43,9 @@ What is always true about card games, and what has gone wrong with them. Owner a
 - **Cards live in the config** (`GameConfigDoc.card`, decision §13 #1): one lease, one etag, one
   History with `/config`. No new asset class; the export and bake seed `cardGameComponentIds` and
   classify `cardGameParamRefs` (gate: `check:art-scope`).
-- **The test match is the game's match.** `testMatch.ts` maps the config onto `createMatch` as
-  `cardSession.ts` does; `check:cards-tool` §4 plays both move for move.
+- **The test match is the game's match.** `testMatch.ts` and `cardSession.ts` both map the config
+  onto `createMatch` with `game-config`'s `cardMatchRules`; `check:cards-tool` §4 plays both move for
+  move, strict and mixed.
 - **Slot parity.** A non-card config never reaches a card path; the card code ships in the shared
   bundle (+17.7 KB gz since C3; owner call in status open item 0a).
 
@@ -58,6 +64,16 @@ See the `card-games` agent's "What you own".
 - **A new family must reach every copy of the family list**, the Director worker's
   `FAMILY_PACK_FAMILIES` and `PACK_FAMILY_LABELS` included. C3 missed it; `check:family-packs` and
   `check:svelte` went red on `main` until #1430.
+- **An attacker kept its body where it was dropped.** A unit's drag Aligns the frame's body to the
+  pointer; a refused drop is respawned (which resets it), but a taken attack leaves the unit in its
+  zone, so its body stayed on the target until the next respawn (C3, seen in C5's mixed browser
+  play, where attacks are dragged in main). The table now respawns an attacker after its drop
+  (`release` in `apps/lines` `cards.ts`). Anything Aligned during a drag must be reset on every
+  outcome, not only the refused one.
+- **A list's last entry is not a default.** The Card Library's `fitTarget` fell back to
+  `kinds[kinds.length - 1]` (then `randomEnemy`); appending `allFriendly` to the target list would
+  have turned every repaired non-`onPlay` target into a friendly one. Name a fallback, never take it
+  by position; `check:cards-tool` pins it (C5, 2026-11-09).
 - **Stored decks can hold what the pool cannot show** (a token, an unknown card, duplicate entries).
   The Card Library lists such strays once per card so they can be removed (C4).
 
