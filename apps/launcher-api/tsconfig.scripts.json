@@ -3,6 +3,7 @@
 	"compilerOptions": {
 		"paths": {
 			"$env/dynamic/private": ["./scripts/lib/env-stub.ts"],
+			"$app/environment": ["./scripts/lib/app-environment-stub.ts"],
 			"$lib": ["./src/lib"],
 			"$lib/*": ["./src/lib/*"]
 		}

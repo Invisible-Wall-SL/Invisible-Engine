@@ -21,6 +21,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
 	bearerToken,
+	isOwnerRole,
 	launcherGateDenial,
 	NO_SESSION_DENIAL,
 	OWNER_ROLE,
@@ -30,6 +31,8 @@ import {
 	entitledByAny,
 	leaseEntitlingTool,
 	mayTargetClient,
+	OWNER_ONLY_ADMIN_ACTIONS,
+	ownerActionDenial,
 	SHADER_EFFECTS_READ_TOOLS,
 	SHADER_READ_TOOLS,
 	SHADER_TOOL,
@@ -40,6 +43,7 @@ import {
 	ROLES,
 	ROLE_TOOLS,
 	TOOLS,
+	USER_CAPABILITIES,
 	roleHasCapability,
 } from '../src/lib/roles.ts';
 
@@ -509,6 +513,47 @@ for (const role of ROLES.filter((r) => r !== 'admin')) {
 		null,
 	);
 }
+
+for (const action of OWNER_ONLY_ADMIN_ACTIONS) {
+	check(
+		`the owner may ?/${action}`,
+		ownerActionDenial(OWNER_ROLE, action, {
+			actorId: 'u-owner',
+			userId: 'u-other',
+			toolKey: 'pipelineBugFix',
+		}),
+		null,
+	);
+}
+for (const role of ROLES.filter((r) => !isOwnerRole(r))) {
+	const other = { actorId: 'u-me', userId: 'u-other', toolKey: 'pipelineBugFix' };
+	check(
+		`a '${role}' holding adminPanel is refused every owner-only action`,
+		OWNER_ONLY_ADMIN_ACTIONS.filter((action) => ownerActionDenial(role, action, other) === null),
+		[],
+	);
+	check(
+		`but may reset their own password and set a user's tools`,
+		[
+			ownerActionDenial(role, 'resetPassword', { actorId: 'u-me', userId: 'u-me' }),
+			ownerActionDenial(role, 'setToolAccess', { actorId: 'u-me', toolKey: 'storybook' }),
+		],
+		[null, null],
+	);
+}
+check(
+	'every per-user capability is the owner’s to grant',
+	USER_CAPABILITIES.filter(
+		(toolKey) =>
+			ownerActionDenial('developer', 'setToolAccess', { actorId: 'u', toolKey }) === null,
+	),
+	[],
+);
+check(
+	'the owner role is the admin role',
+	[isOwnerRole('admin'), isOwnerRole('developer')],
+	[true, false],
+);
 
 check('the deploy token setting is never shown', settingValueVisible('deployToken'), false);
 check('an unknown setting is hidden until allow-listed', settingValueVisible('newSecret'), false);

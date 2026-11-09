@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { SESSION_COOKIE, createSession, verifyCredentials } from '$lib/server/auth';
+import { passwordTooLong } from '$lib/passwordLimit';
 import { ENV } from '$lib/server/env';
 import {
 	checkLoginThrottle,
@@ -25,6 +26,10 @@ export const actions: Actions = {
 
 		if (!email || !password) {
 			return fail(400, { email, error: 'Enter your email and password.' });
+		}
+		// Refused on length before the throttle's DB reads or any scrypt; it can never be right.
+		if (passwordTooLong(password)) {
+			return fail(400, { email, error: 'Invalid email or password.' });
 		}
 
 		// Brute-force throttle (shared with the launcher login endpoint).

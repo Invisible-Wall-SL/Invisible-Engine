@@ -8,7 +8,7 @@
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { MIN_PASSWORD_LENGTH } from '$lib/passwordPolicy';
 	import { BUG_CAPABILITIES, BUG_KINDS, BUG_TOOL, type BugKind } from '$lib/bugReports';
-	import { roleLabel } from '$lib/roles';
+	import { USER_CAPABILITIES, roleLabel } from '$lib/roles';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -683,20 +683,24 @@
 						<button type="submit">Set / clear</button>
 					</form>
 
-					<form method="POST" action="?/resetPassword" use:enhance class="inline">
-						<input type="hidden" name="userId" value={selected.id} />
-						<label class="grow">
-							New password (at least {MIN_PASSWORD_LENGTH} characters)
-							<input
-								name="password"
-								type="password"
-								autocomplete="new-password"
-								minlength={MIN_PASSWORD_LENGTH}
-								required
-							/>
-						</label>
-						<button type="submit">Reset</button>
-					</form>
+					{#if data.isOwner || selected.id === data.currentUserId}
+						<form method="POST" action="?/resetPassword" use:enhance class="inline">
+							<input type="hidden" name="userId" value={selected.id} />
+							<label class="grow">
+								New password (at least {MIN_PASSWORD_LENGTH} characters)
+								<input
+									name="password"
+									type="password"
+									autocomplete="new-password"
+									minlength={MIN_PASSWORD_LENGTH}
+									required
+								/>
+							</label>
+							<button type="submit">Reset</button>
+						</form>
+					{:else}
+						<p class="muted hint">Only an admin can reset another user's password.</p>
+					{/if}
 
 					<h4>Tool access</h4>
 					<div class="tools">
@@ -726,6 +730,7 @@
 							{#each bugRows(kind) as row (row.key)}
 								{@const mode = overrideMode(selected.id, row.key)}
 								{@const def = cellDefault(selected.role, row.key)}
+								{@const ownerOnly = !data.isOwner && USER_CAPABILITIES.includes(row.key)}
 								<form method="POST" action="?/setToolAccess" use:enhance class="tool-row">
 									<input type="hidden" name="userId" value={selected.id} />
 									<input type="hidden" name="toolKey" value={row.key} />
@@ -733,12 +738,17 @@
 										{row.name}
 										<em class="muted">{def ? 'role: granted' : 'role: none'}</em>
 									</span>
-									<select name="mode" value={mode}>
+									<select
+										name="mode"
+										value={mode}
+										disabled={ownerOnly}
+										title={ownerOnly ? 'Only an admin can grant a capability.' : undefined}
+									>
 										<option value="default">Role default ({def ? 'on' : 'off'})</option>
 										<option value="grant">Force grant</option>
 										<option value="revoke">Force revoke</option>
 									</select>
-									<button type="submit">Apply</button>
+									<button type="submit" disabled={ownerOnly}>Apply</button>
 								</form>
 							{/each}
 						</div>
@@ -877,6 +887,12 @@
 				baseline. User-level overrides (per user) still win on top of these. Capabilities are grouped
 				and searchable so the matrix stays readable as more are added.
 			</p>
+			{#if !data.isOwner}
+				<p class="muted hint">
+					Read-only: only an admin can change what a role is granted, as a role's grants include
+					your own.
+				</p>
+			{/if}
 
 			<div class="roles-toolbar">
 				<input
@@ -936,6 +952,7 @@
 															name="mode"
 															class={`tri ${mode}`}
 															value={mode}
+															disabled={!data.isOwner}
 															aria-label={`${roleLabel(role)} — ${cap.name}`}
 															onchange={(e) => e.currentTarget.form?.requestSubmit()}
 														>
@@ -1138,14 +1155,16 @@
 								<input type="hidden" name="key" value={p.key} />
 								<button type="submit" class="small" disabled={projectBusy}>Restore</button>
 							</form>
-							<button
-								type="button"
-								class="danger small"
-								onclick={() => openPurge(p)}
-								disabled={projectBusy}
-							>
-								Purge files
-							</button>
+							{#if data.isOwner}
+								<button
+									type="button"
+									class="danger small"
+									onclick={() => openPurge(p)}
+									disabled={projectBusy}
+								>
+									Purge files
+								</button>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -1888,7 +1907,9 @@
 				<div class="token-status">
 					<span class="muted">Current</span>
 					{#if data.deployToken.configured}
-						<span class="mono token-masked">{data.deployToken.masked}</span>
+						{#if data.deployToken.masked}
+							<span class="mono token-masked">{data.deployToken.masked}</span>
+						{/if}
 						<span class="pill on">configured</span>
 					{:else}
 						<span class="mono muted">— not configured —</span>
@@ -1910,27 +1931,31 @@
 					</div>
 				{/if}
 
-				<div class="token-actions">
-					<form method="POST" action="?/revealDeployToken" use:enhance>
-						<button type="submit" class="ghost-btn">Reveal current</button>
-					</form>
-					<form method="POST" action="?/rotateDeployToken" use:enhance>
-						<button type="submit">Rotate (generate new)</button>
-					</form>
-				</div>
+				{#if data.isOwner}
+					<div class="token-actions">
+						<form method="POST" action="?/revealDeployToken" use:enhance>
+							<button type="submit" class="ghost-btn">Reveal current</button>
+						</form>
+						<form method="POST" action="?/rotateDeployToken" use:enhance>
+							<button type="submit">Rotate (generate new)</button>
+						</form>
+					</div>
 
-				<form method="POST" action="?/setDeployToken" use:enhance class="inline token-set">
-					<label class="grow">
-						Set token (typed value)
-						<input
-							name="token"
-							type="text"
-							autocomplete="off"
-							placeholder="paste or type a token"
-						/>
-					</label>
-					<button type="submit">Save</button>
-				</form>
+					<form method="POST" action="?/setDeployToken" use:enhance class="inline token-set">
+						<label class="grow">
+							Set token (typed value)
+							<input
+								name="token"
+								type="text"
+								autocomplete="off"
+								placeholder="paste or type a token"
+							/>
+						</label>
+						<button type="submit">Save</button>
+					</form>
+				{:else}
+					<p class="muted hint">Only an admin can see, set or rotate the deploy token.</p>
+				{/if}
 			</div>
 
 			<div class="card">

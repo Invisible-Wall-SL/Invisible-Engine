@@ -12,6 +12,8 @@ import {
 	type Role,
 } from '$lib/roles';
 import { adminAccountDenial } from '$lib/accessRules';
+import { isOwnerRole } from '$lib/launcherGates';
+import { withAdminGuards } from '$lib/server/adminActions';
 import { passwordLengthProblem } from '$lib/passwordPolicy';
 import {
 	hashPassword,
@@ -295,6 +297,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	return {
 		currentUserId: locals.user!.id,
+		// Whether the viewer holds the owner's role: the owner-only controls show only then.
+		isOwner: isOwnerRole(locals.user!.role),
 		users: userList,
 		roles: ROLES,
 		overrides,
@@ -338,7 +342,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			configured: !!deployToken,
 			// A short masked preview so an admin can sanity-check WHICH token is live
 			// without revealing it. Never the full value.
-			masked: deployToken ? maskToken(deployToken) : null,
+			masked: deployToken && isOwnerRole(locals.user!.role) ? maskToken(deployToken) : null,
 		},
 		bootSplash: {
 			engine: bootSplashEngine ?? null,
@@ -401,7 +405,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	};
 };
 
-export const actions: Actions = {
+// Owner-only actions and the audit log are applied around the whole table: see withAdminGuards.
+export const actions = withAdminGuards({
 	createUser: async ({ request, locals }) => {
 		const admin = await requireAdmin(locals);
 		const data = await request.formData();
@@ -1138,8 +1143,9 @@ export const actions: Actions = {
 	},
 
 	// --- Deploy token (shared build/publish token) ---
-	// All three actions are admin-only (requireAdmin re-checks the adminPanel
-	// capability). The secret is returned to the page ONLY by an explicit reveal/
+	// All three are owner-only (`withAdminGuards`): the adminPanel capability alone does
+	// not reach them, as `PUT /api/launcher/deploy-token` is owner-only too. The secret is
+	// returned to the page ONLY by an explicit reveal/
 	// set/rotate; it is never logged and the page serves it no differently than any
 	// other form result (no-store handled by the admin route being uncacheable).
 
@@ -1678,4 +1684,4 @@ export const actions: Actions = {
 			parseErrors: errors,
 		};
 	},
-};
+} satisfies Actions);
