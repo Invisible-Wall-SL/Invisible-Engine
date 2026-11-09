@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
+import { requireDeployToken } from '$lib/server/deployToken';
 import { exportEffects } from '$lib/server/effectExport';
 import { exportRigFx } from '$lib/server/rigFxExport';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
@@ -25,9 +25,7 @@ import type { RequestHandler } from './$types';
  * new assets, so it rides this same FX trigger; the bake embeds it beside `effects`.
  */
 export const POST: RequestHandler = async ({ url }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Editor effects export is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
+	await requireDeployToken(url, 'Editor effects export is not configured.');
 
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;

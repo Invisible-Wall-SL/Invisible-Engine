@@ -1,10 +1,16 @@
 <script lang="ts">
+	import { getContextBoard } from 'components-shared';
+
 	import ReelSymbol from './ReelSymbol.svelte';
 	import ReelPaddingPool from './ReelPaddingPool.svelte';
 	import { getContext } from '../game/context';
+	import { activeGrid } from '../game/gameConfig';
+	import type { StripWindow } from '../game/reelStrip';
+	import { ReelStripView } from '../game/reelStripView.svelte';
 	import { stateTumble, tumbleBoardCombined } from '../game/stateTumble.svelte';
 
 	const context = getContext();
+	const boardContext = getContextBoard();
 
 	/**
 	 * THE ONE MOUNT SITE for the board's cells, whoever is driving them.
@@ -47,6 +53,35 @@
 	 * when the layout doc loads, and never flips during play.
 	 */
 	const perspective = $derived(!!context.stateGameDerived.boardPerspective());
+
+	/**
+	 * Each reel's strip as THIS layer draws it (`reelStripView.svelte.ts`): the window `SymbolWrap`
+	 * culls at, the same `top`, `bottom` and half-row margin it computed per cell.
+	 */
+	const stripWindow = (reelIndex: number): StripWindow => {
+		const stepped = activeGrid().stepped
+			? context.stateGameDerived.boardWindowForReel(reelIndex)
+			: undefined;
+		return {
+			top: stepped ? stepped.top : 0,
+			bottom: stepped ? stepped.top + stepped.height : context.stateGameDerived.boardWindowHeight(),
+			halfRow: context.stateGameDerived.boardGeometry().rowPitchLocal / 2,
+			rolling: !!context.stateGame.board[reelIndex]?.reelState.rolling,
+		};
+	};
+	const strips = $derived(
+		context.stateGame.board.map(
+			(reel, reelIndex) =>
+				new ReelStripView(reel.strip, boardContext.animate, () => stripWindow(reelIndex)),
+		),
+	);
+	$effect.pre(() => {
+		for (const strip of strips) strip.refresh();
+	});
+	$effect.pre(() => {
+		const releases = strips.map((strip) => strip.connect());
+		return () => releases.forEach((release) => release());
+	});
 	const rowOrder = $derived.by(() => {
 		const depth = columns.reduce((max, column) => Math.max(max, column.length), 0);
 		const ordered = [];
@@ -77,13 +112,13 @@
 		{#each column as reelSymbol, row (reelSymbol)}
 			<!-- A roll's filler is drawn by `ReelPaddingPool`, through views it keeps. -->
 			{#if !reelSymbol.padding}
-				<ReelSymbol {reelIndex} {row} {reelSymbol} />
+				<ReelSymbol {reelIndex} {row} {reelSymbol} strip={strips[reelIndex]} />
 			{/if}
 		{/each}
 	{/each}
 {/if}
 {#if !stateTumble.active}
 	{#each columns as column, reelIndex (reelIndex)}
-		<ReelPaddingPool {reelIndex} {column} />
+		<ReelPaddingPool {reelIndex} {column} strip={perspective ? undefined : strips[reelIndex]} />
 	{/each}
 {/if}

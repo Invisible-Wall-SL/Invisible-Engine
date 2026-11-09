@@ -11,7 +11,7 @@
  *   - `betOptions` rides the engine's boot `config` event. It is the **credit cost of each bet
  *     option at multiplier 1**, indexed by the FIRST bet-context argument: `[10, 1000]` means
  *     `[0, M]` costs `10 × M` (base) and `[1, M]` costs `1000 × M` (buy bonus). `betOptionsName`
- *     (`["0:base","1:buybonus"]`) names them.
+ *     (`["0:base","1:buybonus"]`) names them; one partner game spells it `betOptionNames`.
  *   - `betMultipliers` rides the operator's embed page (`window.params.GameSettings.config`),
  *     alongside `initialBetMultiplierIndex`. It is the list of M values the player may pick.
  *
@@ -66,8 +66,10 @@ export const readServerBetOptions = (config: unknown): ServerBetOptions | null =
 	const betOptions = positiveNumbers(source.betOptions);
 	if (!betOptions) return null;
 
-	const names = Array.isArray(source.betOptionsName)
-		? source.betOptionsName.filter((n): n is string => typeof n === 'string')
+	// `betOptionNames` is the partner's collector respin game's spelling (`["Base", "Powerup", …]`).
+	const declared = source.betOptionsName ?? source.betOptionNames;
+	const names = Array.isArray(declared)
+		? declared.filter((n): n is string => typeof n === 'string')
 		: undefined;
 
 	return {

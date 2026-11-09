@@ -4,8 +4,9 @@
  *   pnpm --filter launcher-api check:game-server-config
  *
  * Runs the REAL route, `gameServerConfig.ts` and `projects.ts`, and the REAL handlers of every route
- * the deploy token opens (found by scanning `src/routes` for `getDeployToken`, `projectReadClient(`
- * and `projectAllowsRead(`, so the path-form `/api/deploy/f/…` and `/api/published/f/…` too).
+ * the deploy token opens (found by scanning `src/routes` for `getDeployToken`,
+ * `requireDeployToken(`, `projectReadClient(` and `projectAllowsRead(`, so the path-form
+ * `/api/deploy/f/…` and `/api/published/f/…` too).
  * Replaced: Postgres (`db/index.ts`, its `projects` filter read back through Drizzle's own PG
  * dialect, and its `app_settings` row holding the deploy token) and the
  * published-snapshot reads (`publishedRuntime.ts`). Every `R2_*` variable is removed first, so
@@ -266,7 +267,9 @@ const allSources = walk(fileURLToPath(new URL('../src', import.meta.url)));
 const deployRoutes = walk(routesDir)
 	.filter((p) => p.endsWith('+server.ts'))
 	.filter((p) =>
-		/getDeployToken|projectReadClient\(|projectAllowsRead\(/.test(readFileSync(p, 'utf8')),
+		/getDeployToken|requireDeployToken\(|projectReadClient\(|projectAllowsRead\(/.test(
+			readFileSync(p, 'utf8'),
+		),
 	)
 	.map((p) => relative(routesDir, p));
 const mustCover = [

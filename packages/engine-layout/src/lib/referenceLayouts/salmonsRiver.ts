@@ -11,7 +11,8 @@ type Rect = { x: number; y: number; w: number; h: number };
 export type SalmonsRiverDrawing = {
 	world: { w: number; h: number };
 	bands: readonly { y: number; h: number; left: number; right: number; current: number }[];
-	whirlpools: readonly { x: number; y: number; r: number }[];
+	/** `spin`: the way it turns, 1 or −1. */
+	whirlpools: readonly { x: number; y: number; r: number; spin?: number }[];
 	/** P11.3; absent in a river made before it. */
 	rocks?: readonly Rect[];
 	sandbanks?: readonly Rect[];

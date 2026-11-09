@@ -54,22 +54,28 @@ import {
 	type CharacterClips,
 	type LayoutDoc,
 	type LayoutNode,
+	type SalmonsRiverDrawing,
 	type Scene,
 } from 'engine-layout';
 import {
+	clearArt,
 	clearClips,
 	clearMarks,
 	clipsOn,
 	setClips,
+	setCodeLooks,
+	setFieldArt,
 	setLinks,
 	setMarks,
 	startMarks,
 	setWorldCameraView,
 	spawnStore,
+	type ArtMount,
 	type InstanceClip,
 	type InstanceLink,
 	type InstanceMark,
 } from 'engine-layout/svelte';
+import type { CodeLook, SalmonsArt } from 'engine-layout/salmons-art';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
 import {
@@ -120,11 +126,25 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * (`generatedOnlineGame`, the very function the server ran) and draws it in place of the authored
  * one ({@link withRoomField}, `FIELD_DRAWINGS`), as the scenes load.
  *
+ * ART IN CODE: a generator with built-in art ({@link FIELD_ART}: Salmons' original images) has it
+ * loaded in the background after the join, from a lazy chunk no other game fetches. Once loaded,
+ * the field is drawn in it and each player of a character it draws gets a code look, animated
+ * here every frame from how it moves and the room's events; a published clip still wins over it.
+ * Until then, or if it fails to load, the placeholders.
+ *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
  * loads it.
  */
+
+/** The built-in art a generator's field and characters are drawn with, loaded only for it. */
+const FIELD_ART: Readonly<
+	Record<string, (made: SalmonsRiverDrawing, seed: number) => Promise<SalmonsArt>>
+> = {
+	salmonsRiver: async (made, seed) =>
+		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
+};
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */
 const ROOM_NAME = 'arcade';
@@ -202,9 +222,20 @@ type Session = {
 	field: LayoutNode | undefined;
 	/** Whether the loaded doc drew {@link field}: `undefined` until the scenes load. */
 	fieldDrawn: boolean | undefined;
+	/** The generator's built-in art, once loaded ({@link FIELD_ART}). */
+	art: SalmonsArt | undefined;
+	/** Room player id → its code look, while it is drawn. */
+	codeLooks: Map<string, CodeLook>;
+	/** Holder id → when its line was cast (`hooked`), on the clip clock. */
+	casts: Map<string, number>;
+	/** The buttons of the last input sent (a tap is a press). */
+	buttons: number;
 };
 
 let session: Session | undefined;
+
+/** How the last room's field art stands, after the room too (the probe's: a leave destroys it). */
+let fieldArt: SalmonsArt['rivers'] | undefined;
 
 /** A player's clips: its animator, its drawn places of the last moment (its velocity) and, once
  *  the room put it out, how long its instance waits for its catch and whether the catch started. */
@@ -327,7 +358,11 @@ export async function joinOnlineRoom(): Promise<void> {
 	}
 	// A room that is gone for good (disposed, a kick, a reconnect that ran out) leaves nothing to
 	// play: say so on the same screen rather than freeze on the last state.
+	// A leave while the join still waits (for the seed) must not leave a session for a dead room.
+	let left = false;
 	room.onLeave((code: number) => {
+		left = true;
+		if (session) dropArt(session);
 		session = undefined;
 		clearMarks();
 		clearClips();
@@ -383,8 +418,24 @@ export async function joinOnlineRoom(): Promise<void> {
 		seed,
 		field,
 		fieldDrawn: undefined,
+		art: undefined,
+		codeLooks: new Map(),
+		casts: new Map(),
+		buttons: 0,
 	};
+	if (left) return;
 	session = current;
+	const loadArt = generator ? FIELD_ART[generator] : undefined;
+	if (loadArt && field && played.made && seed !== undefined)
+		loadArt(played.made, seed).then(
+			(art) => {
+				if (session !== current || left) return art.destroy();
+				current.art = art;
+				fieldArt = art.rivers;
+				setFieldArt(field.id, art.river);
+			},
+			(error: unknown) => console.warn('[online] the field art did not load', error),
+		);
 	// Before the game mounts and anything is spawned, so no look is remounted to be wrapped.
 	startMarks();
 	if (current.field) setRoomDocChange(withRoomField);
@@ -487,7 +538,31 @@ function raise(current: Session, signal: OnlineFlowSignal) {
 	}
 	// A new round puts every player at its start: no velocity from where it was.
 	if (signal.name === 'roundStart') for (const look of current.looks.values()) restart(look);
+	if (current.art) lookEvent(current, signal);
 	void getFlowV2()?.dispatch(signal.name, signal.payload);
+}
+
+/** A room event a code look plays (a hop, a climb, an ability), and when a line was cast. */
+function lookEvent(current: Session, signal: OnlineFlowSignal) {
+	const { player, by } = signal.payload;
+	if (signal.name === 'hooked' && typeof by === 'string') current.casts.set(by, current.clipClock);
+	if ((signal.name === 'caught' || signal.name === 'escaped') && typeof by === 'string')
+		current.casts.delete(by);
+	if (signal.name === 'roundStart') current.casts.clear();
+	if (
+		(signal.name === 'jumped' || signal.name === 'climbed' || signal.name === 'ability') &&
+		typeof player === 'string'
+	)
+		current.codeLooks.get(player)?.event(signal.name, current.clipClock);
+}
+
+/** The room is gone: its art and every code look with it. */
+function dropArt(current: Session) {
+	for (const look of current.codeLooks.values()) look.destroy();
+	current.codeLooks.clear();
+	current.art?.destroy();
+	current.art = undefined;
+	clearArt();
 }
 
 /** Write the room's values into the flow's variables the room owns; the next frame delivers them. */
@@ -636,6 +711,44 @@ function draw(current: Session, dtMs: number) {
 	const lines = current.lines.drawn(players);
 	drawMarks(current, players, lines);
 	drawClips(current, players, places, lines);
+	drawCodeLooks(current, players, places);
+}
+
+/** Each drawn player's code look this frame (once the art is loaded), made with its first draw. */
+function drawCodeLooks(
+	current: Session,
+	players: Map<string, PlayerState>,
+	places: Map<string, { x: number; y: number }>,
+) {
+	const { art } = current;
+	if (!art) return;
+	for (const [id, look] of current.codeLooks)
+		if (!current.drawn.has(id)) {
+			look.destroy();
+			current.codeLooks.delete(id);
+		}
+	const mounts = new Map<string, ArtMount>();
+	for (const [id, instance] of current.drawn) {
+		const player = players.get(id);
+		// A published clip wins over the code look (`<SpawnLayer>` would hide it anyway).
+		if (!player || current.looks.get(id)?.shown) continue;
+		let look = current.codeLooks.get(id);
+		if (!look) {
+			look = art.look(player.character, bodyOf(current, player));
+			if (!look) continue;
+			current.codeLooks.set(id, look);
+		}
+		const at = places.get(id) ?? placeOf(current, id, player);
+		look.frame({
+			atMs: current.clipClock,
+			x: at.x,
+			y: at.y,
+			status: player.status,
+			marked: player.mark,
+		});
+		mounts.set(instance, look.mount);
+	}
+	setCodeLooks(mounts);
 }
 
 /** The registered clips, as a character's animator reads them. */
@@ -775,11 +888,22 @@ function drawMarks(
 		const target = players.get(line.target);
 		if (!from || !to || !by || !target) continue;
 		current.drawnLines.push(line);
+		const hand = current.codeLooks.get(line.by)?.hand;
+		const middle = current.codeLooks.get(line.target)?.middle;
 		links.push({
 			from,
 			to,
-			fromLift: bodyOf(current, by).h * 0.75,
-			toLift: bodyOf(current, target).h / 2,
+			fromLift: hand?.lift ?? bodyOf(current, by).h * 0.75,
+			toLift: middle ?? bodyOf(current, target).h / 2,
+			...(current.art && hand
+				? {
+						style: current.art.line(
+							current.clipClock - (current.casts.get(line.by) ?? -Infinity),
+							current.clipClock,
+							hand.dx,
+						),
+					}
+				: {}),
 		});
 	}
 	setLinks(current.game.online.layer, links);
@@ -850,6 +974,9 @@ export function tickOnline(dtMs: number) {
 		const handle = current.room.input();
 		Object.assign(handle.data, input);
 		handle.send();
+		if (input.buttons & BUTTONS.jump && !(current.buttons & BUTTONS.jump))
+			current.codeLooks.get(current.room.sessionId)?.event('tap', current.clipClock);
+		current.buttons = input.buttons;
 		current.me?.input(input);
 		predictAbilities(current, input.buttons, input.seq);
 	});
@@ -875,6 +1002,7 @@ export function onlineProbe() {
 	return {
 		steps: state?.step || 0,
 		bodies,
+		...(fieldArt ? { fieldArt: fieldArt() } : {}),
 		...(camera && worldCamera
 			? {
 					camera: {
@@ -922,6 +1050,21 @@ export function onlineProbe() {
 							),
 						),
 						clipLog: [...current.clipLog],
+						art: current.art
+							? {
+									regions: current.art.regions(),
+									looks: Object.fromEntries(
+										[...current.codeLooks].map(([id, look]) => [
+											id,
+											{ ...look.drawn(), hand: look.hand ?? null, middle: look.middle },
+										]),
+									),
+									lines: current.drawnLines.map((line) => {
+										const hand = current.codeLooks.get(line.by)?.hand;
+										return hand && current.art?.line(Infinity, 0, hand.dx).color;
+									}),
+								}
+							: null,
 						signals: current.signals.map((s) => ({ ...s })),
 						spawned: spawnStore()
 							.live(current.game.online.layer)

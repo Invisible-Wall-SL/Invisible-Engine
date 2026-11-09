@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
+import { requireDeployToken } from '$lib/server/deployToken';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { savePublishedSymbolDefaults } from '$lib/server/symbolDefaults';
@@ -16,9 +16,7 @@ import type { RequestHandler } from './$types';
  * no launcher session. Idempotent; safe to re-run per build.
  */
 export const PUT: RequestHandler = async ({ url, request }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Symbol-defaults publish is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
+	await requireDeployToken(url, 'Symbol-defaults publish is not configured.');
 
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;

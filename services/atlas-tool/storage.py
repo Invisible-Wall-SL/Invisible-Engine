@@ -4,6 +4,7 @@ Kept so the ~existing `import storage` call sites stay unchanged.
 """
 from iw_common.storage import (  # noqa: F401
     Conflict,
+    configured,
     delete,
     dir_size,
     exists,

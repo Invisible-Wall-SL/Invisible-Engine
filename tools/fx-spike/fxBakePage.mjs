@@ -118,8 +118,33 @@ try {
 	check('turned on, it says it is not baked yet', true, await ev(`bakeDrive.bar()`));
 
 	console.log('3. bake now');
+	// The emitters draw from Math.random, so an unseeded bake is a different loop every run and the
+	// seam check below passes or fails by chance. A seeded generator makes the baked loop repeatable,
+	// with the live stage's frames held meanwhile: its emitters would otherwise draw from the same
+	// generator between the bake's steps, as many times as the machine's speed allows. The frame
+	// already scheduled when the hold goes in runs before the seed, so it draws nothing seeded.
+	await ev(`(() => {
+		const raf = window.requestAnimationFrame.bind(window);
+		const held = [];
+		window.requestAnimationFrame = (cb) => (held.push(cb), 0);
+		bakeDrive.release = () => {
+			window.requestAnimationFrame = raf;
+			for (const cb of held.splice(0)) raf(cb);
+		};
+	})()`);
+	await sleep(200);
+	await ev(`(() => {
+		let s = 0x5eed;
+		Math.random = () => {
+			s = (s + 0x6d2b79f5) | 0;
+			let t = Math.imul(s ^ (s >>> 15), 1 | s);
+			t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+	})()`);
 	await ev(`bakeDrive.button('Bake now')`);
 	await waitFor(`bakeDrive.pill() === 'Baked'`, 'the bake', 90_000);
+	await ev(`bakeDrive.release()`);
 	const bakeErrors = browser.pageLog.filter((l) => /^\[(error|uncaught)\]/.test(l));
 	check('no errors while baking', bakeErrors.length === 0, bakeErrors.slice(0, 3).join(' | '));
 	const reqs = await ev(

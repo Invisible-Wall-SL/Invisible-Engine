@@ -423,6 +423,7 @@ type WireSnapshot = {
 	coinBoost?: number;
 	lettersLit?: boolean[];
 	rows?: number;
+	enhancements?: string[];
 };
 
 export type HoldAndWinTranslation = {
@@ -466,6 +467,7 @@ export const holdAndWinState = (t: HoldAndWinTranslation, wire: WireSnapshot) =>
 			coinBoost: wire.coinBoost ?? 1,
 			lettersLit: (wire.lettersLit ?? []).flatMap((lit, reel) => (lit ? [reel] : [])),
 			...(typeof wire.rows === 'number' ? { rows: wire.rows } : {}),
+			...(Array.isArray(wire.enhancements) ? { enhancements: wire.enhancements } : {}),
 		},
 		mode: t.mode,
 	};
@@ -600,6 +602,7 @@ export const translateHoldAndWinEvent = (
 					activeModifiers: ctx.activeModifiers ?? [],
 					...(ctx.meters ? { meters: ctx.meters } : {}),
 					...(isExpansion(ctx.expansion) ? { expansion: ctx.expansion } : {}),
+					...(Array.isArray(ctx.enhancements) ? { enhancements: ctx.enhancements } : {}),
 				},
 			};
 		case 'holdAndWinWheel': {
@@ -655,6 +658,14 @@ export const translateHoldAndWinEvent = (
 				cells: ctx.cells ?? [],
 			};
 		}
+		case 'enhancementHit':
+			return ctx.kind === 'boost' || ctx.kind === 'multiply'
+				? { type: 'enhancementHit', kind: ctx.kind, by: ctx.by, cells: ctx.cells ?? [] }
+				: null;
+		case 'enhancementMiss':
+			return ctx.kind === 'boost' || ctx.kind === 'multiply'
+				? { type: 'enhancementMiss', kind: ctx.kind }
+				: null;
 		case 'respinsAdded': {
 			const cell = ctx.cell as WireCell | undefined;
 			if (!cell) return null;
