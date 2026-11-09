@@ -646,7 +646,7 @@
         <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
       </div>
       <div class="grp" id="grpRigFile">
-        <button id="exportBtn" title="Download the skeleton as .irig (4.2-format JSON)" disabled>⤓ .irig</button>
+        <button id="exportBtn" title="Download the skeleton as .irig" disabled>⤓ .irig</button>
         <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
         <button id="histBtn" title="Earlier saved versions of this rig — restore one" disabled>🕘</button>
       </div>
@@ -3100,7 +3100,7 @@ function renderResyncList(){
 // A localization KEY + a font are rasterised, once per REVIEWED locale, onto a second page of
 // this rig bundle's own .atlas. From that moment the string is an ORDINARY region attachment:
 // region→mesh convert, weights, deform and keyframing all apply with no new machinery, and the
-// .irig stays byte-valid 4.2-format. Localization is an ATTACHMENT SWAP — one attachment per
+// .irig needs no new fields. Localization is an ATTACHMENT SWAP — one attachment per
 // locale, named `<id>@<locale>`, in one slot; the game picks by locale at load.
 //
 // The rasteriser itself is NOT here: it needs PIXI (to draw through the SAME BitmapText/Text
@@ -12811,8 +12811,8 @@ function positionPlayhead(){
   if (tl) ph.style.height = tl.scrollHeight + "px";
 }
 
-// Export the (edited) skeleton as `.irig` — byte-valid 4.2-format JSON under our
-// extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
+// Export the (edited) skeleton as `.irig` — the open document as it is (irig v1, or 4.2 until its
+// first save imports it). In-place edits to rawDoc are preserved verbatim (incl. animations).
 function exportIrig(){
   if (!rawDoc) return;
   settleRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right

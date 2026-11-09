@@ -1,7 +1,7 @@
 import { mapWithConcurrency } from '../../concurrency';
 import { SUB, projectPrefix } from '../../projectPaths';
 import { ConflictError, getObjectTextWithEtag, listAllKeys } from '../../r2';
-import { irigDocProblem } from '../../riggerIrig';
+import { asIrigDocument, irigDocProblem } from '../../riggerIrig';
 import { irigTarget, writeIrig } from '../../riggerIrigWrite';
 import { stampSavedBy } from '../../savedBy';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
@@ -328,7 +328,8 @@ export const rebindAttachments = defineOp<
 		// The `.irig` ships verbatim in game bundles (as the bundle's skeleton), so its stamp names the
 		// run and the agent but not the owner: the run leads back to them inside the launcher.
 		const { tool, agent, runId, at, rev } = ctx.savedBy;
-		const text = JSON.stringify(stampSavedBy(rig, { tool, agent, runId, at, rev }));
+		const stored = asIrigDocument(rig) ?? rig;
+		const text = JSON.stringify(stampSavedBy(stored, { tool, agent, runId, at, rev }));
 		const res = await writeIrig(clientKey, projectKey, target, text, preconditionOf(baseEtag));
 		if (res.ok) {
 			return { dir, stem, applied, unchanged, refused, indexed: true, baseEtag: baseOf(res.etag) };

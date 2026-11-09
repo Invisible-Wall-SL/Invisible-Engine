@@ -4039,6 +4039,11 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[stored(IRIG).bones, stored(IRIG).slots, stored(IRIG).animations],
 		[skeleton.bones, skeleton.slots, skeleton.animations],
 	);
+	check(
+		'...imported to irig v1 on the way (docs/design/irig-format.md, Phase 4a)',
+		[stored(IRIG).irig, stored(IRIG).skeleton?.spine],
+		[1, undefined],
+	);
 	check("...the artist's source .json is untouched", R2.get(`${RIG_DIR}/hero.json`), sourceBefore);
 	check(
 		'...and the skeleton index lists the rig',

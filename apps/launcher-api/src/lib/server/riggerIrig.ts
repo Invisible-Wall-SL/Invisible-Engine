@@ -1,4 +1,4 @@
-import { isIrigDocument, readIrig } from 'engine-rig';
+import { importSpine42Json, isIrigDocument, readIrig, writeIrig } from 'engine-rig';
 import { projectPrefix } from './projectPaths';
 import { copyObject, deleteObjects, getObjectText, headObject, listAllObjects } from './r2';
 
@@ -118,6 +118,24 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
 	if (stale.length === 0) return [];
 	await deleteObjects(stale.map((b) => `${backupsPrefix}${b.id}.json`));
 	return stale.map((b) => b.id);
+}
+
+/**
+ * A 4.2 skeleton as irig v1 (docs/design/irig-format.md, Phase 4a), when the import only drops keys
+ * the 4.2 reader ignores. An import that would change a value (a wrong type the reader coerces), or
+ * one the importer cannot read at all, returns `null`: the caller keeps the 4.2 document, which
+ * loads as it always has. An irig document is returned as it is.
+ */
+export function asIrigDocument(doc: Record<string, unknown>): Record<string, unknown> | null {
+	if (isIrigDocument(doc)) return doc;
+	let imported: ReturnType<typeof importSpine42Json>;
+	try {
+		imported = importSpine42Json(doc);
+	} catch {
+		return null;
+	}
+	if (!imported.issues.every((i) => i.reason === 'not an irig field')) return null;
+	return JSON.parse(writeIrig(imported.doc)) as Record<string, unknown>;
 }
 
 /**

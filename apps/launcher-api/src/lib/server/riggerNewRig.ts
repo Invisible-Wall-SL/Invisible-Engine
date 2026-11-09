@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
-import { IRIG_VERSION, importSpine42Json, isIrigDocument, writeIrig } from 'engine-rig';
+import { IRIG_VERSION } from 'engine-rig';
 import { r2Slug, sharedRigKey } from './projectPaths';
 import { getObjectText } from './r2';
-import { irigDocProblem } from './riggerIrig';
+import { asIrigDocument, irigDocProblem } from './riggerIrig';
 
 /** The minimal blank rig both `new` and `upload` write when no rig is applied, as irig v1. */
 function blankSkeleton(): Record<string, unknown> {
@@ -56,15 +56,8 @@ export async function resolveRigSkeletonBody(rigId: string): Promise<Record<stri
 }
 
 function asIrig(skel: Record<string, unknown>): Record<string, unknown> {
-	if (isIrigDocument(skel)) return skel;
-	let imported: ReturnType<typeof importSpine42Json> | null = null;
-	try {
-		imported = importSpine42Json(skel);
-	} catch {
-		// Not a skeleton the importer can read: the 4.2 path below reports why it would not load.
-	}
-	if (imported && imported.issues.every((i) => i.reason === 'not an irig field'))
-		return JSON.parse(writeIrig(imported.doc)) as Record<string, unknown>;
+	const irig = asIrigDocument(skel);
+	if (irig) return irig;
 	const skelBlock = (skel.skeleton ?? {}) as Record<string, unknown>;
 	return { ...skel, skeleton: { ...skelBlock, spine: '4.2' } };
 }
