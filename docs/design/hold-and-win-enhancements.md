@@ -8,9 +8,11 @@
 **8**. Their CDN alias is the name without spaces, `GettingHot`, so the launcher card must be named
 "Getting Hot" for deliveries to find it (or the launch link passes `&alias=GettingHot`).
 
-## Scope (owner, 2026-11-09): their math, our visuals
+## Scope: their math, our client
 
-**The partner's server owns the math and every outcome.** Getting Hot is their proven Fortune Vault
+As for every game we ship, **the partner's server owns the math and every outcome**, and our
+client talks to it through the Play4Fun translator. The first draft of this plan wrongly treated
+the math as ours; this section corrects it. Getting Hot is their proven Fortune Vault
 Force 5 game: same math, same server logic, same wire. **We build the client:** it must read their
 wire exactly and present it with our own art, names and theme. We copy no art or names
 ("Gold Strike", "Force 5", "Power Roll" stay theirs).
@@ -225,7 +227,7 @@ betModeStrips?: Record<string, string>;
 
 ## 4. Build plan (each a PR on its own branch; pipeline rules apply)
 
-Re-ordered 2026-11-09 for the owner's scope: the partner's wire first, then the look, then our mock.
+The partner's wire first, then the look, then our mock.
 Each slice ships with its fixture and docs. `check:holdandwin`'s parity digests (400 seeded rounds
 per preset) must stay equal for every existing preset.
 
