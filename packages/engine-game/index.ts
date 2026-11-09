@@ -185,6 +185,7 @@ export {
 	type HoldAndWinCell,
 	type HoldAndWinCellAmount,
 	type HoldAndWinCoinChange,
+	type HoldAndWinEnhancement,
 	type HoldAndWinEntry,
 	type HoldAndWinEvent,
 	type HoldAndWinEventFields,

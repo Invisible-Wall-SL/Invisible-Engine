@@ -36,8 +36,19 @@ export type HoldAndWinCoinChange = Position & { from: number; to: number; jackpo
 export type HoldAndWinUpgradeChange = Position &
 	({ kind: 'value'; from: number; to: number } | { kind: 'jackpot'; from: string; to: string });
 
-/** Why the feature started. A meter cause names the meters in `HoldAndWinEntry.meters`. */
-export type HoldAndWinCause = 'count' | 'pattern' | 'meter' | 'luckySpin' | 'randomMetre' | 'buy';
+/** Why the feature started. A meter cause names the meters in `HoldAndWinEntry.meters`. `run` —
+ *  symbols on a run of adjacent reels, anywhere on the board (the partner's collector respin game). */
+export type HoldAndWinCause =
+	'count' | 'pattern' | 'meter' | 'luckySpin' | 'randomMetre' | 'buy' | 'run';
+
+/**
+ * An enhancement a feature drew at entry (`docs/design/hold-and-win-enhancements.md` §3.3): `extraRow`
+ * opens more rows, `boost` may add a cash amount to a landing coin each respin, `multiply` may
+ * multiply one, `extraRespins` raises the counter, `superBonus` is the stronger bonus (the partner's
+ * `powerFive` flag).
+ */
+export type HoldAndWinEnhancement =
+	'extraRow' | 'boost' | 'multiply' | 'extraRespins' | 'superBonus';
 
 /** Where a jackpot came from. `banked` sources add money; the rest present money already counted. */
 export type HoldAndWinJackpotSource =
@@ -67,6 +78,8 @@ export type HoldAndWinEntry = {
 	/** An expanding board (design §7 11b): the rows open at entry and the most it can reach. Absent
 	 *  ⇒ the board never grows. */
 	expansion?: { rows: number; maxRows: number };
+	/** The enhancements drawn for this feature. Absent ⇒ the feature has none. */
+	enhancements?: HoldAndWinEnhancement[];
 };
 
 /** A tallied cell. On a coin board paying `perLine` or `lineFill`, `lines` is how often it paid:
@@ -109,6 +122,8 @@ export type HoldAndWinSnapshot = {
 	lettersLit: number[];
 	/** Open rows of an expanding board; absent ⇒ it never grows (the grid's rows). */
 	rows?: number;
+	/** The feature's enhancements; absent ⇒ none. */
+	enhancements?: HoldAndWinEnhancement[];
 };
 
 /**
@@ -173,6 +188,13 @@ export type HoldAndWinEventFields = {
 		multiplier: number;
 		cells: HoldAndWinCoinChange[];
 	};
+	/**
+	 * A `boost` or `multiply` enhancement hit coins that landed this respin, before any collector
+	 * gathers them: `by` is the cash added (× total bet) for a boost, the factor for a multiply.
+	 */
+	enhancementHit: { kind: 'boost' | 'multiply'; by: number; cells: HoldAndWinCoinChange[] };
+	/** A `boost` or `multiply` enhancement missed this respin (its indicator shows the X). */
+	enhancementMiss: { kind: 'boost' | 'multiply' };
 	specialBecomesCoin: HoldAndWinCell & { from: SymbolName };
 	coinCollect: {
 		collector: HoldAndWinCell;
@@ -234,6 +256,8 @@ const HOLD_AND_WIN_EVENT_TYPES: Record<HoldAndWinEventType, true> = {
 	respinsAdded: true,
 	coinUpgrade: true,
 	coinBoost: true,
+	enhancementHit: true,
+	enhancementMiss: true,
 	specialBecomesCoin: true,
 	coinCollect: true,
 	cellsCleared: true,
@@ -396,6 +420,7 @@ export const applyHoldAndWinEvent = (
 				stickiness: event.payload.stickiness,
 				activeModifiers: event.payload.activeModifiers,
 				rows: event.payload.expansion?.rows,
+				...(event.payload.enhancements ? { enhancements: event.payload.enhancements } : {}),
 			};
 		case 'holdAndWinWheel': {
 			const { prize } = event;
@@ -414,6 +439,7 @@ export const applyHoldAndWinEvent = (
 			};
 		case 'coinPay':
 		case 'coinBoost':
+		case 'enhancementHit':
 			return { ...state, cells: withChanges(state.cells, event.cells) };
 		case 'respinsAdded':
 			return { ...state, left: event.left, start: event.total };
@@ -471,6 +497,7 @@ export const applyHoldAndWinEvent = (
 		case 'coinInstantCollect':
 		case 'randomMetreTrigger':
 		case 'respinReveal':
+		case 'enhancementMiss':
 			return state;
 	}
 };
