@@ -5,7 +5,9 @@
 > tab (the edge is behind a Cloudflare challenge). It is evidence for Phase 10, not a contract: one
 > game, play money, about 40 requests. No session id, round id or token is recorded here.
 >
-> Our own wire, which the facade maps today: [hold-and-win-wire.md](hold-and-win-wire.md). Transport:
+> Mapped by the facade since Phase 14a (`rgs-translator-eagaming/src/collectorRespin.ts`, gate
+> `collectorRespin.fixture.ts`): see "The partner's collector respin game" in
+> [hold-and-win-wire.md](hold-and-win-wire.md). Transport:
 > [play4fun-protocol.md](play4fun-protocol.md). The game's rules and our plan:
 > [design/hold-and-win-enhancements.md](../design/hold-and-win-enhancements.md).
 
@@ -166,3 +168,7 @@ The last respin adds `playedBonusSpins` and `gameEnd`; the client then posts `co
   coins on reels 4 and 5 triggered (`trigger.occurs: [3,4,5]`).
 - **"Center Coin" (50×)** deals the ante's coin-only reels with a collector guaranteed on reel 3.
 - **The ante** deals coins, collectors and blanks only, at 5× the stake.
+- **The base total is `gameCost × betPerLine`**, not `betPerLine ×` the 5 lines: `gameCost` is 10.
+  The facade prices every coin and win on it.
+- **The option names travel as `betOptionNames`** (our mocks say `betOptionsName`); the facade
+  reads both.

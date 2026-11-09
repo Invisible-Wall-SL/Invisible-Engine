@@ -82,6 +82,7 @@ import {
 	applyPools,
 	boardCells,
 	coinBoardLineCount,
+	HOLD_AND_WIN_MODE,
 	holdAndWinState,
 	meterLevelsEvent,
 	meterUpdateEvent,
@@ -117,6 +118,11 @@ import {
 	type Match3Translate,
 } from './match3';
 import type { Match3BootConfig } from './types';
+import {
+	normalizeCollectorRespin,
+	readCollectorRespinConfig,
+	type CollectorRespinConfig,
+} from './collectorRespin';
 
 // ---------- mapping selection ----------
 
@@ -145,6 +151,10 @@ const capturedBetOptions = new Map<string, ServerBetOptions>();
  *  `holdAndWin` block as mode `holdAndWin`) — present only for a server that deals respins, and the
  *  gate for the whole Hold and Win translation (`holdAndWin.ts`). */
 const capturedHoldAndWin = new Map<string, HoldAndWinModes>();
+
+/** Per-session partner collector respin game (`./collectorRespin`), recognised from its boot config —
+ *  the gate for renaming its wire into ours before anything below reads it. */
+const capturedCollectorRespin = new Map<string, CollectorRespinConfig>();
 
 /** Per-session coin board from the boot config (`config.holdAndWin.coinBoard`) — the gate for a
  *  base game dealt on the respin board and a bet that buys its line count. */
@@ -326,7 +336,11 @@ const captureConfig = (
 	if (detected) activeMapping = detected;
 	const match3 = readMatch3Config(cfg);
 	if (match3) capturedMatch3.set(sid, match3);
-	const holdAndWin = readHoldAndWinModes(cfg);
+	const collector = readCollectorRespinConfig(cfg, events);
+	if (collector) capturedCollectorRespin.set(sid, collector);
+	const holdAndWin: HoldAndWinModes | null = collector
+		? { modes: new Map([[HOLD_AND_WIN_MODE, collector.hw]]), primary: HOLD_AND_WIN_MODE }
+		: readHoldAndWinModes(cfg);
 	const overlay = readPotsOverlayConfig(cfg);
 	if (holdAndWin) {
 		capturedHoldAndWin.set(sid, holdAndWin);
@@ -708,7 +722,14 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
 	return Math.round((winCents / betCents) * BOOK_AMOUNT_MULTIPLIER);
 };
 
-type BetEventContext = { total?: number; betPerLine?: number; paylines?: unknown[] };
+type BetEventContext = {
+	total?: number;
+	betPerLine?: number;
+	paylines?: unknown[];
+	/** Not a wire field: the base total the partner's collector game prices on (`gameCost ×
+	 *  betPerLine`), set by `./collectorRespin`, whose game has fewer lines than `gameCost`. */
+	baseTotal?: number;
+};
 
 /**
  * The BASE stake of a round, from its `bet` event: betPerLine × paylines, not the debited `total`.
@@ -723,6 +744,7 @@ type BetEventContext = { total?: number; betPerLine?: number; paylines?: unknown
  * games, so `betPerLine` IS the base stake.
  */
 const baseStakeCents = (ctx: BetEventContext): number => {
+	if (typeof ctx.baseTotal === 'number' && ctx.baseTotal > 0) return ctx.baseTotal;
 	const betPerLine = typeof ctx.betPerLine === 'number' ? ctx.betPerLine : 0;
 	const numLines = Math.max(1, Array.isArray(ctx.paylines) ? ctx.paylines.length : 0);
 	const baseBet = betPerLine * numLines;
@@ -796,7 +818,12 @@ const winPositions = (c: { mode?: string; context?: unknown }): { reel: number; 
  *
  *  Within each spin, Play4Fun emits spinWin BEFORE playedSpin; we hold the wins
  *  and flush them as winInfo right after the reveal (the engine wants board first). */
-const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown[] => {
+const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unknown[] => {
+	// The partner's collector respin game speaks its own wire; renamed into ours first.
+	const collector = capturedCollectorRespin.get(sid);
+	const events = collector
+		? (normalizeCollectorRespin(collector, wireEvents) as Play4FunBookEvent[])
+		: wireEvents;
 	const ordered: Record<string, unknown>[] = [];
 	const push = (ev: Record<string, unknown>) => ordered.push({ index: ordered.length, ...ev });
 

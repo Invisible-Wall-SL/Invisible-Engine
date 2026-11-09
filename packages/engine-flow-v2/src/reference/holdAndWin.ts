@@ -65,10 +65,27 @@ const CAUSE: TypeRef = { t: 'enum', name: 'HoldAndWinCause' };
 const SPECIAL: TypeRef = { t: 'enum', name: 'HoldAndWinSpecial' };
 const JACKPOT_SOURCE: TypeRef = { t: 'enum', name: 'HoldAndWinJackpotSource' };
 const STICKINESS: TypeRef = { t: 'enum', name: 'Stickiness' };
+const ENHANCEMENT: TypeRef = { t: 'enum', name: 'HoldAndWinEnhancement' };
 const EXPANSION_RULE: TypeRef = { t: 'enum', name: 'ExpansionRule' };
 
 /** `engine-game` `HoldAndWinCause`. */
-export const HOLD_AND_WIN_CAUSES = ['count', 'pattern', 'meter', 'luckySpin', 'randomMetre', 'buy'];
+export const HOLD_AND_WIN_CAUSES = [
+	'count',
+	'pattern',
+	'meter',
+	'luckySpin',
+	'randomMetre',
+	'buy',
+	'run',
+];
+/** `engine-game` `HoldAndWinEnhancement`. */
+export const HOLD_AND_WIN_ENHANCEMENTS = [
+	'extraRow',
+	'boost',
+	'multiply',
+	'extraRespins',
+	'superBonus',
+];
 /** `game-config` `HOLD_AND_WIN_SPECIALS`. */
 export const HOLD_AND_WIN_SPECIAL_KINDS = [
 	'collector',
@@ -183,6 +200,7 @@ const STRUCTS: TemplateVocabulary['structs'] = [
 			{ name: 'activeModifiers', type: list(SPECIAL) },
 			{ name: 'meters', type: list(STRING) },
 			{ name: 'expansion', type: { t: 'struct', name: 'HoldAndWinExpansion' } },
+			{ name: 'enhancements', type: list(ENHANCEMENT) },
 		],
 	},
 	{
@@ -214,6 +232,7 @@ const STRUCTS: TemplateVocabulary['structs'] = [
 			{ name: 'coinBoost', type: FLOAT },
 			{ name: 'lettersLit', type: list(INT) },
 			{ name: 'rows', type: INT },
+			{ name: 'enhancements', type: list(ENHANCEMENT) },
 		],
 	},
 	{
@@ -236,6 +255,7 @@ const ENUMS: TemplateVocabulary['enums'] = [
 	{ name: 'Stickiness', values: HOLD_AND_WIN_STICKINESS },
 	{ name: 'UpgradeTarget', values: HOLD_AND_WIN_UPGRADE_TARGETS },
 	{ name: 'ExpansionRule', values: HOLD_AND_WIN_EXPANSION_RULES },
+	{ name: 'HoldAndWinEnhancement', values: HOLD_AND_WIN_ENHANCEMENTS },
 ];
 
 /** The base-game Hold and Win events — they ride on a base spin, so they follow `reveal`. */
@@ -453,6 +473,26 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 		],
 		category: 'book',
 		description: 'Every coin on the board was multiplied.',
+	},
+	{
+		name: 'enhancementHit',
+		payload: [
+			{ name: 'kind', type: STRING, description: '`boost` or `multiply`.' },
+			{
+				name: 'by',
+				type: FLOAT,
+				description: 'The cash added (× total bet) for a boost, the factor for a multiply.',
+			},
+			{ name: 'cells', type: list(COIN_CHANGE), description: 'The landing coins it changed.' },
+		],
+		category: 'book',
+		description: 'A boost or multiply enhancement hit coins that landed this respin.',
+	},
+	{
+		name: 'enhancementMiss',
+		payload: [{ name: 'kind', type: STRING, description: '`boost` or `multiply`.' }],
+		category: 'book',
+		description: 'A boost or multiply enhancement missed this respin: its indicator shows the X.',
 	},
 	{
 		name: 'specialBecomesCoin',

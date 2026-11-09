@@ -18,7 +18,9 @@ Owner agent: `hold-and-win-games`.
 - **Mock-first, our wire.** Every Hold and Win event is ours, a swap seam rewritten in Phase 10
   (`docs/reference/hold-and-win-wire.md`). Nothing above the facade may depend on the wire. The
   only partner respin rounds we have are one captured collector game
-  (`docs/reference/play4fun-collector-respin-capture.md`, 2026-11-09).
+  (`docs/reference/play4fun-collector-respin-capture.md`, 2026-11-09). The facade renames that game's
+  events into our wire (`rgs-translator-eagaming/src/collectorRespin.ts`, Phase 14a), so the
+  reducer and presentation read one wire; guard `collectorRespin.fixture.ts`.
 - **Not this agent's:** the coin overlay or pots overlay on another kind, several bonus modes in one
   project, and a Hold and Win imported as a bonus of another project. Those are `bonus-games`
   (`docs/status/bonus-games.md`, `docs/status/pots-overlay.md`). The respin game itself, the

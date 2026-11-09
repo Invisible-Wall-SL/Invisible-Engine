@@ -1,8 +1,10 @@
 # The Hold and Win wire — OURS, a swap seam
 
 > **⚠️ This is not the partner's format.** We have one capture of the partner's own collector respin
-> game (2026-11-09, [play4fun-collector-respin-capture.md](play4fun-collector-respin-capture.md)),
-> not yet mapped. Every Hold and Win event below is still invented by us (design §3.2, owner decision 2026-09-30). It is
+> game (2026-11-09, [play4fun-collector-respin-capture.md](play4fun-collector-respin-capture.md)).
+> The facade renames that game's events into this wire (`rgs-translator-eagaming/src/collectorRespin.ts`,
+> Phase 14a; see "The partner's collector respin game" below). Every Hold and Win event below is still
+> invented by us (design §3.2, owner decision 2026-09-30). It is
 > what our mock (`scripts/mock-rgs-server-holdandwin.mjs`) speaks and what the facade maps into the
 > engine's book events (design §4.3). **When the partner delivers their format (Phase 10), this
 > document and the facade mapping are rewritten; nothing above the facade may depend on it.**
@@ -150,6 +152,8 @@ every coin drawn for the rest of the feature; `extraCollect` raises the collecto
 | `jackpotWin`                           | `{tier, amount, source, banked, cell?}`                                                                                    | see "Money"                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `rowsUnlocked`                         | `{from, rows, cause, unlockers: [cell]}`                                                                                   | board expansion, after the specials (and a streak's clear): `from` → `rows` open rows, `cause` = the rule, `unlockers` = the unlock symbols (then an `applied` clear). Then a banked `jackpotWin {source: "row"}` per row jackpot reached. An unlock resets the counter (`max(start, left)`) when `resetsRespins`                                                                                                                           |
 | `cellsCleared`                         | `{reason: "collected" \| "applied", cells: [{reel,row}]}`                                                                  | `collected` — a streak's non-collector cells leave the board; `applied` — a non-sticky add-respins, or an unlock symbol, leaves after applying                                                                                                                                                                                                                                                                                              |
+| `enhancementHit`                       | `{kind: "boost" | "multiply", by, cells: [{reel,row,from,to}]}`                                                             | an enhancement hit coins that landed this respin, before the collect: `by` = the cash added (× stake) for a boost, the factor for a multiply. Only the partner's collector game sends it today (renamed by the facade)                                                                                                                                                                                                                                                                                                                            |
+| `enhancementMiss`                      | `{kind: "boost" | "multiply"}`                                                                                              | that enhancement missed this respin (the X)                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `respinUpdate`                         | `{left, played, start, reset}`                                                                                             | `reset` = `anyCoin`: a coin or jackpot landed, or a mystery revealed one · `anySpecial`: anything landed. `start` is the feature's current cap. `left = reset ? max(start, left) : left − 1`, with `left` already counting this respin's add-respins (a reset never throws them away) — except on the respin that ENDS the feature (full board, last letter, cap), which always says `left: 0, reset: false`, like its closing snapshot     |
 | `columnComplete`                       | `{reel, letter, newlyLit, cleared, value, amount, cells}`                                                                  | column letters: a column with every row held. `cleared` ⇒ its cells' `amount`s are banked and it empties; not cleared ⇒ the letter lights, the cells stay (`amount: 0`). Every letter lit ⇒ `jackpotWin {source: "letters"}` and the feature ends                                                                                                                                                                                           |
 | `playedBonusSpin`                      | partner snapshot + `holdAndWin` state                                                                                      | after every respin — the board as it now stands                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -511,6 +515,28 @@ A token the game cannot deal (an unknown pot, coins with no Hold and Win bonus, 
 range, a typo) is refused with error 101 before the batch is dealt; a forced `play` waits for its
 `collect` like a Hold and Win one. Every beat and route is exercised by `pnpm check:pots-overlay`
 (`scripts/check-pots-overlay-protocol.mjs`).
+
+## The partner's collector respin game (Phase 14a)
+
+The partner's Fortune Vault Force 5 (our Getting Hot, game 8) sends its own events
+([capture](play4fun-collector-respin-capture.md)). The facade recognises it from its boot `config`
+(it deals `COIN` and `COLLECT` and carries no `holdAndWin` block), gives it the rules of a
+`collectorsOnly` respin mode (roles `COIN` → coin and jackpot, `COLLECT` → collector; tiers from
+`jackpots`; up to 5 rows), and renames each round into this wire:
+
+| Theirs | Ours |
+| --- | --- |
+| `COIN_<n>` · `COIN_<TIER>` · `COLLECT_<cents>` | `COIN:<n>` · `COIN:<TIER>` · `COLLECT:<cents ÷ base>` |
+| `bet {betPerLine}` | the base total is `gameCost × betPerLine` (their game has 5 lines and `gameCost` 10) |
+| a base spin's `playWindow` | its `playedSpin` (the dealt board) |
+| a base `collect` with no trigger | `coinInstantCollect`, `times` = collectors, `amount` = `bonusWin.pay` |
+| `boostsAwarded` / `spinTrigger` / `enterBonus` | `holdAndWinTrigger {cause: "run", cells: collectors, enhancements, expansion?}`, the trigger spin's collect as `coinCollect`, then `enterBonus` |
+| a respin's `cellPayAmount` / `boost` / `multiplier` / `collect` / `collectWindow` | `coinsLand`, `enhancementHit` / `enhancementMiss`, `coinCollect` per collector, `cellsCleared` |
+| `retrigger`, `playedBonusSpin {played, left}` | `respinUpdate`, the snapshot |
+| `playedBonusSpins` + `gameEnd` | `holdAndWinEnd` (the sum of the collectors), then theirs |
+
+The flags map to `enhancements`: expand → `extraRow`, boost → `boost`, powerFive → `superBonus`,
+multiply → `multiply`, respin → `extraRespins`.
 
 ## Open questions for the partner (Phase 10)
 

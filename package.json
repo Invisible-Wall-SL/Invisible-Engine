@@ -23,7 +23,7 @@
 		"check:card-library": "node scripts/check-card-library.mjs",
 		"check:card-ai": "node scripts/check-card-ai.mjs",
 		"check:freespins": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-book-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/game-config/freeSpins.fixture.ts",
-		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/bonusModes.fixture.ts",
+		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/bonusModes.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/collectorRespin.fixture.ts",
 		"check:holdandwin-partner": "node scripts/check-holdandwin-partner-wire.mjs",
 		"check:feature-worth": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-feature-worth-source.mts",
 		"check:respin-modes": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-respin-modes-runtime.mts",

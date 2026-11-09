@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a–14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" | 14d merged |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b, 14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a: Fortune Vault Force Five recreation | 14d merged · 14a: #1559 |
 
 ## Current state
 
@@ -1119,6 +1119,34 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-09 — **14a: the facade reads the partner's collector respin wire** (Getting Hot, game 8).
+  - `rgs-translator-eagaming/src/collectorRespin.ts` recognises the game from its boot `config`
+    (it deals `COIN` and `COLLECT` and sends none of our blocks) and renames each round's events
+    into our Hold and Win wire before the facade's switch reads them. Every other server is untouched.
+  - Cells: `COIN_<n>` → a coin worth n × the base total bet (`gameCost × betPerLine`, whatever
+    option was bought; the facade's `baseTotal`), `COIN_<TIER>` → a jackpot coin,
+    `COLLECT_<cents>` → a collector's value. Expand / Force 5 boards are 4 / 5 rows.
+  - A base-game collect is `coinInstantCollect` (`times` = collectors). A trigger is
+    `holdAndWinTrigger {cause: 'run'}` holding only the collectors, then the trigger spin's collect
+    as an entry `coinCollect`. Each respin: `coinsLand`, the enhancement hits / misses, a
+    `coinCollect` per collector (each takes the coin's full value), the coins cleared,
+    `respinUpdate` (`retrigger` resets), the snapshot; the last one `holdAndWinEnd` (the sum of
+    the collectors). A jackpot coin is presented once as `jackpotWin {banked: false}`.
+  - **New engine book events** (engine-game `holdAndWin.ts`, mirrored in the flow vocabulary):
+    `enhancementHit {kind: 'boost' | 'multiply', by, cells}` and `enhancementMiss {kind}`. New
+    fields: `HoldAndWinEntry.enhancements` / `HoldAndWinSnapshot.enhancements`
+    (`HoldAndWinEnhancement`: `extraRow`, `boost`, `multiply`, `extraRespins`, `superBonus` =
+    the partner's `powerFive`), and cause `run`. The runtime has no handler for the two events
+    yet (14b): until then the game logs a missing handler and the reducer still applies the hit.
+  - Bet options: the partner spells the names `betOptionNames`, now read beside `betOptionsName`
+    (keys `BASE`, `POWERUP`, `BUYCENTERCOIN`, `GOLDSTRIKE`). Bet context `[optionIndex,
+    betPerLine]`, a refused option (errorCode 110) is a clean `ERR_110`, and a base-game collect
+    round closes with `collect` at the next position — all already in the transport, now proved.
+  - Gate: `packages/rgs-translator-eagaming/collectorRespin.fixture.ts` in `check:holdandwin`.
+  - **Unseen, handled defensively:** a board growing mid-bonus (the snapshot's `rows` follows),
+    Force 5, boost and multiply on one coin (each hit's own `startingPay` is its `from`), coins with
+    no collector in view (left to the snapshot), a top-up event (none known, nothing mapped), a buy
+    told apart from a natural trigger (the wire says nothing; both are `run`).
 - 2026-11-09 — **Phase 14d: our mock speaks the partner's collector-respin wire.** A new mock,
   `scripts/mock-rgs-server-holdandwin-partner.mjs`, answers as the partner's server does for
   Fortune Vault Force 5 (Getting Hot), in the order and shapes of the
