@@ -70,23 +70,42 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
-- **Reel motion sampled at the frame's own timestamp + `?perf=1`** (2026-11-08) — a reel's strip
-  is a `FrameTween` (`pixi-svelte/frameClock`): Svelte's own `Tween`, whose interpolator samples at
-  the frame's timestamp (`document.timeline.currentTime`, fixed for the whole rendering step)
-  instead of `performance.now()` whenever Svelte's callback happens to run, so every step is a
-  frame's interval × the speed. Its `current`, which everything reads and the board draws, its
-  update point in the frame, its promises and when a slide ends are `Tween`'s own; determinism
-  mode answers the timeline from its virtual clock, so seeded renders are identical. Kept on
-  purpose: where Svelte's callback runs after the Pixi tick, the board draws `current` the frame
-  after it is sampled, and a lap's end still holds the strip for a frame. Drawing the strip any
-  further ahead than `current` changes which cells exist and when their art starts (a rider's
-  sparkle starts at mount even while held), so it changes later screens (2026-11-08 below).
-  **`?perf=1`** shows an on-device frame-time readout (top-left, tap to open; `PerfHud.svelte`,
-  numbers in `perfStats.ts`): display refresh estimate, fps, frame-interval p50/p95/max and
-  hitches over 33/50/100 ms for idle and spinning, the reel step error in px (each drawn step
-  against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
-  JSON line: UA, DPR, render tier, canvas size, the numbers) and Reset. Without the flag its chunk
-  is never loaded and the frame clock has no probe.
+- **Reel motion drawn in the frame it is sampled for, carried through lap ends, cells placed
+  without Svelte + `?perf=1`** (2026-11-09; the frame-timestamp sampling since 2026-11-08) — a
+  reel's strip is a `FrameTween` (`pixi-svelte/frameClock`, reactive shell `frameTween.svelte.ts`)
+  with two values:
+  - **Logic** is Svelte's own `Tween`, sampled at the frame's timestamp
+    (`document.timeline.currentTime`): `current`, the promises, when a slide ends, `readyToSpin`,
+    the `preSpinPadding` yields and every `Math.random` the reel draws are exactly as before.
+  - **Drawing** is a `FrameMotion` beside it, stepped at the frame's timestamp by one rAF callback
+    that the Pixi tick requests, so it runs right before the next Pixi tick whatever order the
+    page's other callbacks run in (`frameClockPre`). Each frame draws its own sample; the board
+    used to draw the previous frame's wherever Svelte's callback ran after the Pixi tick, which
+    varies by game and even by moment (measured: the reference game and the stand-ins always,
+    `test1` in its free spins, `commonoverlayproject` at mixed frame lengths). A lap or the
+    cruise (`runOn`) is drawn
+    past its end on its last frame and the next segment carries on from there, so no frame stalls
+    at a handover. A segment cut off mid-way (the spin taking over a lap) carries on too. A slide
+    that comes to rest on its seat (the last one before a bounce) hands over exactly as the tween
+    does.
+  - **Cells are placed by a direct pass.** On a flat board each layer's `ReelStripView`
+    (`apps/lines/src/game/reelStripView.svelte.ts`, plain half `reelStrip.ts`) is told every drawn
+    value. It writes the cell containers' `y` itself (`StripSeat.svelte` hands it each
+    `SymbolWrap` container) and turns the position into index thresholds: in the window, held,
+    and entered for the filler pool. They are `SymbolWrap`'s and `ReelPaddingPool`'s own tests,
+    evaluated per index, and are written to `$state` only when they change, so a moving cell costs
+    Svelte nothing between edge crossings. `symbolY()` reads the drawn value reactively for the
+    other readers (stacked pictures, the respin board, Book VFX), and perspective boards and
+    cascade seats keep that reactive path: the same frames, without the CPU saving.
+  - Determinism mode answers the timeline from its virtual clock. What may differ from before, by
+    owner decision (2026-11-09 below): mid-motion captures, by drawing a frame earlier; and on the
+    four overlay-template games, particle randomness.
+  - **`?perf=1`** shows an on-device frame-time readout (top-left, tap to open; `PerfHud.svelte`,
+    numbers in `perfStats.ts`): display refresh estimate, fps, frame-interval p50/p95/max and
+    hitches over 33/50/100 ms for idle and spinning, the reel step error in px (each drawn step
+    against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
+    JSON line: UA, DPR, render tier, canvas size, the numbers) and Reset. Without the flag its
+    chunk is never loaded and the frame clock has no probe.
 
 ## Open items / next
 
@@ -123,24 +142,36 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   uncompressed pages on phones. Since the shell + bundle change (2026-11-03) `_app/` holds the
   game's code itself, so without it a desktop-published game does not boot at all.
 
-- **Reel smoothness on a real iPhone (120 Hz ProMotion).** Measured in headless Chromium only.
-  Ask the owner for a `?perf=1` Copy from the iPhone 17 during spins: the display refresh it
-  reports (Safari may run rAF at 60 Hz on a 120 Hz screen), the spinning p95 and hitches, and the
-  reel step error. If spins still look uneven with steady frame intervals, what is left is the
-  frame each lap's end holds and the one-frame draw latency. Removing those means drawing ahead of
-  `current`, which first needs a cell's art to start nothing on mount while held (rig-event FX do
-  today, `rigFx` in the overlay template) and a cull band that covers the lead.
+- **Truly same-frame drawing — confirm on real phones** (2026-11-09 change, below). Each frame
+  now draws its own sample and laps carry through their ends, measured in headless Chromium
+  only. After the runtime release, ask the owner for a `?perf=1` Copy during spins from the
+  iPhone 17, the Pixel 9 Pro and the S24 Ultra (the 2026-11-09 readings below are the baseline):
+  the reel step error should read near 0 at steady and mixed frame lengths alike. What drawing
+  still cannot remove: a dropped frame is still a double-length step (correct for its interval,
+  but visible); the first frame of a motion from rest draws its start value (nothing has asked
+  for the clock yet); a carried lap runs at most one frame's time slower over its length (≤ ~7%
+  on a 250 ms lap, uniform within the lap); a speed change the spin options author (a slower
+  last stretch, a bounce) is drawn as authored. Perspective boards draw the same motion through
+  `symbolY()`, so they get the same frames but none of the CPU saving.
 
-- **Mobile frame budget after the warm-up — next steps** (from the 2026-10-27 profile of
-  `commonoverlayproject`, below). With the CPU slowed 4× a spin still costs ~46 ms of JS a frame:
-  symbols are mounted and destroyed as they scroll (`SymbolWrap.svelte` `inFrame`, a fresh strip each
-  pre-spin lap; ~40% of spin CPU), rigs keep ticking when hidden (their meshes are now rebuilt once a
-  drawn frame, not twice — 2026-11-03, below), and idle
-  particle layers update every frame. The per-cell geometry and prop-sync share is fixed (~18% less
-  spin CPU, `claude/reel-smoothness`) and the roll's filler now goes through a fixed per-reel view
-  pool (`claude/reel-view-pool`, ~11% less again). Next: confirm on a real phone
-  (Chrome remote-debugging trace) before tuning the GPU side further. The ~118 MB of resident
-  textures there is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
+- **Mobile frame budget after the warm-up — next steps.** Moving cells no longer go through Svelte
+  every frame (2026-11-09, below): a flat board's strip view writes their positions and changes the
+  cull state only when a cell crosses an edge. Measured at 4× CPU that removed the re-check of
+  the moving cells (Svelte's effect-tree walk 18.6 → 14.1 ms a spin frame on
+  `commonoverlayproject`) but cut JS a frame only ~6% (66.3 → 62.5 ms; no change outside the
+  noise on the reference game): Svelte's flush is still ~42% of spin JS there. Most of it is
+  mounting each cell's components as it scrolls in, and walking the whole effect tree on every
+  flush; a spin flushes every frame because each reel's `Tween.current` changes and
+  `readyToSpinEffect` reads it. Making a rolling frame flush nothing (a `readyToSpin` that does not
+  depend on the per-frame value, with its exact timing kept) is the next CPU lever. What a spin frame also pays: Pixi's
+  render, rig ticks (rigs keep ticking when hidden; their meshes are rebuilt once a drawn frame —
+  2026-11-03, below), idle particle layers updating every frame, and mounting each cell's art as it
+  enters (kept on purpose: its first frame and its `Math.random` draws are observable; the
+  recycled-views attempt measured that churn at ~3% of spin JS and is shelved on
+  `claude/reel-view-recycling`). `propsSyncEffect` still allocates a key list per run, now only
+  when a prop changes. Next: confirm on a real phone (Chrome remote-debugging trace, or the owner's
+  `?perf=1` Copy) before tuning the GPU side further. The ~118 MB of resident textures on
+  `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
 
 - **Lines-family table games: gaps left by the 2026-09-29 buy fix** (from its `code-reviewer` pass).
@@ -153,6 +184,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     - **Sessions accumulate between restarts.** `carryPins` keeps runtime sessions across every `/refresh`, including one per `/config` read (`cfg-read-*`), where a refresh used to clear them. They are small and a restart clears them, but nothing prunes them. Demo sessions are per TAB since the per-tab fix, so they now grow once per tab opened, not once per browser.
     - **A buy on a game with no scatter in play** enters the feature with `positions: []`, and the coded trigger text reads "0 Scatters award 10 Free Spins".
     - **A contract swap mid-feature** drops the open round, as it always has for a triggered round. A bought one costs 100×, so losing it costs more.
+
 0. **Game-type templates — SHIPPED and live** (#355, #357; runtime `1f1639e`). A game type is now
    data + a shared runtime rather than an app fork. `packages/engine-game` holds the extracted
    engine layer (context / board state / config resolution inverted behind factories);
@@ -348,6 +380,144 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-09 — **Reels draw in the frame they are sampled for, carry through lap ends, and place
+  their cells without Svelte** (branch `claude/nice-albattani-a03tcm`, restarted from `main`; the
+  recycled-views attempt is shelved on `claude/reel-view-recycling`, not merged). Owner-approved task:
+  make spins smooth on fast phones.
+  - **Why, real devices** (`?perf=1`, build `aec1ea1`, which has #1527):
+
+    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S24 Ultra          |
+    | -------------------------------- | ------------------ | -------------------------------------- | ------------------ |
+    | Refresh                          | 60 Hz              | 120 Hz adaptive (8.3 + 16.6 ms frames) | steady 60 Hz       |
+    | Spin p95 frame interval          | 25 ms              | 16.8 ms                                | 16.7 ms            |
+    | Spinning frames over 33 ms       | 1.5%               | 0.3%                                   | 0.8%               |
+    | Reel step error mean / p95 / max | 10.1 / 43 / 120 px | 6.8 / 30.5 / 60 px                     | 4.0 / 39.6 / 79 px |
+
+    The Pixel has almost no late frames: its error is the one-frame drawing lag with mixed frame
+    lengths. The S24's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
+    purpose. The recycling attempt's profile (`commonoverlayproject`, CPU 4×) put Svelte
+    re-checking the moving cells at ~42% of a flush (prop sync ~10%), Pixi's render ~24% of spin
+    JS, rig ticks ~10%.
+
+  - **What changed** (see Current state): the drawn value is a `FrameMotion` stepped before the Pixi
+    tick (from `3f72424`, #1527's first version); laps and the cruise run on and the next segment
+    carries; the logic stays on the `Tween`; a flat board's cells are placed and culled by
+    `ReelStripView` instead of a per-cell reactive `y`. After the first CI run, the carry was
+    narrowed to segments that run on or are cut off: a landing slide had carried its bounce from
+    the slide's exact end, which made the bounce's first step bigger than main's (CI:
+    `bookofborutremake` `fs-trigger`, 1,359 px in one column). Now the bounce is the tween's own.
+  - **Owner decision on parity (2026-11-09), recorded here:** two kinds of difference are approved.
+    **(a)** Mid-motion captures of any game may differ, but only by reel position consistent with
+    drawing one frame earlier: the branch's reel area at frame N equals main's at frame N+1, or the
+    equivalent for carry-over. (Where a board did not draw late on `main`, the equivalent is main's
+    same frame.) **(b)** The
+    four overlay-template games (`commonoverlayproject`, `overlay-wallstreet`,
+    `overlay-wallstreet2`, `overlay-wishworld`) may differ in particle randomness only: a pots
+    rider's rig-event sparkle starts at cell mount, which now happens before the Pixi tick instead
+    of after it, and every later particle seed shifts. Every other difference blocks merging.
+  - **Parity, `main` (`13dec6e`) vs this branch.** Every capture landed on the same frame on both
+    sides unless noted.
+    - CI current-games on the final code (`473b66a`, run 42641977188), every live game on its R2
+      snapshot: identical
+      `bookofborutpartner` 17/17, `bookofborutremake` 17/17, `lines` 17/17, `overlay-buffaloduel`
+      17/17, `particlespin` 17/17, `test6` 14/14. `test1` 16/17: `fs-spin` differs in one column,
+      the one reel still rolling in that free spin, drawn a frame earlier (a). Frame by frame there
+      (probe builds, positions read every frame), each reel sits exactly where main's sits one
+      frame later; the free-spin board's background animates on the clock, so around the symbols
+      the column matches main's same frame. The overlay template's four games change 14/17 each
+      (particles, (b); unpinned, some big-win captures land a frame apart).
+    - **(b), particle randomness pinned** (a test-only patch on both sides, not committed: every
+      particle emitter draws from its own fixed stream instead of `Math.random`; the emitter's
+      prototype methods swap `Math.random` for the call), live snapshots, local runs:
+      `commonoverlayproject` 17/17, `overlay-wallstreet` 17/17, `overlay-wallstreet2` 17/17,
+      `overlay-wishworld` 17/17 byte-identical, every capture on the same frame, settled, win and
+      big-win screens included.
+    - Local, live snapshots: `holdandwintestsolo` (Hold and Win) 11/11; a main-vs-main control on
+      `commonoverlayproject` 17/17. Neighbour frames (each mid-motion capture plus the frames either
+      side): `bookofborutremake` 20/20; `test1` differs only in rolling columns.
+    - Stand-ins (`cg-lines`, `cg-ways`, `cg-cluster`, `cg-hw-classic`, `cg-bookof-pots`, local,
+      reference layouts): 63 of 74 screens byte-identical; the 11 that differ are
+      all mid-motion (each base `spin`, one rolling column in a free spin, one Hold and Win respin
+      cell, one pot-bonus spot). Each is main's picture moved down by less than a frame's step:
+      fitted per column, `cg-lines` `spin` is main's next frame moved 3.4–4.8 px (the carried
+      amount the frame-by-frame probe measures at that frame of the spin, × the 0.906 board scale);
+      the others are main's same frame moved 3.4–24 px (boards that draw without lag there).
+    - Determinism proof (reference `lines` game, book and Hold and Win mocks): 19/20 byte-identical,
+      all 20 on the same frame; the one that differs is the mid-spin capture, inside a carry-over
+      window (below).
+    - **(a), frame by frame** (probe builds, one spin captured on every frame for 90 frames, every
+      reel cell's position read each frame): on the reference `lines` game, every frame before a
+      lap's end has the branch's reels exactly where main's are one frame later, with every board
+      pixel equal to main's next frame (or main's same frame, for the board frame's own
+      clock-driven shimmer around the reels). After each lap's end the branch leads by the carried
+      amount, at most one frame's step (worst 35.9 px against a 40 px step), falling linearly to 0
+      by the end of the carried segment. `commonoverlayproject` and `test1`'s base spin draw no
+      later than they are sampled on `main` (86 of 89 frames equal main's same frame), so there
+      only carry-over frames differ.
+  - **Measured** (headless Chromium; probe builds of both sides: unminified, release env, reel cells
+    labelled; each reel cell container's `y` read after every Pixi render; error is a drawn step
+    against that interval × the local speed (distance over time of the steps around it), mean /
+    p95 / max px; `?perf=1` is the HUD's own number).
+    - **Virtual clock** (determinism mode, one run a side is exact; 6 spins; "handover" is the two
+      frames around each lap's end):
+
+      | Run                                                            | Main                  | Branch              | Main `?perf=1`  | Branch `?perf=1` |
+      | -------------------------------------------------------------- | --------------------- | ------------------- | --------------- | ---------------- |
+      | reference `lines`, steady 60 Hz                                | 0.52 / 2.42 / 5.61    | 0.16 / 0.60 / 2.42  | 0.5 / 0 / 36.1  | 0 / 0 / 0        |
+      | …at lap handovers                                              | 3.27 / 5.61 / 5.61    | 0.16 / 0.19 / 0.19  |                 |                  |
+      | reference `lines`, 8.3 / 16.7 ms alternating (120 Hz adaptive) | 25.96 / 30.0 / 35.6   | 0.12 / 0.77 / 2.25  | 19.8 / 20 / 20  | 0 / 0 / 0        |
+      | …at lap handovers                                              | 30.08 / 35.6 / 35.6   | 0.12 / 0.19 / 0.19  |                 |                  |
+      | `commonoverlayproject`, steady 60 Hz                           | 0.62 / 4.36 / 12.67   | 0.56 / 4.13 / 12.84 | 0 / 0 / 0       | 0 / 0 / 0        |
+      | …at lap handovers                                              | 4.85 / 5.35 / 5.35    | 3.44 / 4.13 / 4.13  |                 |                  |
+      | `commonoverlayproject`, 8.3 / 16.7 ms alternating              | 6.40 / 12.5 / 17.21   | 0.38 / 2.10 / 14.1  | 6.9 / 8.3 / 8.3 | 0 / 0 / 0        |
+      | …at lap handovers                                              | 10.83 / 12.63 / 12.63 | 2.65 / 4.13 / 4.13  |                 |                  |
+
+      `commonoverlayproject`'s remaining maxima are its authored speed changes (a slow ramp, a
+      1.0 px/ms cruise into a 0.5 px/ms last stretch, a 60 px bounce), the same on both sides. At a
+      steady 60 Hz its base spin already drew without lag on `main` (Svelte's callback ran before
+      the Pixi tick there), so only the lap handover changes.
+
+    - **Real clock, steady ~60 fps** (a 160×90 canvas so software GL keeps up; 4 spins a run, main
+      and the branch alternated, 3 runs each, pooled):
+
+      | Run                                         | Main                  | Branch              | Main `?perf=1` (per run)   | Branch `?perf=1` |
+      | ------------------------------------------- | --------------------- | ------------------- | -------------------------- | ---------------- |
+      | reference `lines` (60 fps)                  | 3.58 / 18.71 / 138.8  | 1.15 / 2.48 / 121.4 | 0.8–1.6 / 0.5–16.6 / 29–40 | 0 / 0 / ≤ 0.5    |
+      | …at lap handovers                           | 20.08 / 27.67 / 28.15 | 1.43 / 1.94 / 2.14  |                            |                  |
+      | `commonoverlayproject` (~44 fps, p95 33 ms) | 5.06 / 16.0 / 35.8    | 0.65 / 3.87 / 24.9  | 5.3–7.5 / 16.8 / 50        | 0 / 0 / 0        |
+      | …at lap handovers                           | 7.74 / 17.66 / 21.24  | 3.99 / 7.81 / 9.92  |                            |                  |
+
+      The single 121–139 px steps on both sides are dropped frames, which the external reference
+      (the steps around them) reads as error.
+
+    - **CPU, slowed 4×** (412×915, 6 spins a run, sampled profile over the frames the reels move,
+      3 runs a side, mean [min–max]): `commonoverlayproject` JS per spin frame 66.3 [62.7–69.9] →
+      62.5 [59.0–64.5] ms, Svelte's flush 28.2 → 26.2 ms (42.6% → 42.0% of JS), ~5.3 fps either
+      way; reference `lines` 14.7 [9.9–21.3] → 15.2 [11.5–19.8] ms, flush 5.9 → 5.8 ms (36% either
+      way): no change outside the noise. Inside the flush (one run a side, ms per spin frame):
+      the effect-tree walk 18.6 → 14.1, `is_dirty` 6.1 → 4.0, `update_derived` 5.8 → 4.4, the
+      re-check of the moving cells' positions that no longer runs; what remains is mounting each cell's
+      components as it scrolls in (`create_effect`, `if_block`, `ReelSymbol`/`SymbolWrap`/`Symbol`,
+      the props proxy's `ownKeys`), about the same on both sides, and a walk of the whole effect
+      tree on every flush. A spin still flushes every frame because each reel's `Tween.current`
+      changes and `readyToSpinEffect` reads it. Under 4× the reel step error stays large on both
+      sides (frames of 80–300 ms); `?perf=1` reads 0–2.3 mean on the branch against 26–61 on
+      main.
+  - **Gates:** `pnpm check:all` 625/625 (1,219 s); `pnpm check:svelte` at baseline
+    (`pixi-svelte` 14, `apps/lines` 149); `pnpm lint` clean. Fixtures:
+    `packages/pixi-svelte/frameClock.fixture.ts` (27 checks: logic is `Tween`'s to the bit, the
+    Pixi tick draws the frame's own sample, alternating frame lengths, lap and ramp carry-over, a
+    landing that hands over as the tween does, `duration: 0`, listeners, ordering; the landing case
+    fails with the old always-carry rule) and `apps/lines/src/game/reelStrip.fixture.ts` (9 checks:
+    the thresholds decide 3,744,000 cell cases exactly as `SymbolWrap` / `ReelPaddingPool` did, the
+    position pass, and the two together on the frame clock through three relaid laps; a threshold
+    off by one comparison, or a position off by 0.001 px, fails it). The board's source gates
+    (`verify-symbol-overflow`, `verify-stepped-grid`, `verify-symbol-wrap-context`,
+    `verify-symbol-seat`, `verify-win-explode-pop`, `verify-swap-in-place-mode`,
+    `verify-board-paint-order`, `verify-board-tiles`, `verify-tumble-pattern`) pass unchanged.
+  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S24 Ultra); the numbers above are
+    headless Chromium on software GL.
 - 2026-11-08 — **Reels are sampled at the frame's own timestamp; `?perf=1` reads frame times on a
   device** (branch `claude/nice-albattani-a03tcm`). Owner report: spins "still not smooth" on an
   iPhone 17 (Safari, 120 Hz). **Cause, measured:** the reel strip is a Svelte `Tween`, and Svelte's
@@ -391,18 +561,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     read at every Pixi render). Error is a drawn step minus a constant-speed step over the interval
     it was sampled across, mean / p95 / max px:
 
-    | Run | Main | Branch |
-    |---|---|---|
-    | steady 60 fps (160×90) | 1.13 / 4.08 / 28.7 | 0.22 / 0.67 / 4.75 |
+    | Run                          | Main               | Branch             |
+    | ---------------------------- | ------------------ | ------------------ |
+    | steady 60 fps (160×90)       | 1.13 / 4.08 / 28.7 | 0.22 / 0.67 / 4.75 |
     | ~60 fps with drops (320×180) | 7.05 / 31.9 / 56.5 | 0.83 / 3.03 / 14.8 |
-    | 20–30 fps (640×360) | 18.4 / 34.2 / 54.6 | 3.4 / 14.0 / 42.2 |
-    | 4× CPU, ~13 fps | 26.8 / 86.6 / 120 | 12.6 / 61.9 / 109 |
+    | 20–30 fps (640×360)          | 18.4 / 34.2 / 54.6 | 3.4 / 14.0 / 42.2  |
+    | 4× CPU, ~13 fps              | 26.8 / 86.6 / 120  | 12.6 / 61.9 / 109  |
 
     Against each frame's own interval instead, steady 60 fps goes from 1.42 / 5.5 / 127 to
     0.94 / 5.8 / 22. Where frames alternate between 16.7 and 33 ms it gets a little worse
     (8.0 → 10.4 mean at 320×180): the branch draws the previous frame's sample a whole interval
     late, while main's late sample happened to land near the next frame when renders are slow.
     Lap ends are unchanged (~30 px at 60 fps).
+
   - **Not changed, on purpose:** where Svelte's callback runs after the Pixi tick, the board still
     draws a frame after the sample, and a lap's end still holds the strip for one frame. Removing
     those draws ahead of `current` (Open items).
@@ -435,15 +606,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - `reelPaddingMultiplierFirst` — reel 1's spin length apart from the gap between stops (house
     0), so the first stop no longer costs a whole extra gap. The cruise→before-bounce handover
     clamps to the strip, so a short first reel never slides backwards.
-  Measured on the dev game on a real clock (headless shell on the GPU, 60 fps, book mock): normal
-  rolls 20.0 sym/s with no wind-up, reaches speed in ~50 ms, stops 350/316/301/333 ms apart (the
-  cabinet averages 316; padding rounds up to whole rows) and overshoots 6 px = 0.05 row. Turbo
-  lands all five reels on the same frame 175 ms after they start (cabinet ~170). Differences that
-  remain: the normal first stop is ~535 ms against the cabinet's ~490 ms, because the board still
-  waits for the pre-spin lap before a normal
-  spin starts its stops, and the turbo landing frame hitches ~60 ms while the result board mounts
-  (it did before this change too). **Every online game picks this up on the runtime release**
-  unless its reel grid authors its own spin tuning.
+    Measured on the dev game on a real clock (headless shell on the GPU, 60 fps, book mock): normal
+    rolls 20.0 sym/s with no wind-up, reaches speed in ~50 ms, stops 350/316/301/333 ms apart (the
+    cabinet averages 316; padding rounds up to whole rows) and overshoots 6 px = 0.05 row. Turbo
+    lands all five reels on the same frame 175 ms after they start (cabinet ~170). Differences that
+    remain: the normal first stop is ~535 ms against the cabinet's ~490 ms, because the board still
+    waits for the pre-spin lap before a normal
+    spin starts its stops, and the turbo landing frame hitches ~60 ms while the result board mounts
+    (it did before this change too). **Every online game picks this up on the runtime release**
+    unless its reel grid authors its own spin tuning.
 - 2026-11-03 — **Game builds stop lowering `#private` fields; respin cells skip symbols that draw
   nothing** (branch `claude/hold-and-win-mount-ahead`). From the 2026-11-03 audit of
   `overlay-buffaloduel`, whose Hold and Win bonus froze up to 1.5 s with the CPU slowed 4×.
@@ -466,14 +637,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`game/symbolDraws.ts` `symbolDrawsNothing`, which mirrors `Symbol.svelte`'s draw conditions —
     keep them in step). Such a symbol never reports completion either, so nothing waits on it.
   - **Screen timeline remounts** — not fixed; see Open items.
-  Measured on the live build's own data and authoring mock, each side a local build swapped in for
-  the page's document, three interleaved rounds of base + all three pots' bonuses, median:
-  worst bonus frame 1,700 → 1,067 ms, frames over 250 ms 89 → 27, over 100 ms 531 → 357, bonus
-  frame rate 10.7 → 16.3 fps. The remaining worst frame is the Pots screen remount. The texture
-  growth the audit saw in the first bonus (74 → 89) is not art: Pixi texture-pool render targets and
-  one text canvas, allocated once. Notes for re-running the probe: the profile's start trails the
-  page clock by 1–2 s at 4× (fit the shift so no idle sample falls inside a long rAF gap), and other
-  sessions' builds swing a run 2× (raise the headless shell to High priority, interleave rounds).
+    Measured on the live build's own data and authoring mock, each side a local build swapped in for
+    the page's document, three interleaved rounds of base + all three pots' bonuses, median:
+    worst bonus frame 1,700 → 1,067 ms, frames over 250 ms 89 → 27, over 100 ms 531 → 357, bonus
+    frame rate 10.7 → 16.3 fps. The remaining worst frame is the Pots screen remount. The texture
+    growth the audit saw in the first bonus (74 → 89) is not art: Pixi texture-pool render targets and
+    one text canvas, allocated once. Notes for re-running the probe: the profile's start trails the
+    page clock by 1–2 s at 4× (fit the shift so no idle sample falls inside a long rAF gap), and other
+    sessions' builds swing a run 2× (raise the headless shell to High priority, interleave rounds).
 - 2026-11-03 — **A game build is a ~4 KB shell plus an immutable bundle; the only code a repeat
   visit downloads is the shell, and runtime source maps reach Sentry again** (branch
   `engine-runtime-shell-bundle`). **Why:** the runtime page is served `no-store`, and it carried the
@@ -485,7 +656,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     build but an embed, makes kit's route nodes and its fallback error page static imports (else the
     whole game would be a chunk one round trip behind the bundle, and the error page would need the
     network just when something failed; it costs ~0.6 KB gz) and sets `preserveEntrySignatures:
-    'allow-extension'` (else the bundle is a one-line facade over a chunk).
+'allow-extension'` (else the bundle is a one-line facade over a chunk).
     `config-vite/pixiRenderers.js` `eagerPixiBoot` (client pass only) makes the two `import()`s Pixi
     makes on every boot (the WebGL renderer, `browserAll`) static: left lazy they were a ~52 KB gz
     chunk fetched one round trip after the bundle, and under the current-games harness's stepped
@@ -497,7 +668,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     iife:** Rollup's iife cannot split, so a lazy chunk needs ESM; the embed delivery has run the
     same code as an ES module since 2026-09, and the `bundle.<hash>.js` marker every publisher and
     verifier reads is unchanged. `config-vite/assetUrls.js` is gone: an ES chunk's asset URL is `new
-    URL(…, import.meta.url)`, right in every context.
+URL(…, import.meta.url)`, right in every context.
   - **URLs.** Everything is relative to the file naming it (`./_app/…` from the shell,
     `import.meta.url` below it): runtime and desktop at `/<gameKey>/_app/immutable/…`, an inline
     delivery under whatever folder holds it, an embed under the CDN folder `game.js` came from. The
@@ -527,46 +698,47 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     main and on this branch; the bfa9541 CI release got through).
   - **Gates.** `pnpm check:sentry-sourcemaps` (new, run by CI's `check:all`, ~10 s): the
     synthetic fixture plus `sentry-sourcemaps-build.fixture.mjs`, which builds a three-file kit app through `config-svelte`
-    + `config-vite` with hidden maps and checks a shell, a lazy chunk, a map + debug ID per chunk,
-    exactly those staged, and frames mapping back to the source line; with `bundleStrategy:
-    'inline'` restored it fails 5 checks. `pnpm check:test-server-caching` (new, run by
-    `check:all`, seconds): the real test server in local mode, the caching headers, one generation of retired chunks after
-    a runtime flip and after two desktop republishes (4 checks fail without `retiredGameImmutable`),
-    and the 301. `pnpm check:runtime-shell` (new, local, Playwright, skipped by `check:all`):
-    runtime and desktop on the real test server, an inline delivery in a nested folder, an embed on
-    a CDN origin; cold visit boots, every `_app/immutable/` request is 200 from the build's own
-    folder with immutable headers, the shell is `no-store`, the Sentry chunk is fetched after the
-    bundle (and never by a delivery without `telemetry.errors`), the bundle's debug ID is
-    registered, a boot loads exactly what `check:family-runtimes` counts (plus the SDK); warm visit
-    fetches the shell and takes every `_app/immutable/` file from cache; an online `arcade` boot
-    fetches the online chunk from the build's folder (its room server is a closed port, so the join
-    fails after the import); a pointer flip and a desktop republish keep the old chunk one
-    generation. 60/60. `pnpm check:ktx2-transcoder` 93/93 (builds shared:
-    `scripts/lib/game-build-variants.mjs`; its inline delivery uses a gate profile `rgs_url` may
-    repoint, because request interception turns the HTTP cache off). After merging main it failed
-    18 checks, the same on main: #1506 skips exported art nothing names (`editorArtUnused`), and
-    the probe's scene drew nothing, so `probe.ktx2`/`probe.png` were never requested. The fixture
-    scene now draws the image and the sheet frame, as a game's would (fixture only).
+    - `config-vite` with hidden maps and checks a shell, a lazy chunk, a map + debug ID per chunk,
+      exactly those staged, and frames mapping back to the source line; with `bundleStrategy:
+'inline'` restored it fails 5 checks. `pnpm check:test-server-caching` (new, run by
+      `check:all`, seconds): the real test server in local mode, the caching headers, one generation of retired chunks after
+      a runtime flip and after two desktop republishes (4 checks fail without `retiredGameImmutable`),
+      and the 301. `pnpm check:runtime-shell` (new, local, Playwright, skipped by `check:all`):
+      runtime and desktop on the real test server, an inline delivery in a nested folder, an embed on
+      a CDN origin; cold visit boots, every `_app/immutable/` request is 200 from the build's own
+      folder with immutable headers, the shell is `no-store`, the Sentry chunk is fetched after the
+      bundle (and never by a delivery without `telemetry.errors`), the bundle's debug ID is
+      registered, a boot loads exactly what `check:family-runtimes` counts (plus the SDK); warm visit
+      fetches the shell and takes every `_app/immutable/` file from cache; an online `arcade` boot
+      fetches the online chunk from the build's folder (its room server is a closed port, so the join
+      fails after the import); a pointer flip and a desktop republish keep the old chunk one
+      generation. 60/60. `pnpm check:ktx2-transcoder` 93/93 (builds shared:
+      `scripts/lib/game-build-variants.mjs`; its inline delivery uses a gate profile `rgs_url` may
+      repoint, because request interception turns the HTTP cache off). After merging main it failed
+      18 checks, the same on main: #1506 skips exported art nothing names (`editorArtUnused`), and
+      the probe's scene drew nothing, so `probe.ktx2`/`probe.png` were never requested. The fixture
+      scene now draws the image and the sheet frame, as a game's would (fixture only).
   - **Sizes** (`check:family-runtimes --measure`, gzip -6 per file as served; the measure builds
     with a stand-in DSN like the release and checks family markers across every file). First visit =
     shell + what it loads (bundle + CSS; `scripts/lib/build-chunks.mjs`); online boot = that + the
     family's online chunk (`ONLINE_MARKERS`), what `arcade`'s budget holds; repeat-visit code = the
     shell (the build's `assets/` are `no-store` and not counted).
 
-    | Runtime | Before (one page, no DSN) | First visit | Online boot | Repeat-visit code |
-    |---|---|---|---|---|
-    | `lines` | 699,525 | 696,293 | — | 3,952 |
-    | `match3` | 707,569 | 704,471 | — | 3,951 |
-    | `arcade` | 797,911 | 724,029 | 781,619 | 3,950 |
-    | `card` | 711,600 | 708,430 | — | 3,951 |
+    | Runtime  | Before (one page, no DSN) | First visit | Online boot | Repeat-visit code |
+    | -------- | ------------------------- | ----------- | ----------- | ----------------- |
+    | `lines`  | 699,525                   | 696,293     | —           | 3,952             |
+    | `match3` | 707,569                   | 704,471     | —           | 3,951             |
+    | `arcade` | 797,911                   | 724,029     | 781,619     | 3,950             |
+    | `card`   | 711,600                   | 708,430     | —           | 3,951             |
 
     In production (real DSN) the `lines` page was 732,541 (bfa9541 release log); its first visit is
     now 696,414 (a release-shaped build: hidden maps, debug IDs) and a repeat visit's code ~3.95 KB.
     Budgets (`family-runtime-budget.json`) are measured + 2 % (710,219 / 718,561 / 797,252 for an
     online arcade boot / 722,599) plus a `shell` budget of 5,000 (a floor: 2 % of 4 KB is noise;
     what it catches is code creeping back into the uncacheable page).
+
   - **Parity:** the current-games harness on the 10 stand-in games (`fixtures.mjs`, then `run.mjs
-    --games-file … --no-gates`, main bfa9541 vs this branch): 10 pass, 0 changed screens (run after
+--games-file … --no-gates`, main bfa9541 vs this branch): 10 pass, 0 changed screens (run after
     the review fixes too: error page static, `eagerPixiBoot` client-only). The first run, with
     Pixi's boot imports still lazy, was 0 pass / 21 changed screens: every head boot reached the
     same states 60–170 frames later, shifting time-based animation; with `eagerPixiBoot` the
@@ -588,7 +760,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   this branch built the same way (Play4Fun transport): **59 → 49 textures, 488.7 → 415.3 MB
   resident, 31.3 → 27.6 MB downloaded** at boot. Three engine changes:
   (1) `pixi-svelte` `sharedSheetPages.ts`: Pixi's spritesheet parser loads `dirname(json) +
-  meta.image` unnormalized and caches by that string, so a page in the shared `_pages/` store
+meta.image` unnormalized and caches by that string, so a page in the shared `_pages/` store
   (`../../_pages/<hash>`) loaded once per sheet folder and once more for a rig. The parser now loads
   the joined url, the one the rig loader already used. Here: `S_StaticElements` (editor-art and
   editor-symbols copies) and the pages `S_UI_2`, `S_BigWin`, `S_FireCracker`,
@@ -639,12 +811,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   (branch `engine-bundle-trim`). Three changes, sizes from `check:family-runtimes --measure`
   (release env, gzip -6), `main` 13c5885 (after the KTX2 transcoder left the page) → this branch:
 
-  | Runtime | Before B | After B | Δ |
-  |---|---|---|---|
-  | `lines` (`slot`) | 778,557 | 699,525 | −79,032 (−10.2 %) |
-  | `match3` | 786,791 | 707,569 | −79,222 |
-  | `arcade` | 881,386 | 797,911 | −83,475 |
-  | `card` | 791,155 | 711,600 | −79,555 |
+  | Runtime          | Before B | After B | Δ                 |
+  | ---------------- | -------- | ------- | ----------------- |
+  | `lines` (`slot`) | 778,557  | 699,525 | −79,032 (−10.2 %) |
+  | `match3`         | 786,791  | 707,569 | −79,222           |
+  | `arcade`         | 881,386  | 797,911 | −83,475           |
+  | `card`           | 791,155  | 711,600 | −79,555           |
 
   On the slot runtime, one change at a time (measured on 6bd8a6f, before the transcoder change):
   lodash −28,097, the WebGPU stub −15,727, terser −34,939.
@@ -675,7 +847,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     813,870 / 725,832), as the KTX2 change did.
   - **Found, not fixed here (pre-existing on `main`):** an `IE_SOURCEMAPS=hidden` build no longer
     leaves `_app/immutable/bundle.*.js` + its map in `apps/lines/build`, so `sentry-sourcemaps.mjs
-    runtime` printed "nothing to upload". **Fixed by the shell + bundle change (entry above).**
+runtime` printed "nothing to upload". **Fixed by the shell + bundle change (entry above).**
+
 - 2026-11-03 — **The KTX2 transcoder is no longer inlined into every build, and a compressed texture
   that fails falls back to its WebP/PNG twin** (branch `engine-ktx2-transcoder-external`). **Why:**
   `config-vite`'s `assetsInlineLimit: Infinity` turned `libktx.{js,wasm}` (imported by `pixi-svelte`
@@ -776,11 +949,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `?particles=<0.25..1>` pins it.
   - `ParticleEmitter` marks a particle whose alpha is 0 not renderable: Pixi blends every sprite
     whatever its alpha, and the idle pot beams were 600 such particles every frame.
-  Measured on `overlay-wishworld` (same scenario, adaptive): median frame idle 450 → 233 ms, spin
-  450 → 267, coin drop 467 → 333, pot trigger 667 → 383 (p95 2.2 s → 1.2 s); pot peak 3,981 → 1,030
-  particles, 134 → 31 screens. Seeded renders of `commonoverlayproject` match `main` exactly.
-  Hidden-container emitters are NOT paused: an ambient effect on a screen shown later would start
-  empty, and skipping updates shifts the seeded random sequence. Not verified on a physical phone.
+    Measured on `overlay-wishworld` (same scenario, adaptive): median frame idle 450 → 233 ms, spin
+    450 → 267, coin drop 467 → 333, pot trigger 667 → 383 (p95 2.2 s → 1.2 s); pot peak 3,981 → 1,030
+    particles, 134 → 31 screens. Seeded renders of `commonoverlayproject` match `main` exactly.
+    Hidden-container emitters are NOT paused: an ambient effect on a screen shown later would start
+    empty, and skipping updates shifts the seeded random sequence. Not verified on a physical phone.
 - 2026-11-02 — **An author-added layout bucket no longer falls back to Stake values.** Two coded
   leftovers from the four fixed buckets: (1) a bucket with no canvas size in the doc took the coded
   fallback bucket's box (`stateLayout.ts`: Stake desktop 1422×800) ahead of its own profile box —
@@ -847,12 +1020,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   game's art), so the owner should watch a spin.
 - 2026-10-28 — **Expanding and growing wilds on lines games** (branch
   `lines/expanding-growing-wilds`, plan `docs/design/expanding-and-growing-wilds.md`, reference game
-  Slotmotion's *Fairy's Charm*). Runtime release: it touches `apps/lines` and
+  Slotmotion's _Fairy's Charm_). Runtime release: it touches `apps/lines` and
   `packages/engine-flow-v2`, but a game whose RGS never sends the new events is drawn as before.
   - Wire → book: the lines mock (`scripts/mock-wild-rewrite.mjs`) emits the reference game's
     `expandedWild` / `growingWild` + `symbolSetInMatrix`. The facade
     (`packages/rgs-translator-eagaming/src/wildRewrite.ts`) turns them into `expandWild { reel, row,
-    symbol, cells, paid }` and `growWild { origin, symbol, cells }`, after the `reveal` and before
+symbol, cells, paid }` and `growWild { origin, symbol, cells }`, after the `reveal` and before
     its `winInfo`. `playedSpin` stays the landed board; the wins are the final board's. A
     `symbolSetInMatrix` with no wild before it still reaches the facade's other paths.
   - Presentation: one module, `apps/lines/src/game/wildRewrite.svelte.ts`, serves the coded
@@ -876,7 +1049,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     - an unpaid one under `onWin` leaves the reel as it landed;
     - `always` draws it;
     - the plus-grow morphs up, down, left and right, clipped at the edge.
-    A scatter on the reel stays.
+      A scatter on the reel stays.
 
     The plain vite dev game draws no board in the build container (software WebGL at about 4 fps),
     which is why the harness is used. The grow's "burst" reuses the wild's `win` state (gold frame
@@ -975,7 +1148,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `engine-symbols` sheet loaded the stock `symbolsStatic` too and registered all 17 frames twice
   (Pixi `[Cache] already has key`, the drawn one left to load order). The export now records each
   sheet's bare frame `names` in `symbols.index.sheets[]`; only stock FRAME sheets (`type:
-  'sprites'`) are skipped for them, so a stock rig or font sharing a frame's name still loads, and
+'sprites'`) are skipped for them, so a stock rig or font sharing a frame's name still loads, and
   a bundle without `names` keeps the old behaviour. **Left as is, on purpose:** `totalwin.png` is packed by both stock `freeSpins` and
   `winSmall` (kept together, every game, upstream art); the remaining lines are the project's own
   data, each already saying what to fix (Flow screens missing from the layout, a dictionary symbol
@@ -1119,7 +1292,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `screens/lines.json` and `screens/bookOf.json`** (PR #1197). `fs-transition`
   captures 60 frames after the Flow v2 `transition` cue; `bigwin-intro-12` / `bigwin-intro-48` 12
   and 48 frames after `winShow`. Harness pieces (`scripts/current-games/lib/play.mjs`): `until {
-  cue }` checks every 10 frames for a cue the probe records after the op starts and anchors on the
+cue }` checks every 10 frames for a cue the probe records after the op starts and anchors on the
   frame the cue fired on (`state().cues[].frame`); `step { frames, from: 'cue' }` runs to anchor +
   N and fails if that frame has passed; a game that never fires the cue (the coded flow) takes the
   fallback, 900 frames after the spin starts, and each row's notes say which (`lib/render.mjs` →
@@ -1290,6 +1463,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     - `?sessionID=qa-real-token-1` passed through untouched.
 
     `check:undefined-names`, `check:engine-game` and `check:rgs` are green.
+
   - **#853 live**, for the record (merged as `2171caed`, deployed with #852):
     - Every runtime lines-family game answers a heartbeat with no config and `config` with its table: `test2`/`test3`/`test4`/`test6` `[1,100]`, `test5` `[1,200]` (its bonus is authored at 200×), `cloud` `[20,2000]` (20 lines). `lines_flowtest` sells nothing and is unchanged.
     - A real buy on `test6`'s production URL (bundled layout, live RGS, fresh session) sent `[1,100]`, was charged 10000 (the card's $100) and entered the feature, which paid 209. The HUD landed on $2.09 = 209.
@@ -1341,6 +1515,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - `carryPins` on 6 cases: pins carried for runtime games with the balance reset and the round dropped; nothing carried for desktop builds.
 
   0 tsc errors in `mockContract.ts`/`testServerManifest.ts`/`rgsConfig.ts`. **Deploy:** a runtime game whose project authors a buy becomes a table game within one contract TTL of the launcher deploy. A tab open across a contract swap or a `/refresh` is priced by its boot shape until it reloads. A tab open across a test-server RESTART (this deploy included) that lands in a table game has its next spin refused with "reload the game" instead of charged. **Two limits, measured by the third review pass and logged under Open items:** tabs in one browser share one session, so a SECOND tab booting after the change re-pins the first; and a game that LOSES its only extra and then restarts prices the old tab's `[0, M]` as a line bet.
+
 - 2026-09-29 — **The facade's pre-table book encoding is gone; a mode the server's table cannot name is refused before anything is sent.** Follow-up to #840 below (engine change ⇒ a runtime release on merge). `requestBet`'s book-mapping arm sent `[buyCost, betPerLine]`, with `buyCost` read from `__IE_BET_MODES__` by `betModeCostMultiplier`. Since the book mock declares `betOptions`, that arm was reached only by a mode `betOptionIndexFor` could not resolve. In the fixture the mock refused it (`invalid bet option 25`), but only because the fixture wrote the mode's 25× into `__IE_BET_MODES__`. A mode missing from that map defaulted to cost 1 and would have gone out as `[1, …]`, which the table reads as option 1, so it would have been charged the buy price. Deleted: the arm, `betModeCostMultiplier`, `BOOK_NUM_LINES` and `warnUnexpressibleMode`. **Decision:** against a server with a table, an unnameable mode gets `refuseUnexpressibleMode` (`ERR_GE`, "bet mode "X" is not one of the server's bet options, so it was not placed"), returned before `startRound()`, so no request is sent and no session state moves. There is no second encoding to fall back to, because the server reads `context[0]` as an option index. The same applies to a non-book-mapped server with a table, which used to get `[lineCount, betPerLine]` read as an option index. It stays unreachable from a menu built from the table, whose every key round-trips. Without a table, bets use the legacy lines encoding as before. **`__IE_BET_MODES__` is deleted too, because the price-drift cross-check it fed never ran.** Measured by ordering: `runConfigCrossCheck` runs once per sid inside `requestAuthenticate`, and `syncBetModeMeta` (the global's only writer) runs from `Game.svelte`, which `<Authenticate>` mounts only after `authenticated = true`. So on every server we run, all of which send config at authenticate, the check read `undefined`. **One gap:** a server that sends no config on the heartbeat and also ignores the `config` probe delivers it with the first bet, where `requestBet`'s own `runConfigCrossCheck` call used to see the global. None of ours does. On that path the menu stays the authored one, built before the table arrived, and the new report (which runs at mount) cannot see it. A mode the late table cannot name is refused there, which is safer than the old mis-encoded bet. Rebuilding the menu when a table arrives late would close it. Had it run later, it would have compared the MERGED menu (server prices) against the server, including a false `OPTION1: 100× card, no server bet option`, because `betOptionCostRatios` keys unnamed options `"1"` and the menu keys them `OPTION1`. The report moved to `betModeMeta.ts` `warnOnBetModePriceDrift`, the one place both lists are in hand. It shares one name-then-cost matcher (`presentationMatcher`) with `mergeServerOptions`, so it names exactly the cards the menu dropped. **Verified:** `pnpm check:buy-cost` now checks that the unpriced mode is refused, that no bet request is sent, that the wallet is untouched and that the next base spin on the same session is $1. Mutation (refusal disabled) turns 2 checks red; the mock-side refusal alone kept the old "refused" check green. Also green: `check:rgs`, `check:undefined-names`, the five other facade fixtures, `smoke-facade` + `check-balance-flow` on both mocks. The `rgs-translator-eagaming` tsc error set is identical to `origin/main` (327, all fixtures/`.mjs`, 0 in `src/`). `apps/lines` svelte-check COMPLETED with 189, none in touched files. The `apps/lines` play4fun build carries the refusal and the drift text and no `__IE_BET_MODES__`. **Real clock, headless GPU shell at 61 fps**, on that build against the local book mock: the menu is `BASE` 1× + `OPTION1` 100× and one BONUS card reads $100.00. BUY → confirm sent `[bet [1,10], play]`, `bet.total 10000`, ten free spins at seq 2–11 and `collect` at 12 (win 3600). The HUD showed interim $4,900.00 and landed on $4,936.00, equal to the mock's 493600. The next spin sent `[0,10]` for 100. No console errors. The drive was repeated after rebasing onto #844 (bundle `Djl8npup`): a retriggered feature, one `bet`, `collect` at seq 42, HUD $4,932.50 = 493250, next spin `[0,10]`. The drift report was driven on the dev server's real module: silent on the real table, `BONUS: 100× card, no server bet option — not offered` against an unnamed 50× option, and `BONUS: config says 100×, server charges 50×` against a named one, reported once. **Live (#846, merged as `709f0046`):** the release promoted `lines@709f0046` after 195 s, and `bookofborutremake` and `test6` serve `bundle.Dvs5yHKW.js`. That bundle carries the refusal and the drift text and no `__IE_BET_MODES__`. A real buy on the remake's production URL, played on the bundled layout (the authored one needs the read token) against its live RGS with a fresh session: `[1,10]` charged 10000, the feature collected 2200, and the HUD landed on $4,922.00 = 492200. The next spin sent `[0,10]`. No console errors.
 - 2026-09-29 — **Runtime releases are versioned; a rollback is a pointer flip.** The release used to overwrite `test_server/_runtime/lines/` file by file: a hydrate mid-upload could hold a mix of two builds, there was no older copy to go back to, and a rollback meant a revert plus a full rebuild. **Measured before the change:** that flat prefix held **695 files / 1.24 GB**, because stale content-hashed chunks and renamed assets were never deleted, and the test server loaded all of it into memory on every hydrate. One real build is ~165 files / ~60 MB. **Now:** `publish-runtime-bundle.mjs` uploads to an immutable `_runtime/lines@<commit12>/`, checks the listing, records it in `releases.json`, then writes the pointer `_runtime/lines/current.json` (one write = live). The test server resolves the pointer per hydrate, reuses a release it already holds (no re-download on refresh), keeps the previous release's `_app/immutable/*` for players mid-session, falls back to the flat prefix only while no pointer exists (zero-downtime migration) and keeps the last good pointer if a read fails. It tags every runtime response `X-Runtime-Release` and lists versions and pins on `/healthz`. The new **Runtime rollback** workflow (`runtime-rollback.yml`: rollback / promote / pin / unpin / list, via `scripts/runtime-pointer.mjs`) flips the pointer and runs the same served-bundle check. Every pointer write is a compare-and-swap, so rollback sits outside the release's concurrency group, where the next merge's release could cancel a queued rollback. A games.json `runtimeVersion` pins one game to a release (canary), and the launcher's publish preserves it. The last 10 releases are kept, plus the current, previous and pinned ones. **Also fixed:** a release that failed after its `building` stamp left the launcher on "Releasing engine…" until the 30-min staleness fallback. A `failure() || cancelled()` step now restores the stamp to the live release with `lastFailure`, and the pill reads "last release failed". `runtimeBundleReleasedAt` (the Game Maker staleness badge) reads the served release's `builtAt`, so a rollback does not flag every game stale. A `code-reviewer` pass found one blocking bug and six should-fixes, all fixed before merge. The blocker: a default rollback could land every game on a never-live canary upload. The should-fixes: an unreadable pointer at boot served the frozen flat engine; a pointer to an empty release 404ed every game; a canary upload stuck the pill on "Releasing engine…"; a failure after promote was mislabelled, and prune was unguarded; the pending pill hid a rollback; and a queued rollback could be cancelled inside the shared concurrency group. Verified offline: a local test-server run (15 checks: flat fallback, pin, flip, retired chunk, rollback, corrupt pointer, missing release, boot with an unreadable pointer) and the scripts against R2 under a scratch runtime id (versioning, same-commit suffix, no-promote, rollback skipping a never-live canary, promote by full SHA, ambiguous or unknown prefix, prune, failed-stamp restore, a stale compare-and-swap refused), cleaned up afterwards. The live migration and the rollback drill are recorded in the follow-up entry.
 - 2026-09-29 — **A `?runtime=1` boot whose bundle fails now STOPS on the error screen instead of
@@ -1466,7 +1641,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - The partner README (`build-delivery.mjs`) no longer promises `showTheoreticalPayback: true` "displays RTP" — it arrives as `displayRTP`, but there is no RTP readout to switch on. Also still open: `minNormalBet`/`maxNormalBet`, whose units are unconfirmed, so nothing clamps the ladder.
   - Verified: new `packages/rgs-translator-eagaming/authenticate.fixture.ts` (5 claims / 10 checks over the real facade; 5 go red on the old spread order) and `scripts/verify-jurisdiction-state.mjs` (4 claims / 9 checks over the REAL `.svelte.ts` modules, compiled by a load hook through `compileModule`); `verify-hud-fallback` gained the buy-bonus gate; host/profile/select/betOptions/seq fixtures, `verify-buy-cost`, `check:stake`, `check:undefined-names` green; `svelte-check apps/lines` COMPLETED with no error on any changed line. **Live** against the book mock with a same-origin operator page iframing the game: restricted → only MENU/BET/−/+, bet opens at $0.40 (10 credits × M=4), menu = BASE only while the server offers a 100× buy; unrestricted operator → BUY BONUS/AUTO SPIN/TURBO back, still $0.40; no operator page → $1.00 and every button, as before. **LIVE 2026-09-28** — merged as #798 (`75908e5a`); its runtime release succeeded and `bookofborutremake` serves the new bundle (`bundle.CTkx-L9O.js`, ~9 min after the release while the test server re-hydrated). Booted live on the shared runtime: $5,000.00 balance, $1.00 opening bet, buy bonus / auto spin / turbo all present, menu BASE + the 100× buy — unchanged, as expected with no operator page.
 
-- 2026-09-24 — **a delivery now STRIPS what the running game never loads, instead of tolerating it.** Third pass at the same problem, and the first two are the lesson. A guard refusing `.ts` blocked a real `bookofborutremake` delivery over 28 `assets/**/index.ts` manifests; exempting `assets/` stopped the error and **left the files in the zip** — solving the error instead of the problem. The owner's rule is the right frame: *nothing that doesn't go into the final game should deliver*. So `build-delivery.mjs` removes them: `assets/**/*.ts` (R2-mirror bundle manifests the build COMPILES into `bundle.js` — a browser cannot execute a `.ts`), plus `favicon.svg` and `loader.gif`, which are reachable only from an `index.html` of ours and a delivery has none (the partner's page owns the head; the splash is `BootSplashSequence` off `deploy/_boot/`). Both were checked as **0 references in the real built bundle**, not assumed. The guard stays as a backstop and is now strict everywhere with no `assets/` exemption, since a `.ts` left anywhere after the strip is nobody's intent. Every strip is reported in the summary and listed in `--json` — a silent delete is how a file that did matter goes missing with nothing pointing back here. **Verified against a copy of the real 371-file delivery:** 371 → 341 files, 30 stripped (0.1 MB), and every runtime class identical (ktx2 22, webp 67, atlas 75, json 153, mp3 2, xml 8, png 7); the zip carries no `.ts`, `favicon.svg`, `loader.gif`, `.map` or `.env`, `embed.html` still at the root, all CRCs valid.
+- 2026-09-24 — **a delivery now STRIPS what the running game never loads, instead of tolerating it.** Third pass at the same problem, and the first two are the lesson. A guard refusing `.ts` blocked a real `bookofborutremake` delivery over 28 `assets/**/index.ts` manifests; exempting `assets/` stopped the error and **left the files in the zip** — solving the error instead of the problem. The owner's rule is the right frame: _nothing that doesn't go into the final game should deliver_. So `build-delivery.mjs` removes them: `assets/**/*.ts` (R2-mirror bundle manifests the build COMPILES into `bundle.js` — a browser cannot execute a `.ts`), plus `favicon.svg` and `loader.gif`, which are reachable only from an `index.html` of ours and a delivery has none (the partner's page owns the head; the splash is `BootSplashSequence` off `deploy/_boot/`). Both were checked as **0 references in the real built bundle**, not assumed. The guard stays as a backstop and is now strict everywhere with no `assets/` exemption, since a `.ts` left anywhere after the strip is nobody's intent. Every strip is reported in the summary and listed in `--json` — a silent delete is how a file that did matter goes missing with nothing pointing back here. **Verified against a copy of the real 371-file delivery:** 371 → 341 files, 30 stripped (0.1 MB), and every runtime class identical (ktx2 22, webp 67, atlas 75, json 153, mp3 2, xml 8, png 7); the zip carries no `.ts`, `favicon.svg`, `loader.gif`, `.map` or `.env`, `embed.html` still at the root, all CRCs valid.
 - 2026-09-24 — **the source guard shipped too broad and blocked a real delivery within the hour.** `build-delivery.mjs` refused `bookofborutremake` over 28 `assets/**/index.ts` files. Those are not strays: `assets/` is the R2 mirror `pull:assets` writes, every bundle in it carries an `index.ts` manifest (`createAsset({img, rawAtlas, spines})`) that the build COMPILES, and they reach the output only because `static/` is copied wholesale. **The guard had been verified against a fixture whose `assets/` held one PNG** — a synthetic tree that did not resemble a delivery, which is the whole lesson: a guard is only as good as the tree it was tested on. Now two lists — `.ts`/`.tsx`/ `.svelte` are refused OUTSIDE `assets/`, while `.map` and `.env` are refused **everywhere including** `assets/`, since neither has any business in an asset bundle and a sourcemap is the whole of our source wherever it lands. Re-verified against the REAL 370-file delivery that failed (28 manifests now exempt, nothing flagged) plus four planted cases: a manifest under `assets/` passes; a `game-config.ts` at the root, a `.map` INSIDE `assets/spines/symbols/`, and an `assets/.env` each fail by name.
 - 2026-09-24 — **the Borut repo's dead scaffold `src/` is gone, and a delivery now REFUSES to carry source.** A game repo has had no application source since `config-svelte` started pointing `kit.files` at the engine's `apps/lines/src`, and the engine has been printing a NOTE on every build saying so and telling us to `git rm -r src`. Nobody had, and it was not merely untidy: the dead `src/routes/+layout.svelte` still rendered `LoaderStakeEngine` off `stake-engine-loader.gif`, which is exactly what made that gif look load-bearing when it was removed — **dead code that reads as live is worse than no code**, and it produced a wrong answer in this session. Nothing wrote to it that mattered either: `bake-editor-doc.mjs` takes only the FILE NAME from `--dest` for a standalone game and resolves the directory from `appSrcDir()`, so the baked bundle had been landing in the engine's src all along. 96 files deleted; `src/game/config.ts` kept as `docs/game-config.reference.ts` with a header saying it is frozen reference — it is the readable record of the Play4Fun captures (paytable, the ten paylines mapped to the server's `availablePayLines` indices, the two bet modes with the observed buy price), and `docs/` cannot reach a build because only `static/` is copied. The `lint` script went too: it was **already broken** (eslint 9 rejects that repo's `.eslintrc.cjs` outright) and with no source there is nothing to lint. **The general guard:** `build-delivery.mjs` now throws if the delivery folder holds `.ts`, `.tsx`, `.svelte`, `.map` or `.env`. `static/` is copied wholesale, so a stray file dropped there reaches the partner's CDN with nothing in between to notice, and `.map` is the likeliest and worst — a sourcemap is the whole of our source, disabled only for a non-dev build. Verified both ways: a clean delivery passes, and a planted `game-config.ts` plus a nested `.map` fail with both paths named and **no zip written**.
 - 2026-09-24 — **the partner's `embed.html` must NOT ride in the CDN folder, and a live probe of their node settled three other things.** Shipping their template inside the delivery folder was wrong and the owner caught it: that folder is uploaded to the CDN wholesale, a CDN does not execute `<?js ?>`, and the bytes it would serve are the partner's OWN server-side source — `GsHelper.getSession`, `Redis.getObjectById('casino', …)`, `APIHelper.getGameAndCheckIfItIsEnabledForCasino` and the admin `launch` branch calling `Session.create` — publicly fetchable at a guessable URL. `zipDir` grew an `extra` option so the page rides at the ARCHIVE ROOT, outside `{alias}/`, and the unzip states the split by its shape: `embed.html` for their application server, `{alias}/` for the CDN. **The live node confirmed where it really goes:** `create_session` returns `game_url: https://gs.2-complex.science/webnode/views/eanew/embed.html?sid=…` — their app server, not the CDN — which also confirms the filename. **Two more from the same probe.** `game_api` is `/webnode/engine` with NO `.js`, so the `.js` in their written brief is only the direct G-WAN URL for hand-poking; their template's `service` (`RequestController.getBaseUrl()+'/engine'`) is what a delivery actually uses. And their `config` carries **all six** keys we read, closing the `betMultipliers` gap: `[1,2,3,…,100,200]` with `initialBetMultiplierIndex: 3` (= M 4, the rung picked earlier from the captured 0.40 stake) and `denom: 0.01`. **Stake identity verified live:** `[{bet,[0,4]},{play,null}]` → 200, `bet.context.total: 80` = `betOptions[0]` (20) × M (4), balance −80 exactly, round opened and closed with `collect`. **Two findings that are NOT packaging.** Their node declares `betOptions: [20,25,2000]` (base/ante/buy per their brief) but `betOptionsName` is **undefined**, and `betOptionIndexFor` matches BY NAME — so with no names a non-base mode returns null and falls back to the legacy encoding. Borut declares `betModes: {base, bonus}`, so **its buy bet would not resolve to option index 2** against a server that names nothing; base spins are unaffected. And game 1 is Stargate (6×5, 20 lines, `tumbleIdx` — Gates of Olympus math), so there is no Book-of game on that node to play a Borut delivery against: end-to-end play remains unproven, and only the packaging, page name, endpoint, config contract and wire format are verified. Separately, `bookofborut`'s `static/stake-engine-loader.gif` was deleted (1.27 MB of a vendor's brand, a splash players would see); its only reference is that repo's `src/routes/+layout.svelte`, which is **not compiled** — `config-svelte` points a game repo's `kit.files.routes` at the engine's `apps/lines/src/routes`, and that dead layout also imports `LoaderStakeEngine`/`LoaderExample`, neither of which the engine exports any more.
@@ -1475,11 +1650,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - 2026-09-23 — **a PNG atlas page costs ~3× its WebP for no visual gain, and ten of them were riding in the remake.** Owner reported the online build had gone 42 MB → 70 MB and asked why the `?quality` tiers downloaded the same. Both answers came from MEASURING the live remake rather than reading the pipeline, and the first theory (the new KTX2 twins) was **wrong** — worth remembering, because the measurement was non-obvious to get. In `runtime=1` mode the art is fetched **from `app.invisiblewall.org/api/deploy/f/…` inside a Web Worker**: worker fetches never appear in main-frame `performance.getEntriesByType('resource')`, and the responses are cross-origin with no `Timing-Allow-Origin`, so they report `transferSize: 0`. DevTools showed 70 MB while the page's own API showed ~5 MB; the way through was to resolve each sheet's `meta.image` / each `.atlas` page line against the deploy API and fetch them. Result: **59.6 MB of texture pages** (14 WebP = 39.3 MB, **10 PNG = 20.3 MB**) + 10.5 MB audio + a 2.9 MB single-file document. The tiers were never identical either — `quality=low` is 43.9 MB (21 `.ktx2`, transcoding to `bc7-rgba-unorm`) against 59.6 MB on high; they only looked alike because the other ~13 MB is constant. **The PNGs were the anomaly, not the quality bar** — every other page was already lossy WebP, and `PageStore` ships a page in whatever format the packer emitted (`copyObject`, verbatim). `ENV.PAGE_WEBP` (ON by default) now re-encodes non-WebP pages as they enter `_pages/`: **20.3 MB → 6.9 MB, −66%**, dimensions untouched so no atlas/sheet coordinate rescale is involved. **The encoder setting is the part to not "simplify" later:** plain lossy WebP is much smaller (q90 → 3.6 MB) and is WRONG here — on the UI sheet it moved **51,588 fully-opaque pixels by more than 20/255**, worst case 92, i.e. visible banding inside buttons and title art rather than merely softened alpha edges; and raising quality does not buy it back (q90→q98 gained 0.9 dB for 40% more bytes, because the error is structural, not quantization). `nearLossless: 40` holds the worst opaque error to **4/255** (42.6 dB) and keeps most of the win. Migration is free: the shipped name is derived from the TARGET format, so an already-deployed project's `<hash>.png` misses the content cache once, re-encodes, and the stale `.png` falls out of `written` and is pruned — but that means it needs a **re-bake + pull + republish + Reconcile**, not just a launcher deploy. Costs ~1–7 s/page once per content hash, so the first assemble after enabling pays for every page at once (`gotcha_runtime_assemble_outruns_client_timeout` — run the bake before serving). `PAGE_WEBP=0` reverts to verbatim. The boot splash keeps its own PNG on purpose — `bootSplashExport` deliberately avoids `PageStore` so `_boot/` stays outside that prune, and it is 0.06 MB. **Shipped and VERIFIED LIVE** (#775, `d3f97cef`): deployed, re-baked, and re-measured through the same endpoint as the baseline — **59.45 MB → 46.13 MB of pages, 23 WebP and zero PNG**, with the remake's total (pages + audio) going **66.30 MB → 49.55 MB**. Title screen, board, UI bar and gold gradients all render clean on the uncompressed tier with no console errors, and all KTX2 twins survived the re-export (9/9 + 14/14 + 1/1 + 14/14). The one-time encode cost behaved as predicted and then vanished: first assemble 80.6 s (HTTP 200, inside the 90 s budget), second **29.0 s**, with `art` 59661→22218 ms and `sounds` 6233→684 ms.
 - 2026-09-21 — **the RGS owns the board's size; the project owns only what the RGS does not state.** Phase 7 ([invisible-game-config](../design/invisible-game-config.md)) made paylines and the in-play set server-authoritative and stopped there: the declared `window` was captured but reached only the cosmetic spin blur and a console error. So against a real RGS — authoritative by design, and never going to follow our Invisible Game Config — the client could draw one board while the math scored another, and all it could do was shout. `boardDimensions()` now follows the declared window. **The split, and why it is not "read `window` and be done":** a window may be a RECTANGLE (`{reels, rows}`), with no way to say "column 0 shows three". So the BOUNDING BOX is the server's, always; the per-column STEP is the server's `rowsPerReel` when it declares one — it is on the wire (`Play4FunConfigContext['window']`) and the facade already clamps each dealt column with it, so it is strictly better information than anything authored — and when the server declares NO step it is dealing `rows` to EVERY column, so an authored step is dropped **always**, not merely when the box disagrees. A matching box is exactly where that is easiest to miss: it looks like agreement while hiding a scored cell in every short column, which is the divergence [stepped-grid](../design/stepped-grid.md) exists to remove. Drawing the full rectangle can look wrong; hiding a paid cell IS wrong. **The window is LATCHED once at boot** (`captureServerGrid`) rather than read live: `__IE_SERVER_CONFIG__` is a plain global with no Svelte dependency, so a hot accessor reading it per call could change value with nothing invalidating the `$derived`s built on it — the mask sized for one grid while the seats used another. Latched, the grid has exactly one transition, at a moment `Game.svelte` picks, before first paint. It returns whether the shape changed and the reels are rebuilt only then — **unconditionally, on both paths**, because `stateGame.board` is BUILT once at module init and a baked bundle never enters the runtime branch that already rebuilt it. `activeWaysCount()`/`getNumRows()` moved to the resolved grid too, or they would price a spin and size the paytable against a board the game is not drawing. `warnOnServerGridMismatch` was rewritten rather than removed — under the new rule the resolved grid follows the server by construction, so the old comparison was dead; it now compares the server against what the PROJECT authored and says the board was resized. Rules extracted to `packages/game-config/src/serverGrid.ts` beside `resolveGrid`, deliberately free of value imports so `node` can load it directly. New `scripts/verify-server-grid.mjs` (27), including a 72-combination sweep asserting **every column draws exactly what it was dealt**; `verify-stepped-grid.mjs` (236) still passes and svelte-check is unchanged at 193/61. Parity: with no declared window `activeGrid()` calls `resolveGrid(config)` — the identical call it always made. **Shipped and VERIFIED LIVE** (#760, `efb5d3ca`). Note the release model: `runtime-release.yml` triggers on a `main` push touching `apps/lines/**` or `packages/**`, so the merge published the shared bundle to EVERY online game on the `lines` runtime within seconds — an engine PR IS a deploy, not a staged change awaiting one. The standing check afterwards is that the new `THE SERVER WINS` line stays quiet; it firing means a project's authored grid disagrees with what its server declares and the board just changed shape under it. Two adjacent items left undone: `makeMock` drops the `grid` for `book`-protocol games (`createBookMock({ label })`), so any book game whose config is not 5×3 silently diverges; and `/config` has no UI to author a stepped grid.
 
-- 2026-09-21 — **paint order on the board stopped being a function of when a cell happened to mount.** Two owner-reported symptoms on the live `test6` (stepped `5×[3,4,4,4,4]`, perspective authored, cascading) were ONE defect: `pixi-svelte`'s `addToParent` does `addChild` inside `onMount` and nothing ever re-derives the order, so a component's markup order fixes the stacking only of the children that mount TOGETHER — anything that unmounts and remounts is appended to the END of its parent and paints over every sibling until the parent is rebuilt. **Its signature is worth memorising: *right when it first appears, wrong after the first spin, right again after a reset or hide/unhide.*** It bit at two scales. (a) **Board cells** — a cascade splices its refills ABOVE the survivors as NEW cells (`combineTumbleReel`), so the refilled top rows drew over the board; the perspective branch in `BoardBase` exists precisely to buy back-to-front painting and survived only until the first cascade step. Proven by reading the board container's real child order off `globalThis.__PIXI_APP__` on the live game — the last five children were all top-row cells, and a second capture a few spins later drifted differently, because the stacking encodes arrival history rather than board position. (b) **Layers inside a cell** — `layers` resolve per STATE, so a spin binding different layers unmounted them and an authored shadow came back in FRONT of its character. **Fixed** with a seat-derived `zIndex` per cell (`apps/lines/src/game/paintOrder.ts` — extracted from the component so the rule is testable without a renderer) in a band `(0, 0.5]` strictly between the ground layers at 0 (`BoardMask`, `BoardTiles`) and `BookVfx`'s foreground at +1; `StackedPicture` states its own `0.75` because it had been riding mount order above the symbols. Inside a cell, one **unconditional container per band** (the device the base art already used — "UNCONDITIONAL on purpose") plus a `zIndex` within a band, because a ripple and a shadow are both *behind* layers and a wrapper alone would still let them swap. Sorting is safe on a band container because this component owns it outright, where a cell's own parent varies by mount site. **The rank arithmetic has no upper bound on purpose, and the first version got this wrong:** a cell's row is its index in `reelState.symbols`, which mid-roll becomes `[...targetSymbols, ...paddingSymbols, ...prevSymbols]` with the padding ACCUMULATING per reel, so a plain 5×3 board runs columns 16 deep on reel 0 and 40 on reel 4 — a `rows*2+2` budget was blown on every spin and columns spilled into each other's range, ordering every board WRONG, including flat non-cascading ones. `1 - 1/(row+3)` squashes any index into `[0.5, 1)`, so `reelIndex + depthOf(row)` is column-major for any strip length. New `scripts/verify-board-paint-order.mjs` (20) drives **real PixiJS Containers** through the mount sequence a spin performs and **reproduces both bugs** on the old shape before asserting the fix; `verify-symbol-seat.mjs` (274,644) still passes and svelte-check is unchanged at 193/61. Known bound, stated in code: under perspective a reel that is actually ROLLING ranks by strip index and sorts above the settled columns (perspective boards are not meant to roll — that is `swapInPlace`). **Shipped and VERIFIED LIVE** (#759, `b3170d82`) — owner-confirmed on `test6` after the automatic runtime release that the merge triggered. One caveat for anyone re-running the child-order probe: on a board that is stepped AND perspective the correct order is row-major by SEAT ROW, so a probe comparing against an `(x, y)` sort will report `DRIFTED` while the board is right.
+- 2026-09-21 — **paint order on the board stopped being a function of when a cell happened to mount.** Two owner-reported symptoms on the live `test6` (stepped `5×[3,4,4,4,4]`, perspective authored, cascading) were ONE defect: `pixi-svelte`'s `addToParent` does `addChild` inside `onMount` and nothing ever re-derives the order, so a component's markup order fixes the stacking only of the children that mount TOGETHER — anything that unmounts and remounts is appended to the END of its parent and paints over every sibling until the parent is rebuilt. **Its signature is worth memorising: _right when it first appears, wrong after the first spin, right again after a reset or hide/unhide._** It bit at two scales. (a) **Board cells** — a cascade splices its refills ABOVE the survivors as NEW cells (`combineTumbleReel`), so the refilled top rows drew over the board; the perspective branch in `BoardBase` exists precisely to buy back-to-front painting and survived only until the first cascade step. Proven by reading the board container's real child order off `globalThis.__PIXI_APP__` on the live game — the last five children were all top-row cells, and a second capture a few spins later drifted differently, because the stacking encodes arrival history rather than board position. (b) **Layers inside a cell** — `layers` resolve per STATE, so a spin binding different layers unmounted them and an authored shadow came back in FRONT of its character. **Fixed** with a seat-derived `zIndex` per cell (`apps/lines/src/game/paintOrder.ts` — extracted from the component so the rule is testable without a renderer) in a band `(0, 0.5]` strictly between the ground layers at 0 (`BoardMask`, `BoardTiles`) and `BookVfx`'s foreground at +1; `StackedPicture` states its own `0.75` because it had been riding mount order above the symbols. Inside a cell, one **unconditional container per band** (the device the base art already used — "UNCONDITIONAL on purpose") plus a `zIndex` within a band, because a ripple and a shadow are both _behind_ layers and a wrapper alone would still let them swap. Sorting is safe on a band container because this component owns it outright, where a cell's own parent varies by mount site. **The rank arithmetic has no upper bound on purpose, and the first version got this wrong:** a cell's row is its index in `reelState.symbols`, which mid-roll becomes `[...targetSymbols, ...paddingSymbols, ...prevSymbols]` with the padding ACCUMULATING per reel, so a plain 5×3 board runs columns 16 deep on reel 0 and 40 on reel 4 — a `rows*2+2` budget was blown on every spin and columns spilled into each other's range, ordering every board WRONG, including flat non-cascading ones. `1 - 1/(row+3)` squashes any index into `[0.5, 1)`, so `reelIndex + depthOf(row)` is column-major for any strip length. New `scripts/verify-board-paint-order.mjs` (20) drives **real PixiJS Containers** through the mount sequence a spin performs and **reproduces both bugs** on the old shape before asserting the fix; `verify-symbol-seat.mjs` (274,644) still passes and svelte-check is unchanged at 193/61. Known bound, stated in code: under perspective a reel that is actually ROLLING ranks by strip index and sorts above the settled columns (perspective boards are not meant to roll — that is `swapInPlace`). **Shipped and VERIFIED LIVE** (#759, `b3170d82`) — owner-confirmed on `test6` after the automatic runtime release that the merge triggered. One caveat for anyone re-running the child-order probe: on a board that is stepped AND perspective the correct order is row-major by SEAT ROW, so a probe comparing against an `(x, y)` sort will report `DRIFTED` while the board is right.
 - 2026-09-21 — **The real cause of "my art and config never load": the assemble is slower than the
   client will wait.** The 2026-09-18 entry in [engine-history](engine-history.md) fixed a real bug but not this one — the owner still
   saw it, and the console said why: `retry 1 in 1000ms (30s of budget left)` then `gave up after
-  90000ms and 2 attempts — last: signal timed out`. The **first attempt burned the whole 60s cap**,
+90000ms and 2 attempts — last: signal timed out`. The **first attempt burned the whole 60s cap**,
   so this was never the fast 502 of a container swap; `/api/editor/runtime` was simply answering
   slower than the cap. Measured on `test6`: **83.6s / 97.5s / 92.8s** over three consecutive
   fetches, every one a healthy 200 with a complete 193 KB bundle. The budget (90s) was smaller than
@@ -1493,7 +1668,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     fonts and the authored config all ship exclusively in the runtime bundle, and `Game.svelte`
     gates the asset re-merge + `resetGameConfigCache()` on `isRuntimeBundleActive()`. `test6` drew
     its real 16-scene layout while logging `Sprite: key "invisible_wall/test6/…::TitleConcept" is
-    not found in loadedAssets`, `no component registered for id 'c_…'`, and a `symbols.W` warning
+not found in loadedAssets`, `no component registered for id 'c_…'`, and a `symbols.W` warning
     from the **template** config — with no stale flag and no overlay, because that branch counted as
     success. A doc is not a game: it now marks stale + shows the dead-end overlay, and logs one
     `LAYOUT-ONLY BOOT` line naming every missing class so the asset errors below it are legible as
@@ -1503,4 +1678,4 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - Verified against the live launcher and the real `test6` project: the bundle lands
     (`live runtime bundle ready for "test6"`), `__IE_RUNTIME_STALE__` is unset, no overlay, the
     project's own art renders, and **neither** `not found in loadedAssets` nor `no component
-    registered` appears — the two errors that flooded the failing boot.
+registered` appears — the two errors that flooded the failing boot.

@@ -17,11 +17,14 @@
 	import { getContext } from '../game/context';
 	import { getSymbolSeat, stateGame, type ReelSymbol as Cell } from '../game/stateGame.svelte';
 	import { activeGrid } from '../game/gameConfig';
+	import type { ReelStripView } from '../game/reelStripView.svelte';
 
 	type Props = {
 		reelIndex: number;
 		/** The reel's strip, as `BoardBase` reads it. Only its `padding` cells are drawn here. */
 		column: readonly Cell[];
+		/** This layer's view of the reel, on a flat board (`BoardBase`). */
+		strip?: ReelStripView;
 	};
 
 	const props: Props = $props();
@@ -105,6 +108,22 @@
 	const shown = $derived.by(() => {
 		const best: (Cell | undefined)[] = Array(slots);
 		const bestY: number[] = Array(slots);
+		// Flat: the strip view says from which index the rows have touched the top edge (the same test
+		// at the same `y`), and the lowest such index is the highest cell, so nothing here reads the
+		// moving position.
+		const strip = props.strip;
+		if (strip) {
+			const enteredFrom = strip.enteredFrom;
+			for (const { cell, slot } of placed) {
+				const index = cell.symbolIndex;
+				if (index < enteredFrom) continue;
+				if (!best[slot] || index < bestY[slot]) {
+					best[slot] = cell;
+					bestY[slot] = index;
+				}
+			}
+			return Array.from(best, (cell) => (cell?.padding ? cell : undefined));
+		}
 		for (const { cell, row, slot } of placed) {
 			const y = yOf(cell, row);
 			if (y <= enterAt(row)) continue;
@@ -124,6 +143,7 @@
 			row={rowOf.get(cell) ?? 0}
 			reelSymbol={cell}
 			instanceKey={instanceIdOf(cell)}
+			strip={props.strip}
 		/>
 	{/if}
 {/each}
