@@ -48,24 +48,15 @@ jobs:
       - id: changes
         uses: ./.github/actions/code-changed
 
-      - if: steps.changes.outputs.code == 'true'
-        uses: pnpm/action-setup@v6
-
-      - if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
       # A fresh runner's disk reads Chrome's 435 MB install slowly the first time (3–8 s measured, far
       # more beside the shard's other checks), and a spike's first launch paid that read. Read it
-      # now, in the background, while pnpm installs.
+      # now, in the background, while pnpm and Node are set up and the workspace installs.
       - name: warm Chrome's install
         if: steps.changes.outputs.code == 'true'
         run: (find "$(dirname "$(readlink -f "$(command -v google-chrome)")")" -type f -exec cat {} + > /dev/null 2>&1 &)
 
       - if: steps.changes.outputs.code == 'true'
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/setup
 
       # The Rigger's browser spikes drive a real headless Chrome (tools/rigger-spike/chrome.mjs); the
       # runner image ships it.

@@ -1,3 +1,7 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
+
 <svelte:head><title>Invisible Sheet Maker — Invisible Wall</title></svelte:head>
 
 <!-- Shown only when SHEET_TOOL_URL is unset; otherwise the load fn redirects
@@ -6,7 +10,7 @@
 	<h1>Invisible Sheet Maker</h1>
 	<p>The Invisible Sheet Maker service URL is not configured.</p>
 	<p class="muted">Set <code>SHEET_TOOL_URL</code> in the launcher environment.</p>
-	<a class="ghost" href="/">‹ Launcher</a>
+	<a class="ghost" href={resolve('/')}>‹ Launcher</a>
 </div>
 
 <style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	// Shared top-bar chrome for every launcher tool: the Invisible emblem (→ home),
 	// the current tool's name, and a "Tools" dropdown of every OTHER online tool the
 	// user can see, grouped by stage. The look here is the source of truth; the Python tools
@@ -83,7 +84,7 @@
 </script>
 
 <header class="iw-toolbar">
-	<a class="brand" href="/" title="Invisible Launcher">
+	<a class="brand" href={resolve('/')} title="Invisible Launcher">
 		<Emblem height={18} />
 		<span class="brand-name">{name}</span>
 	</a>

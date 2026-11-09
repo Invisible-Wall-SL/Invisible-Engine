@@ -4,7 +4,7 @@
 	"private": true,
 	"license": "MIT",
 	"scripts": {
-		"lint": "eslint apps packages services",
+		"lint": "eslint apps packages services scripts tools",
 		"lint:workspaces": "turbo run lint",
 		"check:path-imports": "node scripts/check-path-imports.mjs",
 		"check:ways": "node scripts/check-ways-evaluator.mjs && node scripts/check-ways-protocol.mjs",

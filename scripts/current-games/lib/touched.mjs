@@ -57,7 +57,8 @@ const ROOT_BUILD_FILES = [
  * can fail it; Lint runs that gate on every PR, where such a change is caught.
  */
 const GATE_DIRS = ['scripts', 'services/test-server', 'apps/launcher-api/src/lib/data/gameConfig'];
-const HARNESS_FILES = ['.github/workflows/current-games.yml'];
+/** The harness workflow, and the set-up action its jobs install through. */
+const HARNESS_FILES = ['.github/workflows/current-games.yml', '.github/actions/setup/action.yml'];
 
 /** What `.github/actions/code-changed` calls docs: never an input of anything that ships. */
 export const isDoc = (file) =>

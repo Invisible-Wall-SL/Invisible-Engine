@@ -57,6 +57,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   (`.github/actions/code-changed`) skips the rest on a docs-only change (`docs/**`, `.claude/**`,
   `*.md`), so those jobs pass in ~10 s with no install. All six are required checks in the `main`
   ruleset (INFRA "Branch ruleset on `main`"), so every change lands through a PR that passed them.
+- **Lint covers the gates themselves** — `pnpm lint` is `eslint apps packages services scripts
+  tools` against `eslint-suppressions.json`; the launcher's Lint gates run as one
+  `node scripts/check-all.mjs --only …` (each reported, none hidden by an earlier failure). Every
+  pnpm job installs through `.github/actions/setup` (INFRA "Job set-up").
 - **svelte-check ratchet runs on every PR + push, NOT required yet** (`.github/workflows/svelte-check.yml`,
   jobs `svelte-check (1/2)` / `svelte-check (2/2)`). `pnpm check:svelte`
   (`scripts/svelte-check-ratchet.mjs`) type-checks each of the 17 workspace packages that have a
@@ -134,6 +138,20 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-09 — **CI/lint hygiene: lint the gates, one set-up action, unchained launcher gates.**
+  - `pnpm lint` now also lints `scripts/` and `tools/` (~450 files, the gates included); their 52
+    existing hits are baselined. `tools/**` joined the turbo env-var rule's exemption, as `scripts/`
+    already was.
+  - `svelte/no-navigation-without-resolve`: 41 of 54 baselined launcher hits fixed with
+    `resolve()` / `asset()` (Kit 2.70 types them against the routes); 13 stay, each a URL that may be
+    another origin, a helper-built download or a computed `replaceState`. Baseline 275 → 286.
+  - `.github/actions/setup` replaces the pnpm → Node → install steps in 13 jobs over 9 workflows;
+    job names, triggers and `if:` are unchanged. Dependabot also watches the action's folder.
+  - Lint's 26-command `&&` chain of launcher gates is one `check-all --only` run; `--exclude-lint`
+    reads that list, so Checks still skips exactly the same 26, and `--only` now fails on a term
+    that selects nothing.
+  - The launcher's 146 identical `precheck:*` hooks are gone: its `prepare` runs `svelte-kit sync`
+    on `pnpm install` (SvelteKit's own template), and `check-all` still syncs once before a run.
 - 2026-11-08 — **Fix runs: `bug-fix.yml` and its proof (ADR-0013 card 13B, #1525).**
   - **The run.** The App dispatches `bug-fix.yml` on `main`. The job runs Claude Code 2.1.311,
     pinned by version and by its npm tarball's sha512, in Claude Code's bubblewrap sandbox under the
