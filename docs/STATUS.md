@@ -108,7 +108,7 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    2026-10-28, every §4 recommendation accepted): **P11.1–P11.5 done once #1474 merges** — P11.1 a
    runtime per family (#1437, #1442, #1449, #1450; slot games −8.2 % gz), P11.2 online arcade
    completion (#1464, #1466), P11.3 Salmons' rules (#1469), P11.4 isometric (#1472), P11.5 offline
-   abilities and zone forces (#1474). Left: S0 (the Salmons art, owner) and the optional C5. State
+   abilities and zone forces (#1474). Left: S0 (the Salmons art; the original art built 2026-11-09, in review) and the optional C5. State
    in [status/game-families](status/game-families.md).
 1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate
    ([status/rigger](status/rigger.md)).
@@ -204,10 +204,9 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
-- **Salmons' art pass (S0)** — approved 2026-10-26; the eight adjustments decided 2026-11-08 (the
-  defaults); the game side that plays the clips is built (in review). Left for a person in the
-  launcher: generate the 20 character clips ([guides/salmons-s0-runbook](guides/salmons-s0-runbook.md)),
-  and after the merge re-upload the three character components and publish.
+- **Salmons' art (S0)** — the owner rejected generated clips (2026-11-09): Salmons draws the
+  original game's own art, animated in code and built into the runtime (in review, branch
+  `arcade/salmons-original-art`). No clips to generate and nothing to upload; left: review and merge.
   ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
