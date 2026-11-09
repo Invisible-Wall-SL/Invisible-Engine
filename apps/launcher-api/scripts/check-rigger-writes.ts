@@ -184,6 +184,8 @@ const del = await import(`${routes}/rigger/delete/+server.ts`);
 const irigSave = await import(`${routes}/rigger/save/+server.ts`);
 const { irigDocProblem } = await import('../src/lib/server/riggerIrig.ts');
 const { stampSavedBy } = await import('../src/lib/server/savedBy.ts');
+const { migrateIrigs } = await import('../src/lib/server/irigMigration.ts');
+const { irigBackupsPrefix } = await import('../src/lib/server/riggerIrig.ts');
 const reindex = await import(`${routes}/editor/rigs/reindex/+server.ts`);
 
 let checks = 0;
@@ -546,6 +548,86 @@ const PAGE = Buffer.from('png').toString('base64');
 		'irig: the rig library still gives a 4.2 skeleton its version',
 		JSON.parse(text('_shared/rigs/old.json') ?? '{}').skeleton?.skeleton,
 		{ spine: '4.2' },
+	);
+}
+
+// ── irig v1, Phase 5: the R2 migration upgrades what no save has ─────────────────────────────
+{
+	const seed = (): void => {
+		seedProject();
+		seedStore(`${RIGS}/V/V.irig`, JSON.stringify({ irig: 1, bones: [{ name: 'root' }] }));
+		seedStore(
+			`${RIGS}/X/X.irig`,
+			JSON.stringify({ bones: [{ name: 'root' }, { name: 'arm', parent: 'root', x: '5' }] }),
+		);
+		seedStore(`${RIGS}/Z/Z.irig`, '{not json');
+	};
+	const texts = (): string => JSON.stringify([...bucket.entries()].map(([k, o]) => [k, o.etag]));
+	const rel = (key: string): string => key.slice(RIGS.length + 1);
+
+	seed();
+	const before = texts();
+	const dry = await migrateIrigs({ prefix: `${RIGS}/` });
+	check(
+		'migration: a dry run gives every rig a verdict and writes nothing',
+		[dry.map((r) => [rel(r.key), r.verdict, r.outcome]), texts() === before],
+		[
+			[
+				['A/A.irig', 'upgrade', undefined],
+				['B/B.irig', 'upgrade', undefined],
+				['V/V.irig', 'already', undefined],
+				['X/X.irig', 'changes-a-value', undefined],
+				['Z/Z.irig', 'unreadable', undefined],
+			],
+			true,
+		],
+	);
+
+	seed();
+	const untouched = ['V', 'X', 'Z'].map((s) => text(`${RIGS}/${s}/${s}.irig`));
+	const wrote = await migrateIrigs({ prefix: `${RIGS}/`, write: true });
+	const a = JSON.parse(text(`${RIGS}/A/A.irig`) ?? '{}');
+	check(
+		'migration: --write upgrades only the upgrade rows, through the save (index re-derived where it can be)',
+		[
+			wrote.map((r) => [rel(r.key), r.outcome]),
+			a.irig,
+			irigDocProblem(a),
+			['V', 'X', 'Z'].map((s) => text(`${RIGS}/${s}/${s}.irig`)),
+		],
+		[
+			[
+				['A/A.irig', 'written'],
+				['B/B.irig', 'written-not-indexed'],
+				['V/V.irig', undefined],
+				['X/X.irig', undefined],
+				['Z/Z.irig', undefined],
+			],
+			1,
+			null,
+			untouched,
+		],
+	);
+	check(
+		'migration: the 4.2 file it replaced is in the rig history',
+		[...bucket.keys()].filter((k) => k.startsWith(irigBackupsPrefix(CLIENT, 'p1', 'A', 'A')))
+			.length,
+		1,
+	);
+
+	seed();
+	const key = `${RIGS}/A/A.irig`;
+	beforeHead = async (k) => {
+		if (k !== key) return;
+		beforeHead = null;
+		seedStore(key, skel('saved meanwhile'));
+	};
+	const raced = await migrateIrigs({ prefix: `${RIGS}/A/`, write: true });
+	beforeHead = null;
+	check(
+		'migration: a rig saved after it was read keeps that save',
+		[raced.map((r) => r.outcome), JSON.parse(text(key) ?? '{}').name],
+		[['saved-meanwhile'], 'saved meanwhile'],
 	);
 }
 

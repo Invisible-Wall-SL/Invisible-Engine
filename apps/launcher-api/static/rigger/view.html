@@ -10401,7 +10401,8 @@ function keySlotAttachment(slotName, name){
   const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
   cs.attachment = cs.attachment || [];
   const i = cs.attachment.findIndex((k) => Math.abs(k.time - animTime) < 1e-4);
-  const key = { time: roundN(animTime, 4), name: name || null };
+  // No `name` = no attachment (the 4.2 reader reads a missing name as null); irig has no null.
+  const key = name ? { time: roundN(animTime, 4), name } : { time: roundN(animTime, 4) };
   if (i >= 0) cs.attachment[i] = key; else { cs.attachment.push(key); cs.attachment.sort((x, y) => x.time - y.time); }
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }

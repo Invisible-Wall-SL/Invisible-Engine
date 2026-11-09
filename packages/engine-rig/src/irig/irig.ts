@@ -116,6 +116,12 @@ function cleanObject(
 	return out;
 }
 
+const mapValues = (o: Json, f: (v: unknown) => unknown): Json =>
+	Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)]));
+
+const withoutKey = (o: Json, key: string): Json =>
+	Object.fromEntries(Object.entries(o).filter(([k]) => k !== key));
+
 /** Renames one key in place, keeping its position. */
 function renameKey(o: Json, from: string, to: string): Json {
 	return Object.fromEntries(Object.entries(o).map(([k, v]) => [k === from ? to : k, v]));
@@ -142,6 +148,26 @@ export function importSpine42Json(json: string | object): { doc: IrigDoc; issues
 			name,
 			attachments,
 		}));
+	// A 4.2 attachment key may say `"name": null` for "no attachment", as a missing name does (the
+	// reader's default); v1 has one form, the missing name.
+	if (isObject(source.animations))
+		source.animations = mapValues(source.animations, (anim) =>
+			isObject(anim) && isObject(anim.slots)
+				? {
+						...anim,
+						slots: mapValues(anim.slots, (slot) =>
+							isObject(slot) && Array.isArray(slot.attachment)
+								? {
+										...slot,
+										attachment: slot.attachment.map((k: unknown) =>
+											isObject(k) && k.name === null ? withoutKey(k, 'name') : k,
+										),
+									}
+								: slot,
+						),
+					}
+				: anim,
+		);
 
 	const issues: IrigIssue[] = [];
 	const body = cleanObject(RIG_FIELDS, ['bones'], source, '', issues);

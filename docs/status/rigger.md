@@ -85,8 +85,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
     fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0–4a built (Recent
     changes): new rigs are irig v1, a Rigger or Director save stores a 4.2 rig as v1, and a runtime
-    rollback below the Phase 3 release is refused. Next: Phase 5 (a dry-run report, then migrate the
-    R2 rigs no save has upgraded); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
+    rollback below the Phase 3 release is refused. Phase 5's migration script is built and its dry run is
+    clean (250 of 250 would upgrade with the same `SkeletonData`); the `--write` run waits for the
+    owner. 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
 ## Blocked (owner / external)
 
@@ -95,6 +96,18 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-09 — **irig v1, Phase 5: the R2 migration, dry run** ([irig-format](../design/irig-format.md)
+  §6). `scripts/r2-migrate-irig.ts` (`irigMigration.ts`) gives every `.irig` a verdict and, with
+  `--write`, upgrades only rigs whose import drops nothing the reader reads and whose
+  `skeletonDataSnapshot` (moved into `engine-rig`) is unchanged, through the save's `writeIrig`.
+  **Bug found by the dry run:** keying "no attachment" in the Rigger wrote `"name": null`, which
+  the strict reader refuses, so on a v1 rig that edit broke (since Phase 3); 22 R2 rigs carried such
+  keys from exports. The Rigger now writes no name, and the importer maps `null` to no name (the
+  4.2 reader reads both as no attachment). Second dry run: 250 of 250 `upgrade`, none dropping a
+  key; nothing written. Gates: 4 migration checks in `check-rigger-writes.ts` (2 mutants caught),
+  a null-name check in `irig.fixture.ts`, a "key no attachment" step in `rig-undo.mjs` (fails
+  `--irig` with the old Rigger line); a schema mutant dropping bone `x` turns a verdict to
+  `poses-differ`. Engine change, so this merge is a runtime release.
 - 2026-11-09 — **irig v1, Phase 4a: a save imports a 4.2 rig** ([irig-format](../design/irig-format.md)
   §6). `/api/rigger/save` and Director's `rigger.rebind_attachments` store a 4.2 skeleton as irig v1
   through `asIrigDocument` (`riggerIrig.ts`), the rule new rigs already use: imported when the
