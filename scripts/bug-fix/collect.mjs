@@ -354,7 +354,6 @@ function prepare() {
 	);
 	const agents = agentsJson(join(p.main, '.claude', 'agents'));
 	writeFileSync(join(p.conf, 'agents.json'), JSON.stringify(agents));
-	appendFileSync(env('GITHUB_OUTPUT'), `node=${process.execPath}\n`);
 	// Outside the workspace and every denied folder: commands may read the shim, never change it.
 	mkdirSync(p.tsxShim, { recursive: true });
 	const shim = join(p.tsxShim, 'tsx.mjs');
