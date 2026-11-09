@@ -34,6 +34,7 @@ import {
 	type IrigIssue,
 } from './irig.ts';
 import { IRIG_SCHEMA_REVISION, IRIG_V1 } from './schema.ts';
+import { skeletonDataSnapshot } from './snapshot.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const SKIP = [
@@ -74,32 +75,8 @@ const stubLoader: AttachmentLoader = {
 	newClippingAttachment: (_skin, name) => new ClippingAttachment(name),
 };
 
-/** Everything the runtime built, in build order; a repeated object prints as a back-reference. A
- * vertex attachment's `id` is a process-wide counter, so it differs between any two reads: it is
- * left out, and where a timeline's property id embeds it (`28|slot|id`), it is renumbered in order
- * of first appearance. */
-function snapshot(json: object): string {
-	const data = new SkeletonJson(stubLoader).readSkeletonData(structuredClone(json));
-	const seen = new Map<object, number>();
-	const ids = new Map<string, number>();
-	return JSON.stringify(data, (key, value: unknown) => {
-		if (key === 'id' && typeof value === 'number') return undefined;
-		if (key === 'propertyIds' && Array.isArray(value))
-			return value.map((p: string) => {
-				const [kind, slot, id] = p.split('|');
-				if (id === undefined) return p;
-				if (!ids.has(id)) ids.set(id, ids.size);
-				return `${kind}|${slot}|@${ids.get(id)}`;
-			});
-		if (!value || typeof value !== 'object') return value;
-		if (ArrayBuffer.isView(value)) return Array.from(value as unknown as ArrayLike<number>);
-		const id = seen.get(value);
-		if (id !== undefined) return `#${id}`;
-		seen.set(value, seen.size);
-		if (value instanceof Map) return [...value.entries()];
-		return value;
-	});
-}
+/** What the runtime builds from `json`; equal snapshots read into the same `SkeletonData`. */
+const snapshot = (json: object): string => skeletonDataSnapshot(json);
 
 /** Paths where `a` and `b` differ, key order included. */
 function diff(a: unknown, b: unknown, path = '', out: string[] = []): string[] {
@@ -295,6 +272,35 @@ const extended = {
 	check(reread.saved_by?.agent === 'animator', 'extensions: the saved_by stamp was not kept');
 	check(reread.skeleton?.iwLockBounds === true, 'extensions: the bounds lock was not kept');
 	check(diff(extended, exportSpine42Json(reread)).length === 0, 'extensions: 4.2 out ≠ 4.2 in');
+}
+
+// ── An attachment key's `"name": null` imports as no name, meaning unchanged ─────────────────────
+{
+	const hides = {
+		...extended,
+		animations: {
+			hide: {
+				slots: {
+					body: {
+						attachment: [
+							{ time: 0, name: 'body' },
+							{ time: 1, name: null },
+						],
+					},
+				},
+			},
+		},
+	};
+	const { doc, issues } = importSpine42Json(hides);
+	const keys = doc.animations?.hide.slots?.body.attachment;
+	check(
+		issues.length === 0 && JSON.stringify(keys) === '[{"time":0,"name":"body"},{"time":1}]',
+		`a null attachment name: imported as ${JSON.stringify(keys)}, issues ${JSON.stringify(issues)}`,
+	);
+	check(
+		snapshot(hides) === snapshot(JSON.parse(writeIrig(doc))),
+		'a null attachment name: the runtime reads the import differently',
+	);
 }
 
 // ── Object-form skins import as the list form, meaning unchanged ──────────────────────────────────

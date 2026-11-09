@@ -14,3 +14,4 @@ export * from './src/skeletonJson';
 export * from './src/clipping';
 export * from './src/skeletonBinary';
 export * from './src/irig/irig';
+export * from './src/irig/snapshot';

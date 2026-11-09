@@ -236,10 +236,21 @@ built (§7). `source.json` and `text.json` stay sidecars, as Phase 0 decided (§
   The Rigger's own channel sampler goes away in favour of `engine-rig`'s, which also closes status
   open item 16.
 
-**Phase 5 — migrate R2.** A script, like `apps/launcher-api/scripts/r2-sync-rigs.mjs`, upgrades every `.irig` to v1
-under the existing backup rule (`backupIrigBeforeOverwrite` first), with a dry-run report, and proves
-pose equality per rig before writing. Saves already upgrade lazily from Phase 4a; this catches the
-rest. Then the `.json` rename on export is dropped.
+**Phase 5 — migrate R2.** _Script built 2026-11-09; the write waits for the owner._
+`apps/launcher-api/scripts/r2-migrate-irig.ts` (`irigMigration.ts`) is a dry run unless given
+`--write`. Each `.irig` gets a verdict: `upgrade` only when the import drops nothing but keys the
+4.2 reader ignores AND `skeletonDataSnapshot` (now in `engine-rig`, shared with the Phase 0 gate)
+is the same for the irig document as for the 4.2 file. Only `upgrade` is written, through the
+Rigger save's own `writeIrig` (backup first, written only if the file is still the one read, index
+re-derived). A rig outside `<client>/<project>/spines/` is reported and not written: the
+`_shared/` library and `test_server/` published copies.
+
+The first dry run (250 files) refused 22: every one an attachment key written `"name": null`,
+which 4.2 means as "no attachment", the same as a missing name. The importer now maps it to the
+missing name, and the Rigger, which wrote it whenever an author keyed "no attachment", now writes
+the missing name too (on a v1 rig the strict reader refused that key since Phase 3). The second
+dry run: 250 of 250 `upgrade`, no key dropped, every rig the same `SkeletonData`. 246 are project
+rigs; 4 are outside a project. Then the `.json` rename on export is dropped.
 
 **Phase 6 — retire the 4.2 assumptions.** The 4.2.x pin message in `tools/rigger-spike/rig.mjs` and
 the Rig parity workflow move onto the internal 4.2 writer (§8). The 4.2 importer stays for as long as artists

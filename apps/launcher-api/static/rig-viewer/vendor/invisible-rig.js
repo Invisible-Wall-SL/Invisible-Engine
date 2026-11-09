@@ -5551,6 +5551,8 @@ var invisibleRig = function(exports) {
     }
     return out;
   }
+  const mapValues = (o, f) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)]));
+  const withoutKey = (o, key) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== key));
   function renameKey(o, from, to) {
     return Object.fromEntries(Object.entries(o).map(([k, v]) => [k === from ? to : k, v]));
   }
@@ -5565,6 +5567,22 @@ var invisibleRig = function(exports) {
         name,
         attachments
       }));
+    if (isObject(source.animations))
+      source.animations = mapValues(
+        source.animations,
+        (anim) => isObject(anim) && isObject(anim.slots) ? {
+          ...anim,
+          slots: mapValues(
+            anim.slots,
+            (slot2) => isObject(slot2) && Array.isArray(slot2.attachment) ? {
+              ...slot2,
+              attachment: slot2.attachment.map(
+                (k) => isObject(k) && k.name === null ? withoutKey(k, "name") : k
+              )
+            } : slot2
+          )
+        } : anim
+      );
     const issues = [];
     const body = cleanObject(RIG_FIELDS, ["bones"], source, "", issues);
     if (!body) throw new Error(`Not a skeleton: ${issues.map((i) => i.reason).join("; ")}`);
@@ -7511,6 +7529,37 @@ var invisibleRig = function(exports) {
       timeline.setBezier(0, frame, value, time1, value1, cx1, cy1, cx2, cy2, time2, value2);
     }
   }
+  const stubLoader = {
+    newRegionAttachment: (_skin, name, path2) => new RegionAttachment(name, path2),
+    newMeshAttachment: (_skin, name, path2) => new MeshAttachment(name, path2),
+    newBoundingBoxAttachment: (_skin, name) => new BoundingBoxAttachment(name),
+    newPathAttachment: (_skin, name) => new PathAttachment(name),
+    newPointAttachment: (_skin, name) => new PointAttachment(name),
+    newClippingAttachment: (_skin, name) => new ClippingAttachment(name)
+  };
+  function skeletonDataSnapshot(json) {
+    const input = typeof json === "string" ? json : structuredClone(json);
+    const data = new SkeletonJson(stubLoader).readSkeletonData(input);
+    const seen = /* @__PURE__ */ new Map();
+    const ids = /* @__PURE__ */ new Map();
+    return JSON.stringify(data, (key, value) => {
+      if (key === "id" && typeof value === "number") return void 0;
+      if (key === "propertyIds" && Array.isArray(value))
+        return value.map((p) => {
+          const [kind, slot2, id22] = p.split("|");
+          if (id22 === void 0) return p;
+          if (!ids.has(id22)) ids.set(id22, ids.size);
+          return `${kind}|${slot2}|@${ids.get(id22)}`;
+        });
+      if (!value || typeof value !== "object") return value;
+      if (ArrayBuffer.isView(value)) return Array.from(value);
+      const id2 = seen.get(value);
+      if (id2 !== void 0) return `#${id2}`;
+      seen.set(value, seen.size);
+      if (value instanceof Map) return [...value.entries()];
+      return value;
+    });
+  }
   class ManagedWebGLRenderingContext {
     constructor(canvasOrContext, contextConfig = { alpha: true }) {
       var _a;
@@ -8473,6 +8522,7 @@ void main() { gl_FragColor = vColor; }`;
   exports.readIrig = readIrig;
   exports.setArraySize = setArraySize;
   exports.signum = signum;
+  exports.skeletonDataSnapshot = skeletonDataSnapshot;
   exports.triangulate = triangulate;
   exports.wrapRadians = wrapRadians;
   exports.writeIrig = writeIrig;

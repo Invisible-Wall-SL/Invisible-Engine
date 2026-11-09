@@ -187,9 +187,11 @@ const LIBRARY_RIG = {
 // `--irig`: every rig and the library rig are served as irig v1, which the Rigger's runtime reads
 // strictly, so an edit that writes a key or a type outside the schema fails here
 // (docs/design/irig-format.md, Phase 3).
+let readIrig = null;
 if (process.argv.includes('--irig')) {
 	const { RIG_CORE } = await import('./rig.mjs');
-	const { importSpine42Json, writeIrig } = await import(RIG_CORE);
+	const { importSpine42Json, writeIrig, readIrig: read } = await import(RIG_CORE);
+	readIrig = read;
 	const toIrig = (doc) => JSON.parse(writeIrig(importSpine42Json(doc).doc));
 	for (const rig of Object.values(RIGS)) rig.doc = toIrig(rig.doc);
 	LIBRARY_RIG.skeleton = toIrig(LIBRARY_RIG.skeleton);
@@ -913,6 +915,27 @@ try {
 		);
 		h = await hist();
 		ok('…and after undoing them all, still under the cap', h.bytes + m.bytes <= m.cap, q(h));
+	});
+
+	await step('13b. ◆ keying a slot to no attachment', async () => {
+		ok('◆ Animate', (await setMode('animate')) === 'animate');
+		const key = await evaluate(
+			`(() => { const s = rawDoc.slots.find((x) => x.attachment); selectSlot(s.name); keySlotAttachment(s.name, null); return JSON.stringify(rawDoc.animations[curAnim].slots[s.name].attachment.find((k) => Math.abs(k.time - animTime) < 1e-4)); })()`,
+		);
+		ok(
+			'the key has no name, which the reader reads as no attachment (irig has no null)',
+			!!key && !('name' in JSON.parse(key)),
+			key,
+		);
+		if (readIrig) {
+			let why = '';
+			try {
+				readIrig(await snap());
+			} catch (e) {
+				why = e.message;
+			}
+			ok('...and the rig still reads as irig v1', why === '', why);
+		}
 	});
 
 	await step('14. the page threw nothing', async () => {

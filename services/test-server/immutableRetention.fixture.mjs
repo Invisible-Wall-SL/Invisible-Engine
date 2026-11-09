@@ -90,7 +90,16 @@ const serving = async (key, marker) => {
 	}
 	return false;
 };
-const refresh = () => fetch(`${ORIGIN}/refresh`, { method: 'POST' });
+const lastHydrateAt = async () =>
+	(await (await fetch(`${ORIGIN}/healthz`)).json()).lastHydrate?.at ?? 0;
+/** POST /refresh and wait for THAT hydrate to finish: the server answers 202 first, so a build
+ *  rewritten right after an unawaited refresh can be read half-written. */
+const refresh = async () => {
+	const before = await lastHydrateAt();
+	await fetch(`${ORIGIN}/refresh`, { method: 'POST' });
+	for (let i = 0; i < 400 && (await lastHydrateAt()) <= before; i++)
+		await new Promise((r) => setTimeout(r, 25));
+};
 const status = async (path) => (await get(path))?.status;
 
 try {
