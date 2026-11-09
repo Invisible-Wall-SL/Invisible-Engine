@@ -1100,6 +1100,9 @@ On the left is the list of **flight kinds**:
   jackpot coin it steps up a tier, like the boost beam.
 - **Unlock into its row** (`unlockRow`) — on an expanding board, an unlock symbol flying into the
   middle of the locked row it opens, before the row's locked cells fade away.
+- **Enhancement beam** (`enhancementBeam`) — a collector bonus's boost or multiply hit, flying from
+  its dial (an Enhancement Dial, or the game's own row of dials) to each coin it hits. The coin's
+  value starts counting up when its beam lands.
 - One row **per meter** your Game Config declares (`toMeter:<id>`, labelled **Into meter “&lt;id&gt;”**):
   the Hold and Win meters first, then the pots overlay's pots. A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
@@ -1345,11 +1348,11 @@ board clear takes them off the reels), `Intro` and, in a book game, `Explosion` 
 it — never `Win`, `Post-win` or a book state. On top
 of that, a symbol the respin board holds offers Coin idle, Coin land, Coin stick, Coin collect and
 Jackpot reveal; only a payer or a multiplier offers Coin boost, only an add-respins special Respins
-add, an upgrade Coin upgrade, an unlock Row unlock, a mystery Mystery reveal, and a meter's filling
-symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
+add, an upgrade Coin upgrade, an unlock Row unlock, a mystery Mystery reveal, a cash coin Coin
+enhance, and a meter's filling symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
 offer none of these.
 
-**Eleven Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
+**Twelve Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
 game played for that moment before the state existed, so a project that binds none of them looks
 exactly as it did:
 
@@ -1366,6 +1369,7 @@ exactly as it did:
 | **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)                                    | Explosion |
 | **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
 | **Row unlock**     | an unlock symbol applying — opening a locked row of an expanding board before it leaves              | Win       |
+| **Coin enhance**   | a cash coin a boost or multiply enhancement hits as it lands (a collector bonus), while it counts up | Win       |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
 inheritance, so those two read `unset` when empty (the tooltip says what plays). With

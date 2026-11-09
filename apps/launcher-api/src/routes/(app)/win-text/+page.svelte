@@ -25,6 +25,7 @@
 		WIN_TEXT_WHEEL_LABELS,
 		collectorLevelCaption,
 		potCaption,
+		enhancementDisplayName,
 		formatWinText,
 		jackpotCaption,
 		SYMBOL_IMAGE_SIZE_MAX,
@@ -390,6 +391,12 @@
 			label: `pot ${key}`,
 			placeholder: potCaption(resolved, key),
 		})),
+		...Object.keys(resolved.feature.enhancementNames).map((key) => ({
+			map: 'enhancementNames' as const,
+			key,
+			label: `enhancement ${key}`,
+			placeholder: enhancementDisplayName(resolved, key),
+		})),
 	]);
 
 	/** The pot name rows alone — what a pots overlay host without the respin feature names. */
@@ -408,6 +415,9 @@
 		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
 		level: collectorLevelCaption(resolved, 2),
 		rows: 5,
+		enhancements: ['boost', 'multiply']
+			.map((kind) => enhancementDisplayName(resolved, kind))
+			.join(' · '),
 	});
 	const holdAndWinPreview = (template: string): string => formatWinText(template, holdAndWinVars);
 	/** A pots-only host's pot activates no special, so its `{meter}` is the pot's own name. */

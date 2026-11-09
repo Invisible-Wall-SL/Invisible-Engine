@@ -39,6 +39,8 @@ export const HOLD_AND_WIN_FEATURE_CHOREO: Record<string, ChoreoStep[]> = {
 	respinsAdded: beat('addRespins'),
 	coinUpgrade: beat('upgradeCoins'),
 	coinBoost: beat('boostCoins'),
+	enhancementHit: beat('hitEnhancement'),
+	enhancementMiss: beat('missEnhancement'),
 	specialBecomesCoin: beat('turnSpecialIntoCoin'),
 	coinCollect: beat('collectCoins'),
 	cellsCleared: beat('clearRespinCells'),

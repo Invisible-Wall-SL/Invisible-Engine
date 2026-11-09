@@ -601,6 +601,68 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'enhancementOn',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'kind',
+					kind: 'string',
+					required: true,
+				},
+				{
+					key: 'scope',
+					kind: 'string',
+					required: false,
+				},
+			],
+		},
+		{
+			type: 'respinEnhancementHit',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'kind',
+					kind: 'object',
+					required: true,
+				},
+				{
+					key: 'by',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'cells',
+					kind: 'list',
+					required: true,
+				},
+				{
+					key: 'scope',
+					kind: 'string',
+					required: false,
+				},
+			],
+		},
+		{
+			type: 'respinEnhancementMiss',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'kind',
+					kind: 'object',
+					required: true,
+				},
+				{
+					key: 'scope',
+					kind: 'string',
+					required: false,
+				},
+			],
+		},
+		{
+			type: 'superBonusEnter',
+			group: 'Hold and Win',
+		},
+		{
 			type: 'respinSpecialBecomesCoin',
 			group: 'Hold and Win',
 			fields: [
@@ -1262,6 +1324,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			name: 'boostCoins',
+			group: 'Effect',
+		},
+		{
+			name: 'hitEnhancement',
+			group: 'Effect',
+		},
+		{
+			name: 'missEnhancement',
 			group: 'Effect',
 		},
 		{

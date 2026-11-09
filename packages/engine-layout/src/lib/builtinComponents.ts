@@ -2993,6 +2993,62 @@ export const LOCKED_ROW_DEF: ComponentDef = {
 	],
 };
 
+/** What a mounted Enhancement Dial counts in under, whatever its id, so the coded dials row steps
+ *  aside. */
+export const ENHANCEMENT_DIAL_COMPONENT = 'enhancementDial';
+
+/** The enhancements a dial can stand for — Expand, Boost, Multiply, Respin. */
+export const ENHANCEMENT_DIAL_KINDS = ['extraRow', 'boost', 'multiply', 'extraRespins'] as const;
+
+/**
+ * One of a collector bonus's four enhancement dials (Phase 14b, the partner's Fortune Vault Force 5):
+ * `kind` names its enhancement. Shown for the whole of a feature that drew enhancements
+ * (`enhancementsShow`), so a game whose features draw none never shows it. SKINNABLE: the author's
+ * art sits INSIDE the coded `Dial` part, which pulses it on each light, hit and miss (`pulseScale`)
+ * and registers the dial's beam anchor; each piece shows in one state through a `visible` binding on
+ * `enhancement.{kind}.state` (0 off, 1 on, 2 hit, 3 miss). The dial is scoped by its kind (12a), so a
+ * cue on **Enhancement — hit** inside it plays on its own dial only. With nothing inside, the part
+ * draws the coded dial. A mounted dial counts in, so the coded row above the board steps aside.
+ */
+export const ENHANCEMENT_DIAL_DEF: ComponentDef = {
+	id: ENHANCEMENT_DIAL_COMPONENT,
+	name: 'Enhancement Dial',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	signalScope: 'kind',
+	signalScopeKind: 'enhancement',
+	root: {
+		id: 'enhancementDial-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('enhancementDial-dial', 'Dial', 'EnhancementDialPart', 80, 80)],
+	},
+	params: [
+		{
+			key: 'kind',
+			kind: 'string',
+			default: 'boost',
+			options: [...ENHANCEMENT_DIAL_KINDS],
+			label: 'the enhancement this dial stands for',
+		},
+		{
+			key: 'pulseScale',
+			kind: 'number',
+			default: 1.25,
+			label: 'pulse on a light, hit or miss (1 = none)',
+		},
+		{
+			key: 'visibleSource',
+			kind: 'string',
+			options: HW_VISIBILITY_OPTIONS,
+			default: 'enhancementsShow',
+		},
+	],
+};
+
 /** The Hold and Win components, in palette order. */
 export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	RESPIN_COUNTER_DEF,
@@ -3007,6 +3063,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	CELL_TILE_DEF,
 	LOCKED_ROW_DEF,
 	LINE_OVERLAY_DEF,
+	ENHANCEMENT_DIAL_DEF,
 ];
 
 /** Every built-in component def — the launcher's lowest-precedence layer. */

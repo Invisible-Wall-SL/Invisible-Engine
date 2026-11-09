@@ -912,6 +912,7 @@ an error to the browser console.
 | `coinsLand` | `stickCoins` | Hold and Win tab |
 | `mysteryReveal` | `revealMystery` | Hold and Win tab |
 | `coinPay` / `coinBoost` | `payCoins` / `boostCoins` | Hold and Win tab |
+| `enhancementHit` / `enhancementMiss` | `hitEnhancement` (a collector bonus's boost or multiply: its dial lights with what it adds, a beam flies to each landing coin, which plays Coin enhance while its value counts up; cue `respinEnhancementHit`) / `missEnhancement` (the dial shows its X; cue `respinEnhancementMiss`) | Hold and Win tab |
 | `respinsAdded` / `coinUpgrade` | `addRespins` (the "+N" flies to the counter) / `upgradeCoins` (a beam to each coin it raises) | Hold and Win tab |
 | `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |
 | `coinCollect` | `collectCoins` | Hold and Win tab |
@@ -922,6 +923,11 @@ an error to the browser console.
 | `respinUpdate` | `setRespinCounter` | Hold and Win tab |
 | `holdAndWinState` | `restoreRespinBoard` (rebuilds the board on a resume) | Hold and Win tab |
 | `holdAndWinEnd` | `hideRespinBoard` (the coins fly into the Total Win bar, then the reels return) | Hold and Win tab |
+
+A collector bonus with **enhancements** (the partner's collector game, Phase 14b) opens through the
+same `showRespinBoard`: the dials light one by one (cue `enhancementOn`, scoped by the
+enhancement), "SUPER BONUS" first for the super bonus (cue `superBonusEnter`), then an Expand or
+the super bonus opens its rows. The `enhancements` value lists what the open feature drew.
 
 `respinReveal` and `holdAndWinState` carry an optional `mode` field: the respin mode they play
 in (absent ⇒ the primary respin mode — `holdAndWin` when declared, else the first).
