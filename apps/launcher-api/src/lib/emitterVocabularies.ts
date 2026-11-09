@@ -1647,6 +1647,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'coinBoost',
 			},
 			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
+			},
+			{
 				type: 'specialBecomesCoin',
 			},
 			{
@@ -3325,6 +3331,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinBoost',
+			},
+			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
 			},
 			{
 				type: 'specialBecomesCoin',
@@ -5007,6 +5019,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'coinBoost',
 			},
 			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
+			},
+			{
 				type: 'specialBecomesCoin',
 			},
 			{
@@ -6685,6 +6703,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinBoost',
+			},
+			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
 			},
 			{
 				type: 'specialBecomesCoin',

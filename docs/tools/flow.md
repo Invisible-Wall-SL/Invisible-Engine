@@ -912,7 +912,7 @@ an error to the browser console.
 | `coinsLand` | `stickCoins` | Hold and Win tab |
 | `mysteryReveal` | `revealMystery` | Hold and Win tab |
 | `coinPay` / `coinBoost` | `payCoins` / `boostCoins` | Hold and Win tab |
-| `enhancementHit` / `enhancementMiss` | `hitEnhancement` (a collector bonus's boost or multiply: its dial lights with what it adds, a beam flies to each landing coin, which plays Coin enhance while its value counts up; cue `respinEnhancementHit`) / `missEnhancement` (the dial shows its X; cue `respinEnhancementMiss`) | Hold and Win tab |
+| `enhancementHit` / `enhancementMiss` | `hitEnhancement` (a collector bonus's boost or multiply: its dial lights with what it adds, a beam flies to each landing coin, which plays Coin enhance while its value counts up; cue `respinEnhancementHit`) / `missEnhancement` (the dial shows its X; cue `respinEnhancementMiss`) | Not in the starter flow: the game presents them itself unless a chain wires them |
 | `respinsAdded` / `coinUpgrade` | `addRespins` (the "+N" flies to the counter) / `upgradeCoins` (a beam to each coin it raises) | Hold and Win tab |
 | `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |
 | `coinCollect` | `collectCoins` | Hold and Win tab |

@@ -1643,6 +1643,12 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			type: 'coinBoost',
 		},
 		{
+			type: 'enhancementHit',
+		},
+		{
+			type: 'enhancementMiss',
+		},
+		{
 			type: 'specialBecomesCoin',
 		},
 		{
