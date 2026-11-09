@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
 import torch
 import torch.nn.functional as F
