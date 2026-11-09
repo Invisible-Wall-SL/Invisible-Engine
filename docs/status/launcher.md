@@ -68,6 +68,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    [infra](infra.md)). The first Director run with QA is its first real play, and it is waiting on
    Anthropic credits. Check that the Live run shows "N of M screens reached" and not `no_player`.
 
+9. **A baked build ships a cinematic without the rigs only it casts.** The runtime pass seeds the
+   art export with `cinematicRigNames` (`exporters.ts` `art`); a route call — what the desktop bake
+   makes — exports art unseeded, as the old `export-art` route did, so a rig placed in no scene but
+   cast by a cinematic is missing from every standalone build. Kept as-is by the 2026-11-09
+   registry refactor (outputs had to stay byte-identical); the fix is to seed it on the route too
+   (`loadAuthoredCinematics` in the `art` entry), which adds rig bundles to those builds.
+
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
   since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.61
@@ -81,6 +88,39 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-09 — **One exporter registry: an asset class is one entry, not three edits.** Rule 8 (every
+  R2 asset class travels export → `deploy/` → bake → pull → register) was three hand-kept lists —
+  `runtimeBundle.ts`'s step list, ten near-identical `api/editor/export-*` routes and ten copies of
+  the fetch/retry/bail block in `bake-editor-doc.mjs`. Now: `$lib/server/exporters.ts` (`EXPORTERS`,
+  `{ id, label, run, emptyResult }` + route messages, `body`, `gate`, `claimsPages`) is the list;
+  `runtimeBundle.ts` runs every entry in one pass (`startExports`/`settleExports`, sharing the page
+  store and cinematics as promises, `_pages/` pruned once the page claimers finish); ONE route
+  `api/editor/export/[asset]` (`exportRoute.ts#handleExport`) serves them, the ten legacy
+  `export-<id>` URLs are two-line stubs over it (game repos' older engine submodules still POST them;
+  the desktop launcher only runs `bake:doc`); the bake loops `scripts/lib/bakeExports.mjs`
+  (`{ asset, label, policy: required | optional | additive }`) through one `runExport`. Every
+  exporter's write-then-prune is `DeployMirror` (`deployMirror.ts`: `put`/`putAll`/`copy`/`claim`/
+  `commit`); `effectExport`, `sharedRigPromote` now write with bounded concurrency like the rest.
+  The bake now calls `/api/editor/export/<id>`, so its "Could not reach" messages name that path.
+  Diagnostics only: `Server-Timing`'s `effects` / `flipbooks` now span their rig-binding half too,
+  and `art`/`symbols`/`cinematics` include the wait for the cinematics load and tiers they need;
+  `fonts`, `sounds`, `flowV2`, `bootSplash` no longer wait for those. **Parity:** an A/B over a seeded
+  in-memory R2 (old tree vs new) gave the same runtime bundle, final R2 state, R2 operations
+  (content types included), legacy route status/body and promote result; the bake against a fake
+  portal gave the same bundle bytes, exit code and log in 15 scenarios (rich, empty, dry run, flow
+  409 ± override, 400/401/404 per policy, unparseable answers, a missing clip frame). Guards:
+  `check:exporter-registry` (61: bake list = registry; `buildRuntimeBundle` runs each once; an
+  un-authored project returns `emptyResult` from the pass and from `/api/editor/export/<id>`; every
+  legacy stub answers the same; the bake POSTs each id and an empty answer adds no bundle section),
+  `check:deploy-mirror` (18), `check:deploy-token-gate` (+ the registry route); both new checks
+  mutant-tested (10 mutants). Source-grep guards that read the old `export-symbols` route
+  (`check:flights`, `coin-label`, `tumble-pattern`, `respin-land`, `clear-reel`) now ask the real
+  registry body (`scripts/lib/symbolsRouteBody.ts`); `check:page-store` and `check:shader-pipeline`
+  read the registry; `check:build-provenance` fakes the new flow path; `check:game-server-config`
+  finds routes that call `handleExport` and covers the new route. (`check:launcher-gates`' per-handler
+  `?project=` scan no longer sees the stubs, which read no query; the gate now lives in
+  `handleExport`, pinned behaviourally by `check:deploy-token-gate`.) How to add a class:
+  [live-assets](../design/live-assets.md) §"Adding an asset class". Found, not changed: open item 9.
 - 2026-11-09 — **Login throttle counts a parallel burst; owner-only admin secrets; admin audit
   log.** Three findings from a code review. (1) `loginThrottle.ts` read a scope's count, added one
   in JS and wrote it back, so N parallel bad logins counted as about one; `countFailure` is now one

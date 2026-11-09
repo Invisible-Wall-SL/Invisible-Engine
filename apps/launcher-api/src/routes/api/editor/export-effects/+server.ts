@@ -1,42 +1,8 @@
-import { error, json } from '@sveltejs/kit';
-import { requireDeployToken } from '$lib/server/deployToken';
-import { exportEffects } from '$lib/server/effectExport';
-import { exportRigFx } from '$lib/server/rigFxExport';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
-import { withDeployWrite } from '$lib/server/runtimeBundleCache';
+import { handleExport } from '$lib/server/exportRoute';
 import type { RequestHandler } from './$types';
 
 /**
- * Build-time trigger: export the project's Invisible FX effects into
- * `deploy/effects/` so the bake can embed them (see `$lib/server/effectExport.ts`).
- * Called by `bake-editor-doc.mjs` alongside the art/font/symbol/flow exports, gated
- * by the same shared read token as `/api/editor/doc` (`?k=` vs the deploy token) — a
- * build runner has the token, no launcher session.
- *
- * An EffectDoc carries no binary assets of its own (its particle art is an atlas the
- * editor-art export already ships), so this is a JSON copy + normalize per effect.
- * Idempotent; safe to re-run per build. An un-authored project exports no effects
- * (parity, §8). The response also lists every `art.assetKey` the effects reference so
- * the bake can verify each resolves to a shipped atlas (the dangling-key guard, §8).
- *
- * The response also carries `rigFx` — the rig-timeline direct-FX-binding manifest (a rig's own
- * animation events → effects, read from the rig `.irig`/`.json`; see `rigFxExport.ts`). It ships no
- * new assets, so it rides this same FX trigger; the bake embeds it beside `effects`.
+ * Legacy alias of `/api/editor/export/effects`: the bake in a game repo's older engine submodule
+ * still POSTs here.
  */
-export const POST: RequestHandler = async ({ url }) => {
-	await requireDeployToken(url, 'Editor effects export is not configured.');
-
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-
-	try {
-		const [index, rigFx] = await withDeployWrite(projectKey, () =>
-			Promise.all([exportEffects(clientKey, projectKey), exportRigFx(clientKey, projectKey)]),
-		);
-		return json({ clientKey, projectKey, ...index, rigFx });
-	} catch (e) {
-		console.error('export-effects failed:', e);
-		throw error(502, 'Failed to export the project effects.');
-	}
-};
+export const POST: RequestHandler = ({ url }) => handleExport('effects', url);

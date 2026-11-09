@@ -50,8 +50,12 @@ class ConflictError extends Error {
 const etagOf = (text: string): string => `"${createHash('md5').update(text).digest('hex')}"`;
 const server = (path: string): string => new URL(`../src/lib/server/${path}`, import.meta.url).href;
 
+// The real module first: the bake route reaches every exporter (`exporters.ts`), so it imports
+// names this test never calls.
+const realR2 = await import(server('r2.ts'));
 mock.module(server('r2.ts'), {
 	namedExports: {
+		...realR2,
 		ConflictError,
 		precondition: (baseEtag: string | null | undefined): Cond | undefined => {
 			if (baseEtag === undefined) return undefined;
@@ -102,9 +106,14 @@ mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: asy
 mock.module(server('userToolAccess.ts'), {
 	namedExports: { getToolOverrides: async () => ({}), getToolOverridesFor: async () => ({}) },
 });
-mock.module(server('appSettings.ts'), { namedExports: { getDeployToken: async () => 'tok' } });
+const realAppSettings = await import(server('appSettings.ts'));
+mock.module(server('appSettings.ts'), {
+	namedExports: { ...realAppSettings, getDeployToken: async () => 'tok' },
+});
+const realProjects = await import(server('projects.ts'));
 mock.module(server('projects.ts'), {
 	namedExports: {
+		...realProjects,
 		DEFAULT_PROJECT_KEY: 'cloud',
 		projectClientKey: async () => session.clientKey,
 	},

@@ -62,6 +62,7 @@ import { fileURLToPath } from 'node:url';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { ZodError } from 'zod';
 import { SYMBOL_STATE_LABELS, SYMBOL_STATES } from 'engine-layout';
+import { symbolsRouteCarries } from './lib/symbolsRouteBody.ts';
 import {
 	migrateLegacySymbolStates,
 	normalizeSymbolsDoc,
@@ -257,12 +258,11 @@ const root = `${here}../../../`;
  *  break for reasons that have nothing to do with the claim. */
 const read = readLF;
 const bake = read(`${here}bake-editor-doc.mjs`);
-const exportEndpoint = read(`${here}../src/routes/api/editor/export-symbols/+server.ts`);
 const exporter = read(`${here}../src/lib/server/symbolExport.ts`);
 check('the exporter emits it', exporter.includes('...(winExplode ? { winExplode } : {})'), true);
 check(
 	'the export ENDPOINT forwards it (the bake reads this response)',
-	(exportEndpoint.match(/\bwinExplode\b/g) ?? []).length >= 2,
+	symbolsRouteCarries('winExplode'),
 	true,
 );
 check('the bake whitelist rebuilds it', bake.includes('s?.winExplode?.enabled === true'), true);
@@ -275,7 +275,7 @@ console.log('\n7. the per-symbol sound cues reach both bundle paths too');
 check('the exporter emits it', exporter.includes('...(symbolSounds ? { symbolSounds } : {})'), true); // prettier-ignore
 check(
 	'the export ENDPOINT forwards it (the bake reads this response)',
-	(exportEndpoint.match(/\bsymbolSounds\b/g) ?? []).length >= 2,
+	symbolsRouteCarries('symbolSounds'),
 	true,
 );
 check('the bake whitelist rebuilds it', bake.includes('s?.symbolSounds && typeof s.symbolSounds'), true); // prettier-ignore
@@ -651,7 +651,7 @@ console.log('\n   …and it reaches BOTH bundle paths');
 check('the exporter emits it', exporter.includes('...(winBeat ? { winBeat } : {})'), true);
 check(
 	'the export ENDPOINT forwards it (the bake reads this response)',
-	(exportEndpoint.match(/\bwinBeat\b/g) ?? []).length >= 2,
+	symbolsRouteCarries('winBeat'),
 	true,
 );
 check('the bake whitelist rebuilds it', bake.includes('Number.isFinite(s?.winBeat?.maxMs)'), true);
@@ -710,7 +710,7 @@ console.log('\n   …and it reaches BOTH bundle paths');
 check('the exporter emits it', exporter.includes('...(arrivalRelease ? { arrivalRelease } : {})'), true); // prettier-ignore
 check(
 	'the export ENDPOINT forwards it (the bake reads this response)',
-	(exportEndpoint.match(/\barrivalRelease\b/g) ?? []).length >= 2,
+	symbolsRouteCarries('arrivalRelease'),
 	true,
 );
 check('the bake whitelist rebuilds it', bake.includes('s?.arrivalRelease?.enabled === true'), true);

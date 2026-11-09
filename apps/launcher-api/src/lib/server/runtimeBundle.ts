@@ -8,15 +8,14 @@
  * live fetch instead of a frozen per-game bundle.
  *
  * The bake script does this by calling the launcher's own HTTP endpoints
- * (`/api/editor/doc?components=1`, `/api/editor/export-{art,fonts,symbols}`,
+ * (`/api/editor/doc?components=1`, `/api/editor/export/<id>` per `exporters.ts` entry,
  * `/api/localization/strings`). Those endpoints are all thin wrappers over
  * server-side functions, so this module calls those functions directly:
  *   - doc assembly mirrors `routes/api/editor/doc/+server.ts` (HUD name default +
  *     rig-key rewrite for the runtime + referenced ComponentDefs + per-project
  *     component defaults),
- *   - `exportEditorArt` / `exportEditorFonts` / `exportEditorSymbols` are run fresh
- *     so the `deploy/` indices reflect the current doc, then their returned indices
- *     are embedded,
+ *   - every exporter in `exporters.ts` is run fresh so the `deploy/` indices reflect
+ *     the current doc, then their returned indices are embedded,
  *   - localization mirrors `routes/api/localization/strings/+server.ts` (source
  *     strings + REVIEWED translations → per-locale message map).
  *
@@ -54,33 +53,26 @@ import {
 	listComponentDefaults,
 } from './componentDefaultsStorage';
 import { loadComponentForGame } from './componentStorage';
-import { exportBootSplashes } from './bootSplashExport';
-import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
+import type { EditorArtIndex } from './editorArtExport';
+import { DeployMirror } from './deployMirror';
+import { EXPORTERS, settleExports, startExports, timed, type ExportResults } from './exporters';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { stampEffectiveLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
-import { exportEditorFlowV2 } from './flowV2Export';
 import { flowScreensMissing } from './flowV2Validation';
-import { cinematicRigNames, exportCinematics, loadAuthoredCinematics } from './cinematicExport';
+import { loadAuthoredCinematics } from './cinematicExport';
 import type { CinematicDoc } from './cinematicStorage';
-import { exportEditorFonts } from './fontExport';
-import { exportProjectSounds } from './soundExport';
-import { exportEffects } from './effectExport';
-import { exportClips } from './flipbookExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
 import { SUB, UNASSIGNED_CLIENT } from './projectPaths';
 import { PageStore } from './pageStore';
-import { deleteObjects, listAllKeys } from './r2';
 import { projectClientKey, projectName } from './projects';
-import { exportRigFx } from './rigFxExport';
-import { exportRigFlipbooks } from './rigFlipbookExport';
-import { exportShaders, namedShaderEffects } from './shaderExport';
+import { namedShaderEffects } from './shaderExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { withoutPartnerPaytable } from './paytableDrift';
 import { loadWinTextDoc, shippedWinText } from './winTextStorage';
 import { bundleFromAssetKey } from './rig';
-import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
+import type { SymbolExportResult } from './symbolExport';
 
 /**
  * The complete bundle the generic runtime boots from. Logically identical to the
@@ -283,12 +275,7 @@ async function step<T>(
 	into: Record<string, number>,
 	run: () => Promise<T>,
 ): Promise<T> {
-	const t0 = Date.now();
-	try {
-		return await run();
-	} finally {
-		into[label] = Date.now() - t0;
-	}
+	return timed({ timings: into }, label, run);
 }
 
 /** `a=120 b=90` — the per-step breakdown, slowest first (that's the one to fix). */
@@ -300,12 +287,12 @@ function formatTimings(timings: Record<string, number>): string {
 }
 
 /**
- * Build the full runtime bundle for a project. Runs the art/font/symbol exports
+ * Build the full runtime bundle for a project. Runs every exporter (`exporters.ts`)
  * FRESH (so the `deploy/` indices match the current doc), then reads each returned
  * index. Reuse this from both this endpoint and a future server-side Publish so the
  * two never diverge.
  *
- * NOTE this is EXPENSIVE — seven exporters that list, re-serialize and write back to R2
+ * NOTE this is EXPENSIVE — exporters that list, re-serialize and write back to R2
  * (~20-26s in production for a real project) — and it rewrites `deploy/` in place. So it only
  * ever runs under `runtimeBundleCache.withDeployWrite`: authoring boots reach it through
  * `getRuntimeBundle` (single-flight + short cache), Publish directly, to freeze the result as the
@@ -400,38 +387,32 @@ async function assembleRuntimeBundle(
 		Object.keys(componentDefs),
 	);
 
-	// 2. Assets — run each exporter fresh so deploy/ mirrors the current doc, then
-	//    embed the returned indices (paths are deploy-relative; the endpoint prefixes
-	//    them with assetBase). Localization is read straight from R2 (no export step).
-	//    FX (effects + rigFx) run alongside — the live twin of the offline bake in
-	//    `scripts/bake-editor-doc.mjs`, which POSTs /api/editor/export-effects to embed both.
+	// 2. Assets — run EVERY exporter fresh (`exporters.ts`, the same list the offline bake walks) so
+	//    deploy/ mirrors the current doc, then embed the returned indices (paths are deploy-relative;
+	//    the endpoint prefixes them with assetBase). Localization and win text are read straight from
+	//    R2 (no export step).
 	// `gameConfig` is already loaded above (its card ids seed the component-def resolution). It stays
 	// `loadGameConfigDoc` (not `resolveGameConfigDoc`): null for a never-authored project, and null
 	// must stay null so the bundle omits `config` and the game runs its compiled template. See the
 	// `config` field's note on the bundle type.
-	const [
-		{ editorArt, fonts, sounds, symbols, flowV2, flowV2Library, cinematics },
-		localization,
-		effectIndex,
-		rigFx,
-		clipIndex,
-		rigFlipbooks,
-		winTextDoc,
-		shaderIndex,
-	] = await Promise.all([
-		ensureDeployExports(projectKey, clientKey, timings),
+	const [exported, localization, winTextDoc] = await Promise.all([
+		runDeployPass(projectKey, clientKey, timings),
 		step('localization', timings, () =>
 			loadLocalizationMessages(clientKey, projectKey, includeUnreviewed),
 		),
-		step('effects', timings, () => exportEffects(clientKey, projectKey)),
-		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
-		// `timings` goes in for the same reason `art` and `symbols` have it: at 18.2s this is the
-		// third-largest block in the assemble and the only one with no internal visibility.
-		step('flipbooks', timings, () => exportClips(clientKey, projectKey, { timings })),
-		step('rigFlipbooks', timings, () => exportRigFlipbooks(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
-		step('shaders', timings, () => exportShaders(clientKey, projectKey)),
 	]);
+	const {
+		art: editorArt,
+		fonts,
+		sounds,
+		symbols,
+		flow: { flowV2, flowV2Library },
+		cinematics: { cinematics },
+		effects: { index: effectIndex, rigFx },
+		clips: { index: clipIndex, rigFlipbooks },
+		shaders: shaderIndex,
+	} = exported;
 	const winText = shippedWinText(winTextDoc);
 	// A Book-symbol VFX layer of kind 'fx' — and the explosion transition, when it is one — references
 	// an effect by `effectId`: a reachability source this module's scene/rig/event walk can't see, so
@@ -536,109 +517,62 @@ async function assembleRuntimeBundle(
 }
 
 /**
- * Run the art / fonts / symbols exporters FRESH so the project's R2 `deploy/` tree
- * mirrors the current doc, and return their indices. Only {@link buildRuntimeBundle} calls it,
- * for both the live authoring boot and Publish, so there is exactly one export path.
- *
- * @param clientKey  optional; DB-resolved from the project when omitted.
- * @param timings    optional per-step collector (see `buildRuntimeBundle`); Publish passes
- *                   nothing and just gets the exports.
+ * Run every exporter (`exporters.ts`) FRESH over the project's R2 `deploy/` tree, as ONE pass, and
+ * return their results. Only {@link buildRuntimeBundle} calls it, for both the live authoring boot
+ * and Publish, so there is exactly one export path.
  */
-async function ensureDeployExports(
+async function runDeployPass(
 	projectKey: string,
-	clientKey?: string,
-	timings: Record<string, number> = {},
-): Promise<{
-	editorArt: EditorArtIndex;
-	fonts: { catalog: FontCatalog };
-	sounds: { catalog: SoundCatalog };
-	symbols: SymbolExportResult;
-	/** The exported v2 FlowDoc + shared library, or undefined when no v2 flow is authored. */
-	flowV2?: FlowDocV2;
-	flowV2Library?: FlowV2LibraryDoc;
-	/** The exported cinematics, or undefined when the project authored none (parity). */
-	cinematics?: CinematicDoc[];
-}> {
-	const client = clientKey ?? (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	// Cinematics load BEFORE the batch, not inside it: the editor-art export needs the rig bundle
-	// names they cast as a seed, or a cinematic ships as a doc whose rigs the game never loaded.
-	const cinematicDocs = await step('cinematics:load', timings, () =>
-		loadAuthoredCinematics(client, projectKey),
+	clientKey: string,
+	timings: Record<string, number>,
+): Promise<ExportResults> {
+	// The cinematics are loaded once for the pass: the art export needs the rig bundle names they cast
+	// as a seed, or a cinematic ships as a doc whose rigs the game never loaded.
+	const cinematics = step('cinematics:load', timings, () =>
+		loadAuthoredCinematics(clientKey, projectKey),
 	);
-	const extraRigNames = cinematicRigNames(cinematicDocs);
 
 	/**
 	 * ONE content-addressed page store for the whole pass, owned here.
 	 *
-	 * `art` and `symbols` both export rig bundles, in the same `Promise.all` below. While each
-	 * owned its own store (or, for symbols, none at all) a page used by both was written twice, and
-	 * a page shared by eight symbol rigs was written eight times — the very duplication `pageStore`
-	 * exists to collapse, and the one that OOM-crashed iOS by loading identical bytes as separate
-	 * GPU textures. `PageStore.ensure` is single-flight per source key, so sharing it across the
-	 * parallel exports is safe.
+	 * `art` and `symbols` both export rig bundles, side by side. While each owned its own store (or,
+	 * for symbols, none at all) a page used by both was written twice, and a page shared by eight
+	 * symbol rigs was written eight times — the very duplication `pageStore` exists to collapse, and
+	 * the one that OOM-crashed iOS by loading identical bytes as separate GPU textures.
+	 * `PageStore.ensure` is single-flight per source key, so sharing it across the parallel exports
+	 * is safe.
 	 *
-	 * Owning the store means owning the `_pages/` PRUNE. It cannot stay inside the art export: it
-	 * deletes every `_pages/` key the store has not claimed, and running that while the symbol
-	 * export is still claiming pages would delete them mid-write. It happens once, below, after
-	 * both have finished.
+	 * Owning the store means owning the `_pages/` PRUNE. It cannot sit inside an exporter: it deletes
+	 * every `_pages/` key the store has not claimed, and running that while another export is still
+	 * claiming pages would delete them mid-write. It happens once, below, after every exporter that
+	 * claims pages has finished.
 	 */
-	const deployPrefix = `${SUB.deploy(client, projectKey)}/`;
+	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	// The project's resolution tiers (`LayoutDoc.resolutionTiers`): none for every project that has
 	// not asked, so the store writes exactly what it did.
-	const tiers = await step('tiers', timings, async () =>
-		normalizeResolutionTiers((await loadEditorDoc(client, projectKey)).resolutionTiers),
-	);
-	const pageStore = new PageStore(deployPrefix, tiers);
-
-	const [editorArt, fontIndex, soundIndex, symbols, flowV2Index, cinematicIndex] =
-		await Promise.all([
-			// `timings` goes in too: `art` dominates the assemble, and the per-PHASE breakdown it folds
-			// back in (`art:manifests` / `art:images` / `art:spines` / `art:prune:list`) is what says
-			// which loop to attack.
-			step('art', timings, () =>
-				exportEditorArt(client, projectKey, { extraRigNames, timings, pageStore }),
-			),
-			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
-			step('sounds', timings, () => exportProjectSounds(client, projectKey)),
-			// `timings` goes in for the same reason `art` gets it: with `art` parallelised, `symbols`
-			// is the assemble's ceiling, and the per-PHASE breakdown it folds back in
-			// (`symbols:sheets:pinned` / `symbols:sheets:scan` / `symbols:spines:bundles` / …) is
-			// what says which of its three loops to attack — and whether it is even the same kind
-			// of problem, since one of them is a search with an early break, not a map.
-			step('symbols', timings, () =>
-				exportEditorSymbols(client, projectKey, { timings, pageStore }),
-			),
-			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
-			step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
-			// Boot splashes are a SIDE EFFECT here, not part of the bundle: the splash paints
-			// before this bundle is fetched, so it reads `deploy/_boot/boot.json` directly. It
-			// rides this export because that is the one path both Publish and the live assemble
-			// share — the same reason everything else in this list is here.
-			step('bootSplash', timings, () => exportBootSplashes(client, projectKey)),
-		]);
-
-	// The `_pages/` prune, moved out of the art export because the store is now shared: a page is
-	// stale only once EVERY exporter that could claim it has run. `pageStore.written` holds reused
-	// pages as well as newly written ones (the content-cache adds them), so an unchanged page is
-	// never deleted. Deleting one that is still referenced is the worst outcome available here —
-	// the atlas keeps its page ref and the art is simply absent in-game — so this deliberately
-	// errs toward keeping bytes.
-	await step('prune:pages', timings, async () => {
-		const stale = (await listAllKeys(`${deployPrefix}_pages/`)).filter(
-			(k) => !pageStore.written.has(k),
+	const pageStore = step('tiers', timings, async () => {
+		const tiers = normalizeResolutionTiers(
+			(await loadEditorDoc(clientKey, projectKey)).resolutionTiers,
 		);
-		await deleteObjects(stale);
+		return new PageStore(deployPrefix, tiers);
 	});
 
-	// Forward an authored v2 flow only: the export gates on an authored graph, so `flowV2Index` is
-	// empty for an un-authored v2 doc and the game boots its default flow (parity).
-	return {
-		editorArt,
-		fonts: { catalog: fontIndex.catalog },
-		sounds: { catalog: soundIndex.catalog },
-		symbols,
-		...(flowV2Index.flowV2 ? { flowV2: flowV2Index.flowV2 } : {}),
-		...(flowV2Index.flowV2Library ? { flowV2Library: flowV2Index.flowV2Library } : {}),
-		...(cinematicIndex.cinematics ? { cinematics: cinematicIndex.cinematics } : {}),
-	};
+	const started = startExports({ clientKey, projectKey, timings, pass: { pageStore, cinematics } });
+
+	// The `_pages/` prune: a page is stale only once EVERY exporter that could claim it has run.
+	// `pageStore.written` holds reused pages as well as newly written ones (the content-cache adds
+	// them), so an unchanged page is never deleted. Deleting one that is still referenced is the
+	// worst outcome available here — the atlas keeps its page ref and the art is simply absent
+	// in-game — so this deliberately errs toward keeping bytes.
+	const claimers = EXPORTERS.filter((e) => e.claimsPages).map((e) => started[e.id]);
+	const pagesPruned = Promise.all(claimers).then(() =>
+		step('prune:pages', timings, async () => {
+			const pages = new DeployMirror(`${deployPrefix}_pages/`);
+			pages.claim((await pageStore).written);
+			await pages.commit();
+		}),
+	);
+
+	const [results] = await Promise.all([settleExports(started), pagesPruned]);
+	return results;
 }

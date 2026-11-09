@@ -89,7 +89,8 @@ import {
 	type ExportedRigEntry,
 } from './rig';
 import { parseRigBundleKey, staticRigKeyIsReachable } from '$lib/rigBundleKey';
-import { deleteObjects, listAllKeys, putObjectText } from './r2';
+import { DeployMirror } from './deployMirror';
+import { deleteObjects } from './r2';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 import { mapWithConcurrency } from './concurrency';
 
@@ -754,7 +755,7 @@ export async function exportEditorArt(
 	const artPrefix = `${deployPrefix}editor-art/`;
 
 	const sheets: EditorArtSheet[] = [];
-	const written = new Set<string>();
+	const mirror = new DeployMirror(artPrefix);
 	// Content-addressed page store: a page shared by several sheets/rigs is copied + KTX2-encoded
 	// ONCE (under `_pages/`) and loads as ONE GPU texture — fixes the rig page-duplication VRAM
 	// leak. Its writes are pruned separately (they live outside `editor-art/`). Shared with the
@@ -855,8 +856,7 @@ export async function exportEditorArt(
 		const shared = await pageStore.ensure(set.pageKey, pageExt);
 		if (!shared) return;
 		const sheet = toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, boxFor, sliceFor);
-		await putObjectText(`${deployPrefix}${jsonRel}`, sheetText(sheet), 'application/json');
-		written.add(`${deployPrefix}${jsonRel}`);
+		await mirror.put(`${deployPrefix}${jsonRel}`, sheetText(sheet));
 		// GPU-compressed KTX2 twin: a SECOND spritesheet JSON pointing `meta.image` at the shared
 		// `.ktx2` page, with frame rects rescaled to its (possibly auto-downscaled) dimensions and
 		// `meta.scale` saying so, so every frame keeps its logical size (`sheetOnPage`). The game
@@ -871,8 +871,7 @@ export async function exportEditorArt(
 				shared.ktx2Width,
 				shared.ktx2Height,
 			);
-			await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
-			written.add(`${deployPrefix}${ktx2Json}`);
+			await mirror.put(`${deployPrefix}${ktx2Json}`, sheetText(twin));
 		}
 		const tiered = tierSheets(
 			sheet,
@@ -881,8 +880,7 @@ export async function exportEditorArt(
 			(suffix) => `editor-art/${stem}/${stem}.${version}${suffix}`,
 		);
 		for (const { path, sheet: tierSheet } of tiered.files) {
-			await putObjectText(`${deployPrefix}${path}`, sheetText(tierSheet), 'application/json');
-			written.add(`${deployPrefix}${path}`);
+			await mirror.put(`${deployPrefix}${path}`, sheetText(tierSheet));
 		}
 		const names = set.regions.map((r) => r.name);
 		sheets.push({
@@ -1049,7 +1047,7 @@ export async function exportEditorArt(
 				// Register under the plain bundle NAME — not the full prefix — or the runtime
 				// lookup misses and the rig never loads in the built game.
 				if (gameKey) result.entry.key = gameKey;
-				for (const k of result.written) written.add(k);
+				mirror.claim(result.written);
 				rigs.push(result.entry);
 			});
 		});
@@ -1139,9 +1137,7 @@ export async function exportEditorArt(
 		missing: danglingRegions,
 		clipMissing,
 	};
-	const indexKey = `${artPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
-	written.add(indexKey);
+	await mirror.put(`${artPrefix}index.json`, JSON.stringify(index, null, '\t'));
 
 	// Prune leftovers from a previous export so deploy/editor-art/ mirrors the doc.
 	//
@@ -1154,8 +1150,7 @@ export async function exportEditorArt(
 	// them, and it reclaims whatever an offline bake leaves behind. Deleting a page that is still
 	// referenced is the worst outcome available here — the atlas keeps its page ref and the art is
 	// simply absent in-game — so this errs toward keeping bytes.
-	const existing = await phase('prune:list', () => listAllKeys(artPrefix));
-	await deleteObjects(existing.filter((k) => !written.has(k)));
+	await deleteObjects(await phase('prune:list', () => mirror.stale()));
 
 	return index;
 }
