@@ -15,6 +15,47 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-09 · Phase 10 · regression-guardian (13D: the Start fix pilot)
+- Did: ran ADR-0013's pilot on three real, low-risk pipeline bugs, end to end, with the owner's
+  yes at each step.
+  - Only one real report was open (BUG-3, a vague escalated layering bug near the engine), so
+    three verified launcher defects were filed on `/bugs`: BUG-9 (Costs › Import history misreads
+    `May 2026` and `1,234.56`), BUG-10 (links between the in-app tool guides 404, launcher open
+    item 7), BUG-11 (the shelf packer makes a page wider than its maximum).
+  - Every run was started from the live launcher's button, which doubled as 13C's browser pass:
+    Send and start fix, Start fix, the run line, Stop, a restart, the live-run cap, Mark ready
+    for review and the merge bar.
+  - Runs, spend from `director_spend` (agent `bug-fix`):
+    - BUG-9: one stopped while queued ($0), one refused ($1.95), one re-run → #1540 ($2.97);
+    - BUG-10 → #1537 ($1.90);
+    - BUG-11 → #1536 ($1.63).
+    - **Total $8.45**; a run that works costs $1.63–2.97 ($2.11 average) in 8–15 minutes. This
+      replaces ADR §9's estimate; the figures live in `docs/status/bug-reports.md`.
+  - Each PR was reviewed by `code-reviewer`, then fixed where needed and merged on the owner's
+    word, through Pipeline Changes:
+    - #1537: small fixes (repository from `ENV`, status entry, two guide links);
+    - #1536: the Rigger's `rigger-text.js` rebuilt by hand (over a run's 400 KB cap);
+    - #1540: it passed its own gates yet misread amounts `main` read right; two rounds of review
+      fixes, checked old-vs-new over 2,664 generated lines.
+  - BUG-4 to BUG-7, the 13B spike's seeded reports, closed as Won't fix (owner's yes).
+  - Railway missed the push webhook for `459045e` (#1536, merged while `c60a899f6` deployed); the
+    launcher caught up on the next push, #1540's merge.
+- Files: docs/status/bug-reports.md, docs/STATUS.md (the Bug Reports row), PLAN.md (13C's
+  browser pass, 13D done), HISTORY.md, DECISIONS/0013 (a §9 pointer to the measured figures).
+- Branch / PR: claude/adr-0013-13d-pilot-33576c (this record); the fixes are #1537, #1536, #1540.
+- Tests: the five runs (Actions 42521840450, 42521900864, 42562859121, 42562897448,
+  42579743223); `check:tool-doc-links`, `check-shelf-pack`, `check:cost-import` and
+  `check-vendored-bundles` in CI on each PR.
+- Decisions:
+  - PLAN 13D is `done`: each PR was merged by the owner's word and the spend per run is recorded.
+  - 13C's browser pass is done, except **File it** and a non-admin start.
+- Next (each its own pipeline change, `docs/status/bug-reports.md` open item 4):
+  - tell the run about the `pre*` script refusal and every path the launcher protects;
+  - say in the run's summary when a fix needs a vendored bundle rebuilt;
+  - ask the run's review for an old-vs-new comparison on parser and money changes;
+  - the small items: "spend unknown" for a run that never started, step 5's exit 127 after an
+    early stop, Check 2 on a draft fix PR, `<word>` placeholders dropped from public text.
+
 ## 2026-11-08 · Phase 10 · infra-railway (13B: the live spike)
 - Did: ran ADR §10's five-case spike on `main` after the owner merged #1525 (6e528ea3b, admin
   override), on the owner's go-ahead ("Yes, run it").

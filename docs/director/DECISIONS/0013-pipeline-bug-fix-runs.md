@@ -387,7 +387,8 @@ The Anthropic org card still includes it, and the fix run says "spend unknown".
 
 Priced as in ADR-0006, at `pricing.json` prices. Claude Code caches most of its input, so this
 table is priced with caching (cache reads at 0.1×), unlike ADR-0012's uncached convention. The CLI
-reports real usage, so the pilot (13D) replaces these figures.
+reports real usage, so the pilot (13D) replaces these figures. **Measured (13D, 2026-11-09):** see
+`docs/status/bug-reports.md`, Recent changes.
 
 | Part | Model | Input (mostly cache reads) | Output | Cost |
 |---|---|---|---|---|
