@@ -235,6 +235,7 @@
 		"check:add-bonus-mode": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-add-bonus-mode.ts",
 		"precheck:bonus-import": "node scripts/ensure-svelte-kit.mjs",
 		"check:bonus-import": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bonus-import.ts",
+		"check:cost-import": "tsx --tsconfig tsconfig.scripts.json scripts/check-cost-import.ts",
 		"precheck:project-duplicate": "node scripts/ensure-svelte-kit.mjs",
 		"check:project-duplicate": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-duplicate.ts",
 		"precheck:online-publish": "node scripts/ensure-svelte-kit.mjs",
