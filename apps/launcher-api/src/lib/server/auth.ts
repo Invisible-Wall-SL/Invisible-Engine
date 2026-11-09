@@ -5,6 +5,7 @@ import { getDb } from './db';
 import { projects, sessions, users } from './db/schema';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from './projects';
+import { passwordTooLong } from '../passwordLimit';
 import type { Role } from '$lib/roles';
 
 const scrypt = promisify(_scrypt);
@@ -59,6 +60,7 @@ export async function verifyCredentials(
 	email: string,
 	password: string,
 ): Promise<SessionUser | null> {
+	if (passwordTooLong(password)) return null;
 	const [row] = await getDb()
 		.select()
 		.from(users)

@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import { loginAttempts } from './db/schema';
 
@@ -39,7 +39,7 @@ import { loginAttempts } from './db/schema';
  * the counters resume as soon as the DB recovers.
  */
 
-interface ScopePolicy {
+export interface ScopePolicy {
 	/** Failures allowed before any lockout kicks in. */
 	freeAttempts: number;
 	/** Lockout for the first failure past the free allowance; doubles each step. */
@@ -50,14 +50,14 @@ interface ScopePolicy {
 	decayMs: number;
 }
 
-const IP_POLICY: ScopePolicy = {
+export const IP_POLICY: ScopePolicy = {
 	freeAttempts: 10,
 	baseLockMs: 60_000, // 1 minute
 	maxLockMs: 60 * 60_000, // up to 1 hour — an IP isn't an account
 	decayMs: 60 * 60_000, // 1 hour
 };
 
-const EMAIL_POLICY: ScopePolicy = {
+export const EMAIL_POLICY: ScopePolicy = {
 	freeAttempts: 5,
 	baseLockMs: 30_000, // 30 seconds
 	maxLockMs: 15 * 60_000, // capped at 15 min to bound the account-lockout DoS
@@ -123,26 +123,49 @@ export async function recordLoginFailure(ip: string, email: string): Promise<voi
 	]);
 }
 
+/** When a scope that has just reached `failures` is locked until, or `null` while still free. */
+export function lockedUntilFor(policy: ScopePolicy, failures: number, now: number): Date | null {
+	return failures > policy.freeAttempts ? new Date(now + lockMs(policy, failures)) : null;
+}
+
+type Db = ReturnType<typeof getDb>;
+
+/**
+ * Count one failure against `key` in ONE statement, answering the new count. The increment is the
+ * database's (`failures + 1` on the stored row, under the row lock the upsert takes), never a value
+ * computed here from an earlier read: a burst of parallel bad logins that all read the same count
+ * would otherwise each write `count + 1`, and the burst would count as one failure. A scope quiet
+ * past its decay window starts over at 1 and drops its expired lock.
+ */
+export function countFailure(db: Db, key: string, policy: ScopePolicy) {
+	const decayStart = sql`now() - ${policy.decayMs}::integer * interval '1 millisecond'`;
+	const fresh = sql`${loginAttempts.updatedAt} >= ${decayStart}`;
+	return db
+		.insert(loginAttempts)
+		.values({ key, failures: 1, lockedUntil: null, updatedAt: sql`now()` })
+		.onConflictDoUpdate({
+			target: loginAttempts.key,
+			set: {
+				failures: sql`case when ${fresh} then ${loginAttempts.failures} + 1 else 1 end`,
+				lockedUntil: sql`case when ${fresh} then ${loginAttempts.lockedUntil} else null end`,
+				updatedAt: sql`now()`,
+			},
+		})
+		.returning({ failures: loginAttempts.failures });
+}
+
 async function bumpFailure(key: string, policy: ScopePolicy): Promise<void> {
 	try {
 		const db = getDb();
-		const now = Date.now();
-		const [row] = await db.select().from(loginAttempts).where(eq(loginAttempts.key, key));
-
-		// A scope that has been quiet past its decay window starts its count over.
-		const prior = row && now - row.updatedAt.getTime() <= policy.decayMs ? row.failures : 0;
-		const failures = prior + 1;
-		const lockedUntil =
-			failures > policy.freeAttempts ? new Date(now + lockMs(policy, failures)) : null;
-		const updatedAt = new Date(now);
-
+		const [row] = await countFailure(db, key, policy);
+		const lockedUntil = row ? lockedUntilFor(policy, row.failures, Date.now()) : null;
+		if (!lockedUntil) return;
+		// Only while the row still holds OUR count: a concurrent failure that counted past it sets
+		// its own, longer lock, and must not be shortened by this one landing after it.
 		await db
-			.insert(loginAttempts)
-			.values({ key, failures, lockedUntil, updatedAt })
-			.onConflictDoUpdate({
-				target: loginAttempts.key,
-				set: { failures, lockedUntil, updatedAt },
-			});
+			.update(loginAttempts)
+			.set({ lockedUntil })
+			.where(and(eq(loginAttempts.key, key), eq(loginAttempts.failures, row.failures)));
 	} catch (err) {
 		console.error('[loginThrottle] record failure failed:', err);
 	}

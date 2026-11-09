@@ -29,6 +29,11 @@ export type LauncherGate = 'owner' | 'publish';
 /** The role that `owner`-gated endpoints require, by role and not by capability. */
 export const OWNER_ROLE: Role = 'admin';
 
+/** Whether `role` is the owner's — the role itself, never a capability that can be granted. */
+export function isOwnerRole(role: Role): boolean {
+	return role === OWNER_ROLE;
+}
+
 /** A refusal: the HTTP status plus the body the launcher endpoints answer with. */
 export interface GateDenial {
 	status: 401 | 403;
@@ -61,7 +66,7 @@ export function launcherGateDenial(
 	if (!role) return NO_SESSION_DENIAL;
 	const allowed =
 		gate === 'owner'
-			? role === OWNER_ROLE
+			? isOwnerRole(role)
 			: roleHasCapability(role, GAME_PUBLISH_CAPABILITY, roleOverrides, userOverrides);
 	return allowed ? null : { status: 403, error: 'Forbidden' };
 }
