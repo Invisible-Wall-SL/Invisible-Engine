@@ -122,7 +122,29 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
      and image published as tiers: auto in a 1280×720 window fetches only the `@half` files,
      `?tier=full` only the full ones, the two pictures match to 0.29%, and the half image with its
      resolution removed (the control) differs by 16%.
-5. **Video flipbooks and FX get tiers** (one encode per tier; particle art rides the sheets).
+5. **Video flipbooks and FX** — CLOSED (2026-11-09): nothing to build, measured rather than
+   assumed. Every class of art that reaches a game was walked:
+   - **Video** never ships. A render is an authoring artifact (`invisible-flipbook-video.md`
+     "Storage"): it becomes a packed sheet and a clip, and the runtime has no video path at all.
+   - **Flipbook clips** resolve their frames through the same `loadedAssets` keys a tier sheet
+     registers (`engine-flipbook` `resolveClipFrames`), so they draw from the tier the sheet loaded.
+     `art-tier-probe.mjs` plays one over a tiered sheet: half and full draw it the same size.
+   - **FX** particles take their textures from `loadedAssets` too (`EffectLayer` → `engine-fx`
+     `bindArt`), and a baked effect ships as sheet frames, so both ride the sheet tiers.
+   - The effect, flipbook, rig-flipbook, rig-FX, shader and cinematic exports write no image bytes
+     of their own; every page goes through `PageStore` (sheets, images, rigs).
+   - **Not tiered, on purpose:** bitmap-font pages (`fontExport` copies them verbatim — a font is
+     a page or two, and a half font would mean rescaling every glyph metric of its descriptor) and
+     the boot splash (a private ~1 MB copy that paints before the bundle, `check:page-store-shared`).
+     A 4K game should bake its bitmap fonts at its own size, which the phone then downsamples.
+
+## Still open after Phase 5
+
+- A build meant for one screen (a cabinet) still carries both tiers; dropping the unused one from a
+  desktop or delivery build would cut its download by the other tier's size.
+- After art is re-made at 4K, the nodes drawn at their art's natural size need their scale set back
+  to 1 by hand; a one-click "art is now ×2" reset in the Scene Editor would do it.
+- Nothing yet ran on a real 4K cabinet or a real phone.
 
 ## Constraints to keep
 
