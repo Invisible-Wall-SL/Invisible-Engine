@@ -2,7 +2,8 @@
 
 > Guides: [docs/tools/pipeline-bugs.md](../tools/pipeline-bugs.md) · [docs/tools/game-bugs.md](../tools/game-bugs.md) · Agents: `.claude/agents/launcher-studio.md` (the tools), `.claude/agents/pipeline-triage.md` (fixing a pipeline bug)
 
-**One-line state:** built 2026-10-26, not yet browser-verified — two launcher cards on one set of
+**One-line state:** built 2026-10-26; the pipeline side's main path clicked through on the live
+launcher on 2026-11-09 (ADR-0013 13D), the game side not yet — two launcher cards on one set of
 modules: **Invisible Pipeline Bug Reports** (`/bugs`) for bugs in a tool, the engine or the
 launcher, sent to Pipeline Changes to be fixed; **Invisible Game Bug Reports** (`/game-bugs`) for
 one project's own game bugs, fixed in that project.
@@ -167,30 +168,93 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Open items / next
 
-1. **Browser pass** on the live launcher: report with pasted / dropped screenshots, filters and the
-   address round trip, triage, the lightbox, the game page across a project switch in the top bar,
-   the Pipeline Changes Bugs tab. Nothing here has been clicked yet.
+1. **The rest of the browser pass** on the live launcher. Clicked on 2026-11-09 (13D, pipeline
+   side, as admin): the report form opened from the address (`for`, `page`), priority, Won't fix,
+   Send to Pipeline Changes, editing the text, the Bugs tab, and the whole fix-run path (see Recent
+   changes). Still owed: pasted / dropped screenshots and the lightbox, filters and the address
+   round trip, comments, Take back, the game page across a project switch in the top bar, every
+   game-bug surface, and any of it as a non-admin.
 2. **Move a game bug to the pipeline list** — back end done (ADR-0012 §3, Director card 9G):
    `POST /api/bugs/<n>/escalate` (game triage + the Pipeline Bug Reports tool) and a repair run's
    `bugs.escalate_game_bug` file one pipeline bug, relate the two (`bug_report_relations`) and show
    **Waiting on pipeline · BUG-n** (derived). The bug page has **Escalate to pipeline** (a small
    form in the new **Repair** card, triagers with the Pipeline Bug Reports tool).
 3. No delete of a bug report (Won't fix is the way out); no assignee field.
-4. **Start fix on a pipeline bug** (ADR-0013, Director PLAN Phase 10). It is live. 13A, 13B
-   (#1525, merged 2026-11-08) and 13C are built. ADR §10's five-case spike passed on 2026-11-08,
-   for $2.40 (see Recent changes). Still to come:
-   - **The spike's leftovers**, for the owner:
-     - draft #1533, BUG-8's real fix: mark it ready to run current-games, then merge or close;
-     - BUG-4 to BUG-7, the seeded test reports: close them as Won't fix.
-   - **13C's browser pass** (see "Start fix UI" above). The spike started its runs through the API,
-     not the button.
-   - **13D**, the pilot.
+4. **Start fix on a pipeline bug** (ADR-0013, Director PLAN Phase 10) is live and piloted:
+   13A–13D are done (the spike and the pilot are in Recent changes). What the pilot left, each its
+   own pipeline change:
+   - **The run is not told two launcher refusals** (`scripts/bug-fix/coordinator.md`, protected,
+     so the owner merges it). A new `pre*`/`post*` package.json script is refused, though every
+     launcher check has a `precheck:<x>` (139 of them) and a run copies the pattern: that is what
+     sank BUG-9's first run, $1.95. Nor does the prompt name every path the launcher protects:
+     `apps/launcher-api/scripts/check-bug-reports.ts` and `check-bug-fix-runs.ts`,
+     `src/routes/api/bugs/[number]/fix-runs/`, `services/director-worker/src/untrusted.ts`, the
+     svelte-check ratchet scripts, the agents-knowledge check and baseline, the `.d.mts` twins and
+     names such as `pyproject.toml`, `requirements*.txt` and `Procfile`. So a bug-list fix that
+     adds its case to `check-bug-reports.ts`, the natural home, ends `no_fix` after the spend.
+   - **A fix inside a vendored bundle can never pass CI on its own.** `static/rigger/vendor/*.js`
+     and `static/rig-viewer/vendor/invisible-rig.js` are 590–670 KB, over a run's 400 KB cap, so
+     `check-vendored-bundles` fails until a person rebuilds the bundle (#1536). At least the run
+     should say so in its summary.
+   - **Review is load-bearing.** #1540 passed its run's own gates and `code-reviewer` yet imported
+     wrong amounts for lines `main` read right (`12,50 €` after a tab as 50, `-12,50` as 50); only
+     an old-vs-new comparison over generated lines found it. For a parser or money change, the
+     run's review could be asked for that comparison.
+   - Small: a run stopped before Claude Code starts reads "spend unknown" though it spent nothing,
+     and its Actions log ends on "Post the result" failing (exit 127, `$NODE` not yet recorded);
+     on a draft fix pull request, Pipeline Changes' Check 2 says current-games "has not started"
+     while GitHub carries a posted `success`; the text cleaner drops a `<word>` placeholder as an
+     HTML tag (#1540's body read " 2026" for the month).
 
    The fixture fakes the store, so the real SQL (the advisory lock, the conditional updates, the
    run-row lock on spend) is proved only by the migration applying in CI's `postgres-proofs`. The
    live runs have now exercised that SQL, but a two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-09 — **The Start fix pilot (ADR-0013 card 13D).** Three real launcher defects, filed on
+  `/bugs` with the owner's yes and started from the **Start fix** button on the live launcher, as
+  admin. None reaches `apps/lines` or `packages/*`.
+
+  | Bug | Defect | Fix run | Actions run | Outcome | Time | Spend |
+  |---|---|---|---|---|---|---|
+  | BUG-9 | Admin › Costs › Import history misreads `May 2026` and `1,234.56` | `8c8981176a` | 42521840450 | Stopped from the run line while queued (cancelled during the install; Claude Code never started) | 20 s | $0 |
+  | BUG-9 | (same) | `61399e5d24` | 42521900864 | `no_fix` (`needs_person`): both defects fixed, with a fixture and passing gates, then refused because the change added a `precheck:` script | 14 min | $1.95 |
+  | BUG-10 | links between the in-app tool guides 404 | `f642d70210` | 42562859121 | `pr_opened`: #1537, merged after small review fixes (the repository from `ENV`, the status entry, two guide links) | 11 min | $1.90 |
+  | BUG-11 | the shelf packer makes a page wider than its maximum | `80d2c58918` | 42562897448 | `pr_opened`: #1536, merged once a person rebuilt the Rigger's `rigger-text.js` | 8 min | $1.63 |
+  | BUG-9 | (re-run) | `de66c4f853` | 42579743223 | `pr_opened`: #1540, fixed the reported lines but misread others; merged after two rounds of review fixes by a person | 14.5 min | $2.97 |
+
+  - **Measured cost, replacing ADR §9's estimate (~$1.5–8 a run):** a run that does the work costs
+    **$1.63–2.97, $2.11 on average, in 8–15 minutes.** The pilot spent $8.45 in all, from
+    `director_spend` (agent `bug-fix`, one row per run: no agent sets a model, so every sub-agent
+    runs on the coordinator's Opus 5.5). With the 13B spike's real fix ($1.20), the five real
+    runs so far span $1.20–2.97. The $15 cap is 5–12× a measured run, and $150 a month buys about
+    70 runs. A run stopped before Claude Code starts spends nothing and records no row.
+  - **Outcome:** all three bugs are fixed on `main` and Resolved by the link sync. No run's change
+    merged as it came: one was refused (BUG-9's first run), one needed a bundle a run cannot ship
+    (#1536), one needed review fixes for a regression its own gates passed (#1540), and one had
+    small nits (#1537). The follow-ups are open item 4.
+  - **After BUG-9's refusal**, BUG-9, BUG-10 and BUG-11 each got a one-line triage note: no
+    `pre*` script; a new `apps/launcher-api/scripts/check-<name>.ts` runs in `check:all` on its
+    own. No run that followed added a `pre*` script.
+  - **13C's browser pass** (owner's Chrome, admin), all as `docs/tools/pipeline-bugs.md` and
+    `pipeline-changes.md` describe:
+    - **Send and start fix** on the bug page (sent, then started) and **Start fix** on a Bugs-tab
+      card, each behind an in-page dialog;
+    - the run line through Queued, Working, Fix proposed, No fix and Stopped, with the Actions
+      link, the spend and the run's own words; the activity's "Fix run `<id>` started work on the
+      bug";
+    - **Stop** behind a dialog, settling Stopped at once ("Stopped by …", "spend unknown"), and a
+      new run started on the same bug after it;
+    - with two runs going, every other card's button greyed: "2 fix runs are going already, the
+      most at once (Admin › Settings). Start this one when one ends.";
+    - **Mark ready for review** behind a dialog, then current-games ran and the merge bar
+      ("Squash-merges head … into main") merged as the App; the link sync moved each bug to
+      Working on and then Resolved.
+
+    Seen beside it: the small items under open item 4. Not exercised: **File it** (no run proposed
+    a second bug) and Start fix as a non-admin.
+  - The 13B spike's seeded reports, BUG-4 to BUG-7, are closed as Won't fix (owner's yes).
 
 - 2026-11-08 — **The 13B live spike passed (ADR-0013 §10).** Five fix runs on seeded test reports,
   started through the API (`POST /api/bugs/<n>/fix-runs`) as admin, with the per-run budget
