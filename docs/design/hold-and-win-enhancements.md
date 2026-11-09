@@ -249,6 +249,13 @@ that speaks the partner's wire and is selected per game by `PARTNER_WIRE_GAMES` 
 server. Our own Hold and Win mock and its presets are unchanged. Details:
 [status](../status/hold-and-win.md).
 
+**14c as built (2026-11-09):** the per-mode strip swap is a presentation field on the bet mode,
+`betModePresentation.<mode>.fillerSymbols` (the base strips filtered to those symbols while that
+mode is the stake), not a `betModeStrips` key into `paddingReels`: `/config` has no strip editor, so
+a named strip set could not be authored, and the presentation is already matched to the server's
+options. The ante's HUD switch is `toggle` on the same entry. Details:
+[status](../status/hold-and-win.md).
+
 **What we no longer build as math:** the trigger rules, top-up rate, enhancement draw and hit
 rates, and per-bet-mode strips are the partner server's. They stay in the plan only as mock pacing
 (14d). The `run` / `chance` triggers and `featureTopUp` matter to the client only if their server

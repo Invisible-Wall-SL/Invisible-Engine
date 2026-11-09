@@ -144,6 +144,24 @@ export type BetModePresentation = {
 	 * into the export→bake→pull set, exactly as the mode `icon` art travels. Absent ⇒ parity.
 	 */
 	cardParams?: Record<string, string | number | boolean>;
+	/**
+	 * An ANTE shown as the HUD's on/off switch (the `ante` button action) instead of as a card in the
+	 * buy menu. Only meaningful on an `ante` mode; absent ⇒ the ante is a buy-menu card, as before.
+	 */
+	toggle?: boolean;
+	/**
+	 * The symbols the SPINNING filler reels show while this mode is the stake — e.g. an ante whose
+	 * reels deal only coins, collectors and blanks. Presentation only: the base strips are filtered
+	 * to these symbols for the roll, and the dealt board still comes from the server. Absent ⇒ the
+	 * base strips, as before.
+	 */
+	fillerSymbols?: string[];
+	/**
+	 * The operator may switch this ante or buy off, and the server then refuses its bet. Set ⇒ such a
+	 * refusal drops the option for the session with a message instead of the error modal. Absent ⇒
+	 * a refusal is an error, as before.
+	 */
+	refusable?: boolean;
 };
 
 /**
@@ -197,6 +215,13 @@ export type ResolvedBetMode = {
 	 *  `{}` when unauthored, so the repeater item threads no overrides and every card param keeps the
 	 *  component's authored default (parity). */
 	cardParams: Record<string, string | number | boolean>;
+	/** An ante shown as the HUD switch, not a buy card — see {@link BetModePresentation.toggle}. */
+	toggle: boolean;
+	/** The filler reels' symbols while this mode is the stake — see
+	 *  {@link BetModePresentation.fillerSymbols}. `[]` when unauthored (the base strips). */
+	fillerSymbols: string[];
+	/** A refusal of this option is a message, not an error — see {@link BetModePresentation.refusable}. */
+	refusable: boolean;
 };
 
 /**

@@ -508,6 +508,9 @@ export const VISIBILITY_SOURCE_KEYS: string[] = [
 	// True while the bet menu offers a buy or an ante — false once a jurisdiction that forbids
 	// buying a feature has stripped them all. The buy-bonus button binds it.
 	'buyFeature',
+	// True while the game offers an ante as the HUD switch (a bet mode marked `toggle`) and the
+	// server has not refused it. The ante switch (action `ante`) binds it.
+	'anteFeature',
 	// True when NO full-screen tap-to-continue overlay is up (`stateUi.continuePressCount === 0`).
 	// Bind an authored ambient/background node (e.g. drifting smoke) to this so it hides while any
 	// tap-to-continue celebration (free-spin intro/outro gate, retrigger) is on screen — otherwise
@@ -544,6 +547,7 @@ export const VISIBILITY_SOURCE_LABELS: Record<string, string> = {
 	turboFeature: 'Turbo feature enabled',
 	autoplayFeature: 'Autoplay feature enabled',
 	buyFeature: 'Buy feature available',
+	anteFeature: 'Ante switch available',
 	tapOverlayIdle: 'No tap overlay — hidden while a tap-to-continue celebration is on screen',
 	clockShow: 'Operator shows a clock',
 	sessionTimeShow: 'Operator shows session time',
@@ -575,6 +579,7 @@ export const ENGINE_ACTION_CATALOG: string[] = [
 	'settings',
 	'soundToggle',
 	'buyBonus',
+	'ante',
 	'fullscreen',
 	'home',
 	'history',
@@ -598,6 +603,7 @@ export const ENGINE_ACTION_LABELS: Record<string, string> = {
 	settings: 'settings',
 	soundToggle: 'sound on/off',
 	buyBonus: 'buy bonus',
+	ante: 'ante on/off',
 	autoSpin: 'auto spin (open/stop)',
 	autoSpinStart: 'auto spin — start',
 	betMenu: 'bet menu (open)',

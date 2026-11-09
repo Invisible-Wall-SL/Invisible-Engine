@@ -76,6 +76,9 @@ const resolveOne = (
 		// the item's values (any card param the mode overrides). `{}` when unauthored ⇒ no overrides ⇒
 		// every param keeps the card's authored default (parity).
 		cardParams: presentation?.cardParams ?? {},
+		toggle: kind === 'ante' && presentation?.toggle === true,
+		fillerSymbols: presentation?.fillerSymbols ?? [],
+		refusable: kind !== 'base' && presentation?.refusable === true,
 	};
 };
 
@@ -134,4 +137,23 @@ export const betModeCardParamRefs = (
 		}
 	}
 	return refs;
+};
+
+/**
+ * The strips the reels ROLL while a bet mode with {@link ResolvedBetMode.fillerSymbols} is the stake:
+ * each base strip with every cell outside `symbols` dropped, cycled back to the strip's own length so
+ * the roll is as long as before. A reel that keeps nothing rolls the listed symbols in turn, so no
+ * reel is ever empty. Presentation only — the dealt board still comes from the server.
+ */
+export const fillerStrips = <T extends { name: string }>(
+	strips: readonly (readonly T[])[],
+	symbols: readonly string[],
+): { name: string }[][] => {
+	const wanted = new Set(symbols);
+	return strips.map((reel) => {
+		const kept: { name: string }[] = reel.filter((cell) => wanted.has(cell.name));
+		const source = kept.length ? kept : symbols.map((name) => ({ name }));
+		const length = Math.max(reel.length, source.length);
+		return Array.from({ length }, (_unused, i) => ({ name: source[i % source.length].name }));
+	});
 };

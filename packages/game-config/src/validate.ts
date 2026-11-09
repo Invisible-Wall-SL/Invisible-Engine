@@ -269,6 +269,22 @@ function betModeIssues(doc: GameConfigDoc): GameConfigIssue[] {
 				message: `${mode} is an ante mode with no title — it will fall back to its id in the menu.`,
 			});
 		}
+		if (presentation.toggle && presentation.kind !== 'ante') {
+			issues.push({
+				severity: 'warning',
+				path: `betModePresentation.${mode}.toggle`,
+				message: `${mode} is set to show as the HUD ante switch, but its kind is not "ante" — it stays a buy-menu card.`,
+			});
+		}
+		for (const name of presentation.fillerSymbols ?? []) {
+			if (!doc.symbols[name]) {
+				issues.push({
+					severity: 'error',
+					path: `betModePresentation.${mode}.fillerSymbols`,
+					message: `${mode}'s filler reels list ${name}, which has no entry in the symbol dictionary.`,
+				});
+			}
+		}
 	}
 
 	return issues;

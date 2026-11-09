@@ -1182,7 +1182,7 @@ Each bet mode is one card, read top to bottom as four labelled blocks:
 | Block             | What it holds                                                                                                                                   |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the engine config shape the math team ships. |
-| **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                              |
+| **Menu**          | **Kind**, **Order**, the **Card** component; on a non-base mode **HUD switch** (ante only), **Operator can switch off** and **Filler symbols**. |
 | **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                              |
 | **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · rig · Button).                    |
 
@@ -1199,6 +1199,21 @@ mode's cost as tags.
 - **Order** — the mode's position in the menu. Leave it blank (**auto**) and the
   card keeps its authoring order; set a number on one card to move just that one
   without renumbering the rest.
+- **HUD switch** (an `ante` only) — the ante is armed by an on/off button in the HUD
+  instead of being a card in the buy menu. Place a Button in the HUD scene with action
+  **ante on/off** and **Shows during** = **Ante switch available**: it lights while the
+  ante is on, greys out while a round plays, and the bet readout shows the ante's price.
+  The buy-bonus button then always opens the menu.
+- **Filler symbols** — tick the symbols the reels show while they **spin** with this
+  mode as the stake (e.g. COIN, COLLECT and BLANK for an ante that only deals coins).
+  Each reel rolls its own base strip with every other symbol taken out, so a symbol
+  that only lands on reel 3 still only rolls there. Presentation only: what lands is
+  the server's. None ticked ⇒ the reels roll the base strips.
+- **Operator can switch off** — tick it when the operator may turn this ante or buy
+  off (the server then refuses its bet). A refusal then drops that card or switch for
+  the session, returns to the base bet, keeps the board on screen and shows "This
+  option is not available right now." in the game's message host (translate it in
+  Invisible Localization, HUD texts). Unticked, a refusal is an error, as before.
 - **Copy** — the text the card shows: **Title**, **Button** (the call-to-action,
   e.g. PLAY / BUY / ACTIVATE), **Bet label** (the HUD "BET" caption), plus a
   **Description** and a **Dialog** (the buy-confirmation body). Blank fields fall

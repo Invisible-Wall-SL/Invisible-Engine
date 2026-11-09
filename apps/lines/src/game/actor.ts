@@ -3,6 +3,7 @@ import { checkIsMultipleRevealEvents } from 'utils-book';
 import { createPrimaryMachines, createIntermediateMachines, createGameActor } from 'utils-xstate';
 
 import type { Bet } from './typesBookEvent';
+import type { RawSymbol } from './types';
 import { stateXstateDerived } from './stateXstate';
 import { playBet, convertTorResumableBet } from './utils';
 import { clearWinPresentation } from './winSymbolCycle';
@@ -10,11 +11,16 @@ import { resetLuckySpinReveal } from './luckySpin';
 import { clearOverlay } from './stateOverlay.svelte';
 import { startHoldAndWinRound } from './stateHoldAndWin.svelte';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
-import { paddingReels } from './gameConfig';
+import { spinPaddingReels } from './gameConfig';
+import { handleBetOptionRefused } from './betRefusal';
 import { isCoinBoard } from './coinBoard.svelte';
 import { resetFlowV2Round } from './flowV2InterpreterHolder';
 import { gameMechanic } from './mechanic';
 import { awaitMatch3Round } from '../families/match3';
+
+/** The board on screen when the last round began — restored if the server refuses that round's bet
+ *  option, so a refused ante or buy leaves the reels as they were rather than blank. */
+let boardAtRoundStart: RawSymbol[][] = [];
 
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),
@@ -29,6 +35,9 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		}
 	},
 	onNewGameStart: async () => {
+		boardAtRoundStart = stateGameDerived.enhancedBoard.board.map((reel) =>
+			reel.reelState.symbols.map((symbol) => symbol.rawSymbol),
+		);
 		// The reels are about to roll — clear the previous round's win line, stamped amount/message
 		// and info toast NOW (on the button press, before the RGS responds) so the board is clean the
 		// instant the spin starts. Runs BEFORE the continuous-bet guard below so autoplay/space-hold
@@ -54,10 +63,18 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		// A coin board's base game spins on the respin board, from the reveal: no reels to roll.
 		if (isCoinBoard()) return;
 		await stateGameDerived.enhancedBoard.preSpin({
-			paddingBoard: paddingReels(stateGame.gameType),
+			paddingBoard: spinPaddingReels(stateGame.gameType),
 		});
 	},
 	onNewGameError: () => stateGameDerived.enhancedBoard.settle(),
+	onBetRefused: async (error) => {
+		if (!handleBetOptionRefused(error)) return false;
+		// The roll began on the press: end it, then put back the board it left.
+		const { enhancedBoard } = stateGameDerived;
+		await enhancedBoard.cancelPreSpin();
+		enhancedBoard.settle(boardAtRoundStart);
+		return true;
+	},
 	onPlayGame: async (bet) => await playBet(bet),
 	checkIsBonusGame: (bet) => checkIsMultipleRevealEvents({ bookEvents: bet.state }),
 	// An RGS match-3 round stays open while the player swaps (`match3.svelte.ts`); a slot's never does.

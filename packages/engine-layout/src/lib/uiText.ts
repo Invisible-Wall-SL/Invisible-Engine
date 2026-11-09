@@ -65,6 +65,8 @@ export const UI_TEXT = {
 	selectYourBet: 'SELECT YOUR BET',
 	confirm: 'CONFIRM',
 	cancel: 'CANCEL',
+	// Shown when the server refuses an ante or a buy (the operator switched that option off)
+	betOptionUnavailable: 'This option is not available right now.',
 	// Settings modal
 	masterVolume: 'MASTER VOLUME',
 	musicVolume: 'MUSIC VOLUME',
@@ -127,6 +129,7 @@ const UI_TEXT_GROUP: Record<UiTextKey, string> = {
 	selectYourBet: 'Bet menu',
 	confirm: 'Bet menu',
 	cancel: 'Bet menu',
+	betOptionUnavailable: 'Bet menu',
 	masterVolume: 'Settings',
 	musicVolume: 'Settings',
 	soundEffectVolume: 'Settings',

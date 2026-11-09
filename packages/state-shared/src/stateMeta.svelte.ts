@@ -1,3 +1,5 @@
+import { SvelteSet } from 'svelte/reactivity';
+
 import { DEFAULT_BET_MODE_META, DEFAULT_GAME_RULE_META } from './constants';
 
 export type BetModeData = {
@@ -16,6 +18,15 @@ export type BetModeData = {
 	 *  visually-distinct per mode. Absent/empty ⇒ no overrides, every param keeps the card's authored
 	 *  default (parity). Optional so existing coded metas need no change. */
 	cardParams?: Record<string, string | number | boolean>;
+	/** An `activate` (ante) mode shown as the HUD's ante switch instead of a buy-menu card. Absent ⇒ a
+	 *  card, as before. */
+	toggle?: boolean;
+	/** The symbols the spinning filler reels show while this mode is the stake. Absent/empty ⇒ the
+	 *  base strips. Presentation only. */
+	fillerSymbols?: string[];
+	/** The operator may switch this option off: a server refusal of it is a message, not an error.
+	 *  Absent ⇒ an error, as before. */
+	refusable?: boolean;
 	assets: {
 		icon: string;
 		volatility: string;
@@ -65,11 +76,38 @@ export const stateMeta = $state({
 	gameRuleMeta: DEFAULT_GAME_RULE_META as GameRuleMeta,
 });
 
+/** A mode the buy menu offers as a card: anything but the plain bet and an ante that is the HUD's
+ *  switch. */
+export const isBuyMenuMode = (mode: BetModeData): boolean =>
+	mode.type !== 'default' && !(mode.type === 'activate' && mode.toggle);
+
+/** The ante the HUD switch arms — the first `activate` mode marked `toggle` — or undefined. */
+const anteToggleMode = (): BetModeData | undefined =>
+	Object.values(stateMeta.betModeMeta).find((mode) => mode.type === 'activate' && mode.toggle);
+
 export const stateMetaDerived = {
 	betModeMetaList: () => Object.values(stateMeta.betModeMeta),
-	/** Whether the menu offers anything beyond the plain bet. False once a jurisdiction that forbids
-	 *  buying a feature has stripped every buy and the game authors no ante — at which point the
-	 *  buy-bonus button would open an empty menu. */
-	hasFeatureBetModes: () =>
-		Object.values(stateMeta.betModeMeta).some((mode) => mode.type !== 'default'),
+	/** Whether the buy menu has a card to show. False once a jurisdiction that forbids buying a
+	 *  feature has stripped every buy and the game authors no menu ante (or only refused ones) — at
+	 *  which point the buy-bonus button would open an empty menu. */
+	hasFeatureBetModes: () => Object.values(stateMeta.betModeMeta).some(isBuyMenuMode),
+	anteToggleMode,
+};
+
+/**
+ * The bet options the server REFUSED this session (an operator can switch the ante and the buys
+ * off, and says so only by refusing the bet). Uppercased mode keys. A refused mode leaves the menu
+ * for the rest of the session: the runtime's menu builder drops these, so a rebuild cannot bring
+ * one back.
+ */
+export const refusedBetModes = new SvelteSet<string>();
+
+/** Record a refusal and drop the mode from the live menu at once. */
+export const refuseBetMode = (key: string): void => {
+	const refused = key.toUpperCase();
+	refusedBetModes.add(refused);
+	if (!stateMeta.betModeMeta[refused]) return;
+	stateMeta.betModeMeta = Object.fromEntries(
+		Object.entries(stateMeta.betModeMeta).filter(([mode]) => mode !== refused),
+	);
 };
