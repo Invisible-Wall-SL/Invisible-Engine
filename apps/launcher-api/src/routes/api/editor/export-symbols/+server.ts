@@ -1,5 +1,7 @@
 import { error, json } from '@sveltejs/kit';
+import { normalizeResolutionTiers } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
+import { loadDoc } from '$lib/server/editorStorage';
 import { PageStore } from '$lib/server/pageStore';
 import { SUB, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
@@ -43,6 +45,8 @@ export const POST: RequestHandler = async ({ url }) => {
 		// `coinLabel` (the Hold and Win coin value label), `flights` (its flight styles) and
 		// `respinLandOnStop` (when its coins play Land) are here for the same reach-both reason, and so
 		// is `symbolFx` (the per-symbol Element FX).
+		// The project's resolution tiers, so a baked build ships the same tier pages Publish does.
+		const tiers = normalizeResolutionTiers((await loadDoc(clientKey, projectKey)).resolutionTiers);
 		const {
 			map,
 			index,
@@ -73,7 +77,7 @@ export const POST: RequestHandler = async ({ url }) => {
 				// pages are the LARGEST textures a board holds, so that gap was the whole bug on the
 				// tier this exists for. No prune here: `_pages/` is pruned only by an owner that has
 				// seen EVERY exporter that could claim a page (`runtimeBundle.ts`'s `prune:pages`).
-				pageStore: new PageStore(`${SUB.deploy(clientKey, projectKey)}/`),
+				pageStore: new PageStore(`${SUB.deploy(clientKey, projectKey)}/`, tiers),
 			}),
 		);
 		return json({

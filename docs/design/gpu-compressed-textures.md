@@ -93,7 +93,7 @@ another (2026-10-15, below in "Alpha").
 `?quality=high` / `?quality=low` force it. So the low/high split is **compressed vs uncompressed
 at full resolution**, not a resolution cut — arcade keeps pristine art, iPhone fits in memory.
 A page over 4096 px (or ~11 Mpix) IS downscaled for its twin; its sheet JSON then carries
-`meta.scale` = the ratio, so every frame keeps its logical size (`ktx2SheetTwin.ts`, since
+`meta.scale` = the ratio, so every frame keeps its logical size (`sheetOnPage.ts`, since
 2026-11-09 — before that a natural-size frame drew smaller on the compressed tier). A standalone
 image over the cap still does (see [arcade-4k-builds](arcade-4k-builds.md) Phase 1).
 KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode

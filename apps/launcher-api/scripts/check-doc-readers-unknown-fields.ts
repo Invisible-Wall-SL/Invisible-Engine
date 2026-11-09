@@ -453,6 +453,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		mainSizesMap: { desktop: { width: 1920, height: 1080 } },
 		settings: { jurisdiction: 'UK', features: { turbo: true } },
 		scenes: [{ id: 'basegame', name: 'Base game', role: 'basegame', nodes: [node, fxNode] }],
+		resolutionTiers: ['half'],
 		updatedAt: '2026-10-01T00:00:00.000Z',
 	};
 	const extras = clone(base) as typeof base & Record<string, unknown>;
@@ -465,7 +466,15 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'"features":{"turbo":true}',
 		'"id":"basegame"',
 		'"valueBindings":[{"target":"fxParam","fxParam":"heat","source":"winAmount","inMax":100}]',
+		'"resolutionTiers":["half"]',
 	]);
+	// A resolution tier a newer build added is dropped on read; the ones this build knows stay.
+	check(
+		'4. layout: an unknown resolution tier is dropped, a known one kept',
+		JSON.stringify(
+			normalizeLayoutDoc({ ...base, resolutionTiers: ['quarter', 'half'] }, 'demo').resolutionTiers,
+		) === '["half"]',
+	);
 	// A retired settings block a stored doc may still carry (the old per-project overlay-swap
 	// flags) is dropped on read, so it never round-trips and the game never sees it.
 	const retired = clone(base) as typeof base & { settings: Record<string, unknown> };

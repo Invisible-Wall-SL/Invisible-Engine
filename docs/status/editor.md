@@ -171,6 +171,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-09 — **"Also publish half-resolution art"** in the Canvas Size panel sets
+  `LayoutDoc.resolutionTiers` (saved with the doc, not an undo step); the publish side is in
+  [status/launcher](launcher.md) ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 3).
 - 2026-11-09 — **Rescale canvas… puts a game on a bigger canvas** ([arcade-4k-builds](../design/arcade-4k-builds.md)
   Phase 2). The Canvas Size panel's new action takes a factor (2 = 1920×1080 → 3840×2160) and
   runs `engine-layout` `rescaleCanvas`: every canvas box and layout-profile bucket box multiply

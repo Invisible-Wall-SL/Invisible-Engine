@@ -32,6 +32,7 @@ import type { FlipbookClip } from 'engine-flipbook';
 import {
 	applyHudGameNameDefault,
 	flightEffectIds,
+	normalizeResolutionTiers,
 	resolveComponentClosureWithPins,
 	type ComponentDef,
 	type FontCatalog,
@@ -582,7 +583,12 @@ async function ensureDeployExports(
 	 * both have finished.
 	 */
 	const deployPrefix = `${SUB.deploy(client, projectKey)}/`;
-	const pageStore = new PageStore(deployPrefix);
+	// The project's resolution tiers (`LayoutDoc.resolutionTiers`): none for every project that has
+	// not asked, so the store writes exactly what it did.
+	const tiers = await step('tiers', timings, async () =>
+		normalizeResolutionTiers((await loadEditorDoc(client, projectKey)).resolutionTiers),
+	);
+	const pageStore = new PageStore(deployPrefix, tiers);
 
 	const [editorArt, fontIndex, soundIndex, symbols, flowV2Index, cinematicIndex] =
 		await Promise.all([

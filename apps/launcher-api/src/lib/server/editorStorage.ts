@@ -3,6 +3,7 @@ import {
 	normalizeEditorGuides,
 	normalizeHudScenes,
 	normalizeLayoutProfile,
+	normalizeResolutionTiers,
 	LAYOUT_NODE_KINDS,
 	isSceneRole,
 	normalizePathNode,
@@ -229,6 +230,8 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	// project inherits the admin global default / coded DEFAULT_LAYOUT_PROFILE at read time.
 	const layoutProfile = normalizeLayoutProfile(obj.layoutProfile);
 	if (layoutProfile) doc.layoutProfile = layoutProfile;
+	const resolutionTiers = normalizeResolutionTiers(obj.resolutionTiers);
+	if (resolutionTiers) doc.resolutionTiers = resolutionTiers;
 	// Default-HUD persist (§ default-HUD Phase 2b): rewrite a legacy coded `hudBar` (the seeded
 	// `UiLabel*`/`UiButton*` `bind` nodes) into the parametric `componentInstance` HUD. Same
 	// migrate-on-read shape as `backfillAlwaysOnTop` — the editor then SHOWS the flow-v2-safe HUD
