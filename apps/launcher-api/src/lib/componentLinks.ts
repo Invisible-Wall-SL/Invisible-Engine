@@ -36,6 +36,15 @@ export function editorSelfNavigation(to: URL, projectKey: string): 'in-place' | 
 }
 
 /**
+ * A navigation `/editor` cancels and handles itself ({@link editorSelfNavigation}): applied in
+ * place, where closing a component asks on its own, or a full load, where `beforeunload` asks. The
+ * page's leave guards (`guardUnsavedWork`) stand down for it, so nobody asks twice.
+ */
+export function isEditorSelfNavigation(navigation: { to: { url: URL } | null }): boolean {
+	return navigation.to?.url.pathname === '/editor';
+}
+
+/**
  * The URL `/editor` posts a form action to (`?/save`, …). The project is always the one the page
  * was LOADED for, whatever the address bar says: a bookmarked bare `/editor` would otherwise save
  * into whatever project the session moved to since. The other query params ride along; SvelteKit's

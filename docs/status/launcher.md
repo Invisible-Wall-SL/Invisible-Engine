@@ -81,6 +81,25 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-09 — **Deploy-token gates compare in constant time; a ComfyUI can no longer be
+  registered at a private address.** (1) The fifteen `?k=` routes (`api/deploy`, the ten
+  `api/editor/export-*`, `editor/symbol-defaults`, `game-config/doc`, `localization/strings`,
+  `win-text/doc`) each did `get('k') !== secret`, and `projectReadClient` compared both of its
+  tokens the same way. They now go through `requireDeployToken(url, notConfigured)`
+  (`$lib/server/deployToken.ts`, on `tokensMatch`) and `tokensMatch` respectively; every 503
+  message and the 401 body are unchanged. (2) `POST /api/comfy/register` let any signed-in user
+  store any http(s) URL, which the atlas-tool then POSTs to from inside Railway. It now needs the
+  Atlas Maker or ComfyUI tool (403 otherwise; bearer and cookie both still authenticate; GET/DELETE
+  of your own record stay session-only), and `checkComfyUrl` (`$lib/server/comfyRegister.ts`)
+  refuses loopback, private, CGNAT, link-local, multicast, unique-local/IPv4-mapped/NAT64 IPv6,
+  single-label names and `*.localhost`/`*.internal`/`*.local` with a 400 naming the host, plus
+  credentials, query and fragment; the stored URL is the WHATWG serialization, so the atlas-tool's
+  parser reads the host that was checked. The desktop launcher only ever registers
+  `comfy.invisiblewall.org` or a `*.trycloudflare.com` quick tunnel, so nothing legitimate is
+  refused and there is no dev-mode exception. Guards: `check:deploy-token-gate` (verdict, helper,
+  `projectReadClient`, and all fifteen routes' 503/401/pass) and `check:comfy-register` (the URL
+  rule and the real handler; a removed tool gate fails it). Open: a public hostname that RESOLVES
+  to a private address is not caught here; that needs a resolve-and-pin in the atlas-tool's fetch.
 - 2026-11-09 — **Resolution tiers: a 4K project can publish its art at half size too**
   ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 3). Opt-in: `LayoutDoc.resolutionTiers:
   ['half']` (`engine-layout` `resolutionTiers.ts`), the Scene Editor's "Also publish half-resolution

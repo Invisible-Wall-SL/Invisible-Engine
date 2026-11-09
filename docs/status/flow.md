@@ -55,6 +55,16 @@
 
 ## Recent changes
 
+- 2026-11-09 — **`/flow-v2` asks before a tool switch, Back, a reload or a tab close discards
+  unsaved work** (branch `launcher-unsaved-work-guards`). The page had two autosaving
+  `SaveState`s (the flow doc and the shared function library, 800 ms) and no leave guard — only the
+  `pagehide` lease release — so an edit inside the debounce, or one held by an error, conflict or
+  someone else's lease, was lost silently. It now calls the shared `guardUnsavedWork` over both
+  (`saveState.dirty || libraryState.dirty`, the question names which). A History… restore settles
+  both before its reload, so the author is not asked again over a restore the modal already
+  warned about. The `pagehide` lease release is unchanged. Guard: `check:unsaved-guard`; detail in
+  [editor.md](editor.md) Recent changes (same date). ⏳ Not browser-verified.
+
 - 2026-11-03 — **The missing-screen report names only screens the flow uses.** The editor declares
   every Scene-Editor screen (`syncFlowContainers`) and never drops one, so a screen deleted later
   stayed in `FlowDoc.containers` and the game's boot error (and the Publish note) listed it though

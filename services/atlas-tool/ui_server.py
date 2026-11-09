@@ -331,15 +331,94 @@ def is_versioned_output(rel: str, name: str) -> bool:
     return bool(re.fullmatch(pattern, str(rel or "")))
 
 
-def _unmirror(p: Path) -> None:
-    """Delete the R2 counterpart of a removed staging file."""
-    if not (R2_PREFIX and STAGING_ROOT):
-        return
+# Per-request state. ThreadingHTTPServer answers every request on its own
+# thread and `_dispatch` resets this at the start of each one, so what a request
+# records here (an R2 write that did not land, a manifest banner) is read back
+# by that request only. These used to be module globals: one user's "manifest
+# not found" banner showed on another project's page.
+_request_local = threading.local()
+
+
+def _reset_request_local() -> None:
+    _request_local.r2_failures = []
+    _request_local.load_warning = ""
+    _request_local.geom_warning = ""
+
+
+def load_warning() -> str:
+    """This request's "the active manifest could not be loaded" banner, or ""."""
+    return getattr(_request_local, "load_warning", "")
+
+
+def geom_warning() -> str:
+    """This request's "regions missing from the bound .atlas" banner, or ""."""
+    return getattr(_request_local, "geom_warning", "")
+
+
+def _note_r2_failure(entry: str) -> None:
+    """Record an R2 write/delete that did not land, for this request's answer."""
+    failures = getattr(_request_local, "r2_failures", None)
+    if failures is None:
+        failures = _request_local.r2_failures = []
+    failures.append(entry)
+    print(f"[r2] not durable: {entry}", flush=True)
+
+
+def _r2_failures() -> list[str]:
+    return list(getattr(_request_local, "r2_failures", None) or [])
+
+
+def _unmirror(p: Path) -> bool:
+    """Delete the R2 counterpart of a removed staging file. Returns False, and
+    notes it for this request's answer, when R2 refused the delete: the object
+    left behind comes back into staging on the next hydrate. No R2, or a path
+    outside staging (no R2 twin), is nothing to do."""
+    if not (R2_PREFIX and STAGING_ROOT) or not storage.configured():
+        return True
     try:
         rel = Path(p).resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
-        storage.delete(f"{R2_PREFIX}/{rel}")
-    except Exception:  # noqa: BLE001
-        pass
+    except ValueError:
+        return True
+    key = f"{R2_PREFIX}/{rel}"
+    if storage.delete(key):
+        return True
+    _note_r2_failure(f"{key}: delete refused")
+    return False
+
+
+def push_input_refs() -> list[str]:
+    """Mirror the staging `input/` tree to R2 after a ref-mutating route and
+    return what did not land (`"<key>: <why>"`); [] without R2.
+
+    Still the WHOLE tree rather than the files the route touched: `/userefall`,
+    `/fxbuild`, `/shinefrom` and `/uploadatlas` write several files through
+    helpers that do not report their paths, and a narrowed push that missed one
+    would leave it only on this container's disk."""
+    r2_prefix = str(R2_PREFIX)
+    if not r2_prefix or not storage.configured():
+        return []
+    failed: list[str] = []
+    try:
+        storage.push_dir(Path(str(INPUT_DIR)), f"{r2_prefix}/input", failures=failed)
+    except Exception as e:  # noqa: BLE001 — a listing failure is a failure too
+        failed.append(f"{r2_prefix}/input: {type(e).__name__}: {e}")
+    for entry in failed:
+        print(f"[r2] not durable: {entry}", flush=True)
+    return failed
+
+
+def with_r2_failures(msg: str, failed: list[str]) -> str:
+    """A route's answer, turned into the page's error card (`✖` title, detail,
+    `→ Fix:`) when its R2 writes did not all land — the change exists only on
+    this container, so reporting plain success would be a lie."""
+    if not failed:
+        return msg
+    shown = "\n".join(f"  {f}" for f in failed[:5])
+    more = f"\n  … and {len(failed) - 5} more" if len(failed) > 5 else ""
+    return (f"✖ {len(failed)} file change(s) did not reach cloud storage (R2)\n"
+            f"{msg}\n{shown}{more}\n"
+            "→ Fix: retry the action. Until it succeeds the change lives only on "
+            "this server and is lost on the next restart or deploy.")
 
 
 # The pre-token shared-secret gate. Kept for the transition window only (see
@@ -368,11 +447,15 @@ def _truthy_env(name: str) -> bool:
 ATLAS_BLUEPRINT_SECRET = os.environ.get("ATLAS_BLUEPRINT_SECRET", "").strip()
 ATLAS_BLUEPRINT_PUBLISH = _truthy_env("ATLAS_BLUEPRINT_PUBLISH")
 
-# POST routes that write/remove ref images → mirror staging refs to R2 after.
+# POST routes that write/remove ref images → their Handler method. Dispatched
+# from this table only (`Handler._post`), so every one of them mirrors staging
+# refs to R2 BEFORE it answers and reports a push that did not land.
 _REF_MUTATING_ROUTES = {
-    "/setref", "/setoutput", "/userefimg", "/userefall", "/shinefrom",
-    "/shinemode", "/fxbuild", "/clearref", "/clearoutput", "/setmode",
-    "/delvariants", "/uploadatlas",
+    "/setref": "_setref", "/setoutput": "_setoutput", "/userefimg": "_userefimg",
+    "/userefall": "_userefall", "/shinefrom": "_shinefrom",
+    "/shinemode": "_shinemode", "/fxbuild": "_fxbuild", "/clearref": "_clearref",
+    "/clearoutput": "_clearoutput", "/setmode": "_setmode",
+    "/delvariants": "_delvariants", "/uploadatlas": "_uploadatlas",
 }
 
 
@@ -422,6 +505,11 @@ _render_state = {"running": False, "log": "", "done": False, "cur": 0,
                  "runpodJob": "", "runpodEndpoint": "", "owner": None}
 _render_lock = threading.Lock()
 _render_proc: subprocess.Popen | None = None
+# The ComfyUI the running render talks to (`render_comfy_target`), or None when
+# no generation is running — what Stop interrupts, and nothing else. Kept OUT of
+# `_render_state`: that dict is served to every poller by `/progress`, and this
+# carries CF Access credentials. Guarded by `_render_lock`.
+_render_comfy: dict | None = None
 _stopped = False
 # Short-lived cache for the comfy.org balance so the auto-refreshing header
 # chip doesn't hammer the billing API (and survives a brief outage).
@@ -2426,11 +2514,6 @@ def _empty_manifest() -> dict:
             "positive_suffix": "", "negative": ""}, "regions": []}
 
 
-# Set by load_manifest() when the configured manifest is missing/corrupt;
-# _index() turns it into a visible banner instead of letting the page 500.
-_load_warning: str = ""
-
-
 def load_manifest() -> dict:
     """The active manifest, or an empty in-memory instance if the configured
     file was renamed/deleted/corrupted. Never raises — a bad manifest must not
@@ -2442,28 +2525,30 @@ def load_manifest() -> dict:
     `sheet_src/`. The Section-2 resolvers (atlas_file_path,
     source_image_candidates, _resolve_region_ref) now hydrate those keys
     DIRECTLY from their Sheet-Maker location into staging — so there is no
-    longer a copy/ingest step here. load_manifest just parses + returns."""
-    global _load_warning
+    longer a copy/ingest step here. load_manifest just parses + returns.
+
+    A missing/corrupt manifest sets this request's `load_warning()`, which
+    _index() turns into a banner instead of letting the page 500."""
     mp = manifest_path()
     _sync_doc(mp)
     try:
         m = json.loads(mp.read_text(encoding="utf-8"))
-        _load_warning = ""
+        _request_local.load_warning = ""
         return m
     except FileNotFoundError:
         # Deliberately does NOT offer "Save to recreate it". The usual reason a
         # manifest is missing is that it was deleted AT THE SOURCE (a sheet
         # removed in the Sheet Maker), and Saving here pushes it straight back
         # into R2 — resurrecting the very thing the author deleted.
-        _load_warning = (f"Manifest \"{mp.name}\" is not there (renamed, or "
-                         f"deleted — possibly in another tool). Showing an "
-                         f"empty instance — pick another manifest from "
-                         f"Settings.")
+        _request_local.load_warning = (
+            f"Manifest \"{mp.name}\" is not there (renamed, or deleted — "
+            f"possibly in another tool). Showing an empty instance — pick "
+            f"another manifest from Settings.")
     except (ValueError, OSError) as e:
-        _load_warning = (f"Manifest \"{mp.name}\" could not be read "
-                         f"({type(e).__name__}: {e}). Showing an empty "
-                         f"instance — fix the file or pick another in "
-                         f"Settings.")
+        _request_local.load_warning = (
+            f"Manifest \"{mp.name}\" could not be read ({type(e).__name__}: "
+            f"{e}). Showing an empty instance — fix the file or pick another "
+            f"in Settings.")
     return _empty_manifest()
 
 
@@ -2548,19 +2633,16 @@ def _refresh_manifest_from_r2(sel: str) -> None:
         pass
 
 
-# Set by all_regions() when the manifest names regions the bound `.atlas`
-# geometry doesn't have (stale staged geometry); _index() shows it as a banner.
-_geom_warning: str = ""
-
-
 def all_regions(m: dict) -> list[dict]:
     """Geometry-aware. When the manifest is bound to a `.atlas`, cards are
     built from the `.atlas` regions merged with this manifest's creative
-    data (by name). No `.atlas` → legacy cell-grid / explicit-geometry list."""
-    global _geom_warning
+    data (by name). No `.atlas` → legacy cell-grid / explicit-geometry list.
+
+    Manifest regions the bound `.atlas` lacks (stale staged geometry) set this
+    request's `geom_warning()`, which _index() shows as a banner."""
     # Reset on entry so a previous manifest's warning can't outlive a switch
     # to a legacy/unbound manifest or a parse failure.
-    _geom_warning = ""
+    _request_local.geom_warning = ""
     ap = batch_atlas.atlas_file_path(m, manifest_path())
     if ap and ap.exists():
         try:
@@ -2578,12 +2660,8 @@ def all_regions(m: dict) -> list[dict]:
                 msg = (f"{len(missing)} manifest region(s) missing from "
                        f"{ap.name} — geometry may be stale; press "
                        f"↻ Refresh from R2")
-                if msg != _geom_warning:  # log once per state, not per call
-                    print(f"[atlas] {msg} ({', '.join(missing[:10])})",
-                          flush=True)
-                _geom_warning = msg
-            else:
-                _geom_warning = ""
+                print(f"[atlas] {msg} ({', '.join(missing[:10])})", flush=True)
+                _request_local.geom_warning = msg
             return merged
         except (OSError, ValueError):
             pass
@@ -2969,6 +3047,14 @@ def stop_render() -> str:
     * ComfyUI's PENDING queue was never cleared. `/interrupt` aborts only the
       job executing right now, so anything queued behind it starts next.
 
+    The interrupt and the queue clear go to the ComfyUI THIS render was
+    started against (`_render_comfy`, recorded by `_run_cmd`) with that render's
+    own headers — never to the import-time `batch_atlas.COMFY_BASE`. Aiming
+    there left a "My computer" render running on the user's box while it
+    cleared the shared tunnel's queue, i.e. other people's jobs. A RunPod
+    render has no ComfyUI of ours to talk to (the job is cancelled instead),
+    and with no generation running there is nothing to interrupt anywhere.
+
     Every step is best-effort and independent: a failure in one must not stop
     the others, and none of them may raise into the Stop button."""
     global _stopped
@@ -2978,6 +3064,7 @@ def stop_render() -> str:
         job_id = str(_render_state.get("runpodJob") or "")
         endpoint = str(_render_state.get("runpodEndpoint") or "")
         _render_state.update(runpodJob="", runpodEndpoint="")
+        target = _render_comfy
     proc = _render_proc
     if proc and proc.poll() is None:
         proc.terminate()
@@ -2990,18 +3077,19 @@ def stop_render() -> str:
         why = batch_atlas.runpod_cancel(job_id, endpoint)
         done.append(f"RunPod job {job_id[:8]} cancelled" if not why
                     else f"could not cancel RunPod job {job_id[:8]} ({why})")
-    for path, body, label in (
-            ("/interrupt", b"", "current job interrupted"),
-            ("/queue", json.dumps({"clear": True}).encode(), "queue cleared")):
-        try:
-            req = urllib.request.Request(
-                f"{batch_atlas.COMFY_BASE}{path}", data=body, method="POST",
-                headers={"Content-Type": "application/json",
-                         **batch_atlas.CF_HEADERS})
-            urllib.request.urlopen(req, timeout=5).read()
-            done.append(label)
-        except Exception:  # noqa: BLE001 — nothing listening is normal here
-            pass
+    if target and not target.get("runpod"):
+        for path, body, label in (
+                ("/interrupt", b"", "current job interrupted"),
+                ("/queue", json.dumps({"clear": True}).encode(), "queue cleared")):
+            try:
+                req = urllib.request.Request(
+                    f"{target['base']}{path}", data=body, method="POST",
+                    headers={"Content-Type": "application/json",
+                             **target["headers"]})
+                urllib.request.urlopen(req, timeout=5).read()
+                done.append(label)
+            except Exception:  # noqa: BLE001 — nothing listening is normal here
+                pass
     return "Stopping… " + (", ".join(done) if done else "nothing was running")
 
 
@@ -3009,14 +3097,19 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
              pre_note: str | None = None, comfy_env: dict | None = None,
              job_ref: str = "") -> int | None:
     """Run the generation subprocess, streaming it into the render panel. Returns
-    its exit code, or None when it could not be run to the end."""
-    global _render_proc, _stopped
+    its exit code, or None when it could not be run to the end.
+
+    `comfy_env` marks a GENERATION (a compose passes none and talks to no
+    ComfyUI); its target is recorded for Stop for exactly as long as it runs."""
+    global _render_proc, _render_comfy, _stopped
     _stopped = False
     rc: int | None = None
     with _render_lock:
         _render_state.update(running=True,
                              log=(f"{pre_note}\n" if pre_note else ""),
                              done=False, cur=0, total=total, diagnostics=[])
+        _render_comfy = (render_comfy_target(comfy_env)
+                         if comfy_env is not None else None)
     try:
         # Generation runs as a subprocess that re-resolves the (client,
         # project) from env at its own start — so pass the UI's *current*
@@ -3084,7 +3177,36 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
         _render_proc = None
         with _render_lock:
             _render_state.update(running=False, done=True)
+            _render_comfy = None
     return rc
+
+
+def render_comfy_target(comfy_env: dict) -> dict:
+    """Where a render started with `comfy_env` (its env overrides) talks to
+    ComfyUI, as the subprocess resolves it: `{"base", "headers", "runpod"}`.
+    `runpod` = the serverless transport, whose job runs on a RunPod worker and
+    is stopped by cancelling it, not through any ComfyUI URL."""
+    merged = {**os.environ, **comfy_env}
+    transport = (merged.get("COMFY_TRANSPORT") or "http").strip().lower() or "http"
+    base = (str(comfy_env.get("COMFY_URL") or "").strip().rstrip("/")
+            or str(batch_atlas.COMFY_BASE))
+    return {"base": base, "headers": _comfy_headers(comfy_env),
+            "runpod": transport == "serverless"}
+
+
+def _comfy_headers(comfy_env: dict) -> dict:
+    """The headers the render subprocess sends with `comfy_env`: the per-user
+    tunnel's CF Access token when a per-user record is in play (the shared one
+    is dropped, so it never reaches another origin), else the shared ones."""
+    headers = dict(batch_atlas.CF_HEADERS)
+    if "COMFY_URL" in comfy_env:
+        headers = {k: v for k, v in headers.items()
+                   if not k.lower().startswith("cf-access")}
+        if comfy_env.get("CF_ACCESS_CLIENT_ID"):
+            headers["CF-Access-Client-Id"] = comfy_env["CF_ACCESS_CLIENT_ID"]
+        if comfy_env.get("CF_ACCESS_CLIENT_SECRET"):
+            headers["CF-Access-Client-Secret"] = comfy_env["CF_ACCESS_CLIENT_SECRET"]
+    return headers
 
 
 def resolve_user_comfy_env(user_id: str) -> dict:
@@ -3209,16 +3331,9 @@ def _comfy_answers(url: str, comfy_env: dict) -> bool:
     subprocess will use — the per-user tunnel's CF Access token when a record
     is in play, else the shared one — so "My computer" fails in a sentence
     before the render, not as a stack of upload timeouts inside it."""
-    headers = dict(batch_atlas.CF_HEADERS)
-    if "COMFY_URL" in comfy_env:
-        headers = {k: v for k, v in headers.items()
-                   if not k.lower().startswith("cf-access")}
-        if comfy_env.get("CF_ACCESS_CLIENT_ID"):
-            headers["CF-Access-Client-Id"] = comfy_env["CF_ACCESS_CLIENT_ID"]
-        if comfy_env.get("CF_ACCESS_CLIENT_SECRET"):
-            headers["CF-Access-Client-Secret"] = comfy_env["CF_ACCESS_CLIENT_SECRET"]
     try:
-        comfy_catalog._http_get_json(f"{url.rstrip('/')}/system_stats", headers)
+        comfy_catalog._http_get_json(f"{url.rstrip('/')}/system_stats",
+                                     _comfy_headers(comfy_env))
         return True
     except Exception:  # noqa: BLE001 — not answering, whatever the reason
         return False
@@ -8861,7 +8976,9 @@ class Handler(BaseHTTPRequestHandler):
         is something the page's retry loader can act on."""
         self._responded = False
         # A keep-alive connection reuses this thread, so a request's manifest pin
-        # must end with the request.
+        # must end with the request — and its banners and R2 failures must not
+        # be inherited by the next one.
+        _reset_request_local()
         self._request_pin = contextlib.ExitStack()
         try:
             fn()
@@ -9134,6 +9251,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(413, {"ok": False, "error": "Card too large (max ~256 KB)."})
             return
         raw = self.rfile.read(length).decode("utf-8")
+        if post_path in _REF_MUTATING_ROUTES:
+            self._answer_ref_change(
+                getattr(self, _REF_MUTATING_ROUTES[post_path])(json.loads(raw)))
+            return
         if post_path == "/taxonomy/get":
             self._send(200, "application/json",
                        json.dumps(self._taxonomy_get()).encode())
@@ -9211,8 +9332,9 @@ class Handler(BaseHTTPRequestHandler):
             with _render_lock:
                 running = _render_state["running"]
                 held = _render_state.get("owner") if running else None
-            # Stop also interrupts + clears the shared ComfyUI queue, so with no
-            # render in the slot there is nothing of the caller's to stop there.
+            # Stop also interrupts + clears the running render's ComfyUI queue,
+            # so with no render in the slot there is nothing of the caller's to
+            # stop there (and stop_render touches no ComfyUI with none recorded).
             if not running and not self._identity.is_admin:
                 self._send(200, "text/plain", b"Nothing is running.")
             elif launch.may_control(self._identity, held):
@@ -9221,8 +9343,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/plain",
                            (f"{held.get('name') or 'Someone else'} started this render "
                             "— only they or an admin can stop it.").encode())
-        elif post_path == "/delvariants":
-            self._send(200, "text/plain", self._delvariants(json.loads(raw)).encode())
         elif post_path == "/newatlas":
             self._send(200, "text/plain", self._newatlas(json.loads(raw)).encode())
         elif post_path == "/duplicateatlas":
@@ -9238,8 +9358,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._saveadv(json.loads(raw)).encode())
         elif post_path == "/saveglobalstyle":
             self._send(200, "text/plain", self._saveglobalstyle(json.loads(raw)).encode())
-        elif post_path == "/uploadatlas":
-            self._send(200, "text/plain", self._uploadatlas(json.loads(raw)).encode())
         elif post_path == "/uploadblueprint":
             try:
                 payload = json.loads(raw)
@@ -9280,28 +9398,8 @@ class Handler(BaseHTTPRequestHandler):
             force_page_only = _po in ("1", "true", "yes", "on")
             self._send(200, "text/plain",
                        self._deployatlas(force_page_only=force_page_only).encode())
-        elif post_path == "/setref":
-            self._send(200, "text/plain", self._setref(json.loads(raw)).encode())
-        elif post_path == "/clearref":
-            self._send(200, "text/plain", self._clearref(json.loads(raw)).encode())
-        elif post_path == "/setoutput":
-            self._send(200, "text/plain", self._setoutput(json.loads(raw)).encode())
-        elif post_path == "/userefimg":
-            self._send(200, "text/plain", self._userefimg(json.loads(raw)).encode())
-        elif post_path == "/userefall":
-            self._send(200, "text/plain", self._userefall(json.loads(raw)).encode())
-        elif post_path == "/clearoutput":
-            self._send(200, "text/plain", self._clearoutput(json.loads(raw)).encode())
-        elif post_path == "/shinefrom":
-            self._send(200, "text/plain", self._shinefrom(json.loads(raw)).encode())
-        elif post_path == "/shinemode":
-            self._send(200, "text/plain", self._shinemode(json.loads(raw)).encode())
         elif post_path == "/copyfrom":
             self._send(200, "text/plain", self._copyfrom(json.loads(raw)).encode())
-        elif post_path == "/setmode":
-            self._send(200, "text/plain", self._setmode(json.loads(raw)).encode())
-        elif post_path == "/fxbuild":
-            self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
         elif post_path == "/video/nodespecs":
             # A contract lookup, not a session action — so not through `_video`,
             # which scopes a route to one session, and never a ref-mutating route.
@@ -9312,14 +9410,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json", self._video(post_path, raw))
         else:
             self._send(404, "text/plain", b"not found")
-            return
-        # Durability: mirror staging refs to R2 after handlers that write/remove
-        # ref images, so they survive container restarts (R2 is source of truth).
-        if post_path in _REF_MUTATING_ROUTES and R2_PREFIX:
-            try:
-                storage.push_dir(INPUT_DIR, f"{R2_PREFIX}/input")
-            except Exception:  # noqa: BLE001
-                pass
+
+    def _answer_ref_change(self, msg: str) -> None:
+        """Answer a ref-mutating route AFTER its durability push, so a write or
+        delete that did not reach R2 is in the answer (the page's ✖ error card,
+        plus `X-IW-R2-Failed: <n>` for a script) instead of a plain success.
+        The push used to run after the 200 was already on the wire, with every
+        failure swallowed — R2 is the source of truth, so a change that is only
+        in staging is lost on the next deploy."""
+        failed = _r2_failures() + push_input_refs()
+        self._send(200, "text/plain", with_r2_failures(msg, failed).encode(),
+                   {"X-IW-R2-Failed": str(len(failed))} if failed else None)
 
     # helpers ----------------------------------------------------------
     def _video(self, route: str, raw: str) -> bytes:
@@ -11863,20 +11964,20 @@ class Handler(BaseHTTPRequestHandler):
         dl_region = getattr(self, "_deeplink_region", "") or ""
         dl_notice = getattr(self, "_deeplink_notice", "") or ""
         notices = []
-        if _load_warning:
+        if load_warning():
             notices.append(
                 f'<div style="margin:10px 0;padding:10px 14px;'
                 f'background:#5a3a1a;border:1px solid #b9802f;'
                 f'border-radius:6px;color:#ffd9a0;font-size:13px">'
-                f'⚠ {html.escape(_load_warning)}</div>')
-        if _geom_warning:
+                f'⚠ {html.escape(load_warning())}</div>')
+        if geom_warning():
             # Set by all_regions() while the cards above were built: manifest
             # regions absent from the bound `.atlas` (stale staged geometry).
             notices.append(
                 f'<div style="margin:10px 0;padding:10px 14px;'
                 f'background:#5a3a1a;border:1px solid #b9802f;'
                 f'border-radius:6px;color:#ffd9a0;font-size:13px">'
-                f'⚠ {html.escape(_geom_warning)}</div>')
+                f'⚠ {html.escape(geom_warning())}</div>')
         if dl_notice:
             # _diag() returns canonical multi-line text (glyph + why + fix);
             # render it as a info-toned banner, preserving line breaks.

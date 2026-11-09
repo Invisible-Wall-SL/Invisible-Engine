@@ -78,6 +78,15 @@ class FakeProc:
     def poll(self):
         return None if self._alive else 0
 
+    def terminate(self):
+        self._alive = False
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        self._alive = False
+
 
 def reset(running: bool = False, proc=None, cur: int = 0, total: int = 0,
           started: float = 0.0) -> None:
@@ -341,40 +350,44 @@ def test_stop_cancels_the_remote_job_not_just_the_local_poller() -> None:
         return R()
 
     u.urllib.request.urlopen = fake_urlopen    # type: ignore[assignment]
+    real_target = u._render_comfy
     try:
         reset(running=True, proc=FakeProc(alive=False))
+        u._render_comfy = {"base": "http://unused", "headers": {}, "runpod": True}
         u._render_state.update(runpodJob="c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2",
                                runpodEndpoint="ep-sub")
         msg = u.stop_render()
         check("the remote job is cancelled, on the endpoint it was submitted to",
               cancelled, [("c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2", "ep-sub")])
         check_in("and Stop says so", "cancelled", msg)
-        check("ComfyUI is interrupted AND its queue cleared",
-              [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
+        check("a RunPod render touches no ComfyUI URL (it has none of ours)",
+              posted, [])
         check("the job id is consumed, so a second Stop cannot re-cancel it",
               (u._render_state["runpodJob"], u._render_state["runpodEndpoint"]), ("", ""))
 
         # A local render has no RunPod job — Stop must not invent one.
         cancelled.clear(); posted.clear()
         reset(running=True, proc=FakeProc(alive=False))
+        u._render_comfy = {"base": "https://comfy.test", "headers": {}, "runpod": False}
         u.stop_render()
         check("no RunPod job, no cancel call", cancelled, [])
-        check("ComfyUI is still interrupted + cleared",
+        check("its ComfyUI is interrupted + cleared",
               [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
 
         # A cancel that FAILS must not stop the rest of Stop.
         cancelled.clear(); posted.clear()
         ba.runpod_cancel = lambda jid, endpoint: "HTTPError: 500"   # type: ignore
-        reset(running=True, proc=FakeProc(alive=False))
+        reset(running=True, proc=FakeProc(alive=True))
+        u._render_comfy = {"base": "http://unused", "headers": {}, "runpod": True}
         u._render_state["runpodJob"] = "bad-job"
         msg = u.stop_render()
         check_in("a failed cancel is reported, not swallowed",
                  "could not cancel", msg)
-        check("and ComfyUI is still told to stop",
-              [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
+        check_in("and the local subprocess is still stopped", "render stopped", msg)
     finally:
         ba.runpod_cancel = real_cancel          # type: ignore[assignment]
         u.urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
+        u._render_comfy = real_target
 
 
 def test_an_unreadable_poll_does_not_fail_a_running_still_render() -> None:
@@ -778,6 +791,153 @@ def test_the_job_id_reaches_the_ui_without_polluting_the_log() -> None:
           None)
 
 
+class _FakePopen:
+    """A render subprocess that runs `during(self)` mid-stream — the moment a
+    user presses Stop while their render is going."""
+
+    during = None
+
+    def __init__(self, cmd, **kw):
+        self.env = kw.get("env") or {}
+        self.returncode = None
+        self._alive = True
+        self.stdout = self._lines()
+
+    def _lines(self):
+        yield "[1/1] rendering\n"
+        if _FakePopen.during:
+            _FakePopen.during(self)
+
+    def poll(self):
+        return None if self._alive else -15
+
+    def terminate(self):
+        self._alive = False
+
+    def kill(self):
+        self._alive = False
+
+    def wait(self, timeout=None):
+        self.returncode = 0 if self._alive else -15
+        return self.returncode
+
+
+def _drive_run_cmd(comfy_env, during):
+    """Run the REAL `_run_cmd` against `_FakePopen`, with every ComfyUI POST
+    captured as (url, lower-cased headers) instead of sent."""
+    posted: list = []
+
+    def fake_urlopen(req, timeout=None):
+        posted.append((req.full_url, {k.lower(): v for k, v in req.header_items()}))
+
+        class R:
+            def read(self): return b"{}"
+        return R()
+
+    real_popen, real_urlopen = u.subprocess.Popen, u.urllib.request.urlopen
+    u.subprocess.Popen = _FakePopen             # type: ignore[assignment]
+    u.urllib.request.urlopen = fake_urlopen     # type: ignore[assignment]
+    _FakePopen.during = during
+    try:
+        reset()
+        u._run_cmd(["batch_atlas.py"], 1, comfy_env=comfy_env)
+    finally:
+        _FakePopen.during = None
+        u.subprocess.Popen = real_popen          # type: ignore[assignment]
+        u.urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
+    return posted
+
+
+def test_stop_reaches_the_comfyui_the_render_was_started_on() -> None:
+    """A "My computer" render runs on the USER'S ComfyUI (their per-user record,
+    `resolve_user_comfy_env`), but Stop posted `/interrupt` + `/queue {clear}` to
+    the import-time `batch_atlas.COMFY_BASE`: the user's box kept rendering and
+    the SHARED tunnel's queue — other people's jobs — was wiped."""
+    real_base, real_headers = ba.COMFY_BASE, ba.CF_HEADERS
+    ba.COMFY_BASE = "https://comfy.shared.test"
+    ba.CF_HEADERS = {"User-Agent": "InvisibleAtlas/1.0",
+                     "CF-Access-Client-Id": "shared-id",
+                     "CF-Access-Client-Secret": "shared-secret"}
+    seen: dict = {}
+
+    def press_stop(proc):
+        seen["target"] = u._render_comfy
+        seen["view"] = u.render_view(None, "c", "p").decode()
+        seen["msg"] = u.stop_render()
+
+    try:
+        posted = _drive_run_cmd({"COMFY_URL": "https://alice-box.test/",
+                                 "CF_ACCESS_CLIENT_ID": "alice-id",
+                                 "CF_ACCESS_CLIENT_SECRET": "alice-secret",
+                                 "COMFY_TRANSPORT": "http"}, press_stop)
+    finally:
+        ba.COMFY_BASE, ba.CF_HEADERS = real_base, real_headers
+    check("while it runs, the render's own ComfyUI is recorded",
+          (seen.get("target") or {}).get("base"), "https://alice-box.test")
+    check("Stop interrupts + clears THAT ComfyUI",
+          [url for url, _ in posted],
+          ["https://alice-box.test/interrupt", "https://alice-box.test/queue"])
+    check("and never the shared tunnel",
+          [url for url, _ in posted if "shared" in url], [])
+    check("with the render's own CF Access token",
+          {h.get("cf-access-client-id") for _, h in posted}, {"alice-id"})
+    check("the shared token never reaches the user's origin",
+          any("shared-secret" in h.values() for _, h in posted), False)
+    check("still with the non-blocked User-Agent (Cloudflare 403s urllib's)",
+          {h.get("user-agent") for _, h in posted}, {"InvisibleAtlas/1.0"})
+    check_in("Stop says what it did", "queue cleared", seen.get("msg", ""))
+    check_not_in("/progress never serves the recorded credentials",
+                 "alice-secret", seen.get("view", ""))
+    check("once the render ends, nothing is recorded", u._render_comfy, None)
+
+
+def test_a_shared_tunnel_render_stops_on_the_shared_tunnel() -> None:
+    """No per-user record: the render really is on the shared tunnel, with the
+    shared headers, and that is where its Stop goes."""
+    real_base, real_headers = ba.COMFY_BASE, ba.CF_HEADERS
+    ba.COMFY_BASE = "https://comfy.shared.test"
+    ba.CF_HEADERS = {"User-Agent": "InvisibleAtlas/1.0", "CF-Access-Client-Id": "shared-id",
+                     "CF-Access-Client-Secret": "shared-secret"}
+    try:
+        posted = _drive_run_cmd({"COMFY_TRANSPORT": "http"}, lambda p: u.stop_render())
+    finally:
+        ba.COMFY_BASE, ba.CF_HEADERS = real_base, real_headers
+    check("interrupt + clear go to the shared tunnel",
+          [url for url, _ in posted],
+          ["https://comfy.shared.test/interrupt", "https://comfy.shared.test/queue"])
+    check("with the shared token",
+          {h.get("cf-access-client-id") for _, h in posted}, {"shared-id"})
+
+
+def test_a_runpod_render_stop_touches_no_comfyui() -> None:
+    """The serverless transport runs the job on a RunPod worker: Stop cancels
+    the job (see above); the shared tunnel has nothing of this render's."""
+    posted = _drive_run_cmd({"COMFY_TRANSPORT": "serverless"}, lambda p: u.stop_render())
+    check("no ComfyUI is interrupted or cleared", posted, [])
+
+
+def test_with_nothing_running_stop_clears_no_shared_queue() -> None:
+    """An admin may press Stop on an empty slot; with no generation recorded
+    there is no queue of anyone's to clear — before this it wiped the shared
+    tunnel's. A compose (Create Atlas) talks to no ComfyUI at all."""
+    posted: list = []
+    real_urlopen = u.urllib.request.urlopen
+    u.urllib.request.urlopen = lambda req, timeout=None: posted.append(req.full_url)  # type: ignore
+    real_target = u._render_comfy
+    try:
+        reset()
+        u._render_comfy = None
+        msg = u.stop_render()
+    finally:
+        u.urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
+        u._render_comfy = real_target
+    check("an empty slot: nothing posted anywhere", posted, [])
+    check_in("and Stop says nothing was running", "nothing was running", msg)
+
+    posted = _drive_run_cmd(None, lambda p: u.stop_render())
+    check("a compose run: nothing posted to any ComfyUI", posted, [])
+
+
 def test_stop_clears_the_slot_for_the_next_render() -> None:
     reset(running=True, proc=FakeProc(alive=False))
     u.claim_render_slot()                      # heals + claims
@@ -808,6 +968,10 @@ if __name__ == "__main__":
                    test_a_job_is_polled_and_cancelled_on_the_endpoint_it_was_submitted_to,
                    test_a_job_with_no_recorded_endpoint_assumes_the_env_and_says_so,
                    test_the_job_id_reaches_the_ui_without_polluting_the_log,
+                   test_stop_reaches_the_comfyui_the_render_was_started_on,
+                   test_a_shared_tunnel_render_stops_on_the_shared_tunnel,
+                   test_a_runpod_render_stop_touches_no_comfyui,
+                   test_with_nothing_running_stop_clears_no_shared_queue,
                    test_stop_clears_the_slot_for_the_next_render):
             print(f"\n-- {fn.__name__}")
             fn()

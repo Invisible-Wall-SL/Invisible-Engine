@@ -4,13 +4,23 @@
 	import { Container } from 'pixi-svelte';
 	import { getContextBoard } from 'components-shared';
 
+	import StripSeat from './StripSeat.svelte';
 	import { getContext } from '../game/context';
 	import { activeGrid } from '../game/gameConfig';
+	import type { ReelStripView } from '../game/reelStripView.svelte';
 
 	type Props = {
 		debug?: boolean;
 		x: number;
-		y: number;
+		/** Where the cell is drawn, when nothing else places it (see `strip`). */
+		y?: number;
+		/**
+		 * A flat board's strip cell: its reel's strip view places the container and answers the cull
+		 * and the hold for `stripCell` from the reel's drawn position, so a rolling cell reads nothing
+		 * that changes every frame (`reelStripView.svelte.ts`). `y` is then unused.
+		 */
+		strip?: ReelStripView;
+		stripCell?: { symbolIndex: number };
 		animating: boolean;
 		/** The SEAT's row scale (`getSymbolSeat`). Perspective gives each row its own size; a flat
 		 *  board gives every row `1`. Applied to the container the symbol art already sizes itself
@@ -83,10 +93,13 @@
 			? (context.stateGameDerived.boardGeometry().rowPitchLocal * (props.scale ?? 1)) / 2
 			: 0,
 	);
+	const y = $derived(props.y ?? 0);
 	const inFrame = $derived(
-		margin === 0
-			? props.y >= top && props.y <= bottom
-			: props.y + margin > top && props.y - margin < bottom,
+		props.strip && props.stripCell
+			? props.strip.contains(props.stripCell.symbolIndex)
+			: margin === 0
+				? y >= top && y <= bottom
+				: y + margin > top && y - margin < bottom,
 	);
 	/**
 	 * Drawn early: in the half-row band above the window, its centre not yet inside. The art is held
@@ -96,7 +109,11 @@
 	 * symbol drawn early comes to rest further into its loops and every cosmetic draw after it shifts.
 	 * Only on the way in: on the way out the cell used to unmount, so nothing there runs early.
 	 */
-	const held = $derived(margin > 0 && props.y < top);
+	const held = $derived(
+		props.strip && props.stripCell
+			? props.strip.holds(props.stripCell.symbolIndex)
+			: margin > 0 && y < top,
+	);
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and
 	// dirties the transform. `pixi-svelte`'s `propsSyncEffect` skips undefined props, so an unscaled
@@ -112,11 +129,14 @@
 	     identical either way. -->
 	<Container
 		x={props.x}
-		y={props.y}
+		y={props.strip ? undefined : props.y}
 		{scale}
 		zIndex={props.zIndex}
 		visible={props.keepMounted ? props.debug || inFrame : undefined}
 	>
+		{#if props.strip && props.stripCell}
+			<StripSeat strip={props.strip} cell={props.stripCell} />
+		{/if}
 		{@render props.children(held)}
 	</Container>
 {/if}

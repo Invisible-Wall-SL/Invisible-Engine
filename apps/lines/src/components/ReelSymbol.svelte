@@ -18,6 +18,7 @@
 	import { activeGrid, boardDimensions } from '../game/gameConfig';
 	import { symbolZIndex } from '../game/paintOrder';
 	import { riderToken } from '../game/overlayRiders';
+	import type { ReelStripView } from '../game/reelStripView.svelte';
 
 	type Props = {
 		reelIndex: number;
@@ -29,6 +30,8 @@
 		/** Set by `ReelPaddingPool` only: this view is pooled and is handed one roll filler after
 		 *  another, each with its own key, so the art inside restarts per cell as a new mount would. */
 		instanceKey?: number;
+		/** This layer's view of the cell's reel, on a flat board (`BoardBase`). */
+		strip?: ReelStripView;
 	};
 
 	const props: Props = $props();
@@ -125,12 +128,21 @@
 	 * worse bug than the one this fixes.
 	 */
 	const spinning = $derived(stateGame.board[props.reelIndex]?.reelState.motion === 'spinning');
+	/**
+	 * On a FLAT board, a cell the strip places (no cascade seat) is positioned by its reel's strip
+	 * view, which writes the container's `y` from the reel's drawn position and answers the cull, so
+	 * nothing here reads a value that changes every frame (`reelStripView.svelte.ts`). It is the
+	 * same `symbolY` expression, drawn in the frame it is sampled for.
+	 */
+	const strip = $derived(cascade ? undefined : props.strip);
 	const y = $derived(
 		cascade
 			? cascade.y.current
 			: stateGameDerived.boardPerspective() && !spinning
 				? seat.y
-				: props.reelSymbol.symbolY(),
+				: strip
+					? undefined
+					: props.reelSymbol.symbolY(),
 	);
 
 	const symbolInfo = $derived(
@@ -175,6 +187,8 @@
 	<SymbolWrap
 		x={seat.x}
 		{y}
+		{strip}
+		stripCell={strip ? props.reelSymbol : undefined}
 		{zIndex}
 		reelIndex={props.reelIndex}
 		scale={seat.scale}

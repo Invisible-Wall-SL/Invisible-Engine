@@ -7,7 +7,9 @@
 		componentsTarget,
 		editorActionUrl,
 		editorSelfNavigation,
+		isEditorSelfNavigation,
 	} from '$lib/componentLinks';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -713,7 +715,7 @@
 	// anything else is a full document load (`editorSelfNavigation`).
 	beforeNavigate((navigation) => {
 		const to = navigation.to?.url;
-		if (navigation.willUnload || !to || to.pathname !== '/editor') return;
+		if (navigation.willUnload || !to || !isEditorSelfNavigation(navigation)) return;
 		navigation.cancel();
 		if (editorSelfNavigation(to, loadedProjectKey) === 'reload') {
 			window.location.assign(to.href);
@@ -3232,11 +3234,23 @@
 		await invalidateAll();
 	}
 
-	function onBeforeUnload(e: BeforeUnloadEvent): void {
-		if (!saveState.dirty) return;
-		e.preventDefault();
-		e.returnValue = '';
-	}
+	// The layout autosaves, but an edit inside the debounce — or one held by a failed save, a
+	// conflict, a cross-type preview or someone else's lease — lives only in this tab: ask before a
+	// tool-bar switch, Back, a reload or a tab close throws it away. A link to `/editor` itself is
+	// the page's own (above), so the guard stands down for it.
+	guardUnsavedWork(
+		() =>
+			saveState.dirty
+				? {
+						title: 'You have unsaved changes to this layout',
+						message:
+							'They have not been saved yet (see the save pill). Leaving this page discards them.',
+						confirmLabel: 'Leave anyway',
+						danger: true,
+					}
+				: null,
+		isEditorSelfNavigation,
+	);
 
 	/** Guards overlapping component refetches (see {@link onVisibilityChange}). */
 	let refreshingComponents = false;
@@ -3303,14 +3317,12 @@
 		loadUiState();
 		uiLoaded = true;
 		void lease.start();
-		window.addEventListener('beforeunload', onBeforeUnload);
 		window.addEventListener('pagehide', onUnloadReleaseLease);
 		document.addEventListener('visibilitychange', onVisibilityChange);
 		window.addEventListener('focus', onVisibilityChange);
 		window.addEventListener('keydown', onEditorKeyDown);
 		const id = window.setInterval(() => (nowTick = Date.now()), RELATIVE_TICK_MS);
 		return () => {
-			window.removeEventListener('beforeunload', onBeforeUnload);
 			window.removeEventListener('pagehide', onUnloadReleaseLease);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
 			window.removeEventListener('focus', onVisibilityChange);

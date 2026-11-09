@@ -51,6 +51,8 @@
 		type Scene,
 	} from 'engine-layout';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
+	import { guardUnsavedWork } from '$lib/unsavedGuard';
+	import { isEditorSelfNavigation } from '$lib/componentLinks';
 	import { mount, type Timeline, type TimelineEvaluator } from '$lib/timeline/timeline';
 	import {
 		NODE_IDENTITY,
@@ -1552,9 +1554,21 @@
 		});
 	});
 
-	function onBeforeUnload(e: BeforeUnloadEvent): void {
-		if (dirty) e.preventDefault();
-	}
+	// A timeline saves only on Save: ask before a tool-bar switch, Back, a reload or a tab close
+	// discards it. A link to `/editor` itself is the page's own to apply, so the guard stands down
+	// for it.
+	guardUnsavedWork(
+		() =>
+			dirty
+				? {
+						title: `You have unsaved changes to the timeline "${tl?.doc().name ?? openId}"`,
+						message: 'Leaving this page discards them.',
+						confirmLabel: 'Leave anyway',
+						danger: true,
+					}
+				: null,
+		isEditorSelfNavigation,
+	);
 
 	// The scene object is replaced on every node edit (a rename in Properties, say): re-bind the
 	// preview so it follows the screen the canvas is drawing.
@@ -1574,8 +1588,6 @@
 	onMount(() => {
 		void refresh();
 		void refreshShared();
-		window.addEventListener('beforeunload', onBeforeUnload);
-		return () => window.removeEventListener('beforeunload', onBeforeUnload);
 	});
 
 	onDestroy(() => {

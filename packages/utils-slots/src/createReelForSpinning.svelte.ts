@@ -1,6 +1,6 @@
 import type { Tween } from 'svelte/motion';
 import { sineOut, sineIn, backIn, linear } from 'svelte/easing';
-import { FrameTween } from 'pixi-svelte/frameClock';
+import { FrameTween } from 'pixi-svelte/frameTween';
 
 import { stateBet } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
@@ -35,8 +35,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		const rawSymbol = reelSymbolOptions.rawSymbol;
 		const symbolIndex = reelSymbolOptions.symbolIndex;
 		const symbolState = reelOptions.initialSymbolState;
-		const symbolY = () =>
-			reelY.current + (reelSymbol.symbolIndex + getSymbolLead()) * getSymbolHeight();
+		const symbolY = () => stripCellY(reelSymbol.symbolIndex, reelY.drawn);
 		const oncomplete = () => {};
 
 		const reelSymbol = $state({
@@ -139,14 +138,19 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			: (reelOptions.symbolLead ?? 0.5);
 	const homeY = () => -getSymbolHeight();
 	const reelLength = reelOptions.initialSymbols.length;
+	// Where a strip cell is drawn when the strip is drawn at `y`: the one expression `symbolY` and the
+	// board's own position pass (`strip.cellY`) both use.
+	const stripCellY = (symbolIndex: number, y: number) =>
+		y + (symbolIndex + getSymbolLead()) * getSymbolHeight();
 
 	// interruptible
 	const interruptible = createInterruptible();
 
 	// reactive states
-	// The strip's scroll offset: a Svelte `Tween` sampled at each frame's own timestamp instead of at
-	// the moment Svelte's frame callback runs (`pixi-svelte/frameClock`), so every step it draws is a
-	// frame's interval times the speed.
+	// The strip's scroll offset. `current` and every promise below are a Svelte `Tween`'s, sampled at
+	// each frame's timestamp, as they have been; `drawn` is where the strip is DRAWN: the same motion,
+	// stepped before the Pixi tick so each frame draws its own sample, and run on through a lap's end
+	// (`pixi-svelte/frameClock`). Only drawing reads it — `symbolY` and the board's position pass.
 	const reelY = new FrameTween(homeY());
 	// Height the reel was last HOMED to. Seeded here (reel-creation time) — NOT in
 	// `readyToSpinEffect` — so a reactive pitch change that lands BEFORE the board
@@ -260,18 +264,22 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		speed,
 		easing = undefined,
 		rampMs = undefined,
+		runOn = false,
 	}: {
 		reelY: number;
 		speed: number;
 		easing?: (value: number) => number;
 		/** Accelerate from rest to `speed` over this many ms, then hold it (no wind-up). */
 		rampMs?: number;
+		/** The slide that follows carries on the same way (a lap into the next lap, the cruise into
+		 *  the last stretch), so the frame this one ends on draws the strip where that one has it. */
+		runOn?: boolean;
 	}) => {
 		const distance = Math.abs(targetY - (reelY.current - handoverShift));
 		handoverShift = 0;
 		const cruise = distance / speed; // (speed unit: pixel / ms)
 		if (rampMs == null || rampMs <= 0 || distance === 0) {
-			await reelY.set(targetY, { duration: cruise, easing });
+			await reelY.set(targetY, { duration: cruise, easing, runOn });
 			return;
 		}
 		// A linear ramp covers half the distance it would at full speed, so it costs `ramp / 2`.
@@ -282,7 +290,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			const covered = ms < ramp ? (speed * ms * ms) / (2 * ramp) : speed * (ms - ramp / 2);
 			return Math.min(covered / distance, 1);
 		};
-		await reelY.set(targetY, { duration, easing: rampIn });
+		await reelY.set(targetY, { duration, easing: rampIn, runOn });
 	};
 
 	const placeY = (targetY: number) => reelY.set(targetY, { duration: 0 });
@@ -352,7 +360,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			const windUp = !isTurboBeforeAll && (legacyStart || (options.reelWindUp ?? 0) > 0);
 			const easing = started || !windUp ? linear : backIn;
 			const rampMs = started || windUp ? undefined : options.reelSpinUpDuration;
-			await slideY({ reelY: homeY(), speed, easing, rampMs });
+			// A wind-up lap ends faster than the laps after it, so only a lap that ends at the roll's
+			// speed runs on into the next.
+			await slideY({ reelY: homeY(), speed, easing, rampMs, runOn: easing === linear });
 			// The spin took over while this lap was sliding: the strip is its strip now.
 			if (!isPreSpinning) break;
 			await preSpinPadding({ preSpinPaddingRawReel });
@@ -458,6 +468,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				await slideY({
 					reelY: cruiseEndY(),
 					speed: reelState.spinOptions().reelSpinSpeed,
+					runOn: true,
 				});
 				await slideY({
 					reelY: slideEndY(),
@@ -472,6 +483,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				await slideY({
 					reelY: cruiseEndY(),
 					speed: reelState.spinOptions().reelSpinSpeed,
+					runOn: true,
 				});
 				await slideY({
 					reelY: slideEndY(),
@@ -486,6 +498,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 				await slideY({
 					reelY: cruiseEndY(),
 					speed: reelState.spinOptions().reelSpinSpeedSequential,
+					runOn: true,
 				});
 				await slideY({
 					reelY: slideEndY(),
@@ -641,5 +654,16 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		createSymbols: createReelSymbols,
 		setSymbolsWithReelSymbols,
 		readyToSpinEffect,
+		/**
+		 * The strip as the board DRAWS it, for a board that positions its cells itself instead of
+		 * through `symbolY()` (one write per cell per frame, nothing reactive). `drawnY` is where the
+		 * strip is drawn now, `listen` hears every new value as it is made (before the Pixi tick of
+		 * a moving frame; at once for a placement), and `cellY` is `symbolY`'s own expression.
+		 */
+		strip: {
+			drawnY: () => reelY.drawnNow,
+			listen: (listener: (drawnY: number) => void) => reelY.listen(listener),
+			cellY: stripCellY,
+		},
 	};
 }

@@ -23,6 +23,7 @@ import {
 	componentsTarget,
 	editorActionUrl,
 	editorSelfNavigation,
+	isEditorSelfNavigation,
 } from '../src/lib/componentLinks.ts';
 import {
 	etagAdoption,
@@ -132,6 +133,19 @@ check(
 	'a link to /editor naming another project reloads',
 	editorSelfNavigation(at('/editor?project=Y&component=coin'), 'X'),
 	'reload',
+);
+// The leave guards on /editor stand down for exactly these, and ask for every other tool.
+check(
+	'a link to /editor is the page’s own, whatever it names',
+	[at('/editor?view=components&project=X'), at('/editor')].map((url) =>
+		isEditorSelfNavigation({ to: { url } }),
+	),
+	[true, true],
+);
+check(
+	'a link to another tool, or to nowhere, is not',
+	[{ to: { url: at('/flow-v2?project=X') } }, { to: null }].map(isEditorSelfNavigation),
+	[false, false],
 );
 const bar = readFileSync(`${src}lib/ToolTopBar.svelte`, 'utf8');
 check('the tool bar builds its links with withProject', bar.includes('withProject(tool.url'), true);
