@@ -513,6 +513,14 @@ console.log('\n6. shelfPack — the ONE packer, shared with the Font Maker');
 	}
 	ok('an item taller than the page fails clearly', threw === 'TOO TALL', threw);
 
+	let tooWide = '';
+	try {
+		RT.shelfPack([{ width: 999, height: 10 }], { maxWidth: 64, maxHeight: 64, tooWideMessage: 'TOO WIDE' });
+	} catch (e) {
+		tooWide = e.message;
+	}
+	ok('an item wider than the page fails clearly', tooWide === 'TOO WIDE', tooWide);
+
 	let pagedOut = '';
 	try {
 		RT.shelfPack(

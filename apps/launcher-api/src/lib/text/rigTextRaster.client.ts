@@ -398,6 +398,7 @@ export async function bakeRigTextPage(requests: RigTextRequest[]): Promise<RigTe
 			gap: PAGE_GAP,
 			maxPages: 1,
 			tooTallMessage: `A rasterised string is taller than ${PAGE_MAX}px — reduce the text size.`,
+			tooWideMessage: `A rasterised string is wider than ${PAGE_MAX}px — reduce the text size.`,
 			tooManyPagesMessage: () =>
 				`This rig’s text does not fit on one ${PAGE_MAX}×${PAGE_MAX} page — reduce the text ` +
 				'size, or split it across two rigs.',

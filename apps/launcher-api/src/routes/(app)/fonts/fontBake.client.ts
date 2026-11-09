@@ -450,6 +450,9 @@ function packTiles(
 			tooTallMessage:
 				'A glyph is taller than the max page height — increase the max page height or ' +
 				'reduce the glyph size.',
+			tooWideMessage:
+				'A glyph is wider than the max page width — increase the max page width or ' +
+				'reduce the glyph size.',
 			tooManyPagesMessage: (max) =>
 				`Glyph atlas needs more than ${max} pages — try a smaller size, a smaller ` +
 				'charset, or a larger page.',

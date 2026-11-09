@@ -45,6 +45,8 @@ export interface ShelfPackOptions {
 	maxPages?: number;
 	/** Message for an item taller than any page can hold. */
 	tooTallMessage?: string;
+	/** Message for an item wider than any page can hold. */
+	tooWideMessage?: string;
 	/** Message for exceeding `maxPages`. */
 	tooManyPagesMessage?: (maxPages: number) => string;
 }
@@ -87,6 +89,14 @@ export function shelfPack(items: ShelfItem[], opts: ShelfPackOptions): ShelfPack
 			throw new Error(
 				opts.tooTallMessage ??
 					'An item is taller than the max page height — increase it or reduce the item size.',
+			);
+		}
+		// …and the same for width: the shelf wrap below never fires for a shelf's FIRST item, so
+		// without this an over-wide item would be placed anyway and the page would outgrow maxWidth.
+		if (item.width + gap * 2 > maxWidth) {
+			throw new Error(
+				opts.tooWideMessage ??
+					'An item is wider than the max page width — increase it or reduce the item size.',
 			);
 		}
 		if (penX + item.width + gap > maxWidth && penX > gap) {
