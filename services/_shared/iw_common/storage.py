@@ -50,6 +50,16 @@ def _bucket() -> str:
     return os.environ["R2_BUCKET"]
 
 
+_R2_ENV = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
+
+
+def configured() -> bool:
+    """Whether R2 credentials are present at all. Without them every call here
+    fails, which means "a local, R2-less run", not "a write was lost" — so a
+    caller that reports push failures asks this first."""
+    return all(os.environ.get(k) for k in _R2_ENV)
+
+
 def _ctype(key: str) -> str:
     return mimetypes.guess_type(key)[0] or "application/octet-stream"
 
@@ -230,11 +240,14 @@ def head(key: str) -> dict | None:
     }
 
 
-def delete(key: str) -> None:
+def delete(key: str) -> bool:
+    """Remove one object. Never raises; returns whether R2 accepted the delete
+    (a key that is already gone is a success — S3 deletes are idempotent)."""
     try:
         _client().delete_object(Bucket=_bucket(), Key=key)
+        return True
     except Exception:  # noqa: BLE001
-        pass
+        return False
 
 
 def list_prefixes(prefix: str, complete: bool = True) -> list[str]:
@@ -378,9 +391,15 @@ def pull_prefix(prefix: str, dest_root: Path, key_root: str) -> int:
         return sum(pool.map(_one, entries))
 
 
-def push_dir(src_root: Path, key_root: str) -> int:
+def push_dir(src_root: Path, key_root: str,
+             failures: list[str] | None = None) -> int:
     """Upload every file under `src_root` to R2 at `key_root/<relpath>`.
-    Returns the number of files pushed. Best-effort, no deletes."""
+    Returns the number of files pushed. Never raises, no deletes.
+
+    A file that did not reach R2 is appended to `failures` (when given) as
+    `"<key>: <ExcType>: <message>"`. Without it a read-only token or an R2
+    outage looked exactly like a success, while the only copy of the file was
+    this container's staging dir — gone on the next deploy."""
     n = 0
     if not src_root.exists():
         return 0
@@ -392,8 +411,9 @@ def push_dir(src_root: Path, key_root: str) -> int:
         try:
             put(key, p.read_bytes())
             n += 1
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            if failures is not None:
+                failures.append(f"{key}: {type(e).__name__}: {e}")
     return n
 
 
