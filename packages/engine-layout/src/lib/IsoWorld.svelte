@@ -3,6 +3,8 @@
 	import { Container } from 'pixi-svelte';
 
 	import IsoTilemap from './IsoTilemap.svelte';
+	import MountedArt from './MountedArt.svelte';
+	import { fieldArtOf } from './arcadeArt.svelte';
 	import { isoDepthOrder, isoProject, isoUnproject } from './projection';
 	import type { LayoutNode } from './types';
 	import { setWorldProjection, worldCameraView } from './worldCameraView.svelte';
@@ -19,7 +21,9 @@
 	 *   world point inside them is their place plus the point, projected;
 	 * - anything else as ground: the node drawn flat, then the plane turned 45° and squashed to half
 	 *   its height, so a rectangle of the world is the diamond it covers. A spawn layer or tilemap
-	 *   nested in it is drawn there as it would be flat, never projected twice.
+	 *   nested in it is drawn there as it would be flat, never projected twice;
+	 * - a ground node an online room draws in code (`arcadeArt.svelte.ts`: Salmons' river) by that
+	 *   art instead, at the projected origin (the art projects its own world points).
 	 * The places themselves stay flat world px: the loop and the room never see the projection.
 	 */
 	type Props = { nodes: readonly LayoutNode[]; node: Snippet<[LayoutNode]> };
@@ -45,8 +49,13 @@
 {#if view.w > 0 && view.h > 0}
 	<Container x={origin.x} y={origin.y}>
 		{#each nodes as n (n.id)}
+			{@const art = fieldArtOf(n.id)}
 			{#if n.kind === 'spawnLayer' || n.kind === 'tilemap'}
 				{@render render(n)}
+			{:else if art}
+				{#key art}
+					<MountedArt mount={art} zIndex={n.zIndex} />
+				{/key}
 			{:else}
 				<Container scale={{ x: 1, y: 0.5 }} zIndex={n.zIndex}>
 					<Container rotation={Math.PI / 4} scale={Math.SQRT2}>

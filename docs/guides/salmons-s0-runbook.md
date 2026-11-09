@@ -1,5 +1,10 @@
 # Salmons S0 — the owner's runbook for the character clips
 
+> **Superseded (owner, 2026-11-09).** Generating clips was rejected: Salmons draws the original
+> game's own art, animated in code, built into the runtime
+> ([status/salmons.md](../status/salmons.md) "Original art"). Nothing here needs doing. A clip made
+> with these steps would still play over the code look.
+
 Make Salmons' character animations in the launcher. Everything runs in the project
 **`salmons`** (client `invisible_wall`) at `app.invisiblewall.org`. The tools save straight into
 the project, so no files are downloaded and only two are uploaded, once (step A).

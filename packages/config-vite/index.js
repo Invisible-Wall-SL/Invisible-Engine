@@ -16,6 +16,8 @@ import { buildProvenance } from './provenance.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
 const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
+/** Salmons' built-in art (`engine-layout` `salmonsArt/sheets/`): fetched only by a Salmons room. */
+const SALMONS_ART_RE = /[\\/]salmonsArt[\\/]sheets[\\/][^\\/]+\.webp$/;
 
 const NODE_ENV = process.env.NODE_ENV;
 let dev = NODE_ENV === 'development';
@@ -267,9 +269,10 @@ export default () => {
 		// compressed tier ever fetches it, so it ships as a real `_app/immutable/assets/` file instead
 		// of a base64 copy every desktop downloads. The bundle is an ES module, so its URL is
 		// `new URL(…, import.meta.url)`: beside the bundle, wherever the build is served from.
-		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load.
+		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load. Salmons' built-in art
+		// likewise: only a Salmons room fetches it (`engine-layout/salmons-art`).
 		build: {
-			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file),
+			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file) && !SALMONS_ART_RE.test(file),
 			sourcemap: sourcemap(),
 			output: {
 				sourcemap: sourcemap(),

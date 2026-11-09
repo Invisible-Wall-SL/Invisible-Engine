@@ -24,7 +24,12 @@
 // gold; H's cast hooks it and both draw the line until it is landed, and again until H leaves (the
 // line breaks); page G2 then takes the golden salmon over and shows its banner. The rules' events
 // (`climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `golden`) reach each page's flow. The
-// playbook is docs/playtest/salmons.md. It builds its own
+// original art (built in, `engine-layout/salmons-art`): each page whose config names the
+// `salmonsRiver` generator draws the river in the old game's images (grass, trees, rocks,
+// whirlpools, waterfalls) and its characters as code looks (the salmon a rope through its pink or
+// golden texture, the bear's sprite and its swipe, the fisherman's circle, the line 0xddddaa from
+// his hand); a published clip still wins (page S). The pages boot the snapshot's config, which names
+// the generator, so every page draws the art. The playbook is docs/playtest/salmons.md. It builds its own
 // snapshot and config, so the current-games harness is not touched. `--netcode colyseus` plays it
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
 // camera under that netcode; the pages must report the mode they ran.
@@ -298,6 +303,7 @@ const rooms = createGameServer({
 	gracefullyShutdown: false,
 });
 await rooms.listen(roomsPort);
+let roomsClosed = false;
 
 const paramsFor = (extra) =>
 	new URLSearchParams({
@@ -458,15 +464,26 @@ function lineAt(png, arcade, by, target) {
 	const from = arcade?.online?.drawn.find((d) => d.id === by);
 	const to = arcade?.online?.drawn.find((d) => d.id === target);
 	if (!cam || !from || !to) return { ok: false, cam, from, to };
-	const a = isoScreen(png, cam, from, 88 * 0.75);
-	const b = isoScreen(png, cam, to, 22);
+	// Drawn in the original art: from the fisherman's hand to the salmon's middle, 0xddddaa,
+	// wiggling for its first 450 ms.
+	const looks = arcade.online.art?.looks;
+	const hand = looks?.[by]?.hand;
+	const art = !!hand;
+	const a = isoScreen(png, cam, from, art ? hand.lift : 88 * 0.75);
+	if (art) a.x += Math.round(hand.dx * (png.width / cam.view.w));
+	const b = isoScreen(png, cam, to, art ? (looks[target]?.middle ?? 22) : 22);
+	const reach = art ? 12 : 3;
+	const lineColour = (rgb) =>
+		art
+			? rgb[0] > 185 && Math.abs(rgb[0] - rgb[1]) < 25 && rgb[2] > 120 && rgb[2] < 205
+			: rgb.every((v) => v > 235);
 	const near = (t) => {
 		const x = Math.round(a.x + (b.x - a.x) * t);
 		const y = Math.round(a.y + (b.y - a.y) * t);
-		for (let oy = -3; oy <= 3; oy++)
-			for (let ox = -3; ox <= 3; ox++) {
+		for (let oy = -reach; oy <= reach; oy++)
+			for (let ox = -reach; ox <= reach; ox++) {
 				const rgb = rgbAt(png, { x: x + ox, y: y + oy });
-				if (rgb && rgb.every((v) => v > 235)) return true;
+				if (rgb && lineColour(rgb)) return true;
 			}
 		return false;
 	};
@@ -621,6 +638,38 @@ try {
 		iso,
 	);
 
+	// The original art: the river a seed made, drawn in the old game's images, and the characters.
+	const artA = (await a.state()).arcade?.online?.art;
+	const made = riverA.made?.made;
+	const regionsA = artA?.regions ?? {};
+	const sum = (prefix) =>
+		Object.entries(regionsA)
+			.filter(([name]) => name.startsWith(prefix))
+			.reduce((total, [, n]) => total + n, 0);
+	verdict(
+		'art: page A draws its room’s river in the original images (grass, trees, rocks, whirlpools, waterfalls)',
+		!!made &&
+			regionsA.grass_c > 100 &&
+			sum('grass_') > regionsA.grass_c &&
+			sum('tree_') > 50 &&
+			sum('rock_') === (made.rocks?.length ?? 0) &&
+			sum('whirlpool_') === made.whirlpools.length * 4 &&
+			(regionsA.waterfall_face ?? 0) === (made.waterfalls?.length ?? 0) * 2 &&
+			sum('sand_') > 0,
+		{ regionsA, rocks: made?.rocks?.length, pools: made?.whirlpools.length },
+	);
+	verdict(
+		'…and its salmon (the room’s only one, golden) as a rope through the golden salmon texture',
+		artA?.looks?.[me]?.kind === 'rope' && artA.looks[me].region === 'salmon_golden',
+		artA?.looks?.[me],
+	);
+	const lookB = (await b.state()).arcade?.online?.art?.looks?.[meB];
+	verdict(
+		'page B draws its bear as the bear sprite',
+		lookB?.kind === 'sprite' && lookB.region === 'bear',
+		lookB,
+	);
+
 	// The HUD: the room's own values, bound as variables the room owns.
 	const hudA = await shown(a);
 	const roomA = (await a.state()).arcade?.online;
@@ -648,6 +697,7 @@ try {
 	await b.play([{ op: 'step', frames: 3 }]);
 	const pressed = (await b.state()).arcade?.online;
 	await b.key('KeyJ', 'up');
+	const clawB = pressed?.art?.looks?.[meB];
 	const predicted = pressed?.signals.filter((s) => s.name === 'ability' && s.payload.mine);
 	const toldYet = pressed?.events.filter((e) => e.type === 'ability' && e.by === meB);
 	verdict(
@@ -661,6 +711,7 @@ try {
 	);
 	writeFileSync(join(out, '04-bear-swipes.png'), await b.page.screenshot());
 	result.shots.push('04-bear-swipes.png');
+	verdict('…its claw streak sweeps beside the bear sprite', clawB?.swiping === true, clawB);
 	await settle(b, 800);
 	const after = (await b.state()).arcade?.online;
 	verdict(
@@ -865,16 +916,45 @@ try {
 		}
 		return false;
 	};
-	const hooked = await castUntilHooked();
-	const lineH = lineAt(await shotOf(h, '12-the-line.png'), (await h.state()).arcade, meH, meG);
-	await settle(g, 150);
-	const linesG = (await drawnOf(g)).lines ?? [];
+	const lookH = (await drawnOf(h)).art?.looks?.[meH];
+	verdict(
+		'page H draws its fisherman as the original circle, his line from his hand',
+		lookH?.kind === 'circle' && !!lookH.hand && lookH.hand.dx > 0,
+		lookH,
+	);
+	// The reel lands the salmon within about a second, and pages drawing the art step slowly in the
+	// headless shell: H's state is read in the frame its line shows, page G is stepped at once (it
+	// draws a line only in a frame while the salmon is hooked), and H's screen is taken after (a
+	// page's canvas holds its last stepped frame).
+	await h.key('KeyJ', 'down');
+	await h.play([{ op: 'step', frames: 3 }]);
+	await h.key('KeyJ', 'up');
+	let arcadeH;
+	for (let i = 0; i < 30 && !arcadeH; i++) {
+		await settle(h, 100);
+		const seen = (await h.state()).arcade;
+		if (seen?.online?.lines?.some((l) => l.by === meH && l.target === meG)) arcadeH = seen;
+	}
+	const hooked = !!arcadeH;
+	let linesG = [];
+	for (let i = 0; i < 8 && hooked && !linesG.some((l) => l.by === meH && l.target === meG); i++) {
+		await g.play([{ op: 'step', frames: 2 }]);
+		linesG = (await drawnOf(g)).lines ?? [];
+	}
+	const shotH = await shotOf(h, '12-the-line.png');
+	const lineH = lineAt(shotH, arcadeH, meH, meG);
+	const lineArt = arcadeH?.online?.art?.lines ?? [];
 	const hookedG = await signalsOf(g, 'hooked');
 	const splash = [...((await drawnOf(g)).spawned ?? []), ...((await drawnOf(h)).spawned ?? [])];
 	verdict(
 		'page H’s cast hooks the salmon: both pages draw the line from the fisherman to it',
 		hooked && lineH.ok && linesG.some((l) => l.by === meH && l.target === meG),
 		{ hooked, lineH, linesG },
+	);
+	verdict(
+		'…the old client’s line: 0xddddaa',
+		lineArt.length > 0 && lineArt.every((c) => c === 0xddddaa),
+		lineArt,
 	);
 	verdict(
 		'…Flow hears `hooked` on page G (it is on the line) and draws the splash',
@@ -891,7 +971,12 @@ try {
 	await settle(h, 300);
 	const goneH = await drawnOf(h);
 	const goneG = await drawnOf(g);
-	const lineGone = lineAt(await shotOf(h, '13-landed.png'), (await h.state()).arcade, meH, meG);
+	const arcadeLanded = (await h.state()).arcade;
+	// In the art the line's colour is the sandbank's under the salmon: the probe says it is gone.
+	const lineGone = arcadeLanded?.online?.art
+		? { ok: (arcadeLanded.online.art.lines ?? []).length > 0 }
+		: lineAt(await shotOf(h, '13-landed.png'), arcadeLanded, meH, meG);
+	if (arcadeLanded?.online?.art) await shotOf(h, '13-landed.png');
 	verdict(
 		'…reeled in and landed (`caught`): the line is gone on both pages',
 		!!landed && !goneH.lines?.length && !goneG.lines?.length && !lineGone.ok,
@@ -904,9 +989,6 @@ try {
 		if ((await drawnOf(h)).drawn.some((d) => d.id === meG)) break;
 	}
 	await settle(h, 1500);
-	const again = await castUntilHooked();
-	await settle(g, 200);
-	const linedG = (await drawnOf(g)).lines ?? [];
 	for (const [name, game] of [
 		['G', g],
 		['H', h],
@@ -916,6 +998,13 @@ try {
 		verdict(`page ${name} sends the RGS nothing`, rgs.length === 0, rgs);
 		const errors = await game.page.evaluate('window.__AR_ERRORS__');
 		verdict(`page ${name}: no page error`, errors.length === 0, errors);
+	}
+	// H leaves as soon as the salmon is on the line again, before the reel lands it.
+	const again = await castUntilHooked();
+	let linedG = [];
+	for (let i = 0; i < 8 && again && !linedG.some((l) => l.by === meH); i++) {
+		await g.play([{ op: 'step', frames: 2 }]);
+		linedG = (await drawnOf(g)).lines ?? [];
 	}
 	await h.page.close();
 	let escaped;
@@ -940,6 +1029,14 @@ try {
 	);
 	await settle(g2, 400);
 	const { me: meG2 } = await drawnOf(g2);
+	const looksG2 = (await drawnOf(g2)).art?.looks ?? {};
+	verdict(
+		'page G2 draws its own salmon pink and page G’s golden, each a rope through its texture',
+		looksG2[meG2]?.kind === 'rope' &&
+			looksG2[meG2].region === 'salmon_pink' &&
+			looksG2[meG]?.region === 'salmon_golden',
+		{ mine: looksG2[meG2], golden: looksG2[meG] },
+	);
 	await g.page.close();
 	let banner;
 	for (let i = 0; i < 30 && !banner; i++) {
@@ -1049,18 +1146,24 @@ try {
 		!!jumpedS && hopAt >= 0 && logS.slice(hopAt + 1).includes(`${meS}:salmon_pink_swim_ne`),
 		{ jumpedS, logS },
 	);
-	const bearShot = await shotOf(tPage, '16-bear-placeholder.png');
+	const bearShot = await shotOf(tPage, '16-bear-code-look.png');
 	const arcadeT = (await tPage.state()).arcade;
 	const atT = arcadeT?.online?.drawn.find((d) => d.id === meT);
+	const lookT = arcadeT?.online?.art?.looks?.[meT];
 	const bearRgb =
-		arcadeT?.camera && atT && rgbAt(bearShot, isoScreen(bearShot, arcadeT.camera, atT, 46));
-	const brown = [0x6b, 0x44, 0x23];
+		arcadeT?.camera &&
+		atT &&
+		rgbAt(bearShot, isoScreen(bearShot, arcadeT.camera, atT, lookT?.middle ?? 46));
+	// The bear sprite's fur: brown, red over green over blue.
 	verdict(
-		'page T: the bear, with no clips, plays none and keeps its placeholder',
+		'page T: the bear, with no clips, plays none and keeps its code look (the bear sprite)',
 		!(meT in ((await drawnOf(tPage)).clips ?? {})) &&
+			lookT?.region === 'bear' &&
 			!!bearRgb &&
-			bearRgb.every((v, i) => Math.abs(v - brown[i]) < 14),
-		{ bearRgb, clips: (await drawnOf(tPage)).clips },
+			bearRgb[0] > bearRgb[1] &&
+			bearRgb[1] > bearRgb[2] &&
+			bearRgb[0] - bearRgb[2] > 30,
+		{ bearRgb, lookT, clips: (await drawnOf(tPage)).clips },
 	);
 
 	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
@@ -1109,6 +1212,22 @@ try {
 		const errors = await game.page.evaluate('window.__AR_ERRORS__');
 		verdict(`page ${name}: no page error`, errors.length === 0, errors);
 	}
+	// The room goes (the server shuts down): page A's river art is torn down, every piece of it.
+	const artBefore = (await a.state()).arcade?.fieldArt;
+	await rooms.close();
+	roomsClosed = true;
+	let artAfter;
+	for (let i = 0; i < 30; i++) {
+		await wait(100);
+		artAfter = await a.state().catch(() => undefined);
+		artAfter = artAfter?.arcade?.fieldArt;
+		if (artAfter?.live === 0) break;
+	}
+	verdict(
+		'art: when the room goes, page A’s river is destroyed (none drawn, every piece it made destroyed)',
+		artBefore?.live === 1 && artAfter?.live === 0 && artAfter.destroyed === true,
+		{ artBefore, artAfter },
+	);
 	await a.page.close();
 	await b.page.close();
 	await c.page.close();
@@ -1119,7 +1238,7 @@ try {
 	await tPage.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
-	await rooms.close();
+	if (!roomsClosed) await rooms.close();
 	await server.close?.();
 	await snap.close?.();
 	await snapNoRiver.close?.();

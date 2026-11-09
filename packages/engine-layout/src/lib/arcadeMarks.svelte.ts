@@ -20,7 +20,27 @@ export type InstanceMark = { width: number };
  * lift above the instance's place (its feet), so the line runs from the holder's hand to the middle
  * of the one on it; flat, it runs centre to centre.
  */
-export type InstanceLink = { from: string; to: string; fromLift: number; toLift: number };
+export type InstanceLink = {
+	from: string;
+	to: string;
+	fromLift: number;
+	toLift: number;
+	style?: InstanceLinkStyle;
+};
+
+/**
+ * How a line is drawn when its game draws it its own way (Salmons' fishing line); without one, a
+ * plain white line. `fromDx` moves its start sideways (to a hand), `wiggle` bends it in a sine of
+ * `amp` px at `phase` (the cast's), `dot` marks its far end.
+ */
+export type InstanceLinkStyle = {
+	fromDx: number;
+	width: number;
+	color: number;
+	alpha: number;
+	dot?: { r: number; color: number };
+	wiggle?: { amp: number; phase: number };
+};
 
 const state = $state({ on: false });
 const marks = new SvelteMap<string, InstanceMark>();
@@ -49,7 +69,8 @@ const sameLinks = (a: readonly InstanceLink[], b: readonly InstanceLink[]) =>
 			link.from === b[i].from &&
 			link.to === b[i].to &&
 			link.fromLift === b[i].fromLift &&
-			link.toLift === b[i].toLift,
+			link.toLift === b[i].toLift &&
+			JSON.stringify(link.style) === JSON.stringify(b[i].style),
 	);
 
 /** Publish layer `layer`'s lines after a frame (only when they changed). */

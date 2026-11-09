@@ -25,7 +25,9 @@
 		resolveFlipbook,
 		type FlipbookClipEntry,
 	} from './registerFlipbooks';
-	import { linksOf, markOf, marksOn } from './arcadeMarks.svelte';
+	import { linksOf, markOf, marksOn, type InstanceLink } from './arcadeMarks.svelte';
+	import { codeLookOf } from './arcadeArt.svelte';
+	import MountedArt from './MountedArt.svelte';
 	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
 	const { node, space }: Props = $props();
@@ -113,17 +115,55 @@
 	};
 	onDestroy(() => gold?.[0].destroy());
 	const placeOf = (id: string) => places[id] ?? instances.find((i) => i.id === id);
+	const ends = (link: InstanceLink) => {
+		const from = placeOf(link.from);
+		const to = placeOf(link.to);
+		if (!from || !to) return undefined;
+		const a = projection ? projection.project(from.x, from.y) : from;
+		const b = projection ? projection.project(to.x, to.y) : to;
+		return {
+			a: { x: a.x + (link.style?.fromDx ?? 0), y: a.y - (projection ? link.fromLift : 0) },
+			b: { x: b.x, y: b.y - (projection ? link.toLift : 0) },
+		};
+	};
+	// A styled line (Salmons' fishing line, `InstanceLink.style`): its own stroke, a sine wiggle
+	// fading along it after the cast (zero at both ends), and a dot at the far end.
+	const WIGGLE = { segments: 24, waves: 3 };
 	const drawLinks = (g: PixiGraphics) => {
+		const styled: InstanceLink[] = [];
 		for (const link of linksOf(node.id)) {
-			const from = placeOf(link.from);
-			const to = placeOf(link.to);
-			if (!from || !to) continue;
-			const a = projection ? projection.project(from.x, from.y) : from;
-			const b = projection ? projection.project(to.x, to.y) : to;
-			g.moveTo(a.x, a.y - (projection ? link.fromLift : 0));
-			g.lineTo(b.x, b.y - (projection ? link.toLift : 0));
+			if (link.style) {
+				styled.push(link);
+				continue;
+			}
+			const at = ends(link);
+			if (!at) continue;
+			g.moveTo(at.a.x, at.a.y);
+			g.lineTo(at.b.x, at.b.y);
 		}
 		g.stroke(LINE);
+		for (const link of styled) {
+			const at = ends(link);
+			const style = link.style;
+			if (!at || !style) continue;
+			const { a, b } = at;
+			g.moveTo(a.x, a.y);
+			if (style.wiggle && style.wiggle.amp >= 0.5) {
+				const dx = b.x - a.x;
+				const dy = b.y - a.y;
+				const len = Math.hypot(dx, dy) || 1;
+				for (let i = 1; i <= WIGGLE.segments; i++) {
+					const u = i / WIGGLE.segments;
+					const wave =
+						Math.sin(u * Math.PI * 2 * WIGGLE.waves + style.wiggle.phase) *
+						style.wiggle.amp *
+						Math.sin(u * Math.PI);
+					g.lineTo(a.x + dx * u - (dy / len) * wave, a.y + dy * u + (dx / len) * wave);
+				}
+			} else g.lineTo(b.x, b.y);
+			g.stroke({ width: style.width, color: style.color, alpha: style.alpha });
+			if (style.dot) g.circle(b.x, b.y, style.dot.r).fill(style.dot.color);
+		}
 	};
 
 	// A character's clip (`arcadeClips.svelte.ts`), drawn with the bottom centre of its box (its
@@ -189,6 +229,7 @@
 	{#if marksOn()}
 		{@const mark = markOf(instance.id)}
 		{@const clip = played(instance.id)}
+		{@const code = clip ? undefined : codeLookOf(instance.id)}
 		{#if mark}
 			<!-- On the ground: a hop's lifted container is raised by `z`, the glow is not. -->
 			<Graphics y={liftsOn() ? (liftOf(instance.id)?.z ?? 0) : 0} draw={glowOf(mark.width)} />
@@ -205,7 +246,13 @@
 				{/key}
 			</Container>
 		{/if}
-		<Container filters={mark ? goldFilters() : []} visible={!clip}>
+		{#if code}
+			<!-- Drawn in code (`arcadeArt.svelte.ts`): its own gold, if any, is its art's. -->
+			{#key code}
+				<MountedArt mount={code} />
+			{/key}
+		{/if}
+		<Container filters={mark ? goldFilters() : []} visible={!clip && !code}>
 			<ComponentInstance node={instanceNode(instance)} {space} />
 		</Container>
 	{:else}

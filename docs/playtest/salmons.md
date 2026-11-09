@@ -37,6 +37,13 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   ([status/salmons](../status/salmons.md) open item 1). The
   runtime draws the golden salmon (the room's `mark`) gold over a glow, and a fisherman's line to
   the salmon he has hooked, from the room's state: no component carries them.
+- **The original art** (built in, `engine-layout/salmons-art`, loaded lazily only for a config
+  naming the `salmonsRiver` generator): the river drawn in the old game's images (grass and sand
+  autotiles, the riverbed under a moving water tint, trees by biome, rocks, whirlpools, waterfalls
+  with their lips and splashes) and each character as a code look animated as the old client
+  did: the salmon a rope through its pink or golden texture, the bear's sprite turning to its
+  heading with a claw streak on its swipe, the fisherman the old tan circle, the line 0xddddaa
+  from his hand, wiggling after the cast. A published clip still wins over a code look.
 
 It is not a published project: the playtest builds its own snapshot and config and starts its own
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
@@ -100,10 +107,12 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
     cast's reach). G's salmon, the room's only one, is golden: both pages list it as marked and
     draw it gold (read off `10-golden-salmon.png` and `11-golden-seen-by-fisherman.png` at its
     look's middle); G's flow heard `golden`.
-16. H's J hooks it: both pages draw the line (H's `12-the-line.png` has white pixels along the way
-    from his hand to the salmon's middle, projected), G's flow heard `hooked` (`me`, not `mine`)
-    and the flow drew the splash; reeled in and landed (`caught`), the line is gone on both pages
-    and off `13-landed.png`.
+16. H's J hooks it: both pages draw the line (H's `12-the-line.png` has the line's 0xddddaa
+    along the way from his hand to the salmon's middle, projected; G is stepped while H's screen
+    is taken, as the reel lands it within about a second), G's flow heard `hooked` (`me`, not
+    `mine`) and the flow drew the splash; reeled in and landed (`caught`), the line is gone on both
+    pages (in the art its colour is the sandbank's, so the probe's `art.lines` says so rather than
+    `13-landed.png`).
 17. Back on the sand, it is hooked again and H leaves: the line breaks (`escaped`, heard on G) and
     is gone.
 18. Page G2 (another salmon) joins and G leaves: the golden salmon passes to G2, which draws it
@@ -116,19 +125,31 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
     `swim_ne`; grounded on the sand, `15-salmon-clip.png` has the clip standing on its feet, gold
     (the room's only salmon is golden) from the feet to 180 px up and not above (90 wide, the
     body's width); Space jumps it off: `hop_se` (the vertical twin, no `hop_ne`) once, then
-    `swim_ne`. T's bear has no clips: no clip in its probe and its brown placeholder in
-    `16-bear-placeholder.png`.
+    `swim_ne`. T's bear has no clips: no clip in its probe, and its code look (the bear sprite,
+    brown fur at its middle) in `16-bear-code-look.png`.
 20. No page sends the RGS anything; no page error.
+21. The original art (the probe's `online.art`): page A draws its room's river in the old images
+    (grass `> 100` centre tiles and edge tiles, `> 50` trees, one rock sprite per rock of the river
+    its seed makes in Node, four whirlpool frames per pool, two face layers per waterfall, sand on
+    the sandbanks), and its salmon (golden) as a rope through `salmon_golden`; page B its bear as
+    the `bear` sprite, its claw streak showing on the press; page H its fisherman as the circle
+    with a hand, and the line's colour 0xddddaa; page G2 its own salmon `salmon_pink` and G's
+    `salmon_golden`. Last, the server shuts down: page A's river art is torn down (the probe's
+    `fieldArt`: none drawn, and every container it made destroyed).
 
 The bots are bears with a brain that stands still: each room places them on its own river's
 banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
-so it is golden and check 6 takes its colour as pink or gold. 61 verdicts.
+so it is golden and check 6 takes its colour as pink or gold. 69 verdicts.
+
+Every page boots the snapshot's config, which names the generator, so every page draws the art,
+and the pages of the authored-river rooms (E, F, G, H, S, T) draw a river of the room's seed while
+the server plays the authored one: their verdicts read the room's state, not the drawn river.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,
 `08-over-the-waterfall.png`, `09-grounded.png`, `10-golden-salmon.png`,
 `11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`,
-`15-salmon-clip.png`, `16-bear-placeholder.png`.
+`15-salmon-clip.png`, `16-bear-code-look.png`.
 
 ## What the gates already prove (not replayed here)
 
@@ -144,8 +165,8 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
 
 ## Known gaps
 
-- Placeholder looks (the swipe and cast too; a swipe or cast is drawn over its user); rocks are
-  rectangles. The clip path is played with stub clips only: the bear's and fisherman's one-shots,
+- The swipe, cast and splash are placeholder looks (drawn over their user). The salmon is drawn
+  above the water's tint, not under it with the displacement as the old client did. The clip path is played with stub clips only: the bear's and fisherman's one-shots,
   the reel and the `caught` hold are pinned by `pnpm check:character-clips`, not in a browser.
 - A device that joins, or comes near, after a hook does not draw that line (it knows of a line
   only from the room's `hooked`).

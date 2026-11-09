@@ -12,7 +12,10 @@ the `salmons` project (2026-11-02); its players are not moved over yet (owner st
 events are Flow events; taking the new looks and flow live is an owner re-upload (below). The art pass (S0) was approved on
 2026-10-26; its 20 character clips (owner, 2026-11-08) are still to be generated in the launcher's
 tools. The game side that plays them is built (2026-11-08, in review): each character plays its
-clips once they are in the project, and keeps its placeholder until then.
+clips once they are in the project, and keeps its placeholder until then. **Since 2026-11-09 (in
+review) Salmons draws the original game's own art, animated in code** (owner decision: no generated
+clips; the S0 clip runbook is superseded). The art is built into the runtime, so it needs no
+upload.
 
 ## Current state
 
@@ -181,7 +184,11 @@ Left from P11.3 (known limits):
 - The line, the gold and the splash are placeholders: no sound plays (there are no Salmons sounds
   yet; the Flow events are there for them).
 
-S0 runs beside them.
+S0 runs beside them. **Superseded (owner, 2026-11-09):** the owner rejected generating clips.
+Salmons now draws the original game's images, animated in code ("Original art" below and Recent
+changes). Items 1 and 2 are not needed. The #1535 clip wiring stays as an optional layer: a
+published clip still wins over the code look. Item 3's bridges are moot (the engine's river has no
+bridges); its riverbed, water and sea are drawn in code as the original does.
 
 1. **Generate the character clips** in the project `salmons`: the owner's click-by-click steps
    are [guides/salmons-s0-runbook.md](../guides/salmons-s0-runbook.md) (do its one-clip smoke test
@@ -203,7 +210,43 @@ S0 runs beside them.
 Shipping (rule 8): atlases, clips and effects already travel export → deploy → bake → pull →
 register. Tiles and characters get their chains in P10.13 and P10.11. S0 adds no asset class.
 
-### S0 on the engine (read 2026-11-08)
+### Original art (built 2026-11-09, in review; branch `arcade/salmons-original-art`)
+
+The original game's art, built into the engine and animated in code the way the old client
+(`GuiltyForever/Salmon-` 41811c2, `client/game.js`, `client/rendering/assets.js`) animates it.
+Owner's choices (2026-11-09, all defaults): the bodies stay their engine sizes and the art is drawn
+at the body's width; the bear is the original top-down sprite turned to its heading; the fisherman is
+the original tan circle; waterfalls are drawn flat in place (the old river's height steps are not
+ported); the golden salmon is the original golden painting, with #1528's glow; no idle bob.
+
+- **The art:** `scripts/salmons/build-art.py` builds the 16 legacy images into WebP sheets committed
+  under `engine-layout` `src/lib/salmonsArt/sheets/` (`terrain`, `props`, `characters`,
+  `waterfall_face`; 792 KB together), with their provenance in `salmonsArt/README.md`. The bridges and
+  the cliff are not built. Rule 8: the sheets are part of the runtime build, so they ship with the
+  runtime release as hashed `_app/immutable/assets/` files (config-vite keeps them out of
+  `assetsInlineLimit`). A room whose config names the `salmonsRiver` generator imports the lazy
+  `engine-layout/salmons-art` chunk (8.8 KB gzip) and loads the sheets after the join. No other game
+  fetches them, and a failed load keeps the placeholders. Guarded by `check:salmons-art`.
+- **The river** (`salmonsArt/river.ts`, through a field mount in `IsoWorld`): grass-autotile banks
+  and forest, a seeded procedural riverbed under a moving displacement filter and a blue tint, the sea,
+  the painted rocks, sand-autotile sandbanks, the animated whirlpools, and the waterfalls' scrolling
+  face, lip and splash. A 48 px world cell is drawn as a 96 × 48 diamond (the old sizes × 1.5).
+- **The characters** (`salmonsArt/looks.ts`, a code look per instance in `SpawnLayer`; a published
+  clip still wins, then the code look, then the placeholder):
+  - the salmon is a 12-point rope through its painting, with facing flip, tilt, a breathing squash,
+    the hop's tilt, swell and tail flick on `jumped`, the nose-up pose and tap pulse at a waterfall's
+    foot, and the spine glint in open water;
+  - the bear turns to its heading and draws the claw streak on its swipe;
+  - the fisherman is the tan circle.
+- **The line** starts at the fisherman's hand, wiggles for 450 ms after the hook, and is drawn 2 px
+  `0xddddaa` with a bobber dot. When it shows and hides is unchanged.
+- **Known limits:** the salmon is drawn above the water's tint, not under it (e). The room has no
+  climbing state, so a salmon nearly still just below a waterfall counts as climbing. Another
+  player's climb pulses only on `climbed`, since there is no per-tap event. `rock_0` keeps a small pink
+  speck from its source cell. In `salmons-play`'s authored-river rooms the page draws its seed's river
+  while the server plays the authored one (true before; the art makes it visible).
+
+### S0 on the engine (read 2026-11-08) — superseded 2026-11-09 by the original art above
 
 The S0 recipe was written for the old client (`GuiltyForever/Salmon-` `docs/art-pass.md`).
 Salmons now plays on the engine, so the art goes into the `salmons` project and ships on
@@ -294,6 +337,26 @@ the runbook follows them.
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-09 — **Salmons draws the original game's art, animated in code** (branch
+  `arcade/salmons-original-art`; in review). Detail in "Original art" above. Engine seams, all
+  inert without a mounted art: `engine-layout` `arcadeArt.svelte.ts` (a field mount per node, a code
+  look per instance), `MountedArt.svelte`, `IsoWorld` (draws a mount in place of its node),
+  `SpawnLayer` (clip → code look → placeholder; a styled line in its own pass),
+  `arcadeMarks` `InstanceLink.style`; `apps/lines` `online.ts` loads the art under the generator,
+  drives each look from the drawn place, status, mark and the room's events, styles the line and
+  tears it all down on leave. Gates: `salmons-play.mjs` **69 / 69 in each netcode** (8 new: the
+  river art against the seed's river, the golden rope, the bear and its streak, pink vs golden on
+  two devices, the fisherman's circle and hand, the line's colour on screen, the bear's code look, the river destroyed when the room goes);
+  `check:all` 626 / 626 (new `check:salmons-art`, 10); `check:svelte` at baseline; the arcade
+  playbooks and `online-play` pass; the current-games harness 10 / 10 games, 0 of 128 screens
+  changed. Sizes (gzip, vs main): arcade first visit and online boot +1,271 B (online boot 789,689
+  under its 797,252 budget), slot / match3 / card +419 to +434 B (the shared `SpawnLayer`), the
+  shell unchanged; the art chunk 8.8 KB and the sheets 792 KB load only in a Salmons room.
+  Review fixes (same day): the river's art is destroyed on leave (its mount owns its lifecycle and
+  destroys the containers it made); a room left while its seed loads gets no art; the field waits for
+  the app; the culling is padded so nothing pops in at the view's edge.
+  **Owner:** nothing to upload; the art arrives with the next runtime release after the merge.
 
 - 2026-11-08 — **The golden salmon drawn gold, the line drawn, the rules' events in Flow, the looks
   on their places** (branch `arcade/salmons-visual-fixes`; in review). Engine and runtime (no
