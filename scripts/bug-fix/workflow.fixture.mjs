@@ -10,7 +10,9 @@
 // environment, the CLI's output off the log) plus what building it found: no cache (pnpm's store is
 // hard-linked into node_modules), `exec` so no parent process keeps the key, the agents and the
 // settings sources, the caps, the clean-up, and current-games.yml's fix-run skip (Director
-// OPEN_QUESTIONS 27, #1514).
+// OPEN_QUESTIONS 27, #1514). And the prompt and the Edit deny rules against what the launcher
+// refuses, read from its own lists (bugFixRunsChange.ts, check-vendored-bundles.mjs): the 13D pilot
+// paid for runs the prompt never told about a rule the launcher then held them to.
 //
 // What the CLI DOES with these settings is not provable offline: prove-cli.mjs proves it on the
 // pinned CLI on a hosted runner (bug-fix-proof.yml).
@@ -27,6 +29,7 @@ import {
 	renameSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from 'node:fs';
@@ -48,6 +51,8 @@ const FILES = {
 	coordinator: read('scripts/bug-fix/coordinator.md'),
 	currentGames: read('.github/workflows/current-games.yml'),
 	launcher: read('apps/launcher-api/src/lib/bugFixRuns.ts'),
+	change: read('apps/launcher-api/src/lib/server/bugFixRunsChange.ts'),
+	vendored: read('apps/launcher-api/scripts/check-vendored-bundles.mjs'),
 };
 
 const failures = [];
@@ -179,7 +184,8 @@ const SETTINGS_SHAPE = {
 	denyRead: ['{{KEY}}', '{{MAIN}}', '{{CLAUDE}}', '~/actions-runner'],
 	denyWrite: ['{{KEY}}', '{{MAIN}}', '{{CLAUDE}}', '{{BUG}}'],
 };
-/** Every deny rule the template holds today: one taken out is caught (more may be added). */
+/** Deny rules pinned by hand: one taken out is caught (more may be added). The ones the launcher's
+ *  own lists call for are held to those lists by `deny-mirrors-launcher`. */
 const DENY_FLOOR = [
 	'WebFetch',
 	'WebSearch',
@@ -237,6 +243,194 @@ function envList(run) {
 	if (!m) return null;
 	return [...m[1].matchAll(/(?:^|\s)([A-Z_][A-Z0-9_]*)=/g)].map((x) => x[1]);
 }
+
+/** What sits between the brackets of `const <name> … = [ … ];` in a source file; '' when absent. */
+const listBlock = (src, name) =>
+	new RegExp(`\\nconst ${name}\\b[^=\\n]*= \\[([\\s\\S]*?)\\];`).exec(src)?.[1] ?? '';
+/** A list of single-quoted strings; [] when it holds anything else (a spread, another quote). */
+function quoted(block) {
+	const rest = block.replace(/'[^'\n]+'/g, '').replace(/\/\/.*$/gm, '');
+	return /^[\s,]*$/.test(rest) ? [...block.matchAll(/'([^'\n]+)'/g)].map((m) => m[1]) : [];
+}
+/** A list's regex literals, one a line: bare (`/re/i,`) or opening a pair (`[/re/, 'label'],`);
+ *  [] when a line is anything else. */
+function regexes(block) {
+	const lines = block.split('\n').filter((l) => !/^\s*(?:\/\/.*)?$/.test(l));
+	const found = lines.map((l) => /^\s*\[?\/(.+)\/([a-z]*),/.exec(l)).filter(Boolean);
+	return found.length === lines.length ? found.map((m) => new RegExp(m[1], m[2])) : [];
+}
+/** A `check-vendored-bundles.mjs` BUNDLES entry. */
+const BUNDLE = /\{ name: '([^']+)', committed: '([^']+)' \}/g;
+/** The bundles that list names; [] when an entry has another shape. */
+function bundlesIn(src) {
+	const block = listBlock(src, 'BUNDLES');
+	const found = [...block.matchAll(BUNDLE)];
+	return found.length === (block.match(/\{/g) ?? []).length ? found : [];
+}
+
+/**
+ * Every reason a `…Problem`, `secretIn` or `switchedOff` function of bugFixRunsChange.ts returns, as
+ * written: the literal after a `return`, or after a `?` or `:` that carries one on.
+ */
+function refusalsIn(src) {
+	const out = new Set();
+	for (const [, name, body] of src.matchAll(
+		/\n(?:export )?(?:async )?function (\w+)\(([\s\S]*?)\n\}\n/g,
+	)) {
+		if (!/Problem$|^secretIn$|^switchedOff$/.test(name)) continue;
+		for (const line of body.split('\n')) {
+			if (!/\breturn\b|^\s*[?:] /.test(line)) continue;
+			for (const m of line.matchAll(/(?:\breturn|[?:])\s+(['`])((?:(?!\1)[^\\]|\\.)*)\1/g)) {
+				out.add(m[2]);
+			}
+		}
+	}
+	return out;
+}
+/**
+ * Every reason the launcher gives for refusing a change, with the words (one phrase or several) of
+ * the prompt that tell a run about it — or null where the job, not the run, decides it. A reason the launcher adds or
+ * rewords fails `coordinator-refusals` until someone has checked the prompt covers it.
+ */
+const REFUSALS = {
+	'a path is empty or longer than 300 characters': 'longer than 300 characters',
+	'a path holds a character outside printable ASCII': 'outside printable ASCII',
+	// collect.mjs writes every path, each once, from git's own listing.
+	'a path is not a relative POSIX path': null,
+	'a path has an empty, . or .. segment': null,
+	'it lists one path twice': null,
+	'it deletes something that is not a file in the base': null,
+	'a path is inside .git': '`.git/`',
+	'a path has a segment ending in a dot or a space': 'with a name ending in a dot or a space',
+	'an sk-ant- string': 'any `sk-ant-` at all is refused',
+	// The job sends the base the run was given.
+	'it is not based on the commit the run was given': null,
+	'a fix needs a changed file and a gate that passed':
+		'`fixed` needs a changed file and at least one gate that passed',
+	'it changes more than ${MAX_FILES} files': 'at most 40 files',
+	'it touches a protected path (${guarded})': 'Edit a protected path',
+	"it changes ${lock}: dependencies are a person's call": 'Change a dependency',
+	'it sets a mode other than 100644 or 100755': 'mode other than 644 or 755',
+	'a file is not UTF-8 text': 'plain UTF-8 text files',
+	'a file holds Unicode tag or bidi control characters': 'Unicode tag or bidi control characters',
+	'it adds more than 400 KB': '400 KB in all',
+	'the scope is not one commit subjects take': 'a scope from scripts/commit-scope.mjs SCOPES',
+	'it has no title': '"title": "one line',
+	'its title would name another bug': 'never write a bug reference',
+	'secret scan: ${found} in ${where}': 'the title, summary, lesson and gate commands',
+	'secret scan: ${found} in a path': 'every path',
+	'secret scan: ${found} in a file': [
+		'every line the change adds',
+		'no `// pragma: allowlist secret` exemption',
+		'A run of 40 or more lowercase hex digits counts',
+	],
+	"privacy: ${where} names the bug's project or client": [
+		"Copy the bug's text, its reporter, its project or its client",
+		'a gate command',
+		'compared on letters and digits alone',
+	],
+	'a package.json is not a JSON object': 'a `package.json` that is not a JSON object',
+	'a package.json changes ${key}': 'Change a dependency',
+	'a package.json changes or removes a script it has': 'Change or remove a script',
+	'a package.json adds a script a package manager runs by itself': 'manager runs by itself',
+	'${name} is deleted': 'Grow, add or delete',
+	'${name} is new': 'Grow, add or delete',
+	'${name} is not a JSON object': 'stay JSON objects of numbers',
+	'${name} holds a count that is not a number': 'stay JSON objects of numbers',
+	'${name} grows': 'They may only shrink',
+	'it adds a suppression comment (${off})': 'anywhere in a line the change adds',
+	'it adds an ESLint configuration comment': 'configure ESLint from a comment',
+	'it changes a directory holding a protected path (${protectedEntry(under)})':
+		'Edit a protected path, or anything under it',
+	'it writes under a path that is a file in the base': 'no file replaced by a folder',
+	'it deletes a directory': 'or a folder by a file',
+	'it writes a file where the base has a directory': 'or a folder by a file',
+	'it changes an entry whose mode is not 100644 or 100755 (a link or a submodule)':
+		'no symlink, hard link, submodule',
+	'it adds a path that differs from another only by case': 'differing from another only by case',
+};
+/** The launcher's pattern rules as reviewed against the prompt: one widened or narrowed fails
+ *  `launcher-patterns` until someone has. */
+const LAUNCHER_PATTERNS = {
+	nameRules: [
+		/^dockerfile(?:\..+)?$|\.dockerfile$/,
+		/^requirements.*\.txt$/,
+		/^pipfile(?:\..+)?$/,
+		/^eslint\.config\./,
+	],
+	pathRules: [/^apps\/launcher-api\/src\/lib\/server\/bugfixruns[^/]*\.ts$/],
+	eslintInline: [/\/\*\s*(?:eslint|globals?|exported)\s/i, /\/\/\s*eslint-/i, /<!--\s*eslint/i],
+	hookPrefixes: ['pre', 'post', 'pnpm:'],
+};
+
+/** What the launcher holds a fix run's change to, read from bugFixRunsChange.ts's own lists. */
+function launcherRules(src) {
+	const int = (re) => Number(re.exec(src)?.[1] ?? Number.NaN);
+	const hook = /LIFECYCLE_SCRIPTS\.includes\(name\) \|\| \/\^\(\?:([^)]+)\)\/\.test\(name\)/.exec(
+		src,
+	);
+	return {
+		paths: quoted(listBlock(src, 'PROTECTED_PATHS')),
+		names: quoted(listBlock(src, 'PROTECTED_NAMES')),
+		nameRules: regexes(listBlock(src, 'PROTECTED_NAME_RULES')),
+		pathRules: regexes(listBlock(src, 'PROTECTED_PATH_RULES')),
+		locks: quoted(listBlock(src, 'LOCK_NAMES')),
+		ratchets: quoted(listBlock(src, 'RATCHET_NAMES')),
+		packageKeys: quoted(listBlock(src, 'PACKAGE_KEYS')),
+		lifecycle: quoted(listBlock(src, 'LIFECYCLE_SCRIPTS')),
+		hookPrefixes: hook ? hook[1].split('|') : [],
+		suppressions: quoted(listBlock(src, 'SUPPRESSIONS')),
+		eslintInline: regexes(listBlock(src, 'ESLINT_INLINE')),
+		maxFiles: int(/\nconst MAX_FILES = (\d+);/),
+		maxKb: int(/\nconst MAX_CHANGE_BYTES = (\d+) \* 1024;/),
+		maxPath: int(/\nconst MAX_PATH = (\d+);/),
+	};
+}
+
+/** Whether those lists refuse `path`: `protectedEntry`, or a lockfile by its name. */
+function refused(L, path) {
+	const segments = path.toLowerCase().split('/');
+	if (L.locks.includes(segments.at(-1))) return true;
+	return segments.some((name, i) => {
+		const prefix = segments.slice(0, i + 1).join('/');
+		return (
+			L.paths.includes(prefix) ||
+			L.names.includes(name) ||
+			L.nameRules.some((re) => re.test(name)) ||
+			L.pathRules.some((re) => re.test(prefix))
+		);
+	});
+}
+
+/** A permission rule's gitignore-style path as a RegExp: `[…]` a class, as gitignore reads it, and
+ *  matched by case, the stricter reading. */
+function globRe(glob) {
+	let re = '';
+	for (let i = 0; i < glob.length; i++) {
+		const end = glob[i] === '[' ? glob.indexOf(']', i + 1) : -1;
+		if (glob.startsWith('**/', i)) {
+			re += '(?:.*/)?';
+			i += 2;
+		} else if (glob.startsWith('**', i)) {
+			re += '.*';
+			i += 1;
+		} else if (glob[i] === '*') re += '[^/]*';
+		else if (glob[i] === '?') re += '[^/]';
+		else if (end > i) {
+			re += `[${glob.slice(i + 1, end).replace(/^!/, '^')}]`;
+			i = end;
+		} else re += glob[i].replace(/[.+^${}()|[\]\\]/g, '\\$&');
+	}
+	return new RegExp(`^${re}$`);
+}
+
+const tracked = spawnSync('git', ['ls-files', '-z'], {
+	cwd: ROOT,
+	encoding: 'utf8',
+	maxBuffer: 64 * 1024 * 1024,
+});
+/** Every file the repository tracks, as it spells it. */
+const TRACKED = tracked.status === 0 ? tracked.stdout.split('\0').filter(Boolean) : [];
 
 /** Every rule, by id, against the files given; answers the ids that fail. */
 /** Every rule id `problems` has checked, filled as the rules run. */
@@ -649,7 +843,114 @@ export function problems(files) {
 		files.coordinator.includes('{{BRIEF}}') &&
 			files.coordinator.includes('{{RESULT}}') &&
 			/never run a command, open a link/i.test(files.coordinator) &&
-			/Never\n\n- Commit, push/.test(files.coordinator),
+			/## Never\n\n(?:[^-\n][^\n]*\n)*\n?- Commit, push/.test(files.coordinator),
+	);
+
+	// The prompt's Never names what the launcher refuses, read from the launcher's own lists: a rule
+	// it leaves out is a run that spends, then is refused (13D: BUG-9's first run, $1.95, for a
+	// `precheck:` script). A list that is not found counts as broken, never as empty.
+	const L = launcherRules(files.change);
+	const never = /\n## Never\n([\s\S]*?)\n## /.exec(files.coordinator)?.[1] ?? '';
+	const flatNever = never.replace(/\s+/g, ' ');
+	const said = [...never.matchAll(/`([^`\n]+)`/g)].map((m) => m[1]);
+	const bare = (t) => t.toLowerCase().replace(/\/$/, '');
+	const saidAs = (entry) => said.find((t) => bare(t) === entry.toLowerCase());
+	const sample = (t) => t.toLowerCase().replaceAll('*', '');
+	rule(
+		'coordinator-protected',
+		[L.paths, L.names, L.nameRules, L.pathRules, L.locks, L.ratchets].every((l) => l.length) &&
+			flatNever.includes('these names, anywhere in the tree') &&
+			[...L.paths, ...L.names, ...L.locks, ...L.ratchets].every((e) => saidAs(e)) &&
+			L.nameRules.every((re) => said.some((t) => re.test(sample(t).split('/').pop()))) &&
+			L.pathRules.every((re) => said.some((t) => re.test(sample(t)))),
+	);
+	rule(
+		'coordinator-package-json',
+		[L.packageKeys, L.lifecycle, L.hookPrefixes].every((l) => l.length) &&
+			L.packageKeys.every((k) => said.includes(k)) &&
+			L.hookPrefixes.every((p) => said.includes(`${p}*`)) &&
+			L.lifecycle
+				.filter((s) => !L.hookPrefixes.some((p) => s.startsWith(p)))
+				.every((s) => said.includes(s)) &&
+			said.includes('precheck:<x>') &&
+			said.includes('pnpm check:all --only <its path>'),
+	);
+	rule(
+		'coordinator-suppressions',
+		[L.suppressions, L.eslintInline].every((l) => l.length) &&
+			L.suppressions.every((s) => said.some((t) => t.toLowerCase() === s)) &&
+			L.eslintInline.every((re) => said.some((t) => re.test(t))),
+	);
+	// Every count of files, KB or characters the Never list gives is the launcher's.
+	const counts = (unit) => [...flatNever.matchAll(new RegExp(`(\\d+) ${unit}\\b`, 'g'))];
+	rule(
+		'coordinator-caps',
+		[L.maxFiles, L.maxKb, L.maxPath].every(Number.isInteger) &&
+			[
+				['files', L.maxFiles],
+				['KB', L.maxKb],
+				['characters', L.maxPath],
+			].every(([unit, n]) => counts(unit).length && counts(unit).every((m) => +m[1] === n)),
+	);
+	// A bundle a run cannot ship is one the prompt names, with the build a person must run.
+	const bundles = bundlesIn(files.vendored);
+	rule(
+		'coordinator-vendored',
+		bundles.length > 0 &&
+			bundles.every(
+				([, name, at]) => said.includes(`apps/launcher-api/${at}`) && said.includes(name),
+			) &&
+			said.includes('pnpm --filter launcher-api build:<name>') &&
+			said.includes('pnpm --filter launcher-api check:vendored-bundles'),
+	);
+	// #1540 passed its run's own gates and review yet misread inputs `main` read right.
+	const review = (
+		/\n6\. \*\*Review\.\*\*([\s\S]*?)\n7\. /.exec(files.coordinator)?.[1] ?? ''
+	).replace(/\s+/g, ' ');
+	rule(
+		'coordinator-review',
+		/\bparser\b/.test(review) &&
+			/\bmoney\b/.test(review) &&
+			/old-vs-new comparison/.test(review) &&
+			/same generated inputs/.test(review),
+	);
+	// Every refusal sentence the launcher has is one the prompt was checked against, and so is every
+	// pattern rule: a new or widened one fails until REFUSALS or LAUNCHER_PATTERNS is updated.
+	const reasons = refusalsIn(files.change);
+	const prompt = files.coordinator.replace(/\s+/g, ' ');
+	rule(
+		'coordinator-refusals',
+		reasons.size > 0 &&
+			same([...reasons], Object.keys(REFUSALS)) &&
+			Object.values(REFUSALS).every((p) => [p ?? []].flat().every((w) => prompt.includes(w))),
+	);
+	rule(
+		'launcher-patterns',
+		['nameRules', 'pathRules', 'eslintInline'].every((k) =>
+			same(L[k].map(String), LAUNCHER_PATTERNS[k].map(String)),
+		) && same(L.hookPrefixes, LAUNCHER_PATTERNS.hookPrefixes),
+	);
+	// The Edit tools are denied what the launcher refuses, so a run learns it at the edit, not after
+	// the spend: every tracked file the lists refuse, and every protected name the prompt gives — at
+	// the root and nested, as the prompt spells it. Matched by case, the stricter reading for what
+	// is tracked; a new file spelt otherwise is left to the launcher, so this is an early warning.
+	// And nothing else: a tracked file denied to Edit that the launcher would take is a fix blocked.
+	const editGlobs = deny.flatMap((r) => /^Edit\(\/\{\{WORKSPACE\}\}\/(.+)\)$/.exec(r)?.[1] ?? []);
+	const edits = editGlobs.map(globRe);
+	const denied = (path) => edits.some((re) => re.test(path));
+	const guarded = TRACKED.filter((p) => refused(L, p));
+	const names = said.filter((t) => !bare(t).includes('/') && refused(L, bare(t)));
+	rule(
+		'deny-mirrors-launcher',
+		[L.paths, L.names, L.locks, guarded].every((l) => l.length) &&
+			guarded.every(denied) &&
+			TRACKED.filter(denied).every((p) => refused(L, p)) &&
+			[...L.names, ...L.locks].every((n) => names.some((t) => bare(t) === n)) &&
+			names.every((t) => {
+				const name = t.replace(/\/$/, '');
+				const leaf = t.endsWith('/') ? '/x' : '';
+				return denied(`${name}${leaf}`) && denied(`a/b/${name}${leaf}`);
+			}),
 	);
 
 	// The proof workflow holds nothing: contents read, no secret.
@@ -684,6 +985,22 @@ export function problems(files) {
 
 const now = problems(FILES);
 check(now.size === 0, `the files break: ${[...now].join(', ')}`);
+
+// The prompt says the Rigger's two bundles are each over the cap on their own.
+const cap = launcherRules(FILES.change).maxKb * 1024;
+const riggerBundles = bundlesIn(FILES.vendored).filter(([, , at]) =>
+	at.startsWith('static/rigger/'),
+);
+check(
+	riggerBundles.length === 2,
+	`the Rigger has ${riggerBundles.length} bundles, not the two the prompt names`,
+);
+for (const [, , at] of riggerBundles) {
+	check(
+		statSync(join(ROOT, 'apps/launcher-api', at)).size > cap,
+		`${at} fits the cap now: the prompt says it is over it`,
+	);
+}
 
 // ── A mutant per rule ─────────────────────────────────────────────────────────
 
@@ -1140,6 +1457,241 @@ const MUTANTS = [
 		'run: node scripts/bug-fix/prove-cli.mjs\n',
 		'run: node scripts/bug-fix/prove-cli.mjs ${{ github.ref }}\n',
 	],
+	['coordinator', 'coordinator', '- Commit, push, merge', '- Push, merge'],
+	// The prompt and the deny list against the launcher's own lists (13D): a rule the launcher adds,
+	// a name the prompt drops, a list renamed out of reach.
+	[
+		'coordinator-protected',
+		'change',
+		"\t'apps/launcher-api/drizzle',\n];",
+		"\t'apps/launcher-api/drizzle',\n\t'apps/launcher-api/src/lib/server/bugfixworkflow.ts',\n];",
+	],
+	['coordinator-protected', 'change', "\t'uv.lock',\n];", "\t'uv.lock',\n\t'deno.lock',\n];"],
+	[
+		'coordinator-protected',
+		'change',
+		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n",
+		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n\t[/^\\.env(?:\\..+)?$/, 'an env file'],\n",
+	],
+	['coordinator-protected', 'change', 'bugfixruns[^/]*\\.ts$/', 'bugfixruns[^/]*\\.mts$/'],
+	[
+		'coordinator-protected',
+		'change',
+		"const LOCK_NAMES = ['pnpm-lock.yaml',",
+		"const LOCK_NAMES = ['bun.lockb', 'pnpm-lock.yaml',",
+	],
+	['coordinator-protected', 'change', 'const PROTECTED_PATHS = [', 'const PROTECTED_PREFIXES = ['],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'`services/director-worker/src/untrusted.ts`, `docs/knowledge/`',
+		'`docs/knowledge/`',
+	],
+	['coordinator-protected', 'coordinator', '`nixpacks.toml`, `Procfile`, ', '`nixpacks.toml`, '],
+	['coordinator-protected', 'coordinator', '\n## Never\n', '\n## Do not\n'],
+	[
+		'coordinator-package-json',
+		'change',
+		"\t'bundledDependencies',\n];",
+		"\t'bundledDependencies',\n\t'publishConfig',\n];",
+	],
+	['coordinator-package-json', 'change', '/^(?:pre|post|pnpm:)/', '/^(?:pre|post|pnpm:|npm:)/'],
+	[
+		'coordinator-package-json',
+		'change',
+		"\t'pnpm:devPreinstall',\n];",
+		"\t'pnpm:devPreinstall',\n\t'version',\n];",
+	],
+	['coordinator-package-json', 'change', '/^(?:pre|post|pnpm:)/.test(name)', 'HOOK.test(name)'],
+	['coordinator-package-json', 'coordinator', '`pre*`, `post*` or `pnpm:*`', '`pre*` or `pnpm:*`'],
+	['coordinator-package-json', 'coordinator', 'by itself — `install`, or any', 'by itself — any'],
+	[
+		'coordinator-package-json',
+		'coordinator',
+		'`precheck:<x>`, though most',
+		'a check hook, though most',
+	],
+	[
+		'coordinator-package-json',
+		'coordinator',
+		'`pnpm check:all --only <its path>`, script or not',
+		'the whole suite, script or not',
+	],
+	[
+		'coordinator-suppressions',
+		'change',
+		"\t'svelte-ignore',\n];",
+		"\t'svelte-ignore',\n\t'noqa',\n];",
+	],
+	[
+		'coordinator-suppressions',
+		'change',
+		'\t/<!--\\s*eslint/i,\n];',
+		'\t/<!--\\s*eslint/i,\n\t/\\/\\*\\s*jshint\\s/i,\n];',
+	],
+	['coordinator-suppressions', 'coordinator', '`@ts-ignore`, `@ts-nocheck`, ', '`@ts-ignore`, '],
+	['coordinator-suppressions', 'coordinator', ', `<!-- eslint … -->` (a plain', ' (a plain'],
+	// A refusal the launcher adds or rewords, a function renamed out of reach, a reason the prompt
+	// drops — the review's (2026-11-09): the secret, privacy and ratchet bullets had no rule.
+	[
+		'coordinator-refusals',
+		'change',
+		"return 'a path has a segment ending in a dot or a space';",
+		"return 'a path has a segment ending in a dot, a space or a tilde';",
+	],
+	[
+		'coordinator-refusals',
+		'change',
+		'\nfunction pathProblem(path: string): string | null {',
+		"\nfunction nameProblem(path: string): string | null {\n\treturn path.endsWith('~') ? 'a name ends in a tilde' : null;\n}\n\nfunction pathProblem(path: string): string | null {",
+	],
+	['coordinator-refusals', 'change', 'function pathProblem(', 'function pathCheck('],
+	['coordinator-refusals', 'coordinator', ', or with a name ending in a dot or a space;', ';'],
+	['coordinator-refusals', 'coordinator', 'and any `sk-ant-` at', 'and a key at'],
+	[
+		'coordinator-refusals',
+		'coordinator',
+		'letters and digits alone, ignoring case',
+		'their spelling, ignoring case',
+	],
+	['coordinator-refusals', 'coordinator', 'They may only', 'They may'],
+	[
+		'coordinator-refusals',
+		'coordinator',
+		'A run of 40 or more lowercase hex digits counts',
+		'A long run of hex counts',
+	],
+	['coordinator-refusals', 'coordinator', '`// pragma: allowlist secret`', 'a pragma'],
+	['coordinator-refusals', 'coordinator', "- Copy the bug's text", '- Paste the bug text freely'],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'these names, anywhere in the tree',
+		'these names, at the repository root',
+	],
+	[
+		'launcher-patterns',
+		'change',
+		'[/^dockerfile(?:\\..+)?$|\\.dockerfile$/, ',
+		'[/^(?:dockerfile|containerfile)(?:\\..+)?$|\\.dockerfile$/, ',
+	],
+	[
+		'launcher-patterns',
+		'change',
+		'(?:eslint|globals?|exported)\\s/i',
+		'(?:eslint|jshint|globals?|exported)\\s/i',
+	],
+	['launcher-patterns', 'change', '\t/<!--\\s*eslint/i,', '\t/<!--\\s*eslint/,'],
+	['launcher-patterns', 'change', '/^(?:pre|post|pnpm:)/', '/^(?:pre|post|pnpm:|npm:)/'],
+	// A list read only in part: a spread, another quote, a regex list with another line, a bundle
+	// entry of another shape.
+	[
+		'coordinator-protected',
+		'change',
+		"\t'apps/launcher-api/drizzle',\n];",
+		"\t'apps/launcher-api/drizzle',\n\t...EXTRA_PATHS,\n];",
+	],
+	['coordinator-protected', 'change', "\t'uv.lock',\n];", '\t\'uv.lock\',\n\t"deno.lock",\n];'],
+	[
+		'coordinator-protected',
+		'change',
+		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n",
+		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n\t...MORE_RULES,\n",
+	],
+	[
+		'coordinator-vendored',
+		'vendored',
+		"committed: 'static/rig-viewer/vendor/invisible-rig.js' },",
+		"committed: 'static/rig-viewer/vendor/invisible-rig.js', node: true },",
+	],
+	// A deny rule wider than the launcher: a legitimate fix blocked at the edit.
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'\t\t\t"Edit(/{{WORKSPACE}}/**/yarn.lock)",\n',
+		'\t\t\t"Edit(/{{WORKSPACE}}/**/yarn.lock)",\n\t\t\t"Edit(/{{WORKSPACE}}/apps/**)",\n',
+	],
+	['coordinator-caps', 'change', 'const MAX_FILES = 40;', 'const MAX_FILES = 30;'],
+	[
+		'coordinator-caps',
+		'change',
+		'const MAX_CHANGE_BYTES = 400 * 1024;',
+		'const MAX_CHANGE_BYTES = 256 * 1024;',
+	],
+	['coordinator-caps', 'change', 'const MAX_PATH = 300;', 'const MAX_PATH = 200;'],
+	['coordinator-caps', 'change', 'const MAX_FILES = 40;', 'const MAX_FILES = LIMIT;'],
+	['coordinator-caps', 'coordinator', 'at most 40 files and', 'at most 50 files and'],
+	[
+		'coordinator-vendored',
+		'vendored',
+		"\t{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },\n",
+		"\t{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },\n\t{ name: 'flow-view', committed: 'static/flow/vendor/flow-view.js' },\n",
+	],
+	['coordinator-vendored', 'vendored', 'const BUNDLES = [', 'const VENDORED = ['],
+	[
+		'coordinator-vendored',
+		'coordinator',
+		'  `apps/launcher-api/static/rigger/vendor/rigger-text.js` and\n',
+		'  and\n',
+	],
+	['coordinator-vendored', 'coordinator', '`pnpm --filter launcher-api build:<name>`', 'the build'],
+	[
+		'coordinator-vendored',
+		'coordinator',
+		'Until then `pnpm --filter launcher-api check:vendored-bundles` fails',
+		'Until then CI fails',
+	],
+	[
+		'coordinator-review',
+		'coordinator',
+		'ask it also for an old-vs-new comparison',
+		'ask it also for a second look',
+	],
+	[
+		'coordinator-review',
+		'coordinator',
+		'or touches money (an amount',
+		'or touches styling (an amount',
+	],
+	[
+		'coordinator-review',
+		'coordinator',
+		'run over the same\n   generated inputs',
+		'run over some inputs',
+	],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'\t\t\t"Edit(/{{WORKSPACE}}/services/director-worker/src/untrusted.ts)",\n',
+		'',
+	],
+	['deny-mirrors-launcher', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/**/Procfile)",\n', ''],
+	['deny-mirrors-launcher', 'settings', '/**/Procfile)"', '/**/procfile)"'],
+	['deny-mirrors-launcher', 'settings', 'api/bugs/*/fix-runs/**', 'api/bugs/[number]/fix-runs/**'],
+	['deny-mirrors-launcher', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/**/.npmrc)",\n', ''],
+	['deny-mirrors-launcher', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/**/.vscode/**)",\n', ''],
+	['deny-mirrors-launcher', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/**/Pipfile*)",\n', ''],
+	['deny-mirrors-launcher', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/**/*.dockerfile)",\n', ''],
+	['deny-mirrors-launcher', 'settings', '\t\t\t"Edit(/{{WORKSPACE}}/**/yarn.lock)",\n', ''],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'scripts/svelte-check-ratchet*.mjs',
+		'scripts/svelte-check-ratchet.mjs',
+	],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'src/lib/server/bugFixRuns*.ts',
+		'src/lib/server/bugFixRuns.ts',
+	],
+	[
+		'deny-mirrors-launcher',
+		'change',
+		"\t'apps/launcher-api/drizzle',\n];",
+		"\t'apps/launcher-api/drizzle',\n\t'apps/launcher-api/src/lib/server/bugfixworkflow.ts',\n];",
+	],
+	['deny-mirrors-launcher', 'change', 'const PROTECTED_NAMES = [', 'const PROTECTED_SEGMENTS = ['],
 ];
 const caughtRules = new Set();
 for (const [ruleId, file, from, to] of MUTANTS) {
