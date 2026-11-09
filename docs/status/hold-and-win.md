@@ -1144,9 +1144,20 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `chance`, `topUp`, `enhancements` and the super bonus's, `betModeStrips`) with numbers that
     pace plausible rounds (median 9 respins a bonus, as captured). None of it is Game Config: the
     partner's server holds the real math, so the fields were not added to `holdAndWin`.
-  - **Ours, not seen in the capture:** the five paylines' rows, `spinTrigger.trigger.from`, the
-    extra `enterBonus` / `playedBonusSpin` fields, Force 5's strength, boost-then-multiply on one
-    coin. A top-up is invisible on the wire (the board is sent whole).
+  - **Ours, not seen in the capture** (14a: read these as the mock's choices, not the partner's):
+    - paylines `[1,1,1,1,1]`, `[0,0,0,0,0]`, `[2,2,2,2,2]`, `[0,1,2,1,0]`, `[2,1,0,1,2]`;
+    - `spinTrigger.trigger.from` is `'run'` or `'superBonus'`;
+    - `enterBonus` is `{left, played, triggers, bonusTriggers, spins, triggering: [{reel, row}],
+      playing, window: {reels, rows}}`; `playedBonusSpin(s)` is `{played, left, bonus}`;
+    - `collect.pay` is what that collector gathered this spin; its running total is the
+      `COLLECT_<cents>` in `collectWindow`;
+    - `playedSpin` is the dealt board (the same as `playWindow`); `bonusSymbol` and `playWindow`
+      show a coin's original value, and `cellPayAmount` carries `original`, `value` (after boost
+      and multiply) and `pay`;
+    - boost applies before multiply on one coin; Force 5 opens 5×5 with 5 respins;
+    - the base spin sends `collectWindow` only after a collect, every respin sends it;
+    - the `jackpots` event carries base-bet multiples, as in `config`;
+    - a top-up is invisible on the wire (the board is sent whole).
   - **Gate:** `pnpm check:holdandwin-partner` (in `check:rgs`) replays 400 seeded rounds over HTTP
     and re-derives every answer: event order, shapes, seq positions, Σ collects + line wins =
     `gameRoundOver.win`, the collectors' totals, boost/multiply only on fresh cash coins, coins
