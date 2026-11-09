@@ -115,8 +115,9 @@ need to touch every endpoint or fork the staging tree.
   `_render_sessions: dict[user_id, RenderSession]` via a `_render_session(ctx)`
   helper. `/progress`, render-start, and `/stop` operate on the calling user's
   session.
-- Make `_load_warning` and `_ingested_manifests` per-user (dict keyed by user) so
-  banners/dedup don't bleed.
+- Make `_ingested_manifests` per-user (dict keyed by user) so dedup doesn't
+  bleed. (The banners `_load_warning`/`_geom_warning` became per-request state on
+  2026-11-09 — see [atlas-maker status](../status/atlas-maker.md).)
 - **Known limitation:** ComfyUI is one local GPU, so concurrent renders queue at
   ComfyUI regardless — this fixes *progress display* bleed, not parallel GPU
   throughput.

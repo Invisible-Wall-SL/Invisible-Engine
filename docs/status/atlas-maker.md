@@ -117,6 +117,42 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-11-09 — **Stop hits the render's own ComfyUI; R2 push failures are reported; banners are
+  per-request.** Three review findings, all in `ui_server.py`:
+  - **Stop** posted `/interrupt` + `/queue {clear}` to the import-time `batch_atlas.COMFY_BASE`
+    with the shared CF headers, whatever the render ran on — so a *My computer* render kept
+    running on the user's box while Stop wiped the SHARED tunnel's queue (other people's jobs).
+    `_run_cmd` now records the render's effective target (`render_comfy_target`: base URL, the
+    headers the subprocess sends — `_comfy_headers`, shared with the reachability probe — and
+    whether it is RunPod) in `_render_comfy` for exactly as long as it runs. Stop interrupts and
+    clears THAT ComfyUI; a RunPod render is cancelled through the job (unchanged) and touches no
+    ComfyUI URL; with no generation recorded (an empty slot, a compose) it touches nothing — so an
+    admin's Stop on an empty slot no longer clears the shared queue. The record is kept out of
+    `_render_state` on purpose: `/progress` serves that dict and the record carries CF credentials.
+  - **R2 durability.** The `input/` re-push after every ref-mutating route ran AFTER the 200 was
+    sent, and failures were swallowed in `push_dir`, around it, and in `_unmirror`
+    (`storage.delete` swallowed too). The routes are now dispatched from the
+    `_REF_MUTATING_ROUTES` table (route → handler) through `_answer_ref_change`, which pushes
+    first: a write or delete that did not land turns the answer into the page's `✖` error card
+    (route message + failed keys + `→ Fix:`) with `X-IW-R2-Failed: <n>`, and is logged as
+    `[r2] not durable: …`. `iw_common.storage`: `push_dir(…, failures=)` collects failures,
+    `delete` returns whether it landed, `configured()` gates the push (an R2-less local run reports
+    nothing, as before). **Still the whole `input/` tree**, not the route's files —
+    `/userefall`, `/fxbuild`, `/shinefrom`, `/uploadatlas` write several files through helpers that
+    don't report paths, and a narrowed push that missed one would strand it. **Known, unchanged:**
+    that whole-tree push is a blind overwrite — a stale staged ref (another container, the Sheet
+    Maker) overwrites R2's newer copy, and it has no deletes.
+  - **Banners** `_load_warning` / `_geom_warning` were module globals written by `load_manifest` /
+    `all_regions` on any request thread and read by `_index`, so one project's "manifest not
+    found" could show on another project's page. They are per-request state now
+    (`_request_local`, `load_warning()` / `geom_warning()`), reset by `_dispatch` with the R2
+    failure list, so a keep-alive thread doesn't inherit them either.
+  - Fixtures: `test_render_slot.py` (Stop reaches the recorded ComfyUI with its own token and UA,
+    never the shared one; a RunPod or compose run and an empty slot post nothing; `/progress` never
+    serves the credentials), `test_r2_push_failures.py` (`push_dir`/`delete` report, every route in
+    the table through the real server, a refused `_unmirror`), `test_page_warnings.py` (forced
+    three-thread interleaving). Each guard was run against the old behaviour planted as a mutant
+    and failed. ⏳ Not run live (a *My computer* Stop needs the owner's tunnel — open item 10).
 - 2026-10-27 — **Ask the AI on the bar.** The shared `iw_common/ask_ai.js` window (the twin of the
   launcher's `$lib/AskAiPanel.svelte`) sits before Report bug; `POST /ask-ai` relays the question to
   the launcher for the signed-in user (`iw_common/ask_ai.py`, `X-IW-Relay` token) and streams the
