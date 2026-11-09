@@ -190,15 +190,21 @@ function wetAt(river: SalmonsRiverDrawing, x: number, y: number): Wet | undefine
 	return band.current > 100 ? 'rapids' : 'water';
 }
 
-/** Where a river's pieces are drawn, and what draws them: built once, then culled and ticked. */
+/** A river drawn: its teardown, the pieces drawn with a Salmons texture by region, and whether
+ *  everything it made is destroyed (the probe's). */
 export type RiverArt = {
-	/** The pieces drawn with a Salmons texture, by region (the probe's). */
+	teardown: () => void;
 	regions: () => Record<string, number>;
+	destroyed: () => boolean;
 };
 
+/** How far past the view a piece is still drawn, px: a tree's height, so nothing pops in at the
+ *  view's edge (the view is read a frame behind the camera). */
+const CULL_PAD = TREE_W * 1.5;
+
 /**
- * Draw `river` into `into` (at the projected origin of its world screen) with `art`; returns the
- * teardown. `seed` keeps the trees, rocks and bed the same on every device of a room.
+ * Draw `river` into `into` (at the projected origin of its world screen) with `art`; returns its
+ * teardown and its probes. `seed` keeps the trees, rocks and bed the same on every device of a room.
  */
 export function mountSalmonsRiver(
 	into: Container,
@@ -206,8 +212,7 @@ export function mountSalmonsRiver(
 	art: SalmonsTextures,
 	river: SalmonsRiverDrawing,
 	seed: number | string,
-	report: (art: RiverArt) => void,
-): () => void {
+): RiverArt {
 	const random = seededRandom(`salmons-art:${seed}`);
 	const made: Texture[] = [];
 	const own = (texture: Texture) => (made.push(texture), texture);
@@ -303,7 +308,7 @@ export function mountSalmonsRiver(
 		trees.push({ sprite, y: sprite.y });
 	};
 	const biomeTree = (r: number) => {
-		const pair = BIOME_TREE_PAIRS[(((Math.floor(r / BIOME_ROWS) % 6) + 6) % 6) as number];
+		const pair = BIOME_TREE_PAIRS[((Math.floor(r / BIOME_ROWS) % 6) + 6) % 6];
 		return pair[random() < 0.5 ? 0 : 1];
 	};
 
@@ -449,8 +454,6 @@ export function mountSalmonsRiver(
 	trees.sort((a, b) => a.y - b.y);
 	for (const { sprite } of trees) standUp(sprite, boxOf(sprite));
 
-	report({ regions: () => Object.fromEntries(used) });
-
 	let seen = '';
 	const inverse = new Matrix();
 	const cull = () => {
@@ -467,18 +470,18 @@ export function mountSalmonsRiver(
 			[screen.width, screen.height],
 		].map(([x, y]) => inverse.apply({ x, y }));
 		const view: Box = {
-			x0: Math.min(...pts.map((p) => p.x)),
-			y0: Math.min(...pts.map((p) => p.y)),
-			x1: Math.max(...pts.map((p) => p.x)),
-			y1: Math.max(...pts.map((p) => p.y)),
+			x0: Math.min(...pts.map((p) => p.x)) - CULL_PAD,
+			y0: Math.min(...pts.map((p) => p.y)) - CULL_PAD,
+			x1: Math.max(...pts.map((p) => p.x)) + CULL_PAD,
+			y1: Math.max(...pts.map((p) => p.y)) + CULL_PAD,
 		};
 		// The world box under the view: the projected corners turned back.
 		const world = pts.map((p) => ({ x: p.y + p.x / 2, y: p.y - p.x / 2 }));
 		const ground: Box = {
-			x0: Math.min(...world.map((p) => p.x)),
-			y0: Math.min(...world.map((p) => p.y)),
-			x1: Math.max(...world.map((p) => p.x)),
-			y1: Math.max(...world.map((p) => p.y)),
+			x0: Math.min(...world.map((p) => p.x)) - CELL,
+			y0: Math.min(...world.map((p) => p.y)) - CELL,
+			x1: Math.max(...world.map((p) => p.x)) + CELL,
+			y1: Math.max(...world.map((p) => p.y)) + CELL,
 		};
 		const show = (items: Culled[], b: Box) => {
 			for (const { view: v, box } of items)
@@ -502,11 +505,16 @@ export function mountSalmonsRiver(
 	app.ticker.add(tick);
 	cull();
 
-	return () => {
-		app.ticker.remove(tick);
-		bed.filters = [];
-		filter.destroy();
-		for (const child of [...into.children]) child.destroy({ children: true });
-		for (const texture of made) texture.destroy(true);
+	const roots = [floor, displacement, turn, upright];
+	return {
+		teardown: () => {
+			app.ticker.remove(tick);
+			bed.filters = [];
+			filter.destroy();
+			for (const root of roots) root.destroy({ children: true });
+			for (const texture of made) texture.destroy(true);
+		},
+		regions: () => Object.fromEntries(used),
+		destroyed: () => roots.every((root) => root.destroyed),
 	};
 }

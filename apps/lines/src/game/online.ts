@@ -234,6 +234,9 @@ type Session = {
 
 let session: Session | undefined;
 
+/** How the last room's field art stands, after the room too (the probe's: a leave destroys it). */
+let fieldArt: SalmonsArt['rivers'] | undefined;
+
 /** A player's clips: its animator, its drawn places of the last moment (its velocity) and, once
  *  the room put it out, how long its instance waits for its catch and whether the catch started. */
 type PlayerLook = {
@@ -355,7 +358,10 @@ export async function joinOnlineRoom(): Promise<void> {
 	}
 	// A room that is gone for good (disposed, a kick, a reconnect that ran out) leaves nothing to
 	// play: say so on the same screen rather than freeze on the last state.
+	// A leave while the join still waits (for the seed) must not leave a session for a dead room.
+	let left = false;
 	room.onLeave((code: number) => {
+		left = true;
 		if (session) dropArt(session);
 		session = undefined;
 		clearMarks();
@@ -417,13 +423,15 @@ export async function joinOnlineRoom(): Promise<void> {
 		casts: new Map(),
 		buttons: 0,
 	};
+	if (left) return;
 	session = current;
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	if (loadArt && field && played.made && seed !== undefined)
 		loadArt(played.made, seed).then(
 			(art) => {
-				if (session !== current) return art.destroy();
+				if (session !== current || left) return art.destroy();
 				current.art = art;
+				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
 			},
 			(error: unknown) => console.warn('[online] the field art did not load', error),
@@ -538,6 +546,9 @@ function raise(current: Session, signal: OnlineFlowSignal) {
 function lookEvent(current: Session, signal: OnlineFlowSignal) {
 	const { player, by } = signal.payload;
 	if (signal.name === 'hooked' && typeof by === 'string') current.casts.set(by, current.clipClock);
+	if ((signal.name === 'caught' || signal.name === 'escaped') && typeof by === 'string')
+		current.casts.delete(by);
+	if (signal.name === 'roundStart') current.casts.clear();
 	if (
 		(signal.name === 'jumped' || signal.name === 'climbed' || signal.name === 'ability') &&
 		typeof player === 'string'
@@ -719,7 +730,8 @@ function drawCodeLooks(
 	const mounts = new Map<string, ArtMount>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
-		if (!player) continue;
+		// A published clip wins over the code look (`<SpawnLayer>` would hide it anyway).
+		if (!player || current.looks.get(id)?.shown) continue;
 		let look = current.codeLooks.get(id);
 		if (!look) {
 			look = art.look(player.character, bodyOf(current, player));
@@ -990,6 +1002,7 @@ export function onlineProbe() {
 	return {
 		steps: state?.step || 0,
 		bodies,
+		...(fieldArt ? { fieldArt: fieldArt() } : {}),
 		...(camera && worldCamera
 			? {
 					camera: {

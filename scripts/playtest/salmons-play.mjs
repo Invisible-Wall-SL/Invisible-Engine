@@ -303,6 +303,7 @@ const rooms = createGameServer({
 	gracefullyShutdown: false,
 });
 await rooms.listen(roomsPort);
+let roomsClosed = false;
 
 const paramsFor = (extra) =>
 	new URLSearchParams({
@@ -1211,6 +1212,22 @@ try {
 		const errors = await game.page.evaluate('window.__AR_ERRORS__');
 		verdict(`page ${name}: no page error`, errors.length === 0, errors);
 	}
+	// The room goes (the server shuts down): page A's river art is torn down, every piece of it.
+	const artBefore = (await a.state()).arcade?.fieldArt;
+	await rooms.close();
+	roomsClosed = true;
+	let artAfter;
+	for (let i = 0; i < 30; i++) {
+		await wait(100);
+		artAfter = await a.state().catch(() => undefined);
+		artAfter = artAfter?.arcade?.fieldArt;
+		if (artAfter?.live === 0) break;
+	}
+	verdict(
+		'art: when the room goes, page A’s river is destroyed (none drawn, every piece it made destroyed)',
+		artBefore?.live === 1 && artAfter?.live === 0 && artAfter.destroyed === true,
+		{ artBefore, artAfter },
+	);
 	await a.page.close();
 	await b.page.close();
 	await c.page.close();
@@ -1221,7 +1238,7 @@ try {
 	await tPage.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
-	await rooms.close();
+	if (!roomsClosed) await rooms.close();
 	await server.close?.();
 	await snap.close?.();
 	await snapNoRiver.close?.();

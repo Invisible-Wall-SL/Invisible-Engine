@@ -30,6 +30,7 @@ const PAGES: Record<SalmonsSheet, { url: string; data: SpritesheetData }> = {
 };
 const FACE_URL = new URL('./sheets/waterfall_face.webp', import.meta.url).href;
 
+/** Kept for the page: a rejoin (or the next room) draws from the same textures. */
 let loading: Promise<SalmonsTextures> | undefined;
 
 /** Load the art once a page; a failed load is retried by the next call. */

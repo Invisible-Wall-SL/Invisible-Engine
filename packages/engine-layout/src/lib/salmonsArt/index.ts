@@ -27,6 +27,8 @@ export type SalmonsArt = {
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
+	/** How many rivers are drawn now, and whether the last one drawn is destroyed (the probe's). */
+	rivers: () => { live: number; destroyed: boolean };
 	destroy: () => void;
 };
 
@@ -38,11 +40,17 @@ export async function loadSalmonsArt(
 	const textures = await loadSalmonsTextures();
 	const looks = createLookFactory(textures, river);
 	let drawn: RiverArt | undefined;
+	let live = 0;
 	return {
-		river: (into, app) =>
-			mountSalmonsRiver(into, app, textures, river, seed, (art) => {
-				drawn = art;
-			}),
+		river: (into, app) => {
+			const art = mountSalmonsRiver(into, app, textures, river, seed);
+			drawn = art;
+			live += 1;
+			return () => {
+				art.teardown();
+				live -= 1;
+			};
+		},
 		look: looks.look,
 		line: (sinceCastMs, nowMs, fromDx) => {
 			const k = Math.min(1, Math.max(0, sinceCastMs / CAST_MS));
@@ -53,6 +61,7 @@ export async function loadSalmonsArt(
 			};
 		},
 		regions: () => drawn?.regions() ?? {},
+		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false }),
 		destroy: looks.destroy,
 	};
 }
