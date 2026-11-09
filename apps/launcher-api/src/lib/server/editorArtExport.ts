@@ -60,6 +60,7 @@ import { effectBakeShips } from 'engine-fx';
 import { artBoundsRef, loadArtBoundsDoc, type ArtBounds } from './artBoundsStorage';
 import { artSliceRef, loadArtSlicesDoc, type ArtSlice } from './artSlicesStorage';
 import { sliceBorders } from '$lib/artSlices';
+import { ktx2SheetTwin, type SheetFrame, type SheetJson } from './ktx2SheetTwin';
 import { collectPlayedClipIds } from './clipReachability';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
@@ -381,22 +382,10 @@ function stemFromManifestKey(manifestKey: string): string {
 	return safe || 'sheet';
 }
 
-interface TexturePackerFrame {
-	frame: { x: number; y: number; w: number; h: number };
-	rotated: boolean;
-	trimmed: boolean;
-	spriteSourceSize: { x: number; y: number; w: number; h: number };
-	sourceSize: { w: number; h: number };
-	/** 9-slice insets — PIXI reads them into `Texture.defaultBorders`. */
-	borders?: { left: number; top: number; right: number; bottom: number };
-}
-
 /**
  * Build the TexturePacker json-hash the engine's `sprites` loader parses, with frames keyed
- * EXACTLY by the editor region names (`SpriteNode.region` values). `sx`/`sy` scale EVERY pixel
- * coordinate — used for the KTX2 variant when its page was downscaled, so the frame rects match
- * the smaller page (identical UVs ⇒ sprites render at the same size, just lower-res). Default 1
- * ⇒ full-res, byte-identical to before.
+ * EXACTLY by the editor region names (`SpriteNode.region` values), at the page's full resolution.
+ * Its KTX2 variant is derived from this by `ktx2SheetTwin`.
  *
  * `box` supplies a region's AUTHORED bounds — the sprite twin of a rig's size frame. This is the
  * whole ship path for that feature and the reason it needs no runtime code: a declared box IS a
@@ -405,21 +394,18 @@ interface TexturePackerFrame {
  * anchored and cover-fitted by its box, through the loader that was already there. A region with no
  * authored box writes its own packed geometry, byte-identical to before (parity).
  *
- * `slice` supplies a region's 9-slice insets, written as the frame's `borders` (rescaled with the
- * rect) — again PIXI's own field, so a sliced node needs only the texture. A region without one
- * writes no `borders` key (parity).
+ * `slice` supplies a region's 9-slice insets, written as the frame's `borders` — again PIXI's own
+ * field, so a sliced node needs only the texture. A region without one writes no `borders` key
+ * (parity).
  */
 function toTexturePackerJson(
 	set: EditorRegionSet,
 	pageFile: string,
-	sx = 1,
-	sy = 1,
 	box?: (regionName: string) => ArtBounds | undefined,
 	slice?: (regionName: string) => ArtSlice | undefined,
-): string {
-	const frames: Record<string, TexturePackerFrame> = {};
-	const rx = (n: number) => Math.round(n * sx);
-	const ry = (n: number) => Math.round(n * sy);
+): SheetJson {
+	const frames: Record<string, SheetFrame> = {};
+	const n = (v: number) => Math.round(v);
 	for (const r of set.regions) {
 		const declared = box?.(r.name);
 		// The box REPLACES the region's declared canvas, and the art keeps its size at its position
@@ -447,30 +433,28 @@ function toTexturePackerJson(
 		const offX = geo ? geo.offX : (r.offX ?? 0);
 		const offY = geo ? geo.offY : (r.offY ?? 0);
 		frames[r.name] = {
-			frame: { x: rx(r.x), y: ry(r.y), w: rx(r.w), h: ry(r.h) },
+			frame: { x: n(r.x), y: n(r.y), w: n(r.w), h: n(r.h) },
 			rotated: r.rotated === true,
 			trimmed: offX !== 0 || offY !== 0 || origW !== r.w || origH !== r.h,
-			spriteSourceSize: { x: rx(offX), y: ry(offY), w: rx(r.w), h: ry(r.h) },
-			sourceSize: { w: rx(origW), h: ry(origH) },
+			spriteSourceSize: { x: n(offX), y: n(offY), w: n(r.w), h: n(r.h) },
+			sourceSize: { w: n(origW), h: n(origH) },
 		};
 		const insets = slice?.(r.name);
-		if (insets) frames[r.name].borders = sliceBorders(insets, sx, sy);
+		if (insets) frames[r.name].borders = sliceBorders(insets);
 	}
-	return JSON.stringify(
-		{
-			frames,
-			meta: {
-				app: 'invisible-editor-art-export',
-				format: 'RGBA8888',
-				image: pageFile,
-				scale: '1',
-				size: { w: rx(set.pageWidth), h: ry(set.pageHeight) },
-			},
+	return {
+		frames,
+		meta: {
+			app: 'invisible-editor-art-export',
+			format: 'RGBA8888',
+			image: pageFile,
+			scale: '1',
+			size: { w: n(set.pageWidth), h: n(set.pageHeight) },
 		},
-		null,
-		'\t',
-	);
+	};
 }
+
+const sheetText = (sheet: SheetJson) => JSON.stringify(sheet, null, '\t');
 
 /**
  * Export every atlas the project's layout doc (and its component defs) reference
@@ -845,26 +829,24 @@ export async function exportEditorArt(
 		// frame rects are unchanged (the WebP page keeps full resolution). Missing source ⇒ skip.
 		const shared = await pageStore.ensure(set.pageKey, pageExt);
 		if (!shared) return;
-		await putObjectText(
-			`${deployPrefix}${jsonRel}`,
-			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, 1, 1, boxFor, sliceFor),
-			'application/json',
-		);
+		const sheet = toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, boxFor, sliceFor);
+		await putObjectText(`${deployPrefix}${jsonRel}`, sheetText(sheet), 'application/json');
 		written.add(`${deployPrefix}${jsonRel}`);
 		// GPU-compressed KTX2 twin: a SECOND spritesheet JSON pointing `meta.image` at the shared
-		// `.ktx2` page, with frame rects rescaled to its (possibly auto-downscaled) dimensions so
-		// UVs stay identical. The game registers it on the compressed tier for 4–8× less VRAM.
+		// `.ktx2` page, with frame rects rescaled to its (possibly auto-downscaled) dimensions and
+		// `meta.scale` saying so, so every frame keeps its logical size (`ktx2SheetTwin`). The game
+		// registers it on the compressed tier for 4–8× less VRAM.
 		// Absent ⇒ `ktx2Json` unset ⇒ the game ships the WebP/PNG unchanged (parity).
 		let ktx2Json: string | undefined;
 		if (shared.ktx2File) {
 			ktx2Json = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
-			const sx = set.pageWidth ? shared.ktx2Width / set.pageWidth : 1;
-			const sy = set.pageHeight ? shared.ktx2Height / set.pageHeight : 1;
-			await putObjectText(
-				`${deployPrefix}${ktx2Json}`,
-				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy, boxFor, sliceFor),
-				'application/json',
+			const twin = ktx2SheetTwin(
+				sheet,
+				`${PAGE_REF_PREFIX}${shared.ktx2File}`,
+				shared.ktx2Width,
+				shared.ktx2Height,
 			);
+			await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
 			written.add(`${deployPrefix}${ktx2Json}`);
 		}
 		const names = set.regions.map((r) => r.name);

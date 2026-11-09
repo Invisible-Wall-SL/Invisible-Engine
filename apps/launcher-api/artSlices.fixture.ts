@@ -3,9 +3,9 @@
  *   node apps/launcher-api/artSlices.fixture.ts
  *
  * Pins: the insets doc keeps only whole, non-negative, not-all-zero insets, scoped to the sheet;
- * `sliceBorders` is the frame's `borders` rescaled with the rect (the KTX2 twin); and the shared
- * layout (`nineSlicePieces`) keeps corners at art size, shrinks them all by PIXI's one factor when
- * the box is too small, and never tiles a corner. The pixel parity of the editor against the game
+ * `sliceBorders` is the frame's `borders`, in logical units, so a KTX2 twin keeps them
+ * (`ktx2SheetTwin.fixture.ts`); and the shared layout (`nineSlicePieces`) keeps corners at art size,
+ * shrinks them all by PIXI's one factor when the box is too small, and never tiles a corner. The pixel parity of the editor against the game
  * is `pnpm --filter fx-spike nine-slice-parity`.
  */
 
@@ -68,12 +68,6 @@ check('normalization is idempotent', normalizeArtSlicesDoc(doc), doc);
 console.log('art slices — shipped borders');
 const slice = { left: 12, top: 10, right: 12, bottom: 10 };
 check('full-res borders are the insets', sliceBorders(slice), slice);
-check('a halved KTX2 page halves them with the rect', sliceBorders(slice, 0.5, 0.5), {
-	left: 6,
-	top: 5,
-	right: 6,
-	bottom: 5,
-});
 
 console.log('nine-slice layout');
 const ins = { left: 10, top: 8, right: 6, bottom: 4 };

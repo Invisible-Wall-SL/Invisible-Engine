@@ -56,6 +56,7 @@ import {
 import { isBuiltinRegion, parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
 import { parseRigBundleKey } from '$lib/rigBundleKey';
+import { ktx2SheetTwin, type SheetFrame, type SheetJson } from './ktx2SheetTwin';
 
 /**
  * How many rig bundles this export copies at once — the symbols twin of
@@ -436,58 +437,44 @@ function stemFromManifestKey(manifestKey: string): string {
 	return safe || 'sheet';
 }
 
-interface TexturePackerFrame {
-	frame: { x: number; y: number; w: number; h: number };
-	rotated: boolean;
-	trimmed: boolean;
-	spriteSourceSize: { x: number; y: number; w: number; h: number };
-	sourceSize: { w: number; h: number };
-}
-
-/** Build the TexturePacker json-hash the engine's `sprites` loader parses. Each frame is keyed
+/** Build the TexturePacker json-hash the engine's `sprites` loader parses, at the page's full
+ *  resolution (its KTX2 variant is derived by `ktx2SheetTwin`). Each frame is keyed
  *  BOTH by its bare name (what a legacy/coded bare `assetKey` looks up) AND by the atlas-scoped
  *  key `<manifest>::<region>` (what a SCOPED sprite cell looks up). The scoped key carries the
  *  manifest, so two symbols reusing a name on distinct atlases resolve to distinct textures — the
  *  symbol-path analogue of `editorArtNamespace`'s dual registration, baked into the sheet the game
  *  loads with no namespace, so no game change is needed. */
-function toTexturePackerJson(set: EditorRegionSet, pageFile: string, sx = 1, sy = 1): string {
-	const frames: Record<string, TexturePackerFrame> = {};
-	// `sx`/`sy` rescale every coordinate onto a page the KTX2 encoder auto-downscaled (see
-	// `ktx2Encode`'s `DEFAULT_MAX_DIMENSION`). The ratios are uniform, so UVs are unchanged and the
-	// art draws at the same size, just from a smaller page — the rule `editorArtExport` already
-	// follows. Both default to 1, so the WebP page's JSON is byte-identical to before.
-	const rx = (n: number) => Math.round(n * sx);
-	const ry = (n: number) => Math.round(n * sy);
+function toTexturePackerJson(set: EditorRegionSet, pageFile: string): SheetJson {
+	const frames: Record<string, SheetFrame> = {};
+	const n = (v: number) => Math.round(v);
 	for (const r of set.regions) {
 		const origW = r.origW ?? r.w;
 		const origH = r.origH ?? r.h;
 		const offX = r.offX ?? 0;
 		const offY = r.offY ?? 0;
-		const entry: TexturePackerFrame = {
-			frame: { x: rx(r.x), y: ry(r.y), w: rx(r.w), h: ry(r.h) },
+		const entry: SheetFrame = {
+			frame: { x: n(r.x), y: n(r.y), w: n(r.w), h: n(r.h) },
 			rotated: r.rotated === true,
 			trimmed: offX !== 0 || offY !== 0 || origW !== r.w || origH !== r.h,
-			spriteSourceSize: { x: rx(offX), y: ry(offY), w: rx(r.w), h: ry(r.h) },
-			sourceSize: { w: rx(origW), h: ry(origH) },
+			spriteSourceSize: { x: n(offX), y: n(offY), w: n(r.w), h: n(r.h) },
+			sourceSize: { w: n(origW), h: n(origH) },
 		};
 		frames[r.name] = entry;
 		frames[scopedFrameRef(set.assetKey, r.name)] = entry;
 	}
-	return JSON.stringify(
-		{
-			frames,
-			meta: {
-				app: 'invisible-editor-symbols-export',
-				format: 'RGBA8888',
-				image: pageFile,
-				scale: '1',
-				size: { w: rx(set.pageWidth), h: ry(set.pageHeight) },
-			},
+	return {
+		frames,
+		meta: {
+			app: 'invisible-editor-symbols-export',
+			format: 'RGBA8888',
+			image: pageFile,
+			scale: '1',
+			size: { w: n(set.pageWidth), h: n(set.pageHeight) },
 		},
-		null,
-		'\t',
-	);
+	};
 }
+
+const sheetText = (sheet: SheetJson) => JSON.stringify(sheet, null, '\t');
 
 /**
  * Export the assets a project's symbols doc binds into `deploy/editor-symbols/`,
@@ -608,24 +595,22 @@ export async function exportEditorSymbols(
 		if (opts?.pageStore) {
 			const shared = await opts.pageStore.ensure(set.pageKey, pageExt);
 			if (!shared) return;
-			await putObjectText(
-				`${deployPrefix}${jsonRel}`,
-				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`),
-				'application/json',
-			);
+			const sheet = toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`);
+			await putObjectText(`${deployPrefix}${jsonRel}`, sheetText(sheet), 'application/json');
 			written.add(`${deployPrefix}${jsonRel}`);
 			// The twin is a SECOND spritesheet JSON over the same regions, pointing at the `.ktx2`
 			// page with rects rescaled to its dimensions (equal to the source unless the encoder
-			// downscaled it). The game registers it on the compressed tier; absent ⇒ WebP/PNG.
+			// downscaled it) and `meta.scale` saying so (`ktx2SheetTwin`). The game registers it on
+			// the compressed tier; absent ⇒ WebP/PNG.
 			if (shared.ktx2File) {
 				ktx2Json = `${EXPORT_SUBTREE}/${stem}/${stem}.${version}.ktx2.json`;
-				const sx = set.pageWidth ? shared.ktx2Width / set.pageWidth : 1;
-				const sy = set.pageHeight ? shared.ktx2Height / set.pageHeight : 1;
-				await putObjectText(
-					`${deployPrefix}${ktx2Json}`,
-					toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy),
-					'application/json',
+				const twin = ktx2SheetTwin(
+					sheet,
+					`${PAGE_REF_PREFIX}${shared.ktx2File}`,
+					shared.ktx2Width,
+					shared.ktx2Height,
 				);
+				await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
 				written.add(`${deployPrefix}${ktx2Json}`);
 			}
 		} else {
@@ -634,7 +619,7 @@ export async function exportEditorSymbols(
 			if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
 			await putObjectText(
 				`${deployPrefix}${jsonRel}`,
-				toTexturePackerJson(set, pageFile),
+				sheetText(toTexturePackerJson(set, pageFile)),
 				'application/json',
 			);
 			written.add(`${deployPrefix}${jsonRel}`);
