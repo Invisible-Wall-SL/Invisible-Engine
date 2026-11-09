@@ -1,4 +1,5 @@
-import { TOOLS, roleHasTool, type Role, type ToolOverrides } from './roles';
+import { isOwnerRole, OWNER_ROLE } from './launcherGates';
+import { TOOLS, USER_CAPABILITIES, roleHasTool, type Role, type ToolOverrides } from './roles';
 
 /**
  * Pure access decisions shared by the routes that apply them and `check-launcher-gates.ts`, which
@@ -75,10 +76,70 @@ export function adminAccountDenial(
 	actorRole: Role,
 	change: { targetRole?: Role | null; newRole?: Role | null },
 ): string | null {
-	if (actorRole === 'admin') return null;
-	if (change.newRole === 'admin') return 'Only an admin can grant the admin role.';
-	if (change.targetRole === 'admin') return 'Only an admin can change an admin account.';
+	if (isOwnerRole(actorRole)) return null;
+	if (change.newRole === OWNER_ROLE) return 'Only an admin can grant the admin role.';
+	if (change.targetRole === OWNER_ROLE) return 'Only an admin can change an admin account.';
 	return null;
+}
+
+/**
+ * The admin-panel actions only the owner's role may take, whatever the `adminPanel` capability
+ * says. Each is a way for a delegated admin to reach past the panel: the deploy token is the
+ * machine secret every build checks; another user's password is that user's account; a role's
+ * grants include the delegate's own role, so editing them hands out every capability; a purge
+ * erases a project's files for good. Everything else in the panel stays delegable.
+ */
+export const OWNER_ONLY_ADMIN_ACTIONS = [
+	'revealDeployToken',
+	'setDeployToken',
+	'rotateDeployToken',
+	'resetPassword',
+	'setRoleToolAccess',
+	'setToolAccess',
+	'purgeProject',
+] as const;
+
+export type OwnerOnlyAdminAction = (typeof OWNER_ONLY_ADMIN_ACTIONS)[number];
+
+/** What an owner-only decision needs from the submitted form. */
+export interface OwnerActionTarget {
+	actorId: string;
+	/** `userId` of a per-user action. */
+	userId?: string | null;
+	/** `toolKey` of a per-user grant. */
+	toolKey?: string | null;
+}
+
+/**
+ * Why `action` is refused to a caller of `actorRole`, or `null`. Two of the actions are owner-only
+ * in part: a delegate may still reset their OWN password, and may still set a user's TOOLS — only
+ * the per-user capabilities (`USER_CAPABILITIES`: bug triage, starting fix runs, which spend money)
+ * are the owner's to grant.
+ */
+export function ownerActionDenial(
+	actorRole: Role,
+	action: OwnerOnlyAdminAction,
+	target: OwnerActionTarget,
+): string | null {
+	if (isOwnerRole(actorRole)) return null;
+	switch (action) {
+		case 'revealDeployToken':
+		case 'setDeployToken':
+		case 'rotateDeployToken':
+			return 'Only an admin can see or change the deploy token.';
+		case 'resetPassword':
+			return target.userId === target.actorId
+				? null
+				: "Only an admin can reset another user's password.";
+		case 'setRoleToolAccess':
+			return "Only an admin can change a role's tools and capabilities.";
+		case 'setToolAccess':
+			return target.toolKey && USER_CAPABILITIES.includes(target.toolKey)
+				? 'Only an admin can grant a capability.'
+				: null;
+		case 'purgeProject':
+			return 'Only an admin can purge a project.';
+	}
 }
 
 /**

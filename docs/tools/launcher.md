@@ -138,8 +138,15 @@ does not have it yet.
 - **`/admin`** (admins only) — tabbed: Users, Roles, Tools, Projects, Clients,
   Games, Sessions, **Costs**, Settings (deploy token, layout default, **engine
   boot mark**, ComfyUI pod fleet, edge cache, **Invisible Director** budget + prices). **Create user**'s initial
-  password and a user's **Reset** password must be at least 12 characters (the
+  password and a user's **Reset** password must be 12 to 256 characters (the
   same rule as a self-service change); a reset signs that user out everywhere.
+  The **Admin panel** capability can be granted to other roles, but some
+  controls stay with the `admin` role and are hidden or disabled for everyone
+  else: the deploy token (reveal, set, rotate), resetting another user's
+  password, the Roles matrix, granting a user a capability (bug triage, fix
+  runs) and **Purge files**. Every change made in `/admin` — and every refused
+  attempt — is recorded in the `admin_audit` table (who, what, when; passwords
+  and tokens are never recorded).
 - **Sign out** — header form posting to `/auth/logout`.
 
 ### Admin → Games

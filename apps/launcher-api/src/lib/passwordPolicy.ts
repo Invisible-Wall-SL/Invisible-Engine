@@ -1,3 +1,5 @@
+import { MAX_PASSWORD_LENGTH, passwordTooLong } from './passwordLimit';
+
 /**
  * The rule for a NEW password — set by an admin (create / reset) or by the user on
  * `/account/password`. Length only, no composition rules. It is never applied at sign-in: a
@@ -5,11 +7,15 @@
  */
 export const MIN_PASSWORD_LENGTH = 12;
 
-/** Why `password` is too short to set, or `null` when it is long enough. */
+/** Why `password` is too short (or too long) to set, or `null` when its length is acceptable. */
 export function passwordLengthProblem(password: string): string | null {
-	return password.length < MIN_PASSWORD_LENGTH
-		? `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
-		: null;
+	if (password.length < MIN_PASSWORD_LENGTH) {
+		return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+	}
+	if (passwordTooLong(password)) {
+		return `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`;
+	}
+	return null;
 }
 
 export interface PasswordChange {
