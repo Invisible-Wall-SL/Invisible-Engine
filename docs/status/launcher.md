@@ -57,18 +57,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 6. **`<DataTable>` extraction** (`docs/ui-inventory.md` §2): the Pipeline Changes Check 2 games
    table is the 4th matrix instance and the first read-only one, so it is the cheapest to move
    first; localization, win-text and the admin tables follow.
-7. **Relative links inside the in-app tool guides 404.** `/docs/[slug]` renders `docs/tools/*.md`
-   with plain `marked`, so a guide's `fx.md` resolves to `/docs/fx.md` (the route takes `/docs/fx`)
-   and `../design/…` to a route that does not exist. Rewrite hrefs in the route (sibling `<slug>.md`
-   → `/docs/<slug>`, `../…` → the file on GitHub), with a fixture; the markdown stays as is.
-   Found 2026-10-24 while writing the Shader Graph guide.
-8. **`LeaseState.switchDoc` race** (`src/lib/leaseState.svelte.ts`). An acquire for item A can
+7. **`LeaseState.switchDoc` race** (`src/lib/leaseState.svelte.ts`). An acquire for item A can
    answer after the lease was switched to item B: A's answer is applied to B's state, and A's lease,
    if granted, is never released (it lapses at its TTL). The per-item tools (FX, Flipbook,
    components, Shader Graph) reach it by switching items quickly. Fix: `start()` captures the
    `docKey` and drops (and, if held, releases) an answer for a key it no longer holds.
 
-9. **Invisible Director QA draft play: no real play seen yet** (ADR-0010, card 9D). `draft-player` is
+8. **Invisible Director QA draft play: no real play seen yet** (ADR-0010, card 9D). `draft-player` is
    live and answers the launcher over the private network (2026-10-28,
    [infra](infra.md)). The first Director run with QA is its first real play, and it is waiting on
    Anthropic credits. Check that the Live run shows "N of M screens reached" and not `no_player`.
@@ -86,6 +81,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-09 — **Links between the in-app tool guides work (BUG-10).** `/docs/[slug]` renders
+  through `$lib/server/toolDocLinks.ts` (`renderToolDoc`): on its own `Marked` instance, each
+  relative href is resolved against `docs/tools/`, so a sibling `<slug>.md[#a]` opens
+  `/docs/<slug>[#a]` and anything else opens on GitHub (`blob|tree/main`, the repository from
+  `ENV.GITHUB_ENGINE_REPO`). The markdown stays as written. Guard: `check:tool-doc-links` renders
+  every guide and fails on a relative href left over. The two links to a guide that does not exist
+  (`symbols`) now name `symbols-state-machine`. Anchors land at the top of the page: the guides'
+  headings carry no ids yet. Proposed by fix run `f642d70210` (ADR-0013 pilot).
 - 2026-10-29 — **Tool bar switcher is now a "Tools" dropdown.** The icon strip in the shared top
   bar is replaced by one **Tools ▾** button that opens a panel of the other tools in stage columns
   (Create / Assets / Build / Files & Reference / Pipeline, each labelled in its accent). Closes on

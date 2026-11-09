@@ -891,7 +891,7 @@ overriding its type's default. Only a departure is saved, so a project that agre
 with its win model stores nothing.
 
 **Authoring the explosion.** As a winning symbol leaves the board it plays its
-**Explosion** state from the [Symbols tool](/docs/symbols) — an ordinary authorable
+**Explosion** state from the [Symbols tool](symbols-state-machine.md) — an ordinary authorable
 symbol state, like Land or Win. A project that has not authored one will see the
 winners simply vanish, which reads as a bug and is not one.
 

@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
-import { marked } from 'marked';
+import { ENV } from '$lib/server/env';
 import { toolGuide } from '$lib/server/toolGuides';
+import { renderToolDoc } from '$lib/server/toolDocLinks';
 import type { PageServerLoad } from './$types';
 
 /** Turn a `<slug>` into a readable page title (e.g. `atlas-maker` → `Atlas Maker`). */
@@ -19,6 +20,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		throw error(404, `No guide found for “${params.slug}”.`);
 	}
 
-	const html = await marked.parse(source);
+	const html = await renderToolDoc(source, `https://github.com/${ENV.GITHUB_ENGINE_REPO}`);
 	return { slug: params.slug, title: titleFromSlug(params.slug), html };
 };
