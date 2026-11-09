@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
+import { requireDeployToken } from '$lib/server/deployToken';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { loadWinTextDoc } from '$lib/server/winTextStorage';
@@ -17,9 +17,7 @@ import type { RequestHandler } from './$types';
  * at render. See `docs/design/invisible-win-text.md`.
  */
 export const GET: RequestHandler = async ({ url }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Win-text export is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
+	await requireDeployToken(url, 'Win-text export is not configured.');
 
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;

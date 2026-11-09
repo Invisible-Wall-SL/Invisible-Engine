@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { getDeployToken } from '$lib/server/appSettings';
+import { requireDeployToken } from '$lib/server/deployToken';
 import { listAllObjects } from '$lib/server/r2';
 import { r2Slug, SUB } from '$lib/server/projectPaths';
 import { DEPLOY_CORS_HEADERS, serveDeployFile } from '$lib/server/deployServe';
@@ -34,9 +34,7 @@ function splitProject(project: string): { client: string; proj: string } {
 }
 
 export const GET: RequestHandler = async ({ url }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Deploy endpoint is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
+	await requireDeployToken(url, 'Deploy endpoint is not configured.');
 
 	const projectParam = url.searchParams.get('project');
 	if (!projectParam) throw error(400, 'missing project');
