@@ -56,7 +56,7 @@ export interface ReelGridLayout {
 }
 
 /** Scan every scene's top-level nodes for the first `reelGrid` node. */
-export function findReelGridNode(doc: LayoutDoc): ReelGridNode | undefined {
+export function findReelGridNode(doc: Pick<LayoutDoc, 'scenes'>): ReelGridNode | undefined {
 	for (const scene of doc.scenes) {
 		for (const node of scene.nodes) {
 			if (node.kind === 'reelGrid') return node;

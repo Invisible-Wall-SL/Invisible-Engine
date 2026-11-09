@@ -1478,8 +1478,24 @@ a generic default.
 If the box drifts from the game type's reference (common for older projects
 created before the seed), an amber **"Canvas W×H doesn't match the … game box
 W×H"** warning appears with a **Match game box** button that snaps every
-layoutType's box back to the reference in one click. Editing the box (or clicking
-Match) goes through the normal autosave + undo path.
+layoutType's box back to the reference in one click. A canvas that is a whole multiple
+of the reference (a game rescaled to 4K) is compared against the reference at that
+multiple, and Match snaps to it. Editing the box (or clicking Match) goes through the
+normal autosave + undo path.
+
+**Rescale canvas…** puts the whole game on a canvas N times larger or smaller and
+keeps it looking exactly as it did: type `2` to take a 1920×1080 game to 3840×2160
+(a 4K arcade cabinet), `0.5` to take it back. It multiplies every layout's canvas box
+and the layout buckets' boxes (the project then keeps its own bucket set), and moves
+and scales each screen's top-level nodes with it. Screens drawn in window pixels
+(a `canvas` screen without "scale with window") and full-bleed backgrounds do not
+depend on the canvas and are left alone. It is one undo step.
+
+- **Art keeps its pixels**, so after a ×2 it is drawn twice as big. When you replace
+  it with art made at the new size, set the scale of the nodes that show it back to 1.
+- **A slot needs a Reel Grid.** Without one the reel board is the coded default,
+  which does not follow the canvas; the editor warns before rescaling such a layout.
+- Plan and the rest of the 4K work: `docs/design/arcade-4k-builds.md`.
 
 ### 6. Save and reach the game
 

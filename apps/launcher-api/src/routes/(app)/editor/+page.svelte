@@ -50,6 +50,7 @@
 		inGameViewSceneIds,
 		viewableModeIds,
 		hasWorldCamera,
+		rescaleCanvas,
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
@@ -2692,22 +2693,96 @@
 	/** The game-type reference's canonical canvas box (plain JSON from the server), or
 	 * `null` for a game type without a reference layout. */
 	const referenceMainSizes = data.referenceMainSizes;
-	/** The layoutTypes whose current box differs from the game-type reference — drives the
-	 * non-blocking mismatch warning. Empty when there's no reference or the doc matches. */
+	/** How many times the game-type reference this canvas is, read off the current layout's width:
+	 * 1 for a game authored at the reference size, 2 for one rescaled to twice it (a 4K game). A
+	 * box at that multiple of the reference matches it — what a rescale is for. */
+	const canvasFactor = $derived.by(() => {
+		const ref = referenceMainSizes?.[currentLayoutType];
+		const cur = mainSizesMap[currentLayoutType];
+		return ref && cur && ref.width > 0 ? cur.width / ref.width : 1;
+	});
+	/** The reference box at this canvas's multiple. */
+	const referenceBoxAtFactor = (lt: LayoutType) => {
+		const ref = referenceMainSizes?.[lt];
+		return ref
+			? {
+					width: Math.round(ref.width * canvasFactor),
+					height: Math.round(ref.height * canvasFactor),
+				}
+			: undefined;
+	};
+	/** The layoutTypes whose current box differs from the game-type reference (at the canvas's
+	 * multiple) — drives the non-blocking mismatch warning. Empty when there's no reference or the
+	 * doc matches. */
 	const canvasMismatches = $derived.by(() => {
 		if (!referenceMainSizes) return [] as LayoutType[];
 		return layoutTypes.filter((lt) => {
-			const ref = referenceMainSizes[lt];
+			const ref = referenceBoxAtFactor(lt);
 			const cur = mainSizesMap[lt];
 			return !ref || !cur || ref.width !== cur.width || ref.height !== cur.height;
 		});
 	});
-	/** Snap the WHOLE `mainSizesMap` to the game-type reference (the one-click fix for an
-	 * already-drifted doc). Clones from the plain server JSON — never a `$state` proxy
-	 * (`structuredClone` on a proxy throws here). */
+	/** Snap the WHOLE `mainSizesMap` to the game-type reference at this canvas's multiple (the
+	 * one-click fix for an already-drifted doc). Built from the plain server JSON — never a
+	 * `$state` proxy (`structuredClone` on a proxy throws here). */
 	function matchGameBox(): void {
 		if (!referenceMainSizes) return;
-		mainSizesMap = structuredClone(referenceMainSizes);
+		const next = structuredClone(referenceMainSizes);
+		for (const lt of Object.keys(next)) next[lt] = referenceBoxAtFactor(lt) ?? next[lt];
+		mainSizesMap = next;
+		markDirty();
+	}
+
+	/** Put the whole layout on a canvas N times larger or smaller (`rescaleCanvas`): every canvas
+	 * box, the layout profile's bucket boxes, and each screen's nodes, so the game looks exactly as
+	 * it did — the step from a 1920×1080 game to a 3840×2160 one. The profile becomes a project
+	 * override (its boxes are this project's now). One undo step. */
+	async function rescaleCanvasBy(): Promise<void> {
+		const box = mainSizesMap[currentLayoutType];
+		const typed = await askText({
+			title: 'Rescale the canvas',
+			message:
+				`Multiplies every canvas size (now ${box.width}×${box.height} for this layout) and moves ` +
+				'and scales every screen with it, so the game looks exactly as it did. 2 takes a ' +
+				'1920×1080 game to 3840×2160; 0.5 takes it back.\n\nArt keeps its pixels, so it is ' +
+				'drawn bigger: when you replace it with art made at the new size, set the scale of the ' +
+				'nodes that show it back to 1.',
+			label: 'Factor',
+			value: '2',
+			confirmLabel: 'Rescale',
+		});
+		if (typed === null) return;
+		const factor = Number(typed);
+		if (!Number.isFinite(factor) || factor <= 0 || factor === 1) {
+			await askMessage({
+				title: 'Not a factor',
+				message: 'Enter a number above 0 other than 1: 2 doubles the canvas, 0.5 halves it.',
+			});
+			return;
+		}
+		const { doc, codedBoard } = rescaleCanvas(
+			{
+				mainSizesMap: $state.snapshot(mainSizesMap) as typeof mainSizesMap,
+				scenes: $state.snapshot(scenes) as Scene[],
+			},
+			factor,
+			$state.snapshot(activeProfile) as LayoutProfile,
+		);
+		if (
+			codedBoard &&
+			!(await askConfirm({
+				title: 'This layout has no Reel Grid',
+				message:
+					"A slot's reel board without a Reel Grid is the coded default, which does not follow " +
+					'the canvas: after the rescale it draws at its old size. Add a Reel Grid first if this ' +
+					'game has reels.',
+				confirmLabel: 'Rescale anyway',
+			}))
+		)
+			return;
+		mainSizesMap = doc.mainSizesMap;
+		scenes = doc.scenes;
+		docLayoutProfile = doc.layoutProfile;
 		markDirty();
 	}
 
@@ -4306,6 +4381,9 @@
 										onchange={(e) => setCanvasDimension('height', e.currentTarget.valueAsNumber)}
 									/>
 								</label>
+								<button type="button" class="gs-edit-btn" onclick={rescaleCanvasBy}>
+									Rescale canvas…
+								</button>
 								{#if referenceMainSizes && canvasMismatches.length > 0}
 									<div class="cs-warn">
 										<p class="cs-warn-text">
@@ -4316,9 +4394,9 @@
 											>
 											doesn't match the {authoringGameType} reference box
 											<strong
-												>{referenceMainSizes[currentLayoutType]?.width}×{referenceMainSizes[
-													currentLayoutType
-												]?.height}</strong
+												>{referenceBoxAtFactor(currentLayoutType)?.width}×{referenceBoxAtFactor(
+													currentLayoutType,
+												)?.height}</strong
 											> — the game renders YOUR box, so coded parts (the reel board) sit where this box
 											puts them, not the reference's.
 										</p>

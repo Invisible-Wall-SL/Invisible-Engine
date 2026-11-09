@@ -171,6 +171,20 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-09 — **Rescale canvas… puts a game on a bigger canvas** ([arcade-4k-builds](../design/arcade-4k-builds.md)
+  Phase 2). The Canvas Size panel's new action takes a factor (2 = 1920×1080 → 3840×2160) and
+  runs `engine-layout` `rescaleCanvas`: every canvas box and layout-profile bucket box multiply
+  (the profile becomes a project override), each top-level node of a canvas-unit screen (`game`,
+  `standard`, a `canvas` screen that scales with the window) moves and scales, and the numbers
+  outside a node's scale multiply directly (a reel grid's board nudge; a screen's world, camera
+  and guides). Window-pixel `canvas` screens and `background` screens are left alone. A layout
+  with no reel grid gets a warning first: the coded board does not follow the canvas. The canvas
+  mismatch warning now compares against the reference at the canvas's multiple, so "Match game
+  box" no longer undoes a rescale. Guards: `packages/engine-layout/canvasRescale.fixture.ts`
+  (22 checks, mutant-tested) and `scripts/playtest/canvas-scale-probe.mjs`, which boots the
+  built runtime at both sizes and compares pixels: the Book-of reference ×2 differs by 0.25–0.53%
+  (animation and clock noise on a real clock), the lines reference (coded board) by 11–13%. Not
+  clicked through in a running launcher (needs its DB and R2); svelte-check and the build pass.
 - 2026-11-08 — **Spin tuning grew the options a measured reel feel needs, and shows the house
   defaults.** The reel grid's "Spin tuning (advanced)" adds spin-up (ms), wind-up, overshoot
   bounce, bounce time (ms), first reel length and min roll (ms), and each blank box shows the

@@ -71,6 +71,7 @@ export * from './restingScenes';
 export * from './kindCapabilities';
 export * from './collectComponentIds';
 export * from './reelGrid';
+export * from './canvasRescale';
 export * from './buttonConvert';
 export * from './normalizeHudScenes';
 export * from './buttonStateImage';
