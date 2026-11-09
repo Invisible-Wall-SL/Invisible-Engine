@@ -17,6 +17,7 @@ import { DEFAULT_GAME_KIND, familyOfKind, type GameFamily } from 'constants-shar
 import { getDeployToken } from './appSettings';
 import { r2SlugSql, withProjectKeyLock, type Queryer } from './projectKeyLock';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT, r2Slug } from './projectPaths';
+import { tokensMatch } from './tokensMatch';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
@@ -358,7 +359,9 @@ export async function projectReadClient(projectKey: string, token: string): Prom
 			.from(projects)
 			.where(eq(projects.key, projectKey)),
 	]);
-	if (token !== deployToken && token !== row?.readToken) return null;
+	const matches = (configured: string | null | undefined) =>
+		configured ? tokensMatch(token, configured) : false;
+	if (!matches(deployToken) && !matches(row?.readToken)) return null;
 	return row?.clientKey ?? UNASSIGNED_CLIENT;
 }
 

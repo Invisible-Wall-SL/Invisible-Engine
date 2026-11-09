@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { GameConfigDoc } from 'game-config';
-import { getDeployToken } from '$lib/server/appSettings';
+import { requireDeployToken } from '$lib/server/deployToken';
 import { unplayableFamilyMessage } from '$lib/server/familyGate';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
 import {
@@ -37,9 +37,7 @@ import type { RequestHandler } from './$types';
  * See `docs/design/invisible-game-config.md`.
  */
 export const GET: RequestHandler = async ({ url }) => {
-	const secret = await getDeployToken();
-	if (!secret) throw error(503, 'Game-config export is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
+	await requireDeployToken(url, 'Game-config export is not configured.');
 
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
