@@ -134,11 +134,12 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
     the sandbanks), and its salmon (golden) as a rope through `salmon_golden`; page B its bear as
     the `bear` sprite, its claw streak showing on the press; page H its fisherman as the circle
     with a hand, and the line's colour 0xddddaa; page G2 its own salmon `salmon_pink` and G's
-    `salmon_golden`.
+    `salmon_golden`. Last, the server shuts down: page A's river art is torn down (the probe's
+    `fieldArt`: none drawn, and every container it made destroyed).
 
 The bots are bears with a brain that stands still: each room places them on its own river's
 banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
-so it is golden and check 6 takes its colour as pink or gold. 68 verdicts.
+so it is golden and check 6 takes its colour as pink or gold. 69 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
 and the pages of the authored-river rooms (E, F, G, H, S, T) draw a river of the room's seed while
