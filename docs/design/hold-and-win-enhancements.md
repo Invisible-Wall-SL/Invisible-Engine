@@ -4,17 +4,41 @@
 > [hold-and-win.md](hold-and-win.md) · Asked for 2026-11-08 by the owner. Owner agent:
 > `hold-and-win-games` (the second respin mode, buy routing and the overlay side are `bonus-games`).
 
+**On the partner's server** (their word, 2026-11-09): the game is named **Getting Hot**, game id
+**8**. Their CDN alias is the name without spaces, `GettingHot`, so the launcher card must be named
+"Getting Hot" for deliveries to find it (or the launch link passes `&alias=GettingHot`).
+
+## Scope: their math, our client
+
+As for every game we ship, **the partner's server owns the math and every outcome**, and our
+client talks to it through the Play4Fun translator. The first draft of this plan wrongly treated
+the math as ours; this section corrects it. Getting Hot is their proven Fortune Vault
+Force 5 game: same math, same server logic, same wire. **We build the client:** it must read their
+wire exactly and present it with our own art, names and theme. We copy no art or names
+("Gold Strike", "Force 5", "Power Roll" stay theirs).
+
+So the work is, in order of importance:
+
+1. **Read their wire.** Map the captured events
+   ([play4fun-collector-respin-capture.md](../reference/play4fun-collector-respin-capture.md)) into
+   our engine's book events in the facade. For this game this is Phase 10.
+2. **Show it.** The beats, parts and art for what is new to our engine (§4, slice 14b).
+3. **Author and test without their server.** Our mock only has to speak their wire with
+   plausible rounds; its numbers are pacing, not math.
+
+Every config field in §3.1–§3.4 below that sets a rate, a weight or a table is therefore **mock
+pacing only**: it shapes the rounds our mock deals for authoring and tests, never what a player
+gets. The partner's server decides those.
+
 ## Why this exists
 
 The owner wants a game that plays like the partner's own **Fortune Vault Force 5** (EAGaming /
-Play4Fun), with our own art, names and theme. We copy the **mechanics only**. The art, the symbol
-set, the names ("Gold Strike", "Force 5", "Power Roll") and the numbers stay theirs. Our math is set
-in Game Config by a person, as for every game (targets.md).
+Play4Fun), with our own art, names and theme, on the partner's server as game 8.
 
-About 70% of that game is already Hold and Win config. This plan builds the rest: four random
-enhancements, two new trigger rules, a symbol top-up before the feature, and an ante that changes
-the reels. Every new path is gated on a new, sparse config field. Its absence leaves every current
-game byte-identical.
+About 70% of that game's presentation already exists in our Hold and Win kind. This plan builds
+the rest: four random enhancements, two trigger rules, a symbol top-up before the feature, and an
+ante and buys that change the reels. Every new path is gated on a new, sparse config field. Its
+absence leaves every current game byte-identical.
 
 ## 1. The reference game's rules (read 2026-11-08 from its in-game info pages)
 
@@ -24,10 +48,15 @@ game byte-identical.
 - **Collector** ("Gold Strike") lands on reel 3 only.
 - **Collect:** a collector on reel 3 with any coin in view pays every coin at once (base game).
 - **Bonus** ("Gold Strike Bonus"):
-  - Triggered by **3+ coins or collectors on consecutive reels**.
+  - Triggered by **3+ coins or collectors on adjacent reels, anywhere** (reels 3–4–5 triggered in
+    the capture).
   - **More coins and collectors can be added** before the feature starts.
-  - The trigger symbols stay, in place; every other cell becomes blank.
-  - 3 respins. Any new coin or collector resets them to 3.
+  - **Only the collectors stay.** A collector in the trigger spin first collects the coins in view;
+    the bonus board then opens with just the collector(s), carrying that total. Every other cell is
+    blank.
+  - 3 respins. Any new coin or collector resets them to 3. **Coins do not stick:** each respin the
+    collectors in view gather the new coins, which then vanish. Collectors land on reel 3 only and
+    each keeps its own total. The bonus pays the sum of the collectors.
   - It always starts with **at least one** of four enhancements, drawn at random:
     - **Expand:** one more row, so the board is 4×5.
     - **Boost:** each respin may add 1–5× the total bet to one cash value in view.
@@ -36,27 +65,33 @@ game byte-identical.
   - Boost and Multiply do not hit on every respin; a miss shows an **X** on the indicator.
   - It ends when the respins run out and pays the total collected.
 - **Super bonus** ("Force 5"): a collector landing on reel 3 has a **random chance** to start it.
-  It plays like the bonus, but with 5 respins (reset to 5) and **all four enhancements on**.
-- **Ante** ("Power Roll"): a toggle costing 5× the bet. While it is on, **only collectors and coins
-  land** (blanks elsewhere).
-- **Buy:** two options, most likely the bonus and the super bonus. Not read: the demo crashed
-  before that page. To confirm (§5).
+  It plays like the bonus, but with 5 respins (reset to 5) and **all four enhancements on, each
+  stronger**: the grid can grow to a full 5×5, and boosts and multipliers go higher (the game's
+  web page; exact values not read).
+- **Ante** ("Power Roll", operator dependent): a toggle costing 5× the bet. While it is on, **only
+  collectors and coins land** (blanks elsewhere). Coin values stay multiples of the base bet.
+- **Buy** (two options, read 2026-11-09): **Center Coin** at 50× the bet deals the ante's coin-only
+  reels with a collector guaranteed on reel 3; **Gold Strike** at 100× buys the bonus. There is no
+  super-bonus buy.
 - **Indicators:** four dials above the reels, one per enhancement, lit when active.
+- **The wire** of all of this, captured 2026-11-09:
+  [play4fun-collector-respin-capture.md](../reference/play4fun-collector-respin-capture.md).
 
 ## 2. What we already have (config only, no code)
 
-| Their mechanic                            | Ours                                                                         |
-| ----------------------------------------- | ---------------------------------------------------------------------------- |
-| Lines base game, paytable                 | `lines` base, `paylines`, `paytable`                                         |
-| Coins on 4 reels, cash + 4 fixed jackpots | `holdAndWin.coins[].reels`, `jackpots`                                       |
-| Collector on reel 3 only                  | `specials.collector.reels: [2]`, `landsInBaseGame`                           |
-| Base-game collect                         | `specials.collector.instantCollectInBaseGame`                                |
-| Collector collecting in the respins       | `specials.collector.collects: 'perRespin'`                                   |
-| Sticky coins, 3 respins, any-symbol reset | `stickiness: 'allCoins'`, `respins {start: 3, reset: 'anySpecial'}`          |
-| A second bonus with 5 respins             | a second respin mode (`GameModeDecl.holdAndWin`, bonus-games), own `respins` |
-| Two buys, each to its own bonus           | `coinOverlay.trigger` buy routes `{betMode, mode, guaranteed}`               |
-| The ante's price and toggle               | a bet mode with `presentation.kind: 'ante'`                                  |
-| Art, dials, jackpot bar, counter          | Scene Editor + skinnable parts (Phase 12c), Symbols, Win Text                |
+| Their mechanic                                                    | Ours                                                                                                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lines base game, paytable                                         | `lines` base, `paylines`, `paytable`                                                                                                                      |
+| Coins on 4 reels, cash + 4 fixed jackpots                         | `holdAndWin.coins[].reels`, `jackpots`                                                                                                                    |
+| Collector on reel 3 only                                          | `specials.collector.reels: [2]`, `landsInBaseGame`                                                                                                        |
+| Base-game collect                                                 | `specials.collector.instantCollectInBaseGame`                                                                                                             |
+| Collector collecting in the respins                               | `specials.collector.collects: 'perRespin'`                                                                                                                |
+| Collectors stick, coins are gathered, 3 respins, any-symbol reset | `stickiness: 'collectorsOnly'`, `respins {start: 3, reset: 'anySpecial'}` (14c checks that our `collectorsOnly` opens the board with only the collectors) |
+| A second bonus with 5 respins                                     | a second respin mode (`GameModeDecl.holdAndWin`, bonus-games), own `respins`                                                                              |
+| The bonus buy (100×)                                              | `coinOverlay.trigger` buy route `{betMode, mode, guaranteed}`                                                                                             |
+| The Center Coin buy (50×)                                         | a buy bet mode dealing its own strips (14e) with reel 3 all collectors                                                                                    |
+| The ante's price and toggle                                       | a bet mode with `presentation.kind: 'ante'`                                                                                                               |
+| Art, dials, jackpot bar, counter                                  | Scene Editor + skinnable parts (Phase 12c), Symbols, Win Text                                                                                             |
 
 ## 3. What we build
 
@@ -66,8 +101,8 @@ Two rules beside `count` and `pattern` in `HoldAndWinTrigger` (and as routes in
 `coinOverlay.ts`, so a second mode can use them):
 
 ```ts
-/** N+ symbols of `roles` on consecutive reels, starting at the leftmost reel (one per reel
- *  counts; a reel with none breaks the run). */
+/** N+ symbols of `roles` on adjacent reels, anywhere on the board (a reel counts when it shows at
+ *  least one; a reel with none breaks the run). */
 run?: { min: number; roles: HoldAndWinSymbolRole[] };
 /** A server-side chance, rolled only when `role` lands on one of `reels`. */
 chance?: { role: HoldAndWinSymbolRole; reels?: number[]; rate: number; name?: string };
@@ -106,22 +141,29 @@ enhancements?: {
 	draw: { type: 'atLeastOne'; counts: WeightedValue[] } | { type: 'all' };
 };
 type Enhancement =
-	| { kind: 'extraRow'; weight: number } // opens one row at entry (needs `expansion`)
+	| { kind: 'extraRow'; weight: number; rows: number } // opens rows at entry (needs `expansion`); 1 = 4×5, 2 = 5×5
 	| { kind: 'extraRespins'; weight: number; start: number } // the counter starts and resets here
 	| { kind: 'boost'; weight: number; hitRate: number; values: WeightedValue[] } // × total bet
 	| { kind: 'multiply'; weight: number; hitRate: number; values: WeightedValue[] }; // factors
 ```
 
-The super bonus is the same block with `draw: {type: 'all'}` in its own respin mode.
+The super bonus is the same block with `draw: {type: 'all'}` and its own, stronger values
+(`extraRow.rows: 2`, higher boost and multiply tables) in its own respin mode.
+
+**Follow the partner's shapes where we now know them** (capture 2026-11-09): the drawn set as five
+0/1 flags (`boostsAwarded`, repeated per respin as `boostsEnabled`), a multiply miss as
+`multiplier {multiplier: "X"}` and a hit as `[{reel, row, startingPay, multiplier}]`, applied to a
+coin as it lands, before the collect. The mock's new events should carry the same fields, so Phase
+10's facade mapping for this game is a rename, not a redesign.
 
 - **Wire.** `holdAndWinTrigger.context.enhancements: string[]` (the drawn kinds), beside
   `activeModifiers`. The respin counter's start is already carried by `respinUpdate.start`, so
   `extraRespins` just changes the server's start. Per respin, after the landed specials:
   - a hit sends `coinPay {source: 'enhancement', cells: [{reel, row, from, to}]}` (boost) or
-    `coinBoost {source: 'enhancement', multiplier, cells}` (multiply), one cash coin each, chosen at
-    random among the cash coins held;
+    `coinBoost {source: 'enhancement', multiplier, cells}` (multiply), on one **cash coin that
+    landed this respin**, never a jackpot coin (capture, second session);
   - a miss sends `enhancementMiss {kind}` (the X);
-  - with no cash coin held, it is a miss.
+  - with no cash coin landing, it is a miss.
     Both events exist today with `source` values for specials and the wheel, so the reducer and the
     sums `check:holdandwin` re-derives keep one rule. Their `payer` / `booster` fields become optional
     when `source` is `enhancement`.
@@ -129,8 +171,10 @@ The super bonus is the same block with `draw: {type: 'all'}` in its own respin m
   one row below the base grid when the feature starts, through the existing
   `rowsUnlocked {cause: 'enhancement'}` sent right after `holdAndWinTrigger`. `startRows` still
   equals the grid rows, so the validator's rule stays. The reducer already honours `rows`.
-- **Order inside a respin** (to confirm, §5): landed specials, then boost, then multiply. So a
-  multiply can double a boosted coin.
+- **Order inside a respin:** boost and multiply apply to the landed coin before the collectors
+  gather it. A respin with both on was not seen, so boost-then-multiply stays an assumption.
+- **Collect with two collectors:** each collector adds the full value of every coin (capture), so
+  a coin pays once per collector. 14c checks that our collector streak counts it the same way.
 - **Validation:** `extraRow` requires `expansion` with `maxRows > startRows` and rule `atEntry`.
   `boost` / `multiply` need cash coins in the coin table. `atLeastOne` counts are 1..pool size.
 - **Presentation (14d):**
@@ -161,6 +205,8 @@ betModeStrips?: Record<string, string>;
   the ante is on. The ante toggle and its badge already exist (`BetModeText.betAmountLabel`).
 - Validation: the key names a real strip set with the base grid's reel count. Every symbol on it
   exists.
+- The **Center Coin buy** is the same field on a buy bet mode: coin-only strips whose reel 3 is all
+  collectors, so every bought spin shows one.
 - This is not the coin board (Phase 13). The coin board replaces the whole base game. This is a
   per-bet-mode strip swap on a lines game. It is generic, so any kind's ante can use it.
 
@@ -172,7 +218,7 @@ betModeStrips?: Record<string, string>;
   - the bonus (3 respins, at least one enhancement) and the super bonus (5 respins, all four);
   - two buys and the ante.
 
-  Placeholder numbers until the owner's math lands.
+  Its numbers are mock pacing only; the partner's server holds the real math.
 
 - A sample project scaffolded from it with our own art (Atlas Maker / ComfyUI), a playtest playbook
   `docs/playtest/hw-enhancements-sample.md`, guide updates (`docs/tools/game-config.md`,
@@ -181,47 +227,43 @@ betModeStrips?: Record<string, string>;
 
 ## 4. Build plan (each a PR on its own branch; pipeline rules apply)
 
-Every slice ships the whole pipeline in one go: config + validator + `/config` UI → mock + forced
-beat + wire doc → facade → reducer → coded beat → flow vocab → Scene Editor part (where it has one)
-→ Symbols / Win Text → docs. `check:holdandwin`'s parity digests (400 seeded rounds per preset)
-must stay equal for every existing preset.
+The partner's wire first, then the look, then our mock.
+Each slice ships with its fixture and docs. `check:holdandwin`'s parity digests (400 seeded rounds
+per preset) must stay equal for every existing preset.
 
-| #   | Slice                                                                            | Forced beat                                                 | Owner agent                                              |
-| --- | -------------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
-| 14a | Trigger rules `run` + `chance`                                                   | `force:run`, `force:chance`                                 | hold-and-win-games                                       |
-| 14b | Top-up before the feature (`featureTopUp`)                                       | `force:topUp`                                               | hold-and-win-games                                       |
-| 14c | Enhancements: config, draw, wire, mock, facade, reducer, `atEntry` expansion     | `force:enhancements:<kinds>`, `force:enhancementHit:<kind>` | hold-and-win-games                                       |
-| 14d | Enhancements: dials, beats, flow vocab, Scene Editor template, Win Text, Symbols | —                                                           | hold-and-win-games, invisible-flow, invisible-components |
-| 14e | Ante reel set `betModeStrips`                                                    | `force:betMode:<mode>`                                      | invisible-game-config, engine-pixi-svelte                |
-| 14f | Preset, sample game, playbook, guides                                            | —                                                           | invisible-game-maker, docs-keeper, game-playtester       |
+| #   | Slice                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Owner agent                                              |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 14a | **Facade: read the partner's collector-respin wire.** Map the captured events into engine book events: `COIN_<n>` / `COIN_<TIER>` and `COLLECT_<cents>` cells; `collect`, `bonusWin`, `cellPayAmount`; `boostsAwarded` / `boostsEnabled` flags; `boost` and `multiplier` hits and X misses; `retrigger` and `left`; 4- and 5-row boards; the base-game collect round closed by `collect`; `betOptions` (Base, ante, two buys). A fixture built from the capture's shapes. This is Phase 10 for this game. | hold-and-win-games                                       |
+| 14b | **Presentation of what is new:** the collectors-only bonus board (per-collector totals; each collector takes a coin's full value; the trigger spin's collect carried in), the four enhancement dials (off / on / hit / miss), boost and multiply beams onto the landing coin, Expand opening its row(s) at entry, the super-bonus entry, the base-game collect. Flow vocabulary, Scene Editor template, Symbols states, Win Text.                                                                         | hold-and-win-games, invisible-flow, invisible-components |
+| 14c | **Ante and buys in the HUD:** the ante toggle and the two buy cards from `betOptions`; while the ante is on, the spinning filler reels show only coins, collectors and blanks (a client-side strip set, no math).                                                                                                                                                                                                                                                                                         | engine-pixi-svelte, invisible-game-config                |
+| 14d | **Our mock speaks their wire** for authoring and tests without their server: same events and shapes, forced beats (`force:enhancements:<bits>`, `force:boostHit`, `force:multiplyHit`, `force:superBonus`, `force:twoCollectors`), rates as pacing. §3.1–§3.4's config fields live here.                                                                                                                                                                                                                  | hold-and-win-games                                       |
+| 14e | **Getting Hot itself:** the project from a preset, our art (Atlas Maker / ComfyUI), a playtest playbook, the delivery to the partner CDN as `GettingHot`, and a first launch against their server as game 8 (`&on=partner&game=8`).                                                                                                                                                                                                                                                                       | invisible-game-maker, docs-keeper, game-playtester       |
 
-**Order.** 14a → 14b → 14c all edit `playBase` / `startFeature` in the one mock file, so they
-merge in that order. 14e can be built in parallel (its own fields, `dealBase` only) and rebased.
-14d needs 14c's wire. 14f needs everything.
+**Order.** 14a first: everything visible depends on reading their events right. 14b and 14d can
+then run in parallel (14b against 14a's fixture, 14d against the capture), and 14c beside them.
+14e needs the others; its art can start now from the brief.
 
-**Size (against the code, 2026-11-08).** 14a and 14b are small: they follow the count, pattern
-and random-metre paths. 14c is the largest: a new per-respin loop step with two event sources and
-a new expansion rule. 14d is medium, because the dial copies the Jackpot Tile part pattern. 14e is
-medium: a config field, a mock branch, and the runtime's spinning strips.
+**What we no longer build as math:** the trigger rules, top-up rate, enhancement draw and hit
+rates, and per-bet-mode strips are the partner server's. They stay in the plan only as mock pacing
+(14d). The `run` / `chance` triggers and `featureTopUp` matter to the client only if their server
+sends something for them; the capture never showed a top-up event, so 14a records what it finds.
 
 ## 5. Open questions
 
-For the owner:
+Answered by the 2026-11-09 capture: adjacent reels anywhere (not only from reel 1); the collector
+gathers every respin and coins do not stick; the two buys (Center Coin 50×, the bonus 100×); the
+ante at 5× with coin values on the base bet. The second session added: boost and multiply hit only
+a cash coin landing that respin, never a jackpot coin; two collectors each take a coin's full
+value; Expand opens its row at entry.
 
-- **"Consecutive reels"**: from reel 1 only (assumed), or any 3 adjacent reels?
-- **Boost / multiply targets**: cash coins only (the rules say "cash value"), or also jackpot
-  coins? Can both hit the same coin in one respin, and in which order?
-- **The collector in the respins**: we assume it collects every coin in view each respin it lands
-  (`perRespin`). The rules page does not say.
-- **The buy options and the ante's full rules**: not read (demo crashed). The owner, or the next
-  session, opens the demo and reads the Buy Feature dialog and the Power Roll page.
-- **Our names, theme and math.** The math is not copied.
+Still open:
 
-For the partner (Phase 10 asks):
+- **Boost and Multiply on the same respin:** can both hit one coin, and in which order? No bonus
+  in 17 had both on. The plan assumes boost, then multiply.
+- **Our names and theme** for Getting Hot (the art brief uses placeholders). The math is the
+  partner's and already proven; nothing to decide on our side.
 
-- **The wire.** All of this is mock-first on our own event family, like the rest of Hold and Win.
-- **Unblocking Phase 10.** This game runs on the partner's own RGS, so capturing a few of its rounds
-  would show their real Hold and Win format. Use `scripts/console-sniffer.js` in a real browser tab
-  on the game's origin (Cloudflare blocks server-side fetches). That covers the respins, the
-  enhancements, the ante and a buy. It may unblock Phase 10 for every Hold and Win game, so it is
-  worth doing before 14c fixes our own event names.
+For Phase 10: the capture
+([play4fun-collector-respin-capture.md](../reference/play4fun-collector-respin-capture.md)) is the
+partner's real respin wire for this game. It is enough to start mapping the facade for a collector
+respin game. Jackpot coins, meters and other partner titles are still unseen.

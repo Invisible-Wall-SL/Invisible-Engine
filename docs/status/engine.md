@@ -518,6 +518,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `verify-board-paint-order`, `verify-board-tiles`, `verify-tumble-pattern`) pass unchanged.
   - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S24 Ultra); the numbers above are
     headless Chromium on software GL.
+- 2026-11-09 — **A game with resolution tiers loads the one its screen needs**
+  ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 4). `game/artTier.ts` `chooseArtTier`
+  picks `half` when the canvas shows at half its size or less (window fit × capped DPR), else
+  `full`; `?tier=` forces it. `editor-scenes.ts` registers sheets, images and rigs from their tier
+  entries (`sheetSrc` / `imageSrc` / `rigSrc`), and images load at their declared resolution
+  through `pixi-svelte` `Asset.resolution` (a texture of their own, so a cached one made before a
+  shared page's resolution was set cannot mis-size them). A downscaled full KTX2 image now keeps
+  its size too. No tiers in the bundle ⇒ nothing changes. Guards: `artTier.fixture.ts`,
+  `scripts/playtest/art-tier-probe.mjs` (built runtime: right files fetched per tier, half and full
+  match to 0.29%, the no-resolution control differs by 16%). Shared probe code moved to
+  `scripts/playtest/probe-kit.mjs`.
 - 2026-11-08 — **Reels are sampled at the frame's own timestamp; `?perf=1` reads frame times on a
   device** (branch `claude/nice-albattani-a03tcm`). Owner report: spins "still not smooth" on an
   iPhone 17 (Safari, 120 Hz). **Cause, measured:** the reel strip is a Svelte `Tween`, and Svelte's

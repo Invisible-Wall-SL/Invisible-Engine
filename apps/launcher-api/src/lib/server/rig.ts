@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import type { ResolutionTierId } from 'engine-layout';
 import sharp from 'sharp';
 import { roleHasTool } from '$lib/roles';
 import { EDITOR_RIG_LOAD_SCALE } from '$lib/rigScale';
@@ -747,6 +748,10 @@ export interface ExportedRigEntry {
 	 * loads unchanged (parity). Rig atlas pages are the dominant VRAM cost, so this is where
 	 * the big saving lands. */
 	ktx2Atlas?: string;
+	/** The atlas on each lower-resolution copy of its pages (`LayoutDoc.resolutionTiers`), and on
+	 *  those copies' KTX2 twins. Region coords are rescaled per page, so a rig draws at its full
+	 *  size; a page with no copy keeps its full page. Absent ⇒ none (parity). */
+	tiers?: Partial<Record<ResolutionTierId, { atlas: string; ktx2Atlas?: string }>>;
 }
 
 export interface ExportedRigBundle {
@@ -862,6 +867,20 @@ export async function exportRigBundle(opts: {
 	// and, when KTX2 is on, encode a compressed twin per page (sequential — the launcher OOM guard).
 	const ktx2ByPage = new Map<string, Ktx2Page>(); // pageName -> ktx2 ref + dims (for the .ktx2 atlas)
 	const webpByPage = new Map<string, string>(); // pageName -> shared webp ref (deduped only)
+	// Per resolution tier: pageName -> the tier's page, and -> its KTX2 twin (or the tier page when
+	// it had none, so the tier's compressed atlas still rescales that page).
+	const tierByPage = new Map<ResolutionTierId, Map<string, Ktx2Page>>();
+	const tierKtx2ByPage = new Map<ResolutionTierId, Map<string, Ktx2Page>>();
+	const addTierPage = (
+		maps: Map<ResolutionTierId, Map<string, Ktx2Page>>,
+		tier: ResolutionTierId,
+		pageName: string,
+		page: Ktx2Page,
+	) => {
+		const pages = maps.get(tier) ?? new Map<string, Ktx2Page>();
+		pages.set(pageName, page);
+		maps.set(tier, pages);
+	};
 	const pmaPages = atlasPremultipliedPages(atlasText);
 	for (const pageName of atlasPageNames(atlasText)) {
 		const pma = pmaPages.has(pageName);
@@ -874,6 +893,28 @@ export async function exportRigBundle(opts: {
 			shared ??= await pageStore.ensure(`${prefix}/${pageName}`, ext, pma);
 			if (!shared) continue;
 			webpByPage.set(pageName, `${PAGE_REF_PREFIX}${shared.file}`);
+			for (const [tier, page] of Object.entries(shared.tiers ?? {})) {
+				if (!page) continue;
+				const id = tier as ResolutionTierId;
+				const webp = {
+					name: `${PAGE_REF_PREFIX}${page.file}`,
+					width: page.width,
+					height: page.height,
+				};
+				addTierPage(tierByPage, id, pageName, webp);
+				addTierPage(
+					tierKtx2ByPage,
+					id,
+					pageName,
+					page.ktx2File
+						? {
+								name: `${PAGE_REF_PREFIX}${page.ktx2File}`,
+								width: page.ktx2Width,
+								height: page.ktx2Height,
+							}
+						: webp,
+				);
+			}
 			if (shared.ktx2File) {
 				ktx2ByPage.set(pageName, {
 					name: `${PAGE_REF_PREFIX}${shared.ktx2File}`,
@@ -982,6 +1023,31 @@ export async function exportRigBundle(opts: {
 		ktx2Atlas = `${dir}/${ktx2AtlasFile}`;
 	}
 
+	// One atlas per resolution tier, and one over that tier's KTX2 twins: the same rewrite as the
+	// KTX2 atlas, so each page with a copy is renamed and its region coords rescaled to the copy's
+	// size, and a page without one keeps its full shared page.
+	const tiers: ExportedRigEntry['tiers'] = {};
+	for (const [tier, pages] of tierByPage) {
+		const tierAtlas = async (byPage: Map<string, Ktx2Page>, suffix: string) => {
+			const file = entry.atlas_file.replace(/\.atlas$/i, suffix);
+			await putObjectText(
+				`${deployPrefix}${dir}/${file}`,
+				rewriteAtlasForKtx2(atlasText, byPage, webpByPage),
+				'text/plain; charset=utf-8',
+			);
+			written.push(`${deployPrefix}${dir}/${file}`);
+			return `${dir}/${file}`;
+		};
+		const ktx2Pages = tierKtx2ByPage.get(tier);
+		tiers[tier] = {
+			atlas: await tierAtlas(pages, `@${tier}.atlas`),
+			...(ktx2Pages &&
+				[...ktx2Pages.values()].some((p) => /\.ktx2$/i.test(p.name)) && {
+					ktx2Atlas: await tierAtlas(ktx2Pages, `@${tier}.ktx2.atlas`),
+				}),
+		};
+	}
+
 	return {
 		entry: {
 			key: assetKey,
@@ -989,6 +1055,7 @@ export async function exportRigBundle(opts: {
 			skeleton: `${dir}/${skeletonOut}`,
 			scale,
 			ktx2Atlas,
+			...(Object.keys(tiers).length > 0 && { tiers }),
 		},
 		written,
 	};

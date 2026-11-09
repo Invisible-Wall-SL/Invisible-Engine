@@ -34,12 +34,14 @@ import {
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import { captureError } from 'error-tracking';
+import { renderSettings } from 'pixi-svelte';
 import { setAuthoredMainSizesMap, setAuthoredLayoutProfile } from 'utils-layout';
 
 import type { SoundEffectName } from './game/sound';
 import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
+import { chooseArtTier, type ArtTier } from './game/artTier';
 import { gameAssetsBase } from './game/assets';
 import { fallbackEditorScenes } from './game/fallbackLayout';
 import type { StockAssetData } from './game/stockAssets';
@@ -101,6 +103,32 @@ export type AnticipationTierFxOverride = {
 	stingVolume?: number;
 };
 
+/** A sheet's copies on its page's lower-resolution tiers (`docs/design/arcade-4k-builds.md`
+ *  Phase 3): the WebP sheet and, when encoded, the KTX2 one. Absent for a project with none. */
+type SheetTiers = Partial<Record<ArtTier, { json: string; ktx2Json?: string }>>;
+
+/** A standalone image, its KTX2 twin, and its tier copies. `ktx2Resolution` / a tier's
+ *  `resolution` is the texture resolution that file loads at to keep the image's full size. */
+type ImageEntry = {
+	key: string;
+	file: string;
+	ktx2?: string;
+	ktx2Resolution?: number;
+	tiers?: Partial<
+		Record<ArtTier, { file: string; resolution: number; ktx2?: string; ktx2Resolution?: number }>
+	>;
+};
+
+/** A rig bundle, its KTX2 atlas, and its atlases over the tier copies of its pages. */
+type RigEntry = {
+	key: string;
+	atlas: string;
+	skeleton: string;
+	scale?: number;
+	ktx2Atlas?: string;
+	tiers?: Partial<Record<ArtTier, { atlas: string; ktx2Atlas?: string }>>;
+};
+
 /**
  * Build-time freeze (see docs/design/live-assets.md → "Layout-doc bake").
  * `bake-editor-doc.mjs` overwrites `baked-editor-bundle.json` with the frozen doc + the
@@ -126,12 +154,18 @@ type BakedBundle = {
 		 * page, emitted beside the WebP/PNG by the editor-art export. Present only for a
 		 * project re-exported after KTX2 encoding shipped; absent ⇒ the WebP/PNG loads as
 		 * before (parity). The asset builder prefers the KTX2 variant unless `?quality=high`. */
-		sheets: { key: string; json: string; names?: string[]; ktx2Json?: string }[];
-		images: { key: string; file: string; ktx2?: string }[];
+		sheets: {
+			key: string;
+			json: string;
+			names?: string[];
+			ktx2Json?: string;
+			tiers?: SheetTiers;
+		}[];
+		images: ImageEntry[];
 		/** Rig bundles editor-placed `spine` nodes reference (atlas + skeleton +
 		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
 		 * `scale` defaults to 2. */
-		spines?: { key: string; atlas: string; skeleton: string; scale?: number; ktx2Atlas?: string }[];
+		spines?: RigEntry[];
 		/** Placed region names no exported sheet packs — they render blank in-game.
 		 * The dangling-binding guard warns about these at boot (see `warnMissingAssets`). */
 		missing?: string[];
@@ -211,18 +245,18 @@ type BakedBundle = {
 			 * sheet's frames register under their own names — symbol bindings reference
 			 * those plain frame keys (e.g. `h1.webp`). `names` lists those frames (absent in a bundle
 			 * exported before it existed), so the stock walk loads no stock sheet for one. */
-			sheets: { key: string; json: string; ktx2Json?: string; names?: string[] }[];
+			sheets: {
+				key: string;
+				json: string;
+				ktx2Json?: string;
+				names?: string[];
+				tiers?: SheetTiers;
+			}[];
 			/** Standalone images, registered under the binding's full `assetKey`. */
-			images: { key: string; file: string; ktx2?: string }[];
+			images: ImageEntry[];
 			/** Rig bundles (atlas + skeleton, shared page on disk). `key` is the
 			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
-			spines: {
-				key: string;
-				atlas: string;
-				skeleton: string;
-				scale?: number;
-				ktx2Atlas?: string;
-			}[];
+			spines: RigEntry[];
 			/** Bound sprite-frame names no exported sheet packs — they render blank
 			 * in-game. The dangling-binding guard warns about these at boot. */
 			missing?: string[];
@@ -625,6 +659,9 @@ type EditorArtAssetEntry =
 			type: 'sprites' | 'sprite';
 			src: string;
 			fallback?: string;
+			/** `sprite` only: the texture resolution `src` / `fallback` load at (a tier copy). */
+			resolution?: number;
+			fallbackResolution?: number;
 			preload: boolean;
 			namespace?: string;
 	  }
@@ -659,6 +696,76 @@ function rigTierSrc(
 	return useKtx2 && rig.ktx2Atlas
 		? { src: at(rig.ktx2Atlas), fallback: at(rig.atlas) }
 		: { src: at(rig.atlas) };
+}
+
+/** The art copy this device loads ({@link chooseArtTier}), decided once from the doc in force and
+ *  the window at boot. `full` for SSR. */
+let chosenArtTier: ArtTier | undefined;
+function artTier(): ArtTier {
+	if (chosenArtTier) return chosenArtTier;
+	if (typeof window === 'undefined') return 'full';
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	chosenArtTier = chooseArtTier({
+		forced: new URLSearchParams(window.location.search).get('tier'),
+		window: {
+			width: window.innerWidth,
+			height: window.innerHeight,
+			devicePixelRatio: window.devicePixelRatio,
+		},
+		maxResolution: renderSettings().maxResolution,
+		doc: source?.doc ?? null,
+	});
+	return chosenArtTier;
+}
+
+/** A sheet's src on the chosen tier: its tier copy when the export wrote one, else the full sheet. */
+function sheetSrc(
+	base: string,
+	sheet: { json: string; ktx2Json?: string; tiers?: SheetTiers },
+	useKtx2: boolean,
+): { src: string; fallback?: string } {
+	const tier = sheet.tiers?.[artTier()];
+	return tier
+		? tierSrc(base, tier.json, tier.ktx2Json, useKtx2)
+		: tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2);
+}
+
+/** An image's src on the chosen tier, with the resolution each file loads at so a smaller copy
+ *  keeps the image's size. No resolution key when the file is full size (parity). */
+function imageSrc(
+	base: string,
+	image: ImageEntry,
+	useKtx2: boolean,
+): { src: string; fallback?: string; resolution?: number; fallbackResolution?: number } {
+	const tier = image.tiers?.[artTier()];
+	const file = tier?.file ?? image.file;
+	const fileResolution = tier?.resolution;
+	const ktx2 = tier ? tier.ktx2 : image.ktx2;
+	const ktx2Resolution = tier ? tier.ktx2Resolution : image.ktx2Resolution;
+	const at = (resolution: number | undefined, key: 'resolution' | 'fallbackResolution') =>
+		resolution !== undefined && resolution !== 1 ? { [key]: resolution } : {};
+	return useKtx2 && ktx2
+		? {
+				src: `${base}${ktx2}`,
+				fallback: `${base}${file}`,
+				...at(ktx2Resolution, 'resolution'),
+				...at(fileResolution, 'fallbackResolution'),
+			}
+		: { src: `${base}${file}`, ...at(fileResolution, 'resolution') };
+}
+
+/** A rig's atlas on the chosen tier (the skeleton and scale are the same on every tier). */
+function rigSrc(
+	base: string,
+	rig: RigEntry,
+	useKtx2: boolean,
+): { src: RigEntrySrc; fallback?: RigEntrySrc } {
+	const tier = rig.tiers?.[artTier()];
+	return rigTierSrc(
+		base,
+		tier ? { ...rig, atlas: tier.atlas, ktx2Atlas: tier.ktx2Atlas } : rig,
+		useKtx2,
+	);
 }
 
 /**
@@ -728,7 +835,7 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 		// flat loadedAssets map. `LayoutNodeView` resolves the matching scoped key.
 		out[`editorArt/${sheet.json}`] = {
 			type: 'sprites',
-			...tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2),
+			...sheetSrc(base, sheet, useKtx2),
 			preload: true,
 			namespace: editorArtNamespace(sheet.key),
 		};
@@ -738,7 +845,7 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	for (const image of source.editorArt?.images ?? []) {
 		out[image.key] = {
 			type: 'sprite',
-			...tierSrc(base, image.file, image.ktx2, useKtx2),
+			...imageSrc(base, image, useKtx2),
 			preload: true,
 		};
 	}
@@ -748,7 +855,7 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 		// On the compressed tier load the KTX2 atlas variant (its page-name lines point at the
 		// `.ktx2` twins; rig's atlas loader loads each page by extension → our KTX2 loader
 		// transcodes it). Same region coords, so the skeleton is unchanged. Absent ⇒ original.
-		out[rig.key] = { type: 'spine', ...rigTierSrc(base, rig, useKtx2), preload: true };
+		out[rig.key] = { type: 'spine', ...rigSrc(base, rig, useKtx2), preload: true };
 	}
 	return out;
 }
@@ -1440,7 +1547,14 @@ export function bakedFlowV2Library(): FlowV2LibraryDoc | undefined {
 }
 
 type SymbolAssetEntry =
-	| { type: 'sprites' | 'sprite'; src: string; fallback?: string; preload: boolean }
+	| {
+			type: 'sprites' | 'sprite';
+			src: string;
+			fallback?: string;
+			resolution?: number;
+			fallbackResolution?: number;
+			preload: boolean;
+	  }
 	| { type: 'spine'; src: RigEntrySrc; fallback?: RigEntrySrc; preload: boolean };
 
 /**
@@ -1474,19 +1588,19 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 	for (const sheet of index.sheets ?? []) {
 		out[`editorSymbols/${sheet.json}`] = {
 			type: 'sprites',
-			...tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2),
+			...sheetSrc(base, sheet, useKtx2),
 			preload: true,
 		};
 	}
 	for (const image of index.images ?? []) {
 		out[image.key] = {
 			type: 'sprite',
-			...tierSrc(base, image.file, image.ktx2, useKtx2),
+			...imageSrc(base, image, useKtx2),
 			preload: true,
 		};
 	}
 	for (const rig of index.spines ?? []) {
-		out[rig.key] = { type: 'spine', ...rigTierSrc(base, rig, useKtx2), preload: true };
+		out[rig.key] = { type: 'spine', ...rigSrc(base, rig, useKtx2), preload: true };
 	}
 	return out;
 }
@@ -1557,13 +1671,13 @@ function layerAssets(
 
 	for (const rig of index.spines ?? []) {
 		if (!keys.has(rig.key) || rig.key in already || rig.key in out) continue;
-		out[rig.key] = { type: 'spine', ...rigTierSrc(base, rig, useKtx2), preload: true };
+		out[rig.key] = { type: 'spine', ...rigSrc(base, rig, useKtx2), preload: true };
 	}
 	for (const image of index.images ?? []) {
 		if (!keys.has(image.key) || image.key in already || image.key in out) continue;
 		out[image.key] = {
 			type: 'sprite',
-			...tierSrc(base, image.file, image.ktx2, useKtx2),
+			...imageSrc(base, image, useKtx2),
 			preload: true,
 		};
 	}
@@ -1580,7 +1694,7 @@ function layerAssets(
 			if (key in already || key in out) continue;
 			out[key] = {
 				type: 'sprites',
-				...tierSrc(base, sheet.json, sheet.ktx2Json, useKtx2),
+				...sheetSrc(base, sheet, useKtx2),
 				preload: true,
 			};
 		}

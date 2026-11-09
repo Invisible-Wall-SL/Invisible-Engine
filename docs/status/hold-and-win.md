@@ -48,7 +48,7 @@ titled **"Hold and win game pipeline"**.
 | 7 | Symbols SM (coin roles/states, value label, kind gating) | merged, live (`lines@bf0e5932ac30`) | Hold and Win Phase 7 — Symbols SM | 7a: #950 · 7b: #955 · 7c: #957 · forward-compat: #961 · label fill: #963 |
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
-| 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
+| 10 | Partner wire (facade + mock brought in line) | blocked on partner — **partly unblocked 2026-11-09**: one partner collector-respin game captured ([capture](../reference/play4fun-collector-respin-capture.md)); jackpot coins, meters and other titles still unseen | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Collector bonus with random enhancements ([plan](../design/hold-and-win-enhancements.md)): 14a `run` + `chance` triggers · 14b top-up before the feature · 14c enhancements engine (boost / multiply / extra row / extra respins) · 14d enhancement dials + beats · 14e ante reel set · 14f preset + sample | **planned** (2026-11-08); open owner questions in the plan's §5 | — | plan only |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **planned** (2026-11-09: corrected to the standing model, the partner's math through the translator and our client) | — | plan only |
 
 ## Current state
 
@@ -80,6 +80,16 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-11-09 — **First real partner respin rounds captured** (Fortune Vault Force 5 demo, in a
+  real browser tab; [capture](../reference/play4fun-collector-respin-capture.md)). It confirms `seq`
+  as a position, context-less `play` respins and the closing `collect`.
+  - Buys and the ante are `betOptions` (`[index, betPerLine]`).
+  - Coins travel as `COIN_<n>` (× base bet), collectors as `COLLECT_<cents>`, and boards whole every
+    spin.
+  - In that game coins do not stick: the collectors gather them each respin.
+  - The enhancement set is five 0/1 flags (`boostsAwarded`) that also name the bonus (`"00011"`).
+
+  The Phase 14 plan was corrected to match (trigger anywhere, collectors-only board, the two buys).
 - 2026-11-08 — **Phase 14 planned: a game shaped like the partner's Fortune Vault Force 5.** The
   owner wants its mechanics with our own art. About 70% is already config (collector on one reel
   with instant collect, coins on chosen reels, a second respin mode, buys, an ante). The rest is

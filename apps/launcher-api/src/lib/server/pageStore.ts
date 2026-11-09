@@ -20,6 +20,7 @@
  * HEAD, no byte download; bytes are read only to encode a NEW page's KTX2 twin. A page that
  * isn't byte-identical simply doesn't dedup (safe: more copies, never a wrong merge).
  */
+import { RESOLUTION_TIERS, type ResolutionTierId } from 'engine-layout';
 import sharp from 'sharp';
 import { ENV } from './env';
 import { PREMULTIPLIED_KTX2_EXT } from './ktx2Alpha';
@@ -95,6 +96,39 @@ export interface SharedPage {
 	 *  UVs — via #179's `toTexturePackerJson(sx,sy)` / `rewriteAtlasForKtx2`. 0 when no KTX2. */
 	ktx2Width: number;
 	ktx2Height: number;
+	/** The page's lower-resolution copies, one per tier the project asked for (absent when it asked
+	 *  for none, or a copy could not be made — a missing tier falls back to this full page). */
+	tiers?: Partial<Record<ResolutionTierId, TierPage>>;
+}
+
+/** One resolution tier's copy of a page (`docs/design/arcade-4k-builds.md` Phase 3). */
+export interface TierPage {
+	/** The tier's page filename (`<hash>@<tier>.webp`), referenced as PAGE_REF_PREFIX + this. */
+	file: string;
+	width: number;
+	height: number;
+	/** The SOURCE page's dimensions: a standalone image's texture resolution is `width / sourceWidth`
+	 *  (a sheet or atlas rescales against its own declared page size instead). */
+	sourceWidth: number;
+	sourceHeight: number;
+	/** The tier page's own KTX2 twin, when it was big enough to encode. */
+	ktx2File?: string;
+	ktx2Width: number;
+	ktx2Height: number;
+}
+
+/** What a tier's `<hash>@<tier><variant>.meta.json` sidecar records, so an unchanged page reuses its
+ *  copy with one small GET instead of a download, a resize and an encode. */
+interface TierMeta {
+	file: string;
+	w: number;
+	h: number;
+	sw: number;
+	sh: number;
+	ktx2File?: string;
+	kw?: number;
+	kh?: number;
+	enc: number;
 }
 
 export class PageStore {
@@ -116,7 +150,12 @@ export class PageStore {
 	/** Every R2 key written under `deployPrefix` — fold into the caller's prune set. */
 	readonly written = new Set<string>();
 
-	constructor(private readonly deployPrefix: string) {}
+	/** `tiers`: the lower-resolution copies to write beside every page (`LayoutDoc.resolutionTiers`).
+	 *  Empty — every project that has not asked — writes exactly what it always did. */
+	constructor(
+		private readonly deployPrefix: string,
+		private readonly tiers: readonly ResolutionTierId[] = [],
+	) {}
 
 	/**
 	 * Ensure the page at `sourceKey` (and its KTX2 twin when enabled) exists once in the shared
@@ -196,6 +235,7 @@ export class PageStore {
 				await this.encodeTwin(sourceKey, `${hash}${variant}`, premultiplied, shared);
 				await this.writeMeta(metaKey, shared);
 			}
+			await this.ensureTiers(sourceKey, hash, variant, premultiplied, shared);
 			this.byContent.set(`${contentKey}${variant}`, shared);
 			return shared;
 		}
@@ -220,8 +260,122 @@ export class PageStore {
 		if (ENV.KTX2_ENCODE)
 			await this.encodeTwin(sourceKey, `${hash}${variant}`, premultiplied, shared);
 		await this.writeMeta(metaKey, shared);
+		await this.ensureTiers(sourceKey, hash, variant, premultiplied, shared);
 		this.byContent.set(`${contentKey}${variant}`, shared);
 		return shared;
+	}
+
+	/** Attach every asked-for tier copy to `shared`. A tier that cannot be made is left off, and the
+	 *  page falls back to its full-resolution copy there — never a missing page. */
+	private async ensureTiers(
+		sourceKey: string,
+		hash: string,
+		variant: string,
+		premultiplied: boolean,
+		shared: SharedPage,
+	): Promise<void> {
+		for (const tier of this.tiers) {
+			const page = await this.ensureTier(sourceKey, hash, variant, premultiplied, tier);
+			if (page) shared.tiers = { ...shared.tiers, [tier]: page };
+		}
+	}
+
+	/**
+	 * One tier's copy of a page: the source resized by the tier's scale and re-encoded near-lossless
+	 * like every shared page, plus its own KTX2 twin. Content-cached by the page's hash: the sidecar
+	 * names what was written and by which encoder, so an unchanged page costs one small GET.
+	 *
+	 * The WebP copy depends only on the source; its twin also on `premultiplied`, which is why the
+	 * sidecar carries the variant infix just as the full page's does.
+	 */
+	private async ensureTier(
+		sourceKey: string,
+		hash: string,
+		variant: string,
+		premultiplied: boolean,
+		tier: ResolutionTierId,
+	): Promise<TierPage | null> {
+		const stem = `${hash}@${tier}`;
+		const pages = `${this.deployPrefix}_pages/`;
+		const metaKey = `${pages}${stem}${variant}.meta.json`;
+		const metaText = await getObjectText(metaKey);
+		const m = metaText ? (JSON.parse(metaText) as TierMeta) : null;
+		if (
+			m &&
+			m.enc === KTX2_ENCODER_REVISION &&
+			(await objectExists(`${pages}${m.file}`)) &&
+			(!m.ktx2File || (await objectExists(`${pages}${m.ktx2File}`)))
+		) {
+			this.written.add(metaKey);
+			this.written.add(`${pages}${m.file}`);
+			if (m.ktx2File) this.written.add(`${pages}${m.ktx2File}`);
+			return {
+				file: m.file,
+				width: m.w,
+				height: m.h,
+				sourceWidth: m.sw,
+				sourceHeight: m.sh,
+				ktx2File: m.ktx2File,
+				ktx2Width: m.kw ?? 0,
+				ktx2Height: m.kh ?? 0,
+			};
+		}
+
+		let resized: Buffer;
+		let page: TierPage;
+		try {
+			const src = await getObjectBytes(sourceKey);
+			if (!src) return null;
+			const source = Buffer.from(src.body);
+			const { width: sw = 0, height: sh = 0 } = await sharp(source).metadata();
+			if (!sw || !sh) return null;
+			const scale = RESOLUTION_TIERS[tier];
+			const width = Math.max(1, Math.round(sw * scale));
+			const height = Math.max(1, Math.round(sh * scale));
+			resized = await sharp(source).resize(width, height, { fit: 'fill' }).png().toBuffer();
+			const file = `${stem}.webp`;
+			await putObjectBytes(
+				`${pages}${file}`,
+				await sharp(resized).webp(WEBP_OPTS).toBuffer(),
+				'image/webp',
+			);
+			this.written.add(`${pages}${file}`);
+			page = {
+				file,
+				width,
+				height,
+				sourceWidth: sw,
+				sourceHeight: sh,
+				ktx2Width: 0,
+				ktx2Height: 0,
+			};
+		} catch {
+			return null;
+		}
+
+		if (ENV.KTX2_ENCODE) {
+			const encoded = await encodePageToKtx2(resized, { sourcePremultiplied: premultiplied });
+			if (encoded) {
+				const ktx2File = `${stem}${variant}${PREMULTIPLIED_KTX2_EXT}`;
+				await putObjectBytes(`${pages}${ktx2File}`, encoded.bytes, 'image/ktx2');
+				this.written.add(`${pages}${ktx2File}`);
+				page.ktx2File = ktx2File;
+				page.ktx2Width = encoded.width;
+				page.ktx2Height = encoded.height;
+			}
+		}
+		const meta: TierMeta = {
+			file: page.file,
+			w: page.width,
+			h: page.height,
+			sw: page.sourceWidth,
+			sh: page.sourceHeight,
+			...(page.ktx2File && { ktx2File: page.ktx2File, kw: page.ktx2Width, kh: page.ktx2Height }),
+			enc: KTX2_ENCODER_REVISION,
+		};
+		await putObjectText(metaKey, JSON.stringify(meta), 'application/json');
+		this.written.add(metaKey);
+		return page;
 	}
 
 	/** Encode the KTX2 twin for `sourceKey` as `<stem>.pm.ktx2` and record it on `shared`. No-op on

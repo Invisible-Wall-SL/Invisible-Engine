@@ -4,7 +4,7 @@
  *
  * Pins: the insets doc keeps only whole, non-negative, not-all-zero insets, scoped to the sheet;
  * `sliceBorders` is the frame's `borders`, in logical units, so a KTX2 twin keeps them
- * (`ktx2SheetTwin.fixture.ts`); and the shared layout (`nineSlicePieces`) keeps corners at art size,
+ * (`sheetOnPage.fixture.ts`); and the shared layout (`nineSlicePieces`) keeps corners at art size,
  * shrinks them all by PIXI's one factor when the box is too small, and never tiles a corner. The pixel parity of the editor against the game
  * is `pnpm --filter fx-spike nine-slice-parity`.
  */

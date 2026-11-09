@@ -81,15 +81,27 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-09 — **Resolution tiers: a 4K project can publish its art at half size too**
+  ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 3). Opt-in: `LayoutDoc.resolutionTiers:
+  ['half']` (`engine-layout` `resolutionTiers.ts`), the Scene Editor's "Also publish half-resolution
+  art". `PageStore` takes the tiers (`runtimeBundle`, the bake symbol route and the art export's own
+  store read them off the doc) and writes `_pages/<hash>@half.webp` plus its KTX2 twin, cached by a
+  sidecar that records the source size. Editor-art and symbol sheets get `@half.json` /
+  `@half.ktx2.json` (`tierSheets`, `sheetOnPage` renamed from `ktx2SheetTwin`), standalone images
+  `tiers.half` with the resolution each file loads at (and `ktx2Resolution` for a downscaled full
+  twin), rigs `@half.atlas` / `@half.ktx2.atlas`. No tiers asked ⇒ byte-identical output. The
+  runtime does not read them until Phase 4. Guards: `check:resolution-tiers` (real store, sharp
+  and Basis over an in-memory R2, 22 checks), `sheetOnPage.fixture.ts`, and
+  `check:doc-readers-unknown-fields` (mutant-tested). Not run against a real project's R2.
 - 2026-11-09 — **A downscaled KTX2 sheet keeps its frames' size** ([arcade-4k-builds](../design/arcade-4k-builds.md)
   Phase 1). A page over 4096 px (or ~11 Mpix) is downscaled for its KTX2 twin, and the twin's sheet
   JSON rescaled every rect but said `meta.scale: '1'`, so on the compressed tier (phones) a frame
   drawn at its natural size came out smaller and its 9-slice borders thinner. Both exports
   (`editorArtExport`, `symbolExport`) now build the full sheet once and derive the twin through
-  `ktx2SheetTwin.ts`: rects rescaled, `meta.scale` = the ratio, borders kept logical (so
+  `sheetOnPage.ts`: rects rescaled, `meta.scale` = the ratio, borders kept logical (so
   `sliceBorders` lost its scale arguments). A full-resolution sheet, and a twin encoded at its
   own size, are byte-identical to before. Reaches a game on its next export (publish, or the
-  runtime assemble). Guard: `apps/launcher-api/ktx2SheetTwin.fixture.ts` (through Pixi's own
+  runtime assemble). Guard: `apps/launcher-api/sheetOnPage.fixture.ts` (through Pixi's own
   `Spritesheet`, with the old output as a planted failure). Open: a standalone image over the
   cap still loads its twin smaller (needs source dims in the page store; Phase 3).
 - 2026-11-09 — **Links between the in-app tool guides work (BUG-10).** `/docs/[slug]` renders

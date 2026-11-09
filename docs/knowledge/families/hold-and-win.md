@@ -15,16 +15,20 @@ Owner agent: `hold-and-win-games`.
 - **The coin board** (Phase 13) is a Hold and Win with no line game: the base game deals coins and
   blanks on the paying cells only (the cells an active payline crosses); the Line Overlay draws the
   lines. Plan: `docs/design/hold-and-win-coin-board.md`.
-- **Mock-first, our wire.** The partner has never shown a Hold and Win round. Every Hold and Win
-  event is ours, a swap seam rewritten in Phase 10 (`docs/reference/hold-and-win-wire.md`).
-  Nothing above the facade may depend on the wire.
+- **Mock-first, our wire.** Every Hold and Win event is ours, a swap seam rewritten in Phase 10
+  (`docs/reference/hold-and-win-wire.md`). Nothing above the facade may depend on the wire. The
+  only partner respin rounds we have are one captured collector game
+  (`docs/reference/play4fun-collector-respin-capture.md`, 2026-11-09).
 - **Not this agent's:** the coin overlay or pots overlay on another kind, several bonus modes in one
   project, and a Hold and Win imported as a bonus of another project. Those are `bonus-games`
   (`docs/status/bonus-games.md`, `docs/status/pots-overlay.md`). The respin game itself, the
   `holdAndWin` kind, its presets and the coin board are this family. When a change touches both,
   this agent owns the respin engine and hands the overlay or mode routing to `bonus-games`.
-- **Must never change:** the math (Game Config only, by a person), the money rules below, the
-  partner-owned parts of the wire, and how any current game looks.
+- **The math is the partner's.** In production the partner's server decides every outcome; Game
+  Config's rates and tables only pace our mock for authoring and tests. Never plan or ask for "our
+  math".
+- **Must never change:** the mock's Game Config numbers without a person (agents don't tune them),
+  the money rules below, the partner-owned parts of the wire, and how any current game looks.
 
 ## Invariants
 

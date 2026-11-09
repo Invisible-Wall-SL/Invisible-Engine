@@ -32,7 +32,13 @@
  * key={…}>` looks up. A coded/game-bundled default (`bigwin`, `fsIntroNumber`) has no
  * R2 bundle, so it resolves to nothing and is skipped (the game registers it itself).
  */
-import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
+import {
+	normalizeResolutionTiers,
+	type ComponentDef,
+	type LayoutDoc,
+	type LayoutNode,
+	type ResolutionTierId,
+} from 'engine-layout';
 import {
 	FEATURE_CARD_DEF,
 	instanceParamMaps,
@@ -60,7 +66,16 @@ import { effectBakeShips } from 'engine-fx';
 import { artBoundsRef, loadArtBoundsDoc, type ArtBounds } from './artBoundsStorage';
 import { artSliceRef, loadArtSlicesDoc, type ArtSlice } from './artSlicesStorage';
 import { sliceBorders } from '$lib/artSlices';
-import { ktx2SheetTwin, type SheetFrame, type SheetJson } from './ktx2SheetTwin';
+import {
+	fullKtx2Resolution,
+	imageTiers,
+	sheetOnPage,
+	tierSheets,
+	type ImageTierRefs,
+	type SheetFrame,
+	type SheetJson,
+	type SheetTierRefs,
+} from './sheetOnPage';
 import { collectPlayedClipIds } from './clipReachability';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
@@ -104,6 +119,9 @@ export interface EditorArtSheet {
 	 * was large enough to encode; the game prefers it (4–8× less VRAM) unless `?quality=high`.
 	 * Absent ⇒ the game loads `json` exactly as before (parity). */
 	ktx2Json?: string;
+	/** The sheet on each lower-resolution copy of its page, for a project that asked for tiers
+	 *  (`LayoutDoc.resolutionTiers`). Absent ⇒ none (parity). */
+	tiers?: Partial<Record<ResolutionTierId, SheetTierRefs>>;
 }
 
 export interface EditorArtImage {
@@ -116,6 +134,12 @@ export interface EditorArtImage {
 	 * when the image was large enough to encode. The game prefers it unless `?quality=high`;
 	 * absent ⇒ `file` loads as before (parity). */
 	ktx2?: string;
+	/** The texture resolution `ktx2` must load at when the encoder downscaled it (a page over
+	 *  4096 px), so it lays out at the image's full size. Known only once a tier recorded the
+	 *  source's size; absent ⇒ load `ktx2` as before. */
+	ktx2Resolution?: number;
+	/** Lower-resolution copies of the image, each with the resolution it loads at. */
+	tiers?: Partial<Record<ResolutionTierId, ImageTierRefs>>;
 }
 
 /** A region name that appears in MORE THAN ONE exported sheet. Harmless now that
@@ -385,7 +409,7 @@ function stemFromManifestKey(manifestKey: string): string {
 /**
  * Build the TexturePacker json-hash the engine's `sprites` loader parses, with frames keyed
  * EXACTLY by the editor region names (`SpriteNode.region` values), at the page's full resolution.
- * Its KTX2 variant is derived from this by `ktx2SheetTwin`.
+ * Its KTX2 variant is derived from this by `sheetOnPage`.
  *
  * `box` supplies a region's AUTHORED bounds — the sprite twin of a rig's size frame. This is the
  * whole ship path for that feature and the reason it needs no runtime code: a declared box IS a
@@ -737,7 +761,8 @@ export async function exportEditorArt(
 	// rig export so rig atlases dedup against the sheets too.
 	// The caller's store when this runs beside another exporter, else our own. Either way this
 	// export never prunes `_pages/` — see the prune at the bottom for why that is not ours to do.
-	const pageStore = opts?.pageStore ?? new PageStore(deployPrefix);
+	const pageStore =
+		opts?.pageStore ?? new PageStore(deployPrefix, normalizeResolutionTiers(doc.resolutionTiers));
 	const usedStems = new Set<string>();
 	const coveredRegions = new Set<string>();
 	const exported = new Set<string>();
@@ -834,13 +859,13 @@ export async function exportEditorArt(
 		written.add(`${deployPrefix}${jsonRel}`);
 		// GPU-compressed KTX2 twin: a SECOND spritesheet JSON pointing `meta.image` at the shared
 		// `.ktx2` page, with frame rects rescaled to its (possibly auto-downscaled) dimensions and
-		// `meta.scale` saying so, so every frame keeps its logical size (`ktx2SheetTwin`). The game
+		// `meta.scale` saying so, so every frame keeps its logical size (`sheetOnPage`). The game
 		// registers it on the compressed tier for 4–8× less VRAM.
 		// Absent ⇒ `ktx2Json` unset ⇒ the game ships the WebP/PNG unchanged (parity).
 		let ktx2Json: string | undefined;
 		if (shared.ktx2File) {
 			ktx2Json = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
-			const twin = ktx2SheetTwin(
+			const twin = sheetOnPage(
 				sheet,
 				`${PAGE_REF_PREFIX}${shared.ktx2File}`,
 				shared.ktx2Width,
@@ -849,8 +874,25 @@ export async function exportEditorArt(
 			await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
 			written.add(`${deployPrefix}${ktx2Json}`);
 		}
+		const tiered = tierSheets(
+			sheet,
+			shared.tiers,
+			(file) => `${PAGE_REF_PREFIX}${file}`,
+			(suffix) => `editor-art/${stem}/${stem}.${version}${suffix}`,
+		);
+		for (const { path, sheet: tierSheet } of tiered.files) {
+			await putObjectText(`${deployPrefix}${path}`, sheetText(tierSheet), 'application/json');
+			written.add(`${deployPrefix}${path}`);
+		}
 		const names = set.regions.map((r) => r.name);
-		sheets.push({ key: manifestKey, json: jsonRel, frames: names.length, names, ktx2Json });
+		sheets.push({
+			key: manifestKey,
+			json: jsonRel,
+			frames: names.length,
+			names,
+			ktx2Json,
+			...(tiered.refs && { tiers: tiered.refs }),
+		});
 		sheetRegionNames.push({ stem, names });
 		for (const r of set.regions) coveredRegions.add(r.name);
 		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
@@ -901,10 +943,14 @@ export async function exportEditorArt(
 			const ext = /\.(png|webp|jpe?g)$/i.exec(imageKey)?.[1].toLowerCase() ?? 'png';
 			const shared = await pageStore.ensure(imageKey, ext);
 			if (!shared) continue;
+			const ktx2Resolution = fullKtx2Resolution(shared);
+			const tiers = imageTiers(shared.tiers);
 			images.push({
 				key: imageKey,
 				file: `_pages/${shared.file}`,
 				ktx2: shared.ktx2File ? `_pages/${shared.ktx2File}` : undefined,
+				...(ktx2Resolution !== undefined && { ktx2Resolution }),
+				...(tiers && { tiers }),
 			});
 		}
 	});

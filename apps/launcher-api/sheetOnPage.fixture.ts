@@ -1,17 +1,31 @@
 /**
- * Offline fixture for the KTX2 twin of a sprite sheet — run with `node` (types stripped):
- *   node apps/launcher-api/ktx2SheetTwin.fixture.ts
+ * Offline fixture for a sprite sheet moved onto another copy of its page (a KTX2 twin, a resolution
+ * tier) — run with `node` (types stripped):
+ *   node apps/launcher-api/sheetOnPage.fixture.ts
  *
  * Pins, through PIXI's own `Spritesheet` parser (the code the game runs): a twin over a page the
  * encoder downscaled lays every frame out at the SAME logical size, trim, UVs and 9-slice borders
  * as the full-resolution sheet, and a page encoded at its own size writes `meta.scale: '1'`
  * (byte-parity). The pages come from the encoder's real `targetSize`. A twin written the old way
  * (rects rescaled, `meta.scale: '1'`) must fail the same comparison, or the check proves nothing.
+ *
+ * Then the resolution tiers (`docs/design/arcade-4k-builds.md` Phase 3): `tierSheets` writes a
+ * sheet per tier page and per tier twin, each laying out like the full sheet; `imageTiers` gives a
+ * standalone image's copies the resolution that keeps them at full size; `fullKtx2Resolution` is
+ * known only once a tier recorded the source size; a page with no tiers adds nothing. The page store
+ * half (the resize, the encode, the cache) is `scripts/check-resolution-tiers.ts`.
  */
 
 import { Spritesheet, TextureSource, type Texture } from 'pixi.js';
 import { targetSize } from './src/lib/server/ktx2Dimensions.ts';
-import { ktx2SheetTwin, type SheetJson } from './src/lib/server/ktx2SheetTwin.ts';
+import type { SharedPage } from './src/lib/server/pageStore.ts';
+import {
+	fullKtx2Resolution,
+	imageTiers,
+	sheetOnPage,
+	tierSheets,
+	type SheetJson,
+} from './src/lib/server/sheetOnPage.ts';
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = '') => {
@@ -78,7 +92,7 @@ function drift(a: Logical, b: Logical, pageW: number, pageH: number): number {
 async function compare(label: string, pageW: number, pageH: number, legacy = false) {
 	const full = sheetFor(pageW, pageH);
 	const enc = targetSize(pageW, pageH);
-	let twin = ktx2SheetTwin(full, 'page.pm.ktx2', enc.width, enc.height);
+	let twin = sheetOnPage(full, 'page.pm.ktx2', enc.width, enc.height);
 	if (legacy) twin = { ...twin, meta: { ...twin.meta, scale: '1' } };
 	const a = await parse(full, pageW, pageH);
 	const b = await parse(twin, enc.width, enc.height);
@@ -116,7 +130,7 @@ console.log('ktx2 sheet twin — page aligned down to 4×4 blocks only');
 console.log('ktx2 sheet twin — page encoded at its own size');
 {
 	const full = sheetFor(2048, 2048);
-	const twin = ktx2SheetTwin(full, 'page.pm.ktx2', 2048, 2048);
+	const twin = sheetOnPage(full, 'page.pm.ktx2', 2048, 2048);
 	check('meta.scale stays 1', twin.meta.scale === '1', twin.meta.scale);
 	check(
 		'frames are byte-identical to the full sheet',
@@ -131,6 +145,86 @@ console.log('ktx2 sheet twin — the old twin (meta.scale 1) is caught');
 		'the comparison fails a twin without its scale',
 		worst > tolerance,
 		`worst ${worst.toFixed(3)} px`,
+	);
+}
+
+console.log('resolution tiers — sheets');
+{
+	const full = sheetFor(4000, 2000);
+	const shared: SharedPage = {
+		file: 'h.webp',
+		ktx2File: 'h.pm.ktx2',
+		ktx2Width: 4000,
+		ktx2Height: 2000,
+		tiers: {
+			half: {
+				file: 'h@half.webp',
+				width: 2000,
+				height: 1000,
+				sourceWidth: 4000,
+				sourceHeight: 2000,
+				ktx2File: 'h@half.pm.ktx2',
+				ktx2Width: 2000,
+				ktx2Height: 1000,
+			},
+		},
+	};
+	const { files, refs } = tierSheets(
+		full,
+		shared.tiers,
+		(file) => `../../_pages/${file}`,
+		(suffix) => `editor-art/s/s.v1${suffix}`,
+	);
+	check(
+		'one sheet on the tier page and one on its twin',
+		JSON.stringify(refs) ===
+			JSON.stringify({
+				half: { json: 'editor-art/s/s.v1@half.json', ktx2Json: 'editor-art/s/s.v1@half.ktx2.json' },
+			}),
+		JSON.stringify(refs),
+	);
+	check(
+		'each names its page and says it is half size',
+		files.map((f) => `${f.sheet.meta.image} ${f.sheet.meta.scale}`).join(' | ') ===
+			'../../_pages/h@half.webp 0.5 | ../../_pages/h@half.pm.ktx2 0.5',
+		files.map((f) => `${f.sheet.meta.image} ${f.sheet.meta.scale}`).join(' | '),
+	);
+	const a = await parse(full, 4000, 2000);
+	const b = await parse(files[0].sheet, 2000, 1000);
+	let worst = 0;
+	for (const name of Object.keys(full.frames))
+		worst = Math.max(worst, drift(logical(a[name]), logical(b[name]), 4000, 2000));
+	check('the half sheet lays out like the full one', worst <= 2, `worst ${worst.toFixed(3)} px`);
+	check(
+		'a page with no tiers adds nothing',
+		tierSheets(full, undefined, String, String).files.length === 0 &&
+			tierSheets(full, undefined, String, String).refs === undefined,
+	);
+
+	console.log('resolution tiers — images');
+	check(
+		'an image tier loads at the resolution that keeps its size',
+		JSON.stringify(imageTiers(shared.tiers)) ===
+			JSON.stringify({
+				half: {
+					file: '_pages/h@half.webp',
+					resolution: 0.5,
+					ktx2: '_pages/h@half.pm.ktx2',
+					ktx2Resolution: 0.5,
+				},
+			}),
+		JSON.stringify(imageTiers(shared.tiers)),
+	);
+	check('no tiers, no image tiers', imageTiers(undefined) === undefined);
+	check('a full-size twin needs no resolution', fullKtx2Resolution(shared) === undefined);
+	check(
+		'a downscaled twin does, once a tier knows the source',
+		fullKtx2Resolution({ ...shared, ktx2Width: 3200, ktx2Height: 1600 }) === 0.8,
+		String(fullKtx2Resolution({ ...shared, ktx2Width: 3200, ktx2Height: 1600 })),
+	);
+	check(
+		'and is unknown without one',
+		fullKtx2Resolution({ ...shared, ktx2Width: 3200, tiers: undefined }) === undefined,
 	);
 }
 

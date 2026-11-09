@@ -1497,6 +1497,13 @@ depend on the canvas and are left alone. It is one undo step.
   which does not follow the canvas; the editor warns before rescaling such a layout.
 - Plan and the rest of the 4K work: `docs/design/arcade-4k-builds.md`.
 
+**Also publish half-resolution art** (a checkbox under it) is for a game made at 4K: every
+publish then also writes the art at half size, so desktops and phones can download less. Leave it
+off for a game made at 1920×1080. The first publish after ticking it takes longer, because every
+page is resized and encoded once; later publishes reuse them. The game then loads the half art on
+any screen that shows the canvas at half its size or less (a 1080p desktop, a phone) and the full
+art on a bigger one (the 4K cabinet). Add `?tier=full` or `?tier=half` to a game link to force one.
+
 ### 6. Save and reach the game
 
 Editing autosaves on a short debounce — the status pill in the top bar shows
