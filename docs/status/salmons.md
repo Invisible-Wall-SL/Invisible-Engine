@@ -345,14 +345,17 @@ the runbook follows them.
   `SpawnLayer` (clip → code look → placeholder; a styled line in its own pass),
   `arcadeMarks` `InstanceLink.style`; `apps/lines` `online.ts` loads the art under the generator,
   drives each look from the drawn place, status, mark and the room's events, styles the line and
-  tears it all down on leave. Gates: `salmons-play.mjs` **68 / 68 in each netcode** (7 new: the
+  tears it all down on leave. Gates: `salmons-play.mjs` **69 / 69 in each netcode** (8 new: the
   river art against the seed's river, the golden rope, the bear and its streak, pink vs golden on
-  two devices, the fisherman's circle and hand, the line's colour on screen, the bear's code look);
+  two devices, the fisherman's circle and hand, the line's colour on screen, the bear's code look, the river destroyed when the room goes);
   `check:all` 626 / 626 (new `check:salmons-art`, 10); `check:svelte` at baseline; the arcade
   playbooks and `online-play` pass; the current-games harness 10 / 10 games, 0 of 128 screens
   changed. Sizes (gzip, vs main): arcade first visit and online boot +1,271 B (online boot 789,689
   under its 797,252 budget), slot / match3 / card +419 to +434 B (the shared `SpawnLayer`), the
   shell unchanged; the art chunk 8.8 KB and the sheets 792 KB load only in a Salmons room.
+  Review fixes (same day): the river's art is destroyed on leave (its mount owns its lifecycle and
+  destroys the containers it made); a room left while its seed loads gets no art; the field waits for
+  the app; the culling is padded so nothing pops in at the view's edge.
   **Owner:** nothing to upload; the art arrives with the next runtime release after the merge.
 
 - 2026-11-08 — **The golden salmon drawn gold, the line drawn, the rules' events in Flow, the looks
