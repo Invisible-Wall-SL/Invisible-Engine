@@ -381,6 +381,20 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-09 — **Dead helpers and components deleted; `utils-bet` and `utils-fetcher` folded in**
+  (branch `cleanup-dead-code-sweep`). Gone, each with no importer: `UiDoublePress`, `LoaderBase` (+
+  its only child `LoaderImage`), `AmountFadeProvider`, `ResponsiveText`, pixi-svelte `detectWebGL` /
+  `MIN_CLICKABLE_SIZE`, the launcher's `atlasManifestCheck.ts`, and `rgs-translator-eagaming`'s root
+  `.` entry (`engine-facade`, `game-mappings`, `paytable` stay). state-shared's `BaseBet` is now
+  `BetType<object>` in `rgs-requests` (no `any`); `rgs-fetcher` carries its own `fetch` wrapper. The
+  translator imports `API_AMOUNT_MULTIPLIER` / `BOOK_AMOUNT_MULTIPLIER` from `constants-shared/bet`
+  instead of restating them. Kept on purpose: utils-xstate's own `BetType<any>` (with `object`, every
+  reference app's `createIntermediateMachines(primaryMachines)` fails on the actors' contravariant
+  input), and `Authenticate.svelte`'s two `@ts-ignore`s (they hide a real gap: the RGS round has every
+  field optional and `state: unknown[]`, and `/bet/replay/…` is missing from `schema.ts`). Not done:
+  `components-storybook` as a devDependency of `components-shared` (it depends on components-shared,
+  and turbo refuses the cycle); the win-model lists in the mocks (each is the reel-dealable subset,
+  not `WIN_MODEL_TYPES`, and the test-server image cannot load game-config's TS).
 - 2026-11-09 — **Reels draw in the frame they are sampled for, carry through lap ends, and place
   their cells without Svelte** (branch `claude/nice-albattani-a03tcm`, restarted from `main`; the
   recycled-views attempt is shelved on `claude/reel-view-recycling`, not merged). Owner-approved task:

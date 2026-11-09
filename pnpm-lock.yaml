@@ -1788,9 +1788,6 @@ importers:
       eslint-config-custom:
         specifier: workspace:*
         version: link:../eslint-config-custom
-      utils-fetcher:
-        specifier: workspace:*
-        version: link:../utils-fetcher
 
   packages/rgs-requests:
     devDependencies:
@@ -1840,12 +1837,12 @@ importers:
       delivery-profile:
         specifier: workspace:*
         version: link:../delivery-profile
+      rgs-requests:
+        specifier: workspace:*
+        version: link:../rgs-requests
       svelte:
         specifier: 5.57.2
         version: 5.57.2(@typescript-eslint/types@8.72.0)
-      utils-bet:
-        specifier: workspace:*
-        version: link:../utils-bet
     devDependencies:
       config-lingui:
         specifier: workspace:*
@@ -1856,22 +1853,6 @@ importers:
       config-vite:
         specifier: workspace:*
         version: link:../config-vite
-      eslint:
-        specifier: 9.21.0
-        version: 9.21.0(jiti@2.7.0)
-      eslint-config-custom:
-        specifier: workspace:*
-        version: link:../eslint-config-custom
-
-  packages/utils-bet:
-    dependencies:
-      pixi-svelte:
-        specifier: workspace:*
-        version: link:../pixi-svelte
-      rgs-requests:
-        specifier: workspace:*
-        version: link:../rgs-requests
-    devDependencies:
       eslint:
         specifier: 9.21.0
         version: 9.21.0(jiti@2.7.0)
@@ -1922,15 +1903,6 @@ importers:
       config-vite:
         specifier: workspace:*
         version: link:../config-vite
-      eslint:
-        specifier: 9.21.0
-        version: 9.21.0(jiti@2.7.0)
-      eslint-config-custom:
-        specifier: workspace:*
-        version: link:../eslint-config-custom
-
-  packages/utils-fetcher:
-    devDependencies:
       eslint:
         specifier: 9.21.0
         version: 9.21.0(jiti@2.7.0)

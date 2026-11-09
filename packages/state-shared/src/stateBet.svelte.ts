@@ -1,4 +1,4 @@
-import type { BaseBet } from 'utils-bet';
+import type { BaseBet } from 'rgs-requests';
 import { stateMeta } from './stateMeta.svelte';
 
 export type Currency = string;

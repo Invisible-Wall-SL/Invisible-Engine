@@ -1,4 +1,3 @@
-import LoaderBase from './src/components/LoaderBase.svelte';
 import LoaderRig from './src/components/LoaderRig.svelte';
 import BootSplashSequence from './src/components/BootSplashSequence.svelte';
 import OnHotkey from './src/components/OnHotkey.svelte';
@@ -13,13 +12,11 @@ import Button from './src/components/Button.svelte';
 import OptionsGrid from './src/components/OptionsGrid.svelte';
 import OptionsToggle from './src/components/OptionsToggle.svelte';
 import DropdownToggle from './src/components/DropdownToggle.svelte';
-import AmountFadeProvider from './src/components/AmountFadeProvider.svelte';
 
 export * from './src/context';
 export * from './src/types';
 
 export {
-	LoaderBase,
 	LoaderRig,
 	BootSplashSequence,
 	OnHotkey,
@@ -34,5 +31,4 @@ export {
 	OptionsGrid,
 	OptionsToggle,
 	DropdownToggle,
-	AmountFadeProvider,
 };

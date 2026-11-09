@@ -25,10 +25,6 @@ import {
 	type Play4FunResponse,
 } from './types';
 
-/** API_AMOUNT_MULTIPLIER from constants-shared/bet — Invisible Engine multiplies
- *  the human bet by this when sending. We don't import it here to keep this
- *  package free of internal-engine deps; the caller scales bet/payout as needed. */
-
 export interface EngineBetRequest {
 	/** Bet amount in Invisible Engine's integer units (already multiplied). */
 	amount: number;
