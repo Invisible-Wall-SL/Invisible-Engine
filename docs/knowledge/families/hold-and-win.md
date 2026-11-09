@@ -24,8 +24,11 @@ Owner agent: `hold-and-win-games`.
   (`docs/status/bonus-games.md`, `docs/status/pots-overlay.md`). The respin game itself, the
   `holdAndWin` kind, its presets and the coin board are this family. When a change touches both,
   this agent owns the respin engine and hands the overlay or mode routing to `bonus-games`.
-- **Must never change:** the math (Game Config only, by a person), the money rules below, the
-  partner-owned parts of the wire, and how any current game looks.
+- **The math is the partner's.** In production the partner's server decides every outcome; Game
+  Config's rates and tables only pace our mock for authoring and tests. Never plan or ask for "our
+  math".
+- **Must never change:** the mock's Game Config numbers without a person (agents don't tune them),
+  the money rules below, the partner-owned parts of the wire, and how any current game looks.
 
 ## Invariants
 

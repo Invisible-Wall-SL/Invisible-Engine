@@ -8,17 +8,37 @@
 **8**. Their CDN alias is the name without spaces, `GettingHot`, so the launcher card must be named
 "Getting Hot" for deliveries to find it (or the launch link passes `&alias=GettingHot`).
 
+## Scope: their math, our client
+
+As for every game we ship, **the partner's server owns the math and every outcome**, and our
+client talks to it through the Play4Fun translator. The first draft of this plan wrongly treated
+the math as ours; this section corrects it. Getting Hot is their proven Fortune Vault
+Force 5 game: same math, same server logic, same wire. **We build the client:** it must read their
+wire exactly and present it with our own art, names and theme. We copy no art or names
+("Gold Strike", "Force 5", "Power Roll" stay theirs).
+
+So the work is, in order of importance:
+
+1. **Read their wire.** Map the captured events
+   ([play4fun-collector-respin-capture.md](../reference/play4fun-collector-respin-capture.md)) into
+   our engine's book events in the facade. For this game this is Phase 10.
+2. **Show it.** The beats, parts and art for what is new to our engine (§4, slice 14b).
+3. **Author and test without their server.** Our mock only has to speak their wire with
+   plausible rounds; its numbers are pacing, not math.
+
+Every config field in §3.1–§3.4 below that sets a rate, a weight or a table is therefore **mock
+pacing only**: it shapes the rounds our mock deals for authoring and tests, never what a player
+gets. The partner's server decides those.
+
 ## Why this exists
 
 The owner wants a game that plays like the partner's own **Fortune Vault Force 5** (EAGaming /
-Play4Fun), with our own art, names and theme. We copy the **mechanics only**. The art, the symbol
-set, the names ("Gold Strike", "Force 5", "Power Roll") and the numbers stay theirs. Our math is set
-in Game Config by a person, as for every game (targets.md).
+Play4Fun), with our own art, names and theme, on the partner's server as game 8.
 
-About 70% of that game is already Hold and Win config. This plan builds the rest: four random
-enhancements, two new trigger rules, a symbol top-up before the feature, and an ante that changes
-the reels. Every new path is gated on a new, sparse config field. Its absence leaves every current
-game byte-identical.
+About 70% of that game's presentation already exists in our Hold and Win kind. This plan builds
+the rest: four random enhancements, two trigger rules, a symbol top-up before the feature, and an
+ante and buys that change the reels. Every new path is gated on a new, sparse config field. Its
+absence leaves every current game byte-identical.
 
 ## 1. The reference game's rules (read 2026-11-08 from its in-game info pages)
 
@@ -198,7 +218,7 @@ betModeStrips?: Record<string, string>;
   - the bonus (3 respins, at least one enhancement) and the super bonus (5 respins, all four);
   - two buys and the ante.
 
-  Placeholder numbers until the owner's math lands.
+  Its numbers are mock pacing only; the partner's server holds the real math.
 
 - A sample project scaffolded from it with our own art (Atlas Maker / ComfyUI), a playtest playbook
   `docs/playtest/hw-enhancements-sample.md`, guide updates (`docs/tools/game-config.md`,
@@ -207,28 +227,26 @@ betModeStrips?: Record<string, string>;
 
 ## 4. Build plan (each a PR on its own branch; pipeline rules apply)
 
-Every slice ships the whole pipeline in one go: config + validator + `/config` UI → mock + forced
-beat + wire doc → facade → reducer → coded beat → flow vocab → Scene Editor part (where it has one)
-→ Symbols / Win Text → docs. `check:holdandwin`'s parity digests (400 seeded rounds per preset)
-must stay equal for every existing preset.
+The partner's wire first, then the look, then our mock.
+Each slice ships with its fixture and docs. `check:holdandwin`'s parity digests (400 seeded rounds
+per preset) must stay equal for every existing preset.
 
-| #   | Slice                                                                            | Forced beat                                                 | Owner agent                                              |
-| --- | -------------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
-| 14a | Trigger rules `run` + `chance`                                                   | `force:run`, `force:chance`                                 | hold-and-win-games                                       |
-| 14b | Top-up before the feature (`featureTopUp`)                                       | `force:topUp`                                               | hold-and-win-games                                       |
-| 14c | Enhancements: config, draw, wire, mock, facade, reducer, `atEntry` expansion     | `force:enhancements:<kinds>`, `force:enhancementHit:<kind>` | hold-and-win-games                                       |
-| 14d | Enhancements: dials, beats, flow vocab, Scene Editor template, Win Text, Symbols | —                                                           | hold-and-win-games, invisible-flow, invisible-components |
-| 14e | Ante reel set `betModeStrips`                                                    | `force:betMode:<mode>`                                      | invisible-game-config, engine-pixi-svelte                |
-| 14f | Preset, sample game, playbook, guides                                            | —                                                           | invisible-game-maker, docs-keeper, game-playtester       |
+| #   | Slice                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Owner agent                                              |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 14a | **Facade: read the partner's collector-respin wire.** Map the captured events into engine book events: `COIN_<n>` / `COIN_<TIER>` and `COLLECT_<cents>` cells; `collect`, `bonusWin`, `cellPayAmount`; `boostsAwarded` / `boostsEnabled` flags; `boost` and `multiplier` hits and X misses; `retrigger` and `left`; 4- and 5-row boards; the base-game collect round closed by `collect`; `betOptions` (Base, ante, two buys). A fixture built from the capture's shapes. This is Phase 10 for this game. | hold-and-win-games                                       |
+| 14b | **Presentation of what is new:** the collectors-only bonus board (per-collector totals; each collector takes a coin's full value; the trigger spin's collect carried in), the four enhancement dials (off / on / hit / miss), boost and multiply beams onto the landing coin, Expand opening its row(s) at entry, the super-bonus entry, the base-game collect. Flow vocabulary, Scene Editor template, Symbols states, Win Text.                                                                         | hold-and-win-games, invisible-flow, invisible-components |
+| 14c | **Ante and buys in the HUD:** the ante toggle and the two buy cards from `betOptions`; while the ante is on, the spinning filler reels show only coins, collectors and blanks (a client-side strip set, no math).                                                                                                                                                                                                                                                                                         | engine-pixi-svelte, invisible-game-config                |
+| 14d | **Our mock speaks their wire** for authoring and tests without their server: same events and shapes, forced beats (`force:enhancements:<bits>`, `force:boostHit`, `force:multiplyHit`, `force:superBonus`, `force:twoCollectors`), rates as pacing. §3.1–§3.4's config fields live here.                                                                                                                                                                                                                  | hold-and-win-games                                       |
+| 14e | **Getting Hot itself:** the project from a preset, our art (Atlas Maker / ComfyUI), a playtest playbook, the delivery to the partner CDN as `GettingHot`, and a first launch against their server as game 8 (`&on=partner&game=8`).                                                                                                                                                                                                                                                                       | invisible-game-maker, docs-keeper, game-playtester       |
 
-**Order.** 14a → 14b → 14c all edit `playBase` / `startFeature` in the one mock file, so they
-merge in that order. 14e can be built in parallel (its own fields, `dealBase` only) and rebased.
-14d needs 14c's wire. 14f needs everything.
+**Order.** 14a first: everything visible depends on reading their events right. 14b and 14d can
+then run in parallel (14b against 14a's fixture, 14d against the capture), and 14c beside them.
+14e needs the others; its art can start now from the brief.
 
-**Size (against the code, 2026-11-08).** 14a and 14b are small: they follow the count, pattern
-and random-metre paths. 14c is the largest: a new per-respin loop step with two event sources and
-a new expansion rule. 14d is medium, because the dial copies the Jackpot Tile part pattern. 14e is
-medium: a config field, a mock branch, and the runtime's spinning strips.
+**What we no longer build as math:** the trigger rules, top-up rate, enhancement draw and hit
+rates, and per-bet-mode strips are the partner server's. They stay in the plan only as mock pacing
+(14d). The `run` / `chance` triggers and `featureTopUp` matter to the client only if their server
+sends something for them; the capture never showed a top-up event, so 14a records what it finds.
 
 ## 5. Open questions
 
@@ -242,7 +260,8 @@ Still open:
 
 - **Boost and Multiply on the same respin:** can both hit one coin, and in which order? No bonus
   in 17 had both on. The plan assumes boost, then multiply.
-- **Our names, theme and math.** The math is not copied.
+- **Our names and theme** for Getting Hot (the art brief uses placeholders). The math is the
+  partner's and already proven; nothing to decide on our side.
 
 For Phase 10: the capture
 ([play4fun-collector-respin-capture.md](../reference/play4fun-collector-respin-capture.md)) is the
