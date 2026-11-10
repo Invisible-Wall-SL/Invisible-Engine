@@ -343,16 +343,36 @@ function parseRegions(raw: unknown): EditorRegion[] {
 }
 
 /**
+ * A TexturePacker frame's UPRIGHT `w/h`. `frame.w/h` already IS the upright size in every file
+ * written to the convention — TexturePacker's own, the Atlas Maker's, the `.plist` import's, and
+ * the Sheet Maker's since 2026-11-10 — and there `spriteSourceSize.w/h` equals it. Sheet Maker
+ * exports before that swapped a ROTATED frame's `frame.w/h` to its on-page footprint while
+ * `spriteSourceSize` kept the upright size, and those files are still in R2 (every rotated
+ * `bookofborutremake` sheet), so a rotated frame that is exactly its `spriteSourceSize`
+ * transposed is that legacy form: read it back upright. A square frame reads the same either way.
+ */
+function uprightFrameSize(
+	w: number,
+	h: number,
+	rotated: boolean,
+	sss: Record<string, unknown>,
+): { w: number; h: number } {
+	const legacyFootprint = rotated && w !== h && num(sss.w) === h && num(sss.h) === w;
+	return legacyFootprint ? { w: h, h: w } : { w, h };
+}
+
+/**
  * Detect + normalize a **TexturePacker** (json-hash or json-array) manifest into
  * the Invisible shape this module already parses, so a game's own atlas (e.g.
  * Book of Borut's `reels_frame.json`) renders in the editor with NO conversion
  * step — drop the `.json` + page image in R2 and the editor reads it directly.
  *
  * TexturePacker per-frame: `{ frame:{x,y,w,h}, rotated, spriteSourceSize:{x,y,w,h},
- * sourceSize:{w,h} }`. Maps to the Invisible region: `frame` → on-page rect; the
- * unrotated `w/h` (the editor swaps to `(h×w)` on-page for rotated frames);
- * `spriteSourceSize.x/y` → trim `offX/offY`; `sourceSize` → `origW/origH`. Page +
- * size come from `meta.image` / `meta.size`. Returns `null` if not TexturePacker.
+ * sourceSize:{w,h} }`. Maps to the Invisible region: `frame.x/y` → on-page origin and
+ * `frame.w/h` → the UPRIGHT size, rotated or not (TexturePacker's convention, the one PixiJS's
+ * `Spritesheet` reads: a rotated frame sits on the page as `(h×w)`); `spriteSourceSize.x/y` →
+ * trim `offX/offY`; `sourceSize` → `origW/origH`. Page + size come from `meta.image` /
+ * `meta.size`. Returns `null` if not TexturePacker.
  */
 function texturePackerToInvisible(raw: unknown): RawManifest | null {
 	if (!isRecord(raw)) return null;
@@ -370,17 +390,19 @@ function texturePackerToInvisible(raw: unknown): RawManifest | null {
 		const fr = isRecord(f.frame) ? f.frame : {};
 		const sss = isRecord(f.spriteSourceSize) ? f.spriteSourceSize : {};
 		const src = isRecord(f.sourceSize) ? f.sourceSize : {};
+		const rotated = f.rotated === true;
+		const { w, h } = uprightFrameSize(num(fr.w) ?? 0, num(fr.h) ?? 0, rotated, sss);
 		regions.push({
 			name,
 			x: num(fr.x) ?? 0,
 			y: num(fr.y) ?? 0,
-			w: num(fr.w) ?? 0,
-			h: num(fr.h) ?? 0,
-			rotated: f.rotated === true,
+			w,
+			h,
+			rotated,
 			offX: num(sss.x) ?? 0,
 			offY: num(sss.y) ?? 0,
-			origW: num(src.w) ?? num(fr.w) ?? 0,
-			origH: num(src.h) ?? num(fr.h) ?? 0,
+			origW: num(src.w) ?? w,
+			origH: num(src.h) ?? h,
 		});
 	}
 
@@ -393,19 +415,6 @@ function texturePackerToInvisible(raw: unknown): RawManifest | null {
 		height: h,
 		regions,
 	};
-}
-
-/**
- * Upright (unrotated) size of a `texturePackerToInvisible` region. `texturePackerToInvisible`
- * copies TexturePacker's `frame.w/h` verbatim, and `frame` is ALWAYS the tight rectangle as it
- * sits ON the packed page — for a rotated frame that rectangle is `(uprightH × uprightW)`, i.e.
- * the axes are already swapped. The Invisible/rig region convention (`parseRegions`,
- * `regionsToRigAtlas`) stores `w/h` as the UPRIGHT size and expresses rotation with a separate
- * `rotated`/`rotate:90` flag, so un-swap a rotated frame back to upright here. `frame` is the
- * TRIMMED rect, so this stays trim-agnostic (untrimmed → == the sprite; trimmed → the tight box).
- */
-function uprightWH(tp: EditorRegion): { w: number; h: number } {
-	return tp.rotated ? { w: tp.h, h: tp.w } : { w: tp.w, h: tp.h };
 }
 
 /**
@@ -474,14 +483,19 @@ async function backfillMissingGeometry(
 		const tpR = tpByStem.get(stem(r.name));
 		if (!tpR) continue;
 		const rot = tpR.rotated === true;
-		const { w, h } = uprightWH(tpR);
-		if (r.x === tpR.x && r.y === tpR.y && r.w === w && r.h === h && (r.rotated === true) === rot) {
+		if (
+			r.x === tpR.x &&
+			r.y === tpR.y &&
+			r.w === tpR.w &&
+			r.h === tpR.h &&
+			(r.rotated === true) === rot
+		) {
 			continue;
 		}
 		r.x = tpR.x;
 		r.y = tpR.y;
-		r.w = w;
-		r.h = h;
+		r.w = tpR.w;
+		r.h = tpR.h;
 		if (rot) r.rotated = true;
 		else delete r.rotated;
 	}
@@ -497,13 +511,12 @@ async function backfillMissingGeometry(
 		r.origH = tpR.origH;
 	}
 
-	// Job 1 — add regions the manifest lists without coordinates, in UPRIGHT terms (un-swap a
-	// rotated frame's packed axes so `w/h` mean the same as every other region here).
+	// Job 1 — add regions the manifest lists without coordinates (`w/h` upright, like every
+	// other region here).
 	for (const name of missing) {
 		const found = tpByStem.get(stem(name));
 		if (!found) continue;
-		const { w, h } = uprightWH(found);
-		regions.push({ ...found, name, w, h }); // keep the manifest's (extensionless) name
+		regions.push({ ...found, name }); // keep the manifest's (extensionless) name
 	}
 }
 

@@ -79,21 +79,28 @@ Works today on `main` / live:
    loaded version yet) — expected, not a bug. In the same run: B opening A's sheet sees "👤 A is
    editing this sheet"; A loading another sheet (or closing the tab) clears it within one heartbeat.
 
-5. **Rotated frames in the exported TexturePacker `.json` use a non-standard dialect** (found
-   2026-11-09, unchanged on purpose). The export swaps a rotated frame's `frame.w/h` to the on-page
-   footprint (`iw_common.texturepacker.FOOTPRINT`); real TexturePacker, PixiJS's `Spritesheet` and
-   the launcher's DIRECT reader (`editorRegions.ts::texturePackerToInvisible`, `tpRegions.mjs`)
-   all read `frame.w/h` as the upright size. Only `backfillMissingGeometry` (`uprightWH`) reads the
-   swapped form — and it applies that un-swap to EVERY `atlas.texturepacker_json`, including the
-   upright ones the `.plist` import (`plist_import.to_texturepacker`) and the Flipbook video sheets
-   write. Latent while nothing rotates (rotation is opt-in here; video packs never rotate); a
-   rotated `.plist` frame is the case to check first. Fixing it is a coordinated change (writer
-   dialect + `uprightWH` + any sheet already exported rotated), not a writer-only flip.
-
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-11-10 — **Rotated frames in the TexturePacker `.json` are UPRIGHT, like every other
+  writer (closes the old open item "rotated frames use a non-standard dialect").** The export used
+  to swap a rotated frame's `frame.w/h` to the page footprint, which PixiJS's `Spritesheet` and the
+  launcher's direct reader both misread; it now writes what the Atlas Maker writes (`frame.w/h` ==
+  `spriteSourceSize.w/h` == the upright size), and `iw_common.texturepacker` has one dialect, no
+  parameter. **It was not latent:** an R2 scan found ~30 Sheet Maker exports with swapped rotated
+  frames — every rotated `bookofborutremake` and `borut_pots_sample` sheet among them. They are NOT
+  rewritten: the launcher's `editorRegions.ts::uprightFrameSize` reads a rotated frame that is
+  exactly its `spriteSourceSize` transposed as that legacy form (mirrored in `tpRegions.mjs`), so a
+  re-export simply converts a sheet. `uprightWH` is gone — it un-swapped EVERY file, so the three
+  `test1` `.plist` imports (upright, rotated) had their correct manifest rects overwritten with the
+  transpose in the editor and the game. Measured against R2 (old vs new reader over all 210
+  manifests with their own TP JSON): those 3 change — to the manifest's own rects — and nothing
+  else, so no live game's geometry moves. Guards: `services/_shared/test_iw_texturepacker.py` (both
+  tools write the upright form; pins `services/_shared/fixtures/texturepacker-rotated.json`) and
+  `check:texturepacker-rotation` (that fixture, and its legacy transpose, through the real
+  `loadRegionSet` and a real PixiJS `Spritesheet`: same upright regions, Pixi cuts the `(h×w)` page
+  rect with `rotate: 2`; the old reader and a reader without the legacy rule each fail it).
 - 2026-11-10 — **The legacy `?k=` handoff is gone; a signed launch token is the only way in.** Same
   change as the Atlas Maker's (`iw_common/launch.py`; detail in [atlas-maker status](atlas-maker.md)
   Recent changes): `GATE` is `LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET")`, and

@@ -9,7 +9,7 @@ services would otherwise copy-paste:
     JSON calls, history + execution-error reading. Stdlib-only: the RunPod worker
     image carries it too.
   - ``iw_common.http``     — the request-handler base both tools' ``Handler`` share.
-  - ``iw_common.texturepacker`` — the TexturePacker JSON writer, in each tool's dialect.
+  - ``iw_common.texturepacker`` — the TexturePacker JSON writer both tools share.
   - ``iw_common.testkit``  — ``Suite``, the check/exit helpers of the plain-script tests.
   - ``iw_common.context``  — the thread-local (client, project) context base.
   - ``iw_common.imgcache`` — disk-backed thumbnail cache + HTTP ETag/304 helpers

@@ -6,7 +6,9 @@
 // A TexturePacker (json-hash) frame is `{ frame:{x,y,w,h}, rotated,
 // spriteSourceSize:{x,y,w,h}, sourceSize:{w,h} }`. It maps to the atlas-tool
 // SNAKE_CASE region `{name,x,y,w,h,rotated,off_x,off_y,orig_w,orig_h}`:
-//   - frame      → on-page rect (x,y,w,h); w/h are the UNROTATED trimmed size
+//   - frame      → on-page origin (x,y); w/h are the UNROTATED trimmed size (a
+//                  legacy Sheet Maker export swapped a rotated frame's — see
+//                  `editorRegions.ts::uprightFrameSize`, whose rule this repeats)
 //   - rotated    → whether the frame is stored rotated 90° on the page
 //   - spriteSourceSize.x/y → trim offset (off_x/off_y) within the original frame
 //   - sourceSize → original untrimmed size (orig_w/orig_h)
@@ -25,8 +27,10 @@ export function tpFrameToRegion(name, f) {
 	const fr = (f && f.frame) ?? {};
 	const sss = (f && f.spriteSourceSize) ?? { x: 0, y: 0, w: fr.w, h: fr.h };
 	const src = (f && f.sourceSize) ?? { w: fr.w, h: fr.h };
-	const w = fr.w ?? 0;
-	const h = fr.h ?? 0;
+	const legacyFootprint =
+		Boolean(f && f.rotated) && fr.w !== fr.h && sss.w === fr.h && sss.h === fr.w;
+	const w = (legacyFootprint ? fr.h : fr.w) ?? 0;
+	const h = (legacyFootprint ? fr.w : fr.h) ?? 0;
 	return {
 		name,
 		x: fr.x ?? 0,

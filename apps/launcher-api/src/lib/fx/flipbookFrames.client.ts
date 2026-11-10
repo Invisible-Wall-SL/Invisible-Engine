@@ -44,7 +44,7 @@ export interface OverlayClip {
 }
 
 /** A region rect as `/api/editor/regions` returns it. `w`/`h` are the UPRIGHT size — the house
- * convention (`editorRegions.ts` `uprightWH`, `regionCrop.ts`): a `rotated` frame sits on the page
+ * convention (`editorRegions.ts` `uprightFrameSize`, `regionCrop.ts`): a `rotated` frame sits on the page
  * as `(h × w)`, turned 90° clockwise. `offX`/`offY`/`origW`/`origH` are the trim (TexturePacker's
  * `spriteSourceSize` / `sourceSize`); an untrimmed frame simply omits them. */
 interface RegionRect {

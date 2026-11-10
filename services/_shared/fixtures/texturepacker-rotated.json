@@ -1,0 +1,75 @@
+{
+  "frames": {
+    "flat.png": {
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 20
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 20
+      },
+      "sourceSize": {
+        "w": 10,
+        "h": 20
+      }
+    },
+    "wide.png": {
+      "frame": {
+        "x": 10,
+        "y": 0,
+        "w": 30,
+        "h": 12
+      },
+      "rotated": true,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 30,
+        "h": 12
+      },
+      "sourceSize": {
+        "w": 30,
+        "h": 12
+      }
+    },
+    "tall.png": {
+      "frame": {
+        "x": 24,
+        "y": 0,
+        "w": 8,
+        "h": 20
+      },
+      "rotated": true,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 20
+      },
+      "sourceSize": {
+        "w": 8,
+        "h": 20
+      }
+    }
+  },
+  "meta": {
+    "app": "Invisible Sheet Maker",
+    "version": "1.0",
+    "image": "page.png",
+    "format": "RGBA8888",
+    "size": {
+      "w": 64,
+      "h": 64
+    },
+    "scale": "1"
+  }
+}
