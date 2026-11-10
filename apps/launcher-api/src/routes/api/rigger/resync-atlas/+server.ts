@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectText } from '$lib/server/r2';
 import { ensureBundleAtlasFresh } from '$lib/server/rigBundleSync';
@@ -30,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
 
 	const dirB64 = typeof body.dir === 'string' ? body.dir : '';

@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { ZodError } from 'zod';
 import { requestedBackupMode } from '$lib/server/docBackupRoutes';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { readJson } from '$lib/server/http';
 import { requireSymbolsAccess } from '$lib/server/symbolsAccess';
 import { loadSymbolsDocWithEtag, saveSymbolsDoc } from '$lib/server/symbolsStorage';
 import { requireProjectScope } from '$lib/server/toolScope';
@@ -59,12 +60,7 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		user,
 		url.searchParams.get('project'),
 	);
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	const body = await readJson(request, 'Invalid JSON body.');
 	const baseEtag = writeBaseEtagJson(body);
 	const backup = requestedBackupMode(body);
 	const docFields = withoutEnvelope(body);
@@ -75,18 +71,13 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		// ORDER IS LOAD-BEARING: this branch must precede the catch-all 502 below, which
 		// would otherwise swallow a lost CAS into an opaque "Failed to save" with the
 		// cause hidden — the exact shape of [[gotcha_publish_502_flowv2_nodes_guard]].
-		// `json({error})`, never `error()`.
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					error: 'conflict',
-					message:
-						'Someone else saved these symbols while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else saved these symbols while you were editing. ' +
+				'Your changes are still here — reload to get their version first.',
+			{ okFlag: false },
+		);
+		if (conflict) return conflict;
 		if (e instanceof ZodError) throw error(400, 'Invalid symbols document.');
 		throw error(502, 'Failed to save the symbols document.');
 	}

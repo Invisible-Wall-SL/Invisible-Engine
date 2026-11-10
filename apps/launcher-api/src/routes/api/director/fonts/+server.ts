@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDirectorAccess } from '$lib/server/director/access';
-import { NO_STORE, answering, jsonBody } from '$lib/server/director/api';
+import { NO_STORE, answering } from '$lib/server/director/api';
+import { jsonBody } from '$lib/server/http';
 import { listFontRequests, markFontRequestDone } from '$lib/server/director/fontRequests';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';

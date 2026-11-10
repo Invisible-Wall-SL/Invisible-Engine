@@ -1,7 +1,5 @@
-import { error } from '@sveltejs/kit';
 import type { ResolutionTierId } from 'engine-layout';
 import sharp from 'sharp';
-import { roleHasTool } from '$lib/roles';
 import { EDITOR_RIG_LOAD_SCALE } from '$lib/rigScale';
 import { SUB, sharedRigBundlePrefix, rigBundlePath, rigBundleSharedPath } from './projectPaths';
 import { pickDeployedPage } from './deployedPage';
@@ -17,31 +15,24 @@ import {
 	type ListedObject,
 } from './r2';
 import { ENV } from './env';
+import { requireTool } from './http';
 import { atlasPremultipliedPages, PREMULTIPLIED_KTX2_EXT } from './ktx2Alpha';
 import { KTX2_ENCODER_REVISION } from './ktx2Dimensions';
 import { encodePageToKtx2 } from './ktx2Encode';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
-import { getRoleOverrides } from './roleToolAccess';
 import { clockwiseOnPage } from './rigAtlasRotation';
 import { bundleSheetPage, ensureBundleAtlasFresh, firstAtlasPageName } from './rigBundleSync';
-import { getToolOverrides } from './userToolAccess';
 
+/**
+ * The Rig Viewer, the Rigger AND Invisible FX all read project skeletons through this gate (same R2
+ * rigs + skeletons.json). The Viewer/Rigger author or inspect rigs; Invisible FX loads a playing
+ * skeleton purely as the Tier-B authoring BACKDROP to pin emitters onto bones (a READ of the same
+ * skeletons + bundle files), so its grant satisfies the gate too. This never widens the R2 prefix —
+ * only the entitlement check (the same shared-read seam the editor's region/asset endpoints use for
+ * `fx`).
+ */
 export async function requireRigAccess(locals: App.Locals): Promise<void> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	// The Rig Viewer, the Rigger AND Invisible FX all read project skeletons through this
-	// gate (same R2 rigs + skeletons.json). The Viewer/Rigger author or inspect rigs;
-	// Invisible FX loads a playing skeleton purely as the Tier-B authoring BACKDROP to pin
-	// emitters onto bones (a READ of the same skeletons + bundle files), so its grant
-	// satisfies the gate too. This never widens the R2 prefix — only the entitlement check
-	// (the same shared-read seam the editor's region/asset endpoints use for `fx`).
-	const hasViewer = roleHasTool(locals.user.role, 'spineViewer', roleOverrides, overrides);
-	const hasRigger = roleHasTool(locals.user.role, 'rigger', roleOverrides, overrides);
-	const hasFx = roleHasTool(locals.user.role, 'fx', roleOverrides, overrides);
-	if (!hasViewer && !hasRigger && !hasFx) {
-		throw error(403, 'Your role does not have access to the Rig Viewer, Rigger or FX.');
-	}
+	await requireTool(locals, ['spineViewer', 'rigger', 'fx'], 'the Rig Viewer, Rigger or FX');
 }
 
 /** Per-project skeletons.json key with a `_shared/` fallback root. */

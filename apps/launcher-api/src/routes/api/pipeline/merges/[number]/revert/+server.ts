@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { githubApp, GithubAppError } from '$lib/server/githubApp';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { requirePipelineMerge } from '$lib/server/pipelineAccess';
 import { parseChangeNumber } from '$lib/server/pipelineChanges';
 import { revertMerge } from '$lib/server/pipelineMerge';
@@ -20,13 +21,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const number = parseChangeNumber(params.number);
 	const missing = githubApp.missing();
 	if (missing) return json({ error: missing }, { status: 503 });
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'The body must be JSON.');
-	}
-	const { reason } = (body ?? {}) as { reason?: unknown };
+	const { reason } = objectOrNull(await readJson(request, 'The body must be JSON.')) ?? {};
 	if (reason !== undefined && reason !== null && typeof reason !== 'string') {
 		throw error(400, 'reason must be a string.');
 	}

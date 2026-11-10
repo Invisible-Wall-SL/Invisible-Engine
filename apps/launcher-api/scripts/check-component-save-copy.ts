@@ -80,7 +80,9 @@ mock.module(server('r2.ts'), {
 });
 // The rig is this project's own and is not in the shared rig library.
 mock.module(server('rig.ts'), { namedExports: { loadSharedSkeletonIndex: async () => [] } });
-mock.module(server('projects.ts'), { namedExports: { projectClientKey: async () => CLIENT } });
+mock.module(server('projects.ts'), {
+	namedExports: { DEFAULT_PROJECT_KEY: 'cloud', projectClientKey: async () => CLIENT },
+});
 mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: async () => ({}) } });
 mock.module(server('userToolAccess.ts'), { namedExports: { getToolOverrides: async () => ({}) } });
 mock.module(server('toolScope.ts'), {

@@ -253,6 +253,8 @@ for (const file of handlers) {
  */
 const PROJECT_READS = [
 	/searchParams\.get\(\s*['"`]project['"`]\s*\)/,
+	// `projectLookup.ts`'s reader of the same param.
+	/\bprojectParam\(/,
 	/\bbody\.project\b/,
 	/\{[^}]*\bproject\b[^}]*\}\s*=\s*body\b/,
 ];
@@ -350,7 +352,7 @@ for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
 const BODY_PROJECT_KEY =
 	/\bbody\??\.projectKey\b|\(body as [^)]*\)\.projectKey\b|\{[^}]*\bprojectKey\b[^}]*\}\s*=\s*body\b|searchParams\.get\(\s*['"`]projectKey['"`]\s*\)/;
 const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
-	lease: ['canAccessProject(', 'projectClientKey('],
+	lease: ['canAccessProject(', 'clientKeyOf('],
 };
 const STALE_TAB_GUARDS = [
 	'cinematics/delete',
@@ -564,8 +566,8 @@ check('a non-string key is hidden', settingValueVisible(null), false);
 // ── And the routes apply them ─────────────────────────────────────────────────
 const routeSource = (path: string): string => readFileSync(`${srcRoot}routes/${path}`, 'utf8');
 check(
-	'the lease checks the tool through leaseEntitlingTool + userHasTool',
-	['leaseEntitlingTool(', 'userHasTool('].every((c) => source('lease').includes(c)),
+	'the lease checks the tool through leaseEntitlingTool + userGrants',
+	['leaseEntitlingTool(', 'userGrants('].every((c) => source('lease').includes(c)),
 	true,
 );
 check(

@@ -1,10 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { ZodError } from 'zod';
-import { roleHasTool } from '$lib/roles';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { objectOrNull, readJson, requireTool } from '$lib/server/http';
 import { requireProjectScope } from '$lib/server/toolScope';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import { loadWinTextDocWithEtag, saveWinTextDoc } from '$lib/server/winTextStorage';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -20,15 +18,7 @@ import type { RequestHandler } from './$types';
  *
  * See `docs/design/invisible-win-text.md`.
  */
-async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'winText', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Win Text.');
-	}
-	return locals.user;
-}
+const gate = (locals: App.Locals) => requireTool(locals, 'winText', 'Invisible Win Text');
 
 /** Read a project's win-text doc + its ETag (empty valid doc when never authored). The ETag is
  *  the precondition the client sends back on save. */
@@ -60,31 +50,19 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		user,
 		url.searchParams.get('project'),
 	);
-	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.'));
 	const baseEtag = writeBaseEtagJson(body);
 	try {
-		const { doc, etag } = await saveWinTextDoc(clientKey, projectKey, body.doc, baseEtag);
+		const { doc, etag } = await saveWinTextDoc(clientKey, projectKey, body?.doc, baseEtag);
 		return json({ clientKey, projectKey, doc, etag });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the
-			// cause. This branch MUST precede the catch-all below for that reason.
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else saved this win text while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		// Before the catch-all below, which would answer a lost race as a 502.
+		const conflict = conflictResponse(
+			e,
+			'Someone else saved this win text while you were editing. ' +
+				'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		if (e instanceof ZodError) throw error(400, 'Invalid win-text document.');
 		throw error(502, 'Failed to save the win-text document.');
 	}

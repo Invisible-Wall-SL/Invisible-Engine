@@ -1,9 +1,9 @@
 import type { GameConfigDoc } from 'game-config';
 import { bearerToken } from '$lib/launcherGates';
-import { UNASSIGNED_CLIENT } from './projectPaths';
-import { projectClientKey, projectExists } from './projects';
+import { projectExists } from './projects';
 import { currentPointer, publishedPointerExists, readSnapshotBundle } from './publishedRuntime';
 import { tokensMatch } from './tokensMatch';
+import { clientKeyOf } from './projectLookup';
 
 /** The game server's own game-key rule (`services/game-server/src/configSource.ts`). */
 export const GAME_KEY = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -41,7 +41,7 @@ export type PublishedGameConfig =
  */
 export async function publishedGameConfig(projectKey: string): Promise<PublishedGameConfig> {
 	if (!(await projectExists(projectKey))) return { found: false, reason: 'no-project' };
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 	const pointer = await currentPointer(clientKey, projectKey);
 	if (!pointer) {
 		// A pointer that exists but does not parse is damage, not "never published": answering it

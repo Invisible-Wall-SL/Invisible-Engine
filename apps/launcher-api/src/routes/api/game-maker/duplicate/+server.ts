@@ -1,9 +1,7 @@
 import { json } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
 import { duplicateProject } from '$lib/server/duplicateProject';
+import { userGrants } from '$lib/server/http';
 import type { DuplicateScope } from '$lib/server/projectDuplicate';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -22,9 +20,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const toolOverrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'gameMaker', roleOverrides, toolOverrides)) {
+	if (!(await userGrants(locals.user)).hasTool('gameMaker')) {
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
