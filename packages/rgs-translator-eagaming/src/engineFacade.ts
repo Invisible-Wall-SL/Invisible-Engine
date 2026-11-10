@@ -475,14 +475,16 @@ const declaredPayLines = (sid: string): number[][] | null => {
  * A model with no lines (cluster, scatter-pays) declares an empty set and buys ONE unit: `betPerLine`
  * is then the whole stake, which is exactly what `payoutDivisor()` returning 1 means on the client.
  *
- * Falls back to 5 only when no config has been captured (a server that sends none) — the legacy
- * behaviour, kept so an unknown server degrades rather than divides by a guess.
+ * Null when the server has declared no payline set — no boot `config` was captured (the probe and
+ * the `config` action both came back without one), or it carried neither key. Every server we talk to
+ * declares one, and the partner's own client cannot boot without its `config`; the bet is refused
+ * rather than priced by a guess (`refuseUnpricedBet`).
  *
  * A COIN BOARD declares every line but plays only its active ones, and charges the line count it
  * plays × `betPerLine`: the count the game picked (`__IE_COIN_BOARD_LINE_COUNT__`, Phase 13d's lines
  * selector) when the board lets the player pick it, else its default or fixed count.
  */
-const betLineCount = (sid: string): number => {
+const betLineCount = (sid: string): number | null => {
 	const coinBoard = capturedCoinBoard.get(sid);
 	if (coinBoard) {
 		const requested = (globalThis as { __IE_COIN_BOARD_LINE_COUNT__?: unknown })
@@ -490,8 +492,19 @@ const betLineCount = (sid: string): number => {
 		return coinBoardLineCount(coinBoard, requested);
 	}
 	const lines = declaredPayLines(sid);
-	if (!lines) return 5;
-	return Math.max(1, lines.length);
+	return lines ? Math.max(1, lines.length) : null;
+};
+
+/**
+ * The answer to a bet the facade cannot price: no bet-option table and no declared line count, so
+ * `context[0]` has nothing to be. Refused HERE, before anything is sent. It used to go out as five
+ * lines — Hot Fruits' count — whatever the server's own line count, and a server with an option table
+ * reads that 5 as an option index.
+ */
+const refuseUnpricedBet = () => {
+	const text =
+		'the game server declared no paylines or bet options at boot, so the bet could not be priced and was not placed';
+	return { status: { statusCode: 'ERR_GE', statusMessage: text }, error: text, message: text };
 };
 
 /** Warn once per session when integer-cent `betPerLine` rounding makes the charged stake differ from
@@ -1731,19 +1744,39 @@ const balanceOf = (response: unknown): number | undefined => {
 	return typeof p4f === 'number' ? play4FunToEngine(p4f) : undefined;
 };
 
+const answeredOk = (status: number) => status >= 200 && status < 300;
+
 /**
- * A request answered with an HTTP failure and no protocol body — a proxy's 502 page, an edge's 403.
- * Returned in the engine's error shape so it reaches the error modal, and the error report, as the
- * status it was rather than as the "empty round" or "empty balance" it would otherwise leave behind.
+ * A request answered without a protocol body — a proxy's 502 page, an edge's 403, or a 2xx that is
+ * not the protocol at all (an edge's challenge page, a proxy's HTML). Returned in the engine's error
+ * shape so it reaches the error modal, and the error report, as what it was rather than as the
+ * "empty round" or "empty balance" it would otherwise leave behind. An empty 200 never gets here: the
+ * transport resends it, as the partner's client does.
  */
-const httpFailure = (result: Play4FunPostResult) =>
-	result.response === null && (result.status < 200 || result.status >= 300)
-		? {
-				status: { statusCode: `ERR_HTTP_${result.status}`, statusMessage: result.statusText },
-				error: `HTTP ${result.status}`,
-				message: `The game server answered HTTP ${result.status} ${result.statusText}`.trim(),
-			}
-		: null;
+const httpFailure = (result: Play4FunPostResult) => {
+	if (result.response !== null) return null;
+	if (answeredOk(result.status)) {
+		const text = `The game server answered HTTP ${result.status} without a protocol body`;
+		return {
+			status: { statusCode: 'ERR_HTTP_BAD_BODY', statusMessage: text },
+			error: `HTTP ${result.status} without a protocol body`,
+			message: text,
+		};
+	}
+	return {
+		status: { statusCode: `ERR_HTTP_${result.status}`, statusMessage: result.statusText },
+		error: `HTTP ${result.status}`,
+		message: `The game server answered HTTP ${result.status} ${result.statusText}`.trim(),
+	};
+};
+
+/** Why a request inside a round came back with nothing to present, for a log line. */
+const unanswered = (result: Play4FunPostResult) =>
+	isPlay4FunError(result.response)
+		? `${result.response.error} (code ${result.response.errorCode})`
+		: answeredOk(result.status)
+			? `HTTP ${result.status} without a protocol body`
+			: `HTTP ${result.status}`;
 
 // ---------- public API (matches rgs-requests) ----------
 
@@ -2001,15 +2034,7 @@ const resumeOpenRound = async (
 	let last: Play4FunResponse | null = null;
 	for (const body of replayRequests(open.actions)) {
 		const r = await fetcher.post({ body });
-		if (!r.response || isPlay4FunError(r.response)) {
-			return abandonResume(
-				sid,
-				open,
-				isPlay4FunError(r.response)
-					? `${r.response.error} (code ${r.response.errorCode})`
-					: `HTTP ${r.status}`,
-			);
-		}
+		if (!r.response || isPlay4FunError(r.response)) return abandonResume(sid, open, unanswered(r));
 		// The replay must land in THIS round. A server that ignored the `gid` would take the re-posted
 		// `bet` as a new one — charging it again and opening a second round — and the fetcher would
 		// bind that round's id without a word. Stop at the first sign of it, and say so loudly.
@@ -2099,10 +2124,30 @@ export const requestBet = async (options: {
 	// Without a table, the legacy lines encoding `[lineCount, betPerLine]`. The two stay apart because
 	// `context[0]` means something different in each — an option index, a line count — and a line
 	// count read as an option index is a garbage enum: the exact failure the partner's third game
-	// (where `x` IS the line count) shows can go both ways.
+	// (where `x` IS the line count) shows can go both ways. With neither a table nor a declared line
+	// count there is nothing to put in `context[0]`, and the bet is refused the same way.
 	const serverOptions = betOptionsFor(options.sessionID);
-	const optionIndex = serverOptions ? betOptionIndexFor(options.mode, serverOptions) : null;
-	if (serverOptions && optionIndex === null) return refuseUnexpressibleMode(options.mode);
+	// User-display dollars → Play4Fun cents.
+	const play4FunAmount = Math.max(1, Math.round(options.amount * play4FunAmountMultiplier()));
+	let betBody: Play4FunRequestBody;
+	if (serverOptions) {
+		const optionIndex = betOptionIndexFor(options.mode, serverOptions);
+		if (optionIndex === null) return refuseUnexpressibleMode(options.mode);
+		betBody = [
+			{ action: 'bet', context: [optionIndex, multiplierForAmount(options.amount, serverOptions)] },
+			{ action: 'play', context: '' },
+		];
+	} else {
+		const lineCount = betLineCount(options.sessionID);
+		if (lineCount === null) return refuseUnpricedBet();
+		betBody = buildBetActions({
+			amount: play4FunAmount,
+			mode: options.mode,
+			currency: options.currency,
+			lineCount,
+			playContext: '',
+		});
+	}
 
 	const session = sessionFor(options.sessionID);
 	const fetcher = fetcherFor(options.sessionID, options.rgsUrl);
@@ -2112,26 +2157,6 @@ export const requestBet = async (options: {
 	// celebration never released it stops being held here at the latest.
 	platformLocks.delete(options.sessionID);
 	platformWins.delete(options.sessionID);
-
-	// User-display dollars → Play4Fun cents.
-	const play4FunAmount = Math.max(1, Math.round(options.amount * play4FunAmountMultiplier()));
-
-	const betBody: ReturnType<typeof buildBetActions> =
-		serverOptions && optionIndex !== null
-			? [
-					{
-						action: 'bet',
-						context: [optionIndex, multiplierForAmount(options.amount, serverOptions)],
-					},
-					{ action: 'play', context: '' },
-				]
-			: buildBetActions({
-					amount: play4FunAmount,
-					mode: options.mode,
-					currency: options.currency,
-					betLinesOrConfig: betLineCount(options.sessionID),
-					playContext: '',
-				});
 
 	// `betPerLine` is integer cents, so `a × betPerLine` cannot always hit the requested amount — a
 	// $0.10 bet across 20 lines wants half a cent per line and floors at one, charging $0.20. The
@@ -2241,9 +2266,7 @@ const playOutRound = async (
 		// round on a balance of 0.
 		if (!r.response || isPlay4FunError(r.response)) {
 			round.refused = true;
-			round.refusal = isPlay4FunError(r.response)
-				? `${r.response.error} (code ${r.response.errorCode})`
-				: `HTTP ${r.status}`;
+			round.refusal = unanswered(r);
 			return;
 		}
 		round.events.push(...eventsOf(r.response));

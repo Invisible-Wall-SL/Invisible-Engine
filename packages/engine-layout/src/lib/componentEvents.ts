@@ -55,6 +55,30 @@ export function observeComponentEvents(
 	return () => observers.delete(observer);
 }
 
+/** Mounted resets per placed node id, oldest first; the last is live (as `registerFlowInstance`). */
+const alignResets = new Map<string, (() => void)[]>();
+
+/** Called by a top-level placement whose def has Align Target listeners: how to put the nodes they
+ *  moved back where the def places them. Returns the unregister, which removes only THIS reset: a
+ *  later one under the same id stays live, and when the live one leaves an older one is again. */
+export function registerComponentAlignReset(instanceId: string, reset: () => void): () => void {
+	let stack = alignResets.get(instanceId);
+	if (!stack) alignResets.set(instanceId, (stack = []));
+	stack.push(reset);
+	return () => {
+		const mounted = alignResets.get(instanceId);
+		const at = mounted?.indexOf(reset) ?? -1;
+		if (!mounted || at === -1) return;
+		mounted.splice(at, 1);
+		if (mounted.length === 0) alignResets.delete(instanceId);
+	};
+}
+
+/** Put the nodes a placement's Align Target listeners moved back in place, without a remount. */
+export function resetComponentAlign(instanceId: string): void {
+	alignResets.get(instanceId)?.at(-1)?.();
+}
+
 /** Send a raised event down the press road, as `kind: 'event'`: the resolver matches it against
  *  event pins only (Phase 7 adds them), never a press or `action` pin of the same name. */
 export function raiseComponentEvent(raised: RaisedComponentEvent): void {

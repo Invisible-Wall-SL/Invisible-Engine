@@ -93,6 +93,8 @@
 				return `${nameOf(m, e.uid)} dies`;
 			case 'fatigue':
 				return `${sideName(e.player)} takes ${e.amount} fatigue`;
+			case 'resourceGained':
+				return `${sideName(e.player)} gains ${e.amount} resource`;
 			case 'drawn':
 				return e.burned ? `${sideName(e.player)} burns ${nameOf(m, e.uid)} (hand full)` : null;
 			case 'matchEnded':
@@ -165,7 +167,9 @@
 			: a.type === 'attack'
 				? `→ ${targetName(m, a.target)}`
 				: a.type === 'endPhase'
-					? `End ${m.phase}`
+					? m.phase === 'main' && m.rules.turnOrder === 'mixed'
+						? 'End turn'
+						: `End ${m.phase}`
 					: 'Concede';
 
 	async function copyReplay(): Promise<void> {
