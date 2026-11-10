@@ -3,6 +3,7 @@
 //
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/art-tier-probe.mjs [--build apps/lines/build] [--out <dir>]
+//       [--pinned-build <a build made with IE_ART_TIER=full>]
 //
 // Boots the BUILT runtime (`?runtime=1`) against a local runtime-bundle stub carrying a 4K game: the
 // Book-of reference rescaled ×2, plus two pieces of art made for it, each published the way the
@@ -20,6 +21,10 @@
 //   full        `?tier=full` must load the full pages and nothing `@half`;
 //   no-res      the image's tier entry WITHOUT its resolution (a negative control): the half image
 //               then draws at half size, so this capture must differ from `full` where it sits.
+//   pinned      (with --pinned-build) a build compiled with `IE_ART_TIER=full` opened with
+//               `?tier=half` in the same window: the pin beats both the query and the screen rule,
+//               so it must load the full pages and nothing `@half` — the build that left the half
+//               art out would otherwise ask for files it does not have.
 // `auto` must look like `full` (half art drawn at under half of 4K is the same picture). Exit 1 on any
 // failure. Real clock, like canvas-scale-probe.mjs.
 
@@ -47,6 +52,7 @@ const sharp = createRequire(join(ROOT, 'apps/launcher-api/package.json'))('sharp
 const { values: opt } = parseArgs({
 	options: {
 		build: { type: 'string', default: join(ROOT, 'apps/lines/build') },
+		'pinned-build': { type: 'string' },
 		out: { type: 'string' },
 		chrome: { type: 'string' },
 	},
@@ -209,17 +215,28 @@ const editorArt = (imageTier) => ({
 
 // ---------- run ----------
 
-const build = resolve(opt.build);
-const host = serveStatic({ '/': build, '/probe-art/': ART });
-const origin = `http://127.0.0.1:${await listen(host)}`;
+const serveBuild = async (dir) => {
+	const server = serveStatic({ '/': resolve(dir), '/probe-art/': ART });
+	return { server, origin: `http://127.0.0.1:${await listen(server)}` };
+};
+const hosts = { main: await serveBuild(opt.build) };
+if (opt['pinned-build']) hosts.pinned = await serveBuild(opt['pinned-build']);
 const RUNS = {
 	auto: { tier: null, imageTier: { file: 'image@half.webp', resolution: 0.5 } },
 	full: { tier: 'full', imageTier: { file: 'image@half.webp', resolution: 0.5 } },
 	'no-res': { tier: null, imageTier: { file: 'image@half.webp' } },
+	...(hosts.pinned && {
+		pinned: {
+			tier: 'half',
+			imageTier: { file: 'image@half.webp', resolution: 0.5 },
+			build: 'pinned',
+		},
+	}),
 };
 const shots = {};
 const loaded = {};
 for (const [name, run] of Object.entries(RUNS)) {
+	const { server: host, origin } = hosts[run.build ?? 'main'];
 	const mock = await startBookMock('art-tier');
 	const runtime = serveJson({
 		assetBase: `${origin}/probe-art/`,
@@ -257,17 +274,17 @@ for (const [name, run] of Object.entries(RUNS)) {
 			.filter((u) => u.includes('/probe-art/'))
 			.map((u) => u.split('/probe-art/')[1]);
 	} finally {
-		if (browser.log.some((l) => /error|exception/i.test(l)))
+		if (browser.log.some((l) => /error|exception|netfail/i.test(l)))
 			console.log(
 				`${name} page log:`,
-				browser.log.filter((l) => /error|exception/i.test(l)).slice(0, 10),
+				browser.log.filter((l) => /error|exception|netfail/i.test(l)).slice(0, 10),
 			);
 		browser.close();
 		mock.stop();
 		runtime.close();
 	}
 }
-host.close();
+for (const { server } of Object.values(hosts)) server.close();
 
 let failed = false;
 const ok = (label, condition, detail = '') => {
@@ -288,6 +305,13 @@ ok(
 );
 ok('?tier=full loads the full pages', has('full', 'sheet/page.webp') && has('full', 'image.webp'));
 ok('?tier=full loads nothing @half', !loaded.full.some((u) => u.includes('@half')));
+if (loaded.pinned) {
+	ok(
+		'a build pinned to full loads the full pages, ?tier=half and the small window notwithstanding',
+		has('pinned', 'sheet/page.webp') && has('pinned', 'image.webp'),
+	);
+	ok('  and nothing @half', !loaded.pinned.some((u) => u.includes('@half')));
+}
 
 const same = diffPngs(shots.full, shots.auto, TOLERANCE);
 writeFileSync(join(OUT, 'auto-vs-full-diff.png'), same.map);

@@ -19,11 +19,15 @@ import { RESOLUTION_TIERS, type ResolutionTierId } from 'engine-layout';
  * published no tiers has nothing to choose between, so every lookup falls back to `full`.
  *
  * Decided once at boot, before any art is registered; a window resized later keeps its choice.
- * `?tier=full` / `?tier=half` forces one.
+ * `?tier=full` / `?tier=half` forces one, and a build pinned to one tier (`IE_ART_TIER`) always
+ * loads that one.
  */
 export type ArtTier = 'full' | ResolutionTierId;
 
 export interface ArtTierInput {
+	/** The build's pin (`IE_ART_TIER`, compiled in as `__IE_ART_TIER__`). It wins over `forced`: a
+	 *  pinned build ships only that tier's files, so any other would load nothing. */
+	pinned?: string | null;
 	/** `?tier=` — anything other than a known tier is ignored. */
 	forced?: string | null;
 	window: { width: number; height: number; devicePixelRatio: number };
@@ -54,10 +58,16 @@ export function artScreenScale(
 	return fit * resolution;
 }
 
+const knownTier = (id: string | null | undefined): ArtTier | null =>
+	id === 'full'
+		? 'full'
+		: id && Object.hasOwn(RESOLUTION_TIERS, id)
+			? (id as ResolutionTierId)
+			: null;
+
 export function chooseArtTier(input: ArtTierInput): ArtTier {
-	if (input.forced === 'full') return 'full';
-	if (input.forced && Object.hasOwn(RESOLUTION_TIERS, input.forced))
-		return input.forced as ResolutionTierId;
+	const chosen = knownTier(input.pinned) ?? knownTier(input.forced);
+	if (chosen) return chosen;
 	const scale = artScreenScale(input);
 	const covering = (Object.entries(RESOLUTION_TIERS) as [ResolutionTierId, number][])
 		.filter(([, tierScale]) => tierScale >= scale)

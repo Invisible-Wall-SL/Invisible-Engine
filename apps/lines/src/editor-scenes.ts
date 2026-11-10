@@ -706,6 +706,7 @@ function artTier(): ArtTier {
 	if (typeof window === 'undefined') return 'full';
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	chosenArtTier = chooseArtTier({
+		pinned: typeof __IE_ART_TIER__ === 'string' ? __IE_ART_TIER__ : null,
 		forced: new URLSearchParams(window.location.search).get('tier'),
 		window: {
 			width: window.innerWidth,
