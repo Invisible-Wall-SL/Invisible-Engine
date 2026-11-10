@@ -33,6 +33,7 @@
 	import { disposeCameraEffects } from '../cameraEffects';
 	import { disposeScreenTransitions } from '../screenFx/screenTransition';
 	import { renderSettings } from '../renderTier';
+	import { installRenderQuality } from '../renderQuality';
 	import { trimBackBufferPasses } from '../backBufferPasses';
 	import {
 		AUTO_OPAQUE,
@@ -54,6 +55,7 @@
 	let initialised = $state(false);
 	let releaseFrameClock: (() => void) | undefined;
 	let releaseBackBufferPasses: (() => void) | undefined;
+	let releaseRenderQuality: (() => void) | undefined;
 
 	const initialiseApplication = async () => {
 		PIXI.Assets.reset();
@@ -121,7 +123,8 @@
 			// the WebContent process ("A problem repeatedly occurred"); 2 is visually identical.
 			// Lower floor: a DPR below 1 (a zoomed-out / fractional-scaled display) would render
 			// the whole scene SUB-native, so thin antialiased text ghosts into a faint echo that
-			// reads as "double text". Never render below 1:1. A `reduced` render tier lowers the cap.
+			// reads as "double text". Never render below 1:1. `?render=reduced` lowers the cap, and
+			// `renderQuality.ts` lowers it later on a device that cannot keep up.
 			resolution: Math.min(Math.max(devicePixelRatio.current ?? 1, 1), render.maxResolution),
 			resizeTo: window,
 		});
@@ -138,6 +141,11 @@
 		// timestamp is the motion this ticker draws in that frame (`frameClock.ts`).
 		context.stateApp.pixiApplication.ticker.add(frameClockTick);
 		releaseFrameClock = bindFrameClock();
+		// Only a game configures it: a tool's renderer stays at the level it was created at.
+		releaseRenderQuality = installRenderQuality(context.stateApp.pixiApplication, {
+			tier: render.tier,
+			msaa: options.antialias,
+		});
 
 		// to prevent that you can't scroll the page with touch on the canvas. https://github.com/pixijs/pixijs/issues/4824
 		context.stateApp.pixiApplication.renderer.events.autoPreventDefault = false;
@@ -161,6 +169,7 @@
 
 	onDestroy(() => {
 		releaseFrameClock?.();
+		releaseRenderQuality?.();
 		releaseBackBufferPasses?.();
 		if (context.stateApp.pixiApplication) {
 			context.stateApp.pixiApplication.ticker?.remove(frameClockTick);

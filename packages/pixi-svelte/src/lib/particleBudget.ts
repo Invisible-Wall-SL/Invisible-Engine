@@ -7,13 +7,13 @@
  *
  * Inactive until the game turns it on ({@link configureParticleBudget}): the tools never do, so
  * `/fx`, the Scene Editor and the Rigger preview every particle. Once on it starts from the render
- * tier (`renderTier.ts`: `reduced` caps it at {@link REDUCED_TIER_QUALITY}) and, when adaptive,
- * follows the frame time: a second of frames slower than 1.5× the target steps it down by
- * {@link STEP}, three seconds faster than 1.1× step it back up, never above the tier's cap.
+ * tier (`renderTier.ts`: only `?render=reduced` caps it, at {@link REDUCED_TIER_QUALITY}) and,
+ * when adaptive, follows the frame time: a second of frames slower than 1.5× the target steps it
+ * down by {@link STEP}, three seconds faster than 1.1× step it back up, never above the tier's cap.
  * `?particles=<0.25..1>` pins it for testing.
  *
- * At 1 an emitter is left exactly as authored (`ParticleEmitter`), so a full-tier device that keeps
- * up draws every particle it always did.
+ * At 1 an emitter is left exactly as authored (`ParticleEmitter`), so a device that keeps up draws
+ * every particle it always did.
  */
 
 import { renderTier, type RenderTier } from './renderTier';
