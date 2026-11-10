@@ -34,7 +34,7 @@ import {
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import { captureError } from 'error-tracking';
-import { renderSettings } from 'pixi-svelte';
+import { renderSettings, reportedMemoryGb, type MemoryNavigator } from 'pixi-svelte';
 import { setAuthoredMainSizesMap, setAuthoredLayoutProfile } from 'utils-layout';
 
 import type { SoundEffectName } from './game/sound';
@@ -578,8 +578,8 @@ function preferCompressedTextures(): boolean {
 		// iPadOS 13+ reports as desktop Safari; disambiguate by touch support.
 		(navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1);
 	const isAndroid = /Android/i.test(ua);
-	const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-	const lowMem = typeof mem === 'number' && mem <= 4;
+	const mem = reportedMemoryGb(navigator as Navigator & MemoryNavigator);
+	const lowMem = mem !== undefined && mem <= 4;
 	return isIOS || isAndroid || lowMem;
 }
 

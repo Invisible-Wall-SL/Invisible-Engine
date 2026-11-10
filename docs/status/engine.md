@@ -63,7 +63,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   authored Element FX with its own params, the camera chroma split, the rig dark tint
   (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
   Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
-  devices (Chromium `deviceMemory` ≤ 4 GB since 2026-11-03, was 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
+  devices (Chromium `deviceMemory` ≤ 4 GB since 2026-11-03, was 2 GB, or `?render=reduced`;
+  Brave's figure is ignored since 2026-11-10, below) resolution ≤ 1.5 and no MSAA,
   and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
   exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
   hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
@@ -145,7 +146,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
   below). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on `overlay-buffaloduel` while the
-  S24 Ultra drew 5× the pixels at 60. Headless Chromium shows no pathological GL work at base-game
+  S25 Ultra drew 5× the pixels at 60. Headless Chromium shows no pathological GL work at base-game
   idle (43 draws, one scene pass, its resolve and copy, no uploads, no round trips, ~2.75× screen
   coverage), so what costs on the iPhone has to be read there.
   Procedure, Low Power Mode off, the game opened on its own (not inside the launcher), each URL with
@@ -195,11 +196,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   uncompressed pages on phones. Since the shell + bundle change (2026-11-03) `_app/` holds the
   game's code itself, so without it a desktop-published game does not boot at all.
 
-- **Truly same-frame drawing — confirm on real phones** (2026-11-09 change, below). Each frame
-  now draws its own sample and laps carry through their ends, measured in headless Chromium
-  only. After the runtime release, ask the owner for a `?perf=1` Copy during spins from the
-  iPhone 17, the Pixel 9 Pro and the S24 Ultra (the 2026-11-09 readings below are the baseline):
-  the reel step error should read near 0 at steady and mixed frame lengths alike. What drawing
+- **Truly same-frame drawing — confirmed on four real phones, the iPhone 17 still to read**
+  (2026-11-09 change, below). Reel step error max on the new builds (`?perf=1`, 2026-11-10):
+  S25 Ultra 1.2 px, Nothing Phone (1) 2.1 px, Pixel 9 Pro 1.1 px, iPhone 13 Pro p95 0 — mean and
+  p95 0 on every Android, from 4.0–10.1 px mean and 30.5–43 px p95 before (table below). What drawing
   still cannot remove: a dropped frame is still a double-length step (correct for its interval,
   but visible); the first frame of a motion from rest draws its start value (nothing has asked
   for the clock yet); a carried lap runs at most one frame's time slower over its length (≤ ~7%
@@ -433,6 +433,29 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-10 — **Brave's device-memory figure is not trusted: a strong phone in Brave keeps full
+  quality** (branch `claude/nice-albattani-a03tcm`, restarted from `main` after #1578).
+  `pixi-svelte` `renderTier.ts` `reportedMemoryGb` returns no figure in Brave (`navigator.brave`),
+  as Safari gives none, so the render tier stays `full` there; `editor-scenes.ts`
+  `preferCompressedTextures` reads the same helper (on a phone it changes nothing, as every phone
+  already gets KTX2). Why, owner-measured on `overlay-buffaloduel` (`?perf=1`): the Pixel 9 Pro
+  (16 GB, 120 Hz, viewport 426×804) read tier `full` on 2026-11-09 and `reduced` in Brave on
+  2026-11-10 (resolution 1.5, no MSAA, GPU name masked as `Brave`) with `renderTier.ts` unchanged
+  since #1509: Brave alters `deviceMemory` against fingerprinting. A Brave device that really has
+  4 GB or less now draws `full`, as every device did before #1410; the adaptive particle budget
+  still adapts. Guard: `packages/pixi-svelte/fixtures/renderTier.fixture.ts` (13 checks; it does
+  not load on the old module). Device readings of the #1578 build on the same day, for the record:
+  - **S25 Ultra** (Adreno 830; the phone recorded on 2026-11-09 as the S24 Ultra), Chrome with
+    Desktop site on (UA `X11; Linux x86_64`, so desktop textures: 73 BGRA8, 333 MB; canvas
+    1960×3540): idle 59.9 fps, spinning 60.1 fps with no frame over 16.8 ms, tick 3.2 ms a frame.
+  - **Nothing Phone (1)** (Adreno 642L, 60 Hz): idle 60.2 fps; spinning 56.6 fps, p95 25 ms,
+    10 of 754 frames over 33 ms, while the tick never passed 11.8 ms, so the late frames are GPU
+    or browser, not the game's work. Textures: 24 ASTC (57 MB) + 38 BGRA8 (66 MB).
+  - **Pixel 9 Pro in Brave** (reduced tier, so not like for like): idle 75.6 fps, spinning 81.3
+    fps (p50 8.4 ms, p95 16.7, max 25), no frame over 33 ms.
+  - One resolve and one invalidation a frame on every full-tier device, as #1578 intended.
+
 - 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
   big-win run-up** (branch `engine-playbook-single-dispatch`). `engine-game` `playBook.ts`
   `playBookEvents` ran a second loop when neither a v1 nor a v2 flow existed (a layout without
@@ -454,7 +477,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Why, real device** (`?perf=1`, build `f65001e`, `overlay-buffaloduel`): iPhone 13 Pro (A15,
     Safari, DPR 3, tier `full`, resolution 2, canvas 780×1398) idle 23.6 fps (p50 42 ms, 1314 of 1344
     frames over 33 ms), spinning 14.1 fps (p95 165 ms, 52 frames over 100 ms), reel step error p95
-    0; the S24 Ultra drew 1960×3540 at 59.5 fps. Not reel motion: GPU, compositor or something else
+    0; the S25 Ultra drew 1960×3540 at 59.5 fps. Not reel motion: GPU, compositor or something else
     outside the reels, even at idle.
   - **Measured here** (`overlay-buffaloduel`'s live snapshot booted through the harness's own
     servers in headless Chromium at 390×699, DPR 3, the iPhone's UA, so the KTX2/ASTC path; GL
@@ -596,7 +619,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   make spins smooth on fast phones.
   - **Why, real devices** (`?perf=1`, build `aec1ea1`, which has #1527):
 
-    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S24 Ultra          |
+    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S25 Ultra          |
     | -------------------------------- | ------------------ | -------------------------------------- | ------------------ |
     | Refresh                          | 60 Hz              | 120 Hz adaptive (8.3 + 16.6 ms frames) | steady 60 Hz       |
     | Spin p95 frame interval          | 25 ms              | 16.8 ms                                | 16.7 ms            |
@@ -604,7 +627,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     | Reel step error mean / p95 / max | 10.1 / 43 / 120 px | 6.8 / 30.5 / 60 px                     | 4.0 / 39.6 / 79 px |
 
     The Pixel has almost no late frames: its error is the one-frame drawing lag with mixed frame
-    lengths. The S24's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
+    lengths. The S25's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
     purpose. The recycling attempt's profile (`commonoverlayproject`, CPU 4×) put Svelte
     re-checking the moving cells at ~42% of a flush (prop sync ~10%), Pixi's render ~24% of spin
     JS, rig ticks ~10%.
@@ -725,7 +748,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`verify-symbol-overflow`, `verify-stepped-grid`, `verify-symbol-wrap-context`,
     `verify-symbol-seat`, `verify-win-explode-pop`, `verify-swap-in-place-mode`,
     `verify-board-paint-order`, `verify-board-tiles`, `verify-tumble-pattern`) pass unchanged.
-  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S24 Ultra); the numbers above are
+  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S25 Ultra); the numbers above are
     headless Chromium on software GL.
 - 2026-11-09 — **A game with resolution tiers loads the one its screen needs**
   ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 4). `game/artTier.ts` `chooseArtTier`

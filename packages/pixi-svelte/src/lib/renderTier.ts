@@ -12,8 +12,9 @@
  *
  * Auto-detected only where a device says how much memory it has (Chromium's `deviceMemory`,
  * reported rounded down to a power of two): 4 GB or less is `reduced`. Safari reports nothing,
- * so an iPhone stays `full` unless told. `?render=reduced` forces the reduced tier on any device,
- * `?render=full` keeps the full one. Independent of `?quality`, which picks the texture format.
+ * so an iPhone stays `full` unless told; Brave's figure is not trusted ({@link reportedMemoryGb}).
+ * `?render=reduced` forces the reduced tier on any device, `?render=full` keeps the full one.
+ * Independent of `?quality`, which picks the texture format.
  */
 
 export type RenderTier = 'full' | 'reduced';
@@ -27,12 +28,25 @@ export interface RenderSettings {
 	antialias: boolean;
 }
 
+export type MemoryNavigator = { deviceMemory?: number; brave?: unknown };
+
+/**
+ * The device's memory in GB as its browser reports it, or undefined where the figure is absent or
+ * cannot be believed. Brave alters `deviceMemory` against fingerprinting: owner-measured
+ * 2026-11-10, a 16 GB Pixel 9 Pro drew the reduced tier in Brave and the full one the day before.
+ * So Brave's figure counts as unknown, as Safari's does, and its devices keep full quality.
+ */
+export function reportedMemoryGb(nav: MemoryNavigator): number | undefined {
+	if (nav.brave !== undefined) return undefined;
+	return typeof nav.deviceMemory === 'number' ? nav.deviceMemory : undefined;
+}
+
 export function renderTier(): RenderTier {
 	if (typeof window === 'undefined' || typeof navigator === 'undefined') return 'full';
 	const forced = new URLSearchParams(window.location.search).get('render');
 	if (forced === 'reduced' || forced === 'full') return forced;
-	const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-	return typeof memory === 'number' && memory <= LOW_END_MEMORY_GB ? 'reduced' : 'full';
+	const memory = reportedMemoryGb(navigator as Navigator & MemoryNavigator);
+	return memory !== undefined && memory <= LOW_END_MEMORY_GB ? 'reduced' : 'full';
 }
 
 export function renderSettings(tier: RenderTier = renderTier()): RenderSettings {
