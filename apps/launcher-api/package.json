@@ -137,6 +137,7 @@
 		"check:shared-rig-promote": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shared-rig-promote.ts",
 		"check:renderable-fonts": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-renderable-fonts.ts",
 		"check:art-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-art-scope.ts",
+		"check:texturepacker-rotation": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-texturepacker-rotation.ts",
 		"check:flights": "tsx --tsconfig tsconfig.scripts.json scripts/check-flights.ts",
 		"check:win-cycle": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-cycle.ts",
 		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",

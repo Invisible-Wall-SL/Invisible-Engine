@@ -157,8 +157,8 @@ _Nothing._
     TexturePacker use, so the deploy's `.json` is right for the game), byte-identical to before.
     The old docstring's `seed-game-editor.mjs::tpToRegion` no longer exists; the readers are
     `apps/launcher-api/scripts/lib/tpRegions.mjs` and `editorRegions.ts`. The Sheet Maker's
-    dialect differs — see its status open item 5, which also covers the Flipbook video sheets
-    this tool writes.
+    dialect differed — closed 2026-11-10 (Sheet Maker status): both tools now write this
+    UPRIGHT form and the module has no dialect parameter.
   - **Tests + lint** — `iw_common/testkit.py` (`Suite`: `check` / `check_in` / `run` / `exit`) is
     the shared pattern; `atlas-serverless/test_handler.py` and two Sheet Maker suites use it, the
     rest keep their own `check()` for now. `ruff check services/` (rules in `services/ruff.toml`:

@@ -52,15 +52,12 @@ def write_libgdx_atlas(path: str | Path, image_name: str,
 
 def write_texturepacker_json(path: str | Path, image_name: str,
                              width: int, height: int, regions: list[dict]) -> None:
-    """Emit a TexturePacker JSON-hash file in the Sheet Maker's FOOTPRINT
-    dialect: a rotated region's `frame` w/h are swapped to the on-sheet
-    footprint while sourceSize keeps the display size. This is NOT what PixiJS's
-    `Spritesheet` expects of a rotated frame (it swaps them itself) — it is
-    what the launcher's `backfillMissingGeometry` un-swaps when it reads
-    `atlas.texturepacker_json`. See `iw_common.texturepacker`."""
+    """Emit a TexturePacker JSON-hash file. A rotated region's `frame` w/h stay
+    its upright display size (TexturePacker's convention, which PixiJS's
+    `Spritesheet` and the launcher read); its page footprint is `h x w`. See
+    `iw_common.texturepacker`."""
     texturepacker.write_texturepacker_json(
-        path, image_name, width, height, regions,
-        app="Invisible Sheet Maker", dialect=texturepacker.FOOTPRINT)
+        path, image_name, width, height, regions, app="Invisible Sheet Maker")
 
 
 # ---------------------------------------------------------------------------
