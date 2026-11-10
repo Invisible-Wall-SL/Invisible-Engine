@@ -132,7 +132,7 @@ export const runSpinOrSlamStop = ({
 	}
 
 	if (isIdle) {
-		if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
+		if (stateBetDerived.activeBetMode()?.type === 'buy') stateBetDerived.endBuy();
 		broadcast({ type: 'bet' });
 		return;
 	}

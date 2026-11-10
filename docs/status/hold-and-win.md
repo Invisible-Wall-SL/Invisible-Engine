@@ -1119,6 +1119,29 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-10 — **14c follow-up: a buy hands the ante back** (Getting Hot, game 8). A buy is still
+  one-shot, but when its round ends (the feature it bought and the client's `collect` included) the
+  stake returns to what it replaced: the HUD's ante switch if it was on, else BASE. Only a `toggle`
+  ante comes back, so a game without one (every game before 14c, the Book of Thermopylae buy, an ante
+  armed from the buy menu) still returns to BASE.
+  - **How:** the buy confirm (`BuyBonusConfirm` and the flow's `commitBuyBonus`) arms the mode with
+    `stateBetDerived.armBetMode`, which notes `stateBet.stakeBeforeBuy`. Every place that used to
+    drop a buy to BASE calls `endBuy()` instead: round end (`checkSpaceHold`), a spin press over a
+    leftover buy (`spinStop`), autoplay arming (`armAutoSpins`) and a refused buy (`betRefusal`).
+    The HUD switch reads `isAnteArmed()`, so it stays lit through the bought round; the stake
+    readout and the filler strips follow the active mode, as before.
+  - **Edges:** the ante refused by the operator, during the buy or before it → BASE. The buy itself
+    refused → the ante stays on and the next bet goes out under it. A page reload mid-feature
+    resumes the buy with no memory of the ante → BASE, as any reload starts at BASE. Space hold:
+    the round after the buy is bet under the ante.
+  - **Gate:** `packages/utils-xstate/buyRestoresStake.fixture.mjs` (12 checks through the real
+    `bet` machine, the real refusal handler and `armAutoSpins`; discovered by `check:all`). A
+    planted `= 'BASE'` reset fails it.
+  - **Played against the 14d mock** (local rig of the playbook): ante on → Bonus Buy `bet [3, 10]`
+    → the whole feature → `collect` → the switch lit, Bet $5.00, the next spin `bet [1, 10]`. Ante
+    off → Center Coin `[2, 10]` → next `[0, 10]`. `DISABLED_OPTIONS=3` → the buy refused, the board
+    kept, the switch lit, next `[1, 10]`. The Book of Thermopylae preset on the book mock: buy
+    `[1, 10]` → free spins → next `[0, 10]`, unchanged.
 - 2026-11-09 — **14c: the ante and the buys in the HUD** (Getting Hot, game 8). All of it is opt-in
   per bet mode; a game that sets neither new field keeps its HUD, menu and reels exactly as before.
   - **Reused, not rebuilt:** the menu is still the server-authoritative one (`betModeMeta.ts`: the
@@ -1160,8 +1183,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `refusable`, the same filler) and `goldstrike` (100, `buy`, `refusable`); our names go in each mode's **Title**, never the
     partner's. Its HUD needs a button with action `ante` and visibility `anteFeature`, and an
     `infoBar` message host (the Hold and Win reference layout has one) for the refusal toast.
-  - Open: after a buy the stake returns to BASE even if the ante was on (the player re-arms it);
-    the first press after a page load is swallowed (pre-existing, every button); on a coin board a
+  - Open: the first press after a page load is swallowed (pre-existing, every button); on a coin board a
     refusal puts back only the reel board, not the respin board (Getting Hot is not a coin board).
 - 2026-11-09 — **14b: the presentation of the partner's collector bonus** (Getting Hot, game 8).
   Everything new is keyed off the new events and the feature's `enhancements`, so a game whose
