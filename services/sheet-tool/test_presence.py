@@ -34,8 +34,7 @@ from http.server import ThreadingHTTPServer
 os.environ["SHEET_STAGING"] = tempfile.mkdtemp(prefix="sheet-presence-")
 SIGNING = "sheet-presence-signing-0123456789"
 os.environ["SHEET_TOOL_SIGNING_SECRET"] = SIGNING
-for _k in ("SHEET_TOOL_SECRET", "R2_BUCKET"):
-    os.environ.pop(_k, None)
+os.environ.pop("R2_BUCKET", None)
 
 import sheet_server as s  # noqa: E402
 from iw_common import launch, presence, storage  # noqa: E402

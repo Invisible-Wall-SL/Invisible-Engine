@@ -30,8 +30,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 os.environ["ATLAS_STAGING"] = tempfile.mkdtemp(prefix="r2-push-failures-")
-for _k in ("ATLAS_TOOL_SIGNING_SECRET", "ATLAS_TOOL_SECRET"):
-    os.environ.pop(_k, None)
+os.environ.pop("ATLAS_TOOL_SIGNING_SECRET", None)
 
 from iw_common import storage as shared_storage  # noqa: E402
 

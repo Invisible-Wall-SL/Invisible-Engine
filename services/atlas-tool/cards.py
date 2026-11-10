@@ -143,7 +143,7 @@ def is_agent(identity) -> bool:
 def _review_holder(identity) -> bool:
     """A person holding `pipelineMerge` on a signed BROWSER launch. Never an
     agent, never an api-token call (a server acting for someone, whatever caps
-    it carries), never a legacy `?k=` session (it names itself in the URL)."""
+    it carries), never a caller without a token (it names itself in the URL)."""
     if identity is None or is_agent(identity):
         return False
     return bool(getattr(identity, "is_browser", False)) and identity.can(REVIEW_CAP)

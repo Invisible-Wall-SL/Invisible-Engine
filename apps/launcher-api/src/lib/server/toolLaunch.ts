@@ -26,8 +26,9 @@ import { getToolOverrides } from './userToolAccess';
  * library) on any atlas handoff, and `pipelineMerge` (mark a blueprint card reviewed) on a browser
  * launch only — never on a server-to-server `api` token.
  *
- * While a tool's signing secret is unset the legacy unsigned query handoff is sent instead, so
- * nothing changes until the matching secret is set on both services.
+ * With no signing secret (local dev) the scope travels unsigned as `client` / `project` (+ `user`
+ * for the atlas tool). Only a tool running open — no signing secret, not on Railway — reads it; a
+ * deployed tool refuses a launch that carries no token.
  */
 
 export type LaunchAudience = 'atlas' | 'sheet';
@@ -98,12 +99,6 @@ export function mintToolLaunchToken(
 
 export type LaunchUser = Pick<NonNullable<App.Locals['user']>, 'id' | 'email' | 'name' | 'role'>;
 
-export interface HandoffSecrets {
-	signingSecret: string;
-	legacySecret: string;
-	blueprintSecret: string;
-}
-
 export interface HandoffInput {
 	tool: LaunchAudience;
 	user: LaunchUser;
@@ -120,13 +115,12 @@ export type HandoffTransport = 'query' | 'header';
 export interface ToolHandoff {
 	params: URLSearchParams;
 	headers: Record<string, string>;
-	signed: boolean;
 	canPublishBlueprints: boolean;
 }
 
 export function buildToolHandoff(
 	input: HandoffInput,
-	secrets: HandoffSecrets,
+	signingSecret: string,
 	via: HandoffTransport = 'query',
 	now: number = Date.now(),
 ): ToolHandoff {
@@ -135,14 +129,14 @@ export function buildToolHandoff(
 	const params = new URLSearchParams();
 	const headers: Record<string, string> = {};
 
-	if (secrets.signingSecret) {
+	if (signingSecret) {
 		const caps: string[] = [];
 		if (tool === 'atlas' && canPublishBlueprints) caps.push(BLUEPRINT_PUBLISH_CAPABILITY);
 		if (tool === 'atlas' && canMergePipeline && via === 'query') {
 			caps.push(PIPELINE_MERGE_CAPABILITY);
 		}
 		const token = mintToolLaunchToken(
-			secrets.signingSecret,
+			signingSecret,
 			{
 				aud: tool,
 				sub: r2Slug(user.id),
@@ -159,47 +153,30 @@ export function buildToolHandoff(
 		);
 		if (via === 'header') headers[LAUNCH_HEADER] = token;
 		else params.set(LAUNCH_QUERY_PARAM, token);
-		return { params, headers, signed: true, canPublishBlueprints };
+		return { params, headers, canPublishBlueprints };
 	}
 
-	if (secrets.legacySecret) params.set('k', secrets.legacySecret);
 	params.set('client', clientKey);
 	params.set('project', projectKey);
 	// Per-user ComfyUI routing (docs/design/per-user-comfyui-routing.md) — only the Atlas Maker
 	// generates, so only it is told who is logged in.
 	if (tool === 'atlas') params.set('user', r2Slug(user.id));
-	// Blueprint publishing is gated by knowledge of a secret, not a flag: every atlas user already
-	// holds `k`, so a bare `bp=1` would gate nothing.
-	if (tool === 'atlas' && secrets.blueprintSecret && canPublishBlueprints) {
-		params.set('bp', secrets.blueprintSecret);
-	}
-	return { params, headers, signed: false, canPublishBlueprints };
+	return { params, headers, canPublishBlueprints };
 }
 
-function handoffSecrets(tool: LaunchAudience): HandoffSecrets {
-	return tool === 'atlas'
-		? {
-				signingSecret: ENV.ATLAS_TOOL_SIGNING_SECRET,
-				legacySecret: ENV.ATLAS_TOOL_SECRET,
-				blueprintSecret: ENV.ATLAS_BLUEPRINT_SECRET,
-			}
-		: {
-				signingSecret: ENV.SHEET_TOOL_SIGNING_SECRET,
-				legacySecret: ENV.SHEET_TOOL_SECRET,
-				blueprintSecret: '',
-			};
+function signingSecretFor(tool: LaunchAudience): string {
+	return tool === 'atlas' ? ENV.ATLAS_TOOL_SIGNING_SECRET : ENV.SHEET_TOOL_SIGNING_SECRET;
 }
 
 /**
  * The handoff for one launch of `tool`, AFTER the caller has made its own access check.
  *
- * The `blueprintPublish` capability (the token's `caps`, or the legacy `bp`) is looked up only when
- * `withPublish` is set — the Flipbook proxy sets it on its publish route alone, so a status poll
- * costs no DB queries. Otherwise `canPublishBlueprints` is `false` without a lookup.
+ * The `blueprintPublish` capability (the token's `caps`) is looked up only when `withPublish` is
+ * set — the Flipbook proxy sets it on its publish route alone, so a status poll costs no DB
+ * queries. Otherwise `canPublishBlueprints` is `false` without a lookup.
  *
- * The same lookup resolves `pipelineMerge` (reviewing a blueprint card) when a signing secret is
- * set; `buildToolHandoff` puts it on a browser launch only. The legacy unsigned path cannot carry
- * it, so review is unavailable there.
+ * The same lookup resolves `pipelineMerge` (reviewing a blueprint card); `buildToolHandoff` puts it
+ * on a browser launch only.
  */
 export async function toolHandoff({
 	tool,
@@ -216,10 +193,9 @@ export async function toolHandoff({
 	via?: HandoffTransport;
 	withPublish?: boolean;
 }): Promise<ToolHandoff> {
-	const secrets = handoffSecrets(tool);
 	let canPublishBlueprints = false;
 	let canMergePipeline = false;
-	if (tool === 'atlas' && withPublish && (secrets.signingSecret || secrets.blueprintSecret)) {
+	if (tool === 'atlas' && withPublish) {
 		const [roleOverrides, userOverrides] = await Promise.all([
 			getRoleOverrides(user.role),
 			getToolOverrides(user.id),
@@ -230,13 +206,16 @@ export async function toolHandoff({
 			roleOverrides,
 			userOverrides,
 		);
-		canMergePipeline =
-			!!secrets.signingSecret &&
-			roleHasCapability(user.role, PIPELINE_MERGE_CAPABILITY, roleOverrides, userOverrides);
+		canMergePipeline = roleHasCapability(
+			user.role,
+			PIPELINE_MERGE_CAPABILITY,
+			roleOverrides,
+			userOverrides,
+		);
 	}
 	return buildToolHandoff(
 		{ tool, user, clientKey, projectKey, canPublishBlueprints, canMergePipeline },
-		secrets,
+		signingSecretFor(tool),
 		via,
 	);
 }

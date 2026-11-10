@@ -70,7 +70,7 @@ Works today on `main` / live:
 1. **Browser live-verify owed** — the project-file workflow (B19: rename / Save / Save As + name guards), the FX-layer picker, 🧹 Clean sheet (on an R2-backed sheet: the AI-field count, clean → refresh keeps the name, clean → re-upload → in-place Save) and the `.plist` import + lock UI landed with local/headless verification; a full live browser pass on Railway is still owed. For the import specifically: a REAL shipped `.plist` (not the synthetic fixture) and confirmation that the imported page/JSON/manifest land in R2.
 2. **Per-user session parity (Phase 4) — planned, unbuilt** (design `atlas-per-user-session.md`): thread the launcher `user` id and scope any server-remembered view state / canvas defaults per user. Minimal — the tool is largely stateless server-side (compose is synchronous, geometry rides in the request).
 
-3. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (one change with atlas-maker status #6).
+3. **Legacy `SHEET_TOOL_SECRET` — owner deletes it from Railway.** The legacy `?k=` handoff is removed from the code (2026-11-10); a signed launch token is the only gate. Tracked with the atlas vars in [atlas-maker status](atlas-maker.md) item 6.
 
 4. **Concurrent saving — two-browser live run owed.** Two profiles open the same sheet; A saves;
    B (not reloaded) saves → B is asked, naming A; **Overwrite with mine** lands. Then Save As onto
@@ -94,6 +94,10 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-11-10 — **The legacy `?k=` handoff is gone; a signed launch token is the only way in.** Same
+  change as the Atlas Maker's (`iw_common/launch.py`; detail in [atlas-maker status](atlas-maker.md)
+  Recent changes): `GATE` is `LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET")`, and
+  `SHEET_TOOL_SECRET` / `X-Sheet-Secret` / the `sheet_tool` cookie are no longer read.
 - 2026-11-09 — **Shared request handler, TexturePacker writer and test kit (no behaviour change).**
   `Handler` now subclasses `iw_common.http.ToolHandler` (gate → 403/303 with the gate's cookies,
   `_resolve_context`, the `_send` response writer) — the same base as the Atlas Maker's; the Sheet

@@ -101,11 +101,8 @@ HOST = os.environ.get("SHEET_BIND_HOST", "0.0.0.0")
 BUILD = "v2.2-cloud"
 
 # Who is calling and for which (client, project): a launcher-signed token (see
-# iw_common/launch.py). SHEET_TOOL_SECRET is the pre-token shared-secret gate,
-# kept for the transition window only; both unset = open (local dev).
-GATE = launch.LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET",
-                         legacy_env="SHEET_TOOL_SECRET", legacy_cookie="sheet_tool",
-                         legacy_header="X-Sheet-Secret")
+# iw_common/launch.py); unset = open (local dev).
+GATE = launch.LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET")
 
 
 # ---------------------------------------------------------------------------

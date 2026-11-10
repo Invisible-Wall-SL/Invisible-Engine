@@ -40,8 +40,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 os.environ["ATLAS_STAGING"] = tempfile.mkdtemp(prefix="doc-conflicts-")
-for _k in ("ATLAS_TOOL_SECRET", "ATLAS_TOOL_SIGNING_SECRET"):
-    os.environ.pop(_k, None)
+os.environ.pop("ATLAS_TOOL_SIGNING_SECRET", None)
 
 import storage  # noqa: E402
 import doc_sync  # noqa: E402

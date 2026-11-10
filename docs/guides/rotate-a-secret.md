@@ -79,9 +79,9 @@ cheaper than a leaked write key.
 
 | Holder | What it holds |
 | --- | --- |
-| Railway Shared Variables (`production`) | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`, `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`, and until the cut-over the legacy `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` |
-| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN`, `GAME_SERVER_CONFIG_SECRET`, `GITHUB_APP_PRIVATE_KEY` (+ the ids `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`), `DRAFT_PLAYER_SECRET` |
-| Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `ATLAS_BLUEPRINT_SECRET` (legacy); `SENTRY_DSN` |
+| Railway Shared Variables (`production`) | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`, `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET` |
+| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN`, `GAME_SERVER_CONFIG_SECRET`, `GITHUB_APP_PRIVATE_KEY` (+ the ids `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`), `DRAFT_PLAYER_SECRET` |
+| Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `SENTRY_DSN` |
 | Railway **sheet-tool** | the shared R2 and sheet signing vars; `SENTRY_DSN` |
 | Railway **Invisible-test-Server** | `R2_*` (it only reads); `TEST_SERVER_SECRET` if set |
 | Railway **game-server** (once it exists) | `GAME_SERVER_CONFIG_TOKEN` (= the launcher's `GAME_SERVER_CONFIG_SECRET`) |
@@ -248,29 +248,20 @@ and `apps/launcher-api/src/lib/server/toolLaunch.ts` each read exactly one secre
 5. Do it when no Atlas Maker render or video session is running. A Railway rollout of atlas-tool
    swaps the container anyway.
 
-The INFRA setup note "set the tool side first" applied to the first setup, when the legacy handoff
-still covered the gap. For a rotation that order buys nothing.
-
 **Verify.**
 
 - The tool's deploy log prints `[gate] signed launch tokens (…)` at boot.
 - `/healthz` shows the new `commit`.
 - Open the tool from the launcher, then open the Flipbook's video mode.
 
-Never unset a signing secret without its replacement. With the legacy secret gone as well, a
-Railway tool refuses every request except `/healthz` (`[gate] ERROR: neither … is set`).
+Never unset a signing secret without its replacement. Without one, a Railway tool refuses every
+request except `/healthz` (its boot log says `[gate] ERROR`).
 
 ### Legacy tool handoff secrets (`ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`, `ATLAS_BLUEPRINT_SECRET`)
 
-**Remove them. Do not rotate them.**
-
-1. Set `IW_LEGACY_TOOL_KEY_UNTIL=off` on atlas-tool and sheet-tool, then apply.
-2. Check the boot log reads `legacy ?k= refused`.
-3. Delete the three vars from Railway (the launcher and the tools).
-
-After 2026-10-13 the tools refuse the legacy handoff on their own, but the values still sit in
-Railway until someone deletes them. Removing the dead branch in `launch.py` and `toolLaunch.ts` is
-tracked in the atlas-maker and sheet-maker status files.
+**Delete them. Do not rotate them.** No code reads them since the legacy `?k=` / `bp=` handoff was
+removed (2026-11-10). Delete the three Shared Variables from Railway `production` (and their
+references on the launcher, atlas-tool and sheet-tool). Nothing needs a redeploy for them.
 
 ### Deploy token (`app_settings.deployToken`, bootstrap `EDITOR_DOC_SECRET`)
 

@@ -8,10 +8,9 @@ Off unless ``SENTRY_DSN`` is set: with no DSN nothing is imported from
 reports anything. A missing ``sentry_sdk`` package is the same no-op.
 
 The tools' access gate takes a signed launch token as ``?iw_launch=`` or an
-``X-IW-Launch`` header and a signed ``iw_*_session`` cookie, and (legacy, until the
-cut-over in ``launch.py``) its shared secret as ``?k=``, as an ``atlas_tool=`` /
-``sheet_tool=`` cookie and as an ``X-*-Secret`` header, and the
-R2 client signs URLs with it in the query. So ``_before_send`` drops request
+``X-IW-Launch`` header and a signed ``iw_*_session`` cookie, the platform's
+other shared tokens travel as ``?k=``, and the R2 client signs URLs with a
+signature in the query. So ``_before_send`` drops request
 cookies/headers outright and blanks secret-looking query params, ``name=value``
 pairs and the literal values of the secret env vars from every string in the
 event — URLs, messages, exception text and breadcrumbs alike.
@@ -33,7 +32,7 @@ _enabled = False
 FILTERED = "[Filtered]"
 
 # Matched exactly (short names would false-positive as substrings).
-_EXACT = {"k", "sid", "key", "pw", "pass", "atlas_tool", "sheet_tool", "iw_launch"}
+_EXACT = {"k", "sid", "key", "pw", "pass", "iw_launch"}
 # Matched as a substring of the lower-cased name.
 _PARTS = ("session", "token", "secret", "password", "passwd", "signature",
           "credential", "apikey", "api_key", "api-key", "auth", "cookie",

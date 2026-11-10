@@ -130,13 +130,12 @@ class _Bucket:
 class _Server:
     def __init__(self) -> None:
         self.env = {k: os.environ.get(k) for k in
-                    ("ATLAS_TOOL_SIGNING_SECRET", "ATLAS_TOOL_SECRET", "COMFY_TRANSPORT")}
+                    ("ATLAS_TOOL_SIGNING_SECRET", "COMFY_TRANSPORT")}
         self.started: dict[str, tuple] = {}
         self.real_render = u.run_render
 
     def __enter__(self):
         os.environ["ATLAS_TOOL_SIGNING_SECRET"] = SIGNING
-        os.environ.pop("ATLAS_TOOL_SECRET", None)
         os.environ["COMFY_TRANSPORT"] = "serverless"
         u.run_render = lambda *a: self.started.__setitem__("render", a)
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), u.Handler)

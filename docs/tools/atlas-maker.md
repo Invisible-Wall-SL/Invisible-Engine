@@ -1034,9 +1034,8 @@ you are on before hunting for a missing model.
 `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
 `COMFY_ORG_API_KEY` (optional, gpt_image), `ATLAS_PROJECT`,
 `ATLAS_OUTPUT_PREFIX`, `ATLAS_STAGING`, `ATLAS_TOOL_SIGNING_SECRET` (verifies
-the launcher's signed launch token — same value as on the launcher),
-`ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy handoff, until the
-2026-10-13 cut-over), `IW_LEGACY_TOOL_KEY_UNTIL` (optional), `COMFY_CATALOG_URL` (optional; an always-on
+the launcher's signed launch token — same value as on the launcher; unset =
+open, local dev only), `COMFY_CATALOG_URL` (optional; an always-on
 ComfyUI to read the Settings model lists from — see [INFRA](../INFRA.md)).
 
 ## Working on the same atlas as someone else
