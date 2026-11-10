@@ -440,9 +440,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   as Safari gives none, so the render tier stays `full` there; `editor-scenes.ts`
   `preferCompressedTextures` reads the same helper (on a phone it changes nothing, as every phone
   already gets KTX2). Why, owner-measured on `overlay-buffaloduel` (`?perf=1`): the Pixel 9 Pro
-  (16 GB, 120 Hz, viewport 426×804) read tier `full` on 2026-11-09 and `reduced` in Brave on
-  2026-11-10 (resolution 1.5, no MSAA, GPU name masked as `Brave`) with `renderTier.ts` unchanged
-  since #1509: Brave alters `deviceMemory` against fingerprinting. A Brave device that really has
+  (16 GB, 120 Hz, viewport 426×804, Mali-G715) read tier `reduced` in Brave on 2026-11-10
+  (resolution 1.5, no MSAA, GPU name masked as `Brave`) and `full` in Chrome on the same build
+  minutes later, with `renderTier.ts` unchanged since #1509: Brave alters `deviceMemory` against
+  fingerprinting. A Brave device that really has
   4 GB or less now draws `full`, as every device did before #1410; the adaptive particle budget
   still adapts. Guard: `packages/pixi-svelte/fixtures/renderTier.fixture.ts` (13 checks; it does
   not load on the old module). Device readings of the #1578 build on the same day, for the record:
@@ -452,8 +453,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Nothing Phone (1)** (Adreno 642L, 60 Hz): idle 60.2 fps; spinning 56.6 fps, p95 25 ms,
     10 of 754 frames over 33 ms, while the tick never passed 11.8 ms, so the late frames are GPU
     or browser, not the game's work. Textures: 24 ASTC (57 MB) + 38 BGRA8 (66 MB).
-  - **Pixel 9 Pro in Brave** (reduced tier, so not like for like): idle 75.6 fps, spinning 81.3
-    fps (p50 8.4 ms, p95 16.7, max 25), no frame over 33 ms.
+  - **Pixel 9 Pro**, same build: in Chrome (full tier, canvas 852×1608) idle 58.6 fps, spinning
+    72.3 fps (p50 16.6 ms, p95 20.8, max 33.3, 1 of 696 frames over 33 ms; reel max 1.3 px), so at
+    full quality it spins mostly at 60 Hz with some 120 Hz frames, the tick 4.4 ms a frame; in
+    Brave (reduced tier) idle 75.6, spinning 81.3 fps (p50 8.4 ms, p95 16.7, max 25).
   - One resolve and one invalidation a frame on every full-tier device, as #1578 intended.
 
 - 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
