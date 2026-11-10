@@ -126,7 +126,7 @@ import {
 	buildSingleAction,
 } from 'rgs-translator-eagaming';
 
-buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5 });
+buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', lineCount: 5 });
 // → [{action:'bet', context:[5, 2]}, {action:'play', context:''}]
 
 buildHeartbeat();
@@ -185,7 +185,7 @@ const fetcher = createPlay4FunFetcher({ baseUrl: '', sid: session.sid }, session
 // Auto-collect round (one round-trip)
 session.startRound();
 const r = await fetcher.post({
-	body: buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5 }),
+	body: buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', lineCount: 5 }),
 });
 const translated = translateBetResponse(r.response);
 console.log('events:', translated.round.state);
@@ -199,7 +199,7 @@ const r1 = await fetcher.post({
 		amount: 10,
 		mode: 'BASE',
 		currency: 'USD',
-		betLinesOrConfig: 5,
+		lineCount: 5,
 		playContext: null,
 	}),
 });

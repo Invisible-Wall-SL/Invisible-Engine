@@ -246,6 +246,10 @@ has no family control at all. Three more families exist
   - **Resource at start** (1), **Resource per turn** (1) and **Resource cap** (10): what each side
     has to pay for cards, refilled each turn.
   - **Who goes first** — Random (the default), The player or The AI.
+  - **Turn order** — **Play, then attack** (the default: cards are played first, then **End Turn**
+    moves to the attacks and a second press ends the turn) or **Play and attack in any order** (one
+    phase: play and attack as you like, and one **End Turn** ends the turn). Stored only when it is
+    the second (`card.rules.turnOrder: "mixed"`).
   - **Cards and decks** — how many cards and decks the config has, and **Edit in Invisible Card
     Library**, which opens `/cards`: the cards (`card.library`) and the decks (`card.decks`) are
     edited there, not here (see [Invisible Card Library](invisible-card-library.md)). Their
