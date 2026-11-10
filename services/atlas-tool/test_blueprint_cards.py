@@ -48,7 +48,6 @@ for _k in ("ATLAS_TOOL_SECRET", "ATLAS_TOOL_SIGNING_SECRET", "RUNPOD_ENDPOINT_GP
 import storage  # noqa: E402
 import blueprints  # noqa: E402
 import cards  # noqa: E402
-import doc_sync  # noqa: E402
 import ui_server as u  # noqa: E402
 from iw_common import docsave, launch  # noqa: E402
 
@@ -780,8 +779,8 @@ def ids(h: RouteHandler) -> list[str]:
 def test_listing() -> None:
     reset()
     for bp_id in ("good", "rough", "old"):
-        matte_bp = publish(bp_id, MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
-                                                "output": {"node": "3"}}, MATTE_PARAMS)
+        publish(bp_id, MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
+                                     "output": {"node": "3"}}, MATTE_PARAMS)
     publish("clip", MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
                                   "output": {"node": "3"}}, MATTE_PARAMS, kind="video")
     publish("sdxl", GEN_GRAPH, {"positive": {"node": "1", "field": "text"}, "output": {"node": "3"}})

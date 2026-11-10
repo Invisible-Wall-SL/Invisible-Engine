@@ -142,6 +142,12 @@ COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml
 # services/atlas-comfy-pod/tools/ (gitignored here), like nodes.json — one copy of the
 # checksums, not two. A local `docker build` needs that copy done by hand.
 COPY fetch-models.py /fetch-models.py
+# The ComfyUI client the handler shares with the Atlas Maker (execution-error summary).
+# Copied into this context by CI from services/_shared/iw_common/ (gitignored here) —
+# only the stdlib-only `comfy` module and the package marker, not the whole package.
+# A local `docker build` needs that copy done by hand. `python /handler.py` puts `/`
+# first on sys.path, which is what makes `import iw_common.comfy` resolve.
+COPY iw_common /iw_common
 COPY handler.py /handler.py
 COPY start.sh   /start.sh
 RUN chmod +x /start.sh

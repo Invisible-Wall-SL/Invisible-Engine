@@ -119,7 +119,7 @@ def test_the_poisoned_config_from_the_outage_renders_again() -> None:
     try:
         guidance = float(cfg["flux_guidance"])
         crashed = ""
-    except ValueError as e:  # noqa: BLE001 — this IS the regression
+    except ValueError as e:  # this IS the regression
         guidance, crashed = None, str(e)
     check("float(FLUX_GUIDANCE) no longer raises", crashed, "")
     check("and is the number the graph needs", guidance, 3.5)

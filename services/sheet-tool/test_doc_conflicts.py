@@ -618,7 +618,7 @@ def test_lock_serialises_one_sheet() -> None:
         def run(who: str, x: int) -> None:
             try:
                 out.append(export("S5", base, who, x))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — any error fails the test, by name
                 errors.append(f"{who}: {e!r}")
 
         sheet_server._SHEET_LOCKS[lock_key] = ContendedLock(overlap)

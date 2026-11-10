@@ -105,15 +105,15 @@ def test_the_submit_call_cannot_wait_forever() -> None:
         seen["timeout"] = timeout
         raise AssertionError("stop here - we only care about the timeout arg")
 
-    real = ba.urlopen
-    ba.urlopen = fake_urlopen                  # type: ignore[assignment]
+    real = ba.comfy.urlopen
+    ba.comfy.urlopen = fake_urlopen                  # type: ignore[assignment]
     try:
         try:
             ba.comfy_post("/prompt", {"x": 1})
         except AssertionError:
             pass
     finally:
-        ba.urlopen = real                      # type: ignore[assignment]
+        ba.comfy.urlopen = real                      # type: ignore[assignment]
 
     check("comfy_post passes a timeout at all", seen.get("timeout") != "MISSING",
           True)
@@ -132,8 +132,8 @@ def test_a_timeout_is_reported_not_raised_raw() -> None:
     def timing_out(req, timeout=None):
         raise TimeoutError("timed out")
 
-    real = ba.urlopen
-    ba.urlopen = timing_out                    # type: ignore[assignment]
+    real = ba.comfy.urlopen
+    ba.comfy.urlopen = timing_out                    # type: ignore[assignment]
     try:
         try:
             ba.comfy_post("/prompt", {"x": 1})
@@ -145,7 +145,7 @@ def test_a_timeout_is_reported_not_raised_raw() -> None:
         except Exception as e:  # noqa: BLE001
             outcome = f"{type(e).__name__}"
     finally:
-        ba.urlopen = real                      # type: ignore[assignment]
+        ba.comfy.urlopen = real                      # type: ignore[assignment]
     check("a mid-body timeout becomes the readable 'Cannot reach ComfyUI' exit",
           outcome, "SystemExit(2)")
 
