@@ -1,7 +1,7 @@
 # Card games: a duel against the device (the card family)
 
 > Status: **PLAN APPROVED (owner, 2026-10-27): all seven §13 decisions accepted as recommended.**
-> Written the same day. C1 (#1391) and C2 (#1408) are merged; C3 is built (§5.4); C4 is built (§8.4). This is the design that
+> Written the same day. C1 (#1391) and C2 (#1408) are merged; C3 is built (§5.4); C4 is built (§8.4); C5 is built (§4.5, owner decisions of 2026-11-09 in §13). This is the design that
 > [game-families.md](game-families.md) §10 promised for the fourth family, once P10.7 had shipped
 > (§9 #15). P10.3 (variables, timers), P10.4 (drag, Align Target) and P10.7 (spawning, live sets)
 > are on `main`; progress on this plan will live in
@@ -148,9 +148,14 @@ interface CardInstance {
 | `combat` | The player declares attacks, one at a time; each resolves before the next | The player ends it (`endPhase`) |
 | `end` | `endOfTurn` buffs expire; the turn passes | By itself |
 
-- **The phases are strict in v1.** No card is played once combat has started. This is the order
-  game-families' first outline of the family gave. It keeps the legal-action list short and the AI's search small. A
-  Hearthstone-like mix of playing and attacking is a config switch for later (§13 #2).
+- **The phases are strict by default.** No card is played once combat has started. This is the order
+  game-families' first outline of the family gave. It keeps the legal-action list short and the AI's
+  search small.
+- **The mixed turn order** (C5, §13 #2): `card.rules.turnOrder: 'mixed'` in the config makes the
+  turn one `main` phase in which the player plays cards and attacks in any order; `endPhase` from
+  it runs `end` and passes the turn, so `combat` is never entered (and `phaseChanged` never names
+  it). Every play and attack rule is unchanged. Absent, or `strict`, is the table above, and a
+  strict game plays, replays and is played by the AI exactly as before the switch existed.
 - The three automatic phases run inside `apply()`. A caller only ever sees the match waiting in
   `main` or `combat`, or ended.
 - **An expiring `endOfTurn` health buff never kills.** When it lapses in `end`, the unit is left at
@@ -165,7 +170,7 @@ One resource per player. Its on-screen name ("mana", "energy") is the game's tex
 - At its owner's `start` phase, `max` grows by `perTurn` up to the cap, and `current` is set to
   `max`. Unspent resource is lost at the end of the turn.
 - Playing a card costs its `cost`. A card whose cost is above `current` is not a legal play.
-- There is no verb that changes the resource in v1 (§3.2).
+- `gainResource` (C5, §3.2) is the one verb that changes it: resource for this turn only.
 
 ### 2.4 Legal plays, apply and the effect queue
 
@@ -186,7 +191,7 @@ The module's public functions:
 type Action =
 	| { type: 'play'; uid: number; slot?: number; target?: TargetRef } // from the hand
 	| { type: 'attack'; attacker: number; target: TargetRef }           // in combat
-	| { type: 'endPhase' }                                              // main → combat, combat → end
+	| { type: 'endPhase' }                                              // main → combat → end; mixed: main → end
 	| { type: 'concede' };
 
 type TargetRef = { unit: number } | { hero: 0 | 1 };
@@ -197,7 +202,7 @@ cost is at most `current`, a unit has a free board slot (`slot` is where it goes
 right end), and every `chosen` target its effects need (§3.3) is given and passes its filter. A card
 with a `chosen` effect and no valid target is not playable.
 
-**An attack is legal** when the match waits in `combat`, the attacker is the active player's unit
+**An attack is legal** when the match waits in `combat` (or in `main` under the mixed turn order), the attacker is the active player's unit
 with `attacksLeft > 0`, and it did not arrive this turn unless it has `swift`. The target is an
 enemy unit or the enemy hero; if the enemy has any unit with `guard`, the target must be one of
 those (§3.4).
@@ -246,7 +251,8 @@ card family's book: the same list in a test, a replay and the game.
 `fatigue {player, amount}` · `played {player, uid, slot}` · `attacked {attacker, target}` ·
 `damaged {target, amount, by, shieldBroken}` · `healed {target, amount}` · `buffed {uid, attack,
 health}` · `keywordGiven {uid, keyword}` · `summoned {player, uid, slot}` · `destroyed {uid}` ·
-`died {uid}` · `buffsExpired {uids}` · `matchEnded {winner, reason}`.
+`died {uid}` · `buffsExpired {uids}` · `resourceGained {player, amount}` (C5) ·
+`matchEnded {winner, reason}`.
 
 Each event carries the uids it names, never positions, because the board shifts when a unit dies.
 
@@ -292,6 +298,7 @@ interface CardDef {
 | `buff` | `attack` −10…10, `health` −10…10, `until` | units | Adds to attack and health. A negative health buff can kill |
 | `destroy` | — | units | The unit dies (its `onDeath` triggers; `shield` does not stop it) |
 | `giveKeyword` | `keyword` | units | Adds a keyword |
+| `gainResource` (C5) | `amount` 1…10 | none: the card's owner gains | Adds `amount` to the owner's `current` resource, up to the rules' `resource.max` (the cap the max grows to); `max` itself is untouched, so the growth and the next refill are as before and the gain is resource for this turn only. Every trigger may carry it; gained off the owner's turn (an `onDamaged`, an `onDeath`), it is gone at their next refill. `resourceGained` names what was actually added; none at the cap |
 
 ### 3.3 Targets
 
@@ -301,9 +308,10 @@ interface CardDef {
 | `chosen` | `side: 'enemy' \| 'friendly' \| 'any'`, `include: 'units' \| 'characters'` | The player picks one when the card is played. Only on an `onPlay` effect: no other trigger has a moment to choose in |
 | `allEnemies` | `include` | Every enemy unit, plus the enemy hero when `include` is `characters` |
 | `randomEnemy` | `include` | One of those, drawn from the match RNG at resolution |
+| `allFriendly` (C5) | `include` | Every unit on the effect owner's side, in board order (the card itself included while it is on the board), plus that side's hero when `include` is `characters`. Read at resolution, so a dead source's `onDeath` reaches the units left. Any trigger, any verb with a target (units-only verbs with `units`) |
 
-"Characters" means units and the hero, as in the genre. `allFriendly` and `randomFriendly` are not in
-v1 (§13 #3).
+"Characters" means units and the hero, as in the genre. `randomFriendly` is not in the lists (§13
+#3).
 
 ### 3.4 Triggers
 
@@ -339,7 +347,8 @@ type Target =
 	| { kind: 'self' }
 	| { kind: 'chosen'; side: 'enemy' | 'friendly' | 'any'; include: Include }
 	| { kind: 'allEnemies'; include: Include }
-	| { kind: 'randomEnemy'; include: Include };
+	| { kind: 'randomEnemy'; include: Include }
+	| { kind: 'allFriendly'; include: Include };
 
 type CardEffect = { trigger: Trigger } & (
 	| { verb: 'damage'; amount: number; target: Target }
@@ -349,6 +358,7 @@ type CardEffect = { trigger: Trigger } & (
 	| { verb: 'buff'; attack: number; health: number; until: 'endOfTurn' | 'permanent'; target: Target }
 	| { verb: 'destroy'; target: Target }
 	| { verb: 'giveKeyword'; keyword: Keyword; target: Target }
+	| { verb: 'gainResource'; amount: number }
 );
 ```
 
@@ -490,6 +500,31 @@ aggressively or defensively.
   enemy's (so breaking an enemy shield counts), like every other term.
 - **A replay record** carries the library, rules and `first` the module needs, and its difficulty
   lives on each `ai` seat (§4.3), not at the top.
+
+### 4.5 What C5 settled
+
+- **The mixed turn order** lists plays, then attacks, in `main`; the AI reads it so. The lethal
+  search runs wherever attacks are listed (in `main` under mixed, before any play is scored); `hard`'s
+  plan extends sequences of plays and attacks together, with the same width, depth and budget.
+  `check:card-ai` pins the counts with mixed on: the design board (an enemy `guard`, 43 actions
+  listed) completes in 290 calls; the targeted-spell hand (102) and the same hand against a board
+  with no guard (151: every attacker at every enemy) stop at 600.
+- **A resource gain is scored by what it buys.** `evaluate` has no resource term (adding one would
+  change every strict game's choices), so a one-step decision scores a play that gained resource as
+  the better of its own result and the best play after it of a card in the hand now: one step
+  further, inside the same budget. A gain with nothing to buy is not made. `hard`'s plan sees it
+  through its sequences.
+- **A mixed `main` tries plays and attacks alternately** (`tryOrder`), in the one-step search and at
+  every node of the plan, so a long hand that spends the budget has still scored the attacks;
+  `check:card-ai` pins it with a hand whose plays alone are over the budget.
+- **`allFriendly` needs nothing new in the evaluation:** every trial reads the result. The lethal
+  pre-check counts an `allFriendly` attack buff on every ready unit and an `allFriendly` attack
+  damage as none to the enemy.
+- **A strict match is the same match.** Its listing, events, replays, AI choices and `apply` counts
+  are unchanged (the C1 / C2 fixtures are untouched). The resolved rules in the match value carry
+  `turnOrder: 'strict'`; the rules a session or a test match passes to `createMatch` name the turn
+  order only when it is mixed (`game-config` `cardMatchRules`), so a strict replay record is as it
+  was.
 
 ---
 
@@ -769,6 +804,7 @@ type CardBlock = {
 		resource?: { start?: number; perTurn?: number; max?: number }; // 1, 1, 10
 		first?: 'player' | 'ai' | 'random';                            // random
 		turnLimit?: number;       // default 60
+		turnOrder?: 'strict' | 'mixed'; // default strict; stored only when mixed (C5)
 	};
 	library?: CardDef[];         // §3.1
 	decks?: {
@@ -897,7 +933,7 @@ rule 6; the ownership check of ADR-0005). For cards:
 - **Packs, collections, an economy, rewards**; **deck-building by players**; a mulligan.
 - **Scripted or custom effects**, and any verb, target, trigger or keyword outside §3's lists.
 - **Money of any kind** (§9 #4), and so no RGS-decided card game, no wallet, no delivery.
-- **Interleaving play and combat** (§13 #2), secrets / hidden traps, auras ("while this is on the
+- Secrets / hidden traps, auras ("while this is on the
   board"), weapons, hero powers, discover / choose-one, card generation into the hand.
 - **A server-side record** of matches or a ladder; a high score, if any, is on the device (§9 #8).
 - **A card doc of its own** (§7, §13 #1).
@@ -918,7 +954,7 @@ game (game-families §7.1 applies to each).
 | C2 | **The AI** — ✅ built 2026-10-27 | `cardAi.js` + `.d.ts`: lethal, one-step evaluation, the three difficulties with `hard`'s plan search, its own seeded stream; replay records; the budget | `engine-mechanics` | M |
 | C3 | **Card family, end to end** — ✅ built 2026-10-28 | `card` in `GAME_KINDS` / `GAME_FAMILIES` / `CONFIG_FAMILIES` and every copy of the family map (§9.2); `GameConfigDoc.card`, `resolveCard`, the normalizer's board-less set, validation, the `/config` card section and picker; the two collectors on the ship chain; `CARD_RULES_MECHANIC`; `cardSession.ts`, `cardDriver.ts`, `cards.svelte.ts`, `<CardTable />` with drop hit-testing and per-instance spawn params; `CARD_VOCAB` and its starter; the `card` layout template and scene set (which puts `card` in Game Maker); the scaffold's placeholder frame; the "Cards" localization section; the bundle-size cost reported; a sample game and `docs/playtest/card-sample.md` | `constants-shared`, `game-config`, `engine-game`, `engine-layout`, `engine-flow-v2`, `apps/lines`, launcher | L |
 | C4 | **Invisible Card Library** — ✅ built 2026-10-28 | `/cards`: registry, roles, `FAMILY_TOOLS`, the doc slug; the list, form, live preview, decks, test match and "Run 100"; its docs under rule 9 in the same PR | launcher, `docs/tools/` | L |
-| C5 | *(optional, after a decision)* **Phase switches and more lists** | Interleaved play and combat (§13 #2); any verbs, targets or keywords the owner adds to the closed lists (§13 #3) | `engine-mechanics`, launcher | M |
+| C5 | **Phase switches and more lists** — ✅ built 2026-11-09 | The mixed turn order switch (§2.2, §13 #2); the `allFriendly` target and the `gainResource` verb (§3.2, §3.3, §13 #3), each through the list, the validator, `cardText`, the AI, the Card Library form and the runtime; what it settled is §4.5 | `engine-mechanics`, `game-config`, `engine-game`, launcher | M |
 
 **Why this order.** C1 and C2 are pure and gated in Node, so the rules can be argued about with
 fixtures before any screen exists. C3 before C4 because a tool that edits cards no runtime can play
@@ -937,6 +973,7 @@ Raw JSON in `/config`. C4 then makes it authorable.
 | C3 | `check:art-scope` (extended) | A frame and art named only in the card library ship |
 | C3 | `check:flow-publish-gate` (extended) | The card starter flow passes the publish gate |
 | C4 | `check:cards-tool` | The page's form offers only valid trigger × verb × target choices; it saves through the config endpoint under the `gameConfig` lease; it needs both grants; the test match uses the same modules as the game |
+| C5 | `check:card-rules`, `check:card-library`, `check:card-ai`, `check:cards-tool`, `check:card-family`, `check:card-runtime` (extended) | Strict by default and named; the mixed turn's listing, legality and one-press end; mixed replays pinned in `cards-mixed-replay.json` and `cards-ai-mixed-replay.json`, the strict fixtures unchanged; `allFriendly` and `gainResource` on every trigger, with their rules text pinned; `hard` inside its budget on full boards with mixed on; the form offers both additions; the test match is the game's match under mixed; the `/config` switch stores sparse; the driver takes an attack and then a play in one main phase |
 
 The slot parity rules of game-families §7.1 (docs byte-identical, published snapshots untouched,
 the bundle diff naming only new modules and the named edited ones, the current-games harness at 0
@@ -958,11 +995,16 @@ is open. The C0 row is done, C1 and C2 are merged and C3 is built; C4 is next.
    - **Strict phases in v1** (start → draw → main → combat → end, §2.2), the order the family's
      first outline gave. It keeps the rules and the AI's search simple and the turn readable. Mixed
      order (the Hearthstone feel) is an optional C5 switch, if playtests ask for it.
+   - *(owner, 2026-11-09)* **The switch is built in C5:** `card.rules.turnOrder: 'mixed'`, default
+     strict, set in `/config`'s Card game section (§2.2).
 3. **The size of the closed lists.** *(owner, 2026-10-27: as recommended)*
    - **Exactly §3's lists for v1**: seven verbs, four targets, five triggers, three keywords.
      Additions come later, each from a card a designer cannot make (one entry in the list, the
      validator, `cardText` and the AI's scoring). The first likely ones are `allFriendly` and a
      resource verb.
+   - *(owner, 2026-11-09)* **Both are added in C5:** the `allFriendly` target (§3.3) and the
+     `gainResource` verb (§3.2). The lists are now eight verbs, five targets, five triggers, three
+     keywords. The spendable coin card (#4) and imports (#6) stay out.
 4. **Who goes first, and the second player's compensation.** *(owner, 2026-10-27: as recommended)*
    - **Random, with one extra card for the second player** (§2.5), both in the config. A spendable
      "coin" card is a later choice once the sample is played.

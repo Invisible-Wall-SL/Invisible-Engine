@@ -12,7 +12,7 @@ import {
 	type Side,
 	type TargetRef,
 } from 'engine-mechanics';
-import { resolveCard, type CardGameDeck, type GameConfigDoc } from 'game-config';
+import { cardMatchRules, resolveCard, type CardGameDeck, type GameConfigDoc } from 'game-config';
 
 /**
  * A card game's MATCH (`docs/design/card-games.md` §2, §4, §5.1): `engine-mechanics`' rules
@@ -52,14 +52,7 @@ export function createCardSession(
 		seed,
 		decks: [playerDeck.cards, aiDeck.cards],
 		library,
-		rules: {
-			startHealth: rules.startHealth,
-			openingHand: rules.openingHand,
-			handLimit: rules.handLimit,
-			boardLimit: rules.boardLimit,
-			resource: rules.resource,
-			turnLimit: rules.turnLimit,
-		},
+		rules: cardMatchRules(rules),
 		first,
 	});
 	let match: Match = created.match;

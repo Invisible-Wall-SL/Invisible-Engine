@@ -23,6 +23,11 @@
  *  6. THE FREE-PLAY BRANCH SENDS NO RGS REQUEST: a whole match runs with `fetch` refused; the card
  *     runtime module imports no RGS request, and `Game.svelte` mounts `<CardTable />` only for a
  *     mechanic that is a card table.
+ *  9. THE MIXED TURN ORDER (C5): with `card.rules.turnOrder: 'mixed'`, a board unit's drag offers
+ *     its attacks in main (what the table lights `ready` and drops on), an attack and then a play
+ *     are taken in one main phase, one End Turn passes the turn, no `combat` phase is signalled,
+ *     and a whole match plays to a result. The seed config, with no switch, still enters combat.
+ *     In every turn order, a taken attack resets the attacker's dragged body in place (no respawn).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -49,6 +54,7 @@ import {
 } from 'engine-game/src/game/cardDriver';
 import { PLAYER } from 'engine-game/src/game/cardSession';
 import { CARD_RULES_MECHANIC, REELS_MECHANIC, mechanicFor } from 'engine-game/src/game/mechanic';
+import { registerComponentAlignReset, resetComponentAlign } from 'engine-layout';
 import type { Action, CardEvent, Match } from 'engine-mechanics';
 import { normalizeGameConfigDoc, validateGameConfigDoc, type GameConfigDoc } from 'game-config';
 
@@ -194,6 +200,7 @@ const first = await playMatch('c3-gate');
 		{ type: 'keywordGiven', uid: 1, keyword: 'guard' },
 		{ type: 'destroyed', uid: 1 },
 		{ type: 'buffsExpired', uids: [1] },
+		{ type: 'resourceGained', player: 0, amount: 2 },
 	];
 	check(
 		'3. the presentation-only events raise nothing',
@@ -491,6 +498,96 @@ const first = await playMatch('c3-gate');
 		validateGameConfigDoc(split).some(
 			(i) => i.severity === 'error' && /a deck may hold/.test(i.message),
 		),
+	);
+}
+
+// ── 9. the mixed turn order ───────────────────────────────────────────────────────────────────
+{
+	const mixed = normalizeGameConfigDoc({
+		...SEED_CONFIG,
+		card: { ...SEED_CONFIG.card, rules: { ...SEED_CONFIG.card!.rules, turnOrder: 'mixed' } },
+	}) as GameConfigDoc;
+	check('9. the switch is stored and valid', mixed.card?.rules?.turnOrder === 'mixed');
+	check(
+		'9. a mixed config validates clean',
+		validateGameConfigDoc(mixed).filter((i) => i.severity === 'error').length === 0,
+	);
+	const state = initialCardDriverState();
+	const phases: string[] = [];
+	const driver = createCardDriver({
+		doc: mixed,
+		seed: 'c5-mixed',
+		state,
+		signal: async (name, payload) => {
+			if (name === 'phaseChanged') phases.push(String(payload.phase));
+		},
+		present: { sync: () => {}, wait: async () => {} },
+		onError: (error) => check('9. the driver never fails', false, String(error)),
+	});
+	await driver.newMatch();
+	await driver.idle();
+	let attackedInMain = false;
+	let playedAfterAttack = false;
+	let turnPassedOnce = false;
+	for (let i = 0; i < 4000 && !state.over; i++) {
+		const session = driver.session!;
+		if (!session.playersTurn()) break;
+		const match = session.match;
+		const units = match.players[PLAYER].board;
+		const attack = units.flatMap((u) => driver.actionsFor(u.uid)).find((a) => a.type === 'attack');
+		const play = session.legal().find((a) => a.type === 'play');
+		if (attack && match.phase === 'main' && !attackedInMain) {
+			attackedInMain = (await driver.act(attack)) && driver.session!.match.phase === 'main';
+			continue;
+		}
+		if (attackedInMain && !playedAfterAttack && play && state.mine) {
+			playedAfterAttack = await driver.act(play);
+			continue;
+		}
+		const next = attack ?? play;
+		if (next) {
+			await driver.act(next);
+			continue;
+		}
+		const turn = state.turn;
+		await driver.endPhase();
+		if (!turnPassedOnce) turnPassedOnce = state.turn > turn + 1 || state.over;
+	}
+	await driver.idle();
+	check('9. a board unit offers its attacks in main and one is taken', attackedInMain);
+	check('9. a card is played after an attack, in the same main phase', playedAfterAttack);
+	check('9. one End Turn passes the turn to the device and back', turnPassedOnce);
+	check('9. no combat phase is signalled', !phases.includes('combat'), phases.join(' '));
+	check('9. the mixed match plays to a result', state.over && !!driver.session?.match.result);
+	let resets = 0;
+	const unregister = registerComponentAlignReset('card#1', () => void resets++);
+	resetComponentAlign('card#1');
+	resetComponentAlign('card#2');
+	unregister();
+	resetComponentAlign('card#1');
+	check('9. an instance resets its aligned body on request, once registered', resets === 1);
+	const hits: string[] = [];
+	const leaveOld = registerComponentAlignReset('card#3', () => void hits.push('old'));
+	const leaveNew = registerComponentAlignReset('card#3', () => void hits.push('new'));
+	resetComponentAlign('card#3');
+	leaveNew();
+	resetComponentAlign('card#3');
+	leaveOld();
+	resetComponentAlign('card#3');
+	check(
+		'9. the last mounted placement of an id is reset, and its leaving hands the older one back',
+		hits.join(' ') === 'new old',
+		hits.join(' '),
+	);
+	const runtime = read('apps/lines/src/game/cards.ts');
+	check(
+		"9. a taken attack resets the attacker's dragged body without a respawn",
+		/else if \(action\?\.type === 'attack'\) \{[\s\S]*?resetComponentAlign\(/.test(runtime) &&
+			/if \(!played\) \{\s*const match[\s\S]*?seat\(match, uid\)/.test(runtime),
+	);
+	check(
+		'9. the strict seed config still enters combat',
+		first.signals.some((s) => s.payload.phase === 'combat'),
 	);
 }
 
