@@ -206,10 +206,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
-- **Salmons' art (S0)** — the owner rejected generated clips (2026-11-09): Salmons draws the
-  original game's own art, animated in code and built into the runtime (in review, branch
-  `arcade/salmons-original-art`). No clips to generate and nothing to upload; left: review and merge.
-  ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
 - **Delete the old flat `_runtime/lines/**`** once satisfied the versioned pointer is permanent.
@@ -220,9 +216,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   [playtest/particle-material](playtest/particle-material.md) on a phone or two and send back the
   `?fxdebug=1` readouts; they set the §10 caps of the particle-materials design.
   ([status/shader-graph](status/shader-graph.md))
-- **Give the game server its config credential** — the service is live on
-  `rooms.invisiblewall.org` (2026-10-27); set its config secret and URL (steps 5–7), per [INFRA § Invisible Game Server](INFRA.md#invisible-game-server-p1014--live-2026-10-27).
-  ([status/game-families](status/game-families.md) P10.14)
 
 ## History
 
