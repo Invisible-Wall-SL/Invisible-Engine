@@ -645,7 +645,8 @@ check(
 	[
 		'symbolStatesPlayed(visibleStates, facts, {',
 		'clearsBoard: Boolean(data.cascade || data.reelBehaviour.clears),',
-		'{#if !playedStates[symbol]?.includes(state)}',
+		'const rowStates = (row: string): readonly SymbolState[] => playedStates[rowSymbol(row)] ?? [];',
+		'{#if !rowStates(symbol).includes(state)}',
 		'{#each holdAndWinRows as symbol (symbol)}',
 		'if (!data.plays?.[symbol]) continue;',
 		'const found = unplayedStates(',
