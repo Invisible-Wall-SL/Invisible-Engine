@@ -83,14 +83,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 ## Recent changes
 - 2026-11-10 — **A baked build ships the rigs only a cinematic casts** (was open item 9). The `art`
   exporter now seeds `exportEditorArt` with `cinematicRigNames` on a route call too, not only in the
-  runtime pass: `exporters.ts`'s `authoredCinematics(ctx)` returns the pass's shared load, or loads
-  the project's own when there is no pass, and both `art` and `cinematics` read it. So
-  `/api/editor/export/art` and the legacy `export-art` stub now list and write those rig bundles,
-  and every standalone/desktop bake adds them to `editorArt.spines` and `deploy/editor-art/` — the
-  first build of a project with such a cinematic grows by those bundles. Guard:
-  `check:exporter-registry` §6 (68 checks, was 61): a rig placed in no scene but cast by a cinematic
-  is listed and written by the route and the stub, listed by the pass, and registered by the bake;
-  with the old unseeded entry 4 of them fail.
+  runtime pass: `exporters.ts`'s `authoredCinematics(clientKey, projectKey, pass)` returns the
+  pass's shared load, or loads the project's own when there is no pass, and both `art` and
+  `cinematics` read it. So `/api/editor/export/art` and the legacy `export-art` stub now list and
+  write those rig bundles, and every standalone/desktop bake adds them to `editorArt.spines` and
+  `deploy/editor-art/` — the first build of a project with such a cinematic grows by those bundles.
+  Guard: `check:exporter-registry` §6 (68 checks, was 61): a rig placed in no scene but cast by a
+  cinematic is listed and written by the route and the stub, listed by the pass, and registered by
+  the bake; with the old unseeded entry 4 of them fail.
 - 2026-11-10 — **The asset pull leaves the other art tier out of a pinned build**
   (`pull-project-assets.mjs --art-tier` / `IE_ART_TIER`, `scripts/lib/artTierPin.mjs`;
   [arcade-4k-builds](../design/arcade-4k-builds.md) "One-screen builds"). Pinned `half`, a full file

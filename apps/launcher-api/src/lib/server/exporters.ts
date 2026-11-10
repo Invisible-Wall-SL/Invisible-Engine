@@ -94,7 +94,7 @@ const tiersOf = async (clientKey: string, projectKey: string) =>
 	normalizeResolutionTiers((await loadDoc(clientKey, projectKey)).resolutionTiers);
 
 /** The pass's authored cinematics; a route call, which has no pass, loads its own. */
-const authoredCinematics = ({ clientKey, projectKey, pass }: ExportContext) =>
+const authoredCinematics = (clientKey: string, projectKey: string, pass?: ExportPass) =>
 	pass ? pass.cinematics : loadAuthoredCinematics(clientKey, projectKey);
 
 /** Time `run` into `ctx.timings` under `label`, or just run it. */
@@ -120,11 +120,11 @@ const art = define({
 	claimsPages: true,
 	// A cinematic casts rigs no scene places, so the art walk is seeded with them — on the route too,
 	// or a rig only a cinematic casts is missing from every baked build.
-	run: async (ctx) =>
-		exportEditorArt(ctx.clientKey, ctx.projectKey, {
-			extraRigNames: cinematicRigNames(await authoredCinematics(ctx)),
-			timings: ctx.timings,
-			pageStore: ctx.pass ? await ctx.pass.pageStore : undefined,
+	run: async ({ clientKey, projectKey, timings, pass }) =>
+		exportEditorArt(clientKey, projectKey, {
+			extraRigNames: cinematicRigNames(await authoredCinematics(clientKey, projectKey, pass)),
+			timings,
+			pageStore: pass ? await pass.pageStore : undefined,
 		}),
 	emptyResult: {
 		sheets: [],
@@ -294,8 +294,8 @@ const cinematics = define({
 	label: 'cinematics',
 	notConfigured: 'Cinematic export is not configured.',
 	failed: 'Failed to export the project cinematics.',
-	run: async (ctx) =>
-		exportCinematics(ctx.clientKey, ctx.projectKey, await authoredCinematics(ctx)),
+	run: async ({ clientKey, projectKey, pass }) =>
+		exportCinematics(clientKey, projectKey, await authoredCinematics(clientKey, projectKey, pass)),
 	emptyResult: {} satisfies CinematicExportIndex,
 });
 
