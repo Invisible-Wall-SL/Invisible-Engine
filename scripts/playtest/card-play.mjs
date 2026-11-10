@@ -8,6 +8,11 @@
 //   pnpm --filter 'lines^...' build && pnpm --filter lines build
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/card-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
+//     [--turn-order mixed]
+//
+// `--turn-order mixed` bakes the sample with `card.rules.turnOrder: 'mixed'` (C5) and, on the
+// player's second turn, drags a board unit onto the enemy hero in main and ends the turn with one
+// press.
 //
 // Exit 1 when a verdict fails.
 
@@ -37,17 +42,19 @@ const { values: opt } = parseArgs({
 		seed: { type: 'string', default: '7' },
 		'card-seed': { type: 'string', default: 'sample' },
 		chrome: { type: 'string' },
+		'turn-order': { type: 'string', default: 'strict' },
 	},
 });
+const MIXED = opt['turn-order'] === 'mixed';
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'card-sample';
 
-const config = normalizeGameConfigDoc(
-	JSON.parse(
-		readFileSync(join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig/card.rules.json'), 'utf8'),
-	),
+const seedConfig = JSON.parse(
+	readFileSync(join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig/card.rules.json'), 'utf8'),
 );
+if (MIXED) seedConfig.card.rules = { ...seedConfig.card.rules, turnOrder: 'mixed' };
+const config = normalizeGameConfigDoc(seedConfig);
 const doc = cardReferenceLayout();
 const library = Object.fromEntries(
 	[...BUILTIN_COMPONENTS, CARD_FRAME_PLACEHOLDER_DEF].map((d) => [d.id, d]),
@@ -256,6 +263,38 @@ try {
 		back.cards,
 	);
 	await shot('device-played');
+
+	if (MIXED) {
+		const turn = await game.state();
+		const unit = zone(turn, 'board')[0];
+		verdict('mixed: the player has a unit on the board on their next turn', !!unit, turn.cards);
+		if (unit) {
+			await drag({ x: 960 + unit.x, y: ZONE_Y.board }, { x: 200, y: 250 });
+			const hit = await game.state();
+			verdict(
+				'mixed: dragging a board unit onto the enemy hero in main attacks it',
+				hit.cards.phase === 'main' && hit.cards.enemyHealth < turn.cards.enemyHealth,
+				{ before: turn.cards.enemyHealth, after: hit.cards.enemyHealth, phase: hit.cards.phase },
+			);
+			await shot('attacked-in-main');
+		}
+		const before = (await game.state()).cards;
+		await mouse('mousePressed', end);
+		await mouse('mouseReleased', end);
+		for (
+			let i = 0;
+			i < 60 &&
+			!((await game.state()).cards?.mine && (await game.state()).cards.turn > before.turn);
+			i++
+		)
+			await game.play([{ op: 'step', frames: 30 }]);
+		const next = (await game.state()).cards;
+		verdict(
+			'mixed: one End Turn press passes the turn and the device plays it back',
+			next.mine && next.turn === before.turn + 2,
+			{ before: before.turn, after: next.turn },
+		);
+	}
 
 	const wire = await game.page.evaluate('window.__CD_WIRE__');
 	const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));

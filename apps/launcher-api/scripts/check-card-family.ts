@@ -37,6 +37,7 @@ import {
 	cardGameComponentIds,
 	cardGameParamRefs,
 	configSectionsFor,
+	normalizeCard,
 	normalizeGameConfigDoc,
 	resolveCard,
 	validateGameConfigDoc,
@@ -232,6 +233,26 @@ step(
 	(d) => familyDoc.setCardFirst(d, 'random'),
 	(d) => d.card?.rules?.first === undefined,
 );
+step(
+	'the mixed turn order',
+	(d) => familyDoc.setCardTurnOrder(d, 'mixed'),
+	(d) => d.card?.rules?.turnOrder === 'mixed' && resolveCard(d).rules.turnOrder === 'mixed',
+);
+step(
+	'strict phases, the default',
+	(d) => familyDoc.setCardTurnOrder(d, 'strict'),
+	(d) => d.card?.rules?.turnOrder === undefined && resolveCard(d).rules.turnOrder === 'strict',
+);
+for (const [raw, kept] of [
+	['mixed', 'mixed'],
+	['strict', undefined],
+	['any', undefined],
+	[2, undefined],
+] as const)
+	check(
+		`4. the normalizer keeps turnOrder ${json(raw)} as ${json(kept)}`,
+		normalizeCard({ rules: { turnOrder: raw } })?.rules?.turnOrder === kept,
+	);
 // Leaving the family: the board-less doc is no slot or match-3 a save would keep, so only the
 // fields are checked.
 familyDoc.setFamily(doc, 'slot');

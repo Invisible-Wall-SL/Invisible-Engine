@@ -54,6 +54,13 @@ Shipped capabilities on `main`:
 2. **Nesting depth capped at 3** (`MAX_COMPONENT_DEPTH`, cycle-guarded; 2 until 2026-10-23, when a counter inside a component needed 3) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure: a nested pin draws the latest in the editor and the game alike (`commonoverlayproject`'s `potMeter` pins `c_xoq2r4ee` v4/v7 and `c_0jd2016q` v2 that way). Honouring them needs both the bake and the editor's pin loader to walk defs, and changes how such a game looks — an owner call.
 3. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
+5. **A scale value binding back at rest leaves the node at its last scale** — `foldBoundTransform`
+   (`engine-layout/src/lib/valueBindings.ts`) returns the node's own `scale` (`undefined` when the
+   def sets none) once a `scale` binding's output is back at 1, and the Pixi container keeps the
+   scale it last had, so a node lifted by a binding never comes back down without a remount. Fix
+   in the fold or `LayoutNodeView` (an absent scale draws 1), under the current-games harness. The
+   card table works around it today (a board unit's drag does not lift):
+   [game-families](game-families.md) open item 0c.
 
 ## Blocked (owner / external)
 - **⏳ Browser-verify `featureWorth`** (auth-gated, owner): in a Hold and Win project, give the
@@ -103,6 +110,12 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-10 — **Align reset for a placed instance** (Cards C5, PR #1577): `engine-layout`
+  `registerComponentAlignReset` / `resetComponentAlign` (`componentEvents.ts`) let a game put back
+  what a placement's Align Target listeners moved (clears `aligned` in `<ComponentInstance>`)
+  without a remount. Keyed by the placed node id like the Flow instance handle: only a top-level
+  placement registers, and same-id mounts stack (the last mounted is live). Inert until called; the
+  card table's `release` is the one caller. Gate: `check:card-runtime`.
 - 2026-10-27 — **Invisible Director can re-skin the art inside a component** (Director card 9H,
   [ADR-0011](../director/DECISIONS/0011-reskin-adapters-sound-fx-components.md), PR #1413, in
   review). Two adapter ops for the builder agent, `components.get_def` and
