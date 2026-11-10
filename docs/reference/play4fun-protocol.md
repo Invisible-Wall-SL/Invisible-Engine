@@ -93,6 +93,12 @@ nothing — so the next action goes where the refused one would have. (Theirs re
 equivalent while their resend reuses the URL, but ours cannot aim a later request past a slot that
 was never filled.)
 
+**A 2xx that is not the protocol is an answer, and an error.** A non-empty 200 body that is not JSON
+(an edge's challenge page, a proxy's HTML) is not resent and moves nothing — it is not accepted, so
+the next request goes where it answered. The facade returns it in the engine's error shape as
+`ERR_HTTP_BAD_BODY`, beside the `ERR_HTTP_<status>` of a body-less 4xx, rather than presenting an
+empty round (`check:connection` §2b, §11).
+
 **The round-opening `bet` is the one request a resend can double-charge.** It carries no `gid` — the
 server names the round in its answer — and a `bet` posted at `seq=0` with no `gid` opens a NEW round
 (measured live: "a fresh boot against an open round does not replay"). Their client resends it
