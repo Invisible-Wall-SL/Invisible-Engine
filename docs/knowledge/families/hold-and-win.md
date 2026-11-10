@@ -115,6 +115,12 @@ A new kind or role touches many registries: the status file's "Touch list" names
   Older Hold and Win projects legitimately keep a `bookOf` flow, so it is not replaced.
 - **Symptom:** an author changed the project but players see the old game. **Cause:** players boot
   the published snapshot; `authoring=1` shows the live docs. **Guard:** re-publish from Game Maker.
+- **Symptom:** a collector bonus with no Expand spins five rows (two rolling blank) on a board
+  built for five. **Cause:** a feature with no `expansion` / `rows` means "never grows" (the
+  grid's rows), but `enteringRows` opened the board at its built height. Only the partner's wire
+  omits `rows` on an expanding config; our mock always sends it. **Guard:** `enteringRows` falls
+  back to the grid's rows; an enhanced feature draws no row it can never open (`drawnRows`);
+  `docs/playtest/getting-hot.md` S2 (Phase 14b).
 - **Symptom:** two playtests diverge from their seeds. **Cause:** both used the same local mock
   port and consumed one RNG. **Guard:** rule: every run gets its own free port, never 7788.
 
@@ -132,7 +138,8 @@ A new kind or role touches many registries: the status file's "Touch list" names
   `flow-publish-gate`, `unused-symbols-in-game`, `symbols-kind-gating`, `coin-label`,
   `respin-land`, `respin-counter-text`, `signal-scope`.
 - **Playbooks:** `docs/playtest/hw-3pots-sample.md`, `docs/playtest/hw-classic-sample.md`,
-  `docs/playtest/hw-collector-sample.md`, `docs/playtest/hold-and-win-coin-board.md`. Force beats
+  `docs/playtest/hw-collector-sample.md`, `docs/playtest/hold-and-win-coin-board.md`,
+  `docs/playtest/getting-hot.md` (the partner's collector bonus, local boot). Force beats
   through the authoring link on a free port; balance must equal before − stake + win; 0 console
   errors. `game-playtester` can run them.
 - **Screens:** `scripts/current-games/screens/holdAndWin.json` (base, line win, feature, jackpot,
