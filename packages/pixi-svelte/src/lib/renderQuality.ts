@@ -23,13 +23,16 @@
  * HOW IT MOVES: two slow windows in a row step down one level, at the next moment the game has been
  * quiet for 20 frames, so a switch never lands while the reels move. Quiet is the game's to say:
  * idle in manual play; in autoplay, the moments of a round when no reel is rolling. That starts a
- * trial: after two windows at the new level it is kept if the slow share fell to half or less, or
- * under 10%, or the mean frame interval fell by 20% or more (14 → 30 fps still has every frame
- * slow); otherwise the old level comes back at the next quiet moment and stepping down stops for
- * the session (pixels are not what costs). A kept level that is still slow may step down again.
- * Thirty good windows in a row (under 1% slow) below the top level try one level up; if that goes
- * slow within two windows it steps back, and that level is never tried again. At most 6 switches a
- * session, and a step that starts a trial is taken only while its revert still fits.
+ * trial: after two windows at the new level it is kept only if the slow share fell to half or less,
+ * or the mean frame interval fell by 20% or more (14 → 30 fps still has every frame slow).
+ * Dipping under the 10% that started it is not enough: a device just over the line (the Nothing
+ * Phone (1), 13% at 17.8 ms, 2026-11-10) dips under it by chance and kept 1.75 at 18.4 ms.
+ * Otherwise the old level comes back at the next quiet moment and stepping down stops for the
+ * session (pixels are not what costs). A kept level that is still slow may step down again. Thirty
+ * good windows in a row (under 1% slow) below the top level try one level up; if that goes slow
+ * within two windows it steps back, and that level is never tried again. At most 6 switches a
+ * session, and a step that starts a trial is taken only while its revert still fits. Every trial's
+ * verdict, with what started it and what the level measured, is kept for the readout.
  *
  * Configured by the game ({@link configureRenderQuality}); the tools never configure it, so `/fx`,
  * the editors and previews never adapt. A deterministic render and a `?render=` pin never install
@@ -87,16 +90,30 @@ export type RenderQualityMode = 'adaptive' | RenderTier;
  *  the step up. */
 export type QualitySwitchReason = 'slow' | 'no gain' | 'headroom' | 'slow again';
 
-export interface QualitySwitch {
+/** A window's slow share (to 0.01) and mean frame interval (ms to 0.1), as the readout shows them. */
+export interface QualityMeasure {
+	slowShare: number;
+	frameMs: number;
+}
+
+/** A switch, with the measure it was decided on. */
+export interface QualitySwitch extends QualityMeasure {
 	/** Seconds since measuring started. */
 	at: number;
 	from: number;
 	to: number;
 	reason: QualitySwitchReason;
-	/** The share of slow frames the switch was decided on, to 0.01. */
-	slowShare: number;
-	/** The mean frame interval it was decided on, in ms to 0.1. */
-	frameMs: number;
+}
+
+/** A trial's verdict on the level it tried: what started it, what the level measured, kept or not. */
+export interface QualityTrial {
+	/** Seconds since measuring started. */
+	at: number;
+	level: number;
+	up: boolean;
+	before: QualityMeasure;
+	after: QualityMeasure;
+	kept: boolean;
 }
 
 export interface RenderQualitySnapshot {
@@ -106,6 +123,7 @@ export interface RenderQualitySnapshot {
 	/** A step down did not help and was reverted: no more steps down this session. */
 	downStopped: boolean;
 	history: QualitySwitch[];
+	trials: QualityTrial[];
 }
 
 /** One frame as the game sees it. */
@@ -174,8 +192,26 @@ export function createRenderQualityController(
 	let trial: Trial | undefined;
 	let pending: Pending | undefined;
 	const history: QualitySwitch[] = [];
+	const trials: QualityTrial[] = [];
+	const seconds = () => Math.round(elapsedMs / 100) / 10;
+	const measure = (stats: WindowStats): QualityMeasure => ({
+		slowShare: Math.round(stats.share * 100) / 100,
+		frameMs: Math.round(stats.meanMs * 10) / 10,
+	});
 
 	const room = (switches: number) => history.length + switches <= rules.maxSwitches;
+
+	const verdict = (current: Trial, after: WindowStats, kept: boolean) => {
+		trials.push({
+			at: seconds(),
+			level,
+			up: current.up,
+			before: measure(current.baseline),
+			after: measure(after),
+			kept,
+		});
+		trial = undefined;
+	};
 
 	const judgeTrial = (current: Trial, stats: WindowStats, slow: boolean) => {
 		current.windows.push(stats);
@@ -183,21 +219,21 @@ export function createRenderQualityController(
 			if (slow) {
 				upFailed.add(level);
 				if (room(1)) pending = { to: current.from, reason: 'slow again', stats };
-				trial = undefined;
-			} else if (current.windows.length >= rules.trialWindows) trial = undefined;
+				verdict(current, stats, false);
+			} else if (current.windows.length >= rules.trialWindows)
+				verdict(current, meanStats(current.windows), true);
 			return;
 		}
 		if (current.windows.length < rules.trialWindows) return;
 		const after = meanStats(current.windows);
 		const helped =
 			after.share <= current.baseline.share / 2 ||
-			after.share < rules.slowWindowShare ||
 			after.meanMs <= current.baseline.meanMs * (1 - rules.trialIntervalGain);
 		if (!helped) {
 			downStopped = true;
 			if (room(1)) pending = { to: current.from, reason: 'no gain', stats: after };
 		}
-		trial = undefined;
+		verdict(current, after, helped);
 	};
 
 	const judge = (stats: WindowStats) => {
@@ -241,12 +277,11 @@ export function createRenderQualityController(
 	const apply = ({ to, reason, stats }: Pending): QualityLevel => {
 		pending = undefined;
 		history.push({
-			at: Math.round(elapsedMs / 100) / 10,
+			at: seconds(),
 			from: level,
 			to,
 			reason,
-			slowShare: Math.round(stats.share * 100) / 100,
-			frameMs: Math.round(stats.meanMs * 10) / 10,
+			...measure(stats),
 		});
 		trial =
 			reason === 'slow' || reason === 'headroom'
@@ -280,6 +315,11 @@ export function createRenderQualityController(
 			levels: ladder.length,
 			downStopped,
 			history: history.map((entry) => ({ ...entry })),
+			trials: trials.map((entry) => ({
+				...entry,
+				before: { ...entry.before },
+				after: { ...entry.after },
+			})),
 		}),
 	};
 }
@@ -392,6 +432,7 @@ export function installRenderQuality(
 			levels: 1,
 			downStopped: false,
 			history: [],
+			trials: [],
 		};
 		snapshot = () => ({ ...fixed, level: { ...fixed.level } });
 	}

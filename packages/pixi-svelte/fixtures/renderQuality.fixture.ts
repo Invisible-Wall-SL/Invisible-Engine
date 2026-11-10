@@ -7,12 +7,12 @@
  * frames stay at the top; idle, hidden and settling frames never count, nor intervals over 250 ms;
  * the 21 ms and 10% boundaries; two slow windows step down, only after 20 quiet frames in a row
  * (which may be measured frames too: autoplay's stopped reels); a trial that helps (half the slow
- * share, under 10%, or a mean frame interval 20% shorter) keeps its level, one that does not
- * reverts and stops stepping down; a browser's 30 fps rhythm never adapts (Low Power Mode caps idle
- * frames too) while rounds at 30 on a device that idles at 60, a device slower than 30 (an iPhone
- * 13 Pro at 14 fps) or a jittery 25–45 ms one do; the floor holds; a step
- * up after 30 good windows is a trial that backs off and is never retried; at most 6 switches, the
- * sixth only a revert.
+ * share, or a mean frame interval 20% shorter) keeps its level, one that does not (dipping under
+ * 10% is not enough) reverts and stops stepping down, each verdict kept for the readout; a
+ * browser's 30 fps rhythm never adapts (Low Power Mode caps idle frames too) while rounds at 30 on
+ * a device that idles at 60, a device slower than 30 (an iPhone 13 Pro at 14 fps) or a jittery
+ * 25–45 ms one do; the floor holds; a step up after 30 good windows is a trial that backs off and
+ * is never retried; at most 6 switches, the sixth only a revert.
  */
 
 import {
@@ -306,19 +306,38 @@ console.log('\nstepping down');
 {
 	const sim = device();
 	sim.rounds(40, at(36, 6));
+	const trials = sim.controller.snapshot().trials;
 	check(
 		'a trial that helps keeps its level',
 		sim.level() === 1 && sim.history().length === 1,
 		trail(sim),
 	);
+	check(
+		'and its verdict is in the readout as kept',
+		trials.length === 1 && trials[0].kept && trials[0].after.slowShare === 0.05,
+		JSON.stringify(trials),
+	);
 }
 {
 	const sim = device();
+	// The Nothing Phone (1), 2026-11-10: 13% slow at 17.8 ms; at 1.75 a trial can dip under 10%
+	// by chance while the frames are no shorter.
 	sim.rounds(40, at(18, 11));
+	const trials = sim.controller.snapshot().trials;
 	check(
-		'a trial under 10% keeps its level even at more than half the slow share',
-		sim.level() === 1 && sim.history().length === 1,
+		'a trial that only dips under 10% (15% → 9%, frames 5% shorter) reverts',
+		sim.level() === 0 && sim.history()[1]?.reason === 'no gain',
 		trail(sim),
+	);
+	check(
+		'and its verdict is in the readout with both measures',
+		trials.length === 1 &&
+			!trials[0].kept &&
+			!trials[0].up &&
+			trials[0].level === 1 &&
+			trials[0].before.slowShare === 0.15 &&
+			trials[0].after.slowShare === 0.09,
+		JSON.stringify(trials),
 	);
 }
 {

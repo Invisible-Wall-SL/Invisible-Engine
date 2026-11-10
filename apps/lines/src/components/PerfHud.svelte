@@ -171,12 +171,19 @@
 			? `switches ${q.history.length}, last L${last.from}→L${last.to} ${last.reason} at ` +
 				`${last.at} s (${Math.round(last.slowShare * 100)}% slow, ${last.frameMs} ms)`
 			: 'no switches';
+		const trial = q.trials.at(-1);
+		const verdict = trial
+			? `last trial L${trial.level} ${trial.kept ? 'kept' : 'reverted'} ` +
+				`(${Math.round(trial.before.slowShare * 100)}% → ${Math.round(trial.after.slowShare * 100)}% ` +
+				`slow, ${trial.before.frameMs} → ${trial.after.frameMs} ms)`
+			: undefined;
 		return [
 			q.mode,
 			...(q.levels > 1 ? [`L${q.level.index} of L0–L${q.levels - 1}`] : []),
 			`res ${q.level.resolution}`,
 			q.level.msaa ? 'MSAA' : 'no MSAA',
 			...(q.mode === 'adaptive' ? [switches] : []),
+			...(verdict ? [verdict] : []),
 			...(q.downStopped ? ['no more steps down'] : []),
 		].join(' · ');
 	};

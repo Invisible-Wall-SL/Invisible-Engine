@@ -144,16 +144,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
-- **Render quality thresholds — need real-device readings** (2026-11-10 change, below). The
-  numbers (21 ms slow frame, 10% slow window, two windows to step, the 30 fps rhythm test, the
-  20% interval gain, 20 quiet frames to switch) come from the readings we have, not from a device
-  that stepped down. After the
-  runtime release, ask the owner for a `?perf=1` Copy (`perf: 3`, its `quality` object) after
-  ~20 spins on the iPhone 13 Pro, the Nothing Phone (1) and the Pixel 9 Pro (Chrome, and Brave on
-  the Pixel): the level each ends at, each switch's slow share, and the spin fps before and after
-  a step. Expected from the 2026-11-10 readings: the Pixel and the S25 stay at the top; the Nothing
-  Phone may step down; the iPhone 13 Pro (14 fps spinning on 2026-11-09) should step down, and
-  keep a step only if its mean frame interval falls by 20% or more.
+- **Render quality thresholds — the iPhone 13 Pro reading is still owed** (2026-11-10 changes,
+  below). Read on the released build (`cbbb3b7`): the S25 Ultra and the Pixel 9 Pro in Brave stayed
+  at the top level with no switch; the Nothing Phone (1) stepped to 1.75 at 13% slow (17.8 ms) and
+  kept it while its frames got no shorter, which the stricter trial now reverts. Still to read: a
+  `?perf=1` Copy (`perf: 3`, its `quality.trials`) after ~20 spins on the iPhone 13 Pro (14 fps
+  spinning on 2026-11-09), which should step down and keep a step only if its slow share halves or
+  its frames get 20% shorter; and the Nothing Phone (1) again, which should now revert to full.
 
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
   below). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on `overlay-buffaloduel` while the
@@ -445,6 +442,20 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-10 — **Render quality keeps a step only if it measurably helped** (branch
+  `claude/nice-albattani-a03tcm`, restarted from `main` after #1581). Read on the released build:
+  the Nothing Phone (1) stepped from 2 to 1.75 at 21.9 s (13% slow, 17.8 ms mean) and kept it,
+  then spun at 54.3 fps (18.4 ms) with 1.3% of spin frames over 33 ms, the same as at full quality
+  the day before: the trial had passed on "the slow share fell under 10%", which a device just over
+  the 10% line meets by chance. `renderQuality.ts` now keeps a step only when the slow share halves
+  or the mean frame interval falls by 20% or more. Each trial's verdict (`quality.trials`: the level
+  tried, up or down, the slow share and frame time before and after, kept or reverted) is in the
+  `?perf=1` Copy, and the HUD's quality line shows the last one, so a reading says why a level
+  stayed. Same day, same build: the S25 Ultra (Chrome, Desktop site on) and the Pixel 9 Pro in
+  Brave stayed at the top level with no switch (Brave at full quality now: 71.7 fps spinning at
+  120 Hz, reel max 0.8 px). Guard: `renderQuality.fixture.ts` (54 checks; the Nothing Phone's case,
+  15% → 9% slow with frames 5% shorter, reverts, and both verdicts are read back).
+
 - 2026-11-10 — **Render quality follows measured frame times, not device memory** (branch
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1578; it replaces that branch's
   Brave guard). Every device starts at full quality, the pixel ratio up to 2 with MSAA, as every
@@ -473,8 +484,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     ~30 fps even while idle reads as the cap and is not judged. Two slow windows step down at
     the next 20 quiet frames: idle in manual play; in autoplay (`autoBet`, one long state that is
     never idle) the frames of a round with no reel rolling (`Game.svelte`). After two windows the
-    step is kept if the slow share halved or fell under 10%, or the mean frame interval fell by
-    20% or more (14 → 30 fps keeps a step though every frame is still slow); otherwise it is
+    step is kept if the slow share halved, or the mean frame interval fell by 20% or more
+    (14 → 30 fps keeps a step though every frame is still slow; the same day's follow-up, above,
+    dropped "or fell under 10%"); otherwise it is
     reverted and stepping down stops for the session. Thirty windows under 1% slow try one level
     up; slow within two windows, it steps back and that level is not tried again. At most 6
     switches, and a step that starts a trial is taken only while its revert still fits.
