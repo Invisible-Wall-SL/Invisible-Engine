@@ -1,0 +1,5386 @@
+[
+	{
+		"seed": "c1",
+		"result": {
+			"winner": 1,
+			"reason": "hero"
+		},
+		"turn": 49,
+		"actions": [
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 39,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"unit": 39
+				}
+			},
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 39,
+				"target": {
+					"unit": 10
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 12
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"unit": 3
+				}
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "play",
+				"uid": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 1,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 9,
+				"target": {
+					"unit": 31
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "play",
+				"uid": 14
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "play",
+				"uid": 45
+			},
+			{
+				"type": "attack",
+				"attacker": 31,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 14,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 9,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "play",
+				"uid": 13
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"unit": 13
+				}
+			},
+			{
+				"type": "play",
+				"uid": 56,
+				"target": {
+					"unit": 65
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 62,
+				"target": {
+					"unit": 11
+				}
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 63,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 66,
+				"target": {
+					"unit": 67
+				}
+			},
+			{
+				"type": "play",
+				"uid": 8
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 68
+				}
+			},
+			{
+				"type": "play",
+				"uid": 17
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 60,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 37
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 51,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"unit": 16
+				}
+			},
+			{
+				"type": "play",
+				"uid": 46
+			},
+			{
+				"type": "play",
+				"uid": 59,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 41
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 5
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"unit": 37
+				}
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "attack",
+				"attacker": 46,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"unit": 17
+				}
+			},
+			{
+				"type": "play",
+				"uid": 53
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 24
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 33
+			},
+			{
+				"type": "attack",
+				"attacker": 33,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 48,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "attack",
+				"attacker": 4,
+				"target": {
+					"unit": 48
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 15
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 34
+			},
+			{
+				"type": "play",
+				"uid": 55,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 33,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 34,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 18
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 33,
+				"target": {
+					"unit": 18
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 18,
+				"target": {
+					"unit": 34
+				}
+			},
+			{
+				"type": "play",
+				"uid": 23
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 35
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 29,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 40,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 38
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "play",
+				"uid": 2
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "play",
+				"uid": 42
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 28,
+				"target": {
+					"unit": 2
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 49,
+				"target": {
+					"unit": 2
+				}
+			},
+			{
+				"type": "play",
+				"uid": 50
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"unit": 50
+				}
+			},
+			{
+				"type": "play",
+				"uid": 20
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "play",
+				"uid": 6
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "attack",
+				"attacker": 42,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 20,
+				"target": {
+					"unit": 40
+				}
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "attack",
+				"attacker": 19,
+				"target": {
+					"unit": 32
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 42,
+				"target": {
+					"unit": 19
+				}
+			},
+			{
+				"type": "endPhase"
+			}
+		],
+		"events": 591,
+		"digest": "2ad8e316"
+	},
+	{
+		"seed": 20261027,
+		"result": {
+			"winner": 1,
+			"reason": "hero"
+		},
+		"turn": 49,
+		"actions": [
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 52,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 9,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 38
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 9,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 6
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 18
+			},
+			{
+				"type": "play",
+				"uid": 14
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"unit": 18
+				}
+			},
+			{
+				"type": "play",
+				"uid": 59,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 18,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 45
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"unit": 61
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 62,
+				"target": {
+					"unit": 14
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"unit": 63
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 17
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 42
+			},
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"unit": 64
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"unit": 17
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 12
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"unit": 12
+				}
+			},
+			{
+				"type": "play",
+				"uid": 50
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 31
+				}
+			},
+			{
+				"type": "play",
+				"uid": 20
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 60,
+				"target": {
+					"unit": 49
+				}
+			},
+			{
+				"type": "play",
+				"uid": 35
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"unit": 20
+				}
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 50,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 15
+			},
+			{
+				"type": "play",
+				"uid": 28,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "play",
+				"uid": 2
+			},
+			{
+				"type": "play",
+				"uid": 5
+			},
+			{
+				"type": "attack",
+				"attacker": 15,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 50,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 49,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 19,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 15,
+				"target": {
+					"unit": 49
+				}
+			},
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"unit": 50
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "play",
+				"uid": 56,
+				"target": {
+					"unit": 19
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 15,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 13
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 32
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "play",
+				"uid": 23
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 39,
+				"target": {
+					"unit": 13
+				}
+			},
+			{
+				"type": "play",
+				"uid": 37
+			},
+			{
+				"type": "play",
+				"uid": 53
+			},
+			{
+				"type": "play",
+				"uid": 34
+			},
+			{
+				"type": "attack",
+				"attacker": 34,
+				"target": {
+					"unit": 16
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 24
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 46
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "play",
+				"uid": 8
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 40,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 48,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 55,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 48,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 48,
+				"target": {
+					"unit": 4
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 33
+			},
+			{
+				"type": "attack",
+				"attacker": 33,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 48
+				}
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"hero": 0
+				}
+			}
+		],
+		"events": 573,
+		"digest": "2057a966"
+	},
+	{
+		"seed": "guard-wall",
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 54,
+		"actions": [
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 52,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 6
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"unit": 3
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 59,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 31,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 15
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 31
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 42
+			},
+			{
+				"type": "play",
+				"uid": 33
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 33
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 15,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 50
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 50
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 15,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 20
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 50,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "play",
+				"uid": 39,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 37
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "play",
+				"uid": 40,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 39,
+				"target": {
+					"unit": 20
+				}
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 40
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 45
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "play",
+				"uid": 34
+			},
+			{
+				"type": "attack",
+				"attacker": 34,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 60,
+				"target": {
+					"unit": 41
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 23
+			},
+			{
+				"type": "play",
+				"uid": 8
+			},
+			{
+				"type": "play",
+				"uid": 18
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"unit": 18
+				}
+			},
+			{
+				"type": "play",
+				"uid": 56,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"unit": 18
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 24
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "play",
+				"uid": 12
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 51,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"unit": 19
+				}
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 28,
+				"target": {
+					"unit": 12
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"unit": 48
+				}
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "attack",
+				"attacker": 4,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"unit": 12
+				}
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 29,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 5
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 53
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 9,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 55,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 17
+			},
+			{
+				"type": "attack",
+				"attacker": 9,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 38
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "attack",
+				"attacker": 9,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "play",
+				"uid": 2
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"unit": 2
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"unit": 64
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 35
+			},
+			{
+				"type": "attack",
+				"attacker": 63,
+				"target": {
+					"unit": 16
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 64,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 13
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 64
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 35,
+				"target": {
+					"unit": 13
+				}
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 65,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 66
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 66,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"unit": 32
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 46
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 14
+			},
+			{
+				"type": "attack",
+				"attacker": 10,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 66,
+				"target": {
+					"unit": 32
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 46,
+				"target": {
+					"unit": 66
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 68,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 68,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 68,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			}
+		],
+		"events": 625,
+		"digest": "12526fd6"
+	},
+	{
+		"seed": "fatigue-run",
+		"result": {
+			"winner": 1,
+			"reason": "hero"
+		},
+		"turn": 36,
+		"actions": [
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 51,
+				"target": {
+					"unit": 3
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 14
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 18
+			},
+			{
+				"type": "attack",
+				"attacker": 14,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 40,
+				"target": {
+					"unit": 14
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 61,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 62,
+				"target": {
+					"unit": 40
+				}
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 18
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 18,
+				"target": {
+					"unit": 40
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 37
+			},
+			{
+				"type": "play",
+				"uid": 39,
+				"target": {
+					"unit": 61
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 18,
+				"target": {
+					"unit": 37
+				}
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 39
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 60,
+				"target": {
+					"unit": 37
+				}
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"unit": 18
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 24
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 50
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "play",
+				"uid": 59,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 50,
+				"target": {
+					"unit": 4
+				}
+			},
+			{
+				"type": "play",
+				"uid": 56,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 2
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 45
+			},
+			{
+				"type": "play",
+				"uid": 35
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "play",
+				"uid": 9,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"unit": 9
+				}
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "attack",
+				"attacker": 35,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 53
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 35,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 38
+			},
+			{
+				"type": "attack",
+				"attacker": 49,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 23
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "attack",
+				"attacker": 35,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 6
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"unit": 48
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 8
+			},
+			{
+				"type": "play",
+				"uid": 15
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "play",
+				"uid": 55,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 33
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 33,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 28,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 46
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "attack",
+				"attacker": 63,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 34
+			},
+			{
+				"type": "attack",
+				"attacker": 34,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 64,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 33,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 38,
+				"target": {
+					"hero": 0
+				}
+			}
+		],
+		"events": 443,
+		"digest": "e715e152"
+	},
+	{
+		"seed": "c1",
+		"deck": "c5",
+		"result": {
+			"winner": 0,
+			"reason": "hero"
+		},
+		"turn": 39,
+		"actions": [
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 69
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 14
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 46,
+				"target": {
+					"unit": 14
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 73,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 74,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 63,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "play",
+				"uid": 67
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 46,
+				"target": {
+					"unit": 73
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "attack",
+				"attacker": 4,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"unit": 11
+				}
+			},
+			{
+				"type": "play",
+				"uid": 56
+			},
+			{
+				"type": "play",
+				"uid": 72
+			},
+			{
+				"type": "play",
+				"uid": 45,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 17
+			},
+			{
+				"type": "play",
+				"uid": 15
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 56,
+				"target": {
+					"unit": 17
+				}
+			},
+			{
+				"type": "play",
+				"uid": 61,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 72,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 66,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"unit": 54
+				}
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 39
+			},
+			{
+				"type": "play",
+				"uid": 42
+			},
+			{
+				"type": "attack",
+				"attacker": 39,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 72,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "play",
+				"uid": 12
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "attack",
+				"attacker": 1,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 1,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 1,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 10,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 48
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"unit": 12
+				}
+			},
+			{
+				"type": "play",
+				"uid": 64,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 6
+			},
+			{
+				"type": "attack",
+				"attacker": 16,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"unit": 49
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 75
+				}
+			},
+			{
+				"type": "play",
+				"uid": 20
+			},
+			{
+				"type": "play",
+				"uid": 5
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 76,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "play",
+				"uid": 59
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 38
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 38
+				}
+			},
+			{
+				"type": "play",
+				"uid": 24
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "attack",
+				"attacker": 5,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 71
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 5,
+				"target": {
+					"unit": 71
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 71,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 5,
+				"target": {
+					"unit": 71
+				}
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 19,
+				"target": {
+					"unit": 41
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"unit": 19
+				}
+			},
+			{
+				"type": "play",
+				"uid": 68
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 28,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"hero": 1
+				}
+			}
+		],
+		"events": 471,
+		"digest": "6c6fc1a8"
+	},
+	{
+		"seed": 20261027,
+		"deck": "c5",
+		"result": {
+			"winner": 1,
+			"reason": "hero"
+		},
+		"turn": 42,
+		"actions": [
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 70
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"unit": 70
+				}
+			},
+			{
+				"type": "play",
+				"uid": 20
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 8
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 70,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"unit": 20
+				}
+			},
+			{
+				"type": "play",
+				"uid": 45,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 55
+			},
+			{
+				"type": "play",
+				"uid": 72
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 17
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 55,
+				"target": {
+					"unit": 11
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"unit": 72
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 61,
+				"target": {
+					"unit": 16
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 56
+			},
+			{
+				"type": "play",
+				"uid": 66,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 65,
+				"target": {
+					"unit": 56
+				}
+			},
+			{
+				"type": "play",
+				"uid": 67
+			},
+			{
+				"type": "play",
+				"uid": 37
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 35
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 56
+				}
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 37
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 62,
+				"target": {
+					"unit": 11
+				}
+			},
+			{
+				"type": "play",
+				"uid": 53
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"unit": 53
+				}
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "play",
+				"uid": 34
+			},
+			{
+				"type": "attack",
+				"attacker": 35,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "play",
+				"uid": 50
+			},
+			{
+				"type": "play",
+				"uid": 69
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 50,
+				"target": {
+					"unit": 34
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 50
+				}
+			},
+			{
+				"type": "play",
+				"uid": 12
+			},
+			{
+				"type": "attack",
+				"attacker": 19,
+				"target": {
+					"unit": 73
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 64,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "play",
+				"uid": 40
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 74,
+				"target": {
+					"unit": 35
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"unit": 19
+				}
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 12,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 35,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 74,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 4
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 4,
+				"target": {
+					"unit": 47
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 74,
+				"target": {
+					"unit": 3
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 5
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 5,
+				"target": {
+					"unit": 54
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 5,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "play",
+				"uid": 46,
+				"target": {
+					"unit": 10
+				}
+			},
+			{
+				"type": "play",
+				"uid": 51
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"unit": 41
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 10,
+				"target": {
+					"unit": 41
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "attack",
+				"attacker": 51,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 13
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 33
+			},
+			{
+				"type": "attack",
+				"attacker": 13,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 51,
+				"target": {
+					"unit": 13
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 75,
+				"target": {
+					"unit": 43
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 76,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 60
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"unit": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			}
+		],
+		"events": 503,
+		"digest": "14c5147f"
+	},
+	{
+		"seed": "guard-wall",
+		"deck": "c5",
+		"result": {
+			"winner": 1,
+			"reason": "hero"
+		},
+		"turn": 21,
+		"actions": [
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 40
+			},
+			{
+				"type": "attack",
+				"attacker": 40,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 67
+			},
+			{
+				"type": "play",
+				"uid": 46,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"unit": 40
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 72
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 60
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 72
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 43
+			},
+			{
+				"type": "play",
+				"uid": 66,
+				"target": {
+					"unit": 43
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 29,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 52
+			},
+			{
+				"type": "attack",
+				"attacker": 43,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"unit": 43
+				}
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 43
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"unit": 10
+				}
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "play",
+				"uid": 65,
+				"target": {
+					"unit": 54
+				}
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 49,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 59
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 9,
+				"target": {
+					"unit": 54
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 51
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 49,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 62,
+				"target": {
+					"unit": 9
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 64,
+				"target": {
+					"unit": 49
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"unit": 16
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 49,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 24
+			}
+		],
+		"events": 240,
+		"digest": "0af0a0f9"
+	},
+	{
+		"seed": "fatigue-run",
+		"deck": "c5",
+		"result": {
+			"winner": 1,
+			"reason": "hero"
+		},
+		"turn": 48,
+		"actions": [
+			{
+				"type": "play",
+				"uid": 21,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 30,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 66,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 67
+			},
+			{
+				"type": "play",
+				"uid": 44
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 17
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 54
+			},
+			{
+				"type": "attack",
+				"attacker": 44,
+				"target": {
+					"unit": 17
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 17,
+				"target": {
+					"unit": 44
+				}
+			},
+			{
+				"type": "play",
+				"uid": 4
+			},
+			{
+				"type": "play",
+				"uid": 31
+			},
+			{
+				"type": "play",
+				"uid": 29,
+				"target": {
+					"unit": 4
+				}
+			},
+			{
+				"type": "play",
+				"uid": 8
+			},
+			{
+				"type": "attack",
+				"attacker": 4,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"unit": 4
+				}
+			},
+			{
+				"type": "play",
+				"uid": 59
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 8,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 27,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 5
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 54,
+				"target": {
+					"unit": 8
+				}
+			},
+			{
+				"type": "play",
+				"uid": 62,
+				"target": {
+					"unit": 5
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 2
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 56
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "play",
+				"uid": 11
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 56
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 46,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 49
+			},
+			{
+				"type": "play",
+				"uid": 63,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "play",
+				"uid": 70
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 25,
+				"target": {
+					"unit": 46
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"unit": 49
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 70
+				}
+			},
+			{
+				"type": "play",
+				"uid": 15
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 73,
+				"target": {
+					"unit": 11
+				}
+			},
+			{
+				"type": "play",
+				"uid": 64,
+				"target": {
+					"unit": 74
+				}
+			},
+			{
+				"type": "play",
+				"uid": 52
+			},
+			{
+				"type": "play",
+				"uid": 48
+			},
+			{
+				"type": "attack",
+				"attacker": 74,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 1
+			},
+			{
+				"type": "attack",
+				"attacker": 2,
+				"target": {
+					"unit": 74
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 15,
+				"target": {
+					"unit": 74
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 11,
+				"target": {
+					"unit": 48
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 73,
+				"target": {
+					"unit": 11
+				}
+			},
+			{
+				"type": "play",
+				"uid": 57,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 42
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"unit": 15
+				}
+			},
+			{
+				"type": "play",
+				"uid": 47
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 9,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 1,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "play",
+				"uid": 33
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 50
+			},
+			{
+				"type": "attack",
+				"attacker": 47,
+				"target": {
+					"unit": 9
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 42,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 32
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 42,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 52,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 60
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 26,
+				"target": {
+					"unit": 52
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 22,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 3
+			},
+			{
+				"type": "attack",
+				"attacker": 3,
+				"target": {
+					"unit": 42
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 41
+			},
+			{
+				"type": "play",
+				"uid": 68
+			},
+			{
+				"type": "play",
+				"uid": 45,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 65,
+				"target": {
+					"unit": 45
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 75,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 76,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 7
+			},
+			{
+				"type": "play",
+				"uid": 28,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 75,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 41,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "play",
+				"uid": 71
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 7,
+				"target": {
+					"unit": 71
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 51
+			},
+			{
+				"type": "attack",
+				"attacker": 76,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "play",
+				"uid": 37
+			},
+			{
+				"type": "attack",
+				"attacker": 45,
+				"target": {
+					"unit": 7
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 6
+			},
+			{
+				"type": "play",
+				"uid": 20
+			},
+			{
+				"type": "play",
+				"uid": 10,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 10,
+				"target": {
+					"hero": 1
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 6,
+				"target": {
+					"unit": 37
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 20,
+				"target": {
+					"unit": 51
+				}
+			},
+			{
+				"type": "play",
+				"uid": 16
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 61,
+				"target": {
+					"unit": 16
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 51,
+				"target": {
+					"unit": 6
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 55
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 58,
+				"target": {
+					"unit": 51
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 55,
+				"target": {
+					"unit": 10
+				}
+			},
+			{
+				"type": "play",
+				"uid": 53
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "play",
+				"uid": 36
+			},
+			{
+				"type": "play",
+				"uid": 34
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 53,
+				"target": {
+					"unit": 34
+				}
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"hero": 0
+				}
+			},
+			{
+				"type": "play",
+				"uid": 69
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 36,
+				"target": {
+					"unit": 37
+				}
+			},
+			{
+				"type": "play",
+				"uid": 19
+			},
+			{
+				"type": "endPhase"
+			},
+			{
+				"type": "attack",
+				"attacker": 53,
+				"target": {
+					"unit": 36
+				}
+			},
+			{
+				"type": "play",
+				"uid": 38
+			},
+			{
+				"type": "attack",
+				"attacker": 37,
+				"target": {
+					"hero": 0
+				}
+			}
+		],
+		"events": 571,
+		"digest": "f9297429"
+	}
+]
