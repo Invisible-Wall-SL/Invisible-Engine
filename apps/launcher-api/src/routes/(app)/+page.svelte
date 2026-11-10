@@ -361,9 +361,9 @@
 				<span class="role">{roleLabel(data.user.role)}</span></span
 			>
 			{#if data.canAdmin}
-				<a class="ghost" href="/admin">Admin</a>
+				<a class="ghost" href={resolve('/admin')}>Admin</a>
 			{/if}
-			<a class="ghost" href="/onboarding">Getting started</a>
+			<a class="ghost" href={resolve('/onboarding')}>Getting started</a>
 			<a class="ghost" href={resolve('/account/password')}>Change password</a>
 			<form method="POST" action="/auth/logout">
 				<button class="ghost" type="submit">Sign out</button>

@@ -1403,7 +1403,9 @@
 												{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
 											</button>
 											{#if data.canPurgeCache}
-												<a class="stale-link" href="/admin">still stale? purge edge cache</a>
+												<a class="stale-link" href={resolve('/admin')}
+													>still stale? purge edge cache</a
+												>
 											{/if}
 										</div>
 									{:else if p.published && p.engineComparable}

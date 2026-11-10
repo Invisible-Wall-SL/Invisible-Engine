@@ -98,12 +98,11 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
 - Change or remove a script a `package.json` already has (CI runs them), add one a package
   manager runs by itself — `install`, or any new `pre*`, `post*` or `pnpm:*` script (`preview`
   and `prettier` count) — or leave a `package.json` that is not a JSON object. That includes
-  `precheck:<x>`, though most launcher checks have one (`node scripts/ensure-svelte-kit.mjs`): a
-  run that copied the pattern was refused after it had done the work. A new plain `check:<x>`
-  script is fine. A new `apps/launcher-api/scripts/check-<x>.ts`, or a `*.fixture.ts` anywhere,
-  needs no script at all: `pnpm check:all` finds it. Run a new check as a gate with
-  `pnpm check:all --only <its path>`, script or not: it runs `ensure-svelte-kit` first, which a
-  launcher check called on its own needs on a fresh checkout.
+  `precheck:<x>`, though most launcher checks once had one (none needs it now: `pnpm install`
+  runs `svelte-kit sync`): a run that copied the pattern was refused after it had done the work.
+  A new plain `check:<x>` script is fine. A new `apps/launcher-api/scripts/check-<x>.ts`, or a
+  `*.fixture.ts` anywhere, needs no script at all: `pnpm check:all` finds it. Run a new check as a
+  gate with `pnpm check:all --only <its path>`, script or not.
 - Grow, add or delete a `svelte-check-baseline.json` or `eslint-suppressions.json`. They may only
   shrink, and stay JSON objects of numbers; renaming a file they count reads as growth.
 - Add, anywhere in a line the change adds — code, a comment, a string or Markdown prose — a

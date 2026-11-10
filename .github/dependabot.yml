@@ -74,8 +74,11 @@ updates:
         applies-to: security-updates
         patterns: ['*']
 
+  # `/` covers .github/workflows only: the composite action's own `uses:` are read from its folder.
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/setup
     schedule:
       interval: weekly
       day: monday
