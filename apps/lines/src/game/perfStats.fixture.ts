@@ -128,5 +128,56 @@ const drive = (
 	check('Reset clears every count', stats.snapshot().idle.frames === 0);
 }
 
+{
+	const work = (draws: number, passes: number, extra: Record<string, number> = {}) => ({
+		calls: draws * 5,
+		draws,
+		vertices: draws * 6,
+		passes,
+		targetSwitches: passes,
+		resolves: 1,
+		invalidations: 0,
+		clears: 1,
+		copies: 0,
+		programs: 1,
+		filterGroups: 0,
+		filterPasses: 0,
+		textureUploads: 0,
+		bufferUploads: 0,
+		bufferBytes: 0,
+		roundTrips: 0,
+		renderMs: 1,
+		tickMs: 2,
+		...extra,
+	});
+	const stats = createPerfStats(() => 0);
+	stats.frame(1000, false, []);
+	stats.work(work(1, 3));
+	stats.frame(1016, false, []);
+	stats.work(work(3, 3));
+	stats.frame(1032, true, []);
+	stats.work(work(30, 9, { filterPasses: 4, gpuWaitMs: 12 }));
+	const s = stats.snapshot();
+	const idle = s.work.idle.perFrame;
+	const spin = s.work.spinning.perFrame;
+	check(
+		'work lands in the bucket of the frame that drew it, as a mean and a max',
+		s.work.idle.frames === 2 &&
+			idle.draws?.mean === 2 &&
+			idle.draws?.max === 3 &&
+			s.work.spinning.frames === 1 &&
+			spin.draws?.mean === 30 &&
+			spin.filterPasses?.max === 4,
+		JSON.stringify(s.work),
+	);
+	check(
+		'the GPU wait shows only where it was measured',
+		idle.gpuWaitMs === undefined && spin.gpuWaitMs?.mean === 12,
+		JSON.stringify(s.work),
+	);
+	stats.reset();
+	check('Reset clears the work too', stats.snapshot().work.idle.frames === 0);
+}
+
 if (failures) throw new Error(`perfStats.fixture: ${failures} FAILED`);
 console.log('\nperfStats.fixture: all ok');

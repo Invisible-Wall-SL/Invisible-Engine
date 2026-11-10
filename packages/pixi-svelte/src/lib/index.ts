@@ -23,6 +23,10 @@ export * from './anchors';
 export * from './elementFx';
 // Which devices draw fewer pixels a frame (lower resolution, no antialiasing).
 export * from './renderTier';
+// Back buffer, MSAA and an opaque canvas, decided before the context exists; the test switches.
+export * from './renderOptions';
+// `?perf=1`'s per-frame GL counts.
+export * from './glCounters';
 // The loader's last step: upload every texture and compile every program a game will draw with.
 export * from './gpuWarmup';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).

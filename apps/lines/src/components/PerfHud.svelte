@@ -1,41 +1,84 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { renderTier } from 'pixi-svelte';
+	import {
+		appliedRenderOptions,
+		instrumentApp,
+		renderSwitches,
+		renderTier,
+		type RendererInfo,
+		type RendererProbe,
+		type TextureFormatSummary,
+	} from 'pixi-svelte';
 	import { setFrameProbe } from 'pixi-svelte/frameClock';
 
-	import { createPerfStats, type PerfBucketSnapshot, type PerfSnapshot } from '../game/perfStats';
+	import {
+		WORK_KEYS,
+		createPerfStats,
+		type PerfBucketSnapshot,
+		type PerfSnapshot,
+		type WorkSnapshot,
+	} from '../game/perfStats';
 	import { stateApp } from '../game/stateApp';
 	import { stateGame } from '../game/stateGame.svelte';
 
 	/**
 	 * The `?perf=1` frame-time readout: what the frames on THIS device look like while the game
-	 * idles and while it spins (`perfStats.ts`), so a phone's numbers can be read and pasted back.
-	 * Mounted only with the flag (`Game.svelte` imports it on demand); without it nothing here
-	 * exists, listens or draws. HTML, so it costs the canvas nothing; one line in a corner until
-	 * tapped open.
+	 * idles and while it spins (`perfStats.ts`), what each frame asks of the GPU and how the
+	 * renderer was set up (`pixi-svelte` `glCounters.ts`, `renderOptions.ts`), so a phone's numbers
+	 * can be read and pasted back. Mounted only with the flag (`Game.svelte` imports it on demand);
+	 * without it nothing here exists, listens, counts or draws. HTML, so it costs the canvas
+	 * nothing; one line in a corner until tapped open. `?perfgpu=1` also waits for the GPU after
+	 * every frame to time it, which stalls the pipeline: read it on its own, never with fps.
 	 */
 
+	const query = new URLSearchParams(location.search);
+	const waitForGpu = query.get('perfgpu') === '1';
 	const stats = createPerfStats();
 	let snapshot = $state<PerfSnapshot>();
+	let info = $state<RendererInfo>();
+	let textures = $state<TextureFormatSummary[]>([]);
 	let open = $state(false);
 	let copied = $state<'yes' | 'no'>();
 	let copyText = $state('');
 	let timer: ReturnType<typeof setInterval> | undefined;
+	let probe: RendererProbe | undefined;
 
 	const spinning = () => stateGame.board.some((reel) => reel.reelState.rolling);
 	const onVisibility = () => {
 		if (document.visibilityState === 'hidden') stats.pause();
 	};
 
+	/** The renderer exists once `<App>` has initialised it, which can be after this mounts. */
+	const ensureProbe = () => {
+		const app = stateApp.pixiApplication;
+		if (probe || !app?.renderer) return;
+		probe = instrumentApp(app, { onFrame: (work) => stats.work(work), waitForGpu });
+		info = probe.info();
+	};
+	let tick = 0;
+	const refresh = () => {
+		ensureProbe();
+		snapshot = stats.snapshot();
+		if (probe && tick++ % 4 === 0) textures = probe.textures();
+	};
+
 	onMount(() => {
 		setFrameProbe((time, moving) => stats.frame(time, spinning(), moving));
 		document.addEventListener('visibilitychange', onVisibility);
-		timer = setInterval(() => (snapshot = stats.snapshot()), 500);
+		timer = setInterval(refresh, 500);
+		// JSON text: a script reads it over CDP, which cannot serialise Svelte's state proxies.
+		// `'reset'` is the Reset button, for a script that measures from a moment of its own.
+		window.__IE_PERF__ = (action?: 'reset') => {
+			if (action === 'reset') reset();
+			return snapshot ? JSON.stringify(report(snapshot)) : undefined;
+		};
 	});
 	onDestroy(() => {
 		setFrameProbe(undefined);
 		document.removeEventListener('visibilitychange', onVisibility);
 		clearInterval(timer);
+		probe?.dispose();
+		window.__IE_PERF__ = undefined;
 	});
 
 	const reset = () => {
@@ -56,31 +99,56 @@
 		over100: b.hitches[100],
 	});
 
-	const summary = (s: PerfSnapshot): string => {
+	/** The URL switches that shape rendering, as given (absent ones left out). */
+	const flags = () =>
+		Object.fromEntries(
+			[
+				'render',
+				'quality',
+				'particles',
+				'backbuffer',
+				'aa',
+				'opaque',
+				'fx',
+				'lazyresolve',
+				'invalidate',
+				'perfgpu',
+			]
+				.map((name) => [name, query.get(name)])
+				.filter(([, value]) => value !== null),
+		);
+
+	const report = (s: PerfSnapshot) => {
 		const app = stateApp.pixiApplication;
 		const canvas = app?.canvas;
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
-		return JSON.stringify({
-			perf: 1,
+		return {
+			perf: 2,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
 			tier: renderTier(),
 			resolution: app?.renderer.resolution,
 			canvas: canvas ? `${canvas.width}x${canvas.height}` : undefined,
 			viewport: `${window.innerWidth}x${window.innerHeight}`,
+			flags: flags(),
+			switches: renderSwitches(),
+			render: appliedRenderOptions(),
+			gpu: info,
+			textures,
 			refreshHz: s.refreshHz,
 			capped30: s.capped30,
 			seconds: s.seconds,
 			idle: bucket(s.idle),
 			spinning: bucket(s.spinning),
 			reelStepErrorPx: s.reel,
+			work: s.work,
 			build: build && { version: build.version, sha: build.sha ?? build.engineSha },
-		});
+		};
 	};
 
 	const copy = async () => {
 		if (!snapshot) return;
-		copyText = summary(snapshot);
+		copyText = JSON.stringify(report(snapshot));
 		try {
 			await navigator.clipboard.writeText(copyText);
 			copied = 'yes';
@@ -92,6 +160,38 @@
 
 	const line = (b: PerfBucketSnapshot) =>
 		b.frames ? `${b.fps} fps · p50 ${b.p50} · p95 ${b.p95} · max ${b.max} ms` : 'no frames yet';
+
+	const LABELS: Record<(typeof WORK_KEYS)[number], string> = {
+		draws: 'draws',
+		vertices: 'vertices',
+		passes: 'render passes',
+		targetSwitches: 'target switches',
+		resolves: 'MSAA resolves',
+		invalidations: 'invalidations',
+		filterPasses: 'filter passes',
+		filterGroups: 'filtered nodes',
+		copies: 'backdrop copies',
+		textureUploads: 'texture uploads',
+		bufferBytes: 'buffer bytes',
+		roundTrips: 'GL round trips',
+		programs: 'program switches',
+		calls: 'GL calls',
+		renderMs: 'render ms (CPU)',
+		tickMs: 'tick ms (CPU)',
+		gpuWaitMs: 'GPU wait ms',
+	};
+	const cell = (w: WorkSnapshot, key: (typeof WORK_KEYS)[number]) => {
+		const v = w.perFrame[key];
+		return v ? `${v.mean} / ${v.max}` : '–';
+	};
+	const attrs = (i: RendererInfo) => {
+		const a = i.attributes;
+		return a
+			? `ctx aa ${a.antialias ? 'on' : 'off'} · alpha ${a.alpha ? 'on' : 'off'} · back buffer ${
+					i.backBuffer ? (i.backBufferMsaa ? 'on (MSAA)' : 'on') : 'off'
+				}`
+			: 'context attributes unknown';
+	};
 </script>
 
 {#if snapshot}
@@ -122,6 +222,36 @@
 				{#if snapshot.capped30}
 					<div class="warn">Frames never come faster than ~30 fps: Low Power Mode?</div>
 				{/if}
+				{#if info}
+					<div class="ie-perf-section">
+						<b>gpu</b>
+						{info.gpu} · WebGL{info.webgl} · res {info.resolution} · {info.compressed.join('/') ||
+							'no compressed formats'}
+					</div>
+					<div>{attrs(info)}</div>
+				{/if}
+				<table>
+					<thead>
+						<tr><th>per frame, mean / max</th><th>idle</th><th>spin</th></tr>
+					</thead>
+					<tbody>
+						{#each WORK_KEYS as key (key)}
+							{#if snapshot.work.idle.perFrame[key] || snapshot.work.spinning.perFrame[key]}
+								<tr>
+									<td>{LABELS[key]}</td>
+									<td>{cell(snapshot.work.idle, key)}</td>
+									<td>{cell(snapshot.work.spinning, key)}</td>
+								</tr>
+							{/if}
+						{/each}
+					</tbody>
+				</table>
+				{#if textures.length}
+					<div class="ie-perf-section">
+						<b>textures</b>
+						{textures.map((t) => `${t.format} ×${t.count} ${t.mb} MB`).join(' · ')}
+					</div>
+				{/if}
 				<div class="ie-perf-actions">
 					<button type="button" onclick={copy}>Copy</button>
 					<button type="button" onclick={reset}>Reset</button>
@@ -143,6 +273,8 @@
 		left: env(safe-area-inset-left, 0px);
 		z-index: 2147483646;
 		max-width: min(92vw, 340px);
+		max-height: 90vh;
+		overflow-y: auto;
 		font:
 			11px/1.35 ui-monospace,
 			monospace;
@@ -171,6 +303,23 @@
 		padding: 0 7px 6px;
 	}
 	.ie-perf-body b {
+		color: #fff;
+	}
+	.ie-perf-section {
+		margin-top: 4px;
+	}
+	table {
+		margin-top: 4px;
+		border-collapse: collapse;
+	}
+	th,
+	td {
+		padding: 0 6px 0 0;
+		text-align: left;
+		font-weight: normal;
+		white-space: nowrap;
+	}
+	th {
 		color: #fff;
 	}
 	.warn {
