@@ -130,7 +130,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   finds routes that call `handleExport` and covers the new route. (`check:launcher-gates`' per-handler
   `?project=` scan no longer sees the stubs, which read no query; the gate now lives in
   `handleExport`, pinned behaviourally by `check:deploy-token-gate`.) How to add a class:
-  [live-assets](../design/live-assets.md) §"Adding an asset class". Found, not changed: open item 9.
+  [live-assets](../design/live-assets.md) §"Adding an asset class". Found, not changed: open item 9 (fixed 2026-11-10).
 - 2026-11-09 — **One shared tool gate, body reader, conflict answer and project lookup for the API
   routes.** A review found helpers that existed but were re-typed per route. New
   `$lib/server/http.ts`: `requireTool(locals, tools, label)` (401 / 403 `Your role does not have
