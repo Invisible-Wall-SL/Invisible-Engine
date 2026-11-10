@@ -11,7 +11,10 @@
  *      `/api/editor/export-<id>` stub answers the same body and names a registry id, and an unknown
  *      id is a 404;
  *   5. the bake POSTs `/api/editor/export/<id>` for every id, and an empty answer embeds NOTHING:
- *      the bundle it bakes from the routes' empty bodies is byte-identical to one baked from `{}`.
+ *      the bundle it bakes from the routes' empty bodies is byte-identical to one baked from `{}`;
+ *   6. a rig no scene places but a cinematic casts ships on every path: the art route (and its
+ *      legacy stub) lists it and writes its bundle into `deploy/editor-art/`, the runtime pass
+ *      lists it, and the bake registers it in the bundle's `editorArt`.
  *
  *   pnpm --filter launcher-api check:exporter-registry
  */
@@ -173,8 +176,13 @@ for (const { id, result } of ran) {
 // ── 4. the routes ───────────────────────────────────────────────────────────────────────────────
 console.log('4. /api/editor/export/<id> and the legacy stubs answer the same');
 type Post = (event: unknown) => Promise<Response>;
-const post = async (handler: Post, path: string, params: Record<string, string> = {}) => {
-	const url = new URL(`https://launcher.test${path}?project=${PROJECT}&k=${TOKEN}`);
+const post = async (
+	handler: Post,
+	path: string,
+	params: Record<string, string> = {},
+	project = PROJECT,
+) => {
+	const url = new URL(`https://launcher.test${path}?project=${project}&k=${TOKEN}`);
 	try {
 		const res = await handler({ url, params, request: new Request(url, { method: 'POST' }) });
 		return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -296,6 +304,80 @@ check(
 	sections.join(',') === ALWAYS.join(','),
 	sections.join(','),
 );
+
+// ── 6. a rig only a cinematic casts ships on every path ─────────────────────────────────────────
+console.log(
+	'6. a rig no scene places but a cinematic casts ships on the route, the pass and the bake',
+);
+const CINE = 'cine';
+const RIG = 'introRig';
+const { SUB, editorDocKey } = await import('../src/lib/server/projectPaths.ts');
+const { cinematicKey } = await import('../src/lib/server/cinematicStorage.ts');
+const rigFolder = `${SUB.spines(CLIENT, CINE)}/${RIG}`;
+R2.set(
+	`${SUB.spines(CLIENT, CINE)}/skeletons.json`,
+	JSON.stringify({
+		skeletons: [
+			{ folder: RIG, name: RIG, atlas_file: `${RIG}.atlas`, skeleton_file: `${RIG}.json` },
+		],
+	}),
+);
+R2.set(`${rigFolder}/${RIG}.atlas`, `${RIG}.webp\nsize: 8,8\nbone\n  bounds: 0,0,8,8\n`);
+R2.set(`${rigFolder}/${RIG}.json`, JSON.stringify({ skeleton: { spine: '4.2' } }));
+R2.set(`${rigFolder}/${RIG}.webp`, 'x');
+R2.set(editorDocKey(CLIENT, CINE), JSON.stringify({ scenes: [{ id: 's', name: 'S', nodes: [] }] }));
+R2.set(
+	cinematicKey(CLIENT, CINE, 'intro'),
+	JSON.stringify({
+		id: 'intro',
+		name: 'Intro',
+		duration: 1,
+		stage: { sceneId: null, cast: [{ actorId: 'a', kind: 'rig', rigFolder: RIG, place: {} }] },
+		tracks: [],
+	}),
+);
+const hasRig = (spines: unknown): boolean =>
+	Array.isArray(spines) && spines.some((s: { key?: unknown }) => s.key === RIG);
+const artDeploy = `${SUB.deploy(CLIENT, CINE)}/editor-art/`;
+const shippedRigFiles = (): string[] => under(artDeploy).filter((k) => k.includes(RIG));
+
+const cineRoute = await post(
+	dynamicRoute.POST as Post,
+	'/api/editor/export/art',
+	{ asset: 'art' },
+	CINE,
+);
+check('export/art answers 200', cineRoute.status === 200, `HTTP ${cineRoute.status}`);
+check(
+	'export/art lists the cast rig',
+	hasRig(cineRoute.body.spines),
+	JSON.stringify(cineRoute.body),
+);
+check(
+	'…and writes its bundle into deploy/editor-art/',
+	shippedRigFiles().some((k) => k.endsWith('.atlas')) &&
+		shippedRigFiles().some((k) => k.endsWith('.json')),
+	under(artDeploy).join(','),
+);
+const legacyArt = await import(src('routes/api/editor/export-art/+server.ts'));
+const legacyCine = await post(legacyArt.POST as Post, '/api/editor/export-art', {}, CINE);
+check('the legacy export-art stub lists the cast rig too', hasRig(legacyCine.body.spines));
+
+console.info = console.warn = console.log = () => {};
+let cineBundle: Awaited<ReturnType<typeof buildRuntimeBundle>>;
+try {
+	cineBundle = await buildRuntimeBundle(CINE);
+} finally {
+	Object.assign(console, quiet);
+}
+check('the runtime pass lists the cast rig', hasRig(cineBundle.editorArt.spines));
+
+const cineBake = await bake((id) => (id === 'art' ? cineRoute.body : (routeBodies[id] ?? {})));
+const baked = cineBake.out
+	? (JSON.parse(cineBake.out) as { editorArt?: { spines?: unknown } })
+	: null;
+check('the bake succeeds', cineBake.code === 0);
+check('the baked bundle registers the cast rig', hasRig(baked?.editorArt?.spines));
 
 console.log();
 if (failures) {

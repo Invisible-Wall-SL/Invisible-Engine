@@ -68,13 +68,6 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    [infra](infra.md)). The first Director run with QA is its first real play, and it is waiting on
    Anthropic credits. Check that the Live run shows "N of M screens reached" and not `no_player`.
 
-9. **A baked build ships a cinematic without the rigs only it casts.** The runtime pass seeds the
-   art export with `cinematicRigNames` (`exporters.ts` `art`); a route call — what the desktop bake
-   makes — exports art unseeded, as the old `export-art` route did, so a rig placed in no scene but
-   cast by a cinematic is missing from every standalone build. Kept as-is by the 2026-11-09
-   registry refactor (outputs had to stay byte-identical); the fix is to seed it on the route too
-   (`loadAuthoredCinematics` in the `art` entry), which adds rig bundles to those builds.
-
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
   since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.61
@@ -88,6 +81,16 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-10 — **A baked build ships the rigs only a cinematic casts** (was open item 9). The `art`
+  exporter now seeds `exportEditorArt` with `cinematicRigNames` on a route call too, not only in the
+  runtime pass: `exporters.ts`'s `authoredCinematics(ctx)` returns the pass's shared load, or loads
+  the project's own when there is no pass, and both `art` and `cinematics` read it. So
+  `/api/editor/export/art` and the legacy `export-art` stub now list and write those rig bundles,
+  and every standalone/desktop bake adds them to `editorArt.spines` and `deploy/editor-art/` — the
+  first build of a project with such a cinematic grows by those bundles. Guard:
+  `check:exporter-registry` §6 (68 checks, was 61): a rig placed in no scene but cast by a cinematic
+  is listed and written by the route and the stub, listed by the pass, and registered by the bake;
+  with the old unseeded entry 4 of them fail.
 - 2026-11-10 — **The asset pull leaves the other art tier out of a pinned build**
   (`pull-project-assets.mjs --art-tier` / `IE_ART_TIER`, `scripts/lib/artTierPin.mjs`;
   [arcade-4k-builds](../design/arcade-4k-builds.md) "One-screen builds"). Pinned `half`, a full file
