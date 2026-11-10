@@ -14,7 +14,7 @@
 		"eslint-config-custom": "workspace:*"
 	},
 	"dependencies": {
-		"@lingui/core": "6.10.1",
+		"@lingui/core": "6.12.0",
 		"state-shared": "workspace:*",
 		"constants-shared": "workspace:*"
 	}

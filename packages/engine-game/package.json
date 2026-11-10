@@ -15,11 +15,11 @@
 		"eslint-config-custom": "workspace:*",
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
-		"svelte-check": "4.7.7"
+		"svelte-check": "4.7.8"
 	},
 	"dependencies": {
 		"pixi.js": "8.22.0",
-		"svelte": "5.57.2",
+		"svelte": "5.57.3",
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.70.3",
 		"pixi-svelte": "workspace:*",

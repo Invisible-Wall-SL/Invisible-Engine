@@ -36,7 +36,7 @@
 		"./scenes/*": "./scenes/*"
 	},
 	"devDependencies": {
-		"@sveltejs/package": "3.0.1",
+		"@sveltejs/package": "3.0.2",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"esbuild": "0.28.2",
 		"config-svelte": "workspace:*",
@@ -45,7 +45,7 @@
 		"eslint-config-custom": "workspace:*",
 		"prettier": "3.9.10",
 		"prettier-plugin-svelte": "3.3.3",
-		"svelte-check": "4.7.7"
+		"svelte-check": "4.7.8"
 	},
 	"dependencies": {
 		"engine-rig": "workspace:*",
@@ -56,7 +56,7 @@
 		"engine-fx": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.22.0",
-		"svelte": "5.57.2",
+		"svelte": "5.57.3",
 		"utils-event-emitter": "workspace:*",
 		"utils-layout": "workspace:*",
 		"vite": "6.2.0"
