@@ -14,12 +14,18 @@ export interface SymbolInfoDeps {
 	symbolMap: SymbolMapApi;
 	/** Does this symbol draw a placeholder while it has no art? Absent, none does. */
 	drawsPlaceholder?: (name: string) => boolean;
+	/**
+	 * The map row a jackpot coin may draw its TIER's art from (`engine-layout`'s `jackpotArtKey`,
+	 * `COIN:MINI`), or undefined when this symbol draws its own art — always, while the project's
+	 * "Jackpot coins have their own art" switch is off. Absent, every symbol draws its own art.
+	 */
+	tierArtKey?: (rawSymbol: RawSymbol) => string | undefined;
 }
 
 /** Derived from the factory's return type rather than re-declared — same rule as `SymbolMapApi`. */
 export type SymbolInfoApi = ReturnType<typeof createSymbolInfo>;
 
-export function createSymbolInfo({ symbolMap, drawsPlaceholder }: SymbolInfoDeps) {
+export function createSymbolInfo({ symbolMap, drawsPlaceholder, tierArtKey }: SymbolInfoDeps) {
 	const { getActiveSymbolInfoMap, resolveSymbolSizeRatios, symbolMapGeneration } = symbolMap;
 
 	/** Symbols already reported as having no art — one warning each, not one per frame. */
@@ -46,6 +52,18 @@ export function createSymbolInfo({ symbolMap, drawsPlaceholder }: SymbolInfoDeps
 	 */
 	const hasAuthoredSymbolState = (symbolName: string, state: SymbolState): boolean =>
 		resolveSymbolState(getActiveSymbolInfoMap()[symbolName], state) === state;
+
+	/**
+	 * WHOSE ART a symbol draws in `state`: its jackpot tier's row when {@link SymbolInfoDeps.tierArtKey}
+	 * names one AND that row has usable art for the state (its own, or inherited inside the row — what
+	 * the tool's grid shows for it), else the symbol's own. A tier row left empty therefore draws the
+	 * coin, which is the whole of the fallback.
+	 */
+	const symbolArtName = (rawSymbol: RawSymbol, state: SymbolState): string => {
+		const key = tierArtKey?.(rawSymbol);
+		if (key === undefined) return rawSymbol.name;
+		return resolveSymbolState(getActiveSymbolInfoMap()[key], state) ? key : rawSymbol.name;
+	};
 
 	/**
 	 * THE RESOLVED CELL IS MEMOISED, AND THE MEMO IS ABOUT IDENTITY RATHER THAN SPEED.
@@ -80,13 +98,19 @@ export function createSymbolInfo({ symbolMap, drawsPlaceholder }: SymbolInfoDeps
 			symbolInfoMemo.clear();
 			symbolInfoMemoGeneration = generation;
 		}
+		// Keyed by the row the art is drawn FROM: a jackpot coin drawing its tier's art resolves as
+		// that row, and the result is a pure function of `(row, state)` like any other symbol's.
+		const name = symbolArtName(rawSymbol, state);
 		// `JSON.stringify` rather than a joined string: a symbol name is author-supplied, and any
 		// separator character it might legally contain would let two different (name, state) pairs
 		// collide onto one another's art.
-		const key = JSON.stringify([rawSymbol.name, state]);
+		const key = JSON.stringify([name, state]);
 		const memoised = symbolInfoMemo.get(key);
 		if (memoised) return memoised;
-		const resolved = resolveSymbolInfo({ rawSymbol, state });
+		const resolved = resolveSymbolInfo({
+			rawSymbol: name === rawSymbol.name ? rawSymbol : { ...rawSymbol, name },
+			state,
+		});
 		symbolInfoMemo.set(key, resolved);
 		return resolved;
 	};
@@ -170,5 +194,5 @@ export function createSymbolInfo({ symbolMap, drawsPlaceholder }: SymbolInfoDeps
 		};
 	};
 
-	return { getSymbolInfo, hasAuthoredSymbolState };
+	return { getSymbolInfo, hasAuthoredSymbolState, symbolArtName };
 }
