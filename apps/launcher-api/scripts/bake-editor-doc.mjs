@@ -41,6 +41,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 // is a node-builtins-only leaf for exactly this reason.
 import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
 import { bakeCoinLabel } from './lib/bakeCoinLabel.mjs';
+import { BAKE_EXPORTS } from './lib/bakeExports.mjs';
 import { writeBuildReport } from './lib/buildReportDir.mjs';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
 import { bakeSymbolFx } from './lib/bakeSymbolFx.mjs';
@@ -249,6 +250,39 @@ async function fetchRetry(url, init, label) {
 	throw new Error(lastErr);
 }
 
+/**
+ * POST one exporter — `/api/editor/export/<asset>` — and hand its JSON answer to `read`. The entry's
+ * `policy` decides what a failure does (see `lib/bakeExports.mjs`); `gate` sees the response
+ * before its status is checked. Skipped under --dry-run: an export writes to R2 deploy/.
+ */
+async function runExport({ asset, label, policy }, read, { gate, query = '' } = {}) {
+	if (dryRun) {
+		console.info(`(dry run) skipping the ${label} — it writes to R2 deploy/.`);
+		return;
+	}
+	const path = `/api/editor/export/${asset}`;
+	const url =
+		`${base}${path}?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}${query}`;
+	try {
+		const res = await fetchRetry(url, { method: 'POST' }, label);
+		if (gate) await gate(res);
+		if (res.ok) return read(await res.json());
+		if (res.status === 404 && policy !== 'required') return;
+		if (policy === 'additive') {
+			console.warn(`  ${label} returned HTTP ${res.status} — continuing without it.`);
+			return;
+		}
+		const name = `${label[0].toUpperCase()}${label.slice(1)}`;
+		bail(`${name} failed: HTTP ${res.status} — ${await bodySnippet(res)}`);
+	} catch (err) {
+		if (err instanceof BakeBail) throw err;
+		const reason = err instanceof Error ? err.message : err;
+		if (policy !== 'additive') bail(`Could not reach ${base}${path} — ${reason}`);
+		console.warn(`  could not reach ${base}${path} — continuing without it (${reason}).`);
+	}
+}
+
 async function main() {
 	if (!token) {
 		if (!optional) console.error(USAGE);
@@ -279,24 +313,124 @@ async function main() {
 		bail(`no authored doc for ${project} — has the project been opened + saved in the editor?`);
 	}
 
+	// ── The exports ──────────────────────────────────────────────────────────────────────────────
+	// One POST per launcher exporter, in `BAKE_EXPORTS` order (`lib/bakeExports.mjs` — the twin of the
+	// launcher's `exporters.ts`; `check:exporter-registry` proves they name the same asset classes).
+	// Each writes its R2 `deploy/` subtree, which the deploy mirror that runs next pulls, and answers
+	// the index embedded below. A reader per asset turns that answer into bundle state; `runExport`
+	// owns the fetch, the retry and what a failure does.
+
 	// Export the art the doc references into R2 `deploy/editor-art/` (spritesheet
 	// JSON + page per referenced atlas) so the deploy mirror that runs next in the
 	// game build pulls it, and embed the index so the game registers the sheets.
 	// This is what makes editor-placed sprites/images reach the shipped game
 	// automatically — without it they render as empty textures.
 	let editorArt = { sheets: [], images: [], spines: [] };
-	const artUrl =
-		`${base}/api/editor/export-art?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the editor-art export — it writes to R2 deploy/.');
-	} else
-		try {
-			const artRes = await fetchRetry(artUrl, { method: 'POST' }, 'editor-art export');
-			if (!artRes.ok) {
-				bail(`Editor-art export failed: HTTP ${artRes.status} — ${await bodySnippet(artRes)}`);
-			}
-			const art = await artRes.json();
+
+	// Export the project's fonts (Font Maker output) into R2 `deploy/editor-fonts/`
+	// so the deploy mirror that runs next pulls them, and embed the catalog so the
+	// game registers each bitmap font (pixi installs the `BitmapFont` under its
+	// face) and routes its family to `<BitmapText>`. Without this a font made in
+	// the Font Maker shows in the editor but is MISSING from the shipped game.
+	let fonts = { catalog: { prefix: 'editor-fonts', fonts: [] } };
+
+	// Export the project's sound library (Invisible Sound) into R2 `deploy/sounds/` so the
+	// deploy mirror that runs next pulls the audio files, and embed the catalog so the game
+	// loads each one as an extra audio bank. Without this an uploaded sound auditions in the
+	// tool and is MISSING from the shipped game — the same gap the font export closed.
+	let sounds = { catalog: { prefix: 'sounds', sounds: [] } };
+
+	// Export the symbol→state asset bindings (Invisible Symbols State Machine) into
+	// R2 `deploy/editor-symbols/` (sprite sheets keyed by their own frame names +
+	// verbatim rig bundles) so the deploy mirror that runs next pulls them, and
+	// embed the returned `{ map, index }` so the game merges the binding overrides
+	// over its coded `SYMBOL_INFO_MAP` and registers the introduced assets. Without
+	// this a rebound symbol shows in the tool preview but ships its old asset.
+	let symbols = {
+		map: {},
+		index: { sheets: [], images: [], spines: [], collisions: [] },
+		names: undefined,
+		symbolSounds: undefined,
+		symbolFx: undefined,
+		highlight: undefined,
+		boardGlow: undefined,
+		winLine: undefined,
+		winCycle: undefined,
+		winExplode: undefined,
+		winBeat: undefined,
+		arrivalRelease: undefined,
+		respinLandOnStop: undefined,
+		bookVfx: undefined,
+		transition: undefined,
+		tumblePattern: undefined,
+		anticipation: undefined,
+		stacked: undefined,
+		coinLabel: undefined,
+		flights: undefined,
+	};
+
+	// Export the project's Invisible Flow v2 graph + its shared function library and embed
+	// them: a flow-v2 game reads these via `bakedFlowV2Doc()` / `bakedFlowV2Library()`; without
+	// them a v2-authored game bakes inert and renders static scene-editor placement with no flow
+	// driving — the exact "flow was never built" symptom. The endpoint self-gates on authored, so
+	// they're present only for a real v2 flow; otherwise the game boots its default flow (parity).
+	let flowV2;
+	let flowV2Library;
+
+	// Boot splash — refresh `deploy/_boot/` (both splash bundles + `boot.json`) so the deploy
+	// mirror that runs next carries the CURRENT splash. Nothing is embedded: the splash paints
+	// before the bundle is read and fetches `assets/_boot/boot.json` itself. Best-effort for the
+	// cinematic reason (a launcher that predates the endpoint answers 404) and for the splash's
+	// own rule — a broken boot logo must never block a build.
+
+	// Invisible Cinematic — export the project's cinematics into `deploy/cinematics/` and embed
+	// them so `bakedCinematics()` resolves in a standalone build. Like a FlowDoc, a cinematic
+	// carries no binary assets of its own; the RIGS it casts ride the editor-art export (seeded
+	// with their bundle names server-side), so nothing extra is mirrored here. A project with no
+	// cinematics leaves this undefined ⇒ the bundle omits it ⇒ `bakedCinematics()` is [] (parity).
+	let cinematics;
+
+	// Export the project's Invisible FX effects (the authored particle effects) into R2
+	// `deploy/effects/` and embed the returned `EffectDoc[]` so the game's `bakedEffects()`
+	// registers them. Unlike the art/font/symbol exports an EffectDoc carries NO binary
+	// assets of its own — its particle art is an atlas the editor-art export above already
+	// ships — so `deploy/effects/` is pure JSON, mirrored by `pull-project-assets.mjs` like
+	// the rest of deploy/. Absent / un-authored ⇒ `effects` stays undefined ⇒ the game has
+	// no effects, byte-identical to current `main` (parity, §8). The dangling-assetKey guard
+	// (below) verifies each effect's `art.assetKey` resolves to a SHIPPED atlas — a key the
+	// editor-art export didn't ship = an invisible effect (§8), so warn loudly.
+	let effects;
+	let effectAssetKeys = [];
+	let effectSkeletonKeys = [];
+	// Rig-timeline direct FX bindings (a rig's own animation events → effects, read from the rig
+	// `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same FX
+	// export trigger — it ships no new assets. Absent / no bound events ⇒ stays undefined ⇒ the game's
+	// `resolveRigFx()` returns [] and nothing new mounts (parity).
+	let rigFx;
+
+	// Compile the project's shader graphs (Invisible Shader Graph) into R2 `deploy/editor-shaders/`
+	// and embed the returned effects, which the game registers at boot (`setCustomElementFx`) so an
+	// entry naming `custom:<id>` plays. Pure JSON (the compiled GLSL travels inside), mirrored by
+	// `pull-project-assets.mjs`. A launcher that predates the endpoint answers 404: the bake goes on
+	// without it, as for the cinematics. A project with no graphs leaves `shaderEffects` undefined
+	// (parity). A graph that does not compile is left out, and named here: its entries play nothing.
+	let shaderEffects;
+
+	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
+	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
+	// ships no new assets — its frames are regions of an atlas the editor-art export already
+	// ships. The export ships only the clips something plays (`clipReachability.ts`, the same set
+	// the art export gates the clips' atlas pages on).
+	let flipbooks;
+	// Rig-timeline direct CLIP bindings (a rig's own animation events → flipbook clips, read from the
+	// rig `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same
+	// clips export trigger — it ships no new assets, only a `clipId` into the clips above. Absent /
+	// no bound events ⇒ stays undefined ⇒ the game's `resolveRigFlipbooks()` returns [] (parity).
+	let rigFlipbooks;
+
+	/** Per asset, what the export answered → the bundle state above. */
+	const readers = {
+		art: (art) => {
 			editorArt = {
 				sheets: Array.isArray(art?.sheets) ? art.sheets : [],
 				images: Array.isArray(art?.images) ? art.images : [],
@@ -358,104 +492,14 @@ async function main() {
 						'Scoped per manifest, so it renders correctly; retire the stale sheet if unused.',
 				);
 			}
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-art — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Export the project's fonts (Font Maker output) into R2 `deploy/editor-fonts/`
-	// so the deploy mirror that runs next pulls them, and embed the catalog so the
-	// game registers each bitmap font (pixi installs the `BitmapFont` under its
-	// face) and routes its family to `<BitmapText>`. Without this a font made in
-	// the Font Maker shows in the editor but is MISSING from the shipped game.
-	let fonts = { catalog: { prefix: 'editor-fonts', fonts: [] } };
-	const fontsUrl =
-		`${base}/api/editor/export-fonts?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the font export — it writes to R2 deploy/.');
-	} else
-		try {
-			const fontRes = await fetchRetry(fontsUrl, { method: 'POST' }, 'font export');
-			if (!fontRes.ok) {
-				bail(`Font export failed: HTTP ${fontRes.status} — ${await bodySnippet(fontRes)}`);
-			}
-			const f = await fontRes.json();
+		},
+		fonts: (f) => {
 			if (f?.catalog && Array.isArray(f.catalog.fonts)) fonts = { catalog: f.catalog };
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-fonts — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Export the project's sound library (Invisible Sound) into R2 `deploy/sounds/` so the
-	// deploy mirror that runs next pulls the audio files, and embed the catalog so the game
-	// loads each one as an extra audio bank. Without this an uploaded sound auditions in the
-	// tool and is MISSING from the shipped game — the same gap the font export closed.
-	let sounds = { catalog: { prefix: 'sounds', sounds: [] } };
-	const soundsUrl =
-		`${base}/api/editor/export-sounds?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the sound export — it writes to R2 deploy/.');
-	} else
-		try {
-			const soundRes = await fetchRetry(soundsUrl, { method: 'POST' }, 'sound export');
-			if (!soundRes.ok) {
-				bail(`Sound export failed: HTTP ${soundRes.status} — ${await bodySnippet(soundRes)}`);
-			}
-			const s = await soundRes.json();
+		},
+		sounds: (s) => {
 			if (s?.catalog && Array.isArray(s.catalog.sounds)) sounds = { catalog: s.catalog };
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-sounds — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Export the symbol→state asset bindings (Invisible Symbols State Machine) into
-	// R2 `deploy/editor-symbols/` (sprite sheets keyed by their own frame names +
-	// verbatim rig bundles) so the deploy mirror that runs next pulls them, and
-	// embed the returned `{ map, index }` so the game merges the binding overrides
-	// over its coded `SYMBOL_INFO_MAP` and registers the introduced assets. Without
-	// this a rebound symbol shows in the tool preview but ships its old asset.
-	let symbols = {
-		map: {},
-		index: { sheets: [], images: [], spines: [], collisions: [] },
-		names: undefined,
-		symbolSounds: undefined,
-		symbolFx: undefined,
-		highlight: undefined,
-		boardGlow: undefined,
-		winLine: undefined,
-		winCycle: undefined,
-		winExplode: undefined,
-		winBeat: undefined,
-		arrivalRelease: undefined,
-		respinLandOnStop: undefined,
-		bookVfx: undefined,
-		transition: undefined,
-		tumblePattern: undefined,
-		anticipation: undefined,
-		stacked: undefined,
-		coinLabel: undefined,
-		flights: undefined,
-	};
-	const symbolsUrl =
-		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the symbols export — it writes to R2 deploy/.');
-	} else
-		try {
-			const symRes = await fetchRetry(symbolsUrl, { method: 'POST' }, 'symbols export');
-			if (!symRes.ok) {
-				bail(`Symbols export failed: HTTP ${symRes.status} — ${await bodySnippet(symRes)}`);
-			}
-			const s = await symRes.json();
+		},
+		symbols: (s) => {
 			// The global win-frame highlight override (absent → game keeps its built-in
 			// payframe). `assetKey` is the full R2 rig-bundle prefix, whose bundle is
 			// already in `index.spines` (the exporter added it), so the game loads it the
@@ -772,55 +816,8 @@ async function main() {
 						'AMBIGUOUS — rename the frame or retire the stale sheet.',
 				);
 			}
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-symbols — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Export the project's Invisible Flow v2 graph + its shared function library and embed
-	// them: a flow-v2 game reads these via `bakedFlowV2Doc()` / `bakedFlowV2Library()`; without
-	// them a v2-authored game bakes inert and renders static scene-editor placement with no flow
-	// driving — the exact "flow was never built" symptom. The endpoint self-gates on authored, so
-	// they're present only for a real v2 flow; otherwise the game boots its default flow (parity).
-	let flowV2;
-	let flowV2Library;
-	const flowUrl =
-		`${base}/api/editor/export-flow?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}` +
-		(allowInvalidFlow ? '&allowInvalidFlow=1' : '');
-	if (dryRun) {
-		console.info('(dry run) skipping the flow export — it writes to R2 deploy/.');
-	} else
-		try {
-			const flowRes = await fetchRetry(flowUrl, { method: 'POST' }, 'flow export');
-			// The launcher's flow gate: the v2 flow has validation errors. List them, and name the
-			// explicit override rather than letting a hung or skipped round ship.
-			if (flowRes.status === 409) {
-				const out = await flowRes.json().catch(() => ({}));
-				// A flow of another family than the project's kind (left from a kind change). No override.
-				if (out?.reason === 'flow-wrong-kind') {
-					refuseAtGate({
-						gate: 'flow-wrong-kind',
-						error: out.error ?? "The flow was built for another kind of game than the project's.",
-						details: [],
-						fixIn: '/admin (Re-scaffold the project, or change its kind back)',
-					});
-				}
-				refuseAtGate({
-					gate: 'invalid-flow',
-					error: out?.error ?? 'The flow failed validation.',
-					details: Array.isArray(out?.details) ? out.details.map(String) : [],
-					fixIn: 'Invisible Flow (Validation panel)',
-					flag: '--allow-invalid-flow',
-					env: 'ALLOW_INVALID_FLOW',
-				});
-			}
-			if (!flowRes.ok) {
-				bail(`Flow export failed: HTTP ${flowRes.status} — ${await bodySnippet(flowRes)}`);
-			}
-			const f = await flowRes.json();
+		},
+		flow: (f) => {
 			// v2 is authored-gated server-side (exportEditorFlowV2 returns {} otherwise), so
 			// a present `flowV2` object is already a real graph — embed it + its library.
 			if (f?.flowV2 && typeof f.flowV2 === 'object') {
@@ -829,97 +826,15 @@ async function main() {
 					flowV2Library = f.flowV2Library;
 				}
 			}
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-flow — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Boot splash — refresh `deploy/_boot/` (both splash bundles + `boot.json`) so the deploy
-	// mirror that runs next carries the CURRENT splash. Nothing is embedded: the splash paints
-	// before the bundle is read and fetches `assets/_boot/boot.json` itself. Best-effort for the
-	// cinematic reason (a launcher that predates the endpoint answers 404) and for the splash's
-	// own rule — a broken boot logo must never block a build.
-	const bootUrl =
-		`${base}/api/editor/export-boot?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the boot splash export — it writes to R2 deploy/.');
-	} else
-		try {
-			const res = await fetchRetry(bootUrl, { method: 'POST' }, 'boot splash export');
-			if (res.ok) {
-				const b = await res.json();
-				const tiers = ['engine', 'game'].filter((t) => b?.index?.[t]);
-				console.info(`  boot splash: ${tiers.length ? tiers.join(' + ') : 'none configured'}`);
-			} else if (res.status !== 404) {
-				console.warn(`  boot splash export returned HTTP ${res.status} — continuing without it.`);
-			}
-		} catch (err) {
-			console.warn(
-				`  could not reach ${base}/api/editor/export-boot — continuing without it (${err instanceof Error ? err.message : err}).`,
-			);
-		}
-
-	// Invisible Cinematic — export the project's cinematics into `deploy/cinematics/` and embed
-	// them so `bakedCinematics()` resolves in a standalone build. Like a FlowDoc, a cinematic
-	// carries no binary assets of its own; the RIGS it casts ride the editor-art export (seeded
-	// with their bundle names server-side), so nothing extra is mirrored here. A project with no
-	// cinematics leaves this undefined ⇒ the bundle omits it ⇒ `bakedCinematics()` is [] (parity).
-	let cinematics;
-	const cinematicsUrl =
-		`${base}/api/editor/export-cinematics?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the cinematic export — it writes to R2 deploy/.');
-	} else
-		try {
-			const res = await fetchRetry(cinematicsUrl, { method: 'POST' }, 'cinematic export');
-			// Best-effort, deliberately NOT a bail: cinematics are additive, and a launcher that
-			// predates this endpoint answers 404. Failing the whole bake over it would break every
-			// existing game's build for a feature they do not use.
-			if (res.ok) {
-				const c = await res.json();
-				if (Array.isArray(c?.cinematics) && c.cinematics.length) cinematics = c.cinematics;
-			} else if (res.status !== 404) {
-				console.warn(`  cinematic export returned HTTP ${res.status} — continuing without it.`);
-			}
-		} catch (err) {
-			console.warn(
-				`  could not reach ${base}/api/editor/export-cinematics — continuing without it (${err instanceof Error ? err.message : err}).`,
-			);
-		}
-
-	// Export the project's Invisible FX effects (the authored particle effects) into R2
-	// `deploy/effects/` and embed the returned `EffectDoc[]` so the game's `bakedEffects()`
-	// registers them. Unlike the art/font/symbol exports an EffectDoc carries NO binary
-	// assets of its own — its particle art is an atlas the editor-art export above already
-	// ships — so `deploy/effects/` is pure JSON, mirrored by `pull-project-assets.mjs` like
-	// the rest of deploy/. Absent / un-authored ⇒ `effects` stays undefined ⇒ the game has
-	// no effects, byte-identical to current `main` (parity, §8). The dangling-assetKey guard
-	// (below) verifies each effect's `art.assetKey` resolves to a SHIPPED atlas — a key the
-	// editor-art export didn't ship = an invisible effect (§8), so warn loudly.
-	let effects;
-	let effectAssetKeys = [];
-	let effectSkeletonKeys = [];
-	// Rig-timeline direct FX bindings (a rig's own animation events → effects, read from the rig
-	// `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same FX
-	// export trigger — it ships no new assets. Absent / no bound events ⇒ stays undefined ⇒ the game's
-	// `resolveRigFx()` returns [] and nothing new mounts (parity).
-	let rigFx;
-	const effectsUrl =
-		`${base}/api/editor/export-effects?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the effects export — it writes to R2 deploy/.');
-	} else
-		try {
-			const fxRes = await fetchRetry(effectsUrl, { method: 'POST' }, 'effects export');
-			if (!fxRes.ok) {
-				bail(`Effects export failed: HTTP ${fxRes.status} — ${await bodySnippet(fxRes)}`);
-			}
-			const fx = await fxRes.json();
+		},
+		boot: (b) => {
+			const tiers = ['engine', 'game'].filter((t) => b?.index?.[t]);
+			console.info(`  boot splash: ${tiers.length ? tiers.join(' + ') : 'none configured'}`);
+		},
+		cinematics: (c) => {
+			if (Array.isArray(c?.cinematics) && c.cinematics.length) cinematics = c.cinematics;
+		},
+		effects: (fx) => {
 			const list = Array.isArray(fx?.effects) ? fx.effects : [];
 			// Only embed when the project authored at least one effect, keeping the bundle
 			// byte-identical for every game with no FX work (parity, §8).
@@ -942,70 +857,17 @@ async function main() {
 			if (fx?.rigFx && typeof fx.rigFx === 'object' && Object.keys(fx.rigFx).length > 0) {
 				rigFx = fx.rigFx;
 			}
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-effects — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Compile the project's shader graphs (Invisible Shader Graph) into R2 `deploy/editor-shaders/`
-	// and embed the returned effects, which the game registers at boot (`setCustomElementFx`) so an
-	// entry naming `custom:<id>` plays. Pure JSON (the compiled GLSL travels inside), mirrored by
-	// `pull-project-assets.mjs`. A launcher that predates the endpoint answers 404: the bake goes on
-	// without it, as for the cinematics. A project with no graphs leaves `shaderEffects` undefined
-	// (parity). A graph that does not compile is left out, and named here: its entries play nothing.
-	let shaderEffects;
-	const shadersUrl =
-		`${base}/api/editor/export-shaders?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the shader export — it writes to R2 deploy/.');
-	} else
-		try {
-			const res = await fetchRetry(shadersUrl, { method: 'POST' }, 'shader export');
-			if (res.ok) {
-				const sh = await res.json();
-				if (Array.isArray(sh?.shaderEffects) && sh.shaderEffects.length)
-					shaderEffects = sh.shaderEffects;
-				for (const skip of Array.isArray(sh?.skipped) ? sh.skipped : []) {
-					console.warn(
-						`  shader effect "${skip?.name ?? skip?.id}" does not compile and will not play: ${(Array.isArray(skip?.errors) ? skip.errors : []).join('; ')}`,
-					);
-				}
-			} else if (res.status !== 404) {
-				bail(`Shader export failed: HTTP ${res.status} — ${await bodySnippet(res)}`);
+		},
+		shaders: (sh) => {
+			if (Array.isArray(sh?.shaderEffects) && sh.shaderEffects.length)
+				shaderEffects = sh.shaderEffects;
+			for (const skip of Array.isArray(sh?.skipped) ? sh.skipped : []) {
+				console.warn(
+					`  shader effect "${skip?.name ?? skip?.id}" does not compile and will not play: ${(Array.isArray(skip?.errors) ? skip.errors : []).join('; ')}`,
+				);
 			}
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-shaders — ${err instanceof Error ? err.message : err}`,
-			);
-		}
-
-	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
-	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
-	// ships no new assets — its frames are regions of an atlas the editor-art export already
-	// ships. The export ships only the clips something plays (`clipReachability.ts`, the same set
-	// the art export gates the clips' atlas pages on).
-	let flipbooks;
-	// Rig-timeline direct CLIP bindings (a rig's own animation events → flipbook clips, read from the
-	// rig `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same
-	// clips export trigger — it ships no new assets, only a `clipId` into the clips above. Absent /
-	// no bound events ⇒ stays undefined ⇒ the game's `resolveRigFlipbooks()` returns [] (parity).
-	let rigFlipbooks;
-	const clipsUrl =
-		`${base}/api/editor/export-clips?project=${encodeURIComponent(project)}` +
-		`&k=${encodeURIComponent(token)}`;
-	if (dryRun) {
-		console.info('(dry run) skipping the clips export — it writes to R2 deploy/.');
-	} else
-		try {
-			const clipRes = await fetchRetry(clipsUrl, { method: 'POST' }, 'clips export');
-			if (!clipRes.ok) {
-				bail(`Clips export failed: HTTP ${clipRes.status} — ${await bodySnippet(clipRes)}`);
-			}
-			const cl = await clipRes.json();
+		},
+		clips: (cl) => {
 			const list = Array.isArray(cl?.clips) ? cl.clips : [];
 			// Only embed when the project authored at least one clip, keeping the bundle
 			// byte-identical for every game with no flipbook work (parity).
@@ -1036,12 +898,42 @@ async function main() {
 					);
 				}
 			}
-		} catch (err) {
-			if (err instanceof BakeBail) throw err;
-			bail(
-				`Could not reach ${base}/api/editor/export-clips — ${err instanceof Error ? err.message : err}`,
-			);
-		}
+		},
+	};
+	/** Answers acted on before the status check: the launcher refuses an invalid flow with a 409. */
+	const gates = {
+		flow: async (flowRes) => {
+			// The launcher's flow gate: the v2 flow has validation errors. List them, and name the
+			// explicit override rather than letting a hung or skipped round ship.
+			if (flowRes.status === 409) {
+				const out = await flowRes.json().catch(() => ({}));
+				// A flow of another family than the project's kind (left from a kind change). No override.
+				if (out?.reason === 'flow-wrong-kind') {
+					refuseAtGate({
+						gate: 'flow-wrong-kind',
+						error: out.error ?? "The flow was built for another kind of game than the project's.",
+						details: [],
+						fixIn: '/admin (Re-scaffold the project, or change its kind back)',
+					});
+				}
+				refuseAtGate({
+					gate: 'invalid-flow',
+					error: out?.error ?? 'The flow failed validation.',
+					details: Array.isArray(out?.details) ? out.details.map(String) : [],
+					fixIn: 'Invisible Flow (Validation panel)',
+					flag: '--allow-invalid-flow',
+					env: 'ALLOW_INVALID_FLOW',
+				});
+			}
+		},
+	};
+	const queries = { flow: allowInvalidFlow ? '&allowInvalidFlow=1' : '' };
+	for (const entry of BAKE_EXPORTS) {
+		await runExport(entry, readers[entry.asset], {
+			gate: gates[entry.asset],
+			query: queries[entry.asset],
+		});
+	}
 
 	// Dangling-assetKey guard (§8 — the particle analogue of the geometry-less-manifest
 	// gotcha): each effect layer references its particle art by `art.assetKey`, an atlas

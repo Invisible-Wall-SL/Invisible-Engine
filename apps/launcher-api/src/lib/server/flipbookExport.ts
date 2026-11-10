@@ -32,9 +32,8 @@
 import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
 import { collectPlayedClipIds } from './clipReachability';
 import { CLIP_IO_CONCURRENCY, loadFlipbookDoc } from './flipbookStorage';
-import { mapWithConcurrency } from './concurrency';
+import { DeployMirror } from './deployMirror';
 import { SUB } from './projectPaths';
-import { deleteObjects, listAllKeys, putObjectText } from './r2';
 
 export interface FlipbookExportIndex {
 	/** The exported, normalized clips. Empty when the project authored nothing — the
@@ -99,32 +98,23 @@ export async function exportClips(
 		);
 	}
 
-	// Write each pure clip + the index the game registers, tracking what we wrote so stale objects
-	// from a previous export get pruned (the deploy mirror then matches the source).
-	const written = new Set<string>();
-	// One PUT per clip, 8.4s of the assemble (`flipbooks:write`) spent issuing them one at a time.
-	// Each write is independent — a distinct key, small JSON, no shared state beyond the `written`
-	// set, which only ever gains members — so overlapping them is a pure latency win.
-	await phase('write', async () => {
-		const keys = await mapWithConcurrency(clips, CLIP_IO_CONCURRENCY, async (clip) => {
-			const docKey = `${clipsDeployPrefix}${clip.id}.json`;
-			await putObjectText(docKey, JSON.stringify(clip, null, '\t'), 'application/json');
-			return docKey;
-		});
-		for (const k of keys) written.add(k);
-	});
-
+	// Write each pure clip + the index the game registers, then prune leftovers so deploy/clips/
+	// mirrors the project's current clips exactly. One PUT per clip, 8.4s of the assemble
+	// (`flipbooks:write`) while they were issued one at a time; each is a distinct key, so
+	// overlapping them is a pure latency win.
+	const mirror = new DeployMirror(clipsDeployPrefix);
+	await phase('write', () =>
+		mirror.putAll(
+			clips.map((clip) => ({
+				key: `${clipsDeployPrefix}${clip.id}.json`,
+				text: JSON.stringify(clip, null, '\t'),
+			})),
+			CLIP_IO_CONCURRENCY,
+		),
+	);
 	const index = clips.map((c) => ({ id: c.id, name: c.name, frames: c.frames.length }));
-	const indexKey = `${clipsDeployPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
-	written.add(indexKey);
-
-	// Prune leftovers so deploy/clips/ mirrors the project's current clips exactly.
-	await phase('prune', async () => {
-		const existing = await listAllKeys(clipsDeployPrefix);
-		const stale = existing.filter((k) => !written.has(k));
-		await deleteObjects(stale);
-	});
+	await mirror.put(`${clipsDeployPrefix}index.json`, JSON.stringify(index, null, '\t'));
+	await phase('prune', () => mirror.commit());
 
 	const referenced = new Set<string>();
 	// EVERY sheet a clip touches, not just its primary: a clip may span pages via scoped

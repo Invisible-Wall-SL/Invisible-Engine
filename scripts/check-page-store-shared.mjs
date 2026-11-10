@@ -53,13 +53,21 @@ const ok = (label, condition, detail = '') => {
 };
 
 const orchestrator = read('runtimeBundle.ts');
+const registry = read('exporters.ts');
 const art = read('editorArtExport.ts');
 const symbols = read('symbolExport.ts');
+/** One registry entry's source: from `const <name> = define({` to the next entry. */
+const entry = (name) => {
+	const head = `const ${name} = define({`;
+	const at = registry.indexOf(head);
+	const next = registry.indexOf(' = define({', at + head.length);
+	return at === -1 ? '' : registry.slice(at, next === -1 ? undefined : next);
+};
 
 console.log('1. the orchestrator owns exactly one store');
 ok(
 	'runtimeBundle constructs a PageStore',
-	/const pageStore = new PageStore\(/.test(orchestrator),
+	/const pageStore = step\('tiers'[\s\S]*?new PageStore\(/.test(orchestrator),
 	'the pass-wide store lives in runtimeBundle.ts',
 );
 ok(
@@ -67,11 +75,28 @@ ok(
 	(orchestrator.match(/new PageStore\(/g) ?? []).length === 1,
 	'two stores in one pass dedup against each other, i.e. not at all',
 );
+ok(
+	'and hands it to the exporters as the pass',
+	/startExports\(\{[^}]*pass: \{ pageStore/.test(orchestrator),
+);
 
 console.log('2. both page-writing exporters receive it');
-for (const call of ['exportEditorArt', 'exportEditorSymbols']) {
-	const invocation = new RegExp(`${call}\\([^)]*\\{[^}]*pageStore[^}]*\\}`, 's');
-	ok(`${call} is passed pageStore`, invocation.test(orchestrator));
+for (const [name, call] of [
+	['art', 'exportEditorArt'],
+	['symbols', 'exportEditorSymbols'],
+]) {
+	const invocation = new RegExp(
+		`${call}\\([^)]*\\{[^}]*pageStore: pass\\s*\\?\\s*await pass\\.pageStore`,
+		's',
+	);
+	ok(
+		`${call} is passed the pass's pageStore (exporters.ts \`${name}\`)`,
+		invocation.test(entry(name)),
+	);
+	ok(
+		`\`${name}\` is marked claimsPages, so the prune waits for it`,
+		/claimsPages: true/.test(entry(name)),
+	);
 }
 
 console.log('3. symbolExport forwards it to the bundle export AND uses it for sheets');
@@ -107,34 +132,32 @@ for (const [name, src] of [
 ]) {
 	ok(
 		`${name} does not list _pages/ to prune it`,
-		!/listAllKeys\(\s*`?\$\{deployPrefix\}_pages\//.test(src),
+		!/(listAllKeys|DeployMirror)\(\s*`?\$\{deployPrefix\}_pages\//.test(src),
 		'an exporter cannot see what the others still claim; runtimeBundle prunes once, at the end',
 	);
 }
 
 console.log('5. the orchestrator prunes, after the exports');
-const pruneAt = orchestrator.search(/_pages\/`\)\)\.filter|prune:pages/);
-const joinAt = orchestrator.indexOf('await Promise.all([');
+const pruneAt = orchestrator.search(/prune:pages/);
+const joinAt = orchestrator.search(
+	/const claimers = EXPORTERS\.filter\(\(e\) => e\.claimsPages\)[\s\S]*?Promise\.all\(claimers\)\.then\(/,
+);
 ok('runtimeBundle prunes _pages', pruneAt !== -1);
 ok(
-	'it prunes AFTER the Promise.all',
+	'it prunes AFTER every page-claiming export has settled',
 	joinAt !== -1 && pruneAt > joinAt,
 	'pruning before the join deletes pages a parallel export is still writing',
 );
 
 console.log('6. the bake path passes a store as well as the publish path');
-const bakeEndpoint = readFileSync(
-	`${ROOT}/apps/launcher-api/src/routes/api/editor/export-symbols/+server.ts`,
-	'utf8',
-);
 ok(
-	'the export-symbols endpoint constructs a PageStore',
-	/new PageStore\(/.test(bakeEndpoint),
-	'bake-editor-doc.mjs calls this endpoint; without a store a baked game ships raw pages',
+	'a route call of `symbols` constructs a PageStore',
+	/pageStore: pass\s*\?\s*await pass\.pageStore\s*:\s*new PageStore\(/.test(entry('symbols')),
+	'bake-editor-doc.mjs calls /api/editor/export/symbols; without a store a baked game ships raw pages',
 );
 ok(
 	'and hands it to exportEditorSymbols',
-	/exportEditorSymbols\([^)]*\{[\s\S]*?pageStore[\s\S]*?\}\)/.test(bakeEndpoint),
+	/exportEditorSymbols\([^)]*\{[\s\S]*?pageStore[\s\S]*?\}\)/.test(entry('symbols')),
 );
 
 console.log('7. no unexempted caller skips the store');

@@ -34,7 +34,8 @@ import {
 } from 'engine-fx';
 import { listEffects } from './fxStorage';
 import { SUB, fxDocKey } from './projectPaths';
-import { deleteObjects, getObjectText, listAllKeys, putObjectText } from './r2';
+import { DeployMirror } from './deployMirror';
+import { getObjectText } from './r2';
 
 export interface EffectExportIndex {
 	/** The exported, normalized EffectDocs. Empty when the project authored nothing —
@@ -109,24 +110,18 @@ export async function exportEffects(
 		effects.push(exportableEffectDoc(doc));
 	}
 
-	// Write each pure doc + the index the game registers, tracking what we wrote so stale
-	// objects from a previous export get pruned (the deploy mirror then matches the source).
-	const written = new Set<string>();
-	for (const doc of effects) {
-		const docKey = `${effectsPrefix}${doc.id}.json`;
-		await putObjectText(docKey, JSON.stringify(doc, null, '\t'), 'application/json');
-		written.add(docKey);
-	}
-
+	// Write each pure doc + the index the game registers, then prune leftovers so deploy/effects/
+	// mirrors the project's current effects exactly.
+	const mirror = new DeployMirror(effectsPrefix);
+	await mirror.putAll(
+		effects.map((doc) => ({
+			key: `${effectsPrefix}${doc.id}.json`,
+			text: JSON.stringify(doc, null, '\t'),
+		})),
+	);
 	const index = effects.map((e) => ({ id: e.id, name: e.name, layers: e.layers.length }));
-	const indexKey = `${effectsPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
-	written.add(indexKey);
-
-	// Prune leftovers so deploy/effects/ mirrors the project's current effects exactly.
-	const existing = await listAllKeys(effectsPrefix);
-	const stale = existing.filter((k) => !written.has(k));
-	await deleteObjects(stale);
+	await mirror.put(`${effectsPrefix}index.json`, JSON.stringify(index, null, '\t'));
+	await mirror.commit();
 
 	const referenced = new Set<string>();
 	for (const e of effects) for (const k of assetKeysOf(e)) referenced.add(k);

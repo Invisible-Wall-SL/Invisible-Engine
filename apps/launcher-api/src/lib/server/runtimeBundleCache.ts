@@ -3,9 +3,8 @@
  * `GET /api/editor/runtime` (authoring boots, and unsnapshotted games — see below).
  *
  * WHY THIS EXISTS. `buildRuntimeBundle` re-runs the WHOLE export pipeline on every call
- * (`ensureDeployExports` + `exportEffects` + `exportRigFx` — seven exporters that list,
- * re-serialize and WRITE back to R2). A single assemble measured **17-19s** in production
- * for `bookofborutremake`. That is at the edge of the gateway's patience, so the endpoint
+ * (every entry of `exporters.ts` — exporters that list, re-serialize and WRITE back to R2). A
+ * single assemble measured **17-19s** in production for `bookofborutremake`. That is at the edge of the gateway's patience, so the endpoint
  * intermittently 502s — and the game's `prepareRuntimeBundle` treats ANY failure as
  * "fall back to the stale baked doc", silently. Net effect: an author saves an edit, the
  * game boots, the fetch loses the race, and the game renders a PRE-EDIT snapshot while
