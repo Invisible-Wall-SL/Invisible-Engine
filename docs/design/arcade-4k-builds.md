@@ -154,6 +154,8 @@ variable for both halves, so the art a build ships and the tier it loads cannot 
   kept anyway (a rig's half atlas keeps any page that had no half copy); an export's `index.json`
   does not count, because it lists every tier and the game never loads it (the bake embeds the index).
   The log and `pull.json` (`artTier.notPulled`) say what was left out and its size.
+- **The desktop launcher** (v1.0.65): each project card's **Art: Auto / Full / Half** picker sets
+  it for ☁ Publish and 📦 Deliver (`invisible-launcher` `verify_art_tier.py`).
 - **A delivery**: `build-delivery.mjs --art-tier full|half` adds it to the build env and to
   `--print-env`. Deliberately not a delivery-profile field: a profile describes the operator's RGS,
   and the same one can go to a cabinet or a phone.
@@ -167,8 +169,6 @@ variable for both halves, so the art a build ships and the tier it loads cannot 
 
 ## Still open
 
-- The desktop launcher's card has no tier picker yet (separate repo, `invisible-launcher`): set
-  `IE_ART_TIER` in the environment the launcher runs from, or run `build-delivery.mjs --art-tier`.
 - After art is re-made at 4K, the nodes drawn at their art's natural size need their scale set back
   to 1 by hand; a one-click "art is now ×2" reset in the Scene Editor would do it.
 - Nothing yet ran on a real 4K cabinet or a real phone.

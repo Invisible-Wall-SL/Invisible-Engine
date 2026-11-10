@@ -187,6 +187,16 @@ server pages included, as lossy WebP q80 plus 256-colour PNGs. On Book of Borut 
 that moved opaque pixels by up to 108/255, which is visible banding. The upload is
 bigger than it was then, and the art is the art that was authored.
 
+**🖥 Art: Auto / Full / Half — one size of art for one kind of screen** *(from v1.0.65)*. A
+game authored for a 4K cabinet that ticks *Also publish half-resolution art* in the Scene
+Editor has two copies of its art: full size and half size. On **Auto** (the default) a build
+carries both and each screen loads the one it needs. Pick **Full** for a cabinet build or
+**Half** for a desktop or phone build, and that build carries only that copy, which saves the
+other copy's whole download. The game then always loads the copy it carries, whatever screen it
+runs on. ☁ Publish and 📦 Deliver both read it. On a game that doesn't publish half-resolution
+art there is only one copy, so the choice changes nothing. See
+[arcade-4k-builds](../design/arcade-4k-builds.md) "One-screen builds".
+
 **Every publish builds the latest engine.** A game repo holds no game code of its
 own: the game layer is compiled straight from the engine submodule that the step
 above just advanced to `main`, so there is no engine version to choose and no way
@@ -371,7 +381,7 @@ operator.
 - Leave the fields empty and it still loads, then refuses at the session check —
   which is itself worth seeing once, because that refusal is what protects a
   mis-wired embed from showing a player a wallet nobody issued.
-- 🐞 **Debug** and 🗜 **Optimize** are the card's own checkboxes, read when you press
+- 🐞 **Debug**, 🗜 **Optimize** and 🖥 **Art** are the card's own settings, read when you press
   **📦 Deliver** — set them first, the dialog has no copy of them. They mean
   the same as for a publish, except that here Debug ships the in-game debug tooling
   *to the partner*, so untick it for a real handover.

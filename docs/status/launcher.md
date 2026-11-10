@@ -81,6 +81,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-10 — **Desktop launcher v1.0.65: an Art picker on each project card** (Auto / Full /
+  Half, `invisible-launcher` #30). Full or Half sets `IE_ART_TIER` for ☁ Publish and 📦 Deliver,
+  so a one-screen build ships one art tier ([arcade-4k-builds](../design/arcade-4k-builds.md)
+  "One-screen builds"); Auto changes nothing. Guide: [tools/invisible-launcher](../tools/invisible-launcher.md).
 - 2026-11-10 — **A baked build ships the rigs only a cinematic casts** (was open item 9). The `art`
   exporter now seeds `exportEditorArt` with `cinematicRigNames` on a route call too, not only in the
   runtime pass: `exporters.ts`'s `authoredCinematics(clientKey, projectKey, pass)` returns the
