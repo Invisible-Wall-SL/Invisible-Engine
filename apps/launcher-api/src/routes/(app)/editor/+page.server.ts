@@ -36,7 +36,7 @@ import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName, storedProjectGameType } from '$lib/server/projects';
-import { ConflictError } from '$lib/server/r2';
+import { conflictFailure } from '$lib/server/conflict';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
@@ -403,17 +403,6 @@ export const actions: Actions = {
 		// deliberately a separate field rather than an omitted etag, so an unguarded
 		// write is always an explicit choice in the payload, never an accident.
 		const baseEtag = writeBaseEtagForm(form);
-		// Someone else saved this project since this tab loaded it. Refuse rather than overwrite
-		// their work — and return `fail`, NOT `error()`, so the client's envelope parser can read
-		// the reason. The client keeps its local doc and stays dirty; nothing here may discard it.
-		const conflict = () =>
-			fail(409, {
-				action: 'save' as const,
-				error:
-					'Someone else saved this project while you were editing. ' +
-					'Your changes are still here — reload to get their version first.',
-				conflict: true as const,
-			});
 		// `backup: 'always'` = "this save is committing a DESTRUCTIVE layout swap" (a scaffold /
 		// custom-kind / reference load the author accepted). Those are exactly the writes someone
 		// wants back, and they are rare, so they bypass the autosave coalescing window in
@@ -434,7 +423,15 @@ export const actions: Actions = {
 				backup,
 			));
 		} catch (e) {
-			if (e instanceof ConflictError) return conflict();
+			// Someone else saved this project since this tab loaded it. Refuse rather than overwrite
+			// their work; the client keeps its local doc and stays dirty.
+			const conflict = conflictFailure(
+				e,
+				'Someone else saved this project while you were editing. ' +
+					'Your changes are still here — reload to get their version first.',
+				{ action: 'save' as const },
+			);
+			if (conflict) return conflict;
 			throw e;
 		}
 		// Non-blocking template validation (§7.1): flag any required slot the

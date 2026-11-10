@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { FontCatalog } from 'engine-layout';
 import { parseFontTarget, resolveFontTarget } from '$lib/server/fonts';
+import { conflictResponse } from '$lib/server/conflict';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import {
@@ -135,12 +136,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			return json({ ok: true, removed: id });
 		} catch (e) {
 			if (e instanceof ConflictError && attempt < CATALOG_MAX_ATTEMPTS) continue;
-			if (e instanceof ConflictError) {
-				return json(
-					{ error: 'conflict', message: 'The font catalog changed while deleting — please retry.' },
-					{ status: 409 },
-				);
-			}
+			const conflict = conflictResponse(
+				e,
+				'The font catalog changed while deleting — please retry.',
+				{ okFlag: false },
+			);
+			if (conflict) return conflict;
 			throw e;
 		}
 	}

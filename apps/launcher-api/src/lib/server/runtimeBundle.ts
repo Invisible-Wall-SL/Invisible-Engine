@@ -64,9 +64,10 @@ import { flowScreensMissing } from './flowV2Validation';
 import { loadAuthoredCinematics } from './cinematicExport';
 import type { CinematicDoc } from './cinematicStorage';
 import { loadDoc as loadLocalizationDoc } from './localization';
-import { SUB, UNASSIGNED_CLIENT } from './projectPaths';
+import { SUB } from './projectPaths';
+import { clientKeyOf } from './projectLookup';
 import { PageStore } from './pageStore';
-import { projectClientKey, projectName } from './projects';
+import { projectName } from './projects';
 import { namedShaderEffects } from './shaderExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { withoutPartnerPaytable } from './paytableDrift';
@@ -327,7 +328,7 @@ async function assembleRuntimeBundle(
 	timings: Record<string, number>,
 	includeUnreviewed = false,
 ): Promise<RuntimeBundle> {
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 
 	// 1. Doc — same assembly as /api/editor/doc?components=1 (HUD name default +
 	//    rig-key rewrite + referenced defs + per-project component defaults).

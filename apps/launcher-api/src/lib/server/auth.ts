@@ -3,8 +3,8 @@ import { promisify } from 'node:util';
 import { and, eq, ne } from 'drizzle-orm';
 import { getDb } from './db';
 import { projects, sessions, users } from './db/schema';
-import { UNASSIGNED_CLIENT } from './projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from './projects';
+import { clientKeyOf } from './projectLookup';
+import { DEFAULT_PROJECT_KEY } from './projects';
 import { passwordTooLong } from '../passwordLimit';
 import type { Role } from '$lib/roles';
 
@@ -159,7 +159,7 @@ export async function getActiveProjectKey(raw: string | undefined): Promise<stri
 /**
  * Resolve the session's active `(project, client)` scope in one query. Mirrors
  * the old `(getActiveProjectKey(token) ?? DEFAULT_PROJECT_KEY)` +
- * `(projectClientKey(key) ?? UNASSIGNED_CLIENT)` pair exactly: the join carries
+ * `clientKeyOf(key)` pair exactly: the join carries
  * the owning client when the active project exists; the fallback second query
  * only runs when the join yields no client (no session, active unset, the active
  * project was deleted, or its `clientKey` is null) — the common path is one query.
@@ -179,7 +179,7 @@ export async function getActiveScope(
 
 	const projectKey = row?.projectKey ?? DEFAULT_PROJECT_KEY;
 	let clientKey = row?.clientKey ?? null;
-	if (!clientKey) clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	if (!clientKey) clientKey = await clientKeyOf(projectKey);
 	return { projectKey, clientKey };
 }
 

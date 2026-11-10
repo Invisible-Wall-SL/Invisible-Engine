@@ -1,8 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDeployToken } from './deployToken';
 import { exportBody, findExporter } from './exporters';
-import { UNASSIGNED_CLIENT } from './projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from './projects';
+import { clientKeyOf, projectParam } from './projectLookup';
 import { withDeployWrite } from './runtimeBundleCache';
 
 /**
@@ -17,8 +16,8 @@ export async function handleExport(id: string, url: URL): Promise<Response> {
 	if (!exporter) throw error(404, `No exporter '${id}'.`);
 	await requireDeployToken(url, exporter.notConfigured);
 
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const projectKey = projectParam(url);
+	const clientKey = await clientKeyOf(projectKey);
 	const ctx = { clientKey, projectKey };
 
 	try {

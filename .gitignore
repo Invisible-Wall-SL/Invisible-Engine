@@ -90,6 +90,8 @@ __pycache__/
 services/atlas-serverless/nodes.json
 services/atlas-serverless/fetch-models.py
 services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers/
+# Same, from services/_shared/iw_common/ (handler.py's shared ComfyUI client).
+services/atlas-serverless/iw_common/
 
 # current-games harness cache (runtimes, snapshots, reports)
 .cache/

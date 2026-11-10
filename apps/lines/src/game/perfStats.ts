@@ -1,11 +1,18 @@
 /**
  * The numbers behind the `?perf=1` frame-time readout (`PerfHud.svelte`): frame intervals split
- * into idle and spinning, hitches, the display's refresh, and how far each reel step is from the
- * step its speed and the frame's interval make. Plain functions over a frame feed, so a fixture can
- * drive them without a canvas (`perfStats.fixture.ts`).
+ * into idle and spinning, hitches, the display's refresh, how far each reel step is from the step
+ * its speed and the frame's interval make, and what each frame asked of the GPU (`pixi-svelte`
+ * `glCounters.ts`), as a mean and a max per frame. Plain functions over a frame feed, so a fixture
+ * can drive them without a canvas (`perfStats.fixture.ts`).
  */
 
 import type { FrameMotionView } from 'pixi-svelte/frameClock';
+import type { FrameWork } from 'pixi-svelte';
+
+declare global {
+	/** `?perf=1` only: the readout's Copy report as data, for a script driving the page. */
+	var __IE_PERF__: ((action?: 'reset') => string | undefined) | undefined;
+}
 
 /** Frames kept per bucket for the percentiles: about 5 s at 120 Hz. */
 const WINDOW = 600;
@@ -24,6 +31,35 @@ export type PerfBucketSnapshot = {
 	hitches: Record<(typeof HITCH_MS)[number], number>;
 };
 
+/** The per-frame work the readout reports, in this order. */
+export const WORK_KEYS = [
+	'draws',
+	'vertices',
+	'passes',
+	'targetSwitches',
+	'resolves',
+	'invalidations',
+	'filterPasses',
+	'filterGroups',
+	'copies',
+	'textureUploads',
+	'bufferBytes',
+	'roundTrips',
+	'programs',
+	'calls',
+	'renderMs',
+	'tickMs',
+	'gpuWaitMs',
+] as const satisfies readonly (keyof FrameWork)[];
+
+export type WorkKey = (typeof WORK_KEYS)[number];
+
+export type WorkSnapshot = {
+	frames: number;
+	/** Per frame: the mean (to 0.1) and the largest, for every key a frame reported. */
+	perFrame: Partial<Record<WorkKey, { mean: number; max: number }>>;
+};
+
 export type PerfSnapshot = {
 	seconds: number;
 	refreshHz: number | undefined;
@@ -32,6 +68,7 @@ export type PerfSnapshot = {
 	idle: PerfBucketSnapshot;
 	spinning: PerfBucketSnapshot;
 	reel: { steps: number; mean: number; p95: number; max: number };
+	work: { idle: WorkSnapshot; spinning: WorkSnapshot };
 };
 
 class Ring {
@@ -77,6 +114,30 @@ class Bucket {
 	}
 }
 
+class WorkBucket {
+	frames = 0;
+	private readonly sum: Partial<Record<WorkKey, number>> = {};
+	private readonly max: Partial<Record<WorkKey, number>> = {};
+	add(work: FrameWork): void {
+		this.frames++;
+		for (const key of WORK_KEYS) {
+			const value = work[key];
+			if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+			this.sum[key] = (this.sum[key] ?? 0) + value;
+			this.max[key] = Math.max(this.max[key] ?? 0, value);
+		}
+	}
+	snapshot(): WorkSnapshot {
+		const perFrame: WorkSnapshot['perFrame'] = {};
+		for (const key of WORK_KEYS) {
+			const sum = this.sum[key];
+			if (sum === undefined) continue;
+			perFrame[key] = { mean: round1(sum / this.frames), max: round1(this.max[key] ?? 0) };
+		}
+		return { frames: this.frames, perFrame };
+	}
+}
+
 /** The refresh rate the shortest intervals point at (the 10th percentile), snapped to a real one. */
 export function estimateRefreshHz(intervals: number[]): number | undefined {
 	if (intervals.length < 30) return undefined;
@@ -100,6 +161,9 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 	let reelSum = 0;
 	let reelMax = 0;
 	let previous = new WeakMap<object, { visual: number; rate: number; time: number }>();
+	let idleWork = new WorkBucket();
+	let spinningWork = new WorkBucket();
+	let lastSpinning = false;
 
 	return {
 		/**
@@ -109,8 +173,8 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 		frame(time: number, isSpinning: boolean, moving: Iterable<FrameMotionView>): void {
 			const motions = [...moving];
 			const interval = lastTime === undefined ? undefined : time - lastTime;
-			if (interval !== undefined && interval > 0)
-				(isSpinning || motions.length > 0 ? spinning : idle).add(interval);
+			lastSpinning = isSpinning || motions.length > 0;
+			if (interval !== undefined && interval > 0) (lastSpinning ? spinning : idle).add(interval);
 			for (const motion of motions) {
 				const rate = motion.rate;
 				const visual = motion.drawn - motion.shift;
@@ -133,6 +197,10 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 			}
 			lastTime = time;
 		},
+		/** What the frame just drawn asked of the GPU; it counts where that frame's interval did. */
+		work(sample: FrameWork): void {
+			(lastSpinning ? spinningWork : idleWork).add(sample);
+		},
 		/** The page was hidden: the next interval is the pause, not a frame. */
 		pause(): void {
 			lastTime = undefined;
@@ -147,6 +215,8 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 			reelSum = 0;
 			reelMax = 0;
 			previous = new WeakMap();
+			idleWork = new WorkBucket();
+			spinningWork = new WorkBucket();
 		},
 		snapshot(): PerfSnapshot {
 			const all = [...idle.intervals(), ...spinning.intervals()];
@@ -165,6 +235,7 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 					p95: round1(quantile(reelSorted, 0.95)),
 					max: round1(reelMax),
 				},
+				work: { idle: idleWork.snapshot(), spinning: spinningWork.snapshot() },
 			};
 		},
 	};

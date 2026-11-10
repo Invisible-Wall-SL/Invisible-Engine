@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { conflictJson } from './conflict';
 import { SUB } from './projectPaths';
 import { ConflictError, headObject, precondition, putObjectText } from './r2';
 import { backupIrigBeforeOverwrite, irigBackupsPrefix, pruneIrigBackups } from './riggerIrig';
@@ -94,19 +95,13 @@ export async function writeIrig(
 		const current = await headObject(target.key);
 		return {
 			ok: false,
-			response: json(
-				{
-					ok: false,
-					error: 'conflict',
-					etag: current ? current.etag : null,
-					message:
-						baseEtag === null
-							? `"${target.stem}.irig" was created by someone else while you were editing. ` +
-								'Your changes are still here — reload to see theirs first.'
-							: `Someone else saved "${target.stem}.irig" while you were editing. ` +
-								'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
+			response: conflictJson(
+				baseEtag === null
+					? `"${target.stem}.irig" was created by someone else while you were editing. ` +
+							'Your changes are still here — reload to see theirs first.'
+					: `Someone else saved "${target.stem}.irig" while you were editing. ` +
+							'Your changes are still here — reload to get their version first.',
+				{ extra: { etag: current ? current.etag : null } },
 			),
 		};
 	}

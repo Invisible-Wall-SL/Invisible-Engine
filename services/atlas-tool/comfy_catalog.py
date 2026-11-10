@@ -42,11 +42,11 @@ import time as _time
 from typing import Callable, Iterable, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 import batch_atlas
 import runpod_control
 import storage
+from iw_common import comfy
 
 # Shared keys mirror the `_shared/blueprints/` and `_shared/spines/` precedent.
 # "local" keeps the original key: everything that ever wrote it read COMFY_BASE,
@@ -66,8 +66,9 @@ _LOAD_TTL = 60.0
 # render into a PUT even when its lists genuinely keep changing.
 _WRITE_COOLDOWN = 300.0
 # The catalog probe is a plain read of an always-on ComfyUI; keep it tight so a
-# wedged host can't stall the ⟳ button for a minute.
-_PROBE_TIMEOUT = 4.0
+# wedged host can't stall the ⟳ button for a minute. Also the budget of the
+# render preflight's "does this ComfyUI answer?" (`ui_server._comfy_answers`).
+PROBE_TIMEOUT = 4.0
 
 _cache: dict[str, dict] = {t: {"t": 0.0, "doc": None} for t in TARGETS}
 _pending: dict[str, list[str]] = {}   # live LOCAL lists seen this process, not yet stored
@@ -230,10 +231,9 @@ def status(target: str = "local", *,
 
 # --- refresh -----------------------------------------------------------------
 
-def _http_get_json(url: str, headers: dict, timeout: float = _PROBE_TIMEOUT) -> dict:
+def _http_get_json(url: str, headers: dict, timeout: float = PROBE_TIMEOUT) -> dict:
     """One read-only GET. Kept as a module function so tests can replace it."""
-    return json.loads(urlopen(Request(url, headers=headers),
-                              timeout=timeout).read())
+    return comfy.get_json(url, headers, timeout)
 
 
 def catalog_url() -> str:

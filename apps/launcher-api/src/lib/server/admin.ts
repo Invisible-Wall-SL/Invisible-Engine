@@ -1,7 +1,32 @@
+import { error, redirect } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import { sessions, users } from './db/schema';
-import { ROLES, type Role } from '$lib/roles';
+import { getRoleOverrides } from './roleToolAccess';
+import { ADMIN_PANEL_CAPABILITY, ROLES, roleHasCapability, type Role } from '$lib/roles';
+
+/**
+ * The admin gate: the built-in `admin` role, or a role the role matrix grants the `adminPanel`
+ * capability (role overrides only — a per-user grant does not open the panel). Without a session
+ * the `/admin` page redirects to `/login` (`'page'`); an API answers 401 (`'api'`), since a fetch
+ * that follows the redirect gets login HTML and a parse error instead of a status. 403 otherwise.
+ */
+export async function requireAdminPanel(
+	locals: App.Locals,
+	mode: 'page' | 'api',
+	forbiddenMessage = 'Admins only.',
+): Promise<NonNullable<App.Locals['user']>> {
+	const user = locals.user;
+	if (!user) {
+		if (mode === 'page') throw redirect(303, '/login');
+		throw error(401, 'Not authenticated');
+	}
+	const roleOverrides = await getRoleOverrides(user.role);
+	if (!roleHasCapability(user.role, ADMIN_PANEL_CAPABILITY, roleOverrides)) {
+		throw error(403, forbiddenMessage);
+	}
+	return user;
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

@@ -1,8 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { loadBuildBreakdown, UnknownBreakdownError } from '$lib/server/buildBreakdown';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { currentPointer, isSnapshotId } from '$lib/server/publishedRuntime';
-import { canAccessProject, projectClientKey, projectName } from '$lib/server/projects';
+import { canAccessProject, projectName } from '$lib/server/projects';
+import { clientKeyOf } from '$lib/server/projectLookup';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -21,7 +21,7 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
 	if (!(await canAccessProject(locals.user.id, locals.user.role, project))) {
 		throw error(403, 'Unknown project, or you do not have access to it.');
 	}
-	const clientKey = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(project);
 	try {
 		const [breakdown, pointer, name] = await Promise.all([
 			loadBuildBreakdown(clientKey, project, snapshot),

@@ -1,9 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import {
-	ConflictError,
-	loadArtSlicesDocWithEtag,
-	saveArtSlicesDoc,
-} from '$lib/server/artSlicesStorage';
+import { loadArtSlicesDocWithEtag, saveArtSlicesDoc } from '$lib/server/artSlicesStorage';
+import { conflictResponse } from '$lib/server/conflict';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -39,20 +37,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		altTools: ['flipbook', 'fx', 'rigger'],
 		forbiddenMessage: 'Your role does not have access to the project art slices.',
 	});
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
-	if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-		throw error(400, 'Body must be an object.');
-	}
-	const mismatch = scopeMismatch((body as Record<string, unknown>).projectKey, projectKey, {
-		required: true,
-	});
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.'));
+	if (!body) throw error(400, 'Body must be an object.');
+	const mismatch = scopeMismatch(body.projectKey, projectKey, { required: true });
 	if (mismatch) return mismatch;
-	const slices = (body as Record<string, unknown>).slices;
+	const slices = body.slices;
 	if (typeof slices !== 'object' || slices === null || Array.isArray(slices)) {
 		throw error(400, '`slices` must be a plain object.');
 	}
@@ -61,18 +50,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const saved = await saveArtSlicesDoc(clientKey, projectKey, { slices }, baseEtag);
 		return json({ ok: true, etag: saved.etag, slices: saved.doc.slices });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else changed this project’s 9-slice insets while you were editing. ' +
-						'Reload to get theirs, then re-apply your slice.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else changed this project’s 9-slice insets while you were editing. ' +
+				'Reload to get theirs, then re-apply your slice.',
+		);
+		if (conflict) return conflict;
 		throw error(400, e instanceof Error ? e.message : 'Invalid art slices.');
 	}
 };

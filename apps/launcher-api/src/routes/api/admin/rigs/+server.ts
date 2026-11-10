@@ -1,9 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { projectClientKey } from '$lib/server/projects';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requireAdminPanel } from '$lib/server/admin';
 import { listPromotableBundles } from '$lib/server/sharedRigPromote';
+import { clientKeyOf } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 /**
@@ -18,15 +16,11 @@ import type { RequestHandler } from './$types';
  * follows a redirect to `/login` gets HTML and a confusing parse error instead of a status.
  */
 export const GET: RequestHandler = async ({ locals, url }) => {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	if (!roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides)) {
-		throw error(403, 'Admins only.');
-	}
+	await requireAdminPanel(locals, 'api');
 
 	const projectKey = url.searchParams.get('project')?.trim();
 	if (!projectKey) throw error(400, 'missing ?project=');
 
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 	return json({ projectKey, bundles: await listPromotableBundles(clientKey, projectKey) });
 };

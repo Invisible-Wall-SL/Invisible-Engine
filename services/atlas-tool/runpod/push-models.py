@@ -113,7 +113,7 @@ def r2_size_probe(s3, bucket: str):
 	def probe(key: str) -> int | None:
 		try:
 			return int(s3.head_object(Bucket=bucket, Key=key)["ContentLength"])
-		except Exception:
+		except Exception:  # noqa: BLE001 — absent or unreadable both mean "not there yet"
 			return None
 	return probe
 
@@ -188,7 +188,7 @@ def read_manifest(s3, bucket: str) -> dict:
 		body = s3.get_object(Bucket=bucket, Key=MANIFEST_KEY)["Body"].read()
 		data = json.loads(body)
 		return data if isinstance(data, dict) else {}
-	except Exception:
+	except Exception:  # noqa: BLE001 — an absent/unreadable manifest starts empty
 		return {}
 
 

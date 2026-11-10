@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { canWriteCustomGlsl, shaderPublishScope } from '$lib/server/shaderScope';
 import {
@@ -25,7 +26,7 @@ import type { RequestHandler } from './$types';
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await shaderPublishScope(locals, cookies);
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	const rawId = body && typeof body.id === 'string' ? body.id.trim() : '';
 	if (!rawId) throw error(400, 'missing id');
 	const mismatch = scopeMismatch(body?.projectKey, projectKey);
@@ -55,14 +56,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		if (e instanceof ShaderTooLargeError) {
 			return json({ ok: false, error: 'too-large', message: e.message }, { status: 413 });
 		}
-		if (!(e instanceof ConflictError)) throw e;
-		return json(
-			{
-				ok: false,
-				error: 'exists',
-				message: 'The studio library already has a shader effect of this id.',
-			},
-			{ status: 409 },
+		const exists = conflictResponse(
+			e,
+			'The studio library already has a shader effect of this id.',
+			{ code: 'exists' },
 		);
+		if (exists) return exists;
+		throw e;
 	}
 };

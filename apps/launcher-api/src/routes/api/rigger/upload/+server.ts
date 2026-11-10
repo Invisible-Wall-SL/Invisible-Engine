@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
@@ -29,9 +30,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
-	const name = (typeof body.name === 'string' ? body.name : '').trim().replace(/[^A-Za-z0-9_-]/g, '_');
+	const name = (typeof body.name === 'string' ? body.name : '')
+		.trim()
+		.replace(/[^A-Za-z0-9_-]/g, '_');
 	if (!name) throw error(400, 'missing rig name');
 	const pageWidth = num(body.pageWidth);
 	const pageHeight = num(body.pageHeight);
@@ -43,7 +46,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const regions: SynthRegion[] = [];
 	for (const r of rawRegions as Record<string, unknown>[]) {
 		const rn = typeof r.name === 'string' ? r.name.trim() : '';
-		const x = num(r.x), y = num(r.y), w = num(r.w), h = num(r.h);
+		const x = num(r.x),
+			y = num(r.y),
+			w = num(r.w),
+			h = num(r.h);
 		if (!rn || [x, y, w, h].some(Number.isNaN)) throw error(400, 'bad region');
 		regions.push({ name: rn, x, y, w, h });
 	}
@@ -58,13 +64,15 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	} catch {
 		throw error(400, 'page image not valid base64');
 	}
-	if (!pageBytes.length || pageBytes.length > 32 * 1024 * 1024) throw error(400, 'page image empty or too large');
+	if (!pageBytes.length || pageBytes.length > 32 * 1024 * 1024)
+		throw error(400, 'page image empty or too large');
 
 	const rigsPrefix = SUB.spines(clientKey, projectKey);
 	const bundle = `${rigsPrefix}/${name}`;
 	// A create that died after its claim holds the name from a folder nobody can see; free it.
 	await reclaimAbandonedClaims(clientKey, projectKey, rigsPrefix, name);
-	if (await rigBundleNameTaken(rigsPrefix, name)) throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
+	if (await rigBundleNameTaken(rigsPrefix, name))
+		throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
 	const pageName = `${name}.png`;
 	const atlasText = regionsToRigAtlas(pageName, pageWidth, pageHeight, regions);

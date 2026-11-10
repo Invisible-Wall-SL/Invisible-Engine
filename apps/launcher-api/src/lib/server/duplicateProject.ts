@@ -12,11 +12,11 @@ import {
 	createProject,
 	deleteProject,
 	isValidProjectKey,
-	projectClientKey,
 	projectExists,
 	projectGameType,
 	projectKeyTaken,
 } from './projects';
+import { clientKeyOf } from './projectLookup';
 
 export interface DuplicateProjectInput {
 	source: string;
@@ -75,7 +75,7 @@ export async function duplicateProject(
 		return { ok: false, status: 403, error: 'You do not have access to that client.' };
 	}
 
-	const sourceClient = (await projectClientKey(source)) ?? UNASSIGNED_CLIENT;
+	const sourceClient = await clientKeyOf(source);
 	// The copy is a copy of the GAME, so it inherits the source's kind rather than the default —
 	// otherwise a duplicated cluster game would scaffold (and profile) as `lines`.
 	const gameType = await projectGameType(source);

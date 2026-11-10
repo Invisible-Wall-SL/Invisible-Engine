@@ -8,6 +8,7 @@ import type {
 } from 'engine-layout';
 import { parseBmfontDescriptor } from '$lib/server/bmfont';
 import { parseFontTarget, resolveFontTarget, type ResolvedFontTarget } from '$lib/server/fonts';
+import { conflictResponse } from '$lib/server/conflict';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import {
@@ -135,12 +136,12 @@ async function commitEntry(
 			return json({ ok: true, font: entry });
 		} catch (e) {
 			if (e instanceof ConflictError && attempt < CATALOG_MAX_ATTEMPTS) continue;
-			if (e instanceof ConflictError) {
-				return json(
-					{ error: 'conflict', message: 'The font catalog changed while saving — please retry.' },
-					{ status: 409 },
-				);
-			}
+			const conflict = conflictResponse(
+				e,
+				'The font catalog changed while saving — please retry.',
+				{ okFlag: false },
+			);
+			if (conflict) return conflict;
 			throw e;
 		}
 	}
