@@ -1268,6 +1268,46 @@ check('mixed: play, attack, play again; endPhase ends the turn without entering 
 	);
 });
 
+check('mixed: the turn limit and fatigue count one End Turn per turn', () => {
+	const limited = createMatch({
+		seed: 'mixed-limit',
+		decks: [DECK, DECK],
+		library: LIBRARY,
+		rules: { ...MIXED, turnLimit: 2 },
+		first: 0,
+	}).match;
+	const second = apply(limited, { type: 'endPhase' }).match;
+	assert.equal(second.turn, 2);
+	const over = apply(second, { type: 'endPhase' });
+	assert.deepEqual(over.match.result, { winner: 'draw', reason: 'turnLimit' });
+	assert.ok(!ofType(over.events, 'phaseChanged').some((e) => e.phase === 'combat'));
+	const empty = createMatch({
+		seed: 'mixed-fatigue',
+		decks: [[], []],
+		library: LIBRARY,
+		rules: { ...MIXED, openingHand: 0 },
+		first: 0,
+	}).match;
+	let m = empty;
+	const fatigue = [];
+	for (let i = 0; i < 4; i++) {
+		const step = apply(m, { type: 'endPhase' });
+		fatigue.push(...ofType(step.events, 'fatigue').map((e) => [e.player, e.amount]));
+		m = step.match;
+	}
+	// The second player's one opening card was already a fatigue of 1.
+	assert.deepEqual(fatigue, [
+		[1, 2],
+		[0, 1],
+		[1, 3],
+		[0, 2],
+	]);
+	assert.deepEqual(
+		m.players.map((p) => p.health),
+		[27, 24],
+	);
+});
+
 check('mixed keeps every attack rule: arrived, guard, exhausted', () => {
 	const m = table({
 		rules: MIXED,

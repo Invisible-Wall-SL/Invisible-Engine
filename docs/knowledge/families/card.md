@@ -66,14 +66,14 @@ See the `card-games` agent's "What you own".
   `check:svelte` went red on `main` until #1430.
 - **An attacker kept its body where it was dropped.** A unit's drag Aligns the frame's body to the
   pointer; a refused drop is respawned (which resets it), but a taken attack leaves the unit in its
-  zone, so its body stayed on the target until the next respawn (C3, seen in C5's mixed browser
-  play, where attacks are dragged in main). The table now respawns an attacker after its drop
-  (`release` in `apps/lines` `cards.ts`). Anything Aligned during a drag must be reset on every
-  outcome, not only the refused one.
+  zone, so its body stayed on the target (C3, seen in C5's mixed browser play). The table now puts
+  only the body back (`resetComponentAlign`, no remount). A binding-driven scale does not come back
+  to 1 without a remount (status open item 0c), so a board unit's drag does not lift. Anything a
+  drag moves must be reset on every outcome, not only the refused one.
 - **A list's last entry is not a default.** The Card Library's `fitTarget` fell back to
   `kinds[kinds.length - 1]` (then `randomEnemy`); appending `allFriendly` to the target list would
-  have turned every repaired non-`onPlay` target into a friendly one. Name a fallback, never take it
-  by position; `check:cards-tool` pins it (C5, 2026-11-09).
+  have turned every repaired non-`onPlay` target into a friendly one. Name the fallbacks, in order, never
+  take one by position; `check:cards-tool` pins it (C5, 2026-11-09).
 - **Stored decks can hold what the pool cannot show** (a token, an unknown card, duplicate entries).
   The Card Library lists such strays once per card so they can be removed (C4).
 

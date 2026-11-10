@@ -127,10 +127,12 @@ const keywordCount = (player) =>
 
 /**
  * The AI's next action for the match, which must wait on its side. A roll on the AI's own stream
- * decides a mistake (a random legal action); otherwise: a win in `combat` if one is there (`lethal`),
- * the best plan in `main` (`plan`), or the best single action. Doing nothing (`endPhase`) is scored
- * too and wins ties; among the rest the first listed wins. Never concedes. `applies` is how many
- * `apply` calls the decision made. Never changes `match` or `ai`.
+ * decides a mistake (a random legal action); otherwise: a win by attacks if one is there (`lethal`;
+ * in `combat`, or in `main` under the `mixed` turn order), the best plan in `main` (`plan`), or the
+ * best single action. Doing nothing (`endPhase`) is scored too and wins ties; among the rest the
+ * first tried wins (the listed order; in a mixed `main`, plays and attacks alternate: `tryOrder`).
+ * Never concedes. `applies` is how many `apply` calls the decision made. Never changes `match` or
+ * `ai`.
  */
 export function chooseAction(ai, match) {
 	if (match.result) throw new Error('cardAi: the match is over');
@@ -154,6 +156,24 @@ export function chooseAction(ai, match) {
 const attacksNow = (match) =>
 	match.phase === 'combat' || (match.phase === 'main' && match.rules.turnOrder === 'mixed');
 
+/**
+ * The order a decision tries actions in. As listed, except in a mixed `main`, where plays come
+ * before attacks: there they alternate, a play then an attack, so a budget that runs out on a long
+ * hand has still scored the attacks.
+ */
+function tryOrder(match, actions) {
+	if (match.phase !== 'main' || match.rules.turnOrder !== 'mixed') return actions;
+	const attacks = actions.filter((a) => a.type === 'attack');
+	if (!attacks.length) return actions;
+	const rest = actions.filter((a) => a.type !== 'attack');
+	const out = [];
+	for (let i = 0; i < Math.max(rest.length, attacks.length); i++) {
+		if (i < rest.length) out.push(rest[i]);
+		if (i < attacks.length) out.push(attacks[i]);
+	}
+	return out;
+}
+
 function bestAction(match, ai, actions, budget) {
 	const { side, settings } = ai;
 	if (settings.lethal && attacksNow(match)) {
@@ -162,7 +182,7 @@ function bestAction(match, ai, actions, budget) {
 	}
 	if (settings.plan && match.phase === 'main') return planMain(match, side, settings, budget);
 	let best = { action: { type: 'endPhase' }, score: evaluate(match, side, settings.weights) };
-	for (const action of actions) {
+	for (const action of tryOrder(match, actions)) {
 		if (action.type === 'endPhase') continue;
 		const result = trial(match, action, side, settings.weights, budget);
 		if (!result) break;
@@ -213,7 +233,7 @@ function planMain(match, side, settings, budget) {
 	for (let depth = 0; depth < PLAN_DEPTH && beam.length; depth++) {
 		const children = [];
 		search: for (const node of beam) {
-			for (const action of legalActions(node.match)) {
+			for (const action of tryOrder(node.match, legalActions(node.match))) {
 				if (!tried(action)) continue;
 				const result = trial(node.match, action, side, settings.weights, budget);
 				if (!result) break search;

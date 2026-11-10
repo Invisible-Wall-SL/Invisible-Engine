@@ -140,9 +140,7 @@ function fitTarget(
 	const t = (target ?? {}) as Partial<Target> & { side?: string; include?: string };
 	const kind = kinds.includes(t.kind as TargetKind)
 		? (t.kind as TargetKind)
-		: kinds.includes('chosen')
-			? 'chosen'
-			: 'randomEnemy';
+		: ((['chosen', 'randomEnemy'] as const).find((k) => kinds.includes(k)) ?? kinds[0]);
 	if (kind === 'self') return { kind };
 	const includes = includeChoices(verb);
 	const include = includes.includes(t.include as Include) ? (t.include as Include) : 'units';

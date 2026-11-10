@@ -130,6 +130,7 @@
 		alignTargetIds,
 		ComponentEventDispatcher,
 		hasNodeListeners,
+		registerComponentAlignReset,
 		routeComponentCue,
 	} from './componentEvents';
 	import { getCueSound } from './cueSound';
@@ -844,6 +845,14 @@
 				if (alignSpaces[nodeId] === target) delete alignSpaces[nodeId];
 			},
 		});
+		onDestroy(
+			registerComponentAlignReset(
+				untrack(() => node.id),
+				() => {
+					for (const id of Object.keys(aligned)) delete aligned[id];
+				},
+			),
+		);
 	} else if (getComponentAlign()) {
 		setComponentAlign({ targets: () => false, attach: () => () => undefined, detach: () => {} });
 	}

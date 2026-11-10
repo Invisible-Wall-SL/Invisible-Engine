@@ -514,6 +514,9 @@ aggressively or defensively.
   the better of its own result and the best play after it of a card in the hand now: one step
   further, inside the same budget. A gain with nothing to buy is not made. `hard`'s plan sees it
   through its sequences.
+- **A mixed `main` tries plays and attacks alternately** (`tryOrder`), in the one-step search and at
+  every node of the plan, so a long hand that spends the budget has still scored the attacks;
+  `check:card-ai` pins it with a hand whose plays alone are over the budget.
 - **`allFriendly` needs nothing new in the evaluation:** every trial reads the result. The lethal
   pre-check counts an `allFriendly` attack buff on every ready unit and an `allFriendly` attack
   damage as none to the enemy.

@@ -20,6 +20,7 @@ import {
 	registerInstanceValues,
 	resolveLocalizedText,
 	unregisterInstanceValues,
+	resetComponentAlign,
 	resolveTransform,
 	type InstanceValueSource,
 	type LayoutNode,
@@ -146,7 +147,9 @@ function valuesOf(match: Match, card: CardInstance, layer: Layer): Record<string
 		guard: flag(card.keywords.includes('guard')),
 		shield: flag(card.keywords.includes('shield')),
 		swift: flag(card.keywords.includes('swift')),
-		dragging: flag(stateCards.picked === card.uid),
+		// A hand card lifts while dragged; an attacker does not: it stays seated, and a scale binding
+		// back at rest is not redrawn (status open item 0c), so it would stay lifted.
+		dragging: flag(stateCards.picked === card.uid && layer === CARD_LAYERS.hand),
 		hint: flag(stateCards.hint === card.uid),
 	};
 }
@@ -308,11 +311,13 @@ async function release(uid: number, at: Point | undefined) {
 	const action = at ? actionAt(uid, at) : undefined;
 	stateCards.picked = 0;
 	const played = action ? await driver?.act(action) : false;
-	// A refused card snaps back; an attacker stays in its zone, so its body, aligned to the pointer,
-	// is reset the same way.
-	if (!played || action?.type === 'attack') {
+	if (!played) {
 		const match = driver?.session?.match;
 		if (match) seat(match, uid);
+	} else if (action?.type === 'attack') {
+		// An attacker stays seated: only its dragged body goes back.
+		const at = seated.get(uid);
+		if (at) resetComponentAlign(at.id);
 	}
 	relight();
 }

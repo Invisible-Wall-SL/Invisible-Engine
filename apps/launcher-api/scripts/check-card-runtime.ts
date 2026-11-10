@@ -27,6 +27,7 @@
  *     its attacks in main (what the table lights `ready` and drops on), an attack and then a play
  *     are taken in one main phase, one End Turn passes the turn, no `combat` phase is signalled,
  *     and a whole match plays to a result. The seed config, with no switch, still enters combat.
+ *     In every turn order, a taken attack resets the attacker's dragged body in place (no respawn).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -53,6 +54,7 @@ import {
 } from 'engine-game/src/game/cardDriver';
 import { PLAYER } from 'engine-game/src/game/cardSession';
 import { CARD_RULES_MECHANIC, REELS_MECHANIC, mechanicFor } from 'engine-game/src/game/mechanic';
+import { registerComponentAlignReset, resetComponentAlign } from 'engine-layout';
 import type { Action, CardEvent, Match } from 'engine-mechanics';
 import { normalizeGameConfigDoc, validateGameConfigDoc, type GameConfigDoc } from 'game-config';
 
@@ -557,6 +559,19 @@ const first = await playMatch('c3-gate');
 	check('9. one End Turn passes the turn to the device and back', turnPassedOnce);
 	check('9. no combat phase is signalled', !phases.includes('combat'), phases.join(' '));
 	check('9. the mixed match plays to a result', state.over && !!driver.session?.match.result);
+	let resets = 0;
+	const unregister = registerComponentAlignReset('card#1', () => void resets++);
+	resetComponentAlign('card#1');
+	resetComponentAlign('card#2');
+	unregister();
+	resetComponentAlign('card#1');
+	check('9. an instance resets its aligned body on request, once registered', resets === 1);
+	const runtime = read('apps/lines/src/game/cards.ts');
+	check(
+		"9. a taken attack resets the attacker's dragged body without a respawn",
+		/else if \(action\?\.type === 'attack'\) \{[\s\S]*?resetComponentAlign\(/.test(runtime) &&
+			/if \(!played\) \{\s*const match[\s\S]*?seat\(match, uid\)/.test(runtime),
+	);
 	check(
 		'9. the strict seed config still enters combat',
 		first.signals.some((s) => s.payload.phase === 'combat'),

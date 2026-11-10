@@ -47,11 +47,18 @@ Out of scope, as decided: the spendable coin card, imports.
   `resource.max`; `max` untouched, so it is resource for this turn only and off-turn gains are gone
   at the owner's refill. New event `resourceGained {player, amount}` (the amount actually added;
   none at the cap), no Flow signal; the test match logs it. Rules text "Gain N resource this turn."
-- **A table fix found in the browser (C3's, made visible by mixed):** a taken attack left the
-  attacker's frame body Aligned where it was dropped (only a refused drop was respawned). `release`
-  in `apps/lines` `cards.ts` now respawns an attacker after its drop, as a refused card is.
+- **A strict-games table fix (C3's bug, made visible by mixed):** a taken attack left the
+  attacker's frame body Aligned where it was dropped (only a refused drop was respawned). The
+  attacker now stays mounted and only its body goes back: `engine-layout` gains
+  `registerComponentAlignReset` / `resetComponentAlign` (an instance with Align Target listeners
+  registers how to clear what they moved; nothing changes until a caller asks), and `release` in
+  `apps/lines` `cards.ts` calls it. A dragged board unit no longer lifts (`dragging` is a hand
+  card's only), because the lift could not be put down without a remount (open item 0c). Applies in
+  every turn order.
 - **The AI:** lethal runs wherever attacks are listed; `hard`'s plan extends plays and attacks
-  together inside the same budget; a one-step decision scores a resource gain by the best play it
+  together inside the same budget; in a mixed `main` both searches try plays and attacks
+  alternately (`tryOrder`), so a long hand that spends the budget has still scored the attacks
+  (strict order unchanged); a one-step decision scores a resource gain by the best play it
   buys (no resource term in `evaluate`, which would move strict games); the lethal pre-check counts
   an `allFriendly` attack buff on every ready unit.
 - **Strict parity:** `cards-replay.json`, `cards-ai-replay.json`, the full-board apply counts
@@ -59,17 +66,19 @@ Out of scope, as decided: the spendable coin card, imports.
   sample (normalized config, validation, rules text, the replay record, Run 100, three whole driver
   matches' signals and match) is identical but for the in-memory match value's resolved rules, which
   now carry `turnOrder: 'strict'`. The sample library is unchanged.
-- **Gates:** `check:card-rules` 53 (+10, `cards-mixed-replay.json` new), `check:card-library` 46
-  (+3), `check:card-ai` 27 (+7, `cards-ai-mixed-replay.json` new; mixed full boards 290 / 600 / 600
-  applies), `check:cards-tool` 346 (+61), `check:card-family` 125 (+8), `check:card-runtime` 40
-  (+8); `check:all` 635 / 635; `check:svelte` at baseline. The playbook in the headless shell:
+- **Gates:** `check:card-rules` 54 (+11, `cards-mixed-replay.json` new; a mixed turn limit and
+  fatigue), `check:card-library` 46 (+3), `check:card-ai` 29 (+9, `cards-ai-mixed-replay.json` new;
+  mixed full boards 290 / 600 / 600 applies; attacks scored on a hand over the budget; a gain that
+  draws, a gain on attack), `check:cards-tool` 346 (+61), `check:card-family` 125 (+8),
+  `check:card-runtime` 42 (+10: the align reset, no respawn); `check:all` 635 / 635; `check:svelte` at baseline. The playbook in the headless shell:
   `card-play.mjs` 8 / 8, and `--turn-order mixed` (new) 11 / 11 (a board unit dragged onto the
   enemy hero in main, one End Turn press). Current-games (stand-in fixtures, base `main` d212898):
   10 pass, 0 of 128 screens changed.
 - **Runtime sizes** (`check:family-runtimes`, gzip -6, first visit, against `main` d212898 built
-  the same way; all within budget): slot 706,927 → 706,996 B (+69), match3 714,997 → 715,074 (+77),
-  arcade 738,558 → 738,646 (+88; online boot 794,983 → 795,071, +88), card 719,170 → 719,641
-  (+471). The non-card runtimes carry `game-config`'s card normalizer and `cards.js`' lists.
+  the same way; all within budget): slot 706,927 → 707,037 B (+110), match3 714,997 → 715,147
+  (+150), arcade 738,558 → 738,723 (+165; online boot 794,983 → 795,147, +164), card 719,170 →
+  719,824 (+654). Every runtime carries `game-config`'s card normalizer, `cards.js`' lists and the
+  `engine-layout` align reset.
 
 **Salmons' visual fixes (built 2026-11-08; in review).** After P11.3–P11.5; branch
 `arcade/salmons-visual-fixes`. Not deployed. Detail, the files and the owner's re-upload in
@@ -2730,6 +2739,13 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    (`actionAt`, `release`) is covered by the browser playtest only, not a Node gate; the frame's
    trigger inputs (`hit`, `healed`, `summoned`) are declared but not yet fired; Concede works on the
    player's turn only.
+0c. **Card C5 follow-ups:** (a) `engine-layout` (owner `invisible-components`): a `scale` value
+   binding back at its rest value folds to `scale: undefined` (`foldBoundTransform`), and the Pixi
+   node keeps its last scale, so a node scaled by a binding never returns to 1 without a remount.
+   The card table works around it (a board unit's drag does not lift); the fix belongs in the
+   shared fold or `LayoutNodeView`, under the current-games harness. (b) Mixed fixtures are pinned
+   on the sample plus six C5 cards; the sample library itself has no `allFriendly` or
+   `gainResource` card.
 0b. **Card C4 follow-ups:** (a) the Card Library draws frames with its own DOM renderer, not the
    Scene Editor canvas (§8.2 named the canvas) — **accepted by the owner 2026-10-28; the canvas is a
    follow-up**: a rig, effect or flipbook in an authored frame is named, not drawn, until then; (b) the test match's table is a list of legal-action buttons, not drag; (c) a

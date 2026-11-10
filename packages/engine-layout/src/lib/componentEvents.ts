@@ -55,6 +55,22 @@ export function observeComponentEvents(
 	return () => observers.delete(observer);
 }
 
+const alignResets = new Map<string, () => void>();
+
+/** Called by an instance whose def has Align Target listeners: how to put the nodes they moved back
+ *  where the def places them. Returns the unregister. */
+export function registerComponentAlignReset(instanceId: string, reset: () => void): () => void {
+	alignResets.set(instanceId, reset);
+	return () => {
+		if (alignResets.get(instanceId) === reset) alignResets.delete(instanceId);
+	};
+}
+
+/** Put the nodes an instance's Align Target listeners moved back in place, without a remount. */
+export function resetComponentAlign(instanceId: string): void {
+	alignResets.get(instanceId)?.();
+}
+
 /** Send a raised event down the press road, as `kind: 'event'`: the resolver matches it against
  *  event pins only (Phase 7 adds them), never a press or `action` pin of the same name. */
 export function raiseComponentEvent(raised: RaisedComponentEvent): void {

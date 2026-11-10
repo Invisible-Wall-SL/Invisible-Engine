@@ -64,4 +64,5 @@ the board or onto a lit target, or tap a card and then its target.
   under the art, the enemy hand as card backs.
 - The readouts: both healths, the resource and its cap, both deck counts, the turn.
 - A dragged card's body follows the pointer (Align Target); a refused drop springs back to its slot,
-  and so does an attacker once its attack is taken.
+  and an attacker's body goes back to its slot once its attack is taken (no remount). A hand card
+  lifts while dragged; a board unit does not.

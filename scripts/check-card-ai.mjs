@@ -121,6 +121,39 @@ const LIBRARY = [
 			},
 		],
 	},
+	{
+		id: 'fizz',
+		name: 'fizz',
+		type: 'spell',
+		cost: 0,
+		effects: [
+			{
+				trigger: 'onPlay',
+				verb: 'heal',
+				amount: 1,
+				target: { kind: 'chosen', side: 'any', include: 'characters' },
+			},
+			{
+				trigger: 'onPlay',
+				verb: 'heal',
+				amount: 1,
+				target: { kind: 'randomEnemy', include: 'characters' },
+			},
+		],
+	},
+	{
+		id: 'insight',
+		name: 'insight',
+		type: 'spell',
+		cost: 0,
+		effects: [
+			{ trigger: 'onPlay', verb: 'gainResource', amount: 2 },
+			{ trigger: 'onPlay', verb: 'draw', amount: 1 },
+		],
+	},
+	unit('miser', 1, 3, 3, {
+		effects: [{ trigger: 'onAttack', verb: 'gainResource', amount: 2 }],
+	}),
 	unit('banner', 1, 1, 1, {
 		effects: [
 			{
@@ -716,6 +749,47 @@ check(
 				{ type: 'endPhase' },
 				difficulty,
 			);
+		}
+	},
+);
+
+check('mixed: a budget spent on a long hand has still scored the attacks', () => {
+	// Ten spells that each draw from the stream on every target: their trials alone are over the
+	// budget, so with plays tried first no attack would be scored. A free trade is there to take.
+	const spec = {
+		mine: { board: Array(7).fill('ogre'), hand: Array(10).fill('fizz') },
+		theirs: { board: Array(7).fill('snack') },
+	};
+	const plays = legalActions(table(spec)).filter((a) => a.type === 'play').length;
+	assert.ok(plays * 4 > MAX_PLAN_APPLIES, `${plays} plays at 4 trials each`);
+	for (const difficulty of ['normal', 'hard']) {
+		const mixed = table({ ...spec, rules: MIXED });
+		const choice = chooseAction(steady(difficulty), mixed);
+		assert.equal(choice.action.type, 'attack', difficulty);
+		assert.equal(choice.applies, MAX_PLAN_APPLIES, `${difficulty} spends the budget`);
+	}
+	const strict = chooseAction(steady('normal'), table(spec));
+	assert.notEqual(strict.action.type, 'attack', 'strict main lists no attack');
+});
+
+check(
+	'a gain that also draws is played for what it buys; a gain on attack in combat changes nothing',
+	() => {
+		for (const difficulty of DIFFICULTIES) {
+			const match = table({ resource: 1, mine: { hand: ['insight', 'big'], deck: ['giant'] } });
+			const { taken } = playTurn(steady(difficulty), match);
+			const ids = taken
+				.filter((a) => a.type === 'play')
+				.map((a) => match.players[0].hand.find((c) => c.uid === a.uid)?.cardId ?? 'drawn');
+			assert.deepEqual(ids, ['insight', 'big'], difficulty);
+		}
+		const fight = (attacker) =>
+			table({ phase: 'combat', mine: { board: [attacker] }, theirs: { board: ['snack'] } });
+		for (const difficulty of ['normal', 'hard']) {
+			const withGain = chooseAction(steady(difficulty), fight('miser'));
+			const plain = chooseAction(steady(difficulty), fight('ogre'));
+			assert.deepEqual(withGain.action.target, plain.action.target, difficulty);
+			assert.equal(withGain.applies, plain.applies, `${difficulty}: no follow-up in combat`);
 		}
 	},
 );
