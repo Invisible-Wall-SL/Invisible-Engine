@@ -466,9 +466,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     was shown or the level changed; intervals over 250 ms are skipped. 120 counted frames make a
     window. A frame over 21 ms is slow (1.25× a 60 Hz frame, so a 120 Hz phone at 60 is fine); a
     window more than 10% slow is slow. A window at a 30 fps rhythm (p10 ≥ 30 ms and p50 ≤ 36 ms,
-    as `perfStats.ts` `capped30` reads it) is a browser cap (iOS Low Power Mode) and is ignored; a
-    slower device (14 fps) or a jittery one (25–45 ms) is judged. A device steady at ~30 fps on a
-    60 Hz display reads the same as the cap and is not judged either. Two slow windows step down at
+    as `perfStats.ts` `capped30` reads it) is a browser cap (iOS Low Power Mode) and is ignored,
+    unless the browser drew any frame, idle ones included, under 25 ms in the last 30 s: Low Power
+    Mode caps every frame, so a device that idles at 60 and plays its rounds at 30 is judged. A
+    slower device (14 fps) or a jittery one (25–45 ms) is always judged. Only a device at a steady
+    ~30 fps even while idle reads as the cap and is not judged. Two slow windows step down at
     the next 20 quiet frames: idle in manual play; in autoplay (`autoBet`, one long state that is
     never idle) the frames of a round with no reel rolling (`Game.svelte`). After two windows the
     step is kept if the slow share halved or fell under 10%, or the mean frame interval fell by
@@ -489,8 +491,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `reduced`) and `quality` holds the level (index, resolution, MSAA), the number of levels, each
     switch (`at` seconds, `from`, `to`, `reason`, `slowShare`, `frameMs`) and `downStopped`. The HUD has a
     `quality` line, and its head shows `· quality L<n>` once below the top level.
-  - **Verified here:** `packages/pixi-svelte/fixtures/renderQuality.fixture.ts` (50 checks; each
-    rule mutated in turn fails it, the old no-frame-under-28-ms cap rule included), `renderTier.fixture.ts` (21 checks; it does not load on the old
+  - **Verified here:** `packages/pixi-svelte/fixtures/renderQuality.fixture.ts` (52 checks; each
+    rule mutated in turn fails it, the old no-frame-under-28-ms cap rule included, and rounds at 30
+    on a device that idles at 60 fail the rhythm-only cap rule), `renderTier.fixture.ts` (21 checks; it does not load on the old
     module), `scripts/pixi-back-buffer.fixture.mjs` (+3 checks: the Pixi 8.22 behaviour the switch
     relies on). The built runtime against the book mock in headless Chromium (SwiftShader, 160×284):
     at DPR 1.5 it dropped MSAA after two windows 39% slow (mean 23.3 ms); the trial read 22% and

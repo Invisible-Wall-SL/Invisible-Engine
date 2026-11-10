@@ -8,8 +8,9 @@
  * the 21 ms and 10% boundaries; two slow windows step down, only after 20 quiet frames in a row
  * (which may be measured frames too: autoplay's stopped reels); a trial that helps (half the slow
  * share, under 10%, or a mean frame interval 20% shorter) keeps its level, one that does not
- * reverts and stops stepping down; a browser's 30 fps rhythm never adapts while a device slower
- * than that (an iPhone 13 Pro at 14 fps) or a jittery 25–45 ms one does; the floor holds; a step
+ * reverts and stops stepping down; a browser's 30 fps rhythm never adapts (Low Power Mode caps idle
+ * frames too) while rounds at 30 on a device that idles at 60, a device slower than 30 (an iPhone
+ * 13 Pro at 14 fps) or a jittery 25–45 ms one do; the floor holds; a step
  * up after 30 good windows is a trial that backs off and is never retried; at most 6 switches, the
  * sixth only a revert.
  */
@@ -82,10 +83,14 @@ function device(ladder: readonly QualityLevel[] = PHONE) {
 		idle(frames: number, intervalMs = FRAME_60) {
 			for (let i = 0; i < frames; i++) sim.feed(intervalMs, IDLE);
 		},
-		spins(count: number, intervalAt: (level: number, k: number) => number) {
+		spins(
+			count: number,
+			intervalAt: (level: number, k: number) => number,
+			idleMs: number = FRAME_60,
+		) {
 			for (let i = 0; i < count; i++) {
 				sim.run(SPIN_FRAMES, intervalAt);
-				sim.idle(BETWEEN_SPINS);
+				sim.idle(BETWEEN_SPINS, idleMs);
 			}
 		},
 		rounds(count: number, slowAt: (level: number) => number, slowMs = SLOW_MS) {
@@ -203,9 +208,32 @@ const cycle = (values: number[]) => (_level: number, k: number) => values[k % va
 const IPHONE_14FPS = [60, 85, 66, 75, 71, 92, 58, 64];
 {
 	const sim = device();
-	sim.spins(80, cycle([33.3, 33.4, 33.2, 33.3, 33.3, 33.4, 33.3, 33.2, 33.3, 66.7]));
+	// Low Power Mode caps every frame, idle ones too.
+	sim.idle(BETWEEN_SPINS, 33.3);
+	sim.spins(80, cycle([33.3, 33.4, 33.2, 33.3, 33.3, 33.4, 33.3, 33.2, 33.3, 66.7]), 33.3);
 	check(
 		'a steady 33.3 ms Low Power Mode rhythm is ignored',
+		sim.history().length === 0,
+		trail(sim),
+	);
+}
+{
+	const sim = device();
+	sim.idle(BETWEEN_SPINS);
+	sim.spins(2, cycle([33.3, 33.4, 33.2, 33.3, 33.3, 33.4, 33.3, 33.2, 33.3, 66.7]));
+	check(
+		'rounds at a steady 30 fps on a device that idles at 60 are judged and step down',
+		sim.history()[0]?.reason === 'slow' && sim.level() === 1,
+		trail(sim),
+	);
+}
+{
+	const sim = device();
+	sim.idle(BETWEEN_SPINS);
+	sim.idle(Math.ceil(RULES.uncappedMemoryMs / 33.3) + 1, 33.3);
+	sim.spins(4, cycle([33.3, 33.4, 33.2, 33.3, 33.3, 33.4, 33.3, 33.2, 33.3, 66.7]), 33.3);
+	check(
+		'a cap that starts mid-session is ignored once no fast frame came for 30 s',
 		sim.history().length === 0,
 		trail(sim),
 	);

@@ -16,7 +16,9 @@
  * frame: the target is 60 fps on every display, so a 120 Hz phone running at 60 is fine. A window
  * is slow when more than 10% of its frames are. A window whose intervals sit at a 30 fps rhythm
  * (10th percentile ≥ 30 ms, median ≤ 36 ms, as `perfStats.ts` `capped30` reads it) is a browser's
- * cap (iOS Low Power Mode) and is ignored; a device slower than that is judged.
+ * cap (iOS Low Power Mode) and is ignored, unless the browser drew any frame, idle ones included,
+ * faster than 25 ms in the last 30 s: Low Power Mode caps every frame, so a device that idles at 60
+ * and plays its rounds at 30 is judged. A device slower than 30 fps is always judged.
  *
  * HOW IT MOVES: two slow windows in a row step down one level, at the next moment the game has been
  * quiet for 20 frames, so a switch never lands while the reels move. Quiet is the game's to say:
@@ -50,6 +52,10 @@ export const QUALITY_RULES = {
 	capP10Ms: 30,
 	/** …and its median at most this (`perfStats.ts` `capped30`). */
 	capP50Ms: 36,
+	/** A frame faster than this shows the browser is not capping at 30 fps… */
+	uncappedFrameMs: 25,
+	/** …for this long after it (in ms of visible frames). */
+	uncappedMemoryMs: 30_000,
 	/** An interval over this is a resumed tab or a load hitch, not a frame. */
 	outlierMs: 250,
 	/** Frames not counted after the page is shown or the level changes. */
@@ -163,6 +169,7 @@ export function createRenderQualityController(
 	let slowRun: WindowStats[] = [];
 	let goodRun = 0;
 	let downStopped = false;
+	let lastUncappedMs = -Infinity;
 	const upFailed = new Set<number>();
 	let trial: Trial | undefined;
 	let pending: Pending | undefined;
@@ -221,7 +228,9 @@ export function createRenderQualityController(
 		const sorted = intervals.sort((a, b) => a - b);
 		intervals = [];
 		const capped =
-			quantile(sorted, 0.1) >= rules.capP10Ms && quantile(sorted, 0.5) <= rules.capP50Ms;
+			elapsedMs - lastUncappedMs > rules.uncappedMemoryMs &&
+			quantile(sorted, 0.1) >= rules.capP10Ms &&
+			quantile(sorted, 0.5) <= rules.capP50Ms;
 		if (capped) return;
 		judge({
 			share: sorted.filter((ms) => ms > rules.slowFrameMs).length / sorted.length,
@@ -256,6 +265,7 @@ export function createRenderQualityController(
 			if (!(intervalMs > 0)) return undefined;
 			elapsedMs += intervalMs;
 			if (!visible) return undefined;
+			if (intervalMs < rules.uncappedFrameMs) lastUncappedMs = elapsedMs;
 			quietRun = quiet ? quietRun + 1 : 0;
 			if (settle > 0) settle--;
 			else if (measuring && intervalMs <= rules.outlierMs) count(intervalMs);

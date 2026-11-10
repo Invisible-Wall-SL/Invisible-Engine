@@ -29,9 +29,9 @@
 	 * was set up (`pixi-svelte` `glCounters.ts`, `renderOptions.ts`) and the quality level it draws
 	 * at now (`renderQuality.ts`), so a phone's numbers can be read and pasted back. Mounted only
 	 * with the flag (`Game.svelte` imports it on demand); without it nothing here exists, listens,
-	 * counts or draws. HTML, so it costs the canvas
-	 * nothing; one line in a corner until tapped open. `?perfgpu=1` also waits for the GPU after
-	 * every frame to time it, which stalls the pipeline: read it on its own, never with fps.
+	 * counts or draws. HTML, so it costs the canvas nothing; one line in a corner until tapped open.
+	 * `?perfgpu=1` also waits for the GPU after every frame to time it, which stalls the pipeline:
+	 * read it on its own, never with fps.
 	 */
 
 	const query = new URLSearchParams(location.search);
