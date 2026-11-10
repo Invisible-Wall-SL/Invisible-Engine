@@ -4,25 +4,29 @@
  * drei's PerformanceMonitor). Every device starts at the full level (`renderTier.ts`).
  *
  * THE LADDER ({@link qualityLadder}): the pixel ratio up to 2, then 1.75, then 1.5, then 1.5
- * without MSAA; never below 1. A level the device's pixel ratio makes equal to the one above is left
- * out, so a pixel ratio of 1.5 has two levels. The MSAA step exists only where the back buffer
- * carries the MSAA, which can change between frames ({@link backBufferMsaa}).
+ * without MSAA; never below 1. A level the device's pixel ratio makes equal to the one above is
+ * left out, so a pixel ratio of 1.5 has two levels. The MSAA step exists only where the back
+ * buffer carries the MSAA, which can change between frames ({@link backBufferMsaa}).
  *
- * WHAT IS MEASURED ({@link createRenderQualityController}): the interval of each frame while a round
- * plays and the page is visible, except the 30 frames after the page is shown or the level changes.
+ * WHAT IS MEASURED ({@link createRenderQualityController}): the interval of each frame while a
+ * round plays and the page is visible, except the 30 frames after the page is shown or the level
+ * changes.
  * Idle frames never count, and an interval over 250 ms (a resumed tab, a load hitch) is not a
  * frame. 120 counted frames make a window. A frame is slow past 21 ms, later than 1.25× a 60 Hz
  * frame: the target is 60 fps on every display, so a 120 Hz phone running at 60 is fine. A window
- * is slow when more than 10% of its frames are. A window with no frame under 28 ms is a browser's
- * 30 fps cap (iOS Low Power Mode) and is ignored.
+ * is slow when more than 10% of its frames are. A window whose intervals sit at a 30 fps rhythm
+ * (10th percentile ≥ 30 ms, median ≤ 36 ms, as `perfStats.ts` `capped30` reads it) is a browser's
+ * cap (iOS Low Power Mode) and is ignored; a device slower than that is judged.
  *
  * HOW IT MOVES: two slow windows in a row step down one level, at the next moment the game has been
- * quiet (idle) for 20 frames, so a switch never lands mid-round. That starts a trial: after two
- * windows at the new level it is kept if the slow share fell to half or less, or under 10%;
- * otherwise the old level comes back at the next quiet moment and stepping down stops for the
- * session (pixels are not what costs). A kept level that is still slow may step down again. Thirty
- * good windows in a row (under 1% slow) below the top level try one level up; if that goes slow
- * within two windows it steps back, and that level is never tried again. At most 6 switches a
+ * quiet for 20 frames, so a switch never lands while the reels move. Quiet is the game's to say:
+ * idle in manual play; in autoplay, the moments of a round when no reel is rolling. That starts a
+ * trial: after two windows at the new level it is kept if the slow share fell to half or less, or
+ * under 10%, or the mean frame interval fell by 20% or more (14 → 30 fps still has every frame
+ * slow); otherwise the old level comes back at the next quiet moment and stepping down stops for
+ * the session (pixels are not what costs). A kept level that is still slow may step down again.
+ * Thirty good windows in a row (under 1% slow) below the top level try one level up; if that goes
+ * slow within two windows it steps back, and that level is never tried again. At most 6 switches a
  * session, and a step that starts a trial is taken only while its revert still fits.
  *
  * Configured by the game ({@link configureRenderQuality}); the tools never configure it, so `/fx`,
@@ -42,8 +46,10 @@ export const QUALITY_RULES = {
 	slowFrameMs: 21,
 	/** A window with more than this share of slow frames is slow. */
 	slowWindowShare: 0.1,
-	/** A window with no interval under this is a browser's 30 fps cap. */
-	capFrameMs: 28,
+	/** A window is a browser's 30 fps cap when its 10th-percentile interval is at least this… */
+	capP10Ms: 30,
+	/** …and its median at most this (`perfStats.ts` `capped30`). */
+	capP50Ms: 36,
 	/** An interval over this is a resumed tab or a load hitch, not a frame. */
 	outlierMs: 250,
 	/** Frames not counted after the page is shown or the level changes. */
@@ -54,6 +60,8 @@ export const QUALITY_RULES = {
 	slowWindows: 2,
 	/** Windows a trial runs before its verdict. */
 	trialWindows: 2,
+	/** A step down is also kept when the mean frame interval fell by at least this share. */
+	trialIntervalGain: 0.2,
 	/** A window with less than this share of slow frames is good. */
 	goodWindowShare: 0.01,
 	/** Good windows in a row that try one level up. */
@@ -69,7 +77,8 @@ export interface QualityLevel {
 
 export type RenderQualityMode = 'adaptive' | RenderTier;
 
-/** `slow` steps down, `no gain` reverts a step down, `headroom` steps up, `slow again` reverts it. */
+/** `slow` steps down, `no gain` reverts a step down, `headroom` steps up, `slow again` reverts
+ *  the step up. */
 export type QualitySwitchReason = 'slow' | 'no gain' | 'headroom' | 'slow again';
 
 export interface QualitySwitch {
@@ -80,6 +89,8 @@ export interface QualitySwitch {
 	reason: QualitySwitchReason;
 	/** The share of slow frames the switch was decided on, to 0.01. */
 	slowShare: number;
+	/** The mean frame interval it was decided on, in ms to 0.1. */
+	frameMs: number;
 }
 
 export interface RenderQualitySnapshot {
@@ -95,7 +106,7 @@ export interface RenderQualitySnapshot {
 export interface QualityFrame {
 	/** A round is playing: only these frames are measured. */
 	measuring: boolean;
-	/** A switch may land now (the game is idle). */
+	/** A switch may land now: idle, or an autoplay round with no reel rolling. */
 	quiet: boolean;
 	visible: boolean;
 }
@@ -126,11 +137,19 @@ export function qualityLadder(
 	);
 }
 
-type Pending = { to: number; reason: QualitySwitchReason; slowShare: number };
-type Trial = { up: boolean; from: number; baseline: number; shares: number[] };
+/** A window's share of slow frames and its mean frame interval. */
+type WindowStats = { share: number; meanMs: number };
+type Pending = { to: number; reason: QualitySwitchReason; stats: WindowStats };
+type Trial = { up: boolean; from: number; baseline: WindowStats; windows: WindowStats[] };
 
 const mean = (values: readonly number[]): number =>
 	values.reduce((sum, value) => sum + value, 0) / values.length;
+const meanStats = (windows: readonly WindowStats[]): WindowStats => ({
+	share: mean(windows.map((w) => w.share)),
+	meanMs: mean(windows.map((w) => w.meanMs)),
+});
+const quantile = (sorted: readonly number[], q: number): number =>
+	sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 
 export function createRenderQualityController(
 	ladder: readonly QualityLevel[],
@@ -140,10 +159,8 @@ export function createRenderQualityController(
 	let elapsedMs = 0;
 	let settle = 0;
 	let quietRun = 0;
-	let counted = 0;
-	let slowFrames = 0;
-	let fastest = Infinity;
-	let slowRun: number[] = [];
+	let intervals: number[] = [];
+	let slowRun: WindowStats[] = [];
 	let goodRun = 0;
 	let downStopped = false;
 	const upFailed = new Set<number>();
@@ -152,79 +169,82 @@ export function createRenderQualityController(
 	const history: QualitySwitch[] = [];
 
 	const room = (switches: number) => history.length + switches <= rules.maxSwitches;
-	const resetWindow = () => {
-		counted = 0;
-		slowFrames = 0;
-		fastest = Infinity;
-	};
 
-	const judgeTrial = (current: Trial, share: number, slow: boolean) => {
-		current.shares.push(share);
+	const judgeTrial = (current: Trial, stats: WindowStats, slow: boolean) => {
+		current.windows.push(stats);
 		if (current.up) {
 			if (slow) {
 				upFailed.add(level);
-				if (room(1)) pending = { to: current.from, reason: 'slow again', slowShare: share };
+				if (room(1)) pending = { to: current.from, reason: 'slow again', stats };
 				trial = undefined;
-			} else if (current.shares.length >= rules.trialWindows) trial = undefined;
+			} else if (current.windows.length >= rules.trialWindows) trial = undefined;
 			return;
 		}
-		if (current.shares.length < rules.trialWindows) return;
-		const after = mean(current.shares);
-		if (after > current.baseline / 2 && after >= rules.slowWindowShare) {
+		if (current.windows.length < rules.trialWindows) return;
+		const after = meanStats(current.windows);
+		const helped =
+			after.share <= current.baseline.share / 2 ||
+			after.share < rules.slowWindowShare ||
+			after.meanMs <= current.baseline.meanMs * (1 - rules.trialIntervalGain);
+		if (!helped) {
 			downStopped = true;
-			if (room(1)) pending = { to: current.from, reason: 'no gain', slowShare: after };
+			if (room(1)) pending = { to: current.from, reason: 'no gain', stats: after };
 		}
 		trial = undefined;
 	};
 
-	const judge = (share: number) => {
+	const judge = (stats: WindowStats) => {
 		if (pending) return;
-		const slow = share > rules.slowWindowShare;
-		if (trial) return judgeTrial(trial, share, slow);
+		const slow = stats.share > rules.slowWindowShare;
+		if (trial) return judgeTrial(trial, stats, slow);
 		if (slow) {
 			goodRun = 0;
-			slowRun = [...slowRun, share].slice(-rules.slowWindows);
+			slowRun = [...slowRun, stats].slice(-rules.slowWindows);
 			if (
 				slowRun.length === rules.slowWindows &&
 				!downStopped &&
 				level < ladder.length - 1 &&
 				room(2)
 			)
-				pending = { to: level + 1, reason: 'slow', slowShare: mean(slowRun) };
+				pending = { to: level + 1, reason: 'slow', stats: meanStats(slowRun) };
 			return;
 		}
 		slowRun = [];
-		goodRun = share < rules.goodWindowShare ? goodRun + 1 : 0;
+		goodRun = stats.share < rules.goodWindowShare ? goodRun + 1 : 0;
 		if (goodRun >= rules.goodWindows && level > 0 && !upFailed.has(level - 1) && room(2))
-			pending = { to: level - 1, reason: 'headroom', slowShare: share };
+			pending = { to: level - 1, reason: 'headroom', stats };
 	};
 
 	const count = (intervalMs: number) => {
-		counted++;
-		if (intervalMs > rules.slowFrameMs) slowFrames++;
-		fastest = Math.min(fastest, intervalMs);
-		if (counted < rules.windowFrames) return;
-		const share = slowFrames / counted;
-		const capped = fastest >= rules.capFrameMs;
-		resetWindow();
-		if (!capped) judge(share);
+		intervals.push(intervalMs);
+		if (intervals.length < rules.windowFrames) return;
+		const sorted = intervals.sort((a, b) => a - b);
+		intervals = [];
+		const capped =
+			quantile(sorted, 0.1) >= rules.capP10Ms && quantile(sorted, 0.5) <= rules.capP50Ms;
+		if (capped) return;
+		judge({
+			share: sorted.filter((ms) => ms > rules.slowFrameMs).length / sorted.length,
+			meanMs: mean(sorted),
+		});
 	};
 
-	const apply = ({ to, reason, slowShare }: Pending): QualityLevel => {
+	const apply = ({ to, reason, stats }: Pending): QualityLevel => {
 		pending = undefined;
 		history.push({
 			at: Math.round(elapsedMs / 100) / 10,
 			from: level,
 			to,
 			reason,
-			slowShare: Math.round(slowShare * 100) / 100,
+			slowShare: Math.round(stats.share * 100) / 100,
+			frameMs: Math.round(stats.meanMs * 10) / 10,
 		});
 		trial =
 			reason === 'slow' || reason === 'headroom'
-				? { up: reason === 'headroom', from: level, baseline: slowShare, shares: [] }
+				? { up: reason === 'headroom', from: level, baseline: stats, windows: [] }
 				: undefined;
 		level = to;
-		resetWindow();
+		intervals = [];
 		settle = rules.settleFrames;
 		slowRun = [];
 		goodRun = 0;
@@ -263,11 +283,11 @@ type BackBufferInternals = {
 
 /**
  * The back buffer's MSAA as a switch. Pixi reads `_antialias` only when it makes the back buffer's
- * texture, which the next frame does when there is none (`GlBackBufferSystem._getBackBufferTexture`,
- * pixi 8.22). So a switch destroys that texture with its source, whose `destroy` deletes its GL
- * texture and, through `RenderTargetSystem`, its framebuffers and MSAA renderbuffers. Undefined
- * without a back buffer or without those internals (WebGPU, another Pixi);
- * `scripts/pixi-back-buffer.fixture.mjs` pins the installed Pixi's side.
+ * texture, which the next frame does when there is none
+ * (`GlBackBufferSystem._getBackBufferTexture`, pixi 8.22). So a switch destroys that texture with
+ * its source, whose `destroy` deletes its GL texture and, through `RenderTargetSystem`, its
+ * framebuffers and MSAA renderbuffers. Undefined without a back buffer or without those internals
+ * (WebGPU, another Pixi); `scripts/pixi-back-buffer.fixture.mjs` pins the installed Pixi's side.
  */
 function backBufferMsaa(
 	renderer: Renderer,

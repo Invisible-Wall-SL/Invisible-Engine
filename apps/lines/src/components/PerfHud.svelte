@@ -169,7 +169,7 @@
 		const last = q.history.at(-1);
 		const switches = last
 			? `switches ${q.history.length}, last L${last.from}→L${last.to} ${last.reason} at ` +
-				`${last.at} s (${Math.round(last.slowShare * 100)}% slow)`
+				`${last.at} s (${Math.round(last.slowShare * 100)}% slow, ${last.frameMs} ms)`
 			: 'no switches';
 		return [
 			q.mode,

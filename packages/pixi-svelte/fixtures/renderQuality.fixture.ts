@@ -5,11 +5,13 @@
  * Pins, on simulated frame feeds: the ladder each pixel ratio gets (never below 1, duplicates
  * dropped, the MSAA step only where it can switch); steady 60 Hz and 120 Hz mixed 8.3/16.7 ms
  * frames stay at the top; idle, hidden and settling frames never count, nor intervals over 250 ms;
- * the 21 ms and 10% boundaries; two slow windows step down, only after 20 quiet frames in a row; a
- * trial that helps (half the slow share, or under 10%) keeps its level, one that does not reverts
- * and stops stepping down; a browser's 30 fps cap never adapts; the floor holds; a step up after
- * 30 good windows is a trial that backs off and is never retried; at most 6 switches, the sixth
- * only a revert.
+ * the 21 ms and 10% boundaries; two slow windows step down, only after 20 quiet frames in a row
+ * (which may be measured frames too: autoplay's stopped reels); a trial that helps (half the slow
+ * share, under 10%, or a mean frame interval 20% shorter) keeps its level, one that does not
+ * reverts and stops stepping down; a browser's 30 fps rhythm never adapts while a device slower
+ * than that (an iPhone 13 Pro at 14 fps) or a jittery 25–45 ms one does; the floor holds; a step
+ * up after 30 good windows is a trial that backs off and is never retried; at most 6 switches, the
+ * sixth only a revert.
  */
 
 import {
@@ -73,12 +75,22 @@ function device(ladder: readonly QualityLevel[] = PHONE) {
 				sim.feed(late ? slowMs : FRAME_60, PLAYING);
 			}
 		},
+		/** `frames` measured frames whose intervals `intervalAt(level, k)` gives. */
+		run(frames: number, intervalAt: (level: number, k: number) => number) {
+			for (let i = 0; i < frames; i++) sim.feed(intervalAt(sim.level(), measured++), PLAYING);
+		},
 		idle(frames: number, intervalMs = FRAME_60) {
 			for (let i = 0; i < frames; i++) sim.feed(intervalMs, IDLE);
 		},
-		rounds(count: number, slowAt: (level: number) => number) {
+		spins(count: number, intervalAt: (level: number, k: number) => number) {
 			for (let i = 0; i < count; i++) {
-				sim.play(SPIN_FRAMES, slowAt);
+				sim.run(SPIN_FRAMES, intervalAt);
+				sim.idle(BETWEEN_SPINS);
+			}
+		},
+		rounds(count: number, slowAt: (level: number) => number, slowMs = SLOW_MS) {
+			for (let i = 0; i < count; i++) {
+				sim.play(SPIN_FRAMES, slowAt, slowMs);
 				sim.idle(BETWEEN_SPINS);
 			}
 		},
@@ -184,14 +196,37 @@ console.log('\nwhat never counts');
 	}
 	check('intervals over 250 ms are not frames', sim.history().length === 0, trail(sim));
 }
+
+console.log('\n30 fps cap or a slow device');
+const cycle = (values: number[]) => (_level: number, k: number) => values[k % values.length];
+/** An iPhone 13 Pro spinning at 14 fps (2026-11-09): ~71 ms frames with jitter. */
+const IPHONE_14FPS = [60, 85, 66, 75, 71, 92, 58, 64];
 {
 	const sim = device();
-	for (let i = 0; i < 60; i++) {
-		for (let f = 0; f < SPIN_FRAMES; f++) sim.feed(f % 3 ? 33.3 : 32.9, PLAYING);
-		for (let f = 0; f < SPIN_FRAMES; f++) sim.feed(66.7, PLAYING);
-		sim.idle(BETWEEN_SPINS, 33.3);
-	}
-	check('a 30 fps cap (no frame under 28 ms) never adapts', sim.history().length === 0, trail(sim));
+	sim.spins(80, cycle([33.3, 33.4, 33.2, 33.3, 33.3, 33.4, 33.3, 33.2, 33.3, 66.7]));
+	check(
+		'a steady 33.3 ms Low Power Mode rhythm is ignored',
+		sim.history().length === 0,
+		trail(sim),
+	);
+}
+{
+	const sim = device();
+	sim.spins(2, cycle(IPHONE_14FPS));
+	check(
+		'14 fps with jitter (no frame under 28 ms) is judged and steps down',
+		sim.history()[0]?.reason === 'slow' && sim.level() === 1,
+		trail(sim),
+	);
+}
+{
+	const sim = device();
+	sim.spins(2, cycle([25, 30, 35, 40, 45, 27, 33, 38, 43, 29]));
+	check(
+		'a jittery 25–45 ms window is judged and steps down',
+		sim.history()[0]?.reason === 'slow',
+		trail(sim),
+	);
 }
 {
 	const sim = device();
@@ -274,7 +309,8 @@ console.log('\nstepping down');
 }
 {
 	const sim = device();
-	sim.rounds(120, at(108, 54, 27, 13));
+	// Late frames of 45 ms: 90% of them at 33.3 ms would be a 30 fps rhythm, read as a cap.
+	sim.rounds(120, at(108, 54, 27, 13), 45);
 	check(
 		'a kept level that is still slow steps down again, to the floor and no further',
 		sim.level() === PHONE.length - 1 && sim.history().length === PHONE.length - 1,
@@ -290,6 +326,41 @@ console.log('\nstepping down');
 	const single = device(qualityLadder(1, { msaa: true, msaaSwitchable: false }));
 	single.rounds(80, at(60));
 	check('a one-level ladder never switches', single.history().length === 0);
+}
+
+{
+	const sim = device();
+	sim.spins(40, (level, k) => (level === 0 ? IPHONE_14FPS[k % 8] : k % 2 ? 25 : 41.7));
+	check(
+		'14 → 30 fps keeps the step though every frame is still slow',
+		trail(sim) === '0->1 slow 1, 1->2 slow 1, 2->1 no gain 1' && sim.level() === 1,
+		trail(sim),
+	);
+	const flat = device();
+	flat.spins(40, (level, k) => (level === 0 ? IPHONE_14FPS[k % 8] : [60, 70, 66, 72, 65][k % 5]));
+	check(
+		'14 → 15 fps reverts',
+		trail(flat) === '0->1 slow 1, 1->0 no gain 1' && flat.level() === 0,
+		trail(flat),
+	);
+}
+{
+	const sim = device();
+	let switchedQuiet: boolean | undefined;
+	for (let f = 0; f < 3000 && switchedQuiet === undefined; f++) {
+		const stopped = f % SPIN_FRAMES >= 100;
+		const next = sim.controller.frame(f % 3 ? FRAME_60 : SLOW_MS, {
+			measuring: true,
+			quiet: stopped,
+			visible: true,
+		});
+		if (next) switchedQuiet = stopped;
+	}
+	check(
+		'frames both measured and quiet (autoplay with the reels stopped) switch there',
+		switchedQuiet === true,
+		String(switchedQuiet),
+	);
 }
 
 console.log('\nstepping up');
@@ -401,7 +472,8 @@ console.log('\nreadout');
 			snap.level.msaa &&
 			step.at > 0 &&
 			step.from === 0 &&
-			step.to === 1,
+			step.to === 1 &&
+			step.frameMs > FRAME_60,
 		JSON.stringify(snap),
 	);
 	snap.history.length = 0;

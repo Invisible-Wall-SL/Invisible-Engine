@@ -1409,14 +1409,18 @@
 	);
 
 	const context = getContext();
-	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round plays
-	// draws fewer pixels, switched only while the game is idle (`pixi-svelte` `renderQuality`). A
-	// deterministic render and a `?render=` pin never adapt.
+	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round
+	// plays draws fewer pixels (`pixi-svelte` `renderQuality`), switched only while no reel rolls:
+	// at idle in manual play; in autoplay, which is one long state and never idle, in the moments
+	// of a round with the reels stopped. A deterministic render and a `?render=` pin never adapt.
 	onDestroy(
 		configureRenderQuality({
 			adaptive: !globalThis.__IE_DETERMINISM__ && renderPin() === undefined,
 			measuring: () => context.stateXstateDerived.isPlaying(),
-			quiet: () => context.stateXstateDerived.isIdle(),
+			quiet: () =>
+				context.stateXstateDerived.isIdle() ||
+				(context.stateXstateDerived.isAutoBetting() &&
+					!stateGame.board.some((reel) => reel.reelState.rolling)),
 		}),
 	);
 
