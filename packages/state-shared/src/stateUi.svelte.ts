@@ -295,7 +295,7 @@ export const armAutoSpins = (): void => {
 	stateBet.autoSpinsSingleWinLimitAmount = limitAmount(
 		autoSpinsOptionValue(selectedSingleWinLimitOption()),
 	);
-	if (stateBetDerived.activeBetMode().type === 'buy') stateBet.activeBetModeKey = 'BASE';
+	if (stateBetDerived.activeBetMode().type === 'buy') stateBetDerived.endBuy();
 };
 
 /**
