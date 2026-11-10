@@ -99,6 +99,14 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - **Expect:** when a collector gathers a jackpot coin, the coin lights with a small banner naming
   its tier and amount. It is presentation only: the collector's value already holds it.
 
+### S8 — A buy over the ante (needs the HUD's ante switch and the three bet modes of 14c)
+
+- Ante on → buy either option → play the whole round. **Expect:** the switch stays lit through it,
+  and afterwards the stake reads 5× and the next spin posts `bet [1, …]`.
+- Ante off → buy → next spin `bet [0, …]`.
+- Mock with `DISABLED_OPTIONS=3`, ante on → Bonus Buy. **Expect:** the toast, the board kept, the
+  switch still lit, the next spin `bet [1, …]`.
+
 ## Every round
 
 - 0 console errors other than the stub config's known "no entry in the symbol map" for COIN and
