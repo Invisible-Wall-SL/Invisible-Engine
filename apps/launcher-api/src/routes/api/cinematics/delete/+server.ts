@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { assertReach, cinematicGate } from '$lib/server/cinematicAccess';
 import { deleteCinematic, loadCinematic } from '$lib/server/cinematicStorage';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import type { RequestHandler } from './$types';
 
@@ -11,7 +12,7 @@ import type { RequestHandler } from './$types';
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	const id = body && typeof body.id === 'string' ? body.id : '';
 	if (!id) throw error(400, 'missing id');
 	const mismatch = scopeMismatch(body?.projectKey, projectKey);

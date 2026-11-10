@@ -12,7 +12,7 @@ already have in the graph.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 from .base import (
     AnalysisContext,
@@ -230,7 +230,7 @@ class Florence2Analyzer(BaseSemanticAnalyzer):
                         .eval()
                     )
             self._loaded_id = model_id
-        except Exception as exc:  # noqa: BLE001 - offline, gated repo, version skew…
+        except Exception as exc:  # offline, gated repo, version skew…
             raise AnalyzerUnavailable(_diagnose(exc, model_id)) from exc
 
         context.note(

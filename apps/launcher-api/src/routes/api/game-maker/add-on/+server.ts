@@ -1,12 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { POTS_OVERLAY_PRESET_IDS } from 'game-config';
-import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
+import { objectOrNull, userGrants } from '$lib/server/http';
 import { addOnToolsMissing, applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { canAccessProject, projectClientKey } from '$lib/server/projects';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
+import { clientKeyOf } from '$lib/server/projectLookup';
+import { canAccessProject } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -30,10 +28,8 @@ const NO_STORE = { 'cache-control': 'no-store' };
  */
 export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	const { role } = locals.user;
-	const roleOverrides = await getRoleOverrides(role);
-	const toolOverrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(role, 'gameMaker', roleOverrides, toolOverrides)) {
+	const { hasTool } = await userGrants(locals.user);
+	if (!hasTool('gameMaker')) {
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
@@ -43,15 +39,12 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	} catch {
 		return json({ error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
 	}
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+	const body = objectOrNull(raw);
+	if (!body) {
 		return json({ error: 'Expected a JSON object' }, { status: 400, headers: NO_STORE });
 	}
-	const body: { project?: unknown; preset?: unknown; flow?: unknown } = raw;
 	const flow = body.flow === true;
-	const missing = addOnToolsMissing(
-		(tool) => roleHasTool(role, tool, roleOverrides, toolOverrides),
-		flow,
-	);
+	const missing = addOnToolsMissing(hasTool, flow);
 	if (missing.length) {
 		return json(
 			{ error: `The add-on writes docs your role cannot edit: ${missing.join(', ')}.` },
@@ -72,7 +65,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	const sessionId = await sessionIdFromToken(cookies.get(SESSION_COOKIE));
 	if (!sessionId) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
 
-	const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
+	const client = await clientKeyOf(project);
 	const result = await applyPotsOverlayAddOn(client, project, { preset, flow, sessionId });
 	if (!result.ok) {
 		return json({ error: result.error }, { status: result.status, headers: NO_STORE });

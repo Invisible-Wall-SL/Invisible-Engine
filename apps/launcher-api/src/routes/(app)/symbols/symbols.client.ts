@@ -152,6 +152,8 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'An upgrade special APPLYING — raising the coins around it, every coin, or a jackpot coin a tier. Leave a cell empty to reuse this symbol’s Win binding.',
 	rowUnlock:
 		'An unlock symbol APPLYING — opening a locked row of an expanding board before it leaves. Leave a cell empty to reuse this symbol’s Win binding.',
+	coinEnhance:
+		'A cash coin a BOOST or MULTIPLY enhancement hits as it lands (a collector bonus) — its beam arriving while the value counts up. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
 /** The token's reading of its three states, for a pots overlay host without the respin feature —
@@ -724,8 +726,8 @@ export interface SymbolsDoc {
 	 *  `bundle.symbols.coinLabel`. */
 	coinLabel?: CoinLabelConfig;
 	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
-	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `unlockRow`, `toMeter`,
-	 *  `toMeter:<id>`). Sparse: absent ⇒ every flight flies the coded glow. Normalized by
+	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `unlockRow`, `enhancementBeam`,
+	 *  `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the coded glow. Normalized by
 	 *  `engine-layout`'s `normalizeFlights` on both sides of the save.
 
 	 *  Passed through verbatim to `bundle.symbols.flights`. */
@@ -775,7 +777,8 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 		state === 'flyToMeter' ||
 		state === 'respinsAdd' ||
 		state === 'coinUpgrade' ||
-		state === 'rowUnlock'
+		state === 'rowUnlock' ||
+		state === 'coinEnhance'
 	)
 		return 'win';
 	return null;

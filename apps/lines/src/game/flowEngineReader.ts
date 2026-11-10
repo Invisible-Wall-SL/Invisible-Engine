@@ -31,8 +31,8 @@ const jackpotAmount = (tier: string): number => jackpotMultiplier(tier) * BOOK_A
  *  - `reels` — the `reels` COLLECTION (`$engine.reels`): `[{ index }, …]`, one per board reel, so a
  *    `forEach` (e.g. the `StaggerStop` per-reel stagger) can iterate the reels. Sourced from the live
  *    board length (falls back to the static reel count before the first spin lands).
- *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` from
- *    `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
+ *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` /
+ *    `enhancements` from `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
  *  - `meter.<id>.level|max|stage|full` — a pot as it is drawn (`holdAndWinMeters`, the same reads as
  *    the HUD's `meter.<id>.*` sources, `full` a boolean here). A project's meters are config data, so
  *    these are a pattern ({@link METER_READS}), declared per meter by the pots overlay add-on.
@@ -73,6 +73,7 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	respinTotal: () => stateHoldAndWin.start,
 	featureWorth,
 	activeModifiers: () => [...stateHoldAndWin.activeModifiers],
+	enhancements: () => [...(stateHoldAndWin.enhancements ?? [])],
 	'jackpot.mini': () => jackpotAmount('mini'),
 	'jackpot.minor': () => jackpotAmount('minor'),
 	'jackpot.major': () => jackpotAmount('major'),

@@ -139,6 +139,10 @@ for (const group of ['sceneSets', 'templates', 'components']) {
 
 const doc = mod.getFullSceneSet('holdAndWin');
 const sceneById = new Map(doc.scenes.map((scene) => [scene.id, scene]));
+// A collector bonus with enhancements (Phase 14b) adds its own screens on request only.
+const enhanced = mod.getFullSceneSet('holdAndWin', { enhancements: true });
+const enhancedById = new Map(enhanced.scenes.map((scene) => [scene.id, scene]));
+const ENHANCEMENT_SCREENS = ['enhancements', 'enhancementsBanner', 'superBonusBanner'];
 const walk = (nodes, out = []) => {
 	for (const node of nodes) {
 		out.push(node);
@@ -191,9 +195,39 @@ assert(hosts.length === 1 && hosts[0] === 'basegame', `one infoBar, in basegame 
 const builtinIds = new Set(mod.BUILTIN_COMPONENTS.map((def) => def.id));
 const scaffold = mod.engineOwnedOnly(doc);
 assert(
-	scaffold.scenes.length === doc.scenes.length - mod.SELF_MOUNTED_BANNER_SCREENS.length,
+	scaffold.scenes.length ===
+		doc.scenes.length - doc.scenes.filter((s) => mod.isSelfMountedBannerScreen(s)).length,
 	'the scaffold keeps every screen but the banner screens',
 );
+for (const id of ENHANCEMENT_SCREENS) {
+	assert(!sceneById.has(id), `${id} is in the set without enhancements`);
+	assert(enhancedById.get(id)?.modeId === 'holdAndWin', `${id} is not a holdAndWin mode screen`);
+}
+assert(
+	enhanced.scenes.filter((s) => !ENHANCEMENT_SCREENS.includes(s.id)).length === doc.scenes.length,
+	'the enhancements option adds only its own screens',
+);
+{
+	const dials = instancesIn(enhancedById.get('enhancements')).filter(
+		(n) => n.componentId === 'enhancementDial',
+	);
+	assert(
+		JSON.stringify(dials.map((n) => n.params?.kind)) ===
+			JSON.stringify(['extraRow', 'boost', 'multiply', 'extraRespins']),
+		'the Enhancements screen places the four dials, Expand to Respin',
+	);
+	assert(
+		instancesIn(enhancedById.get('enhancements')).some(
+			(n) => n.params?.source === 'collectorsTotal',
+		),
+		"the Enhancements screen shows the collectors' total",
+	);
+	const dial = mod.BUILTIN_COMPONENTS.find((d) => d.id === 'enhancementDial');
+	assert(
+		dial?.capability === 'holdAndWin' && dial.signalScopeKind === 'enhancement',
+		'the Enhancement Dial is kind-gated and scoped by enhancement',
+	);
+}
 assert(
 	!scaffold.scenes.some((s) => mod.SELF_MOUNTED_BANNER_SCREENS.includes(s.id)),
 	'a new game carries a banner screen',
@@ -228,7 +262,14 @@ for (const id of PLACED) {
 // Kind gating: offered to Hold and Win only; every other built-in still offered everywhere. The pot
 // parts are gated on `pots`, so the pots overlay add-on (docs/design/pots-overlay.md §4) offers
 // them to any kind, and nothing else of the feature; a Hold and Win block offers all of it.
-const GATED = [...PLACED, 'jackpotTile', 'letterTile', 'cellTile', 'lineOverlay'];
+const GATED = [
+	...PLACED,
+	'jackpotTile',
+	'letterTile',
+	'cellTile',
+	'lineOverlay',
+	'enhancementDial',
+];
 const POTS = ['potMeter'];
 for (const def of mod.BUILTIN_COMPONENTS) {
 	const gated = GATED.includes(def.id);
@@ -439,8 +480,8 @@ const GATE = mod.HOLD_AND_WIN_BANNER_SHOW_SOURCES;
 for (const [kind, ids] of Object.entries(mod.HOLD_AND_WIN_BANNER_SCREENS)) {
 	assert(ids.length > 0, `${kind} has no screen`);
 	for (const id of ids) {
-		assert(sceneById.has(id), `${kind}: the set lacks its screen ${id}`);
-		assert(sceneById.get(id)?.visibleSource === GATE[id], `${id} is not gated on ${GATE[id]}`);
+		assert(enhancedById.has(id), `${kind}: the set lacks its screen ${id}`);
+		assert(enhancedById.get(id)?.visibleSource === GATE[id], `${id} is not gated on ${GATE[id]}`);
 	}
 }
 // The banner screens the game mounts itself: always on top (over the coins in flight, as the coded
@@ -452,10 +493,12 @@ const FEATURE_BANNERS = [
 	'modifiersUnlockedBanner',
 	'wheelPrizeBanner',
 	'rowUnlockedBanner',
+	'enhancementsBanner',
+	'superBonusBanner',
 	'featureTotalBanner',
 ];
 for (const id of mod.SELF_MOUNTED_BANNER_SCREENS) {
-	const scene = sceneById.get(id);
+	const scene = enhancedById.get(id);
 	assert(scene?.alwaysOnTop === true, `${id} is not always on top`);
 	assert(
 		FEATURE_BANNERS.includes(id)
@@ -571,7 +614,7 @@ assert(
 		'wheel',
 		'featureIntro',
 		'jackpotWin',
-		...FEATURE_BANNERS,
+		...FEATURE_BANNERS.filter((id) => !ENHANCEMENT_SCREENS.includes(id)),
 		'featureOutro',
 	];
 	const BASE_BANNERS = ['instantWinBanner', 'randomMetreBanner', 'platformJackpotBanner'];

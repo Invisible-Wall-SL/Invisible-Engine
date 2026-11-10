@@ -20,20 +20,14 @@ import time
 from http.server import ThreadingHTTPServer
 
 from iw_common import launch
+from iw_common.testkit import Suite
 
 SIGNING = "sheet-signing-secret-0123456789"
 LEGACY = "legacy-sheet-gate-abc"
 
-FAILED: list[str] = []
-
-
-def check(label: str, got, want) -> None:
-    ok = got == want
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
-    if not ok:
-        print(f"       got  {got!r}\n       want {want!r}")
-        FAILED.append(label)
-    assert ok, label
+# Each check builds on the last (a session from the launch, ...), so the first
+# failure ends the run.
+t = Suite(stop_on_failure=True)
 
 
 def token(**over) -> str:
@@ -75,29 +69,29 @@ def test_sheet_gate() -> None:
     port = srv.server_address[1]
     try:
         st, _, _, body = _req(port, "/healthz")
-        check("/healthz is 200 with no credential", (st, json.loads(body)["ok"]), (200, True))
-        check("everything else is gated", _req(port, "/logo")[0], 403)
+        t.check("/healthz is 200 with no credential", (st, json.loads(body)["ok"]), (200, True))
+        t.check("everything else is gated", _req(port, "/logo")[0], 403)
 
         st, loc, cookies, _ = _req(port, f"/?iw_launch={token()}&home=h")
-        check("a launch redirects without the token", (st, loc), (303, "/?home=h"))
+        t.check("a launch redirects without the token", (st, loc), (303, "/?home=h"))
         sess = next((c.split(";", 1)[0] for c in cookies
                      if c.startswith("iw_sheet_session=")), "")
-        check("...and sets a session cookie", bool(sess), True)
-        check("the session opens the tool", _req(port, "/logo", {"Cookie": sess})[0], 200)
+        t.check("...and sets a session cookie", bool(sess), True)
+        t.check("the session opens the tool", _req(port, "/logo", {"Cookie": sess})[0], 200)
         ident = s.GATE.authenticate("/api/state?client=rival&project=their_game",
                                     {"Cookie": sess}).identity
-        check("URL client/project are ignored", (ident.client, ident.project),
-              ("acme", "slots_one"))
-        check("an edited-client token is refused",
-              _req(port, f"/?iw_launch={tamper(token(), client='rival')}")[0], 403)
-        check("an atlas token is refused here",
-              _req(port, f"/?iw_launch={token(aud='atlas')}")[0], 403)
+        t.check("URL client/project are ignored", (ident.client, ident.project),
+                ("acme", "slots_one"))
+        t.check("an edited-client token is refused",
+                _req(port, f"/?iw_launch={tamper(token(), client='rival')}")[0], 403)
+        t.check("an atlas token is refused here",
+                _req(port, f"/?iw_launch={token(aud='atlas')}")[0], 403)
 
-        check("legacy ?k= works inside the window",
-              _req(port, f"/logo?k={LEGACY}&client=acme&project=p1")[0], 200)
+        t.check("legacy ?k= works inside the window",
+                _req(port, f"/logo?k={LEGACY}&client=acme&project=p1")[0], 200)
         os.environ[launch.LEGACY_ENV] = "off"
-        check("...and not after it", _req(port, f"/logo?k={LEGACY}&client=acme&project=p1")[0],
-              403)
+        t.check("...and not after it", _req(port, f"/logo?k={LEGACY}&client=acme&project=p1")[0],
+                403)
     finally:
         srv.shutdown()
         for k, v in saved.items():
@@ -108,9 +102,5 @@ def test_sheet_gate() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        test_sheet_gate()
-    except AssertionError:
-        pass
-    print(f"\n{'FAILED: ' + str(len(FAILED)) if FAILED else 'all passed'}")
-    raise SystemExit(1 if FAILED else 0)
+    t.run(test_sheet_gate)
+    t.exit()

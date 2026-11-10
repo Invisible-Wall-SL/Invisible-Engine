@@ -54,7 +54,6 @@ network. In ``batch_atlas`` they're bound to the stdlib twins there.
 """
 from __future__ import annotations
 
-import json
 import os
 import time
 from dataclasses import dataclass, field

@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { resolveMockContract, type MockContractSource } from '$lib/server/mockContract';
-import { DEFAULT_PROJECT_KEY, projectAllowsRead } from '$lib/server/projects';
+import { projectAllowsRead } from '$lib/server/projects';
+import { projectParam } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 const SOURCES: readonly MockContractSource[] = ['published', 'live'];
@@ -32,7 +33,7 @@ const SOURCES: readonly MockContractSource[] = ['published', 'live'];
  * exists to kill; the caller owns the (short) TTL.
  */
 export const GET: RequestHandler = async ({ url }) => {
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
+	const projectKey = projectParam(url);
 	const token = url.searchParams.get('k') ?? '';
 	if (!(await projectAllowsRead(projectKey, token))) throw error(401, 'Invalid or missing token.');
 	const source = (url.searchParams.get('source') || 'published') as MockContractSource;

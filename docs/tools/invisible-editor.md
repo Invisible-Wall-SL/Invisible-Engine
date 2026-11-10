@@ -2445,7 +2445,7 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   keeping its position and params.
   The list shows only what your project's game kind and add-ons use: the Hold and Win pieces
   (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Letter Tile,
-  Wheel, Respin Cell Tiles, Locked Row, Line Overlay) appear only in a Hold and Win project or one whose Game Config
+  Wheel, Respin Cell Tiles, Locked Row, Line Overlay, Enhancement Dial) appear only in a Hold and Win project or one whose Game Config
   has a Hold and Win bonus; the Pot Meter also with the pots overlay. A screen that already holds
   one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
@@ -2484,6 +2484,20 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   **⇕ Reserve rows for board expansion (N)** entry in the Screens panel's **⋯** menu: it applies the same cell size
   and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
   grown board yourself.
+  **Enhancement Dial** is one of a collector bonus's four dials (the partner's collector game,
+  Phase 14b): its **kind** names the enhancement it stands for (`extraRow` Expand, `boost`,
+  `multiply`, `extraRespins` Respin). It shows only during a feature that drew enhancements
+  (**visibleSource** `enhancementsShow`), so other games never see it. With nothing inside, the
+  game draws its own round dial: dim when off, gold when on, flashing with what it adds on a hit
+  ("+$5.00", "×3"), a red X on a miss. Put your art inside its **Dial** part and show each piece by
+  a `visible` binding on `enhancement.{kind}.state` (0 off, 1 on, 2 hit, 3 miss); **pulseScale**
+  pulses it on each light, hit and miss. A cue on **Enhancement — on / hit / miss** inside it plays
+  on its own dial only. A dial on screen is where a hit's beam leaves from, and the game's own row
+  of dials above the board steps aside once one is placed, so place all four (one per kind),
+  usually on a Hold and Win screen of their own above the board. A **Text Box** with source
+  `collectorsTotal` shows what the collectors hold together, climbing as each coin lands in one.
+  Game Maker does not add these for you yet: no Game Config setting marks a collector bonus with
+  enhancements.
   **Line Overlay** marks a coin board's paying lines: each active line as a path between its cells,
   in its Game Config payline colour, with a numbered tab at each end of the board. Like the tiles,
   where you drop it doesn't matter: the lines draw on the board's own cells, and only in a coin

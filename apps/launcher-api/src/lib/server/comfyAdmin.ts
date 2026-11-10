@@ -1,6 +1,4 @@
-import { error } from '@sveltejs/kit';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
-import { getRoleOverrides } from './roleToolAccess';
+import { requireAdminPanel } from './admin';
 
 /**
  * Gate for the /comfyui actions that change the FLEET rather than use it — rebuilding the
@@ -12,9 +10,9 @@ import { getRoleOverrides } from './roleToolAccess';
  * answer to "who administers this", not two.
  */
 export async function requireComfyAdmin(locals: App.Locals): Promise<void> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	if (!roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides)) {
-		throw error(403, 'Admins only — rebuilding the image and changing a pod affect everyone.');
-	}
+	await requireAdminPanel(
+		locals,
+		'api',
+		'Admins only — rebuilding the image and changing a pod affect everyone.',
+	);
 }

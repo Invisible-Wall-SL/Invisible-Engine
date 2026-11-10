@@ -292,7 +292,7 @@ def test_two_threads_racing_the_same_version() -> None:
             outcome[ident.name] = "landed"
         except docsave.DocConflict as e:
             outcome[ident.name] = e
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — any other error fails the test, by name
             errors.append(f"{ident.name}: {e!r}")
         finally:
             doc_sync.end()

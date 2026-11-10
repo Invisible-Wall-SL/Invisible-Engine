@@ -6,8 +6,9 @@ import {
 	type GateDenial,
 	type LauncherGate,
 } from '$lib/launcherGates';
-import { roleHasCapability, roleHasTool, type ToolOverrides } from '$lib/roles';
+import type { ToolOverrides } from '$lib/roles';
 import { validateSession, type SessionUser } from './auth';
+import { userGrants } from './http';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
 
@@ -78,18 +79,5 @@ export function requireLauncherPublisher(request: Request): Promise<LauncherAuth
  * already on `locals` and only the override fan-out is left to do.
  */
 export async function userHasCapability(user: SessionUser, key: string): Promise<boolean> {
-	const [roleOverrides, userOverrides] = await Promise.all([
-		getRoleOverrides(user.role),
-		getToolOverrides(user.id),
-	]);
-	return roleHasCapability(user.role, key, roleOverrides, userOverrides);
-}
-
-/** Whether a cookie-authed user holds a tool, through the same role and per-user overrides. */
-export async function userHasTool(user: SessionUser, toolId: string): Promise<boolean> {
-	const [roleOverrides, userOverrides] = await Promise.all([
-		getRoleOverrides(user.role),
-		getToolOverrides(user.id),
-	]);
-	return roleHasTool(user.role, toolId, roleOverrides, userOverrides);
+	return (await userGrants(user)).hasCapability(key);
 }

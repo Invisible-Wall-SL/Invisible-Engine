@@ -25,7 +25,7 @@ export interface EngineParamEntry {
 }
 
 /** The kinds of part a scoped engine signal can name (`ComponentDef.signalScopeKind`). */
-export const SIGNAL_SCOPE_KINDS = ['meter', 'tier', 'reel'] as const;
+export const SIGNAL_SCOPE_KINDS = ['meter', 'tier', 'reel', 'enhancement'] as const;
 export type SignalScopeKind = (typeof SIGNAL_SCOPE_KINDS)[number];
 
 /** A core signal name the engine fires at a component. */
@@ -258,6 +258,18 @@ export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
 		note: `The ${tier.toUpperCase()} jackpot's value at the current bet (multiplier × total bet).`,
 	})),
 	{
+		key: 'collectorsTotal',
+		kind: 'number',
+		label: 'Collectors Total',
+		note: "What the collectors in view hold together, climbing as each coin lands in one — a collector bonus's running total (Phase 14b). 0 with no collector held.",
+	},
+	{
+		key: 'enhancementsActive',
+		kind: 'string',
+		label: 'Active Enhancements',
+		note: 'The enhancements this feature drew, "BOOST · MULTIPLY" (Win Text `enhancementNames`). Empty when it drew none.',
+	},
+	{
 		key: 'holdAndWinBanner',
 		kind: 'string',
 		label: 'Feature Banner',
@@ -369,6 +381,13 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 		needsParam: 'reel',
 	},
 	{
+		key: 'enhancement.{kind}.state',
+		label: 'Enhancement dial state',
+		group: 'Enhancement (this dial’s kind)',
+		note: '0 off (not drawn this feature), 1 on, 2 hit (its beam is flying), 3 miss (its X shows) — gate each state’s art with "show when = n".',
+		needsParam: 'kind',
+	},
+	{
 		key: 'respinsLeft',
 		label: 'Respins left',
 		group: 'Hold and Win',
@@ -402,6 +421,12 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 		note: 'An expanding board only.',
 	},
 	{ key: 'collectorLevel', label: 'Collector level', group: 'Hold and Win' },
+	{
+		key: 'collectorsTotal',
+		label: 'Collectors total',
+		group: 'Hold and Win',
+		note: 'What the collectors in view hold together, climbing as each coin lands in one.',
+	},
 	{ key: 'lettersLit', label: 'Letters lit', group: 'Hold and Win' },
 	{ key: 'featureTotal', label: 'Feature total', group: 'Hold and Win' },
 	{ key: 'featureWorth', label: 'Feature worth', group: 'Hold and Win', note: FEATURE_WORTH_NOTE },
@@ -430,12 +455,14 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 /** `platformJackpotShow` — true once the operator's platform reports a jackpot. */
 export const PLATFORM_JACKPOT_VISIBILITY_SOURCE_KEYS: string[] = ['platformJackpotShow'];
 
-/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature; the other two
- *  while the Lucky Spin intro / a banked jackpot's celebration is up. */
+/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature; the next two
+ *  while the Lucky Spin intro / a banked jackpot's celebration is up; `enhancementsShow` for the
+ *  whole of a feature that drew enhancements (Phase 14b — the dials' gate). */
 export const HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS: string[] = [
 	'respinCounterShow',
 	'luckySpinShow',
 	'jackpotWinShow',
+	'enhancementsShow',
 ];
 
 /**
@@ -719,6 +746,31 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 	...featureFamily('holdAndWin', 'Wheel', [
 		{ key: 'wheelSpin', label: 'Wheel — spin', note: 'The wheel starts turning.' },
 		{ key: 'wheelLand', label: 'Wheel — land', note: "The wheel stops on the server's prize." },
+	]),
+	...featureFamily('holdAndWin', 'Enhancements', [
+		{
+			key: 'enhancementOn',
+			label: 'Enhancement — on',
+			note: 'The feature opened with this enhancement drawn (its dial lights). Scoped by enhancement: a dial hears its own.',
+			scope: 'enhancement',
+		},
+		{
+			key: 'enhancementHit',
+			label: 'Enhancement — hit',
+			note: 'A boost or multiply enhancement hit a landing coin. Scoped by enhancement.',
+			scope: 'enhancement',
+		},
+		{
+			key: 'enhancementMiss',
+			label: 'Enhancement — miss',
+			note: 'A boost or multiply enhancement missed this respin (its dial shows the X). Scoped by enhancement.',
+			scope: 'enhancement',
+		},
+		{
+			key: 'superBonusEnter',
+			label: 'Super bonus — enter',
+			note: 'The super bonus opened: every enhancement is on.',
+		},
 	]),
 	...featureFamily('holdAndWin', 'Feature', [
 		{ key: 'featureEnter', label: 'Feature — enter', note: 'The respin board appears.' },

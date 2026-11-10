@@ -429,6 +429,7 @@ const ROLE_BEATS: [SymbolStateName, string[]][] = [
 	['coinUpgrade', ['upgrade']],
 	['rowUnlock', ['unlock']],
 	['mysteryReveal', ['mystery']],
+	['coinEnhance', ['coin']],
 ];
 const NEVER_ON_A_COIN: SymbolStateName[] = ['win', 'postWinStatic', 'bookIntro', 'bookIdle'];
 const TOKEN_STATES: SymbolStateName[] = ['static', 'coinIdle', 'coinLand', 'flyToMeter'];
@@ -538,6 +539,7 @@ check('classic · the coin: the reels, then the respin board', classic.rowOf('BO
 	'coinLand',
 	'coinStick',
 	'coinCollect',
+	'coinEnhance',
 	'jackpotReveal',
 ]);
 check('classic · the blank only rolls and stops', classic.rowOf('BLANK'), [

@@ -15,14 +15,9 @@ import {
 } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { stampEffectiveLayoutProfile } from '$lib/server/layoutProfile';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import {
-	DEFAULT_PROJECT_KEY,
-	projectAllowsRead,
-	projectClientKey,
-	projectName,
-} from '$lib/server/projects';
+import { projectAllowsRead, projectName } from '$lib/server/projects';
 import { bundleFromAssetKey } from '$lib/server/rig';
+import { clientKeyOf, projectParam } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 /**
@@ -130,14 +125,14 @@ const CORS_HEADERS = {
 export const GET: RequestHandler = async ({ url }) => {
 	const secret = await getDeployToken();
 	if (!secret) throw error(503, 'Layout-doc endpoint is not configured.');
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
+	const projectKey = projectParam(url);
 	// Accept the shared deploy token (build CI) OR this project's own read token —
 	// the public game URL embeds the per-project read-only token, never the shared
 	// build/deploy secret. Mirrors `/api/editor/runtime` (projectAllowsRead).
 	const token = url.searchParams.get('k') ?? '';
 	if (!(await projectAllowsRead(projectKey, token))) throw error(401, 'Invalid or missing token.');
 
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 
 	try {
 		const doc = await loadDoc(clientKey, projectKey);

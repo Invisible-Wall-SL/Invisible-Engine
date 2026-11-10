@@ -42,7 +42,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import batch_atlas as ba
 import ui_server as u
 
 FAILED: list[str] = []

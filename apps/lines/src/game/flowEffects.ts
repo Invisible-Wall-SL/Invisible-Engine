@@ -90,6 +90,8 @@ import {
 	presentCoinsLand,
 	presentCoinUpgrade,
 	presentColumnComplete,
+	presentEnhancementHit,
+	presentEnhancementMiss,
 	presentEntryDrain,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
@@ -1366,6 +1368,9 @@ const effects: Record<string, FlowV2Effect> = {
 	 * - `upgradeCoins` (`coinUpgrade`) — the upgrade plays `coinUpgrade`, beams each coin it raises,
 	 *   then the counts (a jackpot coin steps up a tier).
 	 * - `boostCoins` (`coinBoost`) — the multiplier plays `win` (none for the wheel), then the counts.
+	 * - `hitEnhancement` (`enhancementHit`) — a boost or multiply enhancement's dial lights, its beam
+	 *   flies to each landing coin, which plays `coinEnhance` while its label counts up.
+	 * - `missEnhancement` (`enhancementMiss`) — the enhancement's dial shows its X for a beat.
 	 * - `turnSpecialIntoCoin` (`specialBecomesCoin`) — the multiplier lands as a coin.
 	 * - `collectCoins` (`coinCollect`) — each coin pulses and flies into the collector, whose label
 	 *   climbs as each lands.
@@ -1402,6 +1407,8 @@ const effects: Record<string, FlowV2Effect> = {
 	addRespins: beat('respinsAdded', presentRespinsAdded),
 	upgradeCoins: beat('coinUpgrade', presentCoinUpgrade),
 	boostCoins: beat('coinBoost', presentCoinBoost),
+	hitEnhancement: beat('enhancementHit', presentEnhancementHit),
+	missEnhancement: beat('enhancementMiss', presentEnhancementMiss),
 	turnSpecialIntoCoin: beat('specialBecomesCoin', presentSpecialBecomesCoin),
 	collectCoins: beat('coinCollect', presentCoinCollect),
 	revealMystery: beat('mysteryReveal', presentMysteryReveal),

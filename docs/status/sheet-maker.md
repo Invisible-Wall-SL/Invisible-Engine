@@ -79,10 +79,33 @@ Works today on `main` / live:
    loaded version yet) — expected, not a bug. In the same run: B opening A's sheet sees "👤 A is
    editing this sheet"; A loading another sheet (or closing the tab) clears it within one heartbeat.
 
+5. **Rotated frames in the exported TexturePacker `.json` use a non-standard dialect** (found
+   2026-11-09, unchanged on purpose). The export swaps a rotated frame's `frame.w/h` to the on-page
+   footprint (`iw_common.texturepacker.FOOTPRINT`); real TexturePacker, PixiJS's `Spritesheet` and
+   the launcher's DIRECT reader (`editorRegions.ts::texturePackerToInvisible`, `tpRegions.mjs`)
+   all read `frame.w/h` as the upright size. Only `backfillMissingGeometry` (`uprightWH`) reads the
+   swapped form — and it applies that un-swap to EVERY `atlas.texturepacker_json`, including the
+   upright ones the `.plist` import (`plist_import.to_texturepacker`) and the Flipbook video sheets
+   write. Latent while nothing rotates (rotation is opt-in here; video packs never rotate); a
+   rotated `.plist` frame is the case to check first. Fixing it is a coordinated change (writer
+   dialect + `uprightWH` + any sheet already exported rotated), not a writer-only flip.
+
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-11-09 — **Shared request handler, TexturePacker writer and test kit (no behaviour change).**
+  `Handler` now subclasses `iw_common.http.ToolHandler` (gate → 403/303 with the gate's cookies,
+  `_resolve_context`, the `_send` response writer) — the same base as the Atlas Maker's; the Sheet
+  Maker keeps its own `_send_bytes`/`_send_json` signatures (JSON answers still carry no
+  Cache-Control) and names only `gate`, `tool_title` and `_switch_context`. `_mirror` is
+  `iw_common.storage.mirror_staged` plus the Sheet Maker's own claim (`_claim_listing`, the
+  note → push → mark_pushed → clear order unchanged). `atlas_writers.write_texturepacker_json` is
+  `iw_common.texturepacker` in its FOOTPRINT dialect, byte-identical to before
+  (`services/_shared/test_iw_texturepacker.py`); see open item 5 for why that dialect is odd.
+  `test_launch_gate.py` / `test_presence.py` use `iw_common.testkit.Suite`. Lint: `ruff check
+  services/` (F, E9, BLE) now runs in CI's `python tests` job; the unused `dest_dir` read in
+  `_export` went with it.
 - 2026-10-27 — **Ask the AI on the bar.** The shared `iw_common/ask_ai.js` window (the twin of the
   launcher's `$lib/AskAiPanel.svelte`) sits before Report bug; `POST /ask-ai` relays the question to
   the launcher for the signed-in user (`iw_common/ask_ai.py`, `X-IW-Relay` token) and streams the

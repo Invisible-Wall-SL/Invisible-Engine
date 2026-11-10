@@ -224,6 +224,7 @@ export const PART_NEEDS: Record<string, PartNeeds> = {
 	revealSymbolRider: none,
 	PotMeter: none,
 	RespinCounterPart: none,
+	EnhancementDialPart: none,
 	JackpotTilePart: none,
 	TotalWinBarPart: none,
 	LettersStrip: none,

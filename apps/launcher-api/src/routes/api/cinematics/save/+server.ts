@@ -6,7 +6,8 @@ import {
 	saveCinematic,
 	type CinematicDoc,
 } from '$lib/server/cinematicStorage';
-import { ConflictError } from '$lib/server/r2';
+import { conflictJson, conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import { linkOf, linkStub } from '$lib/timeline/sharedTimelines';
@@ -30,7 +31,7 @@ import type { RequestHandler } from './$types';
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body || !isCinematicDoc(body.doc)) throw error(400, 'missing or malformed cinematic doc');
 	// A link to a shared timeline stores only its placement (`linkStub`): whatever content a client
 	// sent with it is dropped, so a link can never fork the shared copy by accident (Phase 9d).
@@ -48,26 +49,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (mismatch) return mismatch;
 
 	let baseEtag = writeBaseEtagJson(body);
-	// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the cause
-	// ([[gotcha_publish_502_flowv2_nodes_guard]]).
-	const conflict = () =>
-		json(
-			{
-				ok: false,
-				error: 'conflict',
-				message:
-					'Someone else saved this cinematic while you were editing. ' +
-					'Your changes are still here — reload to get their version first.',
-			},
-			{ status: 409 },
-		);
+	const CONFLICT =
+		'Someone else saved this cinematic while you were editing. ' +
+		'Your changes are still here — reload to get their version first.';
 
 	const stored = await loadCinematic(clientKey, projectKey, doc.id);
 	if (access === 'hosted') {
 		assertReach(access, doc);
 		if (stored.etag !== null) assertReach(access, stored.doc);
 		const pinned = hostedPrecondition(baseEtag, stored.etag);
-		if (pinned === 'conflict') return conflict();
+		if (pinned === 'conflict') return conflictJson(CONFLICT);
 		baseEtag = pinned;
 	}
 
@@ -92,7 +83,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const { etag, id } = await saveCinematic(clientKey, projectKey, doc, baseEtag);
 		return json({ ok: true, id, etag, updatedAt: new Date().toISOString() });
 	} catch (e) {
-		if (e instanceof ConflictError) return conflict();
+		const conflict = conflictResponse(e, CONFLICT);
+		if (conflict) return conflict;
 		// Anything else (an R2 credential/permission problem, a bucket misconfiguration, a network
 		// fault) would otherwise become SvelteKit's opaque HTML 500, which reaches the author as
 		// "save failed (500)" and nothing more. Report the real reason instead: the tool shows it in

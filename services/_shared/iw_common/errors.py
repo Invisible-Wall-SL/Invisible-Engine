@@ -181,7 +181,7 @@ def capture_request_error(handler: Any, exc: BaseException) -> None:
         raw = str(getattr(handler, "path", "") or "")
         capture_error(exc, method=getattr(handler, "command", "") or "",
                       path=urllib.parse.urlsplit(raw).path, url=scrub_url(raw))
-    except Exception:
+    except Exception:  # noqa: BLE001 — reporting an error must never raise one
         pass
 
 
@@ -212,6 +212,6 @@ class ReportingServerMixin:
                     capture_request_error(handler, exc)
                 else:
                     capture_error(exc)
-            except Exception:
+            except Exception:  # noqa: BLE001 — reporting an error must never raise one
                 pass
         super().handle_error(request, client_address)  # type: ignore[misc]
