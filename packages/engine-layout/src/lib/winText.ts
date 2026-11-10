@@ -199,6 +199,14 @@ export type WinTextFeature = {
 	rowUnlocked?: string;
 	/** Under it, the rows now open — "{rows} ROWS". */
 	rows?: string;
+	/** The enhancements a feature drew, as it opens (Phase 14b) — "{enhancements} ACTIVE". */
+	enhancementsActive?: string;
+	/** The super bonus opening — "SUPER BONUS". */
+	superBonus?: string;
+	/** A boost enhancement's hit, on its dial — "+{amount}". */
+	boostHit?: string;
+	/** A multiply enhancement's hit, on its dial — "×{count}". */
+	multiplyHit?: string;
 	/** Special kind (`collector`, `multiplier`, `payer`, `mystery`, `addRespins`, `upgrade`) → its
 	 *  name in these lines. */
 	specialNames?: Record<string, string>;
@@ -206,6 +214,9 @@ export type WinTextFeature = {
 	collectorLevelNames?: Record<string, string>;
 	/** Pot (Game Config meter id) → its name. An unnamed pot reads its id in capitals. */
 	potNames?: Record<string, string>;
+	/** Enhancement (`extraRow`, `boost`, `multiply`, `extraRespins`, `superBonus`) → its name, on its
+	 *  dial and in `enhancementsActive`. */
+	enhancementNames?: Record<string, string>;
 };
 
 /**
@@ -318,6 +329,8 @@ export const WIN_TEXT_PLACED_FEATURE_FIELDS = [
 	'modifiersUnlocked',
 	'upgrade',
 	'rowUnlocked',
+	'enhancementsActive',
+	'superBonus',
 ] as const satisfies readonly WinTextFeatureField[];
 export type WinTextPlacedFeatureField = (typeof WIN_TEXT_PLACED_FEATURE_FIELDS)[number];
 
@@ -333,6 +346,8 @@ export const WIN_TEXT_PLACEMENT_DEFAULTS: Record<WinTextPlacedFeatureField, WinT
 	modifiersUnlocked: 'infoBar',
 	upgrade: 'infoBar',
 	rowUnlocked: 'banner',
+	enhancementsActive: 'banner',
+	superBonus: 'banner',
 };
 
 export const WIN_TEXT_PLACEMENT_LABELS: Record<WinTextPlacement, string> = {
@@ -418,6 +433,10 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		upgrade: 'UPGRADE',
 		rowUnlocked: 'ROW UNLOCKED',
 		rows: '{rows} ROWS',
+		enhancementsActive: '{enhancements} ACTIVE',
+		superBonus: 'SUPER BONUS',
+		boostHit: '+{amount}',
+		multiplyHit: '×{count}',
 		specialNames: {
 			collector: 'COLLECTOR',
 			multiplier: 'MULTIPLIER',
@@ -428,6 +447,13 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		},
 		collectorLevelNames: { '2': 'DOUBLE', '3': 'TRIPLE' },
 		potNames: {},
+		enhancementNames: {
+			extraRow: 'EXPAND',
+			boost: 'BOOST',
+			multiply: 'MULTIPLY',
+			extraRespins: 'RESPIN',
+			superBonus: 'SUPER BONUS',
+		},
 	},
 	featurePlacement: WIN_TEXT_PLACEMENT_DEFAULTS,
 	wheel: {
@@ -468,12 +494,21 @@ export const WIN_TEXT_FEATURE_FIELDS = [
 	'upgrade',
 	'rowUnlocked',
 	'rows',
+	'enhancementsActive',
+	'superBonus',
+	'boostHit',
+	'multiplyHit',
 ] as const;
 /** The feature lines a respin mode speaks for itself ({@link WinTextModeLines}): its total, intro
  *  and outro. */
 export const WIN_TEXT_MODE_FEATURE_FIELDS = ['total', 'intro', 'outro'] as const;
 /** The feature family's name maps — resolved, pruned and harvested alike. */
-export const WIN_TEXT_FEATURE_MAPS = ['specialNames', 'collectorLevelNames', 'potNames'] as const;
+export const WIN_TEXT_FEATURE_MAPS = [
+	'specialNames',
+	'collectorLevelNames',
+	'potNames',
+	'enhancementNames',
+] as const;
 export const WIN_TEXT_WHEEL_FIELDS = [
 	'coinBoost',
 	'extraCollect',
@@ -525,11 +560,16 @@ export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
 	upgrade: 'Upgrade',
 	rowUnlocked: 'Row unlocked',
 	rows: 'Rows open',
+	enhancementsActive: 'Enhancements active',
+	superBonus: 'Super bonus',
+	boostHit: 'Boost hit (dial)',
+	multiplyHit: 'Multiply hit (dial)',
 };
 export const WIN_TEXT_FEATURE_MAP_LABELS: Record<WinTextFeatureMap, string> = {
 	specialNames: 'Special',
 	collectorLevelNames: 'Collector level',
 	potNames: 'Pot',
+	enhancementNames: 'Enhancement',
 };
 export const WIN_TEXT_WHEEL_LABELS: Record<WinTextWheelField, string> = {
 	coinBoost: 'Wheel — coin boost',
@@ -714,6 +754,12 @@ export function potCaption(resolved: ResolvedWinText, meterId: string): string {
 	return resolveLocalizedText(own(resolved.feature.potNames, meterId) || meterId.toUpperCase());
 }
 
+/** An enhancement's name ("BOOST"), localized at its source; an unnamed one speaks its id in
+ *  capitals. */
+export function enhancementDisplayName(resolved: ResolvedWinText, kind: string): string {
+	return resolveLocalizedText(own(resolved.feature.enhancementNames, kind) || kind.toUpperCase());
+}
+
 /** A name map's own entry — an id like `constructor` must not read an inherited property. */
 const own = (map: Record<string, string>, key: string): string | undefined =>
 	Object.hasOwn(map, key) ? map[key] : undefined;
@@ -807,6 +853,8 @@ export type WinTextVars = {
 	pot?: string;
 	/** The rows an expanding respin board has open. */
 	rows?: number;
+	/** Enhancement names joined with " · ", each already localized ({@link enhancementDisplayName}). */
+	enhancements?: string;
 };
 
 const TOKEN = /\{(\w+)\}/g;

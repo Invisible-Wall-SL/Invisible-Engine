@@ -28,8 +28,9 @@
  *     `screenTransition` / `waitForScreenTransition` actions and the `ScreenTransitionKind` enum) and
  *     the lines wild rewrites (`expandWild` / `growWild`, an event and an action each) and the Hold
  *     and Win Phase 14a enhancements (`enhancementHit` / `enhancementMiss`, the
- *     `HoldAndWinEnhancement` enum, the `run` cause, `enhancements` on the entry and snapshot) are
- *     pinned on their own and left out of the vocabulary hash.
+ *     `HoldAndWinEnhancement` enum, the `run` cause, `enhancements` on the entry and snapshot), and
+ *     its Phase 14b presentation (the `hitEnhancement` / `missEnhancement` actions, four cues and
+ *     the `enhancements` value) are pinned on their own and left out of the vocabulary hash.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -353,15 +354,27 @@ const ENHANCEMENT_EVENTS = ['enhancementHit', 'enhancementMiss'];
 const ENHANCEMENT_ENUM = 'HoldAndWinEnhancement';
 const RUN_CAUSE = 'run';
 const ENHANCEMENT_STRUCTS = ['HoldAndWinEntry', 'HoldAndWinSnapshot'];
+/** Their presentation (Phase 14b): two beat actions, four cues and a value. */
+const ENHANCEMENT_ACTIONS = ['hitEnhancement', 'missEnhancement'];
+const ENHANCEMENT_CUES = [
+	'enhancementOn',
+	'respinEnhancementHit',
+	'respinEnhancementMiss',
+	'superBonusEnter',
+];
+const ENHANCEMENT_VALUE = 'enhancements';
 /** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue,
- *  the wild rewrites and the Phase 14a enhancements. */
+ *  the wild rewrites and the Phase 14a / 14b enhancements. */
 const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
 	events: vocab.events.filter(
 		(e) => !WILD_REWRITES.includes(e.name) && !ENHANCEMENT_EVENTS.includes(e.name),
 	),
 	actions: vocab.actions.filter(
-		(a) => !ADDED_ACTIONS.includes(a.name) && !WILD_REWRITES.includes(a.name),
+		(a) =>
+			!ADDED_ACTIONS.includes(a.name) &&
+			!WILD_REWRITES.includes(a.name) &&
+			!ENHANCEMENT_ACTIONS.includes(a.name),
 	),
 	enums: vocab.enums
 		.filter((e) => !ADDED_ENUMS.includes(e.name) && e.name !== ENHANCEMENT_ENUM)
@@ -373,7 +386,8 @@ const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 			? { ...s, fields: s.fields.filter((f) => f.name !== 'enhancements') }
 			: s,
 	),
-	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE),
+	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE && !ENHANCEMENT_CUES.includes(c.name)),
+	values: vocab.values.filter((v) => v.name !== ENHANCEMENT_VALUE),
 });
 
 const currentDocs = (): [string, string, GameConfigDoc | null][] => {
@@ -517,6 +531,15 @@ for (const [name, kind, doc] of currentDocs()) {
 				),
 			],
 			[...ENHANCEMENT_EVENTS, true, true, true, true],
+		);
+		same(
+			`5. ${name} · the Phase 14b enhancement actions, cues and value are there`,
+			[
+				...docVocab.actions.filter((a) => ENHANCEMENT_ACTIONS.includes(a.name)).map((a) => a.name),
+				...docVocab.cues.filter((c) => ENHANCEMENT_CUES.includes(c.name)).map((c) => c.name),
+				docVocab.values.some((v) => v.name === ENHANCEMENT_VALUE),
+			],
+			[...ENHANCEMENT_ACTIONS, ...ENHANCEMENT_CUES, true],
 		);
 	}
 	if (kind !== 'holdAndWin') {

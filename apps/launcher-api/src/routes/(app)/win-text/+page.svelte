@@ -25,6 +25,7 @@
 		WIN_TEXT_WHEEL_LABELS,
 		collectorLevelCaption,
 		potCaption,
+		enhancementDisplayName,
 		formatWinText,
 		jackpotCaption,
 		SYMBOL_IMAGE_SIZE_MAX,
@@ -390,6 +391,12 @@
 			label: `pot ${key}`,
 			placeholder: potCaption(resolved, key),
 		})),
+		...Object.keys(resolved.feature.enhancementNames).map((key) => ({
+			map: 'enhancementNames' as const,
+			key,
+			label: `enhancement ${key}`,
+			placeholder: enhancementDisplayName(resolved, key),
+		})),
 	]);
 
 	/** The pot name rows alone — what a pots overlay host without the respin feature names. */
@@ -408,6 +415,9 @@
 		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
 		level: collectorLevelCaption(resolved, 2),
 		rows: 5,
+		enhancements: ['boost', 'multiply']
+			.map((kind) => enhancementDisplayName(resolved, kind))
+			.join(' · '),
 	});
 	const holdAndWinPreview = (template: string): string => formatWinText(template, holdAndWinVars);
 	/** A pots-only host's pot activates no special, so its `{meter}` is the pot's own name. */
@@ -599,16 +609,16 @@
 			<code>{TOKEN_HELP}</code>
 			and the game fills them in. <code>{'{symbolName}'}</code> becomes the symbol's own name
 			(plural when the count isn't 1), which you write in
-			<a href="/symbols">Invisible Symbols</a> — rename a symbol there and every message here
-			follows, with no edit. Templates are translated in
-			<a href="/localization">Invisible Localization</a>; the currency in
+			<a href={resolve('/symbols')}>Invisible Symbols</a> — rename a symbol there and every message
+			here follows, with no edit. Templates are translated in
+			<a href={resolve('/localization')}>Invisible Localization</a>; the currency in
 			<code>{'{amount}'}</code> follows the player's own locale automatically.
 		</p>
 		{#if namedCount === 0}
 			<p class="warn">
 				<strong>None of this game's symbols has a name yet.</strong> Until you name them in
-				<a href="/symbols">Invisible Symbols</a>, <code>{'{symbolName}'}</code> falls back to the
-				raw id and the game will say “You win $4.00 with 4 {previewSymbol}”.
+				<a href={resolve('/symbols')}>Invisible Symbols</a>, <code>{'{symbolName}'}</code> falls
+				back to the raw id and the game will say “You win $4.00 with 4 {previewSymbol}”.
 			</p>
 		{/if}
 
@@ -734,7 +744,7 @@
 			<p class="hint">
 				The transient message shown when a win pays. It <strong>names the symbol</strong> that paid
 				— write <code>{'{symbolName}'}</code> and the game fills in the name from
-				<a href="/symbols">Invisible Symbols</a>, so a win reads
+				<a href={resolve('/symbols')}>Invisible Symbols</a>, so a win reads
 				<em>“You win $4.00 with 4 Bananas”</em>. Three separate lines because the game shows
 				whichever fits what it knows: a message fired without a symbol (any flow can fire one) falls
 				back to the amount-only line rather than printing a blank name.
@@ -844,7 +854,7 @@
 					>
 					(a retrigger). Write <code>{'{count}'}</code> where the number of extra spins goes, so it
 					reads <em>“You won +10 Extra Free Spins”</em>. Authored as one sentence so it
-					<a href="/localization">translates</a> correctly. Bind a text node's source to
+					<a href={resolve('/localization')}>translates</a> correctly. Bind a text node's source to
 					<code>freeSpinsAddedText</code> to show it (or <code>freeSpinsAdded</code> for a bare number).
 				</p>
 				<label class="single">

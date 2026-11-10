@@ -35,6 +35,7 @@
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
+	import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 	import {
 		getSpinButtonKey,
 		getSpinPressSound,
@@ -239,6 +240,13 @@
 		stateHoldAndWin,
 	} from '../game/stateHoldAndWin.svelte';
 	import { mostLetters, stateLetters } from '../game/holdAndWinLetters.svelte';
+	import {
+		collectorsTotal,
+		dialStateValue,
+		ENHANCEMENT_DIALS,
+		enhancementsActiveText,
+		enhancementsVisible,
+	} from '../game/holdAndWinEnhancements.svelte';
 	import { respinCounterLine, respinCounterNote } from '../game/respinCounterLine';
 	import {
 		configuredMeters,
@@ -349,6 +357,7 @@
 	import HoldAndWinWheel from './HoldAndWinWheel.svelte';
 	import PotMeter from './PotMeter.svelte';
 	import RespinCounterPart from './RespinCounterPart.svelte';
+	import EnhancementDialPart from './EnhancementDialPart.svelte';
 	import JackpotTilePart from './JackpotTilePart.svelte';
 	import TotalWinBarPart from './TotalWinBarPart.svelte';
 	import LetterTilePart from './LetterTilePart.svelte';
@@ -647,6 +656,7 @@
 		RespinCellTiles,
 		RespinLockedRows,
 		LineOverlayPart,
+		EnhancementDialPart,
 	});
 	// The pot meter starts again by itself on a screen restarted in place (`HoldAndWinPot`), so its
 	// author-built skin is not mounted afresh with it.
@@ -921,6 +931,21 @@
 		// …and the modifiers active in the feature ("PAYER · MULTIPLIER"), what the coded counter's
 		// second line shows.
 		activeModifiers: textSource(activeModifiersText),
+		// A collector bonus (Phase 14b): the enhancements it drew ("BOOST · MULTIPLY"), the collectors'
+		// running total (climbing as each coin lands in one), and each dial's state (0 off, 1 on, 2 hit,
+		// 3 miss — `enhancement.<kind>.state`), what an Enhancement Dial's art shows by. Empty / 0 for
+		// every feature that drew none.
+		enhancementsActive: textSource(enhancementsActiveText),
+		collectorsTotal: valueSource(
+			() => collectorsTotal() * BOOK_AMOUNT_MULTIPLIER,
+			bookEventAmountToCurrencyString,
+		),
+		...Object.fromEntries(
+			ENHANCEMENT_DIALS.map((dial) => [
+				`enhancement.${dial}.state`,
+				valueSource(() => dialStateValue(dial)),
+			]),
+		),
 		// The collector level (1 single, 2 double, 3 triple — raised by the wheel's `extraCollect`).
 		collectorLevel: valueSource(shownCollectorLevel),
 		// Grand's column letters: how many are lit, and each letter's lit flag (`letter.<reel>.lit`, 1
@@ -1081,6 +1106,8 @@
 		freeSpinCounterShow: boolSource(() => stateUi.freeSpinCounterShow),
 		// Hold and Win: true while the respin counter is up — the whole feature, trigger to end.
 		respinCounterShow: boolSource(() => stateRespinBoard.counter.show),
+		// …and for the whole of a feature that drew enhancements: the Enhancement Dials' gate.
+		enhancementsShow: boolSource(enhancementsVisible),
 		// …and each column letter's lit flag (`letter.<reel>.lit`), what Phase 6's authored letters
 		// row binds to swap a letter's lit art in. Only for a config whose board ends on letters.
 		...Object.fromEntries(

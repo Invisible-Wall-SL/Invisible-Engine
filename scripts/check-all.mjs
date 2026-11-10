@@ -286,17 +286,26 @@ function skipReason(id) {
 /** A meta-runner in Lint stands for the directory it sweeps. */
 const COVERS = { 'scripts/check-engine-game-fixtures.mjs': 'packages/engine-game/fixtures' };
 
+/** `--only a,b`: the checks whose id contains `a` or `b`. */
+const matchesOnly = (id, only) => only.split(',').some((o) => id.includes(o));
+
 /**
  * Every check id the Lint workflow already runs, read from its `run:` lines so the two jobs can never
  * run a gate twice (nor silently stop running one) as either file changes. A `pnpm <script>` is
- * followed through package.json — root, or the `--filter`ed workspace — down to the files it runs.
+ * followed through package.json — root, or the `--filter`ed workspace — down to the files it runs;
+ * a `node scripts/check-all.mjs --only …` stands for the checks its filter selects.
  */
-function lintGatedIds() {
+function lintGatedIds(checks) {
 	const yml = readFileSync(join(ROOT, '.github', 'workflows', 'lint.yml'), 'utf8');
 	const ids = new Set();
 	const walk = (command, pkgDir, depth = 0) => {
 		if (depth > 8) throw new Error(`lint.yml: script recursion too deep at "${command}"`);
 		for (const part of command.split('&&').map((p) => p.trim())) {
+			const runner = /\bscripts\/check-all\.mjs\b.*\s--only\s+(\S+)/.exec(part);
+			if (runner) {
+				for (const c of checks) if (matchesOnly(c.id, runner[1])) ids.add(c.id);
+				continue;
+			}
 			const tokens = part.split(/\s+/);
 			if (tokens[0] === 'pnpm') {
 				const filter = tokens.indexOf('--filter');
@@ -334,11 +343,19 @@ if (stale.length > 0) {
 
 let selected = all.filter((c) => !skipReason(c.id));
 const only = opt('--only');
-if (only) selected = selected.filter((c) => only.split(',').some((o) => c.id.includes(o)));
+if (only) {
+	// A term that selects nothing is a typo or a renamed check, and Lint would silently stop running it.
+	const unmatched = only.split(',').filter((o) => !selected.some((c) => matchesOnly(c.id, o)));
+	if (unmatched.length > 0) {
+		console.error(`--only names no check that runs here: ${unmatched.join(', ')}`);
+		process.exit(1);
+	}
+	selected = selected.filter((c) => matchesOnly(c.id, only));
+}
 const exclude = opt('--exclude');
 if (exclude) selected = selected.filter((c) => !exclude.split(',').includes(c.id));
 if (flag('--exclude-lint')) {
-	const gated = lintGatedIds();
+	const gated = lintGatedIds(all);
 	selected = selected.filter((c) => !gated.some((id) => c.id === id || c.id.startsWith(`${id}/`)));
 }
 const shard = opt('--shard');
@@ -362,7 +379,9 @@ if (selected.length === 0) {
 	process.exit(1);
 }
 
-// One-off setup that several checks' `pre` hooks would otherwise race on in parallel.
+// The launcher's checks run under its `tsconfig.scripts.json`, which extends the generated
+// `.svelte-kit/tsconfig.json`. `pnpm install` writes it (the launcher's `prepare`); this covers a
+// checkout where it is missing anyway, once, before the checks run in parallel.
 // Through pnpm so the launcher's `node_modules/.bin` (where `svelte-kit` lives) is on PATH.
 const setup = spawnSync('pnpm exec node scripts/ensure-svelte-kit.mjs', {
 	cwd: LAUNCHER,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { PageData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
 
@@ -10,7 +11,7 @@
 <div class="shell">
 	<header>
 		<div class="brand"><Emblem height={18} /> INVISIBLE WALL</div>
-		<a class="ghost" href="/onboarding">‹ Back</a>
+		<a class="ghost" href={resolve('/onboarding')}>‹ Back</a>
 	</header>
 
 	<article class="doc">
