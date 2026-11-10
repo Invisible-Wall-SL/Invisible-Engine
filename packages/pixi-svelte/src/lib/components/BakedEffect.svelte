@@ -53,14 +53,17 @@
 
 	import { getContextApp, getContextParent } from '../context.svelte';
 	import { particleTimeScale } from '../particleClock';
+	import { particlesOff } from '../particleBudget';
+	import { perfProbe } from '../perfProbe';
 
 	const props: Props = $props();
 	const context = getContextApp();
 	const parentContext = getContextParent();
 
-	// One sprite per group, fixed for the mount: `<EffectPlayer>` re-mounts on a new bake.
+	// One sprite per group, fixed for the mount: `<EffectPlayer>` re-mounts on a new bake. None under
+	// `?particles=off` (a test switch): a bake is its effect's particles, drawn.
 	// svelte-ignore state_referenced_locally
-	const sprites = props.textures.map((frames) => new Sprite(frames[0]));
+	const sprites = particlesOff() ? [] : props.textures.map((frames) => new Sprite(frames[0]));
 
 	$effect(() => {
 		const { bounds, groups } = props.result;
@@ -99,6 +102,7 @@
 		const groups = props.textures;
 		const count = Math.min(...groups.map((frames) => frames.length));
 		if (!count) return;
+		if (perfProbe.on) perfProbe.counts.baked++;
 		if (start === undefined) {
 			const at = sprites[0].getGlobalPosition();
 			start = effectBakeStartFrame(
@@ -129,7 +133,7 @@
 	};
 
 	const ticker = context.stateApp.pixiApplication?.ticker;
-	ticker?.add(tick);
+	if (sprites.length) ticker?.add(tick);
 	onDestroy(() => ticker?.remove(tick));
 
 	for (const sprite of sprites) parentContext.addToParent(sprite);

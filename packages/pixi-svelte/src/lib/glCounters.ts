@@ -1,5 +1,13 @@
 import { UPDATE_PRIORITY, type Renderer, type TextureSource, type Ticker } from 'pixi.js';
 
+import {
+	currentFrameAt,
+	frameJsMs,
+	setPerfProbe,
+	takePerfProbeCounts,
+	type PerfProbeCounts,
+} from './perfProbe';
+
 /**
  * Per-frame counts of what the renderer asks the GPU for, for the `?perf=1` readout. Installed only
  * there (`instrumentRenderer`): it replaces every method of the one WebGL context with a counting
@@ -12,7 +20,8 @@ import { UPDATE_PRIORITY, type Renderer, type TextureSource, type Ticker } from 
  * - `resolves`: `blitFramebuffer`, i.e. MSAA resolves (the back buffer's, once a frame).
  * - `invalidations`: `invalidateFramebuffer`, attachments a pass may drop instead of storing.
  * - `filterPasses` / `filterGroups`: Pixi filter applications, and the containers they ran on.
- * - `textureUploads` / `bufferBytes`: data sent to the GPU while playing.
+ * - `textureUploads` / `uploadBytes` / `bufferBytes`: data sent to the GPU while playing.
+ * - `compiles`: `compileShader` and `linkProgram` calls, i.e. a program built on its first use.
  * - `roundTrips`: calls that wait for an answer (`get*`, `readPixels`, `finish`,
  *   `checkFramebufferStatus`, `clientWaitSync`). Safari runs WebGL in its GPU process, so each is a
  *   synchronous message there.
@@ -32,6 +41,9 @@ export interface GpuFrameCounts {
 	filterGroups: number;
 	filterPasses: number;
 	textureUploads: number;
+	/** Texture bytes uploaded: the data's size, or a source's pixels × 4. */
+	uploadBytes: number;
+	compiles: number;
 	bufferUploads: number;
 	bufferBytes: number;
 	roundTrips: number;
@@ -53,6 +65,8 @@ export const emptyGpuFrame = (): GpuFrameCounts => ({
 	filterGroups: 0,
 	filterPasses: 0,
 	textureUploads: 0,
+	uploadBytes: 0,
+	compiles: 0,
 	bufferUploads: 0,
 	bufferBytes: 0,
 	roundTrips: 0,
@@ -99,6 +113,37 @@ const DRAWS = new Map([
 	['drawRangeElements', 3],
 ]);
 const ROUND_TRIPS = new Set(['readPixels', 'finish', 'checkFramebufferStatus', 'clientWaitSync']);
+const COMPILES = new Set(['compileShader', 'linkProgram']);
+
+interface SizedSource {
+	width?: number;
+	height?: number;
+	naturalWidth?: number;
+	naturalHeight?: number;
+	videoWidth?: number;
+	videoHeight?: number;
+	displayWidth?: number;
+	displayHeight?: number;
+}
+
+/**
+ * Approximate bytes an upload call sends. Every form of every upload call has its data after its
+ * fifth argument, and nothing before it is an object: typed data counts its length, an image, a
+ * canvas, a bitmap or a video frame its pixels × 4. `null` data (an allocation) and a pixel-buffer
+ * offset count nothing.
+ */
+const uploadBytes = (args: unknown[]): number => {
+	for (let i = 5; i < args.length; i++) {
+		const data = args[i];
+		if (!data || typeof data !== 'object') continue;
+		if (ArrayBuffer.isView(data)) return data.byteLength;
+		const s = data as SizedSource;
+		const width = s.naturalWidth || s.videoWidth || s.displayWidth || s.width || 0;
+		const height = s.naturalHeight || s.videoHeight || s.displayHeight || s.height || 0;
+		return width * height * 4;
+	}
+	return 0;
+};
 
 /** Bytes per pixel for a Pixi texture format, by family; uncompressed RGBA otherwise. */
 const bytesPerPixel = (format: string): number => {
@@ -146,15 +191,43 @@ interface BackBufferInternals {
 	_antialias?: boolean;
 }
 
-/** One frame's work: its GL counts, plus the CPU time of the Pixi tick that drew it. */
-export interface FrameWork extends GpuFrameCounts {
+/**
+ * One frame's work: its GL counts, the CPU time of the Pixi tick that drew it, what the main thread
+ * did around that tick, and what its particles and rigs did (`perfProbe.ts`). Its counts run from
+ * the start of its tick to the start of the next, so what runs after the tick (the rigs' own
+ * ticker, Svelte's effects) is the frame's; it is handed over as the next tick starts.
+ */
+export interface FrameWork extends GpuFrameCounts, PerfProbeCounts {
 	/** Milliseconds from the tick's first callback to the end of its render. */
 	tickMs: number;
+	/**
+	 * From the frame's timestamp to the start of its tick: the frame callbacks that ran first, or
+	 * the main thread still busy when the frame began.
+	 */
+	lateMs: number;
+	/**
+	 * From the end of the tick until the main thread was next free (a message posted then was
+	 * handled): the frame callbacks after it (the rigs' ticker), Svelte's effects, the page's style,
+	 * layout and paint, the frame's commit (which waits while the GPU is behind), any task first.
+	 */
+	afterMs: number;
+	/**
+	 * JS the frame ran in its animation-frame callbacks (the Pixi tick, the rigs' ticker, Svelte's
+	 * tweens), each with the microtasks it queued (Svelte's effects). What else of `lateMs` +
+	 * `tickMs` + `afterMs` the main thread did was the browser's, or another task's.
+	 */
+	jsMs: number;
 	/**
 	 * `?perfgpu=1` only: how long the GPU still had to work after the render was submitted (a
 	 * 1-pixel `readPixels` waits for it). It stalls the pipeline, so it is never measured otherwise.
 	 */
 	gpuWaitMs?: number;
+	/** Where the browser reports it (Chrome's `performance.memory`): the JS heap, MB, at the end. */
+	heapMb?: number;
+}
+
+interface HeapMemory {
+	usedJSHeapSize?: number;
 }
 
 export interface RendererProbe {
@@ -164,12 +237,15 @@ export interface RendererProbe {
 }
 
 export interface InstrumentOptions {
-	/** Called once a frame, after the render, with that frame's work. */
+	/** Called once a frame, as the next tick starts, with that frame's work. */
 	onFrame: (work: FrameWork) => void;
 	waitForGpu?: boolean;
 }
 
-/** Count every GL call `app`'s renderer makes and its filter passes, and time each tick. */
+/**
+ * Count every GL call `app`'s renderer makes and its filter passes, time each tick and what the
+ * main thread did around it, and turn the particle and rig probe on (`perfProbe.ts`).
+ */
 export function instrumentApp(
 	app: { renderer: Renderer; ticker: Ticker },
 	{ onFrame, waitForGpu = false }: InstrumentOptions,
@@ -197,6 +273,7 @@ export function instrumentApp(
 		const fn = descriptor.value as GlMethod;
 		const countArg = DRAWS.get(name);
 		const upload = UPLOADS.has(name);
+		const compile = COMPILES.has(name);
 		const roundTrip = ROUND_TRIPS.has(name) || name.startsWith('get');
 		own[name] = function (this: unknown, ...args: unknown[]) {
 			frame.calls++;
@@ -204,7 +281,10 @@ export function instrumentApp(
 				markPass();
 				frame.draws++;
 				frame.vertices += Number(args[countArg]) || 0;
-			} else if (upload) frame.textureUploads++;
+			} else if (upload) {
+				frame.textureUploads++;
+				frame.uploadBytes += uploadBytes(args);
+			} else if (compile) frame.compiles++;
 			else if (roundTrip) frame.roundTrips++;
 			else if (name === 'clear') {
 				markPass();
@@ -256,22 +336,61 @@ export function instrumentApp(
 	};
 	(renderer as unknown as { render: GlMethod }).render = timedRender;
 
-	const pixel = new Uint8Array(4);
-	let tickStart = 0;
-	const onTickStart = () => {
-		tickStart = performance.now();
+	const memory = (performance as unknown as { memory?: HeapMemory }).memory;
+	const heapMb = (): number | undefined =>
+		typeof memory?.usedJSHeapSize === 'number' ? memory.usedJSHeapSize / 1e6 : undefined;
+	// The main thread is free again when a message posted at the end of a tick is handled: a task,
+	// so it waits for the rest of the frame's callbacks, its microtasks, style, layout and paint.
+	const channel = new MessageChannel();
+	let posted = 0;
+	let freeAt: number | undefined;
+	channel.port1.onmessage = (event: MessageEvent<number>) => {
+		if (event.data === posted) freeAt = performance.now();
 	};
-	const onTickEnd = () => {
-		const work: FrameWork = { ...frame, tickMs: performance.now() - tickStart };
+
+	const pixel = new Uint8Array(4);
+	type TickTimes = Pick<FrameWork, 'tickMs' | 'lateMs' | 'gpuWaitMs'>;
+	let ended: TickTimes | undefined;
+	let tickStart = 0;
+	let tickEnd = 0;
+	let lateMs = 0;
+	let frameAt = Number.NaN;
+	setPerfProbe(true);
+	const onTickStart = (t: Ticker) => {
+		const now = performance.now();
+		const counts = frame;
+		const probed = takePerfProbeCounts();
 		frame = emptyGpuFrame();
 		passTarget = undefined;
+		if (ended) {
+			const work: FrameWork = {
+				...counts,
+				...probed,
+				...ended,
+				afterMs: (freeAt ?? now) - tickEnd,
+				jsMs: frameJsMs(frameAt) ?? 0,
+			};
+			const heap = heapMb();
+			if (heap !== undefined) work.heapMb = heap;
+			ended = undefined;
+			onFrame(work);
+		}
+		tickStart = now;
+		frameAt = currentFrameAt();
+		// Inside a listener `lastTime` is still the previous frame's (`frameClock.ts`).
+		lateMs = Math.max(0, now - (t.lastTime + t.elapsedMS));
+	};
+	const onTickEnd = () => {
+		ended = { tickMs: performance.now() - tickStart, lateMs };
 		if (waitForGpu) {
 			const start = performance.now();
 			// The context's own method, so the wait is not counted as the next frame's work.
 			(native.readPixels as GlMethod).call(gl, 0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-			work.gpuWaitMs = performance.now() - start;
+			ended.gpuWaitMs = performance.now() - start;
 		}
-		onFrame(work);
+		tickEnd = performance.now();
+		freeAt = undefined;
+		channel.port2.postMessage(++posted);
 	};
 	// First and last of every tick: the app renders at LOW, after every game callback.
 	ticker.add(onTickStart, undefined, UPDATE_PRIORITY.INTERACTION);
@@ -314,6 +433,8 @@ export function instrumentApp(
 		dispose() {
 			ticker.remove(onTickStart);
 			ticker.remove(onTickEnd);
+			channel.port1.close();
+			setPerfProbe(false);
 			for (const name of wrapped) delete own[name];
 			filters.push = push;
 			filters.applyFilter = applyFilter;

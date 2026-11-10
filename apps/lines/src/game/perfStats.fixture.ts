@@ -1,6 +1,6 @@
 /**
  * Offline fixture for the `?perf=1` readout's numbers (`perfStats.ts`) — run with:
- *   node --experimental-strip-types apps/lines/src/game/perfStats.fixture.ts
+ *   pnpm check:all --only perfStats
  *
  * Pins: the display refresh read off the fastest frames (120 / 60 Hz, through dropped frames);
  * the 30 fps cap flag (iOS Low Power Mode) and only it; idle vs spinning buckets and their hitch
@@ -143,11 +143,24 @@ const drive = (
 		filterGroups: 0,
 		filterPasses: 0,
 		textureUploads: 0,
+		uploadBytes: 0,
+		compiles: 0,
 		bufferUploads: 0,
 		bufferBytes: 0,
 		roundTrips: 0,
 		renderMs: 1,
 		tickMs: 2,
+		lateMs: 0,
+		afterMs: 1,
+		jsMs: 2,
+		particleMs: 0,
+		particles: 0,
+		emitters: 0,
+		emitterStarts: 0,
+		baked: 0,
+		rigMs: 0,
+		rigs: 0,
+		rigSyncMs: 0,
 		...extra,
 	});
 	const stats = createPerfStats(() => 0);
