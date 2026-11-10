@@ -28,6 +28,7 @@
 		"check:holdandwin-partner": "node scripts/check-holdandwin-partner-wire.mjs",
 		"check:feature-worth": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-feature-worth-source.mts",
 		"check:respin-modes": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-respin-modes-runtime.mts",
+		"check:play-book-dispatch": "node --no-warnings --experimental-strip-types scripts/check-play-book-dispatch.mts",
 		"check:spins-modes": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-spins-modes.mts",
 		"check:bonus-migration": "node --no-warnings --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-bonus-migration.mts",
 		"check:bonus-modes": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-bonus-modes-protocol.mjs",
