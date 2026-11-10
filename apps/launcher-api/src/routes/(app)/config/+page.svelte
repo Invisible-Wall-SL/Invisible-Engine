@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ColorField from '$lib/ColorField.svelte';
@@ -2836,9 +2837,9 @@
 				<p class="hint">
 					Moved. What the game plays at each moment — the reel-stop ladder, the cascade pop, the
 					landing cues, the per-symbol exceptions and the win-tier stings — is authored in
-					<a href="/sound">Invisible Sound</a>, next to the library the cues are picked from and the
-					button that plays them. Splitting "which sound" from "the sounds" across two tools is what
-					let a name sit bound to nothing for the whole life of the fork.
+					<a href={resolve('/sound')}>Invisible Sound</a>, next to the library the cues are picked
+					from and the button that plays them. Splitting "which sound" from "the sounds" across two
+					tools is what let a name sit bound to nothing for the whole life of the fork.
 				</p>
 			</section>
 		{/if}

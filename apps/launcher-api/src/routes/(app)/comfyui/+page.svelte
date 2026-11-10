@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -762,10 +763,11 @@
 				<p class="lede">No R&amp;D pods are configured yet.</p>
 				<p class="hint">
 					Set <code>RUNPOD_API_KEY</code> in the launcher environment, then add one or more pods
-					(the different GPU cards) in <a href="/admin">Admin → Settings → ComfyUI R&amp;D pod</a>.
-					A single legacy <code>RUNPOD_POD_ID</code> still works too.
+					(the different GPU cards) in
+					<a href={resolve('/admin')}>Admin → Settings → ComfyUI R&amp;D pod</a>. A single legacy
+					<code>RUNPOD_POD_ID</code> still works too.
 				</p>
-				<a class="ghost" href="/">‹ Launcher</a>
+				<a class="ghost" href={resolve('/')}>‹ Launcher</a>
 			</section>
 		{:else}
 			<!-- Fleet control panel. -->
@@ -786,7 +788,7 @@
 					<div class="panel">
 						<div class="statusline"><span class="dot off"></span> No pods in the fleet.</div>
 						<p class="hint">
-							Add pods in <a href="/admin">Admin → Settings → ComfyUI R&amp;D pod</a>.
+							Add pods in <a href={resolve('/admin')}>Admin → Settings → ComfyUI R&amp;D pod</a>.
 						</p>
 					</div>
 				{:else}
@@ -1276,7 +1278,8 @@
 					</li>
 					<li>
 						<strong>Publish</strong> it as a blueprint in the
-						<a href="/atlas">Atlas Maker</a> (＋ New blueprint → upload the JSON → bind the roles).
+						<a href={resolve('/atlas')}>Atlas Maker</a> (＋ New blueprint → upload the JSON → bind the
+						roles).
 					</li>
 				</ol>
 				<p class="note">
