@@ -88,6 +88,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-10 — **The asset pull leaves the other art tier out of a pinned build**
+  (`pull-project-assets.mjs --art-tier` / `IE_ART_TIER`, `scripts/lib/artTierPin.mjs`;
+  [arcade-4k-builds](../design/arcade-4k-builds.md) "One-screen builds"). Pinned `half`, a full file
+  with a half copy is never downloaded; pinned `full`, no `@half` file ships and a stale one is
+  deleted. A dropped file a kept sheet or atlas names is fetched anyway; export `index.json` files
+  do not count (they list every tier and are never loaded). `pull.json` gains
+  `artTier.notPulled` with sizes. Guard: `check-art-tier-pin.mjs` (28 checks, two mutants caught).
 - 2026-11-09 — **One exporter registry: an asset class is one entry, not three edits.** Rule 8 (every
   R2 asset class travels export → `deploy/` → bake → pull → register) was three hand-kept lists —
   `runtimeBundle.ts`'s step list, ten near-identical `api/editor/export-*` routes and ten copies of

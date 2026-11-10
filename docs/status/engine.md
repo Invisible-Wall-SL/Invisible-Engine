@@ -433,6 +433,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-10 — **A one-screen build ships one art tier** ([arcade-4k-builds](../design/arcade-4k-builds.md)
+  "One-screen builds"). `IE_ART_TIER=full|half` is compiled in by `config-vite` (`artTierPin.js` →
+  `__IE_ART_TIER__`) and `chooseArtTier` obeys it over the screen rule and `?tier=`; the asset pull
+  leaves the other tier out (see [launcher](launcher.md)); `build-delivery.mjs --art-tier`. Unset
+  changes nothing. Guards: `check-art-tier-pin.mjs`, `artTier.fixture.ts` §7,
+  `art-tier-probe.mjs --pinned-build`.
 - 2026-11-09 — **Flow v1 retired from the runtime: the default boot is a direct loading → basegame
   switch** (branch `engine-retire-flow-v1`). `apps/lines/src/game/bootScreens.ts` replaces the v1
   interpreter `createLinesFlow` built over a synthesized `loading → basegame` doc; `engine-game`

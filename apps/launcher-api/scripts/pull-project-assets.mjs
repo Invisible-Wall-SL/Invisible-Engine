@@ -25,7 +25,7 @@
 //     --project invisible_wall/bookofborutremake --dest ./static/assets --token <t> --dry-run
 
 import { spawnSync } from 'node:child_process';
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 // By relative path, not `config-svelte`: inside a game repo the engine submodule's node_modules is
 // never installed (same reason as bake-editor-doc.mjs).
@@ -42,6 +42,7 @@ import {
 	pruneDecision,
 	scanSources,
 } from './lib/assetReachability.mjs';
+import { artTierDrop, parseArtTierPin } from './lib/artTierPin.mjs';
 import { writeBuildReport } from './lib/buildReportDir.mjs';
 
 const args = process.argv.slice(2);
@@ -73,6 +74,9 @@ const USAGE =
 	'                                image twins + extra audio formats (online is\n' +
 	'                                unaffected; it never runs this). See\n' +
 	'                                optimize-build-assets.mjs.\n' +
+	'  --art-tier <full|half>        a build for ONE kind of screen: ship only that art\n' +
+	'                                tier of a project that publishes resolution tiers\n' +
+	'                                (env IE_ART_TIER; the game build reads the same var)\n' +
 	'  --audio-formats <csv>         with --optimize: audio formats to keep, priority\n' +
 	'                                order (default mp3,ogg; pass `mp3` for max savings)\n' +
 	'  --optional                    NO-token build only: warn + keep the checked-in\n' +
@@ -110,6 +114,15 @@ const noPrune = hasFlag('no-prune');
 // editing the project's build_cmd.
 const envTruthy = (v) => ['1', 'true', 'yes', 'on'].includes(String(v || '').toLowerCase());
 const optimize = hasFlag('optimize') || envTruthy(process.env.IE_OPTIMIZE_ASSETS);
+// The flag OR the env var the game's own build reads (`config-vite` `artTierPin.js`), so the art a
+// build ships and the tier it loads come from one setting. See lib/artTierPin.mjs.
+let artTier = null;
+try {
+	artTier = parseArtTierPin(getFlag('art-tier') ?? process.env.IE_ART_TIER);
+} catch (err) {
+	console.error(`✖ live-assets: ${err instanceof Error ? err.message : err}`);
+	process.exit(1);
+}
 const audioFormats = (
 	getFlag('audio-formats') ||
 	process.env.IE_OPTIMIZE_AUDIO_FORMATS ||
@@ -230,7 +243,13 @@ if (!noPrune) {
 		);
 	}
 }
-const wanted = (rel) => refs === null || isReachable(rel, refs);
+// A pinned build skips the other tier's files by name now; once the kept sheets and atlases are
+// local, any of them that still names a skipped file gets it back (lib/artTierPin.mjs).
+const generatedRels = files.map((f) => f.rel).filter(isGenerated);
+const tierSkip = new Set(
+	artTier ? (await artTierDrop(generatedRels, artTier, async () => '')).drop : [],
+);
+const wanted = (rel) => !tierSkip.has(rel) && (refs === null || isReachable(rel, refs));
 
 // 3. Mirror what the game loads, verbatim, under dest. A kept file can name another (an atlas its
 // page, a data file a folder), so mirror → follow those names → mirror again until nothing grows.
@@ -264,6 +283,17 @@ for (;;) {
 			console.info(`  ${rel} (${(body.length / 1024).toFixed(0)} KB)`);
 		}
 	}
+	if (artTier && !dryRun) {
+		const { named } = await artTierDrop(generatedRels, artTier, (rel) =>
+			readFile(join(dest, ...rel.split('/')), 'utf8').catch(() => ''),
+		);
+		const back = named.filter(({ rel }) => tierSkip.has(rel));
+		for (const { rel, by } of back) {
+			console.info(`  keep ${rel} — ${by} names it (--art-tier ${artTier})`);
+			tierSkip.delete(rel);
+		}
+		if (back.length) continue;
+	}
 	if (refs === null) break;
 	if (!(await followDescriptors(dest, await localFiles(), refs, tops, seenDescriptors))) break;
 }
@@ -296,7 +326,7 @@ function trackedFiles() {
 }
 
 async function prune() {
-	const listed = new Set(files.map((f) => f.rel));
+	const listed = new Set(files.map((f) => f.rel).filter((rel) => !tierSkip.has(rel)));
 	const standalone = isStandaloneGame();
 	const tracked = refs === null || standalone ? null : trackedFiles();
 	const removed = [];
@@ -350,7 +380,17 @@ const { removed, unloaded, kept, gitKnown } = noPrune
 	? { removed: [], unloaded: new Map(), kept: [], gitKnown: true }
 	: await prune();
 const pruned = removed.length;
-const skipped = files.filter((f) => !mirrored.has(f.rel));
+const skipped = files.filter((f) => !mirrored.has(f.rel) && !tierSkip.has(f.rel));
+if (tierSkip.size) {
+	const size = new Map(files.map((f) => [f.rel, f.size ?? 0]));
+	const total = [...tierSkip].reduce((n, rel) => n + (size.get(rel) ?? 0), 0);
+	console.info(
+		`\nNot pulled — the other art tier (--art-tier ${artTier}): ${tierSkip.size} file(s), ` +
+			`${(total / 1048576).toFixed(1)} MB.`,
+	);
+} else if (artTier) {
+	console.info(`\n--art-tier ${artTier}: the project publishes no other tier; nothing left out.`);
+}
 if (skipped.length) {
 	const size = new Map(files.map((f) => [f.rel, f.size ?? 0]));
 	console.info(
@@ -400,6 +440,10 @@ const report = {
 		(rel) => listedSize.get(rel) ?? 0,
 	),
 	removed: withSize([...unloaded.keys()], (rel) => unloaded.get(rel) ?? 0),
+	artTier: artTier && {
+		tier: artTier,
+		notPulled: withSize([...tierSkip].sort(), (rel) => listedSize.get(rel) ?? 0),
+	},
 	keptUnloaded: kept,
 	optimize: null,
 };
