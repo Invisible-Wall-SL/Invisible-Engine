@@ -439,6 +439,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   leaves the other tier out (see [launcher](launcher.md)); `build-delivery.mjs --art-tier`. Unset
   changes nothing. Guards: `check-art-tier-pin.mjs`, `artTier.fixture.ts` §7,
   `art-tier-probe.mjs --pinned-build`.
+- 2026-11-09 — **Flow v1 retired from the runtime: the default boot is a direct loading → basegame
+  switch** (branch `engine-retire-flow-v1`). `apps/lines/src/game/bootScreens.ts` replaces the v1
+  interpreter `createLinesFlow` built over a synthesized `loading → basegame` doc; `engine-game`
+  `PlayBookDeps` loses `getFlowInterpreter` (no v2 ownership ⇒ the coded map), and
+  `packages/engine-flow` is deleted. Same scene mount order, same trigger out of loading (a tap or
+  `completeOnLoaded`), same coded dispatch — proved against the real v1 interpreter before it was
+  deleted. Detail in [flow.md](flow.md) Recent changes (same date). A runtime release on merge.
+
 - 2026-11-09 — **4K builds Phase 5 closed: video and FX need no tier of their own**
   ([arcade-4k-builds](../design/arcade-4k-builds.md)). Video never ships (a render becomes a sheet
   and a clip); clips and FX particles take their textures from the sheets' `loadedAssets` keys, so

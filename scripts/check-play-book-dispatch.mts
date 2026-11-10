@@ -4,10 +4,10 @@
  *   pnpm check:play-book-dispatch
  *
  * The engine's own `createPlayBook` (`packages/engine-game/src/game/playBook.ts`) is imported for
- * real and a round is played through its `playBet`, three times: with no flow at all (a layout
- * without loading/basegame scenes builds no v1 flow, and no v2 doc is authored), with a v1 flow that
- * falls through to the coded map, and with a v2 flow that owns every event. Only the presentation
- * hooks the game hands the seam are recorded.
+ * real and a round is played through its `playBet`, three times: with no flow at all (no v2 doc is
+ * authored), with a v2 flow that owns NO event (a book-events-free graph — each falls through to the
+ * coded map), and with a v2 flow that owns every event. Only the presentation hooks the game hands
+ * the seam are recorded.
  *
  * `playBookEvents` used to run a SECOND loop when neither flow was present, straight to the coded
  * handler map. It skipped `runBookEventPresentation` (the slam carve-out) and every step of
@@ -19,8 +19,8 @@
  *  2. NO FLOW: the win meter has climbed to the `winInfo`'s `totalWin` by the time the coded
  *     `winInfo` handler runs; the big win counts up from `setWin`; the all-at-once lines draw on the
  *     `winInfo`; a retrigger sets `freeSpinsAdded`.
- *  3. PARITY: the seam calls, in order, are identical with no flow, a v1 flow and a v2 flow; only who
- *     presents the event differs.
+ *  3. PARITY: the seam calls, in order, are identical with no flow, a non-owning v2 flow and an
+ *     owning one; only who presents the event differs. A non-owning flow is never asked to present.
  */
 
 import { register } from 'node:module';
@@ -104,7 +104,7 @@ const book = (): BookEvent[] => [
 ];
 const TYPES = book().map((event) => event.type);
 
-type Path = 'none' | 'v1' | 'v2';
+type Path = 'none' | 'unowned' | 'v2';
 
 /** One round through the REAL seam. `seam` is every presentation hook the seam called, in order;
  *  `driven` is who presented each event; `meterAtWinInfo` the meter as the `winInfo` was presented. */
@@ -122,26 +122,18 @@ const playRound = async (path: Path) => {
 	const handlers = new Proxy({} as Record<string, (event: BookEvent) => Promise<void>>, {
 		get: () => async (event: BookEvent) => present('coded', event),
 	});
-	const coded = { playBookEvent: async (event: BookEvent) => handlers[event.type](event) };
-
 	const { playBet } = createPlayBook({
 		bookEventHandlerMap: handlers,
-		getFlowInterpreter: () =>
-			path === 'v1'
-				? {
-						dispatchBookEvent: async (event: BookEvent) => {
-							seam.push(`v1:${event.type}`);
-							await coded.playBookEvent(event);
-						},
-					}
-				: undefined,
 		getFlowV2: () =>
-			path === 'v2'
-				? {
-						ownsEvent: () => true,
+			path === 'none'
+				? undefined
+				: {
+						ownsEvent: (type: string) => {
+							seam.push(`owns?:${type}`);
+							return path === 'v2';
+						},
 						dispatch: async (_type: string, event: BookEvent) => present('flow', event),
-					}
-				: undefined,
+					},
 		eventEmitter: { broadcast: () => {} },
 		runBookEventPresentation: async (
 			type: string,
@@ -189,7 +181,7 @@ const playRound = async (path: Path) => {
 };
 
 const none = await playRound('none');
-const v1 = await playRound('v1');
+const unowned = await playRound('unowned');
 const v2 = await playRound('v2');
 
 const count = (log: string[], prefix: string) => log.filter((e) => e.startsWith(prefix)).length;
@@ -220,16 +212,17 @@ check('no flow: a retrigger sets freeSpinsAdded', none.freeSpinsAdded, 4);
 check('no flow: the per-spin pop and the between-spins hold still frame every event', [count(none.seam, 'pop:'), count(none.seam, 'holdAfter:')], [TYPES.length, TYPES.length]); // prettier-ignore
 
 // 3. parity across the three paths.
-check('v1 flow: the coded map presents every event (the v1 fall-through)', v1.driven, TYPES.map((t) => `coded:${t}`)); // prettier-ignore
+check('non-owning v2 flow: the coded map presents every event', unowned.driven, TYPES.map((t) => `coded:${t}`)); // prettier-ignore
+check('non-owning v2 flow: asked about every event, once', typesAfter(unowned.seam, 'owns?:'), TYPES); // prettier-ignore
 check(
 	'v2 flow: the flow presents every event',
 	v2.driven,
 	TYPES.map((t) => `flow:${t}`),
 );
-const withoutPath = (log: string[]) => log.filter((e) => !e.startsWith('v1:'));
-check('parity: no flow and v1 cross the same seam, in the same order', withoutPath(none.seam), withoutPath(v1.seam)); // prettier-ignore
-check('parity: no flow and v2 cross the same seam, in the same order', none.seam, v2.seam);
-check('parity: the meter, the retrigger count, the same on every path', [v1.meterAtWinInfo, v2.meterAtWinInfo, v1.freeSpinsAdded, v2.freeSpinsAdded], [50, 50, 4, 4]); // prettier-ignore
+const withoutOwnership = (log: string[]) => log.filter((e) => !e.startsWith('owns?:'));
+check('parity: no flow and a non-owning v2 flow cross the same seam, in the same order', none.seam, withoutOwnership(unowned.seam)); // prettier-ignore
+check('parity: no flow and an owning v2 flow cross the same seam, in the same order', none.seam, withoutOwnership(v2.seam)); // prettier-ignore
+check('parity: the meter, the retrigger count, the same on every path', [unowned.meterAtWinInfo, v2.meterAtWinInfo, unowned.freeSpinsAdded, v2.freeSpinsAdded], [50, 50, 4, 4]); // prettier-ignore
 
 console.log(`${passes} play-book dispatch checks passed, ${failures} failed.`);
 if (failures > 0) process.exit(1);

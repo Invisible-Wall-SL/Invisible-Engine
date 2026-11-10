@@ -21,7 +21,7 @@ rendering/runtime foundation the tool agents build on.
 
 ## What you own
 - **pixi-svelte** (`packages/pixi-svelte`) — the declarative PixiJS↔Svelte bridge.
-- **engine-layout / engine-flow** + the shared `packages/*`, and the runtime in
+- **engine-layout / engine-flow-v2** + the shared `packages/*`, and the runtime in
   `apps/{lines,cluster,scatter,ways,number-picker,price}`.
 - **Book events** (pre-determined outcome JSON drives the animation sequence), **XState 5**
   game flow (`utils-xstate` / `state-shared`), **`utils-event-emitter`** as the primary

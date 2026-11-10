@@ -386,6 +386,11 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		names: ['progressBar.png', 'progressBarBackground.png', 'progressBarFrame.png'],
 	},
 	{
+		file: 'packages/engine-flow-v2/src/emitterVocabulary.ts',
+		rule: 'notAsset',
+		names: ['transition'],
+	},
+	{
 		file: 'packages/engine-flow-v2/src/reference/arcade.ts',
 		rule: 'notAsset',
 		names: ['transition'],
@@ -410,12 +415,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		rule: 'notAsset',
 		names: ['transition'],
 	},
-	{
-		file: 'packages/engine-flow/src/emitterVocabulary.ts',
-		rule: 'notAsset',
-		names: ['transition'],
-	},
-	{ file: 'packages/engine-flow/src/previewExecutor.ts', rule: 'symbols', names: ['H1', 'H2'] },
 	{
 		file: 'packages/engine-game/src/components/Background.svelte',
 		rule: 'mount',

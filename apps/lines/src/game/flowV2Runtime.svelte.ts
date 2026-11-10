@@ -5,17 +5,16 @@
  * It builds the DEDICATED v2 interpreter's run context (`runFlowEvent(doc, ctx, event, payload)`)
  * wired to THIS game's real primitives — the SAME `eventEmitter`, `stateBetDerived.timeScale`,
  * `waitForTimeout`, effect registry (`flowEffect`) and `$engine` reader (`linesEngineReader`) the
- * coded/v1 path uses — plus the z-ordered container mount model (`createContainerMountModel`) that
- * replaces v1's active-set. Show/hide land in the model; the model's `onChange` mirror re-renders
- * the generic `<FlowV2Mount>` in Game.svelte.
+ * coded path uses — plus the z-ordered container mount model (`createContainerMountModel`).
+ * Show/hide land in the model; the model's `onChange` mirror re-renders the generic
+ * `<FlowV2Mount>` in Game.svelte.
  *
- * v2 SHIP SOURCE (Phase 5, decision "ship-ready v2, keep v1"): `loadFlowV2Doc()` sources from the
- * baked bundle (`bakedFlowV2Doc()`) — so an authored v2 flow ships — with dev escape hatches on top
- * (`__IE_FLOW_V2_DOC__` ad-hoc; `__IE_FLOW_V2_LINES__` the committed reference flow). Unset + un-baked
- * ⇒ v2 stays inert and the v1/coded path owns the game (parity); v1 remains the incumbent until an
- * explicit cutover. EVENT OWNERSHIP (`ownsEvent` + `playBook.ts`): a v2 flow drives ONLY the events
- * it authors — each SUPPRESSES its coded/v1 twin (no doubling) — so the game migrates to v2 one event
- * at a time, with everything un-owned still coded (parity). Cues broadcast AWAITED (`broadcastAsync`),
+ * SHIP SOURCE: `loadFlowV2Doc()` sources from the baked bundle (`bakedFlowV2Doc()`) — so an
+ * authored v2 flow ships — with dev escape hatches on top (`__IE_FLOW_V2_DOC__` ad-hoc;
+ * `__IE_FLOW_V2_LINES__` the committed reference flow). Unset + un-baked ⇒ v2 stays inert and the
+ * coded path owns the game (parity). EVENT OWNERSHIP (`ownsEvent` + `playBook.ts`): a v2 flow
+ * drives ONLY the events it authors — each SUPPRESSES its coded twin (no doubling) — with
+ * everything un-owned still coded (parity). Cues broadcast AWAITED (`broadcastAsync`),
  * so a `fireCue` blocks on its subscribers' completion like the coded handlers' awaited broadcasts.
  *
  * Phase 4c — the game runs against the REAL template vocabulary resolved from the loaded doc's
@@ -123,7 +122,7 @@ import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
 import { createInstanceWaits } from './flowInstanceWaits';
 import { flowKeyActions, typingInto } from './flowKeys';
-import { linesEngineReader } from './flowRuntime.svelte';
+import { linesEngineReader } from './flowEngineReader';
 import { stateModes } from './stateModes.svelte';
 import type { ModeTransition } from 'engine-game';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
@@ -210,7 +209,7 @@ const flowV2LogOptIn = (): boolean => {
  *    (no bake needed; the URL form survives a reload — the natural verify hook);
  *  - `bakedFlowV2Doc()` — the v2 doc embedded in the baked bundle by the export→bake chain (Phase 5
  *    ship path). UNDEFINED on an un-baked / un-authored boot (incl. apps/lines dev with no opt-in),
- *    so v2 stays inert and the v1/coded path owns the game (parity).
+ *    so v2 stays inert and the coded path owns the game (parity).
  */
 export const loadFlowV2Doc = (): FlowDocV2 | undefined => {
 	if (typeof globalThis !== 'undefined') {
@@ -228,7 +227,7 @@ export const loadFlowV2Doc = (): FlowDocV2 | undefined => {
  * It resolves SYNCHRONOUSLY from `loadFlowV2Doc()` — no async editor doc — so a BOOT-TIME consumer
  * that runs before the handle exists (Sound.svelte's `onMount`, which decides whether to auto-play
  * the boot music) can gate on the SAME source of truth. Un-authored / un-baked / book-events-only doc
- * ⇒ `false` (parity: the coded/v1 screen + boot-music path owns).
+ * ⇒ `false` (parity: the coded screen + boot-music path owns).
  */
 export const flowV2DrivesScreens = (): boolean => {
 	const doc = loadFlowV2Doc();
@@ -253,8 +252,8 @@ const loadFlowV2Library = (): FunctionLibraryDoc => {
  *  authored (v2 inert). */
 export type LinesFlowV2 = {
 	/** Does the flow OWN this event — i.e. author an `event` node for it? An owned event is driven
-	 *  by v2 ALONE (its coded/v1 twin is suppressed, no doubling); an un-owned event falls through to
-	 *  the coded/v1 path (parity). This is how the game hands events to v2 ONE AT A TIME. */
+	 *  by v2 ALONE (its coded twin is suppressed, no doubling); an un-owned event falls through to
+	 *  the coded path (parity). */
 	ownsEvent: (eventType: string) => boolean;
 	/** Does the chain the flow runs for this event (in the active mode) call `action`? */
 	chainCallsAction: (eventType: string, action: string) => boolean;
@@ -374,7 +373,7 @@ const rigBundleFolderOf = (key: string): string => {
 
 /**
  * Build the v2 handle from the live editor doc. Returns `undefined` when no v2 FlowDoc is
- * authored (`__IE_FLOW_V2_DOC__` unset) — the game then runs its v1/coded path (parity).
+ * authored (`__IE_FLOW_V2_DOC__` unset) — the game then runs its coded path (parity).
  *
  * `onContainersChange` is the mount model's mirror: Game.svelte passes a setter that writes the
  * z-ordered list into a `$state`, so `<FlowV2Mount>` re-renders whenever a `show`/`hide` changes
@@ -383,7 +382,7 @@ const rigBundleFolderOf = (key: string): string => {
 export const createLinesFlowV2 = (
 	editorDoc: LayoutDoc,
 	onContainersChange?: (containers: MountedContainerRef[]) => void,
-	/** Invoke a game INTENT (spin/buyBonus/…) — the SAME `invokeHostIntent` bridge the v1 flow uses.
+	/** Invoke a game INTENT (spin/buyBonus/…) — the `invokeHostIntent` bridge the HUD buttons use.
 	 *  The env routes an intent-command action (startSpin/…) here. Absent ⇒ those actions no-op. */
 	invokeIntent?: (intent: string) => void,
 ): LinesFlowV2 | undefined => {
@@ -408,7 +407,7 @@ export const createLinesFlowV2 = (
 	// screen-lifecycle signals (e.g. `tapToStart`), which would SUPPRESS the coded lifecycle transition
 	// (loading → tap → basegame) the game otherwise runs — so NEITHER path mounts basegame and the reel
 	// silently vanishes. When detected, we (1) shout a single loud line and (2) refuse to let the flow
-	// OWN the screen-lifecycle signals (below), so the coded/v1 screen path stays in control and the
+	// OWN the screen-lifecycle signals (below), so the coded screen path stays in control and the
 	// board mounts. Book-event ownership (reveal/winInfo/…) is UNTOUCHED — only screen lifecycle is
 	// guarded. A genuinely book-events-only flow (no container nodes) and a genuinely driven flow (owns
 	// `load`) are both unaffected.
@@ -732,7 +731,7 @@ export const createLinesFlowV2 = (
 	const env = createFlowV2Env({
 		state,
 		mount,
-		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
+		// The game-side effect registry — the SAME closed map of named effects the coded path
 		// runs (`flowEffect`), so a v2 `action` node is byte-identical to its coded counterpart. An
 		// intent-command action (startSpin/…) routes to the `invokeIntent` bridge instead (Phase A).
 		effect: (name) => {
@@ -804,7 +803,7 @@ export const createLinesFlowV2 = (
 		// The LIVE turbo scalar — the same `stateBetDerived.timeScale()` the coded delays read, so a
 		// turbo toggle mid-round scales the v2 interpreter's delays identically.
 		timeScale: stateBetDerived.timeScale,
-		// The bounded `$engine.*` reader — reused verbatim from the v1 wiring (one source of truth
+		// The bounded `$engine.*` reader (`flowEngineReader.ts`, one source of truth
 		// for what a guard/readout sees); a family mechanic's own values (an arcade game's
 		// `random`) answer only a key it does not.
 		engineRead: (key) => linesEngineReader(key) ?? boardValue(key),

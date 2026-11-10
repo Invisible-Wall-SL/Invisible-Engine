@@ -39,9 +39,10 @@ foundation and `launcher-studio` for launcher/auth/R2) — your edge is this too
 - **Game side:** `apps/lines/src/game/flowV2Runtime.svelte.ts` (`flowV2DrivesScreens`, ownership),
   `flowV2InterpreterHolder.ts`, `flowEffects.ts` (`screenTransition` /
   `waitForScreenTransition` call the `screenTransitions.ts` seam, bound in `Game.svelte` to the
-  `pixi-svelte/screenFx` runtime; Shader Graph 8e.4); `packages/engine-flow` +
-  `createLinesFlow` (`flowRuntime.svelte.ts`) only boot the synthesized default `loading → basegame`
-  flow when no v2 flow drives screens; there is no v1 authored doc to export, bake or load.
+  `pixi-svelte/screenFx` runtime; Shader Graph 8e.4); `flowEngineReader.ts` (the `$engine.*`
+  reader). Flow v1 is retired (its interpreter package was deleted 2026-11-09): with no v2 flow
+  driving screens, `apps/lines/src/game/bootScreens.ts` shows `loading` and swaps it for
+  `basegame` once; everything flow-shaped lives in `packages/engine-flow-v2`.
 
 ## Contracts you must preserve
 1. **Fall-through parity.** An event or screen the FlowDoc does not own falls through to the
