@@ -14,7 +14,10 @@ export type Target =
 	| { kind: 'self' }
 	| { kind: 'chosen'; side: 'enemy' | 'friendly' | 'any'; include: Include }
 	| { kind: 'allEnemies'; include: Include }
-	| { kind: 'randomEnemy'; include: Include };
+	| { kind: 'randomEnemy'; include: Include }
+	/** Every unit on the effect owner's side (the card itself included), and their hero when
+	 *  `include` is `characters`. */
+	| { kind: 'allFriendly'; include: Include };
 
 export type CardEffect = { trigger: Trigger } & (
 	| { verb: 'damage'; amount: number; target: Target }
@@ -30,6 +33,8 @@ export type CardEffect = { trigger: Trigger } & (
 	  }
 	| { verb: 'destroy'; target: Target }
 	| { verb: 'giveKeyword'; keyword: Keyword; target: Target }
+	/** The owner's resource this turn only: `current` grows, up to the rules' cap; `max` does not. */
+	| { verb: 'gainResource'; amount: number }
 );
 
 /** A library entry (§3.1). */
@@ -60,6 +65,10 @@ export interface CardDef {
 /** A deck: card ids, or the config's `{ card, count }` entries (count defaults to 1). */
 export type DeckList = readonly (string | { card: string; count?: number })[];
 
+/** `strict`: plays in main, then attacks in combat. `mixed`: one main phase, plays and attacks in
+ *  any order, and `endPhase` from it ends the turn (combat is never entered). */
+export type TurnOrder = 'strict' | 'mixed';
+
 export interface CardRules {
 	startHealth: number;
 	openingHand: number;
@@ -67,6 +76,7 @@ export interface CardRules {
 	boardLimit: number;
 	resource: { start: number; perTurn: number; max: number };
 	turnLimit: number;
+	turnOrder: TurnOrder;
 }
 
 export type CardRulesInput = Partial<Omit<CardRules, 'resource'>> & {
@@ -167,6 +177,7 @@ export type CardEvent =
 	| { type: 'destroyed'; uid: number }
 	| { type: 'died'; uid: number }
 	| { type: 'buffsExpired'; uids: number[] }
+	| { type: 'resourceGained'; player: Side; amount: number }
 	| { type: 'matchEnded'; winner: Side | 'draw'; reason: MatchResult['reason'] };
 
 export type LibraryIssue = {
@@ -206,7 +217,7 @@ export const CARD_VERB_TARGETS: Readonly<Record<CardEffect['verb'], 'any' | 'uni
 /** The validator's whole-number ranges, `[min, max]`: a card's numbers and each verb's fields. */
 export const CARD_RANGES: Readonly<
 	Record<
-		'cost' | 'attack' | 'health' | 'damage' | 'heal' | 'draw' | 'count' | 'buff',
+		'cost' | 'attack' | 'health' | 'damage' | 'heal' | 'draw' | 'count' | 'buff' | 'gainResource',
 		readonly [number, number]
 	>
 >;
@@ -215,6 +226,7 @@ export const CARD_MAX_EFFECTS: number;
 export const CARD_SIDES: readonly ('enemy' | 'friendly' | 'any')[];
 export const CARD_INCLUDES: readonly Include[];
 export const CARD_UNTILS: readonly ('endOfTurn' | 'permanent')[];
+export const CARD_TURN_ORDERS: readonly TurnOrder[];
 export const CARD_RULE_DEFAULTS: Readonly<CardRules>;
 export const MAX_QUEUE_STEPS: number;
 
@@ -243,7 +255,8 @@ export function createMatch(options: {
 	first?: Side | 'random';
 }): { match: Match; events: CardEvent[]; dropped: string[] };
 
-/** Plays are listed without `slot`; any slot from 0 to the board's length is legal for them. */
+/** Plays, then attacks (in combat, or in main under the `mixed` turn order), then `endPhase` and
+ *  `concede`. Plays are listed without `slot`; any slot from 0 to the board's length is legal. */
 export function legalActions(match: Match): Action[];
 
 /** Never changes `match`. Throws {@link IllegalAction}. */

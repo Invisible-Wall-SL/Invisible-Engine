@@ -4,6 +4,8 @@ import {
 	type AiDifficulty,
 	type AiWeights,
 	type CardDef,
+	type CardRulesInput,
+	type TurnOrder,
 } from 'engine-mechanics';
 
 import { isObject, num } from './normalizeParts';
@@ -34,6 +36,8 @@ export type CardGameRules = {
 	resource?: { start?: number; perTurn?: number; max?: number };
 	first?: CardGameFirst;
 	turnLimit?: number;
+	/** `strict` phases (the default), or `mixed`: play cards and attack in any order in one turn. */
+	turnOrder?: TurnOrder;
 };
 
 export type CardGameDeckAi = { difficulty: AiDifficulty; weights?: Partial<AiWeights> };
@@ -64,6 +68,7 @@ export const CARD_GAME_RULE_DEFAULTS = Object.freeze({
 	resource: Object.freeze({ start: 1, perTurn: 1, max: 10 }),
 	first: 'random' as CardGameFirst,
 	turnLimit: 60,
+	turnOrder: 'strict' as TurnOrder,
 });
 
 export type ResolvedCardGameRules = Required<Omit<CardGameRules, 'resource'>> & {
@@ -110,8 +115,24 @@ export const resolveCardRules = (rules: CardGameRules | undefined): ResolvedCard
 		},
 		first: rules?.first ?? d.first,
 		turnLimit: rules?.turnLimit ?? d.turnLimit,
+		turnOrder: rules?.turnOrder ?? d.turnOrder,
 	};
 };
+
+/**
+ * The rules a match is created with (`cards.js` `createMatch`), from the resolved config: the game's
+ * session and the Card Library's test match both map them here. `turnOrder` is passed only when it
+ * is `mixed`, so a strict game's match input (and a copied replay record) is what it always was.
+ */
+export const cardMatchRules = (rules: ResolvedCardGameRules): CardRulesInput => ({
+	startHealth: rules.startHealth,
+	openingHand: rules.openingHand,
+	handLimit: rules.handLimit,
+	boardLimit: rules.boardLimit,
+	resource: rules.resource,
+	turnLimit: rules.turnLimit,
+	...(rules.turnOrder === 'mixed' ? { turnOrder: rules.turnOrder } : {}),
+});
 
 /** A card game's rules, cards and decks with the defaults applied. */
 export const resolveCard = (
@@ -143,6 +164,7 @@ const normalizeRules = (raw: unknown): CardGameRules | undefined => {
 		if (Object.keys(resource).length) rules.resource = resource;
 	}
 	if (raw.first === 'player' || raw.first === 'ai') rules.first = raw.first;
+	if (raw.turnOrder === 'mixed') rules.turnOrder = raw.turnOrder;
 	return Object.keys(rules).length ? rules : undefined;
 };
 
