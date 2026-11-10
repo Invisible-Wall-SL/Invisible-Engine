@@ -34,7 +34,7 @@ document: `card.library` and `card.decks`). So:
   page with unsaved changes asks first.
 
 The game's rules (hero health, hand and board limits, **Deck size**, **Copies per deck**, the
-resource, who goes first) are set in Game Config's **Card game** section, not here. That section's
+resource, who goes first, the turn order) are set in Game Config's **Card game** section, not here. That section's
 **Edit in Invisible Card Library** link opens this tool.
 
 If the project's config is not a card config (its family is not set to Card in Game Config), the
@@ -85,10 +85,13 @@ allow after the choices to its left, so an invalid effect cannot be built:
   spell only has When played.
 - **Verb** — `damage`, `heal`, `draw` (an amount), `summon` (a unit from the library, × 1–3; only
   offered once the library has a unit), `buff` (atk and hp, −10 … 10, permanently or until end of
-  turn), `destroy`, `giveKeyword` (a keyword).
+  turn), `destroy`, `giveKeyword` (a keyword), `gainResource` (an amount, 1–10: resource to spend
+  this turn only, up to the game's resource cap; it does not raise the cap the resource grows to,
+  and gained on the opponent's turn it is gone by your next turn).
 - **Target** — itself (units only), a chosen target (only When played; then enemy, friendly or
-  any), all enemies, a random enemy; and whether it hits **units** or **units or hero** (the hero
-  only for `damage` and `heal`). `draw` and `summon` have no target.
+  any), all enemies, a random enemy, all friendly (every unit on the card's own side, the card
+  itself included); and whether it hits **units** or **units or hero** (the hero only for `damage`
+  and `heal`). `draw`, `summon` and `gainResource` have no target.
 
 **＋ Effect** adds one (greyed out at three); **×** removes one.
 
@@ -143,7 +146,9 @@ with card or deck errors it says to fix them first.
 - **Start match** deals it. The table shows each side's hero health, resource, deck and hand
   counts, its board and its hand (side B's hand is face down while you play). Playing side A, the
   buttons on your cards play them (on a target where it needs one) or attack; **End** the phase or
-  **Concede** sit in the status line. **What happened** logs each turn, play, attack, damage,
+  **Concede** sit in the status line. Under Game Config's **Play and attack in any order** turn
+  order, your units' attack buttons show beside your cards' play buttons, and **End turn** ends the
+  turn at once. **What happened** logs each turn, play, attack, damage,
   death and the result.
 - **Run 100** plays 100 AI-vs-AI matches between the two picked decks on seeds 1 … 100 and shows
   each side's win rate, draws, the average number of turns, what the matches ended by, and the

@@ -3,7 +3,8 @@
 // Each time it must act the AI picks one action, then is asked again. It takes a win when it sees
 // one; otherwise it tries each legal action on a copy of the match with the rules' own `apply` and
 // keeps the best by `evaluate`. `hard` scores whole sequences of plays in `main` (a beam search)
-// instead of one action. Types live in `cardAi.d.ts`; the behaviour is pinned by
+// instead of one action; under the `mixed` turn order main lists attacks too, and both the lethal
+// search and the plan take them there. Types live in `cardAi.d.ts`; the behaviour is pinned by
 // `scripts/check-card-ai.mjs`.
 //
 // ITS OWN STREAM (§4.3). The AI's random draws (a mistake roll, a mistaken action) come from a
@@ -126,10 +127,12 @@ const keywordCount = (player) =>
 
 /**
  * The AI's next action for the match, which must wait on its side. A roll on the AI's own stream
- * decides a mistake (a random legal action); otherwise: a win in `combat` if one is there (`lethal`),
- * the best plan in `main` (`plan`), or the best single action. Doing nothing (`endPhase`) is scored
- * too and wins ties; among the rest the first listed wins. Never concedes. `applies` is how many
- * `apply` calls the decision made. Never changes `match` or `ai`.
+ * decides a mistake (a random legal action); otherwise: a win by attacks if one is there (`lethal`;
+ * in `combat`, or in `main` under the `mixed` turn order), the best plan in `main` (`plan`), or the
+ * best single action. Doing nothing (`endPhase`) is scored too and wins ties; among the rest the
+ * first tried wins (the listed order; in a mixed `main`, plays and attacks alternate: `tryOrder`).
+ * Never concedes. `applies` is how many `apply` calls the decision made. Never changes `match` or
+ * `ai`.
  */
 export function chooseAction(ai, match) {
 	if (match.result) throw new Error('cardAi: the match is over');
@@ -149,43 +152,89 @@ export function chooseAction(ai, match) {
 	return { action, ai: { ...ai, rngState }, applies: budget.applies };
 }
 
+/** Attacks are declared now: in combat, or in main under the `mixed` turn order. */
+const attacksNow = (match) =>
+	match.phase === 'combat' || (match.phase === 'main' && match.rules.turnOrder === 'mixed');
+
+/**
+ * The order a decision tries actions in. As listed, except in a mixed `main`, where plays come
+ * before attacks: there they alternate, a play then an attack, so a budget that runs out on a long
+ * hand has still scored the attacks.
+ */
+function tryOrder(match, actions) {
+	if (match.phase !== 'main' || match.rules.turnOrder !== 'mixed') return actions;
+	const attacks = actions.filter((a) => a.type === 'attack');
+	if (!attacks.length) return actions;
+	const rest = actions.filter((a) => a.type !== 'attack');
+	const out = [];
+	for (let i = 0; i < Math.max(rest.length, attacks.length); i++) {
+		if (i < rest.length) out.push(rest[i]);
+		if (i < attacks.length) out.push(attacks[i]);
+	}
+	return out;
+}
+
 function bestAction(match, ai, actions, budget) {
 	const { side, settings } = ai;
-	if (settings.lethal && match.phase === 'combat') {
+	if (settings.lethal && attacksNow(match)) {
 		const win = findLethal(match, side, budget, budget.applies + MAX_LETHAL_APPLIES);
 		if (win) return win;
 	}
 	if (settings.plan && match.phase === 'main') return planMain(match, side, settings, budget);
 	let best = { action: { type: 'endPhase' }, score: evaluate(match, side, settings.weights) };
-	for (const action of actions) {
+	for (const action of tryOrder(match, actions)) {
 		if (action.type === 'endPhase') continue;
 		const result = trial(match, action, side, settings.weights, budget);
 		if (!result) break;
 		if (wins(result, side)) return action;
-		if (result.score > best.score) best = { action, score: result.score };
+		const score = result.gained
+			? afterGain(match, result, side, settings.weights, budget)
+			: result.score;
+		if (score > best.score) best = { action, score };
 	}
 	return best.action;
+}
+
+/**
+ * A play that gained resource is worth what the resource buys: the better of its own score and the
+ * best play after it of a card in the hand now, one step further. A gain that draws from the stream
+ * is scored as it is: what follows it would rest on one sample.
+ */
+function afterGain(match, result, side, weights, budget) {
+	let score = result.score;
+	if (!result.certain || result.match.result) return score;
+	const hand = new Set(match.players[side].hand.map((card) => card.uid));
+	for (const action of legalActions(result.match)) {
+		if (action.type !== 'play' || !hand.has(action.uid)) continue;
+		const next = trial(result.match, action, side, weights, budget);
+		if (!next) break;
+		score = Math.max(score, next.score);
+	}
+	return score;
 }
 
 /** A trial that ends the match won without a draw from the stream: a win to take now. */
 const wins = (result, side) => result.certain && result.match.result?.winner === side;
 
 /**
- * Beam search over plays (§4.2 `plan`): from the match, every play is tried; the PLAN_WIDTH best
- * sequences are extended by every play, PLAN_DEPTH plays deep. The first play of the best sequence
- * found at any depth is taken, or `endPhase` when none beats the match as it is. A sequence plays
- * only cards in the hand now: a card a trial drew is the deck's hidden order. A play whose trial
- * drew from the stream ends its sequence, scored by its mean: what follows it is a guess.
+ * Beam search over plays (§4.2 `plan`), and attacks too under the `mixed` turn order, where main
+ * lists both: from the match, every such action is tried; the PLAN_WIDTH best sequences are
+ * extended by every one, PLAN_DEPTH actions deep. The first action of the best sequence found at
+ * any depth is taken, or `endPhase` when none beats the match as it is. A sequence plays only cards
+ * in the hand now: a card a trial drew is the deck's hidden order. An action whose trial drew from
+ * the stream ends its sequence, scored by its mean: what follows it is a guess.
  */
 function planMain(match, side, settings, budget) {
 	const hand = new Set(match.players[side].hand.map((card) => card.uid));
+	const tried = (action) =>
+		action.type === 'play' ? hand.has(action.uid) : action.type === 'attack';
 	let best = { score: evaluate(match, side, settings.weights), first: { type: 'endPhase' } };
 	let beam = [{ match, first: null }];
 	for (let depth = 0; depth < PLAN_DEPTH && beam.length; depth++) {
 		const children = [];
 		search: for (const node of beam) {
-			for (const action of legalActions(node.match)) {
-				if (action.type !== 'play' || !hand.has(action.uid)) continue;
+			for (const action of tryOrder(node.match, legalActions(node.match))) {
+				if (!tried(action)) continue;
 				const result = trial(node.match, action, side, settings.weights, budget);
 				if (!result) break search;
 				if (depth === 0 && wins(result, side)) return action;
@@ -209,20 +258,23 @@ function planMain(match, side, settings, budget) {
 function trial(match, action, side, weights, budget) {
 	let total = 0;
 	let first = null;
+	let gained = false;
 	for (let k = 0; k < SAMPLE_STATES.length; k++) {
 		if (budget.applies >= MAX_PLAN_APPLIES) {
-			return first && { score: total / k, match: first, certain: false };
+			return first && { score: total / k, match: first, certain: false, gained };
 		}
 		budget.applies += 1;
-		const next = apply({ ...match, rngState: SAMPLE_STATES[k] }, action).match;
+		const step = apply({ ...match, rngState: SAMPLE_STATES[k] }, action);
+		const next = step.match;
 		const score = evaluate(next, side, weights);
 		if (k === 0) {
 			first = next;
-			if (next.rngState === SAMPLE_STATES[0]) return { score, match: next, certain: true };
+			gained = step.events.some((e) => e.type === 'resourceGained' && e.player === side);
+			if (next.rngState === SAMPLE_STATES[0]) return { score, match: next, certain: true, gained };
 		}
 		total += score;
 	}
-	return { score: total / SAMPLE_STATES.length, match: first, certain: false };
+	return { score: total / SAMPLE_STATES.length, match: first, certain: false, gained };
 }
 
 /**
@@ -233,7 +285,7 @@ function trial(match, action, side, weights, budget) {
  * cannot reach the hero's health. Stops at `limit` applies.
  */
 function findLethal(match, side, budget, limit) {
-	if (match.phase !== 'combat' || match.active !== side) return null;
+	if (!attacksNow(match) || match.active !== side) return null;
 	if (reach(match, side) < match.players[1 - side].health) return null;
 	const attacks = legalActions(match).filter((a) => a.type === 'attack');
 	const atHero = attacks.some((a) => 'hero' in a.target);
@@ -258,17 +310,23 @@ function findLethal(match, side, budget, limit) {
  * units' `onDamaged` and `onDeath` damage is not counted, so a lethal that needs it is not sought.
  */
 function reach(match, side) {
-	let total = 0;
-	for (const unit of match.players[side].board) {
-		const ready =
+	const ready = match.players[side].board.filter(
+		(unit) =>
 			unit.attacksLeft > 0 &&
-			(unit.summonedOnTurn !== match.turn || unit.keywords.includes('swift'));
-		if (!ready) continue;
+			(unit.summonedOnTurn !== match.turn || unit.keywords.includes('swift')),
+	);
+	let total = 0;
+	for (const unit of ready) {
 		total += Math.max(0, unit.attack);
 		for (const effect of match.library[unit.cardId].effects ?? []) {
 			if (effect.trigger !== 'onAttack') continue;
-			if (effect.verb === 'damage' && effect.target.kind !== 'self') total += effect.amount;
-			if (effect.verb === 'buff' && effect.attack > 0) total += effect.attack;
+			const kind = effect.target?.kind;
+			if (effect.verb === 'damage' && kind !== 'self' && kind !== 'allFriendly') {
+				total += effect.amount;
+			}
+			if (effect.verb === 'buff' && effect.attack > 0) {
+				total += effect.attack * (kind === 'allFriendly' ? ready.length : 1);
+			}
 		}
 	}
 	return total;
