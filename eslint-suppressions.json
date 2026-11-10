@@ -491,11 +491,6 @@
       "count": 2
     }
   },
-  "scripts/check-card-ai.mjs": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "scripts/check-netcode.mjs": {
     "no-unused-vars": {
       "count": 1
