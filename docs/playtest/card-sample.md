@@ -34,26 +34,35 @@ determinism probe (`state().cards`: the turn, the phase, both healths and every 
 zone, instance id and place) and writes `result.json` and a screenshot per moment; it exits 1 when a
 verdict fails. `--card-seed <s>` deals another match.
 
+**The mixed turn order (C5):** `--turn-order mixed` bakes the same sample with
+`card.rules.turnOrder: 'mixed'` and, on the player's next turn, drags a board unit onto the enemy
+hero in main, then ends the turn with one End Turn press (the three `mixed:` verdicts below).
+
 **In a browser by hand:** the same snapshot boots in any runtime build at
 `/<key>/?runtime=1&project=<key>&k=x&editorDocBase=<snapshot server>`; drag a card from the hand onto
 the board or onto a lit target, or tap a card and then its target.
 
 ## What it checks
 
-| Verdict                                               | How                                                                                  |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| The bake ships the card frame                         | it is spawned only, so the bake seeds it as publish does (`cardGameComponentIds`)    |
-| The match starts on the table with both hands dealt   | after the deck pick, `basegame` is up and the hand holds at least three cards        |
-| The player gets the turn                              | waits out the device's turn when it goes first                                       |
-| A drop off any target snaps the card back             | a drag to the top-right corner leaves the hand and the board as they were            |
-| Dragging a playable card onto the board plays it      | a drag from the hand to the board centre plays the card                              |
-| End Turn passes the turn and the device plays it back | two presses (main → combat → end); the turn number grows and the player has it again |
-| Free play sends the RGS nothing                       | no `/api/` request but the snapshot's                                                |
-| No page error                                         | none raised                                                                          |
+| Verdict                                                     | How                                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| The bake ships the card frame                               | it is spawned only, so the bake seeds it as publish does (`cardGameComponentIds`)    |
+| The match starts on the table with both hands dealt         | after the deck pick, `basegame` is up and the hand holds at least three cards        |
+| The player gets the turn                                    | waits out the device's turn when it goes first                                       |
+| A drop off any target snaps the card back                   | a drag to the top-right corner leaves the hand and the board as they were            |
+| Dragging a playable card onto the board plays it            | a drag from the hand to the board centre plays the card                              |
+| End Turn passes the turn and the device plays it back       | two presses (main → combat → end); the turn number grows and the player has it again |
+| mixed: a unit on the board on the next turn                 | `--turn-order mixed` only: the unit played on the first turn is still there          |
+| mixed: dragging a board unit onto the enemy hero attacks it | in main, the enemy hero's health drops and the phase stays main                      |
+| mixed: one End Turn press passes the turn                   | the turn number grows by two and the player has it again                             |
+| Free play sends the RGS nothing                             | no `/api/` request but the snapshot's                                                |
+| No page error                                               | none raised                                                                          |
 
 ## What to look at
 
 - The frames: cost top-left, a unit's attack and health bottom-left and bottom-right, the rules text
   under the art, the enemy hand as card backs.
 - The readouts: both healths, the resource and its cap, both deck counts, the turn.
-- A dragged card's body follows the pointer (Align Target); a refused drop springs back to its slot.
+- A dragged card's body follows the pointer (Align Target); a refused drop springs back to its slot,
+  and an attacker's body goes back to its slot once its attack is taken (no remount). A hand card
+  lifts while dragged; a board unit does not.
