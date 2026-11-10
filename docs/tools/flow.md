@@ -927,7 +927,12 @@ an error to the browser console.
 A collector bonus with **enhancements** (the partner's collector game, Phase 14b) opens through the
 same `showRespinBoard`: the dials light one by one (cue `enhancementOn`, scoped by the
 enhancement), "SUPER BONUS" first for the super bonus (cue `superBonusEnter`), then an Expand or
-the super bonus opens its rows. The `enhancements` value lists what the open feature drew.
+the super bonus opens its rows. The `enhancements` value lists what the open feature drew. The
+starter flow of a project made with Game Maker's **Lines game: collector + enhancements** shows
+the **Enhancements** screen (the dials and the collectors' total) on the `holdAndWin` mode's
+**Mode trigger (enter)** and hides it on **(exit)**, beside the other feature screens. An older
+project that adds the screen in the Scene Editor adds those two steps itself; until it does, the
+game draws its own row of dials.
 
 `respinReveal` and `holdAndWinState` carry an optional `mode` field: the respin mode they play
 in (absent ⇒ the primary respin mode — `holdAndWin` when declared, else the first).

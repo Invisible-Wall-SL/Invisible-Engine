@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
 	CONFIG_SECTIONS,
 	HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
+	HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_TEMPLATES,
 	HOLD_AND_WIN_TEST_FIXTURES,
@@ -73,6 +74,7 @@ const corpus: [string, unknown][] = [
 		raw,
 	]),
 	['template coinBoard', HOLD_AND_WIN_COIN_BOARD_TEMPLATE],
+	['template enhancements', HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE],
 	...Object.entries(HOLD_AND_WIN_TEST_FIXTURES).map(([id, raw]): [string, unknown] => [
 		`fixture ${id}`,
 		raw,

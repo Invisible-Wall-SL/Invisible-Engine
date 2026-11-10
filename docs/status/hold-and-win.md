@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b **built** 2026-11-09 (the enhancement dials, hit / miss beams, Expand / Force 5 at entry, the trigger coins carried in; playbook `docs/playtest/getting-hot.md`); 14c **built** 2026-11-09 (ante switch, buy cards, refusals, ante filler strips: bet-mode `toggle` / `fillerSymbols` / `refusable`, gate `betModeHud.fixture`); 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a, 14c: Fortune Vault Force Five recreation · 14b: "Getting Hot 14b — presentation" | 14d merged · 14a: #1559 · 14b: #1569 (`a3d75304`) · 14c: #1572 |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b **built** 2026-11-09 (the enhancement dials, hit / miss beams, Expand / Force 5 at entry, the trigger coins carried in; playbook `docs/playtest/getting-hot.md`); 14c **built** 2026-11-09 (ante switch, buy cards, refusals, ante filler strips: bet-mode `toggle` / `fillerSymbols` / `refusable`, gate `betModeHud.fixture`); Game Maker creates it (**Lines game: collector + enhancements**, 2026-11-10); 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a, 14c: Fortune Vault Force Five recreation · 14b: "Getting Hot 14b — presentation" | 14d merged · 14a: #1559 · 14b: #1569 (`a3d75304`) · 14c: #1572 |
 
 ## Current state
 
@@ -1119,6 +1119,45 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-10 — **Game Maker creates the collector bonus with enhancements** (Getting Hot, game 8;
+  the §3.5 "Collector + enhancements" preset). Every path is opt-in: the other templates, presets
+  and their committed defaults are byte-identical (only the new default file appears).
+  - **Game Maker → Create → Hold and Win → Base game: Lines game: collector + enhancements**
+    (`holdAndWinBase: 'enhancements'`, jackpots always on). Seeds `holdAndWin.enhancements.json`
+    (source `HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE` in `holdAndWinPresets.ts`), also on `/config` →
+    **Reset to preset → Collector + enhancements**: 5×3, the five partner lines and the partner's
+    captured line paytable (`H1`–`H5`, `L1`–`L3`, `L5` = PIC1–PIC9); `COIN` (coin + jackpot) on
+    reels 1, 2, 4, 5, `COLLECT` on reel 3 with instant collect; a reel 2–4 pattern trigger and the
+    `goldstrike` buy route; `collectorsOnly`; MINI–GRAND 25/50/150/1000×; bet modes `powerup` (5×,
+    ante, HUD switch, refusable, filler COIN/COLLECT/BLANK, title HEAT UP), `buycentercoin` (50×,
+    refusable, same filler, COLLECTOR SPIN) and `goldstrike` (100×, refusable, BUY BONUS). Every
+    number but the line pays is pacing.
+  - **The marker:** a sparse `holdAndWin.enhancements: true` (presentation only, like
+    `randomMetre`), on `/config` → Respins as **The server draws enhancements**. `sceneSetOptionsFor`
+    turns it into the reference layout's `enhancements` option (scaffold, add-on re-seed and the
+    Scene Editor's **Add missing screens** / banner popups), and `respinModesOf` reserves
+    `ENHANCEMENTS_MAX_ROWS` (5) rows for it, so an EXISTING Hold and Win project gets the screens
+    by ticking the box.
+  - **Layout:** the `enhancements` option now also puts an **ANTE** button (action `ante`, shown on
+    `anteFeature`, `anteSwitchNode()` in `referenceLayouts/hud.ts`) in the HUD bar. The two banner
+    screens are not seeded (the platform rule: the built-in banner plays until a popup adds one).
+  - **Flow:** `freshDrivenSeedDoc('holdAndWin', {enhancements: true})` shows and hides the
+    `enhancements` screen on the feature's enter / exit. Without it the authored dials never mount
+    under Flow v2 and the coded row stands in — found by booting the scaffold, invisible to the
+    layout gates. An older project that adds the screen adds the two Flow steps itself.
+  - **Symbols:** a Hold and Win symbol with no placeholder of its own borrows its role's
+    (`COIN` → `BONUS`), so the coin draws from the first spin.
+  - **Played** (local: the scaffold's own docs as the runtime stub, the 14d partner-wire mock seed
+    7, `apps/lines` on `PUBLIC_RGS_TRANSPORT=play4fun`, real clock): boots with no paytable
+    cross-check warning; the forced super bonus (`enhancements:11111,superBonus`) plays on the
+    authored dials (mounted the whole feature, not in the base game), counter from 5, the
+    collectors' total live; ANTE arms the ante (stake $1 → $5). Gates: `check:add-bonus-mode`
+    (create, screens, flow, the existing-project path, our mock deals it),
+    `test-hold-and-win-template.mjs`, `betModeHud.fixture`, `expandingSymbol.fixture`.
+  - **Open:** the jackpot bar multiplies by the ANTE stake (MINI $25 → $125 at a $1 bet with the
+    ante on) while the partner pays jackpots on the base bet — pre-existing (14c), not changed
+    here. A partner-wire boot on the Invisible Test Server needs the project's key in
+    `PARTNER_WIRE_GAMES` (an env change, owner's).
 - 2026-11-09 — **14c: the ante and the buys in the HUD** (Getting Hot, game 8). All of it is opt-in
   per bet mode; a game that sets neither new field keeps its HUD, menu and reels exactly as before.
   - **Reused, not rebuilt:** the menu is still the server-authoritative one (`betModeMeta.ts`: the
@@ -1213,7 +1252,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
       about 5.5 s a respin.
     - A base collect with two collectors flies each coin to the nearest one (with "×2" on the
       banner), not to both.
-    - Game Maker does not yet offer the Enhancements screen (no config marker).
+    - ~~Game Maker does not yet offer the Enhancements screen (no config marker).~~ Done
+      2026-11-10: Game Maker's **Lines game: collector + enhancements** (Recent changes).
     - No art: 14e.
 - 2026-11-09 — **14a: the facade reads the partner's collector respin wire** (Getting Hot, game 8).
   - `rgs-translator-eagaming/src/collectorRespin.ts` recognises the game from its boot `config`

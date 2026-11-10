@@ -222,6 +222,22 @@ assert(
 		),
 		"the Enhancements screen shows the collectors' total",
 	);
+	const anteIn = (set) =>
+		walk(set.scenes.find((sc) => sc.id === 'hudBar').nodes).filter(
+			(n) => n.componentId === 'button' && n.params?.action === 'ante',
+		);
+	const ante = anteIn(enhanced);
+	assert(
+		ante.length === 1 && ante[0].params.visibleSource === 'anteFeature',
+		'the enhancements HUD has one ante switch, shown while the game has one',
+	);
+	assert(!anteIn(doc).length, 'a HUD without the enhancements option has an ante switch');
+	assert(
+		JSON.stringify(
+			enhanced.scenes.find((sc) => sc.id === 'hudBar').nodes.filter((n) => n.id !== 'hud-btn-ante'),
+		) === JSON.stringify(sceneById.get('hudBar').nodes),
+		'the ante switch is the only change to the HUD bar',
+	);
 	const dial = mod.BUILTIN_COMPONENTS.find((d) => d.id === 'enhancementDial');
 	assert(
 		dial?.capability === 'holdAndWin' && dial.signalScopeKind === 'enhancement',

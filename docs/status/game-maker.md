@@ -64,6 +64,12 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-11-10 — **Hold and Win: Base game → Lines game: collector + enhancements.** A third
+  Base game choice that creates the partner's collector bonus game (Getting Hot): its config
+  (`holdAndWin.enhancements.json`), the Enhancements screen with four Enhancement Dials and the
+  collectors' total, an ANTE switch in the HUD bar, a starter Flow that shows the dials for the
+  feature, and the coin and collector on placeholder art. Jackpots are always on. Detail and the
+  local partner-wire play: [status/hold-and-win.md](hold-and-win.md) (Recent changes, 2026-11-10).
 - 2026-10-27 — **Build breakdown counts the shared engine.** Online games run one shared engine
   runtime, so a version's files never included the engine code. The breakdown now lists that
   runtime's release files under an **Engine (shared runtime)** category (`engine/…` in Files), with

@@ -5,6 +5,17 @@ Current state lives in [status/flow.md](../../status/flow.md); this file only ke
 A kind change that shipped the old kind's flow (`flow-wrong-kind`):
 [game-maker.md](game-maker.md#a-kind-change-shipped-the-old-kinds-flow).
 
+### A seeded feature screen never mounted under the starter flow
+- **Symptom:** a Game Maker project scaffolded with the Enhancements screen played the feature with
+  the coded row of dials; `isComponentMounted('enhancementDial')` stayed false all feature.
+- **Cause:** a Flow v2 starter shows each feature screen by name on the mode's enter; a new
+  reference-layout screen (`enhancements`) that the seed's screen list does not name is never shown.
+  The layout gates passed: they only check the scene is in the doc.
+- **Fix:** `freshDrivenSeedDoc('holdAndWin', {enhancements: true})` adds it to the mode's screens
+  (`packages/engine-flow-v2/src/reference/drivenSeed.ts`); the scaffold passes the option.
+- **Guard:** `check:add-bonus-mode` "the starter flow shows the dials for the feature".
+- **PR:** PRNUM (2026-11-10) · source: `docs/status/hold-and-win.md`
+
 ### Publish answered 502 instead of naming the cause
 - **Symptom:** Publish failed with an opaque 502; nothing said the flow was the problem.
 - **Cause:** `isFlowV2Doc` only proves `graph` is an object, so a half-initialised doc reached the
