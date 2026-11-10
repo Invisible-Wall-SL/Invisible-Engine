@@ -81,6 +81,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-10 — **Desktop launcher v1.0.66: the art picker says which screen a build is for.**
+  The owner found "Art: Auto / Full / Half" unclear, so it now reads **Build for: 🖥 All screens /
+  🕹 Arcade 4K / 📱 Desktop & mobile** and sits on the card's top line (`invisible-launcher` #31).
+  The values are unchanged.
 - 2026-11-10 — **Desktop launcher v1.0.65: an Art picker on each project card** (Auto / Full /
   Half, `invisible-launcher` #30). Full or Half sets `IE_ART_TIER` for ☁ Publish and 📦 Deliver,
   so a one-screen build ships one art tier ([arcade-4k-builds](../design/arcade-4k-builds.md)

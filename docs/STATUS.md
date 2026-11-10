@@ -130,7 +130,7 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    their logical size (Phase 1); a 3840×2160 canvas, measured end to end, and the editor's
    Rescale canvas… (Phase 2); opt-in half-resolution art written at publish (Phase 3); the game
    loads the tier its screen needs (Phase 4); video and FX ride the sheet tiers (Phase 5, closed).
-   A one-screen build ships one tier (`IE_ART_TIER=full|half`, the desktop launcher's Art picker
+   A one-screen build ships one tier (`IE_ART_TIER=full|half`, the desktop launcher's *Build for* picker
    from v1.0.65). Open: a one-click scale reset after art is re-made at 4K, a run on a real
    cabinet and phone.
 5. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
