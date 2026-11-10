@@ -14,7 +14,7 @@ A kind change that shipped the old kind's flow (`flow-wrong-kind`):
 - **Fix:** `freshDrivenSeedDoc('holdAndWin', {enhancements: true})` adds it to the mode's screens
   (`packages/engine-flow-v2/src/reference/drivenSeed.ts`); the scaffold passes the option.
 - **Guard:** `check:add-bonus-mode` "the starter flow shows the dials for the feature".
-- **PR:** PRNUM (2026-11-10) · source: `docs/status/hold-and-win.md`
+- **PR:** #1595 (2026-11-10) · source: `docs/status/hold-and-win.md`
 
 ### Publish answered 502 instead of naming the cause
 - **Symptom:** Publish failed with an opaque 502; nothing said the flow was the problem.
