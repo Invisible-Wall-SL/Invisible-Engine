@@ -105,9 +105,62 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     hitches over 33/50/100 ms for idle and spinning, the reel step error in px (each drawn step
     against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
     JSON line: UA, DPR, render tier, canvas size, the numbers) and Reset. Without the flag its
-    chunk is never loaded and the frame clock has no probe.
+    chunk is never loaded and the frame clock has no probe. Since 2026-11-09 it also reads the GPU
+    side: see the next bullet.
+- **Renderer setup for tiled GPUs, the `?perf=1` GPU readout and the render test switches**
+  (2026-11-09) — how the context and the frame are set up is decided once, before the WebGL context
+  exists (`pixi-svelte` `renderOptions.ts`, applied by `InitialiseApplication.svelte`):
+  - **Back buffer:** still on for every game. The game declares whether its authored content can
+    draw a backdrop-reading blend (`apps/lines/src/game/renderNeeds.ts` scans every `blendMode` in
+    the bundle; of the live games only `test6` does, with `lighten` and `overlay`). Leaving it out
+    for the others waits on the owner: the canvas's own MSAA moves antialiased edges by 1–2 levels
+    (Recent changes, 2026-11-09).
+  - **One back-buffer resolve a frame, no depth/stencil store** (`backBufferPasses.ts`): Pixi
+    resolved the whole multisampled back buffer after every filter draw
+    (`FilterSystem._setupBindGroupsAndRender` ends in `finishRenderPass()`); it is now resolved
+    once, when the frame is presented. And the back buffer's multisampled depth/stencil (there once
+    a mask used the stencil) is invalidated just before that resolve, so a tiled GPU may drop its
+    store: the next frame clears it before reading it. Both byte-identical.
+  - **Opaque canvas:** on when the content has no backdrop blend and the page behind the canvas is
+    one solid colour, checked at boot (the canvas's ancestors' backgrounds, and
+    `elementsFromPoint` under the canvas finds only its ancestors), cleared to that colour. An embed
+    over a partner's page, or any game with a backdrop blend, stays transparent. Byte-identical.
+  - **`?perf=1`** adds the GPU (`WEBGL_debug_renderer_info`), the WebGL version, the context
+    attributes, back buffer on/off and MSAA, the compressed formats the context offers, the loaded
+    textures by GPU format (count, MB), why each setup choice was made, and per frame (mean / max,
+    idle and spinning): draws, vertices, render passes, target switches, MSAA resolves,
+    invalidations, filter passes and filtered nodes, backdrop copies, texture uploads, buffer bytes,
+    GL round trips, program switches, GL calls, and the CPU ms of the render and of the whole Pixi
+    tick (`glCounters.ts`; every count exists only under the flag). `?perfgpu=1` also waits for the
+    GPU after each frame (a 1-pixel `readPixels`) and reports that wait: it stalls the pipeline, so
+    read its GPU number alone, never its fps. `window.__IE_PERF__()` returns the Copy JSON.
+  - **Test switches**, each changing one thing: `?backbuffer=0|1`, `?aa=0|1` (MSAA),
+    `?opaque=0|1`, `?fx=0` (Element FX filter passes off, their motion kept), `?lazyresolve=0`
+    (Pixi's per-filter resolves back), `?invalidate=0` (the depth/stencil stored again), with the
+    existing `?render=reduced|full`, `?quality=high|low` and `?particles=0.25..1`.
+    `?render=reduced&aa=1` changes only the resolution (1.5). How to use them on a phone: Open
+    items, "iPhone frame time".
 
 ## Open items / next
+
+- **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
+  below). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on `overlay-buffaloduel` while the
+  S24 Ultra drew 5× the pixels at 60. Headless Chromium shows no pathological GL work at base-game
+  idle (43 draws, one scene pass, its resolve and copy, no uploads, no round trips, ~2.75× screen
+  coverage), so what costs on the iPhone has to be read there.
+  Procedure, Low Power Mode off, the game opened on its own (not inside the launcher), each URL with
+  `&perf=1`: wait ~20 s idle, tap the readout open, Reset, wait 20 s, then spin ~10 times, Copy.
+  1. As it is. The `tick ms (CPU)` row says whether the CPU is the limit: if it is far below the
+     frame interval, the frame waits on the GPU or the compositor.
+  2. `&perfgpu=1` (read only its `GPU wait ms`): a wait near the interval is GPU-bound.
+  3. One switch at a time: `&backbuffer=0`, `&aa=0`, `&opaque=0`, `&fx=0`, `&lazyresolve=0`,
+     `&invalidate=0`,
+     `&render=reduced&aa=1` (fewer pixels only), `&quality=high` (uncompressed textures instead of
+     ASTC), `&particles=0.25`. The one that moves fps is the cost; the GPU rows show what changed.
+  4. Check the textures line reads `astc-4x4-unorm` for the KTX2 pages. If `backbuffer=0` is the
+     big one, the owner decides whether its edge pixels are acceptable (Recent changes); if fewer
+     pixels is, the cost is fill or bandwidth (overdraw, MSAA); if none moves it, look at the page
+     compositor.
 
 - **A game build's own `assets/` are re-downloaded on every visit** (from the 2026-11-03 shell +
   bundle change, below). The code is now a ~4 KB `no-store` shell over immutable `_app/immutable/`
@@ -401,6 +454,123 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   real `createPlayBook` with no flow, a v1 flow and a v2 flow and requires the same seam calls in
   the same order (11 of its 17 checks fail on the old two-loop body). `verify-win-explode-pop.mjs`
   and the launcher's `check:clear-reel` were updated to the single loop.
+
+- 2026-11-09 — **iPhone rendering costs: one back-buffer resolve a frame, an opaque canvas, a GPU
+  readout under `?perf=1`, and render test switches** (branch `claude/nice-albattani-a03tcm`,
+  restarted from `main` after #1557; owner-approved task: make the shared runtime fast on iPhones
+  without lowering quality, the reduced render tier rejected).
+  - **Why, real device** (`?perf=1`, build `f65001e`, `overlay-buffaloduel`): iPhone 13 Pro (A15,
+    Safari, DPR 3, tier `full`, resolution 2, canvas 780×1398) idle 23.6 fps (p50 42 ms, 1314 of 1344
+    frames over 33 ms), spinning 14.1 fps (p95 165 ms, 52 frames over 100 ms), reel step error p95
+    0; the S24 Ultra drew 1960×3540 at 59.5 fps. Not reel motion: GPU, compositor or something else
+    outside the reels, even at idle.
+  - **Measured here** (`overlay-buffaloduel`'s live snapshot booted through the harness's own
+    servers in headless Chromium at 390×699, DPR 3, the iPhone's UA, so the KTX2/ASTC path; GL
+    counted per frame from outside the page on `main`, and with the new readout on the branch):
+    - **Base-game idle** is light: 43 draws, ~4,450 vertices, one multisampled scene pass, its
+      resolve and the full-screen copy onto the canvas, 0 texture or buffer uploads, 0 filter
+      passes, 0 GL round trips; the drawn leaves cover ~2.75× the screen (bounds), mostly one
+      full-screen 1920×1088 ASTC background and two 2048² ASTC layers; textures: 24 ASTC 4×4 pages
+      (57 MB) and 39 uncompressed BGRA8 sheets (65 MB). Nothing in that stream explains 42 ms on an
+      A15, so what costs there has to be read on the phone (Open items).
+    - **Spinning, as on `main`** (the branch with `?lazyresolve=0&opaque=0`, which is `main`'s GPU
+      work, read by the new readout; mean / max a frame): 31 draws, 4.5 / 16 render passes, 9.2 /
+      32 target switches, **2.3 / 8 full-screen MSAA resolves**, 1.3 / 7 filter passes. `main`
+      itself, counted from outside over other spins: 1.6 / 6 resolves.
+  - **Finding 1, fixed (byte-identical):** Pixi resolves the whole multisampled back buffer after
+    EVERY filter draw (`FilterSystem._setupBindGroupsAndRender` ends in
+    `renderTarget.finishRenderPass()`, a `blitFramebuffer` of the full 780×1398 target), traced
+    frame by frame: one resolve per Element FX pass plus the present's. Only the present and a
+    backdrop copy read the resolved texture, and both resolve again first, so the others are thrown
+    away; on a tiled GPU each also stores and reloads four samples a pixel around the blit.
+    `backBufferPasses.ts` skips the back buffer's resolve inside a filter draw (any other
+    multisampled target still resolves). Spinning: resolves 2.3 → 1 a frame (max 8 → 1), target
+    switches 9.2 → 6.7 (max 32 → 18). `?lazyresolve=0` restores Pixi's.
+  - **Finding 1b, fixed (byte-identical):** once a mask (the reel window) has used the stencil, the
+    back buffer carries a 4× depth/stencil renderbuffer (780×1398×4 samples×4 bytes, ~17 MB) that
+    the pass ending at the present stores, every frame, idle included, though the next frame clears
+    it (`CLEAR.ALL`; Pixi never narrows `stencilMask`) before anything reads it. It is now
+    invalidated (`invalidateFramebuffer`) at the present, before the resolve ends the pass, so a
+    tiled GPU's driver may store nothing; mid-frame passes keep it (later masks need it). Measured:
+    1 invalidation a frame, idle and spinning; `?invalidate=0` restores the store. What it saves
+    on Apple's driver is not measurable here (Chromium's software GL gains nothing from it).
+    Guards: `packages/pixi-svelte/fixtures/backBufferPasses.fixture.ts` (both halves on a
+    stand-in renderer: only the back buffer, the invalidation only at the present, each switch only
+    its half) and `scripts/pixi-back-buffer.fixture.mjs` (the installed pixi.js still has every hook
+    point and the frame-start `CLEAR.ALL`, and narrows no stencil mask, so an upgrade cannot
+    silently undo either half or make the invalidation unsafe).
+  - **Finding 2, fixed (byte-identical):** the canvas was transparent (`backgroundAlpha: 0`) over a
+    black page, so the page compositor blended the whole layer every frame. It is now opaque,
+    cleared to the page's colour, when the content has no backdrop blend (whose filter reads the
+    backdrop's alpha) and the page behind is provably one solid colour: the canvas's ancestors'
+    backgrounds (no image, no translucent colour), and `elementsFromPoint` at nine points finding
+    only its ancestors under it (an embed over a partner's page stays transparent). Context
+    `alpha: false` verified; what it saves on iOS is not measurable here. `?opaque=0` restores it.
+  - **Finding 3, measured, NOT shipped (owner decision):** the back buffer exists only for the
+    backdrop-reading blends (`overlay`, `lighten`); of the live games only `test6` authors one.
+    Without it the frame skips its resolve and full-screen copy (base-game idle: passes 2 → 1,
+    target switches 4 → 0, resolves 1 → 0; spinning: passes 4.5 → 3.4, target switches 6.7 → 2.5,
+    no resolve of ours). But the canvas's own MSAA rasterises in the other vertical orientation
+    from the back buffer, so the 4× sample pattern falls differently on every antialiased edge, the
+    internal edges of rig meshes included. `overlay-buffaloduel`, main vs a build that leaves the
+    back buffer out by default, harness captures at 1280×720 — `idle`,
+    `loaded`, `spin` byte-identical; `settled` 57,607 px differ (6.25%: 57,156 by 1–2 levels, 214 by
+    3–8, 220 by 9–32, 17 above 32, max 61), `line-win` 61,225 px (6.6%: 60,019 by 1–2, max 61); the
+    larger ones are single-pixel rows along horizontal edges and a few particle specks. Kept behind
+    `?backbuffer=0`; `AUTO_BACK_BUFFER` in `renderOptions.ts` turns it on for every game whose
+    content is known clean once approved.
+  - **Not changed, with reasons:** Element FX filters are attached only while an effect plays (the
+    runtime removes them when it ends) and Pixi never draws an invisible node, so idle and finished
+    effects already cost nothing; there are 0 filter passes at idle here and ~1.3 a spin frame.
+    Skipping a pass while the effect is at rest mid-loop, or caching it, would change pixels: the
+    pass draws the node through a non-multisampled texture, so its edges differ from the node drawn
+    straight into the multisampled target. A pass at alpha 0 cannot be skipped either: a pass may
+    draw from a transparent input. An off-screen filtered node still runs its pass (Element FX
+    passes are not clipped to the viewport, by design); none was seen in the measured frames.
+    `elementFx/shaders.ts` declares `highp`: on Apple GPUs `mediump` is fp16 and would change their
+    pixels. Uploads during play: 0 at idle, 0.2 a spin frame. Round trips: 0 a frame.
+  - **Texture format:** the iPhone UA takes the KTX2 path, and `preferAstcForKtx2` transcodes to
+    ASTC 4×4 wherever WebGL offers it (headless Chromium with SwiftShader too: 24 pages
+    `astc-4x4-unorm`). On the device the readout's textures line now shows it.
+  - **Diagnostics** (Current state): the GPU and setup lines, the per-frame GPU rows, `?perfgpu=1`,
+    and the switches. Fixtures: `packages/pixi-svelte/fixtures/renderOptions.fixture.ts` (switches,
+    the content scan incl. a cinematic track's animation `blend`, which is not a render blend, the
+    back-buffer and opaque decisions, the backdrop), `perfStats.fixture.ts` (the work buckets).
+  - **Parity, `main` (`e89334f`) vs this branch, default flags.** Every live game on its R2
+    snapshot through the current-games harness (local, 1280×720, its own scenarios), and every
+    capture compared byte for byte, not only under the harness's pixelmatch threshold (which lets
+    1–2-level differences through):
+    - Byte-identical: `bookofborutremake` 15/15, `borut-pots-sample` 17/17,
+      `commonoverlayproject` 17/17, `holdandwintestsolo` 11/11, `hw-3pots-sample` 12/12,
+      `overlay-buffaloduel` 17/17, `overlay-wallstreet` 17/17, `overlay-wallstreet2` 17/17,
+      `overlay-wishworld` 17/17, `particlespin` 17/17, `test1` 17/17, `test2` 17/17, `test6`
+      14/14 (the one game with a backdrop blend: back buffer and transparent canvas kept, resolve
+      deferred). The last two edits (the backdrop check moved into `renderOptions.ts`, and run only
+      where an opaque canvas can apply) were re-run on `overlay-buffaloduel` and `test6`: 31/31.
+      The depth/stencil invalidation (Finding 1b), added after the full run, on the final code:
+      `overlay-buffaloduel` 17/17, `test1` 17/17, `test6` 14/14, `holdandwintestsolo` 11/11,
+      `bookofborutremake` 15/15.
+    - The same on both sides, nothing to compare: `cloud` (main's runtime refuses its snapshot; its
+      2 boot captures identical), `salmons` (needs a rooms server the harness does not give),
+      `test-card` (the slot screen script stalls at the same step on both sides; 2 captures
+      identical).
+    - Controls: main vs main on `overlay-buffaloduel` 17/17; `scripts/playtest/determinism-proof.mjs`
+      (book base, line win, big win, Hold and Win Classic) main vs branch 20/20, and the branch's own
+      two runs 20/20, on the final code. Web fonts fell back on both sides alike (no Typekit mirror in R2, Adobe not
+      reachable from the container).
+  - **Gates.** `apps/launcher-api/scripts/check-symbol-layers.ts` asserted the source line
+    `useBackBuffer: true`; it now checks that the renderer takes `renderOptions.ts`'s decision and
+    that a node in each advanced mode the editor offers keeps the back buffer, even with it left out
+    by default elsewhere (behaviour, per mode). `pnpm check:all` 638/638 on the final tree, rebased
+    onto #1577 (card games; it touches no file of this change), which also fixed main's own red
+    `collectorRespin.fixture.ts` at `e89334f`. `pnpm lint` clean; `check:svelte` at baseline for
+    `pixi-svelte`, `lines` and every package that imports `pixi-svelte`;
+    `check:vendored-bundles`, `check:agents-knowledge`, `check:undefined-names`, `check:rgs` and
+    `check:engine-game` pass.
+  - **Not verified:** anything on a real iPhone. Headless Chromium cannot reproduce Apple GPU or
+    Safari compositor costs, and no WebKit build exists in this container. What the fixes buy there,
+    and where the idle 42 ms goes, is the owner's next `?perf=1` reading (Open items).
+
 - 2026-11-09 — **The RGS facade: a 2xx without a protocol body is an error, and an unpriced bet is
   refused** (`packages/rgs-translator-eagaming`, branch `rgs-facade-non-json-and-line-fallback`).
   - **Body-less 2xx.** The fetcher parses an answer to `null` when it is not JSON. An empty 200 is

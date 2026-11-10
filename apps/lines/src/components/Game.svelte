@@ -179,6 +179,7 @@
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { gameFxWarmup } from '../game/gpuWarmup';
+	import { declareGameRenderNeeds } from '../game/renderNeeds';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import { createBootScreens, type BootScreens } from '../game/bootScreens';
 	import { createLinesFlowV2, type LinesFlowV2 } from '../game/flowV2Runtime.svelte';
@@ -823,6 +824,9 @@
 	// Compile every Element FX and camera effect the docs can play while the loading screen is up,
 	// not on the frame each first plays (measured: 0.8–2.8 s stalls on a slowed phone-sized page).
 	registerGpuWarmup(gameFxWarmup);
+	// Before `<App>` creates the renderer: whether the content can draw a backdrop-reading blend,
+	// the one thing the back buffer is for.
+	declareGameRenderNeeds();
 	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
