@@ -566,6 +566,19 @@ const first = await playMatch('c3-gate');
 	unregister();
 	resetComponentAlign('card#1');
 	check('9. an instance resets its aligned body on request, once registered', resets === 1);
+	const hits: string[] = [];
+	const leaveOld = registerComponentAlignReset('card#3', () => void hits.push('old'));
+	const leaveNew = registerComponentAlignReset('card#3', () => void hits.push('new'));
+	resetComponentAlign('card#3');
+	leaveNew();
+	resetComponentAlign('card#3');
+	leaveOld();
+	resetComponentAlign('card#3');
+	check(
+		'9. the last mounted placement of an id is reset, and its leaving hands the older one back',
+		hits.join(' ') === 'new old',
+		hits.join(' '),
+	);
 	const runtime = read('apps/lines/src/game/cards.ts');
 	check(
 		"9. a taken attack resets the attacker's dragged body without a respawn",

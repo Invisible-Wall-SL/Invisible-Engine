@@ -55,20 +55,28 @@ export function observeComponentEvents(
 	return () => observers.delete(observer);
 }
 
-const alignResets = new Map<string, () => void>();
+/** Mounted resets per placed node id, oldest first; the last is live (as `registerFlowInstance`). */
+const alignResets = new Map<string, (() => void)[]>();
 
-/** Called by an instance whose def has Align Target listeners: how to put the nodes they moved back
- *  where the def places them. Returns the unregister. */
+/** Called by a top-level placement whose def has Align Target listeners: how to put the nodes they
+ *  moved back where the def places them. Returns the unregister, which removes only THIS reset: a
+ *  later one under the same id stays live, and when the live one leaves an older one is again. */
 export function registerComponentAlignReset(instanceId: string, reset: () => void): () => void {
-	alignResets.set(instanceId, reset);
+	let stack = alignResets.get(instanceId);
+	if (!stack) alignResets.set(instanceId, (stack = []));
+	stack.push(reset);
 	return () => {
-		if (alignResets.get(instanceId) === reset) alignResets.delete(instanceId);
+		const mounted = alignResets.get(instanceId);
+		const at = mounted?.indexOf(reset) ?? -1;
+		if (!mounted || at === -1) return;
+		mounted.splice(at, 1);
+		if (mounted.length === 0) alignResets.delete(instanceId);
 	};
 }
 
-/** Put the nodes an instance's Align Target listeners moved back in place, without a remount. */
+/** Put the nodes a placement's Align Target listeners moved back in place, without a remount. */
 export function resetComponentAlign(instanceId: string): void {
-	alignResets.get(instanceId)?.();
+	alignResets.get(instanceId)?.at(-1)?.();
 }
 
 /** Send a raised event down the press road, as `kind: 'event'`: the resolver matches it against

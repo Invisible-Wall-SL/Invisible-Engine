@@ -845,14 +845,17 @@
 				if (alignSpaces[nodeId] === target) delete alignSpaces[nodeId];
 			},
 		});
-		onDestroy(
-			registerComponentAlignReset(
-				untrack(() => node.id),
-				() => {
-					for (const id of Object.keys(aligned)) delete aligned[id];
-				},
-			),
-		);
+		// Only a top-level placement: a nested one's node id repeats in every outer instance.
+		if (parentNest.depth === 0) {
+			onDestroy(
+				registerComponentAlignReset(
+					untrack(() => node.id),
+					() => {
+						for (const id of Object.keys(aligned)) delete aligned[id];
+					},
+				),
+			);
+		}
 	} else if (getComponentAlign()) {
 		setComponentAlign({ targets: () => false, attach: () => () => undefined, detach: () => {} });
 	}
