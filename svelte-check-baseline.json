@@ -151,11 +151,8 @@
 		}
 	},
 	"apps/launcher-api": {
-		"errors": 45,
+		"errors": 44,
 		"byFile": {
-			"apps/launcher-api/src/lib/server/atlasManifestCheck.ts": {
-				"ts:2352": 1
-			},
 			"apps/launcher-api/src/lib/server/editorStorage.ts": {
 				"ts:2322": 1
 			},

@@ -879,7 +879,6 @@ The naming convention of packages is a combination of `<PACKAGE_TYPE>`, hyphen a
   - [state-shared](/packages/state-shared): This local package contains reusable <mark>global</mark> [svelte-$state](https://svelte.dev/docs/svelte/$state).
 - `utils-*`:
   - [utils-book](/packages/utils-book): This local package contains reusable functions/types that are related to book and bookEvent.
-  - [utils-fetcher](/packages/utils-fetcher): This local package contains reusable functions/types based on [fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API).
   - [utils-shared](/packages/utils-shared): This local package contains reusable functions/types, except for [lodash](https://www.npmjs.com/package/lodash) and [lingui](https://www.npmjs.com/package/@lingui/core).
   - [utils-slots](/packages/utils-slots): This local package contains reusable functions/types for slots game, for example creating reel and spinning the board.
   - [utils-sound](/packages/utils-sound): This local package contains reusable functions/types based on npm package [howler](https://www.npmjs.com/package/howler) for music and sound effect.

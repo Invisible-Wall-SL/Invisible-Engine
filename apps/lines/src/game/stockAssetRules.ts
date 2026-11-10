@@ -376,11 +376,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	},
 	{ file: 'apps/lines/src/game/wildRewrite.svelte.ts', rule: 'symbols', names: ['explosion'] },
 	{
-		file: 'packages/components-shared/src/components/LoaderImage.svelte',
-		rule: 'notAsset',
-		names: ['loader'],
-	},
-	{
 		file: 'packages/components-ui-pixi/src/components/LoadingBar.svelte',
 		rule: 'part',
 		names: ['progressBar.png', 'progressBarBackground.png', 'progressBarFrame.png'],

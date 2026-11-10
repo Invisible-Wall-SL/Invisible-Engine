@@ -395,11 +395,6 @@
       "count": 1
     }
   },
-  "packages/pixi-svelte/src/lib/utils.svelte.ts": {
-    "@typescript-eslint/ban-ts-comment": {
-      "count": 3
-    }
-  },
   "packages/rgs-fetcher/src/schema.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
@@ -411,11 +406,6 @@
     }
   },
   "packages/state-shared/src/stateModal.svelte.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "packages/utils-bet/src/types.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
     }
