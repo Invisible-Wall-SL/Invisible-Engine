@@ -6,7 +6,7 @@ import {
 	CONFIRM_DIALOG_DEF,
 	CONFIRM_DIALOG_NODE_ID,
 } from 'engine-layout';
-import { stateBet, stateMeta, stateI18nDerived } from 'state-shared';
+import { isBuyMenuMode, stateBet, stateMeta, stateI18nDerived } from 'state-shared';
 import { getContextEventEmitter } from 'utils-event-emitter';
 import { numberToCurrencyString } from 'utils-shared/amount';
 
@@ -22,7 +22,7 @@ import type { EmitterEventModal } from './types';
  *
  *  1. registers the built-in `featureCard` ComponentDef, so a `repeater(source:'featureCards')`
  *     resolves the card the def draws (panel + icon + title/description/price + button), and
- *  2. registers the `featureCards` source: one `featureCard` per non-default bet mode, fed from
+ *  2. registers the `featureCards` source: one `featureCard` per buy-menu bet mode, fed from
  *     the ACTIVE config (`stateMeta.betModeMeta` × `stateBet.betAmount`). Each card's per-item
  *     values mirror the retired HTML `BonusCards` (title/description are source strings localized
  *     at render; `price` is the live bet × cost multiplier; `iconKey` is the bet-mode icon), and
@@ -56,7 +56,8 @@ export function registerBuyFeature(): void {
 	registerRepeaterSources({
 		featureCards: repeaterSource(() =>
 			Object.values(stateMeta.betModeMeta)
-				.filter((mode) => mode.type !== 'default')
+				// An ante that is the HUD's switch is not a card (`toggle`); every other mode is, as before.
+				.filter(isBuyMenuMode)
 				.map((mode) => ({
 					key: mode.mode,
 					// Per-mode CARD: the config assigns this mode its own card ComponentDef id. Set ⇒ the

@@ -7,6 +7,20 @@ traps. It covers the translator (`packages/rgs-translator-eagaming`), the mock R
 (`services/test-server`, `scripts/mock-rgs-server*.mjs`), money, `seq`/`gid`, resume and delivery
 builds. Slot-type traps live in the family files, e.g. [lines](../families/lines.md).
 
+### A refused ante or buy blanked the reels
+- **Symptom:** with the operator's ante switched off, pressing spin cleared the board to empty
+  reels (and opened the error modal).
+- **Cause:** the roll starts on the press, before the server answers; a refused bet runs the
+  machine's error path, whose `settle()` with no board empties every reel.
+- **Fix:** `actor.ts` keeps the board on screen when the round began; the `onBetRefused` hook ends
+  the roll with the new `enhancedBoard.cancelPreSpin()` (the loop finishes its lap at home; a bare
+  `settle` leaves the loop and `rolling` running, and landing a synthetic `spin` left the board
+  undrawn), then settles that board. The refusal is a toast and the option leaves the menu
+  (`refuseBetMode`). Only a mode marked `refusable`: 110 is also the "malformed bet" code, which
+  must stay an error.
+- **Guard:** none automated — played against `DISABLED_OPTIONS=1,2,3` on the partner-wire mock.
+- **PR:** 14c (2026-11-09) · source: `docs/status/hold-and-win.md`
+
 ### A 200 page instead of the protocol crashed the spin; an unpriced bet went out as 5 lines
 - **Symptom:** a bet answered by an HTTP 200 that was not JSON (an edge's challenge page, a proxy's
   HTML) ended in a `TypeError` inside `translateBetResponse` instead of an error the modal names.
