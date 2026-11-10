@@ -33,6 +33,15 @@
 	import { disposeCameraEffects } from '../cameraEffects';
 	import { disposeScreenTransitions } from '../screenFx/screenTransition';
 	import { renderSettings } from '../renderTier';
+	import { trimBackBufferPasses } from '../backBufferPasses';
+	import {
+		AUTO_OPAQUE,
+		measurePageBackdrop,
+		noteAppliedRenderOptions,
+		renderNeeds,
+		renderSwitches,
+		resolveRenderOptions,
+	} from '../renderOptions';
 	import { bindFrameClock, frameClockTick } from '../frameClock';
 	import { preloadFont } from '../utils.svelte';
 
@@ -44,6 +53,7 @@
 	let wrap: HTMLDivElement;
 	let initialised = $state(false);
 	let releaseFrameClock: (() => void) | undefined;
+	let releaseBackBufferPasses: (() => void) | undefined;
 
 	const initialiseApplication = async () => {
 		PIXI.Assets.reset();
@@ -59,13 +69,29 @@
 
 		await preloadFont();
 		const render = renderSettings();
+		const switches = renderSwitches();
+		const needs = renderNeeds();
+		const canvas = document.createElement('canvas');
+		// Only where an opaque canvas is possible: the check mounts the canvas for a moment.
+		const opaquePossible = switches.opaque ?? (AUTO_OPAQUE && needs.backdropBlend === false);
+		const options = resolveRenderOptions({
+			tierAntialias: render.antialias,
+			switches,
+			needs,
+			backdrop: opaquePossible ? measurePageBackdrop(wrap, canvas) : undefined,
+		});
+		noteAppliedRenderOptions(options);
 		context.stateApp.pixiApplication = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();
 		await context.stateApp.pixiApplication.init({
+			canvas,
 			autoDensity: true,
-			backgroundAlpha: 0,
+			// Opaque only when the page behind is one solid colour, and cleared to it, so the pixels
+			// are the ones the page compositor made of the transparent canvas (`renderOptions.ts`).
+			backgroundAlpha: options.opaque ? 1 : 0,
+			...(options.background ? { background: options.background } : {}),
 			hello: true,
 			multiView: false,
-			antialias: render.antialias,
+			antialias: options.antialias,
 			clearBeforeRender: true,
 			// Force WebGL, do NOT let Pixi pick WebGPU. Mobile WebGPU (Safari iOS 18+,
 			// Chrome on Pixel/Adreno) initialises "successfully" but paints nothing — the
@@ -84,10 +110,10 @@
 			// editor (Canvas2D/CSS blend natively) and did nothing in game. Measured on
 			// pixi 8.8.1, backdrop `808080` under `40c040`: `lighten` gave `40c040` (i.e. normal)
 			// with the back buffer off and the correct `80c080` with it on.
-			// Costs one full-screen texture plus one blit per frame; the blit is a 1:1 copy at
-			// the same resolution and MSAA still applies (the back-buffer texture is created
-			// with `antialias`), so an unblended game renders identically to before.
-			useBackBuffer: true,
+			// Costs a multisampled offscreen target, its resolve and a full-screen copy onto the
+			// canvas every frame. `renderOptions.ts` decides it: on for every game until the owner
+			// approves the edge pixels the canvas's own MSAA changes; `?backbuffer=0` shows that.
+			useBackBuffer: options.useBackBuffer,
 			powerPreference: 'high-performance',
 			// Clamp the backing-store resolution to [1, 2]. Upper cap: on high-DPR phones
 			// (iPhone 16 = 3) an uncapped DPR allocates every framebuffer + render-texture at
@@ -101,6 +127,12 @@
 		});
 
 		wrap.appendChild(context.stateApp.pixiApplication.canvas);
+
+		if (options.useBackBuffer)
+			releaseBackBufferPasses = trimBackBufferPasses(context.stateApp.pixiApplication.renderer, {
+				resolveOncePerFrame: switches.lazyResolve !== false,
+				discardDepthStencil: switches.discardDepthStencil !== false,
+			});
 
 		// Keeps the frame clock's callback ahead of this ticker's, so reel motion sampled at a frame's
 		// timestamp is the motion this ticker draws in that frame (`frameClock.ts`).
@@ -129,6 +161,7 @@
 
 	onDestroy(() => {
 		releaseFrameClock?.();
+		releaseBackBufferPasses?.();
 		if (context.stateApp.pixiApplication) {
 			context.stateApp.pixiApplication.ticker?.remove(frameClockTick);
 			// Before `destroy()`: it kills the ticker first, so a camera effect or a screen transition
