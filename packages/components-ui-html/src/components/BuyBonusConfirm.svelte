@@ -10,7 +10,13 @@
 </script>
 
 <script lang="ts">
-	import { stateBet, stateModal, stateUi, stateI18nDerived, INFINITY_MARK } from 'state-shared';
+	import {
+		stateBetDerived,
+		stateModal,
+		stateUi,
+		stateI18nDerived,
+		INFINITY_MARK,
+	} from 'state-shared';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 	import { ConfirmDialog } from 'engine-layout/svelte';
 
@@ -44,7 +50,7 @@
 	// a `buy` mode broadcasts `bet`; an `activate` mode raises the auto-spin limits to infinity; then
 	// the general press sound + close the modal.
 	const onConfirm = () => {
-		stateBet.activeBetModeKey = stateBonus.selectedBetModeKey;
+		stateBetDerived.armBetMode(stateBonus.selectedBetModeKey);
 
 		const data = stateBonusDerived.selectedBetModeData();
 		if (data.type === 'buy') {
