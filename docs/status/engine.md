@@ -145,14 +145,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 ## Open items / next
 
 - **Render quality thresholds — need real-device readings** (2026-11-10 change, below). The
-  numbers (21 ms slow frame, 10% slow window, two windows to step, the 28 ms cap floor, 20 idle
-  frames to switch) come from the readings we have, not from a device that stepped down. After the
+  numbers (21 ms slow frame, 10% slow window, two windows to step, the 30 fps rhythm test, the
+  20% interval gain, 20 quiet frames to switch) come from the readings we have, not from a device
+  that stepped down. After the
   runtime release, ask the owner for a `?perf=1` Copy (`perf: 3`, its `quality` object) after
   ~20 spins on the iPhone 13 Pro, the Nothing Phone (1) and the Pixel 9 Pro (Chrome, and Brave on
   the Pixel): the level each ends at, each switch's slow share, and the spin fps before and after
   a step. Expected from the 2026-11-10 readings: the Pixel and the S25 stay at the top; the Nothing
-  Phone may step down. The iPhone 13 Pro spun at 14 fps (2026-11-09): with no frame under 28 ms
-  its windows read as a browser cap, so as built it never steps down there.
+  Phone may step down; the iPhone 13 Pro (14 fps spinning on 2026-11-09) should step down, and
+  keep a step only if its mean frame interval falls by 20% or more.
 
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
   below). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on `overlay-buffaloduel` while the
@@ -448,7 +449,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1578; it replaces that branch's
   Brave guard). Every device starts at full quality, the pixel ratio up to 2 with MSAA, as every
   device drew before #1410. `pixi-svelte` `renderQuality.ts` lowers it only on a device that cannot
-  hold 60 fps while a round plays, one level at a time, switched only while the game is idle:
+  hold 60 fps while a round plays, one level at a time, switched only while no reel rolls:
   resolution 2, 1.75, 1.5, then 1.5 without MSAA; never below 1, and a level the pixel ratio makes
   equal to the one above is dropped (a pixel ratio of 1.5 has two levels). A level is applied by
   setting `renderer.resolution` (the backing store changes, the CSS size does not) and by dropping
@@ -464,9 +465,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     boot's `rendering` state, not idle), the page is visible, and 30 frames have passed since it
     was shown or the level changed; intervals over 250 ms are skipped. 120 counted frames make a
     window. A frame over 21 ms is slow (1.25× a 60 Hz frame, so a 120 Hz phone at 60 is fine); a
-    window more than 10% slow is slow; a window with no frame under 28 ms is a 30 fps cap (iOS Low
-    Power Mode) and is ignored. Two slow windows step down at the next idle stretch of 20 frames.
-    After two windows the step is kept if the slow share halved or fell under 10%; otherwise it is
+    window more than 10% slow is slow. A window at a 30 fps rhythm (p10 ≥ 30 ms and p50 ≤ 36 ms,
+    as `perfStats.ts` `capped30` reads it) is a browser cap (iOS Low Power Mode) and is ignored; a
+    slower device (14 fps) or a jittery one (25–45 ms) is judged. A device steady at ~30 fps on a
+    60 Hz display reads the same as the cap and is not judged either. Two slow windows step down at
+    the next 20 quiet frames: idle in manual play; in autoplay (`autoBet`, one long state that is
+    never idle) the frames of a round with no reel rolling (`Game.svelte`). After two windows the
+    step is kept if the slow share halved or fell under 10%, or the mean frame interval fell by
+    20% or more (14 → 30 fps keeps a step though every frame is still slow); otherwise it is
     reverted and stepping down stops for the session. Thirty windows under 1% slow try one level
     up; slow within two windows, it steps back and that level is not tried again. At most 6
     switches, and a step that starts a trial is taken only while its revert still fits.
@@ -481,15 +487,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     budget's 0.5 ceiling is now `?render=reduced` only. The art tier reads the full cap (2).
   - **Reading it:** the `?perf=1` Copy is `perf: 3`; `tier` is now the mode (`adaptive`, `full`,
     `reduced`) and `quality` holds the level (index, resolution, MSAA), the number of levels, each
-    switch (`at` seconds, `from`, `to`, `reason`, `slowShare`) and `downStopped`. The HUD has a
+    switch (`at` seconds, `from`, `to`, `reason`, `slowShare`, `frameMs`) and `downStopped`. The HUD has a
     `quality` line, and its head shows `· quality L<n>` once below the top level.
-  - **Verified here:** `packages/pixi-svelte/fixtures/renderQuality.fixture.ts` (45 checks; each
-    rule mutated in turn fails it), `renderTier.fixture.ts` (21 checks; it does not load on the old
+  - **Verified here:** `packages/pixi-svelte/fixtures/renderQuality.fixture.ts` (50 checks; each
+    rule mutated in turn fails it, the old no-frame-under-28-ms cap rule included), `renderTier.fixture.ts` (21 checks; it does not load on the old
     module), `scripts/pixi-back-buffer.fixture.mjs` (+3 checks: the Pixi 8.22 behaviour the switch
     relies on). The built runtime against the book mock in headless Chromium (SwiftShader, 160×284):
-    at DPR 1.5 it dropped MSAA after two windows 43% slow, the trial read 23% (more than half) and
-    MSAA came back at the next idle stretch, with no step down after; at DPR 3 it stepped 2 → 1.75
-    → 2 the same way. Each switch deleted the old back buffer's GL texture, framebuffers and
+    at DPR 1.5 it dropped MSAA after two windows 39% slow (mean 23.3 ms); the trial read 22% and
+    20.3 ms, neither half the share nor 20% shorter, so MSAA came back at the next idle stretch and
+    it never stepped down again; at DPR 3 it stepped 2 → 1.75 → 2 the same way. Each switch deleted the old back buffer's GL texture, framebuffers and
     renderbuffers; the canvas CSS size, `renderer.screen` and pointer mapping did not change.
     `?render=full`, `?render=reduced` and `?ie_determinism` add no ticker listener.
   - **Not verified:** real devices (Open items).
