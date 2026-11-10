@@ -12,11 +12,9 @@
 	// `registerBoundComponents({ TapToContinue })`). `<ComponentInstance>` mounts this
 	// over an overlay instance whose `tapToContinue` param is on, passing the authored
 	// `tapSignal` AND the per-instance dim/prompt style (`dimColor`/`dimAlpha`/
-	// `hidePrompt`). A tap anywhere (full-screen) or the Space key runs BOTH Flow holder
-	// APIs (owner chose "Both"): `completeActiveScreen()` runs the active screen's exit +
-	// fires its `complete` pin, and `emitFlowSignal(signal)` fires any active-screen
-	// `{kind:'signal'}` edge. Both are SAFE no-ops with no active interpreter / no
-	// listener (the holder helpers return false). An empty signal only completes.
+	// `hidePrompt`). A tap anywhere (full-screen) or the Space key completes the current screen
+	// (`registerFlowComplete` in `Game.svelte`); its `emitSignal` for an authored `tapSignal` is a
+	// no-op there, as no flow listens for one.
 	//
 	// The dim + prompt are a full-screen `CanvasSizeRectangle` behind the hit area +
 	// `PressToContinue` (which owns the `OnPressFullScreen` + Space hotkey + the prompt
@@ -40,10 +38,8 @@
 		// runs only the top one, so without this the loser's intent is simply dropped — and it is the
 		// gate's hold that BLOCKS THE ROUND. A no-op when no hold is armed. See `releaseWinDismissHold`.
 		releaseWinDismissHold();
-		// Route through the GAME-REGISTERED flow-complete hook (`getFlowComplete`), NOT the v1 holder
-		// directly: under a v2 flow it dispatches `complete:<screen>`, and it falls through to the v1
-		// interpreter otherwise. Calling the v1 holder directly is a no-op when v2 is the sole flow
-		// (the v1 interpreter isn't built) — that's why an enabled tap-to-continue stopped advancing.
+		// Route through the GAME-REGISTERED flow-complete hook (`getFlowComplete`): under a v2 flow it
+		// dispatches `complete:<screen>`, otherwise the boot screens swap loading for the base game.
 		const flow = getFlowComplete();
 		void flow?.completeActiveScreen();
 		const signal = props.signal?.trim();
