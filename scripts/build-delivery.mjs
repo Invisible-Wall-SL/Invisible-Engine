@@ -7,6 +7,7 @@
  *     node engine/scripts/build-delivery.mjs --print-env         # env a caller's own build must set
  *     node engine/scripts/build-delivery.mjs --skip-build …      # package a build it already made
  *     node engine/scripts/build-delivery.mjs --allow-missing-assets …  # ship despite missing art
+ *     node engine/scripts/build-delivery.mjs --art-tier half …  # one screen: ship one art tier
  *
  * A refusal that has an override — missing art here, and the bake's flow + paytable gates, which
  * stop the `pnpm build` inside this — is reported as data as well as text: the `--json` result gains
@@ -57,6 +58,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { appSrcDir, isStandaloneGame } from '../packages/config-svelte/appSrc.js';
+import { parseArtTierPin } from '../packages/config-vite/artTierPin.js';
 import { BUILD_INFO_FILE, buildProvenance } from '../packages/config-vite/provenance.js';
 import { deliveryFamilyRefusal } from './delivery-family-gate.mjs';
 import { zipDir } from './zip-dir.mjs';
@@ -141,6 +143,10 @@ const profile = arg('--profile', DEFAULT_PROFILE);
 const outDir = arg('--out', '');
 const wantZip = flag('--zip');
 const jsonOut = arg('--json', '');
+/** `--art-tier full|half`: a delivery for one kind of screen ships one art tier of a project that
+ *  publishes resolution tiers (`config-vite` `artTierPin.js`); validated below, once {@link fail}
+ *  can report it. */
+const artTier = arg('--art-tier', '');
 
 /**
  * Where `pnpm build` put its output.
@@ -165,6 +171,7 @@ const DELIVERY_ENV = {
 	PUBLIC_DELIVERY_EMBED: '1',
 	PUBLIC_RGS_TRANSPORT: 'play4fun',
 	PUBLIC_DELIVERY_PROFILE: profile,
+	...(artTier ? { IE_ART_TIER: artTier } : {}),
 };
 
 /** Package an existing `build/` — the caller ran `pnpm build` with `--print-env`'s variables set.
@@ -250,6 +257,12 @@ if (!isStandaloneGame()) {
 				`engine app with: pnpm --filter <app> build:embed`,
 		),
 	);
+}
+
+try {
+	parseArtTierPin(artTier);
+} catch (error) {
+	fail(error);
 }
 
 const pkgPath = resolve(gameRoot, 'package.json');

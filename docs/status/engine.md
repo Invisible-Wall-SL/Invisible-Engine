@@ -515,6 +515,26 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
       Brave (reduced tier) idle 75.6, spinning 81.3 fps (p50 8.4 ms, p95 16.7, max 25).
     - One resolve and one invalidation a frame on every full-tier device, as #1578 intended.
 
+- 2026-11-10 — **A one-screen build ships one art tier** ([arcade-4k-builds](../design/arcade-4k-builds.md)
+  "One-screen builds"). `IE_ART_TIER=full|half` is compiled in by `config-vite` (`artTierPin.js` →
+  `__IE_ART_TIER__`) and `chooseArtTier` obeys it over the screen rule and `?tier=`; the asset pull
+  leaves the other tier out (see [launcher](launcher.md)); `build-delivery.mjs --art-tier`. Unset
+  changes nothing. Guards: `check-art-tier-pin.mjs`, `artTier.fixture.ts` §7,
+  `art-tier-probe.mjs --pinned-build`.
+- 2026-11-09 — **Flow v1 retired from the runtime: the default boot is a direct loading → basegame
+  switch** (branch `engine-retire-flow-v1`). `apps/lines/src/game/bootScreens.ts` replaces the v1
+  interpreter `createLinesFlow` built over a synthesized `loading → basegame` doc; `engine-game`
+  `PlayBookDeps` loses `getFlowInterpreter` (no v2 ownership ⇒ the coded map), and
+  `packages/engine-flow` is deleted. Same scene mount order, same trigger out of loading (a tap or
+  `completeOnLoaded`), same coded dispatch — proved against the real v1 interpreter before it was
+  deleted. Detail in [flow.md](flow.md) Recent changes (same date). A runtime release on merge.
+
+- 2026-11-09 — **4K builds Phase 5 closed: video and FX need no tier of their own**
+  ([arcade-4k-builds](../design/arcade-4k-builds.md)). Video never ships (a render becomes a sheet
+  and a clip); clips and FX particles take their textures from the sheets' `loadedAssets` keys, so
+  they draw from whichever tier the sheet loaded. `art-tier-probe.mjs` now plays a flipbook clip
+  over a tiered sheet: half and full draw it the same size (whole frame 0.35% apart). Bitmap-font
+  pages and the boot splash stay untiered on purpose.
 - 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
   big-win run-up** (branch `engine-playbook-single-dispatch`). `engine-game` `playBook.ts`
   `playBookEvents` ran a second loop when neither a v1 nor a v2 flow existed (a layout without
@@ -672,6 +692,20 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     bets `[4, 25]`). Both fixes were checked against planted mutants (the old 2xx pass-through
     crashes §11; the old `?? 5` fails §12 four times). Needs a **runtime release** (automatic on merge).
 
+- 2026-11-09 — **Dead helpers and components deleted; `utils-bet` and `utils-fetcher` folded in**
+  (branch `cleanup-dead-code-sweep`). Gone, each with no importer: `UiDoublePress`, `LoaderBase` (+
+  its only child `LoaderImage`), `AmountFadeProvider`, `ResponsiveText`, pixi-svelte `detectWebGL` /
+  `MIN_CLICKABLE_SIZE`, the launcher's `atlasManifestCheck.ts`, and `rgs-translator-eagaming`'s root
+  `.` entry (`engine-facade`, `game-mappings`, `paytable` stay). state-shared's `BaseBet` is now
+  `BetType<object>` in `rgs-requests` (no `any`); `rgs-fetcher` carries its own `fetch` wrapper. The
+  translator imports `API_AMOUNT_MULTIPLIER` / `BOOK_AMOUNT_MULTIPLIER` from `constants-shared/bet`
+  instead of restating them. Kept on purpose: utils-xstate's own `BetType<any>` (with `object`, every
+  reference app's `createIntermediateMachines(primaryMachines)` fails on the actors' contravariant
+  input), and `Authenticate.svelte`'s two `@ts-ignore`s (they hide a real gap: the RGS round has every
+  field optional and `state: unknown[]`, and `/bet/replay/…` is missing from `schema.ts`). Not done:
+  `components-storybook` as a devDependency of `components-shared` (it depends on components-shared,
+  and turbo refuses the cycle); the win-model lists in the mocks (each is the reel-dealable subset,
+  not `WIN_MODEL_TYPES`, and the test-server image cannot load game-config's TS).
 - 2026-11-09 — **Reels draw in the frame they are sampled for, carry through lap ends, and place
   their cells without Svelte** (branch `claude/nice-albattani-a03tcm`, restarted from `main`; the
   recycled-views attempt is shelved on `claude/reel-view-recycling`, not merged). Owner-approved task:

@@ -81,13 +81,11 @@
 	import {
 		LayoutScene,
 		FlowMount,
-		FlowScreenMount,
-		FlowFade,
 		FlowV2Mount,
 		BuyFeatureScreen,
 		ElementFxPlayer,
 	} from 'engine-layout/svelte';
-	import type { FlowEntranceTransition, MountedContainerRef } from 'engine-layout/svelte';
+	import type { MountedContainerRef } from 'engine-layout/svelte';
 	import {
 		registerBoundComponents,
 		registerBoundRestartsInPlace,
@@ -100,7 +98,6 @@
 		registerComponentActions,
 		registerComponentVisibility,
 		registerFlowComplete,
-		registerFlowValueSource,
 		registerFlowPress,
 		registerComponentSignals,
 		registerInlineImageResolver,
@@ -193,14 +190,7 @@
 	import { gameFxWarmup } from '../game/gpuWarmup';
 	import { declareGameRenderNeeds } from '../game/renderNeeds';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
-	import { createLinesFlow, linesValueResolver, type LinesFlow } from '../game/flowRuntime.svelte';
-	import {
-		setFlowInterpreter,
-		completeActiveScreen,
-		emitFlowSignal,
-		hasFlowAction,
-		emitFlowAction,
-	} from '../game/flowInterpreterHolder';
+	import { createBootScreens, type BootScreens } from '../game/bootScreens';
 	import { createLinesFlowV2, type LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 	import type { EnginePotsScreen } from '../game/flowV2PotsScreen';
 	import type { EngineBannerScreen } from '../game/flowV2BannerScreens';
@@ -642,9 +632,8 @@
 		LoadingBar,
 		// Invisible Flow tap-to-continue (§6.2): the coded press surface the engine
 		// mounts over any `overlay` instance whose shared `tapToContinue` param is on.
-		// `OnPressFullScreen` + `OnHotkey "Space"`; on tap calls BOTH Flow holder APIs
-		// (`completeActiveScreen` + `emitFlowSignal(tapSignal)`). Unused until an author
-		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
+		// `OnPressFullScreen` + `OnHotkey "Space"`; a tap completes the current screen through
+		// `registerFlowComplete` (below).
 		TapToContinue,
 		// The Hold and Win components' coded parts (`potMeter`, `respinCounter`, `jackpotTile`,
 		// `totalWinBar`, `lettersStrip`, `letterTile`, `wheel`, `respinCells`, `cellTile`,
@@ -737,8 +726,7 @@
 			// Flow-driven-game §1 — the droppable LOADING BAR. A minimal `overlay` def that
 			// mounts the proven coded `LoadingBar` part and carries `completeOnLoaded: true` (seeded
 			// on drop), so dropping it on the `loading` screen makes the flow's `complete` edge fire
-			// when boot loading finishes — the loading gate becomes authorable in `/flow`. Inert
-			// until a doc references it (parity); the capability is a no-op with no active interpreter.
+			// when boot loading finishes. Inert until a doc references it (parity).
 			[LOADING_BAR_DEF.id]: LOADING_BAR_DEF,
 			// The kind-gated Hold and Win components (respin counter, jackpot bar / tile, total win
 			// bar, pot meter, letters strip, wheel). Inert until a doc places one (parity).
@@ -749,28 +737,18 @@
 		},
 		{ builtin: true },
 	);
-	// Flow-driven-game §1 — wire the engine's feed-triggered `completeOnLoaded` capability
-	// (`<ComponentInstance>` → `getFlowComplete()`) to THIS game's Flow holder, the non-visual
-	// sibling of the `TapToContinue` bound-component mount. A `completeOnLoaded` instance's
-	// `assetsLoaded` rising edge then advances the active Flow screen exactly as a tap does.
-	// SAFE: the holder helpers are no-ops with no active interpreter (no FlowDoc ⇒ pure coded
-	// path), so this is inert on a normal boot — parity.
-	// Phase A — a v2 flow scopes "the current screen finished" to its TOPMOST shown container
-	// (`complete:<top>`, e.g. a `loading` tap swapping loading→game). Try v2 first; it runs ALONE
-	// only when the flow OWNS that screen's complete, else falls through to the v1/coded
-	// `completeActiveScreen` (parity — no v2 doc / un-authored screen ⇒ v2 returns `false`).
+	// "The current screen finished" — a `TapToContinue` tap or a `completeOnLoaded` instance's
+	// `assetsLoaded` rising edge (`<ComponentInstance>` → `getFlowComplete()`). A v2 flow scopes it to
+	// its TOPMOST shown container (`complete:<top>`) and runs ALONE when it owns that screen's
+	// complete; otherwise the default boot swaps loading for the base game (`bootScreens.ts`). No
+	// flow listens for a named tap signal.
 	registerFlowComplete({
 		completeActiveScreen: () =>
 			void dispatchFlowV2Complete().then((owned) => {
-				if (!owned) void completeActiveScreen();
+				if (!owned) bootScreens?.complete();
 			}),
-		emitSignal: (signal: string) => void emitFlowSignal(signal),
+		emitSignal: () => {},
 	});
-	// Flow value dataflow (design doc §11.4) — wire `<ComponentInstance>`'s value-feed lookup through
-	// the interpreter's value-binding overrides. No
-	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
-	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
-	registerFlowValueSource(linesValueResolver);
 	const pressFeedback = (event: {
 		type: 'soundPressGeneral' | 'soundPressBet' | 'soundPressStop';
 	}) => context.eventEmitter.broadcast(event);
@@ -1174,6 +1152,7 @@
 		turboFeature: boolSource(() => stateUi.config.features.turbo),
 		autoplayFeature: boolSource(() => stateUi.config.features.autoplay),
 		buyFeature: boolSource(() => stateMetaDerived.hasFeatureBetModes()),
+		anteFeature: boolSource(() => stateMetaDerived.anteToggleMode() !== undefined),
 		// True when NO full-screen tap-to-continue overlay is up (`continuePressCount === 0`). Bind an
 		// authored ambient/background node (e.g. drifting smoke) to this so it hides during any
 		// tap-to-continue celebration — the authored-scene equivalent of the coded `Background` dust
@@ -1216,9 +1195,7 @@
 	// Screen identity resolves by ROLE (engine-layout `sceneByRole`) — not by matching a magic
 	// scene id — so scene ids stay free-form and renameable (the owner's ask). It reads the scene
 	// `role`, falling back to the legacy scene whose id equals the role name (parity for un-migrated
-	// docs). It needs no FlowDoc, which is why it fixes the CODED boot — no shipped game loads a flow
-	// yet. A flow still "drives" the screen by authoring that same scene id
-	// (`flow.mounter.has(loadingScreenId)` below). Absent role + absent flow ⇒ today's selection.
+	// docs).
 	const basegameScreenId = $derived(basegameSceneId(editorDoc.scenes));
 	// Which screen draws a respin mode's beat is found among these (`respinScreens.svelte.ts`).
 	$effect.pre(() => publishRespinScreens(editorDoc.scenes));
@@ -1324,30 +1301,13 @@
 	// them (editable in the Invisible Editor); absent → coded layout.
 	const hudBarScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudBar'));
 	const hudCornersScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudCorners'));
-	// The HUD scene ids the `<UI>` chrome renders — the flow can model the HUD as its own screen
-	// by authoring one of these ids as a FlowDoc screen, so the loading→HUD `complete` handoff can
-	// reveal it on the tap (mirroring the base-game reel gate). Kept to the ids the engine already
-	// resolves — no magic per-game id.
+	// The HUD scene ids the `<UI>` chrome renders.
 	const HUD_SCENE_IDS = CODED_HUD_SCENE_IDS;
-	// Whether the HUD is FLOW-MANAGED: at least one HUD scene id is an authored FlowDoc screen (the
-	// same source `reservedSceneIds` uses). INERT-FLOW FALL-THROUGH (§7): with no flow, or a flow
-	// that authors no HUD node, this is false ⇒ the `<UI>` renders UNCONDITIONALLY below exactly as
-	// today (byte-identical to `main`). Only a flow that AUTHORS a HUD screen gates the chrome.
-	const isHudFlowManaged = $derived.by(() => {
-		const authored = flow?.mounter.authoredScreenIds();
-		return authored ? HUD_SCENE_IDS.some((id) => authored.has(id)) : false;
-	});
-	// Whether the flow-managed HUD is currently ACTIVE (any of its scene ids is in the active set).
-	// Only consulted when `isHudFlowManaged` is true; during `loading` (HUD not yet activated) the
-	// chrome is HIDDEN, and the loading→HUD `complete` handoff (fan-out) reveals it on the tap.
+	// A HUD scene that is also a boot screen (role-tagged `loading`/`basegame`) is shown only while
+	// it is the active boot screen. Otherwise — every doc in practice — this is false and the
+	// `<UI>` renders unconditionally below.
+	const isHudBootScreen = $derived(HUD_SCENE_IDS.some((id) => bootScreens?.screenIds.has(id)));
 	const isHudActive = $derived(HUD_SCENE_IDS.some((id) => activeScreenIds.includes(id)));
-	// The entrance transition for the flow-managed HUD, if its activating edge carried one (design
-	// doc §6). The HUD is rendered by `<UI>` (not a `<LayoutScene>`, so `<FlowScreenMount>` can't
-	// wrap it), so we drive the HUD `<Container>`'s alpha from a Tween seeded off this — the same
-	// mount-hidden fade, applied to the chrome container. `undefined` ⇒ a hard cut (alpha stays 1).
-	const hudEntrance = $derived(
-		HUD_SCENE_IDS.map((id) => entranceById[id]).find((t) => t !== undefined),
-	);
 
 	// Doc-driven background cover: the node in the `background` scene bound to the coded
 	// `Background` component (id `bg`). When present the editor's cover scale/fit/stretch
@@ -1424,15 +1384,11 @@
 		}),
 	);
 
-	// Invisible Flow — the default loading→basegame interpreter, built once the live editor doc
-	// loads (it resolves screen ids to their scenes). `undefined` when a v2 flow drives screens or
-	// the doc has no loading/basegame scene. It drives book-event dispatch (via
-	// `flowInterpreterHolder`, read by `playBook.ts`); its `events: []` leave every book event on
-	// the coded handlers.
-	let flow = $state<LinesFlow | undefined>(undefined);
-	// Invisible Flow v2 (Phase 4b) — the DEV-gated v2 handle + its z-ordered mounted containers,
-	// mirrored into a rune so `<FlowV2Mount>` re-renders on show/hide. `undefined`/empty on a normal
-	// boot (`__IE_FLOW_V2_DOC__` unset) ⇒ v2 inert, the default flow above is untouched (parity).
+	// The default loading → basegame screens (`bootScreens.ts`), built once the live editor doc
+	// loads. `undefined` when a v2 flow drives screens or the doc has no loading/basegame scene.
+	let bootScreens = $state.raw<BootScreens | undefined>(undefined);
+	// Invisible Flow v2 — the v2 handle's z-ordered mounted containers, mirrored into a rune so
+	// `<FlowV2Mount>` re-renders on show/hide. Empty with no v2 flow (parity).
 	let flowV2ResolveScene = $state<((sceneId: string) => Scene | undefined) | undefined>(undefined);
 	let flowV2Containers = $state<MountedContainerRef[]>([]);
 	// The v2 handle itself, mirrored into a rune so `<FlowV2Messages>` (the §6.3 text-message overlay)
@@ -1464,9 +1420,9 @@
 		};
 	});
 	// Whether a v2 flow drives the game — when true `<FlowV2Mount>` is the SOLE scene renderer, so the
-	// v1 interpreter is NOT built (`flow` is undefined) and the coded AUTHORED-scene mounts below
-	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead
-	// gate on `isFlowDriven` (v1 OR v2) so they still hide during loading and reveal on the game screen.
+	// boot screens are NOT built (`bootScreens` is undefined) and the coded AUTHORED-scene mounts below
+	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates)
+	// instead gate on `isFlowDriven` so they still hide during loading and reveal on the game screen.
 	let flowV2DrivesScreens = $state(false);
 	// The add-on's Pots screen when a driven v2 flow never shows it (`enginePotsScreen`): the game
 	// mounts it with the board, so an authored Pot Meter draws where it was placed. `undefined`
@@ -1503,45 +1459,19 @@
 	// whether a container's MOUNT means "on screen now" or means nothing at all. See the celebration
 	// lock below and `hideContainerIds`. Empty ⇒ no v2 flow (parity).
 	let flowHideTargets = $state<ReadonlySet<string>>(new Set());
-	// The interpreter's CURRENT active SET (the pin-driven active-SET model), mirrored into a
-	// rune so screen add/remove re-mounts. Render-ordered: base first, later-activated overlays on
-	// top. The interpreter's internal active set is a plain array (not a rune), so it is pushed
-	// here via `onActiveScreensChange` (wired in `onMount`) + seeded from `flow.activeScreenIds` at
-	// boot. EMPTY ⇒ inert (no FlowDoc) ⇒ pure coded path.
+	// The screens on now, mirrored into a rune so a screen swap re-mounts: the boot screens' active
+	// set (pushed by `createBootScreens`' callback), else a driving v2 flow's shown containers.
+	// EMPTY ⇒ neither ⇒ pure coded path.
 	let activeScreenIds = $state<readonly string[]>([]);
-	// Invisible Flow entrance transitions (the droppable "Transition" node, design doc §6). When a
-	// flow edge carries a `transition`, the interpreter SURFACES it here per activation (via
-	// `onActiveScreensChange`'s `entrances`); the mount sites below wrap the newly-activated screen
-	// in `<FlowScreenMount>`, which mounts it HIDDEN (alpha 0) and tweens it in — so there is no
-	// full-alpha flash. Keyed by screen id; an entry is set when a screen enters WITH a transition
-	// and cleared when it leaves the active set (so a fade never replays while the screen persists,
-	// and a hard-cut edge never has an entry ⇒ instant mount, parity §7). EMPTY on an inert boot.
-	let entranceById = $state<Record<string, FlowEntranceTransition | undefined>>({});
-	// Apply an active-set change: prune entrances for screens that left, then record the entrance
-	// transition for each freshly-entered screen (undefined for a hard cut). Called from the
-	// interpreter's `onActiveScreensChange` callback (wired in `onMount`).
-	const applyActiveScreens = (
-		screenIds: readonly string[],
-		entrances: readonly { screenId: string; transition?: FlowEntranceTransition }[],
-	): void => {
-		const present = new Set(screenIds);
-		const next: Record<string, FlowEntranceTransition | undefined> = {};
-		for (const [id, t] of Object.entries(entranceById)) if (present.has(id)) next[id] = t;
-		for (const e of entrances) next[e.screenId] = e.transition;
-		entranceById = next;
-		activeScreenIds = screenIds;
-	};
-	// The TOPMOST active screen (the last-activated) — the transient takeover/celebration layer.
-	// `undefined` ⇒ the active set is empty (inert) ⇒ pure coded path.
+	// The TOPMOST active screen — the takeover layer. `undefined` ⇒ the active set is empty.
 	const activeScreenId = $derived(activeScreenIds[activeScreenIds.length - 1]);
-	// Flow-driven (v1 OR v2): the engine-owned bands (reels, HUD chrome) gate on THIS instead of the
-	// v1-only `!flow`, so under v2 they still hide during loading and reveal once the game screen shows.
-	const isFlowDriven = $derived(!!flow || flowV2DrivesScreens);
-	// Whether the base-game screen node is currently active. The reel board + basegame mount gate
-	// on this: during `loading` (basegame not yet active) the reels are HIDDEN; once loading
-	// completes and basegame activates, they appear. INERT-FLOW FALL-THROUGH: with no FlowDoc the
-	// interpreter is undefined and this is `false` — but the board then falls through to its coded
-	// unconditional mount (the `!flow` fall-through below), so a non-flow game is unchanged (§7).
+	// Screen-driven (the boot screens or a driving v2 flow): the engine-owned bands (reels, HUD
+	// chrome) gate on THIS, so they hide during loading and reveal once the game screen shows.
+	const isFlowDriven = $derived(!!bootScreens || flowV2DrivesScreens);
+	// Whether the base-game screen is currently active. The reel board + basegame mount gate on
+	// this: during `loading` the reels are HIDDEN; once loading completes they appear. With neither
+	// path this is `false`, and the board falls through to its unconditional coded mount (the
+	// `!isFlowDriven` gate below).
 	const isBasegameActive = $derived(activeScreenIds.includes(basegameScreenId));
 	// Design doc §14 (win-overlay twin) — the SINGLE decision for which WIN surface mounts, so the
 	// mount site can't drift from the exactly-one-`winUpdate`-subscriber invariant. See
@@ -1549,26 +1479,14 @@
 	const winMount = $derived(
 		resolveWinMount({ flowV2DrivesScreens, flowOwnsSetWin, basegameOverlaysHasCodedWinGate }),
 	);
-	// The base-game screen's resolved scene for the generic mounter. Resolved whenever the
-	// base-game screen is ACTIVE (in the active set) — NOT only when it is the topmost screen —
-	// so an overlay layered ON TOP (a celebration) never drops the base's authored below/above-reel
-	// slices back to the coded fallback. `undefined` ⇒ the interpreter is not driving basegame ⇒
-	// `<FlowMount>` renders the coded fall-through.
-	const basegameMount = $derived.by(() => {
-		if (!isBasegameActive) return undefined;
-		const decision = flow?.mounter.resolve(basegameScreenId);
-		if (decision?.kind === 'authored' && decision.screenId === basegameScreenId) {
-			return decision.scene as Scene;
-		}
-		return undefined;
-	});
-	// Flow-driven Phase 1 (design doc flow-driven-game §1) — the loading splash is a Flow screen,
-	// mounted through the GENERIC active-screen path (below), NOT a coded `<LoadingScreen>`. The
-	// interpreter ALWAYS exists at boot (a synthesized default `loading → basegame` flow when no
-	// doc is authored — see `flowRuntime.svelte.ts`), STARTS on `loading` (its `initial` screen),
-	// and the loading bar's `completeOnLoaded` capability (or a tap) fires the `complete` edge →
-	// `activeScreenId` becomes `basegame`. The coded `<LoadingScreen>` splash + its
-	// `showLoadingScreen` flag are GONE.
+	// The base-game screen's scene while the boot screens show it. `undefined` ⇒ `<FlowMount>`
+	// renders the coded fall-through.
+	const basegameMount = $derived(
+		isBasegameActive ? bootScreens?.scene(basegameScreenId) : undefined,
+	);
+	// The loading splash is a boot screen (`bootScreens.ts`), mounted through the GENERIC
+	// active-screen takeover (below): up at boot, swapped for `basegame` by the loading bar's
+	// `completeOnLoaded` capability or a tap.
 	// The loading screen's id, resolved by ROLE (id-independent): the `role:'loading'` scene, else
 	// the legacy `loading` id (parity). A renamed loading scene is still recognized as the splash,
 	// and reserved below so it doesn't ALSO mount as a generic overlay/extra scene.
@@ -1577,11 +1495,11 @@
 	// with no loading / tap-to-start screen over it. A resumed round plays only from here, so it never
 	// runs (and finishes) behind the splash. No flow ⇒ true once the boot settles, as before. "Over
 	// it" = stacked above the base game, so a loading screen a flow leaves mounted beneath the board
-	// (a non-`complete` v1 edge, a v2 container never hidden) cannot hold a resume forever.
+	// (a v2 container never hidden) cannot hold a resume forever.
 	let bootSettled = $state(false);
 	const isLoadingScreenUp = $derived.by(() => {
-		const v1Loading = activeScreenIds.indexOf(loadingScreenId);
-		if (v1Loading > activeScreenIds.indexOf(basegameScreenId)) return true;
+		const activeLoading = activeScreenIds.indexOf(loadingScreenId);
+		if (activeLoading > activeScreenIds.indexOf(basegameScreenId)) return true;
 		const z = (sceneId: string) => flowV2Containers.find((c) => c.sceneId === sceneId)?.z;
 		const v2Loading = z(loadingScreenId);
 		const v2Base = z(basegameScreenId);
@@ -1606,15 +1524,11 @@
 			{ setTurbo: (on) => stateBetDerived.updateIsTurbo(on, { persistent: true }) },
 		),
 	);
-	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
-	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
-	// (the reel is not a flow screen), so the interpreter must STILL reproduce the coded
-	// below-reel → board → above-reel stacking. We split the AUTHORED scene at its top-level
-	// reelGrid index exactly as the coded path splits `basegameScene` (lines below), feed the
-	// below-reel slice to `<FlowMount>`, and render the above-reel slice after the board —
-	// unconditionally (no `!basegameMount` gate), so an authored basegame stacks identically
-	// to the coded one. No reelGrid in the authored scene ⇒ single pass (the whole scene goes
-	// below-reel, above is undefined), byte-identical to a nested-reelGrid coded boot.
+	// Above-reel z-order (design doc §11.5 follow-up B.1). The boot screens own the basegame
+	// mount, but the board MainContainer is engine-owned, so the mounted scene is split at its
+	// top-level reelGrid index exactly as the coded path splits `basegameScene` (lines below): the
+	// below-reel slice goes to `<FlowMount>`, the above-reel slice renders after the board. No
+	// reelGrid ⇒ single pass (the whole scene goes below-reel, above is undefined).
 	const mountReelGridIndex = $derived(
 		basegameMount ? basegameMount.nodes.findIndex((node) => node.kind === 'reelGrid') : -1,
 	);
@@ -1631,7 +1545,7 @@
 	// A screen timeline playing on the shown base game moves the base game itself: the reel split's
 	// layers remount with its driver, and the board follows its `reelGrid` keys (`<BoardDrive>`).
 	// `<FlowV2Mount>` skips `basegame`, so the drive must be taken here or it reaches nothing. Only
-	// under a flow that drives the screens: there is then no v1 interpreter, so the split's coded
+	// under a flow that drives the screens: there are then no boot screens, so the split's coded
 	// path, which takes the driver, is what draws the base game.
 	const basegameOnStage = $derived(
 		flowV2DrivesScreens && !!flowV2Handle?.onStage(basegameScreenId),
@@ -1675,56 +1589,22 @@
 		});
 	});
 
-	// Phase 4 (flow-driven-game §4) — the GENERIC active-screen TAKEOVER mount. When the
-	// interpreter's active screen is an authored exclusive screen that is NOT `basegame` (the
-	// persistent base, mounted via the reel-split above), it is a TOP-LAYER takeover: the
-	// `loading` splash at boot, and TRANSIENT celebrations (`bigWin`, `freeSpinIntro`, any future
-	// authored id) mid-round. The base game (board) PERSISTS behind it (the reel is engine-owned,
-	// not a flow screen), so a celebration/splash overlays the reels rather than replacing them.
-	// This is a single GENERIC mount, NOT per-id special-casing — the swap to ANY such screen
-	// (loading included) reproduces the right stacking. The scene is `<LayoutScene>`-mounted,
-	// which self-wraps by `scene.space` and honours `scene.visibleSource` (no double-wrap). It
-	// renders ONLY while that screen is the active screen (gated on `activeScreenId` via the
-	// resolve below), so the loading splash unmounts on the `complete` swap to `basegame`.
-	// `undefined` ⇒ nothing extra mounts (the active screen IS `basegame`, or falls through / has
-	// no backing scene). `loading` is STILL reserved (below) so it doesn't ALSO mount as an
-	// overlay/extra scene.
+	// The active-screen TAKEOVER mount: the boot screen on top when it is NOT `basegame` (the
+	// persistent base, mounted via the reel-split above) — the `loading` splash. The board persists
+	// behind it, and it unmounts on the swap to `basegame`. `<LayoutScene>` self-wraps by
+	// `scene.space` and honours `scene.visibleSource`. `loading` is STILL reserved (below) so it
+	// doesn't ALSO mount as an overlay/extra scene.
 	const activeScreenTakeover = $derived.by((): Scene | undefined => {
 		if (activeScreenId === basegameScreenId) return undefined;
 		// The HUD scenes render through the `<UI>` chrome (gated on `isHudActive`), never as a
-		// generic takeover LayoutScene — skip them here so a flow-managed HUD that is the topmost
-		// active screen doesn't ALSO double-mount as a raw takeover layer.
+		// generic takeover LayoutScene.
 		if (HUD_SCENE_IDS.includes(activeScreenId as (typeof HUD_SCENE_IDS)[number])) return undefined;
-		const decision = flow?.mounter.resolve(activeScreenId);
-		return decision?.kind === 'authored' ? (decision.scene as Scene) : undefined;
-	});
-
-	// Phase 3 (flow-driven-game §3) — DRIVE the interpreter's `condition` transitions. A
-	// `condition` edge re-checks its `$engine.*` guard only when the game pings `flow.evaluate()`
-	// (presentation.ts `evaluate`); without this, the `condition` trigger can never fire (the
-	// pre-Phase-3 dead state). This effect reads the SAME live engine values the bounded
-	// `linesEngineReader` (flowRuntime) exposes — so it re-runs (and pings) whenever any of them
-	// changes — and is a SAFE no-op when the interpreter is inert: with no FlowDoc, `flow` is
-	// `undefined` ⇒ `flow?.evaluate()` is a no-op ⇒ byte-identical to `main` (§7). A FlowDoc that
-	// authors no `condition` edge makes `evaluate()` itself a no-op (the HSM finds no matching
-	// edge), so this is parity-safe for the Phase-1/2/4 fixtures too. Kept cheap: it tracks only
-	// the closed reader vocabulary (free-spin counter, game type, the win/balance/bet feeds).
-	$effect(() => {
-		// Touch every value the reader can expose so the effect re-runs on any of their changes.
-		void stateBet.balanceAmount;
-		void stateBet.winBookEventAmount;
-		void stateBetDerived.betCost();
-		void stateGame.gameType;
-		void stateUi.freeSpinCounterTotal;
-		void stateUi.freeSpinCounterCurrent;
-		void stateBet.autoSpinsCounter;
-		void flow?.evaluate();
+		return bootScreens?.scene(activeScreenId);
 	});
 
 	// §20.1 — generic doc-driven scene mounting. Every scene the game ALREADY mounts/handles
-	// by hard-coded id (below), PLUS any FlowDoc-authored screen ids (the interpreter owns
-	// those — `flow.mounter.authoredScreenIds()` — so a Flow-mounted screen isn't also mounted
-	// here). `background`-space scenes aren't listed: `extraMountScenes` excludes them by
+	// by hard-coded id (below), PLUS the boot screens (`bootScreens.screenIds`), so a boot screen
+	// isn't also mounted here. `background`-space scenes aren't listed: `extraMountScenes` excludes them by
 	// space (they're handled by `backgroundScenes`/§25), and the coded `background`-id /
 	// `space:'canvas'` rig anchor IS listed so it never double-mounts.
 	const RESERVED_SCENE_IDS = [
@@ -1795,7 +1675,7 @@
 			// generic overlay mount and paint itself over the game.
 			betMenuSceneId(editorDoc.scenes),
 			autoSpinSceneId(editorDoc.scenes),
-			...(flow?.mounter.authoredScreenIds() ?? []),
+			...(bootScreens?.screenIds ?? []),
 			// Each respin or spins mode's own copy of a reserved screen (`featureIntro-<modeId>`,
 			// `freeSpinIntro-<modeId>`, …): reserved by the screen it copies, or a second mode's tap dim,
 			// jackpot banner or free-spin intro would always be up.
@@ -1980,7 +1860,7 @@
 	// subscription, so a cue fired in that window reached NOBODY and the glow never came back for the
 	// rest of the feature. Tracking it HERE — on the always-mounted `<Game>` — makes it survive that
 	// unmount, and `<BoardFrame>` re-arms off the flag on mount. Un-owned cues fire this identically,
-	// so a coded/v1 game is unchanged.
+	// so a coded game is unchanged.
 	let boardGlowActive = $state(false);
 	context.eventEmitter.subscribeOnMount({
 		boardFrameGlowShow: () => (boardGlowActive = true),
@@ -2003,7 +1883,7 @@
 	});
 
 	// SPIN-BUTTON CELEBRATION LOCK — maintain `stateUi.celebrationLock` so `hasCelebrationOverlay()`
-	// (read by `utils-shared/spinStop`) is correct on every presentation path: coded, flow-v1 and
+	// (read by `utils-shared/spinStop`) is correct on every presentation path: coded and
 	// flow-v2 alike. The RULE — which signals mean "a celebration owns the screen", and why a
 	// container's mount is trustworthy under one authoring model and meaningless under the other —
 	// lives once in `../game/celebrationLock`, where it can be asserted headlessly.
@@ -2115,12 +1995,18 @@
 			? (stateBet.autoSpinsCounter = 0)
 			: (stateModal.modal = { name: 'autoSpin' });
 	});
-	// ButtonBuyBonus coded body (design doc §8.5): an ARMED `activate` mode disarms back to BASE;
-	// otherwise open the buy-bonus select modal. Extracted so the registered `buyBonus` press can
-	// route through the flow gate (a flow that OWNS the `buyBonus` intent drives it) and fall
+	// An ante armed from the buy MENU — the buy-bonus button's "disable" state. An ante that is the
+	// HUD's own switch (`toggle`) is disarmed by that switch, so the buy button still opens the menu.
+	const isMenuAnteArmed = (): boolean => {
+		const mode = stateBetDerived.activeBetMode();
+		return mode?.type === 'activate' && !mode.toggle;
+	};
+	// ButtonBuyBonus coded body (design doc §8.5): an ARMED menu `activate` mode disarms back to
+	// BASE; otherwise open the buy-bonus select modal. Extracted so the registered `buyBonus` press
+	// can route through the flow gate (a flow that OWNS the `buyBonus` intent drives it) and fall
 	// through to this exact behaviour when un-owned — byte-identical to today (parity §8.8).
 	const codedOpenBuyModal = wager('buyBonus', () => {
-		if (stateBetDerived.activeBetMode()?.type === 'activate') {
+		if (isMenuAnteArmed()) {
 			stateBet.activeBetModeKey = 'BASE';
 		} else {
 			stateModal.modal = { name: 'buyBonus' };
@@ -2129,12 +2015,22 @@
 	const doOpenBuyModal = wager('buyBonus', () => {
 		stateModal.modal = { name: 'buyBonus' };
 	});
+	// The HUD ante switch: arm the game's switch ante (a bet mode marked `toggle`), or disarm it back
+	// to BASE. The stake readout follows through `betCost()`, and the bet goes out under the ante's
+	// key, which the facade sends as its option index.
+	const isAnteSwitchOn = (): boolean => {
+		const ante = stateMetaDerived.anteToggleMode();
+		return ante !== undefined && stateBet.activeBetModeKey.toUpperCase() === ante.mode;
+	};
+	const doToggleAnte = wager('ante', () => {
+		const ante = stateMetaDerived.anteToggleMode();
+		if (!ante) return;
+		stateBet.activeBetModeKey = isAnteSwitchOn() ? 'BASE' : ante.mode;
+	});
 
-	// The intent host bridge (design doc §8.5): the game IMPLEMENTS `invokeIntent`, called by
-	// the interpreter for every `action → intent` edge. Maps an intent NAME to its shared coded
-	// body above, so a HUD button whose action pin is wired into a Base-game intent runs the
-	// EXACT coded behaviour. An unknown intent is a safe no-op (parity §8.8). Shared with the
-	// `onMount` interpreter build below so there is ONE dispatch table.
+	// The intent host bridge (design doc §8.5): a v2 intent-command action (startSpin/…) calls it
+	// (`createLinesFlowV2` below). Maps an intent NAME to its shared coded body above, so an
+	// authored intent runs the EXACT coded behaviour. An unknown intent is a safe no-op.
 	const invokeHostIntent = (intent: string): void => {
 		if (intent === 'spin') doSpinBetOrStop();
 		else if (intent === 'increase') doIncreaseBet();
@@ -2151,23 +2047,14 @@
 		else if (intent === 'fullscreen') doToggleFullscreen();
 	};
 
-	// Functional action pin routing (design doc §8.5): if an author wired this button's `pin`
-	// action into a flow intent, route the press THROUGH the flow (which calls `invokeIntent`)
-	// and stop — one path, no double-fire. UNWIRED / inert interpreter ⇒ `hasFlowAction` is
-	// false ⇒ `coded()` runs exactly as today (parity §8.8). Shared by every HUD action's
-	// `onpress` so the flow-routing lives in ONE place, not copied per button.
+	// HUD action routing, shared by every HUD action's `onpress`: a v2 flow that OWNS this button's
+	// intent EVENT (`pin` = `spin`/`menu`/…) drives the press — its `event <pin>` runs presentation
+	// + an invoke-intent action that calls back into `invokeHostIntent`, so the real bet/stop fires
+	// once. Not owned ⇒ the coded body (parity).
 	const routeActionThroughFlow = (pin: string, coded: () => void): void => {
-		// Phase A — a v2 flow that OWNS this button's intent EVENT (`pin` = `spin`/`menu`/…) drives the
-		// press: dispatch the event into v2 (its `event <pin>` runs presentation + an invoke-intent
-		// action that calls back into `invokeHostIntent`, so the real bet/stop fires once). v2 not
-		// owning it ⇒ fall through to v1's action edge, then the coded body (parity).
 		const v2 = getFlowV2();
 		if (v2?.ownsEvent(pin)) {
 			void v2.dispatch(pin, {});
-			return;
-		}
-		if (hasFlowAction(pin)) {
-			emitFlowAction(pin);
 			return;
 		}
 		coded();
@@ -2250,7 +2137,20 @@
 			disabled: boolSource(
 				() => !context.stateXstateDerived.isIdle() || !stateMetaDerived.hasFeatureBetModes(),
 			),
-			active: boolSource(() => stateBetDerived.activeBetMode()?.type === 'activate'),
+			active: boolSource(isMenuAnteArmed),
+		},
+		// The ante switch — on/off for a bet mode marked `toggle`. Disabled while not idle and once the
+		// server has refused the ante; active while it is the stake.
+		ante: {
+			onpress: () => {
+				pressFeedback({ type: 'soundPressGeneral' });
+				doToggleAnte();
+			},
+			disabled: boolSource(
+				() =>
+					!context.stateXstateDerived.isIdle() || stateMetaDerived.anteToggleMode() === undefined,
+			),
+			active: boolSource(isAnteSwitchOn),
 		},
 		// ButtonAutoSpin — open the auto-spin modal, or stop a running auto-spin.
 		// Active while an auto-bet counter is live; disabled per its compound derived.
@@ -2348,12 +2248,9 @@
 	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
 	// Whether the coded `<UI>` is mounted (gate documented at its mount below). Hold-Space continuous
 	// play (`EnableSpaceHold`) lives in the coded `UIDefault`, so when that is absent — an authored
-	// HUD, a v2 flow driving the screens, a flow-managed HUD not yet shown — the game mounts it.
+	// HUD, a v2 flow driving the screens, a HUD boot screen not yet shown — the game mounts it.
 	const codedHudMounted = $derived(
-		mechanic.bets &&
-			(!isHudFlowManaged || isHudActive) &&
-			!suppressCodedHud &&
-			!flowV2DrivesScreens,
+		mechanic.bets && (!isHudBootScreen || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens,
 	);
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
@@ -2390,16 +2287,12 @@
 			else if (doc.settings?.features) setUiFeatures(doc.settings.features);
 			// A round that waits on the player's moves is never chained: no autoplay, no hold-to-spin.
 			if (mechanic.interactiveRound) setUiFeatures({ autoplay: false, spaceHold: false });
-			// Invisible Flow (Phase 4): build the interpreter from the (optional) FlowDoc +
-			// the just-loaded scenes, and publish it for the book-event play path. Returns
-			// `undefined` when no FlowDoc is authored ⇒ the holder stays null ⇒ pure coded
-			// path (parity, §7). `start()` runs the initial screen's enter choreography.
-			// Invisible Flow v2 (Phase 4b) — build the v2 handle FIRST. A v2 flow DRIVES SCREENS only when
-			// it authors the `load` lifecycle (a translated whole-game flow does; a book-events-only flow
-			// like the apps/lines reference does NOT — it just handles book events over the coded/v1
-			// screens). When it DRIVES screens it is the SOLE screen renderer (its containers via
-			// `<FlowV2Mount>`); its shown set becomes `activeScreenIds` (so the engine gates track it) and
-			// the v1 interpreter is NOT built (both mounting every screen is the double-logo/tap bug).
+			// Invisible Flow v2 — build the v2 handle FIRST. A v2 flow DRIVES SCREENS only when it
+			// authors the `load` lifecycle (a book-events-only flow like the apps/lines reference does
+			// NOT — it just handles book events over the boot screens). When it DRIVES screens it is the
+			// SOLE screen renderer (its containers via `<FlowV2Mount>`); its shown set becomes
+			// `activeScreenIds` (so the engine gates track it) and the boot screens are NOT built (both
+			// mounting every screen is the double-logo/tap bug).
 			// A Game destroyed while the scenes loaded builds no flow: a handle built only to be
 			// disposed would still wipe the shared instance stash under another live Game (HMR).
 			if (destroyed) return;
@@ -2407,12 +2300,12 @@
 				doc,
 				(containers) => {
 					flowV2Containers = containers;
-					// When v2 drives screens, its shown set IS the active set. (For a book-events-only flow
-					// this callback never fires with content — it shows no containers — so v1 keeps ownership.)
+					// When v2 drives screens, its shown set IS the active set. (A book-events-only flow
+					// shows no containers, so the boot screens keep ownership.)
 					if (flowV2DrivesScreens) activeScreenIds = containers.map((c) => c.id);
 				},
 				// Phase A intent bridge — an intent-command action (startSpin/…) invokes the SAME coded
-				// body the button press runs (shared with v1's `invokeIntent`).
+				// body the button press runs.
 				(intent) => invokeHostIntent(intent),
 			);
 			disposeFlowV2 = flowV2?.dispose;
@@ -2420,7 +2313,7 @@
 			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
 			setModeTransitionPresenter(flowV2?.presentModeTransition);
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A
-			// book-events-only flow doesn't, so the coded/v1 screen path stays (no regression).
+			// book-events-only flow doesn't, so the boot screens stay (no regression).
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;
 			flowV2EnginePots = flowV2?.enginePots;
 			flowV2EngineBanners = flowV2?.engineBanners ?? [];
@@ -2438,27 +2331,18 @@
 			winAwaitTargets = flowV2?.awaitTargets ?? new Set();
 			flowHideTargets = flowV2?.hideTargets ?? new Set();
 
-			// Invisible Flow v1 — ONLY when v2 does NOT drive screens (else every screen doubles). v1's
-			// screen mounts are all `flow`-gated, so leaving `flow` undefined makes them inert;
+			// The boot screens — ONLY when v2 does NOT drive screens (else every screen doubles). Their
+			// mounts are all `bootScreens`-gated, so leaving it undefined makes them inert;
 			// `<FlowV2Mount>` is then the sole scene renderer.
-			flow = flowV2DrivesScreens
+			bootScreens = flowV2DrivesScreens
 				? undefined
-				: createLinesFlow(
-						doc,
-						(screenIds, entrances) => applyActiveScreens(screenIds, entrances),
-						// Intent host bridge (design doc §8.5): a wired `action → intent` edge invokes the EXACT
-						// coded behaviour of that HUD button (spin/increase/decrease/turbo/menu) via the shared
-						// `invokeHostIntent` dispatch. An unknown intent is a safe no-op (parity §8.8).
-						(_screenId, intent) => invokeHostIntent(intent),
-					);
-			setFlowInterpreter(flow);
-			// Seed the rune from the active flow: v1's initial active set, else v2's shown containers.
-			if (flow) {
-				activeScreenIds = flow.activeScreenIds;
-				void flow.start();
-			} else {
-				activeScreenIds = flowV2Containers.map((c) => c.id);
-			}
+				: createBootScreens(doc, (screenIds) => {
+						activeScreenIds = screenIds;
+					});
+			// Seed the rune: the boot screens' initial set (`loading`), else v2's shown containers.
+			activeScreenIds = bootScreens
+				? bootScreens.activeScreenIds
+				: flowV2Containers.map((c) => c.id);
 			// Phase A boot — kick the flow's entry event so it shows its initial screen (a translated
 			// flow authors `load` → showContainer(initial); the mount `onChange` mirror updates
 			// `flowV2Containers`). Ownership-gated ⇒ inert for the book-event-only reference flow and a
@@ -2554,54 +2438,36 @@
 			 Split at the reelGrid placeholder: below-reel layers, then the board, then
 			 above-reel layers (so editor stacking order around the reel is honored).
 
-			 Invisible Flow (Phase 4/5): `<FlowMount>` is the generic-mounter boundary. When the
-			 interpreter authors `basegame` it mounts the authored scene's BELOW-reel slice (via
-			 <LayoutScene>); otherwise it renders the coded below-reel split — byte-identical to
-			 `main` (§7). The board MainContainer always mounts (the reel is engine-owned, not a
-			 flow screen), and the ABOVE-reel slice renders AFTER it below — so an authored
-			 basegame reproduces the exact below-reel → board → above-reel z-order (§11.5 B.1). -->
+			 `<FlowMount>` mounts the boot screens' `basegame` scene's BELOW-reel slice (via
+			 <LayoutScene>) when they show it; otherwise it renders the coded below-reel split. The
+			 board MainContainer always mounts (the reel is engine-owned), and the ABOVE-reel slice
+			 renders AFTER it below — the below-reel → board → above-reel z-order (§11.5 B.1). -->
 	<!--
-			Base-game visibility gate (the pin-driven active-SET model). The base game — its
-			below-reel layers, the reel board (BoardFrame + Board), and its
-			above-reel layers — renders ONLY while the base-game screen NODE is active
-			(`isBasegameActive`). During `loading` (basegame not yet activated) the reels are
-			HIDDEN behind the loading splash; the `complete` swap to basegame reveals them on the
-			clean background. This fixes the reels being visible behind the loading overlay.
+			Base-game visibility gate. The base game — its below-reel layers, the reel board
+			(BoardFrame + Board), and its above-reel layers — renders ONLY while the base-game screen
+			is active (`isBasegameActive`). During `loading` the reels are HIDDEN behind the loading
+			splash; the swap to basegame reveals them on the clean background.
 
-			INERT-FLOW FALL-THROUGH (parity §7): when NO flow drives the game (`!flow` — no
-			FlowDoc, the interpreter is undefined), the base game renders UNCONDITIONALLY exactly
-			as today, so a non-flow game is byte-identical to current `main`. Only a flow-driven
-			boot (which always exists in apps/lines via the synthesized loading leg) gates on the
-			active set. -->
+			When neither the boot screens nor a v2 flow drive the screens (`!isFlowDriven` — a doc with
+			no loading/basegame scene), the base game renders UNCONDITIONALLY. -->
 	{#if !isFlowDriven || isBasegameActive}
 		<!-- The base game INTERLEAVES with the engine-owned reels via the reelGrid split: the authored
 				 below-reel layers (e.g. the board background) render BEHIND the board, the above-reel layers
-				 in front. This runs under v1 AND v2 — a v2 flow shows the `basegame` CONTAINER, but
+				 in front. This runs under the boot screens AND v2 — a v2 flow shows the `basegame` CONTAINER, but
 				 `<FlowV2Mount>` SKIPS basegame (below), so THIS split is the sole basegame renderer and the
 				 reel z-order is preserved (rendering the whole scene as one block put the background above
 				 the reels). -->
-		{#if basegameMountBelowReel && entranceById[basegameScreenId]}
-			<!-- Flow-authored basegame with an ENTRANCE transition (design doc §6): fade the
-					 below-reel slice in via <FlowScreenMount> (mount-hidden, no flash). The board +
-					 above-reel slice below are engine-owned / render as normal. -->
-			<FlowScreenMount
-				scene={basegameMountBelowReel}
-				transition={entranceById[basegameScreenId]}
-				timeScale={stateBetDerived.timeScale}
-			/>
-		{:else}
-			<FlowMount scene={basegameMountBelowReel}>
-				{#snippet fallback()}
-					<!-- Remounted per play inside its own container, so it keeps its place under the board: a
-					     remount appends to its parent, which would put these layers over the reels. -->
-					<Container>
-						{#key basegameDrive?.key}
-							<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
-						{/key}
-					</Container>
-				{/snippet}
-			</FlowMount>
-		{/if}
+		<FlowMount scene={basegameMountBelowReel}>
+			{#snippet fallback()}
+				<!-- Remounted per play inside its own container, so it keeps its place under the board: a
+				     remount appends to its parent, which would put these layers over the reels. -->
+				<Container>
+					{#key basegameDrive?.key}
+						<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
+					{/key}
+				</Container>
+			{/snippet}
+		</FlowMount>
 
 		<!-- Authored free-spin board glow — the BELOW-reel slot, so it draws behind the reels
 				 exactly where the coded `<BoardFrame>`'s `zIndex:-1` rig does. `game` space ⇒
@@ -2753,15 +2619,9 @@
 	{/if}
 
 	<!--
-			HUD chrome visibility gate (the pin-driven active-SET model, mirroring the base-game
-			reel gate above). When the flow MODELS the HUD as its own screen (`isHudFlowManaged` — a
-			`hudBar`/`hudCorners` id is an authored FlowDoc screen), the `<UI>` chrome renders ONLY
-			while that HUD screen is active (`isHudActive`). During `loading` the HUD is hidden; the
-			loading→HUD `complete` handoff reveals it on the tap, just like the base game.
-
-			INERT-FLOW FALL-THROUGH (parity §7): when there is NO flow, OR the HUD is NOT a flow
-			screen (`!isHudFlowManaged`), the `<UI>` renders UNCONDITIONALLY exactly as today — a
-			flow-less game and a flow that authors no HUD node are byte-identical to current `main`.
+			HUD chrome visibility gate. A HUD scene that is also a boot screen (`isHudBootScreen`)
+			renders ONLY while it is active (`isHudActive`); otherwise the `<UI>` renders
+			unconditionally.
 
 			FULL-REPLACE (§16): when the author authored replacement HUD screen(s) (`suppressCodedHud`),
 			the coded `<UI>` is suppressed entirely and the `authoredHud` scenes below BECOME the HUD.
@@ -2771,7 +2631,7 @@
 			without this guard the whole HUD mounts TWICE (verified live: two centre-anchored copies of
 			every readout on the same pixel, whose independent count-up `Tween`s disagree mid-change and
 			overhang each other by the width difference). Neither existing condition catches it:
-			`isHudFlowManaged` reads the V1 mounter only, and `suppressCodedHud` is keyed on `hud_*`
+			`isHudBootScreen` reads the boot screens only, and `suppressCodedHud` is keyed on `hud_*`
 			scenes, never the canonical `hudBar`. Same guard the `authoredHud` + `extraScenes` blocks
 			below already carry — under a driven v2 flow `<FlowV2Mount>` is the SOLE scene renderer.
 		-->
@@ -2780,26 +2640,17 @@
 				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
 				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
 		<Container zIndex={hudZIndexEffective}>
-			<!-- The HUD is rendered by `<UI>`, not a `<LayoutScene>`, so it can't use
-					 `<FlowScreenMount>`; `<FlowFade>` wraps the chrome the same way (mount-hidden alpha
-					 0→1) when its activating edge carried an entrance transition, else renders it
-					 directly (hard cut — parity). Keyed on `hudEntrance` so a fresh entrance remounts
-					 the fader; `hudEntrance` is undefined when the HUD isn't flow-managed. -->
-			{#key hudEntrance}
-				<FlowFade transition={hudEntrance} timeScale={stateBetDerived.timeScale}>
-					<!-- The corners render through the SAME `HudGameName`/`HudLogo` components the
-							 `hudCorners` scene mounts under a flow-v2-driven game (registered as bound
-							 components below), so the two paths can't drift (§ default-HUD Phase 2). -->
-					<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
-						{#snippet gameName(override)}
-							<HudGameName name="LINES GAME" text={override?.text} style={override?.style} />
-						{/snippet}
-						{#snippet logo(override)}
-							<HudLogo text={override?.text} style={override?.style} />
-						{/snippet}
-					</UI>
-				</FlowFade>
-			{/key}
+			<!-- The corners render through the SAME `HudGameName`/`HudLogo` components the
+					 `hudCorners` scene mounts under a flow-v2-driven game (registered as bound
+					 components below), so the two paths can't drift (§ default-HUD Phase 2). -->
+			<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
+				{#snippet gameName(override)}
+					<HudGameName name="LINES GAME" text={override?.text} style={override?.style} />
+				{/snippet}
+				{#snippet logo(override)}
+					<HudLogo text={override?.text} style={override?.style} />
+				{/snippet}
+			</UI>
 		</Container>
 	{/if}
 	<!-- A coin board's lines selector, beside the bet whichever path renders the HUD; up with the base
@@ -2819,19 +2670,10 @@
 		-->
 	{#each authoredHud as scene (scene.id)}
 		<!--
-				Active-SET gate (the pin-driven active-SET model, mirroring the base-game reel gate +
-				the coded `<UI>` gate above). When the flow MODELS this HUD screen as its own node
-				(`flow.mounter.authoredScreenIds().has(scene.id)`), it renders ONLY while that screen
-				is in the active set (`activeScreenIds.includes(scene.id)`): during `loading` the HUD is
-				hidden, and the `loading→HUD` `complete` handoff reveals it on the tap.
-
-				INERT-FLOW FALL-THROUGH (parity §7): with NO flow, OR a HUD screen the flow does NOT
-				author, this renders UNCONDITIONALLY exactly as today (byte-identical to `main`). Only a
-				flow that authors this exact HUD screen id gates it on the active set.
+				Active-set gate, mirroring the coded `<UI>` gate above: a HUD screen that is also a boot
+				screen renders ONLY while it is active; any other renders unconditionally.
 			-->
-		{#if !flowV2DrivesScreens && (!flow || !flow.mounter
-					.authoredScreenIds()
-					.has(scene.id) || activeScreenIds.includes(scene.id))}
+		{#if !flowV2DrivesScreens && (!bootScreens?.screenIds.has(scene.id) || activeScreenIds.includes(scene.id))}
 			<!-- Suppressed under a v2 flow — `<FlowV2Mount>` renders the hud_* container instead. -->
 			<Container zIndex={sceneLayerZIndex(editorDoc.scenes, scene.id)}>
 				<LayoutScene {scene} />
@@ -2912,7 +2754,7 @@
 			§20.1 — generic doc-driven scene mounting. Mount every AUTHOR-created screen the
 			game doesn't already handle (custom-id scenes from the Scene Editor), as an overlay
 			layer above the base game. `extraMountScenes` returns them in doc order, excluding
-			the reserved ids (everything mounted by hard-coded id above + any FlowDoc-authored
+			the reserved ids (everything mounted by hard-coded id above + the boot
 			screens) and `space:'background'` scenes (handled by `backgroundScenes` above).
 			`<LayoutScene>` self-wraps by `scene.space` and honours `scene.visibleSource`, so an
 			ungated author screen is always-on and a gated one shows only in its phase. Empty for
@@ -2936,33 +2778,15 @@
 		{/each}
 	{/if}
 	<!--
-			Invisible Flow (Phase 4, flow-driven-game §4) — the GENERIC active-screen mount. When the
-			interpreter swaps the active exclusive screen to an authored id that is NOT `basegame`
-			(the boot `loading` splash, a `bigWin`/`freeSpinIntro` celebration, or an author's own
-			screen), it mounts here. Its z is `sceneLayerZIndex` like every other screen — the
-			Screens-list position, or the PINNED band when the author ticked "Always on top" (what a
-			transient celebration/splash wants, and what a v1 doc's splash is backfilled to). This
-			used to be a hard-coded top band for EVERY active screen, which pinned a persistent
-			authored screen (a progress bar) above everything with no way to re-layer it. The base
-			board PERSISTS behind it (the reel is engine-owned, not a flow screen), so a celebration
-			overlays the reels rather than replacing them. `<LayoutScene>` self-wraps by `scene.space` + honours `visibleSource` (no
-			double-wrap); it unmounts on the swap back to `basegame` (gated on `activeScreenId`).
-			`undefined` ⇒ nothing renders: no FlowDoc, a fall-through/unbacked active screen, or the
-			base/loading screens (their own paths) — byte-identical to current `main` (§7).
+			The active-screen TAKEOVER mount (`activeScreenTakeover`): the boot `loading` splash, up
+			until the swap to `basegame`. Its z is `sceneLayerZIndex` like every other screen — the
+			Screens-list position, or the PINNED band when the author ticked "Always on top". The base
+			board PERSISTS behind it. `<LayoutScene>` self-wraps by `scene.space` + honours
+			`visibleSource` (no double-wrap). `undefined` ⇒ nothing renders.
 		-->
 	{#if activeScreenTakeover}
 		<Container zIndex={activeScreenTakeoverZIndex}>
-			{#if activeScreenId && entranceById[activeScreenId]}
-				<!-- The takeover screen (loading splash / a celebration) activated WITH an entrance
-						 transition (design doc §6): fade it in mount-hidden (no flash). -->
-				<FlowScreenMount
-					scene={activeScreenTakeover}
-					transition={entranceById[activeScreenId]}
-					timeScale={stateBetDerived.timeScale}
-				/>
-			{:else}
-				<LayoutScene scene={activeScreenTakeover} />
-			{/if}
+			<LayoutScene scene={activeScreenTakeover} />
 		</Container>
 	{/if}
 	<!--
@@ -3034,8 +2858,7 @@
 		container a v2 flow has SHOWN (via `showContainer`), each `<Container zIndex={z}>` sorting
 		within this root stack by its author-assigned z (so a v2 overlay can sit above/below any
 		coded band). Empty on a normal boot (`__IE_FLOW_V2_DOC__` unset ⇒ v2 inert) ⇒ nothing
-		renders, byte-identical to `main`. Phase 4c gives templates a real vocabulary; Phase 5
-		hard-cuts v1 and this becomes the sole scene mounter.
+		renders, byte-identical to `main`.
 	-->
 	{#if flowV2ResolveScene}
 		<!-- SKIP the `basegame` container: it interleaves with the engine reels via the reelGrid split

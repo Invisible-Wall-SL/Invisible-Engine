@@ -7,7 +7,6 @@ import type { PixiPoint, Sizes } from './types';
 import { rigNaturalBounds } from './rigBounds';
 
 export const REM = 16;
-export const MIN_CLICKABLE_SIZE = 3 * REM; // 44 x 44 is minimum clickable size
 
 export const getPointValues = ({
 	point,
@@ -26,43 +25,6 @@ export const anchorToPivot = ({ anchor, sizes }: { anchor: PixiPoint; sizes: Siz
 	const [anchorX, anchorY] = getPointValues({ point: anchor, defaultValue: 0 });
 	return { x: width * anchorX, y: height * anchorY };
 };
-
-/**
- * Detects if WebGL is enabled.
- * Inspired from http://www.browserleaks.com/webgl#howto-detect-webgl
- *
- * @return { number } -1 for not Supported,
- *										0 for disabled
- *										1 for enabled
- */
-export function detectWebGL() {
-	// Check for the WebGL rendering context
-	if (window && !!window.WebGLRenderingContext) {
-		let canvas = document.createElement('canvas'),
-			names = ['webgl', 'experimental-webgl', 'moz-webgl', 'webkit-3d'],
-			context = false;
-
-		for (const i in names) {
-			try {
-				// @ts-ignore
-				context = canvas.getContext(names[i]);
-				// @ts-ignore
-				if (context && typeof context.getParameter === 'function') {
-					// WebGL is enabled.
-					return 1;
-				}
-			} catch {
-				// probing an unsupported context name just throws; try the next one
-			}
-		}
-
-		// WebGL is supported, but disabled.
-		return 0;
-	}
-
-	// WebGL not supported.
-	return -1;
-}
 
 export const preloadFont = () =>
 	new Promise<void>((resolve) => {
@@ -202,8 +164,8 @@ export function propsSyncEffect<TProps extends object, TTarget>({
 				const key = name as keyof TProps;
 				if (ignore?.includes(key)) continue;
 				if (props[key] !== undefined) {
-					// @ts-ignore
-					targetInstance[key] = props[key];
+					// Each prop names a field of the target; the two generics cannot say so.
+					(targetInstance as Record<keyof TProps, unknown>)[key] = props[key];
 				}
 			}
 		}

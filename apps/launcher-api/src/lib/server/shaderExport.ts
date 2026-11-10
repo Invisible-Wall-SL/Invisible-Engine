@@ -25,9 +25,8 @@ import {
 	isCustomElementFxKind,
 	type CustomElementFx,
 } from 'constants-shared/elementFx';
-import { mapWithConcurrency } from './concurrency';
+import { DeployMirror } from './deployMirror';
 import { SUB } from './projectPaths';
-import { deleteObjects, listAllKeys, putObjectText } from './r2';
 import { compileProjectShaders, type ShaderSkip } from './shaderStorage';
 
 export interface ShaderExportIndex {
@@ -60,12 +59,9 @@ export async function exportShaders(
 			'\t',
 		),
 	});
-	await mapWithConcurrency(files, 8, ({ key, text }) =>
-		putObjectText(key, text, 'application/json'),
-	);
-	const written = new Set(files.map((f) => f.key));
-
-	await deleteObjects((await listAllKeys(prefix)).filter((k) => !written.has(k)));
+	const mirror = new DeployMirror(prefix);
+	await mirror.putAll(files);
+	await mirror.commit();
 	return { shaderEffects: effects, skipped };
 }
 

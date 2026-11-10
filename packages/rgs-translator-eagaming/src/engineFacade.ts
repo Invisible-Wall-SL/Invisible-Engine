@@ -25,6 +25,7 @@
  * is preserved across calls within the same playing session.
  */
 
+import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { publishRgsConnection } from 'constants-shared/rgsConnection';
 import {
 	getDeliveryProfile,
@@ -647,12 +648,6 @@ const clampBoardToGrid = (
 };
 
 // ---------- event-vocabulary adapter ----------
-
-/** The engine's BOOK_AMOUNT_MULTIPLIER (constants-shared/bet.ts). bookEvent amounts
- *  (setTotalWin, finalWin, winInfo wins/totalWin) are NOT absolute money
- *  amounts — they're fixed-point multipliers of the wagered bet. amount=100
- *  means "1× bet", amount=300 means "3× bet". Display = amount/100 × bet. */
-const BOOK_AMOUNT_MULTIPLIER = 100;
 
 /** The resolved win tiers the ENGINE published from the active game config
  *  (`engine-game`'s `gameConfig.ts` → `publishWinLevelsToFacade`, re-exported by

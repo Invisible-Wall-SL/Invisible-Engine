@@ -46,7 +46,7 @@ import { SUB } from './projectPaths';
 import { PAGE_REF_PREFIX, type PageStore } from './pageStore';
 import { exportRigBundle, loadSkeletonIndexWithShared } from './rig';
 import { SYMBOL_RIG_LOAD_SCALE } from '$lib/rigScale';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import { DeployMirror } from './deployMirror';
 import {
 	canonicalizeSymbolsDocForExport,
 	loadSymbolsDoc,
@@ -557,7 +557,7 @@ export async function exportEditorSymbols(
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const symbolsPrefix = `${deployPrefix}${EXPORT_SUBTREE}/`;
 
-	const written = new Set<string>();
+	const mirror = new DeployMirror(symbolsPrefix);
 	const usedStems = new Set<string>();
 
 	const claimStem = (manifestKey: string): string => {
@@ -613,8 +613,7 @@ export async function exportEditorSymbols(
 			const shared = await opts.pageStore.ensure(set.pageKey, pageExt);
 			if (!shared) return;
 			const sheet = toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`);
-			await putObjectText(`${deployPrefix}${jsonRel}`, sheetText(sheet), 'application/json');
-			written.add(`${deployPrefix}${jsonRel}`);
+			await mirror.put(`${deployPrefix}${jsonRel}`, sheetText(sheet));
 			// The twin is a SECOND spritesheet JSON over the same regions, pointing at the `.ktx2`
 			// page with rects rescaled to its dimensions (equal to the source unless the encoder
 			// downscaled it) and `meta.scale` saying so (`sheetOnPage`). The game registers it on
@@ -627,8 +626,7 @@ export async function exportEditorSymbols(
 					shared.ktx2Width,
 					shared.ktx2Height,
 				);
-				await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
-				written.add(`${deployPrefix}${ktx2Json}`);
+				await mirror.put(`${deployPrefix}${ktx2Json}`, sheetText(twin));
 			}
 			const tiered = tierSheets(
 				sheet,
@@ -637,21 +635,14 @@ export async function exportEditorSymbols(
 				(suffix) => `${EXPORT_SUBTREE}/${stem}/${stem}.${version}${suffix}`,
 			);
 			for (const { path, sheet: tierSheet } of tiered.files) {
-				await putObjectText(`${deployPrefix}${path}`, sheetText(tierSheet), 'application/json');
-				written.add(`${deployPrefix}${path}`);
+				await mirror.put(`${deployPrefix}${path}`, sheetText(tierSheet));
 			}
 			tiers = tiered.refs;
 		} else {
 			// Server-side copy the packed page verbatim (no bytes through this process —
 			// keeps peak memory flat); skip if the source page is missing.
-			if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
-			await putObjectText(
-				`${deployPrefix}${jsonRel}`,
-				sheetText(toTexturePackerJson(set, pageFile)),
-				'application/json',
-			);
-			written.add(`${deployPrefix}${jsonRel}`);
-			written.add(`${deployPrefix}${pageRel}`);
+			if (!(await mirror.copy(set.pageKey, `${deployPrefix}${pageRel}`))) return;
+			await mirror.put(`${deployPrefix}${jsonRel}`, sheetText(toTexturePackerJson(set, pageFile)));
 		}
 		const names = set.regions.map((r) => r.name);
 		sheets.push({
@@ -757,7 +748,7 @@ export async function exportEditorSymbols(
 				if (parseRigBundleKey(assetKey)) rigsMissing.push(assetKey);
 				return;
 			}
-			for (const k of result.written) written.add(k);
+			mirror.claim(result.written);
 			rigs.push(result.entry);
 		});
 	});
@@ -812,15 +803,10 @@ export async function exportEditorSymbols(
 		missing,
 		spinesMissing: rigsMissing.sort(),
 	};
-	const indexKey = `${symbolsPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
-	written.add(indexKey);
+	await mirror.put(`${symbolsPrefix}index.json`, JSON.stringify(index, null, '\t'));
 
 	// Prune leftovers from a previous export so deploy/editor-symbols/ mirrors the doc.
-	await phase('prune', async () => {
-		const existing = await listAllKeys(symbolsPrefix);
-		await deleteObjects(existing.filter((k) => !written.has(k)));
-	});
+	await phase('prune', () => mirror.commit());
 
 	// The global highlight override (if any). Its rig bundle was exported in the
 	// loop above (added to `refs.rigKeys`), so it's already in `index.spines` under

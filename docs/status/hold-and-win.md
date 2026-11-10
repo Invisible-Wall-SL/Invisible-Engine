@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b **built** 2026-11-09 (the enhancement dials, hit / miss beams, Expand / Force 5 at entry, the trigger coins carried in; playbook `docs/playtest/getting-hot.md`); 14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a: Fortune Vault Force Five recreation · 14b: "Getting Hot 14b — presentation" | 14d merged · 14a: #1559 · 14b: #1569 (`a3d75304`) |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b **built** 2026-11-09 (the enhancement dials, hit / miss beams, Expand / Force 5 at entry, the trigger coins carried in; playbook `docs/playtest/getting-hot.md`); 14c **built** 2026-11-09 (ante switch, buy cards, refusals, ante filler strips: bet-mode `toggle` / `fillerSymbols` / `refusable`, gate `betModeHud.fixture`); 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a, 14c: Fortune Vault Force Five recreation · 14b: "Getting Hot 14b — presentation" | 14d merged · 14a: #1559 · 14b: #1569 (`a3d75304`) · 14c: #1572 |
 
 ## Current state
 
@@ -1119,6 +1119,50 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-09 — **14c: the ante and the buys in the HUD** (Getting Hot, game 8). All of it is opt-in
+  per bet mode; a game that sets neither new field keeps its HUD, menu and reels exactly as before.
+  - **Reused, not rebuilt:** the menu is still the server-authoritative one (`betModeMeta.ts`: the
+    partner's `betOptionNames` give the list and prices, the authored presentation gives the look,
+    matched by name, then by cost); the buy cards are the `featureCards` repeater with their live
+    price; the confirm step is `BuyBonusConfirm`; the stake readout follows `betCost()`; the facade
+    already sends the option index.
+  - **Ante switch:** Game Config → Bet modes → an `ante` mode's **HUD switch** box
+    (`betModePresentation.<mode>.toggle`). That ante leaves the buy menu and is armed by a HUD
+    button with the new action **`ante`** ("ante on/off"), shown by the new visibility key
+    **`anteFeature`**. It stays on across rounds, disables while a round plays, and the stake
+    readout shows 5×. The buy-bonus button no longer treats a switch ante as its "disable" state.
+    `WAGER_INTENTS` gains `ante`, so a free-play game never offers it.
+  - **Filler strips:** **Filler symbols** on any non-base mode (`fillerSymbols`): while that mode
+    is the stake the reels ROLL the base strips filtered to those symbols (`fillerStrips` in
+    game-config, `spinPaddingReels` in `apps/lines`). The authored base strips are used when they
+    fit the board, so each reel keeps its own (collectors on reel 3 only), even where the server is
+    authoritative. The dealt board is still the server's. The Center Coin buy uses the same field.
+  - **Refusals:** opt-in per mode with **Operator can switch off** (`refusable`). A bet the server
+    refuses with `ERR_110` while the stake is such a mode goes to a new `onBetRefused` hook in
+    `createPrimaryMachines`, before `onNewGameError` and the error modal (the failure is still
+    reported). The game drops that option for the session (`refuseBetMode`, so its card or switch
+    goes), returns to BASE, ends the pre-spin roll (new `enhancedBoard.cancelPreSpin()`: the loop
+    finishes its lap at home), puts back the board that was on screen when the round began, and
+    shows the toast "This
+    option is not available right now." (`UI_TEXT.betOptionUnavailable`, harvested by
+    `/localization`). Nothing is charged and the next round's `seq` is unaffected. A mode not
+    marked `refusable`, and a refused BASE bet, still reach the error modal: errorCode 110 is also
+    the partner's "malformed bet", so every existing game keeps reporting it as an error.
+  - **Played against the 14d mock** (local rig: `apps/lines` on `PUBLIC_RGS_TRANSPORT=play4fun`, a
+    runtime stub serving a 5×3 COIN/COLLECT/BLANK config): ante on → stake $5.00, `bet [1, 10]`, $5
+    debited; Center Coin `[2, 10]`, −$50; the bonus buy `[3, 10]`, −$100; under the ante the reels
+    roll COIN/BLANK on reels 1, 2, 4, 5 and COLLECT/BLANK on reel 3; `DISABLED_OPTIONS=1,2,3` → the
+    toast, the option gone, the board kept, the balance untouched, and the next BASE round clean.
+    The Book of Thermopylae preset (book mock) and the plain lines game (lines mock) boot and spin
+    with their menus unchanged and identical roll strips.
+  - **For 14e:** the Getting Hot config needs bet modes keyed `powerup` (cost 5, kind `ante`,
+    `toggle`, `refusable`, `fillerSymbols` [COIN, COLLECT, BLANK]), `buycentercoin` (50, `buy`,
+    `refusable`, the same filler) and `goldstrike` (100, `buy`, `refusable`); our names go in each mode's **Title**, never the
+    partner's. Its HUD needs a button with action `ante` and visibility `anteFeature`, and an
+    `infoBar` message host (the Hold and Win reference layout has one) for the refusal toast.
+  - Open: after a buy the stake returns to BASE even if the ante was on (the player re-arms it);
+    the first press after a page load is swallowed (pre-existing, every button); on a coin board a
+    refusal puts back only the reel board, not the respin board (Getting Hot is not a coin board).
 - 2026-11-09 — **14b: the presentation of the partner's collector bonus** (Getting Hot, game 8).
   Everything new is keyed off the new events and the feature's `enhancements`, so a game whose
   features draw none looks exactly as before.

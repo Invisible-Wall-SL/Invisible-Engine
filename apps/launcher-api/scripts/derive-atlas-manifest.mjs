@@ -441,7 +441,7 @@ async function loadGameSheet(r2, deployPath, basename) {
 	return { source: `r2:${key}`, json: JSON.parse(text) };
 }
 
-/** Validator (mirror of src/lib/server/atlasManifestCheck.ts) over snake_case regions. */
+/** Validator over snake_case regions. */
 function validate(manifest, frames) {
 	const map = new Map();
 	for (const bucket of [manifest.regions, manifest.rotated_regions]) {
@@ -720,7 +720,7 @@ async function main() {
 	// Validate the manifest we'd write against the authoritative frames.
 	const report = validate(manifest, frames);
 
-	// Deploy-target warning (mirrors atlasManifestCheck.ts): an empty deploy_path
+	// Deploy-target warning: an empty deploy_path
 	// means Deploy dumps the sheet to the deploy/ root and the game can't find it.
 	if (!pickStr(manifest.deploy_path)) {
 		console.warn(

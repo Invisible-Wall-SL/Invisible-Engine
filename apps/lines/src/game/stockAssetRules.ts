@@ -376,14 +376,14 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	},
 	{ file: 'apps/lines/src/game/wildRewrite.svelte.ts', rule: 'symbols', names: ['explosion'] },
 	{
-		file: 'packages/components-shared/src/components/LoaderImage.svelte',
-		rule: 'notAsset',
-		names: ['loader'],
-	},
-	{
 		file: 'packages/components-ui-pixi/src/components/LoadingBar.svelte',
 		rule: 'part',
 		names: ['progressBar.png', 'progressBarBackground.png', 'progressBarFrame.png'],
+	},
+	{
+		file: 'packages/engine-flow-v2/src/emitterVocabulary.ts',
+		rule: 'notAsset',
+		names: ['transition'],
 	},
 	{
 		file: 'packages/engine-flow-v2/src/reference/arcade.ts',
@@ -410,12 +410,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		rule: 'notAsset',
 		names: ['transition'],
 	},
-	{
-		file: 'packages/engine-flow/src/emitterVocabulary.ts',
-		rule: 'notAsset',
-		names: ['transition'],
-	},
-	{ file: 'packages/engine-flow/src/previewExecutor.ts', rule: 'symbols', names: ['H1', 'H2'] },
 	{
 		file: 'packages/engine-game/src/components/Background.svelte',
 		rule: 'mount',

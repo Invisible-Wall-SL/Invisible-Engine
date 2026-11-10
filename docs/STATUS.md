@@ -77,7 +77,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
 - [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js`, the `build-delivery.mjs` handover and the upload to the partner's CDN. Phases 1, 3, 4 and 5 built; Phase 2 (protocol deltas) partly.
-- [arcade-4k-builds](design/arcade-4k-builds.md) — **one 4K master, smaller tiers** (planned 2026-11-09): a game authored on a 3840×2160 canvas, published at full resolution for a cabinet and as lower-resolution tiers for desktop and mobile that lay out identically (Pixi texture resolution). Phases 1 (KTX2 twin sheets keep their logical size), 2 (the editor's Rescale canvas…), 3 (opt-in half-resolution art at publish) and 4 (the game loads the tier its screen needs) built; Phase 5 open.
+- [arcade-4k-builds](design/arcade-4k-builds.md) — **one 4K master, smaller tiers** (planned 2026-11-09): a game authored on a 3840×2160 canvas, published at full resolution for a cabinet and as lower-resolution tiers for desktop and mobile that lay out identically (Pixi texture resolution). Phases 1–4 built (KTX2 twin sheets keep their logical size; the editor's Rescale canvas…; opt-in half-resolution art at publish; the game loads the tier its screen needs); Phase 5 (video, FX) closed — they ride the sheet tiers; a one-screen build ships one tier (`IE_ART_TIER`).
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
@@ -129,8 +129,10 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 4. **4K arcade builds** ([design](design/arcade-4k-builds.md)). Built: KTX2 twin sheets keep
    their logical size (Phase 1); a 3840×2160 canvas, measured end to end, and the editor's
    Rescale canvas… (Phase 2); opt-in half-resolution art written at publish (Phase 3); the game
-   loads the tier its screen needs (Phase 4). Open: video and FX tiers (5), leaving the unused tier
-   out of a pinned build.
+   loads the tier its screen needs (Phase 4); video and FX ride the sheet tiers (Phase 5, closed).
+   A one-screen build ships one tier (`IE_ART_TIER=full|half`). Open: a tier picker in the
+   desktop launcher, a one-click scale reset after art is re-made at 4K, a run on a real cabinet
+   and phone.
 5. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
    no UI yet).
 
@@ -205,10 +207,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
-- **Salmons' art (S0)** — the owner rejected generated clips (2026-11-09): Salmons draws the
-  original game's own art, animated in code and built into the runtime (in review, branch
-  `arcade/salmons-original-art`). No clips to generate and nothing to upload; left: review and merge.
-  ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
 - **Delete the old flat `_runtime/lines/**`** once satisfied the versioned pointer is permanent.
@@ -219,9 +217,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   [playtest/particle-material](playtest/particle-material.md) on a phone or two and send back the
   `?fxdebug=1` readouts; they set the §10 caps of the particle-materials design.
   ([status/shader-graph](status/shader-graph.md))
-- **Give the game server its config credential** — the service is live on
-  `rooms.invisiblewall.org` (2026-10-27); set its config secret and URL (steps 5–7), per [INFRA § Invisible Game Server](INFRA.md#invisible-game-server-p1014--live-2026-10-27).
-  ([status/game-families](status/game-families.md) P10.14)
 
 ## History
 

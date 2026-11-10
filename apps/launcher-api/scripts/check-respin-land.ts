@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { ZodError } from 'zod';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { normalizeSymbolsDoc } from '../src/lib/server/symbolsStorage.ts';
+import { symbolsRouteCarries } from './lib/symbolsRouteBody.ts';
 import {
 	docSignature,
 	respinLandOnStopEnabled,
@@ -93,7 +94,6 @@ check(
 const here = fileURLToPath(new URL('.', import.meta.url));
 const root = `${here}../../../`;
 const bake = readLF(`${here}bake-editor-doc.mjs`);
-const exportEndpoint = readLF(`${here}../src/routes/api/editor/export-symbols/+server.ts`);
 const exporter = readLF(`${here}../src/lib/server/symbolExport.ts`);
 
 console.log('\n3. it reaches BOTH bundle paths');
@@ -104,7 +104,7 @@ check(
 );
 check(
 	'the export ENDPOINT forwards it (the bake reads this response)',
-	(exportEndpoint.match(/\brespinLandOnStop\b/g) ?? []).length >= 2,
+	symbolsRouteCarries('respinLandOnStop'),
 	true,
 );
 check(

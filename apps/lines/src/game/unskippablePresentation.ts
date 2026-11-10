@@ -202,9 +202,9 @@ export const RACED_HOLD_CUES: ReadonlySet<string> = new Set(['freeSpinOutroCount
  * Cues a slam SHORTENS instead of collapsing — the minimum-display set.
  *
  * `boardWithAnimateSymbols` is the ONE cue every path funnels its win-symbol animation through: the
- * coded handler (`animateSymbols` → `awaitPresentation`), the v1 flow (`broadcastAsync`) and the v2
- * flow (`broadcast`) all reach it via {@link awaitCue}, so holding here lights the win symbols on a
- * slammed spin in all three without touching `Board.svelte`. The board subscriber still runs
+ * coded handler (`animateSymbols` → `awaitPresentation`) and the v2 flow (`broadcast`) both reach it
+ * via {@link awaitCue}, so holding here lights the win symbols on a slammed spin on both without
+ * touching `Board.svelte`. The board subscriber still runs
  * DETACHED exactly as it does under the plain race — it sets `win`, awaits its own rig and lands on
  * `postWinStatic` on its own — so nothing here can leave a symbol lit forever.
  */
@@ -261,7 +261,7 @@ const exitUnskippable = (): void => {
  * untouched, so the base game keeps fast-forwarding.
  *
  * The re-arm runs BEFORE the dispatch — not inside a handler leaf — so the whole of the spin's first
- * event, cues included, is presented with a fresh token on every path (coded, v1 flow, v2 flow).
+ * event, cues included, is presented with a fresh token on every path (coded, v2 flow).
  *
  * Opening the unskippable scope ALSO locks the spin button for the whole window
  * ({@link enterUnskippable} → `stateUi.unskippablePresentationActive`), so a slam during the intro's

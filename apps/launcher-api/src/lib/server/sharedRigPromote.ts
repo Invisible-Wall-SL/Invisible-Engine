@@ -18,10 +18,11 @@
  * you APPLY onto art in the Rigger, and nothing can render it. A loadable bundle is what this
  * module copies: skeleton + `.atlas` + every page image.
  */
+import { mapWithConcurrency } from './concurrency';
+import { DEPLOY_WRITE_CONCURRENCY, DeployMirror } from './deployMirror';
 import {
 	ConflictError,
 	copyObject,
-	deleteObjects,
 	getObjectTextWithEtag,
 	listAllKeys,
 	objectExists,
@@ -95,21 +96,20 @@ export async function promoteRigToShared(
 	// Never the `source.json` sidecar: it names the authoring project's sheet, and every read of
 	// a bundle re-derives it from that sheet when it drifts (`ensureBundleAtlasFresh`) — so a
 	// re-pack in that project would rewrite the shared copy, the reference this module refuses.
-	const written = new Set<string>();
-	for (const key of srcKeys) {
-		if (key === `${srcPrefix}/${BUNDLE_SOURCE_SIDECAR}`) continue;
-		const destKey = `${destPrefix}${key.slice(srcPrefix.length)}`;
-		await copyObject(key, destKey);
-		written.add(destKey);
-	}
-
-	// Prune leftovers from an earlier promotion of this same bundle only — never the whole
-	// shared root, which holds other people's bundles.
-	const stale = (await listAllKeys(`${destPrefix}/`)).filter((k) => !written.has(k));
-	if (stale.length > 0) await deleteObjects(stale);
+	// Pruned to leftovers from an earlier promotion of this same bundle only — never the whole
+	// shared root, which holds other people's bundles. Every listed source is kept, copied or not.
+	const mirror = new DeployMirror(`${destPrefix}/`);
+	const copies = srcKeys
+		.filter((key) => key !== `${srcPrefix}/${BUNDLE_SOURCE_SIDECAR}`)
+		.map((key) => ({ key, destKey: `${destPrefix}${key.slice(srcPrefix.length)}` }));
+	await mapWithConcurrency(copies, DEPLOY_WRITE_CONCURRENCY, ({ key, destKey }) =>
+		copyObject(key, destKey),
+	);
+	mirror.claim(copies.map((c) => c.destKey));
+	await mirror.commit();
 
 	await mergeSharedIndex(entry);
-	return { entry, files: written.size, replaced };
+	return { entry, files: mirror.written.size, replaced };
 }
 
 /**

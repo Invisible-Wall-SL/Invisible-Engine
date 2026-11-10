@@ -181,12 +181,16 @@ const ROUTES: Record<string, string> = {
 };
 
 type Outcome = { status: number; message: string } | 'passed-the-gate';
-async function call(handler: (e: never) => unknown, query: string): Promise<Outcome> {
+async function call(
+	handler: (e: never) => unknown,
+	query: string,
+	params: Record<string, string> = {},
+): Promise<Outcome> {
 	const url = new URL(`https://app.example/x?project=arcadeparty${query}`);
 	const event = {
 		request: new Request(url, { method: 'POST', body: '{}' }),
 		url,
-		params: {},
+		params,
 		locals: {},
 		cookies: { get: () => undefined },
 		getClientAddress: () => '127.0.0.1',
@@ -225,6 +229,29 @@ for (const [path, notConfigured] of Object.entries(ROUTES)) {
 		check(`${method} ${path} wrong ?k=`, wrong, WRONG);
 		check(`${method} ${path} the token gets past`, right, 'passed-the-gate');
 	}
+}
+
+// The registry route answers each legacy stub's gate, by asset id.
+const assetRoute = (await import(src('routes/api/editor/export/[asset]/+server.ts'))) as {
+	POST: (e: never) => unknown;
+};
+for (const [path, notConfigured] of Object.entries(ROUTES)) {
+	const asset = /^api\/editor\/export-(\w+)\//.exec(path)?.[1];
+	if (!asset) continue;
+	const params = { asset };
+	console.error = console.warn = () => {};
+	dbToken = undefined;
+	const unset = await call(assetRoute.POST, `&k=${DEPLOY}`, params);
+	dbToken = DEPLOY;
+	const absent = await call(assetRoute.POST, '', params);
+	const wrong = await call(assetRoute.POST, `&k=${DEPLOY.slice(0, -1)}X`, params);
+	const right = await call(assetRoute.POST, `&k=${DEPLOY}`, params);
+	({ error: console.error, warn: console.warn } = quiet);
+	const label = `POST api/editor/export/${asset}`;
+	check(`${label} unset`, unset, { status: 503, message: notConfigured });
+	check(`${label} no ?k=`, absent, WRONG);
+	check(`${label} wrong ?k=`, wrong, WRONG);
+	check(`${label} the token gets past`, right, 'passed-the-gate');
 }
 
 console.log();

@@ -1,7 +1,6 @@
 /**
- * Invisible Flow v2 — the DEDICATED runtime interpreter (schema §10). This is NOT a compiler
- * to the v1 `engine-flow` executor: v2 is richer (dynamic delays fed by `compute`, arithmetic
- * nodes, function inputs/outputs with recursion) than v1's tree, so it is walked directly.
+ * Invisible Flow v2 — the runtime interpreter (schema §10). The graph (dynamic delays fed by
+ * `compute`, arithmetic nodes, function inputs/outputs with recursion) is walked directly.
  *
  * The interpreter is PURE logic over an INJECTED environment (`FlowV2Env`) — it never imports
  * a Svelte-rune module, an emitter, or `setTimeout`; a game (or a headless harness) wires those

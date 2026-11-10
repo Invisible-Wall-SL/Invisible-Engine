@@ -1,4 +1,4 @@
-import type { FlowEffect } from 'engine-flow';
+import type { FlowV2Effect } from 'engine-flow-v2';
 
 /**
  * The actions a family mechanic backs (`MATCH3_VOCAB`'s `boardSwap`, `boardShuffle`, …;
@@ -7,13 +7,13 @@ import type { FlowEffect } from 'engine-flow';
  * (`match3.svelte.ts`, `arcade.ts`). A registry rather than an import so the Flow runtime, which
  * every slot game builds, never loads a family's module.
  */
-let registered: Readonly<Record<string, FlowEffect>> = {};
+let registered: Readonly<Record<string, FlowV2Effect>> = {};
 
-export const registerBoardEffects = (effects: Readonly<Record<string, FlowEffect>>) => {
+export const registerBoardEffects = (effects: Readonly<Record<string, FlowV2Effect>>) => {
 	registered = effects;
 };
 
-export const boardEffect = (name: string): FlowEffect | undefined => registered[name];
+export const boardEffect = (name: string): FlowV2Effect | undefined => registered[name];
 
 let values: ((key: string) => unknown) | undefined;
 

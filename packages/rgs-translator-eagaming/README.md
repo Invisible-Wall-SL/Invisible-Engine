@@ -59,20 +59,11 @@ Body: [{action, context}, …]
 }
 ```
 
-## Installation
+## Entry points
 
-It's a workspace package — already available to any app in the monorepo:
-
-```jsonc
-// apps/<your-app>/package.json
-{
-	"dependencies": {
-		"rgs-translator-eagaming": "workspace:*",
-	},
-}
-```
-
-After editing `package.json`, run `pnpm install` from the repo root.
+The package has no root entry. It exports `engine-facade` (the drop-in for `rgs-requests` an app
+aliases under `PUBLIC_RGS_TRANSPORT=play4fun`), `game-mappings` and `paytable`. The building blocks
+below are the `src/` modules the facade is made of; the examples import them by module.
 
 ## API
 
@@ -81,7 +72,7 @@ After editing `package.json`, run `pnpm install` from the repo root.
 Owns the session's `seq` and `gid` lifecycle. Use one instance per session.
 
 ```ts
-import { createPlay4FunSessionState } from 'rgs-translator-eagaming';
+import { createPlay4FunSessionState } from './src/sessionState';
 
 const session = createPlay4FunSessionState('S27932');
 session.startRound(); // call before each new bet+play (the action array starts empty)
@@ -98,7 +89,8 @@ The fetcher (below) auto-binds gid from responses, so you usually only call `sta
 HTTP transport that builds the URL with `sid`/`seq`/`gid`, posts the body, parses JSON, and auto-binds the returned gid. An unanswered request (network error, no answer in 15 s, 5xx, empty 200) is resent at the same `seq`/`gid` every second for up to 90 s, and `seq` advances only once the server accepts it — see "Resending" in `docs/reference/play4fun-protocol.md`, which also covers the round-opening `bet`.
 
 ```ts
-import { createPlay4FunFetcher, createPlay4FunSessionState } from 'rgs-translator-eagaming';
+import { createPlay4FunFetcher } from './src/eagamingFetcher';
+import { createPlay4FunSessionState } from './src/sessionState';
 
 const session = createPlay4FunSessionState('S27932');
 const fetcher = createPlay4FunFetcher(
@@ -124,7 +116,7 @@ import {
 	buildHeartbeat,
 	buildCollectAction,
 	buildSingleAction,
-} from 'rgs-translator-eagaming';
+} from './src/translator';
 
 buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', lineCount: 5 });
 // → [{action:'bet', context:[5, 2]}, {action:'play', context:''}]
@@ -157,7 +149,7 @@ on the boot block: a session without one is untouched. Fixture: `match3.fixture.
 Reshapes a `Play4FunResponse` into the Invisible Engine `res_play` shape so the existing `utils-book` event pipeline can consume it unchanged.
 
 ```ts
-import { translateBetResponse } from 'rgs-translator-eagaming';
+import { translateBetResponse } from './src/translator';
 
 const translated = translateBetResponse(result.response, 'USD');
 // translated.status     -> { statusCode: 'SUCCESS' }
@@ -171,13 +163,9 @@ The `state` field IS the events array — already in the right shape for Invisib
 ## End-to-end usage
 
 ```ts
-import {
-	createPlay4FunFetcher,
-	createPlay4FunSessionState,
-	buildBetActions,
-	buildCollectAction,
-	translateBetResponse,
-} from 'rgs-translator-eagaming';
+import { createPlay4FunFetcher } from './src/eagamingFetcher';
+import { createPlay4FunSessionState } from './src/sessionState';
+import { buildBetActions, buildCollectAction, translateBetResponse } from './src/translator';
 
 const session = createPlay4FunSessionState(SID_FROM_URL);
 const fetcher = createPlay4FunFetcher({ baseUrl: '', sid: session.sid }, session);

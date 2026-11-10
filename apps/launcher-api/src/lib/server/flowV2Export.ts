@@ -12,7 +12,7 @@
  *   _shared/flow-v2/functions.json            ← the shared library (global; saved by the editor)
  *   <client>/<project>/deploy/flow-v2-library.json ← the exported library (this writes it)
  *
- * The existing transport carries it: `buildRuntimeBundle` calls this via `ensureDeployExports` and
+ * The existing transport carries it: `buildRuntimeBundle` runs this as the `flow` exporter (`exporters.ts`) and
  * embeds the returned doc/library in the bundle as `flowV2` / `flowV2Library`; the game reads them
  * via `bakedFlowV2Doc()` / `bakedFlowV2Library()`. ABSENT (un-authored) ⇒ nothing is embedded ⇒ v2
  * stays inert and the v1/coded path owns the game (parity).

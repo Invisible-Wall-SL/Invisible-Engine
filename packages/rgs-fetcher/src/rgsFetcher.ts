@@ -1,5 +1,11 @@
 import type { paths } from './schema';
-import { fetcher } from 'utils-fetcher';
+
+const fetcher = (options: { method: 'POST' | 'GET'; endpoint: string; variables?: object }) =>
+	fetch(options.endpoint, {
+		method: options.method,
+		headers: { 'Content-Type': 'application/json' },
+		...(options.method === 'GET' ? {} : { body: JSON.stringify(options.variables) }),
+	});
 
 export const rgsFetcher = {
 	post: async function post<
