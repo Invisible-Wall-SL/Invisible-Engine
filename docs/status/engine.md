@@ -134,11 +134,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     GL round trips, program switches, GL calls, and the CPU ms of the render and of the whole Pixi
     tick (`glCounters.ts`; every count exists only under the flag). `?perfgpu=1` also waits for the
     GPU after each frame (a 1-pixel `readPixels`) and reports that wait: it stalls the pipeline, so
-    read its GPU number alone, never its fps. `window.__IE_PERF__()` returns the Copy JSON.
+    read its GPU number alone, never its fps. `window.__IE_PERF__()` returns the Copy JSON. Since
+    2026-11-10 each frame also reports its particles, rigs, shader compiles, upload bytes and JS,
+    and every spike is recorded with a likely cause (`perf: 4`; Recent changes, 2026-11-10).
   - **Test switches**, each changing one thing: `?backbuffer=0|1`, `?aa=0|1` (MSAA),
     `?opaque=0|1`, `?fx=0` (Element FX filter passes off, their motion kept), `?lazyresolve=0`
-    (Pixi's per-filter resolves back), `?invalidate=0` (the depth/stencil stored again), with the
-    existing `?render=reduced|full`, `?quality=high|low` and `?particles=0.25..1`.
+    (Pixi's per-filter resolves back), `?invalidate=0` (the depth/stencil stored again),
+    `?particles=off` (every emitter and baked effect off, 2026-11-10), with the existing
+    `?render=reduced|full`, `?quality=high|low` and `?particles=0.25..1`.
     `?render=reduced&aa=1` changes only the resolution (1.5). How to use them on a phone: Open
     items, "iPhone frame time".
 
@@ -153,20 +156,28 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   its frames get 20% shorter; and the Nothing Phone (1) again, which should now revert to full.
 
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
-  below). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on `overlay-buffaloduel` while the
-  S25 Ultra drew 5× the pixels at 60. Headless Chromium shows no pathological GL work at base-game
-  idle (43 draws, one scene pass, its resolve and copy, no uploads, no round trips, ~2.75× screen
-  coverage), so what costs on the iPhone has to be read there.
+  below; spike records 2026-11-10). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on
+  `overlay-buffaloduel` while the S25 Ultra drew 5× the pixels at 60. Headless Chromium shows no
+  pathological GL work at base-game idle (43 draws, one scene pass, its resolve and copy, no
+  uploads, no round trips, ~2.75× screen coverage), so what costs on the iPhone has to be read
+  there. The Copy must read `perf: 4`: it then carries `spikes` (the last 30 long frames, each with
+  its frame and the one before, and a likely cause) and `spikeCauses` (every spike since Reset, by
+  cause, idle and spinning). Paste the whole Copy; the spikes are what says JS or not.
   Procedure, Low Power Mode off, the game opened on its own (not inside the launcher), each URL with
-  `&perf=1`: wait ~20 s idle, tap the readout open, Reset, wait 20 s, then spin ~10 times, Copy.
-  1. As it is. The `tick ms (CPU)` row says whether the CPU is the limit: if it is far below the
-     frame interval, the frame waits on the GPU or the compositor.
+  `&perf=1`: wait ~20 s idle, tap the readout open, Reset, wait 20 s, then spin ~10 times (and one
+  big win if the game gives one), Copy.
+  1. As it is. The `spikes` line and `spikeCauses` say what the long frames were: mostly
+     `outside the game` (the JS took under 40% of the interval) means the GPU, the compositor or
+     the browser; `particles`, `rigs`, `game code` or `page JS` name the JS. The `tick ms (CPU)` and
+     `frame JS ms` rows say whether the CPU is the limit on ordinary frames.
   2. `&perfgpu=1` (read only its `GPU wait ms`): a wait near the interval is GPU-bound.
-  3. One switch at a time: `&backbuffer=0`, `&aa=0`, `&opaque=0`, `&fx=0`, `&lazyresolve=0`,
+  3. `&particles=off`: the same spins with no particles at all. If the spikes and fps move, the
+     particles cost (their JS shows in `particle ms`; their GPU fill does not, so this is the test).
+  4. One switch at a time: `&backbuffer=0`, `&aa=0`, `&opaque=0`, `&fx=0`, `&lazyresolve=0`,
      `&invalidate=0`,
      `&render=reduced&aa=1` (fewer pixels only), `&quality=high` (uncompressed textures instead of
      ASTC), `&particles=0.25`. The one that moves fps is the cost; the GPU rows show what changed.
-  4. Check the textures line reads `astc-4x4-unorm` for the KTX2 pages. If `backbuffer=0` is the
+  5. Check the textures line reads `astc-4x4-unorm` for the KTX2 pages. If `backbuffer=0` is the
      big one, the owner decides whether its edge pixels are acceptable (Recent changes); if fewer
      pixels is, the cost is fill or bandwidth (overdraw, MSAA); if none moves it, look at the page
      compositor.
@@ -441,6 +452,83 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-10 — **`?perf=1` records every frame-rate spike with what its frames did and a likely
+  cause; `?particles=off` turns every particle off** (branch `claude/nice-albattani-a03tcm`, from
+  `main` at 33dde20).
+  - **Why** (owner): single long frames (50–150 ms) still hit at some moments; particles are the
+    suspect, but the readout only gave aggregates (fps, p95, each counter's max over the session),
+    so nobody could say. iPhones run worse than Androids for reasons not yet known, and iPhone
+    Safari has no long-task or heap API: the record has to come from our own counters, read off
+    the Copy JSON that real phones paste back.
+  - **What each frame now reports** (all only under `?perf=1`; per-frame rows in the readout's
+    table too): particle `emitter.update` ms, live particles, active emitters (emitting or holding
+    particles), emitters started, baked effects playing (`pixi-svelte` `perfProbe.ts`); rig update
+    ms and count, and the ms rebuilding drawn rigs' meshes (`engine-rig` `RigView.probe`, a static
+    hook left unset without the flag); `compiles` (`compileShader` + `linkProgram`) and
+    `uploadBytes` (texture data, from each upload call's data size or source pixels × 4) in
+    `glCounters.ts`; `lateMs` (frame timestamp to tick start), `afterMs` (tick end to the main
+    thread next free: a message posted at the tick's end), `jsMs` (every animation-frame callback
+    with the microtasks it queued, so Svelte's tweens and effects: `requestAnimationFrame` is
+    wrapped while the readout runs); Chrome's JS heap. A frame's work is now handed over as the next
+    tick starts, so what runs after the tick (the rigs' own ticker, Svelte's effects) is its.
+  - **Found while building it:** rig updates were never in `tick ms (CPU)`: every `RigView` runs on
+    Pixi's shared ticker, a separate frame callback. And busy is not JS: headless Chrome (drawing on
+    the CPU) is busy ~140 ms after every tick with ~1 ms of JS, and under `?perfgpu=1` that time
+    moves into the GPU wait, so it is the frame's commit waiting on the GPU. A rule that read the
+    busy time called it page work; the rules read the JS.
+  - **A spike** (`apps/lines/src/game/perfSpikes.ts`, fed by `perfStats.ts`) is a frame whose
+    interval is over max(33 ms, 2.5 display frames): 41.7 ms at 60 Hz, 33 at 120, 83 under the
+    30 fps cap. The display's period is the refresh estimate taken as at least 60 Hz, since a
+    device that cannot keep up makes the estimate read its own slow rate. The last 30 are kept:
+    `at` (s since Reset), `ms`, `spin`, `state` (the game's state machine), `cause`, `why` (the
+    numbers it was read from), `prev` and `cur` (the frame before the interval and the frame
+    itself: `late`, `tick`, `render`, `after`, `js`, `gpuWait`, `particleMs`, `particles`,
+    `emitters`, `starts`, `baked`, `rigMs`, `rigSyncMs`, `rigs`, `compiles`, `uploadKb`, `draws`;
+    ms to 0.1, zero fields left out), and in Chrome `longtask` (long tasks overlapping the
+    interval, ms) and `heapDropMb`. `spikeCauses` counts every spike since Reset by cause, idle and
+    spinning; `spikeOverMs` is the threshold, `spikeApis` says whether long tasks and the heap
+    were readable. The HUD has a `spikes` line (count by cause) and its head names the most common
+    cause. Reset clears them. The Copy is `perf: 4`; with 30 spikes it is ~16 KB.
+  - **Reading one.** The interval runs back to `prev`'s timestamp, so `prev`'s work is what ran
+    inside it (`cur` arrives a frame later). `js` against `ms` says whether our JS made it;
+    `late` + `tick` + `after` − `js` is the main thread busy outside our JS. Forced in the built
+    runtime by burning 60 ms in a live emitter's update:
+    `{"at":9.7,"ms":83.4,"state":"bet","cause":"particles","why":"JS 75% of it, particles 96% of that","prev":{"late":11.1,"tick":61.7,"render":1.2,"after":22.4,"js":62.8,"particleMs":60.3,"particles":2,"emitters":1,"rigMs":0.5,"rigSyncMs":0.4,"rigs":13,"draws":51},"cur":{…},"longtask":72.3}`.
+  - **The cause** (`classifySpike`, in order): `first use` (`prev` or `cur` compiled a shader or
+    uploaded over ~1 MB); then, when `prev`'s JS took ≥ 60% of the interval, its largest part:
+    `particles` or `rigs` (when also ≥ 40% of the JS), `page JS` (more JS outside the Pixi tick,
+    Svelte's effects and tweens, than the tick's own code and render), else `game code` (the
+    reason gives the tick code's and the render's ms); `GC (likely)` (the heap fell > 5 MB);
+    `outside the game` (JS under 40% of the interval: the GPU, the compositor, the browser's layout,
+    paint or commit, another task; the reason gives the main thread's busy time outside the JS when
+    large); else `mixed`. **Limits:** Safari reports no long tasks and no heap, so there
+    `outside the game` cannot be split into GPU, compositor, browser or a collection
+    (`?perfgpu=1` and the switches do that); the heap is precise only in desktop Chrome (a phone's
+    Chrome rounds it and refreshes it rarely, so GC never shows there); a particle's GPU fill is
+    not JS and reads as `outside the game`: `?particles=off` is the test for it. `late` assumes the
+    browser's frame timestamp is the frame's start, which Chrome and the HTML spec give; not
+    checked on Safari.
+  - **`?particles=off`** (`particleBudget.ts` `particlesOff`, set when the game configures the
+    budget, so the tools never see it): no `<ParticleEmitter>` is updated (none spawns or draws, a
+    material layer mounts no mesh) and no `<BakedEffect>` makes its sprites (a bake is its effect's
+    particles, drawn); everything else plays. `?particles=<number>` still clamps to 0.25..1. The
+    HUD head shows `particles off`.
+  - **Zero cost without `?perf=1`:** the readout's chunk never loads, so no counter, listener, wrap
+    or allocation exists; an emitter and a baked effect pay one `perfProbe.on` check a frame and a
+    rig one `RigView.probe` check. `?ie_determinism` renders never pass the flag.
+  - **Verified here:** `perfSpikes.fixture.ts` (38 checks: the threshold at 60 / 120 Hz, the cap and
+    a slow device; every cause; the previous-frame attribution; busy-not-JS read as outside; the
+    30-record cap with every spike counted; Reset; rounding; long tasks and heap; mutating the rules
+    one at a time fails it), `particleBudget.fixture.ts` (13: `off`, the numeric pins, no switch,
+    tools unaffected), `perfStats.fixture.ts`. The built runtime (unminified) in headless Chromium:
+    burning 60 ms in a live emitter's update gave three `particles` records ("JS 75% of it,
+    particles 96% of that"), 60 ms in a live rig's animation update three `rigs` records; the boot
+    shows `first use` (8 compiles, 19.6 MB); ordinary frames read `outside the game` (SwiftShader).
+    With `?particles=off` no particle is on the stage and every particle count is 0; without
+    `?perf=1` `requestAnimationFrame` is the browser's own and particles draw as before.
+    `check:svelte` at baseline (pixi-svelte 14, lines 145).
+  - **Not verified:** any real phone; Safari's frame timestamps for `late`.
 
 - 2026-11-10 — **Render quality keeps a step only if it measurably helped** (branch
   `claude/nice-albattani-a03tcm`, restarted from `main` after #1581). Read on the released build:

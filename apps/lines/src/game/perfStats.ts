@@ -1,13 +1,21 @@
 /**
  * The numbers behind the `?perf=1` frame-time readout (`PerfHud.svelte`): frame intervals split
  * into idle and spinning, hitches, the display's refresh, how far each reel step is from the step
- * its speed and the frame's interval make, and what each frame asked of the GPU (`pixi-svelte`
- * `glCounters.ts`), as a mean and a max per frame. Plain functions over a frame feed, so a fixture
- * can drive them without a canvas (`perfStats.fixture.ts`).
+ * its speed and the frame's interval make, what each frame asked of the GPU and what its particles
+ * and rigs did (`pixi-svelte` `glCounters.ts`), as a mean and a max per frame, and a record of each
+ * spike (`perfSpikes.ts`). Plain functions over a frame feed, so a fixture can drive them without a
+ * canvas (`perfStats.fixture.ts`).
  */
 
 import type { FrameMotionView } from 'pixi-svelte/frameClock';
 import type { FrameWork } from 'pixi-svelte';
+
+import {
+	createSpikeRecorder,
+	displayPeriodMs,
+	spikeThresholdMs,
+	type SpikeSummary,
+} from './perfSpikes';
 
 declare global {
 	/** `?perf=1` only: the readout's Copy report as data, for a script driving the page. */
@@ -21,6 +29,8 @@ const HITCH_MS = [33, 50, 100] as const;
 const REFRESH_HZ = [24, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 /** Two reel segments within this share of each other's speed are one motion (a carried lap). */
 const SAME_RATE = 0.05;
+/** Frames between two reads of the display's refresh for the spike threshold. */
+const THRESHOLD_EVERY = 60;
 
 export type PerfBucketSnapshot = {
 	frames: number;
@@ -43,13 +53,25 @@ export const WORK_KEYS = [
 	'filterGroups',
 	'copies',
 	'textureUploads',
+	'uploadBytes',
+	'compiles',
 	'bufferBytes',
 	'roundTrips',
 	'programs',
 	'calls',
 	'renderMs',
 	'tickMs',
+	'lateMs',
+	'afterMs',
+	'jsMs',
 	'gpuWaitMs',
+	'particleMs',
+	'particles',
+	'emitters',
+	'baked',
+	'rigMs',
+	'rigSyncMs',
+	'rigs',
 ] as const satisfies readonly (keyof FrameWork)[];
 
 export type WorkKey = (typeof WORK_KEYS)[number];
@@ -69,6 +91,7 @@ export type PerfSnapshot = {
 	spinning: PerfBucketSnapshot;
 	reel: { steps: number; mean: number; p95: number; max: number };
 	work: { idle: WorkSnapshot; spinning: WorkSnapshot };
+	spikes: SpikeSummary;
 };
 
 class Ring {
@@ -138,6 +161,10 @@ class WorkBucket {
 	}
 }
 
+/** rAF never ran faster than ~30 fps over these (sorted) intervals: a browser cap. */
+const isCapped30 = (sorted: number[]) =>
+	sorted.length >= 60 && quantile(sorted, 0.1) >= 30 && quantile(sorted, 0.5) <= 36;
+
 /** The refresh rate the shortest intervals point at (the 10th percentile), snapped to a real one. */
 export function estimateRefreshHz(intervals: number[]): number | undefined {
 	if (intervals.length < 30) return undefined;
@@ -164,17 +191,37 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 	let idleWork = new WorkBucket();
 	let spinningWork = new WorkBucket();
 	let lastSpinning = false;
+	const spikes = createSpikeRecorder();
+	let framesSeen = 0;
+	let threshold = spikeThresholdMs(displayPeriodMs(undefined, false));
+	const intervals = () => [...idle.intervals(), ...spinning.intervals()].sort((a, b) => a - b);
 
 	return {
 		/**
-		 * One Pixi tick: its frame timestamp, whether the game says it is spinning, and every moving
-		 * reel. A frame with a reel moving counts as spinning too (a Hold and Win respin's cells).
+		 * One Pixi tick: its frame timestamp, whether the game says it is spinning, every moving
+		 * reel, and the game's state. A frame with a reel moving counts as spinning too (a Hold and
+		 * Win respin's cells).
 		 */
-		frame(time: number, isSpinning: boolean, moving: Iterable<FrameMotionView>): void {
+		frame(
+			time: number,
+			isSpinning: boolean,
+			moving: Iterable<FrameMotionView>,
+			state?: string,
+		): void {
 			const motions = [...moving];
 			const interval = lastTime === undefined ? undefined : time - lastTime;
 			lastSpinning = isSpinning || motions.length > 0;
-			if (interval !== undefined && interval > 0) (lastSpinning ? spinning : idle).add(interval);
+			if (++framesSeen % THRESHOLD_EVERY === 0) {
+				const sorted = intervals();
+				threshold = spikeThresholdMs(
+					displayPeriodMs(estimateRefreshHz(sorted), isCapped30(sorted)),
+				);
+			}
+			if (interval !== undefined && interval > 0) {
+				(lastSpinning ? spinning : idle).add(interval);
+				const at = Math.round((time - startedAt) / 100) / 10;
+				spikes.frame(time, interval, threshold, lastSpinning, state, at);
+			}
 			for (const motion of motions) {
 				const rate = motion.rate;
 				const visual = motion.drawn - motion.shift;
@@ -197,9 +244,14 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 			}
 			lastTime = time;
 		},
-		/** What the frame just drawn asked of the GPU; it counts where that frame's interval did. */
+		/** What the frame just over did; it counts where that frame's interval did. */
 		work(sample: FrameWork): void {
 			(lastSpinning ? spinningWork : idleWork).add(sample);
+			spikes.work(sample);
+		},
+		/** A long task (Chrome's `longtask` entries), for the spike records. */
+		longTask(start: number, duration: number): void {
+			spikes.longTask(start, duration);
 		},
 		/** The page was hidden: the next interval is the pause, not a frame. */
 		pause(): void {
@@ -217,16 +269,16 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 			previous = new WeakMap();
 			idleWork = new WorkBucket();
 			spinningWork = new WorkBucket();
+			spikes.reset();
 		},
 		snapshot(): PerfSnapshot {
-			const all = [...idle.intervals(), ...spinning.intervals()];
-			const refreshHz = estimateRefreshHz(all);
-			const sorted = all.sort((a, b) => a - b);
+			const sorted = intervals();
+			const refreshHz = estimateRefreshHz(sorted);
 			const reelSorted = reel.sorted();
 			return {
 				seconds: Math.round((now() - startedAt) / 1000),
 				refreshHz,
-				capped30: sorted.length >= 60 && quantile(sorted, 0.1) >= 30 && quantile(sorted, 0.5) <= 36,
+				capped30: isCapped30(sorted),
 				idle: idle.snapshot(),
 				spinning: spinning.snapshot(),
 				reel: {
@@ -236,6 +288,7 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 					max: round1(reelMax),
 				},
 				work: { idle: idleWork.snapshot(), spinning: spinningWork.snapshot() },
+				spikes: spikes.snapshot(threshold),
 			};
 		},
 	};

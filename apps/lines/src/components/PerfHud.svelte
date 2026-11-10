@@ -20,8 +20,10 @@
 		type PerfSnapshot,
 		type WorkSnapshot,
 	} from '../game/perfStats';
+	import { SPIKE_CAUSES, stateLabel, topCause, type SpikeCauseCounts } from '../game/perfSpikes';
 	import { stateApp } from '../game/stateApp';
 	import { stateGame } from '../game/stateGame.svelte';
+	import { stateXstate } from '../game/stateXstate';
 
 	/**
 	 * The `?perf=1` frame-time readout: what the frames on THIS device look like while the game
@@ -31,13 +33,17 @@
 	 * with the flag (`Game.svelte` imports it on demand); without it nothing here exists, listens,
 	 * counts or draws. HTML, so it costs the canvas nothing; one line in a corner until tapped open.
 	 * `?perfgpu=1` also waits for the GPU after every frame to time it, which stalls the pipeline:
-	 * read it on its own, never with fps.
+	 * read it on its own, never with fps. Each spike (a frame over max(33 ms, 2.5 display frames))
+	 * is recorded with what its frames did and a likely cause (`perfSpikes.ts`); `?particles=off`
+	 * turns every particle off for an A/B read.
 	 */
 
 	const query = new URLSearchParams(location.search);
 	const waitForGpu = query.get('perfgpu') === '1';
+	const particlesOff = query.get('particles') === 'off';
 	const stats = createPerfStats();
 	let snapshot = $state<PerfSnapshot>();
+	const top = $derived(snapshot && topCause(snapshot.spikes.causes));
 	let quality = $state<RenderQualitySnapshot>();
 	let info = $state<RendererInfo>();
 	let textures = $state<TextureFormatSummary[]>([]);
@@ -48,6 +54,24 @@
 	let probe: RendererProbe | undefined;
 
 	const spinning = () => stateGame.board.some((reel) => reel.reelState.rolling);
+	let stateSeen: unknown;
+	let stateName: string | undefined;
+	/** The state machine's value as a line, re-read only when it changes. */
+	const gameState = () => {
+		const value = stateXstate.value;
+		if (value !== stateSeen) {
+			stateSeen = value;
+			stateName = value === '' ? undefined : stateLabel(value);
+		}
+		return stateName;
+	};
+	const longTasks =
+		typeof PerformanceObserver !== 'undefined' &&
+		!!PerformanceObserver.supportedEntryTypes?.includes('longtask');
+	const heapReported =
+		typeof (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory
+			?.usedJSHeapSize === 'number';
+	let observer: PerformanceObserver | undefined;
 	const onVisibility = () => {
 		if (document.visibilityState === 'hidden') stats.pause();
 	};
@@ -68,8 +92,14 @@
 	};
 
 	onMount(() => {
-		setFrameProbe((time, moving) => stats.frame(time, spinning(), moving));
+		setFrameProbe((time, moving) => stats.frame(time, spinning(), moving, gameState()));
 		document.addEventListener('visibilitychange', onVisibility);
+		if (longTasks) {
+			observer = new PerformanceObserver((list) => {
+				for (const entry of list.getEntries()) stats.longTask(entry.startTime, entry.duration);
+			});
+			observer.observe({ type: 'longtask' });
+		}
 		timer = setInterval(refresh, 500);
 		// JSON text: a script reads it over CDP, which cannot serialise Svelte's state proxies.
 		// `'reset'` is the Reset button, for a script that measures from a moment of its own.
@@ -81,6 +111,7 @@
 	onDestroy(() => {
 		setFrameProbe(undefined);
 		document.removeEventListener('visibilitychange', onVisibility);
+		observer?.disconnect();
 		clearInterval(timer);
 		probe?.dispose();
 		window.__IE_PERF__ = undefined;
@@ -129,7 +160,7 @@
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
 		const now = renderQualitySnapshot();
 		return {
-			perf: 3,
+			perf: 4,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
 			tier: now?.mode ?? renderTier(),
@@ -149,6 +180,10 @@
 			spinning: bucket(s.spinning),
 			reelStepErrorPx: s.reel,
 			work: s.work,
+			spikeOverMs: s.spikes.overMs,
+			spikeApis: { longtask: longTasks, heap: heapReported },
+			spikeCauses: s.spikes.causes,
+			spikes: s.spikes.records,
 			build: build && { version: build.version, sha: build.sha ?? build.engineSha },
 		};
 	};
@@ -202,17 +237,44 @@
 		filterGroups: 'filtered nodes',
 		copies: 'backdrop copies',
 		textureUploads: 'texture uploads',
+		uploadBytes: 'texture bytes',
+		compiles: 'shader compiles',
 		bufferBytes: 'buffer bytes',
 		roundTrips: 'GL round trips',
 		programs: 'program switches',
 		calls: 'GL calls',
 		renderMs: 'render ms (CPU)',
 		tickMs: 'tick ms (CPU)',
+		lateMs: 'ms before the tick',
+		afterMs: 'ms after the tick',
+		jsMs: 'frame JS ms',
 		gpuWaitMs: 'GPU wait ms',
+		particleMs: 'particle ms',
+		particles: 'live particles',
+		emitters: 'active emitters',
+		baked: 'baked effects',
+		rigMs: 'rig update ms',
+		rigSyncMs: 'rig mesh ms',
+		rigs: 'rig updates',
 	};
 	const cell = (w: WorkSnapshot, key: (typeof WORK_KEYS)[number]) => {
 		const v = w.perFrame[key];
 		return v ? `${v.mean} / ${v.max}` : '–';
+	};
+	const causeList = (counts: SpikeCauseCounts) =>
+		SPIKE_CAUSES.filter((cause) => counts[cause])
+			.sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0))
+			.map((cause) => `${cause} ${counts[cause]}`)
+			.join(', ');
+	const total = (counts: SpikeCauseCounts) =>
+		Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0);
+	const spikesLine = (s: PerfSnapshot) => {
+		const { idle, spinning: spin } = s.spikes.causes;
+		const parts = [
+			...(total(idle) ? [`idle ${total(idle)}: ${causeList(idle)}`] : []),
+			...(total(spin) ? [`spin ${total(spin)}: ${causeList(spin)}`] : []),
+		];
+		return `over ${s.spikes.overMs} ms · ${parts.length ? parts.join(' · ') : 'none'}`;
 	};
 	const attrs = (i: RendererInfo) => {
 		const a = i.attributes;
@@ -231,6 +293,8 @@
 			{snapshot.spinning.p95} · reel {snapshot.reel.p95} px
 			{#if snapshot.capped30}<b class="warn"> · 30 fps cap (Low Power Mode?)</b>{/if}
 			{#if quality?.level.index}<b class="warn"> · quality L{quality.level.index}</b>{/if}
+			{#if top}<b class="warn"> · spikes: {top[0]} ({top[1]})</b>{/if}
+			{#if particlesOff}<b class="warn"> · particles off</b>{/if}
 			<span class="toggle">{open ? '▾' : '▸'}</span>
 		</button>
 		{#if open}
@@ -250,6 +314,7 @@
 					<b>reel step error</b> mean {snapshot.reel.mean} · p95 {snapshot.reel.p95} · max {snapshot
 						.reel.max} px ({snapshot.reel.steps} steps)
 				</div>
+				<div><b>spikes</b> {spikesLine(snapshot)}</div>
 				{#if snapshot.capped30}
 					<div class="warn">Frames never come faster than ~30 fps: Low Power Mode?</div>
 				{/if}
