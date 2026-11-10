@@ -359,7 +359,7 @@ export function setZoneField(
 	if (value.trim() !== '' && Number.isFinite(n)) zone[field] = n;
 }
 
-type CardRuleKey = Exclude<keyof CardGameRules, 'resource' | 'first'>;
+type CardRuleKey = Exclude<keyof CardGameRules, 'resource' | 'first' | 'turnOrder'>;
 
 function pruneCard(doc: GameConfigDoc): void {
 	if (doc.card?.rules?.resource && !Object.keys(doc.card.rules.resource).length)
@@ -400,5 +400,17 @@ export function setCardFirst(doc: GameConfigDoc, first: CardGameFirst): void {
 	doc.card.rules ??= {};
 	if (first === CARD_GAME_RULE_DEFAULTS.first) delete doc.card.rules.first;
 	else doc.card.rules.first = first;
+	pruneCard(doc);
+}
+
+/** Strict phases (the default, not stored) or plays and attacks in any order (`mixed`). */
+export function setCardTurnOrder(
+	doc: GameConfigDoc,
+	order: NonNullable<CardGameRules['turnOrder']>,
+): void {
+	doc.card ??= {};
+	doc.card.rules ??= {};
+	if (order === 'mixed') doc.card.rules.turnOrder = order;
+	else delete doc.card.rules.turnOrder;
 	pruneCard(doc);
 }
