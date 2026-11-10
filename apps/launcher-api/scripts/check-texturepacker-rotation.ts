@@ -14,7 +14,12 @@
  *   3. The same with a `.plist`-import manifest (trim backfill on), the shape that was broken.
  *   4. A LEGACY Sheet Maker export — rotated `frame.w/h` swapped to the page footprint, still in R2
  *      for every rotated `bookofborutremake` sheet — reads to exactly the same regions.
- *   5. PixiJS's `Spritesheet` cuts each frame from the page rect the region names: `(w×h)`, or
+ *   5. `scripts/lib/tpRegions.mjs` (the seed / manifest-derive scripts' reader) reads both files to
+ *      the same upright regions.
+ *   6. Frames the legacy rule must leave alone stay as written: a real TexturePacker trimmed rotated
+ *      frame (`spriteSourceSize` == `frame`, a larger `sourceSize`) and a rotated frame with no
+ *      `spriteSourceSize`.
+ *   7. PixiJS's `Spritesheet` cuts each frame from the page rect the region names: `(w×h)`, or
  *      `(h×w)` for a rotated region, with `rotate: 2` and the upright size as its `orig`.
  *
  * Run:  pnpm --filter launcher-api check:texturepacker-rotation
@@ -54,6 +59,7 @@ mock.module(r2Url, {
 const { loadRegionSet } = await import('../src/lib/server/editorRegions.ts');
 type EditorRegion = Awaited<ReturnType<typeof loadRegionSet>>['regions'][number];
 const { Spritesheet, Texture, TextureSource } = await import('pixi.js');
+const { tpFrameToRegion } = await import('./lib/tpRegions.mjs');
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail?: unknown) => {
@@ -175,6 +181,44 @@ for (const [dialect, doc] of [
 		`${dialect}: a .plist-import manifest keeps its upright rotated rects`,
 		sameGeometry(plist.regions),
 		plist.regions.map(geometry),
+	);
+}
+
+for (const [dialect, doc] of [
+	['current', tp],
+	['legacy footprint', legacy],
+] as const) {
+	const got = Object.entries(doc.frames).map(([name, f]) => {
+		const r = tpFrameToRegion(name, f);
+		return { name: stem(r.name), x: r.x, y: r.y, w: r.w, h: r.h, rotated: r.rotated };
+	});
+	check(
+		`${dialect}: tpRegions.mjs reads the writer's upright regions`,
+		JSON.stringify(got) === JSON.stringify(expected),
+		got,
+	);
+}
+
+/** Frames whose `frame.w/h` is already upright and must not be mistaken for the legacy form. */
+const untouched: Record<string, Partial<TpFrame> & { frame: TpFrame['frame']; rotated: boolean }> =
+	{
+		'trimmed.png': {
+			frame: { x: 0, y: 0, w: 30, h: 12 },
+			rotated: true,
+			spriteSourceSize: { x: 2, y: 3, w: 30, h: 12 },
+			sourceSize: { w: 40, h: 18 },
+		},
+		'bare.png': { frame: { x: 0, y: 20, w: 30, h: 12 }, rotated: true },
+	};
+seed({ frames: untouched, meta: { image: 'page.png', size: { w: 64, h: 64 } } } as TpDoc);
+const edgeEditor = (await loadRegionSet(TP_KEY)).regions;
+for (const [name, f] of Object.entries(untouched)) {
+	const e = edgeEditor.find((r) => r.name === name);
+	const t = tpFrameToRegion(name, f);
+	check(
+		`${name}: a rotated frame already upright is read as written (editor + tpRegions)`,
+		e?.w === f.frame.w && e?.h === f.frame.h && t.w === f.frame.w && t.h === f.frame.h,
+		{ editor: e && [e.w, e.h], tpRegions: [t.w, t.h] },
 	);
 }
 

@@ -91,16 +91,24 @@ Works today on `main` / live:
   parameter. **It was not latent:** an R2 scan found ~30 Sheet Maker exports with swapped rotated
   frames — every rotated `bookofborutremake` and `borut_pots_sample` sheet among them. They are NOT
   rewritten: the launcher's `editorRegions.ts::uprightFrameSize` reads a rotated frame that is
-  exactly its `spriteSourceSize` transposed as that legacy form (mirrored in `tpRegions.mjs`), so a
-  re-export simply converts a sheet. `uprightWH` is gone — it un-swapped EVERY file, so the three
+  exactly its `spriteSourceSize` transposed as that legacy form (mirrored in `tpRegions.mjs` and the
+  Atlas Maker's `ui_server._tp_frame_to_region`, its raw-`.json` import), so a re-export simply
+  converts a sheet. `uprightWH` is gone — it un-swapped EVERY file, so the three
   `test1` `.plist` imports (upright, rotated) had their correct manifest rects overwritten with the
-  transpose in the editor and the game. Measured against R2 (old vs new reader over all 210
-  manifests with their own TP JSON): those 3 change — to the manifest's own rects — and nothing
-  else, so no live game's geometry moves. Guards: `services/_shared/test_iw_texturepacker.py` (both
+  transpose in the editor and the game. Measured against R2: over all 210 manifests with their own
+  TP JSON, old vs new reader, those 3 change (to the manifest's own rects) and nothing else. A
+  legacy `.json` read DIRECTLY (an asset key that is the `.json`, not the manifest) does change —
+  from the transposed, wrong cut to the right one — and R2 holds exactly one authored reference to
+  a rotated frame that way: `borut_pots_sample/symbols/symbols.json` →
+  `S_VFX.json::Untitled-5_0007_1.png`, a 306×308 frame (a 2 px correction on its next publish).
+  The live `bookofborutremake` reads `S_Game_UI2.json` directly for one frame only,
+  `T_UI_BuyBack_glow`, which is not rotated. Guards: `services/_shared/test_iw_texturepacker.py` (both
   tools write the upright form; pins `services/_shared/fixtures/texturepacker-rotated.json`) and
   `check:texturepacker-rotation` (that fixture, and its legacy transpose, through the real
-  `loadRegionSet` and a real PixiJS `Spritesheet`: same upright regions, Pixi cuts the `(h×w)` page
-  rect with `rotate: 2`; the old reader and a reader without the legacy rule each fail it).
+  `loadRegionSet`, `tpRegions.mjs` and a real PixiJS `Spritesheet`: same upright regions, frames
+  already upright left alone, Pixi cuts the `(h×w)` page rect with `rotate: 2`; the old reader and a
+  reader without the legacy rule each fail it), and `atlas-tool/test_sheet_handoff.py` for the
+  Atlas Maker's import.
 - 2026-11-10 — **The legacy `?k=` handoff is gone; a signed launch token is the only way in.** Same
   change as the Atlas Maker's (`iw_common/launch.py`; detail in [atlas-maker status](atlas-maker.md)
   Recent changes): `GATE` is `LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET")`, and

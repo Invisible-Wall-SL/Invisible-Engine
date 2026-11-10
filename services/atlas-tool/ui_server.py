@@ -2019,21 +2019,29 @@ def resolve_atlas_to_manifest(atlas: str) -> str | None:
 def _tp_frame_to_region(name: str, f: dict) -> dict:
     """Convert ONE TexturePacker (json-hash) frame to the Atlas Maker snake_case
     region. Mirrors apps/launcher-api/scripts/lib/tpRegions.mjs::tpFrameToRegion
-    exactly: frame.x/y/w/h → on-page rect (w/h = unrotated trimmed size);
-    rotated bool; spriteSourceSize.x/y → off_x/off_y; sourceSize.w/h →
-    orig_w/orig_h."""
+    exactly: frame.x/y → on-page origin; frame.w/h → the unrotated trimmed
+    size; rotated bool; spriteSourceSize.x/y → off_x/off_y; sourceSize.w/h →
+    orig_w/orig_h.
+
+    A Sheet Maker `.json` exported before 2026-11-10 swapped a ROTATED frame's
+    w/h to its page footprint; such a frame is exactly its `spriteSourceSize`
+    transposed (and not square), so it is read back upright here — the rule
+    `editorRegions.ts::uprightFrameSize` applies (see `iw_common.texturepacker`)."""
     fr = (f.get("frame") if isinstance(f, dict) else None) or {}
     fw = int(fr.get("w") or 0)
     fh = int(fr.get("h") or 0)
     sss = (f.get("spriteSourceSize") if isinstance(f, dict) else None) or {}
     src = (f.get("sourceSize") if isinstance(f, dict) else None) or {}
+    rotated = bool(isinstance(f, dict) and f.get("rotated"))
+    if rotated and fw != fh and sss.get("w") == fh and sss.get("h") == fw:
+        fw, fh = fh, fw
     return {
         "name": name,
         "x": int(fr.get("x") or 0),
         "y": int(fr.get("y") or 0),
         "w": fw,
         "h": fh,
-        "rotated": bool(isinstance(f, dict) and f.get("rotated")),
+        "rotated": rotated,
         "off_x": int(sss.get("x") or 0),
         "off_y": int(sss.get("y") or 0),
         "orig_w": int(src.get("w") or fw),

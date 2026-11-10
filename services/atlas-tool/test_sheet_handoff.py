@@ -248,6 +248,26 @@ def main() -> int:
     check("rotated_regions are repaired too",
           ui_server.repair_sheet_fit_mode(m5), [NAME])
 
+    # A rotated frame is read UPRIGHT from the shared writer's output (the
+    # fixture `test_iw_texturepacker.py` pins), and from a legacy Sheet Maker
+    # `.json` that swapped it to the page footprint.
+    tp = json.loads((Path(__file__).resolve().parent.parent / "_shared" / "fixtures"
+                     / "texturepacker-rotated.json").read_text(encoding="utf-8"))
+    want = {k: (f["spriteSourceSize"]["w"], f["spriteSourceSize"]["h"], f["rotated"])
+            for k, f in tp["frames"].items()}
+    legacy = {k: {**f, "frame": {**f["frame"], "w": f["frame"]["h"], "h": f["frame"]["w"]}}
+              if f["rotated"] else f for k, f in tp["frames"].items()}
+    for label, frames in (("current", tp["frames"]), ("legacy footprint", legacy)):
+        got = {k: (r["w"], r["h"], r["rotated"]) for k, r in
+               ((k, ui_server._tp_frame_to_region(k, f)) for k, f in frames.items())}
+        check(f"{label} .json: rotated frames read at their upright size", got, want)
+    trimmed = {"frame": {"x": 0, "y": 0, "w": 30, "h": 12}, "rotated": True, "trimmed": True,
+               "spriteSourceSize": {"x": 2, "y": 3, "w": 30, "h": 12},
+               "sourceSize": {"w": 40, "h": 18}}
+    r = ui_server._tp_frame_to_region("t", trimmed)
+    check("a real TexturePacker trimmed rotated frame is left as written",
+          (r["w"], r["h"], r["orig_w"], r["orig_h"]), (30, 12, 40, 18))
+
     print()
     if FAILED:
         print(f"{len(FAILED)} FAILED: " + ", ".join(FAILED))
