@@ -38,9 +38,12 @@ import { stateHoldAndWin } from './stateHoldAndWin.svelte';
  * never swapped out (`coinBoard.svelte.ts`).
  */
 /** A count-up in flight on a held cell's label: which field it stands in for, and its tween — or a
- *  jackpot tier held at its old name until an upgrade's beam lands. */
+ *  jackpot tier held at its old name until an upgrade's beam lands, or a readout printed in place
+ *  of the value (an enhancement hit's "×3" before the coin counts). */
 export type HeldDisplay =
-	{ field: 'value' | 'factor'; tween: Tween<number> } | { field: 'jackpot'; jackpot: string };
+	| { field: 'value' | 'factor'; tween: Tween<number> }
+	| { field: 'jackpot'; jackpot: string }
+	| { field: 'text'; text: string };
 
 export const stateRespinBoard = $state({
 	/** Is the respin board up in place of the reel board? */
@@ -499,6 +502,23 @@ export const holdHeldDisplay = (key: string, field: 'value' | 'factor', from: nu
 	const tween = new Tween(from);
 	stateRespinBoard.heldDisplay[key] = { field, tween };
 	return tween;
+};
+
+/**
+ * Print `text` on a held cell's label in place of a count-up held by {@link holdHeldDisplay}, then
+ * hand the label back to that count: the returned undo restores it — a no-op if a later beat already
+ * owns the label.
+ */
+export const showHeldText = (key: string, text: string) => {
+	const display = stateRespinBoard.heldDisplay[key];
+	stateRespinBoard.heldDisplay[key] = { field: 'text', text };
+	// Read back: the store keeps its own proxy of the object, and the undo compares against that.
+	const readout = stateRespinBoard.heldDisplay[key];
+	return () => {
+		if (stateRespinBoard.heldDisplay[key] !== readout) return;
+		if (display) stateRespinBoard.heldDisplay[key] = display;
+		else delete stateRespinBoard.heldDisplay[key];
+	};
 };
 
 /** End a count-up: the label reads the cell's recorded value again. A no-op if a later count (or a

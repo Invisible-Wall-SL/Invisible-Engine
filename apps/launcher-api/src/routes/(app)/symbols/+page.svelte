@@ -1923,8 +1923,9 @@
 	);
 	const clTiers = $derived(coinLabelTiers(clMode?.jackpotTiers ?? []));
 	const CL_POPS = [
-		{ key: 'landPop', label: 'Pop as the coin sticks' },
-		{ key: 'boostPop', label: 'Pop when a count lands' },
+		{ key: 'landPop', label: 'Pop as the coin sticks', on: false },
+		{ key: 'boostPop', label: 'Pop when a count lands', on: false },
+		{ key: 'hitPop', label: 'Pop as an enhancement hit shows (×N / +$X)', on: true },
 	] as const;
 	const CL_AXES = [
 		{ key: 'x', label: 'Offset X' },
@@ -1958,7 +1959,7 @@
 		});
 	}
 	function patchCoinLabelPop(
-		key: 'landPop' | 'boostPop',
+		key: 'landPop' | 'boostPop' | 'hitPop',
 		patch: { enabled?: boolean; scale?: number; ms?: number },
 	): void {
 		patchCoinLabel((d) => {
@@ -4872,20 +4873,21 @@
 								<div class="wl-fields">
 									{#each CL_POPS as popRow (popRow.key)}
 										{@const pop = cl.animation?.[popRow.key]}
+										{@const popOn = popRow.on ? pop?.enabled !== false : pop?.enabled === true}
 										<div class="field">
 											<span class="label">{popRow.label}</span>
-											<label class="switch sm" class:on={pop?.enabled === true}>
+											<label class="switch sm" class:on={popOn}>
 												<input
 													type="checkbox"
-													checked={pop?.enabled === true}
+													checked={popOn}
 													onchange={(e) =>
 														patchCoinLabelPop(popRow.key, { enabled: e.currentTarget.checked })}
 												/>
 												<span class="track"><span class="knob"></span></span>
-												<span class="switch-label">{pop?.enabled === true ? 'On' : 'Off'}</span>
+												<span class="switch-label">{popOn ? 'On' : 'Off'}</span>
 											</label>
 										</div>
-										<label class="field" class:disabled={pop?.enabled !== true}>
+										<label class="field" class:disabled={!popOn}>
 											<span class="label"
 												>Pop scale {(pop?.scale ?? COIN_LABEL_DEFAULTS.popScale).toFixed(2)}</span
 											>
@@ -4894,20 +4896,20 @@
 												min={COIN_LABEL_BOUNDS.popScale[0]}
 												max="2"
 												step="0.05"
-												disabled={pop?.enabled !== true}
+												disabled={!popOn}
 												value={pop?.scale ?? COIN_LABEL_DEFAULTS.popScale}
 												oninput={(e) =>
 													patchCoinLabelPop(popRow.key, { scale: Number(e.currentTarget.value) })}
 											/>
 										</label>
-										<label class="field" class:disabled={pop?.enabled !== true}>
+										<label class="field" class:disabled={!popOn}>
 											<span class="label">Pop length {pop?.ms ?? COIN_LABEL_DEFAULTS.popMs}ms</span>
 											<input
 												type="range"
 												min="60"
 												max="1000"
 												step="20"
-												disabled={pop?.enabled !== true}
+												disabled={!popOn}
 												value={pop?.ms ?? COIN_LABEL_DEFAULTS.popMs}
 												oninput={(e) =>
 													patchCoinLabelPop(popRow.key, { ms: Number(e.currentTarget.value) })}
@@ -4930,12 +4932,33 @@
 											}}
 										/>
 									</label>
+									<label class="field">
+										<span class="label">Hit readout hold (ms)</span>
+										<input
+											type="number"
+											min={COIN_LABEL_BOUNDS.hitMs[0]}
+											max={COIN_LABEL_BOUNDS.hitMs[1]}
+											step="10"
+											placeholder={`Coded (${COIN_LABEL_DEFAULTS.hitMs})`}
+											value={cl.animation?.hitMs ?? ''}
+											onchange={(e) => {
+												const v = e.currentTarget.value;
+												const hitMs = v === '' ? undefined : Number(v);
+												patchCoinLabel((d) => (d.animation = { ...d.animation, hitMs }));
+											}}
+										/>
+									</label>
 								</div>
 								<p class="wl-note">
-									Both pops are off by default. <strong>Count-up length</strong> is how long a label takes
-									to count to its new value when a payer pays it or a multiplier boosts it (coded 600
-									ms). Each step of a collector's collect scales with it — 350/600 of the length, as coded
-									(350 ms) — so the collect stays quicker. Blank keeps the coded lengths.
+									The first two pops are off by default. <strong>Count-up length</strong> is how
+									long a label takes to count to its new value when a payer pays it or a multiplier
+									boosts it (coded 600 ms). Each step of a collector's collect scales with it —
+									350/600 of the length, as coded (350 ms) — so the collect stays quicker. Blank
+									keeps the coded lengths. When a Boost or Multiply enhancement hits a coin, the
+									coin first shows what hit it ("×3", "+$5.00", worded in Win Text) in this label's
+									look for the
+									<strong>hit readout hold</strong> (0 = straight to the count), with its own pop — on
+									unless you turn it off.
 								</p>
 							</div>
 

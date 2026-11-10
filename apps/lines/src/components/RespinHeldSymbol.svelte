@@ -31,12 +31,14 @@
 	 *  a jackpot tier an upgrade has not reached yet. */
 	const display = $derived(stateRespinBoard.heldDisplay[key]);
 	const labelOverride = $derived(
-		display
-			? display.field === 'jackpot'
+		!display || display.field === 'text'
+			? undefined
+			: display.field === 'jackpot'
 				? { jackpot: display.jackpot }
-				: { [display.field]: display.tween.current }
-			: undefined,
+				: { [display.field]: display.tween.current },
 	);
+	/** An enhancement hit's readout ("×3", "+$5.00"), printed in place of the value. */
+	const labelText = $derived(display?.field === 'text' ? display.text : undefined);
 	const cellState = $derived(stateRespinBoard.heldState[key] ?? HELD_REST);
 	/** What the beat DRAWS: a stick whose `land` already played as the cell stopped draws the rest
 	 *  (`respinHeldState`); `cellState` still drives everything keyed on the beat. */
@@ -50,7 +52,8 @@
 
 	/**
 	 * The authored label pops (`coinLabel.animation`): one as the coin sticks (`coinStick`), one each
-	 * time a count-up lands on its new value. Off unless authored, so an unauthored label never pops.
+	 * time a count-up lands on its new value — off unless authored, so an unauthored label never pops —
+	 * and one as an enhancement hit's readout appears (on unless authored off).
 	 */
 	const pops = coinLabelPops();
 	let labelPop = $state<CoinLabelPopCue>();
@@ -64,6 +67,9 @@
 		if (counting && !now && pops.boost) labelPop = { id: ++cues, ...pops.boost };
 		counting = now;
 	});
+	$effect(() => {
+		if (pops.hit && labelText !== undefined) labelPop = { id: ++cues, ...pops.hit };
+	});
 </script>
 
 <Container x={seat.x} y={seat.y} {scale} {zIndex} {alpha}>
@@ -71,6 +77,7 @@
 		state={drawnState}
 		rawSymbol={props.cell.symbol}
 		{labelOverride}
+		{labelText}
 		{labelPop}
 		oncomplete={() => completeHeldBeat(key)}
 	/>
