@@ -23,6 +23,7 @@ export const LINES_ENGINE_KEYS = [
 	'respinTotal',
 	'featureWorth',
 	'activeModifiers',
+	'enhancements',
 	'jackpot.mini',
 	'jackpot.minor',
 	'jackpot.major',

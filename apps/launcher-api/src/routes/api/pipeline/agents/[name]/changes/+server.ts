@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { githubApp, GithubAppError } from '$lib/server/githubApp';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { requirePipelineMerge } from '$lib/server/pipelineAccess';
 import { openAgentChange, parseAgentName } from '$lib/server/pipelineAgents';
 import type { RequestHandler } from './$types';
@@ -16,13 +17,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const name = parseAgentName(params.name);
 	const missing = githubApp.missing();
 	if (missing) return json({ error: missing }, { status: 503 });
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'The body must be JSON.');
-	}
-	const { requestId, baseSha, text, why } = (body ?? {}) as Record<string, unknown>;
+	const { requestId, baseSha, text, why } =
+		objectOrNull(await readJson(request, 'The body must be JSON.')) ?? {};
 	if (typeof requestId !== 'string') throw error(400, 'requestId is required.');
 	if (typeof baseSha !== 'string' || !/^[0-9a-f]{40}$/.test(baseSha)) {
 		throw error(400, 'baseSha is the blob id of the definition that was opened.');

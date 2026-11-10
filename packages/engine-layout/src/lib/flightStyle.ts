@@ -9,8 +9,9 @@
  * in `flightPath.ts`.
  *
  * Keys: `toTotal` · `toCollector` · `boostBeam` · `toCounter` · `upgradeBeam` · `unlockRow` ·
- * `toMeter` (every meter) · `toMeter:<id>` (one meter). Resolution is FIELD BY FIELD: the exact key, then (for
- * `toMeter:<id>`) the `toMeter` family, then the coded default ({@link FLIGHT_DEFAULTS}). An absent
+ * `enhancementBeam` · `toMeter` (every meter) · `toMeter:<id>` (one meter). Resolution is FIELD BY
+ * FIELD: the exact key, then (for `toMeter:<id>`) the `toMeter` family, then the coded default
+ * ({@link FLIGHT_DEFAULTS}). An absent
  * block resolves to exactly the coded flight, so an unauthored game flies as it always did.
  *
  * No value import here: the engine-game fixtures run this file under `node --experimental-strip-types`.
@@ -23,6 +24,7 @@ export const FLIGHT_KINDS = [
 	'toCounter',
 	'upgradeBeam',
 	'unlockRow',
+	'enhancementBeam',
 	'toMeter',
 ] as const;
 export type FlightKind = (typeof FLIGHT_KINDS)[number];
@@ -34,12 +36,18 @@ export const FLIGHT_KIND_LABELS: Record<FlightKind, string> = {
 	toCounter: 'Into the respin counter',
 	upgradeBeam: 'Upgrade beam',
 	unlockRow: 'Unlock into its row',
+	enhancementBeam: 'Enhancement beam',
 	toMeter: 'Into a meter (every meter)',
 };
 
 /** The respin counter's flight anchor (`<Anchor name>`): the coded counter and the Scene Editor's
  *  `respinCounter` component both register it; an add-respins head flies into it (`toCounter`). */
 export const RESPIN_COUNTER_ANCHOR = 'respinCounter';
+
+/** An enhancement dial's flight anchor (`<Anchor name>`), by enhancement kind: the coded dials and the
+ *  Scene Editor's `enhancementDial` component register it; a boost or multiply hit's beam leaves
+ *  from it (`enhancementBeam`, Phase 14b). */
+export const enhancementDialAnchor = (kind: string): string => `enhancementDial:${kind}`;
 
 /** An authored Total Win Bar's flight anchor (Phase 12c): registered only while the bar catches the
  *  coins (`catchesCoins`); the feature end's `toTotal` volley then lands on it instead of the HUD's

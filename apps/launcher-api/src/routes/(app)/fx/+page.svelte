@@ -513,7 +513,7 @@
 		leaseSwitch(null);
 		resetPerEffectView();
 		markSaved();
-		replaceState('/fx', {});
+		replaceState(resolve('/fx'), {});
 	}
 
 	async function openEffect(id: string): Promise<void> {
@@ -546,7 +546,7 @@
 			leaseSwitch(leaseIdFor(out.doc.id));
 			resetPerEffectView();
 			markSaved();
-			replaceState(`/fx?effect=${encodeURIComponent(out.doc.id)}`, {});
+			replaceState(resolve(`/fx?effect=${encodeURIComponent(out.doc.id)}`), {});
 		} catch {
 			saveError = `Could not open "${label}" (network error).`;
 		} finally {

@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
 import { deleteObject, deleteObjects, listAllKeys } from '$lib/server/r2';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
@@ -29,7 +30,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
 
 	const dirB64 = typeof body.dir === 'string' ? body.dir : '';
@@ -44,7 +45,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			throw error(400, 'bad dir');
 		}
 	}
-	if (dir.includes('..') || skeletonFile.includes('..') || skeletonFile.includes('/')) throw error(403, 'forbidden');
+	if (dir.includes('..') || skeletonFile.includes('..') || skeletonFile.includes('/'))
+		throw error(403, 'forbidden');
 
 	const rigsPrefix = SUB.spines(clientKey, projectKey);
 	const bundlePrefix = dir ? `${rigsPrefix}/${dir}` : rigsPrefix;

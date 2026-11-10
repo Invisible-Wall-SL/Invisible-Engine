@@ -1,27 +1,16 @@
 import { error, json } from '@sveltejs/kit';
 import type { GameTemplate } from 'engine-layout';
-import { roleHasTool } from '$lib/roles';
-import { ConflictError } from '$lib/server/r2';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requireEditorAccess } from '$lib/server/editorAccess';
+import { conflictResponse } from '$lib/server/conflict';
+import { readJson } from '$lib/server/http';
 import { loadTemplateWithEtag, saveTemplate } from '$lib/server/templateStorage';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
-/**
- * Auth + role gate matching the editor `+page.server.ts` action gate: logged-in
- * and entitled to the `editor` tool (role + per-user overrides applied). Unlike
- * `toolScope.gate`, there is NO project scope — templates are GLOBAL per game
- * type under `_shared/`, so we gate on the tool entitlement alone.
+/*
+ * Gated on the `editor` tool alone. Unlike `toolScope.gate`, there is NO project scope —
+ * templates are GLOBAL per game type under `_shared/`.
  */
-async function gate(locals: App.Locals): Promise<void> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Editor.');
-	}
-}
 
 /**
  * Persist an authored game-type template to its shared R2 key (§7.5).
@@ -34,31 +23,20 @@ async function gate(locals: App.Locals): Promise<void> {
  * shape is unchanged for the template itself.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-	await gate(locals);
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	await requireEditorAccess(locals);
+	const body = await readJson(request, 'Invalid JSON body.');
 	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { etag } = await saveTemplate(body as GameTemplate, baseEtag);
 		return json({ ok: true, etag });
 	} catch (e) {
 		// Before the generic 400 — a lost CAS is not a malformed template.
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else changed this template while you were editing it. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else changed this template while you were editing it. ' +
+				'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		throw error(400, e instanceof Error ? e.message : 'Invalid template.');
 	}
 };
@@ -69,7 +47,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
  * save creates.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	await gate(locals);
+	await requireEditorAccess(locals);
 	const gameType = url.searchParams.get('gameType');
 	if (!gameType) throw error(400, 'missing gameType');
 	const { template, etag } = await loadTemplateWithEtag(gameType);

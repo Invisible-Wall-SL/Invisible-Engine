@@ -23,7 +23,6 @@ import json
 import os
 import re
 import shutil
-import string
 import subprocess
 import sys
 import threading
@@ -31,7 +30,8 @@ import time
 import traceback
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from PIL import Image, ImageChops
@@ -67,6 +67,9 @@ from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + the page precondition)
 from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
 from iw_common import ask_ai  # noqa: E402  (the bar's "Ask the AI" chat, relayed to the launcher)
+from iw_common import comfy  # noqa: E402  (shared ComfyUI client: headers + JSON calls)
+from iw_common import http as iw_http  # noqa: E402  (the request-handler base both tools share)
+from iw_common import storage as iw_storage  # noqa: E402  (mirror_staged: the write-through skeleton)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -191,30 +194,28 @@ _human_bytes = storage.human_bytes
 
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
-    r2_prefix = str(R2_PREFIX)
-    staging_root = Path(STAGING_ROOT)
-    if not r2_prefix:
-        return
-    try:
-        rel = Path(p).resolve().relative_to(staging_root.resolve()).as_posix()
-        # A manifest is claimed BEFORE the push and released only once the push
-        # is CONFIRMED, so the claim means "not known to be in R2" rather than
-        # "this tool wrote it once". The difference is load-bearing: an add-only
-        # claim would exempt every manifest we have ever saved from
-        # `prune_manifests`, which is exactly the sheet the user goes on to
-        # delete in the Sheet Maker — the ghost would then survive the prune
-        # built to remove it.
-        name = rel.split("/", 1)[1] if rel.startswith("manifests/") else ""
-        if name and "/" not in name:
-            ck = project_paths.r2_slug(project_paths.client_name())
-            pk = project_paths.r2_slug(project_paths.project_name())
-            project_paths.note_authored(ck, pk, name)
-            if storage.push_file(Path(p), f"{r2_prefix}/{rel}"):
-                project_paths.clear_authored(ck, pk, name)
-            return
-        storage.push_file(Path(p), f"{r2_prefix}/{rel}")
-    except Exception:  # noqa: BLE001 — best-effort mirror
-        pass
+    iw_storage.mirror_staged(p, Path(STAGING_ROOT), str(R2_PREFIX),
+                             push=storage.push_file, claim=_claim_manifest)
+
+
+def _claim_manifest(rel: str, push: Callable[[], bool]) -> bool:
+    """`_mirror`'s push of a ONE-segment `manifests/<name>`, under its claim.
+
+    A manifest is claimed BEFORE the push and released only once the push is
+    CONFIRMED, so the claim means "not known to be in R2" rather than "this tool
+    wrote it once". The difference is load-bearing: an add-only claim would
+    exempt every manifest we have ever saved from `prune_manifests`, which is
+    exactly the sheet the user goes on to delete in the Sheet Maker — the ghost
+    would then survive the prune built to remove it."""
+    name = rel.split("/", 1)[1] if rel.startswith("manifests/") else ""
+    if not name or "/" in name:
+        return False
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    project_paths.note_authored(ck, pk, name)
+    if push():
+        project_paths.clear_authored(ck, pk, name)
+    return True
 
 
 def _doc_ref(p: Path) -> tuple[str | None, str, str]:
@@ -3198,15 +3199,7 @@ def _comfy_headers(comfy_env: dict) -> dict:
     """The headers the render subprocess sends with `comfy_env`: the per-user
     tunnel's CF Access token when a per-user record is in play (the shared one
     is dropped, so it never reaches another origin), else the shared ones."""
-    headers = dict(batch_atlas.CF_HEADERS)
-    if "COMFY_URL" in comfy_env:
-        headers = {k: v for k, v in headers.items()
-                   if not k.lower().startswith("cf-access")}
-        if comfy_env.get("CF_ACCESS_CLIENT_ID"):
-            headers["CF-Access-Client-Id"] = comfy_env["CF_ACCESS_CLIENT_ID"]
-        if comfy_env.get("CF_ACCESS_CLIENT_SECRET"):
-            headers["CF-Access-Client-Secret"] = comfy_env["CF_ACCESS_CLIENT_SECRET"]
-    return headers
+    return comfy.routed_headers(batch_atlas.CF_HEADERS, comfy_env)
 
 
 def resolve_user_comfy_env(user_id: str) -> dict:
@@ -3332,8 +3325,8 @@ def _comfy_answers(url: str, comfy_env: dict) -> bool:
     is in play, else the shared one — so "My computer" fails in a sentence
     before the render, not as a stack of upload timeouts inside it."""
     try:
-        comfy_catalog._http_get_json(f"{url.rstrip('/')}/system_stats",
-                                     _comfy_headers(comfy_env))
+        comfy.get_json(f"{url.rstrip('/')}/system_stats", _comfy_headers(comfy_env),
+                       comfy_catalog.PROBE_TIMEOUT)
         return True
     except Exception:  # noqa: BLE001 — not answering, whatever the reason
         return False
@@ -3645,7 +3638,7 @@ def _run_render(names: list[str], variants: int, user: str, job_ref: str,
         else:
             error = ("the render exited with code %s" % rc if rc is not None
                      else "the render did not start (see the render log)")
-    except Exception as e:  # noqa: BLE001 — record it; the panel already shows it
+    except Exception as e:  # record it; the panel already shows it
         error = str(e)
         raise
     finally:
@@ -8696,20 +8689,13 @@ def apply_region_edits(edits: list[dict]) -> str:
     return note + (f", {picks} variant pick(s))" if picks else ")")
 
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
+class Handler(iw_http.ToolHandler):
+    gate = GATE
+    tool_title = "Atlas Maker"
 
-    def _send_gate_cookies(self) -> None:
-        # The gate's Set-Cookie headers (a dict can't hold two).
-        for c in getattr(self, "_extra_cookies", None) or ():
-            self.send_header("Set-Cookie", c)
-
-    def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None):
+    def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None, *,
+              no_store: bool = True):
         self._responded = True
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
         merged = dict(extra_headers or {})
         # Every doc this request loaded or wrote, as the page must now hold it
         # (etag + saved_by.rev). The page's fetch wrapper adopts these for the
@@ -8718,51 +8704,18 @@ class Handler(BaseHTTPRequestHandler):
         vers = doc_sync.versions()
         if vers:
             merged.setdefault("X-IW-Doc-Versions", docsave.encode_versions(vers))
-        # Default to no-store (config/JSON/HTML are dynamic). A caller that wants
-        # a cacheable response (image routes, via imgcache.cache_headers) passes
-        # its own Cache-Control, which then wins — don't emit both.
-        if "Cache-Control" not in merged:
-            self.send_header("Cache-Control", "no-store")
-        for k, v in merged.items():
-            self.send_header(k, v)
-        self._send_gate_cookies()
-        self.end_headers()
-        self.wfile.write(body)
+        super()._send(code, ctype, body, merged, no_store=no_store)
 
-    def _authenticate(self) -> bool:
-        """Who is calling and for which (client, project) — see
-        iw_common/launch.py. Answers the request itself and returns False on a
-        refusal, and on a launch (the redirect that takes the token out of the
-        URL once the session cookie is set)."""
-        res = GATE.authenticate(self.path, self.headers)
-        self._identity = res.identity
-        self._extra_cookies = list(res.cookies)
-        if not res.ok:
-            self._send(403, "text/plain; charset=utf-8",
-                       "Forbidden — open the Atlas Maker from the launcher."
-                       .encode("utf-8"))
-            return False
-        if res.redirect and self.command == "GET":
-            self._send(303, "text/plain", b"", {"Location": res.redirect})
-            return False
-        return True
+    def _switch_context(self, client: str, project: str) -> None:
+        """Missing keys fall back to `ATLAS_CLIENT` / `ATLAS_PROJECT`. The path
+        proxies (BATCH_DIR / INPUT_DIR / ...) and project_paths.resolve() read
+        this thread's context."""
+        project_paths.switch_context(client, project)
 
     def _resolve_context(self) -> None:
-        """Apply the caller's (client, project) to THIS request thread.
-
-        With a signed launch the scope comes from the token/session ONLY — a
-        `?client=` / `?project=` in the URL is ignored, and switching project
-        goes back through the launcher. The legacy/open modes keep the old
-        query-then-cookie resolution (done in the gate). Missing keys fall back
-        to the env default (`ATLAS_CLIENT` / `ATLAS_PROJECT`).
-
-        Thread-local: a concurrent request for a different project is fully
-        isolated; the path proxies (BATCH_DIR / INPUT_DIR / ...) and
-        project_paths.resolve() read this thread's context."""
-        ident = self._identity
         # Per-user ComfyUI routing (per-user-comfyui-routing.md) keys on this.
-        self._user_id = ident.sub
-        project_paths.switch_context(ident.client, ident.project)
+        self._user_id = self._identity.sub
+        super()._resolve_context()
 
     # The POSTs that act on "the atlas" (the selected one, unless pinned): a
     # Director call must name it. Library, video and create-by-name routes
@@ -8821,10 +8774,6 @@ class Handler(BaseHTTPRequestHandler):
                 "role": ident.role, "via": ident.via,
                 "client": project_paths.client_name(),
                 "project": project_paths.project_name()}
-
-    # Back-compat alias — kept so any legacy in-process call still works.
-    def _resolve_project(self) -> None:
-        self._resolve_context()
 
     def _resolve_publish(self) -> None:
         """Decide whether THIS request may publish a blueprint and set
@@ -11669,7 +11618,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload["eur"] = round(bal * rate, 2)
         except urllib.error.HTTPError as e:
             payload = {"ok": False, "error": f"HTTP {e.code}"}
-        except Exception as e:  # noqa: BLE001 — header must never break the UI
+        except Exception:  # noqa: BLE001 — header must never break the UI
             payload = {"ok": False, "error": "unreachable"}
         if payload.get("ok"):
             c["payload"], c["t"] = payload, now   # only cache good reads

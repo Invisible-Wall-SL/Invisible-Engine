@@ -2,11 +2,12 @@ import { error, json } from '@sveltejs/kit';
 import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { requireGameConfigAccess } from '$lib/server/gameConfigAccess';
 import {
-	ConflictError,
 	InvalidGameConfigError,
 	loadGameConfigDocWithEtag,
 	saveGameConfigDoc,
 } from '$lib/server/gameConfigStorage';
+import { conflictResponse } from '$lib/server/conflict';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { invalidateRuntimeBundle } from '$lib/server/runtimeBundleCache';
 import { requireProjectScope } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -59,18 +60,13 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		user,
 		url.searchParams.get('project'),
 	);
-	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown; backup?: unknown };
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.'));
 	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { doc, etag, warnings } = await saveGameConfigDoc(
 			clientKey,
 			projectKey,
-			body.doc,
+			body?.doc,
 			baseEtag,
 			requestedBackupMode(body),
 		);
@@ -81,20 +77,13 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		invalidateRuntimeBundle(projectKey);
 		return json({ clientKey, projectKey, doc, etag, warnings });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the
-			// cause. This branch MUST precede the catch-all below for that reason.
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else saved this config while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		// Before the catch-all below, which would answer a lost race as a 502.
+		const conflict = conflictResponse(
+			e,
+			'Someone else saved this config while you were editing. ' +
+				'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		if (e instanceof InvalidGameConfigError) {
 			// The issue list, not a bare string: the page maps each `path` to its panel so the author
 			// sees "payline 7 points at row 4 on a 3-row reel" against the offending field.

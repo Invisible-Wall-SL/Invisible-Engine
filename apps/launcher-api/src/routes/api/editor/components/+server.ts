@@ -1,22 +1,9 @@
-import { error, json } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import type { ComponentCategory } from 'engine-layout';
-import { roleHasTool } from '$lib/roles';
 import { listComponents, listComponentsWithEtags } from '$lib/server/componentStorage';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { requireEditorAccess } from '$lib/server/editorAccess';
 import { requireOptionalProjectKey } from '$lib/server/toolScope';
-import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
-
-/** Same tool gate as the single-component route; `?project=` is access-checked after it. */
-async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'editor', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Editor.');
-	}
-	return locals.user;
-}
 
 const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
 
@@ -27,7 +14,7 @@ const CATEGORIES = new Set<ComponentCategory>(['ui', 'overlay', 'scenery']);
  * precondition together and can never pair an old def with a newer ETag.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	const user = await gate(locals);
+	const user = await requireEditorAccess(locals);
 	const projectKey = await requireOptionalProjectKey(user, url.searchParams.get('project'));
 	const scopeParam = url.searchParams.get('scope');
 	const scope = scopeParam === 'shared' || scopeParam === 'project' ? scopeParam : undefined;

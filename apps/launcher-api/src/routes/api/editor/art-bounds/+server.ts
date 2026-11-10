@@ -1,9 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import {
-	ConflictError,
-	loadArtBoundsDocWithEtag,
-	saveArtBoundsDoc,
-} from '$lib/server/artBoundsStorage';
+import { loadArtBoundsDocWithEtag, saveArtBoundsDoc } from '$lib/server/artBoundsStorage';
+import { conflictResponse } from '$lib/server/conflict';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -49,20 +47,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		altTools: ['flipbook', 'fx', 'rigger'],
 		forbiddenMessage: 'Your role does not have access to the project art bounds.',
 	});
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
-	if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-		throw error(400, 'Body must be an object.');
-	}
-	const mismatch = scopeMismatch((body as Record<string, unknown>).projectKey, projectKey, {
-		required: true,
-	});
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.'));
+	if (!body) throw error(400, 'Body must be an object.');
+	const mismatch = scopeMismatch(body.projectKey, projectKey, { required: true });
 	if (mismatch) return mismatch;
-	const bounds = (body as Record<string, unknown>).bounds;
+	const bounds = body.bounds;
 	if (typeof bounds !== 'object' || bounds === null || Array.isArray(bounds)) {
 		throw error(400, '`bounds` must be a plain object.');
 	}
@@ -71,18 +60,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const saved = await saveArtBoundsDoc(clientKey, projectKey, { bounds }, baseEtag);
 		return json({ ok: true, etag: saved.etag, bounds: saved.doc.bounds });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else changed this project’s art bounds while you were editing. ' +
-						'Reload to get their version, then re-apply your box.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else changed this project’s art bounds while you were editing. ' +
+				'Reload to get their version, then re-apply your box.',
+		);
+		if (conflict) return conflict;
 		throw error(400, e instanceof Error ? e.message : 'Invalid art bounds.');
 	}
 };

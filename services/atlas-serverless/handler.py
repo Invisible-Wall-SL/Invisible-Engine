@@ -44,6 +44,10 @@ import uuid
 import requests
 import runpod
 
+# Shared with the Atlas Maker (services/_shared/iw_common/comfy.py). CI copies it into
+# this build context beside handler.py; see the Dockerfile.
+from iw_common.comfy import describe_execution_error
+
 COMFY = "http://127.0.0.1:8188"
 RUNPOD_API = "https://api.runpod.ai/v2"
 # The commit this image was built from, stamped in by the Dockerfile. Printed at boot
@@ -294,29 +298,6 @@ def _collect_images(hist: dict, upload_urls: list | None = None) -> list[dict]:
     return out
 
 
-def _describe_execution_error(status: dict) -> str:
-    """The one line an author can act on, from ComfyUI's history `status`:
-    `<node_type> #<id>: <ExceptionType>: <message>`.
-
-    ComfyUI records the failure as an `execution_error` event under `messages`;
-    the rest of the status is bookkeeping. The message is whitespace-collapsed
-    and capped because the tool keeps 400 characters of an error, and the node
-    name has to survive ahead of a traceback-sized message."""
-    for entry in status.get("messages") or []:
-        if not (isinstance(entry, (list, tuple)) and len(entry) == 2):
-            continue
-        kind, data = entry
-        if kind != "execution_error" or not isinstance(data, dict):
-            continue
-        node = str(data.get("node_type") or "?")
-        node_id = str(data.get("node_id") or "")
-        exc = str(data.get("exception_type") or "").rsplit(".", 1)[-1]
-        msg = " ".join(str(data.get("exception_message") or "").split())[:240]
-        where = f"{node} #{node_id}" if node_id else node
-        return f"{where}: {exc}: {msg}" if exc else f"{where}: {msg}"
-    return ""
-
-
 def _fail(msg: str, **extra) -> dict:
     """An error result that says WHICH WORKER produced it — IN the message.
 
@@ -365,7 +346,7 @@ def handler(job: dict) -> dict:
 
     status = hist.get("status", {})
     if status.get("status_str") == "error":
-        why = _describe_execution_error(status)
+        why = describe_execution_error(status)
         return _fail(f"comfy execution error — {why}" if why else "comfy execution error",
                      detail=status)
 

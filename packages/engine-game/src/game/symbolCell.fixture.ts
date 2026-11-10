@@ -101,6 +101,7 @@ for (const [state, donor] of [
 	['respinsAdd', 'win'],
 	['coinUpgrade', 'win'],
 	['rowUnlock', 'win'],
+	['coinEnhance', 'win'],
 	['jackpotReveal', 'win'],
 	['mysteryReveal', 'explosion'],
 	['flyToMeter', 'win'],

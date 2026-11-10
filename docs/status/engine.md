@@ -439,6 +439,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   they draw from whichever tier the sheet loaded. `art-tier-probe.mjs` now plays a flipbook clip
   over a tiered sheet: half and full draw it the same size (whole frame 0.35% apart). Bitmap-font
   pages and the boot splash stay untiered on purpose.
+- 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
+  big-win run-up** (branch `engine-playbook-single-dispatch`). `engine-game` `playBook.ts`
+  `playBookEvents` ran a second loop when neither a v1 nor a v2 flow existed (a layout without
+  loading/basegame scenes, so `createLinesFlow` builds none). That loop called the coded handler
+  map directly, skipping `runBookEventPresentation` (the slam/unskippable carve-out and per-spin
+  re-arm) and all of `dispatchBookEvent`: the win-cycle record, the running win meter, the cascade
+  sound step, the all-at-once win lines, the big-win run-up and the retrigger's `freeSpinsAdded`.
+  Now there is one loop and every event goes through `playBookEvent`; with no flow,
+  `dispatchBookEvent` falls through to the coded map, and `aroundPresentation` still wraps each
+  event once. Games with a flow are unchanged. Guard: `pnpm check:play-book-dispatch` drives the
+  real `createPlayBook` with no flow, a v1 flow and a v2 flow and requires the same seam calls in
+  the same order (11 of its 17 checks fail on the old two-loop body). `verify-win-explode-pop.mjs`
+  and the launcher's `check:clear-reel` were updated to the single loop.
 
 - 2026-11-09 — **iPhone rendering costs: one back-buffer resolve a frame, an opaque canvas, a GPU
   readout under `?perf=1`, and render test switches** (branch `claude/nice-albattani-a03tcm`,

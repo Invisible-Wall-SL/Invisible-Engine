@@ -1,0 +1,18 @@
+# Python lint for the pipeline services. CI runs it in the `python tests` job
+# (.github/workflows/checks.yml), from the repo root:
+#
+#     ruff check services/
+#
+# Deliberately narrow — what a plain-script suite cannot catch for itself:
+#   F    pyflakes: undefined names, unused imports/variables, redefinitions
+#   E9   syntax / IO errors
+#   BLE  a blind `except Exception` must say why (`# noqa: BLE001 — <reason>`)
+# Style is not linted here.
+target-version = "py312"
+
+# Vendored third-party code, copied in as-is (the artist's modified PuLID node —
+# see services/atlas-serverless/custom_nodes/README.md). Not ours to lint.
+extend-exclude = ["**/custom_nodes/ComfyUI-PuLID-Flux"]
+
+[lint]
+select = ["BLE", "F", "E9"]

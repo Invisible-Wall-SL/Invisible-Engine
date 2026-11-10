@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount, untrack } from 'svelte';
 	import { registerCustomElementFx } from '$lib/customElementFx.svelte';
 	import ColorField from '$lib/ColorField.svelte';
@@ -2998,7 +2999,9 @@
 											{/each}
 										</select>
 										<p class="hint">
-											The effect plays once from Invisible FX — open <a href="/fx">Invisible FX</a>
+											The effect plays once from Invisible FX — open <a href={resolve('/fx')}
+												>Invisible FX</a
+											>
 											to edit it. It emits for its authored duration (or one explosion beat when it has
 											none) and then lets its particles die out.
 										</p>
@@ -3296,7 +3299,9 @@
 														{/each}
 													</select>
 													<p class="hint">
-														The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a>
+														The effect plays from Invisible FX — open <a href={resolve('/fx')}
+															>Invisible FX</a
+														>
 														to edit it. For an FX layer, <strong>Size</strong> below is a scale multiplier
 														on the effect's authored size (1 = as authored), not a cell fit — so 10 is
 														10× (huge); dial it down (e.g. 0.5) to fit the cell.
@@ -5203,8 +5208,9 @@
 							<h2>Symbol sounds</h2>
 							<p class="wl-sub">
 								Moved. A cue one symbol makes entering a state is picked in
-								<a href="/sound">Invisible Sound</a>, under <strong>Per-symbol cues</strong> — next to
-								the game-wide moment it overrides and the library it is picked from.
+								<a href={resolve('/sound')}>Invisible Sound</a>, under
+								<strong>Per-symbol cues</strong> — next to the game-wide moment it overrides and the library
+								it is picked from.
 							</p>
 						</div>
 					</div>
@@ -5330,9 +5336,9 @@
 										<span class="label">Sounds</span>
 										<span class="wl-note">
 											The tease's activation STING and sustained LOOP are picked in
-											<a href="/sound">Invisible Sound</a>, with the rest of the game's audio. Their
-											per-tier VOLUMES stay here — they are part of the intensity ramp below, not a
-											choice of sound.
+											<a href={resolve('/sound')}>Invisible Sound</a>, with the rest of the game's
+											audio. Their per-tier VOLUMES stay here — they are part of the intensity ramp
+											below, not a choice of sound.
 										</span>
 									</div>
 								</div>
@@ -5825,7 +5831,7 @@
 					{#if clips.length === 0}
 						<p class="hint">
 							No Flipbook clips in this project yet — author one in
-							<a href="/flipbook">Invisible Flipbook</a>, then it appears here.
+							<a href={resolve('/flipbook')}>Invisible Flipbook</a>, then it appears here.
 						</p>
 					{/if}
 				</div>

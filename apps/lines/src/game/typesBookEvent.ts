@@ -293,6 +293,14 @@ type BookEventHwCoinBoost = {
 	index: number;
 	type: 'coinBoost';
 } & HoldAndWinEventFields['coinBoost'];
+type BookEventHwEnhancementHit = {
+	index: number;
+	type: 'enhancementHit';
+} & HoldAndWinEventFields['enhancementHit'];
+type BookEventHwEnhancementMiss = {
+	index: number;
+	type: 'enhancementMiss';
+} & HoldAndWinEventFields['enhancementMiss'];
 type BookEventHwSpecialBecomesCoin = {
 	index: number;
 	type: 'specialBecomesCoin';
@@ -401,6 +409,8 @@ export type BookEvent =
 	| BookEventHwRespinsAdded
 	| BookEventHwCoinUpgrade
 	| BookEventHwCoinBoost
+	| BookEventHwEnhancementHit
+	| BookEventHwEnhancementMiss
 	| BookEventHwSpecialBecomesCoin
 	| BookEventHwCoinCollect
 	| BookEventHwCellsCleared

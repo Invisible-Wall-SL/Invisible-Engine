@@ -487,10 +487,7 @@ const buildRound = ({
 		clearWinPresentation: () => seam.push({ what: 'clearWinPresentation', at: clock.at() }),
 		stopWinCycle: () => seam.push({ what: 'stopWinCycle', at: clock.at() }),
 		startWinCycle: () => seam.push({ what: 'startWinCycle', at: clock.at() }),
-		getFlowInterpreter: () => undefined,
-		getFlowV2: () => undefined,
 		playBookEvent: async () => {},
-		coded: { playBookEvent: async () => {} },
 		// THE AUTHORED WIN-BEAT CEILING (Invisible Symbols → win beat). Unauthored here, which is the
 		// state every project is in until someone sets one, and therefore the behaviour every claim
 		// below was written against: `resolveWinBeatBudget` then answers with the coded guard. What
@@ -502,9 +499,8 @@ const buildRound = ({
 		// unbound-`explosion` stall driven in part 3.
 		symbolStateHasBeat: (name, state) => symbolStateAuthored(name, state),
 		// GAME MODES (`playBook.ts`): no mode controller, which is every game whose book never moves a
-		// mode — `aroundPresentation` is then exactly the presentation, the path these claims were written on.
+		// mode — the path these claims were written on.
 		modes: undefined,
-		aroundPresentation: (_bookEvent, present) => present(),
 	};
 
 	// Once per run, before the first round: does this set still cover everything the slices call?
@@ -820,10 +816,10 @@ const playBetBody = sliceBetween(
 /**
  * The dispatch paths, driven through the REAL `playBet` with the REAL pops wired to the REAL board.
  *
- * `playBookEvent` / `coded.playBookEvent` are the injection point every dispatch path funnels
- * through in the shipped module: `playBookEvents` picks the coded loop when no flow is registered
- * and the `playBookEvent` loop when one is, and BOTH end in the same `finally`. So each path here is
- * a different pair of `getFlowV2` / dispatcher answers over the same real body.
+ * `playBookEvent` is the injection point every dispatch path funnels through in the shipped module:
+ * `playBookEvents` hands it every event, and it picks the path (v2 when the flow owns the event, else
+ * the coded map) — which the stub here mirrors off `flowV2`. So each path here is a different
+ * `flowV2` answer over the same real body, ending in the same `finally`.
  *
  * THE SLAM IS A PRESS DURING THE ROUND, not a pre-tripped token. `playBet` calls `roundSkip.reset()`
  * before the first book event (`playBook.ts`), so a world built already-skipped is byte-identical to an
@@ -843,7 +839,7 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 		marks.push({ what, at: clock.at() });
 	};
 
-	/** Present one book event exactly as both dispatch branches do, and slam on the win. */
+	/** Present one book event exactly as either dispatch path does, and slam on the win. */
 	const present = async (via, bookEvent) => {
 		dispatched.push(`${via}:${bookEvent.type}`);
 		if (bookEvent.type === 'boom') throw new Error('handler blew up');
@@ -868,15 +864,11 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 			'explodeSpinWinners',
 			'explodeWinnersBeforeBoardChange',
 			'startWinCycle',
-			'getFlowInterpreter',
-			'getFlowV2',
 			'sequence',
 			'playBookEvent',
-			'coded',
 			'holdAfterBigWin',
 			'holdBeforeEvent',
 			'modes',
-			'aroundPresentation',
 		],
 		body: `${stripTypes('the playBet seam', `${sliceBetween(playBookSource, 'playBookEvents', '\tconst playBookEvents = async (', '\n\t};\n')}\n${playBetBody}`)}\nreturn playBet;`,
 	})(
@@ -901,17 +893,13 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 			if (world.log.length > before) mark(`spinPop:${bookEvent.type}`);
 		},
 		() => order.push('startWinCycle'),
-		() => undefined,
-		() => flowV2,
 		sequence,
-		(bookEvent) => present('flow', bookEvent),
-		{ playBookEvent: (bookEvent) => present('coded', bookEvent) },
+		(bookEvent) => present(flowV2?.ownsEvent(bookEvent.type) ? 'flow' : 'coded', bookEvent),
 		async () => {},
 		// No respin mode parks before an event.
 		() => undefined,
-		// No mode controller: `aroundPresentation` is then exactly the presentation (see the stub set above).
+		// No mode controller (see the stub set above).
 		undefined,
-		(_bookEvent, present) => present(),
 	);
 
 	const at = (what) => marks.find((entry) => entry.what === what)?.at;
@@ -1563,8 +1551,8 @@ const twoSpinBook = [
 	check('…and the round seam finds nothing left to pop', round.order.filter((e) => e === 'pop:done').length, 1); // prettier-ignore
 	check('…the board the round ends on is untouched', round.world.stateGame.board.flatMap((r) => r.reelState.symbols).filter((c) => c.removed).length, 0); // prettier-ignore
 
-	// …AND ON THE FLOW PATH TOO. The seam is on BOTH branches of `playBookEvents`, so a v2 flow that
-	// owns every event pops on exactly the same spins.
+	// …AND ON THE FLOW PATH TOO. The seam is in the `playBookEvents` loop, ahead of the dispatch, so a
+	// v2 flow that owns every event pops on exactly the same spins.
 	const flow = await drivePlayBet({
 		label: 'two spins, flow',
 		book: twoSpinBook,

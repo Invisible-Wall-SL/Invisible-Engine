@@ -4,14 +4,14 @@
 # still eslintrc-shaped, so ESLint 9 refused to start). Nothing caught the drift, and code rotted
 # unnoticed — a component survived a refactor partly because nothing could lint it.
 #
-# HOW THE GATE WORKS: the repo carries ~277 pre-existing violations. Rather than weaken rules to
+# HOW THE GATE WORKS: the repo carries ~286 pre-existing violations. Rather than weaken rules to
 # get to green, they are recorded in `eslint-suppressions.json`. Every rule stays at `error`, so
 # any violation NOT in that baseline fails this job. Existing debt is burned down over time by
 # deleting entries from the baseline.
 #
-# Working on the debt:
-#   pnpm exec eslint apps packages services --suppressed-only   # what is still baselined
-#   pnpm exec eslint apps packages services --prune-suppressions # drop entries you have fixed
+# Working on the debt (`pnpm lint` is `eslint apps packages services scripts tools`):
+#   eslint-suppressions.json                # what is still baselined: a count per file and rule
+#   pnpm lint --prune-suppressions          # drop entries you have fixed
 #
 # READING A FAILURE: a baseline entry is a COUNT per file+rule, not a set of lines. The moment a
 # file exceeds its count, ESLint cannot tell the new violation from the old ones, so it reports
@@ -19,10 +19,11 @@
 # read like a five-fold regression. Diff the count against the baseline before you believe the
 # number.
 #
-# NOT EVERY RULE IS FIXABLE TODAY. `svelte/no-navigation-without-resolve` is satisfied ONLY by
-# `resolve()` from `$app/paths`, which landed in SvelteKit 2.26; the launcher is on 2.17.3. Its ~48
-# baselined hits are therefore not debt anyone can pay per-file — they clear in one pass when Kit
-# is upgraded, and until then a new internal link legitimately bumps the count.
+# INTERNAL LINKS: `svelte/no-navigation-without-resolve` is satisfied by `resolve()` (or `asset()`
+# for a `static/` file) from `$app/paths`; the launcher's Kit (2.70) types it against the routes and
+# lets it carry a `?query`. A new internal `href`, `goto` or `replaceState` wraps its target in it.
+# The hits still baselined are URLs `resolve()` cannot type: a tool's, game's or pod's URL that may
+# be another origin, a download built by a helper, and the editor's computed `replaceState`.
 #
 # NOTE: the gate is the ROOT run (`pnpm lint`), not `turbo run lint`. Bulk suppressions resolve
 # paths relative to the invocation directory, so the baseline only applies from the repo root.
@@ -60,16 +61,7 @@ jobs:
         uses: ./.github/actions/code-changed
 
       - if: steps.changes.outputs.code == 'true'
-        uses: pnpm/action-setup@v6
-
-      - if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - if: steps.changes.outputs.code == 'true'
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/setup
 
       # Agents + knowledge gate (ADR-0009 §5): every path a build agent names exists, no agent gains
       # a personal-memory `[[…]]` link, every tool and game kind has an owner in
@@ -171,9 +163,9 @@ jobs:
       # store that evaluates the shipped Drizzle conditions (throttle, uniform failure, other
       # sessions revoked, this one kept, the 12-character minimum);
       # `deploy-read` runs the real path-form asset route, which every online game loads through, and
-      # pins that it serves the project's OWN client tree. All five need `svelte-kit sync`, which
-      # their `pre` scripts run. `event-bound-flags` fails on `onclick={save}` where `save(force = false)`
-      # — the click event arrives as `force`, and every manual Save skips the conflict check.
+      # pins that it serves the project's OWN client tree. `event-bound-flags` fails on
+      # `onclick={save}` where `save(force = false)` — the click event arrives as `force`, and every
+      # manual Save skips the conflict check.
       # `director-access` pins the Director / Pipeline Changes / `pipelineMerge` role defaults, both
       # override layers and the two pages' 403.
       # `project-create` pins that `createProject` refuses a key whose R2 folder is a project's under
@@ -191,6 +183,13 @@ jobs:
       # `game-server-config` pins the game server's own credential: `GAME_SERVER_CONFIG_SECRET` reads
       # a published config as a bearer token only, is refused by `/api/deploy` and every deploy-token
       # route (as a bearer and as `?k=`), and an unset variable is a 401 with no deploy-token fallback.
+      #
+      # One `check-all` run, not a chain of `pnpm --filter launcher-api check:*`: every gate runs and
+      # reports its own ✓/✗ (a chain stopped at the first failure and hid the rest), `svelte-kit sync`
+      # runs once, and the gates run in parallel. Each `--only` term is a file name the runner's ids
+      # contain — the gate's package script, e.g. `check-save-state.ts` = `check:save-state`. A term
+      # that selects nothing fails the step, and `check-all --exclude-lint` (Checks) reads this list
+      # so no gate runs in both jobs.
       - name: launcher gates hold
         if: steps.changes.outputs.code == 'true'
-        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:component-links && pnpm --filter launcher-api check:save-state && pnpm --filter launcher-api check:editor-hierarchy && pnpm --filter launcher-api check:editor-shortcuts && pnpm --filter launcher-api check:director-access && pnpm --filter launcher-api check:director-adapters && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:project-create && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:change-password && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:game-server-config && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token && pnpm --filter launcher-api check:director-costs && pnpm --filter launcher-api check:director-mockups && pnpm --filter launcher-api check:director-events && pnpm --filter launcher-api check:director-runs && pnpm --filter launcher-api check:director-prompts && pnpm --filter launcher-api check:director-live && pnpm --filter launcher-api check:blueprint-catalogue && pnpm --filter launcher-api check:build-breakdown && pnpm --filter launcher-api check:font-swap && pnpm check:toolbar-icons
+        run: node scripts/check-all.mjs --jobs 4 --only check-launcher-gates.ts,check-component-links.ts,check-save-state.ts,check-editor-hierarchy.ts,check-editor-shortcuts.ts,check-director-access.ts,check-director-adapters.ts,check-project-scope.ts,check-project-create.ts,check-lease-scope.ts,check-change-password.ts,check-deploy-read.ts,check-game-server-config.ts,check-mock-contract.ts,check-event-bound-flags.mjs,check-tool-launch-token.ts,check-director-costs.ts,check-director-mockups.ts,check-director-events.ts,check-director-runs.ts,check-director-prompts.ts,check-director-live.ts,check-blueprint-catalogue.ts,check-build-breakdown.ts,check-font-swap.ts,check-toolbar-icons.mjs

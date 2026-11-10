@@ -450,9 +450,10 @@ check(
 );
 
 // THE THREE SEAMS. The pop is per SPIN, not per book: `playBookEvents` runs it immediately before the
-// `reveal` / `tumbleBoard` that replaces the board — on BOTH dispatch branches — while `playBet`'s
-// `finally` and the between-spins hold cover the book's last spin, which no board change follows.
-// Those two run it awaited and BEFORE the replay, or the replay would light seats about to vanish.
+// `reveal` / `tumbleBoard` that replaces the board — in the one loop every dispatch path goes through
+// — while `playBet`'s `finally` and the between-spins hold cover the book's last spin, which no board
+// change follows. Those two run it awaited and BEFORE the replay, or the replay would light seats
+// about to vanish.
 const playBookEventsBody = slice(
 	playBook,
 	'playBookEvents',
@@ -460,22 +461,16 @@ const playBookEventsBody = slice(
 	'\n\t};\n',
 );
 check(
-	'the per-spin seam runs on BOTH dispatch branches',
+	'the per-spin seam runs once per event, in the one dispatch loop',
 	(playBookEventsBody.match(/await explodeWinnersBeforeBoardChange\(bookEvent\);/g) ?? []).length,
-	2,
+	1,
 );
-for (const dispatch of [
-	'await playBookEvent(bookEvent, { ...context, bookEvents });',
-	// Wrapped in `aroundPresentation` (game modes), so the call is no longer the awaited statement itself.
-	'coded.playBookEvent(bookEvent, { ...context, bookEvents })',
-]) {
-	check(
-		'…before that branch presents the event',
-		playBookEventsBody.indexOf('await explodeWinnersBeforeBoardChange(bookEvent);') <
-			playBookEventsBody.indexOf(dispatch),
-		true,
-	);
-}
+check(
+	'…before the event is presented',
+	playBookEventsBody.indexOf('await explodeWinnersBeforeBoardChange(bookEvent);') <
+		playBookEventsBody.indexOf('await playBookEvent(bookEvent, { ...context, bookEvents });'),
+	true,
+);
 check(
 	'…keyed to the same board-change set the recorded wins are cleared on',
 	slice(winCycle, 'explodeWinnersBeforeBoardChange', 'export const explodeWinnersBeforeBoardChange = async (').includes('if (!REPLACES_THE_BOARD.has(bookEvent.type)) return;'), // prettier-ignore

@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b, 14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a: Fortune Vault Force Five recreation | 14d merged · 14a: #1559 |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b **built** 2026-11-09 (the enhancement dials, hit / miss beams, Expand / Force 5 at entry, the trigger coins carried in; playbook `docs/playtest/getting-hot.md`); 14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a: Fortune Vault Force Five recreation · 14b: "Getting Hot 14b — presentation" | 14d merged · 14a: #1559 · 14b: this PR |
 
 ## Current state
 
@@ -1119,6 +1119,57 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-09 — **14b: the presentation of the partner's collector bonus** (Getting Hot, game 8).
+  Everything new is keyed off the new events and the feature's `enhancements`, so a game whose
+  features draw none looks exactly as before.
+  - **Beats** (`holdAndWinPresentation.ts`, coded handler and flow action alike):
+    - `enhancementHit` (`hitEnhancement`): the dial lights `hit` with what it adds ("+$1.00",
+      "×4", Win Text `boostHit` / `multiplyHit`). A beam (`enhancementBeam`) flies from the dial
+      to each landing coin, which plays the new **Coin enhance** state while its label counts
+      from → to.
+    - `enhancementMiss` (`missEnhancement`): the dial shows a red X for 600 ms.
+  - **Entry** (inside `showRespinBoard`, when the trigger carries `enhancements`), in order:
+    - "SUPER BONUS" for Force 5;
+    - each drawn dial lights in turn (`enhancementOn`);
+    - "BOOST · MULTIPLY ACTIVE" (Win Text `enhancementsActive`);
+    - an Expand or Force 5 opens its rows with the row-unlock fade ("ROW UNLOCKED · 4 ROWS");
+      the board shows the base rows until then.
+  - **Collectors-only board:** the trigger spin's coins stay on their seats in the held layer
+    (`stateRespinBoard.carried`) until the entry collect flies them into the collectors and
+    `cellsCleared` takes them off. A jackpot coin a collect gathers lights with the coin-jackpot
+    banner in an enhanced feature.
+  - **Bug fixed:** a bonus with no Expand spun 5 rows on the 5-row board. A feature without
+    `rows` now opens at the grid's rows (`enteringRows`), as the wire contract always said. An
+    enhanced feature draws no locked row it can never open (`drawnRows`). Our own mock always
+    sends `rows` on an expanding config, so no current game changes.
+  - **Dials:**
+    - coded row: `EnhancementDials` above the board, drawn only in an enhanced feature;
+    - the skinnable `enhancementDial` component (param `kind`; coded part `EnhancementDialPart`;
+      scoped by `enhancement`), which steps the coded row aside once placed;
+    - value `enhancement.<kind>.state` (0 off, 1 on, 2 hit, 3 miss), visibility
+      `enhancementsShow`;
+    - signals **Enhancement — on / hit / miss** and **Super bonus — enter**.
+  - **Authoring surface:**
+    - Flow: actions `hitEnhancement`, `missEnhancement` (in the starter flow's Hold and Win tab);
+      cues `enhancementOn`, `respinEnhancementHit`, `respinEnhancementMiss`, `superBonusEnter`;
+      value `enhancements`.
+    - Symbols: state **Coin enhance** (cash coins; empty ⇒ Win) and flight **Enhancement beam**.
+    - Win Text: `enhancementsActive`, `superBonus` (both placeable), `boostHit`, `multiplyHit` and
+      the `enhancementNames` map (EXPAND, BOOST, MULTIPLY, RESPIN, SUPER BONUS).
+    - Sources: `collectorsTotal` (the collectors' running total) and `enhancementsActive`.
+    - Reference layout option `enhancements: true`: an **Enhancements** screen (four dials above
+      the board, a collectors-total text box) plus the **Enhancements banner** and **Super bonus
+      banner** screens. Opt-in, because no Game Config field marks this game yet.
+  - **Played** against 14d's mock, frame-stepped in the headless shell, seed 7: base collect,
+    Boost + Multiply hits, misses, Expand, Force 5, two collectors, Respin and a MAJOR coin.
+    Playbook: `docs/playtest/getting-hot.md`.
+  - **Open:**
+    - Pacing: each collector's collect is its own beat, so Force 5 with five collectors takes
+      about 5.5 s a respin.
+    - A base collect with two collectors flies each coin to the nearest one (with "×2" on the
+      banner), not to both.
+    - Game Maker does not yet offer the Enhancements screen (no config marker).
+    - No art: 14e.
 - 2026-11-09 — **14a: the facade reads the partner's collector respin wire** (Getting Hot, game 8).
   - `rgs-translator-eagaming/src/collectorRespin.ts` recognises the game from its boot `config`
     (it deals `COIN` and `COLLECT` and sends none of our blocks) and renames each round's events

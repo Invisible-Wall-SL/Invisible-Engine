@@ -21,7 +21,7 @@ transformers. See docs/status/comfyui.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Sequence
 
 from .base import (
     AnalysisContext,
@@ -190,7 +190,7 @@ class ClipZeroShotAnalyzer(BaseSemanticAnalyzer):
         if self._model is not None and self._loaded_id == model_id:
             return
         try:
-            import torch
+            import torch  # noqa: F401 — availability probe: CLIP cannot run without it
             from transformers import CLIPModel, CLIPProcessor
         except ImportError as exc:
             raise AnalyzerUnavailable(
@@ -207,7 +207,7 @@ class ClipZeroShotAnalyzer(BaseSemanticAnalyzer):
                 .to(self._device)
                 .eval()
             )
-        except Exception as exc:  # noqa: BLE001 - offline, bad id, disk full…
+        except Exception as exc:  # offline, bad id, disk full…
             raise AnalyzerUnavailable(
                 f"could not load CLIP model {model_id!r}: {exc}\n"
                 "First use downloads it from HuggingFace, so this fails without network "

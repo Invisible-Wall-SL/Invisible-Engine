@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	/**
 	 * Invisible Flipbook — the clip authoring surface (`docs/design/invisible-flipbook.md` step 4).
 	 *
@@ -371,7 +372,7 @@
 		leaseSwitch(null);
 		resetPerClipView();
 		markSaved();
-		replaceState('/flipbook', {});
+		replaceState(resolve('/flipbook'), {});
 	}
 
 	async function openClip(id: string): Promise<void> {
@@ -400,7 +401,7 @@
 			leaseSwitch(leaseIdFor(out.clip.id));
 			resetPerClipView();
 			markSaved();
-			replaceState(`/flipbook?clip=${encodeURIComponent(out.clip.id)}`, {});
+			replaceState(resolve(`/flipbook?clip=${encodeURIComponent(out.clip.id)}`), {});
 		} catch {
 			saveError = `Could not open "${label}" (network error).`;
 		} finally {
@@ -1151,7 +1152,9 @@
 							}}
 						/>
 					</label>
-					<a class="pexport" href="/api/flipbook/animations" download>⤓ Export all clips</a>
+					<a class="pexport" href={resolve('/api/flipbook/animations')} download
+						>⤓ Export all clips</a
+					>
 					<p class="phint">
 						An <b>animation</b> plist (ordered frames + timing), not a sprite-sheet plist — those go
 						in the Sheet Maker.

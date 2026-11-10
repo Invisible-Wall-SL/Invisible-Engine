@@ -18,6 +18,8 @@ on:
       - services/atlas-comfy-pod/custom_nodes/ComfyUI-SemanticLayers/**
       # Its pinned checksums are what start.sh verifies the RMBG weights against at boot.
       - services/atlas-comfy-pod/tools/fetch-models.py
+      # handler.py imports the shared ComfyUI client; a change to it has to reach prod.
+      - services/_shared/iw_common/comfy.py
       - .github/workflows/atlas-comfy-worker.yml
   workflow_dispatch: {}
 
@@ -65,6 +67,12 @@ jobs:
           rm -rf services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers
           cp -r services/atlas-comfy-pod/custom_nodes/ComfyUI-SemanticLayers \
                 services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers
+          # handler.py's shared ComfyUI client. Only `comfy` (stdlib-only) and the package
+          # marker: the rest of iw_common needs boto3 and friends, which this image lacks.
+          rm -rf services/atlas-serverless/iw_common
+          mkdir -p services/atlas-serverless/iw_common
+          cp services/_shared/iw_common/__init__.py services/_shared/iw_common/comfy.py \
+             services/atlas-serverless/iw_common/
 
       - name: Build and push
         uses: docker/build-push-action@v7

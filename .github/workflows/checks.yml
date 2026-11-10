@@ -11,7 +11,8 @@
 #                      runs twice and none falls between the two.
 #   python tests     → `scripts/check-python.py`: every services/*/test_*.py, the ComfyUI node suite
 #                      (CPU torch), and the backup job's CLI. No secrets exist here, and the runner
-#                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI.
+#                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI. First,
+#                      `ruff check services/` (rules in services/ruff.toml: F, E9, BLE).
 #
 # REQUIRED CHECKS: every job name here is a required status check on `main` (docs/INFRA.md
 # "Branch ruleset on main"), so the workflow runs on EVERY PR and push — no paths-ignore, which
@@ -48,24 +49,15 @@ jobs:
       - id: changes
         uses: ./.github/actions/code-changed
 
-      - if: steps.changes.outputs.code == 'true'
-        uses: pnpm/action-setup@v6
-
-      - if: steps.changes.outputs.code == 'true'
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
       # A fresh runner's disk reads Chrome's 435 MB install slowly the first time (3–8 s measured, far
       # more beside the shard's other checks), and a spike's first launch paid that read. Read it
-      # now, in the background, while pnpm installs.
+      # now, in the background, while pnpm and Node are set up and the workspace installs.
       - name: warm Chrome's install
         if: steps.changes.outputs.code == 'true'
         run: (find "$(dirname "$(readlink -f "$(command -v google-chrome)")")" -type f -exec cat {} + > /dev/null 2>&1 &)
 
       - if: steps.changes.outputs.code == 'true'
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/setup
 
       # The Rigger's browser spikes drive a real headless Chrome (tools/rigger-spike/chrome.mjs); the
       # runner image ships it.
@@ -103,6 +95,13 @@ jobs:
           python -m pip install --require-hashes -r scripts/backup/requirements.txt
           python -m pip install -r services/atlas-tool/requirements.txt -r services/sheet-tool/requirements.txt requests numpy
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install ruff==0.17.4
+
+      # Pinned: a new ruff can start flagging code nobody touched, and that should land as a
+      # deliberate bump, not as every PR's red check.
+      - name: ruff
+        if: steps.changes.outputs.code == 'true'
+        run: ruff check services/
 
       - name: python tests
         if: steps.changes.outputs.code == 'true'

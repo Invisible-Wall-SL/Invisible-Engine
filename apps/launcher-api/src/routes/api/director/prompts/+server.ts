@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { requireDirectorAccess } from '$lib/server/director/access';
-import { answering, jsonBody, NO_STORE } from '$lib/server/director/api';
+import { answering, NO_STORE } from '$lib/server/director/api';
+import { jsonBody } from '$lib/server/http';
 import { promptCaller } from '$lib/server/director/promptAccess';
 import {
 	MAX_PROMPT_BODY_LENGTH,

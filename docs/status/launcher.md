@@ -81,6 +81,36 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-09 — **One shared tool gate, body reader, conflict answer and project lookup for the API
+  routes.** A review found helpers that existed but were re-typed per route. New
+  `$lib/server/http.ts`: `requireTool(locals, tools, label)` (401 / 403 `Your role does not have
+  access to <label>.`, any-of for a list), `requireToolGrants` + `userGrants` (tool and capability
+  grants read once), `readJson` / `jsonBody` (moved from `director/api.ts`) / `jsonObjectOrNull` /
+  `objectOrNull` / `parseBody(request, zodSchema)`. New `$lib/server/conflict.ts` (apart, so the
+  gate does not load the R2 client): `conflictResponse(e, message)` / `conflictJson` /
+  `conflictFailure` (the form-action `fail(409)`). New
+  `$lib/server/projectLookup.ts`: `clientKeyOf(projectKey)` and `projectParam(url)`. New
+  `requireAdminPanel(locals, 'page' | 'api', message?)` in `$lib/server/admin.ts`. Adopted: the
+  eight per-tool gates (sound, symbols, editor, gameConfig, comfy, pipeline, rig, storybook) are
+  one-line aliases; the six inline editor gates, game-maker add-on/duplicate/import, win-text and
+  the lease use the shared gate; 29 routes read their body through `jsonObjectOrNull`, 17 through
+  `readJson` with their own 400 message, the six Director routes through the shared `jsonBody`;
+  every `ConflictError` → 409 (21 routes, doc-backup restore, Director refusals, the Rigger irig
+  and library writes, the editor and localization save actions) through the conflict helpers;
+  `clientKeyOf` at 28 sites and `projectParam` at 6; the three `adminPanel` copies (the `/admin`
+  page, `api/admin/rigs`, `api/admin/project-footprint`) and `comfyAdmin` through
+  `requireAdminPanel`. `launcherAuth.userHasTool` is gone (`userGrants`). Status codes and bodies
+  are unchanged except: (1) `/comfyui/{nodes,start,stop,pod-image}` parse with `parseBody`, so a
+  body that is not JSON is a 400 `Expected a JSON body.` (it was read as `{}` and refused for its
+  first field) and a non-object one a 400 `Expected a JSON object.`; field refusals keep their
+  messages; (2) a JSON body that is not an object (`null`, an array, a number) now reads as no body
+  on the `jsonObjectOrNull` routes, and on `api/lease` and `api/sounds/file` a `null` body is a
+  400 instead of a 500. Not moved, on purpose: the `api/editor/export-*` routes, `runtimeBundle.ts`
+  and `api/editor/runtime` (another change is reworking them), the desktop/game-maker JSON-envelope
+  bodies (`{ error }` with `no-store`, a different 400 shape than `error()`), and the typed-cast
+  bodies (fonts, files, rigs upload) whose migration means writing a schema. Guard:
+  `check:http-helpers` (35, every helper; mutant-tested); `check:launcher-gates` now also reads
+  `projectParam(` as a project read and pins the lease on `userGrants` + `clientKeyOf`.
 - 2026-11-09 — **Login throttle counts a parallel burst; owner-only admin secrets; admin audit
   log.** Three findings from a code review. (1) `loginThrottle.ts` read a scope's count, added one
   in JS and wrote it back, so N parallel bad logins counted as about one; `countFailure` is now one

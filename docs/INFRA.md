@@ -1367,6 +1367,12 @@ step, `.github/actions/code-changed`, diffs the PR (merge commit vs its base par
 later step, so each job reports success in ~10 s without installing anything. An undecidable diff
 (force-push, new branch) runs everything.
 
+**Job set-up:** a job that needs the workspace installs it through `.github/actions/setup` (pnpm from
+`packageManager`, Node 22 with the pnpm store cached, `pnpm install --frozen-lockfile`, plus an
+optional `install-args`), called after checkout and gated with the same `if:` as the steps it
+replaced. `agent-eval.yml`, `bug-fix.yml` and `bug-fix-proof.yml` keep their own steps: they pin
+every action by SHA and `scripts/bug-fix/workflow.fixture.mjs` asserts them as written.
+
 **State (2026-09-30):** applied — the live ruleset requires all six checks, plus deletions, force
 pushes and PR-required (0 approvals). To recreate or repair it from a terminal with an admin token,
 the whole ruleset in one call:

@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { isFlowV2Library, saveFlowV2Library } from '$lib/server/flowV2LibraryStorage';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -31,7 +32,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to Invisible Flow.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body || !isFlowV2Library(body.library)) {
 		throw error(400, 'missing or malformed v2 function library');
 	}
@@ -44,18 +45,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const { etag } = await saveFlowV2Library(body.library, baseEtag);
 		return json({ ok: true, updatedAt: new Date().toISOString(), etag });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else changed the shared function library while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else changed the shared function library while you were editing. ' +
+				'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		throw e;
 	}
 };

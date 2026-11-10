@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from iw_common import texturepacker
+
 
 # ---------------------------------------------------------------------------
 # libGDX / Spine-format 4.x .atlas
@@ -50,35 +52,15 @@ def write_libgdx_atlas(path: str | Path, image_name: str,
 
 def write_texturepacker_json(path: str | Path, image_name: str,
                              width: int, height: int, regions: list[dict]) -> None:
-    """Emit a TexturePacker JSON-hash file. When a region is rotated the
-    `frame` w/h are swapped (the on-sheet footprint) while sourceSize keeps
-    the display size — the convention PixiJS / Phaser expect."""
-    frames: dict[str, dict] = {}
-    for r in regions:
-        dw, dh = int(r["w"]), int(r["h"])
-        rotated = bool(r.get("rotated"))
-        fw, fh = (dh, dw) if rotated else (dw, dh)
-        key = r["name"] if "." in r["name"] else f"{r['name']}.png"
-        frames[key] = {
-            "frame": {"x": int(r["x"]), "y": int(r["y"]), "w": fw, "h": fh},
-            "rotated": rotated,
-            "trimmed": False,
-            "spriteSourceSize": {"x": int(r.get("off_x", 0)), "y": int(r.get("off_y", 0)),
-                                 "w": dw, "h": dh},
-            "sourceSize": {"w": int(r.get("orig_w", dw)), "h": int(r.get("orig_h", dh))},
-        }
-    doc = {
-        "frames": frames,
-        "meta": {
-            "app": "Invisible Sheet Maker",
-            "version": "1.0",
-            "image": image_name,
-            "format": "RGBA8888",
-            "size": {"w": int(width), "h": int(height)},
-            "scale": "1",
-        },
-    }
-    Path(path).write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    """Emit a TexturePacker JSON-hash file in the Sheet Maker's FOOTPRINT
+    dialect: a rotated region's `frame` w/h are swapped to the on-sheet
+    footprint while sourceSize keeps the display size. This is NOT what PixiJS's
+    `Spritesheet` expects of a rotated frame (it swaps them itself) — it is
+    what the launcher's `backfillMissingGeometry` un-swaps when it reads
+    `atlas.texturepacker_json`. See `iw_common.texturepacker`."""
+    texturepacker.write_texturepacker_json(
+        path, image_name, width, height, regions,
+        app="Invisible Sheet Maker", dialect=texturepacker.FOOTPRINT)
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import { checkShippedFlowV2, describeFlowErrors } from '../../flowV2Validation';
 import { loadGameConfigDocWithEtag } from '../../gameConfigStorage';
 import { mockContractOfBundle } from '../../mockContract';
 import { protocolFor } from '../../mockProtocol';
-import { projectClientKey, projectGameType } from '../../projects';
+import { projectGameType } from '../../projects';
 import { hasOwnBuiltBundle } from '../../publishGame';
 import {
 	copyDeployTree,
@@ -26,7 +26,7 @@ import { buildRuntimeBundle } from '../../runtimeBundle';
 import { withDeployWrite } from '../../runtimeBundleCache';
 import { chooseRuntime } from '../../runtimeChoice';
 import { runtimePointer } from '../../testServerManifest';
-import { SUB, UNASSIGNED_CLIENT } from '../../projectPaths';
+import { SUB } from '../../projectPaths';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { validatedModelImage } from '../mockupPixels';
 import {
@@ -42,6 +42,7 @@ import {
 } from '../drafts';
 import { activeDraftPlayer, armDraftWatch } from '../draftJobs';
 import { getDraftJob, insertDraftJob, queuedDraftJobs, settleDraftJob } from '../store';
+import { clientKeyOf } from '../../projectLookup';
 
 /**
  * Build adapters (ADR-0010): QA freezes the run's game as a draft and plays it with forced
@@ -77,7 +78,7 @@ const contractHashOf = (contract: unknown) =>
  * has nothing to compare and is skipped.
  */
 async function assertTemplateContract(templateKey: string, draftHash: string): Promise<void> {
-	const client = (await projectClientKey(templateKey)) ?? UNASSIGNED_CLIENT;
+	const client = await clientKeyOf(templateKey);
 	const pointer = await currentPointer(client, templateKey);
 	if (!pointer) return;
 	const bundle = await readSnapshotBundle(client, templateKey, pointer.current);

@@ -1,0 +1,106 @@
+# Playtest — Getting Hot (the partner's collector bonus, partner game 8)
+
+Getting Hot is our reskin of the partner's Fortune Vault Force 5: a 5×3 lines game. Coins land on
+reels 1, 2, 4 and 5 and collectors on reel 3. The collector bonus has four enhancements (Expand,
+Boost, Multiply, Respin) and a super bonus (Force 5). The partner's server owns every outcome; we
+build the client. Plan: [hold-and-win-enhancements.md](../design/hold-and-win-enhancements.md)
+(Phase 14). Status: [status/hold-and-win.md](../status/hold-and-win.md).
+
+This playbook covers the beats Phase 14b presents. 14e extends it with the real project, its art
+and the first launch against the partner's server.
+
+## Launch (local, no production data)
+
+Three processes, each on its own free port:
+
+1. **The partner-wire mock** (14d): `PORT=<rgs> SEED=7 node scripts/mock-rgs-server-holdandwin-partner.mjs`.
+   On the Invisible Test Server the same mock is selected per game with
+   `PARTNER_WIRE_GAMES=<gameKey>`.
+2. **A `/api/editor/runtime` stub** answering `{doc, config, assetBase, name}` with CORS `*`:
+   - `config`: a 5×3 Hold and Win Game Config. COIN (`coin` + `jackpot`) goes on reels 0, 1, 3
+     and 4, COLLECT (`collector`, `instantCollectInBaseGame`) on reel 2, plus BLANK.
+     `stickiness: 'collectorsOnly'` and `expansion {startRows: 3, maxRows: 5}`. Line symbols are
+     the facade's names for PIC1–PIC9 (`H1`–`H5`, `L1`–`L3`, `L5`).
+   - `doc`: `holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { maxRows: 5, potIds: [], enhancements: true })`.
+     The option adds the Enhancements screen (four Enhancement Dials, the collectors' total) and
+     the two banner screens. Leave it out to see the coded dials.
+3. **`apps/lines`** on Vite with `PUBLIC_RGS_TRANSPORT=play4fun`.
+
+Then open
+`http://localhost:<vite>/?runtime=1&project=gettinghot&k=x&editorDocBase=http://localhost:<stub>&rgs_url=localhost:<rgs>&sessionID=<sid>&ie_authoring=1`.
+Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` API that
+`scripts/playtest/sample-play.mjs` drives).
+
+## Forcing a beat
+
+`POST http://localhost:<rgs>/force?sid=<sid>&beat=<tokens>` before the spin, or
+`play.context = "force:<tokens>"`. The tokens are 14d's:
+
+- `enhancements:<bits>`: five bits in this order: expand, boost, powerFive, multiply, respin.
+- `boostHit` and `multiplyHit`: each needs its bit. They hit on the first respin.
+- `superBonus`: Force 5, which is `enhancements:11111`.
+- `twoCollectors`, `trigger`, `baseCollect`.
+
+## Scenarios
+
+### S1 — Base collect (`baseCollect`)
+
+- **Expect:** each coin flies into the collector on reel 3. Then an "INSTANT WIN" banner with the
+  amount. The HUD win equals the round's `gameEnd` win. No bonus.
+
+### S2 — Trigger, Boost + Multiply hits (`enhancements:01010,boostHit,multiplyHit`)
+
+- **Expect, at entry:**
+  - The bonus board opens with the collector(s) on reel 3. The trigger spin's coins **stay on
+    their seats**.
+  - The Boost and Multiply dials light one after the other. Expand and Respin stay dim.
+  - "BOOST · MULTIPLY ACTIVE" holds.
+  - The entry collect flies the trigger coins into the collector, whose label climbs, and the
+    coins clear.
+- **Expect, on the first respin:**
+  - The Boost dial flashes "+$n.nn" and a beam flies from it to the landing coin. The coin plays
+    Coin enhance and its label counts up.
+  - The same follows for Multiply ("×n").
+  - Then the collect takes the coin's new value.
+- **Expect, later respins:** a miss shows the dial's red X for a beat.
+- **Expect, throughout:** the board stays **3 rows**, with no locked rows drawn.
+
+### S3 — Expand (`enhancements:10000`)
+
+- **Expect:** "EXPAND ACTIVE", then "ROW UNLOCKED · 4 ROWS" while the 4th row's locked cells fade
+  open. Respins land in 4 rows. The 5th row is never drawn.
+
+### S4 — Force 5 (`enhancements:11111,superBonus`)
+
+- **Expect:**
+  - "SUPER BONUS" (large), then all four dials light.
+  - "ROW UNLOCKED · 5 ROWS": the board opens 5×5.
+  - The counter starts at 5.
+  - Expect a long feature: up to five collectors, each collecting every coin.
+
+### S5 — Two collectors (`trigger,twoCollectors`)
+
+- **Expect:** both collectors take every coin at entry and on each respin. Each label climbs on its
+  own. The collectors' total readout climbs as each coin lands.
+
+### S6 — Respin (`enhancements:00001`)
+
+- **Expect:** "RESPIN ACTIVE", and the counter starts (and resets) at 4.
+
+### S7 — A jackpot coin (any trigger; one turns up within a few rounds)
+
+- **Expect:** when a collector gathers a jackpot coin, the coin lights with a small banner naming
+  its tier and amount. It is presentation only: the collector's value already holds it.
+
+## Every round
+
+- 0 console errors other than the stub config's known "no entry in the symbol map" for COIN and
+  COLLECT (no Symbols doc). No "Missing handler" error.
+- Balance after = before − stake + `gameEnd` win.
+
+## Played (2026-11-09, Phase 14b, branch `hold-and-win/14b-collector-respin-presentation`)
+
+S1–S7 were played frame-stepped in the GPU headless shell against the partner-wire mock, seed 7.
+S1–S6 settled with 0 errors. S4 played all 56 respin requests; with five collectors each respin
+takes about 5.5 s (Open items: pacing). The jackpot-coin beat showed as a MAJOR coin in a Force 5
+entry collect.

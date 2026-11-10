@@ -181,8 +181,8 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 	 * Play one book event. When the Invisible Flow interpreter is active (a FlowDoc is authored)
 	 * it OWNS dispatch — it runs the event's authored choreography or falls through to the coded
 	 * `bookEventHandlerMap` for an un-authored event, AND lets the macro graph take a `bookEvent`
-	 * transition (design doc §6.1, §7). ABSENT interpreter (no FlowDoc — the default) ⇒ the coded
-	 * `playBookEvent` runs unchanged.
+	 * transition (design doc §6.1, §7). No flow at all ⇒ the coded `bookEventHandlerMap` presents it,
+	 * inside the same seam (slam carve-out, mode moves, every `dispatchBookEvent` step).
 	 */
 	const playBookEvent = (
 		bookEvent: BookEvent,
@@ -323,41 +323,29 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		bookEvents: BookEvent[],
 		context?: { bookEvents?: BookEvent[] },
 	): Promise<void> => {
-		// v1 OR v2 flow active ⇒ run the SAME serial `sequence()` the coded path uses, routing each event
-		// through `playBookEvent` (which hands an event to v2 when it OWNS it, else v1/coded — see above).
-		// Neither active ⇒ the coded dispatch, event by event (`coded.playBookEvent` is exactly what
-		// `coded.playBookEvents` loops over, so that branch stays byte-identical to deferring to it).
+		// ONE serial loop for every game, flow or none: each event goes through `playBookEvent`, which
+		// picks the path (v2 when it OWNS the event, else v1, else the coded map) INSIDE the round seam.
+		// A game with no flow at all (a layout without loading/basegame scenes builds no v1 flow) used to
+		// take a second loop straight to the coded map, skipping the slam carve-out and every
+		// `dispatchBookEvent` step — the win cycle, the win meter, the all-at-once lines and the big-win
+		// run-up were silently missing on it.
 		//
-		// The BETWEEN-SPINS HOLD hangs off both branches, after the event's presentation is fully awaited:
-		// a big win mid-feature parks the book on its winning board until the player presses SPIN
-		// (`freeSpinHold.ts`). Off by default ⇒ both branches are byte-identical to before. Its twin
-		// BEFORE an event (`holdBeforeEvent`) parks a Manual respin mode's respin on the same press.
-		// Neither holds ⇒ nothing is awaited.
+		// The BETWEEN-SPINS HOLD runs after the event's presentation is fully awaited: a big win
+		// mid-feature parks the book on its winning board until the player presses SPIN
+		// (`freeSpinHold.ts`). Its twin BEFORE an event (`holdBeforeEvent`) parks a Manual respin mode's
+		// respin on the same press. Neither holds ⇒ nothing is awaited.
 		//
-		// THE PER-SPIN POP (Invisible Symbols → "Winning symbols explode") hangs off the TOP of both
-		// branches, for the mirror of the hold's reason: a spin's winners have to blow up while the board
-		// they were scored on is still the board on screen, i.e. immediately BEFORE the `reveal` /
-		// `tumbleBoard` that replaces it. Here rather than at `dispatchBookEvent` because this is the one
-		// seam BOTH dispatch branches cross. `playBet`'s `finally` still pops the book's LAST spin, which
-		// no board change follows. A no-op for every other event, and one boolean read with the switch
-		// off ⇒ both branches are byte-identical to before.
-		if (getFlowInterpreter() || getFlowV2()) {
-			await sequence(bookEvents, async (bookEvent) => {
-				await explodeWinnersBeforeBoardChange(bookEvent);
-				const hold = holdBeforeEvent?.(bookEvent);
-				if (hold) await hold;
-				await playBookEvent(bookEvent, { ...context, bookEvents });
-				await holdAfterBigWin(bookEvent, bookEvents);
-			});
-			return;
-		}
+		// THE PER-SPIN POP (Invisible Symbols → "Winning symbols explode") runs BEFORE the event, for the
+		// mirror of the hold's reason: a spin's winners have to blow up while the board they were scored
+		// on is still the board on screen, i.e. immediately BEFORE the `reveal` / `tumbleBoard` that
+		// replaces it — ahead of the slam carve-out and the mode moves `playBookEvent` opens. `playBet`'s
+		// `finally` still pops the book's LAST spin, which no board change follows. A no-op for every
+		// other event, and one boolean read with the switch off.
 		await sequence(bookEvents, async (bookEvent) => {
 			await explodeWinnersBeforeBoardChange(bookEvent);
 			const hold = holdBeforeEvent?.(bookEvent);
 			if (hold) await hold;
-			await aroundPresentation(bookEvent, () =>
-				coded.playBookEvent(bookEvent, { ...context, bookEvents }),
-			);
+			await playBookEvent(bookEvent, { ...context, bookEvents });
 			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 	};
