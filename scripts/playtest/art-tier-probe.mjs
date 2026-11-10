@@ -9,8 +9,10 @@
 // launcher publishes a tier (`docs/design/arcade-4k-builds.md` Phase 3) —
 //   - a sprite SHEET (one region of a 3000×1600 page) with its half page and a `@half.json` written
 //     by the launcher's own `sheetOnPage`;
-//   - a standalone IMAGE (1400×900) with its half copy and the resolution it loads at.
-// Both are placed at their natural size, which is exactly where a wrong scale would show.
+//   - a standalone IMAGE (1400×900) with its half copy and the resolution it loads at;
+//   - a FLIPBOOK clip over two frames of that sheet (the form a video render ships in), with no
+//     tier of its own: it must ride the sheet's.
+// All are placed at their natural size, which is exactly where a wrong scale would show.
 //
 // Runs, all in a 1280×720 window (the Book-of canvas, 2844×1600 at 4K, shows at 0.45 of its size, so
 // auto picks `half`):
@@ -105,21 +107,27 @@ const sheetPage = await sharp({
 })
 	.composite([
 		{ input: await blocks(1200, 800, ['#e94e77', '#f9d423', '#5cc8ff']), left: 0, top: 0 },
+		// Two clip frames with the SAME picture under two names, so the clip looks the same at
+		// whatever moment a real-clock capture lands on.
+		{ input: await blocks(600, 400, ['#ffffff', '#00b3a4']), left: 1300, top: 0 },
+		{ input: await blocks(600, 400, ['#ffffff', '#00b3a4']), left: 1300, top: 450 },
 	])
 	.png()
 	.toBuffer();
 write('sheet/page.webp', await sharp(sheetPage).webp({ quality: 95 }).toBuffer());
 write('sheet/page@half.webp', await half(sheetPage, SHEET_W, SHEET_H));
-const panel = { x: 0, y: 0, w: 1200, h: 800 };
+const frame = (r) => ({
+	frame: r,
+	rotated: false,
+	trimmed: false,
+	spriteSourceSize: { ...r, x: 0, y: 0 },
+	sourceSize: { w: r.w, h: r.h },
+});
 const sheet = {
 	frames: {
-		panel: {
-			frame: panel,
-			rotated: false,
-			trimmed: false,
-			spriteSourceSize: panel,
-			sourceSize: { w: panel.w, h: panel.h },
-		},
+		panel: frame({ x: 0, y: 0, w: 1200, h: 800 }),
+		flipA: frame({ x: 1300, y: 0, w: 600, h: 400 }),
+		flipB: frame({ x: 1300, y: 450, w: 600, h: 400 }),
 	},
 	meta: {
 		app: 'art-tier-probe',
@@ -166,14 +174,32 @@ basegame.nodes.push(
 		assetKey: IMAGE_KEY,
 		anchor: { x: 0.5, y: 0.5 },
 	},
+	// A flipbook clip over the same tiered sheet (Phase 5: clips, the form a video render ships
+	// in, ride the sheet tiers with no tier of their own).
+	{
+		id: 'probe-clip',
+		kind: 'flipbook',
+		clipId: 'probe-clip',
+		x: 1450,
+		y: 330,
+		anchor: { x: 0.5, y: 0.5 },
+	},
 );
+const clip = {
+	id: 'probe-clip',
+	name: 'probe clip',
+	assetKey: SHEET_KEY,
+	frames: ['flipA', 'flipB'],
+	fps: 4,
+	loop: true,
+};
 
 const editorArt = (imageTier) => ({
 	sheets: [
 		{
 			key: SHEET_KEY,
 			json: 'sheet/sheet.json',
-			names: ['panel'],
+			names: ['panel', 'flipA', 'flipB'],
 			tiers: { half: { json: 'sheet/sheet@half.json' } },
 		},
 	],
@@ -199,6 +225,7 @@ for (const [name, run] of Object.entries(RUNS)) {
 		assetBase: `${origin}/probe-art/`,
 		doc: doc4k,
 		editorArt: editorArt(run.imageTier),
+		flipbooks: [clip],
 	});
 	const params = new URLSearchParams({
 		sessionID: `art-tier-${name}`,

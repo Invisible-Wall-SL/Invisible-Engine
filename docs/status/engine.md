@@ -433,6 +433,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-11-09 — **4K builds Phase 5 closed: video and FX need no tier of their own**
+  ([arcade-4k-builds](../design/arcade-4k-builds.md)). Video never ships (a render becomes a sheet
+  and a clip); clips and FX particles take their textures from the sheets' `loadedAssets` keys, so
+  they draw from whichever tier the sheet loaded. `art-tier-probe.mjs` now plays a flipbook clip
+  over a tiered sheet: half and full draw it the same size (whole frame 0.35% apart). Bitmap-font
+  pages and the boot splash stay untiered on purpose.
 - 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
   big-win run-up** (branch `engine-playbook-single-dispatch`). `engine-game` `playBook.ts`
   `playBookEvents` ran a second loop when neither a v1 nor a v2 flow existed (a layout without
