@@ -422,31 +422,11 @@ def with_r2_failures(msg: str, failed: list[str]) -> str:
             "this server and is lost on the next restart or deploy.")
 
 
-# The pre-token shared-secret gate. Kept for the transition window only (see
-# iw_common/launch.py); both unset = open (local dev).
-ATLAS_TOOL_SECRET = os.environ.get("ATLAS_TOOL_SECRET", "")
-GATE = launch.LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET",
-                         legacy_env="ATLAS_TOOL_SECRET", legacy_cookie="atlas_tool",
-                         legacy_header="X-Atlas-Secret")
-
-
-def _truthy_env(name: str) -> bool:
-    """A loose env truthiness test for boolean flags (1/true/yes/on)."""
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
-# Blueprint publishing (upload/overwrite) is the only WRITE path into the SHARED
-# cross-project library, so it's gated separately from the read/run gate above —
-# and gated by KNOWLEDGE OF A SECRET, not a forgeable flag. The launcher appends
-# `bp=<ATLAS_BLUEPRINT_SECRET>` to the /atlas redirect ONLY for users holding the
-# `blueprintPublish` capability (mirrors how it appends `?k=<ATLAS_TOOL_SECRET>`);
-# the tool sets a per-session `atlas_bp=<secret>` cookie and publishing requires
-# that the param/cookie EQUAL the secret. A bare `bp=1` is meaningless — every
-# atlas user already holds `?k=`, so a non-secret flag would let anyone publish.
-# When no publish secret is configured the tool falls back to dev/local rules:
-# open only if there's no tool secret at all (local) or the explicit env override.
-ATLAS_BLUEPRINT_SECRET = os.environ.get("ATLAS_BLUEPRINT_SECRET", "").strip()
-ATLAS_BLUEPRINT_PUBLISH = _truthy_env("ATLAS_BLUEPRINT_PUBLISH")
+# Who is calling and for which (client, project): a launcher-signed token (see
+# iw_common/launch.py); unset = open (local dev). Blueprint publishing — the
+# only WRITE path into the SHARED cross-project library — is the token's
+# `blueprintPublish` capability (see Handler._resolve_publish).
+GATE = launch.LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET")
 
 # POST routes that write/remove ref images → their Handler method. Dispatched
 # from this table only (`Handler._post`), so every one of them mirrors staging
@@ -8298,8 +8278,7 @@ async function createAtlas(){{
 // Opens the Region Overlay Inspector (not the bare page bytes): it draws each
 // manifest rect over the composed pixels and re-measures the art's real alpha
 // bbox, so a rect/pixel mismatch is visible + screenshottable. location.search
-// rides along so the tool bar's ?home/?tools switcher renders in the new tab
-// (and ?k= re-arms the gate cookie if this tab was the one that carried it).
+// rides along so the tool bar's ?home/?tools switcher renders in the new tab.
 function viewAtlas(){{
   var q=location.search||'';
   window.open('/atlasview'+q+(q?'&':'?')+'t='+Date.now(),'_blank');
@@ -8780,51 +8759,21 @@ class Handler(iw_http.ToolHandler):
         `self.can_publish` (read by `_uploadblueprint` and exposed to the page
         so the "＋ New blueprint" affordance only shows when allowed).
 
-        Mirrors the legacy `?k=` secret handling in the gate: the launcher hands off
-        `bp=<ATLAS_BLUEPRINT_SECRET>` ONLY for users holding `blueprintPublish`,
-        and we require the param/cookie to EQUAL that secret. We stick it in a
-        session cookie `atlas_bp=<secret>` (same attributes as the gate's
-        `atlas_tool` cookie) so the capability survives the in-tool navigations
-        that drop the param. A non-secret flag would be forgeable — every atlas
-        user already holds the read secret, so `bp=1` would gate nothing.
+        A signed caller may publish iff its token carries `blueprintPublish`
+        (the launcher puts it there only for users holding the capability; a
+        session keeps its launch's caps). Open mode is local dev and may.
 
-        With a signed launch the permission is the token's `blueprintPublish`
-        capability instead, and none of the secret handling below applies.
-
-        Must run AFTER `_authenticate()` (which initializes `_extra_cookies`)
-        so the extra Set-Cookie rides along on the response."""
+        Must run AFTER `_authenticate()` (which sets `_identity`)."""
         if self._identity.via == "token":
             self.can_publish = self._identity.can(launch.PUBLISH_CAP)
-            return
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        param_bp = q.get("bp", [""])[0]
-        cookie_bp = ""
-        for part in (self.headers.get("Cookie", "") or "").split(";"):
-            part = part.strip()
-            if part.startswith("atlas_bp="):
-                cookie_bp = part[len("atlas_bp="):]
-                break
-        if ATLAS_BLUEPRINT_SECRET:
-            # Production model: knowledge of the publish secret == permission.
-            if param_bp == ATLAS_BLUEPRINT_SECRET and cookie_bp != ATLAS_BLUEPRINT_SECRET:
-                self._extra_cookies.append(
-                    f"atlas_bp={ATLAS_BLUEPRINT_SECRET}; Path=/; HttpOnly; "
-                    "SameSite=None; Secure")
-            self.can_publish = (
-                param_bp == ATLAS_BLUEPRINT_SECRET
-                or cookie_bp == ATLAS_BLUEPRINT_SECRET)
         else:
-            # No publish secret configured → dev/local fallback: allow only when
-            # the tool runs fully open (no read secret) or the explicit env
-            # override is set. Fail safe (closed) when a read secret is set but
-            # no publish secret is — never forgeable-open in a deployed tool.
-            self.can_publish = bool(not ATLAS_TOOL_SECRET or ATLAS_BLUEPRINT_PUBLISH)
+            self.can_publish = self._identity.via == "open"
 
     def _handle_deeplink(self, qs: dict) -> bool:
         """Editor "Open in Atlas Maker" deep-link (shared URL contract).
 
         The editor/launcher sends the user to `/?atlas=<sheetFile>&region=<key>`
-        (plus k/client/project/home). When `atlas` is present we resolve it to
+        (plus the launch token and home). When `atlas` is present we resolve it to
         the generation manifest that OWNS it and make that the active manifest,
         optionally flashing the region's card. When NO Atlas Maker recipe owns
         the atlas, we auto-import the existing TexturePacker/editor sheet into a
@@ -9183,9 +9132,10 @@ class Handler(iw_http.ToolHandler):
                        bases=docsave.parse_bases(raw_bases) if raw_bases else None)
         length = int(self.headers.get("Content-Length", 0))
         # The tool's own page POSTs to BARE paths and carries its (client, project)
-        # in cookies. The launcher proxy has no cookies, so it MUST append
-        # `?k=&client=&project=&user=` — and a raw `self.path` comparison never
-        # matches a proxied POST, so the route silently falls through to the 404.
+        # in cookies. The launcher proxy has no cookies, so a call to an open dev
+        # tool appends `?client=&project=&user=` — and a raw `self.path`
+        # comparison never matches a proxied POST, so the route silently falls
+        # through to the 404.
         # GET has always parsed (see do_GET); this makes POST agree. Every bare
         # path is unchanged by the parse, so the tool's own calls behave exactly
         # as before — the only difference is that a proxied call now resolves.

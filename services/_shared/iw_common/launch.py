@@ -14,26 +14,20 @@ once); a server-to-server caller sends a ``typ:"api"`` token as the
 Only an api token may carry ``act`` (an Invisible Director agent acting for the
 user); it never reaches a session cookie.
 
-With neither secret set the tool is open for local dev — but never on Railway
-(``RAILWAY_ENVIRONMENT`` set), where a missing secret must not open it.
+With no signing secret set the tool is open for local dev — but never on
+Railway (``RAILWAY_ENVIRONMENT`` set), where a missing secret must not open it.
+Open mode takes its scope from ``?client=`` / ``?project=`` / ``?user=`` and the
+``iw_*`` cookies they leave behind.
 
-    GATE = LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET",
-                      legacy_env="ATLAS_TOOL_SECRET", legacy_cookie="atlas_tool",
-                      legacy_header="X-Atlas-Secret")
+    GATE = LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET")
     res = GATE.authenticate(self.path, self.headers)
 
 A valid launch token becomes a signed session cookie (same claims, longer
 expiry — never the secret itself) and the browser is redirected to the same URL
 without the token. Every later request is scoped from that cookie ONLY: a
 ``?client=`` / ``?project=`` in the URL is ignored. Switching project means
-going back through the launcher, which mints a new token.
-
-Transition: the old shared-secret handoff (``?k=`` + unsigned
-``client``/``project``/``user``) is still accepted until
-:data:`LEGACY_CUTOVER` (override with ``IW_LEGACY_TOOL_KEY_UNTIL=YYYY-MM-DD``,
-or ``off`` to end it now). While a tool has no signing secret at all, the legacy
-gate is the only gate and stays on. With neither secret set the tool is open
-(local dev) and takes its scope from the query/cookie as before.
+going back through the launcher, which mints a new token. With a signing
+secret set nothing else opens the tool: there is no fallback.
 
 A session carries the role and capabilities of its launch for its whole life:
 a change to either applies on the user's next launch. Rotating the signing
@@ -42,7 +36,6 @@ secret ends every session of that tool at once.
 from __future__ import annotations
 
 import base64
-import datetime as _dt
 import hashlib
 import hmac
 import json
@@ -62,12 +55,6 @@ LAUNCH_HEADER = "X-IW-Launch"
 LAUNCH_TTL_MAX = 300
 SESSION_TTL = 12 * 3600
 CLOCK_SKEW = 60
-
-LEGACY_ENV = "IW_LEGACY_TOOL_KEY_UNTIL"
-# Last day (UTC, inclusive) a tool that HAS a signing secret still accepts ?k=.
-LEGACY_CUTOVER = "2026-10-13"
-# Query params the legacy handoff carried; stripped from the URL after a launch.
-_HANDOFF_PARAMS = (LAUNCH_PARAM, "k", "client", "project", "user", "bp")
 
 ADMIN_ROLE = "admin"
 PUBLISH_CAP = "blueprintPublish"
@@ -134,8 +121,8 @@ def verify(secret: str, token: str | None, *, typ: str, aud: str,
 
 @dataclass(frozen=True)
 class Identity:
-    """The caller. ``via`` is ``token`` (signed), ``legacy`` (shared secret —
-    client/project are whatever the URL said) or ``open`` (no gate configured)."""
+    """The caller. ``via`` is ``token`` (signed) or ``open`` (no signing secret,
+    local dev — client/project/user are whatever the URL or cookies said)."""
     via: str
     sub: str = ""
     uid: str = ""
@@ -172,8 +159,8 @@ class Identity:
 def may_control(requester: Identity | None, owner: dict | None) -> bool:
     """May `requester` stop/replace something `owner` started? The owner and an
     admin may; nobody is locked out of a job that recorded no owner. A job
-    started under a signed identity only matches a signed caller — a legacy
-    caller names itself in the URL, so its id proves nothing."""
+    started under a signed identity only matches a signed caller — any other
+    caller's id is self-declared, so it proves nothing."""
     if not owner or not owner.get("id"):
         return True
     if requester is None:
@@ -224,27 +211,10 @@ def _act(claims: dict) -> tuple[str, str, str] | None:
     return tool, agent, run
 
 
-def legacy_until(today: _dt.date | None = None) -> bool:
-    """Is the legacy ?k= handoff still inside its window (for a tool that has a
-    signing secret)?"""
-    raw = (os.environ.get(LEGACY_ENV) or LEGACY_CUTOVER).strip().lower()
-    if raw in ("off", "0", "false", "no"):
-        return False
-    try:
-        until = _dt.date.fromisoformat(raw)
-    except ValueError:
-        return False
-    return (today or _dt.datetime.now(_dt.timezone.utc).date()) <= until
-
-
 class LaunchGate:
-    def __init__(self, *, aud: str, signing_env: str, legacy_env: str,
-                 legacy_cookie: str, legacy_header: str) -> None:
+    def __init__(self, *, aud: str, signing_env: str) -> None:
         self.aud = aud
         self.signing_env = signing_env
-        self.legacy_env = legacy_env
-        self.legacy_cookie = legacy_cookie
-        self.legacy_header = legacy_header
         self.session_cookie = f"iw_{aud}_session"
         # Launch tokens already exchanged for a cookie (signature -> exp), so a
         # token copied out of a URL cannot start a second session.
@@ -256,40 +226,24 @@ class LaunchGate:
     def signing_secret(self) -> str:
         return os.environ.get(self.signing_env, "").strip()
 
-    @property
-    def legacy_secret(self) -> str:
-        return os.environ.get(self.legacy_env, "").strip()
-
     def mode(self) -> str:
-        """``signed``, ``legacy`` (old gate only), ``open`` (local dev) or
-        ``closed`` (no secret on Railway — refuse everything)."""
+        """``signed``, ``open`` (local dev) or ``closed`` (no signing secret on
+        Railway — refuse everything)."""
         if self.signing_secret:
             return "signed"
-        if self.legacy_secret:
-            return "legacy"
         on_railway = any(os.environ.get(k) for k in
                          ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID"))
         return "closed" if on_railway else "open"
 
     def describe(self) -> str:
-        """One startup log line: which gate is live, and until when ?k= is."""
+        """One startup log line: which gate is live."""
         mode = self.mode()
         if mode == "signed":
-            tail = (f"legacy ?k= accepted until {os.environ.get(LEGACY_ENV) or LEGACY_CUTOVER}"
-                    if self.legacy_accepted() else "legacy ?k= refused")
-            return f"[gate] signed launch tokens ({self.signing_env}); {tail}"
-        if mode == "legacy":
-            return (f"[gate] WARNING: {self.signing_env} unset - only the legacy shared-secret "
-                    "handoff is active")
+            return f"[gate] signed launch tokens ({self.signing_env})"
         if mode == "closed":
-            return (f"[gate] ERROR: neither {self.signing_env} nor {self.legacy_env} is set "
-                    "on Railway - refusing every request except /healthz")
-        return "[gate] open (no secrets set - local dev)"
-
-    def legacy_accepted(self) -> bool:
-        if not self.legacy_secret:
-            return False
-        return not self.signing_secret or legacy_until()
+            return (f"[gate] ERROR: {self.signing_env} is not set on Railway - refusing "
+                    "every request except /healthz")
+        return f"[gate] open ({self.signing_env} not set - local dev)"
 
     def mint_session(self, claims: dict, now: float | None = None) -> str:
         t = int(time.time() if now is None else now)
@@ -355,37 +309,16 @@ class LaunchGate:
             claims = verify(secret, _cookie(cookie_header, self.session_cookie),
                             typ="session", aud=self.aud)
             ident = self._claims_identity(claims) if claims else None
-            if ident:
-                return GateResult(ok=True, identity=ident)
-
-        if self.legacy_accepted():
-            ok, cookies = self._legacy_gate(q, cookie_header, headers)
-            if not ok:
-                return GateResult(ok=False)
-            ident, scope_cookies = self._legacy_scope("legacy", q, cookie_header)
-            return GateResult(ok=True, identity=ident, cookies=cookies + scope_cookies)
+            return GateResult(ok=ident is not None, identity=ident)
 
         if self.mode() == "open":
-            ident, scope_cookies = self._legacy_scope("open", q, cookie_header)
+            ident, scope_cookies = self._open_scope(q, cookie_header)
             return GateResult(ok=True, identity=ident, cookies=scope_cookies)
         return GateResult(ok=False)
 
-    # --- the pre-token handoff (removed after LEGACY_CUTOVER) ---------------
-
-    def _legacy_gate(self, q, cookie_header: str, headers) -> tuple[bool, list[str]]:
-        secret = self.legacy_secret
-        if _eq(_cookie(cookie_header, self.legacy_cookie), secret):
-            return True, []
-        if _eq(headers.get(self.legacy_header, "") or "", secret):
-            return True, []
-        if _eq(q.get("k", [""])[0] or "", secret):
-            return True, [f"{self.legacy_cookie}={secret}; Path=/; HttpOnly; "
-                          "SameSite=None; Secure"]
-        return False, []
-
-    def _legacy_scope(self, via: str, q, cookie_header: str) -> tuple[Identity, list[str]]:
-        """Scope as the tools always took it: ?client/?project/?user, stuck into
-        cookies so in-tool navigation keeps it."""
+    def _open_scope(self, q, cookie_header: str) -> tuple[Identity, list[str]]:
+        """Local dev scope: ?client/?project/?user, stuck into cookies so in-tool
+        navigation keeps it."""
         cookies: list[str] = []
         picked: dict[str, str | None] = {}
         for key, check in (("client", valid_client), ("project", valid_project),
@@ -395,7 +328,7 @@ class LaunchGate:
             if param and value:
                 cookies.append(f"iw_{key}={value}; Path=/; SameSite=None; Secure")
             picked[key] = value
-        return Identity(via=via, sub=picked["user"] or "", client=picked["client"],
+        return Identity(via="open", sub=picked["user"] or "", client=picked["client"],
                         project=picked["project"]), cookies
 
 
@@ -408,7 +341,7 @@ def healthz_body(service: str, build: str) -> bytes:
 
 def _strip_handoff(parsed: urllib.parse.ParseResult) -> str:
     kept = [(k, v) for k, v in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-            if k not in _HANDOFF_PARAMS]
+            if k != LAUNCH_PARAM]
     # Always a local path: never a scheme-relative `//host` redirect.
     path = "/" + (parsed.path or "").lstrip("/")
     return path + (f"?{urllib.parse.urlencode(kept)}" if kept else "")

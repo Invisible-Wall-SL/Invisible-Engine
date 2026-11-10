@@ -39,8 +39,8 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   (Runtime release / rollback Actions). Nightly backups go to the separate bucket
   `invisible-backups`.
 - **Tool launch tokens are on:** `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` are set
-  on both ends and were verified live 2026-09-29; the legacy handoff ends 2026-10-13 (INFRA "Tool
-  launch tokens").
+  on both ends and were verified live 2026-09-29; they are the only way into either tool (the legacy
+  `?k=` handoff was removed 2026-11-10 — INFRA "Tool launch tokens").
 - **Repo security settings are on** (the repo is public): secret scanning, push protection and an
   active ruleset on `main`; the `Secrets` workflow also scans every PR and push.
 - **CI runs every offline check** (`.github/workflows/checks.yml`, every PR + push to `main`):

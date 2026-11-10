@@ -17,8 +17,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	}
 
 	// Full-page, no iframe: send the authenticated user straight to the tool. The role check
-	// above gates it; the handoff (a signed launch token, or the legacy query while the signing
-	// secret is unset) carries who they are, the active `(client, project)` — the launcher is
+	// above gates it; the signed launch token carries who they are, the active `(client, project)` — the launcher is
 	// the source of truth, so the tool never looks the client up itself — and whether they may
 	// publish Invisible Blueprints to the shared library.
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');

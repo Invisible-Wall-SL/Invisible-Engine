@@ -155,7 +155,7 @@ So a push is fully out when **every service you expected to build says `Success 
 
 ### Shared Variables (define once per environment, reference with `${{shared.NAME}}`)
 
-Set at project → Settings → Shared Variables (environment `production`), referenced by each service. Shared: `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET` (launcher + the one tool each — see "Tool launch tokens"), and until the 2026-10-13 cut-over the legacy `ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`. Per-service (not shared): launcher URLs (`ATLAS_TOOL_URL`/`SHEET_TOOL_URL`/`ORIGIN`/`DATABASE_URL`), `ATLAS_PROJECT`/`ATLAS_OUTPUT_PREFIX`/`ATLAS_STAGING`, `SHEET_PROJECT`/`SHEET_STAGING`, `DEFAULT_CKPT`. `PORT` is injected by Railway — never set it.
+Set at project → Settings → Shared Variables (environment `production`), referenced by each service. Shared: `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET` (launcher + the one tool each — see "Tool launch tokens"). Per-service (not shared): launcher URLs (`ATLAS_TOOL_URL`/`SHEET_TOOL_URL`/`ORIGIN`/`DATABASE_URL`), `ATLAS_PROJECT`/`ATLAS_OUTPUT_PREFIX`/`ATLAS_STAGING`, `SHEET_PROJECT`/`SHEET_STAGING`, `DEFAULT_CKPT`. `PORT` is injected by Railway — never set it.
 
 | Var                 | Service        | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -722,9 +722,7 @@ code default, so the dashboard need not set it):
 - **Tools:** `ATLAS_TOOL_URL`, `SHEET_TOOL_URL`, `TEST_SERVER_URL`, `GAMES_BASE_URL` (defaults);
   `TEST_SERVER_SECRET` (only if the test server sets one — sent as a header on the launcher's
   `/refresh` pokes); `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the tool
-  launch tokens — see "Tool launch tokens"); `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` /
-  `ATLAS_BLUEPRINT_SECRET` (legacy handoff, used only while the matching signing secret is unset;
-  remove after the cut-over); `EDITOR_DOC_SECRET`
+  launch tokens — see "Tool launch tokens"); `EDITOR_DOC_SECRET`
   (fallback for the deploy token, which normally lives in Admin → Settings).
 - **Export / bake:** `KTX2_ENCODE` (default OFF — encode GPU-compressed KTX2 page twins; CPU- and
   memory-heavy, see [design/gpu-compressed-textures](design/gpu-compressed-textures.md)),
@@ -844,7 +842,7 @@ code default, so the dashboard need not set it):
   acts as that run's owner, within the owner's project access. Held by the launcher and the
   `director-worker` service (the same value on both). Unset → every adapter call answers 503.
   The Atlas Maker ops (`atlas.*`, `comfyui.job_status`) call atlas-tool with an `api` launch token
-  (`ATLAS_TOOL_SIGNING_SECRET`, required — the legacy handoff cannot name the acting agent) and
+  (`ATLAS_TOOL_SIGNING_SECRET`, required) and
   `ATLAS_CALLBACK_SECRET` (secret, no default; the SAME value as atlas-tool's) — it mints the
   token for a render's completion callback to `POST /api/director/atlas/callback` and verifies
   the callback's `X-Atlas-Signature`. Unset → renders are queued without a callback (a
@@ -981,7 +979,7 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 
 > **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` let the login throttle (B38) see real client IPs** — they default in `apps/launcher-api/scripts/start.mjs` (a dashboard value still wins, so the vars no longer need setting). They are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses the `X-Forwarded-For` Railway's edge adds instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted hop (Railway's edge; `app.` is DNS-only on Cloudflare, so nothing else sits in front); raise it only if another proxy is added. Without them every request looks like one shared IP and the per-IP bucket collapses into a global counter. Railway also documents an `X-Real-IP` header with the client address. A local `node scripts/start.mjs` needs an `X-Forwarded-For` on login requests (or `ADDRESS_HEADER=` blank).
 
-**atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `COMFY_TRANSPORT` + `RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY` (generation target — below), `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy, until the cut-over), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table), `BLUEPRINT_AUTO_INSTALL_MODELS`, the `VIDEO_*` knobs below, `ATLAS_CALLBACK_SECRET` (optional — signs/verifies still-render completion callbacks; unset = every `/render` callback is refused, see [atlas-maker status](status/atlas-maker.md) 2026-10-04), `STILL_RESUME_WINDOW_HOURS` (default 12 — how old an interrupted still render may be and still be resumed or have its callback redelivered) and `RUNPOD_ENDPOINT_GPU` (optional — the GPU the serverless endpoint runs on, spelled as `services/director-worker/pricing.json` prices it, e.g. `L40S (48 GB)`; RunPod's job status never names the card, so this is what a still render's reported time — execution plus delay, since RunPod bills the worker's uptime, cold start included — is billed by in the Director worker (ADR-0006); unset, the time is still reported with no card, nothing is billed, and the worker pauses the run before its next GPU submit until it is set — see [atlas-maker status](status/atlas-maker.md) 2026-10-05; since Director card 8E it is also what the New game estimate and the Art plan price renders at, so with it unset, or naming a GPU `pricing.json` does not price, the estimate has no total and **no Director run can start** — `409 estimate_unpriced`). **sheet-tool:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `SHEET_PROJECT`, `SHEET_STAGING`. **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`), `IW_LEGACY_TOOL_KEY_UNTIL` (optional, moves or ends the legacy-handoff window). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SECRET` (legacy, until the cut-over).
+**atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `COMFY_TRANSPORT` + `RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY` (generation target — below), `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table), `BLUEPRINT_AUTO_INSTALL_MODELS`, the `VIDEO_*` knobs below, `ATLAS_CALLBACK_SECRET` (optional — signs/verifies still-render completion callbacks; unset = every `/render` callback is refused, see [atlas-maker status](status/atlas-maker.md) 2026-10-04), `STILL_RESUME_WINDOW_HOURS` (default 12 — how old an interrupted still render may be and still be resumed or have its callback redelivered) and `RUNPOD_ENDPOINT_GPU` (optional — the GPU the serverless endpoint runs on, spelled as `services/director-worker/pricing.json` prices it, e.g. `L40S (48 GB)`; RunPod's job status never names the card, so this is what a still render's reported time — execution plus delay, since RunPod bills the worker's uptime, cold start included — is billed by in the Director worker (ADR-0006); unset, the time is still reported with no card, nothing is billed, and the worker pauses the run before its next GPU submit until it is set — see [atlas-maker status](status/atlas-maker.md) 2026-10-05; since Director card 8E it is also what the New game estimate and the Art plan price renders at, so with it unset, or naming a GPU `pricing.json` does not price, the estimate has no total and **no Director run can start** — `409 estimate_unpriced`). **sheet-tool:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `SHEET_PROJECT`, `SHEET_STAGING`. **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`.
 
 > **The blueprint importers and the live settings refresh read node CONTRACTS the same way** (Flipbook video mode + the Atlas Maker's 🎛 Blueprint settings, via `POST /video/nodespecs` → `comfy_specs`): a node's full `/object_info` declaration — an input's min/max/step, a COMBO's option list — not only the model lists above, and **for the target the render will run on**: the Atlas Maker follows ⚙ _Run generation on_; a video render always runs on the service default (`COMFY_TRANSPORT`), so the Flipbook reads the pod's contracts in production. Same source rules as ⟳ (`comfy_catalog._probe_sources`): _RunPod_ = a pinned `COMFY_CATALOG_URL` or a discovered running pod, never `COMFY_URL`; _My computer_ = `COMFY_URL` only. Nothing answering is normal: the importer says so in the modal and types the setting from the baked value (no range, no list), the panels keep the list the blueprint was published with, and in between sits the target's catalog — **⟳ Refresh model lists also caches every published blueprint's select lists** for its target, so a blueprint's dropdown shows the last-seen pod list while no pod is running.
 
@@ -1259,27 +1257,22 @@ of the launch that made it: a role or tool-access change applies at the user's n
 no secret at all refuses everything but `/healthz` (it is only open in local dev).
 
 **Owner setup** _(done and verified live 2026-09-29 — both secrets are Shared Variables referenced by the launcher + the one tool each; kept here for a rotation)_. Generate two NEW random values (e.g.
-`openssl rand -base64 48`; not the R2 key, not the old gate secret) and set each on BOTH ends:
+`openssl rand -base64 48`; not the R2 key) and set each on BOTH ends:
 
 | Var | Set on | Notes |
 | --- | --- | --- |
 | `ATLAS_TOOL_SIGNING_SECRET` | launcher-api **and** atlas-tool | identical value on both |
 | `SHEET_TOOL_SIGNING_SECRET` | launcher-api **and** sheet-tool | identical value on both; different from the atlas one |
-| `IW_LEGACY_TOOL_KEY_UNTIL` | atlas-tool, sheet-tool (optional) | `YYYY-MM-DD` to move the cut-over, `off` to end it now |
 
-Order: set the tool side first, then the launcher (a tool with the secret still accepts the old
-handoff inside the window, so nothing breaks in between). Each tool logs its mode at boot:
-`[gate] signed launch tokens (…); legacy ?k= accepted until 2026-10-13`.
+Each tool logs its mode at boot: `[gate] signed launch tokens (…)`. Rotating a signing secret signs
+everyone out of that tool (they reopen it from the launcher); there is no other session state to
+clean up.
 
-**Transition and cut-over.** While a tool has no signing secret, nothing changes: the launcher keeps
-sending the old handoff and the tool keeps its old gate. Once a tool HAS its signing secret, the old
-handoff is still accepted **through 2026-10-13 (UTC)**, then refused automatically. It is only there
-for tabs opened before the switch, so once both ends are set and a launch is verified, **end it
-early** with `IW_LEGACY_TOOL_KEY_UNTIL=off` on both tools. After the cut-over: remove
-`ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET` and `ATLAS_BLUEPRINT_SECRET` from Railway and delete the
-legacy branch in `launch.py` + `toolLaunch.ts` (tracked in the atlas-maker / sheet-maker status
-files). Rotating a signing secret signs everyone out of that tool (they reopen it from the
-launcher); there is no other session state to clean up.
+**The legacy handoff is gone (2026-11-10).** The pre-token `?k=` / `bp=` shared-secret handoff
+(cut-over 2026-10-13) was removed from `launch.py` and `toolLaunch.ts`; nothing reads
+`ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`, `ATLAS_BLUEPRINT_SECRET` or `IW_LEGACY_TOOL_KEY_UNTIL`
+any more. The first three still exist as production Shared Variables until the owner deletes them
+([status/atlas-maker](status/atlas-maker.md) item 6).
 
 ## Backups (2026-09-29)
 

@@ -31,8 +31,7 @@ os.environ["SHEET_CLIENT"] = "invisible_wall"
 os.environ["SHEET_PROJECT"] = "testproj"
 # Versioning is on only when a bucket is configured; every storage call is faked.
 os.environ["R2_BUCKET"] = "fake-bucket"
-for _k in ("SHEET_TOOL_SIGNING_SECRET", "SHEET_TOOL_SECRET"):
-    os.environ.pop(_k, None)
+os.environ.pop("SHEET_TOOL_SIGNING_SECRET", None)
 
 from PIL import Image  # noqa: E402
 

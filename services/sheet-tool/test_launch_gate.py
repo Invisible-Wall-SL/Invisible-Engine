@@ -5,7 +5,8 @@ Run:  PYTHONPATH=../_shared py test_launch_gate.py   (from services/sheet-tool)
 The token itself is covered in services/atlas-tool/test_launch_gate.py; this
 checks the Sheet Maker's handler is wired to the same gate: `/healthz` open,
 a launch becomes a session cookie, edited scope refused, URL scope ignored,
-the legacy `?k=` handoff honoured only inside its window.
+the retired shared secret (`?k=`, `X-Sheet-Secret`, the `sheet_tool` cookie)
+refused even while `SHEET_TOOL_SECRET` is still set.
 
 ASCII only in the labels (cp1252 console).
 """
@@ -23,7 +24,8 @@ from iw_common import launch
 from iw_common.testkit import Suite
 
 SIGNING = "sheet-signing-secret-0123456789"
-LEGACY = "legacy-sheet-gate-abc"
+# The retired shared secret, still set on Railway until the owner deletes it.
+OLD_SECRET = "retired-sheet-gate-abc"
 
 # Each check builds on the last (a session from the launch, ...), so the first
 # failure ends the run.
@@ -58,11 +60,10 @@ def _req(port: int, path: str, headers: dict | None = None):
 
 
 def test_sheet_gate() -> None:
-    keys = ("SHEET_TOOL_SIGNING_SECRET", "SHEET_TOOL_SECRET", launch.LEGACY_ENV)
+    keys = ("SHEET_TOOL_SIGNING_SECRET", "SHEET_TOOL_SECRET", "RAILWAY_ENVIRONMENT")
     saved = {k: os.environ.get(k) for k in keys}
     os.environ["SHEET_TOOL_SIGNING_SECRET"] = SIGNING
-    os.environ["SHEET_TOOL_SECRET"] = LEGACY
-    os.environ[launch.LEGACY_ENV] = "2999-01-01"
+    os.environ["SHEET_TOOL_SECRET"] = OLD_SECRET
     import sheet_server as s
     srv = ThreadingHTTPServer(("127.0.0.1", 0), s.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -87,11 +88,18 @@ def test_sheet_gate() -> None:
         t.check("an atlas token is refused here",
                 _req(port, f"/?iw_launch={token(aud='atlas')}")[0], 403)
 
-        t.check("legacy ?k= works inside the window",
-                _req(port, f"/logo?k={LEGACY}&client=acme&project=p1")[0], 200)
-        os.environ[launch.LEGACY_ENV] = "off"
-        t.check("...and not after it", _req(port, f"/logo?k={LEGACY}&client=acme&project=p1")[0],
-                403)
+        t.check("?k=<old secret> is refused",
+                _req(port, f"/logo?k={OLD_SECRET}&client=acme&project=p1")[0], 403)
+        t.check("an X-Sheet-Secret header is refused",
+                _req(port, "/logo", {"X-Sheet-Secret": OLD_SECRET})[0], 403)
+        t.check("a sheet_tool cookie is refused",
+                _req(port, "/logo", {"Cookie": f"sheet_tool={OLD_SECRET}"})[0], 403)
+
+        os.environ.pop("SHEET_TOOL_SIGNING_SECRET")
+        os.environ["RAILWAY_ENVIRONMENT"] = "production"
+        t.check("only the retired secret on Railway: closed",
+                (s.GATE.mode(), _req(port, f"/logo?k={OLD_SECRET}")[0],
+                 _req(port, "/healthz")[0]), ("closed", 403, 200))
     finally:
         srv.shutdown()
         for k, v in saved.items():

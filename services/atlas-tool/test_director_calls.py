@@ -63,8 +63,7 @@ def claims(**over) -> dict:
 
 
 def _gate() -> launch.LaunchGate:
-    return launch.LaunchGate(aud="atlas", signing_env="X_DIRECTOR_SIGN", legacy_env="-",
-                             legacy_cookie="-", legacy_header="-")
+    return launch.LaunchGate(aud="atlas", signing_env="X_DIRECTOR_SIGN")
 
 
 # --- the act claim ------------------------------------------------------------
@@ -161,10 +160,9 @@ def _seed() -> None:
 
 
 def test_manifest_pin_end_to_end() -> None:
-    env_keys = ("ATLAS_TOOL_SIGNING_SECRET", "ATLAS_TOOL_SECRET", "COMFY_TRANSPORT")
+    env_keys = ("ATLAS_TOOL_SIGNING_SECRET", "COMFY_TRANSPORT")
     saved = {k: os.environ.get(k) for k in env_keys}
     os.environ["ATLAS_TOOL_SIGNING_SECRET"] = SIGNING
-    os.environ.pop("ATLAS_TOOL_SECRET", None)
     # Production renders on RunPod; the Director is refused anything else
     # (test_director_safety.py).
     os.environ["COMFY_TRANSPORT"] = "serverless"

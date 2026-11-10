@@ -35,7 +35,7 @@ class ToolHandler(BaseHTTPRequestHandler):
         pass
 
     def _send_gate_cookies(self) -> None:
-        """The gate's Set-Cookie headers (session, or the legacy scope cookies) —
+        """The gate's Set-Cookie headers (session, or open mode's scope cookies) —
         one header each, which a headers dict cannot hold."""
         for c in getattr(self, "_extra_cookies", None) or ():
             self.send_header("Set-Cookie", c)
@@ -90,7 +90,7 @@ class ToolHandler(BaseHTTPRequestHandler):
 
         With a signed launch the scope comes from the token/session ONLY — a
         `?client=` / `?project=` in the URL is ignored, and switching project
-        goes back through the launcher. The legacy/open modes keep the old
+        goes back through the launcher. Open mode (local dev) keeps the
         query-then-cookie resolution (done in the gate). Missing keys fall back
         to the tool's env default.
 

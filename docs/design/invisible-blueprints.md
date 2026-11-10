@@ -308,9 +308,9 @@ else the baked default) onto its bound node input.
    `blueprints.validate_against_graph` checks each binding against the uploaded graph.
    Phase 8 later added the "Exposed settings" authoring step to this same modal.
 7. ✅ **Publish gating + docs.** *(DONE — gating `f00ffd5`, launcher role landed, docs
-   2026-06-15.)* Publishing is gated behind `bp=<ATLAS_BLUEPRINT_SECRET>` (per-session
-   `atlas_bp` cookie; unset secret ⇒ publishing off, fail-safe) — `can_publish` in
-   `ui_server.py`. Launcher side: the `blueprintPublish` capability (`roles.ts`, admin-default
+   2026-06-15.)* Publishing is gated by the signed launch token's `blueprintPublish`
+   capability — `can_publish` in `ui_server.py` (the original `bp=<secret>` gate was retired
+   with the legacy tool handoff, 2026-11-10). Launcher side: the `blueprintPublish` capability (`roles.ts`, admin-default
    ON) + `_shared/blueprints/` read-scope (`toolScope.ts` `includeBlueprints`). The
    local-ComfyUI prerequisite (ComfyUI-Manager at security ≤ middle, the catalog-only
    constraint, the kill-switch) is documented in **`docs/INFRA.md`** under "ComfyUI tunnel"

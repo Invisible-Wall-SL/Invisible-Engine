@@ -6,7 +6,7 @@ What must hold:
 
   * the relay token matches the launcher byte for byte (a shared vector —
     `apps/launcher-api/scripts/check-tool-relay-token.ts` verifies the same one);
-  * only a signed launcher identity is relayed: a legacy or open caller gets a
+  * only a signed launcher identity is relayed: an open (dev) caller gets a
     403, and a tool without its signing secret a 503 — the launcher is never asked;
   * the launcher is asked with the relay token, for the identity's own user, and
     its answer streams back to the page as it arrives; its refusal reaches the
@@ -115,8 +115,7 @@ def test_relay() -> None:
     try:
         os.environ[SECRET_ENV] = SIGNING
         for label, ident in (("no identity", None),
-                             ("a legacy caller", launch.Identity(via="legacy", sub="bob")),
-                             ("an open (dev) caller", launch.Identity(via="open"))):
+                             ("an open (dev) caller", launch.Identity(via="open", sub="bob"))):
             Tool.identity = ident
             status, _, body = ask(port)
             check(f"{label} is refused (403)", status, 403)
