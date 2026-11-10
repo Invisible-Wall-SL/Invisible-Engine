@@ -7,7 +7,7 @@
 	import { getProcessed } from '../assetLoad';
 	import { noteKtx2Fallback } from '../ktx2Transcoder';
 	import { collectTextureSources, compileProgram, warmGpu } from '../gpuWarmup';
-	import { renderTier } from '../renderTier';
+	import { lowMemoryDevice } from '../textureResidency';
 	import type { Asset, LoadedAssets, RawAsset } from '../types';
 
 	type Props = { children: Snippet };
@@ -126,7 +126,7 @@
 				if (renderer) {
 					try {
 						if (loadedRigs) compileProgram(renderer, darkTintProgram());
-						await warmGpu(renderer, loadedSources, { keepResident: renderTier() === 'full' });
+						await warmGpu(renderer, loadedSources, { keepResident: !lowMemoryDevice() });
 					} catch (error) {
 						console.warn('[gpu-warmup]', error);
 					}

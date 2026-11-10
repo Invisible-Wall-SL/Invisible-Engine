@@ -4,7 +4,15 @@
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
-	import { Anchor, App, Container, Text, registerGpuWarmup } from 'pixi-svelte';
+	import {
+		Anchor,
+		App,
+		Container,
+		Text,
+		configureRenderQuality,
+		registerGpuWarmup,
+		renderPin,
+	} from 'pixi-svelte';
 	import {
 		ELEMENT_FX_REELS_TARGET,
 		ELEMENT_FX_STAGE_TARGET,
@@ -841,8 +849,8 @@
 	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
 	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
 	setParticleTimeScale(stateBetDerived.timeScale);
-	// Particles thin out on a device that cannot draw them all (`pixi-svelte` `particleBudget`): the
-	// reduced render tier starts at half, and a game that falls behind its frame rate steps down. A
+	// Particles thin out on a device that cannot draw them all (`pixi-svelte` `particleBudget`):
+	// `?render=reduced` starts at half, and a game that falls behind its frame rate steps down. A
 	// deterministic render never adapts, so it draws the same on every machine.
 	configureParticleBudget({ adaptive: !globalThis.__IE_DETERMINISM__ });
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
@@ -1361,6 +1369,20 @@
 	);
 
 	const context = getContext();
+	// Every device starts at full quality. One that measurably cannot hold 60 fps while a round
+	// plays draws fewer pixels (`pixi-svelte` `renderQuality`), switched only while no reel rolls:
+	// at idle in manual play; in autoplay, which is one long state and never idle, in the moments
+	// of a round with the reels stopped. A deterministic render and a `?render=` pin never adapt.
+	onDestroy(
+		configureRenderQuality({
+			adaptive: !globalThis.__IE_DETERMINISM__ && renderPin() === undefined,
+			measuring: () => context.stateXstateDerived.isPlaying(),
+			quiet: () =>
+				context.stateXstateDerived.isIdle() ||
+				(context.stateXstateDerived.isAutoBetting() &&
+					!stateGame.board.some((reel) => reel.reelState.rolling)),
+		}),
+	);
 
 	// The default loading → basegame screens (`bootScreens.ts`), built once the live editor doc
 	// loads. `undefined` when a v2 flow drives screens or the doc has no loading/basegame scene.

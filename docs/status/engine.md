@@ -57,17 +57,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Time zone and locale** are the browser's. The HUD clock formats the virtual `Date` with them, so a harness pins both (the proof sets UTC and en-US over CDP).
   - **Proof.** `scripts/playtest/determinism-proof.mjs` serves the built runtime, starts a fresh seeded mock for each run (the book mock, or the Hold and Win mock behind a local `/api/editor/runtime` stub), and drives the game over CDP. It then compares runs pixel by pixel. Two runs gave 20 of 20 byte-identical 1280×720 captures across base spin, line win, big win (`max`, mid count-up, coin fountain) and Hold and Win Classic (`trigger`). `--flag off` checks that the hook is absent and the game boots and spins on the real clock.
   - **Chrome's own virtual time is not enough.** CDP `Emulation.setVirtualTimePolicy` with a seeded `Math.random` still differed by 0.5–24.6 % of pixels between two runs of the same `main` build. That is why the hook sits inside the page.
-- **GPU warm-up + render tier** (2026-10-27) — the asset loader ends by uploading every texture it
-  loaded (kept resident: Pixi's GC would otherwise drop an image page a minute after it was last
-  drawn and stall on the re-upload) and compiling every program the game can draw with: each
-  authored Element FX with its own params, the camera chroma split, the rig dark tint
-  (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
-  Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
-  devices (Chromium `deviceMemory` ≤ 4 GB since 2026-11-03, was 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
-  and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
-  exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
-  hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
-  uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
+- **GPU warm-up + render quality** (2026-10-27; measured quality since 2026-11-10) — the asset
+  loader ends by uploading every texture it loaded (kept resident: Pixi's GC would otherwise drop an
+  image page a minute after it was last drawn and stall on the re-upload; a device reporting
+  ≤ 4 GB leaves them to the GC, `textureResidency.ts`) and compiling every program the game can
+  draw with: each authored Element FX with its own params, the camera chroma split, the rig dark
+  tint (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
+  Spread across frames behind the loading screen. Every device starts at full quality (pixel ratio
+  up to 2, MSAA); the game lowers it only when frames measurably fall behind while a round plays,
+  never from device memory (`renderQuality.ts`, 2026-11-10 below). `?render=full` pins full,
+  `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
+  never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout: verified with
+  rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
 - **Reel motion drawn in the frame it is sampled for, carried through lap ends, cells placed
@@ -104,9 +105,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     numbers in `perfStats.ts`): display refresh estimate, fps, frame-interval p50/p95/max and
     hitches over 33/50/100 ms for idle and spinning, the reel step error in px (each drawn step
     against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
-    JSON line: UA, DPR, render tier, canvas size, the numbers) and Reset. Without the flag its
-    chunk is never loaded and the frame clock has no probe. Since 2026-11-09 it also reads the GPU
-    side: see the next bullet.
+    JSON line: UA, DPR, the render-quality mode and level, canvas size, the numbers) and Reset.
+    Without the flag its chunk is never loaded and the frame clock has no probe. Since 2026-11-09
+    it also reads the GPU side: see the next bullet.
 - **Renderer setup for tiled GPUs, the `?perf=1` GPU readout and the render test switches**
   (2026-11-09) — how the context and the frame are set up is decided once, before the WebGL context
   exists (`pixi-svelte` `renderOptions.ts`, applied by `InitialiseApplication.svelte`):
@@ -143,9 +144,20 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **Render quality thresholds — need real-device readings** (2026-11-10 change, below). The
+  numbers (21 ms slow frame, 10% slow window, two windows to step, the 30 fps rhythm test, the
+  20% interval gain, 20 quiet frames to switch) come from the readings we have, not from a device
+  that stepped down. After the
+  runtime release, ask the owner for a `?perf=1` Copy (`perf: 3`, its `quality` object) after
+  ~20 spins on the iPhone 13 Pro, the Nothing Phone (1) and the Pixel 9 Pro (Chrome, and Brave on
+  the Pixel): the level each ends at, each switch's slow share, and the spin fps before and after
+  a step. Expected from the 2026-11-10 readings: the Pixel and the S25 stay at the top; the Nothing
+  Phone may step down; the iPhone 13 Pro (14 fps spinning on 2026-11-09) should step down, and
+  keep a step only if its mean frame interval falls by 20% or more.
+
 - **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
   below). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on `overlay-buffaloduel` while the
-  S24 Ultra drew 5× the pixels at 60. Headless Chromium shows no pathological GL work at base-game
+  S25 Ultra drew 5× the pixels at 60. Headless Chromium shows no pathological GL work at base-game
   idle (43 draws, one scene pass, its resolve and copy, no uploads, no round trips, ~2.75× screen
   coverage), so what costs on the iPhone has to be read there.
   Procedure, Low Power Mode off, the game opened on its own (not inside the launcher), each URL with
@@ -195,11 +207,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   uncompressed pages on phones. Since the shell + bundle change (2026-11-03) `_app/` holds the
   game's code itself, so without it a desktop-published game does not boot at all.
 
-- **Truly same-frame drawing — confirm on real phones** (2026-11-09 change, below). Each frame
-  now draws its own sample and laps carry through their ends, measured in headless Chromium
-  only. After the runtime release, ask the owner for a `?perf=1` Copy during spins from the
-  iPhone 17, the Pixel 9 Pro and the S24 Ultra (the 2026-11-09 readings below are the baseline):
-  the reel step error should read near 0 at steady and mixed frame lengths alike. What drawing
+- **Truly same-frame drawing — confirmed on four real phones, the iPhone 17 still to read**
+  (2026-11-09 change, below). Reel step error max on the new builds (`?perf=1`, 2026-11-10):
+  S25 Ultra 1.2 px, Nothing Phone (1) 2.1 px, Pixel 9 Pro 1.1 px, iPhone 13 Pro p95 0 — mean and
+  p95 0 on every Android, from 4.0–10.1 px mean and 30.5–43 px p95 before (table below). What drawing
   still cannot remove: a dropped frame is still a double-length step (correct for its interval,
   but visible); the first frame of a motion from rest draws its start value (nothing has asked
   for the clock yet); a carried lap runs at most one frame's time slower over its length (≤ ~7%
@@ -433,6 +444,77 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-10 — **Render quality follows measured frame times, not device memory** (branch
+  `claude/nice-albattani-a03tcm`, restarted from `main` after #1578; it replaces that branch's
+  Brave guard). Every device starts at full quality, the pixel ratio up to 2 with MSAA, as every
+  device drew before #1410. `pixi-svelte` `renderQuality.ts` lowers it only on a device that cannot
+  hold 60 fps while a round plays, one level at a time, switched only while no reel rolls:
+  resolution 2, 1.75, 1.5, then 1.5 without MSAA; never below 1, and a level the pixel ratio makes
+  equal to the one above is dropped (a pixel ratio of 1.5 has two levels). A level is applied by
+  setting `renderer.resolution` (the backing store changes, the CSS size does not) and by dropping
+  the back buffer's texture, which Pixi rebuilds with the new MSAA on the next frame.
+  - **Why**, owner-measured on `overlay-buffaloduel` (`?perf=1`): the Pixel 9 Pro (16 GB, 120 Hz,
+    viewport 426×804, Mali-G715) drew tier `reduced` in Brave (resolution 1.5, no MSAA, GPU name
+    masked as `Brave`) and `full` in Chrome on the same build minutes later. Brave alters
+    `deviceMemory` against fingerprinting; Safari and Firefox report none. The owner's rule: never
+    lower quality on a device that can keep up; lower it only when the device measurably cannot
+    hold its frame rate, and only as far as needed (the model: Babylon's SceneOptimizer, drei's
+    PerformanceMonitor).
+  - **Rules** (`QUALITY_RULES`). Frames count only while a round plays (`isPlaying()`: not the
+    boot's `rendering` state, not idle), the page is visible, and 30 frames have passed since it
+    was shown or the level changed; intervals over 250 ms are skipped. 120 counted frames make a
+    window. A frame over 21 ms is slow (1.25× a 60 Hz frame, so a 120 Hz phone at 60 is fine); a
+    window more than 10% slow is slow. A window at a 30 fps rhythm (p10 ≥ 30 ms and p50 ≤ 36 ms,
+    as `perfStats.ts` `capped30` reads it) is a browser cap (iOS Low Power Mode) and is ignored,
+    unless the browser drew any frame, idle ones included, under 25 ms in the last 30 s: Low Power
+    Mode caps every frame, so a device that idles at 60 and plays its rounds at 30 is judged. A
+    slower device (14 fps) or a jittery one (25–45 ms) is always judged. Only a device at a steady
+    ~30 fps even while idle reads as the cap and is not judged. Two slow windows step down at
+    the next 20 quiet frames: idle in manual play; in autoplay (`autoBet`, one long state that is
+    never idle) the frames of a round with no reel rolling (`Game.svelte`). After two windows the
+    step is kept if the slow share halved or fell under 10%, or the mean frame interval fell by
+    20% or more (14 → 30 fps keeps a step though every frame is still slow); otherwise it is
+    reverted and stepping down stops for the session. Thirty windows under 1% slow try one level
+    up; slow within two windows, it steps back and that level is not tried again. At most 6
+    switches, and a step that starts a trial is taken only while its revert still fits.
+  - **What memory still decides:** only texture residency (`textureResidency.ts`
+    `lowMemoryDevice`). A device reporting ≤ 4 GB leaves its textures to Pixi's GC rather than
+    pinning every page, which could get the tab killed. That changes no pixel: a wrong figure costs
+    a re-upload stall (Brave on a big phone) or memory (no figure on a small one).
+    `?render=reduced` no longer changes residency. `editor-scenes.ts` `preferCompressedTextures`
+    still reads `deviceMemory` ≤ 4 for KTX2 on a desktop (every phone already gets KTX2).
+  - **Never adapts:** the tools (they never configure it), `?ie_determinism` (not even installed,
+    so the current-games renders are unchanged), `?render=full|reduced` (pins). The particle
+    budget's 0.5 ceiling is now `?render=reduced` only. The art tier reads the full cap (2).
+  - **Reading it:** the `?perf=1` Copy is `perf: 3`; `tier` is now the mode (`adaptive`, `full`,
+    `reduced`) and `quality` holds the level (index, resolution, MSAA), the number of levels, each
+    switch (`at` seconds, `from`, `to`, `reason`, `slowShare`, `frameMs`) and `downStopped`. The HUD has a
+    `quality` line, and its head shows `· quality L<n>` once below the top level.
+  - **Verified here:** `packages/pixi-svelte/fixtures/renderQuality.fixture.ts` (52 checks; each
+    rule mutated in turn fails it, the old no-frame-under-28-ms cap rule included, and rounds at 30
+    on a device that idles at 60 fail the rhythm-only cap rule), `renderTier.fixture.ts` (21 checks; it does not load on the old
+    module), `scripts/pixi-back-buffer.fixture.mjs` (+3 checks: the Pixi 8.22 behaviour the switch
+    relies on). The built runtime against the book mock in headless Chromium (SwiftShader, 160×284):
+    at DPR 1.5 it dropped MSAA after two windows 39% slow (mean 23.3 ms); the trial read 22% and
+    20.3 ms, neither half the share nor 20% shorter, so MSAA came back at the next idle stretch and
+    it never stepped down again; at DPR 3 it stepped 2 → 1.75 → 2 the same way. Each switch deleted the old back buffer's GL texture, framebuffers and
+    renderbuffers; the canvas CSS size, `renderer.screen` and pointer mapping did not change.
+    `?render=full`, `?render=reduced` and `?ie_determinism` add no ticker listener.
+  - **Not verified:** real devices (Open items).
+  - Device readings of the #1578 build on the same day, for the record:
+    - **S25 Ultra** (Adreno 830; the phone recorded on 2026-11-09 as the S24 Ultra), Chrome with
+      Desktop site on (UA `X11; Linux x86_64`, so desktop textures: 73 BGRA8, 333 MB; canvas
+      1960×3540): idle 59.9 fps, spinning 60.1 fps with no frame over 16.8 ms, tick 3.2 ms a frame.
+    - **Nothing Phone (1)** (Adreno 642L, 60 Hz): idle 60.2 fps; spinning 56.6 fps, p95 25 ms,
+      10 of 754 frames over 33 ms, while the tick never passed 11.8 ms, so the late frames are GPU
+      or browser, not the game's work. Textures: 24 ASTC (57 MB) + 38 BGRA8 (66 MB).
+    - **Pixel 9 Pro**, same build: in Chrome (full tier, canvas 852×1608) idle 58.6 fps, spinning
+      72.3 fps (p50 16.6 ms, p95 20.8, max 33.3, 1 of 696 frames over 33 ms; reel max 1.3 px), so at
+      full quality it spins mostly at 60 Hz with some 120 Hz frames, the tick 4.4 ms a frame; in
+      Brave (reduced tier) idle 75.6, spinning 81.3 fps (p50 8.4 ms, p95 16.7, max 25).
+    - One resolve and one invalidation a frame on every full-tier device, as #1578 intended.
+
 - 2026-11-10 — **A one-screen build ships one art tier** ([arcade-4k-builds](../design/arcade-4k-builds.md)
   "One-screen builds"). `IE_ART_TIER=full|half` is compiled in by `config-vite` (`artTierPin.js` →
   `__IE_ART_TIER__`) and `chooseArtTier` obeys it over the screen rule and `?tier=`; the asset pull
@@ -474,7 +556,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Why, real device** (`?perf=1`, build `f65001e`, `overlay-buffaloduel`): iPhone 13 Pro (A15,
     Safari, DPR 3, tier `full`, resolution 2, canvas 780×1398) idle 23.6 fps (p50 42 ms, 1314 of 1344
     frames over 33 ms), spinning 14.1 fps (p95 165 ms, 52 frames over 100 ms), reel step error p95
-    0; the S24 Ultra drew 1960×3540 at 59.5 fps. Not reel motion: GPU, compositor or something else
+    0; the S25 Ultra drew 1960×3540 at 59.5 fps. Not reel motion: GPU, compositor or something else
     outside the reels, even at idle.
   - **Measured here** (`overlay-buffaloduel`'s live snapshot booted through the harness's own
     servers in headless Chromium at 390×699, DPR 3, the iPhone's UA, so the KTX2/ASTC path; GL
@@ -630,7 +712,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   make spins smooth on fast phones.
   - **Why, real devices** (`?perf=1`, build `aec1ea1`, which has #1527):
 
-    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S24 Ultra          |
+    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S25 Ultra          |
     | -------------------------------- | ------------------ | -------------------------------------- | ------------------ |
     | Refresh                          | 60 Hz              | 120 Hz adaptive (8.3 + 16.6 ms frames) | steady 60 Hz       |
     | Spin p95 frame interval          | 25 ms              | 16.8 ms                                | 16.7 ms            |
@@ -638,7 +720,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     | Reel step error mean / p95 / max | 10.1 / 43 / 120 px | 6.8 / 30.5 / 60 px                     | 4.0 / 39.6 / 79 px |
 
     The Pixel has almost no late frames: its error is the one-frame drawing lag with mixed frame
-    lengths. The S24's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
+    lengths. The S25's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
     purpose. The recycling attempt's profile (`commonoverlayproject`, CPU 4×) put Svelte
     re-checking the moving cells at ~42% of a flush (prop sync ~10%), Pixi's render ~24% of spin
     JS, rig ticks ~10%.
@@ -759,7 +841,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`verify-symbol-overflow`, `verify-stepped-grid`, `verify-symbol-wrap-context`,
     `verify-symbol-seat`, `verify-win-explode-pop`, `verify-swap-in-place-mode`,
     `verify-board-paint-order`, `verify-board-tiles`, `verify-tumble-pattern`) pass unchanged.
-  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S24 Ultra); the numbers above are
+  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S25 Ultra); the numbers above are
     headless Chromium on software GL.
 - 2026-11-09 — **A game with resolution tiers loads the one its screen needs**
   ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 4). `game/artTier.ts` `chooseArtTier`

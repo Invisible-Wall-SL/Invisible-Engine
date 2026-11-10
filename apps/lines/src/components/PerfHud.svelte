@@ -3,8 +3,10 @@
 	import {
 		appliedRenderOptions,
 		instrumentApp,
+		renderQualitySnapshot,
 		renderSwitches,
 		renderTier,
+		type RenderQualitySnapshot,
 		type RendererInfo,
 		type RendererProbe,
 		type TextureFormatSummary,
@@ -23,18 +25,20 @@
 
 	/**
 	 * The `?perf=1` frame-time readout: what the frames on THIS device look like while the game
-	 * idles and while it spins (`perfStats.ts`), what each frame asks of the GPU and how the
-	 * renderer was set up (`pixi-svelte` `glCounters.ts`, `renderOptions.ts`), so a phone's numbers
-	 * can be read and pasted back. Mounted only with the flag (`Game.svelte` imports it on demand);
-	 * without it nothing here exists, listens, counts or draws. HTML, so it costs the canvas
-	 * nothing; one line in a corner until tapped open. `?perfgpu=1` also waits for the GPU after
-	 * every frame to time it, which stalls the pipeline: read it on its own, never with fps.
+	 * idles and while it spins (`perfStats.ts`), what each frame asks of the GPU, how the renderer
+	 * was set up (`pixi-svelte` `glCounters.ts`, `renderOptions.ts`) and the quality level it draws
+	 * at now (`renderQuality.ts`), so a phone's numbers can be read and pasted back. Mounted only
+	 * with the flag (`Game.svelte` imports it on demand); without it nothing here exists, listens,
+	 * counts or draws. HTML, so it costs the canvas nothing; one line in a corner until tapped open.
+	 * `?perfgpu=1` also waits for the GPU after every frame to time it, which stalls the pipeline:
+	 * read it on its own, never with fps.
 	 */
 
 	const query = new URLSearchParams(location.search);
 	const waitForGpu = query.get('perfgpu') === '1';
 	const stats = createPerfStats();
 	let snapshot = $state<PerfSnapshot>();
+	let quality = $state<RenderQualitySnapshot>();
 	let info = $state<RendererInfo>();
 	let textures = $state<TextureFormatSummary[]>([]);
 	let open = $state(false);
@@ -59,6 +63,7 @@
 	const refresh = () => {
 		ensureProbe();
 		snapshot = stats.snapshot();
+		quality = renderQualitySnapshot();
 		if (probe && tick++ % 4 === 0) textures = probe.textures();
 	};
 
@@ -122,11 +127,13 @@
 		const app = stateApp.pixiApplication;
 		const canvas = app?.canvas;
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
+		const now = renderQualitySnapshot();
 		return {
-			perf: 2,
+			perf: 3,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
-			tier: renderTier(),
+			tier: now?.mode ?? renderTier(),
+			quality: now,
 			resolution: app?.renderer.resolution,
 			canvas: canvas ? `${canvas.width}x${canvas.height}` : undefined,
 			viewport: `${window.innerWidth}x${window.innerHeight}`,
@@ -156,6 +163,22 @@
 			// No clipboard (an insecure context, a refused permission): the text is shown to select.
 			copied = 'no';
 		}
+	};
+
+	const qualityLine = (q: RenderQualitySnapshot) => {
+		const last = q.history.at(-1);
+		const switches = last
+			? `switches ${q.history.length}, last L${last.from}→L${last.to} ${last.reason} at ` +
+				`${last.at} s (${Math.round(last.slowShare * 100)}% slow, ${last.frameMs} ms)`
+			: 'no switches';
+		return [
+			q.mode,
+			...(q.levels > 1 ? [`L${q.level.index} of L0–L${q.levels - 1}`] : []),
+			`res ${q.level.resolution}`,
+			q.level.msaa ? 'MSAA' : 'no MSAA',
+			...(q.mode === 'adaptive' ? [switches] : []),
+			...(q.downStopped ? ['no more steps down'] : []),
+		].join(' · ');
 	};
 
 	const line = (b: PerfBucketSnapshot) =>
@@ -200,6 +223,7 @@
 			{snapshot.refreshHz ? `${snapshot.refreshHz} Hz` : '… Hz'} · spin {snapshot.spinning.fps} fps p95
 			{snapshot.spinning.p95} · reel {snapshot.reel.p95} px
 			{#if snapshot.capped30}<b class="warn"> · 30 fps cap (Low Power Mode?)</b>{/if}
+			{#if quality?.level.index}<b class="warn"> · quality L{quality.level.index}</b>{/if}
 			<span class="toggle">{open ? '▾' : '▸'}</span>
 		</button>
 		{#if open}
@@ -221,6 +245,9 @@
 				</div>
 				{#if snapshot.capped30}
 					<div class="warn">Frames never come faster than ~30 fps: Low Power Mode?</div>
+				{/if}
+				{#if quality}
+					<div><b>quality</b> {qualityLine(quality)}</div>
 				{/if}
 				{#if info}
 					<div class="ie-perf-section">

@@ -13,8 +13,8 @@
  * resident, below), then every registered warm-up ({@link registerGpuWarmup}) compiles its programs. Both
  * are spread across frames so the loading screen keeps animating.
  *
- * KEPT RESIDENT, except on the `reduced` render tier (`renderTier.ts`), whose low-memory devices
- * keep Pixi's collector. Pixi's GPU garbage collector unloads an image texture that has not been drawn
+ * KEPT RESIDENT, except on a device that reports little memory (`textureResidency.ts`), which keeps
+ * Pixi's collector. Pixi's GPU garbage collector unloads an image texture that has not been drawn
  * for a minute (`ImageSource.autoGarbageCollect`; compressed pages are never collected), and the
  * next draw uploads it again: a big-win sheet or a bonus intro shown once every few minutes stalls
  * every time it comes back. The game's own art is loaded up front and kept in memory regardless
