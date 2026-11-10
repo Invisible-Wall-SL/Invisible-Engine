@@ -50,9 +50,9 @@ Out of scope, as decided: the spendable coin card, imports.
 - **A strict-games table fix (C3's bug, made visible by mixed):** a taken attack left the
   attacker's frame body Aligned where it was dropped (only a refused drop was respawned). The
   attacker now stays mounted and only its body goes back: `engine-layout` gains
-  `registerComponentAlignReset` / `resetComponentAlign` (an instance with Align Target listeners
-  registers how to clear what they moved; nothing changes until a caller asks), and `release` in
-  `apps/lines` `cards.ts` calls it. A dragged board unit no longer lifts (`dragging` is a hand
+  `registerComponentAlignReset` / `resetComponentAlign` (a top-level placement with Align Target
+  listeners registers how to clear what they moved; nothing changes until a caller asks), and
+  `release` in `apps/lines` `cards.ts` calls it. A dragged board unit no longer lifts (`dragging` is a hand
   card's only), because the lift could not be put down without a remount (open item 0c). Applies in
   every turn order.
 - **The AI:** lethal runs wherever attacks are listed; `hard`'s plan extends plays and attacks
@@ -2743,7 +2743,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
    binding back at its rest value folds to `scale: undefined` (`foldBoundTransform`), and the Pixi
    node keeps its last scale, so a node scaled by a binding never returns to 1 without a remount.
    The card table works around it (a board unit's drag does not lift); the fix belongs in the
-   shared fold or `LayoutNodeView`, under the current-games harness. (b) Mixed fixtures are pinned
+   shared fold or `LayoutNodeView`, under the current-games harness (tracked as
+   [component-editor](component-editor.md) open item 5). (b) Mixed fixtures are pinned
    on the sample plus six C5 cards; the sample library itself has no `allFriendly` or
    `gainResource` card.
 0b. **Card C4 follow-ups:** (a) the Card Library draws frames with its own DOM renderer, not the
