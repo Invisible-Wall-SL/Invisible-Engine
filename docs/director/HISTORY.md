@@ -33,7 +33,7 @@ with a new one. Use this format:
   `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
   `scripts/bug-fix/{coordinator.md,settings.json,workflow.fixture.mjs}`,
   `docs/status/bug-reports.md`.
-- Branch / PR: `claude/competent-heisenberg-f36c32` (TODO-PR).
+- Branch / PR: `claude/competent-heisenberg-f36c32` (#1597).
 - Tests: `check:bug-fix-runs` has a refusal case for each newly protected file and four
   near-miss controls (122 checks). Each new rule was proved by a hand-planted mutant.
   `check:bug-fix-workflow` now requires the prompt's globs to cover every file a path rule
