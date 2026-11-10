@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { MAX_SOUND_BYTES } from 'engine-layout';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { requireSoundAccess } from '$lib/server/soundAccess';
 import {
 	getSoundFile,
@@ -59,12 +60,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		url.searchParams.get('project'),
 	);
 
-	let body: { name?: unknown; bytes?: unknown };
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.')) ?? {};
 	const name = typeof body.name === 'string' ? body.name : '';
 	if (!name) throw error(400, 'Expected a `name`.');
 

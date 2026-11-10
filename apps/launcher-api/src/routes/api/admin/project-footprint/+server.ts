@@ -1,9 +1,8 @@
 import { error, json } from '@sveltejs/kit';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
+import { requireAdminPanel } from '$lib/server/admin';
 import { listGamesOwnedByProject } from '$lib/server/games';
 import { projectKeyTaken } from '$lib/server/projects';
 import { purgeFootprint } from '$lib/server/projectPurge';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import type { RequestHandler } from './$types';
 
 /**
@@ -22,11 +21,7 @@ import type { RequestHandler } from './$types';
  * Answers 401/403 rather than redirecting, so a fetch gets a status and not login HTML.
  */
 export const GET: RequestHandler = async ({ locals, url }) => {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	if (!roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides)) {
-		throw error(403, 'Admins only.');
-	}
+	await requireAdminPanel(locals, 'api');
 
 	const projectKey = url.searchParams.get('project')?.trim();
 	if (!projectKey) throw error(400, 'missing ?project=');

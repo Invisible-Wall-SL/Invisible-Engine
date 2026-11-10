@@ -19,7 +19,6 @@ records a note saying the pairing came from order, not from content.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from .base import (
     AnalysisContext,

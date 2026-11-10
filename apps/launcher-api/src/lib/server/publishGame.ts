@@ -34,8 +34,7 @@ import { mockContractOfBundle } from './mockContract';
 import { primaryRespinMode, type GameConfigDoc } from 'game-config';
 import { protocolFor } from './mockProtocol';
 import { paytableDriftDetails, paytableDriftMessage } from './paytableDrift';
-import { UNASSIGNED_CLIENT } from './projectPaths';
-import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
+import { getOrMintReadToken, projectGameType, projectName } from './projects';
 import { listAllObjects } from './r2';
 import {
 	commitSnapshot,
@@ -53,6 +52,7 @@ import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { runtimePointer, upsertTestServerGame } from './testServerManifest';
 import { chooseRuntime, kindFamilyRefusal } from './runtimeChoice';
 import { postTestServerRefresh } from './testServerRefresh';
+import { clientKeyOf } from './projectLookup';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -242,7 +242,7 @@ export async function publishGateRefusal(
 	projectKey: string,
 	options: GateOptions = {},
 ): Promise<PublishBlockedError | null> {
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 	const name = (await projectName(projectKey)) ?? projectKey;
 	const gameType = await projectGameType(projectKey);
 	return (await runPublishGates(clientKey, projectKey, name, gameType, options)).refusal;
@@ -262,7 +262,7 @@ export async function publishGame(
 		by?: string;
 	} = {},
 ): Promise<PublishResult> {
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 	const gameType = await projectGameType(projectKey);
 	const name = (await projectName(projectKey)) ?? projectKey;
 	const key = projectKey;

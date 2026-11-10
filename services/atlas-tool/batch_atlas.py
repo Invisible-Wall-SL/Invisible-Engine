@@ -253,6 +253,7 @@ import shared_taxonomy  # noqa: E402
 import model_mirror  # noqa: E402
 import model_provenance  # noqa: E402
 import still_jobs  # noqa: E402
+from iw_common import comfy  # noqa: E402  (shared ComfyUI client)
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
 
@@ -1083,13 +1084,9 @@ _COMFY_POST_TIMEOUT = 60.0
 
 
 def comfy_post(path: str, payload: dict) -> dict:
-    req = Request(
-        f"{COMFY_BASE}{path}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", **CF_HEADERS},
-    )
     try:
-        return json.loads(urlopen(req, timeout=_COMFY_POST_TIMEOUT).read())
+        return comfy.post_json(f"{COMFY_BASE}{path}", payload, CF_HEADERS,
+                               _COMFY_POST_TIMEOUT)
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         # A 502/503/504 comes from the Cloudflare tunnel EDGE, not ComfyUI: the
@@ -1164,7 +1161,6 @@ def comfy_post(path: str, payload: dict) -> dict:
         raise SystemExit(2)
 
 
-import socket as _socket
 import time as _time
 
 # Default 5s timeout on every comfy_get HTTP call. Without it, urlopen waits
@@ -1176,8 +1172,7 @@ _COMFY_HTTP_TIMEOUT = 5.0
 
 
 def comfy_get(path: str) -> dict:
-    req = Request(f"{COMFY_BASE}{path}", headers=CF_HEADERS)
-    return json.loads(urlopen(req, timeout=_COMFY_HTTP_TIMEOUT).read())
+    return comfy.get_json(f"{COMFY_BASE}{path}", CF_HEADERS, _COMFY_HTTP_TIMEOUT)
 
 
 # `_available()` is called ~14× when the UI renders the Settings panel
@@ -1932,7 +1927,7 @@ def _upload_workflow_refs(wf: dict) -> None:
     for node, relpath, src in _iter_workflow_refs(wf):
         try:
             node["inputs"]["image"] = comfy_upload_image(src.name, src.read_bytes())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise RuntimeError(
                 f"Failed to upload reference image \"{relpath}\" to ComfyUI: {e}"
             ) from e
@@ -1956,7 +1951,7 @@ def _serverless_workflow_images(wf: dict) -> list[dict]:
         seen.add(name)
         try:
             b64 = base64.b64encode(src.read_bytes()).decode("ascii")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise RuntimeError(
                 f"Failed to read reference image \"{relpath}\" for the RunPod "
                 f"serverless job: {e}"
@@ -3643,12 +3638,10 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
             status = entry.get("status") or {}
             if status.get("status_str") == "error":
                 msg = node = None
-                for m in status.get("messages", []):
-                    if m and m[0] == "execution_error":
-                        info = m[1] or {}
-                        node = info.get("node_type") or info.get("node_id")
-                        msg = (info.get("exception_message") or "").strip()
-                        break
+                info = comfy.execution_error(status)
+                if info is not None:
+                    node = info.get("node_type") or info.get("node_id")
+                    msg = (info.get("exception_message") or "").strip()
                 ml = (msg or "").lower()
                 if msg and ("login" in ml or "unauthor" in ml):
                     emit(diag("COMFY_AUTH", CATALOG))

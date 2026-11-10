@@ -11,7 +11,8 @@
 #                      runs twice and none falls between the two.
 #   python tests     → `scripts/check-python.py`: every services/*/test_*.py, the ComfyUI node suite
 #                      (CPU torch), and the backup job's CLI. No secrets exist here, and the runner
-#                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI.
+#                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI. First,
+#                      `ruff check services/` (rules in services/ruff.toml: F, E9, BLE).
 #
 # REQUIRED CHECKS: every job name here is a required status check on `main` (docs/INFRA.md
 # "Branch ruleset on main"), so the workflow runs on EVERY PR and push — no paths-ignore, which
@@ -94,6 +95,13 @@ jobs:
           python -m pip install --require-hashes -r scripts/backup/requirements.txt
           python -m pip install -r services/atlas-tool/requirements.txt -r services/sheet-tool/requirements.txt requests numpy
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install ruff==0.17.4
+
+      # Pinned: a new ruff can start flagging code nobody touched, and that should land as a
+      # deliberate bump, not as every PR's red check.
+      - name: ruff
+        if: steps.changes.outputs.code == 'true'
+        run: ruff check services/
 
       - name: python tests
         if: steps.changes.outputs.code == 'true'

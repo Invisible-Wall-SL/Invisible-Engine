@@ -86,7 +86,7 @@ def parse_plist(path: Path) -> dict:
     try:
         with path.open("rb") as fh:
             data = plistlib.load(fh)
-    except Exception as e:  # noqa: BLE001 — any malformed file is one error to the caller
+    except Exception as e:  # any malformed file is one error to the caller
         raise PlistImportError(f"not a readable plist ({e})") from e
 
     if not isinstance(data, dict):

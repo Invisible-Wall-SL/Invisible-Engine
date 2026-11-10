@@ -554,7 +554,7 @@ def _put(key: str, body: bytes, *, if_match: str | None = None,
                                if_none_match=if_none_match)
         except storage.Conflict:
             raise
-        except Exception as e:  # noqa: BLE001 — classified below
+        except Exception as e:  # classified below
             if _is_transient(e) and attempt < _TRANSIENT_ATTEMPTS - 1:
                 time.sleep(0.1 * (attempt + 1))
                 continue

@@ -1,5 +1,8 @@
 import { error, json } from '@sveltejs/kit';
+import { z } from 'zod';
+import { PodBody } from '$lib/server/comfyAccess';
 import { requireComfyAdmin } from '$lib/server/comfyAdmin';
+import { parseBody } from '$lib/server/http';
 import { imageForSha, podImageState, setPodImage } from '$lib/server/podImage';
 import { fleetPayload, getEffectiveFleet, podStatus } from '$lib/server/runpod';
 import type { RequestHandler } from './$types';
@@ -12,11 +15,15 @@ async function requireFleetPod(podId: string): Promise<void> {
 	if (!fleet.some((p) => p.id === podId)) throw error(400, 'Unknown pod.');
 }
 
-function bodyPodId(body: { podId?: unknown }): string {
-	const podId = typeof body.podId === 'string' ? body.podId.trim() : '';
-	if (!podId) throw error(400, 'Missing podId.');
-	return podId;
-}
+const SHA_MESSAGE = 'Expected a commit sha to move to.';
+
+/** `{ podId, sha }` — the pod first, so a body missing both is refused for the pod. */
+const MoveBody = PodBody.extend({
+	sha: z
+		.string({ message: SHA_MESSAGE })
+		.trim()
+		.regex(/^[0-9a-f]{7,40}$/i, SHA_MESSAGE),
+});
 
 /**
  * INSPECT a pod's image + the config an image change could disturb. Pure read, and the
@@ -50,10 +57,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 export const POST: RequestHandler = async ({ locals, request }) => {
 	await requireComfyAdmin(locals);
 
-	const body = (await request.json().catch(() => ({}))) as { podId?: unknown; sha?: unknown };
-	const podId = bodyPodId(body);
-	const sha = typeof body.sha === 'string' ? body.sha.trim() : '';
-	if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw error(400, 'Expected a commit sha to move to.');
+	const { podId, sha } = await parseBody(request, MoveBody);
 	await requireFleetPod(podId);
 
 	const status = await podStatus(podId);

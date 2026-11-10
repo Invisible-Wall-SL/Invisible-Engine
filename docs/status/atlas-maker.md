@@ -117,6 +117,39 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-11-09 — **One ComfyUI client and request handler in `iw_common`; ruff in CI (no behaviour
+  change).**
+  - **ComfyUI client** — `iw_common/comfy.py` grew from headers into a small stdlib client:
+    `cf_headers(env)`, `routed_headers(base, comfy_env)` (the per-user override `_comfy_headers`
+    used to hand-build), `get_json` / `post_json` / `history_entry`, `execution_error` /
+    `describe_execution_error`. `batch_atlas.comfy_get` / `comfy_post` call it (same timeouts, same
+    error wording — `test_render_slot` now patches `iw_common.comfy.urlopen`); the render loop's
+    execution-error read and the RunPod worker's summary are ONE parser (the worker's — the Atlas
+    Maker's classification is proven identical in `services/_shared/test_iw_comfy.py`); the
+    preflight `_comfy_answers` no longer reaches into `comfy_catalog._http_get_json` (the probe
+    budget is now the public `comfy_catalog.PROBE_TIMEOUT`). The worker image gets the module the
+    way it gets `nodes.json`: `atlas-comfy-worker.yml` copies `iw_common/__init__.py` + `comfy.py`
+    into the build context (gitignored there) and the Dockerfile `COPY iw_common /iw_common`; a
+    change to `comfy.py` now rebuilds the worker. A local `docker build` needs that copy by hand.
+  - **Request handler** — `Handler` subclasses `iw_common.http.ToolHandler`, shared with the Sheet
+    Maker: gate cookies, `_send` (no-store default, a caller's Cache-Control wins), `_authenticate`,
+    `_resolve_context`. The Atlas Maker overrides `_send` only to set `_responded` and attach
+    `X-IW-Doc-Versions`, and `_resolve_context` only to record `_user_id`. `_mirror` is
+    `iw_common.storage.mirror_staged` plus the manifest claim (`_claim_manifest`). Direct tests:
+    `services/_shared/test_iw_http.py`.
+  - **TexturePacker** — `atlas_writers.write_texturepacker_json` is `iw_common.texturepacker` in its
+    UPRIGHT dialect (rotated `frame.w/h` never swapped — what PixiJS's `Spritesheet` and real
+    TexturePacker use, so the deploy's `.json` is right for the game), byte-identical to before.
+    The old docstring's `seed-game-editor.mjs::tpToRegion` no longer exists; the readers are
+    `apps/launcher-api/scripts/lib/tpRegions.mjs` and `editorRegions.ts`. The Sheet Maker's
+    dialect differs — see its status open item 5, which also covers the Flipbook video sheets
+    this tool writes.
+  - **Tests + lint** — `iw_common/testkit.py` (`Suite`: `check` / `check_in` / `run` / `exit`) is
+    the shared pattern; `atlas-serverless/test_handler.py` and two Sheet Maker suites use it, the
+    rest keep their own `check()` for now. `ruff check services/` (rules in `services/ruff.toml`:
+    F, E9, BLE; the vendored PuLID-Flux node excluded) runs in CI's `python tests` job, pinned to
+    ruff 0.17.4; the existing hits were fixed or given a reasoned `# noqa`, and `# noqa: BLE001`
+    markers ruff reported unused were dropped (their reasons kept as comments).
 - 2026-11-09 — **Stop hits the render's own ComfyUI; R2 push failures are reported; banners are
   per-request.** Three review findings, all in `ui_server.py`:
   - **Stop** posted `/interrupt` + `/queue {clear}` to the import-time `batch_atlas.COMFY_BASE`

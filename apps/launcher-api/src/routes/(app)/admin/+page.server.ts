@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { error, fail, redirect } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import {
 	ADMIN_PANEL_CAPABILITY,
@@ -33,6 +33,7 @@ import {
 	isValidRole,
 	listUsers,
 	normalizeEmail,
+	requireAdminPanel,
 	sessionOwner,
 	sessionsForUser,
 	userRole,
@@ -41,7 +42,6 @@ import {
 import {
 	clearRoleOverride,
 	getAllRoleOverrides,
-	getRoleOverrides,
 	setRoleOverride,
 } from '$lib/server/roleToolAccess';
 import {
@@ -59,7 +59,6 @@ import {
 	listDeletedProjects,
 	listProjects,
 	projectAccessFor,
-	projectClientKey,
 	projectExists,
 	projectIsDeleted,
 	projectKeyTaken,
@@ -165,21 +164,8 @@ import {
 	sweepPendingMockups,
 } from '$lib/server/director/mockupCleanup';
 import { mergePricing } from '$lib/server/costs/directorPricing';
+import { clientKeyOf } from '$lib/server/projectLookup';
 import type { Actions, PageServerLoad } from './$types';
-
-/**
- * Admin gate reused by the load and every action. Allows access when the user's
- * role is the built-in `admin` OR the role matrix grants the `adminPanel`
- * capability to their role. Throws 403 otherwise.
- */
-async function requireAdmin(locals: App.Locals) {
-	if (!locals.user) throw redirect(303, '/login');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	if (!roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides)) {
-		throw error(403, 'Admins only.');
-	}
-	return locals.user;
-}
 
 /**
  * The refusal for an action on `targetId`'s account (and, for a role change, `newRole`), or
@@ -218,7 +204,7 @@ function generateDeployToken(): string {
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
-	await requireAdmin(locals);
+	await requireAdminPanel(locals, 'page');
 
 	const userList = await listUsers();
 	const overrides = await getToolOverridesFor(userList.map((u) => u.id));
@@ -408,7 +394,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 // Owner-only actions and the audit log are applied around the whole table: see withAdminGuards.
 export const actions = withAdminGuards({
 	createUser: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const email = normalizeEmail(String(data.get('email') ?? ''));
 		const name = String(data.get('name') ?? '').trim() || null;
@@ -433,7 +419,7 @@ export const actions = withAdminGuards({
 	},
 
 	setRole: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const role = String(data.get('role') ?? '');
@@ -453,7 +439,7 @@ export const actions = withAdminGuards({
 	},
 
 	setActive: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const active = data.get('active') === 'true';
@@ -474,7 +460,7 @@ export const actions = withAdminGuards({
 	},
 
 	setExpiry: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const expiresAt = parseExpiry(String(data.get('expiresAt') ?? ''));
@@ -497,7 +483,7 @@ export const actions = withAdminGuards({
 	},
 
 	resetPassword: async ({ request, locals, cookies }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const password = String(data.get('password') ?? '');
@@ -519,7 +505,7 @@ export const actions = withAdminGuards({
 	},
 
 	setToolAccess: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const refused = await adminAccountRefusal(admin, 'setToolAccess', userId);
@@ -542,7 +528,7 @@ export const actions = withAdminGuards({
 	},
 
 	setRoleToolAccess: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const role = String(data.get('role') ?? '');
 		const toolKey = String(data.get('toolKey') ?? '');
@@ -576,7 +562,7 @@ export const actions = withAdminGuards({
 	},
 
 	createProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '')
 			.toLowerCase()
@@ -641,13 +627,13 @@ export const actions = withAdminGuards({
 	 * the server. Only the key comes from the browser: the plan is re-derived for it.
 	 */
 	bookOfDryRun: async ({ locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const { census, plans } = await planBookOfMigration(ENV.GAMES_BASE_URL);
 		return { action: 'bookOfDryRun' as const, census, plans };
 	},
 
 	bookOfApplyOne: async ({ request, locals, cookies, url }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		if (data.get('confirm') !== 'yes') {
@@ -673,7 +659,7 @@ export const actions = withAdminGuards({
 	 * stamped blind. A later desktop ☁ Publish without the claim clears the stamp again.
 	 */
 	setTableCapable: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const value = String(data.get('value') ?? '');
@@ -712,20 +698,20 @@ export const actions = withAdminGuards({
 	},
 
 	rescaffoldProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
 		if (!(await projectExists(key))) {
 			return fail(400, { action: 'rescaffoldProject', error: 'Unknown project.' });
 		}
-		const clientKey = (await projectClientKey(key)) ?? UNASSIGNED_CLIENT;
+		const clientKey = await clientKeyOf(key);
 		const { gameType, replaced } = await scaffoldProject(clientKey, key);
 		return { action: 'rescaffoldProject', ok: rescaffoldMessage(key, gameType, replaced) };
 	},
 
 	renameProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const name = String(data.get('name') ?? '').trim();
@@ -740,7 +726,7 @@ export const actions = withAdminGuards({
 	},
 
 	setDirectorTemplate: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '').trim();
 		const on = data.get('on') === 'true';
@@ -764,7 +750,7 @@ export const actions = withAdminGuards({
 	},
 
 	setProjectGameType: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const gameType = String(data.get('gameType') ?? '').trim();
@@ -789,7 +775,7 @@ export const actions = withAdminGuards({
 	},
 
 	deleteProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
@@ -818,7 +804,7 @@ export const actions = withAdminGuards({
 	},
 
 	restoreProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
@@ -840,7 +826,7 @@ export const actions = withAdminGuards({
 	 * never be the button someone hits by accident on a live one.
 	 */
 	purgeProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		// The typed guard is enforced server-side too — a client-side-only guard is
@@ -883,7 +869,7 @@ export const actions = withAdminGuards({
 	},
 
 	setProjectAccess: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const projectKey = String(data.get('projectKey') ?? '');
@@ -900,7 +886,7 @@ export const actions = withAdminGuards({
 	},
 
 	createClient: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '')
 			.toLowerCase()
@@ -923,7 +909,7 @@ export const actions = withAdminGuards({
 	},
 
 	renameClient: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const name = String(data.get('name') ?? '').trim();
@@ -938,7 +924,7 @@ export const actions = withAdminGuards({
 	},
 
 	deleteClient: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
@@ -952,7 +938,7 @@ export const actions = withAdminGuards({
 	},
 
 	assignProjectClient: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const projectKey = String(data.get('projectKey') ?? '');
 		const raw = String(data.get('clientKey') ?? '');
@@ -975,7 +961,7 @@ export const actions = withAdminGuards({
 	},
 
 	setClientAccess: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		const clientKey = String(data.get('clientKey') ?? '');
@@ -992,7 +978,7 @@ export const actions = withAdminGuards({
 	},
 
 	createGame: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '')
 			.toLowerCase()
@@ -1025,7 +1011,7 @@ export const actions = withAdminGuards({
 	},
 
 	setGameProject: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const project = String(data.get('project') ?? '').trim();
@@ -1042,7 +1028,7 @@ export const actions = withAdminGuards({
 	},
 
 	renameGame: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const name = String(data.get('name') ?? '').trim();
@@ -1057,7 +1043,7 @@ export const actions = withAdminGuards({
 	},
 
 	setGameUrl: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 		const url = String(data.get('url') ?? '').trim();
@@ -1071,7 +1057,7 @@ export const actions = withAdminGuards({
 	},
 
 	deleteGame: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '');
 
@@ -1084,7 +1070,7 @@ export const actions = withAdminGuards({
 	},
 
 	revokeSession: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const sessionId = String(data.get('sessionId') ?? '');
 		if (!sessionId) return fail(400, { action: 'revokeSession', error: 'Missing session.' });
@@ -1100,7 +1086,7 @@ export const actions = withAdminGuards({
 	},
 
 	revokeAllSessions: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		if (!userId) return fail(400, { action: 'revokeAllSessions', error: 'Missing user.' });
@@ -1112,7 +1098,7 @@ export const actions = withAdminGuards({
 	},
 
 	deleteUser: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 
@@ -1131,7 +1117,7 @@ export const actions = withAdminGuards({
 	},
 
 	loadSessions: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const userId = String(data.get('userId') ?? '');
 		if (!userId) return fail(400, { action: 'loadSessions', error: 'Missing user.' });
@@ -1151,7 +1137,7 @@ export const actions = withAdminGuards({
 
 	/** Reveal the current effective deploy token once (admin-only). */
 	revealDeployToken: async ({ locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const token = await getDeployToken();
 		if (!token) {
 			return fail(404, { action: 'revealDeployToken', error: 'No deploy token is configured.' });
@@ -1161,7 +1147,7 @@ export const actions = withAdminGuards({
 
 	/** Set the deploy token to an admin-typed value (admin-only). */
 	setDeployToken: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const token = String(data.get('token') ?? '').trim();
 
@@ -1179,7 +1165,7 @@ export const actions = withAdminGuards({
 
 	/** Generate a strong random deploy token, save it, and reveal it once (admin-only). */
 	rotateDeployToken: async ({ locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const token = generateDeployToken();
 		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
 		return { action: 'rotateDeployToken', ok: 'Deploy token rotated.', deployToken: token };
@@ -1194,14 +1180,14 @@ export const actions = withAdminGuards({
 	 * holds skeleton docs with no atlas or pages — not something a game can load.
 	 */
 	promoteRig: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const projectKey = String(data.get('project') ?? '').trim();
 		const bundle = String(data.get('bundle') ?? '').trim();
 		if (!projectKey || !bundle) {
 			return fail(400, { action: 'promoteRig', error: 'Pick a project and a bundle.' });
 		}
-		const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+		const clientKey = await clientKeyOf(projectKey);
 		try {
 			const { entry, files, replaced } = await promoteRigToShared(clientKey, projectKey, bundle);
 			return {
@@ -1228,7 +1214,7 @@ export const actions = withAdminGuards({
 	 * loaded page.
 	 */
 	saveBootSplash: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const ref = await setEngineBootSplash(
 			{
@@ -1249,7 +1235,7 @@ export const actions = withAdminGuards({
 
 	/** Save the pipeline-wide default layout profile (admin-only). Body: JSON `profile`. */
 	saveLayoutProfile: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		let input: unknown;
 		try {
@@ -1270,7 +1256,7 @@ export const actions = withAdminGuards({
 
 	/** Clear the pipeline-wide default, reverting to the coded DEFAULT_LAYOUT_PROFILE. */
 	resetLayoutProfile: async ({ locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		await setAppSetting(LAYOUT_PROFILE_DEFAULT_KEY, '', admin.id);
 		return { action: 'resetLayoutProfile', ok: 'Reverted to the built-in layout default.' };
 	},
@@ -1283,7 +1269,7 @@ export const actions = withAdminGuards({
 	 * their own content-hashing / the `?v=` build bust.
 	 */
 	purgeCache: async ({ locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const result = await purgeEverything();
 		if (result.skipped) {
 			return fail(400, {
@@ -1301,7 +1287,7 @@ export const actions = withAdminGuards({
 
 	/** Save the idle auto-stop config (enabled toggle + idle minutes). */
 	setRunpodIdle: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const enabled = data.get('enabled') === 'true' || data.get('enabled') === 'on';
 		const minutes = Number(String(data.get('minutes') ?? ''));
@@ -1321,7 +1307,7 @@ export const actions = withAdminGuards({
 	 * as `app_settings.runpodPods` JSON `[{id,label}, …]`.
 	 */
 	setRunpodPods: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const ids = data.getAll('podId').map((v) => String(v).trim());
 		const labels = data.getAll('podLabel').map((v) => String(v).trim());
@@ -1341,7 +1327,7 @@ export const actions = withAdminGuards({
 
 	/** Manually STOP a specific pod (admin lever, independent of the artist-facing card). */
 	stopRunpodPod: async ({ request, locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const podId = String(data.get('podId') ?? '').trim();
 		if (!podId) return fail(400, { action: 'stopRunpodPod', error: 'Missing pod.' });
@@ -1359,7 +1345,7 @@ export const actions = withAdminGuards({
 
 	/** Save the per-run budget cap. Runs copy it at start, so running runs keep theirs. */
 	setDirectorBudget: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const raw = String(data.get('budgetUsd') ?? '').trim();
 		const value = Number(raw);
@@ -1379,7 +1365,7 @@ export const actions = withAdminGuards({
 
 	/** Save the cap of a game repair run (ADR-0012), bounded like the run cap. */
 	setDirectorRepairBudget: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const raw = String(data.get('budgetUsd') ?? '').trim();
 		const value = Number(raw);
@@ -1405,7 +1391,7 @@ export const actions = withAdminGuards({
 
 	/** Save the cap of one pipeline bug fix run (ADR-0013), bounded like the run cap. */
 	setPipelineFixBudget: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const raw = String(data.get('budgetUsd') ?? '').trim();
 		const value = Number(raw);
@@ -1425,7 +1411,7 @@ export const actions = withAdminGuards({
 
 	/** Save the month's ceiling on fix-run spend; past it, new fix runs are refused. */
 	setPipelineFixMonthly: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const raw = String(data.get('monthlyUsd') ?? '').trim();
 		const value = Number(raw);
@@ -1451,7 +1437,7 @@ export const actions = withAdminGuards({
 
 	/** Save how many fix runs may be live at once, over every bug. */
 	setPipelineFixMaxLive: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const raw = String(data.get('maxLive') ?? '').trim();
 		const value = Number(raw);
@@ -1479,7 +1465,7 @@ export const actions = withAdminGuards({
 	 * silently ignored at billing time.
 	 */
 	setDirectorPricingOverride: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const raw = String(data.get('override') ?? '').trim();
 		if (!raw) {
@@ -1509,7 +1495,7 @@ export const actions = withAdminGuards({
 	 * for `days` days. The days are kept as the retention, so the form opens on the last value.
 	 */
 	sweepDirectorMockups: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const days = Number(String(data.get('days') ?? '').trim());
 		if (
@@ -1542,7 +1528,7 @@ export const actions = withAdminGuards({
 
 	/** Re-poll every provider now, bypassing the 10-minute snapshot cache. */
 	refreshCosts: async ({ locals }) => {
-		await requireAdmin(locals);
+		await requireAdminPanel(locals, 'page');
 		invalidateCosts();
 		return { action: 'refreshCosts', ok: 'Re-reading provider costs…' };
 	},
@@ -1556,7 +1542,7 @@ export const actions = withAdminGuards({
 	 * number that counts. An empty value clears it.
 	 */
 	setCostMonthEur: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const provider = String(data.get('provider') ?? '').trim();
 		const year = Number(String(data.get('year') ?? ''));
@@ -1604,7 +1590,7 @@ export const actions = withAdminGuards({
 	 * month total silently under-counting the two costs that matter most.
 	 */
 	setCostMonthUsd: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const provider = String(data.get('provider') ?? '').trim();
 		const year = Number(String(data.get('year') ?? ''));
@@ -1643,7 +1629,7 @@ export const actions = withAdminGuards({
 	 * land, rather than being discovered wrong later in a year total.
 	 */
 	importCostMonths: async ({ request, locals }) => {
-		const admin = await requireAdmin(locals);
+		const admin = await requireAdminPanel(locals, 'page');
 		const data = await request.formData();
 		const text = String(data.get('text') ?? '');
 		const confirmed = String(data.get('confirm') ?? '') === '1';

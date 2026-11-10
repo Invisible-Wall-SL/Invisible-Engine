@@ -77,7 +77,7 @@ def _open_variation(session_id: str, name: str) -> Image.Image:
         raise ValueError(f"Variation '{name}' not found in session '{session_id}'.")
     try:
         return Image.open(io.BytesIO(blob))
-    except Exception as e:  # noqa: BLE001 — a corrupt/partial webp is user-visible
+    except Exception as e:  # a corrupt/partial webp is user-visible
         raise ValueError(f"Could not read '{name}' as an image: {e}") from e
 
 

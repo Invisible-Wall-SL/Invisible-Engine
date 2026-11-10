@@ -26,6 +26,7 @@ Full design + rationale: [`docs/design/comfyui-serverless.md`](../../docs/design
 | `extra_model_paths.yaml` | points ComfyUI at `/runpod-volume/ComfyUI/models` |
 | `custom_nodes/ComfyUI-PuLID-Flux/` | the artist's vendored, modified PuLID node |
 | *(node list)* | **not here** — `services/atlas-comfy-pod/nodes.json`, filtered to entries flagged `prod`. CI copies it into this build context; a copy in this folder is gitignored so a stale one cannot be committed. |
+| *(`iw_common/comfy.py`)* | **not here** — the ComfyUI client `handler.py` shares with the Atlas Maker lives in `services/_shared/iw_common/`. CI copies it (with the package `__init__.py`) into this build context; the copy is gitignored. A local `docker build` needs that copy made by hand. |
 
 ## Build
 

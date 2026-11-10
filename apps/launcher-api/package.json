@@ -30,6 +30,7 @@
 		"check:partner-delivery": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-delivery.ts",
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",
+		"check:http-helpers": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-http-helpers.ts",
 		"check:director-access": "tsx --tsconfig tsconfig.scripts.json scripts/check-director-access.ts",
 		"check:director-adapters": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-director-adapters.ts",
 		"check:director-mockups": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-director-mockups.ts",

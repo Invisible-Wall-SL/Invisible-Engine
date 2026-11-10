@@ -41,7 +41,7 @@
 //   6. THE /admin STAMP, over the REAL `setTestServerGameTableCapable` (same CAS patch loop): it
 //      sets and clears `tableCapable` on an own-bundle entry only, refuses an entry republished
 //      since the admin looked (its `updatedAt`), survives a lost manifest CAS, and its action calls
-//      `requireAdmin` before writing.
+//      `requireAdminPanel(locals, 'page')` before writing.
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -884,8 +884,8 @@ await check('the admin action is admin-only and goes through this writer', () =>
 	if (start < 0) throw new Error('admin ?/setTableCapable is gone');
 	const next = admin.slice(start + 1).search(/\n\t[a-zA-Z]+: async/);
 	const block = admin.slice(start, next < 0 ? undefined : start + 1 + next);
-	const gate = block.indexOf('await requireAdmin(locals)');
-	if (gate < 0) throw new Error('?/setTableCapable does not call requireAdmin');
+	const gate = block.indexOf("await requireAdminPanel(locals, 'page')");
+	if (gate < 0) throw new Error("?/setTableCapable does not call requireAdminPanel(locals, 'page')");
 	const write = block.indexOf('setTestServerGameTableCapable(');
 	if (write < 0 || write < gate) throw new Error('?/setTableCapable writes before (or without) its admin gate'); // prettier-ignore
 });

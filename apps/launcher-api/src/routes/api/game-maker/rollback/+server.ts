@@ -2,15 +2,15 @@ import { json } from '@sveltejs/kit';
 import { OWNER_ROLE } from '$lib/launcherGates';
 import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
 import { userHasCapability } from '$lib/server/launcherAuth';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { ConflictError } from '$lib/server/r2';
-import { canAccessProject, projectClientKey } from '$lib/server/projects';
+import { canAccessProject } from '$lib/server/projects';
 import {
 	isSnapshotId,
 	RollbackRefusedError,
 	rollbackSnapshot,
 	UnknownSnapshotError,
 } from '$lib/server/publishedRuntime';
+import { clientKeyOf } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			{ status: 403, headers: NO_STORE },
 		);
 	}
-	const clientKey = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(project);
 	try {
 		const isOwner = locals.user.role === OWNER_ROLE;
 		const pointer = await rollbackSnapshot(clientKey, project, snapshot, (target) =>

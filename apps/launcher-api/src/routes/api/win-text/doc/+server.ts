@@ -1,8 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDeployToken } from '$lib/server/deployToken';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { loadWinTextDoc } from '$lib/server/winTextStorage';
+import { clientKeyOf, projectParam } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 /**
@@ -19,8 +18,8 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url }) => {
 	await requireDeployToken(url, 'Win-text export is not configured.');
 
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const projectKey = projectParam(url);
+	const clientKey = await clientKeyOf(projectKey);
 
 	try {
 		const doc = await loadWinTextDoc(clientKey, projectKey);

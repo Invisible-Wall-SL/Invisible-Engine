@@ -42,6 +42,12 @@
    **The taxonomy was only editable where there is a filesystem (owner asked 2026-09-16).** `taxonomy_path` on `SemanticLayerAnalyze` / `SemanticLayerRouter` takes a PATH, and the loader deliberately REFUSES pasted file contents (falling back to the built-in fallback, which has far fewer keywords — a silent downgrade). That works on a desktop and on a pod under `/workspace`, and not at all on the serverless worker, whose container is ephemeral — so the Atlas Maker's production path cannot use a custom taxonomy today. The taxonomy is the whole quality knob on the CLIP analyzer (its keywords ARE the candidate labels), so "you can edit it, just not where you render" is the wrong end of the trade. Shape: an inline-YAML input alongside `taxonomy_path`, exposed as a multiline blueprint param, so a project's taxonomy travels in the graph and needs no filesystem anywhere.
 
 ## Recent changes
+- 2026-11-09 — **The worker's execution-error summary is the Atlas Maker's shared parser.**
+  `handler.py` imports `describe_execution_error` from `iw_common/comfy.py` (same output, same
+  tests). `atlas-comfy-worker.yml` copies that module + the package `__init__.py` into the build
+  context (gitignored there, like `nodes.json`) and the Dockerfile adds `COPY iw_common /iw_common`;
+  a change to `services/_shared/iw_common/comfy.py` now also rebuilds the image. A local
+  `docker build` needs that copy by hand. Detail: [atlas-maker status](atlas-maker.md).
 - 2026-09-30 — **The worker no longer shares `models/RMBG/` with the volume, and
   `fetch-models.py` checksums.** `atlas-serverless/start.sh` now links `/ComfyUI/models/*` one
   entry at a time, skipping `RMBG`, and stages a copy of the new `rmbg` + `birefnet` sets

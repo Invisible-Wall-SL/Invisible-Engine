@@ -34,6 +34,7 @@ const ACCESS = new Map<string, Set<string>>([
 const server = (path: string): string => new URL(`../src/lib/server/${path}`, import.meta.url).href;
 mock.module(server('projects.ts'), {
 	namedExports: {
+		DEFAULT_PROJECT_KEY: 'cloud',
 		canAccessProject: async (userId: string, _role: string, key: string) =>
 			PROJECTS.has(key) && (ACCESS.get(userId)?.has(key) ?? false),
 		projectClientKey: async (key: string) => PROJECTS.get(key) ?? null,

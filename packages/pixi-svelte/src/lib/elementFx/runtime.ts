@@ -54,6 +54,7 @@ import {
 	warnStageFxRefused,
 } from './stage';
 import { compileFilter } from '../gpuWarmup';
+import { elementFxFiltersOn } from '../renderOptions';
 import type { StageApp } from '../screenFx/stageFilters';
 
 export interface ElementFxHost {
@@ -511,13 +512,15 @@ const releaseFilters = (runtime: Runtime): void => {
 const applyFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
 	const { target } = runtime;
 	// A custom effect whose still is cut (or that holds its end) needs no passes on the element it
-	// hides.
-	const ours = runtime.effects.filter(
-		(e) =>
-			e.filters.length &&
-			frames.has(e) &&
-			!(e.impl.breakWindow?.live === false && (e.breakRun || e.held)),
-	);
+	// hides. `?fx=0` plays every effect without its passes.
+	const ours = elementFxFiltersOn()
+		? runtime.effects.filter(
+				(e) =>
+					e.filters.length &&
+					frames.has(e) &&
+					!(e.impl.breakWindow?.live === false && (e.breakRun || e.held)),
+			)
+		: [];
 	const current = target.filters ?? NO_FILTERS;
 	if (runtime.filtersOn && current !== runtime.lastFilters) {
 		const mine = new Set(runtime.effects.flatMap((e) => e.filters));
@@ -605,7 +608,9 @@ const publishStage = (runtime: Runtime, filters: readonly Filter[]): void => {
  * filters, filter area and transform are never written.
  */
 const applyStageFilters = (runtime: Runtime, frames: Map<Effect, FxFrame>): void => {
-	const ours = runtime.effects.filter((e) => e.filters.length && frames.has(e));
+	const ours = elementFxFiltersOn()
+		? runtime.effects.filter((e) => e.filters.length && frames.has(e))
+		: [];
 	const { box } = runtime;
 	const view = { screenWidth: box.width, screenHeight: box.height };
 	for (const effect of ours) {

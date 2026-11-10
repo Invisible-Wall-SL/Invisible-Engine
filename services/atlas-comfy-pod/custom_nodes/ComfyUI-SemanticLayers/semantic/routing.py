@@ -15,7 +15,7 @@ Decision priority, highest first (matches the documented contract):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Optional
 
 from .overrides import OverrideSet, apply_overrides, unmatched_keys
 from .schema import LayerMetadata, LayerMetadataSet
