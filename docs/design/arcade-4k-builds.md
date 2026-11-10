@@ -154,7 +154,8 @@ variable for both halves, so the art a build ships and the tier it loads cannot 
   kept anyway (a rig's half atlas keeps any page that had no half copy); an export's `index.json`
   does not count, because it lists every tier and the game never loads it (the bake embeds the index).
   The log and `pull.json` (`artTier.notPulled`) say what was left out and its size.
-- **The desktop launcher** (v1.0.65): each project card's **Art: Auto / Full / Half** picker sets
+- **The desktop launcher** (v1.0.65, relabelled v1.0.66): each project card's **Build for: All
+  screens / Arcade 4K / Desktop & mobile** picker sets
   it for ☁ Publish and 📦 Deliver (`invisible-launcher` `verify_art_tier.py`).
 - **A delivery**: `build-delivery.mjs --art-tier full|half` adds it to the build env and to
   `--print-env`. Deliberately not a delivery-profile field: a profile describes the operator's RGS,
