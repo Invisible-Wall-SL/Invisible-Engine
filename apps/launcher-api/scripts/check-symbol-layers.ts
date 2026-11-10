@@ -45,6 +45,10 @@ import { canBlendLayerKind, isBlendMode, pixiBlendMode } from 'engine-layout';
 import { pruneUnreachableEffects } from '../src/lib/server/effectReachability.ts';
 import type { EffectDoc } from 'engine-fx';
 import { collectSymbolRefs } from '../src/lib/server/symbolExport.ts';
+import {
+	needsBackdropBlend,
+	resolveRenderOptions,
+} from '../../../packages/pixi-svelte/src/lib/renderOptions.ts';
 import { normalizeSymbolsDoc } from '../src/lib/server/symbolsStorage.ts';
 import {
 	docSignature,
@@ -518,9 +522,12 @@ check(
 	appSrc.indexOf('registerAdvancedBlendModes();') < appSrc.indexOf('new PIXI.Application'),
 	true,
 );
+// The back buffer is decided by `renderOptions.ts` (on unless the content is known to need none),
+// so the renderer must take it from there; the decision itself is checked below, per mode.
 check(
-	'InitialiseApplication: enables the back buffer (else FilterSystem SKIPS every blend filter)',
-	/^\s*useBackBuffer: true,/m.test(appSrc),
+	'InitialiseApplication: creates the renderer with the back buffer renderOptions decides (else FilterSystem SKIPS every blend filter)',
+	/^\s*useBackBuffer: options\.useBackBuffer,/m.test(appSrc) &&
+		/const options = resolveRenderOptions\(/.test(appSrc),
 	true,
 );
 
@@ -550,6 +557,26 @@ check('blendMode.ts: the mode list parsed (the regex still matches)', allModes.l
 check('blendMode.ts: the GPU-native list parsed', gpuNative.length > 0, true);
 check('blendMode.ts: there is at least one ADVANCED mode to cover', advanced.length > 0, true);
 check('advancedBlendModes.ts: the formula table parsed', corrected.length > 0, true);
+for (const mode of advanced) {
+	const content = { doc: { scenes: [{ nodes: [{ kind: 'sprite', blendMode: mode }] }] } };
+	check(
+		`a node blended with \`${mode}\` keeps the back buffer, even with it left out by default elsewhere`,
+		needsBackdropBlend(content) &&
+			resolveRenderOptions({
+				tierAntialias: true,
+				switches: {},
+				needs: { backdropBlend: needsBackdropBlend(content) },
+				autoBackBuffer: true,
+			}).useBackBuffer,
+		true,
+	);
+}
+check(
+	'content the game has not declared keeps the back buffer',
+	resolveRenderOptions({ tierAntialias: true, switches: {}, needs: {}, autoBackBuffer: true })
+		.useBackBuffer,
+	true,
+);
 check(
 	`every advanced mode the editor offers has a corrected filter (offers ${advanced.join('/')}, registers ${corrected.join('/')})`,
 	advanced.every((m) => corrected.includes(m)),
