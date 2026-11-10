@@ -193,9 +193,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/infra](status/infra.md))
 - **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
   done. ([status/infra](status/infra.md))
-- **Delete the three legacy tool-key Railway vars** — `ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET`,
-  `ATLAS_BLUEPRINT_SECRET` (production Shared Variables). The code that read them is gone.
-  ([status/atlas-maker](status/atlas-maker.md) item 6)
 - **Grant `gamePublish`** to `developer` and `pipelineTester` in /admin → Roles.
   ([status/launcher](status/launcher.md))
 - **Game Maker → Republish all** so the games published before snapshots stop booting live data.
