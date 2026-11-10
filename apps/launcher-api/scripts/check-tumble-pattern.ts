@@ -34,6 +34,7 @@ import { lfReaderFrom } from '../../../scripts/lib/read-lf.mjs';
 import { ZodError } from 'zod';
 import { TUMBLE_PATTERNS, TUMBLE_STEP_MS_DEFAULT, TUMBLE_STEP_MS_MAX } from 'engine-layout';
 import { emptySymbolsDoc, normalizeSymbolsDoc } from '../src/lib/server/symbolsStorage.ts';
+import { symbolsRouteCarries } from './lib/symbolsRouteBody.ts';
 import {
 	clearTumblePattern,
 	docSignature,
@@ -175,11 +176,10 @@ rejects('a non-object', { tumblePattern: 'rowsTop' });
 		/\n\t\t\t\ttumblePattern,\n/.test(bake),
 		true,
 	);
-	const endpoint = read('apps/launcher-api/src/routes/api/editor/export-symbols/+server.ts');
 	check(
 		'…which it can only do because the export endpoint forwards it',
-		(endpoint.match(/\n\t\t\ttumblePattern,/g) ?? []).length,
-		2,
+		symbolsRouteCarries('tumblePattern'),
+		true,
 	);
 	const scenes = read('apps/lines/src/editor-scenes.ts');
 	check(

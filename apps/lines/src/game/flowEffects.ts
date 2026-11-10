@@ -126,8 +126,8 @@ import {
 	activeWinModel,
 	boardDimensions,
 	getActiveGameConfig,
-	paddingReels,
 	paylineColor,
+	spinPaddingReels,
 } from './gameConfig';
 import {
 	bakedSymbolNames,
@@ -1128,7 +1128,7 @@ export const presentReveal = async ({
 			const { enhancedBoard } = stateGameDerived;
 			const rolling = enhancedBoard.board.some((reel) => reel.reelState.rolling);
 			if (!rolling && !stateGameDerived.boardSwapsInPlace() && !coinBoard) {
-				await enhancedBoard.preSpin({ paddingBoard: paddingReels(bookEvent.gameType) });
+				await enhancedBoard.preSpin({ paddingBoard: spinPaddingReels(bookEvent.gameType) });
 			}
 			await waitForTimeout(spinClock.remainingUntil(deadline));
 		}
@@ -1166,7 +1166,7 @@ export const presentReveal = async ({
 		// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
 		// during the spin; a no-op (returns the strip unchanged) when the mode is off or stood down
 		// (byte-parity).
-		paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
+		paddingBoard: stackedScrollStrip(spinPaddingReels(bookEvent.gameType)),
 		// Sequential reel stop stands down with the roll. It needs no branch of its own: this whole
 		// call is unreachable on a swap-in-place board, and `sequentialStopActive()` reads false there
 		// anyway — belt and braces, so a future caller that reaches the spin some other way still

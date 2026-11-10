@@ -52,6 +52,8 @@
 		"check:mock-contract": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-mock-contract.ts",
 		"check:deploy-read": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-read.ts",
 		"check:deploy-token-gate": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-token-gate.ts",
+		"check:exporter-registry": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-exporter-registry.ts",
+		"check:deploy-mirror": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-mirror.ts",
 		"check:comfy-register": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-comfy-register.ts",
 		"check:change-password": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-change-password.ts",
 		"check:login-throttle": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-login-throttle.ts",

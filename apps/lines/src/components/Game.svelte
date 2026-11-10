@@ -1166,6 +1166,7 @@
 		turboFeature: boolSource(() => stateUi.config.features.turbo),
 		autoplayFeature: boolSource(() => stateUi.config.features.autoplay),
 		buyFeature: boolSource(() => stateMetaDerived.hasFeatureBetModes()),
+		anteFeature: boolSource(() => stateMetaDerived.anteToggleMode() !== undefined),
 		// True when NO full-screen tap-to-continue overlay is up (`continuePressCount === 0`). Bind an
 		// authored ambient/background node (e.g. drifting smoke) to this so it hides during any
 		// tap-to-continue celebration — the authored-scene equivalent of the coded `Background` dust
@@ -2093,12 +2094,18 @@
 			? (stateBet.autoSpinsCounter = 0)
 			: (stateModal.modal = { name: 'autoSpin' });
 	});
-	// ButtonBuyBonus coded body (design doc §8.5): an ARMED `activate` mode disarms back to BASE;
-	// otherwise open the buy-bonus select modal. Extracted so the registered `buyBonus` press can
-	// route through the flow gate (a flow that OWNS the `buyBonus` intent drives it) and fall
+	// An ante armed from the buy MENU — the buy-bonus button's "disable" state. An ante that is the
+	// HUD's own switch (`toggle`) is disarmed by that switch, so the buy button still opens the menu.
+	const isMenuAnteArmed = (): boolean => {
+		const mode = stateBetDerived.activeBetMode();
+		return mode?.type === 'activate' && !mode.toggle;
+	};
+	// ButtonBuyBonus coded body (design doc §8.5): an ARMED menu `activate` mode disarms back to
+	// BASE; otherwise open the buy-bonus select modal. Extracted so the registered `buyBonus` press
+	// can route through the flow gate (a flow that OWNS the `buyBonus` intent drives it) and fall
 	// through to this exact behaviour when un-owned — byte-identical to today (parity §8.8).
 	const codedOpenBuyModal = wager('buyBonus', () => {
-		if (stateBetDerived.activeBetMode()?.type === 'activate') {
+		if (isMenuAnteArmed()) {
 			stateBet.activeBetModeKey = 'BASE';
 		} else {
 			stateModal.modal = { name: 'buyBonus' };
@@ -2106,6 +2113,18 @@
 	});
 	const doOpenBuyModal = wager('buyBonus', () => {
 		stateModal.modal = { name: 'buyBonus' };
+	});
+	// The HUD ante switch: arm the game's switch ante (a bet mode marked `toggle`), or disarm it back
+	// to BASE. The stake readout follows through `betCost()`, and the bet goes out under the ante's
+	// key, which the facade sends as its option index.
+	const isAnteSwitchOn = (): boolean => {
+		const ante = stateMetaDerived.anteToggleMode();
+		return ante !== undefined && stateBet.activeBetModeKey.toUpperCase() === ante.mode;
+	};
+	const doToggleAnte = wager('ante', () => {
+		const ante = stateMetaDerived.anteToggleMode();
+		if (!ante) return;
+		stateBet.activeBetModeKey = isAnteSwitchOn() ? 'BASE' : ante.mode;
 	});
 
 	// The intent host bridge (design doc §8.5): the game IMPLEMENTS `invokeIntent`, called by
@@ -2228,7 +2247,20 @@
 			disabled: boolSource(
 				() => !context.stateXstateDerived.isIdle() || !stateMetaDerived.hasFeatureBetModes(),
 			),
-			active: boolSource(() => stateBetDerived.activeBetMode()?.type === 'activate'),
+			active: boolSource(isMenuAnteArmed),
+		},
+		// The ante switch — on/off for a bet mode marked `toggle`. Disabled while not idle and once the
+		// server has refused the ante; active while it is the stake.
+		ante: {
+			onpress: () => {
+				pressFeedback({ type: 'soundPressGeneral' });
+				doToggleAnte();
+			},
+			disabled: boolSource(
+				() =>
+					!context.stateXstateDerived.isIdle() || stateMetaDerived.anteToggleMode() === undefined,
+			),
+			active: boolSource(isAnteSwitchOn),
 		},
 		// ButtonAutoSpin — open the auto-spin modal, or stop a running auto-spin.
 		// Active while an auto-bet counter is live; disabled per its compound derived.

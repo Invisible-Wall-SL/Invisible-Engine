@@ -32,7 +32,7 @@ import {
 } from 'constants-shared/bootSplash';
 import { resolveBootSplashRefs } from './bootSplash';
 import { SUB, sharedRigBundlePrefix } from './projectPaths';
-import { deleteObjects, listAllKeys, putObjectText } from './r2';
+import { DeployMirror } from './deployMirror';
 import {
 	exportRigBundle,
 	loadSharedSkeletonIndex,
@@ -154,14 +154,12 @@ export async function exportBootSplashes(
 		...(game ? { game: game.entry } : {}),
 	};
 
-	const indexKey = `${deployPrefix}${BOOT_SPLASH_INDEX_FILE}`;
-	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
-
 	// Prune `_boot/` leftovers — a re-pointed or cleared tier must not leave its old art
 	// behind. Scoped to this subtree; the neighbouring exporters own theirs.
-	const written = new Set([indexKey, ...(engine?.written ?? []), ...(game?.written ?? [])]);
-	const stale = (await listAllKeys(bootPrefix)).filter((k) => !written.has(k));
-	await deleteObjects(stale);
+	const mirror = new DeployMirror(bootPrefix);
+	mirror.claim([...(engine?.written ?? []), ...(game?.written ?? [])]);
+	await mirror.put(`${deployPrefix}${BOOT_SPLASH_INDEX_FILE}`, JSON.stringify(index, null, '\t'));
+	await mirror.commit();
 
 	return index;
 }

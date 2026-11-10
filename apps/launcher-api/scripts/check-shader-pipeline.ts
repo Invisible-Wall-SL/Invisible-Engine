@@ -243,7 +243,11 @@ const publishRoute = await import('../src/routes/api/shaders/publish/+server.ts'
 const ftpScope = await import('../src/lib/server/ftpScope.ts');
 const unpublishRoute = await import('../src/routes/api/shaders/unpublish/+server.ts');
 const exportRoute = await import('../src/routes/api/editor/export-shaders/+server.ts');
-const effectsExportRoute = await import('../src/routes/api/editor/export-effects/+server.ts');
+const exportAssetRoute = await import('../src/routes/api/editor/export/[asset]/+server.ts');
+const { EXPORTERS } = await import('../src/lib/server/exporters.ts');
+const { BAKE_EXPORTS } = (await import('./lib/bakeExports.mjs')) as {
+	BAKE_EXPORTS: { asset: string; policy: string }[];
+};
 const editorDocRoute = await import('../src/routes/api/editor/doc/+server.ts');
 const { buildRuntimeBundle } = await import('../src/lib/server/runtimeBundle.ts');
 const { composeFlowV2Vocab } = await import('../src/lib/flowV2Vocab.ts');
@@ -716,25 +720,19 @@ console.log('4. the wiring');
 const here = fileURLToPath(new URL('.', import.meta.url));
 const repo = `${here}../../../`;
 const bake = readLF(`${here}bake-editor-doc.mjs`);
-check(
-	'the bake calls the shader export',
-	bake.includes('/api/editor/export-shaders?project='),
-	true,
-);
-check(
-	'…tolerates a launcher without it (404)',
-	/else if \(res\.status !== 404\) \{\s*bail\(`Shader export failed/.test(bake),
-	true,
-);
+const bakeShaders = BAKE_EXPORTS.find((e) => e.asset === 'shaders');
+check('the bake calls the shader export', !!bakeShaders, true);
+check('…tolerates a launcher without it (404)', bakeShaders?.policy, 'optional');
 check(
 	'…and embeds what it returns',
 	bake.includes('...(shaderEffects ? { shaderEffects } : {}),'),
 	true,
 );
 const runtime = readLF(`${here}../src/lib/server/runtimeBundle.ts`);
+// The runtime bundle runs every registry exporter (`check:exporter-registry` proves it).
 check(
 	'the runtime bundle runs the export',
-	runtime.includes("step('shaders', timings, () => exportShaders(clientKey, projectKey)),"),
+	EXPORTERS.some((e) => e.id === 'shaders'),
 	true,
 );
 check(
@@ -1379,8 +1377,8 @@ console.log('8. a particle material ships');
 	// The bake, the real script against a portal answering through the real routes.
 	const routes: Record<string, unknown> = {
 		'/api/editor/doc': editorDocRoute.GET,
-		'/api/editor/export-effects': effectsExportRoute.POST,
-		'/api/editor/export-shaders': exportRoute.POST,
+		'/api/editor/export/effects': exportAssetRoute.POST,
+		'/api/editor/export/shaders': exportAssetRoute.POST,
 	};
 	// Every failure answers a 400 the bake never retries (it retries 429 and 5xx at 5, 15 and 30 s),
 	// and the bake is killed past BAKE_TIMEOUT_MS, so a broken route fails this check fast.
@@ -1394,7 +1392,15 @@ console.log('8. a particle material ships');
 		if (!handler) return answer(200, '{}');
 		const request = new Request(url, { method: req.method });
 		Promise.resolve()
-			.then(() => (handler as Handler)({ url, request, locals: {}, cookies: {} } as never))
+			.then(() =>
+				(handler as Handler)({
+					url,
+					request,
+					params: { asset: url.pathname.split('/').pop() },
+					locals: {},
+					cookies: {},
+				} as never),
+			)
 			.then(async (r) => ({ status: r.status, body: await r.text() }))
 			.catch((e: unknown) => {
 				const status = (e as { status?: unknown }).status;

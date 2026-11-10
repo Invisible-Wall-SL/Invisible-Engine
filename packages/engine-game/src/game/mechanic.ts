@@ -163,12 +163,13 @@ export function mechanicFor(doc: GameConfigDoc | null | undefined): GameMechanic
 	return REELS_MECHANIC;
 }
 
-/** The HUD intents that stake money or change the stake: a bet, auto-play, a bonus buy, the bet
- *  steps. */
+/** The HUD intents that stake money or change the stake: a bet, auto-play, a bonus buy, the ante
+ *  switch, the bet steps. */
 export const WAGER_INTENTS: readonly string[] = Object.freeze([
 	'spin',
 	'autoSpin',
 	'buyBonus',
+	'ante',
 	'increase',
 	'decrease',
 ]);

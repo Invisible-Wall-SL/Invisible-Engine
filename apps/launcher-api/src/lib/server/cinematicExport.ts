@@ -12,7 +12,7 @@ import { resolveProjectCinematic } from './sharedCinematics';
  *   _shared/cinematics/<id>.v<N>.json              ← what a linked one plays (resolved on load)
  *   <client>/<project>/deploy/cinematics/<id>.json ← exported (this writes it)
  *
- * `buildRuntimeBundle` calls this via `ensureDeployExports` and embeds the returned docs in the
+ * `buildRuntimeBundle` runs this as the `cinematics` exporter (`exporters.ts`) and embeds the returned docs in the
  * bundle as `cinematics`; the game reads them via `bakedCinematics()`. A project with no
  * cinematics embeds nothing, so the runtime stays inert (parity). Idempotent — re-running
  * converges, and cinematics deleted since the last export are pruned from `deploy/`.

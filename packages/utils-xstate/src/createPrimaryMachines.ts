@@ -15,7 +15,13 @@ import { captureRgsFailure } from 'error-tracking';
 
 import type { BaseBet } from './types';
 
-const handleRequestBet = async ({ onError }: { onError: () => void }) => {
+const handleRequestBet = async ({
+	onError,
+	onBetRefused,
+}: {
+	onError: () => void;
+	onBetRefused: (error: unknown) => boolean | Promise<boolean>;
+}) => {
 	try {
 		const isBuyMode = stateBetDerived.activeBetMode()?.type === 'buy';
 
@@ -45,9 +51,12 @@ const handleRequestBet = async ({ onError }: { onError: () => void }) => {
 			};
 		}
 	} catch (error) {
-		onError();
-		captureRgsFailure('bet', error);
 		stateBet.autoSpinsCounter = 0;
+		captureRgsFailure('bet', error);
+		// A refusal the game handles (an operator switched an option off) is a message, not an error,
+		// and the game puts its own board back.
+		if (await onBetRefused(error)) throw error;
+		onError();
 		stateModal.modal = { name: 'error', error };
 		console.error(error);
 		throw error;
@@ -90,6 +99,13 @@ type Options<TBet extends BaseBet> = {
 	onResumeGameInactive: (betToResume: TBet) => void;
 	onNewGameStart: () => Promise<void> | undefined;
 	onNewGameError: () => any;
+	/**
+	 * A bet the server refused, offered to the game before `onNewGameError` and the error modal.
+	 * Resolve true when the game handled it — it then owns the board, and the round ends quietly with
+	 * no modal (the failure is still reported). Absent or false ⇒ `onNewGameError` and the error
+	 * modal, as before.
+	 */
+	onBetRefused?: (error: unknown) => boolean | Promise<boolean>;
 	onPlayGame: (bet: TBet) => Promise<void>;
 	checkIsBonusGame: (bet: TBet) => boolean;
 	/**
@@ -108,6 +124,7 @@ function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
 		onResumeGameInactive,
 		onNewGameStart,
 		onNewGameError,
+		onBetRefused = () => false,
 		onPlayGame,
 		checkIsBonusGame,
 		checkIsInteractiveRound = () => false,
@@ -187,7 +204,7 @@ function createPrimaryMachines<TBet extends BaseBet>(options: Options<TBet>) {
 
 		await onNewGameStart();
 
-		const data = await handleRequestBet({ onError: onNewGameError });
+		const data = await handleRequestBet({ onError: onNewGameError, onBetRefused });
 
 		if (data) {
 			if (data.balance) {
