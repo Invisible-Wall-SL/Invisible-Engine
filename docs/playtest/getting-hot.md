@@ -48,6 +48,8 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - `boostHit` and `multiplyHit`: each needs its bit. They hit on the first respin.
 - `superBonus`: Force 5, which is `enhancements:11111`.
 - `twoCollectors`, `trigger`, `baseCollect`; `baseCollect,twoCollectors` is a base collect into two collectors.
+- `jackpot:<TIER>` (MINI, MINOR, MAJOR, GRAND): a jackpot coin of that tier in the trigger run, e.g.
+  `trigger,jackpot:GRAND`.
 
 ## Scenarios
 

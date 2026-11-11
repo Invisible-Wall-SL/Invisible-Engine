@@ -25,8 +25,9 @@
  *
  * Forced beats (authoring and tests): `play.context = "force:<token>[,<token>…]"`, or held for a
  * session's next round by `POST …/force?sid=<sid>&beat=<tokens>`. Tokens: `enhancements:<bits>`,
- * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `baseCollect` (alone, or
- * `baseCollect,twoCollectors`: two collectors each take the coin) ({@link parsePartnerForce}).
+ * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `jackpot:<TIER>` (a jackpot
+ * coin of that tier in the trigger run), `baseCollect` (alone, or `baseCollect,twoCollectors`: two
+ * collectors each take the coin) ({@link parsePartnerForce}).
  *
  * The test server deals a game with it when its Game Config marks the partner's collector game
  * (`holdAndWin.enhancements`; services/test-server/makeMock.mjs). CLI:
@@ -281,6 +282,12 @@ export function parsePartnerForce(spec) {
 				continue;
 			}
 			force.bits = arg;
+		} else if (name === 'jackpot') {
+			if (!Object.hasOwn(PARTNER_GAME.jackpots, arg ?? '')) {
+				errors.push(`jackpot:<tier> takes one of ${Object.keys(PARTNER_GAME.jackpots).join(', ')}`);
+				continue;
+			}
+			force.jackpot = arg;
 		} else if (FORCE_FLAGS.includes(name) && arg === undefined) force[name] = true;
 		else errors.push(`unknown force "${token}"`);
 	}
@@ -522,6 +529,12 @@ export function createPartnerCollectorEngine(opts = {}) {
 			placeCoin(board, pick([0, 4]));
 		}
 		if (round.isBuy || force?.bonus) satisfyRun(board);
+		if (force?.jackpot) {
+			const run = runOf(board);
+			const coins = coinsOf(board);
+			const at = coins.find((c) => run.includes(c.reel)) ?? coins[0];
+			board[at.reel][at.row] = { coin: force.jackpot };
+		}
 		if (force?.twoCollectors && collectorsOf(board).length < 2) placeCollector(board);
 		const collectorsLanded = collectorsOf(board).length > 0;
 		const chance = pacing.trigger.chance;

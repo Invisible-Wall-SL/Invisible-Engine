@@ -1138,6 +1138,12 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     its players' mock is the partner's and refuses the force; the same doc without the marker keeps
     our mock. §1's pinned digests (every preset, template and overlay shape) are unchanged.
     Mutant (selection off) fails §3 twice.
+  - **The partner mock takes `jackpot:<TIER>`** (MINI…GRAND): a jackpot coin of that tier in the
+    forced trigger run. The current-games harness's Hold and Win `jackpot` scenario forces
+    `trigger,jackpot:<top tier>`, which the partner mock refused (HTTP 400) once `getting-hot` was
+    dealt by it — the harness renders the PUBLISHED snapshot, so this also proved that snapshot
+    already carries the marker. Gate: `check:holdandwin-partner` (the GRAND coin lands; an unknown
+    tier and `baseCollect,jackpot:…` are refused).
 - 2026-11-11 — **The jackpot tiles show what a tier pays while the ante is on.** The
   `jackpot.<tier>` value sources (`Game.svelte`) priced each tier at `betCost()`, which includes an
   ante's cost multiplier, so with Getting Hot's 5× ante a MINI tile read $125 at a $1 bet. Every
