@@ -255,21 +255,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   re-checks only the cells that cross (Recent changes). What a rolling frame still pays before the
   Pixi tick: art that must start again per cell to keep its timing and its `Math.random` draws (a
   rig with its `RigView`, its track and its rigged effects; a flipbook; Element FX), and a sprite
-  mounted again after another kind in the same view. Reusing a `RigView` as it is would change
-  where its update sits on the shared ticker and so the order of every later random draw (its
-  rigged effects' particles), which the current-games harness would see; it is not done.
+  mounted again after another kind in the same view. A `RigView` pool is not done: measured in
+  place, a rig start is ~1.8 ms of WebKitGTK and the `RigView` ~0.7 of it (Recent changes,
+  2026-11-11, "rig started again").
   **Step 4 works from the ranked churn list** (Recent changes, 2026-11-11, "Churn sweep"): in
   WebKit the Hold and Win bonus (28–44 s of main thread over idle per bonus on the overlay
   games), a free-spins feature (36 s on `bookofborutremake`), big and line wins (2–10 s) and every
-  spin (22–33% of spinning frames over 33 ms) are paid mostly in rigs started again (~20 ms each
-  in WebKitGTK with their slot meshes), Hold and Win cells mounting a `Symbol` per scrolled strip
-  cell, `Symbol`'s bands remounting inside kept views, and the win presentation remounting per
-  line cycle (also while idle after a win). Svelte's anchors in the live DOM are not a cost:
+  spin (22–33% of spinning frames over 33 ms). By where Svelte's time goes (the per-component
+  profile, same entry): the `Container` component's runs and teardowns (~40% of a spin's and a
+  book feature's), `Symbol`'s teardown (~12 ms each on `overlay-buffaloduel`), `BoardBase`'s
+  effects in a book feature (~34%, ~4 ms a run in WebKit), then the rig path (~8%). Hold and Win
+  cells mounting a `Symbol` per scrolled strip cell, `Symbol`'s bands remounting inside kept
+  views, and the win presentation remounting per line cycle (also while idle after a win) are
+  the churn behind the first two. Svelte's anchors in the live DOM are not a cost:
   detached, nothing moved (measured). A spin still flushes every frame because each reel's
   `Tween.current` changes and `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep
-  ticking when hidden), idle particle layers updating every frame, `propsSyncEffect`'s key list
-  per run. Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601 and the churn
-  counters released. The ~118 MB of resident textures on
+  ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
+  than building and destroying its `RigView`s), idle particle layers updating every frame,
+  `propsSyncEffect`'s key list per run. Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone
+  with #1601 and the churn counters released. The ~118 MB of resident textures on
   `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
 
@@ -480,6 +484,92 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-11 — **A layout node a timeline plays no longer re-runs its view's prop sync every
+  frame; a rig started again costs ~1.8 ms in WebKitGTK, not ~20, so the `RigView` pool is not
+  done** (branch `churn-rig-reuse`, on `claude/nice-albattani-a03tcm` at `a80a6f58`; step 4 of the
+  iPhone plan, churner 1).
+  - **What a rig start costs, measured in place** (an unminified copy of the build with timers
+    around `RigView`'s constructor, `destroy` and `syncDisplay`, and around the rig components;
+    WebKitGTK; `bookofborutremake` free spins, ~1,230–1,280 rig starts a session): the `RigView`
+    0.52–0.67 ms to build (a new `Skeleton` and `AnimationState` 0.08–0.09, ~12 slot meshes at
+    ~0.02 each, the rest its container, its measuring `Graphics` and its first mesh build) and
+    0.12–0.16 ms to destroy; the Svelte around it (`RigProvider`, `BaseRigProvider`, `RigTrack`,
+    `RiggedEffect`: their mount, their effects' runs, their teardown) ~1.1 ms more. About 1.8 ms a
+    start, ~2.3 s of a ~120 s session that spends ~27 s in Svelte. On `overlay-buffaloduel`'s
+    spins, building and destroying `RigView`s took 71 ms of six spins (107 rigs) against 12 s of
+    Svelte flushes. The churn sweep's ~20 ms a rig (below) was a regression over 1 s windows: a rig
+    start comes with the rest of its symbol's state change (bands, sprites, flipbooks, effects),
+    and the regression gave that to the rig.
+  - **The `RigView` pool is not done.** A perfect pool saves the `RigView` part, at most ~0.7 ms
+    of WebKitGTK a start: ≤0.5 s of a 106 s book feature (~1–2% of its main-thread excess), ~0.04 ms
+    a start on an iPhone 17 at the 18× ratio. Its risk is medium (a reused view must be a new one in
+    every field, its update must land where a new one's would on the shared ticker, its rigged
+    effects must draw `Math.random` in the same order) and it needs its own parity campaign. In
+    headless Chromium the share is larger (`BaseRigProvider`'s mount was ~16% of a book feature's
+    Svelte time, against ~2.5% in WebKitGTK): if Android ever needs it, the low-risk form is to
+    pool only the slot meshes (a new `RigView` per mount keeps its ticker place, container state
+    and child order by construction, and `syncDisplay` rewrites every field a mesh draws with),
+    which saves ~0.3 ms of the 0.7.
+  - **Where Svelte's time goes in WebKitGTK** (a second instrumented copy: each component's
+    synchronous mount, and each effect's runs and teardown attributed to the component whose code
+    created it, exclusive of what nests inside):
+
+    | moment (game)                    | Svelte s | largest                                                                                                                                                       |
+    | -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | at rest, 15 s (buffaloduel)      | 1.73     | `BaseRigProvider` prop sync 0.82 (40,014 runs: 57 rigs every frame), flush 0.80, `LayoutNodeView` 0.10                                                        |
+    | six spins (buffaloduel)          | 22.0     | `Container` 9.6 (destroy 3.8, run 3.7, mount 2.0), `BaseRigProvider` 3.7 (3.55 the per-frame prop sync), `Symbol` 3.6 (destroy 2.1: 172 at ~12 ms), flush 3.4 |
+    | free spins, ~120 s (bookofborut) | 27.1     | `Container` 11.3 (run 6.2 over 77k, destroy 4.6 over 14k), `BoardBase` 9.3 (its effects: 2,294 runs at ~4 ms; ~0.15 ms in Chromium), flush 1.8, rig path 2.2  |
+
+    The machine was shared and loaded (load average 10–13 on 4 cores) during these runs, so read
+    the shares, not the seconds.
+
+  - **The fix — the rig path's largest cost was not its starts but a per-frame rerun.**
+    `<LayoutNodeView>`'s `transform` was a new object each time its fold re-ran, and a node a
+    timeline plays (the pots overlay's rigs) samples every frame, so every frame each such rig's
+    `BaseRigProvider` prop sync re-ran, with the rig block around it, writing the values already
+    there. `stableTransform` (`resolveTransform.ts`) keeps the previous object while every field
+    reads the same (a primitive by `Object.is`, a point by its coordinates). Pinned by
+    `engine-layout/stableTransform.fixture.mjs`: each field in turn, points, added and dropped
+    fields, `0`/`-0`, `NaN`, and the derived → effect behaviour in Svelte's client runtime; every
+    one of seven mutations of the helper fails it.
+  - **Measured.** Instrumented, WebKitGTK, `overlay-buffaloduel`: at rest 1.73 → 0.63 s of Svelte
+    per 15 s (the prop-sync and rig-block runs gone, 40,014 → 0); six spins 22.0 → 17.6 s
+    (160,518 prop-sync runs → 0). The sweep, base (`a80a6f58`) against this branch, in interleaved
+    pairs (ms a frame over the moment's active frames; built / destroyed, rigs and DOM nodes are
+    unchanged, as the change removes reruns, not mounts):
+
+    | moment (game)                    | WebKitGTK JS−render / after | Chromium JS−render / after |
+    | -------------------------------- | --------------------------- | -------------------------- |
+    | at rest (buffaloduel)            | 4.6 / 5.5 → 3.4 / 3.9       | 14.7 / 17.5 → 9.1 / 11.9   |
+    | at rest (commonoverlay)          | —                           | 12.0 / 14.3 → 6.2 / 7.0    |
+    | at rest (bookofborut)            | —                           | 0.5 / 6.3 → 0.6 / 2.8      |
+    | no-win spin (buffaloduel)        | 28.1 / 31.7 → 22.1 / 28.1   | 21.7 / 25.4 → 16.7 / 19.9  |
+    | line win (buffaloduel)           | 8.6 / 15.0 → 12.1 / 31.8    | 13.7 / 16.1 → 9.8 / 11.5   |
+    | big win (commonoverlay)          | 9.3 / 17.6 → 7.9 / 14.5     | 16.8 / 21.3 → 12.1 / 14.6  |
+    | free spins (bookofborut)         | 5.8 / 21.6 → 4.9 / 13.7     | not comparable             |
+    | Hold and Win, pots (buffaloduel) | 22.9 / 34.2 → 42.3 / 62.4   | 14.2 / 15.0 → 12.3 / 13.8  |
+
+    WebKitGTK's no-win spin also read late 16.7 → 13.5 ms and frames over 33 ms 36% → 24%. The
+    machine was shared and loaded (load average 10–18 on 4 cores, another session's WebKit page
+    left running), so one run of a moment swings by ±40%. The book rows show it: nothing here
+    touches that game (its runtime doc has no timeline), its JS−render at rest is unchanged, yet
+    its time after the tick fell by 37–55%; the WebKit line win and Hold and Win read worse. Read
+    the counts above and the JS−render of the overlay games at rest and spinning, not single
+    moments.
+
+  - **Byte-identical:** current-games harness, local, determinism mode, base (`a80a6f58`) vs this
+    branch, unminified, every scenario, every capture byte-identical: `overlay-buffaloduel` 17/17,
+    `commonoverlayproject` 17/17, `bookofborutremake` 17/17, `holdandwintestsolo` 11/11, stand-ins
+    `cg-lines` 17/17 and `cg-cluster` 14/14 (93 of 93).
+  - **`bookofborutremake`'s board glow, found, not fixed** (ranked list, 7). Its authored glow
+    names one animation, `animation`, for start, idle and exit, and `BoardFrame.svelte`'s
+    `complete` listener tells the phases apart by name: a finished start is also read as a finished
+    exit, so the glow unmounts, the effect sees the feature still on and mounts it again — 129
+    mounts in ~80 s of one feature, one per ~0.5 s loop. The fix is to track the phase, not the
+    name. It changes pixels (one looping glow instead of a new one from t=0 each loop, with the end
+    pose held for a frame), so it is the owner's call.
+  - **Not verified:** a real iPhone; the minified build; the per-moment figures on an idle machine.
+
 - 2026-11-11 — **`?perf=1` counts what each frame builds and throws away; the churn sweep ranks
   which moments build and destroy the most in WebKit** (branch `worktree-agent-a6cd0c31d3d039fde`,
   on top of `claude/nice-albattani-a03tcm` / #1601; steps 2 and 3 of the iPhone plan).
@@ -571,15 +661,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
        per line cycle, every Hold and Win coin: `Symbol.svelte` `{#key artKey}` → `SymbolRigMain`
        → `RigProvider` / `BaseRigProvider` (`new RigView`, its slot meshes) + `RigTrack` +
        `RiggedEffect`s; `SymbolWinFrame` is itself a rig (`RigProvider ← SymbolWinFrame`) with a
-       `RiggedFlipbook`. ~20 ms each in WebKitGTK; 15–75 a spin, 65–110 a line win, 76–242 a big
-       win, 743 a book free-spins feature (1,098 `RigProvider ← SymbolRigMain` mounts in one),
-       109–309 a Hold and Win. **Fix:** a pool of `RigView`s per skeleton: reset on reuse (clear
-       tracks, setup pose, physics state), then take it off the shared ticker and add it back so
-       its update lands where a new mount's would, and re-add it to its parent where a mount
-       would. `RigView` draws no `Math.random`; its rigged effects' emitters do, at spawn, so they
-       must still start on the same frame and in the same order. **Risk: medium** — byte-identical
-       only if a reset view is indistinguishable from a new one; needs a frame-by-frame parity
-       fixture (new vs reused) before the harness.
+       `RiggedFlipbook`. 15–75 a spin, 65–110 a line win, 76–242 a big win, 743 a book free-spins
+       feature (1,098 `RigProvider ← SymbolRigMain` mounts in one), 109–309 a Hold and Win.
+       **Measured in place (2026-11-11, the entry above): ~1.8 ms a start in WebKitGTK, not ~20**
+       (the `RigView` ~0.7 of it), ~8% of a book feature's Svelte time; a `RigView` pool would save
+       ≤0.7 ms a start and is not done. The rig path's larger cost was a per-frame prop-sync rerun
+       on the rigs a timeline plays, fixed there.
     2. **Hold and Win respin cells mount a `Symbol` per scrolled strip cell** — `RespinCell.svelte`
        `{#each shown}` is the per-cell mount #1601 removed from flat boards
        (`Symbol ← RespinCell` 266 times and ~1,300 of their band containers in one buffaloduel
@@ -617,7 +704,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
        **Risk: not byte-identical** — glyphs rasterise differently; a visible change for the
        owner to approve. Small either way.
     7. **Observed, to check in step 4:** `bookofborutremake`'s free-spin board glow
-       (`BoardFrame.svelte`, mounted once) mounted its `RigProvider` 155 times in one feature;
+       (`BoardFrame.svelte`, mounted once) mounted its `RigProvider` 155 times in one feature
+       (cause found 2026-11-11, the entry above: one animation name for all three phases; the fix
+       changes pixels);
        `commonoverlayproject` builds ~195 particle sprites per 15 s idle and destroys none (an
        emitter pool growing).
   - **Svelte's anchors out of the live DOM — measured, no gain.** An experiment build rendered the
