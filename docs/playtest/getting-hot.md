@@ -14,8 +14,9 @@ and the first launch against the partner's server.
 Three processes, each on its own free port:
 
 1. **The partner-wire mock** (14d): `PORT=<rgs> SEED=7 node scripts/mock-rgs-server-holdandwin-partner.mjs`.
-   On the Invisible Test Server the same mock is selected per game with
-   `PARTNER_WIRE_GAMES=<gameKey>`.
+   On the Invisible Test Server the same mock deals any project whose Game Config marks the
+   partner's collector game (`holdAndWin.enhancements`, which **Lines game: collector +
+   enhancements** sets) — no env var.
 2. **A `/api/editor/runtime` stub** answering `{doc, config, assetBase, name}` with CORS `*`.
    Easiest: serve what Game Maker's **Lines game: collector + enhancements** scaffolds — run
    `scaffoldProject(client, key, {holdAndWinJackpots: 'on', holdAndWinBase: 'enhancements'})`
@@ -47,6 +48,8 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - `boostHit` and `multiplyHit`: each needs its bit. They hit on the first respin.
 - `superBonus`: Force 5, which is `enhancements:11111`.
 - `twoCollectors`, `trigger`, `baseCollect`; `baseCollect,twoCollectors` is a base collect into two collectors.
+- `jackpot:<TIER>` (MINI, MINOR, MAJOR, GRAND): a jackpot coin of that tier in the trigger run, e.g.
+  `trigger,jackpot:GRAND`.
 
 ## Scenarios
 

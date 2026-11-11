@@ -881,7 +881,6 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 **Invisible Test Server:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 (read), `TEST_SERVER_SECRET` (gates `POST /refresh`, taken as the `x-test-server-secret` header or
 `?secret=`; the launcher and the runtime-release Actions hold it too), `CASCADE_GAMES`,
-`PARTNER_WIRE_GAMES` (game keys whose mock speaks the partner's collector-respin wire),
 `CONTRACT_TIMEOUT_MS`, `CONTRACT_TTL_MS` (optional), `TEST_SERVER_LOCAL` (local dev only). See
 [tools/test-server](tools/test-server.md).
 

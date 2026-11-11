@@ -704,6 +704,13 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 		);
 	}
 	{
+		const { r } = await forced('trigger,jackpot:GRAND');
+		check(
+			Boolean(r.enter) && JSON.stringify(ctxs(r.events, 'playWindow')[0]).includes('"COIN_GRAND"'),
+			'force:jackpot:GRAND lands a GRAND coin on the trigger board',
+		);
+	}
+	{
 		const { r, before } = await forced('baseCollect');
 		check(
 			!r.enter && stats.baseCollects > before.baseCollects && stats.openWins > before.openWins,
@@ -725,6 +732,8 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 		'nope',
 		'boostHit,enhancements:00010',
 		'baseCollect,trigger',
+		'jackpot:HUGE',
+		'baseCollect,jackpot:MINI',
 	]) {
 		const r = await srv.engine('f', 0, [
 			{ action: 'bet', context: [0, 4] },
