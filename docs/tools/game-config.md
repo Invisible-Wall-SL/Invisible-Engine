@@ -603,9 +603,9 @@ reported under `modes.<id>.holdAndWin`.
   feature whose server draws the partner's enhancements (`enhancements: true`). It is presentation
   only: our mock never draws them. With it on, the Scene Editor's **Add missing screens** offers the
   **Enhancements** screen (four Enhancement Dials and the collectors' total), the banner popups
-  offer the two enhancement banners, and the reel grid reserves 5 rows. Then show the screen in
-  Flow (the `holdAndWin` mode's enter and exit, see [Flow](flow.md)). A project made with Game
-  Maker's **Lines game: collector + enhancements** has it all already.
+  offer the two enhancement banners, and the reel grid reserves 5 rows. Then show the screen at
+  game start in Flow (see [Flow](flow.md)). A project made with Game Maker's **Lines game:
+  collector + enhancements** has it all already.
 
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;

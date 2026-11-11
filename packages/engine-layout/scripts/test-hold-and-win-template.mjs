@@ -201,6 +201,11 @@ assert(
 );
 for (const id of ENHANCEMENT_SCREENS) {
 	assert(!sceneById.has(id), `${id} is in the set without enhancements`);
+}
+// The dials stand above the board in the base game too (the partner's game); the banners are the
+// feature's.
+assert(enhancedById.get('enhancements')?.role === undefined, 'enhancements is not a base screen');
+for (const id of ['enhancementsBanner', 'superBonusBanner']) {
 	assert(enhancedById.get(id)?.modeId === 'holdAndWin', `${id} is not a holdAndWin mode screen`);
 }
 assert(
@@ -215,6 +220,10 @@ assert(
 		JSON.stringify(dials.map((n) => n.params?.kind)) ===
 			JSON.stringify(['extraRow', 'boost', 'multiply', 'extraRespins']),
 		'the Enhancements screen places the four dials, Expand to Respin',
+	);
+	assert(
+		dials.every((n) => n.params?.visibleSource === 'assetsLoaded'),
+		'the dials show once the game has loaded, not only in an enhanced feature',
 	);
 	assert(
 		instancesIn(enhancedById.get('enhancements')).some(

@@ -522,11 +522,14 @@ export function holdAndWinReferenceLayout(
 		}),
 		...(enhancements
 			? [
-					modeScene({
+					{
 						id: 'enhancements',
 						name: 'Enhancements',
-						// The dials sit in a row just above the open board's top, the collectors' total under
-						// the counter.
+						// A base screen: the dials stand above the board from the first spin, unlit until a
+						// feature draws them (the partner's game). They show once the game has loaded
+						// (`assetsLoaded`) rather than only in an enhanced feature (their default). The
+						// dials sit in a row just above the open board's top, the collectors' total under
+						// the counter, shown only while the respin board is up.
 						nodes: [
 							...DIALS.map(({ kind, label }, index) =>
 								instance(
@@ -537,18 +540,21 @@ export function holdAndWinReferenceLayout(
 										{ dx: (index - 1.5) * 92, dy: -(dialsAbove + 46) },
 										{ dx: (index - 1.5) * 92, dy: -(dialsAbove + 46) },
 									),
-									{ kind },
+									{ kind, visibleSource: 'assetsLoaded' },
 								),
 							),
-							instance(
-								'collectors-total',
-								'Collectors total',
-								'textBox',
-								place({ dx: -470, dy: 110 }, { dx: 0, dy: 330 }),
-								{ text: '', source: 'collectorsTotal', fontSize: 30, fill: HEADLINE_FILL },
-							),
+							{
+								...instance(
+									'collectors-total',
+									'Collectors total',
+									'textBox',
+									place({ dx: -470, dy: 110 }, { dx: 0, dy: 330 }),
+									{ text: '', source: 'collectorsTotal', fontSize: 30, fill: HEADLINE_FILL },
+								),
+								valueBindings: [{ target: 'visible', source: 'cellsTotal' }],
+							},
 						],
-					}),
+					} satisfies Scene,
 				]
 			: []),
 		modeScene({
