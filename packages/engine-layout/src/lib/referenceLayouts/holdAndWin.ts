@@ -554,7 +554,7 @@ export function holdAndWinReferenceLayout(
 								valueBindings: [{ target: 'visible', source: 'cellsTotal' }],
 							},
 						],
-					},
+					} satisfies Scene,
 				]
 			: []),
 		modeScene({
