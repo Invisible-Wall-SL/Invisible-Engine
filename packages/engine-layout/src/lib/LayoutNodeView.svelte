@@ -7,7 +7,7 @@
 		readElementFxEntries,
 	} from 'constants-shared/elementFx';
 
-	import type { EffectNode, LayoutNode, Scene, TextStyle } from './types';
+	import type { EffectNode, LayoutNode, ResolvedTransform, Scene, TextStyle } from './types';
 
 	export type Props = {
 		node: LayoutNode;
@@ -55,7 +55,12 @@
 	import Tilemap from './Tilemap.svelte';
 	import { worldProjection } from './worldCameraView.svelte';
 	import InlineImageText from './InlineImageText.svelte';
-	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
+	import {
+		anchoredPosition,
+		resolveOverrideTextStyle,
+		resolveTransform,
+		stableTransform,
+	} from './resolveTransform';
 	import { pixiBlendMode } from './blendMode';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { hasInlineImage, stripInlineImage } from './inlineImage';
@@ -357,6 +362,7 @@
 	// `<RigPose>` an `animTime` value binding does, so the strip's time reaches the rig the one way.
 	const timelineScrubbed = !!timelineDrive?.channels.has('animTime');
 	const poseBound = bindsTarget('animTime', 'bone') || timelineScrubbed;
+	let lastTransform: ResolvedTransform | undefined;
 	const transform = $derived.by(() => {
 		const folded = foldBoundTransform(
 			resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()),
@@ -364,7 +370,11 @@
 			fold.allOutputs,
 		);
 		const tint = fold.timelineSample?.tint;
-		return tint === undefined ? folded : { ...folded, tint };
+		lastTransform = stableTransform(
+			lastTransform,
+			tint === undefined ? folded : { ...folded, tint },
+		);
+		return lastTransform;
 	});
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
