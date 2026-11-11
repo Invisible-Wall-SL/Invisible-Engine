@@ -10,6 +10,9 @@
 		y?: number;
 		symbolInfo: ReturnType<typeof getSymbolInfo>;
 		oncomplete?: () => void;
+		/** A kept sprite handed its next entry by a reel view (`Symbol`'s `instanceKey`): it reports
+		 *  as a new sprite would on mount. */
+		restart?: number;
 	};
 
 	const props: Props = $props();
@@ -27,6 +30,7 @@
 
 	$effect(() => {
 		props.symbolInfo;
+		void props.restart;
 		props.oncomplete?.();
 	});
 </script>
