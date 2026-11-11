@@ -11,9 +11,11 @@ A kind change that shipped the old kind's flow (`flow-wrong-kind`):
 - **Cause:** a Flow v2 starter shows each feature screen by name on the mode's enter; a new
   reference-layout screen (`enhancements`) that the seed's screen list does not name is never shown.
   The layout gates passed: they only check the scene is in the doc.
-- **Fix:** `freshDrivenSeedDoc('holdAndWin', {enhancements: true})` adds it to the mode's screens
-  (`packages/engine-flow-v2/src/reference/drivenSeed.ts`); the scaffold passes the option.
-- **Guard:** `check:add-bonus-mode` "the starter flow shows the dials for the feature".
+- **Fix:** `freshDrivenSeedDoc('holdAndWin', {enhancements: true})` names it in the seed's screens
+  (`packages/engine-flow-v2/src/reference/drivenSeed.ts`); the scaffold passes the option. Since
+  2026-11-11 it is a base screen shown at game start (a `role: 'mode'` screen can never mount
+  outside its mode, whatever the flow shows).
+- **Guard:** `check:add-bonus-mode` "the starter flow shows the dials from the start".
 - **PR:** #1595 (2026-11-10) · source: `docs/status/hold-and-win.md`
 
 ### Publish answered 502 instead of naming the cause

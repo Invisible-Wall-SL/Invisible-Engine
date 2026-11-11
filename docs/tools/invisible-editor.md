@@ -2497,9 +2497,17 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   usually on a Hold and Win screen of their own above the board. A **Text Box** with source
   `collectorsTotal` shows what the collectors hold together, climbing as each coin lands in one.
   Game Maker's **Lines game: collector + enhancements** places all of it on an **Enhancements**
-  screen. On another Hold and Win project, tick Game Config's **The server draws enhancements**:
-  **Add missing screens** then offers that screen and the banner popups offer the two enhancement
-  banners; add the screen to the feature's Flow too (below).
+  screen, a base screen (**role** none) so the dials stand unlit above the reels in the base game
+  as on the partner's game: each dial's **visibleSource** is `assetsLoaded` (shown once the game
+  has loaded) instead of its default `enhancementsShow` (only in a bonus that drew enhancements),
+  and the collectors' total carries a `visible` value binding on `cellsTotal`, so it shows only
+  while the respin board is up. On another Hold and Win project, tick Game Config's **The server
+  draws enhancements**: **Add missing screens** then offers that screen and the banner popups offer
+  the two enhancement banners; show the screen at game start in Flow too (below). An Enhancements
+  screen added before 2026-11-11 is a **game mode** screen of `holdAndWin` with the dials on their
+  default gate, so it shows only in the bonus; for the dials in the base game set its **role** to
+  _— none —_, each dial's **visibleSource** to `assetsLoaded`, and on **Collectors total** add a
+  value binding: **visible**, source `cellsTotal`.
   **Line Overlay** marks a coin board's paying lines: each active line as a path between its cells,
   in its Game Config payline colour, with a numbered tab at each end of the board. Like the tiles,
   where you drop it doesn't matter: the lines draw on the board's own cells, and only in a coin

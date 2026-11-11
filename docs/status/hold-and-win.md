@@ -1121,6 +1121,34 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-11 — **A collector + enhancements project shows its dials from the first spin**, as the
+  partner's game does: the four dials stand unlit above the reels in the base game, light when a
+  bonus draws them and go back to unlit when it ends. New projects only; every other template, the
+  coin board and every stored project are byte-identical (the flag-off seed equals the plain one,
+  `check:add-bonus-mode`).
+  - **Layout** (`holdAndWinReferenceLayout(…, {enhancements: true})`): the `enhancements` screen is
+    a base screen, no longer a `holdAndWin` mode screen (a mode screen never mounts outside its
+    mode, whatever a flow shows). Each dial's `visibleSource` is `assetsLoaded` (the default
+    `enhancementsShow` is true only in a bonus that drew enhancements; `''` would be ungated too,
+    but the Scene Editor cannot set or show it). The Collectors total carries a `visible` value
+    binding on `cellsTotal`, so it shows only while the respin board is up. Position unchanged:
+    the row sits between the jackpot bar and the reels in the base game too.
+  - **Flow** (`freshDrivenSeedDoc('holdAndWin', {enhancements: true})`): `enhancements` is shown at
+    game start with the base screens and no chain hides it; the `holdAndWin` section is the plain
+    template's.
+  - **The owner's `getting-hot`** (created 2026-11-10) keeps the dials to the bonus until its author
+    makes four edits (not done for them): Scene Editor → Enhancements screen → **role** _— none —_;
+    each of the four dials → **visibleSource** `assetsLoaded`; Collectors total → value binding
+    **visible**, source `cellsTotal`; Flow → add **Show container → enhancements** after the game
+    start's base shows, and delete `hw_hide_41` (the feature exit's **Hide container →
+    enhancements**; `hw_show_25` / `hw_show_34` may stay, a show of a shown screen is a no-op). No
+    tool re-seeds a stored starter flow. Documented in `docs/tools/invisible-editor.md` and
+    `docs/tools/flow.md`.
+  - **Played** (local: the scaffold as the runtime stub, the 14d partner-wire mock seed 7,
+    `apps/lines` on `PUBLIC_RGS_TRANSPORT=play4fun`, headless Chrome on a real clock): base game
+    shows the four unlit dials and no collectors total; `enhancements:01010,boostHit,multiplyHit`
+    lights Boost and Multiply under "BOOST · MULTIPLY ACTIVE", each hit shows "+$…" / "×N" on its
+    dial with a beam to the coin, the total climbs; after the bonus the dials are unlit again.
 - 2026-11-11 — **The jackpot tiles show what a tier pays while the ante is on.** The
   `jackpot.<tier>` value sources (`Game.svelte`) priced each tier at `betCost()`, which includes an
   ante's cost multiplier, so with Getting Hot's 5× ante a MINI tile read $125 at a $1 bet. Every

@@ -1311,13 +1311,25 @@ await check("the Scene Editor's full set never puts back what the template left 
 			(n) => n.kind === 'componentInstance' && n.componentId === 'enhancementDial',
 		);
 		same(dials.length, 4, 'four Enhancement Dials');
-		assert(
-			scene('enhancements')?.nodes.some(
-				(n) => n.kind === 'componentInstance' && n.params?.source === 'collectorsTotal',
-			),
-			"no collectors' total",
+		same(
+			dials.map((n) => n.kind === 'componentInstance' && n.params?.visibleSource),
+			['assetsLoaded', 'assetsLoaded', 'assetsLoaded', 'assetsLoaded'],
+			'the dials show once the game has loaded, in the base game too',
 		);
-		same(scene('enhancements')?.modeId, 'holdAndWin', 'the Enhancements screen is a feature screen');
+		const total = scene('enhancements')?.nodes.find(
+			(n) => n.kind === 'componentInstance' && n.params?.source === 'collectorsTotal',
+		);
+		assert(total, "no collectors' total");
+		same(
+			total.valueBindings,
+			[{ target: 'visible', source: 'cellsTotal' }],
+			"the collectors' total shows only while the respin board is up",
+		);
+		same(
+			[scene('enhancements')?.role, scene('enhancements')?.modeId],
+			[undefined, undefined],
+			'the Enhancements screen is a base screen',
+		);
 		assert(
 			scene('hudBar')?.nodes.some(
 				(n) => n.kind === 'componentInstance' && n.params?.action === 'ante',
@@ -1335,7 +1347,7 @@ await check("the Scene Editor's full set never puts back what the template left 
 		}
 	});
 
-	await check('Collector + enhancements: the starter flow shows the dials for the feature', () => {
+	await check('Collector + enhancements: the starter flow shows the dials from the start', () => {
 		const shows = (graph: { nodes: { kind: string; ref?: string }[] }, kind: string) =>
 			graph.nodes.filter((n) => n.kind === kind).map((n) => n.ref);
 		assert(
@@ -1345,11 +1357,15 @@ await check("the Scene Editor's full set never puts back what the template left 
 		const mode = flow.modes?.holdAndWin?.graph;
 		assert(mode, 'no holdAndWin section');
 		assert(
-			shows(mode, 'showContainer').includes('enhancements') &&
-				shows(mode, 'hideContainer').includes('enhancements'),
-			'the feature does not show and hide the Enhancements screen',
+			shows(flow.graph, 'showContainer').includes('enhancements'),
+			'the game start does not show the Enhancements screen',
 		);
-		assert(!shows(flow.graph, 'showContainer').includes('enhancements'), 'the base game shows it');
+		for (const graph of [flow.graph, mode]) {
+			assert(
+				!shows(graph, 'hideContainer').includes('enhancements'),
+				'a chain hides the Enhancements screen',
+			);
+		}
 		const plain = docsOf('tpl-plain-on').flow;
 		same(
 			flow.containers.map((c) => c.id).filter((id) => id !== 'enhancements'),
@@ -1357,9 +1373,14 @@ await check("the Scene Editor's full set never puts back what the template left 
 			"the plain template's other screens",
 		);
 		same(
-			shows(flow.graph, 'showContainer'),
+			shows(flow.graph, 'showContainer').filter((id) => id !== 'enhancements'),
 			shows(plain.graph, 'showContainer'),
-			'the base game shows what the plain template does',
+			'the base game shows what the plain template does, and the Enhancements screen',
+		);
+		same(
+			JSON.stringify(mode),
+			JSON.stringify(plain.modes?.holdAndWin?.graph),
+			"the feature section is the plain template's",
 		);
 		same(
 			JSON.stringify(freshDrivenSeedDoc('holdAndWin', { enhancements: false })),

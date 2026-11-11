@@ -117,7 +117,7 @@ const LUCKY_SPIN = 'luckySpin';
 const WHEEL = 'wheel';
 const JACKPOT_WIN = 'jackpotWin';
 /** A collector bonus with enhancements: its dials and collectors' total (the reference layout's
- *  `enhancements` option). */
+ *  `enhancements` option) — a base screen, the dials on screen from the first spin. */
 const ENHANCEMENTS = 'enhancements';
 
 /** Every screen the driven game shows once play begins (mounted; cue-driven internal visibility). */
@@ -156,17 +156,21 @@ const COIN_BOARD_SCREENS = [
 /** A coin board's feature screens: the mode's own, less the board, which never leaves. */
 const COIN_BOARD_MODE_SCREENS = HOLD_AND_WIN_MODE_SCREENS.filter((id) => id !== RESPIN_BOARD);
 
-/** The Hold and Win feature screens a project's starter shows, by its two options. */
-const holdAndWinModeScreens = ({
+/** The Hold and Win feature screens a project's starter shows. */
+const holdAndWinModeScreens = ({ coinBoard = false }: HoldAndWinSeedOptions) =>
+	coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS;
+
+/** The screens a Hold and Win starter shows once play begins, by its two options. */
+const holdAndWinGameScreens = ({
 	coinBoard = false,
 	enhancements = false,
 }: HoldAndWinSeedOptions) => [
-	...(coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS),
+	...(coinBoard ? COIN_BOARD_SCREENS : HOLD_AND_WIN_SCREENS),
 	...(enhancements ? [ENHANCEMENTS] : []),
 ];
 
 /** The Hold and Win starter's options: a coin board (its own screens) and a feature with
- *  enhancements (the Enhancements screen up for the whole feature). */
+ *  enhancements (the Enhancements screen up from the start, as the partner's dials are). */
 export type HoldAndWinSeedOptions = { coinBoard?: boolean; enhancements?: boolean };
 
 /** The round-holding free-spin screens — shown only around their moment, never at start. */
@@ -800,7 +804,8 @@ export const holdAndWinModeGraph = (
  * presentation and zero authoring.
  *
  * - **Global graph**: the shared lifecycle rig and base-game presentation (no free spins and no
- *   special book; the kind has neither) with the jackpot bar and the pots on screen from the start,
+ *   special book; the kind has neither) with the jackpot bar and the pots (and a collector bonus's
+ *   Enhancements screen) on screen from the start,
  *   plus the base-game beats of the mechanic: the Lucky Spin intro (inside the `luckySpin` screen),
  *   the pots filling, the instant collect, a base-game jackpot. **On all modes finished** brings the
  *   base music back once the feature is over (a no-op while it already plays). The round's own
@@ -831,15 +836,11 @@ const holdAndWinDrivenSeed = (options: HoldAndWinSeedOptions = {}): FlowDoc => {
 	// A coin board pays no line in its base game, so it seeds no line-win chain (a `winInfo` that did
 	// arrive would run its coded handler).
 	if (coinBoard) delete choreo.winInfo;
-	const base = buildDrivenSeed(
-		HOLD_AND_WIN_VOCAB,
-		coinBoard ? COIN_BOARD_SCREENS : HOLD_AND_WIN_SCREENS,
-		{
-			choreo,
-			around: { luckySpin: LUCKY_SPIN },
-			declared: [...holdAndWinModeScreens(options), LUCKY_SPIN, WHEEL, JACKPOT_WIN],
-		},
-	);
+	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, holdAndWinGameScreens(options), {
+		choreo,
+		around: { luckySpin: LUCKY_SPIN },
+		declared: [...holdAndWinModeScreens(options), LUCKY_SPIN, WHEEL, JACKPOT_WIN],
+	});
 	// Right of the global rig (x 0) and the buy subgraph (x 500).
 	const backToBase = buildEntryGraph({
 		prefix: 'base',
@@ -1001,7 +1002,7 @@ export const drivenSeedTemplateId = (gameType?: string): string =>
  * it owns an independent copy the editor can mutate + save without touching the shared reference.
  * `coinBoard` (a Hold and Win project whose Game Config carries a coin board) picks the coin board's
  * starter; `enhancements` (one whose respin mode draws enhancements) shows the Enhancements screen
- * through the feature. Every other type ignores both.
+ * from the start and never hides it. Every other type ignores both.
  */
 export function freshDrivenSeedDoc(
 	gameType?: string,

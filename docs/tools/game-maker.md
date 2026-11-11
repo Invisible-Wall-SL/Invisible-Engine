@@ -129,7 +129,9 @@ overlay add-on.
      modes; the keys must stay. Every number other than the line pays is mock pacing: the partner's
      server owns the math. The coin and collector are bound to placeholder art in Symbols. The
      project gets an **Enhancements** screen (the four **Enhancement Dial**s above the board and a
-     **Collectors total** text) shown by the starter Flow for the whole feature, an **ANTE** button
+     **Collectors total** text) that the starter Flow shows from the first spin, as on the partner's
+     game: the dials stand unlit in the base game, light when a bonus draws them, and go back to
+     unlit when it ends; the total shows only in the bonus. It also gets an **ANTE** button
      in the HUD bar, and a reel grid that leaves room for the 5 rows Expand and the super bonus
      open. The two enhancement banners play their built-in look until you add their screens from
      the banner popups in the [Scene Editor](invisible-editor.md). To play it against the
