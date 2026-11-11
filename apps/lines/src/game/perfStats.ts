@@ -1,10 +1,11 @@
 /**
  * The numbers behind the `?perf=1` frame-time readout (`PerfHud.svelte`): frame intervals split
- * into idle and spinning, hitches, the display's refresh, how far each reel step is from the step
- * its speed and the frame's interval make, what each frame asked of the GPU and what its particles
- * and rigs did (`pixi-svelte` `glCounters.ts`), as a mean and a max per frame, and a record of each
- * spike (`perfSpikes.ts`). Plain functions over a frame feed, so a fixture can drive them without a
- * canvas (`perfStats.fixture.ts`).
+ * into phases (idle, spinning, and a round's frames with the reels at rest: wins, features,
+ * banners), hitches, the display's refresh, how far each reel step is from the step its speed and
+ * the frame's interval make, what each frame asked of the GPU, what its particles and rigs did and
+ * what it built and threw away (`pixi-svelte` `glCounters.ts`, `churnProbe.ts`), as a mean and a
+ * max per frame, and a record of each spike (`perfSpikes.ts`). Plain functions over a frame feed,
+ * so a fixture can drive them without a canvas (`perfStats.fixture.ts`).
  */
 
 import type { FrameMotionView } from 'pixi-svelte/frameClock';
@@ -14,12 +15,13 @@ import {
 	createSpikeRecorder,
 	displayPeriodMs,
 	spikeThresholdMs,
+	type PerfPhase,
 	type SpikeSummary,
 } from './perfSpikes';
 
 declare global {
 	/** `?perf=1` only: the readout's Copy report as data, for a script driving the page. */
-	var __IE_PERF__: ((action?: 'reset') => string | undefined) | undefined;
+	var __IE_PERF__: ((action?: 'reset' | 'take') => string | undefined) | undefined;
 }
 
 /** Frames kept per bucket for the percentiles: about 5 s at 120 Hz. */
@@ -31,6 +33,17 @@ const REFRESH_HZ = [24, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 const SAME_RATE = 0.05;
 /** Frames between two reads of the display's refresh for the spike threshold. */
 const THRESHOLD_EVERY = 60;
+/**
+ * The game's top-level states a round is played in (`utils-xstate` `STATE_BET`, `STATE_AUTOBET`,
+ * `STATE_RESUME_BET`): the win presentation and a feature run inside them, reels at rest.
+ */
+const ROUND_STATES = new Set(['bet', 'autoBet', 'resumeBet']);
+
+/** The phase a frame counts in: spinning when a reel moves, else round or idle by the state. */
+export function framePhase(spinning: boolean, state: string | undefined): PerfPhase {
+	if (spinning) return 'spinning';
+	return state !== undefined && ROUND_STATES.has(state.split(/[.,]/)[0]) ? 'round' : 'idle';
+}
 
 export type PerfBucketSnapshot = {
 	frames: number;
@@ -72,6 +85,28 @@ export const WORK_KEYS = [
 	'rigMs',
 	'rigSyncMs',
 	'rigs',
+	'created',
+	'createdContainers',
+	'createdSprites',
+	'createdParticles',
+	'createdTexts',
+	'createdGraphics',
+	'createdMeshes',
+	'createdOther',
+	'destroyed',
+	'destroyedContainers',
+	'destroyedSprites',
+	'destroyedParticles',
+	'destroyedTexts',
+	'destroyedGraphics',
+	'destroyedMeshes',
+	'destroyedOther',
+	'rigsBuilt',
+	'rigsDestroyed',
+	'textRenders',
+	'textMs',
+	'domAdded',
+	'domRemoved',
 ] as const satisfies readonly (keyof FrameWork)[];
 
 export type WorkKey = (typeof WORK_KEYS)[number];
@@ -89,8 +124,10 @@ export type PerfSnapshot = {
 	capped30: boolean;
 	idle: PerfBucketSnapshot;
 	spinning: PerfBucketSnapshot;
+	/** A round's frames with the reels at rest: the win presentation, a feature's screens. */
+	round: PerfBucketSnapshot;
 	reel: { steps: number; mean: number; p95: number; max: number };
-	work: { idle: WorkSnapshot; spinning: WorkSnapshot };
+	work: Record<PerfPhase, WorkSnapshot>;
 	spikes: SpikeSummary;
 };
 
@@ -181,26 +218,29 @@ export function estimateRefreshHz(intervals: number[]): number | undefined {
 export function createPerfStats(now: () => number = () => performance.now()) {
 	let startedAt = now();
 	let lastTime: number | undefined;
-	let idle = new Bucket();
-	let spinning = new Bucket();
+	let buckets = { idle: new Bucket(), spinning: new Bucket(), round: new Bucket() };
 	let reel = new Ring();
 	let reelSteps = 0;
 	let reelSum = 0;
 	let reelMax = 0;
 	let previous = new WeakMap<object, { visual: number; rate: number; time: number }>();
-	let idleWork = new WorkBucket();
-	let spinningWork = new WorkBucket();
-	let lastSpinning = false;
+	let work = { idle: new WorkBucket(), spinning: new WorkBucket(), round: new WorkBucket() };
+	let lastPhase: PerfPhase = 'idle';
 	const spikes = createSpikeRecorder();
 	let framesSeen = 0;
 	let threshold = spikeThresholdMs(displayPeriodMs(undefined, false));
-	const intervals = () => [...idle.intervals(), ...spinning.intervals()].sort((a, b) => a - b);
+	const intervals = () =>
+		[
+			...buckets.idle.intervals(),
+			...buckets.spinning.intervals(),
+			...buckets.round.intervals(),
+		].sort((a, b) => a - b);
 
 	return {
 		/**
 		 * One Pixi tick: its frame timestamp, whether the game says it is spinning, every moving
 		 * reel, and the game's state. A frame with a reel moving counts as spinning too (a Hold and
-		 * Win respin's cells).
+		 * Win respin's cells); one in a round with every reel at rest, as the round's.
 		 */
 		frame(
 			time: number,
@@ -210,7 +250,7 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 		): void {
 			const motions = [...moving];
 			const interval = lastTime === undefined ? undefined : time - lastTime;
-			lastSpinning = isSpinning || motions.length > 0;
+			lastPhase = framePhase(isSpinning || motions.length > 0, state);
 			if (++framesSeen % THRESHOLD_EVERY === 0) {
 				const sorted = intervals();
 				threshold = spikeThresholdMs(
@@ -218,9 +258,9 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 				);
 			}
 			if (interval !== undefined && interval > 0) {
-				(lastSpinning ? spinning : idle).add(interval);
+				buckets[lastPhase].add(interval);
 				const at = Math.round((time - startedAt) / 100) / 10;
-				spikes.frame(time, interval, threshold, lastSpinning, state, at);
+				spikes.frame(time, interval, threshold, lastPhase, state, at);
 			}
 			for (const motion of motions) {
 				const rate = motion.rate;
@@ -246,7 +286,7 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 		},
 		/** What the frame just over did; it counts where that frame's interval did. */
 		work(sample: FrameWork): void {
-			(lastSpinning ? spinningWork : idleWork).add(sample);
+			work[lastPhase].add(sample);
 			spikes.work(sample);
 		},
 		/** A long task (Chrome's `longtask` entries), for the spike records. */
@@ -260,15 +300,13 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 		reset(): void {
 			startedAt = now();
 			lastTime = undefined;
-			idle = new Bucket();
-			spinning = new Bucket();
+			buckets = { idle: new Bucket(), spinning: new Bucket(), round: new Bucket() };
 			reel = new Ring();
 			reelSteps = 0;
 			reelSum = 0;
 			reelMax = 0;
 			previous = new WeakMap();
-			idleWork = new WorkBucket();
-			spinningWork = new WorkBucket();
+			work = { idle: new WorkBucket(), spinning: new WorkBucket(), round: new WorkBucket() };
 			spikes.reset();
 		},
 		snapshot(): PerfSnapshot {
@@ -279,15 +317,20 @@ export function createPerfStats(now: () => number = () => performance.now()) {
 				seconds: Math.round((now() - startedAt) / 1000),
 				refreshHz,
 				capped30: isCapped30(sorted),
-				idle: idle.snapshot(),
-				spinning: spinning.snapshot(),
+				idle: buckets.idle.snapshot(),
+				spinning: buckets.spinning.snapshot(),
+				round: buckets.round.snapshot(),
 				reel: {
 					steps: reelSteps,
 					mean: round1(reelSteps ? reelSum / reelSteps : 0),
 					p95: round1(quantile(reelSorted, 0.95)),
 					max: round1(reelMax),
 				},
-				work: { idle: idleWork.snapshot(), spinning: spinningWork.snapshot() },
+				work: {
+					idle: work.idle.snapshot(),
+					spinning: work.spinning.snapshot(),
+					round: work.round.snapshot(),
+				},
 				spikes: spikes.snapshot(threshold),
 			};
 		},

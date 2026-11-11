@@ -4,11 +4,13 @@
  *
  * Pins: the display refresh read off the fastest frames (120 / 60 Hz, through dropped frames);
  * the 30 fps cap flag (iOS Low Power Mode) and only it; idle vs spinning buckets and their hitch
- * counts; the reel step error is 0 for a value drawn at interval × speed (through a relayout jump)
+ * counts; a round's frames with the reels at rest in a bucket of their own (boot and idle are not
+ * a round, a moving reel in a round is spinning); churn counted per frame like the rest; the reel
+ * step error is 0 for a value drawn at interval × speed (through a relayout jump)
  * and shows a value drawn a frame late; a hidden page's gap is not a frame; Reset clears.
  */
 
-import { createPerfStats, estimateRefreshHz } from './perfStats.ts';
+import { createPerfStats, estimateRefreshHz, framePhase } from './perfStats.ts';
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = ''): void => {
@@ -161,6 +163,28 @@ const drive = (
 		rigMs: 0,
 		rigs: 0,
 		rigSyncMs: 0,
+		created: 0,
+		createdContainers: 0,
+		createdSprites: 0,
+		createdParticles: 0,
+		createdTexts: 0,
+		createdGraphics: 0,
+		createdMeshes: 0,
+		createdOther: 0,
+		destroyed: 0,
+		destroyedContainers: 0,
+		destroyedSprites: 0,
+		destroyedParticles: 0,
+		destroyedTexts: 0,
+		destroyedGraphics: 0,
+		destroyedMeshes: 0,
+		destroyedOther: 0,
+		rigsBuilt: 0,
+		rigsDestroyed: 0,
+		textRenders: 0,
+		textMs: 0,
+		domAdded: 0,
+		domRemoved: 0,
 		...extra,
 	});
 	const stats = createPerfStats(() => 0);
@@ -190,7 +214,40 @@ const drive = (
 	);
 	stats.reset();
 	check('Reset clears the work too', stats.snapshot().work.idle.frames === 0);
+
+	stats.frame(2000, false, [], 'idle');
+	stats.work(work(1, 1));
+	stats.frame(2016, true, [], 'bet');
+	stats.work(work(1, 1, { created: 4, createdSprites: 4 }));
+	stats.frame(2032, false, [], 'bet');
+	stats.work(work(1, 1, { created: 120, createdContainers: 80, domAdded: 900 }));
+	stats.frame(2048, false, [], 'bet');
+	stats.work(work(1, 1, { destroyed: 60, textRenders: 2 }));
+	stats.frame(2064, false, [], 'idle');
+	const r = stats.snapshot();
+	check(
+		"a round's frames at rest go to the round bucket, its spinning ones to spinning",
+		r.idle.frames === 1 && r.spinning.frames === 1 && r.round.frames === 2,
+		JSON.stringify([r.idle.frames, r.spinning.frames, r.round.frames]),
+	);
+	const round = r.work.round.perFrame;
+	check(
+		'churn is a mean and a max per frame, in the phase of the frame that did it',
+		r.work.round.frames === 2 &&
+			round.created?.mean === 60 &&
+			round.created.max === 120 &&
+			round.domAdded?.max === 900 &&
+			round.destroyed?.mean === 30 &&
+			round.textRenders?.max === 2 &&
+			r.work.spinning.perFrame.createdSprites?.mean === 4,
+		JSON.stringify(r.work.round.perFrame.created),
+	);
 }
+
+check('boot is not a round', framePhase(false, 'rendering') === 'idle');
+check('autoplay is a round', framePhase(false, 'autoBet') === 'round');
+check('no state is idle', framePhase(false, undefined) === 'idle');
+check('a moving reel is spinning in any state', framePhase(true, 'idle') === 'spinning');
 
 if (failures) throw new Error(`perfStats.fixture: ${failures} FAILED`);
 console.log('\nperfStats.fixture: all ok');

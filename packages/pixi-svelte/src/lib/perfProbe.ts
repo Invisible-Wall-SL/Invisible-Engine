@@ -1,14 +1,16 @@
 import { RigView, type RigViewProbe } from 'engine-rig/pixi';
 
+import { churnFrameStarts, resetChurn, trackDisplayObjects } from './churnProbe';
+
 /**
  * The `?perf=1` PROBE: what the particles, the baked effects and the rigs did in a frame, and how
  * much JS the frame ran, handed to the readout with the frame's GL work (`glCounters.ts`
  * `instrumentApp`, which turns it on and off). On, each `<ParticleEmitter>` times its
  * `emitter.update`, each `<BakedEffect>` counts the frames it plays, every `RigView` times its
- * updates and mesh rebuilds (`RigView.probe`), and every animation-frame callback is timed with
- * the microtasks it queued ({@link frameJsMs}). Off, an emitter or a baked effect pays one
- * `perfProbe.on` check a frame and a rig one `RigView.probe` check: nothing is timed, counted,
- * wrapped or allocated.
+ * updates and mesh rebuilds (`RigView.probe`), every animation-frame callback is timed with
+ * the microtasks it queued ({@link frameJsMs}), and every display object built and destroyed is
+ * counted (`churnProbe.ts`). Off, an emitter or a baked effect pays one `perfProbe.on` check a
+ * frame and a rig one `RigView.probe` check: nothing is timed, counted, wrapped or allocated.
  */
 
 export interface PerfProbeCounts {
@@ -46,6 +48,8 @@ export const perfProbe = {
 	counts: emptyPerfProbeCounts(),
 	/** Inside an emitter's update: a rig updated there is a particle's. */
 	inParticles: false,
+	/** Display objects built are counted (`churnProbe.ts` `trackDisplayObjects`). */
+	countsBuilds: false,
 };
 
 const rigProbe: RigViewProbe = {
@@ -66,6 +70,7 @@ let timedRequestFrame: typeof requestAnimationFrame | undefined;
 
 const frameCallbackStarts = (at: number): void => {
 	if (at === frameJs.at) return;
+	churnFrameStarts(at);
 	frameJs.beforeAt = frameJs.at;
 	frameJs.beforeMs = frameJs.ms;
 	frameJs.at = at;
@@ -121,6 +126,8 @@ export function setPerfProbe(on: boolean): void {
 	perfProbe.counts = emptyPerfProbeCounts();
 	RigView.probe = on ? rigProbe : undefined;
 	timeFrameCallbacks(on);
+	resetChurn();
+	perfProbe.countsBuilds = trackDisplayObjects(on);
 }
 
 /** The counts since the last call, and a fresh start. */

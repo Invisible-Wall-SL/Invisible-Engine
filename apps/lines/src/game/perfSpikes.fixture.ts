@@ -11,6 +11,10 @@
  * the PREVIOUS frame's work, and the frame's own work arrives a frame later; only the latest 30
  * records are kept while the summary counts every spike, idle and spinning apart; Reset clears
  * them; records drop zero fields and round to 0.1 ms; long tasks and the heap show where given.
+ * Churn: a frame whose JS made the spike and that built and destroyed 60 display objects or more,
+ * or inserted and removed 300 DOM nodes or more, is `churn` (just under either, not), unless
+ * particles or rigs lead its JS; heavy churn under 40% of the interval is not; the reason names the
+ * totals and the kind most of it was. Spikes count in their phase, a round's apart.
  */
 
 import type { FrameWork } from 'pixi-svelte';
@@ -68,6 +72,28 @@ const work = (over: Partial<FrameWork> = {}): FrameWork => ({
 	rigMs: 0,
 	rigs: 0,
 	rigSyncMs: 0,
+	created: 0,
+	createdContainers: 0,
+	createdSprites: 0,
+	createdParticles: 0,
+	createdTexts: 0,
+	createdGraphics: 0,
+	createdMeshes: 0,
+	createdOther: 0,
+	destroyed: 0,
+	destroyedContainers: 0,
+	destroyedSprites: 0,
+	destroyedParticles: 0,
+	destroyedTexts: 0,
+	destroyedGraphics: 0,
+	destroyedMeshes: 0,
+	destroyedOther: 0,
+	rigsBuilt: 0,
+	rigsDestroyed: 0,
+	textRenders: 0,
+	textMs: 0,
+	domAdded: 0,
+	domRemoved: 0,
 	...over,
 });
 const light = work();
@@ -84,14 +110,14 @@ console.log('threshold');
 }
 
 /** perfStats driven at `ms` per frame (with work each frame), then `tail` intervals. */
-const drive = (ms: number, count: number, tail: number[], spinning = false) => {
+const drive = (ms: number, count: number, tail: number[]) => {
 	const stats = createPerfStats(() => 0);
 	let t = 1000;
-	stats.frame(t, spinning, []);
+	stats.frame(t, false, []);
 	for (const interval of [...Array.from({ length: count }, () => ms), ...tail]) {
 		stats.work(light);
 		t += interval;
-		stats.frame(t, spinning, [], 'idle');
+		stats.frame(t, false, [], 'idle');
 	}
 	stats.work(light);
 	return stats.snapshot().spikes;
@@ -179,7 +205,7 @@ console.log('records');
 	const rec = createSpikeRecorder();
 	const heavy = work({ tickMs: 60, renderMs: 8, particleMs: 50, particles: 3200, emitters: 4 });
 	rec.work(heavy);
-	rec.frame(2000, 70, 41.7, true, 'bet', 1.5);
+	rec.frame(2000, 70, 41.7, 'spinning', 'bet', 1.5);
 	let s = rec.snapshot(41.7);
 	check(
 		'a spike reads its cause off the frame before it, before its own work is in',
@@ -198,7 +224,7 @@ console.log('records');
 
 	const quiet = createSpikeRecorder();
 	quiet.work(light);
-	quiet.frame(2000, 70, 41.7, false, undefined, 1);
+	quiet.frame(2000, 70, 41.7, 'idle', undefined, 1);
 	quiet.work(heavy);
 	const q = quiet.snapshot(41.7).records[0];
 	check(
@@ -208,7 +234,7 @@ console.log('records');
 	);
 
 	const none = createSpikeRecorder();
-	none.frame(2000, 70, 41.7, false, undefined, 1);
+	none.frame(2000, 70, 41.7, 'idle', undefined, 1);
 	check('no spike is recorded before any work has come in', !none.snapshot(41.7).records.length);
 }
 {
@@ -217,7 +243,7 @@ console.log('records');
 	for (let i = 0; i < 40; i++) {
 		rec.work(light);
 		t += 50;
-		rec.frame(t, 50, 41.7, i % 4 === 0, undefined, i);
+		rec.frame(t, 50, 41.7, i % 4 === 0 ? 'spinning' : 'idle', undefined, i);
 	}
 	rec.work(light);
 	const s = rec.snapshot(41.7);
@@ -233,7 +259,7 @@ console.log('records');
 	rec.reset();
 	const r = rec.snapshot(41.7);
 	check('Reset clears records and counts', !r.records.length && !topCause(r.causes));
-	rec.frame(t + 50, 50, 41.7, false, undefined, 0);
+	rec.frame(t + 50, 50, 41.7, 'idle', undefined, 0);
 	check(
 		'…and keeps the last frame, so the next spike still has its previous one',
 		rec.snapshot(41.7).records.length === 1,
@@ -243,7 +269,7 @@ console.log('records');
 	const rec = createSpikeRecorder();
 	rec.work(work({ heapMb: 120 }));
 	rec.work(work({ heapMb: 121, tickMs: 10 }));
-	rec.frame(5000, 100, 41.7, false, undefined, 3);
+	rec.frame(5000, 100, 41.7, 'idle', undefined, 3);
 	rec.longTask(4980, 60);
 	rec.work(work({ heapMb: 110 }));
 	const s = rec.snapshot(41.7).records[0];
@@ -266,6 +292,99 @@ console.log('records');
 		JSON.stringify(c),
 	);
 	check('the state machine reads as one line', stateLabel({ bet: 'spin' }) === 'bet.spin');
+	const churned = compactFrame(
+		work({ created: 12, destroyed: 9, rigsBuilt: 2, textRenders: 1, textMs: 1.26, domAdded: 40 }),
+	);
+	check(
+		'a record keeps what the frame built and threw away',
+		churned.made === 12 &&
+			churned.freed === 9 &&
+			churned.rigsBuilt === 2 &&
+			churned.texts === 1 &&
+			churned.textMs === 1.3 &&
+			churned.domAdded === 40 &&
+			!('domRemoved' in churned),
+		JSON.stringify(churned),
+	);
+}
+
+console.log('churn');
+{
+	// 80 ms; JS 64 (80%): page 50 outside the tick, tick 14 (render 6).
+	const js = { lateMs: 40, tickMs: 14, renderMs: 6, afterMs: 5, jsMs: 64 };
+	const built = (created: number, destroyed: number, over: Partial<FrameWork> = {}) =>
+		work({
+			...js,
+			created,
+			createdSprites: Math.ceil(created / 2),
+			createdContainers: Math.floor(created / 2),
+			destroyed,
+			destroyedSprites: destroyed,
+			...over,
+		});
+	const c = cause(80, built(40, 20));
+	check(
+		'60 objects built and destroyed while the JS made it: churn',
+		c.cause === 'churn' && c.why.includes('built 40, destroyed 20 objects (sprites 40)'),
+		c.why,
+	);
+	const under = cause(80, built(40, 19));
+	check('59 objects: not churn, page JS', under.cause === 'page JS', under.why);
+	const dom = cause(80, work({ ...js, domAdded: 200, domRemoved: 100 }));
+	check(
+		'300 DOM nodes inserted and removed: churn',
+		dom.cause === 'churn' && dom.why.includes('DOM 200 in, 100 out'),
+		dom.why,
+	);
+	const domUnder = cause(80, work({ ...js, domAdded: 200, domRemoved: 99 }));
+	check('299 DOM nodes: not churn', domUnder.cause === 'page JS', domUnder.why);
+	const rigsLead = cause(80, built(60, 60, { rigMs: 40, rigsBuilt: 4 }));
+	check('rigs leading the JS stay rigs', rigsLead.cause === 'rigs', rigsLead.why);
+	const particlesLead = cause(80, built(60, 60, { tickMs: 60, particleMs: 40, lateMs: 2 }));
+	check('particles leading the JS stay particles', particlesLead.cause === 'particles');
+	const light = cause(150, built(200, 200, { lateMs: 1, tickMs: 5, renderMs: 4, jsMs: 6 }));
+	check(
+		'heavy churn with JS under 40% of the interval is outside the game',
+		light.cause === 'outside the game',
+		light.why,
+	);
+	const code = cause(80, built(30, 30, { lateMs: 1, tickMs: 62, renderMs: 10, jsMs: 64 }));
+	check('churn beats game code too', code.cause === 'churn', code.why);
+	const rigs = cause(
+		80,
+		built(30, 30, { rigsBuilt: 3, rigsDestroyed: 1, textRenders: 2, textMs: 3.14 }),
+	);
+	check(
+		'the reason names rigs and text renders',
+		rigs.why.includes('rigs 3 built, 1 destroyed') && rigs.why.includes('2 text renders 3.1 ms'),
+		rigs.why,
+	);
+}
+
+console.log('phases');
+{
+	const rec = createSpikeRecorder();
+	rec.work(light);
+	rec.frame(2000, 70, 41.7, 'round', 'bet', 1);
+	rec.work(light);
+	rec.frame(2100, 70, 41.7, 'spinning', 'bet', 2);
+	rec.work(light);
+	rec.frame(2200, 70, 41.7, 'idle', 'idle', 3);
+	rec.work(light);
+	const s = rec.snapshot(41.7);
+	check(
+		'a spike counts in its phase, a round apart from idle and spinning',
+		s.causes.round['outside the game'] === 1 &&
+			s.causes.spinning['outside the game'] === 1 &&
+			s.causes.idle['outside the game'] === 1,
+		JSON.stringify(s.causes),
+	);
+	check(
+		'a record says round or spin',
+		s.records[0].round === true && !s.records[0].spin && s.records[1].spin === true,
+		JSON.stringify(s.records.map((r) => [r.spin, r.round])),
+	);
+	check('the most common cause counts every phase', topCause(s.causes)?.[1] === 3);
 }
 
 if (failures) throw new Error(`perfSpikes.fixture: ${failures} FAILED`);

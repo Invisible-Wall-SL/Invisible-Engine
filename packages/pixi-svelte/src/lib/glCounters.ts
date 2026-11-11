@@ -1,6 +1,13 @@
 import { UPDATE_PRIORITY, type Renderer, type TextureSource, type Ticker } from 'pixi.js';
 
 import {
+	emptyChurnCounts,
+	frameChurn,
+	observeDomChurn,
+	probeTextRenders,
+	type ChurnCounts,
+} from './churnProbe';
+import {
 	currentFrameAt,
 	frameJsMs,
 	setPerfProbe,
@@ -158,10 +165,16 @@ const bytesPerPixel = (format: string): number => {
 	return 4;
 };
 
-/** The textures the renderer holds, grouped by GPU format, largest first. */
-export function textureFormats(sources: readonly TextureSource[]): TextureFormatSummary[] {
+/**
+ * The textures the renderer holds, grouped by GPU format, largest first. Pixi's list keeps a `null`
+ * where a texture it held was unloaded or destroyed (`GCManagedHash.remove`); those are skipped.
+ */
+export function textureFormats(
+	sources: readonly (TextureSource | null | undefined)[],
+): TextureFormatSummary[] {
 	const by = new Map<string, { count: number; bytes: number }>();
 	for (const source of sources) {
+		if (!source) continue;
 		const format = String(source.format);
 		const entry = by.get(format) ?? { count: 0, bytes: 0 };
 		entry.count++;
@@ -193,11 +206,13 @@ interface BackBufferInternals {
 
 /**
  * One frame's work: its GL counts, the CPU time of the Pixi tick that drew it, what the main thread
- * did around that tick, and what its particles and rigs did (`perfProbe.ts`). Its counts run from
- * the start of its tick to the start of the next, so what runs after the tick (the rigs' own
- * ticker, Svelte's effects) is the frame's; it is handed over as the next tick starts.
+ * did around that tick, what its particles and rigs did (`perfProbe.ts`) and what it built and
+ * threw away (`churnProbe.ts`). Its counts run from the start of its tick to the start of the next,
+ * so what runs after the tick (the rigs' own ticker, Svelte's effects) is the frame's; its churn,
+ * like `jsMs`, from its first frame callback to the next frame's (so the Svelte flush before its
+ * tick is its own). It is handed over as the next tick starts.
  */
-export interface FrameWork extends GpuFrameCounts, PerfProbeCounts {
+export interface FrameWork extends GpuFrameCounts, PerfProbeCounts, ChurnCounts {
 	/** Milliseconds from the tick's first callback to the end of its render. */
 	tickMs: number;
 	/**
@@ -244,7 +259,9 @@ export interface InstrumentOptions {
 
 /**
  * Count every GL call `app`'s renderer makes and its filter passes, time each tick and what the
- * main thread did around it, and turn the particle and rig probe on (`perfProbe.ts`).
+ * main thread did around it, turn the particle, rig and display-object probe on (`perfProbe.ts`),
+ * and count the text textures the renderer draws and the DOM nodes Svelte inserts beside the
+ * canvas (`churnProbe.ts`).
  */
 export function instrumentApp(
 	app: { renderer: Renderer; ticker: Ticker },
@@ -348,6 +365,15 @@ export function instrumentApp(
 		if (event.data === posted) freeAt = performance.now();
 	};
 
+	const undoText = probeTextRenders(renderer);
+	// The canvas joins its host `<div>` once the app is initialised; until then, looked for each tick.
+	let undoDom: (() => void) | undefined;
+	const watchDom = () => {
+		const host = renderer.canvas.parentElement;
+		if (host) undoDom = observeDomChurn(host);
+	};
+	watchDom();
+
 	const pixel = new Uint8Array(4);
 	type TickTimes = Pick<FrameWork, 'tickMs' | 'lateMs' | 'gpuWaitMs'>;
 	let ended: TickTimes | undefined;
@@ -362,10 +388,12 @@ export function instrumentApp(
 		const probed = takePerfProbeCounts();
 		frame = emptyGpuFrame();
 		passTarget = undefined;
+		if (!undoDom) watchDom();
 		if (ended) {
 			const work: FrameWork = {
 				...counts,
 				...probed,
+				...(frameChurn(frameAt) ?? emptyChurnCounts()),
 				...ended,
 				afterMs: (freeAt ?? now) - tickEnd,
 				jsMs: frameJsMs(frameAt) ?? 0,
@@ -427,13 +455,16 @@ export function instrumentApp(
 		textures() {
 			// WebGL's texture system; the type is the union of every renderer's.
 			return textureFormats(
-				(renderer.texture as unknown as { managedTextures: TextureSource[] }).managedTextures,
+				(renderer.texture as unknown as { managedTextures: (TextureSource | null)[] })
+					.managedTextures,
 			);
 		},
 		dispose() {
 			ticker.remove(onTickStart);
 			ticker.remove(onTickEnd);
 			channel.port1.close();
+			undoText();
+			undoDom?.();
 			setPerfProbe(false);
 			for (const name of wrapped) delete own[name];
 			filters.push = push;
