@@ -1121,6 +1121,13 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-11 — **The jackpot tiles show what a tier pays while the ante is on.** The
+  `jackpot.<tier>` value sources (`Game.svelte`) priced each tier at `betCost()`, which includes an
+  ante's cost multiplier, so with Getting Hot's 5× ante a MINI tile read $125 at a $1 bet. Every
+  jackpot WIN prints as book units × the bet (`bookEventAmountToCurrencyString` →
+  `wageredBetAmount`), and the partner pays tiers on the base bet, so the tiles now use
+  `stateBet.betAmount`: MINI reads $25 with the ante on or off. Only an `activate` (ante) mode had a
+  cost multiplier in `betCost()`, so a game with no ante shows exactly what it did.
 - 2026-11-10 — **Game Maker creates the collector bonus with enhancements** (Getting Hot, game 8;
   the §3.5 "Collector + enhancements" preset). Every path is opt-in: the other templates, presets
   and their committed defaults are byte-identical (only the new default file appears).
@@ -1156,9 +1163,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     collectors' total live; ANTE arms the ante (stake $1 → $5). Gates: `check:add-bonus-mode`
     (create, screens, flow, the existing-project path, our mock deals it),
     `test-hold-and-win-template.mjs`, `betModeHud.fixture`, `expandingSymbol.fixture`.
-  - **Open:** the jackpot bar multiplies by the ANTE stake (MINI $25 → $125 at a $1 bet with the
-    ante on) while the partner pays jackpots on the base bet — pre-existing (14c), not changed
-    here. A partner-wire boot on the Invisible Test Server needs the project's key in
+  - **Open:** ~~the jackpot bar multiplies by the ANTE stake~~ fixed 2026-11-11 (Recent changes).
+    A partner-wire boot on the Invisible Test Server needs the project's key in
     `PARTNER_WIRE_GAMES` (an env change, owner's).
 - 2026-11-10 — **Getting Hot: every collector visibly takes every coin, and a hit shows on the
   coin.** Both changes reach only the partner's collector game: nothing else sends the new field or

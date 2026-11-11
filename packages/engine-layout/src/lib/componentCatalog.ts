@@ -255,7 +255,7 @@ export const HOLD_AND_WIN_PARAM_CATALOG: EngineParamEntry[] = [
 		key: `jackpot.${tier}`,
 		kind: 'number',
 		label: `Jackpot ${tier.toUpperCase()}`,
-		note: `The ${tier.toUpperCase()} jackpot's value at the current bet (multiplier × total bet).`,
+		note: `The ${tier.toUpperCase()} jackpot's value at the current bet (multiplier × total bet; an ante's extra cost does not raise it).`,
 	})),
 	{
 		key: 'collectorsTotal',

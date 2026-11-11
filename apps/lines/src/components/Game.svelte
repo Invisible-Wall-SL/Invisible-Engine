@@ -976,11 +976,13 @@
 		// Each configured jackpot's value at the current bet (`jackpot.<name>`, lower-case), what the
 		// authored jackpot tiles read: a fixed tier's multiplier, a progressive tier's LIVE pool (the
 		// server's, moving with every round and heartbeat). None configured ⇒ none registered.
+		// × the bet, never `betCost()`: a jackpot win prints as book units × the bet whatever the
+		// stake, so an ante's 5× cost must not raise the tile above what the tier pays.
 		...Object.fromEntries(
 			everyJackpotTier().map((name) => [
 				`jackpot.${name.toLowerCase()}`,
 				valueSource(
-					() => jackpotMultiplier(name) * stateBetDerived.betCost(),
+					() => jackpotMultiplier(name) * stateBet.betAmount,
 					numberToCurrencyString,
 				),
 			]),
