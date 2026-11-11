@@ -185,6 +185,10 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-10 — **Jackpot coins can have their own art per tier** (Hold and Win, default off). New
+  section **Jackpot coins**. When it is on, each coin row gets one grid row per jackpot tier
+  (`<coin>:<TIER>` in `symbols`). The whole story, runtime and gate (`check:jackpot-coin-art`) are in
+  [hold-and-win.md](hold-and-win.md) Recent changes.
 - 2026-10-29 — **Copy Static to every state, for reskinning.** Owner asked for an easy way to put a
   symbol's Static art on all its other states. A Static cell's **⇉** copies it to every state that
   row shows; **⇉ all** in a group's Static header does every symbol in the group. Each target gets

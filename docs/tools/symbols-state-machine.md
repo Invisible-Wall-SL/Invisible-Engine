@@ -806,6 +806,35 @@ board** the base game spins on this same board, so with the switch on every base
 **Land** as their cells stop as well. Assetless: it travels to the game as
 `bundle.symbols.respinLandOnStop`.
 
+### Jackpot coins
+
+Shown on a project with **Hold and Win** whose dictionary has a `coin` or `jackpot` symbol, or
+wherever it is already on so it can be switched off. One switch, **Jackpot coins have their own
+art**, off by default.
+
+- **Off** — a coin carrying a jackpot tier draws the coin's own art, and only its
+  [label](#coin-value-label) says which tier it is.
+- **On** — every `coin` / `jackpot` row in the Hold and Win group gets one row per jackpot tier under
+  it (`BONUS` with a `MINI jackpot` chip, …), with the coin's own columns. Bind them like any row:
+  the cell panel, layers, flipbooks and rigs all work the same. The tiers are every tier the
+  project's respin modes declare in [Invisible Game Config](game-config.md), or MINI / MINOR / MAJOR
+  / GRAND when none declares any.
+
+A tier row that is left empty draws the coin's art. So does a state the row leaves empty with
+nothing to inherit inside the row. A state that is empty in the tier row but inherits there (for
+example `Win` borrowing the row's `Static`) draws the tier's art, the same thing the grid's
+"inherits" badge shows. The tier's art draws everywhere the coin draws: the reels, the respin board,
+the win cycle, and a coin carried as a flight's head. An **upgrade** that steps a coin up a tier
+swaps its art when the upgrade's beam lands, at the same moment as its label. **Element FX** and
+**sounds** stay the coin's, so the panel shows neither on a tier row. Set them on the coin's own
+row.
+
+Turning the switch off keeps the tier rows in the doc, so turning it back on restores them. But
+none of them ships while it is off: the export drops every tier row, and their art with it. In the
+doc a tier row is an ordinary row of `symbols` keyed `<coin>:<TIER>` (`BONUS:MINI`, the text the
+Hold and Win wire writes for a jackpot cell). So it ships through the same export → bake → pull
+chain as any symbol's art. The switch travels as `bundle.symbols.jackpotCoinArt`.
+
 ### Winning symbols after the spin
 
 A separate section with its own on/off toggle (**on by default**) plus a **Gap between
