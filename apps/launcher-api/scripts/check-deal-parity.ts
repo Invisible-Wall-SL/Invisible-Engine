@@ -669,6 +669,63 @@ for (const shape of CHANGED) {
 	);
 }
 
+console.log(
+	'\n3. the partner’s collector game is dealt on the partner’s wire, by its Game Config alone',
+);
+{
+	const marked = template('holdAndWin.enhancements');
+	const unmarked = (() => {
+		const out = clone(marked);
+		for (const mode of out.modes ?? [])
+			delete (mode.holdAndWin as { enhancements?: true }).enhancements;
+		return normalize(out);
+	})();
+	const block = (doc: GameConfigDoc) =>
+		(contractOf({ name: '', kind: 'holdAndWin', doc }).grid as Grid | undefined)?.holdAndWin as
+			{ block?: { enhancements?: true } } | undefined;
+	check(
+		'the enhancements template’s contract carries the marker in its Hold and Win block',
+		[block(marked)?.block?.enhancements, block(unmarked)?.block?.enhancements],
+		[true, undefined],
+	);
+	/** What a mock answers `config`, a natural spin and a forced trigger with enhancements. */
+	const wireOf = async (doc: GameConfigDoc, players: boolean) => {
+		const contract = contractOf({ name: '', kind: 'holdAndWin', doc });
+		const events = await play(mockFor(contract, { players }), [
+			null,
+			'force:trigger,enhancements:01010,boostHit',
+		]);
+		const config = events.find((e) => e.event === 'config')?.context as
+			{ symbols?: string[]; holdAndWin?: unknown } | undefined;
+		return {
+			partnerConfig: Boolean(
+				config?.symbols?.includes('COIN') &&
+				config.symbols.includes('COLLECT') &&
+				config.holdAndWin === undefined,
+			),
+			partnerCoins: events.some(
+				(e) => e.event === 'playedSpin' && /"COIN_[1-9A-Z]/.test(JSON.stringify(e.context ?? null)),
+			),
+			boostsAwarded: events.some((e) => e.event === 'boostsAwarded'),
+		};
+	};
+	check(
+		'marked: the authoring twin deals the partner mock, and a forced trigger awards its enhancements',
+		await wireOf(marked, false),
+		{ partnerConfig: true, partnerCoins: true, boostsAwarded: true },
+	);
+	check(
+		'marked: the players’ mock is the partner mock too, and refuses the forced beat',
+		await wireOf(marked, true),
+		{ partnerConfig: true, partnerCoins: true, boostsAwarded: false },
+	);
+	check(
+		'unmarked: the same project without the marker keeps our own Hold and Win mock',
+		await wireOf(unmarked, false),
+		{ partnerConfig: false, partnerCoins: false, boostsAwarded: false },
+	);
+}
+
 if (PRINT) {
 	console.log('\nconst MAIN_DIGESTS: Record<string, [string, string]> = {');
 	for (const [name, pair] of Object.entries(measured))

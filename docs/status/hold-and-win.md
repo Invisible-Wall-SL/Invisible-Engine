@@ -1121,6 +1121,23 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-11 — **The test server deals the partner's collector game on the partner's wire by
+  itself.** A project whose Game Config carries `holdAndWin.enhancements` (Game Maker's **Lines
+  game: collector + enhancements**; Getting Hot) is dealt by
+  `scripts/mock-rgs-server-holdandwin-partner.mjs` — `COIN_<n>`, `COLLECT_<cents>`, `boostsAwarded`,
+  boost / multiply hits — instead of our own Hold and Win mock, which never draws an enhancement (so
+  the dials never lit and no beam flew). The marker already rode in the contract's
+  `holdAndWin.block` (`joinHoldAndWin` keeps it); `makeMock` now selects on it, and the
+  `PARTNER_WIRE_GAMES` env var is gone. Forcing stays an authoring tool (`/force` on the authoring
+  twin, refused with 101 to players).
+  - **When it reaches a game:** the authoring twin (`/api/<key>/authoring/…`, `source=live`) within
+    the 10 s contract TTL of the saved config carrying the marker; the players' mock
+    (`source=published`) only from a Publish whose snapshot carries it.
+  - **Gate:** `check:deal-parity` §3 — the enhancements template's contract carries the marker and
+    its twin deals the partner's config, `COIN_<n>` cells and `boostsAwarded` on a forced trigger;
+    its players' mock is the partner's and refuses the force; the same doc without the marker keeps
+    our mock. §1's pinned digests (every preset, template and overlay shape) are unchanged.
+    Mutant (selection off) fails §3 twice.
 - 2026-11-11 — **The jackpot tiles show what a tier pays while the ante is on.** The
   `jackpot.<tier>` value sources (`Game.svelte`) priced each tier at `betCost()`, which includes an
   ante's cost multiplier, so with Getting Hot's 5× ante a MINI tile read $125 at a $1 bet. Every
@@ -1164,8 +1181,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     (create, screens, flow, the existing-project path, our mock deals it),
     `test-hold-and-win-template.mjs`, `betModeHud.fixture`, `expandingSymbol.fixture`.
   - **Open:** ~~the jackpot bar multiplies by the ANTE stake~~ fixed 2026-11-11 (Recent changes).
-    A partner-wire boot on the Invisible Test Server needs the project's key in
-    `PARTNER_WIRE_GAMES` (an env change, owner's).
+    ~~A partner-wire boot on the Invisible Test Server needs the project's key in
+    `PARTNER_WIRE_GAMES`~~ automatic since 2026-11-11 (Recent changes).
 - 2026-11-10 — **Getting Hot: every collector visibly takes every coin, and a hit shows on the
   coin.** Both changes reach only the partner's collector game: nothing else sends the new field or
   the new event.
@@ -1375,7 +1392,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   Fortune Vault Force 5 (Getting Hot), in the order and shapes of the
   [capture](../reference/play4fun-collector-respin-capture.md).
   - **Select it** per game on the test server: `PARTNER_WIRE_GAMES=<key>[,<key>…]`
-    (`services/test-server/makeMock.mjs`). Standalone:
+    (`services/test-server/makeMock.mjs`; replaced 2026-11-11 by the Game Config marker). Standalone:
     `node scripts/mock-rgs-server-holdandwin-partner.mjs` (port 7798; `SEED`, `FORCE`,
     `DISABLED_OPTIONS=1,2,3` refuses the ante and buys as an operator can).
   - **Wire:** `betOptions` [10, 50, 500, 1000] (Base / Powerup / BuyCenterCoin / goldStrike),

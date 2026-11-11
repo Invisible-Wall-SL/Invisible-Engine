@@ -28,8 +28,8 @@
  * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `baseCollect` (alone, or
  * `baseCollect,twoCollectors`: two collectors each take the coin) ({@link parsePartnerForce}).
  *
- * Selected per game on the test server by `PARTNER_WIRE_GAMES=<key>[,<key>…]`
- * (services/test-server/makeMock.mjs). CLI:
+ * The test server deals a game with it when its Game Config marks the partner's collector game
+ * (`holdAndWin.enhancements`; services/test-server/makeMock.mjs). CLI:
  *   node scripts/mock-rgs-server-holdandwin-partner.mjs   PORT=7798 · SEED=… · START_BALANCE=<cents>
  *   · FORCE=<tokens> · DISABLED_OPTIONS=1,2,3 (the operator switching the ante and buys off)
  */
