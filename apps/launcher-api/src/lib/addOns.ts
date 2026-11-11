@@ -1,5 +1,6 @@
 import type { SceneSetOptions } from 'engine-layout';
 import {
+	ENHANCEMENTS_MAX_ROWS,
 	bonusCapabilityInputs,
 	flowAddOnsOf,
 	resolveExpandingSymbol,
@@ -46,10 +47,13 @@ export type RespinModeInfo = {
 	id: string;
 	/** The name the tools show: the mode's label, else its id. */
 	label: string;
-	/** Its board grows to this many rows (its rules' `expansion`). */
+	/** Its board grows to this many rows (its rules' `expansion`, or the rows its enhancements can
+	 *  open). */
 	maxRows?: number;
 	/** Its rules' jackpot tiers, in order. */
 	jackpotTiers: string[];
+	/** The server draws entry enhancements for it (its rules' `enhancements`). */
+	enhancements?: true;
 };
 
 /**
@@ -61,12 +65,15 @@ export type RespinModeInfo = {
 export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
 	return respinModeDecls(doc).map((mode) => {
-		const maxRows = mode.holdAndWin.expansion?.maxRows;
+		const enhancements = mode.holdAndWin.enhancements === true;
+		const grows = mode.holdAndWin.expansion?.maxRows ?? 0;
+		const maxRows = enhancements ? Math.max(grows, ENHANCEMENTS_MAX_ROWS) : grows;
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
 			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
+			...(enhancements ? { enhancements: true as const } : {}),
 		};
 	});
 }
@@ -120,7 +127,8 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
  * every spins mode, so each gets its own free-spin screens. Without an add-on or a spins mode the
  * result is what the scaffold has always passed (`maxRows` alone, read by the Hold and Win kind
  * only), so its layout is unchanged. A Hold and Win coin board (`coinBoard`) gets the coin-board
- * template's screens.
+ * template's screens. A Hold and Win whose respin mode draws enhancements gets the Enhancements
+ * screen and its two banners (`enhancements`).
  */
 export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOptions {
 	const { addOns, potIds } = projectAddOns(doc);
@@ -133,6 +141,9 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 		...(maxRows ? { maxRows } : {}),
 		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(gameType === 'holdAndWin' && doc?.coinBoard ? { coinBoard: true as const } : {}),
+		...(gameType === 'holdAndWin' && modes.some((mode) => mode.enhancements)
+			? { enhancements: true as const }
+			: {}),
 		...(modes.length
 			? {
 					respinModes: modes.map(({ id, label, maxRows }) => ({

@@ -21,7 +21,8 @@
 //   4. End to end against a fake /api/deploy, in a standalone game checkout: unloaded deploy
 //      folders are not pulled, a chain through a kept descriptor is followed, stale generated
 //      files, stale unloaded copies AND committed unloaded files are deleted (and named in the
-//      log), and `--no-prune` still mirrors everything.
+//      log), a retired seed file in `static/` (`loader.gif`) is removed, and `--no-prune` still
+//      mirrors everything.
 
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -196,6 +197,8 @@ console.log('4. end to end');
 	git('-c', 'user.email=f@x', '-c', 'user.name=f', 'commit', '-qm', 'seed');
 	put('sprites/OldPull/old.webp');
 	put('_pages/stale.webp');
+	// The upstream SDK's loader gif, seeded into every repo scaffolded before the engine deleted it.
+	writeFileSync(join(game, 'static', 'loader.gif'), 'g'.repeat(64));
 
 	const reportDir = mkdtempSync(join(tmpdir(), 'pull-report-'));
 	const pullReport = () => JSON.parse(readFileSync(join(reportDir, 'pull.json'), 'utf8'));
@@ -238,6 +241,11 @@ console.log('4. end to end');
 		ok('a stale unloaded copy from an earlier pull is deleted', !has('sprites/OldPull/old.webp'));
 		ok('  with its now-empty folder', !has('sprites/OldPull'));
 		ok('a stale generated page is deleted', !has('_pages/stale.webp'));
+		ok(
+			'a retired seed file in static/ (loader.gif) is removed before the build',
+			!existsSync(join(game, 'static', 'loader.gif')) && /loader\.gif/.test(first.out),
+			first.out,
+		);
 		ok('a committed unloaded file is deleted too (a game repo)', !has('sprites/Committed/c.png'));
 		ok(
 			'  and the log names it with its size',
@@ -259,6 +267,7 @@ console.log('4. end to end');
 			JSON.stringify(report.removed),
 		);
 		ok('  and no optimize section without 🗜', report.optimize === null);
+		ok('  and the retired seed file', JSON.stringify(report.retiredSeedFiles) === '["loader.gif"]');
 
 		put('sprites/symbolsStatic/symbolsStatic.png', 'z'.repeat(777));
 		const trimmed = await run('--optimize');

@@ -134,6 +134,7 @@
 		"check:coin-label": "tsx --tsconfig tsconfig.scripts.json scripts/check-coin-label.ts",
 		"check:layout-profile-surfaces": "tsx --tsconfig tsconfig.scripts.json scripts/check-layout-profile-surfaces.ts",
 		"check:respin-land": "tsx --tsconfig tsconfig.scripts.json scripts/check-respin-land.ts",
+		"check:jackpot-coin-art": "tsx --tsconfig tsconfig.scripts.json scripts/check-jackpot-coin-art.ts",
 		"check:shared-rig-promote": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shared-rig-promote.ts",
 		"check:renderable-fonts": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-renderable-fonts.ts",
 		"check:art-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-art-scope.ts",

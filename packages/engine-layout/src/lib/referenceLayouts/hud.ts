@@ -448,6 +448,28 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 	};
 }
 
+/**
+ * The HUD's ANTE SWITCH: a `button` instance on the `ante` action (on/off for a bet mode marked
+ * `toggle`), shown only while the game has one (`anteFeature`). Placed in the bottom bar's free spot
+ * between Buy bonus and Auto spin. Not part of {@link hudBarScene}: a reference set adds it when its
+ * game has a switch ante (the Hold and Win `enhancements` option).
+ */
+export function anteSwitchNode(): ComponentInstanceNode {
+	const node = buttonInstanceNode(
+		'hud-btn-ante',
+		'Ante switch',
+		'ante',
+		undefined,
+		d(220 + 300, dBtnY),
+		l1(220 + 155, lBtnY),
+		t(20 + 360, tBtnY),
+		p(PW * 0.5 + 440, PH - 560),
+		'anteFeature',
+	);
+	// The `ante` action has no dynamic caption (only `spin` does), so the button names itself.
+	return { ...node, params: { ...node.params, label: 'ANTE' } };
+}
+
 /** Logo + game name, pinned to the window edges (canvas space, all layoutTypes). */
 export function hudCornersScene(): Scene {
 	return {

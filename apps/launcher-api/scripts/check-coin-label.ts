@@ -86,6 +86,8 @@ const AUTHORED: CoinLabelConfig = {
 		landPop: { enabled: true, scale: 1.4, ms: 300 },
 		countMs: 900,
 		boostPop: { enabled: true },
+		hitPop: { enabled: false },
+		hitMs: 300,
 	},
 };
 
@@ -116,7 +118,12 @@ const AUTHORED: CoinLabelConfig = {
 				scale: COIN_LABEL_DEFAULTS.scale,
 				maxWidth: COIN_LABEL_DEFAULTS.maxWidth,
 			},
-			animation: { landPop: { enabled: false, scale: 2 }, boostPop: {} },
+			animation: {
+				landPop: { enabled: false, scale: 2 },
+				boostPop: {},
+				hitPop: { enabled: true, scale: COIN_LABEL_DEFAULTS.popScale },
+				hitMs: COIN_LABEL_DEFAULTS.hitMs,
+			},
 		}),
 		undefined,
 	);
@@ -141,6 +148,26 @@ const AUTHORED: CoinLabelConfig = {
 		label({ animation: { countMs: 0 } }),
 		{ animation: { countMs: 0 } },
 	);
+	check(
+		'the hit readout pop is on unless authored off: only an off switch or a tuned pop persists',
+		[
+			label({ animation: { hitPop: { enabled: true } } }),
+			label({ animation: { hitPop: {} } }),
+			label({ animation: { hitPop: { enabled: false, scale: 2 } } }),
+			label({ animation: { hitPop: { scale: 1.5 } } }),
+		],
+		[
+			undefined,
+			undefined,
+			{ animation: { hitPop: { enabled: false } } },
+			{ animation: { hitPop: { enabled: true, scale: 1.5 } } },
+		],
+	);
+	check(
+		'a hit readout of 0 ms is kept — "no readout" is a real answer',
+		label({ animation: { hitMs: 0 } }),
+		{ animation: { hitMs: 0 } },
+	);
 }
 
 // 2. JUNK
@@ -150,7 +177,11 @@ check(
 		style: { size: 99 },
 		cash: { decimals: 9 },
 		placement: { x: -5, y: 5, scale: 0, maxWidth: 50 },
-		animation: { landPop: { enabled: true, scale: 0.2, ms: 99999 }, countMs: -40 },
+		animation: {
+			landPop: { enabled: true, scale: 0.2, ms: 99999 },
+			countMs: -40,
+			hitMs: 99999,
+		},
 	}),
 	{
 		style: { size: COIN_LABEL_BOUNDS.size[1] },
@@ -168,6 +199,7 @@ check(
 				ms: COIN_LABEL_BOUNDS.popMs[1],
 			},
 			countMs: COIN_LABEL_BOUNDS.countMs[0],
+			hitMs: COIN_LABEL_BOUNDS.hitMs[1],
 		},
 	},
 );

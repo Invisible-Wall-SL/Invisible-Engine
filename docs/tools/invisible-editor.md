@@ -2496,8 +2496,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   of dials above the board steps aside once one is placed, so place all four (one per kind),
   usually on a Hold and Win screen of their own above the board. A **Text Box** with source
   `collectorsTotal` shows what the collectors hold together, climbing as each coin lands in one.
-  Game Maker does not add these for you yet: no Game Config setting marks a collector bonus with
-  enhancements.
+  Game Maker's **Lines game: collector + enhancements** places all of it on an **Enhancements**
+  screen. On another Hold and Win project, tick Game Config's **The server draws enhancements**:
+  **Add missing screens** then offers that screen and the banner popups offer the two enhancement
+  banners; add the screen to the feature's Flow too (below).
   **Line Overlay** marks a coin board's paying lines: each active line as a path between its cells,
   in its Game Config payline colour, with a numbered tab at each end of the board. Like the tiles,
   where you drop it doesn't matter: the lines draw on the board's own cells, and only in a coin

@@ -5,6 +5,7 @@
 
 	import Symbol from './Symbol.svelte';
 	import SymbolWrap from './SymbolWrap.svelte';
+	import { baseCellLabel } from '../game/baseCellLabels.svelte';
 	import { getSymbolInfo } from '../game/utils';
 	import {
 		getSymbolSeat,
@@ -181,6 +182,11 @@
 			? riderToken(props.reelSymbol.rider)
 			: undefined,
 	);
+	// A base-game collect's collector counting up as its coins land (`baseCellLabels`). `undefined`
+	// on every cell of a game whose collectors do not each take every coin ⇒ byte-parity.
+	const labelOverride = $derived(
+		baseCellLabel(props.reelIndex, props.row, props.reelSymbol.rawSymbol),
+	);
 </script>
 
 {#if !covered && !removed}
@@ -206,6 +212,7 @@
 					rawSymbol={props.reelSymbol.rawSymbol}
 					winLineColor={props.reelSymbol.winLineColor}
 					tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
+					{labelOverride}
 					instanceKey={props.instanceKey}
 					{held}
 					oncomplete={() => {

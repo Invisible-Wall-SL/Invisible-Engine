@@ -63,7 +63,8 @@
 	let gameType = $state(data.createKinds[0]?.id ?? 'lines');
 	/** The Hold and Win template's Jackpots choice: the plain game with or without them. */
 	let holdAndWinJackpots = $state<HoldAndWinTemplateJackpots>('on');
-	/** The Hold and Win template's Base game: a lines game, or the coin board only (jackpots on). */
+	/** The Hold and Win template's Base game: a lines game, the coin board only, or a lines game with
+	 *  the collector bonus and its enhancements (both jackpots on). */
 	let holdAndWinBase = $state<HoldAndWinTemplateBase>('lines');
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
@@ -310,7 +311,7 @@
 	const createPresets = $derived(
 		data.createOverlayPresets[
 			gameType === 'holdAndWin'
-				? `holdAndWin:${holdAndWinBase === 'coinBoard' ? 'coinBoard' : holdAndWinJackpots}`
+				? `holdAndWin:${holdAndWinBase === 'lines' ? holdAndWinJackpots : holdAndWinBase}`
 				: gameType === 'lines' && linesPreset
 					? `lines:${linesPreset}`
 					: gameType
@@ -1037,10 +1038,11 @@
 							Base game
 							<select
 								bind:value={holdAndWinBase}
-								title="Lines game: a line game whose coins start the Hold and Win. Coin board only: no line game — every spin deals coins on the board, and the coins on the paying lines trigger and pay."
+								title="Lines game: a line game whose coins start the Hold and Win. Coin board only: no line game — every spin deals coins on the board, and the coins on the paying lines trigger and pay. Collector + enhancements: a 5×3 line game whose collector on reel 3 collects the coins, with a bonus where only collectors stick and the server draws enhancements (Expand, Boost, Multiply, Respin); seeds the enhancement dials, the collectors' total, both banners, an ante switch and two buys."
 							>
 								<option value="lines">Lines game</option>
 								<option value="coinBoard">Coin board only</option>
+								<option value="enhancements">Lines game: collector + enhancements</option>
 							</select>
 						</label>
 						{#if holdAndWinBase === 'lines'}
@@ -1065,7 +1067,7 @@
 					<input
 						type="hidden"
 						name="holdAndWinJackpots"
-						value={holdAndWinBase === 'coinBoard' ? 'on' : holdAndWinJackpots}
+						value={holdAndWinBase === 'lines' ? holdAndWinJackpots : 'on'}
 					/>
 					<input type="hidden" name="holdAndWinBase" value={holdAndWinBase} />
 				{/if}

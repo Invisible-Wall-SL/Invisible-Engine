@@ -324,7 +324,17 @@ export type HoldAndWin = {
 	expansion?: HoldAndWinExpansion;
 	/** How the respins are played; absent ⇒ `auto` (see {@link RESPIN_PLAY}). */
 	play?: RespinPlay;
+	/**
+	 * The server draws entry ENHANCEMENTS for this feature (Phase 14, the partner's collector bonus):
+	 * Expand, Boost, Multiply and Respin, and a super bonus with all four. Presentation only: which
+	 * ones are drawn, and what they pay, is the server's. The layout gets the four Enhancement Dials,
+	 * the collectors' total and the two banners, and reserves {@link ENHANCEMENTS_MAX_ROWS} rows.
+	 */
+	enhancements?: true;
 };
+
+/** The rows Expand and the super bonus can open a feature's board to (the partner's 5×5). */
+export const ENHANCEMENTS_MAX_ROWS = 5;
 
 // ─── normalize ────────────────────────────────────────────────────────────────────────────────
 
@@ -713,6 +723,7 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 	if (grows) out.expansion = grows;
 	const play = oneOf(RESPIN_PLAY, raw.play);
 	if (play) out.play = play;
+	if (raw.enhancements === true) out.enhancements = true;
 	return out;
 }
 

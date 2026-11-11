@@ -1884,7 +1884,7 @@ const effects: Record<string, FlowV2Effect> = {
 	 * The press sound + modal close stay with the confirm dialog; this is only the state commit.
 	 */
 	commitBuyBonus: () => {
-		stateBet.activeBetModeKey = stateBonus.selectedBetModeKey;
+		stateBetDerived.armBetMode(stateBonus.selectedBetModeKey);
 
 		const data = stateBonusDerived.selectedBetModeData();
 		if (data.type === 'buy') {

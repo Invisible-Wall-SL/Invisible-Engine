@@ -789,6 +789,10 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+- 2026-11-10 — **Hold and Win rules → Respins: The server draws enhancements**
+  (`holdAndWin.enhancements: true`, sparse, presentation only) — the marker that gives a project
+  the Enhancements screen, its banners and a 5-row reserve; and **Reset to preset → Collector +
+  enhancements**. Detail: [status/hold-and-win.md](hold-and-win.md) (Recent changes, 2026-11-10).
 
 - 2026-10-28 — **Fairy Clover, a second lines preset** (branch `lines/fairys-charm-preset`).
   `fairyCloverPreset()` (`packages/game-config/src/fairyCloverPreset.ts`) → generated

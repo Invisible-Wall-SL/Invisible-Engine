@@ -12,6 +12,7 @@ import type {
 	Scene,
 } from '../types';
 import { linesSelectorAnchor } from '../coinBoardLines';
+import { anteSwitchNode } from './hud';
 import { HOLD_AND_WIN_BANNER_SHOW_SOURCES } from '../holdAndWinBanners';
 import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton';
 
@@ -142,7 +143,7 @@ export type HoldAndWinTemplateOptions = {
 	coinBoard?: true;
 	/** A collector bonus with enhancements (Phase 14b, the partner's Fortune Vault Force 5): the
 	 *  Enhancements screen — four Enhancement Dials above the board and the collectors' running total
-	 *  — and the "ACTIVE" / "SUPER BONUS" banner screens. Absent ⇒ none of them. */
+	 *  — the "ACTIVE" / "SUPER BONUS" banner screens, and the HUD's ante switch. Absent ⇒ none of them. */
 	enhancements?: true;
 };
 
@@ -662,8 +663,15 @@ export function holdAndWinReferenceLayout(
 			scenes.push({ ...base, nodes: [...base.nodes, messageHost] }, ...featureScenes);
 		} else if (scene.id === 'basegameOverlays') {
 			scenes.push(scene, ...beatScenes);
-		} else if (coinBoard && scene.id === 'hudBar') {
-			scenes.push({ ...scene, nodes: [...scene.nodes, linesSelectorAnchor(scene)] });
+		} else if ((coinBoard || enhancements) && scene.id === 'hudBar') {
+			scenes.push({
+				...scene,
+				nodes: [
+					...scene.nodes,
+					...(coinBoard ? [linesSelectorAnchor(scene)] : []),
+					...(enhancements ? [anteSwitchNode()] : []),
+				],
+			});
 		} else {
 			scenes.push(scene);
 		}

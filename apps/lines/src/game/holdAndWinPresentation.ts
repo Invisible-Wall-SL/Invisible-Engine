@@ -9,6 +9,7 @@ import {
 	tallyCountUp,
 	type CountStep,
 	type HoldAndWinCell,
+	type HoldAndWinCellAmount,
 	type HoldAndWinCoinChange,
 	type HoldAndWinEvent,
 	type HoldAndWinLineRun,
@@ -26,13 +27,14 @@ import { scopeOf } from 'utils-event-emitter';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { activeRespinRules, isPrimaryRespinMode } from './activeRespinMode.svelte';
+import { holdBaseCellLabels } from './baseCellLabels.svelte';
 import {
 	coinBoardLineColor,
 	coinBoardLinePoints,
 	isCoinBoard,
 	stateCoinBoard,
 } from './coinBoard.svelte';
-import { coinLabelCountMs } from './coinLabel';
+import { coinLabelCountMs, coinLabelHitMs } from './coinLabel';
 import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 import { boardDimensions, getActiveGameConfig } from './gameConfig';
@@ -122,6 +124,7 @@ import {
 	releaseHeldJackpot,
 	settleHeldBeats,
 	settleReelsOnHeldCells,
+	showHeldText,
 	showRespinBoard,
 	spinRespinCells,
 	startHeldBeat,
@@ -789,7 +792,8 @@ export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
  * collector gathers them (Phase 14b). Its dial lights `hit` with what it adds ("+$5.00" / "×3"), a
  * beam flies from the dial to each coin (`flyTo` kind `enhancementBeam` — the coded glow unless the
  * Symbols doc authors one), and once every beam has landed each coin plays `coinEnhance` while its
- * label counts from `from` to `to`. The dial then goes back on.
+ * label first prints what hit it ({@link showHitReadout}), then counts from `from` to `to`. The dial
+ * then goes back on.
  */
 export const presentEnhancementHit = async (event: Beat<'enhancementHit'>) => {
 	if (!stateRespinBoard.shown) return;
@@ -819,9 +823,22 @@ export const presentEnhancementHit = async (event: Beat<'enhancementHit'>) => {
 	);
 	await Promise.all([
 		playHeldBeat(event.cells, 'coinEnhance', { minMs: HIGHLIGHT_MIN_MS }),
-		runCounts(counts),
+		showHitReadout(counts, caption).then(() => runCounts(counts)),
 	]);
 	if (stateEnhancements.dials[event.kind] === 'hit') setDial(event.kind, 'on');
+};
+
+/**
+ * What hit the coins, ON the coins: each label prints `caption` ("×3", "+$5.00") in its own look,
+ * popping as it appears (`coinLabel.animation.hitPop`), for `hitMs`; then each goes back to its
+ * pinned old value for the count. Slammable; `hitMs` 0 shows none.
+ */
+const showHitReadout = async (counts: HeldCount[], caption: string) => {
+	const ms = coinLabelHitMs();
+	if (!caption || ms <= 0) return;
+	const restores = counts.map(({ key }) => showHeldText(key, caption));
+	await roundSkip.wait(ms);
+	restores.forEach((restore) => restore());
 };
 
 /** `enhancementMiss` — a BOOST or MULTIPLY enhancement missed this respin: its dial shows its X for a
@@ -1170,10 +1187,62 @@ export const presentColumnComplete = async (event: Beat<'columnComplete'>) => {
 };
 
 /**
+ * A base collect whose collectors EACH take every coin's full value (`coinInstantCollect`'s
+ * `collectors` — the partner's collector game): every coin lights and flies into EVERY collector at
+ * once, one head per collector, and each collector's label climbs by that coin's full value as its
+ * head lands, ending on the total the server sent (`baseCellLabels`). Never lowers a label, so heads
+ * landing out of order still read as one climb.
+ */
+const collectIntoEveryCollector = async (
+	cells: readonly HoldAndWinCellAmount[],
+	collectors: readonly HoldAndWinCellAmount[],
+) => {
+	const froms = collectors.map((collector) => {
+		const shown = stateGame.board[collector.reel]?.reelState.symbols[collector.row + 1];
+		return Math.min(shown?.rawSymbol.value ?? 0, collector.symbol.value ?? 0);
+	});
+	const labels = holdBaseCellLabels(
+		collectors.map((collector, k) => ({
+			reel: collector.reel,
+			row: collector.row,
+			from: froms[k],
+		})),
+	);
+	const steps = collectors.map((collector, k) =>
+		countSteps(
+			froms[k],
+			collector.symbol.value ?? froms[k],
+			cells.map((cell) => cell.amount),
+		),
+	);
+	const countMs = coinLabelCountMs(COLLECT_COUNT_MS, COUNT_MS);
+	await Promise.all(
+		cells.map(async (cell, index) => {
+			const unlight = lightBaseCell(cell, 'coinCollect');
+			await Promise.all(
+				collectors.map(async (collector, k) => {
+					await flyTo(
+						{ reel: cell.reel, row: cell.row },
+						{ reel: collector.reel, row: collector.row },
+						FLIGHT_TO_COLLECTOR,
+						{ index },
+					);
+					const label = labels[k];
+					const to = steps[k][index]?.to;
+					if (label && to !== undefined && to > label.target) await countTo(label, to, countMs);
+				}),
+			);
+			unlight();
+		}),
+	);
+};
+
+/**
  * `coinInstantCollect` — the BASE game's instant win (Grand's BOOST star, Hotfire's COLLECT
  * diamond, beside coins and no trigger). The specials light where they landed; every coin lights and
  * its head flies INTO the nearest special — the special is what gathers them, so that is where they
- * go, and the Total Win bar is left to the round's own `setWin` / `setTotalWin`, which follow and
+ * go (or into every collector, when each takes every coin: {@link collectIntoEveryCollector}), and
+ * the Total Win bar is left to the round's own `setWin` / `setTotalWin`, which follow and
  * count this amount with the line wins (flying into the bar here would count it up once and then
  * see the win presentation count it again). Then a short "INSTANT WIN" banner names the amount (and
  * the multiplier when one applied).
@@ -1200,7 +1269,9 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 				? special
 				: best,
 		);
-	if (event.specials.length > 0) {
+	if (event.collectors?.length) {
+		await collectIntoEveryCollector(event.cells, event.collectors);
+	} else if (event.specials.length > 0) {
 		await Promise.all(
 			event.cells.map(async (cell, index) => {
 				const unlight = lightBaseCell(cell, 'coinCollect');

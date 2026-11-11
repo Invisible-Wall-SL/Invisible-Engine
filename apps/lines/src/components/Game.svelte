@@ -976,11 +976,13 @@
 		// Each configured jackpot's value at the current bet (`jackpot.<name>`, lower-case), what the
 		// authored jackpot tiles read: a fixed tier's multiplier, a progressive tier's LIVE pool (the
 		// server's, moving with every round and heartbeat). None configured ⇒ none registered.
+		// × the bet, never `betCost()`: a jackpot win prints as book units × the bet whatever the
+		// stake, so an ante's 5× cost must not raise the tile above what the tier pays.
 		...Object.fromEntries(
 			everyJackpotTier().map((name) => [
 				`jackpot.${name.toLowerCase()}`,
 				valueSource(
-					() => jackpotMultiplier(name) * stateBetDerived.betCost(),
+					() => jackpotMultiplier(name) * stateBet.betAmount,
 					numberToCurrencyString,
 				),
 			]),
@@ -2017,15 +2019,14 @@
 	});
 	// The HUD ante switch: arm the game's switch ante (a bet mode marked `toggle`), or disarm it back
 	// to BASE. The stake readout follows through `betCost()`, and the bet goes out under the ante's
-	// key, which the facade sends as its option index.
-	const isAnteSwitchOn = (): boolean => {
-		const ante = stateMetaDerived.anteToggleMode();
-		return ante !== undefined && stateBet.activeBetModeKey.toUpperCase() === ante.mode;
-	};
+	// key, which the facade sends as its option index. A buy bought over the ante hands it back when
+	// its round ends (`endBuy`), so the switch stays on through that round.
+	const isAnteSwitchOn = (): boolean => stateBetDerived.isAnteArmed();
 	const doToggleAnte = wager('ante', () => {
 		const ante = stateMetaDerived.anteToggleMode();
 		if (!ante) return;
 		stateBet.activeBetModeKey = isAnteSwitchOn() ? 'BASE' : ante.mode;
+		stateBet.stakeBeforeBuy = null;
 	});
 
 	// The intent host bridge (design doc §8.5): a v2 intent-command action (startSpin/…) calls it

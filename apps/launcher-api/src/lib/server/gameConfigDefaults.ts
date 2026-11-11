@@ -2,6 +2,7 @@ import {
 	DEFAULT_HOLD_AND_WIN_PRESET,
 	GAME_OUTCOMES,
 	HOLD_AND_WIN_COIN_BOARD_KEY,
+	HOLD_AND_WIN_ENHANCEMENTS_KEY,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESET_LABELS,
 	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
@@ -18,6 +19,7 @@ import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorag
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
 import holdAndWinCoinBoard from '$lib/data/gameConfig/holdAndWin.coinBoard.json';
 import holdAndWinCollector from '$lib/data/gameConfig/holdAndWin.collector.json';
+import holdAndWinEnhancements from '$lib/data/gameConfig/holdAndWin.enhancements.json';
 import holdAndWinPlain from '$lib/data/gameConfig/holdAndWin.plain.json';
 import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJackpots.json';
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
@@ -103,6 +105,7 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinTemplateKey('on')]: holdAndWinPlain,
 		[holdAndWinTemplateKey('off')]: holdAndWinPlainNoJackpots,
 		[HOLD_AND_WIN_COIN_BOARD_KEY]: holdAndWinCoinBoard,
+		[HOLD_AND_WIN_ENHANCEMENTS_KEY]: holdAndWinEnhancements,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
 		[LINES_PRESET_KEY.fairyClover]: linesFairyClover,
 		[MATCH3_RULES_KEY]: match3RulesConfig,
@@ -135,7 +138,8 @@ const HOLD_AND_WIN_TEMPLATE_LABELS: Record<HoldAndWinTemplateJackpots, string> =
 /**
  * The presets a kind offers in `/config`'s "Reset to preset" — empty for a kind with none.
  * `holdAndWin`: the plain template with jackpots on / off (bonus-games §0), the coin board template
- * (`docs/design/hold-and-win-coin-board.md`), then Pots / Classic sticky / Collector streak
+ * (`docs/design/hold-and-win-coin-board.md`), the collector bonus with enhancements
+ * (`docs/design/hold-and-win-enhancements.md`), then Pots / Classic sticky / Collector streak
  * (`docs/design/hold-and-win.md` §6).
  * `lines`: the Book of Thermopylae (the Book-of mechanic as a lines config) and Fairy Clover (from
  * Fairy's Charm).
@@ -161,6 +165,7 @@ export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPr
 			: [];
 	});
 	const coinBoard = holdAndWinCoinBoardSeed();
+	const enhancements = holdAndWinEnhancementsSeed();
 	return [
 		...plain,
 		...(coinBoard
@@ -169,6 +174,15 @@ export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPr
 						id: HOLD_AND_WIN_COIN_BOARD_KEY,
 						label: 'Coin board only (no line game)',
 						doc: coinBoard,
+					},
+				]
+			: []),
+		...(enhancements
+			? [
+					{
+						id: HOLD_AND_WIN_ENHANCEMENTS_KEY,
+						label: 'Collector + enhancements',
+						doc: enhancements,
 					},
 				]
 			: []),
@@ -242,6 +256,11 @@ export const holdAndWinTemplateSeed = (
  * (`docs/design/hold-and-win-coin-board.md`): no line game, the coin board on every spin. */
 export const holdAndWinCoinBoardSeed = (): GameConfigDoc | null =>
 	DEFAULTS_BY_GAME_TYPE[HOLD_AND_WIN_COIN_BOARD_KEY] ?? null;
+
+/** The config Game Maker's "Hold and Win" template creates with **Base game: Lines + collector
+ * enhancements** (`docs/design/hold-and-win-enhancements.md` §3.5): the partner's collector bonus. */
+export const holdAndWinEnhancementsSeed = (): GameConfigDoc | null =>
+	DEFAULTS_BY_GAME_TYPE[HOLD_AND_WIN_ENHANCEMENTS_KEY] ?? null;
 
 export type GameConfigSource = 'authored' | 'template';
 

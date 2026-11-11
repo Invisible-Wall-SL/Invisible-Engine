@@ -81,6 +81,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-11 — **The build breakdown stops flagging loaded files as "never loaded", and no build
+  ships `loader.gif`.** On overlay-buffaloduel v9, three of four "Shipped but never loaded" files were
+  loaded: `audio/sounds.mp3` (named by `sounds.json` from the site root, `./assets/audio/…`) and the
+  loading splash's `_boot/engine/R_InvisibleEngine.atlas` (named by `boot.json` from
+  `static/assets/`). `scripts/lib/build-breakdown.mjs` resolved a data file's paths only from beside
+  itself; it now tries the site root and `static/assets/` after that, as it already did for code. The
+  fourth, `loader.gif` (77 KB), is the upstream SDK's old loader that `new-game.mjs` seeded into every
+  repo: deleted from the six engine apps, and `pull-project-assets.mjs` removes a standalone game's
+  copy before it builds (`RETIRED_SEED_FILES`, build-only; `pull.json` `retiredSeedFiles`). Still
+  flagged, correctly: the splash's `.ktx2.atlas` (706 B), which the splash never reads. Guards:
+  `check-build-breakdown-desktop.mjs`, `check-pull-reachability.mjs` (a mutant each).
 - 2026-11-10 — **Desktop launcher v1.0.66: the art picker says which screen a build is for.**
   The owner found "Art: Auto / Full / Half" unclear, so it now reads **Build for: 🖥 All screens /
   🕹 Arcade 4K / 📱 Desktop & mobile** and sits on the card's top line (`invisible-launcher` #31).

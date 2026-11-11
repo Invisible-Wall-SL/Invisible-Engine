@@ -572,7 +572,8 @@ free spins on two `S`, from Slotmotion's _Fairy's Charm_; its RTP is a placehold
 is tuned). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
 (Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
 then **Coin board only (no line game)** (the template with _Base game: Coin board only_, see
-_Coin board_), then the three games above. A new Hold and Win project already has its own config: Game Maker
+_Coin board_), then **Collector + enhancements** (the template with _Base game: Lines game:
+collector + enhancements_, the partner's collector bonus), then the three games above. A new Hold and Win project already has its own config: Game Maker
 saves the plain Hold and Win with the Jackpots choice picked at **Create**, so the page opens on an
 authored doc, not the template. Pots and Collector are not offered at Create: add a coin overlay
 from the project's card, or reset to one of these presets here. To switch a plain game's jackpots
@@ -597,6 +598,14 @@ reported under `modes.<id>.holdAndWin`.
     respins still run on their own.
 
   The intro and the outro advance on their own either way.
+
+  Under them, **The server draws enhancements (Expand · Boost · Multiply · Respin)** marks a
+  feature whose server draws the partner's enhancements (`enhancements: true`). It is presentation
+  only: our mock never draws them. With it on, the Scene Editor's **Add missing screens** offers the
+  **Enhancements** screen (four Enhancement Dials and the collectors' total), the banner popups
+  offer the two enhancement banners, and the reel grid reserves 5 rows. Then show the screen in
+  Flow (the `holdAndWin` mode's enter and exit, see [Flow](flow.md)). A project made with Game
+  Maker's **Lines game: collector + enhancements** has it all already.
 
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;

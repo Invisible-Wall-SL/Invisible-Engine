@@ -710,12 +710,21 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 			'force:baseCollect pays a base-game collect that waits for the client collect',
 		);
 	}
+	{
+		const { r } = await forced('baseCollect,twoCollectors');
+		const cols = collectorsOn(ctxs(r.events, 'playWindow')[0]);
+		check(
+			!r.enter && cols.length === 2 && ctxs(r.events, 'collect').length === 2,
+			'force:baseCollect,twoCollectors: both base collectors take the coin, no bonus',
+		);
+	}
 	for (const bad of [
 		'enhancements:00100',
 		'enhancements:00000',
 		'enhancements:1',
 		'nope',
 		'boostHit,enhancements:00010',
+		'baseCollect,trigger',
 	]) {
 		const r = await srv.engine('f', 0, [
 			{ action: 'bet', context: [0, 4] },
