@@ -1,7 +1,8 @@
 /**
  * ONE REEL'S STRIP, AS ONE BOARD LAYER DRAWS IT — the plain half of `reelStripView.svelte.ts`: where
- * each cell is placed, and which cells the window holds, as pure functions of the reel's DRAWN
- * position (`createReelForSpinning`'s `strip`), so a fixture runs them without a canvas or Svelte.
+ * each cell is placed, which cells the window holds and each watched cell's answer, as plain code
+ * over the reel's DRAWN position (`createReelForSpinning`'s `strip`), so a fixture runs them without
+ * a canvas or Svelte.
  *
  * Every test here is `SymbolWrap`'s or `ReelPaddingPool`'s own comparison, evaluated per strip index
  * at the `y` they computed (`cellY`, `symbolY`'s expression): an index threshold is only where that
@@ -110,5 +111,51 @@ export class StripPlacer {
 	place(drawnY: number): void {
 		for (const { container, cell } of this.#placed)
 			container.y = this.#cellY(cell.symbolIndex, drawnY);
+	}
+}
+
+/** Where a watched cell's cull is written: `ReelStripView`'s `$state` holder. */
+export type CullTarget = { inFrame: boolean; held: boolean };
+
+type Watched = { target: CullTarget; cell: { symbolIndex: number } };
+
+/**
+ * Answers each watched cell's cull from the strip's thresholds — in the window (`lo`..`hi`) and
+ * held (drawn above the window, its centre not yet in) — writing a field only when it changes, so a
+ * crossing writes to the cells that crossed and to no other.
+ */
+export class StripCuller {
+	#measured: StripMeasure = { margin: 0, lo: 0, hi: -1, heldFrom: -Infinity, enteredFrom: 0 };
+	readonly #watched = new Set<Watched>();
+
+	/** Answer `cell`'s cull into `target` now and on every `measure`; returns the release. */
+	watch(cell: { symbolIndex: number }, target: CullTarget): () => void {
+		const watched: Watched = { target, cell };
+		this.#watched.add(watched);
+		this.#cull(watched);
+		return () => this.#watched.delete(watched);
+	}
+
+	/** Take the strip's new thresholds, re-answering every watched cell if they moved. */
+	measure(next: StripMeasure): void {
+		const last = this.#measured;
+		this.#measured = next;
+		if (
+			next.lo === last.lo &&
+			next.hi === last.hi &&
+			next.heldFrom === last.heldFrom &&
+			next.margin === last.margin
+		)
+			return;
+		for (const watched of this.#watched) this.#cull(watched);
+	}
+
+	#cull({ target, cell }: Watched): void {
+		const { lo, hi, heldFrom, margin } = this.#measured;
+		const index = cell.symbolIndex;
+		const inFrame = index >= lo && index <= hi;
+		const held = margin > 0 && index < heldFrom;
+		if (target.inFrame !== inFrame) target.inFrame = inFrame;
+		if (target.held !== held) target.held = held;
 	}
 }
