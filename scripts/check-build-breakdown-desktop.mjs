@@ -130,6 +130,14 @@ try {
 			bytesSaved: 2250,
 		},
 	});
+	note('stock.json', {
+		skipped: ['bigwin'],
+		keptAllBecause: null,
+		removed: [
+			{ rel: 'assets/spines/bigwin/big_wins.webp', bytes: 900 },
+			{ rel: 'assets/spines/bigwin/mm_bigwin.json', bytes: 100 },
+		],
+	});
 	note('images.json', {
 		converted: [
 			{ from: 'assets/_pages/p1.png', to: 'assets/_pages/p1.webp', before: 4000, after: 1000 },
@@ -200,7 +208,13 @@ try {
 	check('left out: pruned', removed('pruned')?.bytes, 700);
 	check('left out: image twins', removed('imageTwins')?.bytes, 2000);
 	check('left out: audio formats', removed('audioFormats')?.bytes, 250);
-	check('left out: total', b.totals.removedBytes, 7950);
+	check('left out: stock sample art', removed('stockArt')?.bytes, 1000);
+	check(
+		'left out: stock sample art names its keys',
+		removed('stockArt')?.detail.includes('(bigwin)'),
+		true,
+	);
+	check('left out: total', b.totals.removedBytes, 8950);
 	check('re-encoded: saving', b.totals.reencodedBytes, 3000);
 
 	check('check: the dead file', issue('Shipped but never loaded'), [

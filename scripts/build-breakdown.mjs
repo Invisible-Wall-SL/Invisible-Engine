@@ -7,7 +7,8 @@
 //   --build       the finished build folder (what gets uploaded or packaged)
 //   --report-dir  the folder the build steps wrote their notes into (`IE_BUILD_REPORT_DIR`):
 //                 pull.json (pull:assets), bake.json (bake:doc), images.json (the launcher's
-//                 🗜 Optimize image pass). Defaults to $IE_BUILD_REPORT_DIR.
+//                 🗜 Optimize image pass), stock.json (the stock sample art the game build left
+//                 out, `config-vite` stockAssetPrune.js). Defaults to $IE_BUILD_REPORT_DIR.
 //   --out         where to write build-breakdown.html + build-breakdown.json (default: report dir)
 //   --json        also write a small result record there — `{ ok, html, json, totals, issues }` —
 //                 so the launcher never scrapes console output
@@ -108,6 +109,7 @@ async function main() {
 		assetsPrefix: existsSync(join(buildDir, 'assets')) ? 'assets/' : '',
 		pull: readJson(join(reportDir, 'pull.json')),
 		images: readJson(join(reportDir, 'images.json')),
+		stock: readJson(join(reportDir, 'stock.json')),
 		buildInfo: readJson(join(buildDir, 'build-info.json')),
 		build: {
 			kind: flag('kind') ?? 'publish',
