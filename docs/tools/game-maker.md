@@ -132,9 +132,10 @@ overlay add-on.
      **Collectors total** text) shown by the starter Flow for the whole feature, an **ANTE** button
      in the HUD bar, and a reel grid that leaves room for the 5 rows Expand and the super bonus
      open. The two enhancement banners play their built-in look until you add their screens from
-     the banner popups in the [Scene Editor](invisible-editor.md). To play it against the
-     partner's wire on the Invisible Test Server, its key must be listed in the test server's
-     `PARTNER_WIRE_GAMES`; otherwise the local Hold and Win mock deals it (no enhancements).
+     the banner popups in the [Scene Editor](invisible-editor.md). On the Invisible Test
+     Server it is dealt by the mock of the partner's wire (enhancements drawn, dials and beams
+     shown) with nothing to set up: its authoring links at once, its players from its next
+     **Publish**.
    - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
      the choice. It starts on **Free play (rules)**:
      - **Free play (rules)** — _The game's own rules, no wallet._ (below).

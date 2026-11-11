@@ -42,6 +42,14 @@ One small Node service that does two jobs:
    The manifest's `grid`/`cascade` are only the fallback for a launcher that can't be
    reached, or an entry published before this existed.
 
+   **The partner's collector game** (a Hold and Win config carrying
+   `holdAndWin.enhancements`, which Game Maker's **Lines game: collector + enhancements**
+   sets — Getting Hot) is dealt by `scripts/mock-rgs-server-holdandwin-partner.mjs`, which
+   speaks the partner's own wire (`COIN_<n>`, `COLLECT_<cents>`, `boostsAwarded`, …) and
+   draws the enhancements. It follows the same two channels: the authoring mock switches as
+   soon as the saved config carries the marker, the players' mock on the next Publish. Every
+   other game's mock is unchanged.
+
 ```
 launcher portal  → opens →  https://games.invisiblewall.org/<gameKey>/?…&rgs_url=games.invisiblewall.org/api/<gameKey>
                                    │                                              │
