@@ -8,7 +8,7 @@
 	import { ElementFxPlayer } from 'engine-layout/svelte';
 	import { elementFxEnterEnds } from 'constants-shared/elementFx';
 
-	import { getSymbolInfo, hasAuthoredSymbolState } from '../game/utils';
+	import { getSymbolInfo, hasAuthoredSymbolState, symbolArtName } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
@@ -95,7 +95,19 @@
 	};
 
 	const props: Props = $props();
-	const symbolInfo = $derived(getSymbolInfo({ rawSymbol: props.rawSymbol, state: props.state }));
+	/**
+	 * The jackpot tier this symbol SHOWS — the label's, held at the old tier until an upgrade's beam
+	 * lands. A jackpot coin with "Jackpot coins have their own art" on draws that tier's art
+	 * (`symbolArtName`), so the art turns over with the label, not before it. A string, so a value
+	 * counting every frame through `labelOverride` never re-resolves the art.
+	 */
+	const labelJackpot = $derived(props.labelOverride?.jackpot ?? props.rawSymbol.jackpot);
+	const artSymbol = $derived(
+		labelJackpot === props.rawSymbol.jackpot
+			? props.rawSymbol
+			: { ...props.rawSymbol, jackpot: labelJackpot },
+	);
+	const symbolInfo = $derived(getSymbolInfo({ rawSymbol: artSymbol, state: props.state }));
 	const isSprite = $derived(symbolInfo.type === 'sprite');
 	const isFlipbook = $derived(symbolInfo.type === 'flipbook');
 	// No art bound for this symbol: draw no art at all — except a pot token or a Hold and Win coin,
@@ -118,7 +130,6 @@
 	);
 	const coinLabel = $derived(props.labelText ?? coinLabelFor(labelSymbol));
 	// The tier alone decides the look, so a value counting every frame never re-resolves it.
-	const labelJackpot = $derived(props.labelOverride?.jackpot ?? props.rawSymbol.jackpot);
 	const labelLook = $derived(coinLabelLookFor({ ...props.rawSymbol, jackpot: labelJackpot }));
 	/**
 	 * Does this state's animation repeat? The authored cell decides; absent, THE STATE decides
@@ -238,7 +249,9 @@
 		symbolFx && !props.held ? symbolStateFx(props.rawSymbol.name, props.state) : [],
 	);
 	const waitsForFx = $derived(stateFx.some(elementFxEnterEnds));
-	const ownArt = $derived(hasAuthoredSymbolState(props.rawSymbol.name, props.state));
+	const ownArt = $derived(
+		hasAuthoredSymbolState(symbolArtName(artSymbol, props.state), props.state),
+	);
 	const gate = $derived.by(() => {
 		void props.state;
 		void props.instanceKey;

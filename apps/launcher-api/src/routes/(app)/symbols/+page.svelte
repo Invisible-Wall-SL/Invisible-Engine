@@ -15,6 +15,9 @@
 		FLIGHT_KINDS,
 		FLIGHT_LIMITS,
 		FLIGHT_METER_PREFIX,
+		isJackpotArtKey,
+		jackpotArtKey,
+		jackpotArtKeyParts,
 		kindCapabilities,
 		meterFlightKey,
 		normalizeFlightHead,
@@ -100,6 +103,7 @@
 		setWinBeatMaxMs,
 		setArrivalReleaseEnabled,
 		setRespinLandOnStop,
+		setJackpotCoinArt,
 		setSymbolFx,
 		symbolFxOf,
 		SYMBOL_STATES,
@@ -130,6 +134,7 @@
 		winBeatMaxMs,
 		arrivalReleaseEnabled,
 		respinLandOnStopEnabled,
+		jackpotCoinArtEnabled,
 		WIN_BEAT_MAX_MS_MIN,
 		WIN_BEAT_MAX_MS_MAX,
 		winCycleShowLine,
@@ -643,6 +648,32 @@
 
 	// The working doc (sparse overrides). Cloned so edits don't mutate `data`.
 	let doc = $state<SymbolsDoc>(structuredClone(data.doc) as SymbolsDoc);
+
+	// ── Jackpot coin art ───────────────────────────────────────────────────────
+	// "Jackpot coins have their own art": each Hold and Win coin (or jackpot symbol) gets one more
+	// grid row per jackpot tier, keyed `<coin>:<TIER>` in the doc's own `symbols` map — edited with
+	// the same cells as every row, and shipped with them. Offered where a row can carry a tier, or
+	// once on so a project that lost its coins can still turn it off.
+	const jcaOn = $derived(jackpotCoinArtEnabled(doc));
+	const jackpotArtCoins = $derived(
+		holdAndWinRows.filter((name) =>
+			data.holdAndWinRoles[name]?.some((role) => role === 'coin' || role === 'jackpot'),
+		),
+	);
+	// Every tier any respin mode declares, in declaration order; none ⇒ the four the presets use.
+	const jackpotArtTiers = $derived(
+		coinLabelTiers([...new Set(data.respinModes.flatMap((mode) => mode.jackpotTiers))]),
+	);
+	const jackpotArtShown = $derived(jackpotArtCoins.length > 0 || jcaOn);
+	/** `coin`'s tier rows, listed under it while the switch is on. */
+	const tierRowsOf = (coin: string): string[] =>
+		jcaOn && jackpotArtCoins.includes(coin)
+			? jackpotArtTiers.map((tier) => jackpotArtKey(coin, tier))
+			: [];
+	/** A tier row's coin, so it offers the coin's states; the row itself for any other. */
+	const rowSymbol = (row: string): string => jackpotArtKeyParts(row)?.coin ?? row;
+	/** A row's offered states — a tier row's are its coin's. */
+	const rowStates = (row: string): readonly SymbolState[] => playedStates[rowSymbol(row)] ?? [];
 	const savedSig = $state({ value: docSignature(structuredClone(data.doc) as SymbolsDoc) });
 	const dirty = $derived(docSignature(doc) !== savedSig.value);
 
@@ -1153,7 +1184,7 @@
 			.filter((symbol) => effectiveCell(doc, data.defaults, symbol, 'static').cell)
 			.map((symbol) => ({
 				symbol,
-				states: (playedStates[symbol] ?? []).filter((state) => state !== 'static'),
+				states: rowStates(symbol).filter((state) => state !== 'static'),
 			}));
 		const replaced = targets.reduce(
 			(n, t) => n + t.states.filter((state) => doc.symbols[t.symbol]?.[state]).length,
@@ -4609,6 +4640,49 @@
 					</section>
 				{/if}
 
+				{#if jackpotArtShown}
+					<section class="winline" class:expanded={jcaOn}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Jackpot coins</h2>
+								<p class="wl-sub">
+									A coin carrying a jackpot tier draws the coin's art, and only its label says which
+									tier it is. Turn this on and each tier gets a row of its own under the coin below,
+									with the coin's states, so a <strong>MINI</strong> can look like a different coin
+									from a <strong>GRAND</strong>.
+								</p>
+							</div>
+							<label class="switch" class:on={jcaOn}>
+								<input
+									type="checkbox"
+									checked={jcaOn}
+									onchange={(e) => (doc = setJackpotCoinArt(doc, e.currentTarget.checked))}
+								/>
+								<span class="track"><span class="knob"></span></span>
+								<span class="switch-label">Jackpot coins have their own art</span>
+							</label>
+						</div>
+
+						{#if jcaOn}
+							<div class="wl-config">
+								<div class="wl-group">
+									<p class="wl-note">
+										Tiers: {jackpotArtTiers.join(' · ')}{data.respinModes.some(
+											(mode) => mode.jackpotTiers.length,
+										)
+											? ' (from Invisible Game Config)'
+											: ' (Game Config declares none, so the four the presets use)'}. A tier row
+										left empty, or a state left empty in it, draws the coin's art. An upgrade
+										changes the art when its beam lands, together with the label. Element FX and
+										sounds stay the coin's. Turning this off keeps the rows here but ships none of
+										them.
+									</p>
+								</div>
+							</div>
+						{/if}
+					</section>
+				{/if}
+
 				{#if coinLabelShown}
 					<section class="winline" class:expanded={true}>
 						<div class="wl-head">
@@ -5587,9 +5661,20 @@
 						{/snippet}
 						{#snippet gridRow(symbol: string, columns: readonly SymbolState[])}
 							{@const named = doc.names?.[symbol]}
-							<tr>
+							{@const tierOf = jackpotArtKeyParts(symbol)}
+							<tr class:tier-row={!!tierOf}>
 								<th class="rowhead">
-									<span class="sym-id">{symbol}</span>
+									{#if tierOf}
+										<span class="sym-id">{tierOf.coin}</span>
+										<span
+											class="roles"
+											title="This tier's own art for {tierOf.coin}. A state left empty draws {tierOf.coin}'s art."
+										>
+											<span class="role">{tierOf.tier} jackpot</span>
+										</span>
+									{:else}
+										<span class="sym-id">{symbol}</span>
+									{/if}
 									{#if data.holdAndWinRoles[symbol]}
 										<span class="roles" title="Hold and Win role, from Invisible Game Config">
 											{#each data.holdAndWinRoles[symbol] as role (role)}
@@ -5628,31 +5713,33 @@
 											<button type="button" onclick={() => clearUnplayed(symbol)}>Clear</button>
 										</span>
 									{/if}
-									<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
+									{#if !tierOf}
+										<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
 										     Text prints it as {symbolName}, so a win says "4 Bananas" instead of the
 										     unspeakable id — or "4 of a kind", which is what it had to say before a
 										     symbol had a word. Both forms are typed because "{count} {symbolName}"
 										     always reads with a number in front of it and guessed plurals are wrong
 										     ("Cherrys"); plural left blank just reuses the singular. -->
-									<input
-										class="sym-name"
-										value={named?.singular ?? ''}
-										placeholder="Name"
-										title="What the game calls {symbol} in win messages (singular)"
-										oninput={(e) => setName(symbol, 'singular', e.currentTarget.value)}
-									/>
-									<input
-										class="sym-name plural"
-										value={named?.plural ?? ''}
-										placeholder={named?.singular ? `${named.singular} (plural)` : 'Plural'}
-										title="The plural form, used whenever the count isn't 1. Blank reuses the name."
-										oninput={(e) => setName(symbol, 'plural', e.currentTarget.value)}
-									/>
+										<input
+											class="sym-name"
+											value={named?.singular ?? ''}
+											placeholder="Name"
+											title="What the game calls {symbol} in win messages (singular)"
+											oninput={(e) => setName(symbol, 'singular', e.currentTarget.value)}
+										/>
+										<input
+											class="sym-name plural"
+											value={named?.plural ?? ''}
+											placeholder={named?.singular ? `${named.singular} (plural)` : 'Plural'}
+											title="The plural form, used whenever the count isn't 1. Blank reuses the name."
+											oninput={(e) => setName(symbol, 'plural', e.currentTarget.value)}
+										/>
+									{/if}
 								</th>
 								{#each columns as state (state)}
 									{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
 									{@const fx = symbolFxOf(doc, symbol, state)}
-									{#if !playedStates[symbol]?.includes(state)}
+									{#if !rowStates(symbol).includes(state)}
 										<td>
 											<div
 												class="cell-off"
@@ -5755,7 +5842,7 @@
 													}}>↺</button
 												>
 											{/if}
-											{#if state === 'static' && eff.cell && playedStates[symbol].length > 1}
+											{#if state === 'static' && eff.cell && rowStates(symbol).length > 1}
 												<button
 													type="button"
 													class="copy-static"
@@ -5792,6 +5879,9 @@
 								{@render stateHeads(holdAndWinColumns, holdAndWinRows)}
 								{#each holdAndWinRows as symbol (symbol)}
 									{@render gridRow(symbol, holdAndWinColumns)}
+									{#each tierRowsOf(symbol) as tierRow (tierRow)}
+										{@render gridRow(tierRow, holdAndWinColumns)}
+									{/each}
 								{/each}
 							</tbody>
 						{/if}
@@ -6309,7 +6399,12 @@
 					</div>
 				{/if}
 
-				{#if !stackedEdit && focus}
+				{#if !stackedEdit && focus && isJackpotArtKey(focus.symbol)}
+					<p class="hint">
+						A jackpot tier's row is art only: the Element FX and sounds the coin plays in this state
+						play on its jackpot coins too — set them on the coin's own row.
+					</p>
+				{:else if !stackedEdit && focus}
 					{@const at = focus}
 					{@const fxEntries = symbolFxOf(doc, at.symbol, at.state)}
 					{@const fxStates = symbolFxStates(at.symbol)}
@@ -6518,6 +6613,11 @@
 	}
 	.grid th.corner {
 		text-align: left;
+	}
+	/* A jackpot tier's row sits under its coin, indented so it reads as part of it. */
+	.grid tr.tier-row th.rowhead {
+		padding-left: 18px;
+		border-left: 2px solid #3a3a48;
 	}
 	.grid tr.group th {
 		text-align: left;

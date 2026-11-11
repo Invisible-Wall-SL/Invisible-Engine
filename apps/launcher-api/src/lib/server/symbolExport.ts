@@ -57,6 +57,7 @@ import {
 	isBuiltinRegion,
 	parseScopedFrameRef,
 	scopedFrameRef,
+	withoutJackpotArtRows,
 	type ResolutionTierId,
 } from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
@@ -242,6 +243,10 @@ export interface SymbolExportResult {
 	/** "Play Land as each cell stops" on the Hold and Win respin board — assetless config, another
 	 *  verbatim pass-through. Absent → a coin plays its Land as it sticks, exactly as before. */
 	respinLandOnStop?: SymbolsDoc['respinLandOnStop'];
+	/** "Jackpot coins have their own art" — assetless (the tier rows' art ships in `map` like every
+	 *  symbol's), a verbatim pass-through. Absent → every coin draws its own art, and `map` carries no
+	 *  tier row at all. */
+	jackpotCoinArt?: SymbolsDoc['jackpotCoinArt'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a rig layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -294,6 +299,18 @@ interface SymbolRefs {
 	spriteManifests: Set<string>;
 	/** Rig-cell `assetKey`s (full R2 bundle prefixes). */
 	rigKeys: Set<string>;
+}
+
+/**
+ * The doc as it ships: with "Jackpot coins have their own art" off, without its tier rows
+ * (`COIN:MINI`, `engine-layout/jackpotCoinArt.ts`) — so their art is neither collected into `refs`
+ * nor carried in `map`, and a project that turned the switch off ships byte-identical to one that
+ * never had it. The SAME doc when there is nothing to drop. Exported for `check:jackpot-coin-art`.
+ */
+export function shipJackpotArtOnlyWhenOn(doc: SymbolsDoc): SymbolsDoc {
+	if (doc.jackpotCoinArt?.enabled === true) return doc;
+	const symbols = withoutJackpotArtRows(doc.symbols);
+	return symbols === doc.symbols ? doc : { ...doc, symbols };
 }
 
 /** Walk the (sparse) symbol map and split its cells into bare sprite frame names, scoped sprite
@@ -546,10 +563,12 @@ export async function exportEditorSymbols(
 	// naming problem the flipbook clips had), so a pinned atlas resolves to the full manifest key
 	// the sheet ships under. A correctly-authored doc pays nothing.
 	const doc = await phase('doc', async () =>
-		canonicalizeSymbolsDocForExport(
-			await loadSymbolsDoc(clientKey, projectKey),
-			clientKey,
-			projectKey,
+		shipJackpotArtOnlyWhenOn(
+			await canonicalizeSymbolsDocForExport(
+				await loadSymbolsDoc(clientKey, projectKey),
+				clientKey,
+				projectKey,
+			),
 		),
 	);
 	const refs = collectSymbolRefs(doc);
@@ -849,6 +868,10 @@ export async function exportEditorSymbols(
 	// ships plays), so the same verbatim pass-through of the already-pruned field.
 	const respinLandOnStop = doc.respinLandOnStop;
 
+	// "Jackpot coins have their own art" — the switch alone; the tier rows ride in `map` (and their
+	// art in `refs`) only while it is on (`shipJackpotArtOnlyWhenOn`).
+	const jackpotCoinArt = doc.jackpotCoinArt;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -934,6 +957,7 @@ export async function exportEditorSymbols(
 		...(winBeat ? { winBeat } : {}),
 		...(arrivalRelease ? { arrivalRelease } : {}),
 		...(respinLandOnStop ? { respinLandOnStop } : {}),
+		...(jackpotCoinArt ? { jackpotCoinArt } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
 		...(tumblePattern ? { tumblePattern } : {}),
