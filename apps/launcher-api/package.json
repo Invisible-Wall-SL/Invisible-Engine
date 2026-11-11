@@ -27,6 +27,7 @@
 		"check:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts --check",
 		"check:blueprint-catalogue": "tsx --tsconfig tsconfig.scripts.json scripts/check-blueprint-catalogue.ts",
 		"check:partner-rgs": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-rgs.ts",
+		"check:partner-launch": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-launch.ts",
 		"check:partner-delivery": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-delivery.ts",
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",

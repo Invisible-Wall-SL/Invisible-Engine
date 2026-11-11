@@ -9,7 +9,16 @@ import {
 import { readTransitionCue, transitionCueStatus } from 'engine-layout';
 import { isCustomElementFxKind } from 'constants-shared/elementFx';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
+import {
+	ADMIN_PANEL_CAPABILITY,
+	GAME_PUBLISH_CAPABILITY,
+	roleHasCapability,
+	roleHasTool,
+} from '$lib/roles';
+import { defaultPartnerAlias } from '$lib/partnerLaunch';
+import { ENV } from '$lib/server/env';
+import { listSealedVersions } from '$lib/server/partnerDelivery';
+import { partnerProfileIds } from '$lib/server/partnerRgs';
 import { mayTargetClient } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { modeRouteOptions } from '$lib/bonusImport';
@@ -78,6 +87,17 @@ async function scenesLastModified(clientKey: string, projectKey: string): Promis
 		const objs = await listAllObjects(key);
 		const hit = objs.find((o) => o.key === key);
 		return hit && hit.lastModified > 0 ? hit.lastModified : null;
+	} catch {
+		return null;
+	}
+}
+
+/** The newest sealed delivery for an alias, or null — none, an alias that cannot have any, or an R2
+ *  error (which costs the ▶ Partner page button its enabled state, not the page). */
+async function latestDelivery(alias: string): Promise<string | null> {
+	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(alias)) return null;
+	try {
+		return (await listSealedVersions(alias)).at(-1) ?? null;
 	} catch {
 		return null;
 	}
@@ -186,6 +206,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		toolOverrides,
 	);
 
+	// Who may set a card's partner game: the Publish gate, as `/api/game-maker/partner` checks it.
+	const canSetPartner = roleHasCapability(
+		locals.user.role,
+		GAME_PUBLISH_CAPABILITY,
+		roleOverrides,
+		toolOverrides,
+	);
+	// Only the profile KEYS of `PARTNER_RGS` reach the page — never an entry (it holds credentials).
+	const partnerProfiles = partnerProfileIds(ENV.PARTNER_RGS);
+
 	// Kind id → display name, for the profile's "what kind of game is this" chip.
 	const kindNames = new Map(gameKinds.map((k) => [k.id, k.name]));
 
@@ -283,6 +313,13 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				})),
 				published: Boolean(game),
 				url: game?.url ?? null,
+				partner: p.partnerLaunch,
+				/** The alias `on=partner` looks deliveries up under when the card names none. */
+				partnerDefaultAlias: defaultPartnerAlias(game?.name ?? p.name),
+				/** The newest sealed delivery for that alias — read only for a project with a partner. */
+				partnerLatestDelivery: p.partnerLaunch
+					? await latestDelivery(p.partnerLaunch.alias ?? defaultPartnerAlias(game?.name ?? p.name))
+					: null,
 				// Publish-confirmation signal: when the project's scenes were last edited.
 				scenesUpdatedAt: await scenesLastModified(clientKey, p.key),
 				// Engine-staleness: true when a newer runtime shipped after this game's last
@@ -307,6 +344,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		createKinds: offeredGameKinds(gameKinds),
 		projects,
 		canPurgeCache,
+		canSetPartner,
+		partnerProfiles,
 		// A version shipped past the flow gate goes live again only for the owner role (see the
 		// rollback route), so the page hides that "Make live" from everyone else.
 		isOwner: role === OWNER_ROLE,

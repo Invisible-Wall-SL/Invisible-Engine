@@ -282,6 +282,31 @@ Above the list is a browse toolbar, because the list only grows:
 The heading shows `N of M` whenever a filter is narrowing the list, and **Clear**
 resets every filter at once.
 
+### Play it on the partner's RGS (Partner…)
+
+A game the partner hosts (their Play4Fun RGS deals it; we build the client) needs the partner's
+own ID for it. **Partner…** on the card asks for it once:
+
+- **Partner game ID** — the partner's number for this game (Getting Hot is `8`, Book of Borut
+  `2`). Empty, or **Remove**, takes the buttons away again.
+- **Partner** — shown only when the launcher knows more than one partner; with one, it is used.
+- **Delivery alias** (optional) — the name our deliveries for this game are filed under. Empty
+  means the card's name without spaces, the partner's convention (`GettingHot`).
+
+Setting it needs the same access as **Publish**, and the button shows only when the launcher has a
+partner configured (`PARTNER_RGS`). Once set, the card shows **Partner: game 8…** and two buttons,
+each opening a new tab with a fresh session on the partner:
+
+- **▶ Partner** — our published game, dealt by the partner's RGS. Disabled until the game is
+  published. It opens in the language and currency picked beside **Play ↗**.
+- **▶ Partner page** — the partner's own page, loading the latest version we delivered for the
+  alias (📦 Deliver in the desktop launcher). Disabled, with the reason on hover, until something
+  has been delivered.
+
+When the partner refuses, the tab says why and what to do rather than showing raw JSON — for
+example _"The partner has banned your test player"_, naming the player and the fix: ask the
+partner to unban it, or add another of their pre-created players to `PARTNER_RGS.players`.
+
 ### Duplicate (reskin for another client)
 
 **Duplicate…** on a card copies the whole game onto a new project key — the same

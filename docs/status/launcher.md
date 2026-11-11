@@ -81,6 +81,21 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-11 — **A project's partner launch is one field on its Game Maker card.** **Partner…**
+  stores the partner's game ID (plus the `PARTNER_RGS` profile, written explicitly even when it was
+  the only one, and an optional delivery alias) on the project row: `projects.partner_launch`
+  (migration `0039_partner_launch`, sparse — null changes nothing), set through
+  `POST /api/game-maker/partner` behind the Publish gate (`gamePublish` + project access). With it
+  set the card shows **▶ Partner** (`/api/partner-session?key=…`, disabled until published) and
+  **▶ Partner page** (`&on=partner`, disabled until a sealed delivery exists for the alias).
+  `/api/partner-session` now takes `key` alone: the query beats the stored setting, which beats the
+  env default (the only profile, and its `gameId`); a query naming another profile does not borrow
+  the stored id (`$lib/partnerLaunch.ts` `resolvePartnerLaunch`). Refusals are an HTML page naming
+  the cause and the fix (`$lib/server/partnerRefusal.ts` — banned player, unknown player, no game
+  id, unconfigured partner, partner unreachable incl. the LaLiga block), `json=1` keeps `{ error }`.
+  The partner's error text has our admin user and password blanked before it is shown
+  (`withoutCredentials`). Only the profile KEYS of `PARTNER_RGS` reach the page. Gate:
+  `check:partner-launch` (47). No prod data set: the owner enters `8` on Getting Hot's card.
 - 2026-11-11 — **The build breakdown stops flagging loaded files as "never loaded", and no build
   ships `loader.gif`.** On overlay-buffaloduel v9, three of four "Shipped but never loaded" files were
   loaded: `audio/sounds.mp3` (named by `sounds.json` from the site root, `./assets/audio/…`) and the

@@ -17,6 +17,7 @@ import {
 import { sql } from 'drizzle-orm';
 import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRuns';
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
+import type { PartnerLaunch } from '$lib/partnerLaunch';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -67,6 +68,13 @@ export const projects = pgTable('projects', {
 	 * stores and returns it as-is. Null until first published.
 	 */
 	launcherProfile: jsonb('launcher_profile'),
+	/**
+	 * Where this project is played on a PARTNER RGS: the partner's game id, and optionally the
+	 * `PARTNER_RGS` profile and the delivery alias (`$lib/partnerLaunch.ts`). Set on the Game Maker
+	 * card; read by `/api/partner-session` when its query names no `game`/`profile`. Null = no
+	 * partner launch for this project — nothing else reads it.
+	 */
+	partnerLaunch: jsonb('partner_launch').$type<PartnerLaunch>(),
 	/**
 	 * Soft-delete tombstone. Non-null = deleted: the project vanishes from every
 	 * picker and grant (`listProjects` filters it out), but its row — and crucially
