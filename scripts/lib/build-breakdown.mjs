@@ -342,13 +342,13 @@ export function analyzeDesktopBuild(input) {
 	const dims = new Map();
 	for (const [rel, text] of texts) {
 		const dir = posix.dirname(rel);
-		const code = CODE_EXT.test(rel);
 		const seen = new Set();
 		for (const token of refTokens(text)) {
-			// Code names a file by a path from the site root, from `static/assets/`, or from itself.
-			const candidates = code
-				? [normalizeRel(token, dir), normalizeRel(token), asset(token)]
-				: [normalizeRel(token, dir)];
+			// Code names a file by a path from the site root, from `static/assets/`, or from itself. So
+			// does data: a sheet or atlas names its page beside itself, but `sounds.json` names its media
+			// from the site root (`./assets/audio/sounds.mp3`) and `_boot/boot.json` names its rig from
+			// `static/assets/` (`_boot/engine/….atlas`). Beside itself is tried first.
+			const candidates = [normalizeRel(token, dir), normalizeRel(token), asset(token)];
 			const target = candidates.find((c) => c && c !== rel && fileSet.has(c));
 			if (!target || seen.has(target)) continue;
 			seen.add(target);

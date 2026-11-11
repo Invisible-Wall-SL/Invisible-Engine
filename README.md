@@ -158,7 +158,6 @@ build
   |-_app
   |-assets
   |-favicon.svg
-  |-loader.gif
 ```
 - Now you are ready to upload a game!
 

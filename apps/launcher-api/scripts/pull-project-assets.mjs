@@ -25,8 +25,9 @@
 //     --project invisible_wall/bookofborutremake --dest ./static/assets --token <t> --dry-run
 
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 // By relative path, not `config-svelte`: inside a game repo the engine submodule's node_modules is
 // never installed (same reason as bake-editor-doc.mjs).
 import {
@@ -379,6 +380,27 @@ function byFolder(rels, sizeOf) {
 const { removed, unloaded, kept, gitKnown } = noPrune
 	? { removed: [], unloaded: new Map(), kept: [], gitKnown: true }
 	: await prune();
+
+// Files `new-game.mjs` once seeded into a game repo's `static/` from the engine's own app, which
+// the engine has since deleted because nothing loads them. A repo scaffolded before that still
+// carries them, and SvelteKit ships everything in `static/` (`loader.gif`, the upstream SDK's old
+// loader, was 77 KB on every publish). Removed from a standalone game's checkout before it builds,
+// like the rest of this step: the launcher hard-resets the checkout first, so the repo is untouched.
+const RETIRED_SEED_FILES = ['loader.gif'];
+const retired = [];
+if (!noPrune && isStandaloneGame() && basename(dirname(dest)) === 'static') {
+	for (const name of RETIRED_SEED_FILES) {
+		const abs = join(dirname(dest), name);
+		if (!existsSync(abs)) continue;
+		if (!dryRun) await rm(abs, { force: true });
+		retired.push(name);
+	}
+	if (retired.length)
+		console.info(
+			`\n${dryRun ? 'Would remove' : 'Removed'} from static/ — engine files nothing loads any more: ` +
+				`${retired.join(', ')}. Delete them from the game repo to tidy it.`,
+		);
+}
 const pruned = removed.length;
 const skipped = files.filter((f) => !mirrored.has(f.rel) && !tierSkip.has(f.rel));
 if (tierSkip.size) {
@@ -445,6 +467,7 @@ const report = {
 		notPulled: withSize([...tierSkip].sort(), (rel) => listedSize.get(rel) ?? 0),
 	},
 	keptUnloaded: kept,
+	retiredSeedFiles: retired,
 	optimize: null,
 };
 
