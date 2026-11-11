@@ -46,9 +46,10 @@ export function partnerRefusalAdvice(message: string, status: number): PartnerRe
 	if (/No game id for profile/i.test(message)) {
 		return {
 			title: 'No partner game ID',
-			cause: 'Neither this game nor the partner profile says which partner game to open.',
+			cause: 'Neither the link, this game nor the partner profile says which partner game to open.',
 			steps: [
 				'Set the Partner game ID on the game\'s card in Invisible Game Maker (the "Partner…" button).',
+				"A link naming another partner with `?profile=` uses none of the card's setting: add `&game=<their game id>` to it.",
 			],
 		};
 	}

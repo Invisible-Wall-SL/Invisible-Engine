@@ -238,6 +238,11 @@ check(
 	}),
 	'bad login … / …',
 );
+check(
+	'URL-encoded credentials blanked too',
+	withoutCredentials('usr=a%40min&passw=p+w%26rd', { user: 'a@min', pass: 'p w&rd' }),
+	'usr=…&passw=…',
+);
 check('short values left alone', withoutCredentials('a u p', { user: 'u', pass: 'p' }), 'a u p');
 let echoed = '';
 try {

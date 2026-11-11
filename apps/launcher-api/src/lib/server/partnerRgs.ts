@@ -152,16 +152,23 @@ function partnerErrorText(body: CreateSessionResponse): string {
 	return '';
 }
 
-/** The partner's error text with our admin user and password blanked, should it ever echo them:
- *  that text reaches the refusal page. A value too short to be a real credential is left alone,
- *  since blanking it would mangle ordinary words. */
+/** The partner's error text with our admin user and password blanked, should it ever echo them
+ *  (raw, or URL-encoded as they travel in the mint request): that text reaches the refusal page.
+ *  A value under 4 characters is deliberately left alone — blanking it would mangle ordinary words,
+ *  and no real credential is that short. */
 export function withoutCredentials(
 	text: string,
 	config: Pick<PartnerRgsConfig, 'user' | 'pass'>,
 ): string {
 	let out = text;
 	for (const secret of [config.pass, config.user]) {
-		if (secret.length >= 4) out = out.split(secret).join('…');
+		if (secret.length < 4) continue;
+		const forms = new Set([
+			secret,
+			encodeURIComponent(secret),
+			new URLSearchParams({ s: secret }).toString().slice(2),
+		]);
+		for (const form of forms) out = out.split(form).join('…');
 	}
 	return out;
 }

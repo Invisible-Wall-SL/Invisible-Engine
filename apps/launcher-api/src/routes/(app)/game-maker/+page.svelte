@@ -252,7 +252,10 @@
 	function openPartner(p: Project) {
 		partnerFor = p;
 		partnerGameId = p.partner?.gameId ?? '';
-		partnerProfile = p.partner?.profile ?? data.partnerProfiles[0] ?? '';
+		// A stored partner that is no longer configured is not offered back: Save would refuse it.
+		const stored = p.partner?.profile;
+		partnerProfile =
+			stored && data.partnerProfiles.includes(stored) ? stored : (data.partnerProfiles[0] ?? '');
 		partnerAlias = p.partner?.alias ?? '';
 		partnerErr = '';
 	}
