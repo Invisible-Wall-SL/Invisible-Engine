@@ -778,7 +778,11 @@ coin's tier. There is no on/off switch: every field you leave alone keeps the ga
   respin board), **Pop when a count lands** (each time a payer, a multiplier or a collect finishes
   counting a label up), each with a pop scale and length; **Count-up length** (ms) replaces the
   coded 600 ms payer / multiplier count, and each collect step scales with it (350/600 of it, the
-  coded proportion). Both pops are off by default.
+  coded proportion). Both pops are off by default. **Pop as an enhancement hit shows (×N / +$X)**
+  and **Hit readout hold** (ms, coded 500, 0 = none): when a Boost or Multiply enhancement hits a
+  coin, the coin's label first prints what hit it ("×3", "+$5.00" — the Win Text `multiplyHit` /
+  `boostHit` wording) in the label's own look for that long, then counts to the new value. That
+  pop is ON unless you switch it off.
 
 Assetless: it travels to the game as `bundle.symbols.coinLabel`, and a Font Maker font it names
 ships with the project's font catalog.

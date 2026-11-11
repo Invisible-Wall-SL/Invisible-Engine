@@ -557,6 +557,11 @@ partner.script([LOSING, CENTER, BUY]);
 	);
 	check('center coin: its amount is the bonusWin pay', collect?.amount, 2700);
 	check(
+		'center coin: the collector, its total off collectWindow and what it gathered',
+		collect?.collectors,
+		[{ reel: 2, row: 0, symbol: { name: 'COLLECT', value: 27 }, amount: 2700 }],
+	);
+	check(
 		'center coin: the MINI is presented, not paid again',
 		book.filter((e) => e.type === 'jackpotWin').map((e) => [e.tier, e.amount, e.source, e.banked]),
 		[['MINI', 2500, 'instantCollect', false]],
