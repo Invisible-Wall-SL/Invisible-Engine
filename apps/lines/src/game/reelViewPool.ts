@@ -22,34 +22,44 @@
  * DRAWING. A view's art runs while it draws a cell, as the cell's own component did: a board view
  * while its cell is in the window, a filler view from the frame its cell enters until it is handed
  * the next one (`SymbolWrap`). Each time a view starts drawing a cell is an ENTRY
- * ({@link createEntries}); its `Symbol` keys each band on the entry ({@link bandKey}), so a band
- * either starts again as a new mount would (`remount`), is kept and given the new cell's props
- * (`rebind`), or is left alone because it draws nothing (`none`). A symbol that is not drawn by a view
- * keys nothing, exactly as before views.
+ * ({@link createEntries}); its `Symbol` keys each band on the entry ({@link bandKey}), so a band that
+ * draws starts again as a new mount would, and one that draws nothing is left alone. The `Symbol`'s
+ * containers are kept: its bands, and the Element FX container, which is there whether the symbol
+ * has Element FX or not ({@link createFxKey}). A symbol that is not drawn by a view keys nothing,
+ * exactly as before views.
  *
- * Only a SPRITE is rebound. It has no clock, draws no random number and registers nothing on a
- * ticker, and Pixi sizes it from the texture it holds when `width`/`height` are set and again when the
- * texture is swapped (`Sprite.set texture` re-applies the stored size), so a kept sprite handed a new
- * texture and box ends on the transform a new one would have (`pixi-svelte` `spriteRebind.fixture`).
- * Everything else starts again, because what it does at mount is observable: a rig registers its
- * update on the shared ticker and fires its t=0 events (a rider token's sparkle draws `Math.random`
- * from there), a flipbook's clip starts on its first frame, a state's Element FX draw their seed when
- * made, and layers may be any of those. Started again in the view, they start on the frame and at the
- * place in the flush a new mount's would (`reelViewPool.fixture.ts`).
+ * Only a SPRITE is not started again: a view keeps one bound sprite of its own from the first sprite
+ * it draws, hidden while it draws other art or nothing, and hands it each sprite cell after
+ * ({@link artDraw}). It has no clock, draws no random number and registers nothing on a ticker, and
+ * Pixi sizes it from the texture it holds when `width`/`height` are set and again when the texture is
+ * swapped (`Sprite.set texture` re-applies the stored size), so a kept sprite handed a new texture
+ * and box ends on the transform a new one would have (`pixi-svelte` `spriteRebind.fixture`); hidden,
+ * it is neither drawn nor measured. Everything else starts again, because what it does at mount is
+ * observable: a rig registers its update on the shared ticker and fires its t=0 events (a rider
+ * token's sparkle draws `Math.random` from there), a flipbook's clip starts on its first frame, a
+ * state's Element FX draw their seed when made, and layers may be any of those. Started again in the
+ * view, they start on the frame and at the place in the flush a new mount's would
+ * (`reelViewPool.fixture.ts`).
+ *
+ * HOLD AND WIN CELLS ({@link createShownViews}). A respin cell's window shows one or two symbols of
+ * its one-cell strip at a time; each takes a view for as long as it is shown, so a cell builds at
+ * most two views and hands them one symbol after another.
  */
 
 /** A board cell's view: the `{#each}` key, the cell it draws (or last drew, `vacant`), its row. */
 export type BoardView<C> = { id: number; cell: C; row: number; vacant: boolean };
 
 /**
- * One reel's board cells (its strip less the filler) through views: call it with the strip each time
- * the strip changes. A cell already drawn keeps its view; a new one takes the lowest-numbered free
- * view, or a new one. Listed in strip order with the vacant views last: a keyed `{#each}` keeps its
- * items' effects in list order, so the views run, and start their cells' art, in the order the
- * per-cell components did. An item is handed out again unchanged while its cell, row and vacancy
- * are, so the `{#each}` sees no change.
+ * One reel's board cells (its strip less the filler: the cells `ownsView` answers for) through views:
+ * call it with the strip each time the strip changes. A cell already drawn keeps its view; a new one
+ * takes the lowest-numbered free view, or a new one. Listed in strip order with the vacant views
+ * last: a keyed `{#each}` keeps its items' effects in list order, so the views run, and start their
+ * cells' art, in the order the per-cell components did. An item is handed out again unchanged while
+ * its cell, row and vacancy are, so the `{#each}` sees no change.
  */
-export const createBoardViews = <C extends { padding: boolean }>() => {
+export const createBoardViews = <C extends { padding: boolean }>(
+	ownsView: (cell: C) => boolean = (cell) => !cell.padding,
+) => {
 	const owners = new Map<C, number>();
 	const last: C[] = [];
 	const items: BoardView<C>[] = [];
@@ -61,7 +71,7 @@ export const createBoardViews = <C extends { padding: boolean }>() => {
 	return (column: readonly C[]): BoardView<C>[] => {
 		const board: { cell: C; row: number }[] = [];
 		column.forEach((cell, row) => {
-			if (!cell.padding) board.push({ cell, row });
+			if (ownsView(cell)) board.push({ cell, row });
 		});
 		const present = new Set(board.map(({ cell }) => cell));
 		for (const [cell] of owners) if (!present.has(cell)) owners.delete(cell);
@@ -183,56 +193,65 @@ export const createPoolViews = <C>() => {
 };
 
 /**
- * A view's entries (`SymbolWrap`): called with whether the view draws now and the cell it draws.
- * Answers a number for as long as one cell is drawn, a new one each time the view starts drawing or
- * is handed another cell while drawing, and `undefined` while it draws nothing.
+ * A view's entries (`SymbolWrap`, {@link createShownViews}): called with whether the view draws now
+ * and the cell it draws. Answers a number for as long as one cell is drawn, a new one each time the
+ * view starts drawing or is handed another cell while drawing, and `undefined` while it draws
+ * nothing. Views handed one `counter` number their entries in one sequence, in the order they ask.
  */
-export const createEntries = () => {
-	let count = 0;
+export const createEntries = (counter = { count: 0 }) => {
 	let current: number | undefined;
 	let drawnCell: unknown;
 	return (drawn: boolean, cell: unknown): number | undefined => {
 		if (!drawn) return (current = undefined);
 		if (current === undefined || cell !== drawnCell) {
-			current = ++count;
+			current = ++counter.count;
 			drawnCell = cell;
 		}
 		return current;
 	};
 };
 
-export type BandRestart = 'none' | 'rebind' | 'remount';
-
-/** The key a rebound band keeps from entry to entry. An entry's key is a number, so never equal. */
-export const REBOUND = 'rebound';
+/** A Hold and Win cell's view: the `{#each}` key, the symbol it draws (or last drew), the entry it
+ *  draws (`undefined` while vacant). */
+export type ShownView<C> = { id: number; cell: C; entry: number | undefined };
 
 /**
- * The `{#key}` value of one band of a `Symbol`. Not drawn by a view ⇒ `undefined` for ever (the band
- * never restarts). A view ⇒ the entry where the band starts again per entry, {@link REBOUND} where it
- * is kept, and `undefined` where it draws nothing, so an empty band is not rebuilt for every cell.
+ * A Hold and Win cell's strip through views (`RespinCell`): call it with the symbols its window shows
+ * now, in strip order, each of which is drawn. A symbol keeps one view for as long as it is shown; a
+ * new one takes the lowest-numbered free view ({@link createBoardViews}, every symbol taking one).
+ *
+ * Each time a view starts drawing a symbol is an entry, numbered across the cell's views in list
+ * order, which is the order the per-symbol components mounted in. A component mounted later was
+ * appended over the ones before it, so the entry is also the view's PAINT ORDER (its `zIndex`): where
+ * two symbols overlap in the window the newer one draws over the older, as before views. An item is
+ * handed out again unchanged while its view's symbol and entry are.
  */
-export const bandKey = (
-	view: boolean,
-	entry: number | undefined,
-	restart: BandRestart,
-): number | typeof REBOUND | undefined => {
-	if (!view || restart === 'none') return undefined;
-	return restart === 'rebind' ? REBOUND : entry;
+export const createShownViews = <C extends { padding: boolean }>() => {
+	const views = createBoardViews<C>(() => true);
+	const counter = { count: 0 };
+	const entries: ReturnType<typeof createEntries>[] = [];
+	const items: ShownView<C>[] = [];
+	return (shown: readonly C[]): ShownView<C>[] =>
+		views(shown).map(({ id, cell, vacant }) => {
+			const entry = (entries[id] ??= createEntries(counter))(!vacant, cell);
+			const kept = items[id];
+			if (kept && kept.cell === cell && kept.entry === entry) return kept;
+			return (items[id] = { id, cell, entry });
+		});
 };
 
 /**
- * Does the base art stay while the symbol is `vacant`? Only a sprite, and only where the caller
- * hides the vacant symbol (`keepSprite`: a vacant view is hidden whole), until the next entry rebinds
- * it; any other art is let go on the frame the symbol goes vacant, as the cell's own component was.
- * A symbol that is not vacant keeps whatever it draws.
+ * The `{#key}` value of one band of a `Symbol`. Not drawn by a view ⇒ `undefined` for ever (the band
+ * never restarts). A view ⇒ the entry where the band draws, and `undefined` where it draws nothing, so
+ * an empty band is not rebuilt for every cell.
  */
-export const artKept = (
-	restart: BandRestart,
-	vacant: boolean | undefined,
-	keepSprite: boolean | undefined,
-): boolean => !vacant || (!!keepSprite && restart === 'rebind');
+export const bandKey = (view: boolean, entry: number | undefined, draws: boolean) =>
+	view && draws ? entry : undefined;
 
-/** The base art's restart: a bound sprite is rebound, any other art starts again, none is none. */
+/** What the base art does at an entry: a bound sprite is rebound, any other art starts again, no
+ *  art is none. */
+export type BandRestart = 'none' | 'rebind' | 'remount';
+
 export const artRestart = (art: {
 	hasArt: boolean;
 	type: string | undefined;
@@ -240,4 +259,40 @@ export const artRestart = (art: {
 }): BandRestart => {
 	if (!art.hasArt) return art.placeholder ? 'remount' : 'none';
 	return art.type === 'sprite' ? 'rebind' : 'remount';
+};
+
+/** Where a `Symbol` draws its base art: in its keyed art band, or in the sprite a view keeps. */
+export type ArtDraw = { keyed: boolean; sprite: boolean };
+
+/**
+ * Where the base art is drawn. Not a view (`vacant` undefined): all of it in the keyed band, as
+ * before views. A view: a bound sprite in the one sprite the view keeps, shown while the view draws
+ * and hidden otherwise, so a view moving between sprites and other art mounts its sprite once; any
+ * other art in the keyed band, which starts it again per entry; nothing while the view is vacant, as
+ * the cell's own component drew nothing once it was gone.
+ */
+export const artDraw = (restart: BandRestart, vacant: boolean | undefined): ArtDraw => {
+	if (vacant === undefined) return { keyed: restart !== 'none', sprite: false };
+	if (restart === 'rebind') return { keyed: false, sprite: !vacant };
+	return { keyed: !vacant && restart === 'remount', sprite: false };
+};
+
+/**
+ * The `{#key}` of a `Symbol`'s Element FX container, from its `instanceKey` and whether it has
+ * Element FX. The container used to be there only for a symbol with Element FX, so a symbol turning
+ * between one with them and one without started every band again. A symbol whose own cell turns in
+ * place (a wild rewrite, a special expanding, `frozen` turning) still does: the key moves. A view
+ * handed a cell of the other kind does not: its entry starts every band that draws again by itself
+ * ({@link bandKey}), so the container and the bands' containers are kept.
+ */
+export const createFxKey = () => {
+	let entry: number | undefined;
+	let had: boolean | undefined;
+	let key = 0;
+	return (instanceKey: number | undefined, hasFx: boolean): number => {
+		if (had !== undefined && hasFx !== had && instanceKey === entry) key++;
+		entry = instanceKey;
+		had = hasFx;
+		return key;
+	};
 };

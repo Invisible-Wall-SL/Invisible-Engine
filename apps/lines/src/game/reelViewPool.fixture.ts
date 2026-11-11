@@ -1,6 +1,6 @@
 /**
  * Offline fixture for the reel views (`reelViewPool.ts`, drawn by `BoardBase.svelte`,
- * `ReelPaddingPool.svelte`, `SymbolWrap.svelte` and `Symbol.svelte`):
+ * `ReelPaddingPool.svelte`, `SymbolWrap.svelte`, `RespinCell.svelte` and `Symbol.svelte`):
  *
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs apps/lines/src/game/reelViewPool.fixture.ts
  *
@@ -10,7 +10,14 @@
  * components ran in), vacant ones last; an unchanged view is handed out unchanged.
  *
  * Entries (`createEntries`): one number while one cell is drawn, a new one when the view starts
- * drawing or is handed another cell while drawing, none while it draws nothing.
+ * drawing or is handed another cell while drawing, none while it draws nothing; views sharing a
+ * counter number theirs in one sequence.
+ *
+ * The base art (`artDraw`): a symbol not drawn by a view draws all of it in its keyed band; a view
+ * draws a bound sprite in the one sprite it keeps, any other art in the keyed band, never both, and
+ * nothing while vacant. The Element FX container's key (`createFxKey`) moves when a symbol turns
+ * between one with Element FX and one without within one entry (always, for a symbol that is not a
+ * view), never at a view's entry.
  *
  * Whole rolls (pre-spin laps that renumber the strip, the handover to the result, the landing, the
  * next spins), board cells and filler, run through the views as the components run them and, beside
@@ -18,23 +25,33 @@
  * drawn and stopped when it was not):
  * - every art kind that starts at mount (a rig, a flipbook, a placeholder) starts on exactly the
  *   frames, and in the order, it started per cell, and stops on the frames it stopped; a bound sprite
- *   is rebound instead, and is mounted again only after another kind in the same view;
+ *   is rebound instead, and each view mounts its sprite once, whatever it draws between;
  * - each filler cell is handed to its view on the frame its row first touches the window, no view is
  *   owed two cells at once, the flat (index) and perspective (y) entry tests agree, a built view is
  *   never dropped, and its item changes only with its cell or its vacancy;
  * - a symbol that is not drawn by a view never restarts a band.
- * Plus source pins: every band of `Symbol.svelte` is keyed through this module, a vacant symbol
- * reports nothing, and a kept sprite reports each entry.
+ *
+ * Hold and Win respins (`createShownViews`), a one-cell strip rolling through a one-row window, its
+ * blanks drawing nothing, through the views and beside them a component per shown symbol: art
+ * starts and stops on the same frames and in the same order, the views paint in the order the
+ * components were appended, each view mounts its sprite once, and no view is built after the first
+ * respins.
+ *
+ * Plus source pins: every band of `Symbol.svelte` is keyed through this module inside an
+ * unconditional Element FX container, a vacant symbol reports nothing, a view's sprite reports each
+ * entry and is hidden while it does not draw, and `RespinCell` draws through its views in their
+ * paint order.
  */
 
 import {
-	REBOUND,
-	artKept,
+	artDraw,
 	artRestart,
 	bandKey,
 	createBoardViews,
 	createEntries,
+	createFxKey,
 	createPoolViews,
+	createShownViews,
 	placeCells,
 	shownCellsByIndex,
 	shownCellsByY,
@@ -54,17 +71,13 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 console.log('band keys');
 check(
 	'a symbol not drawn by a view keys nothing, whatever the band',
-	(['none', 'rebind', 'remount'] as BandRestart[]).every(
-		(r) => bandKey(false, 3, r) === undefined && bandKey(false, undefined, r) === undefined,
+	[true, false].every(
+		(draws) =>
+			bandKey(false, 3, draws) === undefined && bandKey(false, undefined, draws) === undefined,
 	),
 );
-check('a view band that draws nothing keys nothing', bandKey(true, 7, 'none') === undefined);
-check('a view band that restarts keys on the entry', bandKey(true, 7, 'remount') === 7);
-check(
-	'a rebound band keeps one key from entry to entry, and while vacant',
-	bandKey(true, 7, 'rebind') === REBOUND && bandKey(true, undefined, 'rebind') === REBOUND,
-);
-check('the kept key is never an entry key', typeof REBOUND === 'string');
+check('a view band that draws nothing keys nothing', bandKey(true, 7, false) === undefined);
+check('a view band that draws keys on the entry', bandKey(true, 7, true) === 7);
 check(
 	'only a bound sprite is rebound',
 	artRestart({ hasArt: true, type: 'sprite', placeholder: false }) === 'rebind' &&
@@ -73,14 +86,57 @@ check(
 		artRestart({ hasArt: false, type: 'sprite', placeholder: true }) === 'remount' &&
 		artRestart({ hasArt: false, type: 'sprite', placeholder: false }) === 'none',
 );
+const draws = (restart: BandRestart, vacant: boolean | undefined) => {
+	const { keyed, sprite } = artDraw(restart, vacant);
+	return `${keyed ? 'keyed' : ''}${sprite ? 'sprite' : ''}` || 'nothing';
+};
 check(
-	'vacant, only a sprite the caller hides is kept',
-	artKept('rebind', true, true) &&
-		!artKept('rebind', true, false) &&
-		!artKept('remount', true, true) &&
-		artKept('remount', false, false) &&
-		artKept('remount', undefined, undefined),
+	'not a view: all art in the keyed band, as before views',
+	draws('rebind', undefined) === 'keyed' &&
+		draws('remount', undefined) === 'keyed' &&
+		draws('none', undefined) === 'nothing',
 );
+check(
+	"a view: a sprite in the view's own sprite, other art in the keyed band",
+	draws('rebind', false) === 'sprite' &&
+		draws('remount', false) === 'keyed' &&
+		draws('none', false) === 'nothing',
+);
+check(
+	'a vacant view draws nothing',
+	(['none', 'rebind', 'remount'] as BandRestart[]).every((r) => draws(r, true) === 'nothing'),
+);
+
+console.log('the Element FX container');
+{
+	const fx = createFxKey();
+	const seq = [
+		fx(undefined, false),
+		fx(undefined, true),
+		fx(undefined, true),
+		fx(undefined, false),
+	];
+	check(
+		'not a view: every turn between Element FX and none moves the key',
+		same(seq, [0, 1, 1, 2]),
+		JSON.stringify(seq),
+	);
+	const view = createFxKey();
+	const viewSeq = [
+		view(1, false),
+		view(2, true),
+		view(2, true),
+		view(2, false),
+		view(undefined, true),
+		view(3, false),
+		view(3, true),
+	];
+	check(
+		'a view: kept across an entry or a vacancy, moved by a turn within one entry',
+		same(viewSeq, [0, 0, 0, 1, 1, 1, 2]),
+		JSON.stringify(viewSeq),
+	);
+}
 
 console.log('entries');
 {
@@ -100,6 +156,15 @@ console.log('entries');
 		'none while not drawn; one number per drawn cell; a new one per entry',
 		same(seq, [undefined, 1, 1, 2, undefined, undefined, 3]),
 		JSON.stringify(seq),
+	);
+	const counter = { count: 0 };
+	const one = createEntries(counter);
+	const two = createEntries(counter);
+	const shared = [one(true, a), two(true, b), one(true, b), two(true, b)];
+	check(
+		'views sharing a counter number their entries in one sequence',
+		same(shared, [1, 2, 3, 2]),
+		JSON.stringify(shared),
 	);
 }
 
@@ -249,18 +314,37 @@ const spin = (board: Cell[], laps: number, padding: number, step: number) => {
 	return { frames, result };
 };
 
-/** One art band: the key it holds, and the cell it holds it for. */
-type Band = { key: unknown; label: string };
-const NO_BAND: Band = { key: undefined, label: '' };
+/** A view's base art: its keyed band's key and the cell it holds it for, whether the view's own
+ *  sprite draws, and whether that sprite has been built. */
+type Band = { key: unknown; label: string; sprite: boolean; built: boolean };
+const NO_BAND: Band = { key: undefined, label: '', sprite: false, built: false };
 const labelOf = (cell: Cell) => `#${cell.id} ${cell.kind}`;
 const bandOf = (entry: number | undefined, cell: Cell | undefined, drawn: boolean): Band => {
-	const restart = cell ? artOf(cell) : 'none';
-	const keeps = artKept(restart, !drawn, true);
-	return { key: bandKey(true, entry, keeps ? restart : 'none'), label: cell ? labelOf(cell) : '' };
+	const art = artDraw(cell ? artOf(cell) : 'none', !drawn);
+	return {
+		key: bandKey(true, entry, art.keyed),
+		label: cell ? labelOf(cell) : '',
+		sprite: art.sprite,
+		built: false,
+	};
 };
 
-/** Starts and stops of art that starts at mount, in the order the effects run. */
-type Log = { starts: string[]; stops: string[]; spriteMounts: number };
+/** Starts and stops of art that starts at mount, in the order the effects run; sprites built; and
+ *  frames where a view drew its sprite and its keyed art at once. */
+type Log = { starts: string[]; stops: string[]; spriteMounts: number; both: number };
+const newLog = (): Log => ({ starts: [], stops: [], spriteMounts: 0, both: 0 });
+
+/** A view's art moving from `band` to `next`: what starts, stops and is built. */
+const move = (log: Log, band: Band, next: Band): Band => {
+	if (next.key !== band.key) {
+		if (typeof band.key === 'number') log.stops.push(band.label);
+		if (typeof next.key === 'number') log.starts.push(next.label);
+	}
+	if (next.sprite && typeof next.key === 'number') log.both++;
+	const built = band.built || next.sprite;
+	if (built && !band.built) log.spriteMounts++;
+	return { ...next, built };
+};
 
 /**
  * Plays frames through the views as the components do and, beside them, per cell as before views.
@@ -284,17 +368,10 @@ const play = (frames: Frame[]) => {
 	let twoAtOnce = false;
 	const boardBuilt: number[] = [];
 
-	const move = (log: Log, band: Band, next: Band) => {
-		if (next.key === band.key) return;
-		if (typeof band.key === 'number') log.stops.push(band.label);
-		if (typeof next.key === 'number') log.starts.push(next.label);
-		if (next.key === REBOUND && band.key !== REBOUND) log.spriteMounts++;
-	};
-
 	for (const frame of frames) {
 		frame.column.forEach((cell, i) => (cell.symbolIndex = i));
-		const vLog: Log = { starts: [], stops: [], spriteMounts: 0 };
-		const cLog: Log = { starts: [], stops: [], spriteMounts: 0 };
+		const vLog = newLog();
+		const cLog = newLog();
 		// Board cells, through views.
 		const listed = boardViews(frame.column);
 		boardBuilt.push(Math.max(-1, ...listed.map((v) => v.id)));
@@ -304,8 +381,7 @@ const play = (frames: Frame[]) => {
 			if (!entries) boardEntries.set(view.id, (entries = createEntries()));
 			const entry = entries(drawn, view.cell);
 			const next = bandOf(entry, view.cell, drawn);
-			move(vLog, boardBands.get(view.id) ?? NO_BAND, next);
-			boardBands.set(view.id, next);
+			boardBands.set(view.id, move(vLog, boardBands.get(view.id) ?? NO_BAND, next));
 		}
 		// Board cells, a component each: drawn in the window, destroyed when not.
 		const board = frame.column.filter((c) => !c.padding);
@@ -346,9 +422,7 @@ const play = (frames: Frame[]) => {
 		pool.forEach((view, slot) => {
 			const drawn = !view.vacant;
 			const entry = poolEntries[slot](drawn, view.cell);
-			const next = bandOf(entry, view.cell, drawn);
-			move(vLog, poolBands[slot], next);
-			poolBands[slot] = next;
+			poolBands[slot] = move(vLog, poolBands[slot], bandOf(entry, view.cell, drawn));
 		});
 		// Filler, a component per handed cell, destroyed when its place shows nothing.
 		for (let slot = 0; slot < SLOTS; slot++) {
@@ -412,6 +486,17 @@ for (const step of [7, 33, 100, 170, 260]) {
 		stopsDiffer.slice(0, 3).join(' | '),
 	);
 	check(`step ${step}: the flat entry test is the perspective one`, indexAgrees);
+	const viewCount = Math.max(...boardBuilt) + 1 + SLOTS;
+	const spritesBuilt = viewsLog.reduce((n, l) => n + l.spriteMounts, 0);
+	check(
+		`step ${step}: each view builds its sprite at most once, whatever it draws between`,
+		spritesBuilt <= viewCount && spritesBuilt > 0,
+		`${spritesBuilt} sprites for ${viewCount} views`,
+	);
+	check(
+		`step ${step}: a view never draws its sprite and other art at once`,
+		viewsLog.every((l) => l.both === 0),
+	);
 	const firstSpin = boardBuilt[spinEnds[1] - 1];
 	check(
 		`step ${step}: no board view is built after the second spin`,
@@ -501,6 +586,149 @@ console.log('a sprite is rebound, never mounted again');
 	KINDS = MIXED;
 }
 
+// ---- Hold and Win respins ---------------------------------------------------------------------
+// A respin cell's one-cell strip (`RespinCell`): index `i` is drawn at `reelY + i * PITCH`, the window
+// centred on 0, at rest `reelY = -PITCH` (index 1 in the window). Rolling, a symbol is shown within a
+// pitch of the centre; at rest only index 1; a blank never.
+type RespinFrame = { strip: Cell[]; reelY: number; rolling: boolean };
+const BOUNCE = 0.2 * PITCH;
+/** One respin: the targets and `padding` filler laid above the strip on screen, the slide down past
+ *  home, the strip cut to the targets, the bounce back, rest. */
+const respin = (strip: Cell[], padding: number, step: number) => {
+	const targets = make(3, false);
+	const rolled = [...targets, ...make(padding, true), ...strip];
+	const frames: RespinFrame[] = [];
+	let reelY = -PITCH - (rolled.length - strip.length) * PITCH;
+	frames.push({ strip: rolled, reelY, rolling: true });
+	while (reelY < -PITCH + BOUNCE) {
+		reelY = Math.min(-PITCH + BOUNCE, reelY + step);
+		frames.push({ strip: rolled, reelY, rolling: true });
+	}
+	for (; reelY > -PITCH; reelY -= Math.max(step / 4, 5))
+		frames.push({ strip: targets, reelY, rolling: true });
+	frames.push({ strip: targets, reelY: -PITCH, rolling: false });
+	return { frames, strip: targets };
+};
+const shownOf = ({ strip, reelY, rolling }: RespinFrame) =>
+	strip.filter(
+		(cell, i) =>
+			(rolling ? Math.abs(reelY + i * PITCH) < PITCH : i === 1) && cell.kind !== 'nothing',
+	);
+
+console.log('Hold and Win respins through the views');
+KINDS = ['nothing', 'nothing', 'nothing', 'sprite', 'sprite', 'spine', 'flipbook', 'placeholder'];
+let twoStartTogether = 0;
+for (const step of [9, 40, 100, 160, 250]) {
+	nextId = 1;
+	seed = 11 + step;
+	let strip = make(3, false);
+	const frames: RespinFrame[] = [{ strip, reelY: -PITCH, rolling: false }];
+	for (const padding of [6, 12, 3, 20, 9, 15]) {
+		const played = respin(strip, padding, step);
+		frames.push(...played.frames);
+		strip = played.strip;
+	}
+
+	const views = createShownViews<Cell>();
+	const bands = new Map<number, Band>();
+	const viewsLog: Log[] = [];
+	const cellsLog: Log[] = [];
+	const paintDiffers: string[] = [];
+	const built: number[] = [];
+	let churned = false;
+	let before: Cell[] = [];
+	let itemsBefore: ReturnType<typeof views> = [];
+	const painted: Cell[] = [];
+	frames.forEach((frame, f) => {
+		const shown = shownOf(frame);
+		const vLog = newLog();
+		const cLog = newLog();
+		// Through the views.
+		const items = views(shown);
+		for (const item of items) {
+			const next = bandOf(item.entry, item.cell, item.entry !== undefined);
+			bands.set(item.id, move(vLog, bands.get(item.id) ?? NO_BAND, next));
+			const was = itemsBefore.find((old) => old.id === item.id);
+			if (was && was !== item && was.cell === item.cell && was.entry === item.entry) churned = true;
+		}
+		itemsBefore = items;
+		built.push(Math.max(-1, ...items.map((item) => item.id)));
+		const paint = items
+			.filter((item) => item.entry !== undefined)
+			.sort((a, b) => a.entry! - b.entry!)
+			.map((item) => item.cell.id);
+		// A component per shown symbol: new ones mount in list order, appended over the others.
+		for (const cell of shown)
+			if (!before.includes(cell)) {
+				if (artOf(cell) === 'remount') cLog.starts.push(labelOf(cell));
+				if (artOf(cell) === 'rebind') cLog.spriteMounts++;
+				painted.push(cell);
+			}
+		for (const cell of before)
+			if (!shown.includes(cell)) {
+				if (artOf(cell) === 'remount') cLog.stops.push(labelOf(cell));
+				painted.splice(painted.indexOf(cell), 1);
+			}
+		before = shown;
+		if (
+			!same(
+				paint,
+				painted.map((cell) => cell.id),
+			)
+		)
+			paintDiffers.push(`frame ${f}: ${paint} vs ${painted.map((cell) => cell.id)}`);
+		viewsLog.push(vLog);
+		cellsLog.push(cLog);
+	});
+
+	const startsDiffer = viewsLog
+		.map((v, i) =>
+			same(v.starts, cellsLog[i].starts) ? '' : `frame ${i}: ${v.starts} vs ${cellsLog[i].starts}`,
+		)
+		.filter(Boolean);
+	check(
+		`step ${step}: art starts on the frames, and in the order, a component per symbol started it`,
+		startsDiffer.length === 0 && cellsLog.some((l) => l.starts.length > 0),
+		startsDiffer.slice(0, 3).join(' | '),
+	);
+	const stopsDiffer = viewsLog
+		.map((v, i) =>
+			same([...v.stops].sort(), [...cellsLog[i].stops].sort())
+				? ''
+				: `frame ${i}: ${v.stops} vs ${cellsLog[i].stops}`,
+		)
+		.filter(Boolean);
+	check(`step ${step}: …and stops on the same frames`, stopsDiffer.length === 0, stopsDiffer[0]);
+	check(
+		`step ${step}: the views paint in the order the components were appended`,
+		paintDiffers.length === 0,
+		paintDiffers.slice(0, 2).join(' | '),
+	);
+	const viewSprites = viewsLog.reduce((n, l) => n + l.spriteMounts, 0);
+	const cellSprites = cellsLog.reduce((n, l) => n + l.spriteMounts, 0);
+	check(
+		`step ${step}: each view builds its sprite once (${viewSprites} through views, ${cellSprites} per symbol)`,
+		viewSprites <= Math.max(...built) + 1 && viewSprites < cellSprites,
+	);
+	check(
+		`step ${step}: a view never draws its sprite and other art at once`,
+		viewsLog.every((l) => l.both === 0),
+	);
+	const most = Math.max(...frames.map((frame) => shownOf(frame).length));
+	check(
+		`step ${step}: no more views than symbols shown at once (${most}; two in a one-row window)`,
+		Math.max(...built) + 1 === most && most <= 2,
+		`${Math.max(...built) + 1} views`,
+	);
+	check(`step ${step}: an item changes only with its symbol or its entry`, !churned);
+	twoStartTogether += cellsLog.filter((l) => l.starts.length + l.spriteMounts > 1).length;
+}
+check(
+	`the order is exercised: ${twoStartTogether} frames where two symbols started together`,
+	twoStartTogether > 0,
+);
+KINDS = MIXED;
+
 type Fs = { readFileSync(path: URL, encoding: 'utf8'): string };
 // Imported by name at run time: this package's tsconfig carries no Node types.
 void import('node:' + 'fs').then((fs: Fs) => {
@@ -510,7 +738,7 @@ void import('node:' + 'fs').then((fs: Fs) => {
 	const symbol = read('Symbol.svelte');
 	const markup = symbol.slice(symbol.indexOf('</script>'));
 	const keys = [...markup.matchAll(/\{#key ([^}]+)\}/g)].map((m) => m[1].trim());
-	const bands = keys.filter((k) => k !== 'props.state');
+	const bands = keys.filter((k) => k !== 'props.state' && k !== 'fxKey');
 	check(
 		'six bands, each keyed by `restartWhen` or `artKey`',
 		bands.length === 6 && bands.every((k) => k === 'artKey' || k.startsWith('restartWhen(')),
@@ -521,18 +749,44 @@ void import('node:' + 'fs').then((fs: Fs) => {
 		!markup.includes('{#key props.instanceKey}'),
 	);
 	check(
+		'the Element FX container is unconditional, keyed by `createFxKey`, and holds every band',
+		/\{#key fxKey\}\s*<Container>\s*\{@render bands\(\)\}/.test(markup) &&
+			!/\{#if symbolFx\}/.test(markup) &&
+			/const fxKey = \$derived\(fxKeys\(props\.instanceKey, symbolFx !== undefined\)\);/.test(
+				symbol,
+			),
+	);
+	check(
 		'a vacant symbol reports nothing',
 		/const artComplete = \$derived\(\s*props\.vacant \? undefined :/.test(symbol),
 	);
+	const sprite = read('SymbolSprite.svelte');
 	check(
-		'a kept sprite reports each entry',
-		/restart=\{props\.instanceKey\}/.test(markup) &&
-			/void props\.restart;\s*props\.oncomplete\?\.\(\);/.test(read('SymbolSprite.svelte')),
+		"a view's sprite is kept outside the keyed art, reports each entry, and only while it draws",
+		/\{#if spriteInfo\}\s*<SymbolSprite\s+symbolInfo=\{spriteInfo\}/.test(markup) &&
+			/visible=\{art\.sprite\}\s+restart=\{props\.instanceKey\}\s+oncomplete=\{art\.sprite \? artComplete : undefined\}/.test(
+				markup,
+			) &&
+			/const spriteInfo = \$derived\(art\.sprite \? \(keptSprite = symbolInfo\) : keptSprite\);/.test(
+				symbol,
+			) &&
+			/\{#if !art\.keyed\}/.test(markup) &&
+			/void props\.restart;\s*props\.oncomplete\?\.\(\);/.test(sprite) &&
+			sprite.includes('visible={props.visible}'),
 	);
 	const wrap = read('SymbolWrap.svelte');
 	check(
 		'a view hands its children the entry it draws',
 		wrap.includes('entries(drawn, props.cell)') && wrap.includes('props.children(held, entry)'),
+	);
+	const cell = read('RespinCell.svelte');
+	check(
+		'a Hold and Win cell draws its shown symbols through views, in their paint order',
+		cell.includes('const views = $derived(shownViews(shown));') &&
+			/\{#each views as view \(view\.id\)\}/.test(cell) &&
+			/zIndex=\{view\.entry\}\s+visible=\{view\.entry !== undefined\}/.test(cell) &&
+			/instanceKey=\{view\.entry\}\s+vacant=\{view\.entry === undefined\}/.test(cell) &&
+			!/\{#each shown\b/.test(cell),
 	);
 
 	if (failures) throw new Error(`reelViewPool.fixture: ${failures} FAILED`);

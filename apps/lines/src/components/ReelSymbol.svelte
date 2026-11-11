@@ -236,7 +236,6 @@
 					{labelOverride}
 					instanceKey={entry}
 					vacant={props.view ? entry === undefined : undefined}
-					keepSprite={props.view !== undefined}
 					{held}
 					oncomplete={() => {
 						const state = props.reelSymbol.symbolState;
