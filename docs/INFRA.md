@@ -919,6 +919,10 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 >   to boot. Defaults to `sid`.
 > - The game must be launched with a runtime bundle that carries the matching profile
 >   (`PUBLIC_DELIVERY_PROFILES`, see `docs/design/delivery-builds.md`).
+> - **Per project:** a project's partner game ID (and profile / alias) is set on its Game Maker
+>   card (**Partner…**, stored in `projects.partner_launch`), which then shows ▶ Partner and
+>   ▶ Partner page. `/api/partner-session?key=<gameKey>` alone uses it: query beats the stored
+>   setting, which beats the only profile here and its `gameId`.
 > - **Testing a DELIVERY on the partner's own page:** add `&on=partner` (and `&game=<their game id>`
 >   when it differs from `gameId`) to the launch link. It mints a session the same way and then
 >   redirects to the `game_url` the partner's create-session answers with, which is their page

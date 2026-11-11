@@ -34,6 +34,7 @@
 		asAuthoringLaunch,
 	} from '$lib/gameLaunch';
 	import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
+	import { partnerButtons } from '$lib/partnerLaunch';
 	import {
 		COIN_OVERLAY_ADD_ON_STYLES,
 		COIN_OVERLAY_PRESET_STYLE,
@@ -236,6 +237,51 @@
 		filterClient = '';
 		filterType = '';
 		filterStatus = '';
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Partner game: which game on a partner RGS this card is played as (▶ Partner buttons).
+	// ---------------------------------------------------------------------------------------------
+	let partnerFor = $state<Project | null>(null);
+	let partnerGameId = $state('');
+	let partnerProfile = $state('');
+	let partnerAlias = $state('');
+	let partnerBusy = $state(false);
+	let partnerErr = $state('');
+
+	function openPartner(p: Project) {
+		partnerFor = p;
+		partnerGameId = p.partner?.gameId ?? '';
+		partnerProfile = p.partner?.profile ?? data.partnerProfiles[0] ?? '';
+		partnerAlias = p.partner?.alias ?? '';
+		partnerErr = '';
+	}
+
+	async function savePartner(clear = false) {
+		const project = partnerFor;
+		if (!project) return;
+		partnerBusy = true;
+		partnerErr = '';
+		try {
+			const res = await fetch('/api/game-maker/partner', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					project: project.key,
+					gameId: clear ? '' : partnerGameId,
+					profile: partnerProfile,
+					alias: partnerAlias,
+				}),
+			});
+			const out = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(out?.error ?? `Saving failed (${res.status}).`);
+			partnerFor = null;
+			await invalidateAll();
+		} catch (e) {
+			partnerErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			partnerBusy = false;
+		}
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -1247,6 +1293,13 @@
 						{/if}
 						<ul class="projects">
 							{#each group.projects as p (p.key)}
+								{@const partner = partnerButtons({
+									key: p.key,
+									partner: p.partner,
+									profiles: data.partnerProfiles,
+									published: p.published,
+									latestDelivery: p.partnerLatestDelivery,
+								})}
 								<li>
 									<div class="meta">
 										<span class="pname">{p.name}</span>
@@ -1347,6 +1400,52 @@
 											</select>
 											<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>
 												{copied === p.key ? 'Copied' : 'Copy URL'}
+											</button>
+										{/if}
+										<!-- A server endpoint that answers with a redirect or a refusal page, not a route. -->
+										<!-- eslint-disable svelte/no-navigation-without-resolve -->
+										{#if partner}
+											{#if partner.card.disabled}
+												<button class="play partner" disabled title={partner.card.disabled}>
+													▶ Partner
+												</button>
+											{:else}
+												<a
+													class="play partner"
+													href={playUrl(partner.card.href)}
+													target="_blank"
+													rel="noopener noreferrer"
+													title={`Our published game on the partner's RGS (${p.partner?.profile ?? data.partnerProfiles[0]}, game ${p.partner?.gameId})`}
+												>
+													▶ Partner
+												</a>
+											{/if}
+											{#if partner.page.disabled}
+												<button class="play partner" disabled title={partner.page.disabled}>
+													▶ Partner page
+												</button>
+											{:else}
+												<a
+													class="play partner"
+													href={partner.page.href}
+													target="_blank"
+													rel="noopener noreferrer"
+													title={`The partner's own page, loading our latest delivery (${p.partnerLatestDelivery})`}
+												>
+													▶ Partner page
+												</a>
+											{/if}
+										{/if}
+										<!-- eslint-enable svelte/no-navigation-without-resolve -->
+										{#if data.canSetPartner && data.partnerProfiles.length}
+											<button
+												class="dup"
+												title={p.partner
+													? `Played on the partner as game ${p.partner.gameId} — change or clear it`
+													: "Set the partner's game ID to get ▶ Partner buttons on this card"}
+												onclick={() => openPartner(p)}
+											>
+												{p.partner ? `Partner: game ${p.partner.gameId}…` : 'Partner…'}
 											</button>
 										{/if}
 										<button
@@ -1829,6 +1928,68 @@
 				{/if}
 			{/snippet}
 		</ConfirmDialog>
+	{/if}
+
+	{#if partnerFor}
+		<div class="modal-backdrop" role="presentation" onclick={() => (partnerFor = null)}>
+			<div
+				class="modal"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="partner-title"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<h3 id="partner-title">Partner game — {partnerFor.name}</h3>
+				<p class="confirm-note">
+					The partner's own ID for this game on their RGS. With it set, the card gets ▶ Partner (our
+					published game on their RGS) and ▶ Partner page (their page, loading our latest delivery).
+					Leave it empty to remove the buttons.
+				</p>
+				<div class="grid">
+					<label>
+						Partner game ID
+						<input bind:value={partnerGameId} spellcheck="false" placeholder="e.g. 8" />
+					</label>
+					{#if data.partnerProfiles.length > 1}
+						<label>
+							Partner
+							<select bind:value={partnerProfile}>
+								{#each data.partnerProfiles as id (id)}
+									<option value={id}>{id}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+					<label>
+						Delivery alias (optional)
+						<input
+							bind:value={partnerAlias}
+							spellcheck="false"
+							placeholder={partnerFor.partnerDefaultAlias}
+						/>
+					</label>
+				</div>
+				<p class="confirm-note">
+					{#if data.partnerProfiles.length === 1}Partner: {data.partnerProfiles[0]}.
+					{/if}The alias is the name our deliveries for this game are filed under; empty means
+					{partnerFor.partnerDefaultAlias}.
+				</p>
+				{#if partnerErr}<p class="err">{partnerErr}</p>{/if}
+				<div class="confirm-actions">
+					<button onclick={() => (partnerFor = null)} disabled={partnerBusy}>Cancel</button>
+					{#if partnerFor.partner}
+						<button onclick={() => savePartner(true)} disabled={partnerBusy}>Remove</button>
+					{/if}
+					<button
+						class="primary"
+						onclick={() => savePartner()}
+						disabled={partnerBusy || !partnerGameId.trim()}
+					>
+						{partnerBusy ? 'Saving…' : 'Save'}
+					</button>
+				</div>
+			</div>
+		</div>
 	{/if}
 
 	{#if dupSource}
@@ -2467,6 +2628,16 @@
 	}
 	.play.live {
 		color: #d6a44a;
+	}
+	.play.partner {
+		color: #9db8ff;
+	}
+	button.play.partner {
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: not-allowed;
+		opacity: 0.5;
 	}
 	.versions {
 		font-size: 11px;

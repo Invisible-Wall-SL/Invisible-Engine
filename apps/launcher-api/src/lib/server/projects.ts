@@ -13,6 +13,7 @@ import {
 } from './db/schema';
 import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
+import { normalizePartnerLaunch, type PartnerLaunch } from '$lib/partnerLaunch';
 import { DEFAULT_GAME_KIND, familyOfKind, type GameFamily } from 'constants-shared/gameKinds';
 import { getDeployToken } from './appSettings';
 import { r2SlugSql, withProjectKeyLock, type Queryer } from './projectKeyLock';
@@ -254,6 +255,7 @@ export type AccessibleProjectWithClient = {
 	 *  caller never has to re-apply the legacy-null fallback. */
 	gameType: string;
 	launcherProfile: unknown;
+	partnerLaunch: PartnerLaunch | null;
 };
 
 /**
@@ -276,6 +278,7 @@ export async function accessibleProjectsWithClient(
 		clientName: p.clientKey === null ? null : (clientNames.get(p.clientKey) ?? null),
 		gameType: p.gameType ? p.gameType : DEFAULT_GAME_KIND,
 		launcherProfile: p.launcherProfile,
+		partnerLaunch: normalizePartnerLaunch(p.partnerLaunch),
 	}));
 }
 
@@ -291,6 +294,20 @@ export async function getLauncherProfile(key: string): Promise<unknown | null> {
 /** Store (or replace) a project's opaque launcher profile. */
 export async function setLauncherProfile(key: string, profile: unknown): Promise<void> {
 	await getDb().update(projects).set({ launcherProfile: profile }).where(eq(projects.key, key));
+}
+
+/** A project's partner launch (`$lib/partnerLaunch.ts`), or null when none is set. */
+export async function getPartnerLaunch(key: string): Promise<PartnerLaunch | null> {
+	const [row] = await getDb()
+		.select({ partnerLaunch: projects.partnerLaunch })
+		.from(projects)
+		.where(eq(projects.key, key));
+	return normalizePartnerLaunch(row?.partnerLaunch);
+}
+
+/** Store a project's partner launch; null clears it. */
+export async function setPartnerLaunch(key: string, value: PartnerLaunch | null): Promise<void> {
+	await getDb().update(projects).set({ partnerLaunch: value }).where(eq(projects.key, key));
 }
 
 /**
