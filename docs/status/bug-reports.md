@@ -132,7 +132,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
   - **The result.** The launcher records spend first (`director_spend`, agent `bug-fix`, run
     `fix:<id>`, idempotent per model), then claims the result and checks the change
     (`bugFixRunsChange.ts`):
-    - protected paths by ancestry against the base tree, and modes;
+    - protected paths by ancestry against the base tree, and modes. The launcher's own share is
+      what judges, writes or merges the change: its fix-run code, Pipeline Changes' server and
+      API, and the modules they import for a rule;
     - dependencies, lifecycle scripts and ratchets;
     - size and text only;
     - secrets on the added lines;
@@ -188,11 +190,28 @@ server module, routes, page components, triage, screenshots, the pull-request li
      so the owner merges it). Not yet proved by a live run: each costs about $2, so that is the
      owner's call. `check:bug-fix-workflow` fails when the prompt or the Edit deny list drifts from
      `bugFixRunsChange.ts`'s own lists, or when the launcher gains a refusal sentence.
-   - **Launcher code a run may still change** (a launcher change, not a prompt one): the
-     `bugfixruns[^/]*\.ts` rule does not cover `src/lib/server/bugFixWorkflow.ts`, nor
-     `pipelineMerge.ts` (`CI_SKIP`) and `$lib/bugReports.ts`, which `bugFixRunsChange.ts` imports.
-     A change there only takes effect once a person merges it, so it costs review attention rather
-     than opening a bypass.
+   - **Launcher code a run may still change, on purpose** (2026-11-10, see Recent changes): the
+     shared modules the fix-run path only uses — `env.ts`, `db/`, `$lib/roles.ts`,
+     `appSettings.ts` (the fix-run budget defaults), `costs/` (the spend), `http.ts`, `zip.ts`,
+     the bug store and `server/bugReports.ts` — and the `(app)/pipeline/` pages. Protecting them
+     would refuse most launcher fixes; a change there takes effect only once a person merges it.
+     Widening the set is the owner's call. Four fix-run rules a one-line edit there would weaken
+     (the 2026-11-10 review):
+     - `canRunFixes` in `server/bugReports.ts` needs both capabilities;
+     - `fixGlobals` in the same file holds the monthly cap and the live-run limit;
+     - `appSettings.ts` holds the budget defaults and ceilings;
+     - `roles.ts` says who has `pipelineMerge` and `pipelineBugFix`.
+
+     A cheap middle path: move `canRunFixes`, `fixStartFacts`, `fixGlobals` and the fix-run
+     settings getters into a `server/bugFix*.ts` module. The widened rule then covers them, and the
+     bug store stays open.
+
+     The review left two smaller gaps:
+     - Routes are protected by folder, not URL. A route group (`api/(g)/pipeline/…`) or a renamed
+       parameter (`bugs/[n]/fix-runs/`) serves the same URL. The merge capability check also sits
+       in the routes, not in `mergeChange` or `revertMerge`.
+     - A Windows 8.3 short name (`PIPELI~1.TS`) passes the path rules. It matters only on an NTFS
+       checkout; Railway is Linux.
    - **A fix inside a vendored bundle still cannot pass CI on its own**: `check-vendored-bundles`
      fails until a person rebuilds the bundle (#1536). The run is now told not to commit one, and
      to ask in its summary for `pnpm --filter launcher-api build:<name>`. `rigger-fx.js` (650 KB)
@@ -208,6 +227,68 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-10 — **A fix run can no longer change the code that judges, writes or merges it**
+  (open item 4's protected-path gap; `bugFixRunsChange.ts`, launcher-studio). The launcher's rule
+  covered only `src/lib/server/bugFixRuns*.ts`.
+  - **How the set was chosen:** the imports of what validates the change (`bugFixRunsChange.ts`),
+    what commits it (`bugFixRuns.ts`) and what merges it (`pipelineMerge.ts` and its route), walked
+    to the end. The walk stops at shared infrastructure (open item 4 lists what stays open).
+  - **Now refused**, 32 more tracked files (338 in all):
+    - `src/lib/server/bugFix*.ts`, widened from `bugFixRuns*.ts`: adds `bugFixWorkflow.ts`;
+    - `src/lib/server/pipeline*.ts`, Pipeline Changes' server: the merge gate (`deriveStatus`,
+      `harnessFilesOf`), `CI_SKIP`, merge and revert, the current-games game list, and the agent
+      definitions it writes as the App;
+    - all of `src/routes/api/pipeline/`, not only `fix-runs/`;
+    - `$lib/bugReports.ts`: the bug-reference rule on the title, and `bugBrief`'s framing;
+    - `concurrency.ts`: it reads the base copies the `package.json`, ratchet and added-line rules
+      compare against. 18 launcher modules use it, so a bug inside it is now a person's fix;
+    - `githubApp.ts`: the App's credentials, used for every commit, PR, merge and revert;
+    - from the code review:
+      - `vite.config.js` and `svelte.config.js`: an alias can repoint any protected import;
+      - `db/migrate.ts`: it picks the migrations folder and runs it at boot, which is why
+        `drizzle/` is protected. The rest of `db/` stays open;
+      - `check-pipeline-changes.ts` and `check-pipeline-games.ts`: Pipeline Changes' own
+        fixtures, as the fix-run and bug fixtures already were;
+    - **a source file beside a protected `.ts`**, or a file of the same name with no extension:
+      - The extensions refused are `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`, `.jsx` and `.tsx`, in
+        any case.
+      - For an extensionless import, Vite 6.2 loads the exact name, then `.mjs`, then `.js`,
+        before the `.ts`. Measured with the pinned Vite: the other siblings lose, and are refused
+        alike.
+      - So a new `concurrency.js`, or an extensionless `githubApp`, would have shipped in place of
+        the protected file while the fixtures kept testing the `.ts`. This held for every `.ts`
+        entry, `untrusted.ts` included.
+      - `protectedEntry` now tests the path, then its `.ts` spelling.
+  - **Kept in step:** `coordinator.md` names each, and `settings.json` denies each to the Edit
+    tools. `check:bug-fix-workflow` pins the two new path patterns.
+    - `coordinator-protected` is stricter: for each launcher path rule, the prompt needs a glob
+      that covers every tracked file the rule refuses. Before, `bugFixRuns*.ts` still passed
+      against the widened `bugFix*` rule.
+    - The fixture's `refused()` makes the same `.ts` rewrite. The prompt must carry the sibling
+      sentence and every extension, and `SIBLING_SOURCE` is pinned.
+    - The settings deny only tracked files. A new sibling is refused by the launcher, and the run
+      is warned by the prompt but not stopped at the edit: a glob such as `concurrency.*` would also
+      deny legitimate new files.
+    - 34 more mutants, 215 in all: a new prompt name or deny line dropped, a glob narrowed,
+      wrong-cased or over-wide, a pattern split over lines, the sibling sentence reworded, an
+      extension or the no-extension words dropped.
+    - A rule's label sits in a const (`PIPELINE_MODULES`), because the fixture reads one rule per
+      line.
+  - **`check:bug-fix-runs`** refuses a change to each newly protected file and to eight siblings:
+    `concurrency.MJS`, and extensionless `githubApp` and `untrusted` among them. It still accepts
+    the near misses:
+    - `server/bugReports.ts`;
+    - `env.ts`, `env.js` and an extensionless `env`;
+    - `db/schema.ts`;
+    - the `(app)/pipeline/` pages;
+    - a `server/pipelines/` folder.
+
+    That is 122 checks. Each new rule was proved by a hand-planted mutant: with the rule taken
+    out, its cases fail. An unanchored `pipeline` rule fails the folder control. A rewrite that
+    tests only the `.ts` spelling stops refusing `check-secrets.mjs` and `.pnpmfile.cjs`. The fixture's simulated Actions run ids now start at 20,000: the 31 extra
+    runs had reached 9701, an id a backstop test binds by hand.
+  - Not added: `services/director-worker/src/eval/`. It judges only agent-definition changes, and
+    a run cannot make one (`agents/` is protected).
 - 2026-11-10 — **The rest of the browser pass, as admin and as a non-admin** (live launcher), each
   surface checked against `docs/tools/pipeline-bugs.md`, `game-bugs.md` and `pipeline-changes.md`.
   The admin part ran in the owner's Chrome. The test reports BUG-12 (pipeline), BUG-13 (game, in

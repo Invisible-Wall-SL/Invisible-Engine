@@ -575,6 +575,39 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     test), the minified release build (both sides here are unminified), and the games the local
     parity runs did not cover (CI's current-games run covers every live game).
 
+- 2026-11-11 — **A standalone build leaves out the stock sample art its project never draws**
+  (branch `claude/stock-asset-build-prune`). A game repo carries the upstream sample game's files in
+  `static/assets/{spines,sprites,fonts}` (seeded by `new-game.mjs`) and SvelteKit copied all of them
+  into every build — `overlay-buffaloduel` v9: 104 files, 11.4 MB of "Coded game art" — although the
+  boot already takes the keys it can never draw off the asset table (2026-10-16, below). A standalone
+  build bakes the data that decision reads, so it is now also taken at build time:
+  `game/stockAssetBuild.ts` runs the same `analyseStockAssets` walk on `baked-editor-bundle.json`,
+  and `config-vite` `stockAssetPrune.js` deletes the skipped keys' files (each rig's atlas + skeleton,
+  a sheet's or font's descriptor, the pages they name with their WebP/KTX2 twins, a folder's leftover
+  `index.ts`) from SvelteKit's client output after the server pass and before the adapter copies it
+  to `build/`. `static/` is never touched, so the repo stays clean and every build decides afresh.
+  A file a kept key also loads stays (the `symbols` atlas while one of `H1`–`L4` is kept). What a
+  boot takes from live state gets the value that keeps the most: the registry is seeded as
+  `Game.svelte` seeds it (its built-in map moved to `game/builtinDefs.ts` so both read one list, then
+  the bundle's pinned versions, defs and defaults); every part with a stock rule counts as
+  registered; the symbols in play are the config's AND every symbol the coded or authored map draws,
+  because a Play4Fun RGS declares the symbol set at boot. Doubt keeps everything: no bundle or doc,
+  any throw, a plan that cannot load, a kept key's file that cannot be read. Only a build run from
+  outside the engine (a game repo) is pruned — the engine's own apps and the shared runtime online
+  games boot are byte-identical; `IE_STOCK_PRUNE=0` turns it off. The build writes `stock.json` to
+  `IE_BUILD_REPORT_DIR`, which `build-breakdown` shows under "What the build left out" as "Stock
+  sample art the game never draws". `game/stockAssetData.ts` is the boot's `bootStockAssetData`
+  body, shared. Measured on `overlay-buffaloduel` (its baked bundle of 2026-11-11, a real game-repo
+  build with this engine as the submodule, Play4Fun transport): 29 of 40 keys left out, 67 files
+  (13 of them folder indexes), 8.78 MB — "Coded game art" went from 104 files / 11.4 MB to 44 / 4.09 MB; the build
+  then booted with the boot skipping 32 keys (the 29 plus `H5`, `M`, `W`, which the build keeps for a
+  server-declared symbol set) and no asset 404. Gates: `scripts/check-stock-asset-prune.mts` (doubt,
+  the build keeps what a boot keeps for every symbol set a server may declare, registry seeding and
+  pins, the prune with shared atlases and twins, the standalone gate; 8 planted mutants each caught)
+  and `check-build-breakdown-desktop.mjs` (the new step). **Not covered:** a desktop build opened
+  with `?runtime=1` boots a live doc the build never saw, so a stock key that doc reaches could be
+  missing there; player builds never take that path.
+
 - 2026-11-10 — **`?perf=1` records every frame-rate spike with what its frames did and a likely
   cause; `?particles=off` turns every particle off** (branch `claude/nice-albattani-a03tcm`, from
   `main` at 33dde20).

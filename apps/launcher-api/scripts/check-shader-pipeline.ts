@@ -780,7 +780,9 @@ check(
 );
 check(
 	'…and the stock-asset walk leaves it alone',
-	/STOCK_DATA_READ_ELSEWHERE = new Set\(\[[^\]]*'shaderEffects'/.test(scenes),
+	/STOCK_DATA_READ_ELSEWHERE = new Set\(\[[^\]]*'shaderEffects'/.test(
+		readLF(`${repo}apps/lines/src/game/stockAssetData.ts`),
+	),
 	true,
 );
 const game = readLF(`${repo}apps/lines/src/components/Game.svelte`);
