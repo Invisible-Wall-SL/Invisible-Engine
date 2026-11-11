@@ -75,6 +75,9 @@
 		 * re-resolves the art. Omitted everywhere else.
 		 */
 		labelOverride?: Pick<RawSymbol, 'value' | 'factor' | 'jackpot'>;
+		/** What the coin label PRINTS instead of its value, drawn in the same look — an enhancement
+		 *  hit's "×3" / "+$5.00" readout on a held coin. Omitted everywhere else. */
+		labelText?: string;
 		/** A pop for the coin label (`RespinHeldSymbol`, from the authored `coinLabel.animation`). */
 		labelPop?: CoinLabelPopCue;
 		/** This symbol is a flight's head (`FlightLayer`): it draws no coin label — the flight draws
@@ -125,7 +128,7 @@
 	const labelSymbol = $derived(
 		props.labelOverride ? { ...props.rawSymbol, ...props.labelOverride } : props.rawSymbol,
 	);
-	const coinLabel = $derived(coinLabelFor(labelSymbol));
+	const coinLabel = $derived(props.labelText ?? coinLabelFor(labelSymbol));
 	// The tier alone decides the look, so a value counting every frame never re-resolves it.
 	const labelLook = $derived(coinLabelLookFor({ ...props.rawSymbol, jackpot: labelJackpot }));
 	/**

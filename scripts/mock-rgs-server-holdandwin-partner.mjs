@@ -25,8 +25,8 @@
  *
  * Forced beats (authoring and tests): `play.context = "force:<token>[,<token>…]"`, or held for a
  * session's next round by `POST …/force?sid=<sid>&beat=<tokens>`. Tokens: `enhancements:<bits>`,
- * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `baseCollect`
- * ({@link parsePartnerForce}).
+ * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `baseCollect` (alone, or
+ * `baseCollect,twoCollectors`: two collectors each take the coin) ({@link parsePartnerForce}).
  *
  * Selected per game on the test server by `PARTNER_WIRE_GAMES=<key>[,<key>…]`
  * (services/test-server/makeMock.mjs). CLI:
@@ -258,6 +258,9 @@ const FORCE_FLAGS = [
 	'baseCollect',
 ];
 
+/** The tokens `baseCollect` combines with: `twoCollectors` makes both collectors take the coin. */
+const BASE_COLLECT_FLAGS = ['baseCollect', 'twoCollectors'];
+
 /**
  * `enhancements:<bits>,boostHit,…` → `{ force }` or `{ errors }`. Every token but `baseCollect`
  * starts the bonus; `baseCollect` pays a collect with no trigger.
@@ -291,8 +294,8 @@ export function parsePartnerForce(spec) {
 		if (force.boostHit && !on.boost) errors.push('boostHit needs the boost bit');
 		if (force.multiplyHit && !on.multiply) errors.push('multiplyHit needs the multiply bit');
 	}
-	if (force.baseCollect && Object.keys(force).some((k) => k !== 'baseCollect'))
-		errors.push('baseCollect pays a collect with no bonus; it takes no other token');
+	if (force.baseCollect && Object.keys(force).some((k) => !BASE_COLLECT_FLAGS.includes(k)))
+		errors.push('baseCollect pays a collect with no bonus; it takes only twoCollectors');
 	force.bonus = !force.baseCollect;
 	return errors.length ? { errors } : { force };
 }

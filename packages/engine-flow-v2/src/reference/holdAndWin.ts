@@ -324,6 +324,13 @@ const BASE_EVENTS: TemplateVocabulary['events'] = [
 			{ name: 'times', type: INT, description: 'How many times the coins are collected.' },
 			{ name: 'cells', type: list(CELL_AMOUNT), description: 'The coins collected.' },
 			{ name: 'amount', type: FLOAT, description: 'What the collect paid.' },
+			{
+				name: 'collectors',
+				type: list(CELL_AMOUNT),
+				optional: true,
+				description:
+					'When each collector takes every coin: each collector, its total after the collect and what it gathered.',
+			},
 		],
 		category: 'book',
 		description:

@@ -363,13 +363,19 @@ const ENHANCEMENT_CUES = [
 	'superBonusEnter',
 ];
 const ENHANCEMENT_VALUE = 'enhancements';
+/** `coinInstantCollect`'s optional `collectors` (every collector takes every coin), added after 14b. */
+const INSTANT_COLLECTORS = 'collectors';
 /** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue,
- *  the wild rewrites and the Phase 14a / 14b enhancements. */
+ *  the wild rewrites, the Phase 14a / 14b enhancements and the instant collect's `collectors`. */
 const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
-	events: vocab.events.filter(
-		(e) => !WILD_REWRITES.includes(e.name) && !ENHANCEMENT_EVENTS.includes(e.name),
-	),
+	events: vocab.events
+		.filter((e) => !WILD_REWRITES.includes(e.name) && !ENHANCEMENT_EVENTS.includes(e.name))
+		.map((e) =>
+			e.name === 'coinInstantCollect'
+				? { ...e, payload: e.payload.filter((p) => p.name !== INSTANT_COLLECTORS) }
+				: e,
+		),
 	actions: vocab.actions.filter(
 		(a) =>
 			!ADDED_ACTIONS.includes(a.name) &&

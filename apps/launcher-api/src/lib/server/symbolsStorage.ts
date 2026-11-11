@@ -743,6 +743,8 @@ const coinLabelSchema = z
 				landPop: coinLabelPopSchema.optional(),
 				countMs: z.number().finite().optional(),
 				boostPop: coinLabelPopSchema.optional(),
+				hitPop: coinLabelPopSchema.optional(),
+				hitMs: z.number().finite().optional(),
 			})
 			.strict()
 			.optional(),

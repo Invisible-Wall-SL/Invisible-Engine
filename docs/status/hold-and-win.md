@@ -574,7 +574,9 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **Instant collect flies to the SPECIAL, not to the bar.** The bar belongs to the round's own
     `setWin` / `setTotalWin`, which follow and count the instant amount with the line wins; flying
     into the bar would count it twice. Each coin goes to its nearest special; the banner shows the
-    multiplier and `times` when above 1.
+    multiplier and `times` when above 1. Where EACH collector takes every coin's full value (the
+    event's `collectors`, sent only by the partner's collector game), each coin flies into every
+    collector and each collector's label counts up to the total the server gave it.
   - **The wheel follows the free-spin intro's slam rule but is not unskippable:** re-armed before it
     (`startsCelebration`), a press while it turns lands it at once on the very rotation the spin was
     easing onto, and the landed segment and the prize banner each hold at least 700 ms on a bare
@@ -1158,6 +1160,30 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     ante on) while the partner pays jackpots on the base bet — pre-existing (14c), not changed
     here. A partner-wire boot on the Invisible Test Server needs the project's key in
     `PARTNER_WIRE_GAMES` (an env change, owner's).
+- 2026-11-10 — **Getting Hot: every collector visibly takes every coin, and a hit shows on the
+  coin.** Both changes reach only the partner's collector game: nothing else sends the new field or
+  the new event.
+  - **Base collect into every collector.** `coinInstantCollect` gains optional `collectors`
+    (engine-game): each collector in view, its total after the collect and what it gathered. Only
+    the partner facade sends it (`collectorRespin.ts`, totals read off `collectWindow`'s
+    `COLLECT_<cents>`). With it, `presentInstantCollect` flies each coin into EVERY collector at
+    once, one head per collector, and each collector's base-board label climbs by the coin's full
+    value to the server's total (`baseCellLabels.svelte.ts`, read by `ReelSymbol`; it holds until
+    the next spin deals new symbols). Without it, coins still fly to their nearest special.
+  - **Respin collect:** already one `coinCollect` per collector; played, each coin flies into the
+    first collector, then into the second, and each label ends on its own total.
+  - **The hit on the coin.** After an enhancement's beam lands, the coin's label prints what hit it
+    ("×3" / "+$5.00", the Win Text `multiplyHit` / `boostHit`) in the label's own look, then counts
+    to the new value. New `HeldDisplay` field `text`, `Symbol`'s `labelText` prop.
+  - **Authorable** in the Symbols tool's coin label → Animation: **Pop as an enhancement hit shows**
+    (`coinLabel.animation.hitPop`, ON unless switched off) and **Hit readout hold**
+    (`hitMs`, coded 500 ms, 0 = none). Schema, prune, bake and `check:coin-label` updated.
+  - **Mock:** `force:baseCollect,twoCollectors` deals a base collect into two collectors
+    (`check:holdandwin-partner` covers it); the facade fixture pins `collectors`.
+  - **Played** frame-stepped against the partner mock (playbook `getting-hot.md`, "Played
+    2026-11-10"): base two collectors $4.00 each, banner "×2 $8.00"; bonus with two collectors
+    $58.00 each = the paid $116.00; Multiply "×2" then $2.00 → $4.00; Boost "+$4.00" then
+    $1.00 → $5.00. Money adds up on every round.
 - 2026-11-10 — **Jackpot coins can have their own art per tier** (asked for Getting Hot, works on
   every Hold and Win game). Off by default; a project that leaves it off ships and draws exactly as
   before.
@@ -1305,8 +1331,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Open:**
     - Pacing: each collector's collect is its own beat, so Force 5 with five collectors takes
       about 5.5 s a respin.
-    - A base collect with two collectors flies each coin to the nearest one (with "×2" on the
-      banner), not to both.
+    - ~~A base collect with two collectors flies each coin to the nearest one~~ — fixed
+      2026-11-10: each coin flies into every collector (Recent changes).
     - ~~Game Maker does not yet offer the Enhancements screen (no config marker).~~ Done
       2026-11-10: Game Maker's **Lines game: collector + enhancements** (Recent changes).
     - No art: 14e.
@@ -2681,8 +2707,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `clearReel` and go. Cues `respinColumnComplete`, `respinColumnStep`.
   - **Instant collect** (`instantCollect`, `coinInstantCollect`, base game): specials and coins
     light on the base board (padded row = visible + 1), each coin flies into its nearest special
-    (`toCollector`), then "INSTANT WIN ×3 $12.00"; the round's own win presentation follows. Cue
-    `instantCollectWin`.
+    (`toCollector`) — or, with `collectors` on the event, into every collector, whose base-board
+    labels count up (`baseCellLabels.svelte.ts`) — then "INSTANT WIN ×3 $12.00"; the round's own
+    win presentation follows. Cue `instantCollectWin`.
   - **Streak collect by flight:** `presentCollectStep` flies each coin into its collector
     (`flyTo(cell, collector, 'toCollector')`); the collector's label rises on each arrival.
   - **Jackpot factor step:** a jackpot coin a boost multiplies steps `MINI` → `MINI ×2` on its turn

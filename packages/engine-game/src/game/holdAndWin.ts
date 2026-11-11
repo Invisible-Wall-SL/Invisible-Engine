@@ -152,6 +152,12 @@ export type HoldAndWinEventFields = {
 		times: number;
 		cells: HoldAndWinCellAmount[];
 		amount: number;
+		/**
+		 * Present when EACH collector takes every coin's full value (the partner's collector respin
+		 * game, Getting Hot): every collector in view, its `symbol.value` its total after this collect
+		 * and `amount` what it gathered in it. Absent ⇒ the coins go to their nearest special.
+		 */
+		collectors?: HoldAndWinCellAmount[];
 	};
 	randomMetreTrigger: { name: string; cells: HoldAndWinCell[] };
 	/** `mode` — the respin mode it enters: `holdAndWin`, or another declared respin mode

@@ -9,7 +9,7 @@
  * - cells: `COIN_<n>` (n × the base total bet) → `COIN:<n>`; `COIN_<TIER>` → `COIN:<TIER>`;
  *   `COLLECT_<cents>` → `COLLECT:<cents ÷ base>`; `BLANK` and the line symbols pass through.
  * - a base-game collect (no trigger) → `coinInstantCollect`, one `times` per collector, since each
- *   collector takes every coin's full value.
+ *   collector takes every coin's full value, and `collectors`: what each gathered and its total.
  * - a trigger → `holdAndWinTrigger {cause: 'run'}` holding only the collectors, then the trigger
  *   spin's collect as an entry `coinCollect` (the collectors carry it into the bonus), then
  *   `enterBonus` with its snapshot. `boostsAwarded` → `enhancements`; Expand opens its rows at entry.
@@ -258,6 +258,12 @@ export const normalizeCollectorRespin = (
 				: [],
 		);
 
+	/** A collector's running total off a board, `COLLECT_<cents>`; undefined for a bare `COLLECT`. */
+	const totalCents = (text: string | undefined) => {
+		const total = text?.startsWith(`${COLLECT}_`) ? Number(text.slice(COLLECT.length + 1)) : NaN;
+		return Number.isFinite(total) ? total : undefined;
+	};
+
 	/** Each collector's `collect`, with its value read off the board after the collect. */
 	const collectsOf = (seg: Segment, before: WireCell[], after: string[][] | undefined) => {
 		const board = seg.dealt ?? seg.final ?? [];
@@ -271,11 +277,7 @@ export const normalizeCollectorRespin = (
 					row: c.row,
 					symbol: COLLECT,
 				};
-				const now = at(after, c);
-				const afterCents =
-					now?.startsWith(`${COLLECT}_`) && Number.isFinite(Number(now.slice(COLLECT.length + 1)))
-						? Number(now.slice(COLLECT.length + 1))
-						: cents(was.value ?? 0) + gathered;
+				const afterCents = totalCents(at(after, c)) ?? cents(was.value ?? 0) + gathered;
 				return [
 					{
 						event: 'coinCollect',
@@ -311,6 +313,13 @@ export const normalizeCollectorRespin = (
 						times: Math.max(1, seg.collects.length),
 						cells: coins,
 						amount: seg.bonusWin ?? sum,
+						collectors: seg.collects.map((c) => ({
+							reel: c.reel,
+							row: c.row,
+							symbol: COLLECT,
+							value: round6((totalCents(at(after, c)) ?? c.pay) / base),
+							amount: c.pay,
+						})),
 					},
 				});
 				out.push(...jackpotWins(coins, 'instantCollect'));
