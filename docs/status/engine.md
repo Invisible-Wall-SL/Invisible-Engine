@@ -104,10 +104,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `apps/lines/src/game/reelViewPool.ts`). A board cell keeps one `ReelSymbol` view for as long
     as it is in its reel's strip (through the roll, the landing, every win and a cascade), and the
     views a board leaves draw the next board; a roll's filler goes through `rows + 2` views a reel
-    (`ReelPaddingPool`), built once and kept, vacant at rest. A view keeps its `SymbolWrap`
-    container, its `Symbol`, the band containers and a bound sprite, hidden while it draws nothing.
-    Each time a view starts drawing a cell (a board cell entering the window, a filler cell handed
-    over) is an entry: a sprite is handed the new texture and reports as a new sprite would, and
+    (`ReelPaddingPool`), built once and kept, vacant at rest. A Hold and Win respin cell's shown
+    strip symbols go through views too (`RespinCell`, at most two a cell), each entry its paint
+    order. A view keeps its container, its `Symbol` with the Element FX container (there whether
+    or not the symbol has Element FX) and the band containers, and one sprite of its own from the
+    first sprite it draws, hidden while it draws other art or nothing. Each time a view starts
+    drawing a cell (a board cell entering the window, a filler cell handed over, a respin symbol
+    shown) is an entry: the sprite is handed the new texture and reports as a new sprite would, and
     everything else (rigs and their rigged effects, flipbooks, placeholders, layers, Element FX and
     their beat gate, labels, the rider's art) starts again on the frame and in the order a new
     mount did. Perspective boards keep a component per cell.
@@ -252,28 +255,29 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Mobile frame budget after the warm-up — next steps.** Moving cells no longer go through Svelte
   every frame (2026-11-09), and since 2026-11-11 a spin mounts no symbol component per scrolled
   cell on a flat board: cells are drawn through kept views, a sprite is rebound, and a crossing
-  re-checks only the cells that cross (Recent changes). What a rolling frame still pays before the
+  re-checks only the cells that cross (Recent changes). Since the second 2026-11-11 change a Hold
+  and Win respin cell draws through views too, and a view keeps its `Symbol`'s containers and one
+  sprite whatever it draws (ranked churners 2 and 3). What a rolling frame still pays before the
   Pixi tick: art that must start again per cell to keep its timing and its `Math.random` draws (a
-  rig with its `RigView`, its track and its rigged effects; a flipbook; Element FX), and a sprite
-  mounted again after another kind in the same view. A `RigView` pool is not done: measured in
-  place, a rig start is ~1.8 ms of WebKitGTK and the `RigView` ~0.7 of it (Recent changes,
-  2026-11-11, "rig started again").
+  rig with its `RigView`, its track and its rigged effects; a flipbook; Element FX; a coin label).
+  A `RigView` pool is not done: measured in place, a rig start is ~1.8 ms of WebKitGTK and the
+  `RigView` ~0.7 of it (Recent changes, 2026-11-11, "rig started again").
   **Step 4 works from the ranked churn list** (Recent changes, 2026-11-11, "Churn sweep"): in
   WebKit the Hold and Win bonus (28–44 s of main thread over idle per bonus on the overlay
   games), a free-spins feature (36 s on `bookofborutremake`), big and line wins (2–10 s) and every
   spin (22–33% of spinning frames over 33 ms). By where Svelte's time goes (the per-component
   profile, same entry): the `Container` component's runs and teardowns (~40% of a spin's and a
   book feature's), `Symbol`'s teardown (~12 ms each on `overlay-buffaloduel`), `BoardBase`'s
-  effects in a book feature (~34%, ~4 ms a run in WebKit), then the rig path (~8%). Hold and Win
-  cells mounting a `Symbol` per scrolled strip cell, `Symbol`'s bands remounting inside kept
-  views, and the win presentation remounting per line cycle (also while idle after a win) are
-  the churn behind the first two. Svelte's anchors in the live DOM are not a cost:
-  detached, nothing moved (measured). A spin still flushes every frame because each reel's
-  `Tween.current` changes and `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep
-  ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
-  than building and destroying its `RigView`s), idle particle layers updating every frame,
-  `propsSyncEffect`'s key list per run. Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone
-  with #1601 and the churn counters released. The ~118 MB of resident textures on
+  effects in a book feature (~34%, ~4 ms a run in WebKit), then the rig path (~8%). Of the churn
+  behind the first two, what is left after ranked churners 2 and 3: the bonus board mounting and
+  unmounting whole, and the win presentation remounting per line cycle (also while idle after a
+  win). Svelte's anchors in the live DOM are not a cost: detached, nothing moved (measured). A
+  spin still flushes every frame because each reel's `Tween.current` changes and
+  `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep ticking when hidden;
+  `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more than building and
+  destroying its `RigView`s), idle particle layers updating every frame, `propsSyncEffect`'s key
+  list per run. Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601 and the
+  churn counters released. The ~118 MB of resident textures on
   `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
 
@@ -484,6 +488,88 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-11 — **A Hold and Win respin cell draws its symbols through kept views, and a view keeps
+  its `Symbol`'s containers and one sprite whatever it draws** (branch `churn-symbol-bands`, on
+  `claude/nice-albattani-a03tcm` at `a80a6f58`; step 4 of the iPhone plan, ranked churners 2 and 3
+  of the churn sweep below).
+  - **What changed** (`apps/lines/src/game/reelViewPool.ts`, Current state):
+    - **`Symbol`'s Element FX container is unconditional.** With no Element FX authored it is a
+      plain container (no filter, no transform), so it draws the same pixels. It used to exist only
+      `{#if symbolFx}`, so a view drawing an FX symbol after a plain one (and back) destroyed and
+      rebuilt every band. It is now keyed by `createFxKey`: a symbol whose own cell turns between
+      the two within one entry (a wild rewrite, a special expanding, `frozen` turning) still starts
+      every band again, exactly as the `{#if}` did; a view's entry does not, because each band that
+      draws already starts again on the entry.
+    - **A view keeps one sprite of its own** (`artDraw`): mounted the first time the view draws a
+      bound sprite, hidden (`visible` on `SymbolSprite`) while the view draws a rig, a flipbook, a
+      placeholder or nothing, and handed each sprite cell after. Hidden, Pixi neither draws nor
+      measures it. A view moving between rigs and sprites used to mount a sprite per entry. The
+      `keepSprite` prop is gone (the sprite hides itself, so the rider's view keeps one too).
+    - **`RespinCell` draws its shown strip symbols through views** (`createShownViews`, built on
+      `createBoardViews` with every symbol taking a view, and `createEntries` with one counter per
+      cell). A symbol keeps one view while it is shown and the views it leaves draw the next; a
+      cell builds as many as its one-row window ever shows at once (two). Each entry starts the
+      symbol's art as a new mount did, and is the view's `zIndex`, so where two symbols overlap
+      in the window the newer one paints over the older, as an appended mount did. A vacant view
+      is hidden and not placed. The held layer (`RespinHeldSymbol`) is unchanged.
+  - **Before / after** (`a80a6f58` → this branch, both unminified, the churn sweep's method below:
+    snapshot + test server with its forcing, `?perf=1`, real clock; warm moments, per moment;
+    containers and sprites are built + destroyed; late / JS−render / after are ms a spinning or
+    round frame in WebKitGTK; excess is that JS and after-tick time over the idle frame's, summed):
+
+    | moment (game)                       | built / destroyed               | containers    | sprites   | rigs      | DOM nodes         | WebKit late / JS−r / after               | excess s    | Chromium JS−r / after     |
+    | ----------------------------------- | ------------------------------- | ------------- | --------- | --------- | ----------------- | ---------------------------------------- | ----------- | ------------------------- |
+    | no-win spin (buffaloduel)           | 579 / 483 → 494 / 399           | 498 → 415     | 43 → 26   | 20 → 21   | 4,792 → 4,072     | 36.5 / 72.1 / 120.9 → 26.6 / 58.4 / 88.2 | 5.7 → 4.4   | 12.4 / 13.1 → 9.9 / 10.2  |
+    | no-win spin (bookofborut)           | 1,415 / 1,334 → 1,325 / 1,248   | 112 → 111     | 137 → 10  | 76 → 74   | 6,040 → 5,186     | 7.3 / 8.4 / 7.8 → 12.3 / 13.2 / 10.3     | 1.5 → 1.9   | 5.2 / 4.5 → 4.9 / 3.9     |
+    | line win (buffaloduel)              | 902 / 788 → 881 / 702           | 828 → 774     | 308 → 216 | 60 → 58   | 11,488 → 9,085    | 7.6 / 18.9 / 43.5 → 3.7 / 16.0 / 37.6    | 11.2 → 7.6  | 10.3 / 11.5 → 8.6 / 9.5   |
+    | free spins (bookofborut, a feature) | 9,850 / 9,813 → 10,293 / 10,252 | 310 → 331     | 649 → 10  | 707 → 755 | 103,820 → 103,142 | 3.1 / 5.1 / 17.7 → 3.0 / 5.1 / 17.9      | 43.6 → 44.0 | 3.7 / 5.7 → 3.0 / 4.5     |
+    | Hold and Win, pots (buffaloduel)    | 7,674 / 7,303 → 5,559 / 5,278   | 7,157 → 3,062 | 589 → 507 | 376 → 335 | 70,392 → 41,597   | 28.8 / 41.9 / 54.8 → 9.2 / 17.7 / 33.0   | 82.6 → 41.7 | 10.5 / 11.0 → 10.0 / 10.5 |
+    | Hold and Win, pots (commonoverlay)  | 7,207 / 7,017 → 6,327 / 6,154   | 3,668 → 2,372 | 72 → 54   | 143 → 155 | 38,478 → 30,715   | 6.0 / 12.8 / 16.9 → 3.4 / 9.8 / 12.6     | 28.9 → 22.0 | 10.8 / 9.3 → 10.6 / 9.2   |
+
+    Each moment ran base then branch back to back (WebKitGTK 400×230 over its own
+    `WebKitWebDriver`, headless Chromium 734×321), on a machine shared with another agent's runs
+    and a stray WebKit page at ~85% CPU (load average 7–20): the per-frame times are noisy and the
+    idle frame itself cost ~2× the churn sweep's, so the counts are the measure. The sprites fall
+    95–99% where rigs and sprites alternate (book free spins 649 → 10, Chromium 1,485 → 43), the
+    containers about halve in a Hold and Win bonus (Chromium 7,418 → 3,645 and 6,689 → 3,904) and
+    the DOM nodes fall 14–41%. Rigs are unchanged by this work (fix 1 of the ranked list); a
+    free-spins feature's totals follow how many rigs its spins drew on the real clock (707 → 755
+    here), which hides its saving in everything but the sprites.
+
+  - **Parity:** current-games harness, local, determinism mode, `a80a6f58` vs this branch,
+    unminified, every scenario, every capture byte-identical and on the same frame:
+    `overlay-buffaloduel` 17/17, `commonoverlayproject` 17/17, `bookofborutremake` 17/17,
+    `holdandwintestsolo` 11/11 (Hold and Win, jackpot), stand-ins `cg-lines` 17/17 and `cg-cluster`
+    14/14 (93 of 93). The harness has no pots scenario for a lines game and its Hold and Win
+    captures are a few frames apart, so the respins were also captured frame by frame (determinism
+    mode, 1280×720, the harness's serve and play libraries, every 3rd frame, sha-256 of each
+    capture): `overlay-buffaloduel`'s `pot:red` bonus, tapped past its intro, 650/650 identical on
+    the same frames (518 with the respin board up, 650 distinct pictures); `holdandwintestsolo`'s
+    forced trigger 450/450 (314 with the board up).
+  - **Gates:** `reelViewPool.fixture.ts` (124 checks; new: the base-art rule, the FX key, shared
+    entries, each view building its sprite at most once through whole rolls, and a respin model
+    run through the views beside a component per shown symbol, five speeds, frame by frame:
+    starts, stops and paint order); 17 rule mutations (respin entries numbered per view, filler
+    left out, a view's sprite drawn in the keyed band or while vacant, the FX key moving at an
+    entry or never, the source pins on `Symbol`, `SymbolSprite` and `RespinCell`) each fail it.
+    `check:all` for `apps/lines` (15) and `pixi-svelte` (16), `check:svelte --only apps/lines` at
+    its baseline (145), `tools/fx-spike` `element-fx` (its pin moves with the container),
+    `verify-swap-in-place-mode`, `verify-win-explode-pop`, `verify-symbol-wrap-context`,
+    `verify-symbol-seat`, `verify-board-paint-order`, `verify-symbol-overflow`,
+    `verify-stepped-grid`, `verify-board-tiles`, `verify-tumble-pattern`, the launcher's
+    `check:clear-reel`, `check:symbol-layers`, `check:respin-land`, `check:jackpot-coin-art`,
+    `check:symbol-fx`; Prettier and ESLint clean.
+  - **`commonoverlayproject`'s idle particles are a pool that levels off, not a leak.**
+    `@barvynkoa/particle-emitter` builds a particle only when its pool is empty and returns a dead
+    one to the pool, destroying it only with its emitter; Pixi's ticker caps a frame's delta at
+    100 ms, so an emitter's peak is bounded. Four minutes idle after the start screen, base build:
+    WebKitGTK built 10 particles and destroyed none (live 250–630 over the idle cycle, 30
+    emitters); Chromium built none (live ~162, 18 emitters). The sweep's ~195 a 15 s idle window
+    was the pools still filling to their peak after the game's first mount. Nothing to fix.
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test); the minified
+    build; the per-frame times on a quiet machine (the WebKit times above ran under load); the
+    games the local parity runs did not cover (CI's current-games run covers every live game).
+
 - 2026-11-11 — **A layout node a timeline plays no longer re-runs its view's prop sync every
   frame; a rig started again costs ~1.8 ms in WebKitGTK, not ~20, so the `RigView` pool is not
   done** (branch `churn-rig-reuse`, on `claude/nice-albattani-a03tcm` at `a80a6f58`; step 4 of the
@@ -679,14 +765,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
        **Risk: low–medium** for the views (#1601 was byte-identical on flat boards, 244/244
        frames; respin landings and the held layer need their own parity); **medium** for the
        pre-mount — a hidden board must neither update nor draw, and what starts at mount (rig
-       t=0, emitter spawns) must start when it shows, as a mount does now.
+       t=0, emitter spawns) must start when it shows, as a mount does now. **The views are done**
+       (the entry above, `createShownViews`, byte-identical); the coin effects' emitters (they
+       start again with their rig, fix 1) and the bonus board pre-mount are still open.
     3. **`Symbol`'s bands remount inside kept views** — `Symbol.svelte` wraps its bands in an
        Element FX container only `{#if symbolFx}`, so a view that draws an FX symbol after a
        non-FX one (or turns `frozen`) remounts every band (~190–270 containers a spin on
        `overlay-buffaloduel`), and the art band mounts a sprite again after a rig (20–90 a spin;
        878 `SymbolSprite`s in a book feature). **Fix:** the FX container unconditional, and one
        bound sprite per view whatever drew before it. **Risk: low** — a transform-free container
-       draws the same pixels; the sprite rebind is pinned (`spriteRebind.fixture.ts`).
+       draws the same pixels; the sprite rebind is pinned (`spriteRebind.fixture.ts`). **Done**
+       (the entry above, byte-identical).
     4. **The win presentation remounts per line cycle, and keeps cycling while idle** — per cycle
        the highlighted cells' `SymbolWinFrame` (a rig, a `RiggedFlipbook`, its `Flipbook`s), the
        win-state flipbooks (`SymbolFlipbook → Flipbook → AnimatedSprite`) and the `WinLine`
