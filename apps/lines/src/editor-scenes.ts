@@ -470,6 +470,10 @@ type BakedBundle = {
 		 * plays its `land` as its own respin cell stops instead of when the coins stick after every
 		 * cell has stopped. Absent ⇒ off (byte-parity). See `engine-game`'s `respinStopState`. */
 		respinLandOnStop?: { enabled?: boolean };
+		/** "Jackpot coins have their own art" (Invisible Symbols State Machine): a coin carrying a
+		 * jackpot tier draws the map row `<coin>:<TIER>` when it is bound (`engine-layout`'s
+		 * `jackpotCoinArt.ts`). Absent ⇒ off, and every coin draws its own art (byte-parity). */
+		jackpotCoinArt?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -1458,6 +1462,21 @@ export function bakedArrivalReleaseEnabled(): boolean {
 		? runtimeBundle!.symbols?.arrivalRelease
 		: hasBakedDoc()
 			? bakedBundle.symbols?.arrivalRelease
+			: undefined;
+	return c?.enabled ?? false;
+}
+
+/**
+ * "Jackpot coins have their own art" — whether a Hold and Win coin carrying a jackpot tier draws its
+ * tier's row of the symbol map (`COIN:MINI`) when that row is bound. Default FALSE: every coin draws
+ * the coin's art, exactly as before. Mirrors `bakedArrivalReleaseEnabled`'s runtime→baked→undefined
+ * resolution.
+ */
+export function bakedJackpotCoinArt(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.jackpotCoinArt
+		: hasBakedDoc()
+			? bakedBundle.symbols?.jackpotCoinArt
 			: undefined;
 	return c?.enabled ?? false;
 }

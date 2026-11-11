@@ -360,6 +360,7 @@ async function main() {
 		winBeat: undefined,
 		arrivalRelease: undefined,
 		respinLandOnStop: undefined,
+		jackpotCoinArt: undefined,
 		bookVfx: undefined,
 		transition: undefined,
 		tumblePattern: undefined,
@@ -612,6 +613,10 @@ async function main() {
 			// game would land its coins at the stick while the live one landed them at each stop.
 			const respinLandOnStop =
 				s?.respinLandOnStop?.enabled === true ? { enabled: true } : undefined;
+			// "Jackpot coins have their own art" — one default-OFF switch over tier rows the map already
+			// carries (the export ships them only while it is on). It has to reach BOTH bundle paths: omit
+			// it here and a baked game would draw every jackpot coin with the coin's art.
+			const jackpotCoinArt = s?.jackpotCoinArt?.enabled === true ? { enabled: true } : undefined;
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
 			const bookVfx = (() => {
@@ -775,6 +780,7 @@ async function main() {
 				winBeat,
 				arrivalRelease,
 				respinLandOnStop,
+				jackpotCoinArt,
 				bookVfx,
 				transition,
 				tumblePattern,

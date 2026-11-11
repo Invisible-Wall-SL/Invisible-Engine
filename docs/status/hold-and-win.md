@@ -1158,6 +1158,39 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     ante on) while the partner pays jackpots on the base bet — pre-existing (14c), not changed
     here. A partner-wire boot on the Invisible Test Server needs the project's key in
     `PARTNER_WIRE_GAMES` (an env change, owner's).
+- 2026-11-10 — **Jackpot coins can have their own art per tier** (asked for Getting Hot, works on
+  every Hold and Win game). Off by default; a project that leaves it off ships and draws exactly as
+  before.
+  - **Authoring:** `/symbols` → **Jackpot coins** → **Jackpot coins have their own art**
+    (`jackpotCoinArt: { enabled: true }`, sparse). On, each `coin` / `jackpot` row of the Hold and
+    Win group gets one row per tier the respin modes declare (fallback MINI / MINOR / MAJOR /
+    GRAND), drawn by the grid's own `gridRow` with the coin's columns. Guide:
+    [symbols-state-machine.md § Jackpot coins](../tools/symbols-state-machine.md#jackpot-coins).
+  - **Doc shape:** a tier row is an ordinary `symbols` entry keyed `<coin>:<TIER>` (`BONUS:MINI`,
+    the wire's text for a jackpot cell; `engine-layout/jackpotCoinArt.ts`). So it needs no new
+    schema and rides the existing export → bake → pull → register chain (rule 8). With the switch
+    off the export drops every tier row and its art (`shipJackpotArtOnlyWhenOn`). The rows stay in
+    the doc, so turning the switch back on restores them. An old launcher strips the unknown
+    top-level key and keeps the doc.
+  - **Runtime:** one seam, `engine-game`'s resolver (`createSymbolInfo({ tierArtKey })` →
+    `symbolArtName`). A coin with `jackpot` draws its tier's row when the switch is on and the row
+    resolves usable art for the state (inheriting inside the row), else the coin. `Symbol.svelte`
+    resolves with the tier the LABEL shows, so an upgrade swaps the art when its beam lands. Every
+    coin draw goes through it: reels, `RespinHeldSymbol`, the win cycle, and flight heads. Element
+    FX and sounds stay the coin's.
+  - **Gate:** `check:jackpot-coin-art` (39 checks). It covers the key, the doc, the client
+    signature, the export filter and refs, both bundle paths, and the real resolver: switch off (or
+    nothing bound) resolves every draw to the same object as a tier-unaware resolver. Two planted
+    mutants (always the tier key, the export never filtering) turned it red.
+  - **Played locally** (`apps/lines` on Vite, our HW mock `PRESET=pots-extra`, and a runtime stub
+    whose map binds `BONUS` / `JACKPOT` to `l1` and MINI / MINOR / GRAND to `h1` / `h2` / `h4`,
+    with MAJOR left unbound). Forced `jackpot:MINI,…,jackpot:GRAND`. With the switch on, each tier
+    drew its own art on the respin board and MAJOR drew the coin's. With it off, every jackpot coin
+    drew the coin's art. Forced `special:upgrade:jackpotTier`: the coin showed MINI art and label
+    until the upgrade's beam landed, then MINOR art and label in the same frame. Not played against
+    the partner-wire mock: the tier art sits behind the facade's `COIN` + `jackpot` mapping, which
+    is the same shape our mock deals.
+  - **Owed:** the owner binds real tier art on the Getting Hot project and checks it after publish.
 - 2026-11-10 — **14c follow-up: a buy hands the ante back** (Getting Hot, game 8). A buy is still
   one-shot, but when its round ends (the feature it bought and the client's `collect` included) the
   stake returns to what it replaced: the HUD's ante switch if it was on, else BASE. Only a `toggle`

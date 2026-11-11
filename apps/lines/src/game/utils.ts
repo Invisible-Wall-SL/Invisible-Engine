@@ -5,6 +5,7 @@ import {
 	drainedMeters,
 	isHoldAndWinEvent,
 } from 'engine-game';
+import { jackpotArtKey } from 'engine-layout';
 import { HOLD_AND_WIN_MODE } from 'game-config';
 
 import { activeWinLevelData, getActiveGameConfig } from './gameConfig';
@@ -29,7 +30,7 @@ import {
 	startWinCycle,
 	stopWinCycle,
 } from './winSymbolCycle';
-import { bakedWinLineConfig } from '../editor-scenes';
+import { bakedJackpotCoinArt, bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import { activeRespinMode } from './activeRespinMode.svelte';
 import { holdBeforeRespin } from './respinHold.svelte';
@@ -49,9 +50,14 @@ import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
  * Constructed here rather than in `symbolMap.ts` so the ten components that import `getSymbolInfo`
  * from `../game/utils` keep the import they already have.
  */
-export const { getSymbolInfo, hasAuthoredSymbolState } = createSymbolInfo({
+export const { getSymbolInfo, hasAuthoredSymbolState, symbolArtName } = createSymbolInfo({
 	symbolMap,
 	drawsPlaceholder: (name) => symbolPlaceholder(getActiveGameConfig(), name) !== undefined,
+	// A jackpot coin's tier row, only while "Jackpot coins have their own art" is on.
+	tierArtKey: (rawSymbol) =>
+		rawSymbol.jackpot !== undefined && bakedJackpotCoinArt()
+			? jackpotArtKey(rawSymbol.name, rawSymbol.jackpot)
+			: undefined,
 });
 
 /**
