@@ -40,9 +40,16 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 const here = dirname(fileURLToPath(import.meta.url));
 const defaults = join(here, '../../apps/launcher-api/src/lib/data/gameConfig');
 
+/** The one default made to use them: Game Maker's collector + enhancements (the partner's game). */
+const ANTE_SWITCH_DEFAULT = 'holdAndWin.enhancements.json';
+const readDefault = (file: string) =>
+	normalizeGameConfigDoc(JSON.parse(readFileSync(join(defaults, file), 'utf8')));
+
 console.log('1. parity');
-for (const file of readdirSync(defaults).filter((name) => name.endsWith('.json'))) {
-	const doc = normalizeGameConfigDoc(JSON.parse(readFileSync(join(defaults, file), 'utf8')));
+for (const file of readdirSync(defaults).filter(
+	(name) => name.endsWith('.json') && name !== ANTE_SWITCH_DEFAULT,
+)) {
+	const doc = readDefault(file);
 	const stored = Object.values(doc?.betModePresentation ?? {}).filter(
 		(entry) => 'toggle' in entry || 'fillerSymbols' in entry || 'refusable' in entry,
 	);
@@ -52,6 +59,23 @@ for (const file of readdirSync(defaults).filter((name) => name.endsWith('.json')
 		`${file} resolves every mode to no switch and the base strips`,
 		resolved.every((mode) => !mode.toggle && !mode.refusable && mode.fillerSymbols.length === 0),
 		true,
+	);
+}
+{
+	const doc = readDefault(ANTE_SWITCH_DEFAULT);
+	const byMode = Object.fromEntries((doc ? resolveBetModes(doc) : []).map((m) => [m.mode, m]));
+	check(
+		`${ANTE_SWITCH_DEFAULT}: the ante switch, the refusable buys and their filler`,
+		['powerup', 'buycentercoin', 'goldstrike'].map((mode) => [
+			byMode[mode]?.toggle,
+			byMode[mode]?.refusable,
+			byMode[mode]?.fillerSymbols,
+		]),
+		[
+			[true, true, ['COIN', 'COLLECT', 'BLANK']],
+			[false, true, ['COIN', 'COLLECT', 'BLANK']],
+			[false, true, []],
+		],
 	);
 }
 

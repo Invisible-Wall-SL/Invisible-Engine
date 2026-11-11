@@ -34,7 +34,7 @@
 		type WheelPrize,
 	} from 'game-config';
 	import { ROLE_LABELS, SPECIAL_LABELS, num } from './bonusLabels';
-	import { setRespinPlay } from './pageDoc';
+	import { setEnhancements, setRespinPlay } from './pageDoc';
 
 	/**
 	 * One respin mode's Hold and Win RULES (`docs/design/hold-and-win.md` §1.3, §5;
@@ -744,6 +744,17 @@
 							<option value={p}>{PLAY_LABELS[p]}</option>
 						{/each}
 					</select></label
+				>
+			</div>
+			<div class="row">
+				<label
+					class="check"
+					title="The server draws Expand, Boost, Multiply and Respin for this feature (the partner's collector bonus). Presentation only: the Scene Editor offers the four Enhancement Dials, the collectors' total and the two banners under Add missing screens."
+					><input
+						type="checkbox"
+						checked={hw.enhancements === true}
+						onchange={(e) => setEnhancements(hw, e.currentTarget.checked)}
+					/><span>The server draws enhancements (Expand · Boost · Multiply · Respin)</span></label
 				>
 			</div>
 		</div>

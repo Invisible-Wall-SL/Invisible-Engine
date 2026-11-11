@@ -73,8 +73,9 @@ overlay add-on.
      expands over its reel (reels 2–4) and the clover grows a plus from reel 3 (reels 2–4 in free
      spins); the test server lands them at the reference game's rates, a fairy on about one spin in
      12 and a clover on about one in 8.
-   - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
-     only**. With **Lines game** it also shows a **Jackpots** dropdown:
+   - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default), **Coin board
+     only**, or **Lines game: collector + enhancements**. With **Lines game** it also shows a
+     **Jackpots** dropdown:
      **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain
      Hold and Win: a 5×3, 5-line base game with
      coin symbols on the base reels; 6 or more coins start 3 respins, every coin sticks, a new coin
@@ -114,6 +115,26 @@ overlay add-on.
      reads _No coin overlay preset fits this game type._: pots and dropped tokens are not built
      for a coin board. A project switched to the coin board later, in Game Config, keeps the
      screens and Flow it was created with.
+
+     **Lines game: collector + enhancements** makes the shape of the partner's collector bonus
+     game ([plan](../design/hold-and-win-enhancements.md), Getting Hot): 5×3 with 5 lines and the
+     partner's line paytable; coins (`COIN`, coin and jackpot) land on reels 1, 2, 4 and 5 and the
+     collector (`COLLECT`) on reel 3, which collects every coin in view in the base game. 3 coins
+     or collectors in a row start 3 respins where only the collectors stick; the server draws the
+     enhancements (Expand, Boost, Multiply, Respin) and the super bonus. The four MINI–GRAND
+     jackpots are always on (the Jackpots dropdown is hidden). The bet modes are keyed by the
+     partner's option names so its server reads them: an ante (**HEAT UP**, 5×, a HUD switch whose
+     reels roll only coins, collectors and blanks) and two buys (**COLLECTOR SPIN** 50×, **BUY
+     BONUS** 100×), each marked _Operator can switch off_. Rename the titles in Game Config → Bet
+     modes; the keys must stay. Every number other than the line pays is mock pacing: the partner's
+     server owns the math. The coin and collector are bound to placeholder art in Symbols. The
+     project gets an **Enhancements** screen (the four **Enhancement Dial**s above the board and a
+     **Collectors total** text) shown by the starter Flow for the whole feature, an **ANTE** button
+     in the HUD bar, and a reel grid that leaves room for the 5 rows Expand and the super bonus
+     open. The two enhancement banners play their built-in look until you add their screens from
+     the banner popups in the [Scene Editor](invisible-editor.md). To play it against the
+     partner's wire on the Invisible Test Server, its key must be listed in the test server's
+     `PARTNER_WIRE_GAMES`; otherwise the local Hold and Win mock deals it (no enhancements).
    - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
      the choice. It starts on **Free play (rules)**:
      - **Free play (rules)** — _The game's own rules, no wallet._ (below).

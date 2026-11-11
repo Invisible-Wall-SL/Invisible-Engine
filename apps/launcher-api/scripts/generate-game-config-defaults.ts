@@ -31,6 +31,8 @@ import {
 	fairyCloverPreset,
 	HOLD_AND_WIN_COIN_BOARD_KEY,
 	HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
+	HOLD_AND_WIN_ENHANCEMENTS_KEY,
+	HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
@@ -77,6 +79,8 @@ const PRESETS: Record<string, () => unknown> = {
 	),
 	// The same template with no line game: the coin board as the base game (hold-and-win-coin-board).
 	[HOLD_AND_WIN_COIN_BOARD_KEY]: () => HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
+	// A lines game with the partner's collector bonus and its enhancements (hold-and-win-enhancements).
+	[HOLD_AND_WIN_ENHANCEMENTS_KEY]: () => HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE,
 	// A LINES preset: the captured Book of Thermopylae, the Book-of mechanic as config
 	// (docs/design/book-feature.md §3.5) — offered by `/config` and Game Maker's Create.
 	'lines.bookOfThermopylae': bookOfThermopylaePreset,

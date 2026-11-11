@@ -1,0 +1,905 @@
+{
+  "version": 1,
+  "providerName": "invisible_wall",
+  "gameName": "collector_enhancements",
+  "gameID": "hold_and_win_enhancements",
+  "rtp": 0.96,
+  "numReels": 5,
+  "numRows": [
+    3,
+    3,
+    3,
+    3,
+    3
+  ],
+  "betModes": {
+    "base": {
+      "cost": 1,
+      "feature": true,
+      "buyBonus": false,
+      "rtp": 0.96,
+      "max_win": 5000
+    },
+    "powerup": {
+      "cost": 5,
+      "feature": true,
+      "buyBonus": false,
+      "rtp": 0.96,
+      "max_win": 5000
+    },
+    "buycentercoin": {
+      "cost": 50,
+      "feature": true,
+      "buyBonus": true,
+      "rtp": 0.96,
+      "max_win": 5000
+    },
+    "goldstrike": {
+      "cost": 100,
+      "feature": false,
+      "buyBonus": true,
+      "rtp": 0.96,
+      "max_win": 5000
+    }
+  },
+  "paylines": {
+    "1": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "2": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "3": [
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "4": [
+      0,
+      1,
+      2,
+      1,
+      0
+    ],
+    "5": [
+      2,
+      1,
+      0,
+      1,
+      2
+    ]
+  },
+  "symbols": {
+    "H1": {
+      "paytable": [
+        {
+          "3": 400
+        },
+        {
+          "4": 600
+        },
+        {
+          "5": 1000
+        }
+      ]
+    },
+    "H2": {
+      "paytable": [
+        {
+          "3": 300
+        },
+        {
+          "4": 400
+        },
+        {
+          "5": 800
+        }
+      ]
+    },
+    "H3": {
+      "paytable": [
+        {
+          "3": 200
+        },
+        {
+          "4": 300
+        },
+        {
+          "5": 400
+        }
+      ]
+    },
+    "H4": {
+      "paytable": [
+        {
+          "3": 100
+        },
+        {
+          "4": 150
+        },
+        {
+          "5": 200
+        }
+      ]
+    },
+    "H5": {
+      "paytable": [
+        {
+          "3": 30
+        },
+        {
+          "4": 50
+        },
+        {
+          "5": 80
+        }
+      ]
+    },
+    "L1": {
+      "paytable": [
+        {
+          "3": 100
+        },
+        {
+          "4": 150
+        },
+        {
+          "5": 200
+        }
+      ]
+    },
+    "L2": {
+      "paytable": [
+        {
+          "3": 30
+        },
+        {
+          "4": 50
+        },
+        {
+          "5": 80
+        }
+      ]
+    },
+    "L3": {
+      "paytable": [
+        {
+          "3": 10
+        },
+        {
+          "4": 20
+        },
+        {
+          "5": 30
+        }
+      ]
+    },
+    "L5": {
+      "paytable": [
+        {
+          "3": 30
+        },
+        {
+          "4": 50
+        },
+        {
+          "5": 80
+        }
+      ]
+    },
+    "COIN": {
+      "special_properties": [
+        "coin",
+        "jackpot"
+      ]
+    },
+    "COLLECT": {
+      "special_properties": [
+        "collector"
+      ]
+    },
+    "BLANK": {
+      "special_properties": [
+        "blank"
+      ]
+    }
+  },
+  "paddingReels": {
+    "basegame": [
+      [
+        {
+          "name": "H1"
+        },
+        {
+          "name": "L1"
+        },
+        {
+          "name": "H2"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "L2"
+        },
+        {
+          "name": "H3"
+        },
+        {
+          "name": "L5"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "H4"
+        },
+        {
+          "name": "L3"
+        },
+        {
+          "name": "H5"
+        }
+      ],
+      [
+        {
+          "name": "L1"
+        },
+        {
+          "name": "H2"
+        },
+        {
+          "name": "L2"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "H3"
+        },
+        {
+          "name": "L5"
+        },
+        {
+          "name": "H4"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "L3"
+        },
+        {
+          "name": "H5"
+        },
+        {
+          "name": "H1"
+        }
+      ],
+      [
+        {
+          "name": "H2"
+        },
+        {
+          "name": "L2"
+        },
+        {
+          "name": "H3"
+        },
+        {
+          "name": "COLLECT"
+        },
+        {
+          "name": "L5"
+        },
+        {
+          "name": "H4"
+        },
+        {
+          "name": "L3"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COLLECT"
+        },
+        {
+          "name": "H5"
+        },
+        {
+          "name": "H1"
+        },
+        {
+          "name": "L1"
+        }
+      ],
+      [
+        {
+          "name": "L2"
+        },
+        {
+          "name": "H3"
+        },
+        {
+          "name": "L5"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "H4"
+        },
+        {
+          "name": "L3"
+        },
+        {
+          "name": "H5"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "H1"
+        },
+        {
+          "name": "L1"
+        },
+        {
+          "name": "H2"
+        }
+      ],
+      [
+        {
+          "name": "H3"
+        },
+        {
+          "name": "L5"
+        },
+        {
+          "name": "H4"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "L3"
+        },
+        {
+          "name": "H5"
+        },
+        {
+          "name": "H1"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "L1"
+        },
+        {
+          "name": "H2"
+        },
+        {
+          "name": "L2"
+        }
+      ]
+    ],
+    "respin": [
+      [
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        }
+      ],
+      [
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        }
+      ],
+      [
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COLLECT"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        }
+      ],
+      [
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        }
+      ],
+      [
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "BLANK"
+        },
+        {
+          "name": "COIN"
+        },
+        {
+          "name": "BLANK"
+        }
+      ]
+    ]
+  },
+  "betModePresentation": {
+    "powerup": {
+      "kind": "ante",
+      "order": 1,
+      "text": {
+        "title": "HEAT UP",
+        "betAmountLabel": "HEAT UP"
+      },
+      "toggle": true,
+      "refusable": true,
+      "fillerSymbols": [
+        "COIN",
+        "COLLECT",
+        "BLANK"
+      ]
+    },
+    "buycentercoin": {
+      "kind": "buy",
+      "order": 2,
+      "text": {
+        "title": "COLLECTOR SPIN"
+      },
+      "refusable": true,
+      "fillerSymbols": [
+        "COIN",
+        "COLLECT",
+        "BLANK"
+      ]
+    },
+    "goldstrike": {
+      "kind": "buy",
+      "order": 3,
+      "text": {
+        "title": "BUY BONUS"
+      },
+      "refusable": true
+    }
+  },
+  "coinOverlay": {
+    "style": "collector",
+    "baseGame": {
+      "collector": {
+        "landsInBaseGame": true,
+        "instantCollectInBaseGame": true
+      }
+    },
+    "trigger": {
+      "pattern": {
+        "mode": "holdAndWin",
+        "requirements": [
+          {
+            "reel": 1,
+            "roles": [
+              "coin",
+              "jackpot"
+            ],
+            "min": 1
+          },
+          {
+            "reel": 2,
+            "roles": [
+              "collector"
+            ],
+            "min": 1
+          },
+          {
+            "reel": 3,
+            "roles": [
+              "coin",
+              "jackpot"
+            ],
+            "min": 1
+          }
+        ]
+      },
+      "buy": [
+        {
+          "betMode": "goldstrike",
+          "mode": "holdAndWin",
+          "guaranteed": [],
+          "boostedSpecials": false
+        }
+      ]
+    }
+  },
+  "modes": [
+    {
+      "id": "holdAndWin",
+      "board": "respinBoard",
+      "gameType": "respin",
+      "counter": "respins",
+      "label": "Hold and Win",
+      "values": [
+        "total",
+        "respinsLeft"
+      ],
+      "holdAndWin": {
+        "stickiness": "collectorsOnly",
+        "respins": {
+          "start": 3,
+          "reset": "anySpecial"
+        },
+        "boardEnd": {
+          "type": "none"
+        },
+        "coins": [
+          {
+            "kind": "cash",
+            "value": 1,
+            "weight": 30,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 2,
+            "weight": 25,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 3,
+            "weight": 15,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 4,
+            "weight": 10,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 5,
+            "weight": 8,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 8,
+            "weight": 5,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 10,
+            "weight": 4,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 15,
+            "weight": 2,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "cash",
+            "value": 20,
+            "weight": 1,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "jackpot",
+            "jackpot": "MINI",
+            "weight": 3,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "jackpot",
+            "jackpot": "MINOR",
+            "weight": 1.5,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "jackpot",
+            "jackpot": "MAJOR",
+            "weight": 0.4,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "kind": "jackpot",
+            "jackpot": "GRAND",
+            "weight": 0.1,
+            "reels": [
+              0,
+              1,
+              3,
+              4
+            ]
+          }
+        ],
+        "jackpots": [
+          {
+            "name": "MINI",
+            "multiplier": 25,
+            "fixed": true
+          },
+          {
+            "name": "MINOR",
+            "multiplier": 50,
+            "fixed": true
+          },
+          {
+            "name": "MAJOR",
+            "multiplier": 150,
+            "fixed": true
+          },
+          {
+            "name": "GRAND",
+            "multiplier": 1000,
+            "fixed": true
+          }
+        ],
+        "applyOrder": [
+          "collector"
+        ],
+        "activeModifiers": {
+          "atEntry": [
+            "collector"
+          ],
+          "fromTriggeringSpecials": false
+        },
+        "enhancements": true,
+        "specials": {
+          "collector": {
+            "level": 1,
+            "maxLevel": 1,
+            "sticky": true,
+            "collects": "perRespin",
+            "reels": [
+              2
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "winLevels": [
+    {
+      "alias": "zero",
+      "name": "ZERO",
+      "threshold": 0,
+      "type": "small"
+    },
+    {
+      "alias": "standard",
+      "name": "STANDARD",
+      "threshold": 0,
+      "type": "small",
+      "durationMs": 600
+    },
+    {
+      "alias": "small",
+      "name": "SMALL",
+      "threshold": 1.5,
+      "type": "small",
+      "durationMs": 1000
+    },
+    {
+      "alias": "nice",
+      "name": "NICE",
+      "threshold": 3,
+      "type": "medium",
+      "durationMs": 1500
+    },
+    {
+      "alias": "substantial",
+      "name": "SUBSTANTIAL",
+      "threshold": 6,
+      "type": "medium",
+      "durationMs": 2000
+    },
+    {
+      "alias": "big",
+      "name": "BIG WIN",
+      "threshold": 15,
+      "type": "big",
+      "animation": {
+        "intro": "big_win_intro",
+        "idle": "big_win_idle",
+        "outro": "big_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_big"
+      },
+      "durationMs": 6000
+    },
+    {
+      "alias": "superwin",
+      "name": "SUPER WIN",
+      "threshold": 30,
+      "type": "big",
+      "animation": {
+        "intro": "super_win_intro",
+        "idle": "super_win_idle",
+        "outro": "super_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_superwin"
+      },
+      "durationMs": 18000
+    },
+    {
+      "alias": "mega",
+      "name": "MEGA WIN",
+      "threshold": 50,
+      "type": "big",
+      "animation": {
+        "intro": "mega_win_intro",
+        "idle": "mega_win_idle",
+        "outro": "mega_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_mega"
+      },
+      "durationMs": 20000
+    },
+    {
+      "alias": "epic",
+      "name": "EPIC WIN!",
+      "threshold": 80,
+      "type": "big",
+      "animation": {
+        "intro": "epic_win_intro",
+        "idle": "epic_win_idle",
+        "outro": "epic_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_epic"
+      },
+      "durationMs": 26000
+    }
+  ]
+}

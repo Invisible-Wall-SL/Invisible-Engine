@@ -16,7 +16,14 @@ Three processes, each on its own free port:
 1. **The partner-wire mock** (14d): `PORT=<rgs> SEED=7 node scripts/mock-rgs-server-holdandwin-partner.mjs`.
    On the Invisible Test Server the same mock is selected per game with
    `PARTNER_WIRE_GAMES=<gameKey>`.
-2. **A `/api/editor/runtime` stub** answering `{doc, config, assetBase, name}` with CORS `*`:
+2. **A `/api/editor/runtime` stub** answering `{doc, config, assetBase, name}` with CORS `*`.
+   Easiest: serve what Game Maker's **Lines game: collector + enhancements** scaffolds — run
+   `scaffoldProject(client, key, {holdAndWinJackpots: 'on', holdAndWinBase: 'enhancements'})`
+   (`apps/launcher-api/src/lib/server/projectScaffold.ts`) over an in-memory R2, as
+   `check:add-bonus-mode` does, and serve its layout as `doc`, its Game Config as `config`, its
+   flow as `flowV2` and its symbols doc's `symbols` as `symbols.map`. That is the game a new
+   project plays: the dials on the Enhancements screen (shown by the starter Flow), the HUD's ANTE
+   switch, and the coin and collector on placeholder art. Or by hand:
    - `config`: a 5×3 Hold and Win Game Config. COIN (`coin` + `jackpot`) goes on reels 0, 1, 3
      and 4, COLLECT (`collector`, `instantCollectInBaseGame`) on reel 2, plus BLANK.
      `stickiness: 'collectorsOnly'` and `expansion {startRows: 3, maxRows: 5}`. Line symbols are

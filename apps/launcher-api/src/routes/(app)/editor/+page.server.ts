@@ -24,7 +24,13 @@ import {
 	LOSS_LIMIT_TEXT_OPTIONS,
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
 } from 'constants-shared/autoSpins';
-import { noJackpotTiers, projectAddOns, respinMaxRows, respinModesOf } from '$lib/addOns';
+import {
+	noJackpotTiers,
+	projectAddOns,
+	respinMaxRows,
+	respinModesOf,
+	sceneSetOptionsFor,
+} from '$lib/addOns';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
@@ -353,6 +359,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			label,
 			...(maxRows ? { maxRows } : {}),
 		})),
+		// A Hold and Win whose respin mode draws enhancements: the set gains the Enhancements screen and
+		// its two banners (`sceneSetOptionsFor`'s rule).
+		enhancements: Boolean(sceneSetOptionsFor(resolvedGameType, gameConfigDoc).enhancements),
 		// Every spins mode: "Add missing screens" seeds each one's free-spin screens, tagged with its id.
 		spinsModes: spinsModes.map((mode) => ({ id: mode.id, label: mode.label ?? mode.id })),
 		// The board each spins mode plays on, by mode id: In-game view draws the reel grid at it while

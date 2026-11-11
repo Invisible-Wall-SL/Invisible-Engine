@@ -327,10 +327,11 @@ if (MEASURE) {
 }
 
 /** Corpus docs main never had, so there is nothing of main's to lose: the Hold and Win coin board
- *  template (hold-and-win-coin-board Phase 13a) and the Fairy Clover preset with every add-on on it
- *  are checked for 1, 3 and 4 only. */
+ *  template (hold-and-win-coin-board Phase 13a), the collector + enhancements template (Phase 14e),
+ *  and the Fairy Clover preset, each with every add-on on it, are checked for 1, 3 and 4 only. */
 const afterMain = (name: string): boolean =>
-	name === 'template:holdAndWin.coinBoard' || /^\w+:lines\.fairyClover(\||$)/.test(name);
+	name === 'template:holdAndWin.coinBoard' ||
+	/^\w+:(lines\.fairyClover|holdAndWin\.enhancements)(\||$)/.test(name);
 for (const [name, doc] of Object.entries(docs)) {
 	check(`1 ${name}: no legacy key`, !carriesLegacy(doc));
 	const main = MAIN[name];

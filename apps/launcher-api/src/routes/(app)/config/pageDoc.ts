@@ -33,6 +33,13 @@ export const setRespinPlay = (rules: HoldAndWinGame, play: RespinPlay): void => 
 	else delete rules.play;
 };
 
+/** Mark a respin mode as one whose server draws enhancements, in place. Only `true` is stored, so
+ *  turning it off leaves the rules as a project that never had it saved them. */
+export const setEnhancements = (rules: HoldAndWinGame, on: boolean): void => {
+	if (on) rules.enhancements = true;
+	else delete rules.enhancements;
+};
+
 /** The strip sets as wide as the base grid: every one but a spins mode's on a grid of its own
  *  (bonus-games Phase 8b), which follow that grid and are never grown or cut to the base one. */
 export const baseWidthGameTypes = (doc: GameConfigDoc): string[] => {

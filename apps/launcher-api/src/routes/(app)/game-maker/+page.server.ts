@@ -26,6 +26,7 @@ import {
 	gameConfigPresetsFor,
 	gameConfigSeedFor,
 	holdAndWinCoinBoardSeed,
+	holdAndWinEnhancementsSeed,
 	holdAndWinTemplateSeed,
 	isGameOutcome,
 	isLinesPresetId,
@@ -107,6 +108,7 @@ function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPreset
 		out[`holdAndWin:${jackpots}`] = cleanOverlayPresets(holdAndWinTemplateSeed(jackpots));
 	}
 	out['holdAndWin:coinBoard'] = cleanOverlayPresets(holdAndWinCoinBoardSeed());
+	out['holdAndWin:enhancements'] = cleanOverlayPresets(holdAndWinEnhancementsSeed());
 	for (const preset of LINES_PRESET_IDS) {
 		out[`lines:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('lines', preset));
 	}
@@ -372,17 +374,24 @@ export const actions: Actions = {
 		if (rawGameType === 'holdAndWin' && rawJackpots !== '' && !holdAndWinJackpots) {
 			return fail(400, { action: 'create', error: 'Jackpots must be on or off.' });
 		}
-		// The base game (hold-and-win-coin-board): a lines game unless asked for the coin board only,
-		// whose template has its jackpots on.
+		// The base game (hold-and-win-coin-board): a lines game unless asked for the coin board only
+		// or the collector bonus with enhancements (hold-and-win-enhancements), whose templates have
+		// their jackpots on.
 		const holdAndWinBase = HOLD_AND_WIN_TEMPLATE_BASES.find((b) => b === rawBase);
 		if (rawGameType === 'holdAndWin' && rawBase !== '' && !holdAndWinBase) {
 			return fail(400, {
 				action: 'create',
-				error: 'Base game must be a lines game or the coin board.',
+				error: 'Base game must be a lines game, the coin board or collector + enhancements.',
 			});
 		}
 		if (holdAndWinBase === 'coinBoard' && holdAndWinJackpots === 'off') {
 			return fail(400, { action: 'create', error: 'The coin board template has its jackpots on.' });
+		}
+		if (holdAndWinBase === 'enhancements' && holdAndWinJackpots === 'off') {
+			return fail(400, {
+				action: 'create',
+				error: 'The collector + enhancements template has its jackpots on.',
+			});
 		}
 		const potsOverlayPreset = POTS_OVERLAY_PRESET_IDS.find((id) => id === rawOverlay);
 		if (rawOverlay !== '' && !potsOverlayPreset) {
