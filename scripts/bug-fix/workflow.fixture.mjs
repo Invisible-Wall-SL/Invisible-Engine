@@ -358,9 +358,13 @@ const LAUNCHER_PATTERNS = {
 		/^pipfile(?:\..+)?$/,
 		/^eslint\.config\./,
 	],
-	pathRules: [/^apps\/launcher-api\/src\/lib\/server\/bugfixruns[^/]*\.ts$/],
+	pathRules: [
+		/^apps\/launcher-api\/src\/lib\/server\/bugfix[^/]*\.ts$/,
+		/^apps\/launcher-api\/src\/lib\/server\/pipeline[^/]*\.ts$/,
+	],
 	eslintInline: [/\/\*\s*(?:eslint|globals?|exported)\s/i, /\/\/\s*eslint-/i, /<!--\s*eslint/i],
 	hookPrefixes: ['pre', 'post', 'pnpm:'],
+	siblingSource: /\.(?:js|mjs|cjs|mts|cts|jsx|tsx)$/i,
 };
 
 /** What the launcher holds a fix run's change to, read from bugFixRunsChange.ts's own lists. */
@@ -369,7 +373,10 @@ function launcherRules(src) {
 	const hook = /LIFECYCLE_SCRIPTS\.includes\(name\) \|\| \/\^\(\?:([^)]+)\)\/\.test\(name\)/.exec(
 		src,
 	);
+	const sibling = /\nconst SIBLING_SOURCE = \/(.+)\/([a-z]*);\n/.exec(src);
 	return {
+		siblingSource: sibling ? new RegExp(sibling[1], sibling[2]) : null,
+		siblingExts: /^\\\.\(\?:([a-z|]+)\)\$$/.exec(sibling?.[1] ?? '')?.[1].split('|') ?? [],
 		paths: quoted(listBlock(src, 'PROTECTED_PATHS')),
 		names: quoted(listBlock(src, 'PROTECTED_NAMES')),
 		nameRules: regexes(listBlock(src, 'PROTECTED_NAME_RULES')),
@@ -387,10 +394,15 @@ function launcherRules(src) {
 	};
 }
 
-/** Whether those lists refuse `path`: `protectedEntry`, or a lockfile by its name. */
+/** Whether those lists refuse `path`: `protectedEntry` (a source file, or one with no extension,
+ *  beside a protected `.ts` counting as that file), or a lockfile by its name. */
 function refused(L, path) {
+	if (L.locks.includes(path.toLowerCase().split('/').at(-1))) return true;
+	const asTs = L.siblingSource?.test(path) ? path.replace(L.siblingSource, '.ts') : `${path}.ts`;
+	return protectedIn(L, path) || protectedIn(L, asTs);
+}
+function protectedIn(L, path) {
 	const segments = path.toLowerCase().split('/');
-	if (L.locks.includes(segments.at(-1))) return true;
 	return segments.some((name, i) => {
 		const prefix = segments.slice(0, i + 1).join('/');
 		return (
@@ -431,6 +443,11 @@ const tracked = spawnSync('git', ['ls-files', '-z'], {
 });
 /** Every file the repository tracks, as it spells it. */
 const TRACKED = tracked.status === 0 ? tracked.stdout.split('\0').filter(Boolean) : [];
+/** Each tracked file's prefixes in lower case, root first: what the launcher's rules test. */
+const TRACKED_PREFIXES = TRACKED.map((p) => {
+	const segments = p.toLowerCase().split('/');
+	return segments.map((_, i) => segments.slice(0, i + 1).join('/'));
+});
 
 /** Every rule, by id, against the files given; answers the ids that fail. */
 /** Every rule id `problems` has checked, filled as the rules run. */
@@ -856,13 +873,28 @@ export function problems(files) {
 	const bare = (t) => t.toLowerCase().replace(/\/$/, '');
 	const saidAs = (entry) => said.find((t) => bare(t) === entry.toLowerCase());
 	const sample = (t) => t.toLowerCase().replaceAll('*', '');
+	// A path rule's glob in the prompt covers every tracked file the rule refuses, at the prefix it
+	// refuses it by: a glob narrower than the rule passes the sample but leaves a file unsaid.
+	const globs = said.map((t) => globRe(bare(t)));
+	const coversRule = (re) =>
+		TRACKED_PREFIXES.every((prefixes) => {
+			const prefix = prefixes.find((x) => re.test(x));
+			return prefix === undefined || globs.some((g) => g.test(prefix));
+		});
 	rule(
 		'coordinator-protected',
-		[L.paths, L.names, L.nameRules, L.pathRules, L.locks, L.ratchets].every((l) => l.length) &&
+		[L.paths, L.names, L.nameRules, L.pathRules, L.locks, L.ratchets, L.siblingExts, TRACKED].every(
+			(l) => l.length,
+		) &&
 			flatNever.includes('these names, anywhere in the tree') &&
 			[...L.paths, ...L.names, ...L.locks, ...L.ratchets].every((e) => saidAs(e)) &&
 			L.nameRules.every((re) => said.some((t) => re.test(sample(t).split('/').pop()))) &&
-			L.pathRules.every((re) => said.some((t) => re.test(sample(t)))),
+			L.pathRules.every((re) => said.some((t) => re.test(sample(t))) && coversRule(re)) &&
+			// The source files the build would load before a protected `.ts`, each by its extension.
+			flatNever.includes(
+				'or a file of the same name with no extension, beside a protected `.ts` file counts as that file',
+			) &&
+			L.siblingExts.every((e) => said.includes(`.${e}`)),
 	);
 	rule(
 		'coordinator-package-json',
@@ -928,7 +960,9 @@ export function problems(files) {
 		'launcher-patterns',
 		['nameRules', 'pathRules', 'eslintInline'].every((k) =>
 			same(L[k].map(String), LAUNCHER_PATTERNS[k].map(String)),
-		) && same(L.hookPrefixes, LAUNCHER_PATTERNS.hookPrefixes),
+		) &&
+			same(L.hookPrefixes, LAUNCHER_PATTERNS.hookPrefixes) &&
+			String(L.siblingSource) === String(LAUNCHER_PATTERNS.siblingSource),
 	);
 	// The Edit tools are denied what the launcher refuses, so a run learns it at the edit, not after
 	// the spend: every tracked file the lists refuse, and every protected name the prompt gives — at
@@ -1464,7 +1498,7 @@ const MUTANTS = [
 		'coordinator-protected',
 		'change',
 		"\t'apps/launcher-api/drizzle',\n];",
-		"\t'apps/launcher-api/drizzle',\n\t'apps/launcher-api/src/lib/server/bugfixworkflow.ts',\n];",
+		"\t'apps/launcher-api/drizzle',\n\t'apps/launcher-api/src/lib/server/env.ts',\n];",
 	],
 	['coordinator-protected', 'change', "\t'uv.lock',\n];", "\t'uv.lock',\n\t'deno.lock',\n];"],
 	[
@@ -1473,7 +1507,8 @@ const MUTANTS = [
 		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n",
 		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n\t[/^\\.env(?:\\..+)?$/, 'an env file'],\n",
 	],
-	['coordinator-protected', 'change', 'bugfixruns[^/]*\\.ts$/', 'bugfixruns[^/]*\\.mts$/'],
+	['coordinator-protected', 'change', 'bugfix[^/]*\\.ts$/', 'bugfix[^/]*\\.mts$/'],
+	['coordinator-protected', 'change', 'pipeline[^/]*\\.ts$/', 'pipeline[^/]*\\.mts$/'],
 	[
 		'coordinator-protected',
 		'change',
@@ -1488,6 +1523,61 @@ const MUTANTS = [
 		'`docs/knowledge/`',
 	],
 	['coordinator-protected', 'coordinator', '`nixpacks.toml`, `Procfile`, ', '`nixpacks.toml`, '],
+	['coordinator-protected', 'coordinator', ' `apps/launcher-api/src/lib/server/bugFix*.ts`,', ''],
+	// A glob narrower than its rule: the sample still matches, a tracked file goes unsaid.
+	['coordinator-protected', 'coordinator', '/server/bugFix*.ts`', '/server/bugFixRuns*.ts`'],
+	['coordinator-protected', 'coordinator', '/server/pipeline*.ts`', '/server/pipelineMerge*.ts`'],
+	['coordinator-protected', 'coordinator', '`apps/launcher-api/src/lib/server/pipeline*.ts`,', ''],
+	['coordinator-protected', 'coordinator', '`apps/launcher-api/src/lib/bugReports.ts`, ', ''],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'`apps/launcher-api/src/lib/server/concurrency.ts`,',
+		'',
+	],
+	['coordinator-protected', 'coordinator', '`apps/launcher-api/src/lib/server/githubApp.ts`,', ''],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'`apps/launcher-api/src/routes/api/pipeline/`',
+		'`apps/launcher-api/src/routes/api/pipeline/fix-runs/`',
+	],
+	['coordinator-protected', 'coordinator', '`apps/launcher-api/vite.config.js`, ', ''],
+	['coordinator-protected', 'coordinator', ', `apps/launcher-api/svelte.config.js`', ''],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'`apps/launcher-api/scripts/check-pipeline-changes.ts`,',
+		'',
+	],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'`apps/launcher-api/scripts/check-pipeline-games.ts`,',
+		'',
+	],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'`apps/launcher-api/src/lib/server/db/migrate.ts` and ',
+		'',
+	],
+	// A source file beside a protected `.ts`: the sentence, each extension, the launcher's list.
+	['coordinator-protected', 'coordinator', '`.js`, `.mjs`, `.cjs`', '`.js`, `.cjs`'],
+	[
+		'coordinator-protected',
+		'coordinator',
+		'counts as that file: the build may load it',
+		'is a fix like any other',
+	],
+	[
+		'coordinator-protected',
+		'coordinator',
+		', or a file of the same name\n    with no extension,',
+		'',
+	],
+	['coordinator-protected', 'change', 'cts|jsx|tsx)$/i;', 'cts|jsx|tsx|json)$/i;'],
+	['coordinator-protected', 'change', 'const SIBLING_SOURCE = ', 'const SOURCE_SIBLINGS = '],
 	['coordinator-protected', 'coordinator', '\n## Never\n', '\n## Do not\n'],
 	[
 		'coordinator-package-json',
@@ -1583,6 +1673,8 @@ const MUTANTS = [
 	],
 	['launcher-patterns', 'change', '\t/<!--\\s*eslint/i,', '\t/<!--\\s*eslint/,'],
 	['launcher-patterns', 'change', '/^(?:pre|post|pnpm:)/', '/^(?:pre|post|pnpm:|npm:)/'],
+	['launcher-patterns', 'change', 'server\\/bugfix[^/]*\\.ts$/', 'server\\/bug[^/]*\\.ts$/'],
+	['launcher-patterns', 'change', '(?:js|mjs|cjs|mts|', '(?:js|mjs|mts|'],
 	// A list read only in part: a spread, another quote, a regex list with another line, a bundle
 	// entry of another shape.
 	[
@@ -1599,6 +1691,12 @@ const MUTANTS = [
 		"\t[/^eslint\\.config\\./, 'the ESLint config'],\n\t...MORE_RULES,\n",
 	],
 	[
+		'coordinator-protected',
+		'change',
+		'\t[/^apps\\/launcher-api\\/src\\/lib\\/server\\/pipeline[^/]*\\.ts$/, PIPELINE_MODULES],\n',
+		'\t[\n\t\t/^apps\\/launcher-api\\/src\\/lib\\/server\\/pipeline[^/]*\\.ts$/,\n\t\tPIPELINE_MODULES,\n\t],\n',
+	],
+	[
 		'coordinator-vendored',
 		'vendored',
 		"committed: 'static/rig-viewer/vendor/invisible-rig.js' },",
@@ -1611,6 +1709,7 @@ const MUTANTS = [
 		'\t\t\t"Edit(/{{WORKSPACE}}/**/yarn.lock)",\n',
 		'\t\t\t"Edit(/{{WORKSPACE}}/**/yarn.lock)",\n\t\t\t"Edit(/{{WORKSPACE}}/apps/**)",\n',
 	],
+	['deny-mirrors-launcher', 'settings', 'src/lib/bugReports.ts)', 'src/lib/**/bugReports.ts)'],
 	['coordinator-caps', 'change', 'const MAX_FILES = 40;', 'const MAX_FILES = 30;'],
 	[
 		'coordinator-caps',
@@ -1682,14 +1781,52 @@ const MUTANTS = [
 	[
 		'deny-mirrors-launcher',
 		'settings',
+		'src/lib/server/bugFix*.ts',
 		'src/lib/server/bugFixRuns*.ts',
-		'src/lib/server/bugFixRuns.ts',
 	],
+	['deny-mirrors-launcher', 'settings', 'api/pipeline/**', 'api/pipeline/fix-runs/**'],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'\t\t\t"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/pipeline*.ts)",\n',
+		'',
+	],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'\t\t\t"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/bugReports.ts)",\n',
+		'',
+	],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'\t\t\t"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/concurrency.ts)",\n',
+		'',
+	],
+	[
+		'deny-mirrors-launcher',
+		'settings',
+		'\t\t\t"Edit(/{{WORKSPACE}}/apps/launcher-api/src/lib/server/githubApp.ts)",\n',
+		'',
+	],
+	['deny-mirrors-launcher', 'settings', 'server/githubApp.ts)', 'server/githubapp.ts)'],
+	...[
+		'src/lib/server/db/migrate.ts',
+		'vite.config.js',
+		'svelte.config.js',
+		'scripts/check-pipeline-changes.ts',
+		'scripts/check-pipeline-games.ts',
+	].map((p) => [
+		'deny-mirrors-launcher',
+		'settings',
+		`\t\t\t"Edit(/{{WORKSPACE}}/apps/launcher-api/${p})",\n`,
+		'',
+	]),
 	[
 		'deny-mirrors-launcher',
 		'change',
 		"\t'apps/launcher-api/drizzle',\n];",
-		"\t'apps/launcher-api/drizzle',\n\t'apps/launcher-api/src/lib/server/bugfixworkflow.ts',\n];",
+		"\t'apps/launcher-api/drizzle',\n\t'apps/launcher-api/src/lib/server/env.ts',\n];",
 	],
 	['deny-mirrors-launcher', 'change', 'const PROTECTED_NAMES = [', 'const PROTECTED_SEGMENTS = ['],
 ];

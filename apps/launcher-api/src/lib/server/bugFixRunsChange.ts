@@ -194,8 +194,11 @@ export const privateNames = (names: (string | null)[]): string[] => [
  * Paths a run never changes, from the repo root, in lower case — anything at or under one: hooks,
  * the secret scanner, the fix-run harness, the current-games harness, runtime agents and families,
  * the worker's untrusted-text wrapper, knowledge, ADRs, the commit-scope rule, the ratchet
- * machinery, the launcher's own fix-run code, routes and fixtures — and its migrations, which run
- * against production at boot, so a schema change is a person's call.
+ * machinery, the launcher's own fix-run code, routes and fixtures, what they lean on (the bug
+ * vocabulary, the concurrency helpers, the GitHub App every commit and merge goes through), the
+ * Pipeline Changes API that gates, merges and reverts a run's PR and its fixtures, the configs that
+ * decide what an import loads — and the launcher's migrations and their runner, which run against
+ * production at boot, so a schema change is a person's call.
  */
 const PROTECTED_PATHS = [
 	'scripts/git-hooks',
@@ -217,11 +220,19 @@ const PROTECTED_PATHS = [
 	'scripts/agents-knowledge-baseline.json',
 	'scripts/check-agents-knowledge.mjs',
 	'apps/launcher-api/src/lib/bugfixruns.ts',
+	'apps/launcher-api/src/lib/bugreports.ts',
+	'apps/launcher-api/src/lib/server/concurrency.ts',
+	'apps/launcher-api/src/lib/server/db/migrate.ts',
+	'apps/launcher-api/src/lib/server/githubapp.ts',
 	'apps/launcher-api/src/lib/server/githuboidc.ts',
-	'apps/launcher-api/src/routes/api/pipeline/fix-runs',
+	'apps/launcher-api/src/routes/api/pipeline',
 	'apps/launcher-api/src/routes/api/bugs/[number]/fix-runs',
 	'apps/launcher-api/scripts/check-bug-fix-runs.ts',
 	'apps/launcher-api/scripts/check-bug-reports.ts',
+	'apps/launcher-api/scripts/check-pipeline-changes.ts',
+	'apps/launcher-api/scripts/check-pipeline-games.ts',
+	'apps/launcher-api/vite.config.js',
+	'apps/launcher-api/svelte.config.js',
 	'apps/launcher-api/drizzle',
 ];
 /** Names protected wherever they appear as a path segment: CI, agents and editor config, git and
@@ -251,9 +262,17 @@ const PROTECTED_NAME_RULES: [RegExp, string][] = [
 	[/^pipfile(?:\..+)?$/, 'a Pipfile'],
 	[/^eslint\.config\./, 'the ESLint config'],
 ];
+const PIPELINE_MODULES = "Invisible Pipeline Changes' server modules";
+/** Modules directly in the launcher's `server/`, by name (a folder named alike is not one): the
+ *  fix-run ones, and Pipeline Changes' — the console that gates, merges and reverts a run's PR is
+ *  not changed by the run it judges. */
 const PROTECTED_PATH_RULES: [RegExp, string][] = [
-	[/^apps\/launcher-api\/src\/lib\/server\/bugfixruns[^/]*\.ts$/, "the launcher's fix-run modules"],
+	[/^apps\/launcher-api\/src\/lib\/server\/bugfix[^/]*\.ts$/, "the launcher's fix-run modules"],
+	[/^apps\/launcher-api\/src\/lib\/server\/pipeline[^/]*\.ts$/, PIPELINE_MODULES],
 ];
+/** An extensionless import loads a file of that exact name, then `.mjs`, then `.js`, before the
+ *  `.ts` beside it (Vite); the other source extensions are refused alike. */
+const SIBLING_SOURCE = /\.(?:js|mjs|cjs|mts|cts|jsx|tsx)$/i;
 /** A new dependency is a person's call: no lockfile, no workspace file, anywhere. */
 const LOCK_NAMES = ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'pnpm-workspace.yaml'];
 /** Unicode tag characters and bidi controls: text that reads one way and runs another. */
@@ -263,8 +282,14 @@ const PATH_CHARS = /^[\x20-\x7e]+$/;
 
 const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1).toLowerCase();
 
-/** The protected entry `path` is or is under — named by the rule, never by the path — or null. */
+/** The protected entry `path` is or is under — named by the rule, never by the path — or null. A
+ *  source file, or one with no extension, beside a protected `.ts` counts as that file. */
 export function protectedEntry(path: string): string | null {
+	const asTs = SIBLING_SOURCE.test(path) ? path.replace(SIBLING_SOURCE, '.ts') : `${path}.ts`;
+	return entryOf(path) ?? entryOf(asTs);
+}
+
+function entryOf(path: string): string | null {
 	const segments = path.toLowerCase().split('/');
 	for (let i = 1; i <= segments.length; i++) {
 		const prefix = segments.slice(0, i).join('/');
