@@ -45,6 +45,7 @@ import { chooseArtTier, type ArtTier } from './game/artTier';
 import { gameAssetsBase } from './game/assets';
 import { fallbackEditorScenes } from './game/fallbackLayout';
 import type { StockAssetData } from './game/stockAssets';
+import { stockAssetDataOf } from './game/stockAssetData';
 import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
 
 export { fallbackEditorScenes };
@@ -996,52 +997,15 @@ export function rigFxEffectIds(): Set<string> {
 	return ids;
 }
 
-/** Bundle sections the stock-asset walk reads in their own right (the doc, the defs through the
- *  component registry, the config through `getActiveGameConfig`, the symbols), or that only index
- *  the project's own files and text (art, fonts, sounds, localization). Every OTHER section is read
- *  for names, so one added later counts without anyone remembering this list. */
-const STOCK_DATA_READ_ELSEWHERE = new Set([
-	'doc',
-	'componentDefs',
-	'componentVersions',
-	'componentDefaults',
-	'config',
-	'symbols',
-	'effects',
-	'rigFx',
-	'shaderEffects',
-	'editorArt',
-	'fonts',
-	'sounds',
-	'localization',
-	'assetBase',
-	'name',
-]);
-
 /**
- * What the stock-asset filter (`game/stockAssets.ts`) reads before the loader starts: the layout
- * this boot mounts — as `loadEditorScenes` resolves it — and every authored doc it renders from.
- * `undefined` when the boot has no doc yet: a dev or live-doc boot fetches its layout after the
- * loader has its list, so it keeps every stock asset.
+ * What the stock-asset filter (`game/stockAssets.ts`) reads before the loader starts
+ * (`game/stockAssetData.ts`). `undefined` when the boot has no doc yet: a dev or live-doc boot
+ * fetches its layout after the loader has its list, so it keeps every stock asset.
  */
 export function bootStockAssetData(): StockAssetData | undefined {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source?.doc) return undefined;
-	return {
-		doc: normalizeHudScenes(source.doc),
-		symbols: source.symbols as StockAssetData['symbols'],
-		effects: source.effects ?? [],
-		rigFx: source.rigFx ?? {},
-		other: Object.entries(source)
-			.filter(([section]) => !STOCK_DATA_READ_ELSEWHERE.has(section))
-			.map(([, value]) => value),
-		editorArt: source.editorArt,
-		componentDefs: [
-			...Object.values(source.componentDefs ?? {}),
-			...(source.componentVersions ?? []),
-		],
-		artReferences: [source.componentDefaults, source.shaderEffects],
-	};
+	return stockAssetDataOf(source);
 }
 
 /**

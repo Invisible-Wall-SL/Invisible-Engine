@@ -170,11 +170,12 @@ function readDims(rel, text) {
  * @param {string} input.assetsPrefix  where `static/assets/` landed in the build (`assets/`)
  * @param {object | null} input.pull  `pull.json` from `pull-project-assets.mjs`
  * @param {object | null} input.images  `images.json` from the launcher's image pass
+ * @param {object | null} [input.stock]  `stock.json` from the game build (`config-vite` `stockAssetPrune.js`)
  * @param {object | null} input.buildInfo  the build's `build-info.json`
  * @param {object} [input.build]  what the launcher knows about this build (kind, debug, optimize…)
  */
 export function analyzeDesktopBuild(input) {
-	const { texts, bundle, assetsPrefix = 'assets/', pull, images, buildInfo } = input;
+	const { texts, bundle, assetsPrefix = 'assets/', pull, images, stock, buildInfo } = input;
 	const files = [...input.files].sort((a, b) => a.rel.localeCompare(b.rel));
 	const fileSet = new Set(files.map((f) => f.rel));
 	const bytesOf = new Map(files.map((f) => [f.rel, f.bytes]));
@@ -462,6 +463,15 @@ export function analyzeDesktopBuild(input) {
 		'In the project’s deploy/ folder, but nothing in this game loads them, so the build never ' +
 			'downloaded them. Delete them in the Invisible FTP Browser to tidy the project.',
 		pull?.notPulled,
+	);
+	step(
+		'stockArt',
+		'Stock sample art the game never draws',
+		'The engine’s coded sample art (big win, coins, sample symbols, …) that nothing in this ' +
+			'project can reach: the boot would never load it, so the game build left it out' +
+			(stock?.skipped?.length ? ` (${stock.skipped.join(', ')})` : '') +
+			'.',
+		stock?.removed,
 	);
 	step(
 		'pruned',

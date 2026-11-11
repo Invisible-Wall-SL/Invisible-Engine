@@ -14,6 +14,7 @@ import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
 import { lazyChunks } from './lazyChunks.js';
 import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
+import { stockAssetPrune } from './stockAssetPrune.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
 const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
@@ -253,6 +254,7 @@ export default () => {
 			lingui(),
 			lazyChunks(),
 			sentryDebugIds({ enabled: sourcemap() === 'hidden' }),
+			stockAssetPrune(),
 		],
 		logLevel: 'info',
 		define: {
