@@ -3932,12 +3932,12 @@ console.log('element fx — the wiring');
 		(symbol.match(/oncomplete=\{artComplete\}/g) ?? []).length === 3 &&
 			symbol.includes('complete: artComplete,') &&
 			!/oncomplete=\{props\.oncomplete\}|complete: props\.oncomplete/.test(symbol) &&
-			symbol.includes(
-				'const artComplete = $derived(symbolFx ? () => gate.art() : props.oncomplete);',
+			/const artComplete = \$derived\(\s*props\.vacant \? undefined : symbolFx \? \(\) => gate\.art\(\) : props\.oncomplete,\s*\);/.test(
+				symbol,
 			) &&
 			symbol.includes('stateFxGate(waitsForFx, ownArt, () => {') &&
 			symbol.includes('if (visit === gate) props.oncomplete?.();'),
-		'every renderer reports through the gate when the symbol has FX, and straight through when it has none',
+		'every renderer reports through the gate when the symbol has FX, and straight through when it has none (a vacant reel view reports nothing)',
 	);
 	const board = read('apps/lines/src/components/Board.svelte');
 	assert(

@@ -227,6 +227,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Recent changes
 
+- 2026-11-11 — **The CLI proof's Edit control moved off a file the deny list now refuses.**
+  `prove-cli.mjs`'s positive control (a source file a fix run may edit) was
+  `src/lib/bugReports.ts`, which the 2026-11-10 change below added to the Edit deny list, so
+  "positive: Edit may change a source file in the workspace" failed on every proof run since.
+  It now edits `src/lib/server/bugReports.ts`, which no rule refuses (the open item keeps it open
+  on purpose). If that file is ever protected, move the control again.
+
 - 2026-11-10 — **A fix run can no longer change the code that judges, writes or merges it**
   (open item 4's protected-path gap; `bugFixRunsChange.ts`, launcher-studio). The launcher's rule
   covered only `src/lib/server/bugFixRuns*.ts`.

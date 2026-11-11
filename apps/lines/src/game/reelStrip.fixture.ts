@@ -10,6 +10,9 @@
  *     rolling and at rest, a stepped column's window, several pitches and leads.
  *  2. THE PLACER writes `symbolY`'s expression onto every attached container: at once on attach,
  *     on every drawn value, and nothing after release.
+ *  4. THE CULLER answers each watched cell what the per-cell test answers, at once on watch, after
+ *     every measure and after a renumbering re-watch, and WRITES a cell's answer only when it
+ *     changes: a crossing writes to the cells that crossed and to no other.
  *  3. SAME FRAME, ON THE FRAME CLOCK. A reel's laps run on `FrameTweenCore` with the board's
  *     listener attached: at every Pixi tick each container sits at the motion sampled for THAT frame
  *     (what `Tween` samples after the tick, and used to draw a frame later), the cull answers for that
@@ -24,7 +27,7 @@ import {
 	bindFrameClock,
 	frameClockTick,
 } from '../../../../packages/pixi-svelte/src/lib/frameClock.ts';
-import { measureStrip, StripPlacer, type StripWindow } from './reelStrip.ts';
+import { measureStrip, StripCuller, StripPlacer, type StripWindow } from './reelStrip.ts';
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = ''): void => {
@@ -150,6 +153,69 @@ const main = async () => {
 			'a released container is left alone',
 			containers[2].y === before && containers[0].y === cellY(0, 10),
 		);
+	}
+
+	// 4. The culler.
+	{
+		const pitch = 120;
+		const cellY = lattice(pitch, 0.5);
+		const window: StripWindow = { top: 0, bottom: 3 * pitch, halfRow: pitch / 2, rolling: true };
+		const culler = new StripCuller();
+		let writes = 0;
+		let needless = 0;
+		const target = () => {
+			const answer = { inFrame: false, held: false };
+			return new Proxy(answer, {
+				set(obj, key, value) {
+					writes += 1;
+					if (Reflect.get(obj, key) === value) needless += 1;
+					return Reflect.set(obj, key, value);
+				},
+			});
+		};
+		const cells = Array.from({ length: 24 }, (_, i) => ({ symbolIndex: i }));
+		let drawnY = -20 * pitch;
+		culler.measure(measureStrip(cellY, drawnY, window, false));
+		const answers = cells.map(() => target());
+		let releases = cells.map((cell, i) => culler.watch(cell, answers[i]));
+		const agrees = () =>
+			cells.every((cell, i) => {
+				const want = perCell(cellY(cell.symbolIndex, drawnY), window, pitch, false);
+				return answers[i].inFrame === want.inFrame && answers[i].held === want.held;
+			});
+		check('a watched cell is answered the moment it is watched', agrees());
+		let wrong = '';
+		let crossings = 0;
+		let quietWrites = 0;
+		for (let step = 0; step < 400; step++) {
+			const before = answers.map((a) => `${a.inFrame}${a.held}`);
+			const writesBefore = writes;
+			drawnY += 13.7;
+			culler.measure(measureStrip(cellY, drawnY, window, false));
+			if (!wrong && !agrees()) wrong = `drawnY ${drawnY}`;
+			if (answers.some((a, i) => `${a.inFrame}${a.held}` !== before[i])) crossings += 1;
+			else quietWrites += writes - writesBefore;
+		}
+		check('every measure answers every cell as its own test does', !wrong, wrong);
+		check(
+			`a crossing writes only what changed, a quiet frame nothing (${crossings} crossings)`,
+			crossings > 0 && needless === 0 && quietWrites === 0,
+			`${needless} needless writes, ${quietWrites} on quiet frames`,
+		);
+		// The reel renumbers the strip each lap; the board re-watches every renumbered cell.
+		releases.forEach((release) => release());
+		cells.forEach((cell) => (cell.symbolIndex += 10));
+		drawnY = -12 * pitch;
+		culler.measure(measureStrip(cellY, drawnY, window, false));
+		releases = cells.map((cell, i) => culler.watch(cell, answers[i]));
+		check(
+			'a renumbered, re-watched strip is answered as before',
+			agrees() && answers.some((a) => a.inFrame) && answers.some((a) => !a.inFrame),
+		);
+		releases.forEach((release) => release());
+		const writesAfter = writes;
+		culler.measure(measureStrip(cellY, drawnY + 2 * pitch, window, false));
+		check('a released cell is never written again', writes === writesAfter);
 	}
 
 	// 3. On the frame clock: the board draws each frame's own sample, and a relayout moves nothing.

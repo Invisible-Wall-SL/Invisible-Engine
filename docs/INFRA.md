@@ -881,7 +881,6 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 **Invisible Test Server:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 (read), `TEST_SERVER_SECRET` (gates `POST /refresh`, taken as the `x-test-server-secret` header or
 `?secret=`; the launcher and the runtime-release Actions hold it too), `CASCADE_GAMES`,
-`PARTNER_WIRE_GAMES` (game keys whose mock speaks the partner's collector-respin wire),
 `CONTRACT_TIMEOUT_MS`, `CONTRACT_TTL_MS` (optional), `TEST_SERVER_LOCAL` (local dev only). See
 [tools/test-server](tools/test-server.md).
 
@@ -919,6 +918,10 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 >   to boot. Defaults to `sid`.
 > - The game must be launched with a runtime bundle that carries the matching profile
 >   (`PUBLIC_DELIVERY_PROFILES`, see `docs/design/delivery-builds.md`).
+> - **Per project:** a project's partner game ID (and profile / alias) is set on its Game Maker
+>   card (**Partner…**, stored in `projects.partner_launch`), which then shows ▶ Partner and
+>   ▶ Partner page. `/api/partner-session?key=<gameKey>` alone uses it: query beats the stored
+>   setting, which beats the only profile here and its `gameId`.
 > - **Testing a DELIVERY on the partner's own page:** add `&on=partner` (and `&game=<their game id>`
 >   when it differs from `gameId`) to the launch link. It mints a session the same way and then
 >   redirects to the `game_url` the partner's create-session answers with, which is their page

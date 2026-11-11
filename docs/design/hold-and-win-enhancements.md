@@ -245,8 +245,8 @@ then run in parallel (14b against 14a's fixture, 14d against the capture), and 1
 
 **14d as built (2026-11-09):** the §3.1–§3.4 fields are not Game Config fields. They live as
 `DEFAULT_PARTNER_PACING` in `scripts/mock-rgs-server-holdandwin-partner.mjs`, a mock of its own
-that speaks the partner's wire and is selected per game by `PARTNER_WIRE_GAMES` on the test
-server. Our own Hold and Win mock and its presets are unchanged. Details:
+that speaks the partner's wire. The test server deals a game with it when its Game Config carries
+`holdAndWin.enhancements` (since 2026-11-11; it was the `PARTNER_WIRE_GAMES` env var before). Our own Hold and Win mock and its presets are unchanged. Details:
 [status](../status/hold-and-win.md).
 
 **14c as built (2026-11-09):** the per-mode strip swap is a presentation field on the bet mode,

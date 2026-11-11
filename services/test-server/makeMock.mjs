@@ -85,17 +85,16 @@ const CASCADE_GAMES = new Set(
 		.filter(Boolean),
 );
 /**
- * Games whose mock speaks the PARTNER'S collector-respin wire instead of ours, as a comma-separated
- * list of game keys (`PARTNER_WIRE_GAMES=gettinghot`): `mock-rgs-server-holdandwin-partner.mjs`,
- * the shapes of docs/reference/play4fun-collector-respin-capture.md (Hold and Win Phase 14, 14d).
- * Per game, because this one process serves every game; no key here changes any other game's mock.
+ * Is this the PARTNER'S collector-respin game? Its Game Config marks it: a Hold and Win block whose
+ * server draws the entry enhancements (`holdAndWin.enhancements`, Game Maker's "Lines + collector
+ * enhancements"), which rides in the contract's `holdAndWin.block`. Such a game is dealt by
+ * `mock-rgs-server-holdandwin-partner.mjs`, the shapes of
+ * docs/reference/play4fun-collector-respin-capture.md (Hold and Win Phase 14, 14d): the partner owns
+ * its math, so the mock deals the partner's game and none of the project's own block. Our Hold and
+ * Win mock never draws an enhancement, so it could not show one.
  */
-const PARTNER_WIRE_GAMES = new Set(
-	(process.env.PARTNER_WIRE_GAMES ?? '')
-		.split(',')
-		.map((s) => s.trim())
-		.filter(Boolean),
-);
+const isPartnerCollectorGame = (protocol, grid) =>
+	protocol === 'lines' && grid?.holdAndWin?.block?.enhancements === true;
 /**
  * Does this game tumble, and WHY? The project's OWN authored answer wins (`cascade` in its manifest
  * entry, synced from its Game Config at publish), then the protocol default, then the env override.
@@ -260,7 +259,7 @@ export const makeMock = (
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
 	const sells = sellsTable({ runtime, tableCapable });
 	// Forcing a beat is an authoring tool, as on our own Hold and Win mock.
-	if (PARTNER_WIRE_GAMES.has(gameKey))
+	if (isPartnerCollectorGame(protocol, grid))
 		return createHoldAndWinPartnerMock({ label, allowForce: twin || !runtime });
 	// A Hold and Win game: a lines contract carrying the base-game Hold and Win inputs (the launcher
 	// sends them for a `holdAndWin`-kind project, with its coin overlay's `potsOverlay` when one

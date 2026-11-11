@@ -20,6 +20,7 @@
 	import { bakedSymbolFx } from '../editor-scenes';
 	import { stateFxGate } from '../game/stateFxGate';
 	import { symbolStateFx } from '../game/symbolStateFx';
+	import { artKept, artRestart, bandKey } from '../game/reelViewPool';
 
 	type Props = {
 		x?: number;
@@ -85,13 +86,20 @@
 		 *  board, not a symbol in the air. */
 		inFlight?: boolean;
 		/**
-		 * Which cell a POOLED view is drawing (`ReelPaddingPool` → `ReelSymbol`). The view outlives the
-		 * cells it is handed, so everything inside the bands is keyed on it and starts again for each
-		 * cell — a rig on frame 0, a state's Element FX and its beat gate fresh — exactly as a newly
-		 * mounted symbol would; only the band containers themselves are kept. Omitted everywhere else,
-		 * where the key never changes.
+		 * Which entry a reel view is drawing (`SymbolWrap` → `ReelSymbol`): a new number each time the
+		 * view starts drawing a cell. The view outlives the cells it is handed, so each band that draws
+		 * something is keyed on it and starts again per entry — a rig on frame 0, a state's Element FX
+		 * and its beat gate fresh — exactly as a newly mounted symbol would; a bound sprite is handed
+		 * the new cell's texture instead, and the band containers themselves are kept
+		 * (`game/reelViewPool.ts`). Omitted everywhere else, where no band ever restarts.
 		 */
 		instanceKey?: number;
+		/** Set by a reel view only: it draws nothing for now (no cell, out of the window, or no token
+		 *  to ride), and reports nothing. Anything it drew is let go, as the cell's own component was. */
+		vacant?: boolean;
+		/** While `vacant`, keep a bound sprite for the next entry to rebind. Only for a symbol the
+		 *  caller hides while it is vacant. */
+		keepSprite?: boolean;
 	};
 
 	const props: Props = $props();
@@ -168,7 +176,8 @@
 	 * the token flying out of it.
 	 */
 	const showWinFrame = $derived(
-		hasArt &&
+		!props.vacant &&
+			hasArt &&
 			!props.inFlight &&
 			(WIN_HIGHLIGHT_SYMBOL_STATES as readonly string[]).includes(props.state) &&
 			props.rawSymbol.name !== 'M',
@@ -213,7 +222,7 @@
 	 * at all. Layers DECORATE a bound cell; they never stand in for one.
 	 */
 	const layers: SymbolLayerSpec[] = $derived(
-		symbolInfo.missingArt ? [] : (symbolInfo.layers ?? []),
+		symbolInfo.missingArt || props.vacant ? [] : (symbolInfo.layers ?? []),
 	);
 	const behindLayers = $derived(layers.filter((layer) => layer.behind === true));
 	const overLayers = $derived(layers.filter((layer) => layer.behind !== true));
@@ -242,11 +251,14 @@
 	 * The state's beat waits for its `enter` entries that end (`stateFxGate`): the art's completion
 	 * is held until they have played out, so a Land shake is not ended by a still picture completing
 	 * on its first frame, and a state with no art of its own is paced by them alone. One gate per
-	 * visit of a state; a gate the symbol has moved on from reports nothing.
+	 * visit of a state, and per entry of a reel view, as a new mount had; a gate the symbol has moved
+	 * on from reports nothing.
 	 */
 	const symbolFx = $derived(props.frozen ? undefined : bakedSymbolFx()[props.rawSymbol.name]);
 	const stateFx = $derived(
-		symbolFx && !props.held ? symbolStateFx(props.rawSymbol.name, props.state) : [],
+		symbolFx && !props.held && !props.vacant
+			? symbolStateFx(props.rawSymbol.name, props.state)
+			: [],
 	);
 	const waitsForFx = $derived(stateFx.some(elementFxEnterEnds));
 	const ownArt = $derived(
@@ -260,13 +272,27 @@
 		});
 		return visit;
 	});
-	const artComplete = $derived(symbolFx ? () => gate.art() : props.oncomplete);
+	const artComplete = $derived(
+		props.vacant ? undefined : symbolFx ? () => gate.art() : props.oncomplete,
+	);
 
 	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
 	 *  rig/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
 	 *  change updates in place. Position alone would reuse a rig renderer for a sprite layer. */
 	const layerKey = (layer: SymbolLayerSpec, i: number): string =>
 		`${i}:${layer.kind}:${layer.assetKey ?? layer.clipId ?? layer.effectId ?? ''}`;
+
+	/** Each band's `{#key}` (`bandKey`): constant unless a reel view starts drawing a new entry. */
+	const view = $derived(props.vacant !== undefined);
+	const restartWhen = (draws: unknown) =>
+		bandKey(view, props.instanceKey, draws && !props.vacant ? 'remount' : 'none');
+	const artRestarts = $derived(
+		artRestart({ hasArt, type: symbolInfo.type, placeholder: placeholder !== undefined }),
+	);
+	const keepsArt = $derived(artKept(artRestarts, props.vacant, props.keepSprite));
+	const artKey = $derived(bandKey(view, props.instanceKey, keepsArt ? artRestarts : 'none'));
+	const multiplier = $derived(props.vacant ? undefined : props.rawSymbol.multiplier);
+	const drawsLabel = $derived(!props.vacant && !!coinLabel && !props.inFlight);
 </script>
 
 <!--
@@ -284,7 +310,7 @@
 {#if symbolFx}
 	<Container>
 		{@render bands()}
-		{#key props.instanceKey}
+		{#key restartWhen(stateFx.length)}
 			{#key props.state}
 				{#if stateFx.length}
 					<ElementFxPlayer entries={stateFx} ondone={gate.fx} />
@@ -298,7 +324,7 @@
 
 {#snippet bands()}
 	<Container>
-		{#key props.instanceKey}
+		{#key restartWhen(behindLayers.length)}
 			{#each behindLayers as layer, i (layerKey(layer, i))}
 				<SymbolLayer
 					{layer}
@@ -312,8 +338,10 @@
 	</Container>
 
 	<Container tint={props.tint}>
-		{#key props.instanceKey}
-			{#if !hasArt}
+		{#key artKey}
+			{#if !keepsArt}
+				<!-- A vacant view: nothing. -->
+			{:else if !hasArt}
 				{#if placeholder}
 					<SymbolPlaceholder
 						look={placeholder}
@@ -334,7 +362,13 @@
 					oncomplete={artComplete}
 				/>
 			{:else if isSprite}
-				<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={artComplete} />
+				<SymbolSprite
+					{symbolInfo}
+					x={props.x}
+					y={props.y}
+					restart={props.instanceKey}
+					oncomplete={artComplete}
+				/>
 			{:else}
 				<SymbolRigMain
 					{loop}
@@ -354,7 +388,7 @@
 	</Container>
 
 	<Container>
-		{#key props.instanceKey}
+		{#key restartWhen(overLayers.length)}
 			{#each overLayers as layer, i (layerKey(layer, i))}
 				<SymbolLayer
 					{layer}
@@ -368,17 +402,17 @@
 	</Container>
 
 	<Container tint={props.tint}>
-		{#key props.instanceKey}
+		{#key restartWhen(showWinFrame || multiplier)}
 			{#if showWinFrame}
 				<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
 			{/if}
 
-			{#if props.rawSymbol.multiplier}
+			{#if multiplier}
 				<BitmapText
 					anchor={0.5}
 					x={props.x}
 					y={props.y}
-					text={`${props.rawSymbol.multiplier}X`}
+					text={`${multiplier}X`}
 					style={{
 						fontFamily: 'gold',
 						fontSize: 50,
@@ -389,8 +423,8 @@
 	</Container>
 
 	<Container tint={props.tint}>
-		{#key props.instanceKey}
-			{#if coinLabel && !props.inFlight}
+		{#key restartWhen(drawsLabel)}
+			{#if drawsLabel && coinLabel}
 				<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
 			{/if}
 		{/key}

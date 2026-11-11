@@ -6,9 +6,10 @@
  * reel's DRAWN position (`createReelForSpinning`'s `strip`, stepped before the Pixi tick) is handed
  * to the view as it is made, and the view
  *  - writes each attached cell container's `y` itself (`StripPlacer`, `symbolY`'s expression), and
- *  - turns the position into index thresholds (`measureStrip`) and writes them to `$state` only when
- *    they change, so a cell's mount, cull and hold re-run on the frames a cell crosses an edge and
- *    on no other.
+ *  - turns the position into index thresholds (`measureStrip`) and, for each watched cell, writes
+ *    its cull and hold to that cell's own `$state` ({@link StripCull}) only when they change, so a
+ *    cell's mount, cull and hold re-run on the frames THAT cell crosses an edge and on no other: a
+ *    crossing marks nothing in the cells that did not cross.
  * Flat boards only: under perspective a cell's seat is not the strip's lattice, and those cells keep
  * the reactive path (`symbolY()`).
  */
@@ -17,19 +18,24 @@ import { untrack } from 'svelte';
 
 import {
 	measureStrip,
+	StripCuller,
 	StripPlacer,
-	type StripMeasure,
+	type CullTarget,
 	type StripSource,
 	type StripWindow,
 } from './reelStrip';
 
+/** One cell's cull as its reel's strip view answers it (`StripCuller`), as `$state`. */
+export class StripCull implements CullTarget {
+	inFrame = $state(false);
+	held = $state(false);
+}
+
 export class ReelStripView {
-	lo = $state(0);
-	hi = $state(-1);
-	heldFrom = $state(-Infinity);
-	margin = $state(0);
+	/** From this index on, a cell's row has touched the top edge (`ReelPaddingPool`'s entry). */
 	enteredFrom = $state(0);
 
+	readonly #culler = new StripCuller();
 	readonly #source: StripSource;
 	readonly #animate: boolean;
 	readonly #window: () => StripWindow;
@@ -43,14 +49,9 @@ export class ReelStripView {
 		untrack(() => this.#measure(source.drawnY(), window()));
 	}
 
-	/** Strip index `index` is in the window. */
-	contains(index: number): boolean {
-		return index >= this.lo && index <= this.hi;
-	}
-
-	/** Strip index `index` is drawn before its centre reaches the window. */
-	holds(index: number): boolean {
-		return this.margin > 0 && index < this.heldFrom;
+	/** Answer `cell`'s cull into `cull`, now and on every drawn value; returns the release. */
+	watch(cell: { symbolIndex: number }, cull: StripCull): () => void {
+		return untrack(() => this.#culler.watch(cell, cull));
 	}
 
 	/**
@@ -80,11 +81,8 @@ export class ReelStripView {
 	}
 
 	#measure(drawnY: number, window: StripWindow): void {
-		const next: StripMeasure = measureStrip(this.#source.cellY, drawnY, window, this.#animate);
-		if (this.margin !== next.margin) this.margin = next.margin;
-		if (this.lo !== next.lo) this.lo = next.lo;
-		if (this.hi !== next.hi) this.hi = next.hi;
-		if (this.heldFrom !== next.heldFrom) this.heldFrom = next.heldFrom;
+		const next = measureStrip(this.#source.cellY, drawnY, window, this.#animate);
 		if (this.enteredFrom !== next.enteredFrom) this.enteredFrom = next.enteredFrom;
+		this.#culler.measure(next);
 	}
 }

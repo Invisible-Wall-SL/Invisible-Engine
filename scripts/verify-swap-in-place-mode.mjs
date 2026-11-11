@@ -1786,9 +1786,13 @@ const TILE = { key: 'ground::tile', fallbackKey: 'tile' };
 		baseComponent.includes('stateTumble.active') && baseComponent.includes('tumbleBoardCombined()'),
 		true,
 	);
+	// Flat, by a VIEW that follows its cell for as long as the cell is in the strip
+	// (`createBoardViews`; `apps/lines/src/game/reelViewPool.fixture.ts` steps a cascade through it:
+	// survivors keep their views, refills take free ones) — identity all the same.
 	check(
-		'...keyed by the cell itself, flat and under perspective alike',
-		baseComponent.includes('{#each column as reelSymbol, row (reelSymbol)}') &&
+		'...keyed by the cell itself under perspective, by a view following its cell flat',
+		baseComponent.includes('{#each views as view (view.id)}') &&
+			baseComponent.includes('createBoardViews') &&
 			baseComponent.includes('{#each rowOrder as seat (seat.reelSymbol)}'),
 		true,
 	);
