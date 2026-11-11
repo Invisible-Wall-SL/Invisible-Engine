@@ -3,6 +3,7 @@
 	import {
 		appliedRenderOptions,
 		instrumentApp,
+		perfProbe,
 		renderQualitySnapshot,
 		renderSwitches,
 		renderTier,
@@ -20,7 +21,13 @@
 		type PerfSnapshot,
 		type WorkSnapshot,
 	} from '../game/perfStats';
-	import { SPIKE_CAUSES, stateLabel, topCause, type SpikeCauseCounts } from '../game/perfSpikes';
+	import {
+		PERF_PHASES,
+		SPIKE_CAUSES,
+		stateLabel,
+		topCause,
+		type SpikeCauseCounts,
+	} from '../game/perfSpikes';
 	import { stateApp } from '../game/stateApp';
 	import { stateGame } from '../game/stateGame.svelte';
 	import { stateXstate } from '../game/stateXstate';
@@ -35,7 +42,9 @@
 	 * `?perfgpu=1` also waits for the GPU after every frame to time it, which stalls the pipeline:
 	 * read it on its own, never with fps. Each spike (a frame over max(33 ms, 2.5 display frames))
 	 * is recorded with what its frames did and a likely cause (`perfSpikes.ts`); `?particles=off`
-	 * turns every particle off for an A/B read.
+	 * turns every particle off for an A/B read. Frames are read in three phases: idle, spinning,
+	 * and a round's frames with the reels at rest (`round`: wins, features, banners); each reports
+	 * what it built and threw away (`pixi-svelte` `churnProbe.ts`).
 	 */
 
 	const query = new URLSearchParams(location.search);
@@ -101,11 +110,15 @@
 			observer.observe({ type: 'longtask' });
 		}
 		timer = setInterval(refresh, 500);
-		// JSON text: a script reads it over CDP, which cannot serialise Svelte's state proxies.
-		// `'reset'` is the Reset button, for a script that measures from a moment of its own.
-		window.__IE_PERF__ = (action?: 'reset') => {
+		// JSON text: a script reads it over CDP, which cannot serialise Svelte's state proxies. It
+		// reads every frame up to the call. `'reset'` is the Reset button, for a script that measures
+		// from a moment of its own; `'take'` reads, then resets, so a script can read a moment in
+		// slices without losing a frame between them.
+		window.__IE_PERF__ = (action?: 'reset' | 'take') => {
 			if (action === 'reset') reset();
-			return snapshot ? JSON.stringify(report(snapshot)) : undefined;
+			const text = JSON.stringify(report(stats.snapshot()));
+			if (action === 'take') reset();
+			return text;
 		};
 	});
 	onDestroy(() => {
@@ -160,7 +173,7 @@
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
 		const now = renderQualitySnapshot();
 		return {
-			perf: 4,
+			perf: 5,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
 			tier: now?.mode ?? renderTier(),
@@ -178,8 +191,10 @@
 			seconds: s.seconds,
 			idle: bucket(s.idle),
 			spinning: bucket(s.spinning),
+			round: bucket(s.round),
 			reelStepErrorPx: s.reel,
 			work: s.work,
+			churnApis: { builds: perfProbe.countsBuilds },
 			spikeOverMs: s.spikes.overMs,
 			spikeApis: { longtask: longTasks, heap: heapReported },
 			spikeCauses: s.spikes.causes,
@@ -256,6 +271,28 @@
 		rigMs: 'rig update ms',
 		rigSyncMs: 'rig mesh ms',
 		rigs: 'rig updates',
+		created: 'objects built',
+		createdContainers: '…containers',
+		createdSprites: '…sprites',
+		createdParticles: '…particle sprites',
+		createdTexts: '…texts',
+		createdGraphics: '…graphics',
+		createdMeshes: '…meshes',
+		createdOther: '…other views',
+		destroyed: 'objects destroyed',
+		destroyedContainers: '…containers',
+		destroyedSprites: '…sprites',
+		destroyedParticles: '…particle sprites',
+		destroyedTexts: '…texts',
+		destroyedGraphics: '…graphics',
+		destroyedMeshes: '…meshes',
+		destroyedOther: '…other views',
+		rigsBuilt: 'rigs built',
+		rigsDestroyed: 'rigs destroyed',
+		textRenders: 'text renders',
+		textMs: 'text render ms',
+		domAdded: 'DOM nodes added',
+		domRemoved: 'DOM nodes removed',
 	};
 	const cell = (w: WorkSnapshot, key: (typeof WORK_KEYS)[number]) => {
 		const v = w.perFrame[key];
@@ -268,12 +305,12 @@
 			.join(', ');
 	const total = (counts: SpikeCauseCounts) =>
 		Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0);
+	const PHASE_NAMES = { idle: 'idle', spinning: 'spin', round: 'round' } as const;
 	const spikesLine = (s: PerfSnapshot) => {
-		const { idle, spinning: spin } = s.spikes.causes;
-		const parts = [
-			...(total(idle) ? [`idle ${total(idle)}: ${causeList(idle)}`] : []),
-			...(total(spin) ? [`spin ${total(spin)}: ${causeList(spin)}`] : []),
-		];
+		const parts = PERF_PHASES.flatMap((phase) => {
+			const counts = s.spikes.causes[phase];
+			return total(counts) ? [`${PHASE_NAMES[phase]} ${total(counts)}: ${causeList(counts)}`] : [];
+		});
 		return `over ${s.spikes.overMs} ms · ${parts.length ? parts.join(' · ') : 'none'}`;
 	};
 	const attrs = (i: RendererInfo) => {
@@ -310,6 +347,11 @@
 					hitches &gt;33/50/100 ms: {snapshot.spinning.hitches[33]}/{snapshot.spinning
 						.hitches[50]}/{snapshot.spinning.hitches[100]}
 				</div>
+				<div><b>round</b> {line(snapshot.round)}</div>
+				<div>
+					hitches &gt;33/50/100 ms: {snapshot.round.hitches[33]}/{snapshot.round
+						.hitches[50]}/{snapshot.round.hitches[100]}
+				</div>
 				<div>
 					<b>reel step error</b> mean {snapshot.reel.mean} · p95 {snapshot.reel.p95} · max {snapshot
 						.reel.max} px ({snapshot.reel.steps} steps)
@@ -331,15 +373,16 @@
 				{/if}
 				<table>
 					<thead>
-						<tr><th>per frame, mean / max</th><th>idle</th><th>spin</th></tr>
+						<tr><th>per frame, mean / max</th><th>idle</th><th>spin</th><th>round</th></tr>
 					</thead>
 					<tbody>
 						{#each WORK_KEYS as key (key)}
-							{#if snapshot.work.idle.perFrame[key] || snapshot.work.spinning.perFrame[key]}
+							{#if PERF_PHASES.some((phase) => snapshot?.work[phase].perFrame[key])}
 								<tr>
 									<td>{LABELS[key]}</td>
 									<td>{cell(snapshot.work.idle, key)}</td>
 									<td>{cell(snapshot.work.spinning, key)}</td>
+									<td>{cell(snapshot.work.round, key)}</td>
 								</tr>
 							{/if}
 						{/each}

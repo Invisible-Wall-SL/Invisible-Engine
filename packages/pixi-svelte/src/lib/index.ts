@@ -28,9 +28,10 @@ export * from './renderQuality';
 export * from './textureResidency';
 // Back buffer, MSAA and an opaque canvas, decided before the context exists; the test switches.
 export * from './renderOptions';
-// `?perf=1`'s per-frame GL counts, and what the particles and rigs did in each frame.
+// `?perf=1`'s per-frame GL counts, what the particles and rigs did in each frame, and what it built.
 export * from './glCounters';
 export * from './perfProbe';
+export * from './churnProbe';
 // The loader's last step: upload every texture and compile every program a game will draw with.
 export * from './gpuWarmup';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).
