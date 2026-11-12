@@ -373,6 +373,8 @@ const STALE_TAB_GUARDS = [
 	'fonts/swap',
 	'fx/save',
 	'rigger/backups',
+	'rigger/import',
+	'rigger/import/finish',
 	'rigger/save',
 	'rigger/text',
 	'shaders/backups',

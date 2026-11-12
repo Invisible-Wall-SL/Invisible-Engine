@@ -47,7 +47,7 @@ export async function resolveRigSkeletonBody(rigId: string): Promise<Record<stri
 	if (!skel || typeof skel !== 'object' || Array.isArray(skel)) {
 		throw error(500, 'saved rig has no skeleton');
 	}
-	const cloned = asIrig(JSON.parse(JSON.stringify(skel)) as Record<string, unknown>);
+	const cloned = asIrigOrSpine42(JSON.parse(JSON.stringify(skel)) as Record<string, unknown>);
 	const problem = irigDocProblem(cloned);
 	if (problem) {
 		throw error(422, `The saved rig "${id}" would not load (${problem}), so no rig was created.`);
@@ -55,7 +55,11 @@ export async function resolveRigSkeletonBody(rigId: string): Promise<Record<stri
 	return cloned;
 }
 
-function asIrig(skel: Record<string, unknown>): Record<string, unknown> {
+/**
+ * A 4.2 skeleton as irig v1 when the import changes no value, else the 4.2 skeleton with its
+ * version forced to 4.2 so it loads as it always has.
+ */
+export function asIrigOrSpine42(skel: Record<string, unknown>): Record<string, unknown> {
 	const irig = asIrigDocument(skel);
 	if (irig) return irig;
 	const skelBlock = (skel.skeleton ?? {}) as Record<string, unknown>;

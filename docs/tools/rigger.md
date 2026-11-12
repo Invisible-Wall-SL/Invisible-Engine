@@ -792,7 +792,16 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
      regions), then re-point each slot from its **image** dropdown; **or**
    - use **or upload images** to select PNG/WebP/JPEG files — the browser packs
      them onto one page and uploads it as a new bundle (region names come from the
-     filenames).
+     filenames); **or**
+   - use **or import an exported rig** to bring in a rig made elsewhere: pick its
+     skeleton (`.json`, 4.0 or later — or an `.irig` downloaded with ⤓ .irig), its
+     `.atlas` (`.atlas.txt` works too) and every page image the atlas names, all in
+     one go. The rig is named from the name box, or from the skeleton's file name
+     when that is empty, and is saved as `.irig` with the atlas and pages beside it.
+     It is checked before anything uploads: a binary `.skel`, a 3.x export, a missing
+     page or a skeleton that would not load is refused with the reason. A status line
+     says when the rig was kept as 4.2 (converting it would have changed a value) and
+     how many images the skeleton names that the atlas lacks.
 2. The new rig opens in Setup mode. Add bones / slots / skins, **attach** images
    from the loaded atlas to slots (then place or convert them to meshes), paint
    weights, and animate. (If you applied a saved rig, the bones + animations are
