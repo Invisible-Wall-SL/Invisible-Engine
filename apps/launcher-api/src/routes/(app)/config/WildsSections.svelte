@@ -106,6 +106,12 @@
 
 {#if expanding && (offered || expandingBlock)}
 	<ConfigSection id="expandingWilds" title="Expanding wilds">
+		{#snippet info()}
+			<p>
+				A wild that fills its whole reel when it lands, before any win is counted. Which reels it
+				lands on is set by the reel strips.
+			</p>
+		{/snippet}
 		{#if !offered}
 			<p class="hint">
 				This config has expanding wilds, which this game cannot use: they need a lines game that
@@ -115,10 +121,6 @@
 				>
 			</p>
 		{:else}
-			<p class="hint">
-				A wild that fills its whole reel when it lands, before any win is counted. Which reels it
-				lands on is set by the reel strips.
-			</p>
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row">
 					<label
@@ -188,6 +190,12 @@
 
 {#if growing && (offered || growingBlock)}
 	<ConfigSection id="growingWild" title="Growing wild">
+		{#snippet info()}
+			<p>
+				A wild that copies itself onto the cells around it when it lands, after any wild has
+				expanded and before any win is counted. It never covers a scatter or a Hold and Win symbol.
+			</p>
+		{/snippet}
 		{#if !offered}
 			<p class="hint">
 				This config has a growing wild, which this game cannot use: it needs a lines game that does
@@ -197,10 +205,6 @@
 				>
 			</p>
 		{:else}
-			<p class="hint">
-				A wild that copies itself onto the cells around it when it lands, after any wild has
-				expanded and before any win is counted. It never covers a scatter or a Hold and Win symbol.
-			</p>
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row">
 					<label

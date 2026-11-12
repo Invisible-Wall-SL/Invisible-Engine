@@ -78,6 +78,7 @@
 	import CoinBoardSection from './CoinBoardSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import ConfigSection from './ConfigSection.svelte';
+	import InfoTip from './InfoTip.svelte';
 	import FamilySection from './FamilySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import WildsSections from './WildsSections.svelte';
@@ -1699,11 +1700,11 @@
 					{/if}
 				{/snippet}
 				{#if family === 'slot'}
-					<p class="hint">
+					<InfoTip label="Stepped boards">
 						Give the reels <strong>different row counts</strong> for a stepped board — a
 						<code>3/4/5/4/3</code> diamond, or a pyramid. The game draws each column at its own height,
 						the server deals it that way, and a payline can only name a row its reel actually has.
-					</p>
+					</InfoTip>
 				{/if}
 				<div class="fields">
 					<label
@@ -1749,11 +1750,11 @@
 								</select></label
 							>
 						</div>
-						<p class="hint">
+						<InfoTip label="Alignment">
 							Only the reels shorter than the tallest move. <strong>Centred</strong> gives the
 							classic diamond — a 4-row reel beside a 5-row one sits half a cell down.
 							<strong>Bottom-aligned</strong> stands the board on a flat floor.
-						</p>
+						</InfoTip>
 					{/if}
 				{/if}
 				{#if gridMismatch}
@@ -2199,23 +2200,23 @@
 						<button onclick={() => openServerImport()} disabled={!data.serverGameKeys.length}>
 							Import paytable from server
 						</button>
-						<span class="hint-inline">
+						<InfoTip>
 							{#if data.serverGameKeys.length}
 								Reads what <code>{data.serverGameKeys[0]}</code>'s server pays and shows the
 								difference before anything changes.
 							{:else}
 								Publish the game first — there is no game server to read for this project yet.
 							{/if}
-						</span>
+						</InfoTip>
 					</div>
 					<div class="server-import">
 						<button onclick={() => ((pasteError = ''), (pasteOpen = true))}>
 							Import from a pasted capture
 						</button>
-						<span class="hint-inline">
+						<InfoTip>
 							For a partner server the launcher can't reach: paste the <code>config</code> response captured
 							in a browser on the partner's game. It also becomes the reference Publish checks against.
-						</span>
+						</InfoTip>
 					</div>
 					{#if snapshot.partnerPaytable}
 						<p class="import-note partner-ref">
@@ -2461,7 +2462,7 @@
 							</select></label
 						>
 					</div>
-					<p class="hint">
+					<InfoTip label="Tumble">
 						<strong>Tumble (cascade)</strong> removes the symbols that just paid and drops the ones
 						above them into the gap, refilling from the top — then pays again on the new board. It
 						follows the win model unless you change it here: <strong>cluster</strong> and
@@ -2475,7 +2476,7 @@
 						{/if}
 						Symbols play their <strong>Explosion</strong> state from the Symbols tool as they leave —
 						a project that hasn't authored one will see them simply vanish.
-					</p>
+					</InfoTip>
 					{#if winModelLinesOnly}
 						<p class="hint">
 							A Hold and Win base game pays by lines.
@@ -2488,11 +2489,11 @@
 							{/if}
 						</p>
 					{:else if winModelType !== 'lines'}
-						<p class="hint muted-note">
+						<InfoTip label="Other win models">
 							Every win model is honoured end to end — the test server scores the board by this
 							model, and the client's payline-specific surfaces stand down for it. Republish after
 							changing it: the model reaches the test server's mock RGS only through a publish.
-						</p>
+						</InfoTip>
 					{/if}
 					{#each issuesFor('winModel') as issue (issue.path + issue.message)}
 						<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
@@ -2591,19 +2592,19 @@
 						trigger symbol, or turn free spins off.
 					{/if}
 				</p>
-				<p class="hint muted-note">
+				<InfoTip label="When a change reaches the game">
 					Whether free spins happen is decided here and by the game server — the Flow's free-spin
 					chain only presents them. The test server reads this from the game's config, so to try a
 					change save, then reload <strong>Live ↗</strong>; players get it at the next
 					<strong>Publish</strong>.
-				</p>
-				<p class="hint">
+				</InfoTip>
+				<InfoTip label="Partner-server games">
 					<strong>A game played against a partner server</strong> (Play4Fun, e.g. a Book-of game on the
 					partner's Book of Thermopylae) is not dealt by these settings: the partner's own math decides
 					its free spins. Here they change only the game's rules page and the Invisible Test Server —
 					so on such a game, set them to match the partner's rules or the rules page will say something
 					the game does not do.
-				</p>
+				</InfoTip>
 				{#each freeSpinsIssues as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
@@ -2682,7 +2683,7 @@
 								</tbody>
 							</table>
 						</div>
-						<p class="hint">
+						<InfoTip label="How it plays">
 							When free spins start, one symbol is drawn by its weight
 							{#if expandingRule}(<strong>{expandingRule}</strong>){/if}. On each free spin, once it
 							covers that many reels it fills them and pays on every line, then the other symbols
@@ -2690,7 +2691,7 @@
 							<em>scatter</em> and <em>wild</em> — is the usual trigger;
 							<strong>Reset to preset → Book of Thermopylae</strong> at the top starts a whole game from
 							the captured one.
-						</p>
+						</InfoTip>
 					{:else}
 						<p class="hint">
 							No symbol can be the expanding symbol: it must be on the reel strips, have a line
@@ -2816,7 +2817,7 @@
 						disabled={lease.readOnly}
 					/><span>Swap symbols in place — no spinning reels</span></label
 				>
-				<p class="hint">
+				<InfoTip label="Swap in place">
 					The board does not roll. <strong>How</strong> the new symbols arrive is the swap style
 					below — they can fall in from above, sweep in column by column, or not travel at all and
 					simply surface where they stand. With this on, the reel-shaped behaviours stand down
@@ -2825,7 +2826,7 @@
 					<strong>sequential reel stop</strong>
 					and <strong>stacked pictures</strong>. Nothing is lost by turning it back off. Everything
 					below only applies while this is on.
-				</p>
+				</InfoTip>
 
 				<div class="fields">
 					<label
@@ -2854,7 +2855,7 @@
 						>
 					{/if}
 				</div>
-				<p class="hint">
+				<InfoTip label="Swap styles">
 					<strong>Drop in</strong> replaces the board in one movement.
 					<strong>Column cascade</strong>
 					drains the standing board out of the bottom column by column, left to right, refilling each
@@ -2884,7 +2885,7 @@
 							>
 						{/if}
 					{/if}
-				</p>
+				</InfoTip>
 
 				<label class="check"
 					><input
@@ -2894,7 +2895,7 @@
 						disabled={lease.readOnly || !swapInPlace}
 					/><span>Clear the board before the new symbols fall in</span></label
 				>
-				<p class="hint">
+				<InfoTip label="Clearing">
 					The outgoing symbols play their <strong>Explosion</strong> state from the Symbols tool and
 					leave, instead of simply being replaced.
 					{#if swapStyle === 'columnCascade'}
@@ -2918,7 +2919,7 @@
 							saved and takes effect the moment you tick <strong>Swap symbols in place</strong>.</em
 						>
 					{/if}
-				</p>
+				</InfoTip>
 				{#each issuesFor('reelBehaviour') as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
@@ -2969,12 +2970,12 @@
 						its active lines from the server at runtime.
 					</p>
 				{/if}
-				<p class="hint">
+				<InfoTip label="Line colours">
 					Each line is one cell per reel. The <strong>swatch</strong> sets an optional
 					<strong>line colour</strong>: the game draws that line's win in this colour and broadcasts
 					it so assets shown on the win can pick it up (leave it unset to use the single default
 					from the Symbols tool).
-				</p>
+				</InfoTip>
 				<div class="paylines">
 					{#each displayPaylines as line (line.id)}
 						{@const tint =
@@ -3054,9 +3055,9 @@
 				{:else if defaultWinTiers.length}
 					<div class="tier-seed">
 						<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
-						<span class="hint"
+						<InfoTip
 							>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
-							retune them. Or add one below.</span
+							retune them. Or add one below.</InfoTip
 						>
 					</div>
 				{/if}
@@ -3626,10 +3627,6 @@
 		align-items: center;
 		margin-bottom: 12px;
 	}
-	.tier-seed .hint {
-		flex: 1 1 240px;
-		margin: 0;
-	}
 	.managed-note {
 		margin-top: 10px;
 		opacity: 0.75;
@@ -3922,10 +3919,6 @@
 		gap: 12px;
 		margin: 0 0 12px;
 		flex-wrap: wrap;
-	}
-	.hint-inline {
-		font-size: 12px;
-		color: #8b8b98;
 	}
 	.pays {
 		font-family: ui-monospace, monospace;
