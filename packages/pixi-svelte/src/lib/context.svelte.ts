@@ -99,6 +99,18 @@ export function onRestart(restart: (() => unknown) | undefined, fn: () => void):
 	});
 }
 
+// A rig kept between plays (`<RigProvider parked>`, `rigKeep.ts`) tells what is bound to it whether
+// it is put away: its track applies nothing, and its bound effects and clips are let go, as an
+// unmount lets them go.
+const RIG_PARKED_NS = '@@pixi_rig_parked';
+export function setContextRigParked(value: (() => boolean) | undefined) {
+	setContext(RIG_PARKED_NS, value);
+}
+/** Whether the kept rig above is put away, as a getter; `undefined` for a rig mounted per play. */
+export function getContextRigParked(): (() => boolean) | undefined {
+	return getContext(RIG_PARKED_NS) as (() => boolean) | undefined;
+}
+
 // Rig event context
 const RIG_EVENT_EMITTER_NS = '@@pixi_rig_event_emitter';
 export function setContextRigEventEmitter(value: PIXI.EventEmitter) {

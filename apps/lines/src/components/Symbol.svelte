@@ -20,7 +20,14 @@
 	import { bakedSymbolFx } from '../editor-scenes';
 	import { stateFxGate } from '../game/stateFxGate';
 	import { symbolStateFx } from '../game/symbolStateFx';
-	import { artDraw, artRestart, bandKey, createFxKey } from '../game/reelViewPool';
+	import {
+		artDraw,
+		artRestart,
+		bandKey,
+		createEntries,
+		createFxKey,
+		createWinFrames,
+	} from '../game/reelViewPool';
 
 	type Props = {
 		x?: number;
@@ -310,6 +317,26 @@
 	const spriteInfo = $derived(art.sprite ? (keptSprite = symbolInfo) : keptSprite);
 	const multiplier = $derived(props.vacant ? undefined : props.rawSymbol.multiplier);
 	const drawsLabel = $derived(!props.vacant && !!coinLabel && !props.inFlight);
+
+	/**
+	 * What a view keeps between plays instead of mounting per play: its rig art and its win frame
+	 * (`<RigProvider parked restart>`). A play is what a mount was: from when the rig starts drawing,
+	 * or the view starts a new entry while it draws, to when it stops (the frame's: `createWinFrames`).
+	 * Between plays each is put away, neither updated nor drawn, what is bound to it let go; the first
+	 * play mounts it and each one after starts it again in place, from its first frame. The rig keeps
+	 * the last art it drew while it is away, so the next play of the same rig needs nothing new. Not a
+	 * view: mounted per play in its keyed band, as before.
+	 */
+	const rigPlays = createEntries();
+	const rigPlay = $derived(
+		view ? rigPlays(art.keyed && hasArt && !isFlipbook && !isSprite, props.instanceKey) : undefined,
+	);
+	let keptRig: typeof symbolInfo | undefined;
+	const rigInfo = $derived(rigPlay !== undefined ? (keptRig = symbolInfo) : keptRig);
+	const winFrames = createWinFrames();
+	const winFrame = $derived(winFrames(view, showWinFrame, props.instanceKey, multiplier));
+	let frameKept = false;
+	const drawsKeptFrame = $derived((frameKept ||= winFrame.play !== undefined));
 </script>
 
 <!--
@@ -363,9 +390,26 @@
 				oncomplete={art.sprite ? artComplete : undefined}
 			/>
 		{/if}
+		{#if rigInfo}
+			<SymbolRigMain
+				{loop}
+				symbolInfo={rigInfo}
+				frozen={props.frozen || props.held}
+				x={props.x}
+				y={props.y}
+				parked={rigPlay === undefined}
+				restart={rigPlay}
+				listener={{
+					complete: rigPlay === undefined ? undefined : artComplete,
+					event: (_, event) => {
+						if (event.data?.name === 'wildExplode') playWildExplodeSound();
+					},
+				}}
+			/>
+		{/if}
 		{#key artKey}
 			{#if !art.keyed}
-				<!-- Nothing: no art, a vacant view, or a view's sprite (above). -->
+				<!-- Nothing: no art, a vacant view, or art a view keeps (above). -->
 			{:else if !hasArt}
 				{#if placeholder}
 					<SymbolPlaceholder
@@ -388,7 +432,7 @@
 				/>
 			{:else if isSprite}
 				<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={artComplete} />
-			{:else}
+			{:else if !view}
 				<SymbolRigMain
 					{loop}
 					{symbolInfo}
@@ -421,8 +465,17 @@
 	</Container>
 
 	<Container tint={props.tint}>
-		{#key restartWhen(showWinFrame || multiplier)}
-			{#if showWinFrame}
+		{#if drawsKeptFrame}
+			<SymbolWinFrame
+				x={props.x}
+				y={props.y}
+				winLineColor={props.winLineColor}
+				parked={winFrame.play === undefined}
+				restart={winFrame.play}
+			/>
+		{/if}
+		{#key restartWhen((showWinFrame && !winFrame.kept) || multiplier)}
+			{#if showWinFrame && !winFrame.kept}
 				<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
 			{/if}
 

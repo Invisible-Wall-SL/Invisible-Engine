@@ -88,6 +88,7 @@
 		getContextRestart,
 		getContextRig,
 		getContextRigLoadScale,
+		getContextRigParked,
 		onRestart,
 	} from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
@@ -98,6 +99,7 @@
 
 	const props: Props = $props();
 	const rig = getContextRig();
+	const parked = getContextRigParked();
 	// The clip's box is in RIG units (the Rigger and /symbols load every rig at 1); the host bundle may
 	// be read at another load scale, which moves bones and scales attachments but not a Pixi child —
 	// so the clip is scaled by it here. See `setContextRigLoadScale`.
@@ -168,6 +170,7 @@
 	// and re-mounting is already how a beat plays one from the top. Each fire schedules its own timer,
 	// so two beats inside one delay window still produce two plays.
 	const fire = (): void => {
+		if (parked?.()) return;
 		// A continuous binding is armed by its FIRST beat and then deaf: re-mounting is how a one-shot
 		// replays from frame 0, so ignoring the later fires is exactly what keeps the animation
 		// unbroken. A pending delay counts too, or a beat landing inside the delay window would queue
@@ -188,10 +191,18 @@
 	// A restart (`setContextRestart`): dormant again, as a fresh mount is, before the rig's track
 	// starts over and its first beat fires this again.
 	const restart = getContextRestart();
-	onRestart(restart, () => {
+	const dormant = (): void => {
 		clearTimers();
 		runId = 0;
-	});
+	};
+	onRestart(restart, dormant);
+	// A kept rig put away (`<RigProvider parked>`): the clip goes, as an unmount takes it, and
+	// nothing fires until the rig plays again.
+	if (parked) {
+		$effect.pre(() => {
+			if (parked()) untrack(dormant);
+		});
+	}
 
 	// Attached at INIT, not from an effect. The sibling `<RigTrack>` sets the animation and poses
 	// it (`rig.update(0)`) from ITS effect, and sibling effects run in template order — so a
