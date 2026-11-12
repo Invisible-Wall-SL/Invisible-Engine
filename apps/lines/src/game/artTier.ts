@@ -6,17 +6,19 @@ import {
 	type LayoutProfile,
 } from 'constants-shared/layoutProfile';
 import { RESOLUTION_TIERS, type ResolutionTierId } from 'engine-layout';
+import { canvasResolution } from 'pixi-svelte/deviceClass';
 
 /**
  * Which copy of the art this device loads (`docs/design/arcade-4k-builds.md` Phase 4): the full
  * pages, or a lower-resolution tier a project published beside them (`LayoutDoc.resolutionTiers`).
  *
  * The rule is how many screen pixels one canvas pixel gets. The window fits the canvas box at
- * `min(window / box)`, the renderer draws that at the device pixel ratio (capped by the render
- * tier), and the product is the art's on-screen scale. Art shown at half its size or less looks the
- * same from a half-size page, so the smallest tier still covering that scale is chosen: a 4K game
- * on a 4K cabinet gets `full`, the same game on a 1080p desktop or a phone gets `half`. A game that
- * published no tiers has nothing to choose between, so every lookup falls back to `full`.
+ * `min(window / box)`, the renderer draws that at the screen's pixel ratio capped by the render
+ * tier (`pixi-svelte` `canvasResolution`), and the product is the art's on-screen scale. Art shown
+ * at half its size or less looks the same from a half-size page, so the smallest tier still
+ * covering that scale is chosen: a 4K game on a 4K cabinet gets `full`, the same game on a 1080p
+ * desktop or a phone gets `half`. A game that published no tiers has nothing to choose between, so
+ * every lookup falls back to `full`.
  *
  * Decided once at boot, before any art is registered; a window resized later keeps its choice.
  * `?tier=full` / `?tier=half` forces one, and a build pinned to one tier (`IE_ART_TIER`) always
@@ -30,7 +32,9 @@ export interface ArtTierInput {
 	pinned?: string | null;
 	/** `?tier=` — anything other than a known tier is ignored. */
 	forced?: string | null;
-	window: { width: number; height: number; devicePixelRatio: number };
+	/** The window in CSS px, and its screen pixels per CSS pixel (`pixi-svelte` `screenPixelRatio`):
+	 *  a phone showing a zoomed-out desktop site counts its real pixels, not its DPR. */
+	window: { width: number; height: number; pixelRatio: number };
 	/** The renderer's resolution cap (`pixi-svelte` `renderSettings().maxResolution`). */
 	maxResolution: number;
 	/** The doc's canvas boxes and layout profile, which together say which box this window fits. */
@@ -54,8 +58,7 @@ export function artScreenScale(
 ): number {
 	const box = canvasBoxFor(input);
 	const fit = Math.min(input.window.width / box.width, input.window.height / box.height);
-	const resolution = Math.min(Math.max(input.window.devicePixelRatio || 1, 1), input.maxResolution);
-	return fit * resolution;
+	return fit * canvasResolution(input.window.pixelRatio, input.maxResolution);
 }
 
 const knownTier = (id: string | null | undefined): ArtTier | null =>
@@ -65,12 +68,17 @@ const knownTier = (id: string | null | undefined): ArtTier | null =>
 			? (id as ResolutionTierId)
 			: null;
 
+/** How far over a tier's scale a screen may be and still count as covered: the scale multiplies
+ *  browser floats (the page zoom is single precision), so a screen showing the art at exactly half
+ *  (a 1080 px wide phone, a 2160 px wide box) must not land a hair above it. */
+const COVER_SLACK = 1e-6;
+
 export function chooseArtTier(input: ArtTierInput): ArtTier {
 	const chosen = knownTier(input.pinned) ?? knownTier(input.forced);
 	if (chosen) return chosen;
 	const scale = artScreenScale(input);
 	const covering = (Object.entries(RESOLUTION_TIERS) as [ResolutionTierId, number][])
-		.filter(([, tierScale]) => tierScale >= scale)
+		.filter(([, tierScale]) => tierScale + COVER_SLACK >= scale)
 		.sort(([, a], [, b]) => a - b);
 	return covering[0]?.[0] ?? 'full';
 }

@@ -2,6 +2,10 @@
 	import { onDestroy, onMount } from 'svelte';
 	import {
 		appliedRenderOptions,
+		compressedTextures,
+		deviceClass,
+		deviceScreenPixelRatio,
+		deviceSignals,
 		instrumentApp,
 		perfProbe,
 		renderQualitySnapshot,
@@ -13,6 +17,8 @@
 		type TextureFormatSummary,
 	} from 'pixi-svelte';
 	import { setFrameProbe } from 'pixi-svelte/frameClock';
+
+	import { artTierInForce } from '../editor-scenes';
 
 	import {
 		WORK_KEYS,
@@ -35,8 +41,9 @@
 	/**
 	 * The `?perf=1` frame-time readout: what the frames on THIS device look like while the game
 	 * idles and while it spins (`perfStats.ts`), what each frame asks of the GPU, how the renderer
-	 * was set up (`pixi-svelte` `glCounters.ts`, `renderOptions.ts`) and the quality level it draws
-	 * at now (`renderQuality.ts`), so a phone's numbers can be read and pasted back. Mounted only
+	 * was set up (`pixi-svelte` `glCounters.ts`, `renderOptions.ts`), the quality level it draws
+	 * at now (`renderQuality.ts`) and whether it took the device for a phone and why
+	 * (`deviceClass.ts`), so a phone's numbers can be read and pasted back. Mounted only
 	 * with the flag (`Game.svelte` imports it on demand); without it nothing here exists, listens,
 	 * counts or draws. HTML, so it costs the canvas nothing; one line in a corner until tapped open.
 	 * `?perfgpu=1` also waits for the GPU after every frame to time it, which stalls the pipeline:
@@ -148,6 +155,30 @@
 		over100: b.hitches[100],
 	});
 
+	/** Phone or desktop, which signal decided it and what that chose (`pixi-svelte` `deviceClass.ts`). */
+	const device = () => {
+		const signals = deviceSignals();
+		return {
+			...deviceClass(),
+			touchPoints: signals.maxTouchPoints,
+			coarsePointer: signals.coarsePointer,
+			viewportScale: signals.viewportScale,
+			screen: `${screen.width}x${screen.height}`,
+			screenPixelRatio: deviceScreenPixelRatio(),
+			compressed: compressedTextures(),
+			art: artTierInForce(),
+		};
+	};
+	const round4 = (n: number) => Number(n.toFixed(4));
+	const deviceLine = (d: ReturnType<typeof device>) =>
+		[
+			`${d.class} (${d.reason})`,
+			`${d.touchPoints} touch · ${d.coarsePointer ? 'coarse' : 'fine'} pointer`,
+			`zoom ${round4(d.viewportScale)} · ${round4(d.screenPixelRatio)} px per css px`,
+			d.compressed ? 'KTX2 art' : 'uncompressed art',
+			`art ${d.art ?? '–'}`,
+		].join(' · ');
+
 	/** The URL switches that shape rendering, as given (absent ones left out). */
 	const flags = () =>
 		Object.fromEntries(
@@ -173,9 +204,10 @@
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
 		const now = renderQualitySnapshot();
 		return {
-			perf: 5,
+			perf: 6,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
+			device: device(),
 			tier: now?.mode ?? renderTier(),
 			quality: now,
 			resolution: app?.renderer.resolution,
@@ -363,8 +395,9 @@
 				{#if quality}
 					<div><b>quality</b> {qualityLine(quality)}</div>
 				{/if}
+				<div class="ie-perf-section"><b>device</b> {deviceLine(device())}</div>
 				{#if info}
-					<div class="ie-perf-section">
+					<div>
 						<b>gpu</b>
 						{info.gpu} · WebGL{info.webgl} · res {info.resolution} · {info.compressed.join('/') ||
 							'no compressed formats'}

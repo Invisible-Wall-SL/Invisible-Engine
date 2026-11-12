@@ -8,7 +8,7 @@ import { getSupportedTextureFormats, loadKTX2 } from 'pixi.js';
  * native ASTC, so the newest iPhones take a path no older iPhone takes: an older one reports no BC7
  * and transcodes to ASTC. Owner-reported on `test6` (2026-10-09): flipbook symbols and FX drew as
  * solid black rectangles on the latest iPhones only. Desktop never sees it because it loads the
- * uncompressed pages (`preferCompressedTextures` in `apps/lines/src/editor-scenes.ts`).
+ * uncompressed pages (`compressedTextures` in `deviceClass.ts`).
  *
  * BC7 is a desktop format; ASTC 4×4 is the same 8 bits per pixel and is what the tile GPUs in
  * these phones are built around. So a device with ASTC transcodes to ASTC. A desktop GPU has no
