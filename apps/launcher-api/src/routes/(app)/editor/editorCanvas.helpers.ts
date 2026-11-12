@@ -908,23 +908,21 @@ function ownBox(
 		const h = t.height ?? node.height;
 		return { w, h, ax, ay };
 	}
-	// Reel grid selects at its full footprint: reels × rows cells, including any
-	// non-square cell size + inter-cell gaps (so the box matches what's drawn).
-	if (node.kind === 'reelGrid') {
-		const reels = Math.max(1, Math.round(node.reels));
-		const rows = Math.max(1, Math.round(node.rows));
-		const cellW = node.cellWidth && node.cellWidth > 0 ? node.cellWidth : node.cellSize;
-		const cellH = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
-		const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
-		const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
-		return {
-			w: reels * cellW + (reels - 1) * gapX,
-			h: rows * cellH + (rows - 1) * gapY,
-			ax,
-			ay,
-		};
-	}
+	if (node.kind === 'reelGrid') return reelGridBox(node, t.anchor, undefined);
 	return { w: 160, h: 100, ax, ay };
+}
+
+/**
+ * A reel grid's selection box: the board {@link reelGridGeometry} draws, so the box sits on the
+ * cells — the board nudge moves them off the node's anchor, and the config's count sizes them.
+ */
+export function reelGridBox(
+	node: Extract<LayoutNode, { kind: 'reelGrid' }>,
+	anchor: { x: number; y: number } | undefined,
+	dims: Parameters<typeof reelGridGeometry>[2],
+): NodeBox {
+	const geo = reelGridGeometry(node, anchor, dims);
+	return { w: geo.width, h: geo.height, ax: -geo.left / geo.width, ay: -geo.top / geo.height };
 }
 
 /** What the content walk ({@link contentBox}) reads at every level. */

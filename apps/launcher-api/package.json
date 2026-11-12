@@ -185,6 +185,7 @@
 		"check:container-taps": "tsx --tsconfig tsconfig.scripts.json scripts/check-container-taps.ts",
 		"check:depth-segments": "tsx --tsconfig tsconfig.scripts.json scripts/check-depth-segments.ts",
 		"check:rig-origin-box": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-origin-box.ts",
+		"check:reel-grid-box": "tsx --tsconfig tsconfig.scripts.json scripts/check-reel-grid-box.ts",
 		"check:component-content-box": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-content-box.ts",
 		"check:component-resting-state": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-resting-state.ts",
 		"check:component-nesting-parity": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-nesting-parity.ts",
