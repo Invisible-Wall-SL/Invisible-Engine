@@ -527,7 +527,8 @@ const MAIN_DIGESTS: Record<string, [string, string]> = {
 	'template holdAndWin.collector': ['b697bb43a34b1307', '4145bef3e7c14bf5'],
 	'template lines': ['153887dad41c3a04', '2adb4f4b5a54cca4'],
 	'template ways': ['b9c09f1cbb3e4a17', 'c135dd5160087790'],
-	'template scatter': ['6a679c972e88f205', '356c5ce60ba7b1bb'],
+	// Re-taken 2026-11-12, as below: a free-spin retrigger sends the partner's `spinTrigger`.
+	'template scatter': ['6a679c972e88f205', '146b1c6c9b31432c'],
 	'lines template as cluster': ['bce869646936698c', '0fa074731b515b7d'],
 	'Book of Thermopylae (lines kind)': ['8339eb59c2486df2', 'a9aa0acaf0399333'],
 	'Book of Thermopylae (bookOf kind)': ['e886c9e924a51135', 'a47755bab636c9d1'],
@@ -547,7 +548,9 @@ const MAIN_DIGESTS: Record<string, [string, string]> = {
 	'lines + 3 Pots + an added mode on green (Phase 6)': ['41f6525863d163ee', 'a72c6632677f0179'],
 	'Book-of + 3 Pots + an added mode on green (Phase 6)': ['6641de64966f450c', '3a9c60b020663244'],
 	'the Hold and Win template under the lines kind': ['f5f214f47e71833f', '7bcb482e8fdef714'],
-	'a Hold and Win kind with no respin rules': ['2abc85ce8b18a1ba', 'ae4031e0e2cd140d'],
+	// Re-taken 2026-11-12: its lines-mock free spins send the partner's `spinTrigger` before our
+	// `retrigger`. Without that event the deal is byte-identical.
+	'a Hold and Win kind with no respin rules': ['2abc85ce8b18a1ba', '7c653243e9f633d9'],
 	'lines kind, respin rules: no route, nothing drops, no base symbol': [
 		'f5f214f47e71833f',
 		'7bcb482e8fdef714',

@@ -598,7 +598,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     Before this, a partner free-spins game would have added its spins with no celebration. This is
     a runtime release.
   - **The parity digests moved for that one event.** `check:lines-parity`, `check:freespins` (book)
-    and `check:pots-overlay` were re-pinned. With the new `spinTrigger` removed, every answer is
+    `check:pots-overlay` and launcher `check:deal-parity` (two cases) were re-pinned. With the new `spinTrigger` removed, every answer is
     byte-identical to the old digests (checked before re-pinning).
   - **New gate `check:mock-wire`** (`rgs-translator-eagaming/mockWire.fixture.ts`, in `check:rgs`).
     It plays losing, line-win, collect, trigger, retrigger and buy rounds of the lines, book and
