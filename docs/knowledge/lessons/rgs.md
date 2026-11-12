@@ -7,6 +7,20 @@ traps. It covers the translator (`packages/rgs-translator-eagaming`), the mock R
 (`services/test-server`, `scripts/mock-rgs-server*.mjs`), money, `seq`/`gid`, resume and delivery
 builds. Slot-type traps live in the family files, e.g. [lines](../families/lines.md).
 
+### Getting Hot paid its line wins but no symbol animated
+- **Symptom:** on the partner's collector game (Getting Hot), a line win credited the WIN meter
+  but the winning symbols never played their win animation and no line was drawn.
+- **Cause:** `normalizeCollectorRespin` (`collectorRespin.ts`) re-emits a spin as its board's
+  `playedSpin` followed by the spin's "tail" events. `spinWin` arrives after `playWindow`, so it
+  fell into the tail and reached the facade AFTER the reveal. The facade turns buffered `spinWin`s
+  into `winInfo` only at `playedSpin`, so the wins stayed buffered and were dropped; `gameEnd` still
+  paid the amount.
+- **Fix:** the rewrite puts `spinWin` in the segment's head, before its `playedSpin`.
+- **Guard:** `collectorRespin.fixture.ts` "line win" (part of `pnpm check:holdandwin`): one
+  `winInfo` right after the reveal. Our partner-wire mock deals the same order, so the bug showed
+  there too; the 14 capture was a buy round with no line win, so no fixture had one.
+- **PR:** this one (2026-11-12) · source: `docs/status/hold-and-win.md`
+
 ### A refused ante or buy blanked the reels
 - **Symptom:** with the operator's ante switched off, pressing spin cleared the board to empty
   reels (and opened the error modal).

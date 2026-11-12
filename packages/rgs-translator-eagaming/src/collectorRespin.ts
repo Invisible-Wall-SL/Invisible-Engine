@@ -526,6 +526,10 @@ export const normalizeCollectorRespin = (
 				break;
 			case 'bonusSymbol':
 				break;
+			// The facade draws a line win only when it reads it before the board's `playedSpin`.
+			case 'spinWin':
+				seg.head.push(e);
+				break;
 			case 'gameEnd':
 				// The feature's end is its last respin's, even when a server leaves out the summary.
 				if (inBonus || seg.enter) seg.spinsOver = true;
