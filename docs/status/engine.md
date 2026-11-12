@@ -113,7 +113,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     shown) is an entry: the sprite is handed the new texture and reports as a new sprite would, and
     everything else (rigs and their rigged effects, flipbooks, placeholders, layers, Element FX and
     their beat gate, labels, the rider's art) starts again on the frame and in the order a new
-    mount did. Perspective boards keep a component per cell.
+    mount did. Perspective boards keep a component per cell. A view list is handed back unchanged
+    while every view in it is (`keepList`, 2026-11-12), so a strip change runs only its own reel's
+    `{#each}`.
+  - **The Pixi tree is a tree in the page** (2026-11-12). Svelte leaves a comment or text anchor
+    for every block; `pixi-svelte`'s `Container` keeps its children's inside a hidden `<div>` of its
+    own, so a parent holds a few dozen. WebKit walks a parent's children to the nearest element on
+    every node it inserts, removes or moves, and with all of them in one run beside the canvas
+    (~5–11k) that walk was most of Svelte's WebKit-only cost (Recent changes, 2026-11-12).
   - Determinism mode answers the timeline from its virtual clock. What may differ from before, by
     owner decision (2026-11-09 below): mid-motion captures, by drawing a frame earlier; and on the
     four overlay-template games, particle randomness.
@@ -265,19 +272,24 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   **Step 4 works from the ranked churn list** (Recent changes, 2026-11-11, "Churn sweep"): in
   WebKit the Hold and Win bonus (28–44 s of main thread over idle per bonus on the overlay
   games), a free-spins feature (36 s on `bookofborutremake`), big and line wins (2–10 s) and every
-  spin (22–33% of spinning frames over 33 ms). By where Svelte's time goes (the per-component
-  profile, same entry): the `Container` component's runs and teardowns (~40% of a spin's and a
-  book feature's), `Symbol`'s teardown (~12 ms each on `overlay-buffaloduel`), `BoardBase`'s
-  effects in a book feature (~34%, ~4 ms a run in WebKit), then the rig path (~8%). Of the churn
-  behind the first two, what is left after ranked churners 2 and 3: the bonus board mounting and
-  unmounting whole, and the win presentation remounting per line cycle (also while idle after a
-  win). Svelte's anchors in the live DOM are not a cost: detached, nothing moved (measured). A
-  spin still flushes every frame because each reel's `Tween.current` changes and
-  `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep ticking when hidden;
-  `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more than building and
-  destroying its `RigView`s), idle particle layers updating every frame, `propsSyncEffect`'s key
-  list per run. Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601 and the
-  churn counters released. The ~118 MB of resident textures on
+  spin (22–33% of spinning frames over 33 ms). The three largest WebKit-only Svelte costs of the
+  per-component profile (`BoardBase`'s effects, `Symbol`'s teardown, `Container`'s runs and
+  teardowns) were one cause, DOM work over a flat run of ~5–11k anchors, fixed 2026-11-12 (Recent
+  changes): Svelte time per book free spin 2.7 s → 0.55 s and per `overlay-buffaloduel` spin
+  2.7 s → 0.7 s in WebKitGTK. What Svelte's time goes to now, in that order: deriveds checked or
+  run outside effects (timeline samples, the reel views' `shown`), the flush's own work outside
+  effects (~0.2–0.35 ms a flush in WebKitGTK, ~85 ms a free spin), and the rig path
+  (`BaseRigProvider`'s mount and prop sync, ~100 ms a free spin). Of the churn, what is left after
+  ranked churners 2 and 3: the bonus board mounting and unmounting whole, and the win
+  presentation remounting per line cycle (also while idle after a win; its DOM share is gone, its
+  rigs and objects are not). A spin still flushes every frame because each reel's
+  `Tween.current` changes and `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep
+  ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
+  than building and destroying its `RigView`s), idle particle layers updating every frame,
+  `propsSyncEffect`'s key list per run, and one Space on `bookofborutremake`'s start screen can
+  both continue and spin in WebKitGTK (Recent changes, 2026-11-12, "found").
+  Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601, the churn counters and
+  this change released. The ~118 MB of resident textures on
   `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
 
@@ -487,6 +499,149 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **WebKit walked every anchor of the Pixi tree on each DOM change; a `Container` now
+  keeps its children's anchors in an element of its own, the reel views hand back an unchanged
+  list, and a `Symbol` with Element FX keeps its gate connected** (branch `churn-hotspots`, on
+  `claude/nice-albattani-a03tcm` at `b027048c`; step 4 of the iPhone plan, "fix the worst
+  churners", targets 1–3 of the per-component profile in the 2026-11-11 prop-sync entry below).
+  - **One cause behind the three largest WebKit-only costs.** Svelte leaves a comment or text
+    node in the page for every block, and `pixi-svelte` renders no element, so every anchor of the
+    Pixi tree was a sibling in one run beside the canvas: 10,842 nodes on `overlay-buffaloduel` at
+    rest, 4,970 on `bookofborutremake`, the canvas the only element. On every node WebKit inserts,
+    removes or moves, it walks the parent's children to the nearest element on each side, so each
+    of those costs the length of the run. Measured on `about:blank` (comment siblings, µs an
+    operation):
+
+    | siblings                       | WebKitGTK move / insert + remove | Chromium move / insert + remove |
+    | ------------------------------ | -------------------------------- | ------------------------------- |
+    | 100                            | 1.5 / 1.0                        | 0.25 / 0.35                     |
+    | 1,000                          | 12 / 11.5                        | 0.25 / 0.35                     |
+    | 5,000                          | 52 / 59                          | 0.4 / 0.35                      |
+    | 20,000                         | 347 / 609                        | 0.7 / 0.45                      |
+    | 10,000, an element every 100   | 1.5 / 1.5                        | —                               |
+    | 10,000, an element every 1,000 | 9 / 10.5                         | —                               |
+
+    The same with a subtree `MutationObserver`, under `display: none`, `display: contents`,
+    detached, or in a `<template>` (96–125 µs at 10,000): the walk is in WebKit's core DOM code,
+    which iOS Safari shares. So the 2026-11-11 profile's three largest items were DOM work. In a
+    book feature, `BoardBase`'s 2,294 effect runs at ~4 ms were mostly a keyed `{#each}`'s moves:
+    each time a new board takes the views the last one left, strip order puts their items first
+    and Svelte moves each one's ~54 anchors, ~0.2 ms a node. `Symbol`'s ~12 ms teardowns (18 ms
+    here) were the removal of its anchors, and `Container`'s destroys and much of its runs were
+    the removals and inserts of the blocks under it. The earlier note that the anchors cost
+    nothing (detached, nothing moved) was measuring the wrong thing: detaching does not shorten
+    the run.
+
+  - **What changed** (three commits, each byte-identical):
+    1. **`Container` renders its children inside a hidden `<div>` of its own**, so the page holds
+       the Pixi tree as a tree (longest run of anchors 427 on `overlay-buffaloduel`, 84 on
+       `bookofborutremake`). It never draws; the canvas host held no other element and nothing
+       reads its children. `?perf=1`'s DOM counter counts each node a mutation adds or removes
+       with every node under it, so a container mounted with its children still counts them all
+       (`churnProbe.ts` `nodesIn`; each `Container` adds one node).
+    2. **The reel views hand back the same list while every view in it is the same**
+       (`reelViewPool.ts` `keepList`, in `createBoardViews`, `createPoolViews` and
+       `createShownViews`). A new array runs a keyed `{#each}` again even when every item is
+       kept: a strip change on one reel ran all five reels' board `{#each}`. Book free spins: the
+       board's inner `{#each}` runs fall from 5 to under 1 per strip change (3,010 → 560 for ~600
+       changes); the filler's only ~14%, as nearly every crossing hands a view a new cell.
+    3. **A `Symbol` with Element FX reads its `gate` in a pre-effect.** Its art reports through
+       `gate` from Pixi's ticker (a rig's `complete`, every frame for a looping still), outside any
+       reaction, and Svelte 5.57 runs an unconnected derived's inputs again on every read once
+       anything they read has changed, even to the same value (its version moves only with its
+       value). Connected, `ownArt` and `waitsForFx` run only when an input changes; the gate is
+       made from the same inputs, in the flush rather than at its next read (`stateFxGate` makes
+       an object and nothing else). Four warm book spins: 19,631 runs of the two → 5,199.
+  - **Per-component profile, before / after** (the instrumented copy of the 2026-11-11 entry,
+    extended to frame Svelte's DOM insert (`append`), removal (`remove_effect_dom`), keyed
+    `move` and each derived's evaluation; exclusive ms in WebKitGTK; base `b027048c` vs commits
+    1–2, interleaved; book per free spin, as base's warm moments held 20 and the branch's 25):
+
+    | per unit, WebKitGTK                  | book free spins (per free spin) | `overlay-buffaloduel` spins (per spin) |
+    | ------------------------------------ | ------------------------------- | -------------------------------------- |
+    | Svelte, total                        | 2,748 → 549 ms                  | 2,697 → 718 ms                         |
+    | `BoardBase` (all its effects)        | 1,181 → 11 ms                   | 12 → 7 ms                              |
+    | `Container` (runs, mounts, destroys) | 846 → 71 ms                     | 1,629 → 86 ms                          |
+    | `Symbol` (its own)                   | 0.3 → 0.4 ms                    | 194 → 1.2 ms (14 teardowns a spin)     |
+    | DOM insert / remove / keyed move     | 500 / 473 / 1,197 → 9 / 7 / 1.5 | 1,069 / 832 / 153 → 11 / 3 / 0         |
+    | the flush outside effects            | 81 → 85 ms                      | 181 → 233 ms                           |
+    | deriveds checked outside effects     | 110 → 104 ms                    | 173 → 197 ms                           |
+
+    The runs did not fall (book: `Container` 4,693 → 5,797 runs a free spin, the branch's
+    features drew more rigs; buffaloduel: 5,465 → 6,559 a spin over more frames): each run and
+    teardown got cheaper. What is left is the flush's own work outside effects (the
+    effect tree walk and the batch bookkeeping, ~0.2–0.35 ms a flush in WebKitGTK), deriveds
+    checked or run outside effects (the timeline samples of the pots overlay, the reel views'
+    `shown`) and the rig path (`BaseRigProvider`, ~100 ms a free spin).
+
+  - **The sweep, before / after** (base `b027048c` vs all three commits, unminified, the churn
+    sweep's method: snapshot + test server with its forcing, `?perf=1`, real clock, warm moments;
+    built / destroyed, rigs and DOM nodes per moment; late / JS−render / after are ms a spinning
+    or round frame; excess is that JS and after-tick time over the idle frame's, summed; WebKitGTK
+    400×230 over its own `WebKitWebDriver`, headless Chromium 734×321):
+
+    | moment (game)                           | built / destroyed             | rigs      | DOM nodes       | WebKit late / JS−r / after           | fps         | > 33 ms   | excess s    | Chromium JS−r / after     |
+    | --------------------------------------- | ----------------------------- | --------- | --------------- | ------------------------------------ | ----------- | --------- | ----------- | ------------------------- |
+    | no-win spin (buffaloduel)               | 599 / 506 → 676 / 579         | 28 → 37   | 4,362 → 4,789   | 13.6 / 26.5 / 36.6 → 2.2 / 7.5 / 8.1 | 16.1 → 30.5 | 48% → 28% | 3.3 → 1.0   | 15.9 / 19.1 → 12.0 / 10.9 |
+    | line win (buffaloduel)                  | 787 / 654 → 931 / 714         | 59 → 69   | 10,574 → 9,578  | 1.8 / 7.3 / 16.7 → 0.5 / 4.7 / 6.4   | 24.9 → 31.9 | 29% → 20% | 8.9 → 3.9   | —                         |
+    | idle after a win, 15 s (buffaloduel)    | 235 / 239 → 217 / 197         | 17 → 22   | 2,698 → 2,370   | JS−r / after 4.6 / 7.5 → 4.2 / 5.9   | 33.0 → 36.4 | 19% → 17% | 2.8 → 2.1   | —                         |
+    | free spins, per free spin (bookofborut) | 1,139 / 1,137 → 1,360 / 1,326 | 82 → 88   | 10,563 → 10,888 | 1.9 / 3.2 / 8.4 → 0.7 / 1.4 / 1.9    | 32.6 → 55.3 | 28% → 2%  | 1.6* → 0.36 | 4.3 / 7.4 → 4.7 / 6.1     |
+    | Hold and Win, pots (buffaloduel)        | 5,355 / 5,080 → 7,457 / 7,170 | 318 → 630 | 41,534 → 58,448 | 7.7 / 14.1 / 26.8 → 1.1 / 6.1 / 7.2  | 22.0 → 31.7 | 27% → 24% | 48.0 → 14.6 | —                         |
+
+    The machine ran the parity and frame-by-frame runs alongside (load average 10–16 on 4 cores),
+    so a frame time swings by ±40%; read the size of the change, not the last digit. Counts
+    follow the frames drawn on the real clock: the branch drew more (a spin's active frames 53 →
+    89, the bonus's 1,375 → 1,963) and some art starts per frame drawn, so it built more; in
+    determinism mode every frame is the same (Parity). Book: base's warm moments held 20 free
+    spins and the branch's 25 (base used its first feature on the start screen, "found" below), so
+    per free spin; `*` is the branch's idle frame (base had none clean). The DOM counter now
+    counts nodes under a mutated one too, and each `Container` adds one, so DOM nodes stay
+    comparable (Chromium no-win spin 4,505 → 4,447).
+
+  - **Parity:** current-games harness, local, determinism mode, base (`b027048c`) vs all three
+    commits, unminified, every scenario, every capture byte-identical and on the same frame:
+    `overlay-buffaloduel` 17/17, `commonoverlayproject` 17/17, `bookofborutremake` 17/17,
+    `holdandwintestsolo` 11/11, stand-ins `cg-lines` 17/17 and `cg-cluster` 14/14 (93 of 93);
+    `overlay-buffaloduel` 17/17 on commit 1 alone too. The respins frame by frame (the 2026-11-11
+    method, 1280×720, every 3rd frame, sha-256 of each capture): `overlay-buffaloduel`'s `pot:red`
+    bonus 650/650 identical on the same frames (519 with the respin board up, 650 distinct
+    pictures), `holdandwintestsolo`'s forced trigger 450/450 (314 with the board up).
+  - **Gates:** `containerAnchors.fixture.mjs` (new; six mutations of `Container`'s markup each fail
+    it), `churnProbe.fixture.ts` (+7 checks: `nodesIn` and `observeDomChurn` through a stand-in
+    `MutationObserver`; six mutations), `reelViewPool.fixture.ts` (144 checks, 20 new: a list
+    kept exactly while its views are, through whole rolls and respins, and a shorter filler list;
+    eight mutations, and the earlier seventeen still fail it), `symbolGate.fixture.mjs` (new; in
+    Svelte's client runtime ten reads from outside a reaction re-run the inputs 20 times
+    unconnected, 0 connected, with the same gates and reports; four mutations). `check:all` for
+    `apps/lines` (16) and `pixi-svelte` (17) with `verify-swap-in-place-mode`,
+    `verify-board-paint-order`, `verify-symbol-wrap-context`, `verify-symbol-seat`,
+    `verify-stepped-grid`, `verify-tumble-pattern`, `verify-win-explode-pop`,
+    `verify-symbol-overflow`, `verify-board-tiles` and the launcher's `check:symbol-layers`,
+    `check:jackpot-coin-art`, `check:symbol-fx`, `check:respin-land`, `check:clear-reel` (47 of
+    47); `check:svelte --only` at baseline for `apps/lines` (145) and `pixi-svelte` (14);
+    `tools/fx-spike` `element-fx` (imports `Container` and pins `Symbol`);
+    `check:agents-knowledge`; Prettier and ESLint clean.
+  - **Found, not fixed:**
+    - **One Space on a start screen can both continue and spin.** In WebKitGTK, on
+      `bookofborutremake`, the first Space on the press-to-continue screen also bet a spin in 5 of
+      5 base runs and 1 of 7 branch runs; in Chromium in none (2 of 2 each). Likely cause, read
+      from the code and not traced: `OnHotkey` reads its `disabled` at the event and hotkey
+      subscribers run in mount order, so when the continue-press subscribed first (load timing),
+      its synchronous completion re-enables the spin hotkey for the same keydown. Behaviour, not
+      pixels; not fixed here.
+    - **The win presentation remounting per line cycle** (ranked churner 4): its DOM share is gone
+      with fix 1; its rigs and display objects are not (the sweep's idle after a win: ~217
+      objects and 22 rigs every 15 s, JS−render 4.2 ms a frame). Keeping the frames and labels
+      mounted per presentation is the remaining fix, medium risk (rig restarts).
+    - **The flush's own cost** (above) and `propsSyncEffect` walking every key per run (a
+      `Container` run, the blocks of its children included, is ~10 µs in WebKitGTK now; all of
+      `Container` is 71–86 ms of a free spin or a spin): no byte-identical fix found worth it; a
+      per-key sync would change the order props are written in.
+    - `bookofborutremake`'s board glow (`BoardFrame`) still remounts each loop (out of scope: it
+      changes pixels); its DOM share fell 130 → under 8 ms a free spin with fix 1.
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test); the minified build;
+    the per-frame times on a quiet machine (the parity runs shared it).
 
 - 2026-11-11 — **A Hold and Win respin cell draws its symbols through kept views, and a view keeps
   its `Symbol`'s containers and one sprite whatever it draws** (branch `churn-symbol-bands`, on
