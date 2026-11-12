@@ -28,6 +28,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Stacked-picture reel mode (LINES, visuals-only)** — the KA-Gaming "tall symbol" look: a contiguous vertical run of the same eligible symbol on a settled reel draws ONE tall picture (the symbol's new `stacked` state art, sprite/rig/flipbook) over the run, cropped to the top `runLength ÷ naturalHeight` and top-aligned. Per-symbol natural heights + eligible set in `constants.ts#STACKED_PICTURE` (H1=2…W=5). Client-inferred from the board (no protocol change). `stackedPictureRuns()`/`stackedCoverage()` `$derived` scans on `stateGame.svelte.ts`; `StackedPicture(s).svelte` render + rect-mask crop, mounted in the resting board container; `ReelSymbol` hides covered cells (no doubling). New `stacked` member in `engine-layout` `SYMBOL_STATES` (+ `LINES_SYMBOL_STATES` gates the `/symbols` column to lines); `getSymbolInfo` falls `stacked`→`static` unauthored. Flow-toggled via `enableStackedPictures`/`disableStackedPictures` (payload `symbols`/`highPayOnly`/`minRun`; `bookOf.ts` vocab). **OFF by default ⇒ byte-parity.** Test data: `scripts/mock-rgs-server.mjs` `STACKED=1` deal (high-symbol runs + full 5-tall WILD) + `WILD→'W'` in the lines facade. Verified: Node scan fixture 12/12 (owner example 3/4, WILD 3/5 & 5/5, 3×3/10×10 scale) + live Pixi scene structure (Container + stretched Sprite + rect mask). Follow-ups: real tall art + `/symbols` `stacked` authoring, wild-substitution runs, win-math, a real RGS emitting stacked boards. Design: `docs/design/stacked-picture-mode.md`.
 - **Three-knob reel grid** — the conflated `reelPadding` was split into three orthogonal `ReelGridNode` knobs, all default-to-identity (byte-parity): reel/row **LEAD** (`reelPadding`/`rowPadding`, seats the cluster), seat **ALIGNMENT** (`symbolAlignX/Y`, art within its cell), board **NUDGE** (`boardNudgeX/Y`, px offset). Editor `drawReelGrid` mirrors the game math exactly (editor↔game < 1e-12 px).
 - **Slam stop (mid-spin quick stop)** — ALWAYS ON, no config toggle. A press while a round runs snaps the reels to the already-resolved result AND fast-forwards the post-reveal presentation (count-ups jump to the final total, win lines draw complete, player-gated holds release) so the machine returns to idle promptly. The token is scoped to the **SPIN**: in `apps/lines` the re-arm hangs off `updateFreeSpin`, the FIRST event of every free spin (not the `reveal` — the counter update leads the spin it labels, so re-arming at the reveal left the next spin's counter presented under the previous spin's tripped token), so a press slams only the spin that is rolling and the feature then resumes at full pace — normal roll, normal anticipation, normal count-up — until the next press. (Base-game rounds have a single reveal, never re-arm, and keep the round-scoped behaviour. The other five dev games are still round-scoped: their bonus mechanics are cascades, and the owner's direction was about the Book-of feature.) During **autoplay** the first press slams the current spin only; a **second** press cancels the remaining sequence (autoplay is therefore always cancellable, in at most two presses). Built on a new `utils-shared/skipToken` primitive + the shared `utils-shared/spinStop` press/key helper (which de-duplicates the spin/stop logic that was copied verbatim into `ButtonBetProvider` and `Game.svelte`). Skipping never DROPS a beat: every book event still runs, fully awaited, and applies its effect at final value — only the time is removed. **Two presentations are carved out as UNSKIPPABLE** (`apps/lines/src/game/unskippablePresentation.ts`): the book / expanding-symbol reveal (`setExpandingSymbol`) and the free-spin intro (`freeSpinTrigger`) run to completion, because their visual is a rig/`.irig` timeline that a released wait leaves playing detached over the next spin. Their player-gated tap holds still release on a slam (a slam makes the spin button inert, and it swallows the tap). **A slam is not a blank:** a slammed spin that WON keeps a minimum win display — the lit win symbols and the per-win info message, ~600ms each — while the win line and the amount count-up stay fully skipped. **A slam NEVER skips a CELEBRATION** (owner direction 2026-07-30): the big-win overlay (`setWin` at a `big` win level), the free-spin **outro** (`freeSpinEnd`) and the **retrigger** flourish (`freeSpinRetrigger`) must play in full — a slam snaps the reels, it does not fast-forward the show. These are NOT added to the UNSKIPPABLE set (that keeps the token TRIPPED and only stretches cues, so it can't protect the outro's player-gated count-up or a `showContainer{awaitComplete}` hold, both released-on-skip to dodge the slam hang). Instead the slam token is **RE-ARMED right before a celebration** (`startsCelebration` in `unskippablePresentation.ts`, applied by `runBookEventPresentation` on the same seam as the per-spin re-arm), so it presents on a FRESH token — byte-identical to a round nobody slammed (cues wait in full, player-gated holds wait for the real tap, nothing can hang because the hang only exists while the token is tripped). ORDINARY wins keep fast-forwarding — only a `big`-level `setWin` re-arms, small/medium wins still slam. Covers coded, v1-flow and v2-flow (the seam wraps all three), so the flow-v2 Borut remake gets it too after a `runtime:lines` release. **The INTRO's scatter-match gap** (owner report 2026-07-30): the free-spin intro's scatter-symbols match animation plays at the START of `freeSpinTrigger`, BEFORE the intro screen mounts, so the screen-driven celebration lock is still open and the button is a live STOP — a slam there tripped the token and collapsed the intro's player-gated `freeSpinIntroUpdate` hold. Fixed two ways: (a) `freeSpinTrigger` was added to `startsCelebration` so the re-arm clears an UPSTREAM reel-roll slam; (b) `runBookEventPresentation` now mirrors its unskippable `depth` (0↔1 edges) into `stateUi.unskippablePresentationActive`, and `spinStop.isCelebrationLocked()` ORs `hasUnskippablePresentation()` — so the button is inert for the WHOLE unskippable window (scatter match + intro + book reveal), stopping a slam WITHIN the window. `playBet`'s `finally` force-clears the flag (belt-and-braces vs a stuck lock). Verified at token/flag/button level (game-playtester): re-arm clears an upstream trip, window-lock suppresses `roundSkip.skip()` while true, nested resume-path replay doesn't clear the outer window early, ordinary wins unaffected, idle flag false after round. **The press has its own SOUND:** a mid-round press broadcasts `soundPressStop` (`sfx_btn_stop`) instead of the bet whoosh — its own authored cue since 2026-09-28 (`scripts/author-sfx-btn-stop.mjs`). **Celebration lock:** during a non-skippable celebration — free-spin **intro**, free-spin **outro**, or the **win panel** (WinGate = big-win presentation) — the spin button goes fully inert (it can't slam-skip the celebration); it renders as a greyed STOP. Read at the single chokepoint `utils-shared/spinStop` via `hasCelebrationOverlay()` (`getSpinButtonKey` → `stop_disabled` key; `runSpinOrSlamStop` early-returns as belt-and-braces for the flow `spin` action / Space hotkey / intent callers; `isSpinButtonDisabled` helper de-dupes the disabled check across `ButtonBetProvider`, the authored HUD `spin` action + Space hotkey in `Game.svelte`). ⚠️ **Signal source matters (learned the hard way, live-debugged on the remake):** the lock does NOT read the `stateUi.*Show` flags, and does NOT subscribe to the `*Show` EMITTER cues either. A **flow-v2** authored game (the Book-of-Borut remake) mounts its intro/outro via `showContainer` and NEVER broadcasts `freeSpinIntroShow`/`winShow` — confirmed by driving the live game: the intro screen was up for its full duration with every `*Show` flag false and no cue logged, so both a flag-read AND a cue-subscription were dead there. The lock is instead driven off the flow's **ACTIVE SCREENS**: `apps/lines` Game.svelte runs an `$effect` setting `stateUi.celebrationLock.{intro,outro,win}` from `activeScreenIds ⊇ {freeSpinIntro, freeSpinOutro, bigWin}` (the engine's canonical flow screen ids; `freeSpinIntro`/`freeSpinOutro` confirmed present live for the whole celebration). `hasCelebrationOverlay()` reads that latch. At the `spinStop` chokepoint the lock is `isCelebrationLocked() = hasCelebrationOverlay() || hasContinuePress()` — the `hasContinuePress()` term catches a big win presented as a HUD count-up + tap (no `bigWin` screen mounted on the remake), so its tap-to-continue phase also locks. The disabled button's canvas rect still swallows a tap in its footprint (Pixi `eventMode` stays `static`) — accepted small dead-zone. ⏳ Residual: a big-win **count-up before its tap** (no screen, `continuePress` not yet armed) stays slammable on a game with no `bigWin` screen — verify/tune if the remake shows a distinct big-win count-up.
+- **Hold-to-spin reads the press, not the game** (2026-11-12). `EnableHotkey` keeps the key presses
+  in progress, one record per press (`components-shared/src/hotkeyPress.ts`), opened before the
+  key-down goes out. A `bet` while Space is down marks that press, and `EnableSpaceHold`'s
+  `continueFromIdle` starts the next round only for a marked press. Every `OnHotkey` still hears
+  every press; one owner per press is a ready patch, not on `main` (Recent changes, 2026-11-12,
+  "One Space on a start screen").
 - **Signal-subscription re-entrancy loop (fixed)** — a slammed free-spin **outro** could crash the reactive cycle with `effect_update_depth_exceeded` (Svelte 5), which aborts the update pass so downstream nodes freeze and the screen reads as broken. Root cause: `ComponentInstance.svelte`'s signal-subscription `$effect` subscribes to registered signal sources, and a source may EMIT SYNCHRONOUSLY on subscribe — the seed-on-subscribe latch (`freeSpinOutroCountUpComplete` fires `run()` immediately when `freeSpinOutroState.countUpComplete` is already true, the fix for the instant-count-up race). That emission runs the callback INSIDE the subscription effect, and `fireComponentSignal` READS + WRITES `firedSignals[key]` → the read leaks as a dependency, the write re-invalidates the effect, it re-subscribes/re-seeds/re-writes → infinite loop. It only surfaced on a SLAM, where the outro count-up completes in the SAME tick the outro-visual instance (tap armed on `freeSpinOutroCountUpComplete`) mounts + subscribes, so the latch is already set. Fix: wrap the subscription SETUP in `untrack(...)` (the effect has no legitimate reactive deps — `signalToTargets`/`gateSignals`/the registry are init-stable — so it should subscribe exactly once; mirrors `LayoutScene`'s tap-portal guard). Untrack suppresses dependency TRACKING, never the writes/notifications, so later emissions still fire cues + update `hiddenUntilSignal`/`tapArmed`. Reproduced deterministically headless (forced trigger + retrigger via the book mock, then Space-spam to slam the outro) and confirmed gone across 600+ slams / 24 free-spin rounds. Guard: `node packages/engine-layout/scripts/test-signal-subscribe-untrack.mjs`. Reaching the online Borut remake needs a `runtime:lines` release.
 - **Live-asset pipeline** — a game asset only ships when it travels the full chain **export → `deploy/` → bake (embed index in bundle) → pull (mirror into `static/assets/`) → runtime register** (CLAUDE.md rule 8; `docs/design/live-assets.md`). Exported sheets are content-versioned (`sheetVersion` hashes region geometry + source-page ETag) so a re-packed atlas busts the cache automatically; exporters emit a `missing[]` dangling-binding guard. "Shows in the editor" ≠ "ships" — the editor reads R2 directly.
 - **How the runtime ships** — an engine/runtime change reaches online games ONLY via a runtime-bundle publish, and **a merge to `main` IS that publish**: the `Runtime release` GitHub Action (`.github/workflows/runtime-release.yml`) runs automatically on every push to `main` that touches `apps/lines/**` or `packages/**`, and re-points EVERY online game on the `lines` runtime within minutes. It can also be run by hand (`workflow_dispatch` — "Run workflow", or `gh workflow run runtime-release.yml -f runtime=lines`). The R2 keys live in GitHub Actions secrets, so a release needs no keys on a dev machine. **Gated and verified (2026-09-28):** before anything is stamped or uploaded it runs `check:undefined-names` (now `.ts` AND `.svelte`), `check:engine-game`, `check:rgs` and the build; after the upload it POSTs `/refresh` and polls a game on the runtime until the served `index.html` names the `bundle.<hash>.js` it just built, re-POSTing `/refresh` with backoff, and goes RED if that never happens within 15 min (`apps/launcher-api/scripts/verify-runtime-live.mjs`). See "Rollback" below. Game Maker's Publish CANNOT do it: `publishGame` only points a game's manifest at the prebuilt `_runtime/<id>` and "never rebuilds". The equivalent manual chain: rebuild the `engine-layout` **dist** first (stale-dist trap), then `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines build`, then `node apps/launcher-api/scripts/publish-runtime-bundle.mjs lines apps/lines/build`, then `POST https://games.invisiblewall.org/refresh`. Standalone games (desktop-launcher builds) get it from the `engine` submodule, which the launcher's publish advances to `origin/main` before every build — and since 2026-09-17 that covers the **whole** engine, `apps/lines/src` included, because a game repo no longer carries application source at all (2026-09-17 entry in [engine-history](engine-history.md)). There is nothing to mirror into a game repo any more.
@@ -289,9 +295,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   toast. A spin still flushes every frame because each reel's
   `Tween.current` changes and `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep
   ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
-  than building and destroying its `RigView`s), idle particle layers updating every frame,
-  `propsSyncEffect`'s key list per run, and one Space on `bookofborutremake`'s start screen can
-  both continue and spin in WebKitGTK (Recent changes, 2026-11-12, "found").
+  than building and destroying its `RigView`s), idle particle layers updating every frame, and
+  `propsSyncEffect`'s key list per run.
   Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601, the churn counters and
   this change released. The ~118 MB of resident textures on
   `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
@@ -503,6 +508,124 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **One Space on a start screen continues and no longer also bets a spin: hold-to-spin
+  continues from idle only for a press a round started during** (branched from `main` at
+  `6817f942`; the owner asked for this fix of the "found, not fixed" in the 2026-11-12
+  `churn-hotspots` entry below).
+  - **The traced cause, not the recorded guess.** Traced in WebKitGTK and Chromium on an
+    instrumented copy (each hotkey's reading of each event, the actor's states, each
+    `runSpinOrSlamStop` with its stack), on `6817f942` and on `f536cf85`, the build the "found"
+    note measured:
+    1. The spin hotkey (`Game.svelte`'s) read `disabled: true` and did nothing. In every traced
+       run it subscribed before the start screen's, and the screen completes asynchronously, so
+       the guessed order (the continue first, its completion re-enabling spin) never happened.
+    2. The press went to the start screen's tap (`TapToContinue` → `PressToContinue`) and to
+       `EnableSpaceHold`, whose `OnHotkey` starts a 400 ms hold timer on every press.
+    3. Dismissing the screen mounts the base game and blocks the page: the key-up was handled
+       0.4–1.8 s after the key-down, and the 400 ms timer ran first (the hold at 0.48–1.24 s).
+       WebKit runs a due timer before the queued key-up; Chromium usually does not, but did on
+       this loaded machine, and a Space really held past 400 ms reaches the same path anywhere.
+    4. The player is in, so `ResumeBet` (`ready={isPlayerIn}`, `Game.svelte:2320`) broadcasts
+       `resumeBet`, and the actor's resume check leaves idle for 3–72 ms with nothing to resume.
+    5. `EnableSpaceHold` stamped `roundStartedAt` whenever the game was not idle
+       (`EnableSpaceHold.svelte:33–35`), so `continueFromIdle` (`:43`) took the resume check for a
+       round this press started and bet one. Before the 2026-10-01 resume gate that check ran at
+       boot, before any press; since then the 2026-09-28 rule ("a Space held through the loading
+       tap … places no bet") did not hold.
+  - **What changed** (`components-shared`, one commit; every game that boots the runtime gets it,
+    as the authored-HUD path (`Game.svelte`) and the coded HUD (`UIDefault`) mount the same
+    `EnableSpaceHold`):
+    1. **`src/hotkeyPress.ts`** (new): the key presses in progress, one record per press (OS
+       auto-repeats included), per event emitter. `EnableHotkey` opens a press before it
+       broadcasts the key-down, so whatever the key-down sets off finds it, and closes it with the
+       key-up or when focus leaves the page. The hotkey event is unchanged.
+    2. **`EnableSpaceHold`**: a `bet` while Space is down marks that press, and `continueFromIdle`
+       starts the next round only for a marked press, whatever started it. The idle `$effect`,
+       `pressStartedAt`, the `onpress`/`onpressend` and the blur handler are gone.
+  - **Before / after** (unminified builds of `6817f942` and the branch, the published snapshot and
+    the real test server as the current-games harness serves them, real clock, base and branch
+    interleaved; WebKitGTK 400×230 as MiniBrowser over `WebKitWebDriver` on Xvfb, headless
+    Chromium; key presses through WebDriver / Playwright key actions unless noted; "both" = the
+    press dismissed the start screen and a bet left the page; in every run of both sides the
+    screen was up and the press dismissed it, and no page errors):
+
+    | one Space on the start screen                                   | base `6817f942` | branch |
+    | --------------------------------------------------------------- | --------------- | ------ |
+    | WebKitGTK, `bookofborutremake`, a 300 ms press                  | 9/10            | 0/10   |
+    | WebKitGTK, `bookofborutremake`, the churn sweep's press (\*)    | 3/10            | 0/10   |
+    | WebKitGTK, `overlay-buffaloduel`, 300 ms, 15 s after the screen | 10/10           | 0/10   |
+    | Chromium, `bookofborutremake`, a 300 ms press                   | 5/10            | 0/10   |
+    | Chromium, `bookofborutremake`, held 700 ms                      | 6/10            | 0/10   |
+    | Chromium, `overlay-buffaloduel`, held 700 ms, 15 s after        | 10/10           | 0/10   |
+
+    An earlier pass of the same six series (base against the one-owner build, below) read base 8,
+    8, 10, 7, 6 and 10 of 10, its branch 0 in each: base's rate moves with the machine's load. On
+    `f536cf85` the traced copy reproduced it 2 of 2 with the churn sweep's press.
+
+    (\*) a synthetic 80 ms key-down/key-up 30 s after navigation, `?perf=1`, `FORCE_TRIGGER=1`: on
+    base each one paid a whole forced free-spin round. A miss on base is a press made while the
+    game still loaded, so the player got in after the hold. The machine was shared (load 13–27 on
+    4 cores), which is why Chromium shows it on a 300 ms press here and did not in the earlier 2
+    runs.
+
+  - **Single-action Space behaviours on the branch** (trace copies, both browsers, the same on
+    base): the start screen continues with no bet; a press at idle bets once; a press 400 ms later
+    slams; an 8 s hold bets and chains the next round (`continueFromIdle` saw the press's round
+    still running and left it to `checkSpaceHold`); a press after it bets once. In Chromium, the
+    free-spin intro/outro and big-win taps continue through a forced free-spin round as on base,
+    and with turbo on, of eight 700 ms holds from idle, once the press's own round ended before the
+    hold registered and `continueFromIdle` started the next one (the 2026-09-28 path); a hold over
+    a round still running only slammed it.
+  - **Parity:** current-games harness, local, determinism mode, base `6817f942` vs the commit,
+    unminified, every scenario, every capture byte-identical and on the same frame:
+    `bookofborutremake` 17/17, `overlay-buffaloduel` 17/17, `holdandwintestsolo` 11/11, stand-in
+    `cg-lines` 17/17 (62 of 62). The harness's Space is a 2-frame tap, so it never reaches the
+    400 ms hold this changes.
+  - **Gates:** `onePress.fixture.mjs` (new, 27 checks: the start-screen press reproduces under the
+    shipped hold rule and continues only under the fixed one; a round another input starts while
+    Space is down still counts; the one-action presses; a key held across focus loss; the ledger;
+    the wiring in source). 12 of 12 mutations (each line of the ledger, `EnableHotkey` opening the
+    press after its key-down or never closing it, `EnableSpaceHold`'s rule and mark, the idle
+    stamp put back) each fail it, and so do the components as they were on `main` (6 pins).
+    `check:all` for `components-shared` (1), `apps/lines` (17), `engine-game` (17), `utils-shared`
+    (1); `check:svelte --only packages/components-shared` at baseline (10);
+    `check:agents-knowledge`; Prettier and ESLint clean on the changed code.
+  - **Found, not fixed:**
+    - **One Space still runs two surfaces in two places**, both on `main` before this and
+      unchanged by it. (a) A free-spin big win (`bookofborutremake`, Chromium, forced free spins,
+      a Space every ~1.6 s): `WinGate`'s post-count-up dismiss and the authored `bigWin` screen's
+      tap are both up (`continuePressCount` 2), and one Space runs both (`dismissNow` and the
+      screen's complete); a pointer tap runs only the newest (`ContinuePressMask`), whose
+      `releaseWinDismissHold` also lets the gate go. (b) `overlay-buffaloduel`'s big-win count-up:
+      the spin hotkey is live there (`isCelebrationLocked()` false), so one Space slams the round
+      and skips the count-up (`CountUpInteraction`) at once; a tap on the screen only skips. That
+      is the "⏳ Residual" of Current state's slam-stop item (a big-win count-up before its tap
+      stays slammable), seen here on a live game.
+    - **A fix for both is written and not committed**: one owner per press, the newest listening
+      `OnHotkey` with an `onpress` that would act on it, decided at the key-down before any acts
+      (the keyboard's twin of the mask's pick; a hotkey with no `onpress`, hold-to-spin, sees
+      every press). It ends both doubles (0 of 38 presses in the forced free-spin round), passed
+      its own fixture (46 checks, 23 of 23 mutations) and the same six series (0 of 60 runs on its
+      build), and kept `bookofborutremake` 17/17 byte-identical, but it changes
+      `overlay-buffaloduel`'s `big-wins` captures: the harness's 2-frame Space during each big win
+      then only skips the count-up, as a tap does, so the presentation needs one more 600-frame
+      `settle` tap (`bigwin-x40` +601 frames, `x70` and `x120` +1,203; the other 14 screens
+      identical). That is a behaviour change, so it waits for the owner: keep the keyboard's
+      slam-and-skip, or take the one-owner rule (and decide whether that count-up should be
+      celebration-locked). The patch goes with this change's report.
+    - **The hold still registers for a press a continue screen took**: continuous play on and
+      turbo forced while it is held. At idle nothing follows (no round runs); mid-round the next
+      round chains at the round's end. That is the 2026-09-28 open product call 1, unchanged.
+    - **`ResumeBet`'s check leaves idle after every start-screen tap**, for a few ms with nothing
+      to resume. Only `EnableSpaceHold` read "left idle" as "a round started"; anything new that
+      does would trip on it.
+    - **A blocked page can run a due timer before a queued key-up.** `CountUpInteraction` tells a
+      tap from a hold by a 300 ms timer, so a quick tap on a blocked page could read as a hold
+      (speed-up, no skip). Not seen.
+  - **Not verified:** a real iPhone; the minified build; a Hold and Win respin park or a buy flow
+    under Space; the dev games (`apps/{cluster,ways,scatter,price}`), which mount the same
+    `EnableSpaceHold` through `UIDefault`.
 
 - 2026-11-12 — **The board idle after a win no longer rebuilds the win presentation: a reel view
   keeps its rig art, flipbook art and win frame between plays and starts them again in place, a rig
@@ -726,7 +849,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     follow the frames drawn on the real clock: the branch drew more (a spin's active frames 53 →
     89, the bonus's 1,375 → 1,963) and some art starts per frame drawn, so it built more; in
     determinism mode every frame is the same (Parity). Book: base's warm moments held 20 free
-    spins and the branch's 25 (base used its first feature on the start screen, "found" below), so
+    spins and the branch's 25 (base used its first feature on the start screen: one Space there
+    both continued and bet, fixed the same day, "One Space on a start screen" above), so
     per free spin; `*` is the branch's idle frame (base had none clean). The DOM counter now
     counts nodes under a mutated one too, and each `Container` adds one, so DOM nodes stay
     comparable (Chromium no-win spin 4,505 → 4,447).
@@ -755,13 +879,6 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     `tools/fx-spike` `element-fx` (imports `Container` and pins `Symbol`);
     `check:agents-knowledge`; Prettier and ESLint clean.
   - **Found, not fixed:**
-    - **One Space on a start screen can both continue and spin.** In WebKitGTK, on
-      `bookofborutremake`, the first Space on the press-to-continue screen also bet a spin in 5 of
-      5 base runs and 1 of 7 branch runs; in Chromium in none (2 of 2 each). Likely cause, read
-      from the code and not traced: `OnHotkey` reads its `disabled` at the event and hotkey
-      subscribers run in mount order, so when the continue-press subscribed first (load timing),
-      its synchronous completion re-enables the spin hotkey for the same keydown. Behaviour, not
-      pixels; not fixed here.
     - **The win presentation remounting per line cycle** (ranked churner 4): its DOM share is gone
       with fix 1; its rigs and display objects are not (the sweep's idle after a win: ~217
       objects and 22 rigs every 15 s, JS−render 4.2 ms a frame). Keeping the frames and labels
