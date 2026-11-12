@@ -206,7 +206,7 @@ async function send(url, init, { attempts = 3, label } = {}) {
 		try {
 			res = await fetch(url, init);
 		} catch (e) {
-			if (attempt >= attempts) throw new Error(`${label}: ${e.message}`);
+			if (attempt >= attempts) throw new Error(`${label}: ${e.message}`, { cause: e });
 			await new Promise((r) => setTimeout(r, 500 * attempt));
 			continue;
 		}

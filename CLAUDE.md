@@ -79,7 +79,7 @@ packages/      → 30 shared libraries
 
 ## Code Style
 - **Formatter:** Prettier — tabs, single quotes, 100-char line width, trailing commas
-- **Linter:** ESLint 9 via `eslint-config-custom`
+- **Linter:** ESLint 10 via `eslint-config-custom`
 - **TypeScript** throughout — no `any` unless absolutely necessary
 - No unnecessary comments — only explain non-obvious constraints or workarounds
 - No unused backward-compat shims; delete dead code

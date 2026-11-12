@@ -39,9 +39,54 @@
       "count": 4
     }
   },
+  "apps/launcher-api/scripts/check-bug-fix-runs.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/check-director-adapters.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/check-director-events.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "apps/launcher-api/scripts/check-pipeline-changes.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "apps/launcher-api/scripts/check-unused-symbols-in-game.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/generate-game-config-defaults.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/optimize-build-assets.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/BootMarkPreview.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "apps/launcher-api/src/lib/BootSplash.svelte": {
     "svelte/no-at-html-tags": {
       "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/ColorField.svelte": {
+    "no-useless-assignment": {
+      "count": 3
     }
   },
   "apps/launcher-api/src/lib/ToolTopBar.svelte": {
@@ -62,9 +107,39 @@
       "count": 1
     }
   },
+  "apps/launcher-api/src/lib/server/director/ops/build.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/director/templates.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/flipbookStorage.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "apps/launcher-api/src/lib/server/fontExport.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/githubOidc.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/manifestBasename.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/text/rigTextRaster.client.ts": {
+    "no-useless-assignment": {
+      "count": 2
     }
   },
   "apps/launcher-api/src/routes/(app)/+page.svelte": {
@@ -79,6 +154,9 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/admin/+page.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    },
     "svelte/no-navigation-without-resolve": {
       "count": 2
     },
@@ -123,6 +201,9 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    },
     "svelte/prefer-svelte-reactivity": {
       "count": 30
     }
@@ -212,6 +293,11 @@
   "apps/launcher-api/src/routes/(app)/onboarding/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
       "count": 5
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/pipeline/+page.svelte": {
+    "no-useless-assignment": {
+      "count": 1
     }
   },
   "apps/launcher-api/src/routes/(app)/rig-viewer/+page.svelte": {
@@ -415,12 +501,30 @@
       "count": 1
     }
   },
+  "packages/config-vite/svelteVersions.fixture.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "packages/engine-game/fixtures/winEscalationOutro.fixture.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "packages/engine-game/src/components/CountUpInteraction.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "packages/engine-game/src/game/playBook.ts": {
     "turbo/no-undeclared-env-vars": {
       "count": 1
     }
   },
   "packages/engine-layout/src/lib/ComponentInstance.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    },
     "svelte/prefer-svelte-reactivity": {
       "count": 4
     }
@@ -430,8 +534,18 @@
       "count": 1
     }
   },
+  "packages/engine-rig/src/constraints.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
   "packages/pixi-svelte/src/lib/assetLoad.ts": {
     "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/pixi-svelte/src/lib/components/BaseRigProvider.svelte": {
+    "no-useless-assignment": {
       "count": 1
     }
   },
@@ -448,6 +562,9 @@
   "packages/pixi-svelte/src/lib/utils.svelte.ts": {
     "@typescript-eslint/ban-ts-comment": {
       "count": 3
+    },
+    "no-useless-assignment": {
+      "count": 1
     }
   },
   "packages/rgs-fetcher/src/schema.ts": {
@@ -533,6 +650,36 @@
   },
   "packages/utils-xstate/src/types.ts": {
     "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "services/atlas-comfy-pod/custom_nodes/ComfyUI-Invisible-ErrorRecall/web/errorRecall.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/atlas-tool/doc-guard.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/director-worker/scripts/prove-lease.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/director-worker/src/launcher.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/director-worker/src/mockups/analyze.fixture.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/test-server/server.mjs": {
+    "no-useless-assignment": {
       "count": 1
     }
   }
