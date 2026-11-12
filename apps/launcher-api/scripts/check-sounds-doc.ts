@@ -328,27 +328,116 @@ console.log('\n14. the catalog becomes one BANK per file');
 
 console.log('\n15. the usage index reads every surface that can bind a sound');
 {
-	// A flow cue is identified by its literal's ENUM TYPE, not by the node's `ref` — so a new cue,
-	// an action or a function call taking a sound is found without touching the collector.
+	// A REAL FlowDoc. The collector once read `flow.nodes`, which no FlowDoc has, so `/sound` listed
+	// no flow cue and the publish gate never saw a draft only the flow plays. A doc keeps nodes in
+	// its `graph`, in each mode's graph, in a group's body (groups nest), and a node can call a shared
+	// library function. Each placement below carries its own sound, so a walk that skips one fails.
+	const lit = (type: string, value: string) => ({ kind: 'literal', type: { t: 'enum', name: type }, value }); // prettier-ignore
+	const cue = (id: string, ref: string, name: unknown) => ({ id, kind: 'fireCue', ref, inputs: { name } }); // prettier-ignore
+	const graph = (nodes: unknown[], data: unknown[] = []) => ({ nodes, exec: [], data });
+	const group = (id: string, label: string, nodes: unknown[]) => ({ id, kind: 'group', label, body: graph(nodes), boundary: [] }); // prettier-ignore
+	const call = (id: string, ref: string) => ({ id, kind: 'functionCall', ref });
+	type Graph = ReturnType<typeof graph>;
 	const flow = {
-		nodes: [
-			{ id: 'n1', kind: 'fireCue', ref: 'soundOnce', inputs: { name: { kind: 'literal', type: { t: 'enum', name: 'SoundEffectName' }, value: 'jng_intro_fs' } } }, // prettier-ignore
-			{ id: 'n2', kind: 'fireCue', ref: 'soundMusic', inputs: { name: { kind: 'literal', type: { t: 'enum', name: 'MusicName' }, value: 'bgm_freespin' } } }, // prettier-ignore
-			// A literal of some OTHER enum is not a sound, however sound-shaped its value looks.
-			{ id: 'n3', kind: 'fireCue', ref: 'symbolShow', inputs: { name: { kind: 'literal', type: { t: 'enum', name: 'SymbolName' }, value: 'bgm_main' } } }, // prettier-ignore
-			// A wired input carries no name to read.
-			{ id: 'n4', kind: 'fireCue', ref: 'soundOnce', inputs: { name: { kind: 'wire' } } },
-			// THE CASE THAT MATTERS: a node whose `ref` says nothing about sound, carrying a sound
-			// literal anyway. Matching on the node's name instead of its literal's TYPE would miss it —
-			// and would keep missing every future node kind that happens to take a sound.
-			{ id: 'n5', kind: 'functionCall', ref: 'playFanfare', inputs: { cue: { kind: 'literal', type: { t: 'enum', name: 'SoundEffectName' }, value: 'sfx_youwon_panel' } } }, // prettier-ignore
+		version: 2,
+		templateId: 'bookOf',
+		containers: [],
+		graph: graph(
+			[
+				cue('n1', 'soundOnce', lit('SoundEffectName', 'jng_intro_fs')),
+				cue('n2', 'soundMusic', lit('MusicName', 'bgm_freespin')),
+				// A literal of some OTHER enum is not a sound, however sound-shaped its value looks.
+				cue('n3', 'symbolShow', lit('SymbolName', 'bgm_main')),
+				// A wired input carries no name to read.
+				cue('n4', 'soundOnce', { kind: 'wire' }),
+				// A node whose `ref` says nothing about sound, carrying a sound literal anyway: the
+				// literal's TYPE finds it, so a node kind added later that takes a sound is found too.
+				{ id: 'n5', kind: 'functionCall', ref: 'playFanfare', inputs: { cue: lit('SoundEffectName', 'sfx_youwon_panel') } }, // prettier-ignore
+				// A data edge wins over the literal it feeds (`resolveDataIn`): the literal never plays.
+				cue('n6', 'soundOnce', lit('SoundEffectName', 'edge_overridden')),
+				group('g1', 'Intro', [cue('n7', 'soundOnce', lit('SoundEffectName', 'flow_group'))]),
+				call('n8', 'fn.fanfare'),
+			],
+			[{ from: { node: 'v', pin: 'out' }, to: { node: 'n6', pin: 'name' } }],
+		),
+		modes: {
+			holdAndWin: { graph: graph([cue('n1', 'soundMusic', lit('MusicName', 'flow_mode'))]) },
+			freeSpins: { graph: graph([group('g2', 'Outer', [group('g3', 'Inner', [cue('n9', 'soundOnce', lit('SoundEffectName', 'flow_nested'))])])]) }, // prettier-ignore
+		},
+	};
+	const library = {
+		version: 2,
+		functions: [
+			{ id: 'fn.fanfare', name: 'Fanfare', body: graph([cue('f1', 'soundOnce', lit('SoundEffectName', 'flow_fn')), call('f2', 'fn.deep')]) }, // prettier-ignore
+			{ id: 'fn.deep', name: 'Deep', body: graph([cue('f3', 'soundOnce', lit('SoundEffectName', 'flow_fn_deep'))]) }, // prettier-ignore
+			// The library is shared by every project; nothing in this flow calls this one.
+			{ id: 'fn.other', name: 'Other', body: graph([cue('f4', 'soundOnce', lit('SoundEffectName', 'flow_fn_uncalled'))]) }, // prettier-ignore
 		],
 	};
-	const flowNames = flowSoundBindings(flow).map((b) => b.name);
-	check('a cue literal is a binding', flowNames, ['jng_intro_fs', 'bgm_freespin', 'sfx_youwon_panel']); // prettier-ignore
-	check('a non-sound enum is not', flowNames.includes('bgm_main'), false);
-	check('a sound-taking node that is not a sound cue still counts', flowNames.includes('sfx_youwon_panel'), true); // prettier-ignore
-	check('a garbage graph yields nothing', flowSoundBindings(null), []);
+
+	type FlowRule = (flow: unknown, library: unknown) => { name: string; where: string }[];
+	/** The claims over a rule; returns the labels that failed. */
+	const flowClaims = (rule: FlowRule): string[] => {
+		const failed: string[] = [];
+		const got = rule(flow, library);
+		const where = (name: string) => got.find((b) => b.name === name)?.where;
+		const expect = (label: string, ok: boolean) => void (ok || failed.push(label));
+		expect("a cue in the flow's own graph", where('jng_intro_fs') === 'soundOnce · n1');
+		expect('a music cue', where('bgm_freespin') === 'soundMusic · n2');
+		expect("a cue in a mode's graph", where('flow_mode') === 'soundMusic · n1 (holdAndWin mode)');
+		expect("a cue in a group's body", where('flow_group') === 'soundOnce · n7 (group Intro)');
+		expect('a cue in a group inside a group inside a mode', where('flow_nested') === 'soundOnce · n9 (freeSpins mode › group Outer › group Inner)'); // prettier-ignore
+		expect('a cue in a library function the flow calls', where('flow_fn') === 'soundOnce · f1 (function Fanfare)'); // prettier-ignore
+		expect('a cue in a function a called function calls', where('flow_fn_deep') === 'soundOnce · f3 (function Deep)'); // prettier-ignore
+		expect('a sound literal on a node that is not a sound cue', where('sfx_youwon_panel') === 'playFanfare · n5'); // prettier-ignore
+		expect('not: a library function nothing calls', where('flow_fn_uncalled') === undefined);
+		expect('not: a literal a data edge overrides', where('edge_overridden') === undefined);
+		expect('not: a non-sound enum', where('bgm_main') === undefined);
+		expect('exactly these, once each', got.length === 8);
+		return failed;
+	};
+	const real: FlowRule = (f, l) => flowSoundBindings(f, l);
+	check('the flow claims hold on the real collector', flowClaims(real), []);
+	check('a garbage flow yields nothing', flowSoundBindings(null, null), []);
+	check('a missing library reads only the flow', flowSoundBindings(flow).map((b) => b.name), ['jng_intro_fs', 'bgm_freespin', 'sfx_youwon_panel', 'flow_group', 'flow_mode', 'flow_nested']); // prettier-ignore
+
+	// …and each planted mutant fails them. A guard that cannot fail proves nothing.
+	const noGroups = (g: Graph): Graph => ({ ...g, nodes: g.nodes.filter((n) => (n as { kind: string }).kind !== 'group') }); // prettier-ignore
+	const oneLevelOfGroups = (g: Graph): Graph => ({
+		...g,
+		nodes: g.nodes.map((n) => {
+			const node = n as { kind: string; body: Graph };
+			return node.kind === 'group' ? { ...node, body: noGroups(node.body) } : n;
+		}),
+	});
+	const eachGraph = (fn: (g: Graph) => Graph) => ({
+		...flow,
+		graph: fn(flow.graph),
+		modes: Object.fromEntries(Object.entries(flow.modes).map(([id, m]) => [id, { graph: fn(m.graph) }])), // prettier-ignore
+	});
+	const FLOW_MUTANTS: Record<string, FlowRule> = {
+		'reads flow.nodes (the bug)': (f) => {
+			const nodes = (f as { nodes?: { id: string; ref: string; inputs?: Record<string, { kind: string; type?: { name: string }; value?: unknown }> }[] }).nodes ?? []; // prettier-ignore
+			return nodes.flatMap((n) =>
+				Object.values(n.inputs ?? {})
+					.filter((s) => s.kind === 'literal' && /Sound|Music/.test(s.type?.name ?? ''))
+					.map((s) => ({ name: String(s.value), where: `${n.ref} · ${n.id}` })),
+			);
+		},
+		"the flow's own graph only": () => real({ graph: noGroups(flow.graph) }, undefined),
+		'skips the mode graphs': (_f, l) => real({ ...flow, modes: undefined }, l),
+		'skips group bodies': (_f, l) => real(eachGraph(noGroups), l),
+		'one level of groups only': (_f, l) => real(eachGraph(oneLevelOfGroups), l),
+		'ignores the function library': (f) => real(f, undefined),
+		'reads the whole library, called or not': (f, l) => real({ ...(f as object), ...(l as object) }, undefined), // prettier-ignore
+		'does not follow a call inside a called function': (f) =>
+			real(f, { ...library, functions: library.functions.filter((fn) => fn.id !== 'fn.deep') }),
+		'a data edge does not override the literal it feeds': (_f, l) => real({ ...flow, graph: { ...flow.graph, data: [] } }, l), // prettier-ignore
+	};
+	for (const [name, mutant] of Object.entries(FLOW_MUTANTS)) {
+		const failed = flowClaims(mutant);
+		check(`mutant "${name}" is caught${failed.length ? ` (${failed[0]})` : ''}`, failed.length > 0, true); // prettier-ignore
+	}
 
 	// The slot defaults ARE bindings — an un-authored project still plays the whole catalogue, which
 	// is the inversion `game-config/sounds.ts` exists for.
