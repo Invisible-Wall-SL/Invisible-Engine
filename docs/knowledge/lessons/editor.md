@@ -269,16 +269,6 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **Guard:** none. A new edit path must bump the nonce.
 - **PR:** not recorded (2026-07-15) · source: `docs/history.md`
 
-### An author screen showed in the editor but not in the game
-
-- **Symptom:** a new HUD screen or the info bar drew in the editor; the game showed a fallback.
-- **Cause:** `Game.svelte` mounted scenes by hard-coded id (`infoBar`, `basegame`…); the editor
-  mints `hud_…` ids.
-- **Fix:** `extraMountScenes` mounts every unreserved screen in list order; identity is
-  `Scene.role` (`sceneByRole`), never an id. See [components](components.md) (no hard-coding).
-- **Guard:** `test-resting-scenes.mjs`; the generic mount itself.
-- **PR:** not recorded (2026-06-19, 2026-06-29, 2026-07-01) · source: `docs/history.md`
-
 ### A rig shows in the editor but not in the game
 
 - **Symptom:** a placed rig, or a component's own rig, never loads in game; or draws half size.
