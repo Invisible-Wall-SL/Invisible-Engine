@@ -2,7 +2,9 @@
 // the Book-of mechanic came to it (docs/design/book-feature.md Phase 3): same seed, same responses,
 // byte for byte (round ids blanked — they come from `Math.random`, not the seed). The digests were
 // taken from origin/main's mock (ebc2197, 2026-10-07) with `--print`; a change that moves one has
-// changed a game nobody asked to change.
+// changed a game nobody asked to change. Re-taken 2026-11-12, when a free-spin retrigger began
+// sending the partner's `spinTrigger` before our `retrigger`: without that event every answer is
+// byte-identical to the old digests.
 //
 //   pnpm check:lines-parity            (part of check:rgs)
 //   node scripts/check-lines-parity.mjs --print [--mock <dir>]   print the digests of a mock copy
@@ -112,16 +114,16 @@ const CONFIGS = {
 };
 
 const PINNED = {
-	default: 'a29483558989bb48',
-	'forced trigger': '05325dcbc3fcfcf4',
+	default: 'ba7fdf5026af3ef3',
+	'forced trigger': 'd4394f4bef8952e4',
 	WIN_X: '25de5e85af753994',
-	'restricted pool': '6d9561c8a0c96acd',
-	'table + buy': 'd9b3308652b18df7',
-	ways: '81667960c70789cb',
-	stepped: '61499b10ee2ea754',
+	'restricted pool': 'b7bf43023318a5f5',
+	'table + buy': '154d6471568f799f',
+	ways: '7e3dc9617893b0dc',
+	stepped: '1fd071bca5d02758',
 	cascade: '8c0534948e1bac53',
 	'wild + stacked': '8665602ddf7d8c84',
-	'authored scatter pays + awards': 'fa11e0f0e4292e46',
+	'authored scatter pays + awards': 'f29bfc5084578952',
 };
 
 const digests = {};

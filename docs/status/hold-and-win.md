@@ -1116,6 +1116,18 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     **＋ Add screen ▾ → Banner screen ▸**, put art on it, then publish. Force a feature with a jackpot coin and
     check that your art replaces the dark plate. Every other popup should still look as it did.
 
+16. **Capture a Getting Hot line win** (mock audit, 2026-11-12;
+    `reference/play4fun-protocol.md` "Mock audit"). The partner-wire mock puts a base spin's `spinWin`
+    after `cellPayAmount`, before `collect`, all before `playedSpin`. That place is a guess: every
+    collector capture (Fortune Vault, 2026-11-09) was a buy or an ante round with no line win. In a
+    real browser tab on the partner's Getting Hot (or Fortune Vault) demo, with DevTools filtered on
+    `engine` and "Preserve log" on, play BASE spins and save the whole answer of:
+    (a) a spin with a line win and no coin collected; (b) a spin with a line win and a collect;
+    (c) a natural (unbought) trigger. Write the order down in
+    `reference/play4fun-collector-respin-capture.md`. Then move the mock's `spinWin` to match, and
+    update `check-holdandwin-partner-wire.mjs`'s `BASE_ORDER`. `check:mock-wire` proves the facade
+    still draws the win.
+
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
