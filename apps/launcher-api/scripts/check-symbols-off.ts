@@ -10,6 +10,9 @@
  *      bundle paths (the export endpoint the bake reads, and the bake whitelist).
  *   4. THE GAME — the reader, the win frame and the board glow act on it. Its stock art is held by
  *      `apps/lines/src/game/stockAssets.fixture.ts`.
+ *   5. REEL ANTICIPATION — it has no switch here: the flow turns it on. A project whose flow cannot
+ *      ships no anticipation block, so a swapped overlay rig stays home; the switch name matches
+ *      the game's.
  *
  * Run:  pnpm --filter launcher-api check:symbols-off
  */
@@ -17,6 +20,11 @@
 import { fileURLToPath } from 'node:url';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { normalizeSymbolsDoc } from '../src/lib/server/symbolsStorage.ts';
+import {
+	ANTICIPATION_SWITCH,
+	mentionsAnticipationSwitch,
+	shipAnticipationOnlyWhenArmed,
+} from '../src/lib/server/anticipationArmed.ts';
 import { collectSymbolRefs } from '../src/lib/server/symbolExport.ts';
 import { symbolsRouteCarries } from './lib/symbolsRouteBody.ts';
 import {
@@ -142,6 +150,45 @@ check(
 check(
 	'the board glow never lights while it is off',
 	holds(frame, 'const OFF = bakedSymbolsOff()?.boardGlow === true;', 'if (active && !OFF) {'),
+	true,
+);
+
+console.log('\n5. reel anticipation ships only when a flow can arm it');
+const TEASE = 'clients/c/projects/p/spines/tease/';
+const teased = normalizeSymbolsDoc({ version: 1, anticipation: { spineKey: TEASE } });
+check(
+	'an armed flow keeps the swapped tease rig',
+	collectSymbolRefs(shipAnticipationOnlyWhenArmed(teased, true)).rigKeys.has(TEASE),
+	true,
+);
+const unarmed = shipAnticipationOnlyWhenArmed(teased, false);
+check('an unarmed one drops the block', unarmed.anticipation, undefined);
+check('…and so the rig', collectSymbolRefs(unarmed).rigKeys.has(TEASE), false);
+check(
+	'the export asks the flow before it collects',
+	holds(
+		exporter,
+		'flowArmsAnticipation(clientKey, projectKey),',
+		'return shipAnticipationOnlyWhenArmed(',
+	),
+	true,
+);
+check(
+	'a flow node arms it, bare or scoped',
+	[
+		mentionsAnticipationSwitch({
+			graph: { nodes: [{ kind: 'action', ref: ANTICIPATION_SWITCH }] },
+		}),
+		mentionsAnticipationSwitch([{ ref: `effects:${ANTICIPATION_SWITCH}` }]),
+		mentionsAnticipationSwitch({ graph: { nodes: [{ ref: 'disableAnticipationMode' }] } }),
+	],
+	[true, true, false],
+);
+check(
+	'the switch is the one the game arms on',
+	readLF(`${root}apps/lines/src/game/stockAssetRules.ts`).includes(
+		`ANTICIPATION_SWITCHES: readonly string[] = ['${ANTICIPATION_SWITCH}']`,
+	),
 	true,
 );
 

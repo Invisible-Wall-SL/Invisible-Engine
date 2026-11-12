@@ -87,6 +87,8 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   - `highlight` — the win-frame rig over every winning symbol of any art kind, with a `fixed` or
     `winLine` multiply tint; `boardGlow` — the free-spin reel-house glow. `off.highlight` /
     `off.boardGlow` turn either coded part off: not drawn, no art shipped (`check:symbols-off`).
+  - `anticipation` ships only when the flow (or the shared library) can fire
+    `enableAnticipationMode` (`anticipationArmed.ts`); otherwise the section reads **Not used**.
   - `winLine` — the LINE (`enabled`, `useConfigColor`, `fullPayline`, `allAtOnce` + delay) and the
     AMOUNT TEXT (`text.enabled` defaulting to the line's, `placement: 'boardCenter'`, `countUp`,
     `fadeIn`, and `cueBigWin` — the amount counts up to the first big-win threshold and hands over
@@ -198,6 +200,10 @@ or the effect is pruned as an orphan.
   while the mode is armed. Gates: `check:symbols-off` (new), `stockAssets.fixture.ts` (three new
   cases). Runtime change: merging re-points every online game; untouched projects behave as before,
   apart from no longer downloading the tease rig when nothing arms it.
+  Same day, on the owner's ask: the export drops the whole `anticipation` block (so a swapped
+  overlay rig no longer ships) when no flow can arm the mode, and the section shows **Not used** —
+  `flowArmsAnticipation` reads the flow v2 doc + shared library for the switch, kept wide on purpose
+  (a false "armed" only ships a rig). `check:symbols-off` §5.
 - 2026-11-10 — **Jackpot coins can have their own art per tier** (Hold and Win, default off). New
   section **Jackpot coins**. When it is on, each coin row gets one grid row per jackpot tier
   (`<coin>:<TIER>` in `symbols`). The whole story, runtime and gate (`check:jackpot-coin-art`) are in
