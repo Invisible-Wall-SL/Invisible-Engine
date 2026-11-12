@@ -64,6 +64,15 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-11-12 — **A desktop build (☁ Publish, 📦 Deliver) ships only what the game loads, too.** The
+  owner's `overlay_buffaloduel` build shipped 38 files of "Coded game art", 6.3 MB of exported art
+  the boot never loads (test6's 4096² UI page via a shared component default, an unplaced rig) and
+  the exports' KTX2 records. Reproduced and fixed: 337 → 272 files, 53.9 → 47.4 MB, every harness
+  screen identical. Detail: [status/engine.md](engine.md) (the build's prune) and
+  [status/launcher.md](launcher.md) (the pull and the breakdown). **Not done here:** the online
+  version freeze (`versionFiles`) still keeps the generated subtrees whole, so a version carries the
+  same art the boot skips and the same encode records; the stock audiosprite (4.7 MB of the build's
+  6.15 MB of sounds) is the sound split's.
 - 2026-11-12 — **A published version freezes only what a player loads.** `stageSnapshot` copied
   all of `deploy/` (`copyDeployTree`), so every version carried the Sheet Maker's and Atlas Maker's
   source folders (`sprites/`, `spines/`, which the exports repack into `_pages/`) and by-products

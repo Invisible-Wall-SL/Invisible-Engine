@@ -258,17 +258,27 @@ machine. Use it to check that the right packages went out.
   shipped that nothing loads.
 - **By category:** a bar and a table of size and file count for Code, Scene art, Symbols, Atlas
   pages (shared), Coded game art, Fonts, Sounds, Loading screen, Game data and Other. Click a row to
-  filter the lists below to that category.
+  filter the lists below to that category. **Coded game art** is the engine's own sample art the
+  game still loads by code (and images the code imports); flipbook clips count as Game data and the
+  page's `favicon.svg` as Other.
 - **Checks:**
   - errors: files the game asks for that are not in the build;
   - warnings: placed art no sheet packs, rigs that resolved to nothing, missing flipbook frames,
-    files nothing loads, files committed in the game repo that nothing loads, textures over 4096 px,
-    🐞 Debug left on;
-  - info: identical files shipped twice, images no atlas names, and assets the game data never
-    names.
+    files the game never loads (nothing the bundle or the code reaches, also through a file that is
+    itself never loaded), files committed in the game repo that nothing loads, textures over
+    4096 px, 🐞 Debug left on;
+  - info: identical files shipped twice (a player who loads both downloads the bytes twice),
+    identical small descriptors (two assets over the same atlas pages, each needing its own, or two
+    empty indexes: not waste), images no atlas names, and assets the game data never names (by key, by a
+    frame of the sheet, or, for a sound, inside a timeline cue such as `sfx:<name>`).
 - **What the build left out**, step by step, with every file and its size:
   - not pulled from the project (in `deploy/` but loaded by nothing; tidy them in the Invisible FTP
     Browser);
+  - stock sample art the game never draws, and what else sits in those sample folders that nothing
+    loads (their `index.ts` files, a font's unused `.json`);
+  - exported art the game never loads: scene art only a component default names, where every
+    placement picks its own (change or clear that default in the Component Editor);
+  - export records no game reads (KTX2 encode records, the loading splash's KTX2 twin);
   - removed from `static/assets` (leftovers of an earlier build or a renamed asset);
   - image twins and extra audio formats dropped by 🗜 Optimize;
   - PNG twins and non-mp3 audio dropped by the launcher;
@@ -277,7 +287,7 @@ machine. Use it to check that the right packages went out.
   in, its size, **Uses** (how many times the scenes, components, symbols, flow and effects name it)
   and **Used in**. Search, filter by type, and sort by size, uses or name.
 - **Files:** every file with its kind, size, **Refs** (how many times the bundle, the code and other
-  files reference it), who references it and its pixel size. Use **Unreferenced only** to list dead
+  files reference it), who references it and its pixel size. Use **Never loaded only** to list dead
   files; a `dup` tag marks identical content.
 - **Game content** (scenes, components, languages, flow, config…), and **Assets / Files / Left-out
   CSV** and **JSON** downloads.
