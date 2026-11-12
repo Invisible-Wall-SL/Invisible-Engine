@@ -39,7 +39,7 @@
  * components were appended, each view mounts its sprite once, and no view is built after the first
  * respins.
  *
- * Kept art and win frames: a view's `Symbol` keeps its rig art (a play per entry its arm draws,
+ * Kept art and win frames: a view's `Symbol` keeps its rig and flipbook art (a play per entry its arm draws,
  * `createEntries`) and its win frame (`createWinFrames`, decided once per visit) between plays.
  * Over random runs of entries, vacancies, art kinds, wins and multiplier stamps, each starts a play
  * on exactly the steps its keyed band mounted it and stops on the steps the band destroyed it, and
@@ -835,7 +835,7 @@ console.log('kept rig art and win frames play where the keyed bands mounted');
 		};
 	};
 
-	for (const kind of ['rig'] as const) {
+	for (const kind of ['rig', 'flipbook'] as const) {
 		const base = keyedBlock();
 		const plays = createEntries();
 		const kept = played();
@@ -1019,6 +1019,28 @@ void import('node:' + 'fs').then((fs: Fs) => {
 			/\{#if drawsKeptFrame\}\s*<SymbolWinFrame[^>]*parked=\{winFrame\.play === undefined\}\s+restart=\{winFrame\.play\}\s*\/>\s*\{\/if\}\s*\{#key restartWhen\(\(showWinFrame && !winFrame\.kept\) \|\| multiplier\)\}\s*\{#if showWinFrame && !winFrame\.kept\}/.test(
 				markup,
 			),
+	);
+	check(
+		"a view's flipbook art is kept outside the keyed art, played and put away by its plays",
+		/const flipbookPlay = \$derived\(\s*view \? flipbookPlays\(art\.keyed && hasArt && isFlipbook, props\.instanceKey\) : undefined,\s*\);/.test(
+			symbol,
+		) &&
+			/\{#if flipbookInfo\}\s*<SymbolFlipbook[^>]*symbolInfo=\{flipbookInfo\}[^>]*parked=\{flipbookPlay === undefined\}\s+restart=\{flipbookPlay\}\s+oncomplete=\{flipbookPlay === undefined \? undefined : artComplete\}/.test(
+				markup,
+			) &&
+			/\{:else if isFlipbook\}\s*\{#if !view\}\s*<SymbolFlipbook/.test(markup),
+	);
+	const flipbook = read('SymbolFlipbook.svelte');
+	check(
+		'a kept flipbook restarts its clip at each play, and is hidden, stopped and silent while away',
+		/if \(props\.parked !== undefined\) setContextRestart\(\(\) => props\.restart\);/.test(
+			flipbook,
+		) &&
+			/void props\.restart;\s*if \(props\.parked\) return;\s*const id = setTimeout/.test(
+				flipbook,
+			) &&
+			/play=\{!props\.frozen && !props\.parked\}\s+visible=\{shown\}/.test(flipbook) &&
+			(flipbook.match(/visible=\{shown\}/g) ?? []).length === 2,
 	);
 	const rigMain = read('SymbolRigMain.svelte');
 	const winFrameSource = read('SymbolWinFrame.svelte');

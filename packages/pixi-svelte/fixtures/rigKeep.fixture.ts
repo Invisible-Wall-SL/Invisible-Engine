@@ -397,6 +397,25 @@ function run(read: (path: string) => string): void {
 				) && /const fire = \([^)]*\): void => \{\s*if \(parked\?\.\(\)\) return;/.test(bound),
 			);
 		}
+		const clip = source('RiggedFlipbook.svelte');
+		check(
+			'RiggedFlipbook keeps its clip from its first beat: started again per beat, hidden while down',
+			/setContextRestart\(\(\) => runId\);\s*let fired = false;\s*const drawn = \$derived\(\(fired \|\|= runId > 0\)\);\s*\$effect\.pre\(\(\) => \{\s*fbLocal\.visible = runId > 0;\s*\}\);/.test(
+				clip,
+			) &&
+				/\{#if drawn\}/.test(clip) &&
+				!/\{#key runId\}/.test(clip) &&
+				(clip.match(/<Flipbook clip=\{props\.clip\} anchor=\{0\.5\} play=\{runId > 0\} \/>/g) ?? [])
+					.length === 2 &&
+				clip.indexOf('const restart = getContextRestart();') < clip.indexOf('setContextRestart('),
+		);
+		const sprite = source('AnimatedSprite.svelte');
+		check(
+			'…which AnimatedSprite starts again from its first frame when the restart moves, and stops when not playing',
+			/void restart\?\.\(\);[\s\S]*?gotoAndPlay\(0\);\s*\} else \{\s*animatedSprite\.gotoAndStop\(0\);/.test(
+				sprite,
+			),
+		);
 	}
 
 	if (failures) throw new Error(`rigKeep.fixture: ${failures} FAILED`);
