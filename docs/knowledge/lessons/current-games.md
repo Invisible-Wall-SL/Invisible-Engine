@@ -6,6 +6,16 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### One Space on the start screen continued and bet a spin
+- **Symptom:** one Space on `bookofborutremake`'s start screen dismissed it and bet a spin.
+- **Cause:** hold-to-spin's `continueFromIdle` (`EnableSpaceHold`) read any non-idle moment after
+  the press, here `ResumeBet`'s check, as a round the press started; a blocked page let its 400 ms
+  timer beat the key-up. Not the guessed subscriber order.
+- **Fix:** `EnableHotkey` keeps a record per key press (`components-shared/src/hotkeyPress.ts`);
+  hold-to-spin continues from idle only for a press a `bet` went out under.
+- **Guard:** `onePress.fixture.mjs`; trace a key bug in a browser before trusting a guess.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### Svelte work cost 25–40× more in WebKit than in Chromium
 - **Symptom:** in WebKitGTK a reel board `{#each}` run took ~4 ms (0.15 in Chromium), a `Symbol`
   teardown ~12–18 ms, a `Container` destroy ~0.3 ms.
