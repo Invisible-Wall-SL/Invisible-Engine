@@ -285,6 +285,12 @@ Nothing extra to do — this happens on publish:
 A sound you remove or rename leaves the game the same way: the next publish (or desktop
 build) no longer carries the old file.
 
+Only the sounds the game can **play** are copied: one a moment here, a flow cue, a timeline
+cue or a component names, or one named after a built-in. A sound nothing plays stays in the
+library, where you can still audition and bind it, but players no longer download it. It
+ships the moment something plays it. When that can't be told (a flow cue whose sound comes
+from a wire rather than the dropdown, say), every sound ships.
+
 That last point is how you re-skin the engine's default audio: upload a sound named
 `sfx_reel_stop_1` and the game plays yours instead of the shipped one, with nothing to
 bind.

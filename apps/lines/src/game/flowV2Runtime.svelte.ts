@@ -84,6 +84,7 @@ import {
 	spawnedIdOf,
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
+	startupShownContainers,
 	variableValueSources,
 	usedContainerIds,
 	vocabularyIn,
@@ -273,6 +274,11 @@ export type LinesFlowV2 = {
 	resolveScene: (sceneId: string) => Scene | undefined;
 	/** The current z-ordered mounted containers (seed the Game.svelte rune mirror). */
 	ordered: () => MountedContainer[];
+	/** Every container of the flow, at the `z` it is stacked at. */
+	containers: readonly MountedContainer[];
+	/** The ids of the containers the flow's start-up chains show (`load`, `tapToStart`, the
+	 *  completion of a screen they show). Static, read from the doc's graph. */
+	startupShown: readonly string[];
 	/** The set of container ids a `showContainer{awaitComplete}` node targets — i.e. the containers
 	 *  that HOLD the round on their tap when shown. Static (read from the doc's graph). The
 	 *  spin-button celebration lock reads this to hold the button while ANY such container is shown,
@@ -983,6 +989,8 @@ export const createLinesFlowV2 = (
 		mount,
 		resolveScene,
 		ordered: () => mount.ordered(),
+		containers: layeredContainers.map(({ id, sceneId, z }) => ({ id, sceneId, z })),
+		startupShown: [...startupShownContainers(doc).keys()],
 		awaitTargets: awaitCompleteContainerIds(doc),
 		hideTargets: hideContainerIds(doc),
 		ownsContainerEvent: (componentId, action) =>

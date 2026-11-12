@@ -6,6 +6,28 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### The game froze as it first appeared, at the start screen's tap
+- **Symptom:** an Android `?perf=1` boot logged a 183 ms frame at the tap on the start screen;
+  0.5–0.9 s at the tap in WebKitGTK on `overlay-buffaloduel`.
+- **Cause:** the tap's `pointerup` handler mounted every screen the flow shows from start-up on in
+  one task (`pots`, `jackpotBar`, `hudBar`, `hudCorners`, …): ~62% `LayoutNodeView` /
+  `ComponentInstance`. Not a GPU first use.
+- **Fix:** those screens mount under the loading bar, hidden and dormant (`<FlowV2Mount ahead>`,
+  `<LayoutScene dormant>`), and their first show restarts them in place.
+- **Guard:** `startupAhead.fixture.ts`; compare every 3rd frame after the tap, sha-256.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
+### A screen mounted ahead moved every seeded draw after the tap
+- **Symptom:** mounting the start-up screens dormant under the bar changed the frames after the
+  tap from 2 s on (the pots' tops) in determinism mode, though nothing ahead was shown or ran.
+- **Cause:** a component state machine draws each layer's random start as it is made, so the
+  mount ahead drew 3 numbers the tap's mount used to draw; its default `random` was also the
+  `Math.random` of the moment it was made.
+- **Fix:** mount ahead with `Math.random` answering 0 (`mountWithoutRandomDraws`); the machine
+  reads `Math.random` at each draw. 61 of 61 frames after the tap byte-identical on both games.
+- **Guard:** `startupAhead.fixture.ts`; a mount moved in time must leave the seeded sequence alone.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### The loading bar froze while the GPU warm-up ran, and the splash hitched as it appeared
 - **Symptom:** an Android `?perf=1` boot logged 50–100 ms `first use` frames under the bar
   (15–44 MB, up to 12 compiles each) and a 67 ms frame as the engine splash appeared.

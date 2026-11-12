@@ -1060,6 +1060,11 @@ the reels yet to stop). It is a **game-level** panel, not per-symbol, mirroring 
 lines. The **mode itself is armed and disarmed from Flow** (enable / disable anticipation); this
 section only _styles_ it.
 
+**Not used.** There is no On/Off switch here, because the mode is already off until the flow turns it
+on. When no flow can (no **Enable anticipation mode** node in the project's flow or the shared
+function library), the section says **Not used**: the game never teases, and neither the coded
+anticipation rig nor a swapped overlay rig ships. Add the node in Invisible Flow to use it.
+
 There is **one tier column per configured big-win tier** — the panel reads the project's big-win
 tiers from **Invisible Game Config** (`/config` → "Big win tiers") and shows a column per tier, in
 ascending order, headed by the tier's player-facing **name** (e.g. `SUPER WIN`). So the columns grow

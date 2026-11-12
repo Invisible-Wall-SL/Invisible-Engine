@@ -94,7 +94,7 @@
 		getContextRestart,
 		getContextRig,
 		getContextRigLoadScale,
-		getContextRigParked,
+		getContextRigAway,
 		onRestart,
 		setContextRestart,
 	} from '../context.svelte';
@@ -106,7 +106,7 @@
 
 	const props: Props = $props();
 	const rig = getContextRig();
-	const parked = getContextRigParked();
+	const parked = getContextRigAway();
 	// The clip's box is in RIG units (the Rigger and /symbols load every rig at 1); the host bundle may
 	// be read at another load scale, which moves bones and scales attachments but not a Pixi child —
 	// so the clip is scaled by it here. See `setContextRigLoadScale`.
@@ -202,8 +202,8 @@
 		runId = 0;
 	};
 	onRestart(restart, dormant);
-	// A kept rig put away (`<RigProvider parked>`): the clip goes, as an unmount takes it, and
-	// nothing fires until the rig plays again.
+	// A kept rig put away (`<RigProvider parked>`), or one on a screen not shown yet: the clip goes, as
+	// an unmount takes it, and nothing fires until the rig plays again.
 	if (parked) {
 		$effect.pre(() => {
 			if (parked()) untrack(dormant);

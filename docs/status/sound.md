@@ -223,12 +223,83 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 3. **Renaming is still hostile.** Renaming a library sound does not repoint the moments that play
    it — the picker turns red and says so, which is better than silence, but a rewrite is now cheap
    (one doc, one save) and worth doing.
+4. **The shipped audiosprite still loads whole.** Every game downloads and decodes all 408 s of
+   it; 26–175 s of that is unreachable per game. Plan and numbers: the 2026-11-12 entry below.
+5. **The flow-cue half of the usage index reads nothing.** `flowSoundBindings` (`soundUsage.ts`)
+   reads `flow.nodes`; a `FlowDoc` keeps nodes in `graph.nodes` and `modes[*].graph.nodes`. So
+   `/sound` lists no flow cue and the publish gate never sees a draft bound only in the flow.
 
 ## Blocked (owner / external)
 
 - _None._
 
 ## Recent changes
+
+- 2026-11-12 — **A game ships only the sounds it can play** (worktree branch, committed locally,
+  not pushed). The owner: _"We are also shipping sounds and music that we are not using in the
+  final game; this should get the same treatment as the art assets."_ `soundExport.ts` copied
+  every library entry, drafts and unused takes included, into `deploy/sounds/` and the catalog.
+  That cost players, not just storage: `bakedSoundBanks` makes one preloaded `Howl` per catalogued
+  sound when `EnableSound` mounts, so each one was downloaded and decoded at boot.
+  - **The rule** is `soundReachability.ts`, beside `clipReachability.ts`. An entry ships when the
+    engine's own code may play it (`SOUND_NAMES` and the slot defaults: an upload under such a
+    name replaces the shipped region with no doc naming it) or when any game data names it. "Names"
+    is the build breakdown's "uses" walk over every string, plus the sound inside a timeline cue
+    (`sfx:` / `music:` / `stop:`, read with the runtime's own `cueSoundOf`).
+  - **Sources:** the `/sound` choices as the export resolves them, the config and symbols docs
+    whole (legacy cues, `winLevels[].sound`, a mode's `music`), and the layout doc (screen
+    timelines, the `win` instance's `<alias>Sfx` / `<alias>Bgm`, a reel grid's anticipation
+    `sound`). Also every component def, the exact versions the layout pins, and the per-project
+    param defaults. Then the flow (graph, modes, groups), the shared function library, and the
+    cinematics (cues and `pick` alternates).
+  - **Not sources:** FX (plays no audio), rig events (broadcast by name; the skeleton's `audio`
+    field is read by nothing), win text, localization, fonts, shaders. The fixture scans for the
+    first two.
+  - **Uncertainty keeps.** These ship every sound: a source that throws, a partly read cinematic
+    list, or a flow sound cue fed by a wire, an accessor or an edge. A library of engine names
+    only reads nothing else. The runtime pass hands over its cinematics; a route call (the bake)
+    loads its own.
+  - **Measured** on the 18 published versions (read-only R2), and again after most were
+    republished an hour later, with the same numbers. 7 have a library. 6 ship two
+    firework SFX nothing names, 101,080 B and 6.2 s (≈ 2.3 MB decoded per player):
+    overlay-buffaloduel 17 → 15 sounds (1,636,088 → 1,535,008 B); commonoverlayproject,
+    overlay-wallstreet, overlay-wallstreet2, overlay-wishworld and rocketreskintest1 5 → 3
+    (239,700 → 138,620 B). bookofborutremake, borut_pots_sample and test6 already ship only what
+    they play. The branch rule run against today's R2 docs drops exactly what a walk of each
+    frozen snapshot calls unnamed, and never a sound the snapshot names. The walk took 5–24 s from
+    this container (cinematics 20 s of it, already loaded by the runtime pass).
+  - **Proof.** `check:sound-reachability` (Lint's launcher gates): 40 claims, 14 planted rule
+    mutants each caught, and 6 source mutants caught by hand.
+    The current-games harness ran the 6 affected games, every `bookOf` scenario (pots included),
+    in determinism mode. Base was the published snapshot and branch the same snapshot as this
+    export writes it, on one runtime (this change touches no runtime input). Every `Howl` bank and
+    every play was logged by name, bank and frame: 42 scenario pairs, 1,715 plays, identical
+    sequences, 0 sound warnings, 0 load errors, 0 errors or stalls, and "6 pass · 0 changed
+    screen(s)". The logs show why each source is load-bearing: `gearpile-explosion` plays only
+    from a cinematic cue and `medium_pay` only from the `holdAndWin` mode graph. The other 12
+    games' export is unchanged byte for byte (same catalog, same files); bookofborutremake and
+    test6 were also run (`big-wins`, `free-spins`) on their newer snapshots: same plays, 0 changed.
+    Web fonts drew in the fallback face on both sides: the Typekit mirror is missing from R2 and
+    this container cannot reach Adobe.
+  - **The shipped audiosprite: not gated.** The 2026-09-23 premise does not hold. 17 of 18 games
+    reach `bgm_main` through the `baseMusic` slot default, and bookofborutremake is one of them:
+    its own track starts from a flow cue, but its `baseMusic` slot is unset, so the engine's
+    returns (after a win-level count-up, at the free-spin end) ask for `bgm_main`. The harness log
+    shows it: the remake opens on its own track (frame 122), and after its first big win
+    (`bgm_winlevel_big`, frame 1900) it plays `bgm_main` (frame 2280). test6, with two tracks of
+    its own, plays `bgm_main` too. All 18 reach `bgm_freespin` (the `freeSpinMusic` default,
+    often a flow cue too). A "has music of its own" gate would silence those returns. A
+    reachability gate is safe, but today it frees only overlay-buffaloduel's `bgm_main`: 132.5 s,
+    ≈ 1.21 MB ogg / 1.36 MB m4a, ≈ 47–51 MB decoded. The larger cost is the sprite itself, 408 s
+    decoded whole (≈ 144–157 MB of PCM per player). Per game, 26.5–175 s of it is named by no
+    data, no resolved slot and no coded call: buffaloduel 175 s (≈ 1.6 MB ogg, ≈ 62–67 MB
+    decoded), the rest 26–38 s.
+  - **Plan, not done:** split the sprite into separately loadable files (music beds each on their
+    own, SFX together), re-encoding the four containers. Have the export compute the reachable
+    stock cues (this walk plus slot resolution) and carry the list in the catalog, with absent
+    meaning load everything. The runtime loads only listed files. Prove it with this play log,
+    because the harness compares pixels and a silenced bed draws nothing. It edits the shared
+    runtime, so it re-points every online game on merge.
 
 - 2026-10-28 — **A Hold and Win coin can sound as it lands in the total** (branch
   `claude/fervent-ride-ccp7qf`, in review). Asked for a sound on the coin collect at the end of
@@ -330,6 +401,9 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   page always sends its own project, so authors see no change). `resolveSoundScope` is deleted.
   Details: [launcher.md](launcher.md) Recent changes, 2026-09-28.
 - 2026-09-23 — **Nothing in this pipeline had ever looked at HOW an upload was encoded, and a 256 kbps music bed was reaching every player.** Found while measuring why the Book of Borut remake's build had grown to ~70 MB (see [engine status](engine.md) for the texture half). The audio looked like duplication at first — the game fetches a 3.55 MB `assets/audio/sounds.ogg` AND a 6.84 MB `snd_*.mp3` from the deploy API — but it is **not**: the shipped audiosprite holds **53 distinct cues** (read live off `Howler._howls`) that every engine default and a dozen hardcoded literals still play, while the uploaded track is separate music. Removing either silences real sound. The actual waste was the ENCODING: the track measured **256 kbps / 48 kHz stereo over 224 s** (MPEG-1 Layer III first-frame header), where the only existing control anywhere is a 25 MB per-upload cap in `soundLibrary.ts`. `audioTranscode.ts` + `ENV.SOUND_TRANSCODE` (ON, cap `SOUND_MAX_KBPS` = 128) now re-encode on the way into `deploy/sounds/`: **6.84 MB → 3.42 MB** in 2.6 s, measured on the real file. **Three properties that are the point of the design, not incidental:** (a) the UPLOAD is never touched — `sounds/files/` deliberately never destroys audio, so this caps the exported copy only and `SOUND_TRANSCODE=0` + a re-export restores the original bytes exactly; (b) same container in, same container out, because an entry's `file` is the name the catalog and the game resolve — which is also why `wav` is skipped (a bitrate cap is meaningless for PCM and the real fix would rename it, so **a wav-heavy library is still a size hazard**); (c) a re-encode is kept **only when it is actually smaller** (`KEEP_BELOW = 0.9`) rather than decided by a bitrate probe — verified that re-capping an already-128k file and "capping" one at 320k both return null and ship the source, so no generation loss and no size regression. Caching is not optional here: this exporter runs on the per-boot `/api/editor/runtime` assemble (`runtimeBundle.ts`), so `sounds/_transcode.json` — kept beside the SOURCES, never under `deploy/`, so it is not mirrored into game builds or hit by the deploy prune — records source ETag+size+cap per file, including for files that shipped verbatim, or an unbeatable track would re-encode on every boot. `TRANSCODE_REVISION` exists for the `KTX2_ENCODER_REVISION` reason: a cache keyed only on the source can never let a settings fix reach unchanged audio. ⚠️ **Infra:** this adds `ffmpeg-static` to the launcher, whose install DOWNLOADS an ~83 MB binary and only runs because it is in root `onlyBuiltDependencies` — a failed download degrades silently to verbatim audio rather than failing the build (see [INFRA](../INFRA.md) § "launcher build-time binary"). **Shipped and VERIFIED LIVE** (#775, `d3f97cef`): deployed and re-exported — the remake's bed is now **3.42 MB on the wire, down from 6.84 MB**, and the second export's `sounds` phase dropped 6233→684 ms, so the cache is doing its job on the runtime-assemble path. Both guards were measured against the real track before shipping (re-capping an already-128k file and "capping" one at 320k each return null and ship the source). Known remaining overlap, deliberately NOT done: `bgm_main` + `bgm_freespin` in the shipped sprite (~1.77 MB) are genuinely dead for a project with its own music, but splitting the sprite and gating it edits the SHARED runtime — it re-points every online game on merge, and an inverted gate silences music for games with no uploaded track.
+  - 2026-11-12: measured on the 18 published games, the "genuinely dead" premise does not hold.
+    17 reach `bgm_main` (the `baseMusic` slot default, the remake included) and all 18 reach
+    `bgm_freespin`. Still not done; the numbers and the plan are in the 2026-11-12 entry.
 - 2026-09-15 — **The music a game comes BACK to is authored now, and a cue can carry its own level.**
   Three owner questions off one uploaded soundtrack: _"it starts correct, but it doesn't loop, and I
   do not see any option to make it loop"_ · _"when I get out of the big win, there is no more music

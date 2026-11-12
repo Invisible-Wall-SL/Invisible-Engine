@@ -899,7 +899,7 @@ const hudIntro = () => ({
 	check('wiring: every play of a cinematic carries its own play number', /const play = \+\+cinematicPlays;/.test(runtime) && (runtime.match(/playingCinematics\.set\(cinematicId, \{\s*play,/g) ?? []).length === 2); // prettier-ignore
 	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'screenHolding: screenDrives.holding', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore
 	check('wiring: <FlowV2Cinematics> hands <Cinematic> the ratio reader', source('apps/lines/src/components/FlowV2Cinematics.svelte').includes('layoutType={stateLayoutDerived.layoutType}')); // prettier-ignore
-	check('wiring: <FlowV2Mount> gets Game’s in-place slots', /<FlowV2Mount[\s\S]{0,200}?\{screenSlot\}\s*\/>/.test(gameSource)); // prettier-ignore
+	check('wiring: <FlowV2Mount> gets Game’s in-place slots and its start-up screens mounted ahead', /<FlowV2Mount[\s\S]{0,200}?\{screenSlot\}\s*ahead=\{flowV2Ahead\}\s*\/>/.test(gameSource)); // prettier-ignore
 }
 
 // --- 6. a screen its timelines only move is driven in place ----------------------------------------

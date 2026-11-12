@@ -26,16 +26,42 @@
 		/** A screen its timelines drive WITHOUT remounting it, by scene id: its nodes sample whichever
 		 *  timeline drives it now, and its content restarts on each new play. Absent ⇒ remounted. */
 		screenSlot?: (sceneId: string) => ScreenSlot | undefined;
+		/** Containers to mount AHEAD of their first show (the game's start-up screens, behind its start
+		 *  screen): hidden and dormant until `containers` lists them, when they start in place as a
+		 *  mount at that moment would (`<LayoutScene dormant>`). Only a screen no timeline drives, or
+		 *  one driven in place (`screenSlot`), may be listed: a remounted screen is mounted at its
+		 *  show. Once shown, a container is any other; hidden again, it is unmounted. */
+		ahead?: MountedContainerRef[];
 	};
 </script>
 
 <script lang="ts">
 	import { elementFxScreenTarget } from 'constants-shared/elementFx';
 	import { Container } from 'pixi-svelte';
+	import { untrack } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 
+	import { createAheadMounts } from './aheadMounts';
 	import LayoutScene from './LayoutScene.svelte';
 
-	const { containers, resolveScene, screenDrive, screenSlot }: Props = $props();
+	const { containers, resolveScene, screenDrive, screenSlot, ahead = [] }: Props = $props();
+
+	const shownIds = $derived(new Set(containers.map((c) => c.id)));
+	/** The same set, read per id: a screen mounted ahead hears its own show and no other. */
+	const shownEach = new SvelteSet<string>();
+	$effect.pre(() => {
+		const now = shownIds;
+		untrack(() => {
+			for (const id of shownEach) if (!now.has(id)) shownEach.delete(id);
+			for (const id of now) shownEach.add(id);
+		});
+	});
+	const aheadMounts = createAheadMounts();
+	const mounted = $derived(aheadMounts.plan(containers, ahead));
+	/** A screen mounted ahead: its first show changes this, which restarts it, and so does each new
+	 *  play of a timeline driving it in place. */
+	const aheadRestart = (id: string, slot: ScreenSlot | undefined) => (): string =>
+		`${shownEach.has(id) ? 'shown' : 'ahead'}:${String(slot?.restart() ?? '')}`;
 </script>
 
 <!--
@@ -49,13 +75,21 @@
 	explicitly with `delay` nodes, so a `show` is a hard cut (design doc §4). A screen a playing
 	screen timeline animates mounts with that timeline's driver (`screenDrive`).
 -->
-{#each containers as container (container.id)}
+{#each mounted as container (container.id)}
 	{@const scene = resolveScene(container.sceneId)}
 	{@const drive = screenDrive?.(container.sceneId)}
 	{@const slot = screenSlot?.(container.sceneId)}
 	{#if scene}
 		<Container zIndex={container.z}>
-			{#if slot}
+			{#if aheadMounts.mountedAhead(container.id)}
+				<LayoutScene
+					{scene}
+					nodeDriver={slot?.driver}
+					restart={aheadRestart(container.id, slot)}
+					dormant={() => !shownEach.has(container.id)}
+					parentTarget={elementFxScreenTarget(container.sceneId)}
+				/>
+			{:else if slot}
 				<LayoutScene
 					{scene}
 					nodeDriver={slot.driver}

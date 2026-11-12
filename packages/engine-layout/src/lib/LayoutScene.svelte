@@ -13,6 +13,11 @@
 		/** Driven in place (`<FlowV2Mount screenSlot>`): the key each new play changes, which restarts
 		 *  this screen's rigs and component machines as a remount would. Read once, at mount. */
 		restart?: () => unknown;
+		/** Mounted ahead of its first show (`<FlowV2Mount ahead>`): while true the screen is hidden and
+		 *  nothing in it moves or plays — its rigs put away, its machines not started, its effects,
+		 *  Element FX and coded parts not mounted. `restart` changes when it turns false, so the show
+		 *  starts the screen as a mount at that moment would. Read once, at mount. */
+		dormant?: () => boolean;
 	};
 </script>
 
@@ -24,6 +29,7 @@
 		Container,
 		getContextParent,
 		registerAnchor,
+		setContextDormant,
 		setContextRestart,
 	} from 'pixi-svelte';
 	import { getContextLayout, scaleLayout, setContextLayout } from 'utils-layout';
@@ -44,7 +50,7 @@
 	import { tapDimBehind } from './tapToContinue';
 	import { sceneMountKey, trackComponentMount } from './mountedComponents';
 
-	const { scene, nodeDriver, parentTarget, restart }: Props = $props();
+	const { scene, nodeDriver, parentTarget, restart, dormant }: Props = $props();
 	const parentContext = getContextParent();
 	$effect(() => {
 		const name = parentTarget;
@@ -58,11 +64,17 @@
 	if (driver) setCinematicNodeDriver(driver);
 	const restartOf = untrack(() => restart);
 	if (restartOf) setContextRestart(restartOf);
+	const dormantOf = untrack(() => dormant);
+	if (dormantOf) setContextDormant(dormantOf);
+	const asleep = (): boolean => dormantOf?.() ?? false;
 
 	// Count this screen in while it is mounted (`isComponentMounted(sceneMountKey(id))`), so a coded
 	// default can step aside for an authored screen the flow is showing — the Hold and Win banner for
 	// `luckySpin` / `jackpotWin`. A keyed scene never changes id, so the key is read once.
-	$effect(() => untrack(() => trackComponentMount(sceneMountKey(scene.id))));
+	$effect(() => {
+		if (asleep()) return;
+		return untrack(() => trackComponentMount(sceneMountKey(scene.id)));
+	});
 
 	const space = $derived(scene.space ?? 'game');
 
@@ -193,7 +205,7 @@
 	// so a `ComponentInstance` fires its `enter` cue when THIS SCREEN appears (a gated
 	// "Free-spin intro" opening), not just when the instance first mounts. Ungated
 	// screen ⇒ `liveVisible` stays `true` ⇒ a child reads "always visible" = parity.
-	setSceneVisibleContext(() => liveVisible);
+	setSceneVisibleContext(() => liveVisible && !asleep());
 
 	// Element FX on the whole screen (`Scene.elementFx`): one container around everything the screen
 	// draws, the tap surfaces included, anchored as `screen:<id>` for the Flow. Read once, like the
@@ -300,7 +312,7 @@
 	{#if screenFx.length}
 		<Container>
 			<Anchor name={elementFxScreenTarget(scene.id)} />
-			{#if liveVisible}
+			{#if liveVisible && !asleep()}
 				{#key restartOf?.()}
 					<ElementFxPlayer entries={screenFx} />
 				{/key}
@@ -322,8 +334,8 @@
 	{/if}
 {/snippet}
 
-{#if visibilitySource}
-	<Container visible={liveVisible}>
+{#if visibilitySource || dormantOf}
+	<Container visible={liveVisible && !asleep()}>
 		{@render sized()}
 	</Container>
 {:else}

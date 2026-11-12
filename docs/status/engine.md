@@ -74,7 +74,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   tint (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
   Spread across frames behind the loading bar, each frame at most 8 ms, 8 MB of texture data or one
   program (`warmupSchedule.ts`; a page over 8 MB alone), and it fills the bar's last 15%; the boot
-  splash prepares under the bar too (2026-11-12 below). Every device starts at full quality (pixel ratio
+  splash prepares under the bar too, and so do the flow screens the start screen's tap shows,
+  mounted hidden and dormant, one a warm-up step, and started in place at their show (2026-11-12
+  below, "the start screen's tap"). Every device starts at full quality (pixel ratio
   up to 2, MSAA); the game lowers it only when frames measurably fall behind while a round plays,
 
   Spread across frames behind the loading screen. Every device starts at full quality (the
@@ -365,13 +367,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   than building and destroying its `RigView`s), idle particle layers updating every frame, and
   `propsSyncEffect`'s key list per run.
   **Boot** (Recent changes, 2026-11-12, "the loading bar keeps moving"): the warm-up's uploads and
-  compiles and the splash's context, program and page now land under the bar. Left: (1) **the
-  game's first appearance**, the tap on the start screen: its `pointerup` handler mounts every
-  screen the flow shows at `tapToStart` in one task (`overlay-buffaloduel`: `basegame`, `pots`,
-  `jackpotBar`, `hudBar`), the phone's 183 ms spike; 0.5–1 s in Chromium, 1–2.2 s in WebKitGTK,
-  ~62% `LayoutNodeView`/`ComponentInstance`. The fix is to mount those screens behind the start
-  screen, hidden and paused, and start them in place at the tap (`screenSlots.ts`'s restart),
-  which must start every rig, emitter and seeded draw as a mount does (churn rank 5). (2) A page
+  compiles and the splash's context, program and page now land under the bar, and so do the flow
+  screens the start screen's tap shows (Recent changes, 2026-11-12, "the start screen's tap"): the
+  tap's mount work fell 63% on `overlay-buffaloduel` and 53% on `bookofborutremake`, its freeze
+  in WebKitGTK from 0.54–0.69 s to 0.30–0.39 s on the first. Left: (1) **the rest of the tap**:
+  the base game screen and its board, which the game mounts itself (about half of the book's
+  tap), and the wake of the screens mounted ahead: every effect there that reads whether its
+  screen has shown runs again, and what starts a clock of its own (emitters, rig-bound effects,
+  coded parts, Element FX) mounts then. Moving the board ahead means starting its reels, symbol
+  rigs and first strip's draws in place: a change of its own (churn rank 5). A step under the bar
+  that mounts one screen ahead ran up to ~80 ms in Chromium (`overlay-buffaloduel`); a phone may
+  show it as one slow bar frame, and splitting it means mounting a screen in parts. (2) A page
   over 8 MB still uploads in one frame under the bar (`bookofborutremake`'s uncompressed
   4096×6000 page, 94 MB, 0.2–0.3 s in WebKitGTK): WebGL2 sub-rectangle uploads could split it.
   (3) The splash's teardown (`loseContext()`) waits for the GPU process: 1.9–6.5 s in Chromium
@@ -597,15 +603,102 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     retrigger from the `spinTrigger` alone, once, and the `retrigger` that may follow adds nothing.
     Before this, a partner free-spins game would have added its spins with no celebration. This is
     a runtime release.
-  - **The parity digests moved for that one event.** `check:lines-parity`, `check:freespins` (book)
-    `check:pots-overlay` and launcher `check:deal-parity` (two cases) were re-pinned. With the new `spinTrigger` removed, every answer is
-    byte-identical to the old digests (checked before re-pinning).
+  - **The parity digests moved for that one event.** `check:lines-parity`, `check:freespins` (book),
+    `check:pots-overlay` and launcher `check:deal-parity` (two cases) were re-pinned. With the new
+    `spinTrigger` removed, every answer is byte-identical to the old digests (checked before
+    re-pinning).
   - **New gate `check:mock-wire`** (`rgs-translator-eagaming/mockWire.fixture.ts`, in `check:rgs`).
     It plays losing, line-win, collect, trigger, retrigger and buy rounds of the lines, book and
     collector mocks through the real facade. Each `spinWin` must land as a `winInfo` on its own board.
     Proven against three planted mutants: #1634 reverted, wins sent after the board, and the
     facade's `spinTrigger` retrigger removed.
   - The captures still owed are under "Open items" above, and Getting Hot's is Hold and Win item 16.
+- 2026-11-12 — **The start screen's tap no longer mounts the screens it shows: they are mounted
+  under the loading bar, hidden and dormant, and start in place at their show** (branch
+  `worktree-agent-abbfabf18782b2a57`, on top of the loading-bar change below (#1628), rebased on
+  `main` at `b6e28c9d`; owner decision: "no freeze visible").
+  - **What the tap mounted:** every container the flow shows from a start-up chain (`load`,
+    `tapToStart`, `complete:<id>`), in the `pointerup` task: on `overlay-buffaloduel` `basegame`,
+    `pots`, `jackpotBar`, `hudBar`, then `hudCorners` and `freeSpinCounter`; on
+    `bookofborutremake` `basegame` and ten HUD and overlay screens, one of which
+    (`s_2zp2uatd`) it hides again after a delay.
+  - **What changed:**
+    1. **Mounted ahead** (`apps/lines` `startupAhead.ts`, `Game.svelte`): each of those screens
+       is a warm-up step under the bar, one screen a step, except the base game (the game mounts
+       it with its board) and a screen a timeline remounts at its show (one hosted by a baked
+       cinematic and not driven in place). `<FlowV2Mount ahead>` keeps the mount when the flow
+       shows the screen and unmounts it when the flow hides it; once shown, a screen is never
+       mounted ahead again (`engine-layout` `aheadMounts.ts`).
+    2. **Dormant until the show** (`<LayoutScene dormant>`, `setContextDormant`): the screen is
+       hidden; its rigs are put away (`rigKeep.ts`, as a kept rig is); its machines, `enter`
+       cues and signal subscriptions do not start; content that starts a clock of its own
+       (`<Restartable>`: emitters, rig-bound effects and clips), coded parts and Element FX are
+       not mounted. The show changes the screen's restart key, so it starts as a mount at that
+       moment would: the rig is brought back where a new view registers its update and sized,
+       skinned and pivoted again, the rest mounts or subscribes then.
+    3. **No random draw ahead:** a component state machine draws each layer's random start as it
+       is made, so the mount ahead runs with `Math.random` answering 0
+       (`mountWithoutRandomDraws`), and the machine reads `Math.random` at each draw rather than
+       the one of the moment it was made. Without this the seeded sequence ran 3 draws ahead and
+       the frames after the tap changed from 2 s on.
+  - **Before / after** (the loading-bar change vs this, minified, both games, both tiers, two
+    boots a side, base and head interleaved; this machine at load 7–11):
+    - **The tap's mount work** (Svelte's DOM inserts in the `pointerup` task, the same every
+      boot): `overlay-buffaloduel` 3935 → 1457 (−63%), `bookofborutremake` 1412 → 667 (−53%);
+      under the bar +2574 and +756.
+    - **WebKitGTK, the frame that spans the tap** (400×230): `overlay-buffaloduel` low 606, 544 →
+      390, 327 ms; high 549, 691 → 301, 317; `bookofborutremake` low 286, 340 → 338, 293; high
+      303, 450 → 272, 202.
+    - **Chromium, the `pointerup` script** (734×421, software GL, long-animation-frame timing):
+      `overlay-buffaloduel` low 818, 321 → 408, 213 ms; high 378, 463 → 355, 286;
+      `bookofborutremake` low 214, 128 → 102, 202; high 150, 180 → 99, 277. Noisy at this
+      load; the DOM count above is the firm read.
+    - **What is left at the tap** (Chromium profiles): on `overlay-buffaloduel` the base game's
+      board (~15%), the wake (effects that read the show running again) and the content mounted
+      at the show; on `bookofborutremake` about half is the board. Open item "Mobile frame
+      budget", "Boot".
+    - **Memory:** the JS heap after a GC (Chromium) holds the screens ahead from the bar instead
+      of from the tap: before the tap 17.5 → 29 MB on `overlay-buffaloduel` and 14.6 → 18 MB on
+      `bookofborutremake`; 12 s after it the same on both sides (35.4 vs 35.1–35.8 MB, 21.2 vs
+      21.6 MB). GPU: the same texture data uploaded on both sides (122 / 286 MB and 106 /
+      460 MB, low / high); a screen ahead uploads nothing until it shows. 62 and 16 more DOM
+      anchors after the tap: the blocks that hold content back while dormant.
+    - **The bar:** a step that mounts one screen ran 1–79 ms in Chromium; the bar's longest
+      frames in WebKitGTK were 161–561 ms before and 217–436 ms after (software GL). Each screen
+      ahead takes a frame of the warm-up: the bar ended 0.33 s later on average in WebKitGTK
+      (`bookofborutremake`, ten screens ahead, +1.1 s; `overlay-buffaloduel` −0.4 s), where a
+      frame under the bar is 0.15–0.4 s, and 0.2 s earlier in Chromium (noise); at 60 Hz the
+      frames are ~17 ms each.
+  - **Frame by frame after the tap** (determinism mode, the minified builds, every 3rd frame for
+    3 s after the tap, sha-256 of each capture): `overlay-buffaloduel` 61 of 61 and
+    `bookofborutremake` 61 of 61 byte-identical, each of the 61 a different picture; again on
+    `main` at `b6e28c9d` (#1627–#1633), `main` vs the rebased branch: 61 of 61 on both.
+  - **Current-games harness, determinism mode, the loading-bar change vs this** (local minified
+    builds; the `base` scenario of the 17 games R2 lists, every lines scenario of the two heavy
+    games): 14 pass · 0 fail · 0 changed screen(s), 81 screens byte-identical (55 `base`, and
+    `line-win`, `free-spins`, `big-wins`, `fs-transition`, `big-win-intro` on
+    `bookofborutremake` and `overlay-buffaloduel`, 26). Stopping at the same step on both sides
+    with the same captures, as before: `cloud`, and `test-card` on its card runtime (`main` vs
+    this); `salmons` does not render here (no room server). The first `bookofborutremake` run
+    hung after its spin: the machine's memory limit killed its page (shared machine, `dmesg`); its
+    re-run passed.
+  - **The timings above** were taken before the rebase, on the loading-bar branch; the rebase
+    brought in no change to the files this touches.
+  - **Verified here:** `startupAhead.fixture.ts` (which screens, no draw, mounted ahead and kept
+    at the show, unmounted when hidden and never ahead again; 19 planted mutations caught);
+    `rigKeep.fixture.ts`, `check:element-fx`, `check-screen-timeline-mounts` and
+    `check-canvas-window-scale` updated for the dormant screen. Gates, after the rebase:
+    `check:svelte` `apps/lines` 145 (baseline 145), `packages/pixi-svelte` 14 (14),
+    `packages/engine-layout` 290 (290), `packages/components-shared` 10 (10); `check-all`
+    on `pixi-svelte`, `apps/lines`, `engine-layout`, `components-shared` and the two source
+    checks 71/71; `check:element-fx`; `check:agents-knowledge`; Prettier and ESLint on the
+    changed files. Before it, every source check and spike package that reads a changed file
+    (123; `fx-playback-page` failed once at load 20+ and passed alone).
+  - **Not verified:** a real phone (the owner's `?perf=1` boot: the spike at the tap should fall,
+    and no new one appear under the bar); WebKitGTK memory; the per-frame JS heap peak
+    (`performance.memory` is coarse here, so the heap was read after a GC). A start-up chain can
+    end in `complete:<id>` (`test1`, `cloud`: `freeSpinIntro`, `freeSpinOutro`): those screens
+    stay mounted and dormant from the bar until the feature shows them.
 
 - 2026-11-12 — **The loading bar keeps moving while the GPU warm-up runs, and the engine splash is
   ready before it shows** (branch `worktree-agent-abbfabf18782b2a57`, from `main` at `b7701125`;
