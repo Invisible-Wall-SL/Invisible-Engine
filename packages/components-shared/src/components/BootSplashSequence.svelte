@@ -21,6 +21,9 @@
 	 * overlay would be pointless in exactly the same way, so the sequence starts only once
 	 * the boot overlay is done — giving the honest order: progress bar → engine mark → game
 	 * mark → game. Hosts with no shell (the five dev games, Storybook) start immediately.
+	 * Every tier is mounted as soon as the index is read and prepares under the overlay
+	 * (`LoaderRig`'s `play`), so its WebGL context, art and first draw cost the loading bar's
+	 * frames, not the splash's.
 	 *
 	 * Every failure is a SKIP, never a stall: no index, an empty index, a tier that won't
 	 * render — each falls through to `oncomplete` and the game shows.
@@ -39,8 +42,6 @@
 	let queue = $state<BootSplashEntry[]>([]);
 	let index = $state(0);
 	let started = $state(false);
-
-	const current = $derived(started ? queue[index] : undefined);
 
 	function next() {
 		if (index >= queue.length - 1) {
@@ -87,8 +88,8 @@
 	});
 </script>
 
-{#if current}
-	{#key index}
-		<LoaderRig entry={current} {assetBase} oncomplete={next} />
-	{/key}
-{/if}
+{#each queue as entry, tier (tier)}
+	{#if tier >= index}
+		<LoaderRig {entry} {assetBase} play={started && tier === index} oncomplete={next} />
+	{/if}
+{/each}

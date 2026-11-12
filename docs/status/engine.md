@@ -72,12 +72,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   ≤ 4 GB leaves them to the GC, `textureResidency.ts`) and compiling every program the game can
   draw with: each authored Element FX with its own params, the camera chroma split, the rig dark
   tint (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
+  Spread across frames behind the loading bar, each frame at most 8 ms, 8 MB of texture data or one
+  program (`warmupSchedule.ts`; a page over 8 MB alone), and it fills the bar's last 15%; the boot
+  splash prepares under the bar too (2026-11-12 below). Every device starts at full quality (pixel ratio
+  up to 2, MSAA); the game lowers it only when frames measurably fall behind while a round plays,
+
   Spread across frames behind the loading screen. Every device starts at full quality (the
   screen's pixel ratio up to 2, MSAA; next bullet); the game lowers it only when frames measurably
   fall behind while a round plays,
   never from device memory (`renderQuality.ts`, 2026-11-10 below). `?render=full` pins full,
   `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
-  never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout: verified with
+  never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout per frame: verified with
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
@@ -329,6 +334,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
   than building and destroying its `RigView`s), idle particle layers updating every frame, and
   `propsSyncEffect`'s key list per run.
+  **Boot** (Recent changes, 2026-11-12, "the loading bar keeps moving"): the warm-up's uploads and
+  compiles and the splash's context, program and page now land under the bar. Left: (1) **the
+  game's first appearance**, the tap on the start screen: its `pointerup` handler mounts every
+  screen the flow shows at `tapToStart` in one task (`overlay-buffaloduel`: `basegame`, `pots`,
+  `jackpotBar`, `hudBar`), the phone's 183 ms spike; 0.5–1 s in Chromium, 1–2.2 s in WebKitGTK,
+  ~62% `LayoutNodeView`/`ComponentInstance`. The fix is to mount those screens behind the start
+  screen, hidden and paused, and start them in place at the tap (`screenSlots.ts`'s restart),
+  which must start every rig, emitter and seeded draw as a mount does (churn rank 5). (2) A page
+  over 8 MB still uploads in one frame under the bar (`bookofborutremake`'s uncompressed
+  4096×6000 page, 94 MB, 0.2–0.3 s in WebKitGTK): WebGL2 sub-rectangle uploads could split it.
+  (3) The splash's teardown (`loseContext()`) waits for the GPU process: 1.9–6.5 s in Chromium
+  software GL, nothing in WebKitGTK, no spike on the Android phone.
   Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601, the churn counters and
   this change released. The ~118 MB of resident textures on
   `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
@@ -540,6 +557,96 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **The loading bar keeps moving while the GPU warm-up runs, and the engine splash is
+  ready before it shows** (branch `worktree-agent-abbfabf18782b2a57`, from `main` at `b7701125`;
+  owner decision: "the initial loading should be handled by the loading bar, so no freeze is
+  visible").
+  - **The owner's boot, traced** (`?perf=1` on `c26b7e3c`, Android, Adreno 830, desktop-site mode
+    so uncompressed art). Each spike was matched to the same moment on `overlay-buffaloduel` and
+    `bookofborutremake` in WebKitGTK and headless Chromium (published snapshots, the real test
+    server, `?quality=low|high`), with a probe in the page shell that records every frame, every
+    texture upload and program link with its WebGL context and texture, and which overlay covers
+    the canvas:
+
+    | at        | ms    | on screen                                          | cause                                                                                                                                                                                                                                                                                               |
+    | --------- | ----- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | 5.0–6.2 s | 50–67 | the loading bar                                    | the warm-up (`gpuWarmup.ts`): its 8 ms budget counted main-thread time, which an upload or a link uses little of, and its frame wait gave up after 50 ms, so a slow frame took the next steps too: 15–44 MB and up to 8 compiles a frame (up to 38 MB a frame in Chromium)                          |
+    | 6.4 s     | 100   | the loading bar, its last frame                    | the warm-up's last programs (12 compiles), then `loaded`: the in-canvas loading bar unmounts                                                                                                                                                                                                        |
+    | 7.4 s     | 67    | the engine splash, appearing as the bar fades      | `LoaderRig` built its own WebGL context, loaded and parsed its rig, compiled its program and uploaded its 1600×1800 page on its first visible frames (Chromium software GL: the context 0.55 s, the link 0.35 s)                                                                                    |
+    | 11.5 s    | 183   | the game's first appearance (the start-screen tap) | the tap's `pointerup` handler mounts every screen the flow shows at `tapToStart` (`basegame`, `pots`, `jackpotBar`, `hudBar`) in one task outside any frame callback, hence `late 185` and `js 13.7`; the next frame draws 12–15 new text textures. Not a GPU first use: no program, no page upload |
+
+    The tap, profiled in Chromium: `LayoutNodeView` / `ComponentInstance` ~62% of it, the board ~7%,
+    DOM inserts ~8%; 0.5–1 s there, 1–2.2 s in WebKitGTK. Not on the phone's list: the splash's
+    teardown (`loseContext()`) waits for the GPU process to drain, 1.9–6.5 s in Chromium software GL,
+    nothing in WebKitGTK; the phone showed no spike there, so it is unchanged.
+
+  - **What changed:**
+    1. **The warm-up is budgeted per frame by time, bytes and programs** (`pixi-svelte`
+       `warmupSchedule.ts`, run by `gpuWarmup.ts`): a frame stops at 8 ms, 8 MB of texture data
+       (a compressed page counts its levels) or one program; a texture over 8 MB runs alone in its
+       frame. The frame wait gives up after 50 ms only while no frame comes (a hidden tab, an
+       offscreen iframe); once one has come, even after its wait gave up, it waits up to 1 s for
+       the frame instead of packing it.
+    2. **The bar keeps moving through it:** the asset loads fill `loadingProgress` to 85%, the
+       warm-up the last 15% (`AssetsLoader.svelte`). It used to sit at 100% for the whole warm-up.
+    3. **The boot splash prepares under the bar** (`components-shared` `LoaderRig.svelte`'s
+       `play`, `BootSplashSequence.svelte`): every tier mounts, hidden, as soon as `_boot/boot.json`
+       is read, and builds its context, rig and one drawn frame (its program and page reach the
+       GPU). When the bar is done, the clip starts from its first frame. Before, all of that ran on
+       the splash's first visible frames, after its two files had downloaded.
+    4. **Determinism mode keeps the warm-up in one frame** (`setWarmupFrameBudget`,
+       `apps/lines` `determinism.ts`): its clock never fills a frame's time, so every build ran the
+       warm-up in one frame there. The new budgets alone moved `loaded` 41 frames later on
+       `overlay-buffaloduel`, and with it every animation and seeded draw: 3 of its 4 base
+       captures changed until this was added.
+  - **Before / after** (`main` `b7701125` vs the branch, minified, both games, both tiers, two
+    boots a side in WebKitGTK at 400×230 and in Chromium at 734×421, the probe above plus
+    `?perf=1`; this machine ran at load 13–18 under four other agents' browsers, so frame times
+    are software GL and noisy and the first uses are the firm read):
+    - **After the bar, no first use left:** every `main` boot linked the splash's program and
+      uploaded its 11 MB page after the bar (and built its context there); every branch boot did
+      neither, in both browsers. The game's own first uses after the bar are the same on both
+      sides: none until the tap, then 12–15 small text textures (0.2–0.4 MB).
+    - **Under the bar:** at most one program link a frame (`main`: 2–4 in WebKitGTK); the largest
+      upload in one frame is the largest single page (`overlay-buffaloduel` uncompressed: 42–51 →
+      16 MB in Chromium, 22.4 → 16 MB in WebKitGTK; `bookofborutremake` uncompressed keeps its
+      94 MB 4096×6000 page). The worst of the bar's last three frames before it fades, per boot,
+      WebKitGTK: `main` 53–217 ms, the branch 27–58 ms.
+    - **How much longer the bar stays up:** in WebKitGTK it ended at 9.09 s on average on `main`
+      and 9.25 s on the branch (+0.16 s; each pair −0.6 to +1.6 s). In Chromium +2.7 s on average
+      (14.6 → 17.3 s), because there every frame of the canvas under the bar costs 0.1–0.6 s of
+      software GL and the warm-up now takes ~20–60 more frames; at 60 Hz those frames are ~0.3–1 s.
+      The work under the bar is the same; it is spread thinner. The 8 MB budget is the knob.
+    - **GPU memory:** flat. Both sides upload the same pages (`overlay-buffaloduel` 122 / 285 MB,
+      `bookofborutremake` 105 / 460 MB low / high, the splash's 11 MB included); the splash's page
+      and context now exist from the boot instead of from the bar's end, beside the same resident
+      set, so the peak is unchanged and only starts earlier.
+  - **What is left after the bar:** the tap's mount, a page over 8 MB under the bar, the splash
+    teardown (open item "Mobile frame budget", "Boot").
+  - **Current-games harness, determinism mode, `main` vs the branch** (local, minified, the 17
+    games R2 lists, the `base` scenario of each, every lines scenario of the two heavy games, and
+    the arcade and card games on their own family runtimes): 8 pass · 7 fail · 2 not rendered ·
+    15 changed screen(s). Every changed screen is the boot splash, which covers the game in the
+    `loaded`, `idle` and, on `test6`, `spin` captures, drawn one frame of its clip ahead: on
+    `main` its own setup ran after the bar and, on `test1`, `test2`, `test6`, `getting-hot`,
+    `holdandwintestsolo`, `hw-3pots-sample` and `test-card`, cost it one stepped frame. Proved
+    timing only: on each of the first six, the branch's frame N at `loaded`+25…35 is
+    byte-identical to `main`'s N+1, ten or eleven frames running (a temporary scenario capturing
+    every frame there). Byte-identical: `bookofborutremake`, `commonoverlayproject`,
+    `overlay-wallstreet`, `overlay-wallstreet2`, `overlay-wishworld`, `overlay-buffaloduel`,
+    `particlespin`, `borut-pots-sample`, and on the two heavy games the line-win, free-spins,
+    big-wins, fs-transition and big-win-intro scenarios too (26 more screens). Not rendered on
+    either side: `cloud` (stops at the same step on both), `salmons` (no room server here).
+    These 15 screens need the owner's approval as a timing change of the splash.
+  - **Verified here:** `warmupSchedule.fixture.ts` (time, byte and program budgets, the frame wait,
+    progress, the lifted budget; 19 planted mutations caught). Gates: `check:svelte` `apps/lines`
+    145 (baseline 145), `packages/pixi-svelte` 14 (14), `packages/components-shared` 10 (10);
+    `check-all --only pixi-svelte` 19/19, `--only apps/lines` 17/17; `check:element-fx`;
+    `check:agents-knowledge`; Prettier and ESLint on the changed files.
+  - **Not verified:** a real phone or GPU (the owner's `?perf=1` boot is the test: no `first use`
+    or `outside the game` spike from the splash appearing, the bar's frames under ~42 ms except
+    one per page over 8 MB); the harness's full list of 21 games (it needs the pipeline token).
 
 - 2026-11-12 — **A phone or tablet showing the desktop site gets the phone treatment: KTX2 art, a
   canvas no bigger than its screen, and the `half` art tier where half covers** (worktree branch

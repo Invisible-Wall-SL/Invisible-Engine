@@ -14,6 +14,9 @@
  *   (`pixi-svelte/frameClock`), and any presentation `Date.now`. GSAP would ride the same rAF +
  *   clock; the runtime does not ship it. CSS and Web Animations (Svelte transitions) are paused,
  *   seeked to the clock and finished at their end.
+ * - **GPU warm-up.** The loader's warm-up runs in one frame, as time alone never ended one of its
+ *   frames under this clock (`pixi-svelte` `setWarmupFrameBudget`): its byte and program budgets
+ *   would move the frame the load ends on, and every seeded draw after it.
  * - **Randomness.** `Math.random` is a PRNG seeded from the flag. Only cosmetic code reads it: the
  *   outcome (the book) comes from the RGS, and the client draws nothing that changes it.
  * - **I/O.** A frame does not start while a fetch, XHR, image, external script or stylesheet,
@@ -36,6 +39,7 @@
 
 import { pendingCueHolds } from 'engine-layout';
 import type { ArcadeNetcode } from 'game-config';
+import { setWarmupFrameBudget } from 'pixi-svelte/warmupSchedule';
 
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
@@ -376,6 +380,9 @@ export function installDeterminism(): void {
 
 	// ---- randomness ----
 	Math.random = seededRandom(hashSeed(seed));
+
+	// ---- the loader's GPU warm-up: one frame, as the virtual clock has always made it ----
+	setWarmupFrameBudget({ ms: Infinity, bytes: Infinity, compiles: Infinity });
 
 	// ---- clock ----
 	performance.now = () => now;
