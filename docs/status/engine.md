@@ -602,6 +602,48 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-12 — **A desktop build and a delivery ship only what the game loads: the build also leaves
+  out the art the boot skips and the sample folders' dead files.** The owner's ☁ Publish of
+  `overlay_buffaloduel` (v12, engine `248b7157`) shipped 337 files, 53.5 MB, with 38 files of
+  "Coded game art" and 23 "same bytes twice". Reproduced here as a game repo would build it (this
+  engine as `engine/`, `deploy/` mirrored from R2 through the REAL `pull-project-assets.mjs` with
+  🗜 Optimize, the newest published `runtime.json` with `deploy/`'s export indexes as the bake):
+  same 337 files and every category's count, 53.9 MB (the launcher's PNG→WebP re-encode, 0.35 MB,
+  is not reproduced). One difference: this checkout's seeded stock files match the engine's bytes,
+  so `stockTwinShip` ships 16 stock KTX2 twins (4.6 MB) the owner's older seed did not get; the
+  numbers below leave them out.
+  - **The prune (`config-vite` `stockAssetPrune.js`, plan in `game/stockAssetBuild.ts`)** now also
+    removes (1) the project's exported art the walk names nowhere but a component default every
+    placement overrides (`editorArtUnused`, which the boot already takes off the asset table), with
+    its pages and twins unless another kept descriptor names a page: here test6's 4096² `S_UI` page
+    (a shared `hudReadout` default), `R_SpinButtonNew` and `S_BigWin` (its page is shared with
+    `R_Bigwin`, so it stays), 11 files, 6.3 MB; (2) every file in a stock folder no kept key loads
+    (`plan.folders`, the audio sprite's aside): the seven `index.ts` manifests and the fonts' `.json`
+    twins (the table loads a font by its `.xml`), unless the bundle or the built code names the file.
+    A kept or other descriptor that cannot be read keeps every art file; the stock prune still runs.
+    `stock.json` gains `art: { skipped, keptAllBecause, removed }`.
+  - **Measured** (owner-equivalent, before → after): 337 → 272 files, 53.9 → 47.4 MB. Atlas pages
+    95 / 37.71 → 59 / 31.45 MB; Coded game art 38 / 3.44 → 19 / 3.43 MB (clips are Game data now
+    and the favicon Other); Fonts 31 → 19; Scene art 91 → 84; Loading screen 7 / 0.29 → 4 / 0.15 MB.
+    Checks: never loaded 1 → 0, same bytes twice 23 → 1, never named 8 → 0. `bookofborutremake`
+    244 → 212 files, `overlay_wishworld` 287 → 243 (neither has art the boot skips).
+  - **What still ships in Coded game art, and why** (none of it drawn in any harness scenario but
+    `goldFont`, drawn by the big win): `H5`, `M`, `W`, `explosion` (2.4 MB: the build keeps every
+    symbol either map draws, since a Play4Fun server declares the set; the mock boot never requests
+    `H5`/`M`/`W`); `explosion` is registered and loaded (the authored `BONUS`/`JACKPOT`/`MULTI`
+    `explosion` state names it); `transition` (an awaited show measures its clip, so dropping it
+    would change flow timing); `reelsFrame` + `goldFont` (the `freeSpinCounter` instance stays
+    mounted hidden behind `visibleSource: freeSpinCounterShow`, and a hidden sprite still logs a
+    missing key); `pressToContinueText`, `progressBar` (always kept: drawn by the coded press and
+    the loading bar). Owner content would clear `explosion`, `reelsFrame`: own art for the
+    `explosion` state, no free-spin counter in a game with free spins off.
+  - **Played:** both builds of `overlay_buffaloduel` in every `bookOf` harness scenario (determinism
+    mode, the real test server and mock, a logging proxy, a probe on `renderer.texture.bind` and on
+    every rig view's render): 17 of 17 screens byte-identical, the same 139 requests and no failed
+    one, the same console warnings; `?quality=low` (KTX2 tier) 8 of 8 identical, no failed request.
+  - Gates: `check-stock-asset-prune.mts` (sections 4 and 6), `check-pull-reachability.mjs`,
+    `check-build-breakdown-desktop.mjs`; 20 planted mutants, each caught.
+
 - 2026-11-12 — **Mock audit: every event the test RGS sends, against the partner's wire.** The
   table is in `reference/play4fun-protocol.md` ("Mock audit"). It lists each event as captured,
   read by the partner's client, from another provider, or ours.
