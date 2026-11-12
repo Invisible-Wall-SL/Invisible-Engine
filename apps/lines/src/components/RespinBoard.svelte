@@ -185,6 +185,7 @@
 	import RespinLockedCell from './RespinLockedCell.svelte';
 	import { isCoinBoard } from '../game/coinBoard.svelte';
 	import { getContext } from '../game/context';
+	import { createSeatViews, createVisitOrder } from '../game/respinBoardKeep';
 	import {
 		currentRespinBoard,
 		respinCellLook,
@@ -200,9 +201,14 @@
 	 * MOUNTED FOR EVERY GAME, DRAWS NOTHING UNTIL A FEATURE. The outer `Container` is unconditional so
 	 * its seat in the board stack is fixed at mount — pixi-svelte freezes child order then, and an
 	 * `{#if}` that remounted it in the shared parent would append it above whatever mounted since.
-	 * Inside it, nothing exists until `stateRespinBoard.shown`, and the reels themselves are not even
-	 * built until the first feature (`stateRespinBoard.svelte.ts`). A game that never receives a Hold
-	 * and Win event pays one empty container and one `stopButtonClick` subscription.
+	 * Inside it, nothing exists until the first feature shows the board, and the reels themselves are
+	 * not even built until then (`stateRespinBoard.svelte.ts`). A game that never receives a Hold and
+	 * Win event pays one empty container and one `stopButtonClick` subscription.
+	 *
+	 * KEPT FROM THE FIRST FEATURE ON (`respinBoardKeep.ts`): hidden between features instead of
+	 * destroyed, its cells and held coins keeping their components, every view vacant and its art put
+	 * away, so a hidden board neither updates nor draws. The tiles, the locked cells, the counter and
+	 * the dials are mounted per feature, as before.
 	 *
 	 * The persistent meters' pots (`HoldAndWinPots`) share this container: they sit above the board in
 	 * the base game and the feature alike, and draw nothing — mount nothing — for a game whose config
@@ -215,6 +221,9 @@
 	const coinBoard = isCoinBoard();
 
 	const board = $derived(stateRespinBoard.shown ? currentRespinBoard() : null);
+	/** The board the kept layers were mounted for: the shown one, else the last one shown. */
+	let keptBoard: typeof board = null;
+	const kept = $derived(board ? (keptBoard = board) : keptBoard);
 	const look = $derived(respinCellLook());
 	const tileArt = $derived(look?.art);
 	const tileComponent = $derived(look?.tile);
@@ -228,6 +237,16 @@
 	const lockedCells = $derived(
 		board ? board.cells.flat().filter((c) => c.row >= openRows && c.row < drawnRows) : [],
 	);
+	/** The cells drawn: the open ones while shown, else the ones the board was last shown with. */
+	let keptCells: typeof openCells = [];
+	const cells = $derived(board ? (keptCells = openCells) : keptCells);
+	const cellOrders = createVisitOrder<(typeof openCells)[number]>();
+	const cellOrder = $derived(cellOrders(board !== null, cells));
+	const seatViews = createSeatViews((cell: (typeof stateRespinBoard.held)[number]) =>
+		respinCellKey(cell.reel, cell.row),
+	);
+	/** The held coins drawn: none while the board is put away, as no board was mounted then. */
+	const heldViews = $derived(seatViews(board ? stateRespinBoard.held : []));
 
 	context.eventEmitter.subscribeOnMount({
 		stopButtonClick: () => currentRespinBoard()?.stop(),
@@ -235,13 +254,13 @@
 </script>
 
 <Container>
-	{#if board}
-		<BoardContainer>
+	{#if kept}
+		<BoardContainer visible={board !== null}>
 			<!-- The authored cell tiles (`respinCells`: a Cell Tile component, else the tile image), under
 				 everything. An unconditional container, so tiles that arrive after the board mounted
 				 still draw beneath the cells. -->
 			<Container>
-				{#if tileComponent || tileArt}
+				{#if board && (tileComponent || tileArt)}
 					{#each openCells as cell (cell)}
 						<RespinCellTile
 							reel={cell.reel}
@@ -256,8 +275,13 @@
 				{/if}
 			</Container>
 			<Container>
-				{#each openCells as cell (cell)}
-					<RespinCell {cell} held={heldKeys.includes(respinCellKey(cell.reel, cell.row))} />
+				{#each cells as cell (cell)}
+					<RespinCell
+						{cell}
+						held={heldKeys.includes(respinCellKey(cell.reel, cell.row))}
+						away={!board}
+						order={cellOrder.get(cell)}
+					/>
 				{/each}
 			</Container>
 			<Container>
@@ -272,12 +296,14 @@
 				{/if}
 			</Container>
 			<Container>
-				{#each stateRespinBoard.held as cell (respinCellKey(cell.reel, cell.row))}
-					<RespinHeldSymbol {cell} />
+				{#each heldViews as view (view.id)}
+					<RespinHeldSymbol cell={view.cell} entry={view.entry} />
 				{/each}
 			</Container>
-			<RespinCounter />
-			<EnhancementDials />
+			{#if board}
+				<RespinCounter />
+				<EnhancementDials />
+			{/if}
 		</BoardContainer>
 	{/if}
 	<HoldAndWinPots />

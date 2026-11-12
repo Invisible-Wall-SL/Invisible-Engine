@@ -13,6 +13,12 @@
 		cell: RespinBoardCell;
 		/** A held cell's reel is not drawn — the held layer draws the cell instead. */
 		held: boolean;
+		/** The board is put away between features (`respinBoardKeep.ts`): the window shows nothing,
+		 *  so every view is vacant and its art put away. */
+		away?: boolean;
+		/** Its paint order among the cells, the order a board mounted for this feature appended them
+		 *  in (`createVisitOrder`). */
+		order?: number;
 	};
 
 	const props: Props = $props();
@@ -59,11 +65,13 @@
 	 */
 	const near = (y: number) => Math.abs(y - (cellBox.top + cellBox.height / 2)) < cellBox.height;
 	const shown = $derived(
-		props.cell.cellReel.reelState.symbols.filter(
-			(symbol) =>
-				(rolling ? near(yOf(symbol)) : symbol.symbolIndex === 1) &&
-				!symbolDrawsNothing(symbol.rawSymbol, shownState(symbol)),
-		),
+		props.away
+			? []
+			: props.cell.cellReel.reelState.symbols.filter(
+					(symbol) =>
+						(rolling ? near(yOf(symbol)) : symbol.symbolIndex === 1) &&
+						!symbolDrawsNothing(symbol.rawSymbol, shownState(symbol)),
+				),
 	);
 
 	/**
@@ -90,7 +98,7 @@
 	const views = $derived(shownViews(shown));
 </script>
 
-<Container visible={!props.held}>
+<Container visible={!props.held} zIndex={props.order}>
 	<Rectangle
 		isMask
 		x={seat.x - (columnPitch * spread) / 2}
