@@ -3,13 +3,12 @@ import { soundCatalogEntries } from 'engine-layout';
 import { capAudioBitrate, isTranscodableAudio } from './audioTranscode';
 import { ENV } from './env';
 import { SUB, soundFileKey } from './projectPaths';
+import { DeployMirror } from './deployMirror';
 import {
 	copyObject,
-	deleteObjects,
 	getObjectBytes,
 	getObjectText,
 	headObject,
-	listAllKeys,
 	objectExists,
 	putObjectBytes,
 	putObjectText,
@@ -68,14 +67,7 @@ export async function exportProjectSounds(
 	projectKey: string,
 ): Promise<SoundExportIndex> {
 	const outPrefix = `${SUB.deploy(clientKey, projectKey)}/${EXPORT_SUBTREE}/`;
-
-	/** Export nothing, but still prune leftovers so `deploy/sounds/` mirrors reality. */
-	const pruneAndReturn = async (catalog: SoundCatalog): Promise<SoundExportIndex> => {
-		await deleteObjects(await listAllKeys(outPrefix));
-		return { catalog };
-	};
-
-	const empty: SoundCatalog = { prefix: EXPORT_SUBTREE, sounds: [] };
+	const mirror = new DeployMirror(outPrefix);
 
 	let doc;
 	try {
@@ -83,12 +75,13 @@ export async function exportProjectSounds(
 	} catch {
 		// An unreadable doc must not take the project's other assets down with it: the bake treats a
 		// failed export as fatal, so a transient R2 read is the one thing worth swallowing here.
-		return pruneAndReturn(empty);
+		// Export nothing, but still prune leftovers so `deploy/sounds/` mirrors reality.
+		await mirror.commit();
+		return { catalog: { prefix: EXPORT_SUBTREE, sounds: [] } };
 	}
 
 	const bindings = await resolveSoundBindings(clientKey, projectKey, doc);
 
-	const written = new Set<string>();
 	const exported: SoundCatalogEntry[] = [];
 	const cache = await loadTranscodeCache(clientKey, projectKey);
 
@@ -99,7 +92,7 @@ export async function exportProjectSounds(
 		// never landed, or whose file was deleted underneath it) must not break the whole export,
 		// and advertising it would ship a name that plays nothing.
 		if (!(await exportOneFile(srcKey, destKey, entry.file, cache))) continue;
-		written.add(destKey);
+		mirror.claim([destKey]);
 		exported.push(entry);
 	}
 	await saveTranscodeCache(clientKey, projectKey, cache);
@@ -109,12 +102,8 @@ export async function exportProjectSounds(
 		sounds: exported,
 		...(bindings ? { bindings } : {}),
 	};
-	const indexKey = `${outPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(catalog, null, '\t'), 'application/json');
-	written.add(indexKey);
-
-	const existing = await listAllKeys(outPrefix);
-	await deleteObjects(existing.filter((k) => !written.has(k)));
+	await mirror.put(`${outPrefix}index.json`, JSON.stringify(catalog, null, '\t'));
+	await mirror.commit();
 
 	return { catalog };
 }

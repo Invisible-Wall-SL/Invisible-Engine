@@ -49,7 +49,7 @@
       "count": 1
     },
     "svelte/no-navigation-without-resolve": {
-      "count": 2
+      "count": 1
     }
   },
   "apps/launcher-api/src/lib/server/buildId.ts": {
@@ -72,41 +72,25 @@
       "count": 4
     },
     "svelte/no-navigation-without-resolve": {
-      "count": 6
+      "count": 4
     },
     "svelte/prefer-svelte-reactivity": {
       "count": 2
     }
   },
   "apps/launcher-api/src/routes/(app)/admin/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 2
-    },
     "svelte/no-useless-mustaches": {
-      "count": 1
-    }
-  },
-  "apps/launcher-api/src/routes/(app)/atlas/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
       "count": 1
     }
   },
   "apps/launcher-api/src/routes/(app)/comfyui/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
-      "count": 5
+      "count": 1
     }
   },
   "apps/launcher-api/src/routes/(app)/config/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 1
-    },
     "svelte/prefer-svelte-reactivity": {
       "count": 3
-    }
-  },
-  "apps/launcher-api/src/routes/(app)/docs/[slug]/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 1
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/+page.svelte": {
@@ -133,9 +117,6 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 1
-    },
     "svelte/prefer-svelte-reactivity": {
       "count": 3
     }
@@ -163,11 +144,6 @@
       "count": 1
     }
   },
-  "apps/launcher-api/src/routes/(app)/flipbook/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 3
-    }
-  },
   "apps/launcher-api/src/routes/(app)/flow-v2/+page.svelte": {
     "svelte/prefer-svelte-reactivity": {
       "count": 1
@@ -189,9 +165,6 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/fx/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 2
-    },
     "svelte/prefer-svelte-reactivity": {
       "count": 4
     }
@@ -206,27 +179,12 @@
   },
   "apps/launcher-api/src/routes/(app)/game-maker/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
-      "count": 3
+      "count": 2
     }
   },
   "apps/launcher-api/src/routes/(app)/onboarding/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
-      "count": 5
-    }
-  },
-  "apps/launcher-api/src/routes/(app)/rig-viewer/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 1
-    }
-  },
-  "apps/launcher-api/src/routes/(app)/sheet/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 1
-    }
-  },
-  "apps/launcher-api/src/routes/(app)/sound/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 7
+      "count": 2
     }
   },
   "apps/launcher-api/src/routes/(app)/storybook/+page.svelte": {
@@ -240,9 +198,6 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/symbols/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 5
-    },
     "svelte/prefer-svelte-reactivity": {
       "count": 4
     }
@@ -250,11 +205,6 @@
   "apps/launcher-api/src/routes/(app)/symbols/SymbolRigStage.svelte": {
     "svelte/prefer-svelte-reactivity": {
       "count": 3
-    }
-  },
-  "apps/launcher-api/src/routes/(app)/win-text/+page.svelte": {
-    "svelte/no-navigation-without-resolve": {
-      "count": 5
     }
   },
   "apps/lines/src/components/FreeSpinIntroVisual.svelte": {
@@ -435,11 +385,6 @@
       "count": 1
     }
   },
-  "packages/pixi-svelte/src/lib/utils.svelte.ts": {
-    "@typescript-eslint/ban-ts-comment": {
-      "count": 3
-    }
-  },
   "packages/rgs-fetcher/src/schema.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
@@ -451,11 +396,6 @@
     }
   },
   "packages/state-shared/src/stateModal.svelte.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "packages/utils-bet/src/types.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
     }
@@ -523,6 +463,144 @@
   },
   "packages/utils-xstate/src/types.ts": {
     "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "scripts/check-bonus-modes-protocol.mjs": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "scripts/check-netcode.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/check-platform-jackpot.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/console-sniffer.js": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "scripts/current-games/lib/verdict.mjs": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "scripts/current-games/retry.fixture.mjs": {
+    "no-regex-spaces": {
+      "count": 4
+    }
+  },
+  "scripts/current-games/typekit.fixture.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "scripts/verify-symbol-seat.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/flow-spike/flowV2BuyFlow.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/flow-spike/phase4Runtime.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/flow-spike/winInfoParity.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rig-parity/fuzz.mjs": {
+    "no-unused-vars": {
+      "count": 6
+    }
+  },
+  "tools/rigger-spike/attach.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/authoring.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/autoweights.mjs": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/batch.mjs": {
+    "no-empty": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/blendmode.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/cinematic-storage.mjs": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "tools/rigger-spike/cinematic-timeline.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/eventanim.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/meshedit.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/resolve.mjs": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/rigmerge.mjs": {
+    "no-empty": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/rigtext-autosync.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/stretch.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/trimmesh.mjs": {
+    "no-undef": {
+      "count": 13
+    }
+  },
+  "tools/rigger-spike/upload.mjs": {
+    "no-unused-vars": {
       "count": 1
     }
   }

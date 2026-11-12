@@ -18,7 +18,7 @@
 	"dependencies": {
 		"svelte": "5.57.3",
 		"@sveltejs/kit": "2.70.3",
-		"utils-bet": "workspace:*",
+		"rgs-requests": "workspace:*",
 		"constants-shared": "workspace:*",
 		"delivery-profile": "workspace:*",
 		"@lingui/core": "6.12.0",

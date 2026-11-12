@@ -122,7 +122,57 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
      and image published as tiers: auto in a 1280×720 window fetches only the `@half` files,
      `?tier=full` only the full ones, the two pictures match to 0.29%, and the half image with its
      resolution removed (the control) differs by 16%.
-5. **Video flipbooks and FX get tiers** (one encode per tier; particle art rides the sheets).
+5. **Video flipbooks and FX** — CLOSED (2026-11-09): nothing to build, measured rather than
+   assumed. Every class of art that reaches a game was walked:
+   - **Video** never ships. A render is an authoring artifact (`invisible-flipbook-video.md`
+     "Storage"): it becomes a packed sheet and a clip, and the runtime has no video path at all.
+   - **Flipbook clips** resolve their frames through the same `loadedAssets` keys a tier sheet
+     registers (`engine-flipbook` `resolveClipFrames`), so they draw from the tier the sheet loaded.
+     `art-tier-probe.mjs` plays one over a tiered sheet: half and full draw it the same size.
+   - **FX** particles take their textures from `loadedAssets` too (`EffectLayer` → `engine-fx`
+     `bindArt`), and a baked effect ships as sheet frames, so both ride the sheet tiers.
+   - The effect, flipbook, rig-flipbook, rig-FX, shader and cinematic exports write no image bytes
+     of their own; every page goes through `PageStore` (sheets, images, rigs).
+   - **Not tiered, on purpose:** bitmap-font pages (`fontExport` copies them verbatim — a font is
+     a page or two, and a half font would mean rescaling every glyph metric of its descriptor) and
+     the boot splash (a private ~1 MB copy that paints before the bundle, `check:page-store-shared`).
+     A 4K game should bake its bitmap fonts at its own size, which the phone then downsamples.
+
+## One-screen builds — BUILT (2026-11-10)
+
+A desktop or delivery build of a project with tiers carried both copies of every page, though a
+build made for one kind of screen only ever loads one. `IE_ART_TIER=full|half` pins it — one
+variable for both halves, so the art a build ships and the tier it loads cannot disagree:
+
+- **The game** (`config-vite` `artTierPin.js`): compiled in as `__IE_ART_TIER__`, which
+  `chooseArtTier` obeys over its screen rule AND `?tier=` — a pinned build has no other tier's
+  files, so the query must not be able to ask for them. A bad value fails the build.
+- **The pull** (`pull-project-assets.mjs`, also `--art-tier`): leaves the other tier out of
+  `static/assets/`, never downloading it, and deletes a copy an earlier pull left. Pairs are read off
+  the names (`@half` inserted into the full file's name). `full` drops every `@half` file; `half`
+  drops each full file that has a half copy. A file a KEPT sheet or atlas still names is fetched and
+  kept anyway (a rig's half atlas keeps any page that had no half copy); an export's `index.json`
+  does not count, because it lists every tier and the game never loads it (the bake embeds the index).
+  The log and `pull.json` (`artTier.notPulled`) say what was left out and its size.
+- **The desktop launcher** (v1.0.65, relabelled v1.0.66): each project card's **Build for: All
+  screens / Arcade 4K / Desktop & mobile** picker sets
+  it for ☁ Publish and 📦 Deliver (`invisible-launcher` `verify_art_tier.py`).
+- **A delivery**: `build-delivery.mjs --art-tier full|half` adds it to the build env and to
+  `--print-env`. Deliberately not a delivery-profile field: a profile describes the operator's RGS,
+  and the same one can go to a cabinet or a phone.
+- Unset (every online game, every build that does not ask) changes nothing.
+- Guards: `apps/launcher-api/scripts/check-art-tier-pin.mjs` (the tier list against
+  `RESOLUTION_TIERS`, the compiled pin, the drop rule, and a pull against a fake `/api/deploy`:
+  pinned half never fetches a full copy that has a half one but keeps the page a half atlas names,
+  pinned full removes a stale half copy, a bad value refuses before fetching); `artTier.fixture.ts`
+  §7 (the pin beats the screen and `?tier=`); `art-tier-probe.mjs --pinned-build` (a build made with
+  `IE_ART_TIER=full`, opened with `?tier=half` in a small window, loads only full files).
+
+## Still open
+
+- After art is re-made at 4K, the nodes drawn at their art's natural size need their scale set back
+  to 1 by hand; a one-click "art is now ×2" reset in the Scene Editor would do it.
+- Nothing yet ran on a real 4K cabinet or a real phone.
 
 ## Constraints to keep
 

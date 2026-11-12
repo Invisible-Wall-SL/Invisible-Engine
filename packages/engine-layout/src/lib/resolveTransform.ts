@@ -73,6 +73,33 @@ export function resolveTransform(node: LayoutNode, layoutType: LayoutType): Reso
 	};
 }
 
+const sameEntries = (a: object, b: object, same: (x: unknown, y: unknown) => boolean): boolean => {
+	const keys = Object.keys(a);
+	const fieldsA = a as Record<string, unknown>;
+	const fieldsB = b as Record<string, unknown>;
+	return (
+		keys.length === Object.keys(b).length && keys.every((key) => same(fieldsA[key], fieldsB[key]))
+	);
+};
+
+const samePoint = (a: unknown, b: unknown): boolean =>
+	Object.is(a, b) ||
+	(!!a && !!b && typeof a === 'object' && typeof b === 'object' && sameEntries(a, b, Object.is));
+
+/**
+ * `previous` when `next` reads the same in every field (a point compared by its own fields), else
+ * `next`. A node's transform is derived again whenever anything it folds in moves — a timeline
+ * playing the node samples every frame — and a new object with the same values still re-runs
+ * everything that reads it: each prop sync of the node's view, every frame. Handing back the
+ * previous object stops that where nothing the transform says has changed.
+ */
+export function stableTransform(
+	previous: ResolvedTransform | undefined,
+	next: ResolvedTransform,
+): ResolvedTransform {
+	return previous && sameEntries(previous, next, samePoint) ? previous : next;
+}
+
 /**
  * A text node's effective STYLE for a layoutType — the base `style` with the per-layoutType
  * {@link NodeOverride.style} patch merged on top ({@link resolveTransform}'s sibling for the

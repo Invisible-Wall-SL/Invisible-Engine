@@ -9,6 +9,7 @@ import {
 	tallyCountUp,
 	type CountStep,
 	type HoldAndWinCell,
+	type HoldAndWinCellAmount,
 	type HoldAndWinCoinChange,
 	type HoldAndWinEvent,
 	type HoldAndWinLineRun,
@@ -16,8 +17,9 @@ import {
 	type RawSymbol,
 	type SymbolState,
 } from 'engine-game';
-import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
-import { holdAndWinIsOverlayBonus } from 'game-config';
+import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
+import { enhancementDialAnchor, RESPIN_COUNTER_ANCHOR } from 'engine-layout';
+import { holdAndWinIsOverlayBonus, symbolHoldAndWinRoles } from 'game-config';
 import { showMessage, stateBet } from 'state-shared';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -25,16 +27,17 @@ import { scopeOf } from 'utils-event-emitter';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { activeRespinRules, isPrimaryRespinMode } from './activeRespinMode.svelte';
+import { holdBaseCellLabels } from './baseCellLabels.svelte';
 import {
 	coinBoardLineColor,
 	coinBoardLinePoints,
 	isCoinBoard,
 	stateCoinBoard,
 } from './coinBoard.svelte';
-import { coinLabelCountMs } from './coinLabel';
+import { coinLabelCountMs, coinLabelHitMs } from './coinLabel';
 import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
-import { getActiveGameConfig } from './gameConfig';
+import { boardDimensions, getActiveGameConfig } from './gameConfig';
 import { announceFeatureLine } from './holdAndWinAnnounce';
 import { hideHoldAndWinBanner, showHoldAndWinBanner } from './holdAndWinBanner.svelte';
 import {
@@ -56,7 +59,20 @@ import {
 	wheelPrizeText,
 } from './holdAndWinText';
 import {
+	boostHitText,
+	closeEnhancements,
+	dialsLitBy,
+	enhancementsActiveBannerText,
+	isEnhancedFeature,
+	multiplyHitText,
+	openEnhancements,
+	setDial,
+	stateEnhancements,
+	superBonusText,
+} from './holdAndWinEnhancements.svelte';
+import {
 	FLIGHT_BOOST_BEAM,
+	FLIGHT_ENHANCEMENT_BEAM,
 	FLIGHT_TO_COLLECTOR,
 	FLIGHT_TO_COUNTER,
 	FLIGHT_TO_TOTAL,
@@ -94,7 +110,9 @@ import { leavingToken, liftToken, overlayTokenSymbol } from './stateOverlay.svel
 import {
 	armCellLanding,
 	armHeldBeat,
+	carryCells,
 	completeCellLanding,
+	dropCarried,
 	hideRespinBoard,
 	holdHeldDisplay,
 	openRespinRows,
@@ -106,6 +124,7 @@ import {
 	releaseHeldJackpot,
 	settleHeldBeats,
 	settleReelsOnHeldCells,
+	showHeldText,
 	showRespinBoard,
 	spinRespinCells,
 	startHeldBeat,
@@ -186,6 +205,13 @@ const JACKPOT_HOLD_MS = 2_600;
 const COIN_JACKPOT_MS = 900;
 /** The beat between the bar landing on the last coin and the banked jackpots joining it. */
 const BANKED_BEAT_MS = 350;
+/** One enhancement dial lighting at entry, before the next one does. */
+const DIAL_LIGHT_MS = 260;
+/** The "BOOST · MULTIPLY ACTIVE" banner, and the super bonus's, held as the feature opens. */
+const ENHANCEMENTS_BANNER_MS = 1_300;
+const SUPER_BONUS_MS = 1_800;
+/** A boost or multiply miss: the dial's X holds this long before the dial goes back on. */
+const ENHANCEMENT_MISS_MS = 600;
 /**
  * The Total Win bar's last step landing, then holding, before the respin board goes. The bar COUNTS
  * to each value it is handed (the win readout's 500 ms count-up), so the board waits that out and
@@ -497,6 +523,8 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 	stateRespinBoard.counter.show = true;
 	eventEmitter.broadcast({ type: 'respinBoardShow' });
 	eventEmitter.broadcast({ type: 'respinCounterAward', left: event.payload.respins });
+	if (event.payload.enhancements?.length) await presentEnhancementsEntry(event);
+	else closeEnhancements();
 	const intro = featureIntroText(event.payload.respins);
 	if (!intro) {
 		await waitPresentation(TRIGGER_HOLD_MS);
@@ -509,6 +537,95 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 	});
 	await (banner ? holdBanner(FEATURE_LINE_MS) : waitPresentation(FEATURE_LINE_MS));
 	hideHoldAndWinBanner(banner);
+};
+
+/**
+ * The coins on the base board as the feature opens, other than `kept` (the cells the feature holds):
+ * a collector bonus's trigger-spin coins, which its entry collect gathers. Visible row `r` is the
+ * reel's symbol `r + 1` (the padding row above the window).
+ */
+const baseBoardCoins = (kept: readonly Position[]): HoldAndWinCell[] => {
+	const config = getActiveGameConfig();
+	const rows = boardDimensions().y;
+	return stateGame.board.flatMap((reel, r) =>
+		reel.reelState.symbols.slice(1, rows + 1).flatMap((symbol, row): HoldAndWinCell[] => {
+			const raw = symbol.rawSymbol;
+			if (raw.value === undefined && raw.jackpot === undefined) return [];
+			if (kept.some((cell) => cell.reel === r && cell.row === row)) return [];
+			if (symbolHoldAndWinRoles(config.symbols[raw.name]).includes('collector')) return [];
+			return [{ reel: r, row, symbol: { ...raw } }];
+		}),
+	);
+};
+
+/**
+ * Open the rows up to `rows` — the locked cells fade away under the "ROW UNLOCKED · 5 ROWS" line and
+ * the rows are open from the next respin. Shared by an unlock beat and an enhancement that opens rows
+ * at entry.
+ */
+const openRowsTo = async (rows: number) => {
+	const text = rowUnlockedText(rows);
+	const banner = announceFeatureLine('rowUnlocked', {
+		kind: 'rowUnlocked',
+		title: text.title,
+		detail: text.detail,
+		size: 'small',
+	});
+	stateRespinBoard.unlockingTo = Math.max(rows, openRespinRows());
+	respinUnlockFade.set(1, { duration: 0 });
+	await Promise.all([
+		respinUnlockFade.set(0, { duration: roundSkip.isSkipped() ? 0 : ROW_UNLOCK_FADE_MS }),
+		banner ? holdBanner(ROW_UNLOCK_HOLD_MS) : roundSkip.wait(ROW_UNLOCK_FADE_MS),
+	]);
+	openRespinRowsTo(rows);
+	stateRespinBoard.unlockingTo = 0;
+	hideHoldAndWinBanner(banner);
+};
+
+/**
+ * A feature that drew ENHANCEMENTS opens (`docs/design/hold-and-win-enhancements.md` §3.3, Phase 14b).
+ * The trigger spin's coins stay on their seats for the entry collect to gather (collectors-only
+ * bonus); the super bonus announces itself ("SUPER BONUS"); each drawn enhancement's dial lights in
+ * turn (`enhancementOn`), and an "EXPAND · BOOST ACTIVE" line holds; then an Expand or the super
+ * bonus opens its rows — the board shows the base rows until here, so the player sees them open.
+ */
+const presentEnhancementsEntry = async (event: Beat<'holdAndWinTrigger'>) => {
+	const { enhancements = [], expansion, stickiness, cells } = event.payload;
+	openEnhancements(enhancements, { lit: false });
+	const baseRows = boardDimensions().y;
+	const opensRows = expansion !== undefined && expansion.rows > baseRows;
+	if (opensRows) openRespinRowsTo(baseRows);
+	stateRespinBoard.drawnRows = Math.max(baseRows, expansion?.rows ?? baseRows);
+	if (stickiness === 'collectorsOnly') carryCells(baseBoardCoins(cells));
+	if (stateEnhancements.superBonus) {
+		eventEmitter.broadcast({ type: 'superBonusEnter' });
+		const banner = announceFeatureLine('superBonus', {
+			kind: 'superBonus',
+			title: superBonusText(),
+			size: 'large',
+		});
+		if (banner) await holdBanner(SUPER_BONUS_MS);
+		hideHoldAndWinBanner(banner);
+	}
+	for (const dial of dialsLitBy(enhancements)) {
+		setDial(dial, 'on');
+		eventEmitter.broadcast({
+			type: 'enhancementOn',
+			kind: dial,
+			scope: scopeOf('enhancement', dial),
+		});
+		await roundSkip.wait(DIAL_LIGHT_MS);
+	}
+	if (!stateEnhancements.superBonus) {
+		const banner = announceFeatureLine('enhancementsActive', {
+			kind: 'enhancementsActive',
+			title: enhancementsActiveBannerText(),
+			size: 'small',
+		});
+		if (banner) await holdBanner(ENHANCEMENTS_BANNER_MS);
+		hideHoldAndWinBanner(banner);
+	}
+	if (opensRows) await openRowsTo(expansion.rows);
 };
 
 /**
@@ -668,6 +785,74 @@ export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
 		);
 	}
 	await runCounts(counts);
+};
+
+/**
+ * `enhancementHit` — a BOOST or MULTIPLY enhancement hits coins that landed this respin, before any
+ * collector gathers them (Phase 14b). Its dial lights `hit` with what it adds ("+$5.00" / "×3"), a
+ * beam flies from the dial to each coin (`flyTo` kind `enhancementBeam` — the coded glow unless the
+ * Symbols doc authors one), and once every beam has landed each coin plays `coinEnhance` while its
+ * label first prints what hit it ({@link showHitReadout}), then counts from `from` to `to`. The dial
+ * then goes back on.
+ */
+export const presentEnhancementHit = async (event: Beat<'enhancementHit'>) => {
+	if (!stateRespinBoard.shown) return;
+	const counts = holdCounts(event.cells);
+	syncHeldCells();
+	const caption =
+		event.kind === 'boost'
+			? boostHitText(bookEventAmountToCurrencyString(event.by * BOOK_AMOUNT_MULTIPLIER))
+			: multiplyHitText(event.by);
+	setDial(event.kind, 'hit', caption);
+	eventEmitter.broadcast({
+		type: 'respinEnhancementHit',
+		kind: event.kind,
+		by: event.by,
+		cells: event.cells,
+		scope: scopeOf('enhancement', event.kind),
+	});
+	await Promise.all(
+		event.cells.map((cell, index) =>
+			flyTo(
+				enhancementDialAnchor(event.kind),
+				{ reel: cell.reel, row: cell.row },
+				FLIGHT_ENHANCEMENT_BEAM,
+				{ index },
+			),
+		),
+	);
+	await Promise.all([
+		playHeldBeat(event.cells, 'coinEnhance', { minMs: HIGHLIGHT_MIN_MS }),
+		showHitReadout(counts, caption).then(() => runCounts(counts)),
+	]);
+	if (stateEnhancements.dials[event.kind] === 'hit') setDial(event.kind, 'on');
+};
+
+/**
+ * What hit the coins, ON the coins: each label prints `caption` ("×3", "+$5.00") in its own look,
+ * popping as it appears (`coinLabel.animation.hitPop`), for `hitMs`; then each goes back to its
+ * pinned old value for the count. Slammable; `hitMs` 0 shows none.
+ */
+const showHitReadout = async (counts: HeldCount[], caption: string) => {
+	const ms = coinLabelHitMs();
+	if (!caption || ms <= 0) return;
+	const restores = counts.map(({ key }) => showHeldText(key, caption));
+	await roundSkip.wait(ms);
+	restores.forEach((restore) => restore());
+};
+
+/** `enhancementMiss` — a BOOST or MULTIPLY enhancement missed this respin: its dial shows its X for a
+ *  beat (`enhancementMiss`), then goes back on. */
+export const presentEnhancementMiss = async (event: Beat<'enhancementMiss'>) => {
+	if (!stateRespinBoard.shown) return;
+	setDial(event.kind, 'miss');
+	eventEmitter.broadcast({
+		type: 'respinEnhancementMiss',
+		kind: event.kind,
+		scope: scopeOf('enhancement', event.kind),
+	});
+	await roundSkip.wait(ENHANCEMENT_MISS_MS);
+	if (stateEnhancements.dials[event.kind] === 'miss') setDial(event.kind, 'on');
 };
 
 /**
@@ -923,22 +1108,7 @@ export const presentRowsUnlocked = async (event: Beat<'rowsUnlocked'>) => {
 			),
 		);
 	}
-	const text = rowUnlockedText(event.rows);
-	const banner = announceFeatureLine('rowUnlocked', {
-		kind: 'rowUnlocked',
-		title: text.title,
-		detail: text.detail,
-		size: 'small',
-	});
-	stateRespinBoard.unlockingTo = Math.max(event.rows, openRespinRows());
-	respinUnlockFade.set(1, { duration: 0 });
-	await Promise.all([
-		respinUnlockFade.set(0, { duration: roundSkip.isSkipped() ? 0 : ROW_UNLOCK_FADE_MS }),
-		banner ? holdBanner(ROW_UNLOCK_HOLD_MS) : roundSkip.wait(ROW_UNLOCK_FADE_MS),
-	]);
-	openRespinRowsTo(event.rows);
-	stateRespinBoard.unlockingTo = 0;
-	hideHoldAndWinBanner(banner);
+	await openRowsTo(event.rows);
 };
 
 /** `cellsCleared` — a streak's collected cells, or a non-sticky special that has applied, leave the
@@ -948,6 +1118,7 @@ export const presentCellsCleared = async (event: Beat<'cellsCleared'>) => {
 	if (!stateRespinBoard.shown) return;
 	eventEmitter.broadcast({ type: 'respinCellsCleared', reason: event.reason, cells: event.cells });
 	await playHeldBeat(event.cells, 'clearReel');
+	dropCarried(event.cells);
 	syncHeldCells();
 	settleHeldBeats(
 		event.cells.map((cell) => respinCellKey(cell.reel, cell.row)),
@@ -1016,10 +1187,62 @@ export const presentColumnComplete = async (event: Beat<'columnComplete'>) => {
 };
 
 /**
+ * A base collect whose collectors EACH take every coin's full value (`coinInstantCollect`'s
+ * `collectors` — the partner's collector game): every coin lights and flies into EVERY collector at
+ * once, one head per collector, and each collector's label climbs by that coin's full value as its
+ * head lands, ending on the total the server sent (`baseCellLabels`). Never lowers a label, so heads
+ * landing out of order still read as one climb.
+ */
+const collectIntoEveryCollector = async (
+	cells: readonly HoldAndWinCellAmount[],
+	collectors: readonly HoldAndWinCellAmount[],
+) => {
+	const froms = collectors.map((collector) => {
+		const shown = stateGame.board[collector.reel]?.reelState.symbols[collector.row + 1];
+		return Math.min(shown?.rawSymbol.value ?? 0, collector.symbol.value ?? 0);
+	});
+	const labels = holdBaseCellLabels(
+		collectors.map((collector, k) => ({
+			reel: collector.reel,
+			row: collector.row,
+			from: froms[k],
+		})),
+	);
+	const steps = collectors.map((collector, k) =>
+		countSteps(
+			froms[k],
+			collector.symbol.value ?? froms[k],
+			cells.map((cell) => cell.amount),
+		),
+	);
+	const countMs = coinLabelCountMs(COLLECT_COUNT_MS, COUNT_MS);
+	await Promise.all(
+		cells.map(async (cell, index) => {
+			const unlight = lightBaseCell(cell, 'coinCollect');
+			await Promise.all(
+				collectors.map(async (collector, k) => {
+					await flyTo(
+						{ reel: cell.reel, row: cell.row },
+						{ reel: collector.reel, row: collector.row },
+						FLIGHT_TO_COLLECTOR,
+						{ index },
+					);
+					const label = labels[k];
+					const to = steps[k][index]?.to;
+					if (label && to !== undefined && to > label.target) await countTo(label, to, countMs);
+				}),
+			);
+			unlight();
+		}),
+	);
+};
+
+/**
  * `coinInstantCollect` — the BASE game's instant win (Grand's BOOST star, Hotfire's COLLECT
  * diamond, beside coins and no trigger). The specials light where they landed; every coin lights and
  * its head flies INTO the nearest special — the special is what gathers them, so that is where they
- * go, and the Total Win bar is left to the round's own `setWin` / `setTotalWin`, which follow and
+ * go (or into every collector, when each takes every coin: {@link collectIntoEveryCollector}), and
+ * the Total Win bar is left to the round's own `setWin` / `setTotalWin`, which follow and
  * count this amount with the line wins (flying into the bar here would count it up once and then
  * see the win presentation count it again). Then a short "INSTANT WIN" banner names the amount (and
  * the multiplier when one applied).
@@ -1046,7 +1269,9 @@ export const presentInstantCollect = async (event: Beat<'coinInstantCollect'>) =
 				? special
 				: best,
 		);
-	if (event.specials.length > 0) {
+	if (event.collectors?.length) {
+		await collectIntoEveryCollector(event.cells, event.collectors);
+	} else if (event.specials.length > 0) {
 		await Promise.all(
 			event.cells.map(async (cell, index) => {
 				const unlight = lightBaseCell(cell, 'coinCollect');
@@ -1178,7 +1403,9 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		hideHoldAndWinBanner(banner);
 		return;
 	}
-	if (event.source !== 'coin' || !event.cell || !stateRespinBoard.shown) return;
+	// A collector bonus names the jackpot coin its collect gathered: it lights as a coin jackpot does.
+	const coinBeat = event.source === 'coin' || (event.source === 'collect' && isEnhancedFeature());
+	if (!coinBeat || !event.cell || !stateRespinBoard.shown) return;
 	const banner = showHoldAndWinBanner({
 		kind: 'coinJackpot',
 		title: jackpotCoinText(event.tier),
@@ -1223,7 +1450,19 @@ export const presentHoldAndWinState = async (event: Beat<'holdAndWinState'>) => 
 	// A coin board is always up: its feature opens when its counter does.
 	const opening = !stateRespinBoard.shown || (isCoinBoard() && !stateRespinBoard.counter.show);
 	if (opening) featureCountedIntoBar = 0;
+	// The server's picture is whole: a collector bonus's carried trigger coins are gone by now.
+	if (stateRespinBoard.carried.length) stateRespinBoard.carried = [];
+	// A resume reopens a collector bonus's dials, lit.
+	const enhancements = event.snapshot.enhancements;
+	if (enhancements?.length && !stateEnhancements.shown) openEnhancements(enhancements);
 	showRespinBoard();
+	// …and draws only the rows it can have: the snapshot's (a board that grew), else the grid's.
+	if (isEnhancedFeature()) {
+		stateRespinBoard.drawnRows = Math.max(
+			stateRespinBoard.drawnRows,
+			event.snapshot.rows ?? boardDimensions().y,
+		);
+	}
 	syncLetters();
 	updateCounter(event.snapshot);
 	// An expanding board's open rows are the server's from here on — a resume opens them at once.
@@ -1323,6 +1562,7 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		settleReelsOnHeldCells();
 	}
 	hideRespinBoard();
+	closeEnhancements();
 };
 
 /**

@@ -1,8 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDeployToken } from '$lib/server/deployToken';
 import { loadDoc } from '$lib/server/localization';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { clientKeyOf, projectParam } from '$lib/server/projectLookup';
 import type { RequestHandler } from './$types';
 
 /**
@@ -21,8 +20,8 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url }) => {
 	await requireDeployToken(url, 'Localization export is not configured.');
 
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const projectKey = projectParam(url);
+	const clientKey = await clientKeyOf(projectKey);
 
 	try {
 		const doc = await loadDoc(clientKey, projectKey);

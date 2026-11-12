@@ -187,6 +187,21 @@ server pages included, as lossy WebP q80 plus 256-colour PNGs. On Book of Borut 
 that moved opaque pixels by up to 108/255, which is visible banding. The upload is
 bigger than it was then, and the art is the art that was authored.
 
+**Build for: All screens / Arcade 4K / Desktop & mobile** *(from v1.0.66; v1.0.65 called it
+"Art: Auto / Full / Half")*. The picker is on the top line of each project card, beside the port. A
+game authored for a 4K cabinet that ticks *Also publish half-resolution art* in the Scene
+Editor has two copies of its art: full size and half size.
+- **🖥 All screens** (the default): a build carries both, and each screen loads the one it needs.
+- **🕹 Arcade 4K**: the build carries only the full-size art. Use it for a cabinet build.
+- **📱 Desktop & mobile**: the build carries only the half-size art. Use it for a desktop or
+  phone build. A 1080p desktop shows a 4K game at half size, so it needs no more than that.
+
+Either of the last two saves the other copy's whole download, and the game always loads the copy
+it carries, whatever screen it runs on. ☁ Publish and 📦 Deliver both read it, and the build log
+says which one shipped. On a game that doesn't publish half-resolution
+art there is only one copy, so the choice changes nothing. See
+[arcade-4k-builds](../design/arcade-4k-builds.md) "One-screen builds".
+
 **Every publish builds the latest engine.** A game repo holds no game code of its
 own: the game layer is compiled straight from the engine submodule that the step
 above just advanced to `main`, so there is no engine version to choose and no way
@@ -371,7 +386,7 @@ operator.
 - Leave the fields empty and it still loads, then refuses at the session check —
   which is itself worth seeing once, because that refusal is what protects a
   mis-wired embed from showing a player a wallet nobody issued.
-- 🐞 **Debug** and 🗜 **Optimize** are the card's own checkboxes, read when you press
+- 🐞 **Debug**, 🗜 **Optimize** and **Build for** are the card's own settings, read when you press
   **📦 Deliver** — set them first, the dialog has no copy of them. They mean
   the same as for a publish, except that here Debug ships the in-game debug tooling
   *to the partner*, so untick it for a real handover.

@@ -38,6 +38,12 @@ export interface RigViewOptions extends ContainerOptions {
 	darkTint?: boolean;
 }
 
+/** Told how long each update (animation and pose) and each mesh rebuild for a render took, ms. */
+export interface RigViewProbe {
+	updated(ms: number): void;
+	synced(ms: number): void;
+}
+
 interface SlotObject {
 	slot: Slot;
 	container: Container;
@@ -102,6 +108,8 @@ class BoundsProxy extends Graphics {
 /** A skeleton drawn by Pixi: one mesh per visible slot, in draw order, with any slot objects placed
  * at their slot's depth. Coordinates inside are skeleton coordinates (y down). */
 export class RigView extends Container {
+	/** Set only while a frame-time readout runs (`?perf=1`); unset, nothing is timed. */
+	static probe: RigViewProbe | undefined;
 	skeleton: Skeleton;
 	state: AnimationState;
 	/** Called after animations are applied and before world transforms are computed. */
@@ -140,7 +148,15 @@ export class RigView extends Container {
 		// is zero, so a view shown before it is updated draws nothing.
 		this.addChild(this.measure);
 		this.onRender = () => {
-			if (this.drawnThisFrame()) this.syncDisplay();
+			if (!this.drawnThisFrame()) return;
+			const probe = RigView.probe;
+			if (!probe) {
+				this.syncDisplay();
+				return;
+			}
+			const start = performance.now();
+			this.syncDisplay();
+			probe.synced(performance.now() - start);
 		};
 		this.syncDisplay();
 	}
@@ -186,6 +202,17 @@ export class RigView extends Container {
 	}
 
 	protected internalUpdate(dt: number): void {
+		const probe = RigView.probe;
+		if (!probe) {
+			this.advance(dt);
+			return;
+		}
+		const start = performance.now();
+		this.advance(dt);
+		probe.updated(performance.now() - start);
+	}
+
+	private advance(dt: number): void {
 		this.neverUpdated = false;
 		const { state, skeleton } = this;
 		state.update(dt);

@@ -427,7 +427,7 @@ def test_a_non_numeric_id_falls_back_to_plain_inequality() -> None:
 # 4. The card shows the file it composes, and captions the right seed
 # --------------------------------------------------------------------------
 def test_the_card_shows_the_picked_file() -> None:
-    batch = _pile([11, 22, 33])
+    _pile([11, 22, 33])
     thumb, full, cap, us, picked = u.output_view(
         "H1", {"name": "H1", "variant": "00002", "variant_at": "00003"})
     check("the thumb points at the pick", thumb.startswith("/vthumb/H1?id=00002"), True)
@@ -439,7 +439,7 @@ def test_the_card_shows_the_picked_file() -> None:
 
 
 def test_with_no_pick_the_card_shows_the_newest() -> None:
-    batch = _pile([11, 22, 33])
+    _pile([11, 22, 33])
     thumb, _full, _cap, us, _pick = u.output_view("H1", {"name": "H1"})
     check("the thumb is the plain latest-output route",
           thumb.startswith("/thumb/H1?t="), True)

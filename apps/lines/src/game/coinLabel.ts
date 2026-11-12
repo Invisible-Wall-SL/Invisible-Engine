@@ -1,6 +1,11 @@
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { coinLabelText, moneyDecimalSeparator, type RawSymbol } from 'engine-game';
-import { resolveCoinLabelLook, resolveCoinLabelPop, type CoinLabelLook } from 'engine-layout';
+import {
+	COIN_LABEL_DEFAULTS,
+	resolveCoinLabelLook,
+	resolveCoinLabelPop,
+	type CoinLabelLook,
+} from 'engine-layout';
 import { symbolHoldAndWinRoles } from 'game-config';
 import {
 	bookEventAmountToCurrencyString,
@@ -55,11 +60,17 @@ export const coinLabelCountMs = (coded: number, reference = coded): number => {
 /** One pop of a label: a fresh `id` replays it. */
 export type CoinLabelPopCue = { id: number; scale: number; ms: number };
 
-/** The authored label pops, resolved — null for one that is off (the coded label never pops). */
+/** The authored label pops, resolved — null for one that is off. The coded label never pops, except
+ *  as an enhancement hit's readout appears on it (`hit`, on unless authored off). */
 export const coinLabelPops = () => {
 	const animation = bakedCoinLabel()?.animation;
 	return {
 		land: resolveCoinLabelPop(animation?.landPop),
 		boost: resolveCoinLabelPop(animation?.boostPop),
+		hit: resolveCoinLabelPop(animation?.hitPop, true),
 	};
 };
+
+/** How long an enhancement hit's "×3" / "+$5.00" holds on the coin before it counts, ms. */
+export const coinLabelHitMs = (): number =>
+	bakedCoinLabel()?.animation?.hitMs ?? COIN_LABEL_DEFAULTS.hitMs;

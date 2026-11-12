@@ -1,10 +1,8 @@
 import { error } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { requireTool } from './http';
 import { SHARED_ENGINE_STORYBOOK_PREFIX, SUB, UNASSIGNED_CLIENT } from './projectPaths';
 import { canAccessProject, projectClientKey } from './projects';
 import { objectExists } from './r2';
-import { getRoleOverrides } from './roleToolAccess';
-import { getToolOverrides } from './userToolAccess';
 
 /**
  * Invisible Storybook: published `storybook build` outputs served from R2.
@@ -26,18 +24,9 @@ export const ENGINE_STORYBOOK_SEGMENT = 'engine';
 /** First path segment namespacing project storybooks (avoids key collisions). */
 export const PROJECT_STORYBOOK_SEGMENT = 'p';
 
-/** Auth + role gate (mirrors `requireRigAccess`). Returns the non-null user. */
-export async function requireStorybookAccess(
-	locals: App.Locals,
-): Promise<NonNullable<App.Locals['user']>> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'storybook', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Storybook.');
-	}
-	return locals.user;
-}
+/** Auth + role gate. Returns the non-null user. */
+export const requireStorybookAccess = (locals: App.Locals) =>
+	requireTool(locals, 'storybook', 'Invisible Storybook');
 
 /** A storybook build's R2 prefix (no trailing slash). */
 export function projectStorybookPrefix(clientKey: string | null, projectKey: string): string {

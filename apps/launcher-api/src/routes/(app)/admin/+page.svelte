@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { deserialize, enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
 	import BootMarkPreview from '$lib/BootMarkPreview.svelte';
@@ -551,7 +552,7 @@
 <div class="shell">
 	<header>
 		<div class="brand"><Emblem height={18} /> INVISIBLE WALL · ADMIN</div>
-		<a class="ghost" href="/">← Launcher</a>
+		<a class="ghost" href={resolve('/')}>← Launcher</a>
 	</header>
 
 	{#if form?.error}
@@ -2224,8 +2225,9 @@
 			<div class="card">
 				<h3>ComfyUI R&amp;D pod fleet</h3>
 				<p class="muted hint">
-					The on-demand RunPod GPUs behind the <a class="link" href="/comfyui">ComfyUI</a> tool.
-					Artists pick a card and start it (if it's out of free GPUs they try the next); pods
+					The on-demand RunPod GPUs behind the <a class="link" href={resolve('/comfyui')}>ComfyUI</a
+					>
+					tool. Artists pick a card and start it (if it's out of free GPUs they try the next); pods
 					auto-stop after an idle window so the GPU only bills while work is happening. A non-empty
 					ComfyUI render queue counts as activity, so a running render is never interrupted. Each
 					pod's ComfyUI URL is derived from its id (<span class="mono"

@@ -49,7 +49,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Pots overlay** (an add-on on any kind: the 3 Pots pots over the host game's symbols, a pot-cued bonus — Hold and Win, the host's free spins, or an imported bonus; Phases 0–6 merged: authorable in `/config`, `/editor`, `/flow-v2`, `/symbols`, one-click from Game Maker, dealt by the book mock, drawn by the runtime; 7 (import a Hold and Win bonus from another project, re-sync) in review #1022; owner makes `borut-pots-sample` and `hw-classic-sample` next; 8 blocked on partner — session hub) | [status/pots-overlay](status/pots-overlay.md) | [design/pots-overlay](design/pots-overlay.md) | — | `bonus-games` |
 | **Bonus games** (Hold and Win as a game of its own, any project adds it as one of several bonus modes; the coin overlay — classic / 3 Pots / Collector — is the option that triggers them; planned 2026-10-08, Phase 0 — session hub) | [status/bonus-games](status/bonus-games.md) | [design/bonus-games](design/bonus-games.md) | — | `bonus-games` |
 | **Invisible Shader Graph** (planned 2026-10-23; steps 1–7 merged: the shared GLSL library #1320, the graph package #1322, the runtime (custom Element FX kinds) #1328, the pipeline (storage, Publish and the bake, the game's boot, the pickers) #1329, the `/shaders` editor #1330, the templates (graph twins of 30 built-ins under a parity gate, "Start from a built-in") #1333, editor v2 (subgraphs, node thumbnails, cost chips, publishing to the studio library) #1340; step 8 split into 8a–8e: 8a (the motion graph: a CPU-evaluated graph driving the element's motion and room; every twin now matches its built-in exactly) merged #1342; 8b (Break as an output node: an effect ends by breaking the element with one of the six breaks, from what the graph draws) merged #1347; 8c (the admin-only Custom GLSL node, behind the `shaderCustomGlsl` capability) merged #1349; 8d (particle materials: a graph as the material an `/fx` emitter layer's particles draw with, [design](design/shader-graph-particles.md)) decided and built as 8d.1–8d.8: 8d.1 (the particle shell and the Particle node) merged #1354, 8d.2 (the material renderer) merged #1366, 8d.3 (the material in the game: a game plays a material) merged #1378, 8d.4 (the ship chain, proven) merged #1384, 8d.5 (`/fx` authoring: an author picks, tunes and saves a material) merged #1392, 8d.6 (the other previews: materials in the Scene Editor, Rigger and Symbols) merged #1407, 8d.7 (`/shaders`: Made for particles and the Particles preview) merged #1423, 8d.8 (play-QA and calibration: the play, the on-page `?fxdebug=1` readout, the phone-check playbook) merged #1425 — 8d complete, the owner's phone check sets the caps; 8e (screen transitions and post FX: a graph over two screens, and post FX on the whole stage, [design](design/shader-graph-screens.md)) decided, 8e.1 (the screen shell and the Screens node) merged #1440; 8e.2 (the stage filter owner and the transition runtime) merged #1454; 8e.3 (post FX on the stage) merged #1459; 8e.4 (transitions in the game: the Flow actions and the transition cue) merged #1461; 8e.6 (authoring in the Scene Editor and the Flow) merged #1468; 8e.5, 8e.7 and 8e.8 in progress) | [status/shader-graph](status/shader-graph.md) | [design/invisible-shader-graph](design/invisible-shader-graph.md) | [tools/shader-graph](tools/shader-graph.md) | `invisible-shader-graph` |
-| **Bug Reports** — Invisible Pipeline Bug Reports (`/bugs`) + Invisible Game Bug Reports (`/game-bugs`, per project), one set of modules (built 2026-10-26; the pipeline side's main path and Start fix clicked through 2026-11-09, the game side not yet) | [status/bug-reports](status/bug-reports.md) | — | [tools/pipeline-bugs](tools/pipeline-bugs.md) · [tools/game-bugs](tools/game-bugs.md) | `launcher-studio` |
+| **Bug Reports** — Invisible Pipeline Bug Reports (`/bugs`) + Invisible Game Bug Reports (`/game-bugs`, per project), one set of modules (built 2026-10-26; clicked through on the live launcher 2026-11-09 and 2026-11-10, as admin and as a non-admin) | [status/bug-reports](status/bug-reports.md) | — | [tools/pipeline-bugs](tools/pipeline-bugs.md) · [tools/game-bugs](tools/game-bugs.md) | `launcher-studio` |
 | **Invisible Playtester** (automated QA) | [status/playtester](status/playtester.md) | [design/invisible-playtester](design/invisible-playtester.md) | [playtest/](playtest/README.md) | `game-playtester` |
 | **Salmons** (the arcade reference project: the art pass S0, then the P10.16 rebuild — built 2026-10-27 as data with placeholder looks; in its project and playing live on `rooms.invisiblewall.org` since 2026-11-02) | [status/salmons](status/salmons.md) | [design/game-families §1](design/game-families.md#reference-project-salmons-owner-2026-10-22) | — | `arcade-games` (art pass: `atlas-python-tools`, `invisible-flipbook`) |
 | **Invisible Director** + **Invisible Pipeline Changes** (planned; Phase 0 approved 2026-10-04, Phase 1 in progress) | [director/PLAN](director/PLAN.md) | [director/SPEC](director/SPEC.md) · [ADRs](director/DECISIONS/) | [tools/director](tools/director.md) · [tools/pipeline-changes](tools/pipeline-changes.md) | `director-*`, `platform-integrator`, `regression-guardian` |
@@ -69,7 +69,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [element-fx](design/element-fx.md) — **built 2026-10-21; ⏳ not clicked in the editor or seen in a published game:** effects that play ON an element (any node, a whole screen, the reels, a symbol's state): 50 kinds in five families (motion, 3D, distort, light, break), authored in the Scene Editor's Element FX section, fired by cue or by the Flow's `elementEffect`, and posed by a timeline or a state-machine state (✦ Animate rows). State in [status/fx](status/fx.md).
 - [multi-user-concurrency](design/multi-user-concurrency.md) — **lost-update prevention**: doc leases + R2 conditional writes, so two users stop overwriting each other. Agent: `pipeline-concurrency`.
 - [game-families](design/game-families.md) — **Phase 10 of rive-style-editor, plan approved 2026-10-20 (§9 #1–#9 accepted); started 2026-10-23 on the owner's go, P10.1–P10.8 and P10.11–P10.16 built ([status/game-families](status/game-families.md)):** non-slot games, match-3 first then arcade; the outcome source (RGS or the game's own rules) is a per-game Game Config option; Flow variables / tick / timers / spawning, a shared board mechanic, one shared runtime. **Amended 2026-10-22 (owner's questions):** each family sees only its own tools and `/config` sections; arcade grows past one screen (characters in a new Invisible Characters tool, then a scrolling camera, jumps and tile levels: P10.11–P10.13); Salmons (100-player real-time multiplayer) is the arcade target, so online rooms join as tier A4 (P10.14–P10.16, its own design doc first); Colyseus is the game server; Salmons is isometric and its art gets a pass (S0) before the rebuild; card games are a fourth family with a plan of their own (confirmed); §9 #18 decided 2026-10-25 with the A4 design (rules on the server as `engine-mechanics` data).
-- [phase-11](design/phase-11.md) — **Phase 11 plan, approved 2026-10-28 (§4 #1–#9 accepted); P11.1–P11.5 done once #1474 merges:** a runtime per family (P11.1), online arcade completion, Salmons' rules, isometric and offline abilities (P11.2–P11.5); left S0 (art) and the optional Cards C5.
+- [phase-11](design/phase-11.md) — **Phase 11 plan, approved 2026-10-28 (§4 #1–#9 accepted); P11.1–P11.5 done once #1474 merges:** a runtime per family (P11.1), online arcade completion, Salmons' rules, isometric and offline abilities (P11.2–P11.5); left S0 (art) and Cards C5 (the mixed turn order, `allFriendly`, `gainResource`; built 2026-11-09, in review).
 - [realtime-multiplayer](design/realtime-multiplayer.md) — **plan approved by the owner 2026-10-25:** online arcade rooms (tier A4 of game-families, P10.14–P10.16): the server owns the game, devices send inputs and predict their own player, Colyseus in `services/game-server`; Salmons first. Rules run on the server as `engine-mechanics` data (game-families §9 #18); Colyseus 0.18; decisions in its §14.
 - [invisible-blueprints](design/invisible-blueprints.md) — shareable ComfyUI workflows for the Atlas Maker (feature, not a tool).
 - [unified-project-repo](design/unified-project-repo.md) — **the live R2 folder layout**: one `<client>/<project>/` tree (by asset type) shared by all tools.
@@ -77,7 +77,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
 - [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js`, the `build-delivery.mjs` handover and the upload to the partner's CDN. Phases 1, 3, 4 and 5 built; Phase 2 (protocol deltas) partly.
-- [arcade-4k-builds](design/arcade-4k-builds.md) — **one 4K master, smaller tiers** (planned 2026-11-09): a game authored on a 3840×2160 canvas, published at full resolution for a cabinet and as lower-resolution tiers for desktop and mobile that lay out identically (Pixi texture resolution). Phases 1 (KTX2 twin sheets keep their logical size), 2 (the editor's Rescale canvas…), 3 (opt-in half-resolution art at publish) and 4 (the game loads the tier its screen needs) built; Phase 5 open.
+- [arcade-4k-builds](design/arcade-4k-builds.md) — **one 4K master, smaller tiers** (planned 2026-11-09): a game authored on a 3840×2160 canvas, published at full resolution for a cabinet and as lower-resolution tiers for desktop and mobile that lay out identically (Pixi texture resolution). Phases 1–4 built (KTX2 twin sheets keep their logical size; the editor's Rescale canvas…; opt-in half-resolution art at publish; the game loads the tier its screen needs); Phase 5 (video, FX) closed — they ride the sheet tiers; a one-screen build ships one tier (`IE_ART_TIER`).
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
@@ -108,7 +108,7 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    2026-10-28, every §4 recommendation accepted): **P11.1–P11.5 done once #1474 merges** — P11.1 a
    runtime per family (#1437, #1442, #1449, #1450; slot games −8.2 % gz), P11.2 online arcade
    completion (#1464, #1466), P11.3 Salmons' rules (#1469), P11.4 isometric (#1472), P11.5 offline
-   abilities and zone forces (#1474). Left: S0 (the Salmons art; the original art built 2026-11-09, in review) and the optional C5. State
+   abilities and zone forces (#1474). Left: S0 (the Salmons art; the original art built 2026-11-09, in review) and Cards C5 (built 2026-11-09, in review). State
    in [status/game-families](status/game-families.md).
 1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate
    ([status/rigger](status/rigger.md)).
@@ -129,8 +129,10 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 4. **4K arcade builds** ([design](design/arcade-4k-builds.md)). Built: KTX2 twin sheets keep
    their logical size (Phase 1); a 3840×2160 canvas, measured end to end, and the editor's
    Rescale canvas… (Phase 2); opt-in half-resolution art written at publish (Phase 3); the game
-   loads the tier its screen needs (Phase 4). Open: video and FX tiers (5), leaving the unused tier
-   out of a pinned build.
+   loads the tier its screen needs (Phase 4); video and FX ride the sheet tiers (Phase 5, closed).
+   A one-screen build ships one tier (`IE_ART_TIER=full|half`, the desktop launcher's *Build for* picker
+   from v1.0.65). Open: a one-click scale reset after art is re-made at 4K, a run on a real
+   cabinet and phone.
 5. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
    no UI yet).
 
@@ -191,9 +193,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/infra](status/infra.md))
 - **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
   done. ([status/infra](status/infra.md))
-- **Legacy tool-key cut-over, 2026-10-13** — remove the old tool handoff and its secrets once the
-  window closes. ([status/atlas-maker](status/atlas-maker.md) item 6,
-  [status/sheet-maker](status/sheet-maker.md))
 - **Grant `gamePublish`** to `developer` and `pipelineTester` in /admin → Roles.
   ([status/launcher](status/launcher.md))
 - **Game Maker → Republish all** so the games published before snapshots stop booting live data.
@@ -205,10 +204,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
-- **Salmons' art (S0)** — the owner rejected generated clips (2026-11-09): Salmons draws the
-  original game's own art, animated in code and built into the runtime (in review, branch
-  `arcade/salmons-original-art`). No clips to generate and nothing to upload; left: review and merge.
-  ([status/salmons](status/salmons.md))
 - **Partner replay check** — run [the checks owed on the live
   node](reference/play4fun-protocol.md#checks-owed-on-the-live-node). ([status/engine](status/engine.md))
 - **Delete the old flat `_runtime/lines/**`** once satisfied the versioned pointer is permanent.
@@ -219,9 +214,6 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   [playtest/particle-material](playtest/particle-material.md) on a phone or two and send back the
   `?fxdebug=1` readouts; they set the §10 caps of the particle-materials design.
   ([status/shader-graph](status/shader-graph.md))
-- **Give the game server its config credential** — the service is live on
-  `rooms.invisiblewall.org` (2026-10-27); set its config secret and URL (steps 5–7), per [INFRA § Invisible Game Server](INFRA.md#invisible-game-server-p1014--live-2026-10-27).
-  ([status/game-families](status/game-families.md) P10.14)
 
 ## History
 

@@ -12,7 +12,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	CARD_KEYWORDS,
+	CARD_RULE_DEFAULTS,
 	CARD_TARGET_KINDS,
+	CARD_TURN_ORDERS,
 	CARD_TRIGGERS,
 	CARD_VERB_TARGETS,
 	CARD_VERBS,
@@ -64,6 +66,8 @@ const T = {
 	allChars: { kind: 'allEnemies', include: 'characters' },
 	randomUnit: { kind: 'randomEnemy', include: 'units' },
 	randomChar: { kind: 'randomEnemy', include: 'characters' },
+	friendlyUnits: { kind: 'allFriendly', include: 'units' },
+	friendlyChars: { kind: 'allFriendly', include: 'characters' },
 };
 
 const hit = (target, trigger = 'onPlay') => ({ trigger, verb: 'damage', amount: 1, target });
@@ -84,7 +88,13 @@ function errorsOf(card, ...others) {
 check('the closed lists are §3.2–§3.5', () => {
 	assert.deepEqual(CARD_KEYWORDS, ['guard', 'swift', 'shield']);
 	assert.deepEqual(CARD_TRIGGERS, ['onPlay', 'onDeath', 'turnStart', 'onAttack', 'onDamaged']);
-	assert.deepEqual(CARD_TARGET_KINDS, ['self', 'chosen', 'allEnemies', 'randomEnemy']);
+	assert.deepEqual(CARD_TARGET_KINDS, [
+		'self',
+		'chosen',
+		'allEnemies',
+		'randomEnemy',
+		'allFriendly',
+	]);
 	assert.deepEqual(CARD_VERBS, [
 		'damage',
 		'heal',
@@ -93,6 +103,7 @@ check('the closed lists are §3.2–§3.5', () => {
 		'buff',
 		'destroy',
 		'giveKeyword',
+		'gainResource',
 	]);
 	assert.deepEqual(CARD_VERB_TARGETS, {
 		damage: 'any',
@@ -102,7 +113,10 @@ check('the closed lists are §3.2–§3.5', () => {
 		buff: 'units',
 		destroy: 'units',
 		giveKeyword: 'units',
+		gainResource: 'none',
 	});
+	assert.deepEqual(CARD_TURN_ORDERS, ['strict', 'mixed']);
+	assert.equal(CARD_RULE_DEFAULTS.turnOrder, 'strict');
 });
 
 // ---- validateLibrary: a clean library -----------------------------------------------------------
@@ -206,7 +220,7 @@ check('an unknown keyword on a card and in giveKeyword', () => {
 
 check('a verb with a target its §3.2 row does not allow', () => {
 	for (const verb of ['buff', 'destroy', 'giveKeyword']) {
-		for (const target of [T.enemyChar, T.anyChar, T.allChars, T.randomChar]) {
+		for (const target of [T.enemyChar, T.anyChar, T.allChars, T.randomChar, T.friendlyChars]) {
 			const effect = {
 				trigger: 'onPlay',
 				verb,
@@ -233,6 +247,54 @@ check('a verb with a target its §3.2 row does not allow', () => {
 	assert.deepEqual(errorsOf(unit('a', { effects: [summon] }), unit('b')), [
 		'targetNotAllowed effects[0].target',
 	]);
+	const gain = { trigger: 'onPlay', verb: 'gainResource', amount: 1, target: T.friendlyUnits };
+	assert.deepEqual(errorsOf(spell('a', { effects: [gain] })), [
+		'targetNotAllowed effects[0].target',
+	]);
+});
+
+check('allFriendly fits every trigger and verb a target fits, on a unit and a spell', () => {
+	for (const trigger of ['onPlay', 'onDeath', 'turnStart', 'onAttack', 'onDamaged']) {
+		assert.deepEqual(errorsOf(unit('a', { effects: [hit(T.friendlyChars, trigger)] })), []);
+	}
+	assert.deepEqual(errorsOf(spell('a', { effects: [hit(T.friendlyChars)] })), []);
+	assert.deepEqual(
+		errorsOf(spell('a', { effects: [hit({ kind: 'allFriendly', include: 'heroes' })] })),
+		['include effects[0].target.include'],
+	);
+});
+
+check(
+	'readLibrary keeps allFriendly and gainResource, and drops the fields they do not have',
+	() => {
+		const card = spell('a', {
+			effects: [
+				{ ...hit({ ...T.friendlyChars, side: 'enemy' }) },
+				{ trigger: 'onPlay', verb: 'gainResource', amount: 2, target: T.self },
+			],
+		});
+		const read = readLibrary([card]);
+		assert.deepEqual(read.library[0].effects, [
+			hit(T.friendlyChars),
+			{ trigger: 'onPlay', verb: 'gainResource', amount: 2 },
+		]);
+		assert.deepEqual(read.dropped, ['[0] (a).effects[0].target.side', '[0] (a).effects[1].target']);
+	},
+);
+
+check('gainResource takes an amount 1 … 10 under every trigger, and no target', () => {
+	const gain = (amount, trigger = 'onPlay') => ({ trigger, verb: 'gainResource', amount });
+	for (const trigger of ['onPlay', 'onDeath', 'turnStart', 'onAttack', 'onDamaged']) {
+		assert.deepEqual(errorsOf(unit('a', { effects: [gain(1, trigger)] })), []);
+	}
+	assert.deepEqual(errorsOf(spell('a', { effects: [gain(10)] })), []);
+	for (const amount of [0, 11, 1.5, undefined]) {
+		assert.deepEqual(
+			errorsOf(spell('a', { effects: [gain(amount)] })),
+			['range effects[0].amount'],
+			`amount ${amount}`,
+		);
+	}
 });
 
 check('self on a spell', () => {
@@ -503,8 +565,17 @@ const TEXT = [
 	[give(T.anyUnit), 'Give a chosen unit Shield.'],
 	[give(T.allUnits), 'Give all enemy units Shield.'],
 	[give(T.randomUnit), 'Give a random enemy unit Shield.'],
+	[damage(T.friendlyUnits), 'Deal 2 damage to all friendly units.'],
+	[damage(T.friendlyChars), 'Deal 2 damage to all friendly characters.'],
+	[heal(T.friendlyUnits), 'Restore 3 health to all friendly units.'],
+	[heal(T.friendlyChars), 'Restore 3 health to all friendly characters.'],
+	[buff(T.friendlyUnits), 'Give all friendly units +2/+1.'],
+	[destroy(T.friendlyUnits), 'Destroy all friendly units.'],
+	[give(T.friendlyUnits), 'Give all friendly units Shield.'],
 	[{ trigger: 'onPlay', verb: 'draw', amount: 1 }, 'Draw a card.'],
 	[{ trigger: 'onPlay', verb: 'draw', amount: 3 }, 'Draw 3 cards.'],
+	[{ trigger: 'onPlay', verb: 'gainResource', amount: 1 }, 'Gain 1 resource this turn.'],
+	[{ trigger: 'onPlay', verb: 'gainResource', amount: 2 }, 'Gain 2 resource this turn.'],
 ];
 
 check('cardText covers every verb × every target it allows', () => {
@@ -530,6 +601,7 @@ check('cardText covers every verb × every target it allows', () => {
 			}
 			assert.ok(covered.has(`${verb} allEnemies  ${include}`), `${verb} allEnemies ${include}`);
 			assert.ok(covered.has(`${verb} randomEnemy  ${include}`), `${verb} randomEnemy ${include}`);
+			assert.ok(covered.has(`${verb} allFriendly  ${include}`), `${verb} allFriendly ${include}`);
 		}
 	}
 });

@@ -25,8 +25,8 @@
  *
  * WHY IT LIVES OUTSIDE THE HANDLER. The cycle is not part of any book event: it starts after the
  * whole book has been presented and must survive as long as nothing else is happening. It is
- * driven from `playBet` (start in `finally`, stop at the top) so it covers all three dispatch
- * paths — coded handler, v1 flow, v2 flow — at one seam, and the wins are recorded in
+ * driven from `playBet` (start in `finally`, stop at the top) so it covers both dispatch
+ * paths — coded handler, v2 flow — at one seam, and the wins are recorded in
  * `dispatchBookEvent` for the same reason: a flow-owned `winInfo` never reaches the coded handler.
  *
  * ONE WIN PER PASS, in book order, looping back to the first — the same order the round narrated

@@ -180,6 +180,16 @@
 	const fadeIn = text.fadeIn;
 	const fadeInMs = Math.max(0, text.fadeInDuration) * 1000;
 
+	/**
+	 * One line at a time (the default) with no big-win run-up: the overlay KEEPS the line and the stamp
+	 * it drew and hands them each line after, hidden while none is up, where it used to mount them for
+	 * each line and destroy them at each hide — on every pass of the resting win cycle. The kept
+	 * stroke is cleared and drawn again for each line, the stamp re-measured, so each line draws as a
+	 * new one did. Not with every line up at once, where a line shown again is mounted over the rest,
+	 * nor with the run-up, whose stamp shares the container: what a kept line would keep is its place.
+	 */
+	const keep = !allAtOnce && !cueBigWin;
+
 	/** A tween length in ms, re-read from the skip token at the moment it is used: a press landing
 	 *  mid-narration means "show me the result now", so whatever is still to run collapses. */
 	const tweenMs = (ms: number) => (roundSkip.isSkipped() ? 0 : ms);
@@ -365,6 +375,27 @@
 		};
 	}
 
+	/** The line the kept stroke and stamp draw: the one up, or the last one while none is. */
+	let lastLine: DrawnLine | undefined;
+	const keptLine = $derived(keep ? (lines[0] ? (lastLine = lines[0]) : lastLine) : undefined);
+	const keptUp = $derived(lines.length > 0);
+	const keptLabel = $derived(keptLine && labelFor(keptLine));
+	const keptText = $derived(keptLine ? labelTextOf(keptLine) : '');
+	/** The kept stamp shows when a line's own would have been mounted (the template below). */
+	const keptStamps = $derived(
+		!!keptLine && keptUp && showText && !!keptLabel && keptLine.progress.current >= 1 && !!keptText,
+	);
+	let stampDrawn = false;
+	const drawsKeptStamp = $derived((stampDrawn ||= keptStamps));
+	/** Measures the line the stamp is handed, as the stamp a line mounted measured its own: a new
+	 *  line is a new callback, so the stamp reports its size to it even when its text is the same. */
+	const keptResize = $derived.by(() => {
+		const line = keptLine;
+		return (sizes: { width: number; height: number }) => {
+			if (line) line.labelSize = sizes;
+		};
+	});
+
 	/** Where the run-up stamp sits: the reel window's own middle, the SAME geometry `boardCenter`
 	 *  placement uses (the text anchors top-centre, so the box is lifted by half its height to sit ON
 	 *  the centre rather than hang below it). It is centred regardless of the authored placement —
@@ -507,39 +538,70 @@
 	}
 </script>
 
-{#if lines.length || cue}
+{#if keep ? !!keptLine : lines.length || cue}
 	<BoardContainer>
-		<!-- Every line strokes BEFORE any stamp, so with the whole round on screen at once a later
-		     line's graphics can never be drawn over an earlier line's amount. -->
-		{#if showLine}
-			{#each lines as entry (entry.id)}
-				<Graphics draw={drawFor(entry)} />
+		{#if keep}
+			{#if keptLine}
+				{#if showLine}
+					<Graphics draw={drawFor(keptLine)} visible={keptUp} />
+				{/if}
+				{#if drawsKeptStamp}
+					<Container
+						x={keptLabel?.x}
+						y={keptLabel?.y}
+						alpha={keptLine.fade.current}
+						visible={keptStamps}
+					>
+						<ResponsiveBitmapText
+							anchor={{ x: 0.5, y: 0 }}
+							maxWidth={SYMBOL_SIZE * 3}
+							onresize={keptResize}
+							text={keptText}
+							style={{
+								fontFamily: text.font,
+								fontSize: SYMBOL_SIZE * text.size,
+								fill: text.color,
+								align: 'center',
+								fontWeight: 'bold',
+								letterSpacing: 0,
+							}}
+						/>
+					</Container>
+				{/if}
+			{/if}
+		{:else}
+			<!-- Every line strokes BEFORE any stamp, so with the whole round on screen at once a later
+			     line's graphics can never be drawn over an earlier line's amount. -->
+			{#if showLine}
+				{#each lines as entry (entry.id)}
+					<Graphics draw={drawFor(entry)} />
+				{/each}
+			{/if}
+
+			{#each lines as entry, index (entry.id)}
+				{@const label = labelFor(entry)}
+				{@const labelText = labelTextOf(entry)}
+				{@const stamps = showText && (!centreText || index === lines.length - 1)}
+				{#if stamps && label && entry.progress.current >= 1 && labelText}
+					<Container x={label.x} y={label.y} alpha={entry.fade.current}>
+						<ResponsiveBitmapText
+							anchor={{ x: 0.5, y: 0 }}
+							maxWidth={SYMBOL_SIZE * 3}
+							onresize={(sizes) => (entry.labelSize = sizes)}
+							text={labelText}
+							style={{
+								fontFamily: text.font,
+								fontSize: SYMBOL_SIZE * text.size,
+								fill: text.color,
+								align: 'center',
+								fontWeight: 'bold',
+								letterSpacing: 0,
+							}}
+						/>
+					</Container>
+				{/if}
 			{/each}
 		{/if}
-
-		{#each lines as entry, index (entry.id)}
-			{@const label = labelFor(entry)}
-			{@const labelText = labelTextOf(entry)}
-			{@const stamps = showText && (!centreText || index === lines.length - 1)}
-			{#if stamps && label && entry.progress.current >= 1 && labelText}
-				<Container x={label.x} y={label.y} alpha={entry.fade.current}>
-					<ResponsiveBitmapText
-						anchor={{ x: 0.5, y: 0 }}
-						maxWidth={SYMBOL_SIZE * 3}
-						onresize={(sizes) => (entry.labelSize = sizes)}
-						text={labelText}
-						style={{
-							fontFamily: text.font,
-							fontSize: SYMBOL_SIZE * text.size,
-							fill: text.color,
-							align: 'center',
-							fontWeight: 'bold',
-							letterSpacing: 0,
-						}}
-					/>
-				</Container>
-			{/if}
-		{/each}
 
 		<!-- The big-win run-up: the round total, centred, counting to the threshold the overlay
 		     takes over at. Drawn in the same font/size/colour as a line's stamp, so the number the

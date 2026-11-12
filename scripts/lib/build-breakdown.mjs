@@ -170,11 +170,12 @@ function readDims(rel, text) {
  * @param {string} input.assetsPrefix  where `static/assets/` landed in the build (`assets/`)
  * @param {object | null} input.pull  `pull.json` from `pull-project-assets.mjs`
  * @param {object | null} input.images  `images.json` from the launcher's image pass
+ * @param {object | null} [input.stock]  `stock.json` from the game build (`config-vite` `stockAssetPrune.js`)
  * @param {object | null} input.buildInfo  the build's `build-info.json`
  * @param {object} [input.build]  what the launcher knows about this build (kind, debug, optimize…)
  */
 export function analyzeDesktopBuild(input) {
-	const { texts, bundle, assetsPrefix = 'assets/', pull, images, buildInfo } = input;
+	const { texts, bundle, assetsPrefix = 'assets/', pull, images, stock, buildInfo } = input;
 	const files = [...input.files].sort((a, b) => a.rel.localeCompare(b.rel));
 	const fileSet = new Set(files.map((f) => f.rel));
 	const bytesOf = new Map(files.map((f) => [f.rel, f.bytes]));
@@ -342,13 +343,13 @@ export function analyzeDesktopBuild(input) {
 	const dims = new Map();
 	for (const [rel, text] of texts) {
 		const dir = posix.dirname(rel);
-		const code = CODE_EXT.test(rel);
 		const seen = new Set();
 		for (const token of refTokens(text)) {
-			// Code names a file by a path from the site root, from `static/assets/`, or from itself.
-			const candidates = code
-				? [normalizeRel(token, dir), normalizeRel(token), asset(token)]
-				: [normalizeRel(token, dir)];
+			// Code names a file by a path from the site root, from `static/assets/`, or from itself. So
+			// does data: a sheet or atlas names its page beside itself, but `sounds.json` names its media
+			// from the site root (`./assets/audio/sounds.mp3`) and `_boot/boot.json` names its rig from
+			// `static/assets/` (`_boot/engine/….atlas`). Beside itself is tried first.
+			const candidates = [normalizeRel(token, dir), normalizeRel(token), asset(token)];
 			const target = candidates.find((c) => c && c !== rel && fileSet.has(c));
 			if (!target || seen.has(target)) continue;
 			seen.add(target);
@@ -462,6 +463,15 @@ export function analyzeDesktopBuild(input) {
 		'In the project’s deploy/ folder, but nothing in this game loads them, so the build never ' +
 			'downloaded them. Delete them in the Invisible FTP Browser to tidy the project.',
 		pull?.notPulled,
+	);
+	step(
+		'stockArt',
+		'Stock sample art the game never draws',
+		'The engine’s coded sample art (big win, coins, sample symbols, …) that nothing in this ' +
+			'project can reach: the boot would never load it, so the game build left it out' +
+			(stock?.skipped?.length ? ` (${stock.skipped.join(', ')})` : '') +
+			'.',
+		stock?.removed,
 	);
 	step(
 		'pruned',

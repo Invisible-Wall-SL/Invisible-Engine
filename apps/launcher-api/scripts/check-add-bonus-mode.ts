@@ -119,6 +119,7 @@ const KINDS: Record<string, string> = {
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
+		DEFAULT_PROJECT_KEY: 'cloud',
 		projectGameType: async (p: string) => KINDS[p] ?? 'lines',
 		projectClientKey: async () => CLIENT,
 	},
@@ -144,10 +145,11 @@ const {
 	gameConfigPresetsFor,
 	gameConfigSeedFor,
 	holdAndWinCoinBoardSeed,
+	holdAndWinEnhancementsSeed,
 	holdAndWinTemplateSeed,
 } = await import('../src/lib/server/gameConfigDefaults.ts');
 const { cleanOverlayPresets } = await import('../src/lib/server/projectAddOn.ts');
-const { noJackpotTiers, projectAddOns, respinModesOf, sceneSetOptionsFor } =
+const { noJackpotTiers, projectAddOns, respinMaxRows, respinModesOf, sceneSetOptionsFor } =
 	await import('../src/lib/addOns.ts');
 const { getFullSceneSet, isSelfMountedBannerScreen, kindCapabilities } =
 	await import('engine-layout');
@@ -887,7 +889,9 @@ async function withMock<T>(
 /** The boot `config` event, and `count` rounds played to their end the way the client plays them:
  *  bet + play (`force:trigger` starts the respins), `play` while the feature runs, `collect` if the
  *  round is left open. */
-async function dealTriggeredRounds(config: GameConfigDoc, count: number) {
+/** `option`: the bet's first argument for a game with bet modes (their option index), else the
+ *  line count. */
+async function dealTriggeredRounds(config: GameConfigDoc, count: number, option?: number) {
 	return withMock(config, async (post) => {
 		const sid = 'plain';
 		const booted = await post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
@@ -902,7 +906,7 @@ async function dealTriggeredRounds(config: GameConfigDoc, count: number) {
 			const events: MockEvent[] = [];
 			let seq = 0;
 			let resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}`, [
-				{ action: 'bet', context: [lines, 1] },
+				{ action: 'bet', context: [option ?? lines, 1] },
 				{ action: 'play', context: 'force:trigger' },
 			]);
 			seq += 2;
@@ -1226,8 +1230,204 @@ await check("the Scene Editor's full set never puts back what the template left 
 	});
 }
 
+{
+	const project = 'tpl-enhancements';
+	KINDS[project] = 'holdAndWin';
+	await scaffoldProject(CLIENT, project, {
+		holdAndWinJackpots: 'on',
+		holdAndWinBase: 'enhancements',
+	});
+	const { config, symbols, layout, flow } = docsOf(project);
+	const scene = (id: string) => layout.scenes.find((s: Scene) => s.id === id);
+	/** The editor's "Add missing screens" and banner popups, from its load's data
+	 *  (editor/+page.server.ts → +page.svelte's `sceneSetOptions`). */
+	const offers = (doc: LayoutDoc, cfg: GameConfigDoc) => {
+		const { addOns, potIds } = projectAddOns(cfg);
+		const modes = respinModesOf(cfg);
+		const maxRows = respinMaxRows(modes);
+		const full = getFullSceneSet('holdAndWin', {
+			...(maxRows ? { maxRows } : {}),
+			...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
+			...(sceneSetOptionsFor('holdAndWin', cfg).enhancements ? { enhancements: true as const } : {}),
+			respinModes: modes.map(({ id, label, maxRows: rows }) => ({
+				id,
+				label,
+				...(rows ? { maxRows: rows } : {}),
+			})),
+			...addOns,
+			...(potIds ? { potIds } : {}),
+		});
+		assert(full, 'no scene set');
+		const missing = full.scenes.filter((ref) => !doc.scenes.some((c) => c.id === ref.id));
+		return {
+			screens: missing.filter((ref) => !isSelfMountedBannerScreen(ref)).map((ref) => ref.id),
+			banners: missing.filter((ref) => isSelfMountedBannerScreen(ref)).map((ref) => ref.id),
+		};
+	};
+
+	await check('Collector + enhancements: stored as its template, validates clean (14e)', () => {
+		const seed = holdAndWinEnhancementsSeed();
+		assert(seed, 'no collector + enhancements template');
+		same(content(config), content(normalize(seed)), 'stored as the template');
+		same(gameConfigErrors(config), [], 'errors');
+		const rules = primaryHoldAndWin(config);
+		same(rules?.enhancements, true, 'the server draws enhancements');
+		same(rules?.stickiness, 'collectorsOnly', 'only the collectors stick');
+		same(config.numRows, [3, 3, 3, 3, 3], 'a 5×3 board');
+		same(Object.keys(config.paylines).length, 5, 'five lines');
+		for (const [name, roles] of [
+			['COIN', ['coin', 'jackpot']],
+			['COLLECT', ['collector']],
+			['BLANK', ['blank']],
+		] as const) {
+			same(config.symbols[name]?.special_properties, roles, `${name}'s roles (the partner wire)`);
+		}
+		same(
+			Object.keys(config.betModes),
+			['base', 'powerup', 'buycentercoin', 'goldstrike'],
+			'bet modes keyed in the partner option order',
+		);
+		const shown = config.betModePresentation ?? {};
+		same(
+			[shown.powerup?.kind, shown.powerup?.toggle, shown.powerup?.refusable],
+			['ante', true, true],
+			'the ante is a refusable HUD switch',
+		);
+		same(shown.powerup?.fillerSymbols, ['COIN', 'COLLECT', 'BLANK'], 'the ante roll');
+		same(
+			[shown.buycentercoin?.kind, shown.goldstrike?.kind, shown.goldstrike?.refusable],
+			['buy', 'buy', true],
+			'two refusable buys',
+		);
+		const titles = Object.values(shown).map((p) => p.text?.title ?? '');
+		for (const theirs of [/gold\s*strike/i, /force\s*5/i, /power\s*roll/i, /center\s*coin/i]) {
+			assert(!titles.some((t) => theirs.test(t)), `a title uses the partner's name: ${titles}`);
+		}
+		same(Object.keys(symbols?.symbols ?? {}).sort(), ['COIN', 'COLLECT'], 'symbols seeded');
+	});
+
+	await check('Collector + enhancements: the dials, the total and the ante switch (14e)', () => {
+		const dials = (scene('enhancements')?.nodes ?? []).filter(
+			(n) => n.kind === 'componentInstance' && n.componentId === 'enhancementDial',
+		);
+		same(dials.length, 4, 'four Enhancement Dials');
+		same(
+			dials.map((n) => n.kind === 'componentInstance' && n.params?.visibleSource),
+			['assetsLoaded', 'assetsLoaded', 'assetsLoaded', 'assetsLoaded'],
+			'the dials show once the game has loaded, in the base game too',
+		);
+		const total = scene('enhancements')?.nodes.find(
+			(n) => n.kind === 'componentInstance' && n.params?.source === 'collectorsTotal',
+		);
+		assert(total, "no collectors' total");
+		same(
+			total.valueBindings,
+			[{ target: 'visible', source: 'cellsTotal' }],
+			"the collectors' total shows only while the respin board is up",
+		);
+		same(
+			[scene('enhancements')?.role, scene('enhancements')?.modeId],
+			[undefined, undefined],
+			'the Enhancements screen is a base screen',
+		);
+		assert(
+			scene('hudBar')?.nodes.some(
+				(n) => n.kind === 'componentInstance' && n.params?.action === 'ante',
+			),
+			'no HUD ante switch',
+		);
+		assert(scene('jackpotBar') && !scene('pots'), 'the jackpot bar, no pots');
+		const reelGrid = scene('basegame')?.nodes.find((n) => n.id === 'reel-grid');
+		assert(reelGrid, 'no reel grid');
+		same(respinModesOf(config)[0]?.maxRows, 5, 'the board reserves the 5 rows Expand opens');
+		const { screens, banners } = offers(layout, config);
+		same(screens, [], '"Add missing screens" offers');
+		for (const id of ['enhancementsBanner', 'superBonusBanner']) {
+			assert(banners.includes(id), `the ${id} popup is not offered`);
+		}
+	});
+
+	await check('Collector + enhancements: the starter flow shows the dials from the start', () => {
+		const shows = (graph: { nodes: { kind: string; ref?: string }[] }, kind: string) =>
+			graph.nodes.filter((n) => n.kind === kind).map((n) => n.ref);
+		assert(
+			flow.containers.some((c) => c.id === 'enhancements'),
+			'the flow declares no Enhancements screen',
+		);
+		const mode = flow.modes?.holdAndWin?.graph;
+		assert(mode, 'no holdAndWin section');
+		assert(
+			shows(flow.graph, 'showContainer').includes('enhancements'),
+			'the game start does not show the Enhancements screen',
+		);
+		for (const graph of [flow.graph, mode]) {
+			assert(
+				!shows(graph, 'hideContainer').includes('enhancements'),
+				'a chain hides the Enhancements screen',
+			);
+		}
+		const plain = docsOf('tpl-plain-on').flow;
+		same(
+			flow.containers.map((c) => c.id).filter((id) => id !== 'enhancements'),
+			plain.containers.map((c) => c.id),
+			"the plain template's other screens",
+		);
+		same(
+			shows(flow.graph, 'showContainer').filter((id) => id !== 'enhancements'),
+			shows(plain.graph, 'showContainer'),
+			'the base game shows what the plain template does, and the Enhancements screen',
+		);
+		same(
+			JSON.stringify(mode),
+			JSON.stringify(plain.modes?.holdAndWin?.graph),
+			"the feature section is the plain template's",
+		);
+		same(
+			JSON.stringify(freshDrivenSeedDoc('holdAndWin', { enhancements: false })),
+			JSON.stringify(freshDrivenSeedDoc('holdAndWin')),
+			'the flag off is the plain starter',
+		);
+		same(
+			JSON.stringify(freshDrivenSeedDoc('lines', { enhancements: true })),
+			JSON.stringify(freshDrivenSeedDoc('lines')),
+			'another kind ignores the flag',
+		);
+		const issues = publishErrors(project);
+		same(describe(issues.filter((i) => i.severity === 'error')), '', 'flow errors');
+	});
+
+	await check('Collector + enhancements: an existing game turns it on in /config (14e)', () => {
+		const plain = docsOf('tpl-plain-on');
+		same(offers(plain.layout, plain.config).screens, [], 'a plain game is offered nothing');
+		assert(
+			!sceneSetOptionsFor('holdAndWin', plain.config).enhancements,
+			'a plain game has the enhancements option',
+		);
+		const marked = structuredClone(plain.config);
+		const mode = respinModeDecls(marked)[0];
+		assert(mode, 'no respin mode');
+		modeOf(marked, mode.id)!.holdAndWin!.enhancements = true;
+		const { screens, banners } = offers(plain.layout, normalize(marked));
+		same(screens, ['enhancements'], '"Add missing screens" offers');
+		assert(banners.includes('superBonusBanner'), 'the super bonus popup is not offered');
+		assert(
+			!sceneSetOptionsFor('lines', normalize(marked)).enhancements,
+			'another kind gets the enhancements option',
+		);
+	});
+
+	await check('Collector + enhancements: our own mock deals it (a full respin round)', async () => {
+		const { rounds } = await dealTriggeredRounds(config, 10, 0);
+		for (const events of rounds) {
+			const names = events.map((e) => e.event);
+			assert(names.includes('holdAndWinTrigger'), `no trigger: ${names.join(',')}`);
+			assert(names.includes('gameEnd'), 'the round never ended');
+		}
+	});
+}
+
 await check(
-	'/config → Reset to preset offers the plain template, the coin board, then the three',
+	'/config → Reset to preset offers the plain template, the coin board, the enhancements, then the three',
 	() => {
 		const presets = gameConfigPresetsFor('holdAndWin');
 		same(
@@ -1236,11 +1436,13 @@ await check(
 				'holdAndWin.plain',
 				'holdAndWin.plainNoJackpots',
 				'holdAndWin.coinBoard',
+				'holdAndWin.enhancements',
 				...HOLD_AND_WIN_PRESET_IDS,
 			],
 			'ids',
 		);
 		same(presets[2].doc, holdAndWinCoinBoardSeed(), 'the coin board is its template');
+		same(presets[3].doc, holdAndWinEnhancementsSeed(), 'the enhancements is its template');
 		for (const [at, jackpots] of (['on', 'off'] as const).entries()) {
 			const seed = holdAndWinTemplateSeed(jackpots);
 			assert(seed, 'no template');

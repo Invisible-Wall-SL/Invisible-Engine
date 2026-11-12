@@ -26,6 +26,11 @@
 	 * `flightArrive` with flight `toCounter`), `respinCoinUpgrade` as an upgrade applies (each beam's
 	 * landing is a `flightArrive` with flight `upgradeBeam`).
 	 *
+	 * A collector bonus's enhancements (Phase 14b), each scoped by its enhancement: `enhancementOn` as
+	 * a drawn one's dial lights at entry, `respinEnhancementHit` as a boost or multiply hits landing
+	 * coins (each beam's landing is a `flightArrive` with flight `enhancementBeam`),
+	 * `respinEnhancementMiss` as one misses; `superBonusEnter` as the super bonus opens.
+	 *
 	 * The pots and the Lucky Spin (base game) and the feature's celebrations:
 	 * - `potFill` as a meter's specials take off (each landing is a `flightArrive` with flight
 	 *   `toMeter:<id>`), `potLevelUp` as each landing raises its level, `potStageUp` when a rise
@@ -71,6 +76,16 @@
 				multiplier: number;
 				cells: HoldAndWinCoinChange[];
 		  }
+		| { type: 'enhancementOn'; kind: string; scope?: string }
+		| {
+				type: 'respinEnhancementHit';
+				kind: 'boost' | 'multiply';
+				by: number;
+				cells: HoldAndWinCoinChange[];
+				scope?: string;
+		  }
+		| { type: 'respinEnhancementMiss'; kind: 'boost' | 'multiply'; scope?: string }
+		| { type: 'superBonusEnter' }
 		| { type: 'respinSpecialBecomesCoin'; cell: HoldAndWinCell; from: string }
 		| {
 				type: 'respinCoinCollect';
@@ -160,6 +175,7 @@
 
 	import CoinBoardLineOverlay from './CoinBoardLineOverlay.svelte';
 	import CoinBoardLockedCells from './CoinBoardLockedCells.svelte';
+	import EnhancementDials from './EnhancementDials.svelte';
 	import HoldAndWinLetters from './HoldAndWinLetters.svelte';
 	import HoldAndWinPots from './HoldAndWinPots.svelte';
 	import RespinCell from './RespinCell.svelte';
@@ -208,7 +224,10 @@
 	/** An expanding board's rows below the open ones are locked: no reel, a locked overlay instead. */
 	const openRows = $derived(stateRespinBoard.rows || (board?.rows ?? 0));
 	const openCells = $derived(board ? board.cells.flat().filter((c) => c.row < openRows) : []);
-	const lockedCells = $derived(board ? board.cells.flat().filter((c) => c.row >= openRows) : []);
+	const drawnRows = $derived(stateRespinBoard.drawnRows || Infinity);
+	const lockedCells = $derived(
+		board ? board.cells.flat().filter((c) => c.row >= openRows && c.row < drawnRows) : [],
+	);
 
 	context.eventEmitter.subscribeOnMount({
 		stopButtonClick: () => currentRespinBoard()?.stop(),
@@ -258,6 +277,7 @@
 				{/each}
 			</Container>
 			<RespinCounter />
+			<EnhancementDials />
 		</BoardContainer>
 	{/if}
 	<HoldAndWinPots />

@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet } from '$lib/server/editorRegions';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
@@ -62,7 +63,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	const manifestKey = body && typeof body.manifestKey === 'string' ? body.manifestKey : '';
 	const noAtlas = !!(body && body.noAtlas === true);
 	const name = (body && typeof body.name === 'string' ? body.name : '')

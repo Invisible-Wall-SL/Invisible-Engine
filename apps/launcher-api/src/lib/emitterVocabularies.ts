@@ -4,15 +4,15 @@
  * Sources: each game's `typesEmitterEvent.ts` union + `flowEffects.ts` catalog.
  * Regenerate: `pnpm gen:flow-vocab`. Verified by `flow-spike run vocab`.
  *
- * The `/flow` choreography palette offers the game's REAL Broadcast events + effect names
- * instead of the bundled `DEFAULT_EMITTER_VOCABULARY` (design doc §3, Phase 7). The launcher
- * loads a project from R2 (not game source), so the catalog is passed in as DATA the same way
- * the LayoutDoc + component defs are. Selection is by the LayoutDoc `gameType`; any game with
- * no exported vocabulary falls back to the default (parity-safe, §7). Authoring-fidelity only:
- * the runtime executor broadcasts/invokes whatever the FlowDoc declares regardless of this list.
+ * The authoring surfaces (the FX tool's event triggers) offer the game's REAL emitter events +
+ * effect names instead of the bundled `DEFAULT_EMITTER_VOCABULARY`. The launcher loads a project
+ * from R2 (not game source), so the catalog is passed in as DATA the same way the LayoutDoc +
+ * component defs are. Selection is by the LayoutDoc `gameType`; any game with no exported
+ * vocabulary falls back to the default (parity-safe, §7). Authoring-fidelity only: the runtime
+ * never reads it.
  */
 
-import { DEFAULT_EMITTER_VOCABULARY, type EmitterVocabulary } from 'engine-flow';
+import { DEFAULT_EMITTER_VOCABULARY, type EmitterVocabulary } from 'engine-flow-v2';
 
 /** Exported vocabularies keyed by LayoutDoc `gameType`. */
 export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
@@ -603,6 +603,68 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						required: true,
 					},
 				],
+			},
+			{
+				type: 'enhancementOn',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementHit',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'by',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementMiss',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'superBonusEnter',
+				group: 'Hold and Win',
 			},
 			{
 				type: 'respinSpecialBecomesCoin',
@@ -1269,6 +1331,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'hitEnhancement',
+				group: 'Effect',
+			},
+			{
+				name: 'missEnhancement',
+				group: 'Effect',
+			},
+			{
 				name: 'turnSpecialIntoCoin',
 				group: 'Effect',
 			},
@@ -1575,6 +1645,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinBoost',
+			},
+			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
 			},
 			{
 				type: 'specialBecomesCoin',
@@ -2215,6 +2291,68 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'enhancementOn',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementHit',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'by',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementMiss',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'superBonusEnter',
+				group: 'Hold and Win',
+			},
+			{
 				type: 'respinSpecialBecomesCoin',
 				group: 'Hold and Win',
 				fields: [
@@ -2879,6 +3017,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'hitEnhancement',
+				group: 'Effect',
+			},
+			{
+				name: 'missEnhancement',
+				group: 'Effect',
+			},
+			{
 				name: 'turnSpecialIntoCoin',
 				group: 'Effect',
 			},
@@ -3185,6 +3331,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinBoost',
+			},
+			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
 			},
 			{
 				type: 'specialBecomesCoin',
@@ -3825,6 +3977,68 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'enhancementOn',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementHit',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'by',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementMiss',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'superBonusEnter',
+				group: 'Hold and Win',
+			},
+			{
 				type: 'respinSpecialBecomesCoin',
 				group: 'Hold and Win',
 				fields: [
@@ -4489,6 +4703,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'hitEnhancement',
+				group: 'Effect',
+			},
+			{
+				name: 'missEnhancement',
+				group: 'Effect',
+			},
+			{
 				name: 'turnSpecialIntoCoin',
 				group: 'Effect',
 			},
@@ -4795,6 +5017,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinBoost',
+			},
+			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
 			},
 			{
 				type: 'specialBecomesCoin',
@@ -5435,6 +5663,68 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				],
 			},
 			{
+				type: 'enhancementOn',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementHit',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'by',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'cells',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'respinEnhancementMiss',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'kind',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'superBonusEnter',
+				group: 'Hold and Win',
+			},
+			{
 				type: 'respinSpecialBecomesCoin',
 				group: 'Hold and Win',
 				fields: [
@@ -6099,6 +6389,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'hitEnhancement',
+				group: 'Effect',
+			},
+			{
+				name: 'missEnhancement',
+				group: 'Effect',
+			},
+			{
 				name: 'turnSpecialIntoCoin',
 				group: 'Effect',
 			},
@@ -6405,6 +6703,12 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'coinBoost',
+			},
+			{
+				type: 'enhancementHit',
+			},
+			{
+				type: 'enhancementMiss',
 			},
 			{
 				type: 'specialBecomesCoin',

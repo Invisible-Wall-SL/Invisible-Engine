@@ -224,6 +224,7 @@ export const PART_NEEDS: Record<string, PartNeeds> = {
 	revealSymbolRider: none,
 	PotMeter: none,
 	RespinCounterPart: none,
+	EnhancementDialPart: none,
 	JackpotTilePart: none,
 	TotalWinBarPart: none,
 	LettersStrip: none,
@@ -375,14 +376,14 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	},
 	{ file: 'apps/lines/src/game/wildRewrite.svelte.ts', rule: 'symbols', names: ['explosion'] },
 	{
-		file: 'packages/components-shared/src/components/LoaderImage.svelte',
-		rule: 'notAsset',
-		names: ['loader'],
-	},
-	{
 		file: 'packages/components-ui-pixi/src/components/LoadingBar.svelte',
 		rule: 'part',
 		names: ['progressBar.png', 'progressBarBackground.png', 'progressBarFrame.png'],
+	},
+	{
+		file: 'packages/engine-flow-v2/src/emitterVocabulary.ts',
+		rule: 'notAsset',
+		names: ['transition'],
 	},
 	{
 		file: 'packages/engine-flow-v2/src/reference/arcade.ts',
@@ -409,12 +410,6 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		rule: 'notAsset',
 		names: ['transition'],
 	},
-	{
-		file: 'packages/engine-flow/src/emitterVocabulary.ts',
-		rule: 'notAsset',
-		names: ['transition'],
-	},
-	{ file: 'packages/engine-flow/src/previewExecutor.ts', rule: 'symbols', names: ['H1', 'H2'] },
 	{
 		file: 'packages/engine-game/src/components/Background.svelte',
 		rule: 'mount',
@@ -573,7 +568,7 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 	{
 		file: 'packages/game-config/src/holdAndWinPresets.ts',
 		rule: 'symbols',
-		names: ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'W'],
+		names: ['H1', 'H2', 'H3', 'H4', 'H5', 'L1', 'L2', 'L3', 'L4', 'W'],
 	},
 	{ file: 'packages/game-config/src/potsOverlay.ts', rule: 'notAsset', names: ['gold', 'purple'] },
 	{ file: 'packages/game-config/src/potsOverlayPresets.ts', rule: 'notAsset', names: ['gold'] },

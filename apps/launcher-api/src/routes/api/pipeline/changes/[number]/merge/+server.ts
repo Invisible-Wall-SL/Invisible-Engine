@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { githubApp, GithubAppError } from '$lib/server/githubApp';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { requirePipelineMerge } from '$lib/server/pipelineAccess';
 import { parseChangeNumber } from '$lib/server/pipelineChanges';
 import { mergeChange, parseRequestId } from '$lib/server/pipelineMerge';
@@ -19,13 +20,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const number = parseChangeNumber(params.number);
 	const missing = githubApp.missing();
 	if (missing) return json({ error: missing }, { status: 503 });
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'The body must be JSON.');
-	}
-	const { headSha, requestId } = (body ?? {}) as { headSha?: unknown; requestId?: unknown };
+	const { headSha, requestId } =
+		objectOrNull(await readJson(request, 'The body must be JSON.')) ?? {};
 	if (typeof headSha !== 'string' || !/^[0-9a-f]{40}$/.test(headSha)) {
 		throw error(400, 'headSha must be the full SHA of the head the merge was confirmed on.');
 	}

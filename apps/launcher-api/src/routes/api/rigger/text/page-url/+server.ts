@@ -1,4 +1,5 @@
 import { error, json } from '@sveltejs/kit';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { riggerBundlePrefix } from '$lib/server/riggerBundle';
 import { RIG_TEXT_PAGE_RE } from '$lib/server/riggerText';
 import { presignPut } from '$lib/server/r2';
@@ -26,7 +27,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
 
 	const file = typeof body.file === 'string' ? body.file : '';

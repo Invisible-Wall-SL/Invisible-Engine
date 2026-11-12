@@ -9,7 +9,16 @@ import {
 import { readTransitionCue, transitionCueStatus } from 'engine-layout';
 import { isCustomElementFxKind } from 'constants-shared/elementFx';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
-import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
+import {
+	ADMIN_PANEL_CAPABILITY,
+	GAME_PUBLISH_CAPABILITY,
+	roleHasCapability,
+	roleHasTool,
+} from '$lib/roles';
+import { defaultPartnerAlias } from '$lib/partnerLaunch';
+import { ENV } from '$lib/server/env';
+import { listSealedVersions } from '$lib/server/partnerDelivery';
+import { partnerProfileIds } from '$lib/server/partnerRgs';
 import { mayTargetClient } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { modeRouteOptions } from '$lib/bonusImport';
@@ -26,6 +35,7 @@ import {
 	gameConfigPresetsFor,
 	gameConfigSeedFor,
 	holdAndWinCoinBoardSeed,
+	holdAndWinEnhancementsSeed,
 	holdAndWinTemplateSeed,
 	isGameOutcome,
 	isLinesPresetId,
@@ -82,6 +92,17 @@ async function scenesLastModified(clientKey: string, projectKey: string): Promis
 	}
 }
 
+/** The newest sealed delivery for an alias, or null — none, an alias that cannot have any, or an R2
+ *  error (which costs the ▶ Partner page button its enabled state, not the page). */
+async function latestDelivery(alias: string): Promise<string | null> {
+	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(alias)) return null;
+	try {
+		return (await listSealedVersions(alias)).at(-1) ?? null;
+	} catch {
+		return null;
+	}
+}
+
 /** Auth + role gate for the actions (the loader reuses the parent layout's `tools`). */
 async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>> {
 	if (!locals.user) throw redirect(303, '/login');
@@ -107,6 +128,7 @@ function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPreset
 		out[`holdAndWin:${jackpots}`] = cleanOverlayPresets(holdAndWinTemplateSeed(jackpots));
 	}
 	out['holdAndWin:coinBoard'] = cleanOverlayPresets(holdAndWinCoinBoardSeed());
+	out['holdAndWin:enhancements'] = cleanOverlayPresets(holdAndWinEnhancementsSeed());
 	for (const preset of LINES_PRESET_IDS) {
 		out[`lines:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('lines', preset));
 	}
@@ -183,6 +205,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		roleOverrides,
 		toolOverrides,
 	);
+
+	// Who may set a card's partner game: the Publish gate, as `/api/game-maker/partner` checks it.
+	const canSetPartner = roleHasCapability(
+		locals.user.role,
+		GAME_PUBLISH_CAPABILITY,
+		roleOverrides,
+		toolOverrides,
+	);
+	// Only the profile KEYS of `PARTNER_RGS` reach the page — never an entry (it holds credentials).
+	const partnerProfiles = partnerProfileIds(ENV.PARTNER_RGS);
 
 	// Kind id → display name, for the profile's "what kind of game is this" chip.
 	const kindNames = new Map(gameKinds.map((k) => [k.id, k.name]));
@@ -281,6 +313,13 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				})),
 				published: Boolean(game),
 				url: game?.url ?? null,
+				partner: p.partnerLaunch,
+				/** The alias `on=partner` looks deliveries up under when the card names none. */
+				partnerDefaultAlias: defaultPartnerAlias(game?.name ?? p.name),
+				/** The newest sealed delivery for that alias — read only for a project with a partner. */
+				partnerLatestDelivery: p.partnerLaunch
+					? await latestDelivery(p.partnerLaunch.alias ?? defaultPartnerAlias(game?.name ?? p.name))
+					: null,
 				// Publish-confirmation signal: when the project's scenes were last edited.
 				scenesUpdatedAt: await scenesLastModified(clientKey, p.key),
 				// Engine-staleness: true when a newer runtime shipped after this game's last
@@ -305,6 +344,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		createKinds: offeredGameKinds(gameKinds),
 		projects,
 		canPurgeCache,
+		canSetPartner,
+		partnerProfiles,
 		// A version shipped past the flow gate goes live again only for the owner role (see the
 		// rollback route), so the page hides that "Make live" from everyone else.
 		isOwner: role === OWNER_ROLE,
@@ -372,17 +413,24 @@ export const actions: Actions = {
 		if (rawGameType === 'holdAndWin' && rawJackpots !== '' && !holdAndWinJackpots) {
 			return fail(400, { action: 'create', error: 'Jackpots must be on or off.' });
 		}
-		// The base game (hold-and-win-coin-board): a lines game unless asked for the coin board only,
-		// whose template has its jackpots on.
+		// The base game (hold-and-win-coin-board): a lines game unless asked for the coin board only
+		// or the collector bonus with enhancements (hold-and-win-enhancements), whose templates have
+		// their jackpots on.
 		const holdAndWinBase = HOLD_AND_WIN_TEMPLATE_BASES.find((b) => b === rawBase);
 		if (rawGameType === 'holdAndWin' && rawBase !== '' && !holdAndWinBase) {
 			return fail(400, {
 				action: 'create',
-				error: 'Base game must be a lines game or the coin board.',
+				error: 'Base game must be a lines game, the coin board or collector + enhancements.',
 			});
 		}
 		if (holdAndWinBase === 'coinBoard' && holdAndWinJackpots === 'off') {
 			return fail(400, { action: 'create', error: 'The coin board template has its jackpots on.' });
+		}
+		if (holdAndWinBase === 'enhancements' && holdAndWinJackpots === 'off') {
+			return fail(400, {
+				action: 'create',
+				error: 'The collector + enhancements template has its jackpots on.',
+			});
 		}
 		const potsOverlayPreset = POTS_OVERLAY_PRESET_IDS.find((id) => id === rawOverlay);
 		if (rawOverlay !== '' && !potsOverlayPreset) {

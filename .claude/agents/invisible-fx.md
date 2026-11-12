@@ -78,7 +78,7 @@ owner-verify live) whenever you finish meaningful work.
   endpoints. Fork the `/rig-viewer` WebGL viewer shell (render/pan/zoom + play/pause) the way
   the Rigger (`static/rigger/view.html`) did — its delta is an inspector, yours is the
   emitter inspector + atlas region picker + layer list + bone picker.
-- **Trigger vocabulary:** `packages/engine-flow/src/emitterVocabulary.ts`
+- **Trigger vocabulary:** `packages/engine-flow-v2/src/emitterVocabulary.ts`
   (`EmitterVocabulary`) + per-game `apps/*/src/game/typesEmitterEvent.ts`.
 - **Engine register:** an `EffectPlayer` + `bakedEffects()` mirroring
   `bakedEditorArtAssets()` — mounts `<ParticleEmitter>` per layer, wraps in `<RigBone>`

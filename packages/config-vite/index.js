@@ -7,12 +7,14 @@ import { lingui } from '@lingui/vite-plugin';
 import { defineConfig } from 'vite';
 // The profile SHAPE check lives in its own dependency-free module so a fixture can drive it —
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
+import { artTierDefine } from './artTierPin.js';
 import { deliveryProfileProblems } from './deliveryProfile.js';
 import { sentryDebugIds } from './debugIds.js';
 import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
 import { lazyChunks } from './lazyChunks.js';
 import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
+import { stockAssetPrune } from './stockAssetPrune.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
 const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
@@ -252,6 +254,7 @@ export default () => {
 			lingui(),
 			lazyChunks(),
 			sentryDebugIds({ enabled: sourcemap() === 'hidden' }),
+			stockAssetPrune(),
 		],
 		logLevel: 'info',
 		define: {
@@ -259,6 +262,7 @@ export default () => {
 			...deliveryProfileDefine(),
 			...deliveryProfilesDefine(),
 			...familySet.define,
+			...artTierDefine(),
 		},
 		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).

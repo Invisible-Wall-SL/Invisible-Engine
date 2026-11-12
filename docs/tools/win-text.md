@@ -219,10 +219,14 @@ banner screen in the Invisible Editor: see [Banner screens](invisible-editor.md#
   - an upgrade special raising coins (`UPGRADE`);
   - an expanding board opening a row: the banner title (`ROW UNLOCKED`) and the line under
     it (`{rows} ROWS`);
+  - a collector bonus with enhancements: the enhancements it opens with
+    (`{enhancements} ACTIVE`), the super bonus (`SUPER BONUS`), and what a dial shows on a hit
+    (`+{amount}` for a boost, `×{count}` for a multiply);
   - the names: the specials that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
     PAYER, MYSTERY, ADD RESPINS, UPGRADE), the collector levels (DOUBLE, TRIPLE; an
-    unnamed level reads ×4) and one box per pot in the config (an unnamed pot reads its id
-    in capitals).
+    unnamed level reads ×4), one box per pot in the config (an unnamed pot reads its id
+    in capitals) and the enhancements (EXPAND, BOOST, MULTIPLY, RESPIN, SUPER BONUS), which the
+    dials and `{enhancements}` use.
 - **Wheel.** The segment labels (`COIN BOOST ×{count}`, `+{count} COLLECT`; a jackpot
   segment reads its tier's caption) and the banner a prize shows (`EVERY COIN ×{count}`,
   `{level} COLLECT`; a jackpot prize has no banner, its jackpot celebration follows).
@@ -235,7 +239,7 @@ listed in Localization for translation.
 
 Each line the game announces in the **Hold and Win feature**
 section (the total, intro, outro, instant collect, Lucky Spin, pot full, modifiers active, modifiers
-unlocked, upgrade and row unlocked) has a picker beside its box (on a pots overlay game, so does
+unlocked, upgrade, row unlocked, enhancements active and super bonus) has a picker beside its box (on a pots overlay game, so does
 **Pot full** in the Pots section):
 
 | Choice           | The line shows                                                                                                         |

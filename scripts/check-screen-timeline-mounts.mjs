@@ -572,7 +572,7 @@ const basegameIntro = ({ id = 'basegame_intro', extra = {}, gridVisible } = {}) 
  * so the game draws it split around the reels — the layers (`basegameLayers`) and the board
  * (`<BoardDrive>`), each handed the base game's drive. `before` is `main` before the fix: Game kept
  * `basegame` off stage and handed neither the drive. `drivesScreens: false` is a flow that shows
- * `basegame` without driving the screens, where a v1 interpreter may draw it: it keeps `before`'s
+ * `basegame` without driving the screens, where the boot screens may draw it: it keeps `before`'s
  * behaviour. `heldGrid()` is Game's `basegameHeldReelGrid`, the node the board is laid out from once
  * the timeline ends (undefined: the authored grid).
  */

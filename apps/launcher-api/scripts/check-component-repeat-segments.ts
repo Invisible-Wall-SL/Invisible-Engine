@@ -1263,7 +1263,8 @@ const PROBE_BAR: ComponentDef = {
 
 /**
  * The DOM Svelte's anchors need: a tree of nodes, nothing rendered. A `<template>` parses the only
- * markup a Pixi-only component compiles to — comment anchors and text — and refuses any element.
+ * markup a Pixi-only component compiles to — comment anchors, text and the hidden `<div>` a
+ * `Container` keeps its children's anchors in — and refuses any other element.
  */
 function installDom(): void {
 	class Node {
@@ -1358,11 +1359,16 @@ function installDom(): void {
 		content = new DocumentFragment();
 		set innerHTML(html: string) {
 			this.content = new DocumentFragment();
-			for (const [, comment, text] of html.matchAll(/<!--([\s\S]*?)-->|([^<]+)/g)) {
-				this.content.appendChild(comment !== undefined ? new Comment(comment) : new Text(text));
+			const open: Node[] = [this.content];
+			const tokens = /<!--([\s\S]*?)-->|<div hidden(?:="")?>|<\/div>|([^<]+)|</g;
+			for (const [token, comment, text] of html.matchAll(tokens)) {
+				const parent = open[open.length - 1];
+				if (comment !== undefined) parent.appendChild(new Comment(comment));
+				else if (text !== undefined) parent.appendChild(new Text(text));
+				else if (token === '</div>' && open.length > 1) open.pop();
+				else if (token.startsWith('<div')) open.push(parent.appendChild(new Element()));
+				else throw new Error(`the DOM stand-in parses no elements but a hidden <div>: ${html}`);
 			}
-			if (html.replace(/<!--[\s\S]*?-->/g, '').includes('<'))
-				throw new Error(`the DOM stand-in parses no elements: ${html}`);
 		}
 	}
 	Object.assign(globalThis, {

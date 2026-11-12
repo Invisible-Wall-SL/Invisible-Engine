@@ -56,7 +56,7 @@ titled **"Hold and win game pipeline"**.
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 | 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
-| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b, 14c, 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a: Fortune Vault Force Five recreation | 14d merged · 14a: #1559 |
+| 14 | Getting Hot (partner game 8): their math and server, our client ([plan](../design/hold-and-win-enhancements.md)): 14a facade reads the partner's collector-respin wire · 14b presentation (collectors-only board, enhancement dials, boost/multiply beats, expand at entry, super bonus) · 14c ante + buys in the HUD · 14d our mock speaks their wire · 14e the game: art, delivery, first launch as game 8 | **in progress** — 14d **built** 2026-11-09 (`mock-rgs-server-holdandwin-partner.mjs`, `check:holdandwin-partner`); 14a **built** 2026-11-09 (the facade reads the captured wire: `collectorRespin.ts`, gate `collectorRespin.fixture`); 14b **built** 2026-11-09 (the enhancement dials, hit / miss beams, Expand / Force 5 at entry, the trigger coins carried in; playbook `docs/playtest/getting-hot.md`); 14c **built** 2026-11-09 (ante switch, buy cards, refusals, ante filler strips: bet-mode `toggle` / `fillerSymbols` / `refusable`, gate `betModeHud.fixture`); Game Maker creates it (**Lines game: collector + enhancements**, 2026-11-10); 14e open | 14d: "Phase 14d — mock speaks partner wire" · 14a, 14c: Fortune Vault Force Five recreation · 14b: "Getting Hot 14b — presentation" | 14d merged · 14a: #1559 · 14b: #1569 (`a3d75304`) · 14c: #1572 |
 
 ## Current state
 
@@ -574,7 +574,9 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **Instant collect flies to the SPECIAL, not to the bar.** The bar belongs to the round's own
     `setWin` / `setTotalWin`, which follow and count the instant amount with the line wins; flying
     into the bar would count it twice. Each coin goes to its nearest special; the banner shows the
-    multiplier and `times` when above 1.
+    multiplier and `times` when above 1. Where EACH collector takes every coin's full value (the
+    event's `collectors`, sent only by the partner's collector game), each coin flies into every
+    collector and each collector's label counts up to the total the server gave it.
   - **The wheel follows the free-spin intro's slam rule but is not unskippable:** re-armed before it
     (`startsCelebration`), a press while it turns lands it at once on the very rotation the spin was
     easing onto, and the landed segment and the prize banner each hold at least 700 ms on a bare
@@ -1119,6 +1121,278 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-11 — **A collector + enhancements project shows its dials from the first spin**, as the
+  partner's game does: the four dials stand unlit above the reels in the base game, light when a
+  bonus draws them and go back to unlit when it ends. New projects only; every other template, the
+  coin board and every stored project are byte-identical (the flag-off seed equals the plain one,
+  `check:add-bonus-mode`).
+  - **Layout** (`holdAndWinReferenceLayout(…, {enhancements: true})`): the `enhancements` screen is
+    a base screen, no longer a `holdAndWin` mode screen (a mode screen never mounts outside its
+    mode, whatever a flow shows). Each dial's `visibleSource` is `assetsLoaded` (the default
+    `enhancementsShow` is true only in a bonus that drew enhancements; `''` would be ungated too,
+    but the Scene Editor cannot set or show it). The Collectors total carries a `visible` value
+    binding on `cellsTotal`, so it shows only while the respin board is up. Position unchanged:
+    the row sits between the jackpot bar and the reels in the base game too.
+  - **Flow** (`freshDrivenSeedDoc('holdAndWin', {enhancements: true})`): `enhancements` is shown at
+    game start with the base screens and no chain hides it; the `holdAndWin` section is the plain
+    template's.
+  - **The owner's `getting-hot`** (created 2026-11-10) keeps the dials to the bonus until its author
+    makes four edits (not done for them): Scene Editor → Enhancements screen → **role** _— none —_;
+    each of the four dials → **visibleSource** `assetsLoaded`; Collectors total → value binding
+    **visible**, source `cellsTotal`; Flow → add **Show container → enhancements** after the game
+    start's base shows, and delete `hw_hide_41` (the feature exit's **Hide container →
+    enhancements**; `hw_show_25` / `hw_show_34` may stay, a show of a shown screen is a no-op). No
+    tool re-seeds a stored starter flow. Documented in `docs/tools/invisible-editor.md` and
+    `docs/tools/flow.md`.
+  - **Played** (local: the scaffold as the runtime stub, the 14d partner-wire mock seed 7,
+    `apps/lines` on `PUBLIC_RGS_TRANSPORT=play4fun`, headless Chrome on a real clock): base game
+    shows the four unlit dials and no collectors total; `enhancements:01010,boostHit,multiplyHit`
+    lights Boost and Multiply under "BOOST · MULTIPLY ACTIVE", each hit shows "+$…" / "×N" on its
+    dial with a beam to the coin, the total climbs; after the bonus the dials are unlit again.
+- 2026-11-11 — **The test server deals the partner's collector game on the partner's wire by
+  itself.** A project whose Game Config carries `holdAndWin.enhancements` (Game Maker's **Lines
+  game: collector + enhancements**; Getting Hot) is dealt by
+  `scripts/mock-rgs-server-holdandwin-partner.mjs` — `COIN_<n>`, `COLLECT_<cents>`, `boostsAwarded`,
+  boost / multiply hits — instead of our own Hold and Win mock, which never draws an enhancement (so
+  the dials never lit and no beam flew). The marker already rode in the contract's
+  `holdAndWin.block` (`joinHoldAndWin` keeps it); `makeMock` now selects on it, and the
+  `PARTNER_WIRE_GAMES` env var is gone. Forcing stays an authoring tool (`/force` on the authoring
+  twin, refused with 101 to players).
+  - **When it reaches a game:** the authoring twin (`/api/<key>/authoring/…`, `source=live`) within
+    the 10 s contract TTL of the saved config carrying the marker; the players' mock
+    (`source=published`) only from a Publish whose snapshot carries it.
+  - **Gate:** `check:deal-parity` §3 — the enhancements template's contract carries the marker and
+    its twin deals the partner's config, `COIN_<n>` cells and `boostsAwarded` on a forced trigger;
+    its players' mock is the partner's and refuses the force; the same doc without the marker keeps
+    our mock. §1's pinned digests (every preset, template and overlay shape) are unchanged.
+    Mutant (selection off) fails §3 twice.
+  - **The partner mock takes `jackpot:<TIER>`** (MINI…GRAND): a jackpot coin of that tier in the
+    forced trigger run. The current-games harness's Hold and Win `jackpot` scenario forces
+    `trigger,jackpot:<top tier>`, which the partner mock refused (HTTP 400) once `getting-hot` was
+    dealt by it — the harness renders the PUBLISHED snapshot, so this also proved that snapshot
+    already carries the marker. Gate: `check:holdandwin-partner` (the GRAND coin lands; an unknown
+    tier and `baseCollect,jackpot:…` are refused).
+- 2026-11-11 — **The jackpot tiles show what a tier pays while the ante is on.** The
+  `jackpot.<tier>` value sources (`Game.svelte`) priced each tier at `betCost()`, which includes an
+  ante's cost multiplier, so with Getting Hot's 5× ante a MINI tile read $125 at a $1 bet. Every
+  jackpot WIN prints as book units × the bet (`bookEventAmountToCurrencyString` →
+  `wageredBetAmount`), and the partner pays tiers on the base bet, so the tiles now use
+  `stateBet.betAmount`: MINI reads $25 with the ante on or off. Only an `activate` (ante) mode had a
+  cost multiplier in `betCost()`, so a game with no ante shows exactly what it did.
+- 2026-11-10 — **Game Maker creates the collector bonus with enhancements** (Getting Hot, game 8;
+  the §3.5 "Collector + enhancements" preset). Every path is opt-in: the other templates, presets
+  and their committed defaults are byte-identical (only the new default file appears).
+  - **Game Maker → Create → Hold and Win → Base game: Lines game: collector + enhancements**
+    (`holdAndWinBase: 'enhancements'`, jackpots always on). Seeds `holdAndWin.enhancements.json`
+    (source `HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE` in `holdAndWinPresets.ts`), also on `/config` →
+    **Reset to preset → Collector + enhancements**: 5×3, the five partner lines and the partner's
+    captured line paytable (`H1`–`H5`, `L1`–`L3`, `L5` = PIC1–PIC9); `COIN` (coin + jackpot) on
+    reels 1, 2, 4, 5, `COLLECT` on reel 3 with instant collect; a reel 2–4 pattern trigger and the
+    `goldstrike` buy route; `collectorsOnly`; MINI–GRAND 25/50/150/1000×; bet modes `powerup` (5×,
+    ante, HUD switch, refusable, filler COIN/COLLECT/BLANK, title HEAT UP), `buycentercoin` (50×,
+    refusable, same filler, COLLECTOR SPIN) and `goldstrike` (100×, refusable, BUY BONUS). Every
+    number but the line pays is pacing.
+  - **The marker:** a sparse `holdAndWin.enhancements: true` (presentation only, like
+    `randomMetre`), on `/config` → Respins as **The server draws enhancements**. `sceneSetOptionsFor`
+    turns it into the reference layout's `enhancements` option (scaffold, add-on re-seed and the
+    Scene Editor's **Add missing screens** / banner popups), and `respinModesOf` reserves
+    `ENHANCEMENTS_MAX_ROWS` (5) rows for it, so an EXISTING Hold and Win project gets the screens
+    by ticking the box.
+  - **Layout:** the `enhancements` option now also puts an **ANTE** button (action `ante`, shown on
+    `anteFeature`, `anteSwitchNode()` in `referenceLayouts/hud.ts`) in the HUD bar. The two banner
+    screens are not seeded (the platform rule: the built-in banner plays until a popup adds one).
+  - **Flow:** `freshDrivenSeedDoc('holdAndWin', {enhancements: true})` shows and hides the
+    `enhancements` screen on the feature's enter / exit. Without it the authored dials never mount
+    under Flow v2 and the coded row stands in — found by booting the scaffold, invisible to the
+    layout gates. An older project that adds the screen adds the two Flow steps itself.
+  - **Symbols:** a Hold and Win symbol with no placeholder of its own borrows its role's
+    (`COIN` → `BONUS`), so the coin draws from the first spin.
+  - **Played** (local: the scaffold's own docs as the runtime stub, the 14d partner-wire mock seed
+    7, `apps/lines` on `PUBLIC_RGS_TRANSPORT=play4fun`, real clock): boots with no paytable
+    cross-check warning; the forced super bonus (`enhancements:11111,superBonus`) plays on the
+    authored dials (mounted the whole feature, not in the base game), counter from 5, the
+    collectors' total live; ANTE arms the ante (stake $1 → $5). Gates: `check:add-bonus-mode`
+    (create, screens, flow, the existing-project path, our mock deals it),
+    `test-hold-and-win-template.mjs`, `betModeHud.fixture`, `expandingSymbol.fixture`.
+  - **Open:** ~~the jackpot bar multiplies by the ANTE stake~~ fixed 2026-11-11 (Recent changes).
+    ~~A partner-wire boot on the Invisible Test Server needs the project's key in
+    `PARTNER_WIRE_GAMES`~~ automatic since 2026-11-11 (Recent changes).
+- 2026-11-10 — **Getting Hot: every collector visibly takes every coin, and a hit shows on the
+  coin.** Both changes reach only the partner's collector game: nothing else sends the new field or
+  the new event.
+  - **Base collect into every collector.** `coinInstantCollect` gains optional `collectors`
+    (engine-game): each collector in view, its total after the collect and what it gathered. Only
+    the partner facade sends it (`collectorRespin.ts`, totals read off `collectWindow`'s
+    `COLLECT_<cents>`). With it, `presentInstantCollect` flies each coin into EVERY collector at
+    once, one head per collector, and each collector's base-board label climbs by the coin's full
+    value to the server's total (`baseCellLabels.svelte.ts`, read by `ReelSymbol`; it holds until
+    the next spin deals new symbols). Without it, coins still fly to their nearest special.
+  - **Respin collect:** already one `coinCollect` per collector; played, each coin flies into the
+    first collector, then into the second, and each label ends on its own total.
+  - **The hit on the coin.** After an enhancement's beam lands, the coin's label prints what hit it
+    ("×3" / "+$5.00", the Win Text `multiplyHit` / `boostHit`) in the label's own look, then counts
+    to the new value. New `HeldDisplay` field `text`, `Symbol`'s `labelText` prop.
+  - **Authorable** in the Symbols tool's coin label → Animation: **Pop as an enhancement hit shows**
+    (`coinLabel.animation.hitPop`, ON unless switched off) and **Hit readout hold**
+    (`hitMs`, coded 500 ms, 0 = none). Schema, prune, bake and `check:coin-label` updated.
+  - **Mock:** `force:baseCollect,twoCollectors` deals a base collect into two collectors
+    (`check:holdandwin-partner` covers it); the facade fixture pins `collectors`.
+  - **Played** frame-stepped against the partner mock (playbook `getting-hot.md`, "Played
+    2026-11-10"): base two collectors $4.00 each, banner "×2 $8.00"; bonus with two collectors
+    $58.00 each = the paid $116.00; Multiply "×2" then $2.00 → $4.00; Boost "+$4.00" then
+    $1.00 → $5.00. Money adds up on every round.
+- 2026-11-10 — **Jackpot coins can have their own art per tier** (asked for Getting Hot, works on
+  every Hold and Win game). Off by default; a project that leaves it off ships and draws exactly as
+  before.
+  - **Authoring:** `/symbols` → **Jackpot coins** → **Jackpot coins have their own art**
+    (`jackpotCoinArt: { enabled: true }`, sparse). On, each `coin` / `jackpot` row of the Hold and
+    Win group gets one row per tier the respin modes declare (fallback MINI / MINOR / MAJOR /
+    GRAND), drawn by the grid's own `gridRow` with the coin's columns. Guide:
+    [symbols-state-machine.md § Jackpot coins](../tools/symbols-state-machine.md#jackpot-coins).
+  - **Doc shape:** a tier row is an ordinary `symbols` entry keyed `<coin>:<TIER>` (`BONUS:MINI`,
+    the wire's text for a jackpot cell; `engine-layout/jackpotCoinArt.ts`). So it needs no new
+    schema and rides the existing export → bake → pull → register chain (rule 8). With the switch
+    off the export drops every tier row and its art (`shipJackpotArtOnlyWhenOn`). The rows stay in
+    the doc, so turning the switch back on restores them. An old launcher strips the unknown
+    top-level key and keeps the doc.
+  - **Runtime:** one seam, `engine-game`'s resolver (`createSymbolInfo({ tierArtKey })` →
+    `symbolArtName`). A coin with `jackpot` draws its tier's row when the switch is on and the row
+    resolves usable art for the state (inheriting inside the row), else the coin. `Symbol.svelte`
+    resolves with the tier the LABEL shows, so an upgrade swaps the art when its beam lands. Every
+    coin draw goes through it: reels, `RespinHeldSymbol`, the win cycle, and flight heads. Element
+    FX and sounds stay the coin's.
+  - **Gate:** `check:jackpot-coin-art` (39 checks). It covers the key, the doc, the client
+    signature, the export filter and refs, both bundle paths, and the real resolver: switch off (or
+    nothing bound) resolves every draw to the same object as a tier-unaware resolver. Two planted
+    mutants (always the tier key, the export never filtering) turned it red.
+  - **Played locally** (`apps/lines` on Vite, our HW mock `PRESET=pots-extra`, and a runtime stub
+    whose map binds `BONUS` / `JACKPOT` to `l1` and MINI / MINOR / GRAND to `h1` / `h2` / `h4`,
+    with MAJOR left unbound). Forced `jackpot:MINI,…,jackpot:GRAND`. With the switch on, each tier
+    drew its own art on the respin board and MAJOR drew the coin's. With it off, every jackpot coin
+    drew the coin's art. Forced `special:upgrade:jackpotTier`: the coin showed MINI art and label
+    until the upgrade's beam landed, then MINOR art and label in the same frame. Not played against
+    the partner-wire mock: the tier art sits behind the facade's `COIN` + `jackpot` mapping, which
+    is the same shape our mock deals.
+  - **Owed:** the owner binds real tier art on the Getting Hot project and checks it after publish.
+- 2026-11-10 — **14c follow-up: a buy hands the ante back** (Getting Hot, game 8). A buy is still
+  one-shot, but when its round ends (the feature it bought and the client's `collect` included) the
+  stake returns to what it replaced: the HUD's ante switch if it was on, else BASE. Only a `toggle`
+  ante comes back, so a game without one (every game before 14c, the Book of Thermopylae buy, an ante
+  armed from the buy menu) still returns to BASE.
+  - **How:** the buy confirm (`BuyBonusConfirm` and the flow's `commitBuyBonus`) arms the mode with
+    `stateBetDerived.armBetMode`, which notes `stateBet.stakeBeforeBuy`. Every place that used to
+    drop a buy to BASE calls `endBuy()` instead: round end (`checkSpaceHold`), a spin press over a
+    leftover buy (`spinStop`), autoplay arming (`armAutoSpins`) and a refused buy (`betRefusal`).
+    The HUD switch reads `isAnteArmed()`, so it stays lit through the bought round; the stake
+    readout and the filler strips follow the active mode, as before.
+  - **Edges:** the ante refused by the operator, during the buy or before it → BASE. The buy itself
+    refused → the ante stays on and the next bet goes out under it. A page reload mid-feature
+    resumes the buy with no memory of the ante → BASE, as any reload starts at BASE. Space hold:
+    the round after the buy is bet under the ante.
+  - **Gate:** `packages/utils-xstate/buyRestoresStake.fixture.mjs` (12 checks through the real
+    `bet` machine, the real refusal handler and `armAutoSpins`; discovered by `check:all`). A
+    planted `= 'BASE'` reset fails it.
+  - **Played against the 14d mock** (local rig of the playbook): ante on → Bonus Buy `bet [3, 10]`
+    → the whole feature → `collect` → the switch lit, Bet $5.00, the next spin `bet [1, 10]`. Ante
+    off → Center Coin `[2, 10]` → next `[0, 10]`. `DISABLED_OPTIONS=3` → the buy refused, the board
+    kept, the switch lit, next `[1, 10]`. The Book of Thermopylae preset on the book mock: buy
+    `[1, 10]` → free spins → next `[0, 10]`, unchanged.
+- 2026-11-09 — **14c: the ante and the buys in the HUD** (Getting Hot, game 8). All of it is opt-in
+  per bet mode; a game that sets neither new field keeps its HUD, menu and reels exactly as before.
+  - **Reused, not rebuilt:** the menu is still the server-authoritative one (`betModeMeta.ts`: the
+    partner's `betOptionNames` give the list and prices, the authored presentation gives the look,
+    matched by name, then by cost); the buy cards are the `featureCards` repeater with their live
+    price; the confirm step is `BuyBonusConfirm`; the stake readout follows `betCost()`; the facade
+    already sends the option index.
+  - **Ante switch:** Game Config → Bet modes → an `ante` mode's **HUD switch** box
+    (`betModePresentation.<mode>.toggle`). That ante leaves the buy menu and is armed by a HUD
+    button with the new action **`ante`** ("ante on/off"), shown by the new visibility key
+    **`anteFeature`**. It stays on across rounds, disables while a round plays, and the stake
+    readout shows 5×. The buy-bonus button no longer treats a switch ante as its "disable" state.
+    `WAGER_INTENTS` gains `ante`, so a free-play game never offers it.
+  - **Filler strips:** **Filler symbols** on any non-base mode (`fillerSymbols`): while that mode
+    is the stake the reels ROLL the base strips filtered to those symbols (`fillerStrips` in
+    game-config, `spinPaddingReels` in `apps/lines`). The authored base strips are used when they
+    fit the board, so each reel keeps its own (collectors on reel 3 only), even where the server is
+    authoritative. The dealt board is still the server's. The Center Coin buy uses the same field.
+  - **Refusals:** opt-in per mode with **Operator can switch off** (`refusable`). A bet the server
+    refuses with `ERR_110` while the stake is such a mode goes to a new `onBetRefused` hook in
+    `createPrimaryMachines`, before `onNewGameError` and the error modal (the failure is still
+    reported). The game drops that option for the session (`refuseBetMode`, so its card or switch
+    goes), returns to BASE, ends the pre-spin roll (new `enhancedBoard.cancelPreSpin()`: the loop
+    finishes its lap at home), puts back the board that was on screen when the round began, and
+    shows the toast "This
+    option is not available right now." (`UI_TEXT.betOptionUnavailable`, harvested by
+    `/localization`). Nothing is charged and the next round's `seq` is unaffected. A mode not
+    marked `refusable`, and a refused BASE bet, still reach the error modal: errorCode 110 is also
+    the partner's "malformed bet", so every existing game keeps reporting it as an error.
+  - **Played against the 14d mock** (local rig: `apps/lines` on `PUBLIC_RGS_TRANSPORT=play4fun`, a
+    runtime stub serving a 5×3 COIN/COLLECT/BLANK config): ante on → stake $5.00, `bet [1, 10]`, $5
+    debited; Center Coin `[2, 10]`, −$50; the bonus buy `[3, 10]`, −$100; under the ante the reels
+    roll COIN/BLANK on reels 1, 2, 4, 5 and COLLECT/BLANK on reel 3; `DISABLED_OPTIONS=1,2,3` → the
+    toast, the option gone, the board kept, the balance untouched, and the next BASE round clean.
+    The Book of Thermopylae preset (book mock) and the plain lines game (lines mock) boot and spin
+    with their menus unchanged and identical roll strips.
+  - **For 14e:** the Getting Hot config needs bet modes keyed `powerup` (cost 5, kind `ante`,
+    `toggle`, `refusable`, `fillerSymbols` [COIN, COLLECT, BLANK]), `buycentercoin` (50, `buy`,
+    `refusable`, the same filler) and `goldstrike` (100, `buy`, `refusable`); our names go in each mode's **Title**, never the
+    partner's. Its HUD needs a button with action `ante` and visibility `anteFeature`, and an
+    `infoBar` message host (the Hold and Win reference layout has one) for the refusal toast.
+  - Open: the first press after a page load is swallowed (pre-existing, every button); on a coin board a
+    refusal puts back only the reel board, not the respin board (Getting Hot is not a coin board).
+- 2026-11-09 — **14b: the presentation of the partner's collector bonus** (Getting Hot, game 8).
+  Everything new is keyed off the new events and the feature's `enhancements`, so a game whose
+  features draw none looks exactly as before.
+  - **Beats** (`holdAndWinPresentation.ts`, coded handler and flow action alike):
+    - `enhancementHit` (`hitEnhancement`): the dial lights `hit` with what it adds ("+$1.00",
+      "×4", Win Text `boostHit` / `multiplyHit`). A beam (`enhancementBeam`) flies from the dial
+      to each landing coin, which plays the new **Coin enhance** state while its label counts
+      from → to.
+    - `enhancementMiss` (`missEnhancement`): the dial shows a red X for 600 ms.
+  - **Entry** (inside `showRespinBoard`, when the trigger carries `enhancements`), in order:
+    - "SUPER BONUS" for Force 5;
+    - each drawn dial lights in turn (`enhancementOn`);
+    - "BOOST · MULTIPLY ACTIVE" (Win Text `enhancementsActive`);
+    - an Expand or Force 5 opens its rows with the row-unlock fade ("ROW UNLOCKED · 4 ROWS");
+      the board shows the base rows until then.
+  - **Collectors-only board:** the trigger spin's coins stay on their seats in the held layer
+    (`stateRespinBoard.carried`) until the entry collect flies them into the collectors and
+    `cellsCleared` takes them off. A jackpot coin a collect gathers lights with the coin-jackpot
+    banner in an enhanced feature.
+  - **Bug fixed:** a bonus with no Expand spun 5 rows on the 5-row board. A feature without
+    `rows` now opens at the grid's rows (`enteringRows`), as the wire contract always said. An
+    enhanced feature draws no locked row it can never open (`drawnRows`). Our own mock always
+    sends `rows` on an expanding config, so no current game changes.
+  - **Dials:**
+    - coded row: `EnhancementDials` above the board, drawn only in an enhanced feature;
+    - the skinnable `enhancementDial` component (param `kind`; coded part `EnhancementDialPart`;
+      scoped by `enhancement`), which steps the coded row aside once placed;
+    - value `enhancement.<kind>.state` (0 off, 1 on, 2 hit, 3 miss), visibility
+      `enhancementsShow`;
+    - signals **Enhancement — on / hit / miss** and **Super bonus — enter**.
+  - **Authoring surface:**
+    - Flow: actions `hitEnhancement`, `missEnhancement` (not in the starter flow: unwired, the
+      coded handlers present them, so every project's seed stays as it was);
+      cues `enhancementOn`, `respinEnhancementHit`, `respinEnhancementMiss`, `superBonusEnter`;
+      value `enhancements`.
+    - Symbols: state **Coin enhance** (cash coins; empty ⇒ Win) and flight **Enhancement beam**.
+    - Win Text: `enhancementsActive`, `superBonus` (both placeable), `boostHit`, `multiplyHit` and
+      the `enhancementNames` map (EXPAND, BOOST, MULTIPLY, RESPIN, SUPER BONUS).
+    - Sources: `collectorsTotal` (the collectors' running total) and `enhancementsActive`.
+    - Reference layout option `enhancements: true`: an **Enhancements** screen (four dials above
+      the board, a collectors-total text box) plus the **Enhancements banner** and **Super bonus
+      banner** screens. Opt-in, because no Game Config field marks this game yet.
+  - **Played** against 14d's mock, frame-stepped in the headless shell, seed 7: base collect,
+    Boost + Multiply hits, misses, Expand, Force 5, two collectors, Respin and a MAJOR coin.
+    Playbook: `docs/playtest/getting-hot.md`.
+  - **Open:**
+    - Pacing: each collector's collect is its own beat, so Force 5 with five collectors takes
+      about 5.5 s a respin.
+    - ~~A base collect with two collectors flies each coin to the nearest one~~ — fixed
+      2026-11-10: each coin flies into every collector (Recent changes).
+    - ~~Game Maker does not yet offer the Enhancements screen (no config marker).~~ Done
+      2026-11-10: Game Maker's **Lines game: collector + enhancements** (Recent changes).
+    - No art: 14e.
 - 2026-11-09 — **14a: the facade reads the partner's collector respin wire** (Getting Hot, game 8).
   - `rgs-translator-eagaming/src/collectorRespin.ts` recognises the game from its boot `config`
     (it deals `COIN` and `COLLECT` and sends none of our blocks) and renames each round's events
@@ -1152,7 +1426,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   Fortune Vault Force 5 (Getting Hot), in the order and shapes of the
   [capture](../reference/play4fun-collector-respin-capture.md).
   - **Select it** per game on the test server: `PARTNER_WIRE_GAMES=<key>[,<key>…]`
-    (`services/test-server/makeMock.mjs`). Standalone:
+    (`services/test-server/makeMock.mjs`; replaced 2026-11-11 by the Game Config marker). Standalone:
     `node scripts/mock-rgs-server-holdandwin-partner.mjs` (port 7798; `SEED`, `FORCE`,
     `DISABLED_OPTIONS=1,2,3` refuses the ante and buys as an operator can).
   - **Wire:** `betOptions` [10, 50, 500, 1000] (Base / Powerup / BuyCenterCoin / goldStrike),
@@ -2490,8 +2764,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `clearReel` and go. Cues `respinColumnComplete`, `respinColumnStep`.
   - **Instant collect** (`instantCollect`, `coinInstantCollect`, base game): specials and coins
     light on the base board (padded row = visible + 1), each coin flies into its nearest special
-    (`toCollector`), then "INSTANT WIN ×3 $12.00"; the round's own win presentation follows. Cue
-    `instantCollectWin`.
+    (`toCollector`) — or, with `collectors` on the event, into every collector, whose base-board
+    labels count up (`baseCellLabels.svelte.ts`) — then "INSTANT WIN ×3 $12.00"; the round's own
+    win presentation follows. Cue `instantCollectWin`.
   - **Streak collect by flight:** `presentCollectStep` flies each coin into its collector
     (`flyTo(cell, collector, 'toCollector')`); the collector's label rises on each arrival.
   - **Jackpot factor step:** a jackpot coin a boost multiplies steps `MINI` → `MINI ×2` on its turn

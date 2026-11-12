@@ -257,6 +257,8 @@ assert.deepEqual(await status('dp_ffffffffffffffff'), {
 		(await call('POST', '/cancel', { jobRef: 'dp_0000000000000003' })).body.status,
 		'failed',
 	);
+	// `running` is set before the stand-in play reaches its hold, so wait for the hold itself.
+	await until(() => typeof release === 'function');
 	release();
 	await until(async () => (await status('dp_0000000000000004')).status === 'finished');
 	await player.idle();

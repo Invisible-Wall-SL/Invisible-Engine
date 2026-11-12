@@ -2,9 +2,9 @@
 
 > Guides: [docs/tools/pipeline-bugs.md](../tools/pipeline-bugs.md) · [docs/tools/game-bugs.md](../tools/game-bugs.md) · Agents: `.claude/agents/launcher-studio.md` (the tools), `.claude/agents/pipeline-triage.md` (fixing a pipeline bug)
 
-**One-line state:** built 2026-10-26; the pipeline side's main path clicked through on the live
-launcher on 2026-11-09 (ADR-0013 13D), the game side not yet — two launcher cards on one set of
-modules: **Invisible Pipeline Bug Reports** (`/bugs`) for bugs in a tool, the engine or the
+**One-line state:** built 2026-10-26; clicked through on the live launcher, the pipeline side's
+main path on 2026-11-09 (ADR-0013 13D) and the rest, as admin and as a non-admin, on 2026-11-10 —
+two launcher cards on one set of modules: **Invisible Pipeline Bug Reports** (`/bugs`) for bugs in a tool, the engine or the
 launcher, sent to Pipeline Changes to be fixed; **Invisible Game Bug Reports** (`/game-bugs`) for
 one project's own game bugs, fixed in that project.
 
@@ -132,7 +132,9 @@ server module, routes, page components, triage, screenshots, the pull-request li
   - **The result.** The launcher records spend first (`director_spend`, agent `bug-fix`, run
     `fix:<id>`, idempotent per model), then claims the result and checks the change
     (`bugFixRunsChange.ts`):
-    - protected paths by ancestry against the base tree, and modes;
+    - protected paths by ancestry against the base tree, and modes. The launcher's own share is
+      what judges, writes or merges the change: its fix-run code, Pipeline Changes' server and
+      API, and the modules they import for a rule;
     - dependencies, lifecycle scripts and ratchets;
     - size and text only;
     - secrets on the added lines;
@@ -168,12 +170,13 @@ server module, routes, page components, triage, screenshots, the pull-request li
 
 ## Open items / next
 
-1. **The rest of the browser pass** on the live launcher. Clicked on 2026-11-09 (13D, pipeline
-   side, as admin): the report form opened from the address (`for`, `page`), priority, Won't fix,
-   Send to Pipeline Changes, editing the text, the Bugs tab, and the whole fix-run path (see Recent
-   changes). Still owed: pasted / dropped screenshots and the lightbox, filters and the address
-   round trip, comments, Take back, the game page across a project switch in the top bar, every
-   game-bug surface, and any of it as a non-admin.
+1. **The browser pass is done**, on the live launcher on 2026-11-09 and 2026-11-10, as admin and
+   as a non-admin (see Recent changes). What it left:
+   - the defects it filed, each Open in `/bugs`: **BUG-15** (both pages describe pull-request
+     linking wrongly), **BUG-16** (a draft repair run is not linked from its game bug) and
+     **BUG-17** (`pipeline-changes.md`'s branch example);
+   - not clicked: **File it** on a run's proposed second bug, and the fix-run line on an escalated
+     game bug's Repair card. Both need a real fix run, about $2 each.
 2. **Move a game bug to the pipeline list** — back end done (ADR-0012 §3, Director card 9G):
    `POST /api/bugs/<n>/escalate` (game triage + the Pipeline Bug Reports tool) and a repair run's
    `bugs.escalate_game_bug` file one pipeline bug, relate the two (`bug_report_relations`) and show
@@ -187,11 +190,28 @@ server module, routes, page components, triage, screenshots, the pull-request li
      so the owner merges it). Not yet proved by a live run: each costs about $2, so that is the
      owner's call. `check:bug-fix-workflow` fails when the prompt or the Edit deny list drifts from
      `bugFixRunsChange.ts`'s own lists, or when the launcher gains a refusal sentence.
-   - **Launcher code a run may still change** (a launcher change, not a prompt one): the
-     `bugfixruns[^/]*\.ts` rule does not cover `src/lib/server/bugFixWorkflow.ts`, nor
-     `pipelineMerge.ts` (`CI_SKIP`) and `$lib/bugReports.ts`, which `bugFixRunsChange.ts` imports.
-     A change there only takes effect once a person merges it, so it costs review attention rather
-     than opening a bypass.
+   - **Launcher code a run may still change, on purpose** (2026-11-10, see Recent changes): the
+     shared modules the fix-run path only uses — `env.ts`, `db/`, `$lib/roles.ts`,
+     `appSettings.ts` (the fix-run budget defaults), `costs/` (the spend), `http.ts`, `zip.ts`,
+     the bug store and `server/bugReports.ts` — and the `(app)/pipeline/` pages. Protecting them
+     would refuse most launcher fixes; a change there takes effect only once a person merges it.
+     Widening the set is the owner's call. Four fix-run rules a one-line edit there would weaken
+     (the 2026-11-10 review):
+     - `canRunFixes` in `server/bugReports.ts` needs both capabilities;
+     - `fixGlobals` in the same file holds the monthly cap and the live-run limit;
+     - `appSettings.ts` holds the budget defaults and ceilings;
+     - `roles.ts` says who has `pipelineMerge` and `pipelineBugFix`.
+
+     A cheap middle path: move `canRunFixes`, `fixStartFacts`, `fixGlobals` and the fix-run
+     settings getters into a `server/bugFix*.ts` module. The widened rule then covers them, and the
+     bug store stays open.
+
+     The review left two smaller gaps:
+     - Routes are protected by folder, not URL. A route group (`api/(g)/pipeline/…`) or a renamed
+       parameter (`bugs/[n]/fix-runs/`) serves the same URL. The merge capability check also sits
+       in the routes, not in `mergeChange` or `revertMerge`.
+     - A Windows 8.3 short name (`PIPELI~1.TS`) passes the path rules. It matters only on an NTFS
+       checkout; Railway is Linux.
    - **A fix inside a vendored bundle still cannot pass CI on its own**: `check-vendored-bundles`
      fails until a person rebuilds the bundle (#1536). The run is now told not to commit one, and
      to ask in its summary for `pnpm --filter launcher-api build:<name>`. `rigger-fx.js` (650 KB)
@@ -206,6 +226,162 @@ server module, routes, page components, triage, screenshots, the pull-request li
    live runs have now exercised that SQL, but a two-connection proof is still owed.
 
 ## Recent changes
+
+- 2026-11-11 — **The CLI proof's Edit control moved off a file the deny list now refuses.**
+  `prove-cli.mjs`'s positive control (a source file a fix run may edit) was
+  `src/lib/bugReports.ts`, which the 2026-11-10 change below added to the Edit deny list, so
+  "positive: Edit may change a source file in the workspace" failed on every proof run since.
+  It now edits `src/lib/server/bugReports.ts`, which no rule refuses (the open item keeps it open
+  on purpose). If that file is ever protected, move the control again.
+
+- 2026-11-10 — **A fix run can no longer change the code that judges, writes or merges it**
+  (open item 4's protected-path gap; `bugFixRunsChange.ts`, launcher-studio). The launcher's rule
+  covered only `src/lib/server/bugFixRuns*.ts`.
+  - **How the set was chosen:** the imports of what validates the change (`bugFixRunsChange.ts`),
+    what commits it (`bugFixRuns.ts`) and what merges it (`pipelineMerge.ts` and its route), walked
+    to the end. The walk stops at shared infrastructure (open item 4 lists what stays open).
+  - **Now refused**, 32 more tracked files (338 in all):
+    - `src/lib/server/bugFix*.ts`, widened from `bugFixRuns*.ts`: adds `bugFixWorkflow.ts`;
+    - `src/lib/server/pipeline*.ts`, Pipeline Changes' server: the merge gate (`deriveStatus`,
+      `harnessFilesOf`), `CI_SKIP`, merge and revert, the current-games game list, and the agent
+      definitions it writes as the App;
+    - all of `src/routes/api/pipeline/`, not only `fix-runs/`;
+    - `$lib/bugReports.ts`: the bug-reference rule on the title, and `bugBrief`'s framing;
+    - `concurrency.ts`: it reads the base copies the `package.json`, ratchet and added-line rules
+      compare against. 18 launcher modules use it, so a bug inside it is now a person's fix;
+    - `githubApp.ts`: the App's credentials, used for every commit, PR, merge and revert;
+    - from the code review:
+      - `vite.config.js` and `svelte.config.js`: an alias can repoint any protected import;
+      - `db/migrate.ts`: it picks the migrations folder and runs it at boot, which is why
+        `drizzle/` is protected. The rest of `db/` stays open;
+      - `check-pipeline-changes.ts` and `check-pipeline-games.ts`: Pipeline Changes' own
+        fixtures, as the fix-run and bug fixtures already were;
+    - **a source file beside a protected `.ts`**, or a file of the same name with no extension:
+      - The extensions refused are `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`, `.jsx` and `.tsx`, in
+        any case.
+      - For an extensionless import, Vite 6.2 loads the exact name, then `.mjs`, then `.js`,
+        before the `.ts`. Measured with the pinned Vite: the other siblings lose, and are refused
+        alike.
+      - So a new `concurrency.js`, or an extensionless `githubApp`, would have shipped in place of
+        the protected file while the fixtures kept testing the `.ts`. This held for every `.ts`
+        entry, `untrusted.ts` included.
+      - `protectedEntry` now tests the path, then its `.ts` spelling.
+  - **Kept in step:** `coordinator.md` names each, and `settings.json` denies each to the Edit
+    tools. `check:bug-fix-workflow` pins the two new path patterns.
+    - `coordinator-protected` is stricter: for each launcher path rule, the prompt needs a glob
+      that covers every tracked file the rule refuses. Before, `bugFixRuns*.ts` still passed
+      against the widened `bugFix*` rule.
+    - The fixture's `refused()` makes the same `.ts` rewrite. The prompt must carry the sibling
+      sentence and every extension, and `SIBLING_SOURCE` is pinned.
+    - The settings deny only tracked files. A new sibling is refused by the launcher, and the run
+      is warned by the prompt but not stopped at the edit: a glob such as `concurrency.*` would also
+      deny legitimate new files.
+    - 34 more mutants, 215 in all: a new prompt name or deny line dropped, a glob narrowed,
+      wrong-cased or over-wide, a pattern split over lines, the sibling sentence reworded, an
+      extension or the no-extension words dropped.
+    - A rule's label sits in a const (`PIPELINE_MODULES`), because the fixture reads one rule per
+      line.
+  - **`check:bug-fix-runs`** refuses a change to each newly protected file and to eight siblings:
+    `concurrency.MJS`, and extensionless `githubApp` and `untrusted` among them. It still accepts
+    the near misses:
+    - `server/bugReports.ts`;
+    - `env.ts`, `env.js` and an extensionless `env`;
+    - `db/schema.ts`;
+    - the `(app)/pipeline/` pages;
+    - a `server/pipelines/` folder.
+
+    That is 122 checks. Each new rule was proved by a hand-planted mutant: with the rule taken
+    out, its cases fail. An unanchored `pipeline` rule fails the folder control. A rewrite that
+    tests only the `.ts` spelling stops refusing `check-secrets.mjs` and `.pnpmfile.cjs`. The fixture's simulated Actions run ids now start at 20,000: the 31 extra
+    runs had reached 9701, an id a backstop test binds by hand.
+  - Not added: `services/director-worker/src/eval/`. It judges only agent-definition changes, and
+    a run cannot make one (`agents/` is protected).
+- 2026-11-10 — **The rest of the browser pass, as admin and as a non-admin** (live launcher), each
+  surface checked against `docs/tools/pipeline-bugs.md`, `game-bugs.md` and `pipeline-changes.md`.
+  The admin part ran in the owner's Chrome. The test reports BUG-12 (pipeline), BUG-13 (game, in
+  Test1), BUG-14 (its escalation) and BUG-18 (the non-admin's) are closed as Won't fix. No fix
+  run was started.
+  - **Screenshots in the form.** Choose files, a real drop and a real Ctrl+V with nothing focused
+    each added a thumbnail, and Remove took one out. A text file was refused: "Some files were
+    left out: only PNG, JPEG or WebP images up to 10 MB."
+  - **Screenshots on a saved bug.**
+    - A paste in the comment box, and one with nothing focused, uploaded at once.
+    - A scripted drop of a real PNG uploaded too (the real drop missed the moving page).
+    - An 11 MB file and a text file were refused.
+    - Six files with room for 5 uploaded 5 and said "room for 5 more". At 10 the drop box goes.
+    - A paste into the search box, or while editing the text, adds nothing.
+    - Remove asks nothing first, and the activity says "removed a screenshot".
+  - **Lightbox.** A thumbnail opens full size ("BUG-n · click or press Escape to close"). A click
+    and Escape each close it.
+  - **Filters and the address.**
+    - The status and priority chips (counts as `/api/bugs` gives them), search, area, project,
+      reporter, sent, sort and Reported by me each write the address.
+    - A reload restores every one, and the open bug.
+    - Reset filters goes back to Open + Working on, and `status=all` shows every bug.
+    - `BUG-10` finds that bug alone, and `#1540` the bug it links.
+    - The game list does the same, with `project=`.
+  - **Comments.** Posted and shown as text (`<b>` stays literal), up to 5,000 characters; the
+    activity says "commented".
+  - **Send and Take back.** Send put BUG-12 first on the Bugs tab, with Copy fix brief ("Copied",
+    the brief as the guide quotes it), Open in Pipeline Bug Reports and Start fix (not clicked).
+    Take back asks nothing, takes the bug off the tab (`/api/pipeline/bugs`), and the activity
+    says "took it back from Pipeline Changes".
+  - **The game page across a project switch.**
+    - The Game picker moves the address (`?project=`), the top bar's `<client> / <project>`, the
+      tab title and the session.
+    - Every link in the Tools menu carries the project shown.
+    - A second tab then moved the session to another project. A report from the first tab still
+      went to the project that tab showed (BUG-13 in Test1), and a bare `/game-bugs` opened the
+      session's project.
+    - The top bar names the project but has no switcher of its own. The Tools menu leaves out the
+      tool you are on.
+  - **Every game-bug surface.**
+    - The form ("Report a bug in Invisible Wall · Test1", Part of the game, a paste), and the form
+      opened from the address (`new=1&for=sound&page=`).
+    - Copy link (`/game-bugs?project=test1&bug=13`), Edit (no project field), and the triage
+      text in place of Send.
+    - The game fix brief, word for word as the guide, plus filters and comments.
+    - **Escalate to pipeline** filed BUG-14 and moved BUG-13 to Working on, labelled "Waiting on
+      pipeline · BUG-14" on its card and in the list; the activity says "handed it to the pipeline
+      as BUG-14". On the pipeline side: the **Escalated from a game bug** card, and "filed this
+      from game bug BUG-13". After BUG-14 went Won't fix, the label read "Pipeline: won't fix".
+    - **Repair with Director** opened a draft run on Test1, with the estimate, the $10 cap and
+      Start agents. Stopped before Start, $0.
+    - A game bug opened on `/bugs`, or on another project's list, names its list with **Open it
+      there**.
+  - **As a non-admin.** An Artist account with neither triage capability, signed in by the owner
+    in Claude's built-in browser.
+    - The header reads "Artist · Artist · can report".
+    - The list hides BUG-3 and BUG-14, the two pipeline bugs naming projects the account cannot
+      open. A link to one reads "There is no BUG-3.", and the API answers 404.
+    - On someone else's bug there is no Edit, Send, Take back, Start fix or Remove. Priority and
+      Status are disabled under "Read-only: needs “Triage pipeline bugs”."
+    - Copy fix brief, a comment and an added screenshot work. Remove shows on that screenshot
+      alone, and removed it.
+    - The server refuses a priority change or a send with a 403 that names the capability.
+    - The report form offers only the projects the account can open. `/pipeline` is a 403: "Your
+      role does not have access to Invisible Pipeline Changes."
+    - **Game side.** The account opens one project, so the Game picker has one entry. A
+      `?project=` it cannot open shows its own list and "There is no BUG-13."
+    - Its test game bug, BUG-18, opened with Edit (its reporter's edit saved, the game shown as a
+      fixed label) and Remove on its screenshot. Triage was read-only ("…“Triage game bugs”.")
+      and there was no Repair card.
+    - The server refuses an escalation (403, the triage capability) and a repair run (403, no
+      Director tool).
+  - **Defects found, filed as pipeline bugs, not fixed here:**
+    - **BUG-15:** the Pull requests card says a pull request's description links it (only its
+      title and branch do), and the game list's empty panel promises linked pull requests.
+    - **BUG-16:** a draft repair run is not linked from its game bug. While it is live, the card
+      also hides Repair with Director, so the bug page has no way back to it. A draft stopped
+      before Start never shows.
+    - **BUG-17:** `pipeline-changes.md` still gives `fix/bug-12-…` as the brief's branch example.
+  - **Seen, not filed:**
+    - An escalated bug's first line reads "Found while repairing bug #13 in test1 (<name>)." even
+      when a person escalated it by hand: `escalationDescription` was written for runs.
+    - A `?project=` the viewer cannot open stays in the address while the page shows their own
+      project.
+  - **Not clicked:** the fix-run line on an escalated bug's Repair card, because it needs a fix run
+    (about $2 each).
 
 - 2026-11-09 — **A fix run is told what the launcher refuses** (13D follow-ups; `scripts/bug-fix/`,
   infra-railway). The pilot paid for runs that broke a rule the prompt never named.

@@ -3,9 +3,9 @@
  *   pnpm --filter launcher-api check:tool-launch-token
  *
  * The Python tools verify this token independently, so the format is a byte-for-byte contract:
- * the fixed test vector below is the same one their check asserts. The handoff half pins the
- * transition rule — a signing secret set means ONLY the token travels; unset means the legacy
- * query is sent exactly as before.
+ * the fixed test vector below is the same one their check asserts. The handoff half pins that a
+ * signing secret set means ONLY the token travels, and that no shared secret (`k`, `bp`) ever
+ * does — with or without one.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -15,7 +15,6 @@ import {
 	LAUNCH_HEADER,
 	LAUNCH_QUERY_PARAM,
 	mintToolLaunchToken,
-	type HandoffSecrets,
 	type LaunchClaims,
 } from '../src/lib/server/toolLaunch.ts';
 
@@ -39,11 +38,7 @@ function payloadOf(token: string): Record<string, unknown> {
 }
 
 const USER = { id: 'U-123', email: 'test@example.com', name: 'Test User', role: 'artist' as Role };
-const LEGACY_KEYS = ['k', 'client', 'project', 'user', 'bp'];
-
-function secrets(signingSecret: string): HandoffSecrets {
-	return { signingSecret, legacySecret: 'legacy-k', blueprintSecret: 'legacy-bp' };
-}
+const UNSIGNED_KEYS = ['k', 'client', 'project', 'user', 'bp'];
 
 test('mint reproduces the shared test vector byte for byte', () => {
 	assert.equal(mintToolLaunchToken(SECRET, CLAIMS, NOW), VECTOR);
@@ -86,13 +81,12 @@ test('signing secret set: only the token travels (query)', () => {
 			projectKey: 'slots_one',
 			canPublishBlueprints: true,
 		},
-		secrets(SECRET),
+		SECRET,
 		'query',
 		NOW,
 	);
-	assert.equal(h.signed, true);
 	assert.deepEqual([...h.params.keys()], [LAUNCH_QUERY_PARAM]);
-	for (const k of LEGACY_KEYS) assert.equal(h.params.has(k), false, `unexpected ${k}`);
+	for (const k of UNSIGNED_KEYS) assert.equal(h.params.has(k), false, `unexpected ${k}`);
 	assert.deepEqual(h.headers, {});
 	const p = payloadOf(h.params.get(LAUNCH_QUERY_PARAM) ?? '');
 	assert.equal(p.sub, 'u_123');
@@ -109,7 +103,7 @@ test('signing secret set: server-to-server puts the token in a header, not the U
 			projectKey: 'slots_one',
 			canPublishBlueprints: false,
 		},
-		secrets(SECRET),
+		SECRET,
 		'header',
 		NOW,
 	);
@@ -128,7 +122,7 @@ test('sheet never carries caps, and a nameless user is named by their email hand
 			projectKey: 'slots_one',
 			canPublishBlueprints: true,
 		},
-		secrets(SECRET),
+		SECRET,
 		'query',
 		NOW,
 	);
@@ -138,49 +132,29 @@ test('sheet never carries caps, and a nameless user is named by their email hand
 	assert.deepEqual(p.caps, []);
 });
 
-test('signing secret unset: the legacy atlas query, unchanged', () => {
+test('signing secret unset (local dev): unsigned scope only, never a shared secret', () => {
 	const input = { user: USER, clientKey: 'acme', projectKey: 'slots_one' };
-	const holder = buildToolHandoff(
-		{ ...input, tool: 'atlas', canPublishBlueprints: true },
-		secrets(''),
+	const atlas = buildToolHandoff(
+		{ ...input, tool: 'atlas', canPublishBlueprints: true, canMergePipeline: true },
+		'',
 	);
-	assert.equal(holder.signed, false);
-	assert.deepEqual(Object.fromEntries(holder.params), {
-		k: 'legacy-k',
+	assert.deepEqual(Object.fromEntries(atlas.params), {
 		client: 'acme',
 		project: 'slots_one',
 		user: 'u_123',
-		bp: 'legacy-bp',
 	});
-	assert.deepEqual(holder.headers, {});
+	assert.deepEqual(atlas.headers, {});
 
-	const nonHolder = buildToolHandoff(
+	const sheet = buildToolHandoff({ ...input, tool: 'sheet', canPublishBlueprints: true }, '');
+	assert.deepEqual(Object.fromEntries(sheet.params), { client: 'acme', project: 'slots_one' });
+
+	const header = buildToolHandoff(
 		{ ...input, tool: 'atlas', canPublishBlueprints: false },
-		{ signingSecret: '', legacySecret: '', blueprintSecret: 'legacy-bp' },
+		'',
+		'header',
 	);
-	assert.deepEqual(Object.fromEntries(nonHolder.params), {
-		client: 'acme',
-		project: 'slots_one',
-		user: 'u_123',
-	});
-});
-
-test('signing secret unset: the legacy sheet query, unchanged', () => {
-	const h = buildToolHandoff(
-		{
-			tool: 'sheet',
-			user: USER,
-			clientKey: 'acme',
-			projectKey: 'slots_one',
-			canPublishBlueprints: true,
-		},
-		{ signingSecret: '', legacySecret: 'legacy-k', blueprintSecret: '' },
-	);
-	assert.deepEqual(Object.fromEntries(h.params), {
-		k: 'legacy-k',
-		client: 'acme',
-		project: 'slots_one',
-	});
+	assert.deepEqual(header.headers, {});
+	assert.equal(header.params.has(LAUNCH_QUERY_PARAM), false);
 });
 
 function atlasCaps(
@@ -190,7 +164,7 @@ function atlasCaps(
 ): unknown {
 	const h = buildToolHandoff(
 		{ tool, user: USER, clientKey: 'acme', projectKey: 'slots_one', ...flags },
-		secrets(SECRET),
+		SECRET,
 		via,
 		NOW,
 	);
@@ -229,19 +203,4 @@ test('a non-holder gets neither cap', () => {
 		[],
 	);
 	assert.deepEqual(atlasCaps('query', { canPublishBlueprints: false }), []);
-});
-
-test('signing secret unset: pipelineMerge has no legacy carrier', () => {
-	const h = buildToolHandoff(
-		{
-			tool: 'atlas',
-			user: USER,
-			clientKey: 'acme',
-			projectKey: 'slots_one',
-			canPublishBlueprints: true,
-			canMergePipeline: true,
-		},
-		secrets(''),
-	);
-	assert.deepEqual([...h.params.keys()], ['k', 'client', 'project', 'user', 'bp']);
 });

@@ -118,6 +118,7 @@ for (const file of [
 	'services/test-server/server.mjs',
 	'apps/launcher-api/src/lib/data/gameConfig/lines.json',
 	'.github/workflows/current-games.yml',
+	'.github/actions/setup/action.yml',
 ])
 	assert.equal(kind([file]), 'touched', `${file} can reach a game`);
 

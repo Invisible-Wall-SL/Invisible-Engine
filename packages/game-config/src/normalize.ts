@@ -195,6 +195,18 @@ const normalizeCardParams = (
 	return Object.keys(params).length ? params : undefined;
 };
 
+/** A bet mode's filler symbols — trimmed, non-empty, de-duplicated, in authored order; omitted when
+ *  nothing survives so an un-authored mode keeps the base strips. */
+const normalizeFillerSymbols = (raw: unknown): string[] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const names = [
+		...new Set(
+			raw.flatMap((value) => (typeof value === 'string' && value.trim() ? [value.trim()] : [])),
+		),
+	];
+	return names.length ? names : undefined;
+};
+
 /**
  * Per-mode presentation. Kept only for a mode that actually EXISTS in `betModes` (`validModes`) and
  * only the fields that carry meaning — a `kind`, an `order`, and non-empty copy. An entry that
@@ -226,6 +238,11 @@ const normalizeBetModePresentation = (
 		// map omitted when nothing survives so an un-authored mode stays byte-identical.
 		const cardParams = normalizeCardParams(entry.cardParams);
 		if (cardParams) presentation.cardParams = cardParams;
+		// Kept only when set: `false` is the default, so a saved-then-cleared switch stays parity.
+		if (entry.toggle === true) presentation.toggle = true;
+		if (entry.refusable === true) presentation.refusable = true;
+		const fillerSymbols = normalizeFillerSymbols(entry.fillerSymbols);
+		if (fillerSymbols) presentation.fillerSymbols = fillerSymbols;
 		if (Object.keys(presentation).length) map[mode] = presentation;
 	}
 	return Object.keys(map).length ? map : undefined;

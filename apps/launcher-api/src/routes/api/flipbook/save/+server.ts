@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { saveClip } from '$lib/server/flipbookStorage';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -28,7 +29,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to Invisible Flipbook.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body || typeof body.clip !== 'object' || body.clip === null) {
 		throw error(400, 'missing clip');
 	}
@@ -63,24 +64,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const { id, clip, etag } = await saveClip(clientKey, projectKey, body.clip, baseEtag);
 		return json({ ok: true, id, name: clip.name, frames: clip.frames.length, etag });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			// A never-saved clip (baseEtag null) conflicts because the NAME is taken — say that,
-			// rather than "someone saved while you were editing", which would be baffling for a
-			// clip the author just created.
-			const isCreate = baseEtag === null;
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message: isCreate
-						? 'A clip with that name already exists in this project. ' +
-							'Rename yours, or overwrite theirs.'
-						: 'Someone else saved this clip while you were editing. ' +
-							'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		// A never-saved clip (baseEtag null) conflicts because the NAME is taken — say that,
+		// rather than "someone saved while you were editing", which would be baffling for a
+		// clip the author just created.
+		const conflict = conflictResponse(
+			e,
+			baseEtag === null
+				? 'A clip with that name already exists in this project. ' +
+						'Rename yours, or overwrite theirs.'
+				: 'Someone else saved this clip while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		throw e;
 	}
 };

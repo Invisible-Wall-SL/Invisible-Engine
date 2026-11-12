@@ -97,8 +97,8 @@ export const broadcastMusicCue = (slot: MusicSlotId): void => {
 };
 
 /**
- * Track the round's cascade position. Called from `dispatchBookEvent` — the ONE seam all three
- * dispatch paths cross (coded, v1 flow, v2 flow), the same reason `recordWinCycleWins` lives there:
+ * Track the round's cascade position. Called from `dispatchBookEvent` — the ONE seam both
+ * dispatch paths cross (coded, v2 flow), the same reason `recordWinCycleWins` lives there:
  * a flow-owned `tumbleBoard` never reaches the coded handler map, and a flow-driven game has to
  * sound the same as a coded one.
  *

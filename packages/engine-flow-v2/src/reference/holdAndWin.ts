@@ -324,6 +324,13 @@ const BASE_EVENTS: TemplateVocabulary['events'] = [
 			{ name: 'times', type: INT, description: 'How many times the coins are collected.' },
 			{ name: 'cells', type: list(CELL_AMOUNT), description: 'The coins collected.' },
 			{ name: 'amount', type: FLOAT, description: 'What the collect paid.' },
+			{
+				name: 'collectors',
+				type: list(CELL_AMOUNT),
+				optional: true,
+				description:
+					'When each collector takes every coin: each collector, its total after the collect and what it gathered.',
+			},
 		],
 		category: 'book',
 		description:
@@ -669,6 +676,8 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('addRespins', 'respinsAdded'),
 	beat('upgradeCoins', 'coinUpgrade'),
 	beat('boostCoins', 'coinBoost'),
+	beat('hitEnhancement', 'enhancementHit'),
+	beat('missEnhancement', 'enhancementMiss'),
 	beat('turnSpecialIntoCoin', 'specialBecomesCoin'),
 	beat('collectCoins', 'coinCollect'),
 	beat('revealMystery', 'mysteryReveal'),
@@ -786,6 +795,17 @@ const CUES: TemplateVocabulary['cues'] = [
 			{ name: 'cells', type: list(COIN_CHANGE) },
 		],
 	},
+	{ name: 'enhancementOn', payload: [{ name: 'kind', type: ENHANCEMENT }] },
+	{
+		name: 'respinEnhancementHit',
+		payload: [
+			{ name: 'kind', type: STRING },
+			{ name: 'by', type: FLOAT },
+			{ name: 'cells', type: list(COIN_CHANGE) },
+		],
+	},
+	{ name: 'respinEnhancementMiss', payload: [{ name: 'kind', type: STRING }] },
+	{ name: 'superBonusEnter', payload: [] },
 	{
 		name: 'respinSpecialBecomesCoin',
 		payload: [
@@ -969,6 +989,12 @@ const VALUES: TemplateVocabulary['values'] = [
 		type: FLOAT,
 		description:
 			"What the open feature is worth so far (banked jackpots + every held cell), as the server counts it — final from the trigger's chain on, unlike the Total Win bar (the HUD source `featureTotal`), which counts up. Same units as `win`.",
+	},
+	{
+		name: 'enhancements',
+		type: list(ENHANCEMENT),
+		description:
+			'The enhancements the open feature drew (extraRow, boost, multiply, extraRespins, superBonus); empty when it drew none.',
 	},
 	{
 		name: 'activeModifiers',

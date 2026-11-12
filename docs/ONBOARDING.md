@@ -19,12 +19,15 @@ git config core.hooksPath scripts/git-hooks
 pnpm dev          # all dev servers (Turbo)
 pnpm build        # build everything
 pnpm storybook    # component explorer
-pnpm lint         # ESLint
+pnpm lint         # ESLint over apps packages services scripts tools, vs eslint-suppressions.json (CI: Lint)
 pnpm format       # Prettier
-pnpm check:all    # every offline check/fixture/spike (CI: Checks); --list, --only <substr>
+pnpm check:all    # every offline check/fixture/spike (CI: Checks); --list, --only <substr>[,<substr>…]
 pnpm check:python # every services/*/test_*.py (needs the services' requirements installed)
 ```
 Per-app (e.g. `apps/lines`): `pnpm dev` (Vite, port 3001), `pnpm storybook` (6001). Launcher: `apps/launcher-api` dev on **3010**.
+One launcher check on its own: `pnpm --filter launcher-api check:<name>` — `pnpm install` already ran
+`svelte-kit sync` (the launcher's `prepare`), which the checks' tsconfig needs; if one dies with
+`.svelte-kit/tsconfig.json not found`, run `pnpm install` again.
 
 ## Where things live
 - `apps/` — the games + `launcher-api` (the Studio portal).

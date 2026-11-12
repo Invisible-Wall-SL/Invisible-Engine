@@ -28,28 +28,20 @@ import subprocess
 import tempfile
 import threading
 import time
+from functools import partial
 from http.server import ThreadingHTTPServer
 
 os.environ["SHEET_STAGING"] = tempfile.mkdtemp(prefix="sheet-presence-")
 SIGNING = "sheet-presence-signing-0123456789"
 os.environ["SHEET_TOOL_SIGNING_SECRET"] = SIGNING
-for _k in ("SHEET_TOOL_SECRET", "R2_BUCKET"):
-    os.environ.pop(_k, None)
+os.environ.pop("R2_BUCKET", None)
 
 import sheet_server as s  # noqa: E402
 from iw_common import launch, presence, storage  # noqa: E402
+from iw_common.testkit import Suite  # noqa: E402
 
-FAILED: list[str] = []
+t = Suite()
 LEASE = "acme/slots_one/_leases/sheetMaker/{}.json"
-
-
-def check(label: str, got, want) -> None:
-    ok = got == want
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
-    if not ok:
-        # ascii(): a banner carries an emoji, which a cp1252 console cannot print.
-        print(f"       got  {ascii(got)}\n       want {ascii(want)}")
-        FAILED.append(label)
 
 
 class LeaseBucket:
@@ -135,61 +127,61 @@ def test_presence_over_http(bucket: LeaseBucket) -> None:
     try:
         alice = session(port, launch_token("u_alice", "u-alice", "Alice"))
         bob = session(port, launch_token("u_bob", "u-bob", "Bob"))
-        check("both launches open a session", bool(alice) and bool(bob), True)
+        t.check("both launches open a session", bool(alice) and bool(bob), True)
 
         def beat(cookie, tab, doc="coins", **kw):
             st, j = post(port, cookie, {"doc": doc, "tab": tab, **kw})
             return st, (j or {}).get("holder")
 
-        check("A claims the sheet: no banner", beat(alice, "a1"), (200, None))
+        t.check("A claims the sheet: no banner", beat(alice, "a1"), (200, None))
         row = bucket.row("coins")
-        check("the lease is keyed sheetMaker/<sheet> under the signed project",
-              bool(row), True)
-        check("...holding A's signed uid and name",
-              row and (row["holderUserId"], row["holderName"], row["toolId"]),
-              ("u-alice", "Alice", "sheetMaker"))
+        t.check("the lease is keyed sheetMaker/<sheet> under the signed project",
+                bool(row), True)
+        t.check("...holding A's signed uid and name",
+                row and (row["holderUserId"], row["holderName"], row["toolId"]),
+                ("u-alice", "Alice", "sheetMaker"))
 
         st, h = beat(bob, "b1")
-        check("B sees A editing the sheet", (st, h and h["name"], h and h["same_user"]),
-              (200, "Alice", False))
+        t.check("B sees A editing the sheet", (st, h and h["name"], h and h["same_user"]),
+                (200, "Alice", False))
         st, h = beat(bob, "b1", name="Mallory", uid="u-alice", sub="u_alice")
-        check("a name or uid in the body changes nothing",
-              (h and h["name"], h and h["same_user"], bucket.row("coins")["holderUserId"]),
-              ("Alice", False, "u-alice"))
+        t.check("a name or uid in the body changes nothing",
+                (h and h["name"], h and h["same_user"], bucket.row("coins")["holderUserId"]),
+                ("Alice", False, "u-alice"))
         st, h = beat(alice, "a2")
-        check("A's other tab is told it is A", h and h["same_user"], True)
-        check("the holder's own heartbeat keeps it", beat(alice, "a1"), (200, None))
+        t.check("A's other tab is told it is A", h and h["same_user"], True)
+        t.check("the holder's own heartbeat keeps it", beat(alice, "a1"), (200, None))
 
-        check("A releases", beat(alice, "a1", release=True), (200, None))
-        check("...and B sees nobody: B now holds it", beat(bob, "b1"), (200, None))
-        check("...under B's uid", bucket.row("coins")["holderUserId"], "u-bob")
+        t.check("A releases", beat(alice, "a1", release=True), (200, None))
+        t.check("...and B sees nobody: B now holds it", beat(bob, "b1"), (200, None))
+        t.check("...under B's uid", bucket.row("coins")["holderUserId"], "u-bob")
         st, h = beat(alice, "a1")
-        check("A, back, sees B", h and h["name"], "Bob")
+        t.check("A, back, sees B", h and h["name"], "Bob")
 
         beat(bob, "b1", release=True)
-        check("B switching sheets claims the new one", beat(bob, "b1", doc="gems"),
-              (200, None))
-        check("...and the sheet B left is free for A", beat(alice, "a1"), (200, None))
-        check("a release from someone who does not hold it deletes nothing",
-              (beat(bob, "b1", release=True), bucket.row("coins")["holderUserId"]),
-              ((200, None), "u-alice"))
+        t.check("B switching sheets claims the new one", beat(bob, "b1", doc="gems"),
+                (200, None))
+        t.check("...and the sheet B left is free for A", beat(alice, "a1"), (200, None))
+        t.check("a release from someone who does not hold it deletes nothing",
+                (beat(bob, "b1", release=True), bucket.row("coins")["holderUserId"]),
+                ((200, None), "u-alice"))
 
         writes = bucket.n
-        check("an unsigned caller is refused", post(port, "", {"doc": "coins", "tab": "x"})[0],
-              403)
-        check("a forged session (edited name) is refused",
-              post(port, forge(bob, name="Alice", uid="u-alice"),
+        t.check("an unsigned caller is refused", post(port, "", {"doc": "coins", "tab": "x"})[0],
+                403)
+        t.check("a forged session (edited name) is refused",
+                post(port, forge(bob, name="Alice", uid="u-alice"),
                    {"doc": "coins", "tab": "b1"})[0], 403)
-        check("...and neither wrote a lease", bucket.n, writes)
-        check("no doc, no lease", beat(alice, "a1", doc=""), (200, None))
-        check("...not even a write", bucket.n, writes)
+        t.check("...and neither wrote a lease", bucket.n, writes)
+        t.check("no doc, no lease", beat(alice, "a1", doc=""), (200, None))
+        t.check("...not even a write", bucket.n, writes)
 
         c = _conn(port)
         c.request("GET", "/?fast=1", headers={"Cookie": alice})
         page = c.getresponse().read().decode("utf-8")
         c.close()
-        check("the page inlines the shared heartbeat",
-              ("window.iwPresence" in page, "__IW_PRESENCE" in page,
+        t.check("the page inlines the shared heartbeat",
+                ("window.iwPresence" in page, "__IW_PRESENCE" in page,
                'var NOUN = "sheet"' in page), (True, False, True))
     finally:
         srv.shutdown()
@@ -197,20 +189,20 @@ def test_presence_over_http(bucket: LeaseBucket) -> None:
 
 def test_the_shared_module(bucket: LeaseBucket) -> None:
     anon = launch.Identity(via="open")
-    check("no gate (local dev): the holder is anonymous",
-          presence.beat("sheetMaker", "acme/slots_one", "dev", anon, "t1"), {"holder": None})
+    t.check("no gate (local dev): the holder is anonymous",
+            presence.beat("sheetMaker", "acme/slots_one", "dev", anon, "t1"), {"holder": None})
     row = bucket.row("dev")
-    check("...recorded as such, with no name", row and (row["holderUserId"], "holderName" in row),
-          ("anonymous", False))
+    t.check("...recorded as such, with no name", row and (row["holderUserId"], "holderName" in row),
+            ("anonymous", False))
     alice = launch.Identity(via="token", sub="u_alice", uid="u-alice", name="Alice")
-    check("a prefix with no project is ignored",
-          presence.beat("sheetMaker", "acme", "dev", alice, "t1"), {"holder": None})
-    check("a doc key with a slash is ignored",
-          presence.beat("sheetMaker", "acme/slots_one", "a/b", alice, "t1"), {"holder": None})
+    t.check("a prefix with no project is ignored",
+            presence.beat("sheetMaker", "acme", "dev", alice, "t1"), {"holder": None})
+    t.check("a doc key with a slash is ignored",
+            presence.beat("sheetMaker", "acme/slots_one", "a/b", alice, "t1"), {"holder": None})
     presence.beat("sheetMaker", "acme/slots_one", "long", alice, "x" * 500)
-    check("a tab id is capped", len(bucket.row("long")["holderSessionId"]), presence.TAB_MAX)
-    check("the page script escapes '<' in a doc name",
-          "</script>" in presence.script("sheet", "</script>"), False)
+    t.check("a tab id is capped", len(bucket.row("long")["holderSessionId"]), presence.TAB_MAX)
+    t.check("the page script escapes '<' in a doc name",
+            "</script>" in presence.script("sheet", "</script>"), False)
 
 
 HARNESS = r"""
@@ -260,7 +252,7 @@ const settle = (ms = 300) => new Promise(r => setTimeout(r, ms));
 def test_the_page_half() -> None:
     node = shutil.which("node")
     if not node:
-        check("node is on PATH (presence.js cannot be exercised without it)", False, True)
+        t.check("node is on PATH (presence.js cannot be exercised without it)", False, True)
         return
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(HARNESS.replace("__SCRIPT__", presence.script("sheet")))
@@ -272,38 +264,34 @@ def test_the_page_half() -> None:
     finally:
         os.unlink(f.name)
     if out.returncode != 0 or not out.stdout.strip():
-        check("presence harness ran", out.stderr.strip()[-400:], "")
+        t.check("presence harness ran", out.stderr.strip()[-400:], "")
         return
     res = json.loads(out.stdout.strip().splitlines()[-1])
-    check("a switch releases the old sheet and claims the new, in order",
-          res["calls"][:3], [{"doc": "coins", "tab": "tabX"},
+    t.check("a switch releases the old sheet and claims the new, in order",
+            res["calls"][:3], [{"doc": "coins", "tab": "tabX"},
                              {"doc": "coins", "tab": "tabX", "release": True},
                              {"doc": "gems", "tab": "tabX"}])
-    check("...one request at a time", res["maxInFlight"], 1)
-    check("a late answer about the sheet it left paints nothing", res["afterSwitch"], None)
-    check("back on the held sheet: the banner names the holder",
-          (res["onCoins"] or "").startswith("\U0001f464 Alice is editing this sheet."), True)
-    check("closing the sheet releases it and clears the banner",
-          (res["calls"][-1], res["afterClose"]),
-          ({"doc": "coins", "tab": "tabX", "release": True}, None))
+    t.check("...one request at a time", res["maxInFlight"], 1)
+    t.check("a late answer about the sheet it left paints nothing", res["afterSwitch"], None)
+    t.check("back on the held sheet: the banner names the holder",
+            (res["onCoins"] or "").startswith("\U0001f464 Alice is editing this sheet."), True)
+    t.check("closing the sheet releases it and clears the banner",
+            (res["calls"][-1], res["afterClose"]),
+            ({"doc": "coins", "tab": "tabX", "release": True}, None))
 
 
-def main() -> int:
+def main() -> None:
     bucket = LeaseBucket()
     real = (storage.get_with_etag, storage.put, storage.delete)
     storage.get_with_etag, storage.put, storage.delete = (
         bucket.get_with_etag, bucket.put, bucket.delete)
     try:
-        for fn in (test_presence_over_http, test_the_shared_module):
-            print(f"\n-- {fn.__name__}")
-            fn(bucket)
-        print("\n-- test_the_page_half")
-        test_the_page_half()
+        t.run(partial(test_presence_over_http, bucket), partial(test_the_shared_module, bucket),
+              test_the_page_half)
     finally:
         storage.get_with_etag, storage.put, storage.delete = real
-    print(f"\n{'FAILED: ' + str(len(FAILED)) if FAILED else 'all passed'}")
-    return 1 if FAILED else 0
+    t.exit()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

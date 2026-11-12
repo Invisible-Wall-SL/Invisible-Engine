@@ -1,3 +1,7 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
+
 <svelte:head><title>Invisible Atlas Maker — Invisible Wall</title></svelte:head>
 
 <!-- Shown only when ATLAS_TOOL_URL is unset; otherwise the load fn redirects
@@ -6,7 +10,7 @@
 	<h1>Invisible Atlas Maker</h1>
 	<p>The Invisible Atlas Maker service URL is not configured.</p>
 	<p class="muted">Set <code>ATLAS_TOOL_URL</code> in the launcher environment.</p>
-	<a class="ghost" href="/">‹ Launcher</a>
+	<a class="ghost" href={resolve('/')}>‹ Launcher</a>
 </div>
 
 <style>

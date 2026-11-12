@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { requireDirectorAccess, requireDirectorProjectScope } from '$lib/server/director/access';
-import { NO_STORE, answering, jsonBody } from '$lib/server/director/api';
+import { NO_STORE, answering } from '$lib/server/director/api';
+import { jsonBody } from '$lib/server/http';
 import {
 	createRepairRun,
 	createRun,

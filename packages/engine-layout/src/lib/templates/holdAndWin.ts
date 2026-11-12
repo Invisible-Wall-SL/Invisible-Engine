@@ -29,6 +29,13 @@ const HOLD_AND_WIN_SCENES: TemplateScene[] = [
 		slots: [sprite('respinBoardFrame', 'Respin board frame')],
 	},
 	{ id: 'respinCounter', name: 'Respin counter', slots: [] },
+	// A collector bonus's dials and its collectors' total (Phase 14b) — Enhancement Dial instances, so
+	// the slot is the frame behind the row.
+	{
+		id: 'enhancements',
+		name: 'Enhancements',
+		slots: [sprite('enhancementsFrame', 'Enhancement dials frame')],
+	},
 	{ id: 'totalWinBar', name: 'Total win bar', slots: [] },
 	{ id: 'letters', name: 'Letters', slots: [] },
 	{ id: 'luckySpin', name: 'Lucky Spin intro', slots: [sprite('luckySpinArt', 'Lucky Spin art')] },

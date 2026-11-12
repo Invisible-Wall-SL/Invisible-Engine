@@ -57,17 +57,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   - **Time zone and locale** are the browser's. The HUD clock formats the virtual `Date` with them, so a harness pins both (the proof sets UTC and en-US over CDP).
   - **Proof.** `scripts/playtest/determinism-proof.mjs` serves the built runtime, starts a fresh seeded mock for each run (the book mock, or the Hold and Win mock behind a local `/api/editor/runtime` stub), and drives the game over CDP. It then compares runs pixel by pixel. Two runs gave 20 of 20 byte-identical 1280×720 captures across base spin, line win, big win (`max`, mid count-up, coin fountain) and Hold and Win Classic (`trigger`). `--flag off` checks that the hook is absent and the game boots and spins on the real clock.
   - **Chrome's own virtual time is not enough.** CDP `Emulation.setVirtualTimePolicy` with a seeded `Math.random` still differed by 0.5–24.6 % of pixels between two runs of the same `main` build. That is why the hook sits inside the page.
-- **GPU warm-up + render tier** (2026-10-27) — the asset loader ends by uploading every texture it
-  loaded (kept resident: Pixi's GC would otherwise drop an image page a minute after it was last
-  drawn and stall on the re-upload) and compiling every program the game can draw with: each
-  authored Element FX with its own params, the camera chroma split, the rig dark tint
-  (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
-  Spread across frames behind the loading screen. The render tier (`renderTier.ts`) gives low-end
-  devices (Chromium `deviceMemory` ≤ 4 GB since 2026-11-03, was 2 GB, or `?render=reduced`) resolution ≤ 1.5 and no MSAA,
-  and leaves their textures to Pixi's GC (uploaded up front, not pinned); every other device renders
-  exactly as before (`?render=full` forces it). A warm-up that throws never holds the load, and a
-  hidden tab (no frames) finishes it on a 50 ms timeout: verified with rAF frozen for 70 s, all 28
-  uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
+- **GPU warm-up + render quality** (2026-10-27; measured quality since 2026-11-10) — the asset
+  loader ends by uploading every texture it loaded (kept resident: Pixi's GC would otherwise drop an
+  image page a minute after it was last drawn and stall on the re-upload; a device reporting
+  ≤ 4 GB leaves them to the GC, `textureResidency.ts`) and compiling every program the game can
+  draw with: each authored Element FX with its own params, the camera chroma split, the rig dark
+  tint (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
+  Spread across frames behind the loading screen. Every device starts at full quality (pixel ratio
+  up to 2, MSAA); the game lowers it only when frames measurably fall behind while a round plays,
+  never from device memory (`renderQuality.ts`, 2026-11-10 below). `?render=full` pins full,
+  `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
+  never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout: verified with
+  rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
 - **Reel motion drawn in the frame it is sampled for, carried through lap ends, cells placed
@@ -93,10 +94,33 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     value. It writes the cell containers' `y` itself (`StripSeat.svelte` hands it each
     `SymbolWrap` container) and turns the position into index thresholds: in the window, held,
     and entered for the filler pool. They are `SymbolWrap`'s and `ReelPaddingPool`'s own tests,
-    evaluated per index, and are written to `$state` only when they change, so a moving cell costs
-    Svelte nothing between edge crossings. `symbolY()` reads the drawn value reactively for the
-    other readers (stacked pictures, the respin board, Book VFX), and perspective boards and
-    cascade seats keep that reactive path: the same frames, without the CPU saving.
+    evaluated per index. Each `SymbolWrap` watches its own cell (`StripCuller`, since 2026-11-11):
+    its in-the-window and held answers are its own `$state`, written only when that cell crosses an
+    edge, so a crossing re-checks nothing in the cells that did not cross. `symbolY()` reads the
+    drawn value reactively for the other readers (stacked pictures, the respin board, Book VFX),
+    and perspective boards and cascade seats keep that reactive path: the same frames, without the
+    CPU saving.
+  - **Cells are drawn through views that outlive them** (2026-11-11, flat boards;
+    `apps/lines/src/game/reelViewPool.ts`). A board cell keeps one `ReelSymbol` view for as long
+    as it is in its reel's strip (through the roll, the landing, every win and a cascade), and the
+    views a board leaves draw the next board; a roll's filler goes through `rows + 2` views a reel
+    (`ReelPaddingPool`), built once and kept, vacant at rest. A Hold and Win respin cell's shown
+    strip symbols go through views too (`RespinCell`, at most two a cell), each entry its paint
+    order. A view keeps its container, its `Symbol` with the Element FX container (there whether
+    or not the symbol has Element FX) and the band containers, and one sprite of its own from the
+    first sprite it draws, hidden while it draws other art or nothing. Each time a view starts
+    drawing a cell (a board cell entering the window, a filler cell handed over, a respin symbol
+    shown) is an entry: the sprite is handed the new texture and reports as a new sprite would, and
+    everything else (rigs and their rigged effects, flipbooks, placeholders, layers, Element FX and
+    their beat gate, labels, the rider's art) starts again on the frame and in the order a new
+    mount did. Perspective boards keep a component per cell. A view list is handed back unchanged
+    while every view in it is (`keepList`, 2026-11-12), so a strip change runs only its own reel's
+    `{#each}`.
+  - **The Pixi tree is a tree in the page** (2026-11-12). Svelte leaves a comment or text anchor
+    for every block; `pixi-svelte`'s `Container` keeps its children's inside a hidden `<div>` of its
+    own, so a parent holds a few dozen. WebKit walks a parent's children to the nearest element on
+    every node it inserts, removes or moves, and with all of them in one run beside the canvas
+    (~5–11k) that walk was most of Svelte's WebKit-only cost (Recent changes, 2026-11-12).
   - Determinism mode answers the timeline from its virtual clock. What may differ from before, by
     owner decision (2026-11-09 below): mid-motion captures, by drawing a frame earlier; and on the
     four overlay-template games, particle randomness.
@@ -104,10 +128,92 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     numbers in `perfStats.ts`): display refresh estimate, fps, frame-interval p50/p95/max and
     hitches over 33/50/100 ms for idle and spinning, the reel step error in px (each drawn step
     against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
-    JSON line: UA, DPR, render tier, canvas size, the numbers) and Reset. Without the flag its
-    chunk is never loaded and the frame clock has no probe.
+    JSON line: UA, DPR, the render-quality mode and level, canvas size, the numbers) and Reset.
+    Without the flag its chunk is never loaded and the frame clock has no probe. Since 2026-11-09
+    it also reads the GPU side: see the next bullet.
+- **Renderer setup for tiled GPUs, the `?perf=1` GPU readout and the render test switches**
+  (2026-11-09) — how the context and the frame are set up is decided once, before the WebGL context
+  exists (`pixi-svelte` `renderOptions.ts`, applied by `InitialiseApplication.svelte`):
+  - **Back buffer:** still on for every game. The game declares whether its authored content can
+    draw a backdrop-reading blend (`apps/lines/src/game/renderNeeds.ts` scans every `blendMode` in
+    the bundle; of the live games only `test6` does, with `lighten` and `overlay`). Leaving it out
+    for the others waits on the owner: the canvas's own MSAA moves antialiased edges by 1–2 levels
+    (Recent changes, 2026-11-09).
+  - **One back-buffer resolve a frame, no depth/stencil store** (`backBufferPasses.ts`): Pixi
+    resolved the whole multisampled back buffer after every filter draw
+    (`FilterSystem._setupBindGroupsAndRender` ends in `finishRenderPass()`); it is now resolved
+    once, when the frame is presented. And the back buffer's multisampled depth/stencil (there once
+    a mask used the stencil) is invalidated just before that resolve, so a tiled GPU may drop its
+    store: the next frame clears it before reading it. Both byte-identical.
+  - **Opaque canvas:** on when the content has no backdrop blend and the page behind the canvas is
+    one solid colour, checked at boot (the canvas's ancestors' backgrounds, and
+    `elementsFromPoint` under the canvas finds only its ancestors), cleared to that colour. An embed
+    over a partner's page, or any game with a backdrop blend, stays transparent. Byte-identical.
+  - **`?perf=1`** adds the GPU (`WEBGL_debug_renderer_info`), the WebGL version, the context
+    attributes, back buffer on/off and MSAA, the compressed formats the context offers, the loaded
+    textures by GPU format (count, MB), why each setup choice was made, and per frame (mean / max,
+    idle and spinning): draws, vertices, render passes, target switches, MSAA resolves,
+    invalidations, filter passes and filtered nodes, backdrop copies, texture uploads, buffer bytes,
+    GL round trips, program switches, GL calls, and the CPU ms of the render and of the whole Pixi
+    tick (`glCounters.ts`; every count exists only under the flag). `?perfgpu=1` also waits for the
+    GPU after each frame (a 1-pixel `readPixels`) and reports that wait: it stalls the pipeline, so
+    read its GPU number alone, never its fps. `window.__IE_PERF__()` returns the Copy JSON (every
+    frame up to the call; `'take'` reads, then resets). Since 2026-11-10 each frame also reports
+    its particles, rigs, shader compiles, upload bytes and JS, and every spike is recorded with a
+    likely cause. Since 2026-11-11 each frame reports what it built and threw away (display
+    objects by kind, rigs, text renders, Svelte's DOM anchors; `pixi-svelte` `churnProbe.ts`),
+    frames are read in three phases (idle, spinning, and `round`: a round's frames with the reels
+    at rest), and a spike can read `churn` (`perf: 5`; Recent changes, 2026-11-11).
+  - **Test switches**, each changing one thing: `?backbuffer=0|1`, `?aa=0|1` (MSAA),
+    `?opaque=0|1`, `?fx=0` (Element FX filter passes off, their motion kept), `?lazyresolve=0`
+    (Pixi's per-filter resolves back), `?invalidate=0` (the depth/stencil stored again),
+    `?particles=off` (every emitter and baked effect off, 2026-11-10), with the existing
+    `?render=reduced|full`, `?quality=high|low` and `?particles=0.25..1`.
+    `?render=reduced&aa=1` changes only the resolution (1.5). How to use them on a phone: Open
+    items, "iPhone frame time".
 
 ## Open items / next
+
+- **Render quality thresholds — the iPhone 13 Pro reading is still owed** (2026-11-10 changes,
+  below). Read on the released build (`cbbb3b7`): the S25 Ultra and the Pixel 9 Pro in Brave stayed
+  at the top level with no switch; the Nothing Phone (1) stepped to 1.75 at 13% slow (17.8 ms) and
+  kept it while its frames got no shorter, which the stricter trial now reverts. Still to read: a
+  `?perf=1` Copy (`perf: 3`, its `quality.trials`) after ~20 spins on the iPhone 13 Pro (14 fps
+  spinning on 2026-11-09), which should step down and keep a step only if its slow share halves or
+  its frames get 20% shorter; and the Nothing Phone (1) again, which should now revert to full.
+
+- **iPhone frame time — needs the owner's readings with the new `?perf=1`** (2026-11-09 change,
+  below; spike records 2026-11-10). The iPhone 13 Pro read 23.6 fps idle and 14.1 spinning on
+  `overlay-buffaloduel` while the S25 Ultra drew 5× the pixels at 60. The iPhone 17 (Chrome on
+  iOS, `perf: 4`) read 37 fps idle and 34 spinning with ~10 ms of JS before each spinning frame's
+  Pixi tick (`lateMs` 9.8, idle 0.1): Svelte mounting symbol components as cells scrolled, which
+  2026-11-11 removes (Recent changes). Read both phones again on the release that carries it: the
+  spinning `lateMs` and `jsMs` should fall toward the idle ones. Headless Chromium shows no
+  pathological GL work at base-game idle (43 draws, one scene pass, its resolve and copy, no
+  uploads, no round trips, ~2.75× screen coverage), so what costs on the iPhone has to be read
+  there. The Copy must read `perf: 5`: it then carries `spikes` (the last 30 long frames, each with
+  its frame and the one before, and a likely cause, `churn` among them) and `spikeCauses` (every
+  spike since Reset, by cause, idle, spinning and round), and per phase what the frames built and
+  threw away. Paste the whole Copy; the spikes are what says JS or not. What to expect, and which
+  moments churn most in WebKit: the ranked list in Recent changes, 2026-11-11 ("Churn sweep").
+  Procedure, Low Power Mode off, the game opened on its own (not inside the launcher), each URL with
+  `&perf=1`: wait ~20 s idle, tap the readout open, Reset, wait 20 s, then spin ~10 times (and one
+  big win if the game gives one), Copy.
+  1. As it is. The `spikes` line and `spikeCauses` say what the long frames were: mostly
+     `outside the game` (the JS took under 40% of the interval) means the GPU, the compositor or
+     the browser; `particles`, `rigs`, `game code` or `page JS` name the JS. The `tick ms (CPU)` and
+     `frame JS ms` rows say whether the CPU is the limit on ordinary frames.
+  2. `&perfgpu=1` (read only its `GPU wait ms`): a wait near the interval is GPU-bound.
+  3. `&particles=off`: the same spins with no particles at all. If the spikes and fps move, the
+     particles cost (their JS shows in `particle ms`; their GPU fill does not, so this is the test).
+  4. One switch at a time: `&backbuffer=0`, `&aa=0`, `&opaque=0`, `&fx=0`, `&lazyresolve=0`,
+     `&invalidate=0`,
+     `&render=reduced&aa=1` (fewer pixels only), `&quality=high` (uncompressed textures instead of
+     ASTC), `&particles=0.25`. The one that moves fps is the cost; the GPU rows show what changed.
+  5. Check the textures line reads `astc-4x4-unorm` for the KTX2 pages. If `backbuffer=0` is the
+     big one, the owner decides whether its edge pixels are acceptable (Recent changes); if fewer
+     pixels is, the cost is fill or bandwidth (overdraw, MSAA); if none moves it, look at the page
+     compositor.
 
 - **A game build's own `assets/` are re-downloaded on every visit** (from the 2026-11-03 shell +
   bundle change, below). The code is now a ~4 KB `no-store` shell over immutable `_app/immutable/`
@@ -142,11 +248,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   uncompressed pages on phones. Since the shell + bundle change (2026-11-03) `_app/` holds the
   game's code itself, so without it a desktop-published game does not boot at all.
 
-- **Truly same-frame drawing — confirm on real phones** (2026-11-09 change, below). Each frame
-  now draws its own sample and laps carry through their ends, measured in headless Chromium
-  only. After the runtime release, ask the owner for a `?perf=1` Copy during spins from the
-  iPhone 17, the Pixel 9 Pro and the S24 Ultra (the 2026-11-09 readings below are the baseline):
-  the reel step error should read near 0 at steady and mixed frame lengths alike. What drawing
+- **Truly same-frame drawing — confirmed on four real phones, the iPhone 17 still to read**
+  (2026-11-09 change, below). Reel step error max on the new builds (`?perf=1`, 2026-11-10):
+  S25 Ultra 1.2 px, Nothing Phone (1) 2.1 px, Pixel 9 Pro 1.1 px, iPhone 13 Pro p95 0 — mean and
+  p95 0 on every Android, from 4.0–10.1 px mean and 30.5–43 px p95 before (table below). What drawing
   still cannot remove: a dropped frame is still a double-length step (correct for its interval,
   but visible); the first frame of a motion from rest draws its start value (nothing has asked
   for the clock yet); a carried lap runs at most one frame's time slower over its length (≤ ~7%
@@ -155,22 +260,40 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `symbolY()`, so they get the same frames but none of the CPU saving.
 
 - **Mobile frame budget after the warm-up — next steps.** Moving cells no longer go through Svelte
-  every frame (2026-11-09, below): a flat board's strip view writes their positions and changes the
-  cull state only when a cell crosses an edge. Measured at 4× CPU that removed the re-check of
-  the moving cells (Svelte's effect-tree walk 18.6 → 14.1 ms a spin frame on
-  `commonoverlayproject`) but cut JS a frame only ~6% (66.3 → 62.5 ms; no change outside the
-  noise on the reference game): Svelte's flush is still ~42% of spin JS there. Most of it is
-  mounting each cell's components as it scrolls in, and walking the whole effect tree on every
-  flush; a spin flushes every frame because each reel's `Tween.current` changes and
-  `readyToSpinEffect` reads it. Making a rolling frame flush nothing (a `readyToSpin` that does not
-  depend on the per-frame value, with its exact timing kept) is the next CPU lever. What a spin frame also pays: Pixi's
-  render, rig ticks (rigs keep ticking when hidden; their meshes are rebuilt once a drawn frame —
-  2026-11-03, below), idle particle layers updating every frame, and mounting each cell's art as it
-  enters (kept on purpose: its first frame and its `Math.random` draws are observable; the
-  recycled-views attempt measured that churn at ~3% of spin JS and is shelved on
-  `claude/reel-view-recycling`). `propsSyncEffect` still allocates a key list per run, now only
-  when a prop changes. Next: confirm on a real phone (Chrome remote-debugging trace, or the owner's
-  `?perf=1` Copy) before tuning the GPU side further. The ~118 MB of resident textures on
+  every frame (2026-11-09), and since 2026-11-11 a spin mounts no symbol component per scrolled
+  cell on a flat board: cells are drawn through kept views, a sprite is rebound, and a crossing
+  re-checks only the cells that cross (Recent changes). Since the second 2026-11-11 change a Hold
+  and Win respin cell draws through views too, and a view keeps its `Symbol`'s containers and one
+  sprite whatever it draws (ranked churners 2 and 3). What a rolling frame still pays before the
+  Pixi tick: art that must start again per cell to keep its timing and its `Math.random` draws.
+  Since 2026-11-12 a view keeps its rig art, flipbook art and win frame and starts them again in
+  place (Recent changes, "the board idle after a win"): no new `RigView` or component, the restart
+  itself instead, plus a rig's rigged effects (mounted per beat), Element FX and a coin label. That
+  is the per-view form of the `RigView` pool measured in 2026-11-11 ("rig started again": a start
+  ~1.8 ms of WebKitGTK, the `RigView` ~0.7 of it).
+  **Step 4 works from the ranked churn list** (Recent changes, 2026-11-11, "Churn sweep"): in
+  WebKit the Hold and Win bonus (28–44 s of main thread over idle per bonus on the overlay
+  games), a free-spins feature (36 s on `bookofborutremake`), big and line wins (2–10 s) and every
+  spin (22–33% of spinning frames over 33 ms). The three largest WebKit-only Svelte costs of the
+  per-component profile (`BoardBase`'s effects, `Symbol`'s teardown, `Container`'s runs and
+  teardowns) were one cause, DOM work over a flat run of ~5–11k anchors, fixed 2026-11-12 (Recent
+  changes): Svelte time per book free spin 2.7 s → 0.55 s and per `overlay-buffaloduel` spin
+  2.7 s → 0.7 s in WebKitGTK. What Svelte's time goes to now, in that order: deriveds checked or
+  run outside effects (timeline samples, the reel views' `shown`), the flush's own work outside
+  effects (~0.2–0.35 ms a flush in WebKitGTK, ~85 ms a free spin), and the rig path
+  (`BaseRigProvider`'s mount and prop sync, ~100 ms a free spin). Of the churn, what is left after
+  ranked churners 2–4: the bonus board mounting and unmounting whole. The win presentation no
+  longer remounts per line cycle (Recent changes, 2026-11-12, "the board idle after a win"): idle
+  after a win, `overlay-buffaloduel` builds nothing and starts no rig; a pass still mounts a rig's
+  bound effect per beat (`RiggedEffect`'s emitters, on `bookofborutremake`) and the info-bar win
+  toast. A spin still flushes every frame because each reel's
+  `Tween.current` changes and `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep
+  ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
+  than building and destroying its `RigView`s), idle particle layers updating every frame,
+  `propsSyncEffect`'s key list per run, and one Space on `bookofborutremake`'s start screen can
+  both continue and spin in WebKitGTK (Recent changes, 2026-11-12, "found").
+  Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601, the churn counters and
+  this change released. The ~118 MB of resident textures on
   `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
   `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
 
@@ -381,13 +504,1102 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-12 — **The board idle after a win no longer rebuilds the win presentation: a reel view
+  keeps its rig art, flipbook art and win frame between plays and starts them again in place, a rig
+  keeps its bound clip across beats, and the win line keeps its stroke and stamp** (branch
+  `engine/win-presentation-kept-views`, on `claude/nice-albattani-a03tcm` at `06132fd9`; the last
+  item of the iPhone plan's step 4, ranked churner 4 of the 2026-11-11 churn sweep).
+  - **Why it rebuilt, per pass of the resting win cycle** (`winSymbolCycle.ts` sets each paying
+    cell to `win`, then `postWinStatic`, and shows and hides that win's line):
+    1. `Symbol.svelte`'s frame band (`{#key restartWhen(showWinFrame || multiplier)}`, then
+       `{#if showWinFrame}`): the win frame (`SymbolWinFrame`, a rig with its bound clip) mounted
+       as the cell turned `win` and was destroyed at `postWinStatic`.
+    2. A rig symbol's win draws on the animating layer (`ReelSymbol.svelte` `animating`,
+       `SymbolWrap.svelte` `show`), so the view there started a new entry (`createEntries`) and
+       `Symbol`'s `{#key artKey}` mounted its `SymbolRigMain` again, with its rigged effects.
+    3. The same art band mounted a view's flipbook win art (`SymbolFlipbook`) per play.
+    4. `RiggedFlipbook.svelte`'s `{#key runId}` mounted the frame's bound clip again on every
+       beat: each lap of a looping frame.
+    5. `WinLine.svelte`'s `{#if lines.length || cue}` and `{#each lines (entry.id)}` mounted the
+       container, stroke and stamp per line and destroyed them at each hide.
+  - **What changed** (two commits):
+    1. **A view keeps its rig art and its win frame** (`<RigProvider parked restart>`,
+       `pixi-svelte/src/lib/rigKeep.ts`). A play is what a mount was (`createEntries` over the rig
+       arm; `createWinFrames` for the frame, decided once per visit, and not kept when a visit
+       starts under a multiplier stamp, which a mounted frame paints over). Between plays the rig
+       is put away: off the ticker, hidden, its rigged effects and clips let go (the parked
+       context). Each play starts it again where and when its mount ran, in pre-effects at its
+       place in the tree: its update registered again at the end of the ticker (rig events start
+       effects whose emitters draw `Math.random`, in the order rigs update), the setup pose with
+       no track, and what `BaseRigProvider` measured at mount (size, and a box-less rig's pivot,
+       from the first pose; skin; locale, which the setup pose undoes) measured again after the
+       track's first pose, as at a mount. A rig with no authored box restarts in place too
+       (Rigger imports such as `overlay-buffaloduel`'s `R_WinEffect` frame have none). Symbols
+       that are not views mount as before.
+    2. **A view keeps its flipbook art the same way** (`SymbolFlipbook`'s `parked`/`restart`:
+       hidden, stopped and silent away, its clip from frame 0 and its beat timed again at each
+       play); **`RiggedFlipbook` keeps its clip** from its first beat, started again from frame 0
+       per beat and hidden and stopped while taken down; **`WinLine` keeps its container, stroke
+       and stamp** one line at a time with no big-win run-up (the list path, all lines at once or
+       the run-up, is as before), drawing the stroke again per line and reporting the stamp's size
+       to each line it is handed.
+  - **Before / after** (`06132fd9` vs both commits, unminified; the churn sweep's method: published
+    snapshot + test server, `WIN_X=5,5,5`, `?perf=1`, real clock, each "idle after a win" window
+    15 s after a paying spin's round ends; WebKitGTK 400×230 over its own `WebKitWebDriver`, two
+    interleaved runs a side, 4 windows each; Chromium 734×321, one run a side):
+
+    | per 15 s idle after a line win, WebKitGTK    | `overlay-buffaloduel`           | `bookofborutremake`                     |
+    | -------------------------------------------- | ------------------------------- | --------------------------------------- |
+    | objects built / destroyed                    | 238 / 217 → 0 / 0               | 562 / 540 → 302 / 299                   |
+    | rigs started                                 | 28 → 0                          | 29 → 0                                  |
+    | component mounts (instrumented copy)         | 355 → 0                         | 351 → 155                               |
+    | DOM nodes added + removed                    | 2,578 → 452                     | 3,038 → 1,577                           |
+    | Svelte, total (instrumented copy)            | 1,499 → 1,148 ms                | 405 → 321 ms                            |
+    | Svelte, the win presentation's components    | 140 → 32 ms                     | 210 → 118 ms                            |
+    | JS−render / after the tick, ms a frame       | 5.0 / 5.9 → 4.8 / 5.5           | 0.8 / 2.5 → 0.9 / 2.3                   |
+    | fps / frames over 33 ms                      | 38.7 / 14% → 44.3 / 8%          | 48.2 / 6% → 49.4 / 5%                   |
+    | a line-win spin: built / destroyed, rigs     | 1,008 / 782, 70 → 576 / 237, 28 | 3,514 / 3,380, 200 → 2,682 / 2,111, 119 |
+    | Chromium, idle 15 s: built / destroyed, rigs | 227 / 197, 25 → 0 / 0, 0        | 385 / 379, 22 → 250 / 247, 0            |
+    | Chromium, JS−render / after, ms a frame      | 7.8 / 9.2 → 7.0 / 7.7           | 1.0 / 3.3 → 1.0 / 2.8                   |
+
+    What `bookofborutremake` still builds idle is its win rig's bound effect, started per beat
+    (`RiggedEffect`: ~213 particles and the effect's containers per 15 s, unchanged), and the
+    info-bar win toast it re-shows each pass. Chromium's no-win spin on `overlay-buffaloduel` (4
+    spins a side): 573 / 432 → 530 / 319 objects, 35 → 26 rigs, JS−render / after / late
+    11.6 / 11.8 / 13.1 → 10.0 / 10.2 / 12.8 ms a frame; no page errors either side. The machine
+    ran the parity harness and the frame captures alongside (load average ~10 on 4 cores, Chromium
+    at ~17 fps), so a frame time moves by tens of percent between runs: read the counts. In the
+    instrumented copy most of `overlay-buffaloduel`'s idle Svelte time is not the win presentation
+    but the flush outside effects and the pots overlay's timeline samples (~1.1 s of 1.15), which
+    this does not touch.
+
+  - **Parity:** current-games harness, local, determinism mode, base (`06132fd9`) vs both commits,
+    unminified, every scenario, every capture byte-identical and on the same frame:
+    `overlay-buffaloduel` 17/17, `bookofborutremake` 17/17, `commonoverlayproject` 17/17,
+    `holdandwintestsolo` 11/11 (Hold and Win, jackpot), stand-ins `cg-lines` 17/17 and
+    `cg-cluster` 14/14 (93 of 93). The harness captures a line win once, so the win cycle was also
+    captured frame by frame (determinism mode, 1280×720, the harness's serve and play libraries,
+    sha-256 of each capture, `WIN_X=2`, from the first frame of the seed's first winning spin):
+    `overlay-buffaloduel` every frame for 1,500 frames, through the round's own narration of its
+    ten wins, 1,500/1,500 identical on the same frames (1,500 distinct pictures), on commit 1
+    alone too; then every 2nd frame from frame 1,500 for 2,000 frames into the resting cycle,
+    1,000/1,000 (1,000 distinct, the game idle and the cycle replaying in every one);
+    `bookofborutremake` every frame for 1,500 frames, the round's five wins and then 823 frames of
+    the resting cycle, 1,500/1,500 (1,500 distinct). Hold and Win respin cells are views too, so
+    their coin rigs are kept: the respins frame by frame (the 2026-11-11 method, every 3rd frame),
+    `overlay-buffaloduel`'s `pot:red` bonus, tapped past its intro, 650/650 identical on the same
+    frames (519 with the respin board up, 650 distinct pictures), `holdandwintestsolo`'s forced
+    trigger 450/450 (314 with the board up).
+  - **Gates:** `rigKeep.fixture.ts` (new: against real `RigView`s on a shared ticker, seven rig
+    cases — the win frame twice, a symbol rig with an event twice, one whose state mixes, one with
+    no authored box, one with physics — every frame of a play after a play and a stretch away is
+    a new view's: pose, events, slot meshes; put away it is off the ticker and moves nothing; the
+    ticker order of a play; source pins for the five components), `reelViewPool.fixture.ts` (+ the
+    kept rig, flipbook and frame against their keyed bands over 6,000 random steps of entries,
+    vacancies, art kinds, wins and stamps, the frame's paint order against the stamp, source
+    pins), `winLineKeep.fixture.ts` (new, source pins); 31 mutations (each line of `rigKeep.ts`,
+    each component rule, the frame decision, the `Symbol` and `WinLine` wiring) each fail one of
+    them. `check:all` for `apps/lines` (17) and `pixi-svelte` (18), `verify-swap-in-place-mode`,
+    `verify-board-paint-order`, `verify-symbol-wrap-context`, `verify-symbol-seat`,
+    `verify-stepped-grid`, `verify-tumble-pattern`, `verify-win-explode-pop`,
+    `verify-symbol-overflow`, `verify-board-tiles`, `verify-win-beat-budget`,
+    `verify-pot-meter-mount`, the launcher's `check:symbol-layers`, `check:clear-reel`,
+    `check:respin-land`, `check:jackpot-coin-art`, `check:symbol-fx`; `check:element-fx`;
+    `check:svelte --only` at baseline for `apps/lines` (145) and `pixi-svelte` (14); Prettier and
+    ESLint clean.
+  - **Found, not fixed:**
+    - **A rig's bound effect still mounts per beat** (`RiggedEffect.svelte`'s `{#key runId}`:
+      its `EffectPlayer`, emitters and `RigBoneAttach`; ~15 a 15 s idle window and ~213 particles
+      on `bookofborutremake`). Unlike the clip, an emitter started again is not a new one: its
+      particles, pool and `Math.random` draws carry over, so keeping it needs its own parity work.
+    - **The info-bar win toast re-mounts its text per pass** where a project shows the message
+      in the cycle (`bookofborutremake`: `TextBox`, `CatalogText`, `MessageSymbol` with its
+      `Symbol` and sprite, ~5 a window). A text component keyed on its message, outside the reel
+      views.
+    - **`overlay-buffaloduel`'s idle Svelte time is the pots overlay**: ~1.1 s of every 15 s in
+      the instrumented WebKitGTK copy goes to the flush outside effects and the timeline samples
+      of nodes a timeline plays (`drive.sample()`, `foldBoundTransform`, ~43,000 evaluations
+      each a window), not to the win presentation. The largest idle cost left; not looked into
+      here.
+    - **Empty keyed blocks still re-key** (`Symbol`'s `{#key props.state}` and `{#key artKey}`
+      with nothing in them): ~450 DOM nodes a 15 s window, no objects. Cheap since the anchors sit
+      in their container's element.
+    - `bookofborutremake`'s board glow (`BoardFrame`) still remounts each loop (out of scope: it
+      changes pixels).
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test); the minified build;
+    the per-frame times on a quiet machine; the games the local parity runs did not cover (CI's
+    current-games run covers every live game); a project that tints its frame per line
+    (`tintMode: winLine`) or stamps a multiplier on a winning symbol, which the fixtures model but
+    no captured game exercises.
+
+- 2026-11-12 — **WebKit walked every anchor of the Pixi tree on each DOM change; a `Container` now
+  keeps its children's anchors in an element of its own, the reel views hand back an unchanged
+  list, and a `Symbol` with Element FX keeps its gate connected** (branch `churn-hotspots`, on
+  `claude/nice-albattani-a03tcm` at `b027048c`; step 4 of the iPhone plan, "fix the worst
+  churners", targets 1–3 of the per-component profile in the 2026-11-11 prop-sync entry below).
+  - **One cause behind the three largest WebKit-only costs.** Svelte leaves a comment or text
+    node in the page for every block, and `pixi-svelte` renders no element, so every anchor of the
+    Pixi tree was a sibling in one run beside the canvas: 10,842 nodes on `overlay-buffaloduel` at
+    rest, 4,970 on `bookofborutremake`, the canvas the only element. On every node WebKit inserts,
+    removes or moves, it walks the parent's children to the nearest element on each side, so each
+    of those costs the length of the run. Measured on `about:blank` (comment siblings, µs an
+    operation):
+
+    | siblings                       | WebKitGTK move / insert + remove | Chromium move / insert + remove |
+    | ------------------------------ | -------------------------------- | ------------------------------- |
+    | 100                            | 1.5 / 1.0                        | 0.25 / 0.35                     |
+    | 1,000                          | 12 / 11.5                        | 0.25 / 0.35                     |
+    | 5,000                          | 52 / 59                          | 0.4 / 0.35                      |
+    | 20,000                         | 347 / 609                        | 0.7 / 0.45                      |
+    | 10,000, an element every 100   | 1.5 / 1.5                        | —                               |
+    | 10,000, an element every 1,000 | 9 / 10.5                         | —                               |
+
+    The same with a subtree `MutationObserver`, under `display: none`, `display: contents`,
+    detached, or in a `<template>` (96–125 µs at 10,000): the walk is in WebKit's core DOM code,
+    which iOS Safari shares. So the 2026-11-11 profile's three largest items were DOM work. In a
+    book feature, `BoardBase`'s 2,294 effect runs at ~4 ms were mostly a keyed `{#each}`'s moves:
+    each time a new board takes the views the last one left, strip order puts their items first
+    and Svelte moves each one's ~54 anchors, ~0.2 ms a node. `Symbol`'s ~12 ms teardowns (18 ms
+    here) were the removal of its anchors, and `Container`'s destroys and much of its runs were
+    the removals and inserts of the blocks under it. The earlier note that the anchors cost
+    nothing (detached, nothing moved) was measuring the wrong thing: detaching does not shorten
+    the run.
+
+  - **What changed** (three commits, each byte-identical):
+    1. **`Container` renders its children inside a hidden `<div>` of its own**, so the page holds
+       the Pixi tree as a tree (longest run of anchors 427 on `overlay-buffaloduel`, 84 on
+       `bookofborutremake`). It never draws; the canvas host held no other element and nothing
+       reads its children. `?perf=1`'s DOM counter counts each node a mutation adds or removes
+       with every node under it, so a container mounted with its children still counts them all
+       (`churnProbe.ts` `nodesIn`; each `Container` adds one node).
+    2. **The reel views hand back the same list while every view in it is the same**
+       (`reelViewPool.ts` `keepList`, in `createBoardViews`, `createPoolViews` and
+       `createShownViews`). A new array runs a keyed `{#each}` again even when every item is
+       kept: a strip change on one reel ran all five reels' board `{#each}`. Book free spins: the
+       board's inner `{#each}` runs fall from 5 to under 1 per strip change (3,010 → 560 for ~600
+       changes); the filler's only ~14%, as nearly every crossing hands a view a new cell.
+    3. **A `Symbol` with Element FX reads its `gate` in a pre-effect.** Its art reports through
+       `gate` from Pixi's ticker (a rig's `complete`, every frame for a looping still), outside any
+       reaction, and Svelte 5.57 runs an unconnected derived's inputs again on every read once
+       anything they read has changed, even to the same value (its version moves only with its
+       value). Connected, `ownArt` and `waitsForFx` run only when an input changes; the gate is
+       made from the same inputs, in the flush rather than at its next read (`stateFxGate` makes
+       an object and nothing else). Four warm book spins: 19,631 runs of the two → 5,199.
+  - **Per-component profile, before / after** (the instrumented copy of the 2026-11-11 entry,
+    extended to frame Svelte's DOM insert (`append`), removal (`remove_effect_dom`), keyed
+    `move` and each derived's evaluation; exclusive ms in WebKitGTK; base `b027048c` vs commits
+    1–2, interleaved; book per free spin, as base's warm moments held 20 and the branch's 25):
+
+    | per unit, WebKitGTK                  | book free spins (per free spin) | `overlay-buffaloduel` spins (per spin) |
+    | ------------------------------------ | ------------------------------- | -------------------------------------- |
+    | Svelte, total                        | 2,748 → 549 ms                  | 2,697 → 718 ms                         |
+    | `BoardBase` (all its effects)        | 1,181 → 11 ms                   | 12 → 7 ms                              |
+    | `Container` (runs, mounts, destroys) | 846 → 71 ms                     | 1,629 → 86 ms                          |
+    | `Symbol` (its own)                   | 0.3 → 0.4 ms                    | 194 → 1.2 ms (14 teardowns a spin)     |
+    | DOM insert / remove / keyed move     | 500 / 473 / 1,197 → 9 / 7 / 1.5 | 1,069 / 832 / 153 → 11 / 3 / 0         |
+    | the flush outside effects            | 81 → 85 ms                      | 181 → 233 ms                           |
+    | deriveds checked outside effects     | 110 → 104 ms                    | 173 → 197 ms                           |
+
+    The runs did not fall (book: `Container` 4,693 → 5,797 runs a free spin, the branch's
+    features drew more rigs; buffaloduel: 5,465 → 6,559 a spin over more frames): each run and
+    teardown got cheaper. What is left is the flush's own work outside effects (the
+    effect tree walk and the batch bookkeeping, ~0.2–0.35 ms a flush in WebKitGTK), deriveds
+    checked or run outside effects (the timeline samples of the pots overlay, the reel views'
+    `shown`) and the rig path (`BaseRigProvider`, ~100 ms a free spin).
+
+  - **The sweep, before / after** (base `b027048c` vs all three commits, unminified, the churn
+    sweep's method: snapshot + test server with its forcing, `?perf=1`, real clock, warm moments;
+    built / destroyed, rigs and DOM nodes per moment; late / JS−render / after are ms a spinning
+    or round frame; excess is that JS and after-tick time over the idle frame's, summed; WebKitGTK
+    400×230 over its own `WebKitWebDriver`, headless Chromium 734×321):
+
+    | moment (game)                           | built / destroyed             | rigs      | DOM nodes       | WebKit late / JS−r / after           | fps         | > 33 ms   | excess s    | Chromium JS−r / after     |
+    | --------------------------------------- | ----------------------------- | --------- | --------------- | ------------------------------------ | ----------- | --------- | ----------- | ------------------------- |
+    | no-win spin (buffaloduel)               | 599 / 506 → 676 / 579         | 28 → 37   | 4,362 → 4,789   | 13.6 / 26.5 / 36.6 → 2.2 / 7.5 / 8.1 | 16.1 → 30.5 | 48% → 28% | 3.3 → 1.0   | 15.9 / 19.1 → 12.0 / 10.9 |
+    | line win (buffaloduel)                  | 787 / 654 → 931 / 714         | 59 → 69   | 10,574 → 9,578  | 1.8 / 7.3 / 16.7 → 0.5 / 4.7 / 6.4   | 24.9 → 31.9 | 29% → 20% | 8.9 → 3.9   | —                         |
+    | idle after a win, 15 s (buffaloduel)    | 235 / 239 → 217 / 197         | 17 → 22   | 2,698 → 2,370   | JS−r / after 4.6 / 7.5 → 4.2 / 5.9   | 33.0 → 36.4 | 19% → 17% | 2.8 → 2.1   | —                         |
+    | free spins, per free spin (bookofborut) | 1,139 / 1,137 → 1,360 / 1,326 | 82 → 88   | 10,563 → 10,888 | 1.9 / 3.2 / 8.4 → 0.7 / 1.4 / 1.9    | 32.6 → 55.3 | 28% → 2%  | 1.6* → 0.36 | 4.3 / 7.4 → 4.7 / 6.1     |
+    | Hold and Win, pots (buffaloduel)        | 5,355 / 5,080 → 7,457 / 7,170 | 318 → 630 | 41,534 → 58,448 | 7.7 / 14.1 / 26.8 → 1.1 / 6.1 / 7.2  | 22.0 → 31.7 | 27% → 24% | 48.0 → 14.6 | —                         |
+
+    The machine ran the parity and frame-by-frame runs alongside (load average 10–16 on 4 cores),
+    so a frame time swings by ±40%; read the size of the change, not the last digit. Counts
+    follow the frames drawn on the real clock: the branch drew more (a spin's active frames 53 →
+    89, the bonus's 1,375 → 1,963) and some art starts per frame drawn, so it built more; in
+    determinism mode every frame is the same (Parity). Book: base's warm moments held 20 free
+    spins and the branch's 25 (base used its first feature on the start screen, "found" below), so
+    per free spin; `*` is the branch's idle frame (base had none clean). The DOM counter now
+    counts nodes under a mutated one too, and each `Container` adds one, so DOM nodes stay
+    comparable (Chromium no-win spin 4,505 → 4,447).
+
+  - **Parity:** current-games harness, local, determinism mode, base (`b027048c`) vs all three
+    commits, unminified, every scenario, every capture byte-identical and on the same frame:
+    `overlay-buffaloduel` 17/17, `commonoverlayproject` 17/17, `bookofborutremake` 17/17,
+    `holdandwintestsolo` 11/11, stand-ins `cg-lines` 17/17 and `cg-cluster` 14/14 (93 of 93);
+    `overlay-buffaloduel` 17/17 on commit 1 alone too. The respins frame by frame (the 2026-11-11
+    method, 1280×720, every 3rd frame, sha-256 of each capture): `overlay-buffaloduel`'s `pot:red`
+    bonus 650/650 identical on the same frames (519 with the respin board up, 650 distinct
+    pictures), `holdandwintestsolo`'s forced trigger 450/450 (314 with the board up).
+  - **Gates:** `containerAnchors.fixture.mjs` (new; six mutations of `Container`'s markup each fail
+    it), `churnProbe.fixture.ts` (+7 checks: `nodesIn` and `observeDomChurn` through a stand-in
+    `MutationObserver`; six mutations), `reelViewPool.fixture.ts` (144 checks, 20 new: a list
+    kept exactly while its views are, through whole rolls and respins, and a shorter filler list;
+    eight mutations, and the earlier seventeen still fail it), `symbolGate.fixture.mjs` (new; in
+    Svelte's client runtime ten reads from outside a reaction re-run the inputs 20 times
+    unconnected, 0 connected, with the same gates and reports; four mutations). `check:all` for
+    `apps/lines` (16) and `pixi-svelte` (17) with `verify-swap-in-place-mode`,
+    `verify-board-paint-order`, `verify-symbol-wrap-context`, `verify-symbol-seat`,
+    `verify-stepped-grid`, `verify-tumble-pattern`, `verify-win-explode-pop`,
+    `verify-symbol-overflow`, `verify-board-tiles` and the launcher's `check:symbol-layers`,
+    `check:jackpot-coin-art`, `check:symbol-fx`, `check:respin-land`, `check:clear-reel` (47 of
+    47); `check:svelte --only` at baseline for `apps/lines` (145) and `pixi-svelte` (14);
+    `tools/fx-spike` `element-fx` (imports `Container` and pins `Symbol`);
+    `check:agents-knowledge`; Prettier and ESLint clean.
+  - **Found, not fixed:**
+    - **One Space on a start screen can both continue and spin.** In WebKitGTK, on
+      `bookofborutremake`, the first Space on the press-to-continue screen also bet a spin in 5 of
+      5 base runs and 1 of 7 branch runs; in Chromium in none (2 of 2 each). Likely cause, read
+      from the code and not traced: `OnHotkey` reads its `disabled` at the event and hotkey
+      subscribers run in mount order, so when the continue-press subscribed first (load timing),
+      its synchronous completion re-enables the spin hotkey for the same keydown. Behaviour, not
+      pixels; not fixed here.
+    - **The win presentation remounting per line cycle** (ranked churner 4): its DOM share is gone
+      with fix 1; its rigs and display objects are not (the sweep's idle after a win: ~217
+      objects and 22 rigs every 15 s, JS−render 4.2 ms a frame). Keeping the frames and labels
+      mounted per presentation is the remaining fix, medium risk (rig restarts).
+    - **The flush's own cost** (above) and `propsSyncEffect` walking every key per run (a
+      `Container` run, the blocks of its children included, is ~10 µs in WebKitGTK now; all of
+      `Container` is 71–86 ms of a free spin or a spin): no byte-identical fix found worth it; a
+      per-key sync would change the order props are written in.
+    - `bookofborutremake`'s board glow (`BoardFrame`) still remounts each loop (out of scope: it
+      changes pixels); its DOM share fell 130 → under 8 ms a free spin with fix 1.
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test); the minified build;
+    the per-frame times on a quiet machine (the parity runs shared it).
+
+- 2026-11-11 — **A Hold and Win respin cell draws its symbols through kept views, and a view keeps
+  its `Symbol`'s containers and one sprite whatever it draws** (branch `churn-symbol-bands`, on
+  `claude/nice-albattani-a03tcm` at `a80a6f58`; step 4 of the iPhone plan, ranked churners 2 and 3
+  of the churn sweep below).
+  - **What changed** (`apps/lines/src/game/reelViewPool.ts`, Current state):
+    - **`Symbol`'s Element FX container is unconditional.** With no Element FX authored it is a
+      plain container (no filter, no transform), so it draws the same pixels. It used to exist only
+      `{#if symbolFx}`, so a view drawing an FX symbol after a plain one (and back) destroyed and
+      rebuilt every band. It is now keyed by `createFxKey`: a symbol whose own cell turns between
+      the two within one entry (a wild rewrite, a special expanding, `frozen` turning) still starts
+      every band again, exactly as the `{#if}` did; a view's entry does not, because each band that
+      draws already starts again on the entry.
+    - **A view keeps one sprite of its own** (`artDraw`): mounted the first time the view draws a
+      bound sprite, hidden (`visible` on `SymbolSprite`) while the view draws a rig, a flipbook, a
+      placeholder or nothing, and handed each sprite cell after. Hidden, Pixi neither draws nor
+      measures it. A view moving between rigs and sprites used to mount a sprite per entry. The
+      `keepSprite` prop is gone (the sprite hides itself, so the rider's view keeps one too).
+    - **`RespinCell` draws its shown strip symbols through views** (`createShownViews`, built on
+      `createBoardViews` with every symbol taking a view, and `createEntries` with one counter per
+      cell). A symbol keeps one view while it is shown and the views it leaves draw the next; a
+      cell builds as many as its one-row window ever shows at once (two). Each entry starts the
+      symbol's art as a new mount did, and is the view's `zIndex`, so where two symbols overlap
+      in the window the newer one paints over the older, as an appended mount did. A vacant view
+      is hidden and not placed. The held layer (`RespinHeldSymbol`) is unchanged.
+  - **Before / after** (`a80a6f58` → this branch, both unminified, the churn sweep's method below:
+    snapshot + test server with its forcing, `?perf=1`, real clock; warm moments, per moment;
+    containers and sprites are built + destroyed; late / JS−render / after are ms a spinning or
+    round frame in WebKitGTK; excess is that JS and after-tick time over the idle frame's, summed):
+
+    | moment (game)                       | built / destroyed               | containers    | sprites   | rigs      | DOM nodes         | WebKit late / JS−r / after               | excess s    | Chromium JS−r / after     |
+    | ----------------------------------- | ------------------------------- | ------------- | --------- | --------- | ----------------- | ---------------------------------------- | ----------- | ------------------------- |
+    | no-win spin (buffaloduel)           | 579 / 483 → 494 / 399           | 498 → 415     | 43 → 26   | 20 → 21   | 4,792 → 4,072     | 36.5 / 72.1 / 120.9 → 26.6 / 58.4 / 88.2 | 5.7 → 4.4   | 12.4 / 13.1 → 9.9 / 10.2  |
+    | no-win spin (bookofborut)           | 1,415 / 1,334 → 1,325 / 1,248   | 112 → 111     | 137 → 10  | 76 → 74   | 6,040 → 5,186     | 7.3 / 8.4 / 7.8 → 12.3 / 13.2 / 10.3     | 1.5 → 1.9   | 5.2 / 4.5 → 4.9 / 3.9     |
+    | line win (buffaloduel)              | 902 / 788 → 881 / 702           | 828 → 774     | 308 → 216 | 60 → 58   | 11,488 → 9,085    | 7.6 / 18.9 / 43.5 → 3.7 / 16.0 / 37.6    | 11.2 → 7.6  | 10.3 / 11.5 → 8.6 / 9.5   |
+    | free spins (bookofborut, a feature) | 9,850 / 9,813 → 10,293 / 10,252 | 310 → 331     | 649 → 10  | 707 → 755 | 103,820 → 103,142 | 3.1 / 5.1 / 17.7 → 3.0 / 5.1 / 17.9      | 43.6 → 44.0 | 3.7 / 5.7 → 3.0 / 4.5     |
+    | Hold and Win, pots (buffaloduel)    | 7,674 / 7,303 → 5,559 / 5,278   | 7,157 → 3,062 | 589 → 507 | 376 → 335 | 70,392 → 41,597   | 28.8 / 41.9 / 54.8 → 9.2 / 17.7 / 33.0   | 82.6 → 41.7 | 10.5 / 11.0 → 10.0 / 10.5 |
+    | Hold and Win, pots (commonoverlay)  | 7,207 / 7,017 → 6,327 / 6,154   | 3,668 → 2,372 | 72 → 54   | 143 → 155 | 38,478 → 30,715   | 6.0 / 12.8 / 16.9 → 3.4 / 9.8 / 12.6     | 28.9 → 22.0 | 10.8 / 9.3 → 10.6 / 9.2   |
+
+    Each moment ran base then branch back to back (WebKitGTK 400×230 over its own
+    `WebKitWebDriver`, headless Chromium 734×321), on a machine shared with another agent's runs
+    and a stray WebKit page at ~85% CPU (load average 7–20): the per-frame times are noisy and the
+    idle frame itself cost ~2× the churn sweep's, so the counts are the measure. The sprites fall
+    95–99% where rigs and sprites alternate (book free spins 649 → 10, Chromium 1,485 → 43), the
+    containers about halve in a Hold and Win bonus (Chromium 7,418 → 3,645 and 6,689 → 3,904) and
+    the DOM nodes fall 14–41%. Rigs are unchanged by this work (fix 1 of the ranked list); a
+    free-spins feature's totals follow how many rigs its spins drew on the real clock (707 → 755
+    here), which hides its saving in everything but the sprites.
+
+  - **Parity:** current-games harness, local, determinism mode, `a80a6f58` vs this branch,
+    unminified, every scenario, every capture byte-identical and on the same frame:
+    `overlay-buffaloduel` 17/17, `commonoverlayproject` 17/17, `bookofborutremake` 17/17,
+    `holdandwintestsolo` 11/11 (Hold and Win, jackpot), stand-ins `cg-lines` 17/17 and `cg-cluster`
+    14/14 (93 of 93). The harness has no pots scenario for a lines game and its Hold and Win
+    captures are a few frames apart, so the respins were also captured frame by frame (determinism
+    mode, 1280×720, the harness's serve and play libraries, every 3rd frame, sha-256 of each
+    capture): `overlay-buffaloduel`'s `pot:red` bonus, tapped past its intro, 650/650 identical on
+    the same frames (518 with the respin board up, 650 distinct pictures); `holdandwintestsolo`'s
+    forced trigger 450/450 (314 with the board up).
+  - **Gates:** `reelViewPool.fixture.ts` (124 checks; new: the base-art rule, the FX key, shared
+    entries, each view building its sprite at most once through whole rolls, and a respin model
+    run through the views beside a component per shown symbol, five speeds, frame by frame:
+    starts, stops and paint order); 17 rule mutations (respin entries numbered per view, filler
+    left out, a view's sprite drawn in the keyed band or while vacant, the FX key moving at an
+    entry or never, the source pins on `Symbol`, `SymbolSprite` and `RespinCell`) each fail it.
+    `check:all` for `apps/lines` (15) and `pixi-svelte` (16), `check:svelte --only apps/lines` at
+    its baseline (145), `tools/fx-spike` `element-fx` (its pin moves with the container),
+    `verify-swap-in-place-mode`, `verify-win-explode-pop`, `verify-symbol-wrap-context`,
+    `verify-symbol-seat`, `verify-board-paint-order`, `verify-symbol-overflow`,
+    `verify-stepped-grid`, `verify-board-tiles`, `verify-tumble-pattern`, the launcher's
+    `check:clear-reel`, `check:symbol-layers`, `check:respin-land`, `check:jackpot-coin-art`,
+    `check:symbol-fx`; Prettier and ESLint clean.
+  - **`commonoverlayproject`'s idle particles are a pool that levels off, not a leak.**
+    `@barvynkoa/particle-emitter` builds a particle only when its pool is empty and returns a dead
+    one to the pool, destroying it only with its emitter; Pixi's ticker caps a frame's delta at
+    100 ms, so an emitter's peak is bounded. Four minutes idle after the start screen, base build:
+    WebKitGTK built 10 particles and destroyed none (live 250–630 over the idle cycle, 30
+    emitters); Chromium built none (live ~162, 18 emitters). The sweep's ~195 a 15 s idle window
+    was the pools still filling to their peak after the game's first mount. Nothing to fix.
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test); the minified
+    build; the per-frame times on a quiet machine (the WebKit times above ran under load); the
+    games the local parity runs did not cover (CI's current-games run covers every live game).
+
+- 2026-11-11 — **A layout node a timeline plays no longer re-runs its view's prop sync every
+  frame; a rig started again costs ~1.8 ms in WebKitGTK, not ~20, so the `RigView` pool is not
+  done** (branch `churn-rig-reuse`, on `claude/nice-albattani-a03tcm` at `a80a6f58`; step 4 of the
+  iPhone plan, churner 1).
+  - **What a rig start costs, measured in place** (an unminified copy of the build with timers
+    around `RigView`'s constructor, `destroy` and `syncDisplay`, and around the rig components;
+    WebKitGTK; `bookofborutremake` free spins, ~1,230–1,280 rig starts a session): the `RigView`
+    0.52–0.67 ms to build (a new `Skeleton` and `AnimationState` 0.08–0.09, ~12 slot meshes at
+    ~0.02 each, the rest its container, its measuring `Graphics` and its first mesh build) and
+    0.12–0.16 ms to destroy; the Svelte around it (`RigProvider`, `BaseRigProvider`, `RigTrack`,
+    `RiggedEffect`: their mount, their effects' runs, their teardown) ~1.1 ms more. About 1.8 ms a
+    start, ~2.3 s of a ~120 s session that spends ~27 s in Svelte. On `overlay-buffaloduel`'s
+    spins, building and destroying `RigView`s took 71 ms of six spins (107 rigs) against 12 s of
+    Svelte flushes. The churn sweep's ~20 ms a rig (below) was a regression over 1 s windows: a rig
+    start comes with the rest of its symbol's state change (bands, sprites, flipbooks, effects),
+    and the regression gave that to the rig.
+  - **The `RigView` pool is not done.** A perfect pool saves the `RigView` part, at most ~0.7 ms
+    of WebKitGTK a start: ≤0.5 s of a 106 s book feature (~1–2% of its main-thread excess), ~0.04 ms
+    a start on an iPhone 17 at the 18× ratio. Its risk is medium (a reused view must be a new one in
+    every field, its update must land where a new one's would on the shared ticker, its rigged
+    effects must draw `Math.random` in the same order) and it needs its own parity campaign. In
+    headless Chromium the share is larger (`BaseRigProvider`'s mount was ~16% of a book feature's
+    Svelte time, against ~2.5% in WebKitGTK): if Android ever needs it, the low-risk form is to
+    pool only the slot meshes (a new `RigView` per mount keeps its ticker place, container state
+    and child order by construction, and `syncDisplay` rewrites every field a mesh draws with),
+    which saves ~0.3 ms of the 0.7.
+  - **Where Svelte's time goes in WebKitGTK** (a second instrumented copy: each component's
+    synchronous mount, and each effect's runs and teardown attributed to the component whose code
+    created it, exclusive of what nests inside):
+
+    | moment (game)                    | Svelte s | largest                                                                                                                                                       |
+    | -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | at rest, 15 s (buffaloduel)      | 1.73     | `BaseRigProvider` prop sync 0.82 (40,014 runs: 57 rigs every frame), flush 0.80, `LayoutNodeView` 0.10                                                        |
+    | six spins (buffaloduel)          | 22.0     | `Container` 9.6 (destroy 3.8, run 3.7, mount 2.0), `BaseRigProvider` 3.7 (3.55 the per-frame prop sync), `Symbol` 3.6 (destroy 2.1: 172 at ~12 ms), flush 3.4 |
+    | free spins, ~120 s (bookofborut) | 27.1     | `Container` 11.3 (run 6.2 over 77k, destroy 4.6 over 14k), `BoardBase` 9.3 (its effects: 2,294 runs at ~4 ms; ~0.15 ms in Chromium), flush 1.8, rig path 2.2  |
+
+    The machine was shared and loaded (load average 10–13 on 4 cores) during these runs, so read
+    the shares, not the seconds.
+
+  - **The fix — the rig path's largest cost was not its starts but a per-frame rerun.**
+    `<LayoutNodeView>`'s `transform` was a new object each time its fold re-ran, and a node a
+    timeline plays (the pots overlay's rigs) samples every frame, so every frame each such rig's
+    `BaseRigProvider` prop sync re-ran, with the rig block around it, writing the values already
+    there. `stableTransform` (`resolveTransform.ts`) keeps the previous object while every field
+    reads the same (a primitive by `Object.is`, a point by its coordinates). Pinned by
+    `engine-layout/stableTransform.fixture.mjs`: each field in turn, points, added and dropped
+    fields, `0`/`-0`, `NaN`, and the derived → effect behaviour in Svelte's client runtime; every
+    one of seven mutations of the helper fails it.
+  - **Measured.** Instrumented, WebKitGTK, `overlay-buffaloduel`: at rest 1.73 → 0.63 s of Svelte
+    per 15 s (the prop-sync and rig-block runs gone, 40,014 → 0); six spins 22.0 → 17.6 s
+    (160,518 prop-sync runs → 0). The sweep, base (`a80a6f58`) against this branch, in interleaved
+    pairs (ms a frame over the moment's active frames; built / destroyed, rigs and DOM nodes are
+    unchanged, as the change removes reruns, not mounts):
+
+    | moment (game)                    | WebKitGTK JS−render / after | Chromium JS−render / after |
+    | -------------------------------- | --------------------------- | -------------------------- |
+    | at rest (buffaloduel)            | 4.6 / 5.5 → 3.4 / 3.9       | 14.7 / 17.5 → 9.1 / 11.9   |
+    | at rest (commonoverlay)          | —                           | 12.0 / 14.3 → 6.2 / 7.0    |
+    | at rest (bookofborut)            | —                           | 0.5 / 6.3 → 0.6 / 2.8      |
+    | no-win spin (buffaloduel)        | 28.1 / 31.7 → 22.1 / 28.1   | 21.7 / 25.4 → 16.7 / 19.9  |
+    | line win (buffaloduel)           | 8.6 / 15.0 → 12.1 / 31.8    | 13.7 / 16.1 → 9.8 / 11.5   |
+    | big win (commonoverlay)          | 9.3 / 17.6 → 7.9 / 14.5     | 16.8 / 21.3 → 12.1 / 14.6  |
+    | free spins (bookofborut)         | 5.8 / 21.6 → 4.9 / 13.7     | not comparable             |
+    | Hold and Win, pots (buffaloduel) | 22.9 / 34.2 → 42.3 / 62.4   | 14.2 / 15.0 → 12.3 / 13.8  |
+
+    WebKitGTK's no-win spin also read late 16.7 → 13.5 ms and frames over 33 ms 36% → 24%. The
+    machine was shared and loaded (load average 10–18 on 4 cores, another session's WebKit page
+    left running), so one run of a moment swings by ±40%. The book rows show it: nothing here
+    touches that game (its runtime doc has no timeline), its JS−render at rest is unchanged, yet
+    its time after the tick fell by 37–55%; the WebKit line win and Hold and Win read worse. Read
+    the counts above and the JS−render of the overlay games at rest and spinning, not single
+    moments.
+
+  - **Byte-identical:** current-games harness, local, determinism mode, base (`a80a6f58`) vs this
+    branch, unminified, every scenario, every capture byte-identical: `overlay-buffaloduel` 17/17,
+    `commonoverlayproject` 17/17, `bookofborutremake` 17/17, `holdandwintestsolo` 11/11, stand-ins
+    `cg-lines` 17/17 and `cg-cluster` 14/14 (93 of 93).
+  - **`bookofborutremake`'s board glow, found, not fixed** (ranked list, 7). Its authored glow
+    names one animation, `animation`, for start, idle and exit, and `BoardFrame.svelte`'s
+    `complete` listener tells the phases apart by name: a finished start is also read as a finished
+    exit, so the glow unmounts, the effect sees the feature still on and mounts it again — 129
+    mounts in ~80 s of one feature, one per ~0.5 s loop. The fix is to track the phase, not the
+    name. It changes pixels (one looping glow instead of a new one from t=0 each loop, with the end
+    pose held for a frame), so it is the owner's call.
+  - **Not verified:** a real iPhone; the minified build; the per-moment figures on an idle machine.
+
+- 2026-11-11 — **`?perf=1` counts what each frame builds and throws away; the churn sweep ranks
+  which moments build and destroy the most in WebKit** (branch `worktree-agent-a6cd0c31d3d039fde`,
+  on top of `claude/nice-albattani-a03tcm` / #1601; steps 2 and 3 of the iPhone plan).
+  - **Why:** the iPhone 17 (WebKit) paid ~10 ms of JS before each spinning frame's tick to Svelte
+    mounting symbol trees, and JavaScriptCore pays ~25–80× V8 for that churn. #1601 removed the
+    per-cell mounts on flat boards; nothing said what else churns, or where.
+  - **The counters** (Current state; `pixi-svelte` `churnProbe.ts`, only with the probe on):
+    display objects built and destroyed per frame by kind (containers, sprites, emitter particles,
+    texts incl. `BitmapText` / `HTMLText`, `Graphics`, meshes, other views) and `RigView`s as rigs;
+    canvas `Text` / `HTMLText` texture renders and their ms; and the nodes Svelte inserts into and
+    removes from the canvas's host `<div>`. Building is counted by a `uid` setter on
+    `Container.prototype` (Pixi's constructor assigns `this.uid` first; the setter makes the same
+    own property), destroying by wrapping `Container.prototype.destroy`; both come off with the
+    probe. The `MutationObserver`'s callback is a microtask after the frame callback's timing
+    microtask, so it is outside `jsMs`. A frame's churn is keyed like `jsMs` (its first frame
+    callback to the next frame's), so the Svelte flush before its tick is its own. Frames are read
+    in three phases: idle, spinning and `round` (a round's frames with the reels at rest, which
+    `idle` used to absorb). The Copy is `perf: 5`; `__IE_PERF__('take')` reads, then resets.
+    **Probe cost** in WebKitGTK on the booted game: ~1–2 µs per object built, ~0.1 µs per one
+    destroyed, ~1 µs per DOM node op for the observer, against the ~260 µs each object costs.
+  - **The churn cause** (`classifySpike`): when the frame's JS made the spike (≥ 60% of it) and
+    particles or rigs do not lead it, `churn` when it built and destroyed ≥ 60 display objects or
+    inserted and removed ≥ 300 DOM nodes (Svelte blocks, which leave anchors). Why those numbers:
+    idle frames build none; a flat-board spinning frame after #1601 averages ~8–27 objects and
+    ~10–160 nodes in Chromium (35–60 fps), so 60 / 300 mark a mount burst (a landing, a win cycle,
+    a screen), and the sweep reads 2–5 DOM nodes per object, so the two thresholds are about the
+    same volume. Cost: in WebKitGTK each object is ~0.26 ms and each rig ~20 ms of main thread; with
+    the iPhone 17 running the same flush ~18× faster (10 vs 181 ms, 2026-11-11 below), 60 objects
+    with a few rigs is ~4 ms there, half a 120 Hz frame by itself. In the sweep's WebKit runs
+    `churn` named 431 of 1,142 spinning spikes, the largest single cause.
+  - **Page errors fixed:** every `?perf=1` session logged
+    `Cannot read properties of null (reading 'format')` every 2 s. Pixi 8.22's
+    `GCManagedHash.remove` leaves `null` in `renderer.texture.managedTextures` where a texture was
+    unloaded or destroyed, and the readout's `textureFormats` (`glCounters.ts`, the HUD's textures
+    line, read every 4th refresh) read `.format` off each entry. It now skips them. The same
+    70 s session (boot, four spins) on the base build logs 11 of them, on this branch none; none
+    of the sweep's 44 runs logged a page error.
+  - **Churn sweep, how:** each game's published snapshot (cached by the current-games harness)
+    served locally the way the harness serves it, with the real test server and its forcing
+    (`WIN_X` for line and big wins, `FORCE_TRIGGER` for free spins, `pot:red` for a pots-overlay
+    Hold and Win bonus, `trigger` on `holdandwintestsolo`), booted with `?perf=1` on the real clock
+    (unminified build of this branch), and read with `__IE_PERF__('take')` every second. WebKitGTK
+    (MiniBrowser over WebKitWebDriver, JavaScriptCore, software GL) at 400×230; headless Chromium
+    (SwiftShader) at 734×321 alongside. Moments are pooled over the warm ones (the first of each in
+    a session also uploads and compiles). WebKitGTK's render is software GL and swings 8–600 ms a
+    frame, so the cost read here is **JS outside Pixi's render plus the time after the tick**, and
+    "excess" is that time over the idle frame's, summed over the moment. Who mounts what: an
+    instrumented copy of the build counting component mounts and Svelte effects, with stacks.
+    The scripts are not in the repo (session scratchpad, `churn/tools/sweep.mjs`, `report.mjs`,
+    `stacks.mjs`).
+  - **Per moment, WebKitGTK** (counts per moment; late / JS−render / after: ms a frame over the
+    moment's spinning and round frames; Chromium's JS−render / after alongside):
+
+    | moment (game)                          | built / destroyed | rigs | text renders (ms) | DOM nodes | late / JS−render / after | > 33 ms | excess s | Chromium JS−r / after |
+    | -------------------------------------- | ----------------- | ---- | ----------------- | --------- | ------------------------ | ------- | -------- | --------------------- |
+    | idle (buffaloduel)                     | 0 / 0             | 0    | 0                 | 0         | 0.1 / 3.8 / 3.8          | 1%      | 0        | 4.2 / 4.5             |
+    | no-win spin (buffaloduel)              | 695 / 630         | 29   | 1                 | 5,409     | 12.3 / 23.0 / 31.8       | 22%     | 3.0      | 6.0 / 5.8             |
+    | no-win spin (commonoverlay)            | 1,292 / 1,131     | 30   | 7 (8)             | 5,742     | 11.7 / 25.2 / 24.9       | 33%     | 3.6      | 5.8 / 5.2             |
+    | no-win spin (bookofborut)              | 1,360 / 1,330     | 75   | 1                 | 5,668     | 10.4 / 11.2 / 11.2       | 32%     | 1.2      | 2.3 / 2.3             |
+    | no-win spin (cg-cluster)               | 635 / 576         | 27   | 0                 | 1,833     | 2.2 / 2.6 / 2.3          | 2%      | 0.4      | 1.1 / 1.3             |
+    | line win (buffaloduel, 15 s)           | 1,168 / 998       | 65   | 107 (121)         | 11,692    | 2.5 / 8.0 / 13.4         | 9%      | 6.4      | 4.5 / 4.8             |
+    | line win (bookofborut, 11 s)           | 1,892 / 1,816     | 110  | 3                 | 6,643     | 2.2 / 2.8 / 3.4          | 7%      | 1.7      | 1.5 / 2.0             |
+    | idle after a win (buffaloduel, 15 s)   | 319 / 328         | 36   | 0                 | 3,598     | 0.1 / 4.1 / 4.9          | 3%      | 1.1      | 5.8 / 6.2             |
+    | big win (commonoverlay, 33 s)          | 8,357 / 7,993     | 194  | 311 (253)         | 18,082    | 1.3 / 7.0 / 9.9          | 5%      | 10.0     | 5.3 / 5.4             |
+    | big win (buffaloduel, 23 s)            | 1,170 / 907       | 76   | 149 (156)         | 12,546    | 0.7 / 5.3 / 8.9          | 5%      | 6.3      | 4.9 / 5.1             |
+    | big win (bookofborut, 52 s)            | 4,335 / 4,114     | 242  | 23 (34)           | 18,683    | 0.6 / 1.4 / 2.8          | 4%      | 6.9      | 1.1 / 1.8             |
+    | cascade win (cg-cluster, 20 s)         | 1,340 / 1,531     | 45   | 30 (42)           | 6,076     | 0.3 / 1.5 / 2.3          | 0%      | 2.3      | 0.7 / 1.1             |
+    | free spins (bookofborut, 106 s)        | 11,496 / 11,466   | 743  | 6 (20)            | 108,691   | 1.5 / 2.8 / 6.1          | 6%      | 36.5     | 1.4 / 2.2             |
+    | free spins (cg-cluster, 43 s)          | 8,385 / 8,049     | 316  | 87 (110)          | 77,461    | 1.4 / 2.5 / 4.7          | 2%      | 12.0     | 1.6 / 2.4             |
+    | Hold and Win, pots (buffaloduel, 60 s) | 7,170 / 6,983     | 309  | 79 (211)          | 62,131    | 6.6 / 12.2 / 20.1        | 7%      | 44.1     | 6.8 / 6.9             |
+    | Hold and Win, pots (commonoverlay)     | 8,778 / 8,838     | 152  | 119 (251)         | 39,116    | 4.8 / 11.4 / 13.4        | 6%      | 28.2     | 7.3 / 6.7             |
+    | Hold and Win (holdandwintestsolo)      | 6,359 / 6,214     | 109  | 71 (94)           | 21,537    | 2.0 / 3.0 / 2.9          | 5%      | 5.5      | 1.1 / 1.4             |
+    | the game's first mount (overlay games) | ~1,200 in 1 frame | 64   | 0–2               | ~10,000   | that frame 0.7–3.2 s     | —       | —        | 1,333 built           |
+
+    Mostly meshes means rigs: a `RigView` builds a mesh per drawn slot (~36 on
+    `commonoverlayproject`'s symbols). The first of a moment in a session costs more (uploads,
+    compiles, pools filling): the first Hold and Win on `overlay-buffaloduel` drew 706 ms of text
+    and held one 1.8 s frame; leaving the bonus destroyed up to 2,440 objects and removed 4,382
+    DOM nodes in one frame, then ~2 s after the tick. Spike causes over all WebKit runs, spinning:
+    `churn` 431, `page JS` 224, `outside the game` 221, `game code` 154 (the software render),
+    `mixed` 110. Svelte effects, from the instrumented copy only (Svelte has no public hook for
+    them, so they are no product counter): ~3–5k created a warm no-win spin on
+    `overlay-buffaloduel`, 5–12k a line win, ~50k a Hold and Win bonus, 52–83k a book free-spins
+    feature.
+
+  - **Ranked churners (WebKit cost), their source, the fix, and whether it can stay
+    byte-identical in the determinism-mode harness:**
+    1. **Rigs started again** — every rig symbol per cell entry and per state, every win frame
+       per line cycle, every Hold and Win coin: `Symbol.svelte` `{#key artKey}` → `SymbolRigMain`
+       → `RigProvider` / `BaseRigProvider` (`new RigView`, its slot meshes) + `RigTrack` +
+       `RiggedEffect`s; `SymbolWinFrame` is itself a rig (`RigProvider ← SymbolWinFrame`) with a
+       `RiggedFlipbook`. 15–75 a spin, 65–110 a line win, 76–242 a big win, 743 a book free-spins
+       feature (1,098 `RigProvider ← SymbolRigMain` mounts in one), 109–309 a Hold and Win.
+       **Measured in place (2026-11-11, the entry above): ~1.8 ms a start in WebKitGTK, not ~20**
+       (the `RigView` ~0.7 of it), ~8% of a book feature's Svelte time; a `RigView` pool would save
+       ≤0.7 ms a start and is not done. The rig path's larger cost was a per-frame prop-sync rerun
+       on the rigs a timeline plays, fixed there.
+    2. **Hold and Win respin cells mount a `Symbol` per scrolled strip cell** — `RespinCell.svelte`
+       `{#each shown}` is the per-cell mount #1601 removed from flat boards
+       (`Symbol ← RespinCell` 266 times and ~1,300 of their band containers in one buffaloduel
+       bonus), plus rig-bound coin effects mounting emitters each time
+       (`RiggedEffect → RigBoneAttach → EffectPlayer → EffectLayer → ParticleEmitter` or
+       `BakedEffect`: 525–689 emitters in one `commonoverlayproject` bonus), and the bonus board
+       mounting (~470 objects in one frame) and unmounting (1,000–2,400) whole. **Fix:** draw
+       respin cells through kept views (`reelViewPool.ts`'s `createBoardViews`, a few per cell);
+       pre-mount the bonus board once behind the loading bar, hidden and paused, and keep it.
+       **Risk: low–medium** for the views (#1601 was byte-identical on flat boards, 244/244
+       frames; respin landings and the held layer need their own parity); **medium** for the
+       pre-mount — a hidden board must neither update nor draw, and what starts at mount (rig
+       t=0, emitter spawns) must start when it shows, as a mount does now. **The views are done**
+       (the entry above, `createShownViews`, byte-identical); the coin effects' emitters (they
+       start again with their rig, fix 1) and the bonus board pre-mount are still open.
+    3. **`Symbol`'s bands remount inside kept views** — `Symbol.svelte` wraps its bands in an
+       Element FX container only `{#if symbolFx}`, so a view that draws an FX symbol after a
+       non-FX one (or turns `frozen`) remounts every band (~190–270 containers a spin on
+       `overlay-buffaloduel`), and the art band mounts a sprite again after a rig (20–90 a spin;
+       878 `SymbolSprite`s in a book feature). **Fix:** the FX container unconditional, and one
+       bound sprite per view whatever drew before it. **Risk: low** — a transform-free container
+       draws the same pixels; the sprite rebind is pinned (`spriteRebind.fixture.ts`). **Done**
+       (the entry above, byte-identical).
+    4. **The win presentation remounts per line cycle, and keeps cycling while idle** — per cycle
+       the highlighted cells' `SymbolWinFrame` (a rig, a `RiggedFlipbook`, its `Flipbook`s), the
+       win-state flipbooks (`SymbolFlipbook → Flipbook → AnimatedSprite`) and the `WinLine`
+       labels mount again: 110–170 flipbooks a line win, and after any win ~320 objects, 36 rigs
+       and 3,600 DOM nodes every 15 s while the player waits. **Fix:** keep the frames and labels
+       mounted for the presentation and restart them per cycle (the rig half is fix 1).
+       **Risk: medium** (rig restarts as in 1; labels and flipbook frames are low).
+    5. **Screen mounts** — the game's first mount after the start screen (~1,200 objects, 64
+       rigs and ~10k DOM nodes in one frame, 0.7–3.2 s in WebKitGTK with its render; the first
+       round frame after it runs ~5 s of first uploads in software GL), the bonus enter / exit
+       above, big-win and feature screens.
+       **Fix:** pre-mount behind the loading bar, hidden and paused. **Risk: medium**, as in 2.
+    6. **Counter text renders** — canvas `Text` textures for the win counters, labels and HUD:
+       149–311 renders, 156–253 ms of WebKitGTK per big win. **Fix:** `BitmapText` for counters.
+       **Risk: not byte-identical** — glyphs rasterise differently; a visible change for the
+       owner to approve. Small either way.
+    7. **Observed, to check in step 4:** `bookofborutremake`'s free-spin board glow
+       (`BoardFrame.svelte`, mounted once) mounted its `RigProvider` 155 times in one feature
+       (cause found 2026-11-11, the entry above: one animation name for all three phases; the fix
+       changes pixels);
+       `commonoverlayproject` builds ~195 particle sprites per 15 s idle and destroys none (an
+       emitter pool growing).
+  - **Svelte's anchors out of the live DOM — measured, no gain.** An experiment build rendered the
+    Pixi tree's anchors into a `<div>` that was (a) left in the page, (b) detached, (c)
+    `display: none`; WebKitGTK, `overlay-buffaloduel`, six warm spins, two runs each. Spinning,
+    ms a frame: late 66–74 / 54–71 / 61–65, JS 87–126 / 81–117 / 87–103, after the tick 81–91 /
+    80–102 / 89–93, 7.6–8.4 / 7.8–9.3 / 7.1–8.1 fps — inside run-to-run noise; a Hold and Win
+    bonus, in the page vs detached: after 212 vs 213 ms, late 135 vs 145. A microbenchmark on the
+    booted page: inserting and removing an anchor Svelte's way costs ~0.9 µs a node op, live or
+    detached. The nodes track the cost because they count the mounts (2–5 per object), not because
+    the DOM is live. Not worth doing.
+  - **Byte-identical:** the probe is off without `?perf=1`, which `?ie_determinism` never passes.
+    Current-games harness, local, determinism mode, base (`b913d77`) vs this branch, unminified,
+    every scenario, every capture byte-identical: `overlay-buffaloduel` 17/17,
+    `commonoverlayproject` 17/17, `bookofborutremake` 17/17, `holdandwintestsolo` 11/11, stand-ins
+    `cg-lines` 17/17 and `cg-cluster` 14/14 (93 of 93).
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test; WebKitGTK is
+    JavaScriptCore, not iOS's GPU, compositor or tiers); the minified build.
+
+- 2026-11-11 — **Reel cells are drawn through views that outlive them, and a crossing re-checks
+  only the cells that cross** (branch `claude/nice-albattani-a03tcm`, from `main` at `05954f7`;
+  ports the idea of the shelved `claude/reel-view-recycling` onto today's strip).
+  - **Why, a real device:** the owner's iPhone 17 (Chrome on iOS, so WebKit) on
+    `overlay-buffaloduel`, `?perf=1` `perf: 4`: 34 fps spinning, 37 idle; the Pixi tick ~2.3 ms a
+    frame, particles 0.2 ms, rigs ~1 ms; but `lateMs` (frame timestamp to the Pixi tick) 9.8 ms
+    spinning against 0.1 idle, and `jsMs` 14.1 against the tick's 2.3: ~10 ms of JS ran before the
+    tick, only while reels moved. A per-callback timer on the live page put it in the microtasks
+    after `frameClockPre`: Svelte's flush when the frame clock steps the reels and the strip view's
+    thresholds change. ~6.5 ms a call in headless Chromium, ~156 ms in WebKitGTK (JavaScriptCore,
+    Safari's engine), none at idle.
+  - **Measured cause** (unminified `main` build served under the live game URL, headless Chromium,
+    734×321, CPU profile over the spins, mounts counted in an instrumented copy): 92% of that flush
+    is Svelte building and destroying symbol component trees. Per spin, both board layers: 60
+    `ReelSymbol` + `SymbolWrap` (the filler pool's views, mounted when a slot got a cell and
+    destroyed when it went vacant), 86–95 `Symbol`, ~143 sprite symbols (`SymbolSprite` → `Sprite`
+    → `BaseSprite` → a new `PIXI.Sprite`) and 24–36 rig symbols (`RigView` + `RigTrack` + ~2
+    `RiggedEffect`s each); ~9.4k Svelte effects created and ~6.5k destroyed, ~250 created in each
+    flush that mounted anything. By origin: the filler pool mounting a view 13% of the flush, its
+    art bands remounting per handed cell 13%, board cells mounting their `Symbol` as they enter the
+    window 9%, the rider and cover blocks 8%; effect creation ~44% overall, destruction ~19%, and
+    ~11% inserting Svelte's comment and text anchors into the page (they live in the live DOM, in
+    the `<div>` that holds the canvas).
+  - **What changed** (see Current state): board cells go through `createBoardViews` (a view
+    follows its cell for its life in the strip; the views a board leaves draw the next one), the
+    filler pool's views are built once and kept, vacant at rest, and a view keeps its
+    `SymbolWrap` container, `Symbol`, band containers and a bound sprite. Each time a view starts
+    drawing a cell is an entry (`createEntries`): a sprite is handed the new texture and reports
+    as a new one would (`SymbolSprite`'s `restart`), everything else starts again on the frame and
+    in the order a new mount did (`bandKey`, `artKept`, `artRestart`). The rider's `Symbol` is kept
+    the same way. Two more things were needed before it paid:
+    - **Each `SymbolWrap` watches its own cell** (`StripCuller` in `reelStrip.ts`, `StripCull`
+      `$state` in `reelStripView.svelte.ts`). With every view reading the strip's shared `lo`/`hi`,
+      a crossing marked the derived chain of every view of that reel (now longer: in the window →
+      drawn → entry → the `Symbol`'s keys), and the flush cost did not fall (`mark_reactions` 0.05 →
+      0.36 ms a call, `is_dirty` 0.54 → 1.37). The old branch hit the same trap.
+    - **A hidden view is not placed.** Pixi updates a hidden container's transform and every
+      renderable under it when its `y` changes (`updateTransformAndChildren` checks no
+      visibility), and the strip wrote `y` every frame for views whose cells were in the strip but
+      out of the window. A view is attached to the strip only while it is shown, and attaching
+      places it at once. Before this, WebKitGTK's spinning render rose from ~104 to ~350 ms a frame.
+  - Perspective boards keep a component per board cell (their filler goes through the kept pool
+    views too).
+  - **Before / after** (`main` `05954f7` against this branch, both unminified, the frameClockPre
+    microtasks timed with the per-callback timer, `lateMs` / `jsMs` from the `?perf=1` Copy while
+    spinning; both builds replayed the same recorded RGS rounds through a local same-origin proxy):
+
+    | spinning, same rounds                       | Chromium `main`  | branch           | WebKitGTK `main` | branch     |
+    | ------------------------------------------- | ---------------- | ---------------- | ---------------- | ---------- |
+    | frameClockPre microtasks, ms a call         | 2.23 (1.96–2.42) | 1.68 (1.54–1.75) | 181 (168–194)    | 73 (65–81) |
+    | …summed over the session, ms                | 836              | 647              | 11,444           | 7,643      |
+    | `lateMs` (idle)                             | 10.5 (7.9)       | 9.7 (7.9)        | 180 (0.2)        | 71 (0.1)   |
+    | `jsMs`                                      | 9.7              | 8.7              | 202              | 101        |
+    | `afterMs` (main thread busy after the tick) | 6.3              | 6.1              | 296              | 111        |
+    | fps                                         | 31.1             | 32.6             | 2.3              | 5.3        |
+    | nodes added to the page during the spins    |                  |                  | 61,349           | 18,889     |
+
+    Chromium: headless, 734×321 at DPR 1 on SwiftShader, three alternating runs a side (its idle
+    `lateMs` of ~8 ms is headless frame scheduling, not JS). WebKitGTK (MiniBrowser over
+    `WebKitWebDriver`, JavaScriptCore): 400×230, software GL, two runs a side, the same 11 RGS
+    requests on both; its frames are so slow that one flush covers several crossings, so the
+    microtask total over the session (with ~1.7× more frames on the branch) is the like-for-like
+    figure. Spinning render CPU is equal: 2.4 ms in Chromium, and in WebKitGTK 17.5 → 17.9 ms in a
+    pair with `?perfgpu=1` (GPU wait 0.5 ms on both), which waits for the GPU after each frame;
+    without it the render there absorbs the previous frame's in-process software GL and read
+    14.7 → 23 ms. The DOM count is a `MutationObserver` on `<body>` in a separate pair of runs:
+    Svelte's anchors, ~7.7k inserted into the live page per spin on `main`.
+
+  - **Steady-state counts** (instrumented builds, Chromium, the same recorded rounds, per spin in
+    that flush, eight spins a side): effects created 8.9–9.8k → 2.1–3.6k (~250 → ~85 in each flush
+    that creates any), destroyed 6.1–6.9k → 1.6–2.3k; `ReelSymbol` and `SymbolWrap` 60 → 0,
+    `Symbol` 86–95 → 0 (a few in the first spins, as views are first drawn on a layer); sprite
+    symbols 142–143 → 19–26 (a sprite drawn after a rig in the same view mounts again); rig symbols
+    24–36 → 22–42 (they start again, on purpose).
+    The Svelte flush after the Pixi tick also creates fewer (1.5–3.1k → 1.1–2.1k a spin): a board's
+    cells no longer get a `ReelSymbol` each at the handover.
+  - **Parity, `main` (`05954f7`) vs this branch, unminified builds, local current-games runs
+    (`scripts/current-games/run.mjs`, determinism mode, every scenario), every capture
+    byte-identical and on the same frame:** live snapshots `overlay-buffaloduel` 17/17,
+    `commonoverlayproject` 17/17, `overlay-wallstreet` 17/17, `bookofborutremake` 17/17, `test1`
+    17/17, `holdandwintestsolo` 11/11 (Hold and Win); stand-ins `cg-lines` 17/17, `cg-cluster`
+    14/14 (cascading), `cg-ways` 14/14, `cg-hw-classic` 12/12. 153 of 153. Frame by frame (a capture
+    every 2nd frame through three whole spins, determinism mode, 1280×720): `overlay-buffaloduel`
+    with its RGS answers recorded once and replayed on both sides 244/244, and the reference
+    `lines` game on the seeded book mock 244/244; each spin settles on the same frame.
+  - **Gates:** `reelViewPool.fixture.ts` (new, 73 checks: board views over spins and a cascade
+    step, entries, whole rolls of board cells and filler through the views against a component per
+    cell: every art kind that starts at mount starts on the same frames and in the same order and
+    stops on the same frames; a sprite view mounts its sprite once; source pins on `Symbol.svelte`,
+    `SymbolSprite.svelte`, `SymbolWrap.svelte`; eight rule mutations each fail it),
+    `reelStrip.fixture.ts` (+ the culler: it answers every watched cell as its own test does, at
+    once on watch and after a renumbering, and writes only what changed; four mutations fail it),
+    `pixi-svelte` `spriteRebind.fixture.ts` (ported: a kept sprite handed another texture and box
+    lands where a new one does). `verify-swap-in-place-mode` pins the flat branch keyed by views
+    that follow their cells. Run on the final code: `check:all` for `apps/lines` (15) and
+    `pixi-svelte` (15), `verify-swap-in-place-mode`, `verify-win-explode-pop`,
+    `verify-tumble-pattern`, `verify-board-tiles`, `verify-stepped-grid`, `verify-symbol-seat`,
+    `verify-board-paint-order`, `verify-symbol-overflow`, `verify-symbol-wrap-context`, the
+    launcher's `check-clear-reel-and-win-explode`, `check-jackpot-coin-art`, `check-respin-land`,
+    `check-symbol-fx`, `check-symbol-layers`, `symbolCell.fixture`; `check:svelte` at baseline
+    (`pixi-svelte` 14, `apps/lines` 145); Prettier and ESLint clean.
+  - **Not verified:** a real iPhone (the owner's `?perf=1` Copy on the released build is the
+    test), the minified release build (both sides here are unminified), and the games the local
+    parity runs did not cover (CI's current-games run covers every live game).
+
+- 2026-11-11 — **A standalone build leaves out the stock sample art its project never draws**
+  (branch `claude/stock-asset-build-prune`). A game repo carries the upstream sample game's files in
+  `static/assets/{spines,sprites,fonts}` (seeded by `new-game.mjs`) and SvelteKit copied all of them
+  into every build — `overlay-buffaloduel` v9: 104 files, 11.4 MB of "Coded game art" — although the
+  boot already takes the keys it can never draw off the asset table (2026-10-16, below). A standalone
+  build bakes the data that decision reads, so it is now also taken at build time:
+  `game/stockAssetBuild.ts` runs the same `analyseStockAssets` walk on `baked-editor-bundle.json`,
+  and `config-vite` `stockAssetPrune.js` deletes the skipped keys' files (each rig's atlas + skeleton,
+  a sheet's or font's descriptor, the pages they name with their WebP/KTX2 twins, a folder's leftover
+  `index.ts`) from SvelteKit's client output after the server pass and before the adapter copies it
+  to `build/`. `static/` is never touched, so the repo stays clean and every build decides afresh.
+  A file a kept key also loads stays (the `symbols` atlas while one of `H1`–`L4` is kept). What a
+  boot takes from live state gets the value that keeps the most: the registry is seeded as
+  `Game.svelte` seeds it (its built-in map moved to `game/builtinDefs.ts` so both read one list, then
+  the bundle's pinned versions, defs and defaults); every part with a stock rule counts as
+  registered; the symbols in play are the config's AND every symbol the coded or authored map draws,
+  because a Play4Fun RGS declares the symbol set at boot. Doubt keeps everything: no bundle or doc,
+  any throw, a plan that cannot load, a kept key's file that cannot be read. Only a build run from
+  outside the engine (a game repo) is pruned — the engine's own apps and the shared runtime online
+  games boot are byte-identical; `IE_STOCK_PRUNE=0` turns it off. The build writes `stock.json` to
+  `IE_BUILD_REPORT_DIR`, which `build-breakdown` shows under "What the build left out" as "Stock
+  sample art the game never draws". `game/stockAssetData.ts` is the boot's `bootStockAssetData`
+  body, shared. Measured on `overlay-buffaloduel` (its baked bundle of 2026-11-11, a real game-repo
+  build with this engine as the submodule, Play4Fun transport): 29 of 40 keys left out, 67 files
+  (13 of them folder indexes), 8.78 MB — "Coded game art" went from 104 files / 11.4 MB to 44 / 4.09 MB; the build
+  then booted with the boot skipping 32 keys (the 29 plus `H5`, `M`, `W`, which the build keeps for a
+  server-declared symbol set) and no asset 404. Gates: `scripts/check-stock-asset-prune.mts` (doubt,
+  the build keeps what a boot keeps for every symbol set a server may declare, registry seeding and
+  pins, the prune with shared atlases and twins, the standalone gate; 8 planted mutants each caught)
+  and `check-build-breakdown-desktop.mjs` (the new step). **Not covered:** a desktop build opened
+  with `?runtime=1` boots a live doc the build never saw, so a stock key that doc reaches could be
+  missing there; player builds never take that path.
+
+- 2026-11-10 — **`?perf=1` records every frame-rate spike with what its frames did and a likely
+  cause; `?particles=off` turns every particle off** (branch `claude/nice-albattani-a03tcm`, from
+  `main` at 33dde20).
+  - **Why** (owner): single long frames (50–150 ms) still hit at some moments; particles are the
+    suspect, but the readout only gave aggregates (fps, p95, each counter's max over the session),
+    so nobody could say. iPhones run worse than Androids for reasons not yet known, and iPhone
+    Safari has no long-task or heap API: the record has to come from our own counters, read off
+    the Copy JSON that real phones paste back.
+  - **What each frame now reports** (all only under `?perf=1`; per-frame rows in the readout's
+    table too): particle `emitter.update` ms, live particles, active emitters (emitting or holding
+    particles), emitters started, baked effects playing (`pixi-svelte` `perfProbe.ts`); rig update
+    ms and count, and the ms rebuilding drawn rigs' meshes (`engine-rig` `RigView.probe`, a static
+    hook left unset without the flag); `compiles` (`compileShader` + `linkProgram`) and
+    `uploadBytes` (texture data, from each upload call's data size or source pixels × 4) in
+    `glCounters.ts`; `lateMs` (frame timestamp to tick start), `afterMs` (tick end to the main
+    thread next free: a message posted at the tick's end), `jsMs` (every animation-frame callback
+    with the microtasks it queued, so Svelte's tweens and effects: `requestAnimationFrame` is
+    wrapped while the readout runs); Chrome's JS heap. A frame's work is now handed over as the next
+    tick starts, so what runs after the tick (the rigs' own ticker, Svelte's effects) is its.
+  - **Found while building it:** rig updates were never in `tick ms (CPU)`: every `RigView` runs on
+    Pixi's shared ticker, a separate frame callback. And busy is not JS: headless Chrome (drawing on
+    the CPU) is busy ~140 ms after every tick with ~1 ms of JS, and under `?perfgpu=1` that time
+    moves into the GPU wait, so it is the frame's commit waiting on the GPU. A rule that read the
+    busy time called it page work; the rules read the JS.
+  - **A spike** (`apps/lines/src/game/perfSpikes.ts`, fed by `perfStats.ts`) is a frame whose
+    interval is over max(33 ms, 2.5 display frames): 41.7 ms at 60 Hz, 33 at 120, 83 under the
+    30 fps cap. The display's period is the refresh estimate taken as at least 60 Hz, since a
+    device that cannot keep up makes the estimate read its own slow rate. The last 30 are kept:
+    `at` (s since Reset), `ms`, `spin`, `state` (the game's state machine), `cause`, `why` (the
+    numbers it was read from), `prev` and `cur` (the frame before the interval and the frame
+    itself: `late`, `tick`, `render`, `after`, `js`, `gpuWait`, `particleMs`, `particles`,
+    `emitters`, `starts`, `baked`, `rigMs`, `rigSyncMs`, `rigs`, `compiles`, `uploadKb`, `draws`;
+    ms to 0.1, zero fields left out), and in Chrome `longtask` (long tasks overlapping the
+    interval, ms) and `heapDropMb`. `spikeCauses` counts every spike since Reset by cause, idle and
+    spinning; `spikeOverMs` is the threshold, `spikeApis` says whether long tasks and the heap
+    were readable. The HUD has a `spikes` line (count by cause) and its head names the most common
+    cause. Reset clears them. The Copy is `perf: 4`; with 30 spikes it is ~16 KB.
+  - **Reading one.** The interval runs back to `prev`'s timestamp, so `prev`'s work is what ran
+    inside it (`cur` arrives a frame later). `js` against `ms` says whether our JS made it;
+    `late` + `tick` + `after` − `js` is the main thread busy outside our JS. Forced in the built
+    runtime by burning 60 ms in a live emitter's update:
+    `{"at":9.7,"ms":83.4,"state":"bet","cause":"particles","why":"JS 75% of it, particles 96% of that","prev":{"late":11.1,"tick":61.7,"render":1.2,"after":22.4,"js":62.8,"particleMs":60.3,"particles":2,"emitters":1,"rigMs":0.5,"rigSyncMs":0.4,"rigs":13,"draws":51},"cur":{…},"longtask":72.3}`.
+  - **The cause** (`classifySpike`, in order): `first use` (`prev` or `cur` compiled a shader or
+    uploaded over ~1 MB); then, when `prev`'s JS took ≥ 60% of the interval, its largest part:
+    `particles` or `rigs` (when also ≥ 40% of the JS), `page JS` (more JS outside the Pixi tick,
+    Svelte's effects and tweens, than the tick's own code and render), else `game code` (the
+    reason gives the tick code's and the render's ms); `GC (likely)` (the heap fell > 5 MB);
+    `outside the game` (JS under 40% of the interval: the GPU, the compositor, the browser's layout,
+    paint or commit, another task; the reason gives the main thread's busy time outside the JS when
+    large); else `mixed`. **Limits:** Safari reports no long tasks and no heap, so there
+    `outside the game` cannot be split into GPU, compositor, browser or a collection
+    (`?perfgpu=1` and the switches do that); the heap is precise only in desktop Chrome (a phone's
+    Chrome rounds it and refreshes it rarely, so GC never shows there); a particle's GPU fill is
+    not JS and reads as `outside the game`: `?particles=off` is the test for it. `late` assumes the
+    browser's frame timestamp is the frame's start, which Chrome and the HTML spec give; not
+    checked on Safari.
+  - **`?particles=off`** (`particleBudget.ts` `particlesOff`, set when the game configures the
+    budget, so the tools never see it): no `<ParticleEmitter>` is updated (none spawns or draws, a
+    material layer mounts no mesh) and no `<BakedEffect>` makes its sprites (a bake is its effect's
+    particles, drawn); everything else plays. `?particles=<number>` still clamps to 0.25..1. The
+    HUD head shows `particles off`.
+  - **Zero cost without `?perf=1`:** the readout's chunk never loads, so no counter, listener, wrap
+    or allocation exists; an emitter and a baked effect pay one `perfProbe.on` check a frame and a
+    rig one `RigView.probe` check. `?ie_determinism` renders never pass the flag.
+  - **Verified here:** `perfSpikes.fixture.ts` (38 checks: the threshold at 60 / 120 Hz, the cap and
+    a slow device; every cause; the previous-frame attribution; busy-not-JS read as outside; the
+    30-record cap with every spike counted; Reset; rounding; long tasks and heap; mutating the rules
+    one at a time fails it), `particleBudget.fixture.ts` (13: `off`, the numeric pins, no switch,
+    tools unaffected), `perfStats.fixture.ts`. The built runtime (unminified) in headless Chromium:
+    burning 60 ms in a live emitter's update gave three `particles` records ("JS 75% of it,
+    particles 96% of that"), 60 ms in a live rig's animation update three `rigs` records; the boot
+    shows `first use` (8 compiles, 19.6 MB); ordinary frames read `outside the game` (SwiftShader).
+    With `?particles=off` no particle is on the stage and every particle count is 0; without
+    `?perf=1` `requestAnimationFrame` is the browser's own and particles draw as before.
+    `check:svelte` at baseline (pixi-svelte 14, lines 145).
+  - **Not verified:** any real phone; Safari's frame timestamps for `late`.
+
+- 2026-11-10 — **Render quality keeps a step only if it measurably helped** (branch
+  `claude/nice-albattani-a03tcm`, restarted from `main` after #1581). Read on the released build:
+  the Nothing Phone (1) stepped from 2 to 1.75 at 21.9 s (13% slow, 17.8 ms mean) and kept it,
+  then spun at 54.3 fps (18.4 ms) with 1.3% of spin frames over 33 ms, the same as at full quality
+  the day before: the trial had passed on "the slow share fell under 10%", which a device just over
+  the 10% line meets by chance. `renderQuality.ts` now keeps a step only when the slow share halves
+  or the mean frame interval falls by 20% or more. Each trial's verdict (`quality.trials`: the level
+  tried, up or down, the slow share and frame time before and after, kept or reverted) is in the
+  `?perf=1` Copy, and the HUD's quality line shows the last one, so a reading says why a level
+  stayed. Same day, same build: the S25 Ultra (Chrome, Desktop site on) and the Pixel 9 Pro in
+  Brave stayed at the top level with no switch (Brave at full quality now: 71.7 fps spinning at
+  120 Hz, reel max 0.8 px). Guard: `renderQuality.fixture.ts` (54 checks; the Nothing Phone's case,
+  15% → 9% slow with frames 5% shorter, reverts, and both verdicts are read back).
+
+- 2026-11-10 — **Render quality follows measured frame times, not device memory** (branch
+  `claude/nice-albattani-a03tcm`, restarted from `main` after #1578; it replaces that branch's
+  Brave guard). Every device starts at full quality, the pixel ratio up to 2 with MSAA, as every
+  device drew before #1410. `pixi-svelte` `renderQuality.ts` lowers it only on a device that cannot
+  hold 60 fps while a round plays, one level at a time, switched only while no reel rolls:
+  resolution 2, 1.75, 1.5, then 1.5 without MSAA; never below 1, and a level the pixel ratio makes
+  equal to the one above is dropped (a pixel ratio of 1.5 has two levels). A level is applied by
+  setting `renderer.resolution` (the backing store changes, the CSS size does not) and by dropping
+  the back buffer's texture, which Pixi rebuilds with the new MSAA on the next frame.
+  - **Why**, owner-measured on `overlay-buffaloduel` (`?perf=1`): the Pixel 9 Pro (16 GB, 120 Hz,
+    viewport 426×804, Mali-G715) drew tier `reduced` in Brave (resolution 1.5, no MSAA, GPU name
+    masked as `Brave`) and `full` in Chrome on the same build minutes later. Brave alters
+    `deviceMemory` against fingerprinting; Safari and Firefox report none. The owner's rule: never
+    lower quality on a device that can keep up; lower it only when the device measurably cannot
+    hold its frame rate, and only as far as needed (the model: Babylon's SceneOptimizer, drei's
+    PerformanceMonitor).
+  - **Rules** (`QUALITY_RULES`). Frames count only while a round plays (`isPlaying()`: not the
+    boot's `rendering` state, not idle), the page is visible, and 30 frames have passed since it
+    was shown or the level changed; intervals over 250 ms are skipped. 120 counted frames make a
+    window. A frame over 21 ms is slow (1.25× a 60 Hz frame, so a 120 Hz phone at 60 is fine); a
+    window more than 10% slow is slow. A window at a 30 fps rhythm (p10 ≥ 30 ms and p50 ≤ 36 ms,
+    as `perfStats.ts` `capped30` reads it) is a browser cap (iOS Low Power Mode) and is ignored,
+    unless the browser drew any frame, idle ones included, under 25 ms in the last 30 s: Low Power
+    Mode caps every frame, so a device that idles at 60 and plays its rounds at 30 is judged. A
+    slower device (14 fps) or a jittery one (25–45 ms) is always judged. Only a device at a steady
+    ~30 fps even while idle reads as the cap and is not judged. Two slow windows step down at
+    the next 20 quiet frames: idle in manual play; in autoplay (`autoBet`, one long state that is
+    never idle) the frames of a round with no reel rolling (`Game.svelte`). After two windows the
+    step is kept if the slow share halved, or the mean frame interval fell by 20% or more
+    (14 → 30 fps keeps a step though every frame is still slow; the same day's follow-up, above,
+    dropped "or fell under 10%"); otherwise it is
+    reverted and stepping down stops for the session. Thirty windows under 1% slow try one level
+    up; slow within two windows, it steps back and that level is not tried again. At most 6
+    switches, and a step that starts a trial is taken only while its revert still fits.
+  - **What memory still decides:** only texture residency (`textureResidency.ts`
+    `lowMemoryDevice`). A device reporting ≤ 4 GB leaves its textures to Pixi's GC rather than
+    pinning every page, which could get the tab killed. That changes no pixel: a wrong figure costs
+    a re-upload stall (Brave on a big phone) or memory (no figure on a small one).
+    `?render=reduced` no longer changes residency. `editor-scenes.ts` `preferCompressedTextures`
+    still reads `deviceMemory` ≤ 4 for KTX2 on a desktop (every phone already gets KTX2).
+  - **Never adapts:** the tools (they never configure it), `?ie_determinism` (not even installed,
+    so the current-games renders are unchanged), `?render=full|reduced` (pins). The particle
+    budget's 0.5 ceiling is now `?render=reduced` only. The art tier reads the full cap (2).
+  - **Reading it:** the `?perf=1` Copy is `perf: 3`; `tier` is now the mode (`adaptive`, `full`,
+    `reduced`) and `quality` holds the level (index, resolution, MSAA), the number of levels, each
+    switch (`at` seconds, `from`, `to`, `reason`, `slowShare`, `frameMs`) and `downStopped`. The HUD has a
+    `quality` line, and its head shows `· quality L<n>` once below the top level.
+  - **Verified here:** `packages/pixi-svelte/fixtures/renderQuality.fixture.ts` (52 checks; each
+    rule mutated in turn fails it, the old no-frame-under-28-ms cap rule included, and rounds at 30
+    on a device that idles at 60 fail the rhythm-only cap rule), `renderTier.fixture.ts` (21 checks; it does not load on the old
+    module), `scripts/pixi-back-buffer.fixture.mjs` (+3 checks: the Pixi 8.22 behaviour the switch
+    relies on). The built runtime against the book mock in headless Chromium (SwiftShader, 160×284):
+    at DPR 1.5 it dropped MSAA after two windows 39% slow (mean 23.3 ms); the trial read 22% and
+    20.3 ms, neither half the share nor 20% shorter, so MSAA came back at the next idle stretch and
+    it never stepped down again; at DPR 3 it stepped 2 → 1.75 → 2 the same way. Each switch deleted the old back buffer's GL texture, framebuffers and
+    renderbuffers; the canvas CSS size, `renderer.screen` and pointer mapping did not change.
+    `?render=full`, `?render=reduced` and `?ie_determinism` add no ticker listener.
+  - **Not verified:** real devices (Open items).
+  - Device readings of the #1578 build on the same day, for the record:
+    - **S25 Ultra** (Adreno 830; the phone recorded on 2026-11-09 as the S24 Ultra), Chrome with
+      Desktop site on (UA `X11; Linux x86_64`, so desktop textures: 73 BGRA8, 333 MB; canvas
+      1960×3540): idle 59.9 fps, spinning 60.1 fps with no frame over 16.8 ms, tick 3.2 ms a frame.
+    - **Nothing Phone (1)** (Adreno 642L, 60 Hz): idle 60.2 fps; spinning 56.6 fps, p95 25 ms,
+      10 of 754 frames over 33 ms, while the tick never passed 11.8 ms, so the late frames are GPU
+      or browser, not the game's work. Textures: 24 ASTC (57 MB) + 38 BGRA8 (66 MB).
+    - **Pixel 9 Pro**, same build: in Chrome (full tier, canvas 852×1608) idle 58.6 fps, spinning
+      72.3 fps (p50 16.6 ms, p95 20.8, max 33.3, 1 of 696 frames over 33 ms; reel max 1.3 px), so at
+      full quality it spins mostly at 60 Hz with some 120 Hz frames, the tick 4.4 ms a frame; in
+      Brave (reduced tier) idle 75.6, spinning 81.3 fps (p50 8.4 ms, p95 16.7, max 25).
+    - One resolve and one invalidation a frame on every full-tier device, as #1578 intended.
+
+- 2026-11-10 — **A one-screen build ships one art tier** ([arcade-4k-builds](../design/arcade-4k-builds.md)
+  "One-screen builds"). `IE_ART_TIER=full|half` is compiled in by `config-vite` (`artTierPin.js` →
+  `__IE_ART_TIER__`) and `chooseArtTier` obeys it over the screen rule and `?tier=`; the asset pull
+  leaves the other tier out (see [launcher](launcher.md)); `build-delivery.mjs --art-tier`. Unset
+  changes nothing. Guards: `check-art-tier-pin.mjs`, `artTier.fixture.ts` §7,
+  `art-tier-probe.mjs --pinned-build`.
+- 2026-11-09 — **Flow v1 retired from the runtime: the default boot is a direct loading → basegame
+  switch** (branch `engine-retire-flow-v1`). `apps/lines/src/game/bootScreens.ts` replaces the v1
+  interpreter `createLinesFlow` built over a synthesized `loading → basegame` doc; `engine-game`
+  `PlayBookDeps` loses `getFlowInterpreter` (no v2 ownership ⇒ the coded map), and
+  `packages/engine-flow` is deleted. Same scene mount order, same trigger out of loading (a tap or
+  `completeOnLoaded`), same coded dispatch — proved against the real v1 interpreter before it was
+  deleted. Detail in [flow.md](flow.md) Recent changes (same date). A runtime release on merge.
+
+- 2026-11-09 — **4K builds Phase 5 closed: video and FX need no tier of their own**
+  ([arcade-4k-builds](../design/arcade-4k-builds.md)). Video never ships (a render becomes a sheet
+  and a clip); clips and FX particles take their textures from the sheets' `loadedAssets` keys, so
+  they draw from whichever tier the sheet loaded. `art-tier-probe.mjs` now plays a flipbook clip
+  over a tiered sheet: half and full draw it the same size (whole frame 0.35% apart). Bitmap-font
+  pages and the boot splash stay untiered on purpose.
+- 2026-11-09 — **One book-event dispatch path: a game with no flow keeps its win cycle, meter and
+  big-win run-up** (branch `engine-playbook-single-dispatch`). `engine-game` `playBook.ts`
+  `playBookEvents` ran a second loop when neither a v1 nor a v2 flow existed (a layout without
+  loading/basegame scenes, so `createLinesFlow` builds none). That loop called the coded handler
+  map directly, skipping `runBookEventPresentation` (the slam/unskippable carve-out and per-spin
+  re-arm) and all of `dispatchBookEvent`: the win-cycle record, the running win meter, the cascade
+  sound step, the all-at-once win lines, the big-win run-up and the retrigger's `freeSpinsAdded`.
+  Now there is one loop and every event goes through `playBookEvent`; with no flow,
+  `dispatchBookEvent` falls through to the coded map, and `aroundPresentation` still wraps each
+  event once. Games with a flow are unchanged. Guard: `pnpm check:play-book-dispatch` drives the
+  real `createPlayBook` with no flow, a v1 flow and a v2 flow and requires the same seam calls in
+  the same order (11 of its 17 checks fail on the old two-loop body). `verify-win-explode-pop.mjs`
+  and the launcher's `check:clear-reel` were updated to the single loop.
+
+- 2026-11-09 — **iPhone rendering costs: one back-buffer resolve a frame, an opaque canvas, a GPU
+  readout under `?perf=1`, and render test switches** (branch `claude/nice-albattani-a03tcm`,
+  restarted from `main` after #1557; owner-approved task: make the shared runtime fast on iPhones
+  without lowering quality, the reduced render tier rejected).
+  - **Why, real device** (`?perf=1`, build `f65001e`, `overlay-buffaloduel`): iPhone 13 Pro (A15,
+    Safari, DPR 3, tier `full`, resolution 2, canvas 780×1398) idle 23.6 fps (p50 42 ms, 1314 of 1344
+    frames over 33 ms), spinning 14.1 fps (p95 165 ms, 52 frames over 100 ms), reel step error p95
+    0; the S25 Ultra drew 1960×3540 at 59.5 fps. Not reel motion: GPU, compositor or something else
+    outside the reels, even at idle.
+  - **Measured here** (`overlay-buffaloduel`'s live snapshot booted through the harness's own
+    servers in headless Chromium at 390×699, DPR 3, the iPhone's UA, so the KTX2/ASTC path; GL
+    counted per frame from outside the page on `main`, and with the new readout on the branch):
+    - **Base-game idle** is light: 43 draws, ~4,450 vertices, one multisampled scene pass, its
+      resolve and the full-screen copy onto the canvas, 0 texture or buffer uploads, 0 filter
+      passes, 0 GL round trips; the drawn leaves cover ~2.75× the screen (bounds), mostly one
+      full-screen 1920×1088 ASTC background and two 2048² ASTC layers; textures: 24 ASTC 4×4 pages
+      (57 MB) and 39 uncompressed BGRA8 sheets (65 MB). Nothing in that stream explains 42 ms on an
+      A15, so what costs there has to be read on the phone (Open items).
+    - **Spinning, as on `main`** (the branch with `?lazyresolve=0&opaque=0`, which is `main`'s GPU
+      work, read by the new readout; mean / max a frame): 31 draws, 4.5 / 16 render passes, 9.2 /
+      32 target switches, **2.3 / 8 full-screen MSAA resolves**, 1.3 / 7 filter passes. `main`
+      itself, counted from outside over other spins: 1.6 / 6 resolves.
+  - **Finding 1, fixed (byte-identical):** Pixi resolves the whole multisampled back buffer after
+    EVERY filter draw (`FilterSystem._setupBindGroupsAndRender` ends in
+    `renderTarget.finishRenderPass()`, a `blitFramebuffer` of the full 780×1398 target), traced
+    frame by frame: one resolve per Element FX pass plus the present's. Only the present and a
+    backdrop copy read the resolved texture, and both resolve again first, so the others are thrown
+    away; on a tiled GPU each also stores and reloads four samples a pixel around the blit.
+    `backBufferPasses.ts` skips the back buffer's resolve inside a filter draw (any other
+    multisampled target still resolves). Spinning: resolves 2.3 → 1 a frame (max 8 → 1), target
+    switches 9.2 → 6.7 (max 32 → 18). `?lazyresolve=0` restores Pixi's.
+  - **Finding 1b, fixed (byte-identical):** once a mask (the reel window) has used the stencil, the
+    back buffer carries a 4× depth/stencil renderbuffer (780×1398×4 samples×4 bytes, ~17 MB) that
+    the pass ending at the present stores, every frame, idle included, though the next frame clears
+    it (`CLEAR.ALL`; Pixi never narrows `stencilMask`) before anything reads it. It is now
+    invalidated (`invalidateFramebuffer`) at the present, before the resolve ends the pass, so a
+    tiled GPU's driver may store nothing; mid-frame passes keep it (later masks need it). Measured:
+    1 invalidation a frame, idle and spinning; `?invalidate=0` restores the store. What it saves
+    on Apple's driver is not measurable here (Chromium's software GL gains nothing from it).
+    Guards: `packages/pixi-svelte/fixtures/backBufferPasses.fixture.ts` (both halves on a
+    stand-in renderer: only the back buffer, the invalidation only at the present, each switch only
+    its half) and `scripts/pixi-back-buffer.fixture.mjs` (the installed pixi.js still has every hook
+    point and the frame-start `CLEAR.ALL`, and narrows no stencil mask, so an upgrade cannot
+    silently undo either half or make the invalidation unsafe).
+  - **Finding 2, fixed (byte-identical):** the canvas was transparent (`backgroundAlpha: 0`) over a
+    black page, so the page compositor blended the whole layer every frame. It is now opaque,
+    cleared to the page's colour, when the content has no backdrop blend (whose filter reads the
+    backdrop's alpha) and the page behind is provably one solid colour: the canvas's ancestors'
+    backgrounds (no image, no translucent colour), and `elementsFromPoint` at nine points finding
+    only its ancestors under it (an embed over a partner's page stays transparent). Context
+    `alpha: false` verified; what it saves on iOS is not measurable here. `?opaque=0` restores it.
+  - **Finding 3, measured, NOT shipped (owner decision):** the back buffer exists only for the
+    backdrop-reading blends (`overlay`, `lighten`); of the live games only `test6` authors one.
+    Without it the frame skips its resolve and full-screen copy (base-game idle: passes 2 → 1,
+    target switches 4 → 0, resolves 1 → 0; spinning: passes 4.5 → 3.4, target switches 6.7 → 2.5,
+    no resolve of ours). But the canvas's own MSAA rasterises in the other vertical orientation
+    from the back buffer, so the 4× sample pattern falls differently on every antialiased edge, the
+    internal edges of rig meshes included. `overlay-buffaloduel`, main vs a build that leaves the
+    back buffer out by default, harness captures at 1280×720 — `idle`,
+    `loaded`, `spin` byte-identical; `settled` 57,607 px differ (6.25%: 57,156 by 1–2 levels, 214 by
+    3–8, 220 by 9–32, 17 above 32, max 61), `line-win` 61,225 px (6.6%: 60,019 by 1–2, max 61); the
+    larger ones are single-pixel rows along horizontal edges and a few particle specks. Kept behind
+    `?backbuffer=0`; `AUTO_BACK_BUFFER` in `renderOptions.ts` turns it on for every game whose
+    content is known clean once approved.
+  - **Not changed, with reasons:** Element FX filters are attached only while an effect plays (the
+    runtime removes them when it ends) and Pixi never draws an invisible node, so idle and finished
+    effects already cost nothing; there are 0 filter passes at idle here and ~1.3 a spin frame.
+    Skipping a pass while the effect is at rest mid-loop, or caching it, would change pixels: the
+    pass draws the node through a non-multisampled texture, so its edges differ from the node drawn
+    straight into the multisampled target. A pass at alpha 0 cannot be skipped either: a pass may
+    draw from a transparent input. An off-screen filtered node still runs its pass (Element FX
+    passes are not clipped to the viewport, by design); none was seen in the measured frames.
+    `elementFx/shaders.ts` declares `highp`: on Apple GPUs `mediump` is fp16 and would change their
+    pixels. Uploads during play: 0 at idle, 0.2 a spin frame. Round trips: 0 a frame.
+  - **Texture format:** the iPhone UA takes the KTX2 path, and `preferAstcForKtx2` transcodes to
+    ASTC 4×4 wherever WebGL offers it (headless Chromium with SwiftShader too: 24 pages
+    `astc-4x4-unorm`). On the device the readout's textures line now shows it.
+  - **Diagnostics** (Current state): the GPU and setup lines, the per-frame GPU rows, `?perfgpu=1`,
+    and the switches. Fixtures: `packages/pixi-svelte/fixtures/renderOptions.fixture.ts` (switches,
+    the content scan incl. a cinematic track's animation `blend`, which is not a render blend, the
+    back-buffer and opaque decisions, the backdrop), `perfStats.fixture.ts` (the work buckets).
+  - **Parity, `main` (`e89334f`) vs this branch, default flags.** Every live game on its R2
+    snapshot through the current-games harness (local, 1280×720, its own scenarios), and every
+    capture compared byte for byte, not only under the harness's pixelmatch threshold (which lets
+    1–2-level differences through):
+    - Byte-identical: `bookofborutremake` 15/15, `borut-pots-sample` 17/17,
+      `commonoverlayproject` 17/17, `holdandwintestsolo` 11/11, `hw-3pots-sample` 12/12,
+      `overlay-buffaloduel` 17/17, `overlay-wallstreet` 17/17, `overlay-wallstreet2` 17/17,
+      `overlay-wishworld` 17/17, `particlespin` 17/17, `test1` 17/17, `test2` 17/17, `test6`
+      14/14 (the one game with a backdrop blend: back buffer and transparent canvas kept, resolve
+      deferred). The last two edits (the backdrop check moved into `renderOptions.ts`, and run only
+      where an opaque canvas can apply) were re-run on `overlay-buffaloduel` and `test6`: 31/31.
+      The depth/stencil invalidation (Finding 1b), added after the full run, on the final code:
+      `overlay-buffaloduel` 17/17, `test1` 17/17, `test6` 14/14, `holdandwintestsolo` 11/11,
+      `bookofborutremake` 15/15.
+    - The same on both sides, nothing to compare: `cloud` (main's runtime refuses its snapshot; its
+      2 boot captures identical), `salmons` (needs a rooms server the harness does not give),
+      `test-card` (the slot screen script stalls at the same step on both sides; 2 captures
+      identical).
+    - Controls: main vs main on `overlay-buffaloduel` 17/17; `scripts/playtest/determinism-proof.mjs`
+      (book base, line win, big win, Hold and Win Classic) main vs branch 20/20, and the branch's own
+      two runs 20/20, on the final code. Web fonts fell back on both sides alike (no Typekit mirror in R2, Adobe not
+      reachable from the container).
+  - **Gates.** `apps/launcher-api/scripts/check-symbol-layers.ts` asserted the source line
+    `useBackBuffer: true`; it now checks that the renderer takes `renderOptions.ts`'s decision and
+    that a node in each advanced mode the editor offers keeps the back buffer, even with it left out
+    by default elsewhere (behaviour, per mode). `pnpm check:all` 638/638 on the final tree, rebased
+    onto #1577 (card games; it touches no file of this change), which also fixed main's own red
+    `collectorRespin.fixture.ts` at `e89334f`. `pnpm lint` clean; `check:svelte` at baseline for
+    `pixi-svelte`, `lines` and every package that imports `pixi-svelte`;
+    `check:vendored-bundles`, `check:agents-knowledge`, `check:undefined-names`, `check:rgs` and
+    `check:engine-game` pass.
+  - **Not verified:** anything on a real iPhone. Headless Chromium cannot reproduce Apple GPU or
+    Safari compositor costs, and no WebKit build exists in this container. What the fixes buy there,
+    and where the idle 42 ms goes, is the owner's next `?perf=1` reading (Open items).
+
+- 2026-11-09 — **The RGS facade: a 2xx without a protocol body is an error, and an unpriced bet is
+  refused** (`packages/rgs-translator-eagaming`, branch `rgs-facade-non-json-and-line-fallback`).
+  - **Body-less 2xx.** The fetcher parses an answer to `null` when it is not JSON. An empty 200 is
+    resent (the partner's rule) and never reaches the facade, but a 200 PAGE (an edge's challenge,
+    a proxy's HTML) did. `httpFailure` only failed a body-less answer outside 2xx, so a bet answered
+    by a page went on to `translateBetResponse` and threw a `TypeError`. It is now an error at any
+    status: `ERR_HTTP_BAD_BODY`, "The game server answered HTTP 200 without a protocol body", in the
+    engine's error shape, for the bet, the collect, the end-of-round heartbeat and the match-3 move.
+    Rounds driven inside a feature and resumes log the same reason. `seq` was already safe: the
+    fetcher advances only on an accepted answer, so the next request goes where the page answered.
+    Unchanged: the background balance poll (a body-less answer leaves the HUD balance alone, as
+    before) and `requestAuthenticate`, which never used `httpFailure` and still boots with no balance
+    on a body-less or 4xx/5xx answer. The first bet then fails, or is refused (below), before
+    anything is charged.
+  - **No 5-line guess.** `betLineCount` returned 5 (Hot Fruits' count) when the server declared no
+    payline set. Every mock declares one and the partner's client cannot boot without its `config`,
+    so the guess only happened when the boot config never arrived. In that case a server with an
+    option table would have read the 5 as an option index. Such a bet is now refused before anything
+    is sent (`refuseUnpricedBet`, `ERR_GE`); `buildBetActions` takes a required `lineCount`. Games
+    with an option table and coin boards are unaffected.
+  - **Guards:** `check:connection` §2b (transport: a 200 page is not resent and moves nothing,
+    opening bet and mid-round), §11 (facade: legit heartbeat/poll/boot still answer; page on the
+    bet, heartbeat and collect → `ERR_HTTP_BAD_BODY`, nothing charged, the next bet at 0 and the next
+    collect at 2), §12 (no declared paylines → `ERR_GE`, nothing sent; a reload told its four lines
+    bets `[4, 25]`). Both fixes were checked against planted mutants (the old 2xx pass-through
+    crashes §11; the old `?? 5` fails §12 four times). Needs a **runtime release** (automatic on merge).
+
+- 2026-11-09 — **Dead helpers and components deleted; `utils-bet` and `utils-fetcher` folded in**
+  (branch `cleanup-dead-code-sweep`). Gone, each with no importer: `UiDoublePress`, `LoaderBase` (+
+  its only child `LoaderImage`), `AmountFadeProvider`, `ResponsiveText`, pixi-svelte `detectWebGL` /
+  `MIN_CLICKABLE_SIZE`, the launcher's `atlasManifestCheck.ts`, and `rgs-translator-eagaming`'s root
+  `.` entry (`engine-facade`, `game-mappings`, `paytable` stay). state-shared's `BaseBet` is now
+  `BetType<object>` in `rgs-requests` (no `any`); `rgs-fetcher` carries its own `fetch` wrapper. The
+  translator imports `API_AMOUNT_MULTIPLIER` / `BOOK_AMOUNT_MULTIPLIER` from `constants-shared/bet`
+  instead of restating them. Kept on purpose: utils-xstate's own `BetType<any>` (with `object`, every
+  reference app's `createIntermediateMachines(primaryMachines)` fails on the actors' contravariant
+  input), and `Authenticate.svelte`'s two `@ts-ignore`s (they hide a real gap: the RGS round has every
+  field optional and `state: unknown[]`, and `/bet/replay/…` is missing from `schema.ts`). Not done:
+  `components-storybook` as a devDependency of `components-shared` (it depends on components-shared,
+  and turbo refuses the cycle); the win-model lists in the mocks (each is the reel-dealable subset,
+  not `WIN_MODEL_TYPES`, and the test-server image cannot load game-config's TS).
 - 2026-11-09 — **Reels draw in the frame they are sampled for, carry through lap ends, and place
   their cells without Svelte** (branch `claude/nice-albattani-a03tcm`, restarted from `main`; the
   recycled-views attempt is shelved on `claude/reel-view-recycling`, not merged). Owner-approved task:
   make spins smooth on fast phones.
   - **Why, real devices** (`?perf=1`, build `aec1ea1`, which has #1527):
 
-    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S24 Ultra          |
+    |                                  | Nothing Phone (1)  | Pixel 9 Pro                            | S25 Ultra          |
     | -------------------------------- | ------------------ | -------------------------------------- | ------------------ |
     | Refresh                          | 60 Hz              | 120 Hz adaptive (8.3 + 16.6 ms frames) | steady 60 Hz       |
     | Spin p95 frame interval          | 25 ms              | 16.8 ms                                | 16.7 ms            |
@@ -395,7 +1607,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     | Reel step error mean / p95 / max | 10.1 / 43 / 120 px | 6.8 / 30.5 / 60 px                     | 4.0 / 39.6 / 79 px |
 
     The Pixel has almost no late frames: its error is the one-frame drawing lag with mixed frame
-    lengths. The S24's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
+    lengths. The S25's frames are steady: its p95 is the stall at each lap's end. #1527 kept both on
     purpose. The recycling attempt's profile (`commonoverlayproject`, CPU 4×) put Svelte
     re-checking the moving cells at ~42% of a flush (prop sync ~10%), Pixi's render ~24% of spin
     JS, rig ticks ~10%.
@@ -516,7 +1728,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`verify-symbol-overflow`, `verify-stepped-grid`, `verify-symbol-wrap-context`,
     `verify-symbol-seat`, `verify-win-explode-pop`, `verify-swap-in-place-mode`,
     `verify-board-paint-order`, `verify-board-tiles`, `verify-tumble-pattern`) pass unchanged.
-  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S24 Ultra); the numbers above are
+  - **Not verified:** real phones (iPhone 17, Pixel 9 Pro, S25 Ultra); the numbers above are
     headless Chromium on software GL.
 - 2026-11-09 — **A game with resolution tiers loads the one its screen needs**
   ([arcade-4k-builds](../design/arcade-4k-builds.md) Phase 4). `game/artTier.ts` `chooseArtTier`

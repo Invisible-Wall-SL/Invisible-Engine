@@ -7,7 +7,7 @@
 ## Current state
 
 - **Editor — `/flow-v2` only.** Unreal-style Blueprint graph (exec + typed data pins) over one game, at `apps/launcher-api/routes/(app)/flow-v2/`, backed by `packages/engine-flow-v2`. Palette projected from the template vocabulary (`bookOf`, `ways`, `cluster`, `scatter`, `holdAndWin` — `templateVocabulary(doc.templateId)`), pins derived from node refs, symbol pickers that follow the project's `/config` (in play, then the pots overlay's coins; no kind declares symbols), connect-time type checking, live Validation panel, deterministic headless Preview (ordered effect/cue/delay/show/hide timeline, 1×/2× speed), Collapse-to-Function (global shared library) and Collapse-to-Group, drag-off-pin contextual spawner. Auto-saves (no Save button) to R2 `editor/flow-v2.json` via `POST /api/flow-v2/save` (flow-gated). **v1 `/flow` editor retired 2026-07-13** (route + `/api/flow/save` + v1-editor-only helpers deleted).
-- **v1 authored doc path removed (2026-11-02).** No v1 FlowDoc is exported, baked or loaded; a stored `editor/flow.json` / `deploy/flow.json` in R2 is ignored. `engine-flow` + `createLinesFlow` (`apps/lines/src/game/flowRuntime.svelte.ts`) remain: when no v2 flow drives screens, every game boots a synthesized default `loading → basegame` flow (`events: []`), so book events fall through to the coded `bookEventHandlerMap`. v2 imports its `linesEngineReader`. The build breakdown's "Flow" row reads `authored` / `coded default`.
+- **Flow v1 is gone (authored doc path 2026-11-02, interpreter 2026-11-09).** No v1 FlowDoc is exported, baked or loaded; a stored `editor/flow.json` / `deploy/flow.json` in R2 is ignored; `packages/engine-flow` is deleted. When no v2 flow drives screens, the game boots on its loading screen and swaps it for the base game once, on the loading bar's `completeOnLoaded` or a tap (`apps/lines/src/game/bootScreens.ts`); book events go to the coded `bookEventHandlerMap` unless a v2 flow owns them. The `$engine.*` reader is `apps/lines/src/game/flowEngineReader.ts`; `EmitterVocabulary` / `DEFAULT_EMITTER_VOCABULARY` (the FX tool's event triggers) live in `engine-flow-v2`. The build breakdown's "Flow" row reads `authored` / `coded default`.
 - **Full ship chain exists.** `/flow-v2` author → R2 → `flowV2Export.ts` (`deploy/flow-v2.json`) → bake → bundle slot → game `bakedFlowV2Doc()`.
 - **flow-driven-game engine — Phases 1–4 + 6.1–6.3 + 8 on `main`** (merged 2026-06-30, `bdc849f`; see [design](../design/flow-driven-game.md)):
   - **P1** loading splash is a Flow screen; tap fires its `complete` edge to `basegame`.
@@ -54,6 +54,38 @@
   authored FlowDoc end-to-end. Phase 5 is closed.
 
 ## Recent changes
+
+- 2026-11-09 — **The Flow v1 interpreter is retired; the default boot is a direct loading →
+  basegame switch** (branch `engine-retire-flow-v1`, on `engine-playbook-single-dispatch`).
+  `createLinesFlow` ran every non-v2 game through the full v1 interpreter over a synthesized
+  `loading → basegame` doc with `events: []`, so all it ever did was hold `[loading]`, swap to
+  `[basegame]` on the first complete, and hand every book event to the coded map. **Now:**
+  `bootScreens.ts` (`createBootScreens`) does exactly that; `Game.svelte` mounts from it
+  (`scene()`, `screenIds`, `activeScreenIds`) and its `registerFlowComplete` falls through to
+  `bootScreens.complete()` when v2 does not own the complete. `playBook.ts` dispatches v2-owned
+  events to v2 and everything else to the coded map; `PlayBookDeps.getFlowInterpreter` is gone.
+  **Deleted:** `packages/engine-flow`, `flowRuntime.svelte.ts`, `flowInterpreterHolder.ts` (its
+  `hasFlowAction` / `emitFlowAction` / `emitFlowSignal` were always false/no-op), the identity
+  `linesValueResolver` registration, the v1 `condition` re-evaluate `$effect`, the entrance-fade
+  plumbing (`entranceById`, the `FlowScreenMount` / `FlowFade` branches — no synthesized edge
+  carried a transition), and flow-spike `parity`, `phase1`, `pins`, `valuedataflow`,
+  `valueresolve`, `roundtrip`, `phase4`, `phase4mount`, `phase7`, `transition`, `actionintent`,
+  `fs2`, `tap`. **Moved:** `linesEngineReader` → `flowEngineReader.ts`; `EmitterVocabulary` +
+  `DEFAULT_EMITTER_VOCABULARY` → `engine-flow-v2` (`gen:flow-vocab` regenerated; the unused
+  `groupEmitterVocabulary` / `find*` / `bookEventTypes` helpers dropped); `FlowEffect` →
+  `FlowV2Effect`. **Parity:** a one-off harness drove the real v1 interpreter and
+  `createBootScreens` side by side over seven docs (legacy ids, role-tagged ids, a HUD scene
+  tagged `loading`, one scene with both ids, either scene missing, none): boot set, mount
+  resolution for every probed id, `complete` results ×3, notifications and the set after a book
+  event matched (26 failures on a planted mutant). Booted, base and branch builds
+  (`PUBLIC_RGS_TRANSPORT=play4fun`, seeded book mock, real clock, `lines` and `bookOf` reference
+  layouts, interleaved base/branch/base/branch): the loading screen, the board after the tap and
+  the free-spin reveal after one spin match, base vs branch within the base-vs-base noise (loading
+  and idle ≤ 0.2 % of pixels vs ≤ 0.34 %). One visible difference: a book event with no
+  coded handler logs utils-book's "Missing bookEventHandler" line instead of v1's. Guards:
+  `apps/lines/src/game/bootScreens.fixture.ts` (the reference layouts boot on `loading`, one
+  swap, roles not ids, no scene ⇒ none); `check:play-book-dispatch` now plays no flow / a
+  non-owning v2 flow / an owning one. Merging re-points every online game (runtime release).
 
 - 2026-11-09 — **`/flow-v2` asks before a tool switch, Back, a reload or a tab close discards
   unsaved work** (branch `launcher-unsaved-work-guards`). The page had two autosaving

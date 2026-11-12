@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
 	//
 	// We point at the absolute path to the facade source rather than the package
 	// subpath ('rgs-translator-eagaming/engine-facade') so that resolution works
-	// from every consumer (utils-xstate, components-shared, utils-bet, utils-book)
+	// from every consumer (utils-xstate, components-shared, state-shared, utils-book)
 	// without each of them needing rgs-translator-eagaming as a declared dep.
 	if (process.env.PUBLIC_RGS_TRANSPORT === 'play4fun') {
 		overrides.resolve = {

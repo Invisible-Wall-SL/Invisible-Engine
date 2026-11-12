@@ -547,6 +547,13 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 			ctx.symbols.respinLandOnStop?.enabled === true ? 'Coins land as each cell stops' : null,
 	},
 	{
+		id: 'jackpotCoinArt',
+		title:
+			'A Hold and Win coin carrying a jackpot tier draws the art bound for its tier in the Symbols tool.',
+		text: (ctx) =>
+			ctx.symbols.jackpotCoinArt?.enabled === true ? 'Jackpot coins have their own art' : null,
+	},
+	{
 		id: 'symbolFx',
 		title:
 			'Symbols play Element FX in their states (a shake as they land, a glow while they win, a melt as they explode), authored in the Symbols tool.',

@@ -99,6 +99,7 @@ export const openBrowser = async ({ chrome: exe, profile, width, height }) => {
 	const pending = new Map();
 	const log = [];
 	const requests = [];
+	const urls = new Map();
 	let nextId = 1;
 	let buf = Buffer.alloc(0);
 	chrome.stdio[4].on('data', (chunk) => {
@@ -117,6 +118,9 @@ export const openBrowser = async ({ chrome: exe, profile, width, height }) => {
 				log.push(`[${msg.params.type}] ${text}`.slice(0, 300));
 			} else if (msg.method === 'Network.requestWillBeSent') {
 				requests.push(msg.params.request.url);
+				urls.set(msg.params.requestId, msg.params.request.url);
+			} else if (msg.method === 'Network.loadingFailed' && !msg.params.canceled) {
+				log.push(`[netfail] ${msg.params.errorText} ${urls.get(msg.params.requestId) ?? '?'}`);
 			}
 		}
 	});

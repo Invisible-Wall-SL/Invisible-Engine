@@ -90,7 +90,10 @@ try {
 	writeFileSync(bundlePath, JSON.stringify(bundle));
 
 	put('index.html', '<script type="module" src="./_app/immutable/entry/start.js"></script>');
-	put('_app/immutable/entry/start.js', 'import("./chunk.js"); fetch("assets/sprites/coded.png");');
+	put(
+		'_app/immutable/entry/start.js',
+		'import("./chunk.js"); fetch("assets/sprites/coded.png"); fetch("assets/audio/sounds.json");',
+	);
 	put('_app/immutable/entry/chunk.js', 'export const x = 1;');
 	put('build-info.json', JSON.stringify({ version: '42', engineSha: 'abcdef1234567' }));
 	put(
@@ -103,6 +106,13 @@ try {
 	put('assets/sounds/win.mp3', 's'.repeat(300));
 	put('assets/sprites/coded.png', 'c'.repeat(200));
 	put('assets/sprites/stray.png', 'x'.repeat(1000));
+	// An audiosprite names its media from the SITE ROOT, and the loading splash's index names its rig
+	// from `static/assets/` — neither from beside itself, which is all a sheet or atlas uses.
+	put('assets/audio/sounds.json', JSON.stringify({ src: ['./assets/audio/sounds.mp3'] }));
+	put('assets/audio/sounds.mp3', 'm'.repeat(400));
+	put('assets/_boot/boot.json', JSON.stringify({ engine: { atlas: '_boot/engine/R_E.atlas' } }));
+	put('assets/_boot/engine/R_E.atlas', 'S_E.webp\nsize: 4,4\n');
+	put('assets/_boot/engine/S_E.webp', 'e'.repeat(30));
 
 	note('bake.json', { project: 'demo', bundle: bundlePath });
 	note('pull.json', {
@@ -119,6 +129,14 @@ try {
 			unreferenced: [],
 			bytesSaved: 2250,
 		},
+	});
+	note('stock.json', {
+		skipped: ['bigwin'],
+		keptAllBecause: null,
+		removed: [
+			{ rel: 'assets/spines/bigwin/big_wins.webp', bytes: 900 },
+			{ rel: 'assets/spines/bigwin/mm_bigwin.json', bytes: 100 },
+		],
 	});
 	note('images.json', {
 		converted: [
@@ -158,7 +176,18 @@ try {
 	const issue = (title) => b.issues.find((i) => i.title === title)?.items ?? [];
 	const removed = (id) => b.removed.find((r) => r.id === id);
 
-	check('every shipped file is listed', b.files.length, 11);
+	check('every shipped file is listed', b.files.length, 16);
+	check(
+		"a site-root path in data: the sound sprite's media",
+		file('assets/audio/sounds.mp3')?.refs,
+		1,
+	);
+	check(
+		'a static/assets path in data: the splash rig',
+		file('assets/_boot/engine/R_E.atlas')?.refs,
+		1,
+	);
+	check('  and through it, its page', file('assets/_boot/engine/S_E.webp')?.refs, 1);
 	check('code: the chunks', file('_app/immutable/entry/chunk.js')?.category, 'code');
 	check('code: referenced by the entry', file('_app/immutable/entry/chunk.js')?.refs, 1);
 	check('coded art: named by the code', file('assets/sprites/coded.png')?.refs, 1);
@@ -179,7 +208,13 @@ try {
 	check('left out: pruned', removed('pruned')?.bytes, 700);
 	check('left out: image twins', removed('imageTwins')?.bytes, 2000);
 	check('left out: audio formats', removed('audioFormats')?.bytes, 250);
-	check('left out: total', b.totals.removedBytes, 7950);
+	check('left out: stock sample art', removed('stockArt')?.bytes, 1000);
+	check(
+		'left out: stock sample art names its keys',
+		removed('stockArt')?.detail.includes('(bigwin)'),
+		true,
+	);
+	check('left out: total', b.totals.removedBytes, 8950);
 	check('re-encoded: saving', b.totals.reencodedBytes, 3000);
 
 	check('check: the dead file', issue('Shipped but never loaded'), [

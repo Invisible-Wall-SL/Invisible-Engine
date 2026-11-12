@@ -680,6 +680,17 @@ const respinLandOnStopSchema = z
 	.strict();
 
 /**
+ * "Jackpot coins have their own art" — a Hold and Win coin carrying a jackpot tier draws the map row
+ * `<coin>:<TIER>` (`engine-layout/jackpotCoinArt.ts`) when it is bound. Those rows are ordinary
+ * entries of `symbols`; this switch only says whether the game uses them. Sparse and default OFF.
+ */
+const jackpotCoinArtSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
+/**
  * The Hold and Win COIN VALUE LABEL (`engine-layout/coinLabel.ts` owns the shape, defaults and
  * prune). A number outside its
  * range is CLAMPED and a non-hex tint or blank font DROPPED by `pruneCoinLabel` rather than refused,
@@ -732,6 +743,8 @@ const coinLabelSchema = z
 				landPop: coinLabelPopSchema.optional(),
 				countMs: z.number().finite().optional(),
 				boostPop: coinLabelPopSchema.optional(),
+				hitPop: coinLabelPopSchema.optional(),
+				hitMs: z.number().finite().optional(),
 			})
 			.strict()
 			.optional(),
@@ -742,8 +755,8 @@ const coinLabelSchema = z
  * HOLD AND WIN FLIGHTS — the authored look and feel of each flight kind (design §4.4 of
  * `docs/design/hold-and-win.md`): the head that travels, its Invisible FX trail, the effect on
  * impact, the route's shape and the timing. Keyed by flight kind (`toTotal` / `toCollector` /
- * `boostBeam` / `toCounter` / `upgradeBeam` / `unlockRow` / `toMeter` / `toMeter:<id>`); every
- * field sparse.
+ * `boostBeam` / `toCounter` / `upgradeBeam` / `unlockRow` / `enhancementBeam` / `toMeter` /
+ * `toMeter:<id>`); every field sparse.
  *
  * The SHAPE is strict (an unknown field or head kind is a 400, like every sibling), the VALUES are
  * not: a junk key, an out-of-range number or a head missing the field its kind needs are dropped or
@@ -812,6 +825,7 @@ export const symbolsDocSchema = z
 		winBeat: winBeatSchema.optional(),
 		arrivalRelease: arrivalReleaseSchema.optional(),
 		respinLandOnStop: respinLandOnStopSchema.optional(),
+		jackpotCoinArt: jackpotCoinArtSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
@@ -1071,6 +1085,9 @@ export function normalizeSymbolsDoc(
 	if (doc.arrivalRelease?.enabled === true) next.arrivalRelease = { enabled: true };
 	// Default-OFF like the release above: only the ON state persists.
 	if (doc.respinLandOnStop?.enabled === true) next.respinLandOnStop = { enabled: true };
+	// Default-OFF like the two above. The tier rows it turns on live in `symbols` and are kept while
+	// it is off, so an author can flick it to compare without losing the art; the EXPORT drops them.
+	if (doc.jackpotCoinArt?.enabled === true) next.jackpotCoinArt = { enabled: true };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).

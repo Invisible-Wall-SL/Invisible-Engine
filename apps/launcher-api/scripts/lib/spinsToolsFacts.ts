@@ -147,6 +147,36 @@ export function symbolsFactAsMain(kind: string, doc: GameConfigDoc | null): stri
 	return digest({ ...page, symbols: symbolGrid(defaults, doc).symbols });
 }
 
+/**
+ * The collector bonus's Win Text (Hold and Win Phase 14b, 2026-11-09): four feature lines and the
+ * enhancement names, the same defaults for every doc, pinned by engine-layout's
+ * `test-win-text-hold-and-win.mjs`. Left out of the Win Text and Localization facts, which stay
+ * main's.
+ */
+const ENHANCEMENT_FEATURE_KEYS = [
+	'enhancementsActive',
+	'superBonus',
+	'boostHit',
+	'multiplyHit',
+	'enhancementNames',
+] as const;
+const ENHANCEMENT_SOURCES = new Set([
+	'{enhancements} ACTIVE',
+	'SUPER BONUS',
+	'+{amount}',
+	'×{count}',
+	'EXPAND',
+	'BOOST',
+	'MULTIPLY',
+	'RESPIN',
+]);
+const withoutEnhancementText = (feature: Record<string, unknown>) =>
+	Object.fromEntries(
+		Object.entries(feature).filter(
+			([key]) => !(ENHANCEMENT_FEATURE_KEYS as readonly string[]).includes(key),
+		),
+	);
+
 /** Every fact of `doc`, digested. */
 export function factsOf(kind: string, doc: GameConfigDoc | null): Record<string, string> {
 	const addOns = flowAddOnsOf(doc);
@@ -174,10 +204,15 @@ export function factsOf(kind: string, doc: GameConfigDoc | null): Record<string,
 				...respinModes.map((mode) => resolveWinTextForMode(AUTHORED_WIN_TEXT, mode)),
 			].map(({ featurePlacement: _placement, ...resolved }) => {
 				const { symbolImageSize: _size, ...toast } = resolved.toast;
-				return { ...resolved, toast };
+				return { ...resolved, toast, feature: withoutEnhancementText(resolved.feature) };
 			}),
 		),
-		localization: digest(harvestProjectWinText(AUTHORED_WIN_TEXT, kind, doc)),
+		localization: digest(
+			harvestProjectWinText(AUTHORED_WIN_TEXT, kind, doc).map((section) => ({
+				...section,
+				items: section.items.filter((item) => !ENHANCEMENT_SOURCES.has(item.source)),
+			})),
+		),
 		symbols: digest(symbols),
 		info: doc ? digest(baseInfoData(doc)) : 'none',
 	};

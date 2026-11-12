@@ -26,11 +26,17 @@
  *     is sent, and the reload resumes the round the server still holds and settles it, to the cent.
  *     A feature played to its end whose closing `collect` alone is refused is NOT cut short: it is
  *     presented, and `requestEndRound` collects it.
+ * 11. A 2XX WITHOUT A PROTOCOL BODY (an edge's challenge page, a proxy's HTML) is an answer — not
+ *     resent, the position unmoved — and the facade returns it as an error in the engine's shape,
+ *     never as an empty round or an empty balance. A legitimate heartbeat still answers.
+ * 12. A BET THE FACADE CANNOT PRICE — no option table and no declared paylines — is refused before
+ *     anything is sent, rather than going out as a guessed five lines.
  */
 
 import { createServer, type Server } from 'node:http';
 
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
+import { createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import {
 	createPlay4FunFetcher,
 	type Play4FunConnectionState,
@@ -107,7 +113,10 @@ const autoCollect = await serve(
 // ---------- a lossy network ----------
 
 type Fault =
-	'pass' | 'hang' | 'hang-after' | 'late' | 'drop-before' | 'drop-after' | '503' | 'empty';
+	'pass' | 'hang' | 'hang-after' | 'late' | 'drop-before' | 'drop-after' | '503' | 'empty' | 'html';
+/** What an edge's challenge or a proxy's page looks like to the transport: a 200 that is not JSON. */
+const CHALLENGE_PAGE = '<!DOCTYPE html><html><head><title>Just a moment...</title></head></html>';
+
 interface Wire {
 	faults: Fault[];
 	sent: string[];
@@ -151,6 +160,11 @@ const wire = (...faults: Fault[]): Wire => {
 				return new Response('upstream unavailable', { status: 503 });
 			case 'empty':
 				return new Response('', { status: 200 });
+			case 'html':
+				return new Response(CHALLENGE_PAGE, {
+					status: 200,
+					headers: { 'content-type': 'text/html' },
+				});
 			default:
 				return fetch(input, init);
 		}
@@ -240,6 +254,37 @@ console.log('\n2. a 5xx and an empty 200 are resent; a refusal is not');
 	check('a refusal comes back as an answer', typeof refused.response, 'object');
 	check('…sent once', refusedWire.sent, ['0:collect']);
 	check('…and consumed no position (nothing was stored)', r.session.seq, 0);
+}
+
+console.log('\n2b. a 200 that is not the protocol is an answer: not resent, and it moves nothing');
+{
+	const w = wire('pass', 'html');
+	const h = harness(partnerWins.base, w);
+	await h.post([]);
+	const before = partnerWins.held(h.sid).balance;
+	const page = await h.post(BET_PLAY);
+	check('the opening bet comes back with no protocol body', page.response, null);
+	check('…sent once', w.sent.slice(1), ['0:bet+play(html)']);
+	check('…the position unmoved, no round bound', [h.session.seq, h.session.gid], [0, null]);
+	check('…nothing charged', partnerWins.held(h.sid).balance, before);
+	check('…and no reconnect shown for it', h.states, []);
+	const bet = await h.post(BET_PLAY);
+	check('the next bet goes where the page answered', w.sent.at(-1), '0:bet+play');
+	check('…and opens a round', !!bet.response?.platform?.gameRound?.id, true);
+
+	const m = wire('pass', 'pass', 'html');
+	const k = harness(partner.base, m);
+	await k.post([]);
+	await k.post(BUY);
+	const spin = await k.post(PLAY);
+	check('a free spin answered by a page has no protocol body', spin.response, null);
+	check('…and leaves the position at 2', k.session.seq, 2);
+	const again = await k.post(PLAY);
+	check(
+		'so the next one goes at 2 and is played',
+		[m.sent.at(-1), names(again.response).includes('playedSpin')],
+		['2g:play', true],
+	);
 }
 
 console.log('\n3. a dropped answer inside a round is REPLAYED, not re-dealt or re-credited');
@@ -662,6 +707,188 @@ console.log('\n10b. a feature played to its end whose collect alone is refused i
 	globalThis.fetch = realFetch;
 	check('the end of the round collects it', feature.held(sid).round, null);
 	check('…on the server’s wallet', end.balance?.amount, feature.held(sid).balance * 10_000);
+}
+
+type Outcome = Answer & {
+	status: { statusCode: string };
+	error?: unknown;
+	message?: unknown;
+};
+const shape = (o: Outcome) => [o.status.statusCode, typeof o.error, typeof o.message];
+
+console.log('\n11. the facade: a 2xx without a protocol body is an error, never an empty round');
+{
+	const sid = 'S-facade-page';
+	const url = rgsUrl(partnerWins.base);
+	const held = () => partnerWins.held(sid);
+	const realFetch = globalThis.fetch;
+	const sent: string[] = [];
+	let page = false;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body ?? '[]')) as { action: string }[];
+		const seq = new URL(String(input)).searchParams.get('seq');
+		sent.push(`${seq}:${body.map((a) => a.action).join('+') || '[]'}${page ? '(html)' : ''}`);
+		if (page) {
+			return new Response(CHALLENGE_PAGE, {
+				status: 200,
+				headers: { 'content-type': 'text/html' },
+			});
+		}
+		return realFetch(input, init);
+	}) as typeof fetch;
+	const facade = await openTab();
+	const ask = () => ({ sessionID: sid, rgsUrl: url });
+	const bet = () =>
+		facade.requestBet({ ...ask(), currency: 'USD', amount: 1, mode: 'BASE' }) as Promise<Outcome>;
+
+	const boot = (await facade.requestAuthenticate({ ...ask(), language: 'en' })) as Answer;
+	check(
+		'a legitimate heartbeat boots on the server’s balance',
+		boot.balance?.amount,
+		held().balance * 10_000,
+	);
+	const idle = (await facade.requestEndRound(ask())) as Outcome;
+	check(
+		'…the end-of-round heartbeat with no round open still answers it',
+		[idle.status.statusCode, idle.balance?.amount],
+		['SUCCESS', held().balance * 10_000],
+	);
+	const poll = (await facade.requestBalance(ask())) as Outcome;
+	check(
+		'…and so does the background poll',
+		[poll.status.statusCode, poll.balance?.amount],
+		['SUCCESS', held().balance * 10_000],
+	);
+
+	page = true;
+	const charged = held().balance;
+	const refused = await bet();
+	check('a bet answered by a page is an error in the engine’s shape', shape(refused), [
+		'ERR_HTTP_BAD_BODY',
+		'string',
+		'string',
+	]);
+	check('…with no round to present', refused.round, undefined);
+	check('…the position unmoved, no round bound', facade.getSessionState(sid)?.snapshot(), {
+		sid,
+		seq: 0,
+		gid: null,
+	});
+	check('…nothing charged', held().balance, charged);
+	const pagePoll = (await facade.requestBalance(ask())) as Outcome;
+	check('a poll answered by a page leaves the balance alone', pagePoll.balance, undefined);
+	const pageEnd = (await facade.requestEndRound(ask())) as Outcome;
+	check('a heartbeat answered by a page is an error too', shape(pageEnd), [
+		'ERR_HTTP_BAD_BODY',
+		'string',
+		'string',
+	]);
+
+	page = false;
+	const played = await bet();
+	check(
+		'the next bet goes out at 0 and is played',
+		[sent.at(-1), (played.round?.state ?? []).some((e) => e.type === 'reveal')],
+		['0:bet+play', true],
+	);
+	check('…charged once ($1)', held().balance, charged - 100);
+	check('…a won round held open for its collect', !!facade.getSessionState(sid)?.gid, true);
+
+	page = true;
+	const pageCollect = (await facade.requestEndRound(ask())) as Outcome;
+	check('a collect answered by a page is an error', shape(pageCollect), [
+		'ERR_HTTP_BAD_BODY',
+		'string',
+		'string',
+	]);
+	check(
+		'…the round still open on both sides, the position at 2',
+		[!!held().round, !!facade.getSessionState(sid)?.gid, facade.getSessionState(sid)?.seq],
+		[true, true, 2],
+	);
+	page = false;
+	const collected = (await facade.requestEndRound(ask())) as Outcome;
+	check('the next collect goes at 2', sent.at(-1), '2:collect');
+	check('…closes the round', held().round, null);
+	check('…and ends on the server’s wallet', collected.balance?.amount, held().balance * 10_000);
+	globalThis.fetch = realFetch;
+}
+
+console.log('\n12. a bet the facade cannot price is refused before anything is sent');
+{
+	// Four lines, so a bet priced by them is told apart from the five the facade used to guess.
+	const PAYLINES = [
+		[1, 1, 1, 1, 1],
+		[0, 0, 0, 0, 0],
+		[2, 2, 2, 2, 2],
+		[0, 1, 2, 1, 0],
+	];
+	const mock = createLinesMock({
+		label: 'unpriced',
+		seed: 'conn',
+		quiet: true,
+		startBalance: START,
+		paylines: PAYLINES,
+	});
+	const lines: Server = createServer((req, res) =>
+		mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+	);
+	await new Promise<void>((resolve) => lines.listen(0, resolve));
+	const address = lines.address();
+	const url = `localhost:${typeof address === 'object' && address ? address.port : 0}`;
+	const sid = 'S-unpriced';
+	const balance = () => (mock.sessions.get(sid) as MockSession).balance;
+
+	const realFetch = globalThis.fetch;
+	const bets: unknown[] = [];
+	let withoutConfig = true;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body ?? '[]')) as { action: string; context?: unknown }[];
+		const placed = body.find((a) => a.action === 'bet');
+		if (placed) bets.push(placed.context);
+		const response = await realFetch(input, init);
+		if (!withoutConfig) return response;
+		const answer = (await response.json()) as Play4FunResponse;
+		answer.events = (answer.events ?? []).filter((e) => e.event !== 'config');
+		return new Response(JSON.stringify(answer), { status: response.status });
+	}) as typeof fetch;
+
+	const tab = await openTab();
+	await tab.requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 'en' });
+	const before = balance();
+	const refused = (await tab.requestBet({
+		sessionID: sid,
+		rgsUrl: url,
+		currency: 'USD',
+		amount: 1,
+		mode: 'BASE',
+	})) as Outcome;
+	check(
+		'a server that declared no paylines gets no bet: refused in the engine’s shape',
+		shape(refused),
+		['ERR_GE', 'string', 'string'],
+	);
+	check('…nothing sent', bets, []);
+	check('…nothing charged', balance(), before);
+
+	withoutConfig = false;
+	const reload = await openTab();
+	await reload.requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 'en' });
+	const priced = (await reload.requestBet({
+		sessionID: sid,
+		rgsUrl: url,
+		currency: 'USD',
+		amount: 1,
+		mode: 'BASE',
+	})) as Outcome;
+	check('a reload told its paylines prices the bet by them', bets, [[PAYLINES.length, 25]]);
+	check(
+		'…and it is played, staked at $1',
+		[priced.status.statusCode, (priced.round as { amount?: number } | undefined)?.amount],
+		['SUCCESS', 1_000_000],
+	);
+	globalThis.fetch = realFetch;
+	lines.close();
 }
 
 partner.server.close();

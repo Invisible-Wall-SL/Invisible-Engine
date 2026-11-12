@@ -594,6 +594,9 @@ left alone.
 - **`--alias`**, because the alias is the partner's and a wrong one is a 404 on their CDN. Derived
   from the repo name when omitted, and the guess is stated rather than assumed.
 - **`--list-profiles` / `--print-env` / `--json` / `--skip-build`** — the seams a UI needs.
+- **`--art-tier full|half`** — a delivery for one kind of screen ships one art tier of a project
+  that publishes resolution tiers (`IE_ART_TIER`, [arcade-4k-builds](arcade-4k-builds.md)
+  "One-screen builds"); carried into `--print-env`.
 - **`--allow-missing-assets`** — the override for the missing-art refusal: without it, a baked
   bundle that reports placed or symbol-bound regions/spines resolving to nothing fails the delivery.
 - **A refusal is data as well as text.** A failed `--json` result carries

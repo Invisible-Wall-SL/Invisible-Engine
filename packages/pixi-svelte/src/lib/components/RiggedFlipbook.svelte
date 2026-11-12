@@ -73,11 +73,17 @@
 	 * here would be a rival answer to the same question. Move the art by moving the box, or bind a
 	 * different bone.
 	 *
-	 * Firing model: one-shot per beat (each fire bumps `runId`, and `{#key runId}` re-mounts a clean
-	 * play from frame 0), unless `continuous` is set — then the first beat arms it and later beats are
-	 * deaf. `duration` takes it back down after that many ms; without one, a one-shot clip ends itself
-	 * and a looping clip runs until the rig unmounts. Nothing renders before the first fire. No-op
-	 * when there is no host rig in context (never crashes).
+	 * Firing model: one-shot per beat (each fire bumps `runId`, and the clip plays again from frame 0),
+	 * unless `continuous` is set — then the first beat arms it and later beats are deaf. `duration`
+	 * takes it back down after that many ms; without one, a one-shot clip ends itself and a looping
+	 * clip runs until the rig unmounts. Nothing renders before the first fire. No-op when there is no
+	 * host rig in context (never crashes).
+	 *
+	 * The clip is mounted at its first beat and KEPT: each beat after starts it again from its first
+	 * frame in place (`setContextRestart` with `runId`), and taken down (`runId` 0) it is hidden and
+	 * stopped. It used to be mounted again per beat — once per lap of a looping win frame, on every
+	 * pass of the resting win cycle. A clip started again from frame 0 draws what a new one does: it
+	 * holds no state but its frame and its clock, and the textures, size and anchor it is given.
 	 */
 	import * as PIXI from 'pixi.js';
 	import * as RIG from 'engine-rig/pixi';
@@ -88,7 +94,9 @@
 		getContextRestart,
 		getContextRig,
 		getContextRigLoadScale,
+		getContextRigParked,
 		onRestart,
+		setContextRestart,
 	} from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
@@ -98,6 +106,7 @@
 
 	const props: Props = $props();
 	const rig = getContextRig();
+	const parked = getContextRigParked();
 	// The clip's box is in RIG units (the Rigger and /symbols load every rig at 1); the host bundle may
 	// be read at another load scale, which moves bones and scales attachments but not a Pixi child —
 	// so the clip is scaled by it here. See `setContextRigLoadScale`.
@@ -139,8 +148,8 @@
 		if (!fbParent.destroyed) fbParent.destroy();
 	});
 
-	// Bumped on every matching beat; drives the `{#key runId}` re-mount = a fresh play from frame 0.
-	// Stays 0 (and mounts nothing) until the first fire, so no art appears before the beat.
+	// Bumped on every matching beat: the clip plays again from frame 0. Stays 0 (and shows nothing)
+	// until the first fire, so no art appears before the beat.
 	let runId = $state(0);
 
 	let timers: ReturnType<typeof setTimeout>[] = [];
@@ -149,14 +158,14 @@
 		timers = [];
 	};
 
-	/** Mount (or re-mount) the clip, and schedule its take-down when the binding bounds it. */
+	/** Play the clip from the top, and schedule its take-down when the binding bounds it. */
 	const start = (): void => {
 		runId += 1;
 		const duration = props.duration;
 		if (typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0) return;
-		// Take-down = back to the pre-first-fire state (`runId` 0 unmounts the `{#if}`), so a bounded
-		// clip leaves nothing behind — including on a `continuous` binding, whose re-fire guard reads
-		// the same value and therefore re-arms correctly on the next beat.
+		// Take-down = back to the pre-first-fire state (`runId` 0 hides and stops the clip), so a
+		// bounded clip leaves nothing behind — including on a `continuous` binding, whose re-fire guard
+		// reads the same value and therefore re-arms correctly on the next beat.
 		const timer = setTimeout(() => {
 			timers = timers.filter((t) => t !== timer);
 			runId = 0;
@@ -164,14 +173,14 @@
 		timers.push(timer);
 	};
 
-	// `delay` defers the MOUNT, not a play flag: the clip has to start at frame 0 when it does appear,
-	// and re-mounting is already how a beat plays one from the top. Each fire schedules its own timer,
-	// so two beats inside one delay window still produce two plays.
+	// `delay` defers the play: the clip has to start at frame 0 when it does appear. Each fire
+	// schedules its own timer, so two beats inside one delay window still produce two plays.
 	const fire = (): void => {
-		// A continuous binding is armed by its FIRST beat and then deaf: re-mounting is how a one-shot
-		// replays from frame 0, so ignoring the later fires is exactly what keeps the animation
-		// unbroken. A pending delay counts too, or a beat landing inside the delay window would queue
-		// a second start.
+		if (parked?.()) return;
+		// A continuous binding is armed by its FIRST beat and then deaf: each beat replays a one-shot
+		// from frame 0, so ignoring the later fires is exactly what keeps the animation unbroken. A
+		// pending delay counts too, or a beat landing inside the delay window would queue a second
+		// start.
 		if (props.continuous && (runId > 0 || timers.length > 0)) return;
 		const delay = props.delay;
 		if (typeof delay !== 'number' || !Number.isFinite(delay) || delay <= 0) {
@@ -188,9 +197,24 @@
 	// A restart (`setContextRestart`): dormant again, as a fresh mount is, before the rig's track
 	// starts over and its first beat fires this again.
 	const restart = getContextRestart();
-	onRestart(restart, () => {
+	const dormant = (): void => {
 		clearTimers();
 		runId = 0;
+	};
+	onRestart(restart, dormant);
+	// A kept rig put away (`<RigProvider parked>`): the clip goes, as an unmount takes it, and
+	// nothing fires until the rig plays again.
+	if (parked) {
+		$effect.pre(() => {
+			if (parked()) untrack(dormant);
+		});
+	}
+	// The kept clip (see the firing model): started again per beat, and hidden while taken down.
+	setContextRestart(() => runId);
+	let fired = false;
+	const drawn = $derived((fired ||= runId > 0));
+	$effect.pre(() => {
+		fbLocal.visible = runId > 0;
 	});
 
 	// Attached at INIT, not from an effect. The sibling `<RigTrack>` sets the animation and poses
@@ -234,16 +258,14 @@
 	}
 </script>
 
-{#if runId > 0}
-	{#key runId}
-		{#if props.bone}
-			<RigBoneAttach boneName={props.bone} followRotation followScale rigUnits>
-				<Flipbook clip={props.clip} anchor={0.5} />
-			</RigBoneAttach>
-		{:else}
-			<!-- No bone: the rig origin normally, or the SLOT's own bone when this is a slot binding
-			     (rig drives `fbParent` there, and this mounts inside it). -->
-			<Flipbook clip={props.clip} anchor={0.5} />
-		{/if}
-	{/key}
+{#if drawn}
+	{#if props.bone}
+		<RigBoneAttach boneName={props.bone} followRotation followScale rigUnits>
+			<Flipbook clip={props.clip} anchor={0.5} play={runId > 0} />
+		</RigBoneAttach>
+	{:else}
+		<!-- No bone: the rig origin normally, or the SLOT's own bone when this is a slot binding
+		     (rig drives `fbParent` there, and this mounts inside it). -->
+		<Flipbook clip={props.clip} anchor={0.5} play={runId > 0} />
+	{/if}
 {/if}

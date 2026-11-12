@@ -95,8 +95,14 @@ const FAMILY_SEEDS = [
 	'card.rules.json',
 ];
 /** The Hold and Win coin board template (hold-and-win-coin-board Phase 13a): also a new file,
- *  pinned by `coinBoard.fixture.ts`. */
-const LATER_FILES = [...PRESET_FILES, 'holdAndWin.coinBoard.json', ...FAMILY_SEEDS];
+ *  pinned by `coinBoard.fixture.ts`; and the collector + enhancements template (Phase 14e), pinned
+ *  by `check:add-bonus-mode`. */
+const LATER_FILES = [
+	...PRESET_FILES,
+	'holdAndWin.coinBoard.json',
+	'holdAndWin.enhancements.json',
+	...FAMILY_SEEDS,
+];
 const files = readdirSync(DEFAULTS).filter(
 	(name) => name.endsWith('.json') && !LATER_FILES.includes(name),
 );

@@ -530,8 +530,9 @@ export const HOLD_AND_WIN_TEMPLATES: Record<HoldAndWinTemplateJackpots, RawGameC
 	off: plainConfig(false),
 };
 
-/** Game Maker's Base game choice for the template: a lines base game, or the coin board only. */
-export const HOLD_AND_WIN_TEMPLATE_BASES = ['lines', 'coinBoard'] as const;
+/** Game Maker's Base game choice for the template: a lines base game, the coin board only, or a
+ *  lines game with the collector bonus and its enhancements ({@link HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE}). */
+export const HOLD_AND_WIN_TEMPLATE_BASES = ['lines', 'coinBoard', 'enhancements'] as const;
 
 export type HoldAndWinTemplateBase = (typeof HOLD_AND_WIN_TEMPLATE_BASES)[number];
 
@@ -569,6 +570,151 @@ export const HOLD_AND_WIN_COIN_BOARD_TEMPLATE: RawGameConfig = {
 		lines: { selection: 'fixed', active: Object.keys(FIVE_LINES_5X3) },
 		payRule: 'coinsOnLines',
 		triggerMin: { '5': 6 },
+	},
+};
+
+// ─── Collector + enhancements (the partner's collector bonus) ─────────────────────────────────
+
+/**
+ * Game Maker's "Hold and Win" template with **Base game: Lines + collector enhancements**
+ * (`docs/design/hold-and-win-enhancements.md` §3.5): the shape of the partner's collector bonus
+ * game (Getting Hot, partner game 8). 5×3 and 5 lines; coins land on reels 1, 2, 4 and 5 and the
+ * collector on reel 3, which collects in the base game; in the respins only the collectors stick,
+ * and the server draws the enhancements (`holdAndWin.enhancements`). Bet modes are keyed by the
+ * partner's option names, so the facade sends their index: an ante switch and two buys, each
+ * refusable. Titles are ours.
+ *
+ * The line pays are the partner's paytable as their wire declares it
+ * (`docs/reference/play4fun-collector-respin-capture.md`), so the info page quotes what their server
+ * pays; every other number is MOCK PACING, the partner's server owns the math. Symbol names are what
+ * the facade reads off the partner's wire: COIN, COLLECT, BLANK and the line symbols its PIC1–PIC9
+ * map to.
+ */
+export const HOLD_AND_WIN_ENHANCEMENTS_KEY = 'holdAndWin.enhancements';
+
+const COIN_REELS = [0, 1, 3, 4];
+
+const ENHANCEMENTS_FILLER = ['COIN', 'COLLECT', 'BLANK'];
+
+const enhancementsBaseStrip = (special: string, reel: number): ReelStrip => {
+	const lines = ['H1', 'L1', 'H2', 'L2', 'H3', 'L5', 'H4', 'L3', 'H5'];
+	const turned = [...lines.slice(reel), ...lines.slice(0, reel)];
+	return strip([
+		...turned.slice(0, 3),
+		special,
+		...turned.slice(3, 6),
+		'BLANK',
+		special,
+		...turned.slice(6),
+	]);
+};
+
+export const HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE: RawGameConfig = {
+	providerName: 'invisible_wall',
+	gameName: 'collector_enhancements',
+	gameID: 'hold_and_win_enhancements',
+	rtp: 0.96,
+	numReels: 5,
+	numRows: [3, 3, 3, 3, 3],
+	betModes: {
+		base: BASE_MODE,
+		powerup: { cost: 5, feature: true, buyBonus: false, rtp: 0.96, max_win: 5000 },
+		buycentercoin: { cost: 50, feature: true, buyBonus: true, rtp: 0.96, max_win: 5000 },
+		goldstrike: { cost: 100, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 },
+	},
+	betModePresentation: {
+		powerup: {
+			kind: 'ante',
+			order: 1,
+			text: { title: 'HEAT UP', betAmountLabel: 'HEAT UP' },
+			toggle: true,
+			refusable: true,
+			fillerSymbols: ENHANCEMENTS_FILLER,
+		},
+		buycentercoin: {
+			kind: 'buy',
+			order: 2,
+			text: { title: 'COLLECTOR SPIN' },
+			refusable: true,
+			fillerSymbols: ENHANCEMENTS_FILLER,
+		},
+		goldstrike: { kind: 'buy', order: 3, text: { title: 'BUY BONUS' }, refusable: true },
+	},
+	paylines: FIVE_LINES_5X3,
+	symbols: {
+		H1: pays(400, 600, 1000),
+		H2: pays(300, 400, 800),
+		H3: pays(200, 300, 400),
+		H4: pays(100, 150, 200),
+		H5: pays(30, 50, 80),
+		L1: pays(100, 150, 200),
+		L2: pays(30, 50, 80),
+		L3: pays(10, 20, 30),
+		L5: pays(30, 50, 80),
+		COIN: tag('coin', 'jackpot'),
+		COLLECT: tag('collector'),
+		BLANK: tag('blank'),
+	},
+	paddingReels: {
+		basegame: [0, 1, 2, 3, 4].map((reel) =>
+			enhancementsBaseStrip(reel === 2 ? 'COLLECT' : 'COIN', reel),
+		),
+		respin: [0, 1, 2, 3, 4].map((reel) =>
+			strip(
+				reel === 2
+					? ['BLANK', 'BLANK', 'COLLECT', 'BLANK', 'BLANK', 'BLANK']
+					: ['BLANK', 'COIN', 'BLANK', 'BLANK', 'COIN', 'BLANK'],
+			),
+		),
+	},
+	winLevels: winLevels([15, 30, 50, 80]),
+	holdAndWin: {
+		trigger: {
+			pattern: [
+				{ reel: 1, roles: ['coin', 'jackpot'], min: 1 },
+				{ reel: 2, roles: ['collector'], min: 1 },
+				{ reel: 3, roles: ['coin', 'jackpot'], min: 1 },
+			],
+			buy: [{ mode: 'goldstrike', guaranteed: [], boostedSpecials: false }],
+		},
+		stickiness: 'collectorsOnly',
+		respins: { start: 3, reset: 'anySpecial' },
+		boardEnd: { type: 'none' },
+		coins: [
+			cash(1, 30, COIN_REELS),
+			cash(2, 25, COIN_REELS),
+			cash(3, 15, COIN_REELS),
+			cash(4, 10, COIN_REELS),
+			cash(5, 8, COIN_REELS),
+			cash(8, 5, COIN_REELS),
+			cash(10, 4, COIN_REELS),
+			cash(15, 2, COIN_REELS),
+			cash(20, 1, COIN_REELS),
+			jp('MINI', 3, COIN_REELS),
+			jp('MINOR', 1.5, COIN_REELS),
+			jp('MAJOR', 0.4, COIN_REELS),
+			jp('GRAND', 0.1, COIN_REELS),
+		],
+		jackpots: [
+			{ name: 'MINI', multiplier: 25, fixed: true },
+			{ name: 'MINOR', multiplier: 50, fixed: true },
+			{ name: 'MAJOR', multiplier: 150, fixed: true },
+			{ name: 'GRAND', multiplier: 1000, fixed: true },
+		],
+		specials: {
+			collector: {
+				level: 1,
+				maxLevel: 1,
+				sticky: true,
+				collects: 'perRespin',
+				landsInBaseGame: true,
+				instantCollectInBaseGame: true,
+				reels: [2],
+			},
+		},
+		applyOrder: ['collector'],
+		activeModifiers: { atEntry: ['collector'], fromTriggeringSpecials: false },
+		enhancements: true,
 	},
 };
 

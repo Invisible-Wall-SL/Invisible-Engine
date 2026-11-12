@@ -70,7 +70,7 @@ Works today on `main` / live:
 1. **Browser live-verify owed** — the project-file workflow (B19: rename / Save / Save As + name guards), the FX-layer picker, 🧹 Clean sheet (on an R2-backed sheet: the AI-field count, clean → refresh keeps the name, clean → re-upload → in-place Save) and the `.plist` import + lock UI landed with local/headless verification; a full live browser pass on Railway is still owed. For the import specifically: a REAL shipped `.plist` (not the synthetic fixture) and confirmation that the imported page/JSON/manifest land in R2.
 2. **Per-user session parity (Phase 4) — planned, unbuilt** (design `atlas-per-user-session.md`): thread the launcher `user` id and scope any server-remembered view state / canvas defaults per user. Minimal — the tool is largely stateless server-side (compose is synchronous, geometry rides in the request).
 
-3. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (one change with atlas-maker status #6).
+3. **Legacy `SHEET_TOOL_SECRET` — done 2026-11-10.** The legacy `?k=` handoff is removed from the code (#1585) and the owner deleted the variable from Railway; a signed launch token is the only gate.
 
 4. **Concurrent saving — two-browser live run owed.** Two profiles open the same sheet; A saves;
    B (not reloaded) saves → B is asked, naming A; **Overwrite with mine** lands. Then Save As onto
@@ -83,6 +83,48 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-11-10 — **Rotated frames in the TexturePacker `.json` are UPRIGHT, like every other
+  writer (closes the old open item "rotated frames use a non-standard dialect").** The export used
+  to swap a rotated frame's `frame.w/h` to the page footprint, which PixiJS's `Spritesheet` and the
+  launcher's direct reader both misread; it now writes what the Atlas Maker writes (`frame.w/h` ==
+  `spriteSourceSize.w/h` == the upright size), and `iw_common.texturepacker` has one dialect, no
+  parameter. **It was not latent:** an R2 scan found ~30 Sheet Maker exports with swapped rotated
+  frames — every rotated `bookofborutremake` and `borut_pots_sample` sheet among them. They are NOT
+  rewritten: the launcher's `editorRegions.ts::uprightFrameSize` reads a rotated frame that is
+  exactly its `spriteSourceSize` transposed as that legacy form (mirrored in `tpRegions.mjs` and the
+  Atlas Maker's `ui_server._tp_frame_to_region`, its raw-`.json` import), so a re-export simply
+  converts a sheet. `uprightWH` is gone — it un-swapped EVERY file, so the three
+  `test1` `.plist` imports (upright, rotated) had their correct manifest rects overwritten with the
+  transpose in the editor and the game. Measured against R2: over all 210 manifests with their own
+  TP JSON, old vs new reader, those 3 change (to the manifest's own rects) and nothing else. A
+  legacy `.json` read DIRECTLY (an asset key that is the `.json`, not the manifest) does change —
+  from the transposed, wrong cut to the right one — and R2 holds exactly one authored reference to
+  a rotated frame that way: `borut_pots_sample/symbols/symbols.json` →
+  `S_VFX.json::Untitled-5_0007_1.png`, a 306×308 frame (a 2 px correction on its next publish).
+  The live `bookofborutremake` reads `S_Game_UI2.json` directly for one frame only,
+  `T_UI_BuyBack_glow`, which is not rotated. Guards: `services/_shared/test_iw_texturepacker.py` (both
+  tools write the upright form; pins `services/_shared/fixtures/texturepacker-rotated.json`) and
+  `check:texturepacker-rotation` (that fixture, and its legacy transpose, through the real
+  `loadRegionSet`, `tpRegions.mjs` and a real PixiJS `Spritesheet`: same upright regions, frames
+  already upright left alone, Pixi cuts the `(h×w)` page rect with `rotate: 2`; the old reader and a
+  reader without the legacy rule each fail it), and `atlas-tool/test_sheet_handoff.py` for the
+  Atlas Maker's import.
+- 2026-11-10 — **The legacy `?k=` handoff is gone; a signed launch token is the only way in.** Same
+  change as the Atlas Maker's (`iw_common/launch.py`; detail in [atlas-maker status](atlas-maker.md)
+  Recent changes): `GATE` is `LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET")`, and
+  `SHEET_TOOL_SECRET` / `X-Sheet-Secret` / the `sheet_tool` cookie are no longer read.
+- 2026-11-09 — **Shared request handler, TexturePacker writer and test kit (no behaviour change).**
+  `Handler` now subclasses `iw_common.http.ToolHandler` (gate → 403/303 with the gate's cookies,
+  `_resolve_context`, the `_send` response writer) — the same base as the Atlas Maker's; the Sheet
+  Maker keeps its own `_send_bytes`/`_send_json` signatures (JSON answers still carry no
+  Cache-Control) and names only `gate`, `tool_title` and `_switch_context`. `_mirror` is
+  `iw_common.storage.mirror_staged` plus the Sheet Maker's own claim (`_claim_listing`, the
+  note → push → mark_pushed → clear order unchanged). `atlas_writers.write_texturepacker_json` is
+  `iw_common.texturepacker` in its FOOTPRINT dialect, byte-identical to before
+  (`services/_shared/test_iw_texturepacker.py`); see open item 5 for why that dialect is odd.
+  `test_launch_gate.py` / `test_presence.py` use `iw_common.testkit.Suite`. Lint: `ruff check
+  services/` (F, E9, BLE) now runs in CI's `python tests` job; the unused `dest_dir` read in
+  `_export` went with it.
 - 2026-10-27 — **Ask the AI on the bar.** The shared `iw_common/ask_ai.js` window (the twin of the
   launcher's `$lib/AskAiPanel.svelte`) sits before Report bug; `POST /ask-ai` relays the question to
   the launcher for the signed-in user (`iw_common/ask_ai.py`, `X-IW-Relay` token) and streams the

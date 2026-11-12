@@ -4,13 +4,12 @@
  * Source: `apps/lines/src/game/typesEmitterEvent.ts` (the emitter union) + `apps/lines/src/game/flowEffects.ts` (the effect catalog).
  * Regenerate: `pnpm gen:flow-vocab`. Verified by `flow-spike run vocab`.
  *
- * This is the game's REAL Broadcast/effect vocabulary as DATA, fed to the `/flow` choreography
- * palette in place of the bundled `DEFAULT_EMITTER_VOCABULARY` (design doc §3, Phase 7). It is
- * an authoring-fidelity catalog only — the runtime executor broadcasts/invokes whatever the
- * FlowDoc declares regardless of this list, so there is zero game-parity risk.
+ * This is the game's REAL emitter/effect vocabulary as DATA, for the authoring surfaces in place of
+ * the bundled `DEFAULT_EMITTER_VOCABULARY`. An authoring-fidelity catalog only — the runtime never
+ * reads it, so there is zero game-parity risk.
  */
 
-import type { EmitterVocabulary } from 'engine-flow';
+import type { EmitterVocabulary } from 'engine-flow-v2';
 
 export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 	source: 'lines',
@@ -599,6 +598,68 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 					required: true,
 				},
 			],
+		},
+		{
+			type: 'enhancementOn',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'kind',
+					kind: 'string',
+					required: true,
+				},
+				{
+					key: 'scope',
+					kind: 'string',
+					required: false,
+				},
+			],
+		},
+		{
+			type: 'respinEnhancementHit',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'kind',
+					kind: 'object',
+					required: true,
+				},
+				{
+					key: 'by',
+					kind: 'number',
+					required: true,
+				},
+				{
+					key: 'cells',
+					kind: 'list',
+					required: true,
+				},
+				{
+					key: 'scope',
+					kind: 'string',
+					required: false,
+				},
+			],
+		},
+		{
+			type: 'respinEnhancementMiss',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'kind',
+					kind: 'object',
+					required: true,
+				},
+				{
+					key: 'scope',
+					kind: 'string',
+					required: false,
+				},
+			],
+		},
+		{
+			type: 'superBonusEnter',
+			group: 'Hold and Win',
 		},
 		{
 			type: 'respinSpecialBecomesCoin',
@@ -1265,6 +1326,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'hitEnhancement',
+			group: 'Effect',
+		},
+		{
+			name: 'missEnhancement',
+			group: 'Effect',
+		},
+		{
 			name: 'turnSpecialIntoCoin',
 			group: 'Effect',
 		},
@@ -1571,6 +1640,12 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'coinBoost',
+		},
+		{
+			type: 'enhancementHit',
+		},
+		{
+			type: 'enhancementMiss',
 		},
 		{
 			type: 'specialBecomesCoin',

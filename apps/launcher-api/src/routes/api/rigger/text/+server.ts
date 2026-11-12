@@ -7,8 +7,9 @@ import {
 	rigTextRegionNames,
 	type RigTextDoc,
 } from '$lib/server/riggerText';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import {
-	ConflictError,
 	deleteObjects,
 	getObjectTextWithEtag,
 	listAllKeys,
@@ -59,7 +60,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body) throw error(400, 'bad body');
 
 	// SCOPE GUARD — the tab resolved its project when the rig opened; this endpoint resolves it
@@ -107,18 +108,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			precondition(baseEtag),
 		);
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else changed this rig’s text while you were editing. ' +
-						'Your changes are still here — reload the rig to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else changed this rig’s text while you were editing. ' +
+				'Your changes are still here — reload the rig to get their version first.',
+		);
+		if (conflict) return conflict;
 		console.error('[rigger/text] save failed:', e);
 		return json(
 			{

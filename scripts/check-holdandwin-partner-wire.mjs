@@ -704,10 +704,25 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 		);
 	}
 	{
+		const { r } = await forced('trigger,jackpot:GRAND');
+		check(
+			Boolean(r.enter) && JSON.stringify(ctxs(r.events, 'playWindow')[0]).includes('"COIN_GRAND"'),
+			'force:jackpot:GRAND lands a GRAND coin on the trigger board',
+		);
+	}
+	{
 		const { r, before } = await forced('baseCollect');
 		check(
 			!r.enter && stats.baseCollects > before.baseCollects && stats.openWins > before.openWins,
 			'force:baseCollect pays a base-game collect that waits for the client collect',
+		);
+	}
+	{
+		const { r } = await forced('baseCollect,twoCollectors');
+		const cols = collectorsOn(ctxs(r.events, 'playWindow')[0]);
+		check(
+			!r.enter && cols.length === 2 && ctxs(r.events, 'collect').length === 2,
+			'force:baseCollect,twoCollectors: both base collectors take the coin, no bonus',
 		);
 	}
 	for (const bad of [
@@ -716,6 +731,9 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 		'enhancements:1',
 		'nope',
 		'boostHit,enhancements:00010',
+		'baseCollect,trigger',
+		'jackpot:HUGE',
+		'baseCollect,jackpot:MINI',
 	]) {
 		const r = await srv.engine('f', 0, [
 			{ action: 'bet', context: [0, 4] },

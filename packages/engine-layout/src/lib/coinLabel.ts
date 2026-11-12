@@ -66,6 +66,14 @@ export interface CoinLabelAnimation {
 	countMs?: number;
 	/** The label pops when a count-up lands on its new value. */
 	boostPop?: CoinLabelPop;
+	/**
+	 * The pop of the HIT READOUT — the "×3" / "+$5.00" an enhancement hit prints on the coin before
+	 * it counts to its new value. ON unless authored off (`enabled: false`): the readout is what the
+	 * player reads the hit by, and only an enhancement hit ever draws it.
+	 */
+	hitPop?: CoinLabelPop;
+	/** How long the hit readout holds on the coin before the count-up starts, ms; 0 = no readout. */
+	hitMs?: number;
 }
 
 export interface CoinLabelConfig {
@@ -88,6 +96,7 @@ export const COIN_LABEL_DEFAULTS = {
 	maxWidth: 0.9,
 	popScale: 1.25,
 	popMs: 260,
+	hitMs: 500,
 } as const;
 
 /** The tiers the tool offers when the project's Game Config declares none. */
@@ -103,6 +112,7 @@ export const COIN_LABEL_BOUNDS = {
 	popScale: [1, 3],
 	popMs: [0, 2000],
 	countMs: [0, 10000],
+	hitMs: [0, 5000],
 } as const satisfies Record<string, readonly [number, number]>;
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -136,14 +146,17 @@ export function pruneCoinLabelStyle(style: CoinLabelStyle | undefined): CoinLabe
 	return compact(next);
 }
 
-function prunePop(pop: CoinLabelPop | undefined): CoinLabelPop | undefined {
-	if (pop?.enabled !== true) return undefined;
+/** A pop's sparse form. One that is `on` by default keeps only an authored `enabled: false`, or the
+ *  scale / length it was tuned to; untouched, it persists nothing. */
+function prunePop(pop: CoinLabelPop | undefined, on = false): CoinLabelPop | undefined {
+	if (on ? pop?.enabled === false : pop?.enabled !== true)
+		return on ? { enabled: false } : undefined;
 	const next: CoinLabelPop = { enabled: true };
-	const scale = authored(pop.scale, COIN_LABEL_BOUNDS.popScale, COIN_LABEL_DEFAULTS.popScale);
+	const scale = authored(pop?.scale, COIN_LABEL_BOUNDS.popScale, COIN_LABEL_DEFAULTS.popScale);
 	if (scale !== undefined) next.scale = scale;
-	const ms = authored(pop.ms, COIN_LABEL_BOUNDS.popMs, COIN_LABEL_DEFAULTS.popMs, true);
+	const ms = authored(pop?.ms, COIN_LABEL_BOUNDS.popMs, COIN_LABEL_DEFAULTS.popMs, true);
 	if (ms !== undefined) next.ms = ms;
-	return next;
+	return on && Object.keys(next).length === 1 ? undefined : next;
 }
 
 /**
@@ -206,6 +219,10 @@ export function pruneCoinLabel(config: CoinLabelConfig | undefined): CoinLabelCo
 		if (countMs !== undefined) animation.countMs = countMs;
 		const boostPop = prunePop(a.boostPop);
 		if (boostPop) animation.boostPop = boostPop;
+		const hitPop = prunePop(a.hitPop, true);
+		if (hitPop) animation.hitPop = hitPop;
+		const hitMs = authored(a.hitMs, COIN_LABEL_BOUNDS.hitMs, COIN_LABEL_DEFAULTS.hitMs, true);
+		if (hitMs !== undefined) animation.hitMs = hitMs;
 		const kept = compact(animation);
 		if (kept) next.animation = kept;
 	}
@@ -243,13 +260,15 @@ export function resolveCoinLabelLook(
 	};
 }
 
-/** An authored pop with its defaults filled, or null when it is off. */
+/** An authored pop with its defaults filled, or null when it is off. `on`: a pop that is on unless
+ *  authored off (the hit readout's). */
 export function resolveCoinLabelPop(
 	pop: CoinLabelPop | undefined,
+	on = false,
 ): { scale: number; ms: number } | null {
-	if (pop?.enabled !== true) return null;
+	if (on ? pop?.enabled === false : pop?.enabled !== true) return null;
 	return {
-		scale: pop.scale ?? COIN_LABEL_DEFAULTS.popScale,
-		ms: pop.ms ?? COIN_LABEL_DEFAULTS.popMs,
+		scale: pop?.scale ?? COIN_LABEL_DEFAULTS.popScale,
+		ms: pop?.ms ?? COIN_LABEL_DEFAULTS.popMs,
 	};
 }

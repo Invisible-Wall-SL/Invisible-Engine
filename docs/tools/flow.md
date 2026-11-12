@@ -912,6 +912,7 @@ an error to the browser console.
 | `coinsLand` | `stickCoins` | Hold and Win tab |
 | `mysteryReveal` | `revealMystery` | Hold and Win tab |
 | `coinPay` / `coinBoost` | `payCoins` / `boostCoins` | Hold and Win tab |
+| `enhancementHit` / `enhancementMiss` | `hitEnhancement` (a collector bonus's boost or multiply: its dial lights with what it adds, a beam flies to each landing coin, which plays Coin enhance while its value counts up; cue `respinEnhancementHit`) / `missEnhancement` (the dial shows its X; cue `respinEnhancementMiss`) | Not in the starter flow: the game presents them itself unless a chain wires them |
 | `respinsAdded` / `coinUpgrade` | `addRespins` (the "+N" flies to the counter) / `upgradeCoins` (a beam to each coin it raises) | Hold and Win tab |
 | `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |
 | `coinCollect` | `collectCoins` | Hold and Win tab |
@@ -922,6 +923,21 @@ an error to the browser console.
 | `respinUpdate` | `setRespinCounter` | Hold and Win tab |
 | `holdAndWinState` | `restoreRespinBoard` (rebuilds the board on a resume) | Hold and Win tab |
 | `holdAndWinEnd` | `hideRespinBoard` (the coins fly into the Total Win bar, then the reels return) | Hold and Win tab |
+
+A collector bonus with **enhancements** (the partner's collector game, Phase 14b) opens through the
+same `showRespinBoard`: the dials light one by one (cue `enhancementOn`, scoped by the
+enhancement), "SUPER BONUS" first for the super bonus (cue `superBonusEnter`), then an Expand or
+the super bonus opens its rows. The `enhancements` value lists what the open feature drew. The
+starter flow of a project made with Game Maker's **Lines game: collector + enhancements** shows
+the **Enhancements** screen (the dials and the collectors' total) at game start, with the base
+game's screens, and never hides it: the dials stand unlit above the reels in the base game, as on
+the partner's game. An older project that adds the screen in the Scene Editor adds one
+**Show container → enhancements** step after the base game's own shows at game start; until it
+does, the game draws its own row of dials in the bonus only. A project whose flow shows the screen
+on the `holdAndWin` mode's **Mode trigger (enter)** and hides it on **(exit)** (a project created
+before 2026-11-11) keeps the dials to the bonus; to show them in the base game too, see
+[Scene Editor](invisible-editor.md) (the screen's **role** and the dials' **visibleSource**), then
+add the game-start step and delete the **Hide container → enhancements** step on **(exit)**.
 
 `respinReveal` and `holdAndWinState` carry an optional `mode` field: the respin mode they play
 in (absent ⇒ the primary respin mode — `holdAndWin` when declared, else the first).

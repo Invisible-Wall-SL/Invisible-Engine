@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
 	import ArtSliceEditor from './ArtSliceEditor.svelte';
@@ -2944,9 +2945,11 @@
 			{#if node.assetKey}
 				<a
 					class="ghost-sm atlas-link"
-					href={`/atlas?atlas=${encodeURIComponent(
-						node.assetKey.split('/').pop() ?? '',
-					)}&region=${encodeURIComponent(node.region)}`}
+					href={resolve(
+						`/atlas?atlas=${encodeURIComponent(
+							node.assetKey.split('/').pop() ?? '',
+						)}&region=${encodeURIComponent(node.region)}`,
+					)}
 					target="_blank"
 					rel="noopener"
 					title="Open the Invisible Atlas Maker on this sprite's atlas (falls back to the Sheet Maker's Import browser if that atlas has no Atlas Maker recipe)"

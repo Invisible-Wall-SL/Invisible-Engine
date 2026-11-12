@@ -587,6 +587,7 @@ export const translateHoldAndWinEvent = (
 				times: (ctx.times as number) ?? 1,
 				cells: withAmounts(t, ctx.cells),
 				amount: t.toAmount((ctx.amount as number) ?? 0),
+				...(Array.isArray(ctx.collectors) ? { collectors: withAmounts(t, ctx.collectors) } : {}),
 			};
 		case 'randomMetreTrigger':
 			return { type: 'randomMetreTrigger', name: ctx.name, cells: cellsOf(ctx.cells) };

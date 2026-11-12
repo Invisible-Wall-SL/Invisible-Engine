@@ -268,9 +268,8 @@ by …). Replace it?"* first.
 `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
 `SHEET_PROJECT` (default `cloud`), `SHEET_STAGING` (default `/data/sheet-tool`),
 `PORT` (default `8766`), `SHEET_TOOL_SIGNING_SECRET` (verifies the launcher's
-signed launch token), `SHEET_TOOL_SECRET` (legacy handoff, until the 2026-10-13
-cut-over; with neither set the tool is open — local dev),
-`IW_LEGACY_TOOL_KEY_UNTIL` (optional), `IW_PROJECT_NAME` (optional pinned project, set by the launcher).
+signed launch token; unset = open, local dev only),
+`IW_PROJECT_NAME` (optional pinned project, set by the launcher).
 
 State lives in the R2-backed staging tree (`sheet_config.json`, uploads,
 exports) so it survives container restarts; writes mirror to R2.
