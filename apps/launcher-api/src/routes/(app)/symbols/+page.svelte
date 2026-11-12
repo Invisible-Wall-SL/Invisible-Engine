@@ -5410,6 +5410,13 @@
 							{/if}
 						</div>
 
+						{#if !data.anticipationArmed}
+							<p class="hl-off">
+								Not used — no flow turns it on, so the game never teases and none of its art ships.
+								Add an Enable anticipation mode node in Invisible Flow to use it.
+							</p>
+						{/if}
+
 						<div class="wl-config">
 							<div class="wl-group">
 								<div class="ant-fields">
