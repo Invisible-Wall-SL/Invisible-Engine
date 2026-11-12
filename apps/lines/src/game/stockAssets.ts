@@ -227,8 +227,21 @@ function codedMountNeeds(
 		out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
 	}
 	if (symbols?.off?.highlight !== true) out.push(symbols?.highlight?.assetKey ?? 'anticipation');
-	if (anticipation) out.push(symbols?.anticipation?.spineKey || 'anticipation');
+	if (anticipation) out.push(anticipationRigKey(data));
 	return out;
+}
+
+/** The reel anticipation overlay's rig: the authored `spineKey` || the stock `anticipation`. */
+const anticipationRigKey = (data: StockAssetData): string =>
+	data.symbols?.anticipation?.spineKey || 'anticipation';
+
+/**
+ * Whether the `?anticipation=` test param would need a stock rig a walk without it leaves out
+ * (`needed`). A pruned build ran that walk with no URL, so its files may be gone.
+ */
+export function anticipationRigLeftOut(data: StockAssetData, needed: ReadonlySet<string>): boolean {
+	const rig = anticipationRigKey(data);
+	return (STOCK_KEYS as readonly string[]).includes(rig) && !needed.has(rig);
 }
 
 /** Whether an authored doc fires one of `ANTICIPATION_SWITCHES`, bare or scoped. */

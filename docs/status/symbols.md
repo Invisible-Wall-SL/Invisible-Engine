@@ -192,9 +192,10 @@ or the effect is pruned as an orphan.
   - `?anticipation=` on a project whose flow never arms the mode shows the **coded** look: the
     export dropped the authored `anticipation` block, so the param tests the engine ramp, not the
     authored styling. On a **pruned standalone build** (`config-vite` sets `__IE_STOCK_PRUNED__`) the
-    param is ignored and the boot logs `[stock-assets] ignored ?anticipation=` — the build left the
-    stock overlay rig out, so nothing is fetched and nothing mounts. The shared runtime and dev are
-    unchanged.
+    param is ignored when the URL-less walk leaves the stock overlay rig out, and the boot logs
+    `[stock-assets] ignored ?anticipation=: … may have left its rig out` — nothing is fetched and the
+    mode is never armed. The shared runtime and dev are unchanged. Pinned by
+    `check-stock-asset-prune.mts` §6.
   - **Publish-time race (known, accepted):** the export reads the flow and the symbols doc at
     publish. A flow saved mid-publish that newly arms anticipation can ship without the authored
     styling (coded look) until the next publish; the reverse ships an unused block.

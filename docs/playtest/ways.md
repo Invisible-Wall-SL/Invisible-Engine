@@ -99,7 +99,7 @@ Add `&anticipation=possible` (or `guaranteed`) to arm reel anticipation — the 
 `enableAnticipationMode` effect, and this repo's fallback scenes author no such graph, so without
 that param there is nothing to observe. The param shows the **coded** anticipation look on a project
 whose flow never arms the mode (its authored Symbols styling is not exported), and a pruned standalone
-build ignores it (`[stock-assets] ignored ?anticipation=` in the console) — playtest authored styling
+build ignores it (`[stock-assets] ignored ?anticipation=: … may have left its rig out` in the console) — playtest authored styling
 through a flow that arms the mode.
 
 ## Route B — launch (the real ways client)
