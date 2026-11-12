@@ -183,6 +183,8 @@ jobs:
       # `game-server-config` pins the game server's own credential: `GAME_SERVER_CONFIG_SECRET` reads
       # a published config as a bearer token only, is refused by `/api/deploy` and every deploy-token
       # route (as a bearer and as `?k=`), and an unset variable is a 401 with no deploy-token fallback.
+      # `version-files` pins what Publish (and a Director draft) freezes of `deploy/`: the generated
+      # subtrees whole and whatever the runtime bundle names, never the raw `sprites/` no player loads.
       #
       # One `check-all` run, not a chain of `pnpm --filter launcher-api check:*`: every gate runs and
       # reports its own ✓/✗ (a chain stopped at the first failure and hid the rest), `svelte-kit sync`
@@ -192,4 +194,4 @@ jobs:
       # so no gate runs in both jobs.
       - name: launcher gates hold
         if: steps.changes.outputs.code == 'true'
-        run: node scripts/check-all.mjs --jobs 4 --only check-launcher-gates.ts,check-component-links.ts,check-save-state.ts,check-editor-hierarchy.ts,check-editor-shortcuts.ts,check-director-access.ts,check-director-adapters.ts,check-project-scope.ts,check-project-create.ts,check-lease-scope.ts,check-change-password.ts,check-deploy-read.ts,check-game-server-config.ts,check-mock-contract.ts,check-event-bound-flags.mjs,check-tool-launch-token.ts,check-director-costs.ts,check-director-mockups.ts,check-director-events.ts,check-director-runs.ts,check-director-prompts.ts,check-director-live.ts,check-blueprint-catalogue.ts,check-build-breakdown.ts,check-font-swap.ts,check-toolbar-icons.mjs
+        run: node scripts/check-all.mjs --jobs 4 --only check-launcher-gates.ts,check-component-links.ts,check-save-state.ts,check-editor-hierarchy.ts,check-editor-shortcuts.ts,check-director-access.ts,check-director-adapters.ts,check-project-scope.ts,check-project-create.ts,check-lease-scope.ts,check-change-password.ts,check-deploy-read.ts,check-game-server-config.ts,check-mock-contract.ts,check-event-bound-flags.mjs,check-tool-launch-token.ts,check-director-costs.ts,check-director-mockups.ts,check-director-events.ts,check-director-runs.ts,check-director-prompts.ts,check-director-live.ts,check-blueprint-catalogue.ts,check-build-breakdown.ts,check-font-swap.ts,check-toolbar-icons.mjs,check-version-files.ts

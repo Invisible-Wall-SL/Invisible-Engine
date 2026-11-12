@@ -5,6 +5,16 @@ Current state lives in [status/game-maker.md](../../status/game-maker.md); this 
 traps. How the runtime ships: [status/engine.md](../../status/engine.md) ("How the runtime ships")
 and [design/games-deploy.md](../../design/games-deploy.md).
 
+### Build breakdown counts raw sprite sheets as player downloads
+- **Symptom:** a version's breakdown shows ~69 MB of "Same bytes shipped twice", and Total incl.
+  engine is far above what a player loads (Test6: 107 MB of its 195 MB is `sprites/`).
+- **Cause:** `stageSnapshot` copied all of `deploy/` (`copyDeployTree`, `publishedRuntime.ts`),
+  including the Sheet Maker's source folders that the exports repack into `_pages/`.
+- **Fix:** a version and a Director draft freeze the generated subtrees plus what the bundle names
+  (`versionFiles`, `assetReachability.mjs`, the build pull's rule).
+- **Guard:** `check:version-files` (Lint), with planted mutants.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/game-maker.md`
+
 ### Every game repo build fails to resolve a new package
 - **Symptom:** after an engine merge, each desktop build stops with `Rollup failed to resolve
   import "<package>"`.

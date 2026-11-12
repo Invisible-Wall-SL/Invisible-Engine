@@ -6822,7 +6822,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const configBody = JSON.stringify(CONFIG('dfx'));
 	PROJECTS.set('dfx', project('dfx'));
 	R2.set(`${root}config/config.json`, { body: configBody, etag: '"cfg1"' });
-	R2.set(`${root}deploy/index.json`, { body: '{"a":1}', etag: etag() });
+	R2.set(`${root}deploy/editor-art/index.json`, { body: '{"a":1}', etag: etag() });
+	// A Sheet Maker source page nothing names: a draft freezes what a player loads, not this.
+	R2.set(`${root}deploy/sprites/S_Raw/S_Raw.webp`, { body: 'RAW', etag: etag() });
 	R2.set(`${root}deploy/_pages/p1.png`, { body: 'PNGDATA', etag: etag() });
 	R2.set('test_server/_runtime/lines/current.json', {
 		body: JSON.stringify({
@@ -7006,7 +7008,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[
 			[
 				`${dprefix}deploy/_pages/p1.png`,
-				`${dprefix}deploy/index.json`,
+				`${dprefix}deploy/editor-art/index.json`,
 				`${dprefix}draft.json`,
 				`${dprefix}runtime.json`,
 			],
@@ -7566,7 +7568,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			'lines',
 			['base'],
 			'object',
-			['deploy/_pages/p1.png', 'deploy/index.json', 'draft.json', 'runtime.json'],
+			['deploy/_pages/p1.png', 'deploy/editor-art/index.json', 'draft.json', 'runtime.json'],
 			'1.4.0',
 			'abc1234567',
 			['index.html'],

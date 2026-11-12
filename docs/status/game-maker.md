@@ -49,7 +49,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 5. **Published-snapshot follow-ups (2026-09-29).**
    - **A snapshot freezes DATA, not the engine.** The shared `_runtime/lines` still re-points every online game on each engine merge, so an engine change that needs NEW bundle fields meets older snapshots until they are republished. The engine must keep reading older bundles (every field is already omit-when-empty/parity), and an engine PR that changes the bundle contract must be followed by **Republish all** — the existing "Engine update available" badge is the prompt. Rolling back to an older snapshot widens the gap.
    - **The launcher home's Games cards (and partner-RGS cards) still open LIVE authoring data** (`ie_authoring=1`), unlike Game Maker's **Play ↗**. Deliberate for now — they are author links — but it is a decision, not an accident; revisit if those cards become player-facing.
-   - **Writers outside the launcher's lock:** the Python atlas tool writes `<client>/<project>/deploy/<atlas>/…` directly. Those files are exporter INPUTS, not files `runtime.json` references, so they cannot desync a snapshot — they are only dead bytes copied into each one.
+   - **Writers outside the launcher's lock:** the Python atlas tool writes `<client>/<project>/deploy/<atlas>/…` directly. Those files are exporter INPUTS, not files `runtime.json` references, so they cannot desync a snapshot, and since 2026-11-12 a version no longer copies them (`versionFiles`).
    - **A player tab open across five further publishes** can 404 on lazily-loaded assets once its snapshot is swept. Acceptable at five; raise `RETAINED_SNAPSHOTS` if sessions get long.
    - **Legacy games** (published before snapshots) keep the live-assemble fallback until republished. Which games are still legacy is visible on their Game Maker card (the amber "Published before versioned snapshots" note) and in the `X-IE-Runtime-Source` header of a player `/api/editor/runtime` fetch (`live-fallback`). On 2026-09-29 test1/2/3/6, cloud and the remake were republished within minutes of the release (test6: 26.2s → 0.53s); test4 and test5 were still legacy. **Republish all** freezes the rest, after which the fallback only covers a missing/corrupt `runtime.json`.
    - **Engine pinning is recorded, deliberately not enforced** (#849): `SnapshotMeta.engine` names the runtime release a version was published on, but no games.json `runtimeVersion` pin is written — a pinned game would stop receiving auto-releases and engine rollbacks. Data rollback and engine rollback stay separate levers.
@@ -64,6 +64,38 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-11-12 — **A published version freezes only what a player loads.** `stageSnapshot` copied
+  all of `deploy/` (`copyDeployTree`), so every version carried the Sheet Maker's and Atlas Maker's
+  source folders (`sprites/`, `spines/`, which the exports repack into `_pages/`) and by-products
+  the bundle embeds instead (`cinematics/`, top-level `flow*.json`). No player requests them, but the
+  Build breakdown listed ~69 MB of them as **Same bytes shipped twice** and counted them in **Total
+  incl. engine**.
+  - **The rule:** `versionFiles` in `apps/launcher-api/scripts/lib/assetReachability.mjs`, beside
+    `GENERATED_SUBTREES`. It is the build pull's rule with the runtime bundle as the only game
+    source: the generated subtrees whole, plus any other file or folder the bundle names (a path
+    inside any string, a string that is a listed file or folder, and what a kept descriptor names).
+    When in doubt it keeps the file. The copy runs under the same `withDeployWrite` lock, and a kept
+    file that vanishes still fails the publish.
+  - **Director drafts use the same filter** (`director/ops/build.ts`). QA plays the set a version
+    would freeze, so a filter mistake shows in QA before it reaches players.
+  - **Measured on the 17 current versions** (read-only R2): 776 → 503 MB, 2,665 → 2,083 objects.
+    Biggest: Test6 195.4 → 88.1 MB, test1 150.8 → 73.6 MB, Book of Borut remake 76.4 → 46.7 MB,
+    borut_pots_sample 122.3 → 97.7 MB. No bundle names a file outside the generated subtrees, so
+    on today's data the kept set is exactly those subtrees. A static walk from each bundle (named
+    paths, font and sound catalogs, `_boot/`, then every path in each reached file) found no
+    reachable file outside the kept set.
+  - **Played, not only read:** the current-games harness rendered the `base` scenario of every
+    current version on one main runtime, once from the full snapshot and once from the filtered
+    one (files outside it 404). Result: 14 pass · 1 fail · 2 not rendered · 0 changed screens, 57
+    of 57 screens byte-identical, and the same 918 file requests on both sides with no 404. The
+    fail is `cloud`, which stops at the same step on the full snapshot too. The two not rendered are
+    `salmons` and `test-card`, whose arcade and card runtimes were not built for the run.
+  - **Existing versions are untouched.** They leave as the five retained versions roll over. The
+    first new version's breakdown lists the dropped files under **Changes since the previous
+    version → removed**.
+  - Gate: `check:version-files` (Lint; 17 checks, 7 planted mutant filters).
+    `check:director-adapters` now plants a raw sprite that a draft must leave behind.
+
 - 2026-11-12 — **Client sections fold.** With Group by client on, each client heading is a
   chevron toggle that hides its cards; folds persist per client in `localStorage`
   (`iw-game-maker-folded-clients`, restored after mount). Cards themselves do not fold.
