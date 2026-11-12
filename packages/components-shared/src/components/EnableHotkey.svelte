@@ -20,12 +20,13 @@
 			const key = isSpace ? 'Space' : e.key;
 			if (PREVENT_DEFAULT_KEYS.includes(key)) e.preventDefault();
 			if (key) {
-				presses.down(key, e.repeat);
+				const press = presses.down(key, e.repeat);
 				context.eventEmitter.broadcast({
 					type: 'hotKey',
 					key,
 					action: 'keyDown',
 					repeat: e.repeat,
+					press,
 				});
 			}
 		}
@@ -37,8 +38,8 @@
 			const key = isSpace ? 'Space' : e.key;
 			if (PREVENT_DEFAULT_KEYS.includes(key)) e.preventDefault();
 			if (key) {
-				presses.up(key);
-				context.eventEmitter.broadcast({ type: 'hotKey', key, action: 'keyUp' });
+				const press = presses.up(key);
+				context.eventEmitter.broadcast({ type: 'hotKey', key, action: 'keyUp', press });
 			}
 		}
 	}
