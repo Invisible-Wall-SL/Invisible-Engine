@@ -221,6 +221,9 @@ export interface SymbolExportResult {
 	 *  Passed through VERBATIM: its bundle rides `index.spines` under the same `assetKey`, so
 	 *  the engine can load it with no rewriting — exactly like `highlight`. */
 	boardGlow?: SymbolsDoc['boardGlow'];
+	/** The coded parts the project turned off (`highlight`, `boardGlow`). An off part ships neither
+	 *  its pointer nor its rig; the game draws nothing for it and downloads none of its stock art. */
+	off?: SymbolsDoc['off'];
 	/** The global win-line config (on/off + line + text style), passed through VERBATIM
 	 *  (no asset work — the chosen text font travels via the font pipeline). Absent → the
 	 *  game keeps all its coded defaults. */
@@ -360,12 +363,13 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	}
 	// The global highlight is a rig bundle too — export it like any per-symbol
 	// rig cell so its `index.spines` entry (keyed by the same `assetKey`) ships.
-	if (doc.highlight?.type === 'spine' && doc.highlight.assetKey) {
+	// A part the project turned off ships nothing.
+	if (!doc.off?.highlight && doc.highlight?.type === 'spine' && doc.highlight.assetKey) {
 		refs.rigKeys.add(doc.highlight.assetKey);
 	}
 	// So is the free-spin board glow — same reason. Without this the picker would show the rig in
 	// the tool while the game shipped nothing to load under that key (repo rule 8).
-	if (doc.boardGlow?.type === 'spine' && doc.boardGlow.assetKey) {
+	if (!doc.off?.boardGlow && doc.boardGlow?.type === 'spine' && doc.boardGlow.assetKey) {
 		refs.rigKeys.add(doc.boardGlow.assetKey);
 	}
 	// A swapped reel-anticipation overlay rig (`anticipation.spineKey`, a full R2 bundle prefix) is
@@ -831,7 +835,7 @@ export async function exportEditorSymbols(
 	// loop above (added to `refs.rigKeys`), so it's already in `index.spines` under
 	// this same `assetKey`; we only surface the pointer for the bundle's top level.
 	const highlight: SymbolExportHighlight | undefined =
-		doc.highlight?.type === 'spine' && doc.highlight.assetKey
+		!doc.off?.highlight && doc.highlight?.type === 'spine' && doc.highlight.assetKey
 			? {
 					assetKey: doc.highlight.assetKey,
 					animationName: doc.highlight.animationName,
@@ -875,7 +879,7 @@ export async function exportEditorSymbols(
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
-	const boardGlow = doc.boardGlow;
+	const boardGlow = doc.off?.boardGlow ? undefined : doc.boardGlow;
 
 	// The Book-symbol VFX layers. Each layer's asset already shipped via `refs` above (rig bundle →
 	// `index.spines`, sprite sheet → `index.sheets`, both keyed by the layer's own `assetKey`) or via
@@ -951,6 +955,7 @@ export async function exportEditorSymbols(
 		...(symbolFx ? { symbolFx } : {}),
 		...(highlight ? { highlight } : {}),
 		...(boardGlow ? { boardGlow } : {}),
+		...(doc.off ? { off: doc.off } : {}),
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
 		...(winExplode ? { winExplode } : {}),

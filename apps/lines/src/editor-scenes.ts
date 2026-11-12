@@ -307,6 +307,10 @@ type BakedBundle = {
 			animations?: { start?: string; idle?: string; exit?: string };
 			sizeRatios?: { width: number; height: number };
 		};
+		/** The coded parts the project turned off in the Invisible Symbols State Machine: the win
+		 * frame (`highlight`) and the free-spin board glow (`boardGlow`). An off part is never
+		 * mounted, so its stock rig is never downloaded either (`stockAssets.ts`). Absent → both on. */
+		off?: { highlight?: true; boardGlow?: true };
 		/** STACKED-PICTURE config (Invisible Symbols State Machine output, docs/design/stacked-picture-mode.md):
 		 * which symbols stack, how many CELLS tall each picture is (`height`, the crop denominator), and
 		 * the tall picture `art` (its assetKey rides `symbols.index` like a per-symbol binding, so it's
@@ -1103,6 +1107,16 @@ export function bakedBoardGlow(): BakedBundle['symbols']['boardGlow'] {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.boardGlow;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.boardGlow;
+}
+
+/** The coded parts this game turned off (the win frame, the board glow). Mirrors
+ *  `bakedHighlight`'s runtime→baked→undefined resolution; undefined ⇒ every part on. */
+export function bakedSymbolsOff(): NonNullable<BakedBundle['symbols']>['off'] {
+	return hasRuntimeBundle()
+		? runtimeBundle!.symbols?.off
+		: hasBakedDoc()
+			? bakedBundle.symbols?.off
+			: undefined;
 }
 
 /**

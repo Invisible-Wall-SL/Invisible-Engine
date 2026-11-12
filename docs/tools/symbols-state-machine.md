@@ -440,6 +440,11 @@ records the highlight pointer + tint so the game loads the authored win frame by
 and multiplies the tint via the rig's skeleton colour. The **win-line colour** is resolved
 in-game per win, so it needs no bake step — it reads the live game config at win time.
 
+**Turning it off.** The **On/Off** switch in the section header turns the win frame off for this
+game: winning symbols get no frame, and none of its art ships (neither a swapped rig nor the built-in
+`payframe`). A swapped rig is kept, so switching it back **On** restores it. Stored as
+`off: { highlight: true }`.
+
 ### Free-spin board glow
 
 Below the highlight is the **Free-spin board glow** section. The board glow is the
@@ -462,6 +467,11 @@ The override is one optional top-level field:
 `boardGlow: { type: 'spine', assetKey, animations?: { start?, idle?, exit? }, sizeRatios? }`.
 Nothing is written unless you set it, so an untouched project is byte-identical. The chosen
 bundle travels the same export/bake chain as a per-symbol rig cell.
+
+The **On/Off** switch in the header turns the glow off: free spins play with nothing behind the
+reels, and none of its art ships. Like the highlight, a swapped rig is kept for when you turn it
+back on. Stored as `off: { boardGlow: true }`. Art you placed in the Scene Editor's **Board glow
+(free spins)** screen is your own and still draws.
 
 **What this section does and doesn't control.** It owns the glow's **art** — the engine
 still owns the _sequence_ (start → idle → exit) and the _timing_. Timing is authored in

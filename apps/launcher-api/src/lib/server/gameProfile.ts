@@ -564,8 +564,14 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	},
 	{
 		id: 'highlight',
-		title: 'A custom win-frame rig looped over winning symbols.',
-		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
+		title:
+			'The win frame over winning symbols: a custom rig, or turned off (no frame, no art shipped).',
+		text: (ctx) =>
+			ctx.symbols.off?.highlight
+				? 'Win frame off'
+				: ctx.symbols.highlight
+					? 'Win-frame highlight'
+					: null,
 	},
 	{
 		id: 'transitionCue',
@@ -596,8 +602,14 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	},
 	{
 		id: 'boardGlow',
-		title: 'A custom free-spin board-glow rig behind the reels.',
-		text: (ctx) => (ctx.symbols.boardGlow ? 'Free-spin board glow' : null),
+		title:
+			'The free-spin glow behind the reels: a custom rig, or turned off (no glow, no art shipped).',
+		text: (ctx) =>
+			ctx.symbols.off?.boardGlow
+				? 'Free-spin board glow off'
+				: ctx.symbols.boardGlow
+					? 'Free-spin board glow'
+					: null,
 	},
 	{
 		id: 'bookVfx',

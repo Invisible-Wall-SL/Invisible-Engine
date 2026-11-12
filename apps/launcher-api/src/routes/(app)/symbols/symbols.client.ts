@@ -620,6 +620,19 @@ export function codedTierFx(rank: number, count: number): Required<AnticipationT
 	};
 }
 
+/** The coded parts a game can turn off. Mirrors the server `SYMBOLS_OFF_PARTS`. */
+export type SymbolsOffPart = 'highlight' | 'boardGlow';
+
+/** Turn a coded part on or off, returning a NEW doc. Sparse: only an off part is written. */
+export function setSymbolsPartOff(doc: SymbolsDoc, part: SymbolsOffPart, off: boolean): SymbolsDoc {
+	const next: Partial<Record<SymbolsOffPart, true>> = { ...doc.off };
+	if (off) next[part] = true;
+	else delete next[part];
+	const out: SymbolsDoc = { ...doc, off: next };
+	if (Object.keys(next).length === 0) delete out.off;
+	return out;
+}
+
 /** The free-spin board-glow override. Mirrors the server `boardGlowSchema`. */
 export interface BoardGlowConfig {
 	type: 'spine';
@@ -660,6 +673,10 @@ export interface SymbolsDoc {
 	 *  coded start/idle/exit tracks (the engine still owns the chaining); `sizeRatios` is the
 	 *  swapped asset's own fit ratio against the board box. */
 	boardGlow?: BoardGlowConfig;
+	/** The coded parts this game turned off — the win frame (`highlight`) and the free-spin board
+	 *  glow (`boardGlow`). An off part is not drawn and none of its art ships; a swapped rig stays on
+	 *  `highlight`/`boardGlow`, so turning the part back on restores it. Sparse: absent ⇒ both on. */
+	off?: Partial<Record<SymbolsOffPart, true>>;
 	/** Global win-line overlay config (on/off + line + text style). A pure-config field,
 	 *  no asset. Absent = the game defaults (overlay ON, gold line). The effective on/off
 	 *  is `doc.winLine?.enabled ?? true`; every style field falls through to coded
@@ -1898,6 +1915,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		symbolFx,
 		highlight,
 		boardGlow,
+		off: { highlight: doc.off?.highlight ?? false, boardGlow: doc.off?.boardGlow ?? false },
 		winLine,
 		stackedPictures,
 		winCycle,

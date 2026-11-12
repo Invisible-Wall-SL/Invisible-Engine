@@ -47,6 +47,7 @@ import {
 } from './sceneSelection';
 import {
 	ALWAYS_KEPT,
+	ANTICIPATION_SWITCHES,
 	FREE_SPIN_PARTS,
 	FREE_SPIN_SWITCHES,
 	KEPT_TOGETHER,
@@ -124,6 +125,8 @@ export type StockSymbolsDoc = {
 	map?: SymbolInfoMap;
 	highlight?: { assetKey?: string };
 	boardGlow?: { assetKey?: string };
+	/** The coded parts turned off (`BoardFrame`, `SymbolWinFrame`): they draw nothing, so keep nothing. */
+	off?: { highlight?: boolean; boardGlow?: boolean };
 	anticipation?: { spineKey?: string };
 	/** The project's symbol sheets, each with the bare frame names it registers. */
 	index?: { sheets?: readonly { names?: readonly string[] }[] };
@@ -191,14 +194,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *   a background scene carries authored content.
  * - The foreground rig hosts every bone-placed effect not bound to a rig (`Effects.svelte:41-63,118-123`).
  * - `BoardFrame` (`{#if !suppressCodedBoardGlow}`, `BoardFrame.svelte:20-21`): the authored glow rig
- *   ?? `reelhouse`, unless the `boardGlow` scene carries authored content or the game never enters
- *   free spins (it is lit only by `boardFrameGlowShow`).
+ *   ?? `reelhouse`, unless the `boardGlow` scene carries authored content, the game never enters
+ *   free spins (it is lit only by `boardFrameGlowShow`) or the symbols doc turned it off.
  * - Every winning cell's frame (`Symbol.svelte` `showWinFrame`, `SymbolWinFrame.svelte:30-32`): the
- *   authored highlight ?? `anticipation`.
+ *   authored highlight ?? `anticipation`, unless the symbols doc turned it off.
  * - The reel anticipation overlay (`Anticipations.svelte:95-96`, `anticipationPresentation.ts:141-142`):
- *   the authored `spineKey` || `anticipation`.
+ *   the authored `spineKey` || `anticipation`, when an authored doc can arm it
+ *   ({@link anticipationReachable}).
  */
-function codedMountNeeds(data: StockAssetData, freeSpins: boolean): string[] {
+function codedMountNeeds(
+	data: StockAssetData,
+	freeSpins: boolean,
+	anticipation: boolean,
+): string[] {
 	const out: string[] = [];
 	const { doc, symbols, effects = [], rigFx = {} } = data;
 	if (!hasAuthoredBackground(doc.scenes)) {
@@ -215,12 +223,21 @@ function codedMountNeeds(data: StockAssetData, freeSpins: boolean): string[] {
 			),
 	);
 	if (bonePlaced) out.push('foregroundAnimation');
-	if (freeSpins && !hasAuthoredBoardGlow(doc.scenes)) {
+	if (freeSpins && !hasAuthoredBoardGlow(doc.scenes) && symbols?.off?.boardGlow !== true) {
 		out.push(symbols?.boardGlow?.assetKey ?? 'reelhouse');
 	}
-	out.push(symbols?.highlight?.assetKey ?? 'anticipation');
-	out.push(symbols?.anticipation?.spineKey || 'anticipation');
+	if (symbols?.off?.highlight !== true) out.push(symbols?.highlight?.assetKey ?? 'anticipation');
+	if (anticipation) out.push(symbols?.anticipation?.spineKey || 'anticipation');
 	return out;
+}
+
+/** Whether an authored doc fires one of `ANTICIPATION_SWITCHES`, bare or scoped. */
+function anticipationReachable(authoredNames: Names): boolean {
+	const switches = new Set(ANTICIPATION_SWITCHES);
+	for (const name of authoredNames.keys()) {
+		if (switches.has(name.slice(name.lastIndexOf(':') + 1))) return true;
+	}
+	return false;
 }
 
 /**
@@ -558,7 +575,9 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 	for (const [name, origins] of authoredNames) {
 		for (const origin of origins) addName(names, name, origin);
 	}
-	for (const need of codedMountNeeds(data, freeSpins)) addName(names, need, 'coded mount');
+	for (const need of codedMountNeeds(data, freeSpins, anticipationReachable(authoredNames))) {
+		addName(names, need, 'coded mount');
+	}
 
 	// SYMBOLS: every symbol the game can show, through the renderer's own merge (`symbolMap.ts`) and
 	// state resolution (`symbolCell.ts`), for every state it can be asked for.
