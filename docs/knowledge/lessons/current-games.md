@@ -16,6 +16,16 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **Guard:** `deviceClass.fixture.ts` (26 device signatures), `device-class-probe.mjs`.
 - **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
 
+### One Space ran two surfaces where a tap runs one
+- **Symptom:** a free-spin big win's Space ran the win gate's dismiss and the authored screen's
+  tap; on `overlay-buffaloduel`'s big-win count-up it slammed the round and stepped the count.
+- **Cause:** every `OnHotkey` heard every press and decided alone, kept apart only by each one's
+  `disabled`; that count-up has no celebration lock. A pointer tap runs only the newest surface.
+- **Fix:** a press belongs to the newest listening `OnHotkey` with an `onpress`, decided at the
+  key-down (`components-shared/src/hotkeyPress.ts` `owns`).
+- **Guard:** `onePress.fixture.mjs`; when a fix moves captures, look at them before calling it.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### One Space on the start screen continued and bet a spin
 - **Symptom:** one Space on `bookofborutremake`'s start screen dismissed it and bet a spin.
 - **Cause:** hold-to-spin's `continueFromIdle` (`EnableSpaceHold`) read any non-idle moment after
