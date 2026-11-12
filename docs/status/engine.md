@@ -580,20 +580,45 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
       uploaded its 11 MB page after the bar (and built its context there); every branch boot did
       neither, in both browsers. The game's own first uses after the bar are the same on both
       sides: none until the tap, then 12–15 small text textures (0.2–0.4 MB).
-    - **Under the bar:** at most one program link a frame (`main`: 2–4); the largest upload in one
-      frame is the largest single page (`overlay-buffaloduel` uncompressed: 22.4 → 16 MB in
-      WebKitGTK; `bookofborutremake` uncompressed keeps its 94 MB 4096×6000 page). The worst of
-      the bar's last three frames before it fades, per boot, WebKitGTK: `main` 53–217 ms, the
-      branch 27–58 ms.
-    - **How much longer the bar stays up:** in WebKitGTK the bar ended at 9.09 s on average on
-      `main` and 9.25 s on the branch (+0.16 s; each pair −0.6 to +1.6 s), the warm-up taking
-      ~10–20 more frames. The work under the bar is the same; it is spread thinner.
+    - **Under the bar:** at most one program link a frame (`main`: 2–4 in WebKitGTK); the largest
+      upload in one frame is the largest single page (`overlay-buffaloduel` uncompressed: 42–51 →
+      16 MB in Chromium, 22.4 → 16 MB in WebKitGTK; `bookofborutremake` uncompressed keeps its
+      94 MB 4096×6000 page). The worst of the bar's last three frames before it fades, per boot,
+      WebKitGTK: `main` 53–217 ms, the branch 27–58 ms.
+    - **How much longer the bar stays up:** in WebKitGTK it ended at 9.09 s on average on `main`
+      and 9.25 s on the branch (+0.16 s; each pair −0.6 to +1.6 s). In Chromium +2.7 s on average
+      (14.6 → 17.3 s), because there every frame of the canvas under the bar costs 0.1–0.6 s of
+      software GL and the warm-up now takes ~20–60 more frames; at 60 Hz those frames are ~0.3–1 s.
+      The work under the bar is the same; it is spread thinner. The 8 MB budget is the knob.
     - **GPU memory:** flat. Both sides upload the same pages (`overlay-buffaloduel` 122 / 285 MB,
       `bookofborutremake` 105 / 460 MB low / high, the splash's 11 MB included); the splash's page
       and context now exist from the boot instead of from the bar's end, beside the same resident
       set, so the peak is unchanged and only starts earlier.
   - **What is left after the bar:** the tap's mount, a page over 8 MB under the bar, the splash
     teardown (open item "Mobile frame budget", "Boot").
+  - **Current-games harness, determinism mode, `main` vs the branch** (local, minified, the 17
+    games R2 lists, the `base` scenario of each, every lines scenario of the two heavy games, and
+    the arcade and card games on their own family runtimes): 8 pass · 7 fail · 2 not rendered ·
+    15 changed screen(s). Every changed screen is the boot splash, which covers the game in the
+    `loaded`, `idle` and, on `test6`, `spin` captures, drawn one frame of its clip ahead: on
+    `main` its own setup ran after the bar and, on `test1`, `test2`, `test6`, `getting-hot`,
+    `holdandwintestsolo`, `hw-3pots-sample` and `test-card`, cost it one stepped frame. Proved
+    timing only: on each of the first six, the branch's frame N at `loaded`+25…35 is
+    byte-identical to `main`'s N+1, ten or eleven frames running (a temporary scenario capturing
+    every frame there). Byte-identical: `bookofborutremake`, `commonoverlayproject`,
+    `overlay-wallstreet`, `overlay-wallstreet2`, `overlay-wishworld`, `overlay-buffaloduel`,
+    `particlespin`, `borut-pots-sample`, and on the two heavy games the line-win, free-spins,
+    big-wins, fs-transition and big-win-intro scenarios too (26 more screens). Not rendered on
+    either side: `cloud` (stops at the same step on both), `salmons` (no room server here).
+    These 15 screens need the owner's approval as a timing change of the splash.
+  - **Verified here:** `warmupSchedule.fixture.ts` (time, byte and program budgets, the frame wait,
+    progress, the lifted budget; 19 planted mutations caught). Gates: `check:svelte` `apps/lines`
+    145 (baseline 145), `packages/pixi-svelte` 14 (14), `packages/components-shared` 10 (10);
+    `check-all --only pixi-svelte` 19/19, `--only apps/lines` 17/17; `check:element-fx`;
+    `check:agents-knowledge`; Prettier and ESLint on the changed files.
+  - **Not verified:** a real phone or GPU (the owner's `?perf=1` boot is the test: no `first use`
+    or `outside the game` spike from the splash appearing, the bar's frames under ~42 ms except
+    one per page over 8 MB); the harness's full list of 21 games (it needs the pipeline token).
 
 - 2026-11-12 — **The Hold and Win respin board is kept from its first feature on: hidden between
   features instead of destroyed, its cells and a view per held seat kept, every view vacant and its
