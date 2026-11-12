@@ -270,13 +270,17 @@ void import('node:' + 'fs').then((fs: Fs) => {
 	const markup = board.slice(board.lastIndexOf('</script>'));
 	check(
 		'mounted from the first feature on, hidden while the base game plays',
-		/const kept = \$derived\(board \? \(keptBoard = board\) : keptBoard\);/.test(board) &&
+		/const kept = \$derived\.by\(\(\) => \{\s*if \(board\) keptBoard = board;\s*return keptBoard;\s*\}\);/.test(
+			board,
+		) &&
 			/\{#if kept\}\s*<BoardContainer visible=\{board !== null\}>/.test(markup) &&
 			!/\{#if board\}\s*<BoardContainer/.test(markup),
 	);
 	check(
 		'the cells are kept, away and in their visit order while the board is put away',
-		/const cells = \$derived\(board \? \(keptCells = openCells\) : keptCells\);/.test(board) &&
+		/const cells = \$derived\.by\(\(\) => \{\s*if \(board\) keptCells = openCells;\s*return keptCells;\s*\}\);/.test(
+			board,
+		) &&
 			/const cellOrder = \$derived\(cellOrders\(board !== null, cells\)\);/.test(board) &&
 			/\{#each cells as cell \(cell\)\}\s*<RespinCell\s+\{cell\}\s+held=\{[^}]+\}\s+away=\{!board\}\s+order=\{cellOrder\.get\(cell\)\}/.test(
 				markup,

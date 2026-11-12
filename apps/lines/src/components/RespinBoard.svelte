@@ -223,7 +223,10 @@
 	const board = $derived(stateRespinBoard.shown ? currentRespinBoard() : null);
 	/** The board the kept layers were mounted for: the shown one, else the last one shown. */
 	let keptBoard: typeof board = null;
-	const kept = $derived(board ? (keptBoard = board) : keptBoard);
+	const kept = $derived.by(() => {
+		if (board) keptBoard = board;
+		return keptBoard;
+	});
 	const look = $derived(respinCellLook());
 	const tileArt = $derived(look?.art);
 	const tileComponent = $derived(look?.tile);
@@ -239,7 +242,10 @@
 	);
 	/** The cells drawn: the open ones while shown, else the ones the board was last shown with. */
 	let keptCells: typeof openCells = [];
-	const cells = $derived(board ? (keptCells = openCells) : keptCells);
+	const cells = $derived.by(() => {
+		if (board) keptCells = openCells;
+		return keptCells;
+	});
 	const cellOrders = createVisitOrder<(typeof openCells)[number]>();
 	const cellOrder = $derived(cellOrders(board !== null, cells));
 	const seatViews = createSeatViews((cell: (typeof stateRespinBoard.held)[number]) =>
