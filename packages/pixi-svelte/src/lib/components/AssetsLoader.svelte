@@ -8,6 +8,7 @@
 	import { noteKtx2Fallback } from '../ktx2Transcoder';
 	import { collectTextureSources, compileProgram, warmGpu } from '../gpuWarmup';
 	import { lowMemoryDevice } from '../textureResidency';
+	import { WARMUP_PROGRESS_SHARE } from '../warmupSchedule';
 	import type { Asset, LoadedAssets, RawAsset } from '../types';
 
 	type Props = { children: Snippet };
@@ -34,6 +35,8 @@
 	);
 
 	let counter = 0;
+	/** The loading bar's share for the asset loads; the GPU warm-up fills the rest. */
+	const loadShare = 100 - WARMUP_PROGRESS_SHARE;
 	/** Every texture loaded, uploaded and kept resident before the game is told it is loaded. */
 	const loadedSources = new Set<PIXI.TextureSource>();
 	let loadedRigs = false;
@@ -42,7 +45,7 @@
 		if (preLoaded && value === 1) {
 			counter = counter + 1;
 			const ratio = counter / assetNameList.length;
-			context.stateApp.loadingProgress = ratio * 100;
+			context.stateApp.loadingProgress = ratio * loadShare;
 		}
 	};
 
@@ -126,11 +129,17 @@
 				if (renderer) {
 					try {
 						if (loadedRigs) compileProgram(renderer, darkTintProgram());
-						await warmGpu(renderer, loadedSources, { keepResident: !lowMemoryDevice() });
+						await warmGpu(renderer, loadedSources, {
+							keepResident: !lowMemoryDevice(),
+							onProgress: (done) => {
+								context.stateApp.loadingProgress = loadShare + done * WARMUP_PROGRESS_SHARE;
+							},
+						});
 					} catch (error) {
 						console.warn('[gpu-warmup]', error);
 					}
 				}
+				context.stateApp.loadingProgress = 100;
 				context.stateApp.loaded = true;
 			})();
 		}

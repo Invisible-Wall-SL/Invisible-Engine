@@ -6,6 +6,26 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### The loading bar froze while the GPU warm-up ran, and the splash hitched as it appeared
+- **Symptom:** an Android `?perf=1` boot logged 50–100 ms `first use` frames under the bar
+  (15–44 MB, up to 12 compiles each) and a 67 ms frame as the engine splash appeared.
+- **Cause:** `gpuWarmup.ts` budgeted only main-thread time, which a GPU upload or link barely uses,
+  and gave up on each frame after 50 ms, so slow frames took more; `LoaderRig` built its context,
+  program and page on the splash's first visible frames.
+- **Fix:** `warmupSchedule.ts`: per frame 8 ms, 8 MB or one program; the bar fills its last 15%
+  during the warm-up; the splash prepares under the bar (`play`).
+- **Guard:** `warmupSchedule.fixture.ts` (19 planted mutations caught).
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
+### Spreading boot work over more frames changed every seeded capture
+- **Symptom:** a change that touched only the loading bar's frames changed 3 of 4 captures.
+- **Cause:** determinism mode's clock moves only between frames, so the warm-up always ran in one
+  frame; new byte and program budgets moved `loaded` 41 frames later, and every animation and
+  seeded `Math.random` draw after it.
+- **Fix:** determinism mode lifts the warm-up budget (`setWarmupFrameBudget`): 0 changed.
+- **Guard:** the current-games harness; keep boot work's frame count out of the stepped clock.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### One Space on the start screen continued and bet a spin
 - **Symptom:** one Space on `bookofborutremake`'s start screen dismissed it and bet a spin.
 - **Cause:** hold-to-spin's `continueFromIdle` (`EnableSpaceHold`) read any non-idle moment after

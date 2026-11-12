@@ -12,19 +12,21 @@
 	 * The rig replaces the gif that `LoaderStakeEngine` / `LoaderExample` showed, so the
 	 * mark is produced by our own pipeline instead of being a baked image.
 	 *
-	 * It stands up its OWN tiny `Application` rather than borrowing the game's, because the
-	 * game's Pixi app does not exist yet — covering that gap is the splash's entire job.
-	 * Two consequences the implementation is built around:
+	 * It stands up its OWN tiny `Application` rather than borrowing the game's, because it is a
+	 * page overlay above the game's canvas. What the implementation is built around:
 	 *
+	 *  - **Ready before its turn.** Until `play`, the tier only prepares, out of sight: the WebGL
+	 *    context, the atlas, the rig and one drawn frame, which compiles its program and uploads
+	 *    its page. On a phone the context alone held the main thread ~70 ms on the splash's first
+	 *    frame. When `play` turns on, the clip starts from its first frame.
 	 *  - **The context MUST be released.** A `WebGLRenderingContext` is a capped resource
-	 *    (~16 live contexts before the browser starts dropping the oldest), and this app is
-	 *    created moments before the GAME's renderer wants one. `destroy()` in the effect
-	 *    teardown is load-bearing, not tidiness. Same cap that bit the always-mounted rig
+	 *    (~16 live contexts before the browser starts dropping the oldest). `destroy()` in the
+	 *    effect teardown is load-bearing, not tidiness. Same cap that bit the always-mounted rig
 	 *    previews in `/symbols`.
 	 *  - **Nothing here may block boot.** Every failure path — no WebGL, a 404 atlas, a
 	 *    skeleton the runtime rejects, an animation name that no longer exists — calls
-	 *    `oncomplete()` and gets out of the way. A broken logo must cost the player a blank
-	 *    2 seconds at worst, never a game that won't start.
+	 *    `oncomplete()` once the tier's turn comes, and gets out of the way. A broken logo must
+	 *    cost the player a blank 2 seconds at worst, never a game that won't start.
 	 *
 	 * The background paints from CSS immediately, before the rig loads, so the splash never
 	 * flashes white while its art is in flight.
@@ -35,10 +37,12 @@
 		 * `/api/deploy/f/…/` in runtime mode — both preserve file extensions, which
 		 * `Assets.load` needs to pick a parser). */
 		assetBase: string;
+		/** The tier's turn: until then it only prepares, hidden. */
+		play?: boolean;
 		oncomplete: () => void;
 	};
 
-	const { entry, assetBase, oncomplete }: Props = $props();
+	const { entry, assetBase, play = true, oncomplete }: Props = $props();
 
 	/** Hard ceiling on one tier, however long its animation is — a looping or mis-authored
 	 * clip must not strand the player on the splash. */
@@ -46,6 +50,11 @@
 
 	let host: HTMLDivElement | undefined = $state();
 	let fading = $state(false);
+	/** Prepared: `start` plays it. */
+	let ready = $state(false);
+	/** Preparing failed: the tier ends as soon as its turn comes. */
+	let failed = $state(false);
+	let start: (() => void) | undefined;
 	/** Guards against the fade-out running twice (animation end AND the timer). */
 	let finished = false;
 
@@ -78,6 +87,7 @@
 					resolution: window.devicePixelRatio || 1,
 					autoDensity: true,
 					resizeTo: el,
+					autoStart: false,
 				});
 				if (disposed) return;
 				el.appendChild(app.canvas);
@@ -99,7 +109,7 @@
 				parser.scale = entry.scale || 1;
 				const skeletonData = parser.readSkeletonData(skeletonRaw as never);
 
-				const rig = new RIG.RigView(skeletonData);
+				const rig = new RIG.RigView({ skeletonData, autoUpdate: false });
 				const holder = new Container();
 				holder.addChild(rig);
 				app.stage.addChild(holder);
@@ -126,29 +136,47 @@
 				fit();
 				app.renderer.on('resize', fit);
 
+				// The clip's first frame, drawn once now: its program and its page reach the GPU here.
+				rig.update(0);
+				app.render();
+
 				// Hold for the same beat the gif loaders used, extended to cover a longer clip.
 				const clipMs = clip ? clip.duration * 1000 : 0;
-				timers.push(
-					setTimeout(finish, Math.min(Math.max(clipMs, BOOT_SPLASH_HOLD_MS), MAX_TIER_MS)),
-				);
+				const running = app;
+				start = () => {
+					start = undefined;
+					rig.autoUpdate = true;
+					running.start();
+					timers.push(
+						setTimeout(finish, Math.min(Math.max(clipMs, BOOT_SPLASH_HOLD_MS), MAX_TIER_MS)),
+					);
+				};
+				ready = true;
 			} catch (err) {
 				console.warn('[bootSplash] tier failed to render — skipping it:', err);
-				finish();
+				failed = true;
 			}
 		})();
 
 		return () => {
 			disposed = true;
 			for (const t of timers) clearTimeout(t);
-			// Release the GL context + textures before the game's renderer asks for its own.
+			// Release the GL context + textures: a page holds only so many live contexts.
 			app?.destroy({ removeView: true }, { children: true, texture: true, textureSource: true });
 			void Assets.unload(urls).catch(() => {});
 		};
+	});
+
+	$effect(() => {
+		if (!play) return;
+		if (failed) finish();
+		else if (ready) start?.();
 	});
 </script>
 
 <div
 	class="boot-splash"
+	class:waiting={!play}
 	class:fading
 	style="--boot-splash-background: {entry.background};"
 	bind:this={host}
@@ -162,6 +190,10 @@
 		overflow: hidden;
 		background-color: var(--boot-splash-background);
 		transition: opacity 0.4s ease;
+	}
+
+	.boot-splash.waiting {
+		visibility: hidden;
 	}
 
 	.boot-splash.fading {

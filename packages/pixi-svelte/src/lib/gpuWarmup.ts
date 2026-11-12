@@ -11,7 +11,8 @@
  *
  * The loader therefore ends with {@link warmGpu}: every texture it loaded is uploaded (and kept
  * resident, below), then every registered warm-up ({@link registerGpuWarmup}) compiles its programs. Both
- * are spread across frames so the loading screen keeps animating.
+ * are spread across frames by time, bytes and programs (`warmupSchedule.ts`), and report how far
+ * they are, so the loading bar keeps moving.
  *
  * KEPT RESIDENT, except on a device that reports little memory (`textureResidency.ts`), which keeps
  * Pixi's collector. Pixi's GPU garbage collector unloads an image texture that has not been drawn
@@ -32,6 +33,7 @@ import {
 } from 'pixi.js';
 
 import { programLinks } from './elementFx/shaders';
+import { createFrameWait, runWarmup, sourceBytes, type WarmupStep } from './warmupSchedule';
 
 /** One warm-up: the steps that compile the programs some feature will draw with, one program a
  *  step, so the loader can spread them across frames. Called once per load. */
@@ -45,10 +47,6 @@ export function registerGpuWarmup(warmup: GpuWarmup): () => void {
 	warmups.add(warmup);
 	return () => warmups.delete(warmup);
 }
-
-/** Time spent warming per frame, so the loading screen stays smooth. */
-const FRAME_BUDGET_MS = 8;
-const FRAME_TIMEOUT_MS = 50;
 
 const sourceOf = (value: unknown): TextureSource | undefined => {
 	if (value instanceof TextureSource) return value;
@@ -109,57 +107,41 @@ export function compileFilter(renderer: Renderer, filter: Filter): void {
 	}
 }
 
-/** The next frame, or a short timeout where frames never come (a hidden tab, an offscreen iframe
- *  an operator preloads into), so the load still finishes there as it did before the warm-up. */
-const nextFrame = () =>
-	new Promise<void>((resolve) => {
-		const timeout = setTimeout(resolve, FRAME_TIMEOUT_MS);
-		requestAnimationFrame(() => {
-			clearTimeout(timeout);
-			resolve();
-		});
-	});
-
-/** Run `steps` in order, yielding a frame whenever one frame's budget is spent. */
-async function sliced(steps: Iterable<() => void>): Promise<void> {
-	let start = performance.now();
-	for (const step of steps) {
-		try {
-			step();
-		} catch (error) {
-			console.warn('[gpu-warmup]', error);
-		}
-		if (performance.now() - start > FRAME_BUDGET_MS) {
-			await nextFrame();
-			start = performance.now();
-		}
-	}
-}
-
 /**
  * Upload `sources`, then run every registered warm-up. `keepResident` opts the sources out of
  * Pixi's GC; a low-memory device leaves it off, trading the re-upload stall for memory.
+ * `onProgress` hears the share done, 0–1.
  */
 export async function warmGpu(
 	renderer: Renderer,
 	sources: Iterable<TextureSource>,
-	{ keepResident }: { keepResident: boolean },
+	{ keepResident, onProgress }: { keepResident: boolean; onProgress?: (done: number) => void },
 ): Promise<void> {
-	const uploads = [...sources].filter((source) => !source.destroyed && source.resource);
-	await sliced(
-		uploads.map((source) => () => {
-			if (keepResident) source.autoGarbageCollect = false;
-			renderer.texture.initSource(source);
-		}),
-	);
-	await sliced(
-		[...warmups].flatMap((warmup) => {
-			try {
-				return [...warmup(renderer)];
-			} catch (error) {
-				console.warn('[gpu-warmup]', error);
-				return [];
-			}
-		}),
+	const uploads: WarmupStep[] = [...sources]
+		.filter((source) => !source.destroyed && source.resource)
+		.map((source) => ({
+			bytes: sourceBytes(source),
+			run: () => {
+				if (keepResident) source.autoGarbageCollect = false;
+				renderer.texture.initSource(source);
+			},
+		}));
+	const compiles: WarmupStep[] = [...warmups].flatMap((warmup) => {
+		try {
+			return [...warmup(renderer)].map((run) => ({ run, compiles: true }));
+		} catch (error) {
+			console.warn('[gpu-warmup]', error);
+			return [];
+		}
+	});
+	const nextFrame = createFrameWait({
+		requestFrame: (callback) => requestAnimationFrame(callback),
+		setTimer: (callback, ms) => window.setTimeout(callback, ms),
+		clearTimer: (id) => window.clearTimeout(id),
+	});
+	await runWarmup(
+		[...uploads, ...compiles],
+		{ now: () => performance.now(), nextFrame },
+		{ onProgress },
 	);
 }

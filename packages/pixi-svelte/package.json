@@ -72,6 +72,11 @@
 			"svelte": "./src/lib/particleBudget.ts",
 			"default": "./src/lib/particleBudget.ts"
 		},
+		"./warmupSchedule": {
+			"types": "./src/lib/warmupSchedule.ts",
+			"svelte": "./src/lib/warmupSchedule.ts",
+			"default": "./src/lib/warmupSchedule.ts"
+		},
 		"./frameClock": {
 			"types": "./src/lib/frameClock.ts",
 			"svelte": "./src/lib/frameClock.ts",
