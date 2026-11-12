@@ -112,16 +112,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     views a board leaves draw the next board; a roll's filler goes through `rows + 2` views a reel
     (`ReelPaddingPool`), built once and kept, vacant at rest. A Hold and Win respin cell's shown
     strip symbols go through views too (`RespinCell`, at most two a cell), each entry its paint
-    order. A view keeps its container, its `Symbol` with the Element FX container (there whether
-    or not the symbol has Element FX) and the band containers, and one sprite of its own from the
-    first sprite it draws, hidden while it draws other art or nothing. Each time a view starts
-    drawing a cell (a board cell entering the window, a filler cell handed over, a respin symbol
-    shown) is an entry: the sprite is handed the new texture and reports as a new sprite would, and
-    everything else (rigs and their rigged effects, flipbooks, placeholders, layers, Element FX and
-    their beat gate, labels, the rider's art) starts again on the frame and in the order a new
-    mount did. Perspective boards keep a component per cell. A view list is handed back unchanged
-    while every view in it is (`keepList`, 2026-11-12), so a strip change runs only its own reel's
-    `{#each}`.
+    order. The respin board itself is kept from its first feature on, hidden between features,
+    its cells keeping their views and each held seat drawn through a view of its own
+    (`respinBoardKeep.ts`, 2026-11-12). A view keeps its container, its `Symbol` with the Element
+    FX container (there whether or not the symbol has Element FX) and the band containers, and
+    one sprite of its own from the first sprite it draws, hidden while it draws other art or
+    nothing. Each time a view starts drawing a cell (a board cell entering the window, a filler
+    cell handed over, a respin symbol shown, a coin held at a seat) is an entry: the sprite is
+    handed the new texture and reports as a new sprite would, and everything else (rigs and their
+    rigged effects, flipbooks, placeholders, layers, Element FX and their beat gate, labels, the
+    rider's art) starts again on the frame and in the order a new mount did. Perspective boards
+    keep a component per cell. A view list is handed back unchanged while every view in it is
+    (`keepList`, 2026-11-12), so a strip change runs only its own reel's `{#each}`.
   - **The Pixi tree is a tree in the page** (2026-11-12). Svelte leaves a comment or text anchor
     for every block; `pixi-svelte`'s `Container` keeps its children's inside a hidden `<div>` of its
     own, so a parent holds a few dozen. WebKit walks a parent's children to the nearest element on
@@ -287,9 +289,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   2.7 s → 0.7 s in WebKitGTK. What Svelte's time goes to now, in that order: deriveds checked or
   run outside effects (timeline samples, the reel views' `shown`), the flush's own work outside
   effects (~0.2–0.35 ms a flush in WebKitGTK, ~85 ms a free spin), and the rig path
-  (`BaseRigProvider`'s mount and prop sync, ~100 ms a free spin). Of the churn, what is left after
-  ranked churners 2–4: the bonus board mounting and unmounting whole. The win presentation no
-  longer remounts per line cycle (Recent changes, 2026-11-12, "the board idle after a win"): idle
+  (`BaseRigProvider`'s mount and prop sync, ~100 ms a free spin). Of the churn, ranked churners
+  2–4 are done. The Hold and Win respin board is kept from its first feature on (Recent changes,
+  2026-11-12, "the respin board is kept"). What a bonus still builds and destroys per feature: its
+  flow screens (`FlowV2Mount`; ~140 objects at the show and ~460 at the end on
+  `overlay-buffaloduel`), each coin's rig-bound effects per play (most of a bonus's 2–9k
+  particles), and a new `RigView` each time a view's rig changes skeleton (most of the ~400 rigs
+  of an `overlay-buffaloduel` bonus). The win presentation no longer remounts per line cycle
+  (Recent changes, 2026-11-12, "the board idle after a win"): idle
   after a win, `overlay-buffaloduel` builds nothing and starts no rig; a pass still mounts a rig's
   bound effect per beat (`RiggedEffect`'s emitters, on `bookofborutremake`) and the info-bar win
   toast. A spin still flushes every frame because each reel's
@@ -508,6 +515,194 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **The Hold and Win respin board is kept from its first feature on: hidden between
+  features instead of destroyed, its cells and a view per held seat kept, every view vacant and its
+  art put away** (on `main` at `6817f942`; the last ranked churner of the iPhone plan, churner
+  2's "bonus board mounting and unmounting whole").
+  - **Why it was built and destroyed whole:** `RespinBoard.svelte` drew its `BoardContainer` inside
+    `{#if board}`, with `board = stateRespinBoard.shown ? currentRespinBoard() : null`, and
+    `showRespinBoard()` / `hideRespinBoard()` (`stateRespinBoard.svelte.ts`) flip `shown` at each
+    feature's trigger and end. Every feature mounted the board: its five layers, a `RespinCell` and
+    its mask per open cell, then the cells' views and `Symbol`s as the first respin rolled. Its
+    end destroyed all of it, with every held coin (`{#each stateRespinBoard.held}`: a
+    `RespinHeldSymbol`, its `Symbol`, its rig and its label each). Chromium, determinism mode,
+    `overlay-buffaloduel` `pot:red`, frame by frame: the show frame built 189 objects, 46 of them
+    the board's; the first respin built ~250 more in its cells; the end frame destroyed 1,185, 727
+    of them the board's. The rest of those two frames is the feature's flow screens (below).
+  - **Where kept ends, and why:**
+    - **Kept:** the board's container and its layers; the cells (the component, its mask, its
+      views with their `Symbol` containers, kept sprite, and parked rig, flipbook and win frame);
+      the held coins, one view per seat (`createSeatViews`).
+    - **Still mounted per feature:** the tiles, the locked cells, the counter, the dials, and each
+      coin's rig-bound effects. An authored Cell Tile is a component instance with clocks of its
+      own, which would keep running hidden, and no current game authors one. Locked cells are a
+      sprite, or a panel and a text, on expanding boards only. The counter and dials carry a
+      mount timer and pulses each. A coin's bound effects are let go while its rig is parked, as an
+      unmount lets them go (2026-11-12, below). The flow screens are mounted per show by
+      `FlowV2Mount`, for every game (not this change).
+    - **Mounted at the first feature, then kept; not pre-mounted at boot.** The cells are built
+      for the feature's respin mode (`ensureBoard`: its reels, rows and strips) only when a feature
+      shows the board, and a game can have several modes. Pre-mounting would build a board for a
+      mode no feature has asked for. Kept from the first feature on, the board holds only what that
+      feature built: no texture, rig data or sheet that was not already resident, and no emitter.
+      Resident textures after two features (`?perf=1`) are the same on both sides (below).
+  - **What a kept part does at each feature, so it draws what a fresh board would**
+    (`apps/lines/src/game/respinBoardKeep.ts`):
+    - **Hidden, the board neither updates nor draws.** `BoardContainer` is hidden (its new
+      optional `visible`). Each cell is `away`: its window shows nothing, so every view is vacant,
+      its art put away (a rig off the ticker, a flipbook stopped, the sprite hidden, labels,
+      layers and bound effects let go). The held layer draws no seat.
+    - **A cell keeps its component** across features (the same board's cells). Shown again, the
+      symbols its window shows start through entries, as a new mount's would, which is how a view
+      already starts each symbol it is handed within a feature. Its paint order is the order a
+      board mounted for this feature appends the cells in: those open at the show in list order,
+      then each cell that opens later (`createVisitOrder`, as the cell's `zIndex`). A kept cell
+      sits wherever an earlier feature appended it, so an expanding board shown with more rows
+      than the last feature ended on would otherwise paint its new rows last.
+    - **A held coin is a view of its seat.** A coin coming to a seat is an entry (its art, rig at
+      t=0, label, Element FX and beat gate start as a mounted coin's did); a seat left empty is
+      vacant; a coin whose symbol changes in place (an upgrade, a mystery) keeps its entry, as it
+      kept its component. Views run in the held order, the empty seats last, so coins start in
+      the order their components mounted. The label pops a mount started (`coinStick`, a count
+      landing, an enhancement readout) start at each entry and never while the seat is empty.
+  - **Before / after, exact** (`6817f942` vs the branch, unminified; Chromium, determinism mode,
+    1280×720, the same deal and frames on both sides, every frame counted by a probe on
+    `Container`'s constructor and `destroy`; two features of one session each; particles left
+    out, as they are the same on both sides; the show and end frames hold the flow screens too):
+
+    | per feature, without particles             | built / destroyed             | `RigView`s built | show frame built | end frame destroyed | kept, hidden after |
+    | ------------------------------------------ | ----------------------------- | ---------------- | ---------------- | ------------------- | ------------------ |
+    | `overlay-buffaloduel` `pot:red`, 1st       | 5,867 / 5,340 → 5,867 / 4,673 | 594 → 594        | 189 → 189        | 1,185 → 528         | 637                |
+    | `overlay-buffaloduel` `pot:red`, 2nd       | 2,106 / 2,006 → 1,849 / 1,743 | 194 → 186        | 176 → 130        | 746 → 405           | 637                |
+    | `holdandwintestsolo` `trigger`, 1st        | 2,980 / 1,515 → 2,980 / 587   | 49 → 49          | 209 → 209        | 899 → 179           | 812                |
+    | `holdandwintestsolo` `trigger`, 2nd        | 2,791 / 2,123 → 2,167 / 780   | 46 → 35          | 158 → 90         | 1,144 → 217         | 1,357              |
+    | `getting-hot` `trigger,jackpot:GRAND`, 1st | 3,775 / 2,557 → 3,481 / 945   | 91 → 86          | 215 → 215        | 937 → 93            | 940                |
+    | `getting-hot` `superBonus` (5 rows), 2nd   | 3,050 / 2,504 → 2,090 / 1,036 | 72 → 53          | 260 → 208        | 909 → 82            | 1,181              |
+
+    The first feature still mounts the board, so it builds what it did; a seat reused within a
+    feature already saves (`getting-hot`, whose collector bonus lets coins go and holds new
+    ones). The second builds 12–32% fewer objects and destroys 13–63% fewer, and its end frame
+    destroys 46–91% fewer. What the kept board holds hidden grows from one feature to the next
+    while its views first draw another kind of art, and is bounded: two views a cell at most, one
+    a seat, each keeping at most one sprite, one rig, one flipbook and one win frame. Eight
+    features of one `holdandwintestsolo` session (branch, the same probe, a capture every 30th
+    frame): 812, 1,358, 1,404, 1,458, 1,504, 1,565, 1,574 and 1,657 objects kept after each,
+    1,203 of the last a rig's meshes. Its cells reached 30 views (two each) and its seats 15 (all
+    of them), and no cell's view held more than one rig.
+
+  - **WebKitGTK, real clock** (the churn sweep's method: published snapshot + test server,
+    `?perf=1`, 400×230 over its own `WebKitWebDriver`; base and branch interleaved, four runs a
+    side on `overlay-buffaloduel`, two on the others; each session two or three forced features,
+    then 12 s idle and four spins; counts per feature without particles; emitters are
+    `ParticleEmitter` and `BakedEffect` mounts in an instrumented copy; "largest drop" is the most
+    objects one second destroyed, the board coming down):
+
+    | per feature, WebKitGTK                | built / destroyed             | rigs started | emitters  | excess s    | largest drop |
+    | ------------------------------------- | ----------------------------- | ------------ | --------- | ----------- | ------------ |
+    | `overlay-buffaloduel` `pot:red`, 1st  | 4,844 / 3,180 → 4,701 / 2,404 | 339 → 323    | 296 → 283 | 13.9 → 11.9 | 1,009 → 392  |
+    | `overlay-buffaloduel` `pot:red`, 2nd  | 4,437 / 4,005 → 4,087 / 3,563 | 443 → 426    | 297 → 302 | 14.8 → 12.1 | 861 → 353    |
+    | `commonoverlayproject` `pot:red`, 1st | 4,594 / 2,834 → 4,769 / 2,310 | 239 → 241    | 676 → 747 | 12.0 → 13.4 | 836 → 399    |
+    | `commonoverlayproject` `pot:red`, 2nd | 2,640 / 2,120 → 2,484 / 1,753 | 151 → 141    | 463 → 502 | 8.9 → 6.7   | 573 → 275    |
+    | `holdandwintestsolo` `trigger`, 1st   | 2,927 / 1,500 → 3,091 / 549   | 44 → 41      | 12 → 12   | 2.9 → 2.6   | 915 → 177    |
+    | `holdandwintestsolo` `trigger`, 2nd   | 2,095 / 1,443 → 2,008 / 603   | 32 → 35      | 11 → 11   | 2.0 → 1.7   | 796 → 169    |
+
+    Machine load stayed at 11–29 on 4 cores throughout (other agents' builds and browsers), so
+    a feature's excess swings by ±40% between runs of one build (`overlay-buffaloduel`'s second
+    feature: 11.9–17.4 s on the base, 7.4–16.7 s on the branch). The counts are the measure. A
+    real-clock count also follows the frames drawn: rolling art starts per frame drawn, so a run
+    that drew more frames built more, which is why the exact counts above are read in determinism
+    mode. The end-of-feature destroy falls 52–81% and stays a fraction of a feature's churn: a
+    feature is mostly its respins (a new `RigView` when a view changes skeleton, 30–55 a second
+    of respins on `overlay-buffaloduel`) and its particles (20–67% of what it builds). Emitters
+    and particles are unchanged; they follow the frames drawn.
+
+  - **The hidden board adds nothing per frame:**
+    - In the base game after the features, the branch ticks the same rigs (66, 65, 2), issues the
+      same draw calls (27.6, 37.7, 22.5) and runs the same emitters (18, 18, 0) as the base, in
+      every WebKitGTK and Chromium run.
+    - In a profiled copy (instrument-prof2, Chromium), the board's components ran no effect and
+      read no derived over the 12 s idle and the four spins after the features.
+    - Per frame, WebKitGTK idle JS−render + after the tick was 12.2 → 9.9 ms
+      (`overlay-buffaloduel`), 8.5 → 9.4 (`commonoverlayproject`) and 2.3 → 2.2
+      (`holdandwintestsolo`). A spin's JS−render / after was 17.3 / 25.7 → 16.0 / 20.6,
+      11.7 / 11.1 → 11.4 / 10.4 and 2.3 / 5.1 → 2.2 / 4.7. All of these are within the noise.
+  - **Resident memory:** textures are the same on both sides after the features (WebKitGTK
+    289.3, 174.8 and 225.7 MB; Chromium 290.8 and 226.1). The JS heap after two forced garbage
+    collections (Chromium, `--enable-precise-memory-info`, one run a side) is 53.2 → 57.0 MB on
+    `overlay-buffaloduel` and 50.5 → 57.3 MB on `holdandwintestsolo`: the kept board's components
+    and display objects (640–1,360 objects after two features, up to ~1,660 after eight, above).
+    Chromium real clock, one run a
+    side: no page errors, the same counts within the frames drawn, and the same per-frame rigs,
+    draws and emitters. Its times ran at 5–8 fps under the load and are not comparable.
+  - **Parity:**
+    - **The current-games harness**, local, determinism mode, base (`6817f942`) vs the branch,
+      unminified, every scenario: every capture byte-identical and on the same frame.
+      `overlay-buffaloduel` 17/17, `commonoverlayproject` 17/17, `holdandwintestsolo` 11/11,
+      `getting-hot` 11/11 (its published snapshot of 2026-11-12, through the partner-wire mock),
+      `bookofborutremake` 17/17, stand-in `cg-lines` 17/17 (90 of 90).
+    - **Two features of one session, frame by frame.** The harness plays one feature a session,
+      so the kept board is never shown again in it. The captures used determinism mode, 1280×720,
+      the harness's serve, browser and play libraries, every 3rd frame and the sha-256 of each
+      capture, with the counting probe on both sides. Each run went from the trigger through the
+      respin landings, the held layer, the counter and the end tally, back to the base game and
+      idle, and a tap 300 frames after the board came down where the game held for one. Every
+      capture was byte-identical and on the same frame:
+      - `overlay-buffaloduel` `pot:red`, tapped past its intro: 1,160/1,160. The first feature had
+        519 captures with the board up, the second (the kept board) 109.
+      - `holdandwintestsolo` `trigger`: 1,191/1,191, 314 and 497 with the board up.
+      - `getting-hot`, `trigger,jackpot:GRAND` then `superBonus`: 1,474/1,474, 510 and 624 with
+        the board up. The second is a Force 5 super bonus, opening five rows on the kept board
+        (the first feature's cells kept, new ones for the rows it adds), its locked cells and
+        dials mounted again. The first holds a GRAND jackpot coin and shows its jackpot win.
+      - 3,825 captures in all, 1,230 of them on a kept board.
+  - **Gates:**
+    - `respinBoardKeep.fixture.ts` (new). The cells' paint order is checked against a freshly
+      mounted board over 400 random runs (24,000 steps): features shown with some rows open, rows
+      unlocking and closing, the board put away, another mode's board. The seats are checked
+      against a component keyed by seat over 400 runs (20,000 steps, 6,341 coins held, 1,935
+      changed in place). Source pins cover `RespinBoard`, `RespinCell`, `RespinHeldSymbol` and
+      `BoardContainer`. Each of 29 mutations of the helpers and the wiring fails it.
+    - `check:all`: `apps/lines` (18) and `pixi-svelte` (18).
+    - `check:svelte --only` at baseline: `apps/lines` 145, `packages/pixi-svelte` 14,
+      `packages/engine-game` 36.
+    - `check:engine-game` and `check:element-fx`.
+    - `verify-pot-meter-mount`, `verify-board-paint-order`, `verify-swap-in-place-mode`,
+      `verify-symbol-wrap-context`, `verify-symbol-seat`, `verify-stepped-grid`,
+      `verify-tumble-pattern`, `verify-win-explode-pop`, `verify-symbol-overflow`,
+      `verify-board-tiles` and `verify-win-beat-budget`.
+    - The launcher's `check:respin-land`, `check:jackpot-coin-art`, `check:symbol-layers`,
+      `check:clear-reel`, `check:symbol-fx`, `check:coin-label` and `check:respin-counter-text`.
+    - Prettier and ESLint clean.
+  - **Found, not fixed:**
+    - **A feature's flow screens still mount and unmount per feature.** `FlowV2Mount` mounts
+      `respinBackground`, `respinBoard`, `respinCounter`, `totalWinBar`, `letters` and the pots
+      overlay's screen at each show and destroys them at each hide. That is the show frame's other
+      ~140 objects and the end frame's other ~460 on `overlay-buffaloduel`. Keeping a flow screen
+      would mean putting it away hidden (its rigs, effects and timelines stopped) and starting it
+      again in place at the next show. `screenSlots` restarts a screen in place, but does not put
+      it away. It is a change for every game's screens, with its own parity work.
+    - **A coin's rig-bound effects still mount per play**, so emitters and particles per feature
+      are unchanged (the 2026-11-12 entry below, "found").
+    - **A view whose rig changes skeleton builds a new `RigView`** (`RigProvider`'s
+      `{#key rigData}`). Most of an `overlay-buffaloduel` feature's ~420 rigs come from this, as
+      the cells roll from one coin to another.
+    - **The kept board's memory:** 640–1,660 display objects (most of them kept rigs' meshes) and
+      ~4–7 MB of JS heap between features, no texture. The same Copy on a 4 GB phone would say
+      whether that matters.
+    - **In WebKitGTK, one Space on `holdandwintestsolo`'s start screen can also spin**, as found on
+      `bookofborutremake` (2026-11-12, below). In the first WebKitGTK pass the base session lost
+      its first Space to the start screen and the branch's spun, so the sessions are compared by
+      feature, not by spin.
+  - **Not verified:**
+    - A real iPhone. The owner's `perf: 5` Copy is the test.
+    - The minified build.
+    - Per-frame times on a quiet machine.
+    - A coin board (`isCoinBoard`: never hidden, its held layer emptied between rounds). The
+      fixture's seat model covers it; no current game is one.
+    - A project with a Cell Tile component (the tiles are mounted per feature, as before) or with
+      several respin modes (another mode's board builds new cells; the fixture models it).
+    - A resize or a locale change while the board is hidden.
 
 - 2026-11-12 — **One Space on a start screen continues and no longer also bets a spin: hold-to-spin
   continues from idle only for a press a round started during** (branched from `main` at
