@@ -111,6 +111,26 @@ export function getContextRigParked(): (() => boolean) | undefined {
 	return getContext(RIG_PARKED_NS) as (() => boolean) | undefined;
 }
 
+// A screen mounted ahead of its first show (`<LayoutScene dormant>`): until it shows, its rigs are
+// put away, its content that starts a clock of its own (`<Restartable>`) is not mounted, and its
+// machines do not start; its first show is a restart, so it starts as a mount at that moment would.
+const DORMANT_NS = '@@pixi_dormant';
+export function setContextDormant(value: () => boolean) {
+	setContext(DORMANT_NS, value);
+}
+/** Whether the screen above has not shown yet, as a getter; `undefined` off such a screen. */
+export function getContextDormant(): (() => boolean) | undefined {
+	return getContext(DORMANT_NS) as (() => boolean) | undefined;
+}
+
+/** Whether the rig above is put away: kept and parked, or on a screen that has not shown yet. */
+export function getContextRigAway(): (() => boolean) | undefined {
+	const parked = getContextRigParked();
+	const dormant = getContextDormant();
+	if (!parked && !dormant) return undefined;
+	return () => !!parked?.() || !!dormant?.();
+}
+
 // Rig event context
 const RIG_EVENT_EMITTER_NS = '@@pixi_rig_event_emitter';
 export function setContextRigEventEmitter(value: PIXI.EventEmitter) {

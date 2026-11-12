@@ -368,12 +368,18 @@ function run(read: (path: string) => string): void {
 		const base = source('BaseRigProvider.svelte');
 		check(
 			'BaseRigProvider puts it away and brings it back where its mount ran, only when kept',
-			/const parked = getContextRigParked\(\);\s*const play = parked \? getContextRestart\(\) : undefined;/.test(
+			/const parked = getContextRigParked\(\);\s*\/\*\*[\s\S]*?\*\/\s*const dormant = parked \? undefined : getContextDormant\(\);\s*const builtAsleep = !!dormant && untrack\(dormant\);\s*const play = parked\s*\? getContextRestart\(\)\s*: builtAsleep\s*\? \(\) => \(dormant\?\.\(\) \? 'asleep' : 'shown'\)\s*: undefined;/.test(
 				base,
 			) &&
 				/\$effect\.pre\(\(\) => \{\s*const now = play\?\.\(\);\s*if \(parked\(\)\) \{\s*putRigAway\(rig\);\s*return;\s*\}\s*bringRigBack\(rig, now !== shown\);/.test(
 					base,
 				),
+		);
+		check(
+			'…and one built on a screen not shown yet is put away until the show, then brought back as a new view',
+			/if \(dormant && builtAsleep\) \{\s*let woke = false;\s*\$effect\.pre\(\(\) => \{\s*if \(woke\) return;\s*if \(dormant\(\)\) \{\s*putRigAway\(rig\);\s*return;\s*\}\s*woke = true;\s*bringRigBack\(rig, true\);/.test(
+				base,
+			),
 		);
 		const effects = [...base.matchAll(/\$effect\(\(\) => \{\n\t\t([^\n]*)\n/g)].map((m) => m[1]);
 		check(

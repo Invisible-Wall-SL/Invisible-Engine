@@ -194,14 +194,16 @@ export class ComponentStateMachineRunner {
 	 * @param param the placed instance's param by key — what a condition with `param` compares
 	 *   against, and a state's `offsetParam` reads. Absent ⇒ every such condition fails and every
 	 *   offset is 0.
-	 * @param random a state's `randomStart` source, 0..1 (injectable for the gates).
+	 * @param random a state's `randomStart` source, 0..1 (injectable for the gates). By default
+	 *   `Math.random` as it is at each draw, not as it was when the runner was made: a screen mounted
+	 *   ahead is made with draws answered by a stand-in (`apps/lines` `startupAhead.ts`).
 	 */
 	constructor(
 		machine: ComponentStateMachine,
 		inputs: readonly ComponentInput[],
 		durations: ReadonlyMap<string, number>,
 		param?: (key: string) => unknown,
-		random: () => number = Math.random,
+		random: () => number = () => Math.random(),
 	) {
 		this.durations = durations;
 		this.param = param;

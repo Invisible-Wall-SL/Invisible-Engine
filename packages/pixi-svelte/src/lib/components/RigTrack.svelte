@@ -33,7 +33,7 @@
 	import {
 		getContextRestart,
 		getContextRig,
-		getContextRigParked,
+		getContextRigAway,
 		onRestart,
 	} from '../context.svelte';
 	import { restartRigPose } from '../rigKeep';
@@ -54,8 +54,9 @@
 		appliedReplay = undefined;
 		track = null;
 	});
-	// A kept rig put away (`<RigProvider parked>`) applies nothing until its next play starts it.
-	const parked = getContextRigParked();
+	// A kept rig put away (`<RigProvider parked>`), or one on a screen not shown yet, applies nothing
+	// until its next play starts it.
+	const parked = getContextRigAway();
 
 	// Fall back to the skeleton's first animation when no name is given — matches the
 	// Symbols tool's "(first animation)" option and its preview (SymbolRigPreview),

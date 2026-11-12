@@ -50,6 +50,7 @@
 	import {
 		setContextRig,
 		getContextParent,
+		getContextDormant,
 		getContextRestart,
 		getContextRigParked,
 	} from '../context.svelte';
@@ -68,7 +69,19 @@
 	 * `<RiggedFlipbook>`). Every other rig: nothing here runs.
 	 */
 	const parked = getContextRigParked();
-	const play = parked ? getContextRestart() : undefined;
+	/**
+	 * Built on a screen mounted ahead of its first show (`setContextDormant`): put away until the
+	 * show, then brought back where a view built at that moment registers its update, and sized,
+	 * skinned and pivoted again on its first pose, as a kept rig's play is. From then on it is any
+	 * other rig of the screen.
+	 */
+	const dormant = parked ? undefined : getContextDormant();
+	const builtAsleep = !!dormant && untrack(dormant);
+	const play = parked
+		? getContextRestart()
+		: builtAsleep
+			? () => (dormant?.() ? 'asleep' : 'shown')
+			: undefined;
 	if (parked) {
 		let shown = untrack(() => play?.());
 		$effect.pre(() => {
@@ -79,6 +92,18 @@
 			}
 			bringRigBack(rig, now !== shown);
 			shown = now;
+		});
+	}
+	if (dormant && builtAsleep) {
+		let woke = false;
+		$effect.pre(() => {
+			if (woke) return;
+			if (dormant()) {
+				putRigAway(rig);
+				return;
+			}
+			woke = true;
+			bringRigBack(rig, true);
 		});
 	}
 

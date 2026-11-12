@@ -62,6 +62,7 @@ export * from './componentParams';
 export * from './valueBindings';
 export * from './cinematicNodes';
 export * from './screenSlots';
+export * from './aheadMounts';
 export * from './fxNodeParams';
 export * from './tapToContinue';
 export * from './signalGates';
