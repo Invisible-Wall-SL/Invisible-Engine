@@ -1121,6 +1121,11 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-12 — **Getting Hot: line wins animate again.** On the partner's server (and our
+  partner-wire mock), a base-game line win paid but no symbol played its win animation: the
+  collector-wire rewrite (`collectorRespin.ts`) re-emitted `spinWin` after the board's `playedSpin`,
+  where the facade no longer turns it into `winInfo`. The rewrite now keeps `spinWin` ahead of the
+  board. Gate: `collectorRespin.fixture.ts` "line win". Lesson: `knowledge/lessons/rgs.md`.
 - 2026-11-12 — **Respin spin feel follow-ups (#1616 review).** The Scene Editor shows the two
   respin profiles only when the project has a Hold and Win feature
   (`kindCapabilities(gameType, addOns).holdAndWin`), and hides the fields a respin cell never reads.
