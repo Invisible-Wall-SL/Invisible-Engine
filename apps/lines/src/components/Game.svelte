@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte';
+	import { flushSync, onDestroy, onMount, untrack } from 'svelte';
 
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
@@ -173,6 +173,7 @@
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { gameFxWarmup } from '../game/gpuWarmup';
+	import { mountWithoutRandomDraws, startupAheadContainers } from '../game/startupAhead';
 	import { declareGameRenderNeeds } from '../game/renderNeeds';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import { createBootScreens, type BootScreens } from '../game/bootScreens';
@@ -1316,6 +1317,29 @@
 		const scene = flowV2ResolveScene?.(sceneId);
 		return scene ? screenSlots(scene) : undefined;
 	};
+	// The screens the start-up chains show, mounted under the loading bar, hidden and dormant, one a
+	// warm-up step, so the start screen's tap only starts them (`startupAhead.ts`). A screen a
+	// timeline remounts at its show is left to that show.
+	let flowV2Ahead = $state.raw<MountedContainerRef[]>([]);
+	const startsInPlace = (sceneId: string): boolean =>
+		!!screenSlot(sceneId) ||
+		!bakedCinematics().some((doc) => doc.host?.kind === 'screen' && doc.host.sceneId === sceneId);
+	registerGpuWarmup(() =>
+		flowV2DrivesScreens && flowV2Handle
+			? startupAheadContainers({
+					startup: flowV2Handle.startupShown,
+					containers: flowV2Handle.containers,
+					exclude: new Set([basegameScreenId, ...flowV2Containers.map((c) => c.id)]),
+					startsInPlace,
+				}).map((container) => () => {
+					mountWithoutRandomDraws(() =>
+						flushSync(() => {
+							flowV2Ahead = [...flowV2Ahead, container];
+						}),
+					);
+				})
+			: [],
+	);
 	// Flow variables, timers and tick (game-families §3.2): one ticker callback advances the flow's
 	// store, the `tickFlights` pattern. Added only when the flow has one, so a slot game's frame is
 	// untouched. It also re-runs on `loaded`: the ticker is not reactive, and a flow built from a
@@ -2780,6 +2804,7 @@
 			resolveScene={flowV2ResolveScene}
 			screenDrive={flowV2Handle?.screenDrive}
 			{screenSlot}
+			ahead={flowV2Ahead}
 		/>
 	{/if}
 

@@ -43,6 +43,7 @@
 		RigTrack,
 		getContextApp,
 		getContextParent,
+		getContextDormant,
 		getContextRestart,
 		onRestart,
 	} from 'pixi-svelte';
@@ -251,6 +252,9 @@
 	// its subscriptions made again (they re-seed), its clocks (effects, flipbooks, Element FX, a coded
 	// part that does not restart itself) mounted afresh. Off such a screen it never changes.
 	const restart = getContextRestart();
+	// A screen mounted ahead of its first show (`<LayoutScene dormant>`): its coded parts and Element
+	// FX mount at that show, as they would with the screen.
+	const dormant = getContextDormant();
 	onRestart(restart, () => {
 		sceneSigAnim = undefined;
 		countUpTo = undefined;
@@ -1292,18 +1296,20 @@
 				zIndex={transform.zIndex}
 			>
 				{#if ownAnchor}<Anchor name={node.id} />{/if}
-				{#key boundRestarts ? undefined : restart?.()}
-					{#if isBackground}
-						<Bound
-							{transform}
-							cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
-							{...node.bind?.props ?? {}}
-							{...boundSkin}
-						/>
-					{:else}
-						<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
-					{/if}
-				{/key}
+				{#if boundRestarts || !dormant?.()}
+					{#key boundRestarts ? undefined : restart?.()}
+						{#if isBackground}
+							<Bound
+								{transform}
+								cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
+								{...node.bind?.props ?? {}}
+								{...boundSkin}
+							/>
+						{:else}
+							<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
+						{/if}
+					{/key}
+				{/if}
 			</Container>
 		{:else if node.kind === 'container'}
 			<!--
@@ -1987,7 +1993,7 @@
 {#if elementFx.length}
 	<Container zIndex={transform.zIndex}>
 		{#if ownAnchor}<Anchor name={node.id} />{/if}
-		{#if transform.visible && revealed}
+		{#if transform.visible && revealed && !dormant?.()}
 			{#key restart?.()}
 				<ElementFxPlayer entries={elementFx} scope={signalScope} pose={elementFxPose} />
 			{/key}

@@ -56,6 +56,7 @@
 		Container,
 		createPressHold,
 		getContextApp,
+		getContextDormant,
 		getContextParent,
 		getContextRestart,
 		onRestart,
@@ -469,6 +470,10 @@
 	// interpreter's own `onComplete()` only fires an outgoing edge from the CURRENT active
 	// screen, so even a stray fire after `loading` already advanced (coded press-to-continue)
 	// matches nothing — no double-fire, the `fired` guard is belt-and-suspenders.
+	// On a screen mounted ahead of its first show (`<LayoutScene dormant>`), nothing it hears starts it
+	// before that show: it subscribes then, as a mount at that moment would.
+	const dormant = getContextDormant();
+	const asleep = (): boolean => dormant?.() ?? false;
 	let loadedSeeded = false;
 	let wasLoaded = false;
 	let fired = false;
@@ -480,7 +485,7 @@
 	};
 	$effect(() => {
 		void restarted();
-		if (!loadedSource) return;
+		if (asleep() || !loadedSource) return;
 		return loadedSource.subscribe((value) => {
 			if (!loadedSeeded) {
 				loadedSeeded = true;
@@ -710,6 +715,7 @@
 	// consumers update — `untrack` suppresses dependency TRACKING, never the writes/notifications.
 	$effect(() => {
 		void restarted();
+		if (asleep()) return;
 		return untrack(() => {
 			const unsubs: (() => void)[] = [];
 			for (const [signalKey, targets] of signalToTargets) {
@@ -949,6 +955,7 @@
 	// the per-instance bus.
 	$effect(() => {
 		void restarted();
+		if (asleep()) return;
 		return untrack(() => {
 			if (!timelinePlayer && !stateMachineRunner) return;
 			const unsubs: (() => void)[] = [];
