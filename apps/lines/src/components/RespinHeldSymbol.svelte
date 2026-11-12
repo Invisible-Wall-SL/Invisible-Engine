@@ -9,7 +9,12 @@
 	import { getSymbolSeat } from '../game/stateGame.svelte';
 	import { completeHeldBeat, HELD_REST, stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
-	type Props = { cell: HoldAndWinCell };
+	type Props = {
+		cell: HoldAndWinCell;
+		/** The seat's entry (`createSeatViews`): a new number each time a cell comes to be held here,
+		 *  `undefined` while the seat is empty. */
+		entry: number | undefined;
+	};
 
 	const props: Props = $props();
 
@@ -17,7 +22,13 @@
 	 * A STUCK cell — a coin, a jackpot or a special held on the respin board. Drawn through the same
 	 * `Symbol` as every reel cell, so its art, layers and value label (`coinLabelFor`) come with it,
 	 * and a value a payer raises is redrawn in place: the cell is keyed by its position, not its value.
+	 *
+	 * A SEAT'S VIEW, kept from the first cell held there (`respinBoardKeep.ts`): each cell coming to be
+	 * held is an entry, which starts the `Symbol`'s art as a newly mounted one would, and while the
+	 * seat is empty it draws nothing, its art put away. What the cell's own component started at its
+	 * mount (a label pop) is started at its entry.
 	 */
+	const vacant = $derived(props.entry === undefined);
 	const key = $derived(respinCellKey(props.cell.reel, props.cell.row));
 	const seat = $derived(getSymbolSeat(props.cell.reel, props.cell.row));
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
@@ -60,28 +71,37 @@
 	let cues = 0;
 	let counting = false;
 	$effect(() => {
-		if (pops.land && cellState === 'coinStick') labelPop = { id: ++cues, ...pops.land };
+		void props.entry;
+		if (!vacant && pops.land && cellState === 'coinStick') labelPop = { id: ++cues, ...pops.land };
 	});
 	$effect(() => {
+		void props.entry;
+		if (vacant) {
+			counting = false;
+			return;
+		}
 		const now = display !== undefined;
 		if (counting && !now && pops.boost) labelPop = { id: ++cues, ...pops.boost };
 		counting = now;
 	});
 	$effect(() => {
-		if (pops.hit && labelText !== undefined) labelPop = { id: ++cues, ...pops.hit };
+		void props.entry;
+		if (!vacant && pops.hit && labelText !== undefined) labelPop = { id: ++cues, ...pops.hit };
 	});
 </script>
 
-<Container x={seat.x} y={seat.y} {scale} {zIndex} {alpha}>
+<Container x={seat.x} y={seat.y} {scale} {zIndex} {alpha} visible={!vacant}>
 	<Symbol
 		state={drawnState}
 		rawSymbol={props.cell.symbol}
 		{labelOverride}
 		{labelText}
 		{labelPop}
+		instanceKey={props.entry}
+		{vacant}
 		oncomplete={() => completeHeldBeat(key)}
 	/>
-	{#if mark}
+	{#if mark && !vacant}
 		<Container x={SYMBOL_SIZE * 0.32} y={-SYMBOL_SIZE * 0.32}>
 			<Text
 				anchor={0.5}

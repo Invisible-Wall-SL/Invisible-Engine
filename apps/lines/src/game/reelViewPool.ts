@@ -51,7 +51,7 @@
  * the views' lists are new arrays on every call, and a keyed `{#each}` handed a new array runs again
  * (it reconciles every item, though none changed). Handed the same array, it does not run.
  */
-const keepList = <T>(previous: T[] | undefined, list: T[]): T[] =>
+export const keepList = <T>(previous: T[] | undefined, list: T[]): T[] =>
 	previous !== undefined &&
 	previous.length === list.length &&
 	list.every((item, i) => item === previous[i])
