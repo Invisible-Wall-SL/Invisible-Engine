@@ -242,6 +242,16 @@ const createFreePlayMock = (label) => ({
 	},
 });
 
+const PARTNER_WIRE = 'partner';
+
+/**
+ * Whether a session can move from `previous` to `next` with the config its tab booted on. Not across
+ * the partner's wire and ours (a project gaining or losing `holdAndWin.enhancements`): the two deal
+ * different games off different bet tables, so a tab that keeps its config would bet an option index
+ * read against a table it never saw. Such a session is carried without it and its tab re-reads it.
+ */
+export const sameWire = (previous, next) => (previous?.wire ?? 'ours') === (next?.wire ?? 'ours');
+
 /** Whether a game's client prices a bet-option table: a runtime game, or a desktop build stamped
  *  table-capable. The one rule `makeMock` sells by and every carry of a session follows. */
 export const sellsTable = (meta) => Boolean(meta?.runtime) || meta?.tableCapable === true;
@@ -260,7 +270,9 @@ export const makeMock = (
 	const sells = sellsTable({ runtime, tableCapable });
 	// Forcing a beat is an authoring tool, as on our own Hold and Win mock.
 	if (isPartnerCollectorGame(protocol, grid))
-		return createHoldAndWinPartnerMock({ label, allowForce: twin || !runtime });
+		return Object.assign(createHoldAndWinPartnerMock({ label, allowForce: twin || !runtime }), {
+			wire: PARTNER_WIRE,
+		});
 	// A Hold and Win game: a lines contract carrying the base-game Hold and Win inputs (the launcher
 	// sends them for a `holdAndWin`-kind project, with its coin overlay's `potsOverlay` when one
 	// drops; another kind's overlay bonus rides `potsOverlay` alone), or ones
