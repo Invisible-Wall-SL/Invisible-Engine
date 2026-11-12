@@ -190,6 +190,7 @@ const { irigBackupsPrefix } = await import('../src/lib/server/riggerIrig.ts');
 const reindex = await import(`${routes}/editor/rigs/reindex/+server.ts`);
 const importBegin = await import(`${routes}/rigger/import/+server.ts`);
 const importFinish = await import(`${routes}/rigger/import/finish/+server.ts`);
+const importUpgrade = await import(`${routes}/rigger/import/upgrade/+server.ts`);
 
 let checks = 0;
 let failures = 0;
@@ -1107,7 +1108,7 @@ for (const hold of ['before', 'after'] as const) {
 			400,
 		],
 		['an empty page', { pages: [{ name: 'hero.png', size: 0 }, pages[1]] }, 400],
-		['a 3.8 export', { skeleton: { ...export42, skeleton: { spine: '3.8.99' } } }, 422],
+		['a 3.7 export', { skeleton: { ...export42, skeleton: { spine: '3.7.94' } } }, 422],
 		[
 			'a slot on a missing bone',
 			{ skeleton: { ...export42, slots: [{ name: 's', bone: 'nope' }] } },
@@ -1126,6 +1127,39 @@ for (const hold of ['before', 'after'] as const) {
 	seedProject();
 	const asIrig = await begin({ name: 'Copy', skeleton: stored });
 	check('import: an .irig is taken as it is', [asIrig.status, asIrig.body.irig], [200, true]);
+
+	// A 3.8 export is upgraded on the way in: its rotate key's `angle` becomes `value`.
+	seedProject();
+	const export38 = {
+		...export42,
+		skeleton: { spine: '3.8.75' },
+		animations: { idle: { bones: { head: { rotate: [{ time: 0.5, angle: 10 }] } } } },
+	};
+	const from38 = await begin({ name: 'Old', skeleton: export38 });
+	const old = JSON.parse(text(`${RIGS}/Old/Old.irig`) ?? '{}');
+	check(
+		'import: a 3.8 export is upgraded and stored as irig v1',
+		[
+			from38.status,
+			old.irig,
+			old.skeleton?.importedFrom,
+			old.animations?.idle?.bones?.head?.rotate,
+		],
+		[200, 1, '4.2', [{ time: 0.5, value: 10 }]],
+	);
+	const upgraded = await call(importUpgrade.POST, { skeleton: export38 });
+	check(
+		'import/upgrade answers the 4.2 skeleton and writes nothing; a 3.7 export is a 422',
+		[
+			upgraded.status,
+			upgraded.body.from,
+			(upgraded.body.skeleton as { skeleton?: { spine?: string } })?.skeleton?.spine,
+			(await call(importUpgrade.POST, { skeleton: { ...export38, skeleton: { spine: '3.7.94' } } }))
+				.status,
+			writes.filter((w) => w.includes('/Old/')).length,
+		],
+		[200, '3.8.75', '4.2', 422, 1],
+	);
 
 	seedProject();
 	seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
