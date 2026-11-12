@@ -246,6 +246,10 @@ has no family control at all. Three more families exist
   - **Resource at start** (1), **Resource per turn** (1) and **Resource cap** (10): what each side
     has to pay for cards, refilled each turn.
   - **Who goes first** — Random (the default), The player or The AI.
+  - **Turn order** — **Play, then attack** (the default: cards are played first, then **End Turn**
+    moves to the attacks and a second press ends the turn) or **Play and attack in any order** (one
+    phase: play and attack as you like, and one **End Turn** ends the turn). Stored only when it is
+    the second (`card.rules.turnOrder: "mixed"`).
   - **Cards and decks** — how many cards and decks the config has, and **Edit in Invisible Card
     Library**, which opens `/cards`: the cards (`card.library`) and the decks (`card.decks`) are
     edited there, not here (see [Invisible Card Library](invisible-card-library.md)). Their
@@ -568,7 +572,8 @@ free spins on two `S`, from Slotmotion's _Fairy's Charm_; its RTP is a placehold
 is tuned). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
 (Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
 then **Coin board only (no line game)** (the template with _Base game: Coin board only_, see
-_Coin board_), then the three games above. A new Hold and Win project already has its own config: Game Maker
+_Coin board_), then **Collector + enhancements** (the template with _Base game: Lines game:
+collector + enhancements_, the partner's collector bonus), then the three games above. A new Hold and Win project already has its own config: Game Maker
 saves the plain Hold and Win with the Jackpots choice picked at **Create**, so the page opens on an
 authored doc, not the template. Pots and Collector are not offered at Create: add a coin overlay
 from the project's card, or reset to one of these presets here. To switch a plain game's jackpots
@@ -593,6 +598,14 @@ reported under `modes.<id>.holdAndWin`.
     respins still run on their own.
 
   The intro and the outro advance on their own either way.
+
+  Under them, **The server draws enhancements (Expand · Boost · Multiply · Respin)** marks a
+  feature whose server draws the partner's enhancements (`enhancements: true`). It is presentation
+  only: our mock never draws them. With it on, the Scene Editor's **Add missing screens** offers the
+  **Enhancements** screen (four Enhancement Dials and the collectors' total), the banner popups
+  offer the two enhancement banners, and the reel grid reserves 5 rows. Then show the screen at
+  game start in Flow (see [Flow](flow.md)). A project made with Game Maker's **Lines game:
+  collector + enhancements** has it all already.
 
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;
@@ -1178,7 +1191,7 @@ Each bet mode is one card, read top to bottom as four labelled blocks:
 | Block             | What it holds                                                                                                                                   |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the engine config shape the math team ships. |
-| **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                              |
+| **Menu**          | **Kind**, **Order**, the **Card** component; on a non-base mode **HUD switch** (ante only), **Operator can switch off** and **Filler symbols**. |
 | **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                              |
 | **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · rig · Button).                    |
 
@@ -1195,6 +1208,21 @@ mode's cost as tags.
 - **Order** — the mode's position in the menu. Leave it blank (**auto**) and the
   card keeps its authoring order; set a number on one card to move just that one
   without renumbering the rest.
+- **HUD switch** (an `ante` only) — the ante is armed by an on/off button in the HUD
+  instead of being a card in the buy menu. Place a Button in the HUD scene with action
+  **ante on/off** and **Shows during** = **Ante switch available**: it lights while the
+  ante is on, greys out while a round plays, and the bet readout shows the ante's price.
+  The buy-bonus button then always opens the menu.
+- **Filler symbols** — tick the symbols the reels show while they **spin** with this
+  mode as the stake (e.g. COIN, COLLECT and BLANK for an ante that only deals coins).
+  Each reel rolls its own base strip with every other symbol taken out, so a symbol
+  that only lands on reel 3 still only rolls there. Presentation only: what lands is
+  the server's. None ticked ⇒ the reels roll the base strips.
+- **Operator can switch off** — tick it when the operator may turn this ante or buy
+  off (the server then refuses its bet). A refusal then drops that card or switch for
+  the session, returns to the base bet, keeps the board on screen and shows "This
+  option is not available right now." in the game's message host (translate it in
+  Invisible Localization, HUD texts). Unticked, a refusal is an error, as before.
 - **Copy** — the text the card shows: **Title**, **Button** (the call-to-action,
   e.g. PLAY / BUY / ACTIVATE), **Bet label** (the HUD "BET" caption), plus a
   **Description** and a **Dialog** (the buy-confirmation body). Blank fields fall

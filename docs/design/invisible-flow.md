@@ -23,9 +23,9 @@
 > ships: `flowExport.ts`, `deploy/flow.json`, the bake's `BakedBundle.flow` / `bakedFlowDoc()`,
 > the `apps/lines` `flowDoc.ts` fixtures and their `__IE_FLOW_*__` dev hooks, and the v1→v2
 > translator are gone, and a stored `editor/flow.json` is ignored. Authored flow is Flow v2 only
-> ([invisible-flow-v2.md](invisible-flow-v2.md)). What survives is `engine-flow` +
-> `createLinesFlow`, which boot the synthesized default `loading → basegame` flow when no v2
-> flow drives screens. State: [docs/status/flow.md](../status/flow.md).
+> ([invisible-flow-v2.md](invisible-flow-v2.md)). The v1 runtime followed on 2026-11-09:
+> `engine-flow` is deleted and a game no v2 flow drives boots through `apps/lines`
+> `bootScreens.ts`. State: [docs/status/flow.md](../status/flow.md).
 
 ## 0. Status
 

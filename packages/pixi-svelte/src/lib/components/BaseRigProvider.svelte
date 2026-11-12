@@ -41,18 +41,46 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import * as PIXI from 'pixi.js';
 	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
 
 	import { propsSyncEffect, rigSizeScale } from '../utils.svelte';
 	import { rigAnchorPoint } from '../rigBox';
-	import { setContextRig, getContextParent } from '../context.svelte';
+	import {
+		setContextRig,
+		getContextParent,
+		getContextRestart,
+		getContextRigParked,
+	} from '../context.svelte';
+	import { bringRigBack, putRigAway } from '../rigKeep';
 	import { applyLocaleAttachments, currentRigLocale, onRigLocaleChange } from '../rigLocale';
 
 	const props: Props = $props();
 	const parentContext = getContextParent();
 	const rig = new RIG.RigView(props.rigData);
+
+	/**
+	 * Kept between plays (`<RigProvider parked restart>`, `rigKeep.ts`): put away while parked, and
+	 * at each play brought back with its update where a new view's constructor registers it — in
+	 * this pre-effect, which runs where and when this component's own mount would. Its track and
+	 * bound content start again through the restart (`<RigTrack>`, `<RiggedEffect>`,
+	 * `<RiggedFlipbook>`). Every other rig: nothing here runs.
+	 */
+	const parked = getContextRigParked();
+	const play = parked ? getContextRestart() : undefined;
+	if (parked) {
+		let shown = untrack(() => play?.());
+		$effect.pre(() => {
+			const now = play?.();
+			if (parked()) {
+				putRigAway(rig);
+				return;
+			}
+			bringRigBack(rig, now !== shown);
+			shown = now;
+		});
+	}
 
 	// Rebroadcast this rig's fired rig animation EVENTS onto the shared event bus (opt-in), so an
 	// effect subscribed to the event name fires exactly when the animation reaches its timeline event
@@ -128,6 +156,7 @@
 	// a no-op when absent so the runtime keeps its default-skin behaviour. An unknown
 	// skin name throws in RigView; we swallow it and leave the current skin.
 	$effect(() => {
+		void play?.();
 		const skin = props.skin;
 		if (!skin) return;
 		try {
@@ -142,12 +171,18 @@
 		applyLocale();
 	});
 
+	// A kept rig's play applies both again, after its track's first pose, as its mount did: the
+	// restart puts every slot back on its setup attachment, the source locale's.
 	$effect(() => {
+		void play?.();
 		applyLocale();
 		return onRigLocaleChange(applyLocale);
 	});
 
+	// A kept rig's play sizes it again: with no authored box the size is measured on the live pose,
+	// which its track has just posed on the animation's first frame, as at a mount.
 	$effect(() => {
+		void play?.();
 		const sizeScale = rigSizeScale({
 			rig,
 			width: props.width,
@@ -171,10 +206,13 @@
 	// bounds rigs never enter this (RigProvider gives them a real pivot). Applied ONCE the
 	// bounds are available; the proper fix is re-exporting the rig with bounds.
 	$effect(() => {
+		void play?.();
 		const data = rig.skeleton?.data;
 		if (data && data.width > 0 && data.height > 0) return; // authored bounds → handled upstream
 		if (props.anchorFallback === undefined) return;
 		const { x: ax, y: ay } = rigAnchorPoint(props.anchorFallback);
+		// A kept rig's play starts from a new view's pivot, then anchors on its first pose's bounds.
+		if (play) rig.pivot.set(0, 0);
 		let applied = false;
 		const apply = (): boolean => {
 			const b = rig.bounds;

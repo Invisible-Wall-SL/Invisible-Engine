@@ -59,12 +59,12 @@ import {
 } from 'rgs-translator-eagaming/game-mappings';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { protocolFor } from './mockProtocol';
-import { UNASSIGNED_CLIENT } from './projectPaths';
-import { projectClientKey, projectGameType } from './projects';
+import { projectGameType } from './projects';
 import { currentPointer, readSnapshotBundle } from './publishedRuntime';
 import type { RuntimeBundle } from './runtimeBundle';
 import { loadSymbolsDoc } from './symbolsStorage';
 import type { MockProtocol, TestServerGameEntry } from './testServerManifest';
+import { clientKeyOf } from './projectLookup';
 
 /**
  * The two facts the contract needs from a project's SYMBOLS rather than its config: is the
@@ -857,7 +857,7 @@ export async function resolveMockContract(
 	projectKey: string,
 	source: MockContractSource,
 ): Promise<ResolvedMockContract> {
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 	const gameType = await projectGameType(projectKey);
 	const protocol = protocolFor(gameType);
 	if (source === 'published') {

@@ -5,7 +5,12 @@ services would otherwise copy-paste:
 
   - ``iw_common.storage``  — R2/boto3 object storage + staging sync.
   - ``iw_common.banner``   — the console startup banner.
-  - ``iw_common.comfy``    — the ComfyUI client headers (the Cloudflare 403 UA fix).
+  - ``iw_common.comfy``    — the ComfyUI client: headers (the Cloudflare 403 UA fix),
+    JSON calls, history + execution-error reading. Stdlib-only: the RunPod worker
+    image carries it too.
+  - ``iw_common.http``     — the request-handler base both tools' ``Handler`` share.
+  - ``iw_common.texturepacker`` — the TexturePacker JSON writer both tools share.
+  - ``iw_common.testkit``  — ``Suite``, the check/exit helpers of the plain-script tests.
   - ``iw_common.context``  — the thread-local (client, project) context base.
   - ``iw_common.imgcache`` — disk-backed thumbnail cache + HTTP ETag/304 helpers
     (kills the many-thumbnail 502 storm; shared by every HTTP image route).

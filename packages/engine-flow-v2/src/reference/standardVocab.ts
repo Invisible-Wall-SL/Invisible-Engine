@@ -18,7 +18,7 @@
  *    op the game implements; category `effect`, plus the `command` mechanic ops (`stopReel`). The
  *    game's env resolves these through `flowEffect(name)`.
  *  - **cues** — the presentation signals components bind (the `EmitterEvent*` unions, transcribed in
- *    v1's `DEFAULT_EMITTER_VOCABULARY`); a `fireCue` node → `eventEmitter.broadcast({ type, ... })`.
+ *    `DEFAULT_EMITTER_VOCABULARY`); a `fireCue` node → `eventEmitter.broadcast({ type, ... })`.
  *  - **collections** — `reels` (`$engine.reels`), the iterable a `forEach` walks.
  *
  * Mechanic effects that consume the WHOLE book event (e.g. `revealBoard`) are declared as OPAQUE
@@ -973,7 +973,7 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 	collections: [{ name: 'reels', of: REEL }],
 
 	// Values — the engine-readable SCALARS a `branch` guard tests (`$engine.isAutoSpinning`).
-	// Transcribed VERBATIM from `linesEngineReader`'s closed key set (`apps/lines/flowRuntime`), the
+	// Transcribed VERBATIM from `linesEngineReader`'s closed key set (`apps/lines/flowEngineReader`), the
 	// same discipline as the events/actions above: the reader has always answered these, and this is
 	// the declaration that lets an author reach them. `win`/`totalWin` are the same read (the book
 	// event's normalised amount), kept as two names because the reader answers both.

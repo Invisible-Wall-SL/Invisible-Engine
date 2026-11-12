@@ -25,11 +25,12 @@
  *
  * Forced beats (authoring and tests): `play.context = "force:<token>[,<token>…]"`, or held for a
  * session's next round by `POST …/force?sid=<sid>&beat=<tokens>`. Tokens: `enhancements:<bits>`,
- * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `baseCollect`
- * ({@link parsePartnerForce}).
+ * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `jackpot:<TIER>` (a jackpot
+ * coin of that tier in the trigger run), `baseCollect` (alone, or `baseCollect,twoCollectors`: two
+ * collectors each take the coin) ({@link parsePartnerForce}).
  *
- * Selected per game on the test server by `PARTNER_WIRE_GAMES=<key>[,<key>…]`
- * (services/test-server/makeMock.mjs). CLI:
+ * The test server deals a game with it when its Game Config marks the partner's collector game
+ * (`holdAndWin.enhancements`; services/test-server/makeMock.mjs). CLI:
  *   node scripts/mock-rgs-server-holdandwin-partner.mjs   PORT=7798 · SEED=… · START_BALANCE=<cents>
  *   · FORCE=<tokens> · DISABLED_OPTIONS=1,2,3 (the operator switching the ante and buys off)
  */
@@ -258,6 +259,9 @@ const FORCE_FLAGS = [
 	'baseCollect',
 ];
 
+/** The tokens `baseCollect` combines with: `twoCollectors` makes both collectors take the coin. */
+const BASE_COLLECT_FLAGS = ['baseCollect', 'twoCollectors'];
+
 /**
  * `enhancements:<bits>,boostHit,…` → `{ force }` or `{ errors }`. Every token but `baseCollect`
  * starts the bonus; `baseCollect` pays a collect with no trigger.
@@ -278,6 +282,12 @@ export function parsePartnerForce(spec) {
 				continue;
 			}
 			force.bits = arg;
+		} else if (name === 'jackpot') {
+			if (!Object.hasOwn(PARTNER_GAME.jackpots, arg ?? '')) {
+				errors.push(`jackpot:<tier> takes one of ${Object.keys(PARTNER_GAME.jackpots).join(', ')}`);
+				continue;
+			}
+			force.jackpot = arg;
 		} else if (FORCE_FLAGS.includes(name) && arg === undefined) force[name] = true;
 		else errors.push(`unknown force "${token}"`);
 	}
@@ -291,8 +301,8 @@ export function parsePartnerForce(spec) {
 		if (force.boostHit && !on.boost) errors.push('boostHit needs the boost bit');
 		if (force.multiplyHit && !on.multiply) errors.push('multiplyHit needs the multiply bit');
 	}
-	if (force.baseCollect && Object.keys(force).some((k) => k !== 'baseCollect'))
-		errors.push('baseCollect pays a collect with no bonus; it takes no other token');
+	if (force.baseCollect && Object.keys(force).some((k) => !BASE_COLLECT_FLAGS.includes(k)))
+		errors.push('baseCollect pays a collect with no bonus; it takes only twoCollectors');
 	force.bonus = !force.baseCollect;
 	return errors.length ? { errors } : { force };
 }
@@ -519,6 +529,12 @@ export function createPartnerCollectorEngine(opts = {}) {
 			placeCoin(board, pick([0, 4]));
 		}
 		if (round.isBuy || force?.bonus) satisfyRun(board);
+		if (force?.jackpot) {
+			const run = runOf(board);
+			const coins = coinsOf(board);
+			const at = coins.find((c) => run.includes(c.reel)) ?? coins[0];
+			board[at.reel][at.row] = { coin: force.jackpot };
+		}
 		if (force?.twoCollectors && collectorsOf(board).length < 2) placeCollector(board);
 		const collectorsLanded = collectorsOf(board).length > 0;
 		const chance = pacing.trigger.chance;

@@ -199,6 +199,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 
 	// internal states
 	let isPreSpinning = false;
+	// Settles when this round's roll loop has exited (its last lap ends at home) — what
+	// `cancelPreSpin` waits for. Already settled while no roll was started.
+	let rollEnded: Promise<void> = Promise.resolve();
 	let targetPaddingPosition = reelLength - 1;
 	let targetSymbols: ReelSymbol[] = createReelSymbols(reelOptions.initialSymbols);
 	let paddingRawReel: TRawSymbol[] = reelOptions.initialSymbols;
@@ -388,6 +391,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		const preSpinPaddingRawReel = preSpinPaddingReel;
 
 		isPreSpinning = true;
+		let endRoll = () => {};
+		rollEnded = new Promise((resolve) => (endRoll = resolve));
 		// Set BEFORE `preSpinPadding`, not before the slide: that call doubles the strip and
 		// `placeY`s it a whole reel-length above home, so the strip has already left its seats by the
 		// time anything slides. Everything from here to the bounce-back is "moving".
@@ -395,7 +400,19 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelState.spinType = isTurboBeforeAll ? 'fast' : 'normal';
 		await preSpinPadding({ preSpinPaddingRawReel });
 		if (!isTurboBeforeAll) await delaySpinByReelIndex();
-		preSpinSlideDownLoop({ isTurboBeforeAll, preSpinPaddingRawReel });
+		void preSpinSlideDownLoop({ isTurboBeforeAll, preSpinPaddingRawReel }).finally(endRoll);
+	};
+
+	/**
+	 * End a pre-spin roll that no spin will follow (the server refused the bet): the loop finishes
+	 * the lap it is on — every lap ends at home — and stops, and the reel stops rolling. The caller
+	 * then settles the strip it wants shown. A reel that is not rolling returns at once.
+	 */
+	const cancelPreSpin = async () => {
+		isPreSpinning = false;
+		rollStartedAt = undefined;
+		await rollEnded;
+		reelState.rolling = false;
 	};
 
 	const generalSpinWith = async ({ slideDown }: { slideDown: () => Promise<void> }) => {
@@ -642,6 +659,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		reelState,
 		// methods
 		preSpin,
+		cancelPreSpin,
 		prepareToSpin,
 		spin,
 		stop,

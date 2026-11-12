@@ -86,6 +86,7 @@
 		getContextRestart,
 		getContextRig,
 		getContextRigLoadScale,
+		getContextRigParked,
 		onRestart,
 	} from '../context.svelte';
 	import EffectPlayer from './EffectPlayer.svelte';
@@ -97,6 +98,7 @@
 
 	const props: Props = $props();
 	const rig = getContextRig();
+	const parked = getContextRigParked();
 	// The effect is authored in RIG units (the Rigger and /symbols load every rig at 1); the host
 	// bundle may be read at another load scale, which moves bones and scales attachments but not a
 	// Pixi child — so the burst is scaled by it here. See `setContextRigLoadScale`.
@@ -153,6 +155,7 @@
 	let stripArmed = false;
 	let released = $state(false);
 	const fire = (fromStrip = false): void => {
+		if (parked?.()) return;
 		// A continuous binding is armed by its FIRST beat and then deaf: re-mounting is how a one-shot
 		// replays from t=0, so ignoring the later fires is exactly what keeps the emitter unbroken.
 		// `runId > 0` means it is already mounted; a pending delay counts too, or a beat landing inside
@@ -183,13 +186,21 @@
 	// A restart (`setContextRestart`): dormant again, as a fresh mount is, before the rig's track
 	// starts over and its first beat fires this again.
 	const restart = getContextRestart();
-	onRestart(restart, () => {
+	const dormant = (): void => {
 		for (const timer of pending) clearTimeout(timer);
 		pending = [];
 		stripArmed = false;
 		released = false;
 		runId = 0;
-	});
+	};
+	onRestart(restart, dormant);
+	// A kept rig put away (`<RigProvider parked>`): the burst and its emitters go, as an unmount
+	// takes them, and nothing fires until the rig plays again.
+	if (parked) {
+		$effect.pre(() => {
+			if (parked()) untrack(dormant);
+		});
+	}
 
 	// Attached at INIT, not from an effect. The sibling `<RigTrack>` sets the animation and poses
 	// it (`rig.update(0)`) from ITS effect, and sibling effects run in template order — so a

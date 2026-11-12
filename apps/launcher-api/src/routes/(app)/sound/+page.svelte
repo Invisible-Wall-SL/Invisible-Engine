@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -674,14 +675,15 @@
 			Every sound this game makes, and every sound it owns. The sections below are the game's
 			<strong>moments</strong> — pick what each one plays, mute it, or hear it. Underneath is the
 			<strong>library</strong>: upload new audio, say where it came from, and approve what is
-			cleared to ship. Cues placed on the <a href="/flow-v2">flow graph</a> are the one thing still authored
-			elsewhere, and they are listed here so nothing is hidden.
+			cleared to ship. Cues placed on the <a href={resolve('/flow-v2')}>flow graph</a> are the one thing
+			still authored elsewhere, and they are listed here so nothing is hidden.
 		</p>
 
 		{#if data.unmigrated}
 			<p class="warn migrate">
 				<strong>This project's choices still live in the old tools.</strong> They have been read out
-				of <a href="/config">Invisible Game Config</a> and <a href="/symbols">Invisible Symbols</a>
+				of <a href={resolve('/config')}>Invisible Game Config</a> and
+				<a href={resolve('/symbols')}>Invisible Symbols</a>
 				so this page opens on what the game actually plays today. Your next
 				<strong>save</strong> moves them here for good, and those tools stop deciding.
 			</p>
@@ -810,8 +812,8 @@
 				</select>
 			{:else}
 				<p class="hint">
-					This project's <a href="/config">config</a> deals no symbols yet, so there is nothing to give
-					a voice to.
+					This project's <a href={resolve('/config')}>config</a> deals no symbols yet, so there is nothing
+					to give a voice to.
 				</p>
 			{/if}
 		</section>
@@ -880,8 +882,8 @@
 			<p class="hint">
 				The tease while a big win is still reachable on the reels yet to stop: a
 				<strong>sting</strong> when it starts, a <strong>loop</strong> that holds under it. Whether
-				the mode runs at all is decided in <a href="/flow-v2">Invisible Flow</a>; what it sounds
-				like is decided here.
+				the mode runs at all is decided in <a href={resolve('/flow-v2')}>Invisible Flow</a>; what it
+				sounds like is decided here.
 			</p>
 			<div class="pairs">
 				<div class="pair">
@@ -907,7 +909,8 @@
 				<p class="hint">
 					What a celebration sounds like at each tier — the one-shot <strong>sting</strong> that
 					opens it and the <strong>music</strong> that runs under the count-up. Which tiers exist,
-					and at what multiple, is <a href="/config">config</a>; what they sound like is here.
+					and at what multiple, is <a href={resolve('/config')}>config</a>; what they sound like is
+					here.
 				</p>
 				<div class="grid tiers">
 					<div class="grow head">
@@ -935,8 +938,8 @@
 			<h2>Flow cues <span class="tag">read-only</span></h2>
 			<p class="hint">
 				A cue placed on the graph. It has wires, a condition and a position in a sequence, so it
-				stays where it can see them — change one in <a href="/flow-v2">Invisible Flow</a>. Listed
-				here so this page can still show <em>every</em> sound the game makes.
+				stays where it can see them — change one in <a href={resolve('/flow-v2')}>Invisible Flow</a
+				>. Listed here so this page can still show <em>every</em> sound the game makes.
 			</p>
 			{#if data.flowCues.length}
 				<div class="flowlist">

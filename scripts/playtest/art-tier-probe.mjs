@@ -3,14 +3,17 @@
 //
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/art-tier-probe.mjs [--build apps/lines/build] [--out <dir>]
+//       [--pinned-build <a build made with IE_ART_TIER=full>]
 //
 // Boots the BUILT runtime (`?runtime=1`) against a local runtime-bundle stub carrying a 4K game: the
 // Book-of reference rescaled ×2, plus two pieces of art made for it, each published the way the
 // launcher publishes a tier (`docs/design/arcade-4k-builds.md` Phase 3) —
 //   - a sprite SHEET (one region of a 3000×1600 page) with its half page and a `@half.json` written
 //     by the launcher's own `sheetOnPage`;
-//   - a standalone IMAGE (1400×900) with its half copy and the resolution it loads at.
-// Both are placed at their natural size, which is exactly where a wrong scale would show.
+//   - a standalone IMAGE (1400×900) with its half copy and the resolution it loads at;
+//   - a FLIPBOOK clip over two frames of that sheet (the form a video render ships in), with no
+//     tier of its own: it must ride the sheet's.
+// All are placed at their natural size, which is exactly where a wrong scale would show.
 //
 // Runs, all in a 1280×720 window (the Book-of canvas, 2844×1600 at 4K, shows at 0.45 of its size, so
 // auto picks `half`):
@@ -18,6 +21,10 @@
 //   full        `?tier=full` must load the full pages and nothing `@half`;
 //   no-res      the image's tier entry WITHOUT its resolution (a negative control): the half image
 //               then draws at half size, so this capture must differ from `full` where it sits.
+//   pinned      (with --pinned-build) a build compiled with `IE_ART_TIER=full` opened with
+//               `?tier=half` in the same window: the pin beats both the query and the screen rule,
+//               so it must load the full pages and nothing `@half` — the build that left the half
+//               art out would otherwise ask for files it does not have.
 // `auto` must look like `full` (half art drawn at under half of 4K is the same picture). Exit 1 on any
 // failure. Real clock, like canvas-scale-probe.mjs.
 
@@ -45,6 +52,7 @@ const sharp = createRequire(join(ROOT, 'apps/launcher-api/package.json'))('sharp
 const { values: opt } = parseArgs({
 	options: {
 		build: { type: 'string', default: join(ROOT, 'apps/lines/build') },
+		'pinned-build': { type: 'string' },
 		out: { type: 'string' },
 		chrome: { type: 'string' },
 	},
@@ -105,21 +113,27 @@ const sheetPage = await sharp({
 })
 	.composite([
 		{ input: await blocks(1200, 800, ['#e94e77', '#f9d423', '#5cc8ff']), left: 0, top: 0 },
+		// Two clip frames with the SAME picture under two names, so the clip looks the same at
+		// whatever moment a real-clock capture lands on.
+		{ input: await blocks(600, 400, ['#ffffff', '#00b3a4']), left: 1300, top: 0 },
+		{ input: await blocks(600, 400, ['#ffffff', '#00b3a4']), left: 1300, top: 450 },
 	])
 	.png()
 	.toBuffer();
 write('sheet/page.webp', await sharp(sheetPage).webp({ quality: 95 }).toBuffer());
 write('sheet/page@half.webp', await half(sheetPage, SHEET_W, SHEET_H));
-const panel = { x: 0, y: 0, w: 1200, h: 800 };
+const frame = (r) => ({
+	frame: r,
+	rotated: false,
+	trimmed: false,
+	spriteSourceSize: { ...r, x: 0, y: 0 },
+	sourceSize: { w: r.w, h: r.h },
+});
 const sheet = {
 	frames: {
-		panel: {
-			frame: panel,
-			rotated: false,
-			trimmed: false,
-			spriteSourceSize: panel,
-			sourceSize: { w: panel.w, h: panel.h },
-		},
+		panel: frame({ x: 0, y: 0, w: 1200, h: 800 }),
+		flipA: frame({ x: 1300, y: 0, w: 600, h: 400 }),
+		flipB: frame({ x: 1300, y: 450, w: 600, h: 400 }),
 	},
 	meta: {
 		app: 'art-tier-probe',
@@ -166,14 +180,32 @@ basegame.nodes.push(
 		assetKey: IMAGE_KEY,
 		anchor: { x: 0.5, y: 0.5 },
 	},
+	// A flipbook clip over the same tiered sheet (Phase 5: clips, the form a video render ships
+	// in, ride the sheet tiers with no tier of their own).
+	{
+		id: 'probe-clip',
+		kind: 'flipbook',
+		clipId: 'probe-clip',
+		x: 1450,
+		y: 330,
+		anchor: { x: 0.5, y: 0.5 },
+	},
 );
+const clip = {
+	id: 'probe-clip',
+	name: 'probe clip',
+	assetKey: SHEET_KEY,
+	frames: ['flipA', 'flipB'],
+	fps: 4,
+	loop: true,
+};
 
 const editorArt = (imageTier) => ({
 	sheets: [
 		{
 			key: SHEET_KEY,
 			json: 'sheet/sheet.json',
-			names: ['panel'],
+			names: ['panel', 'flipA', 'flipB'],
 			tiers: { half: { json: 'sheet/sheet@half.json' } },
 		},
 	],
@@ -183,22 +215,34 @@ const editorArt = (imageTier) => ({
 
 // ---------- run ----------
 
-const build = resolve(opt.build);
-const host = serveStatic({ '/': build, '/probe-art/': ART });
-const origin = `http://127.0.0.1:${await listen(host)}`;
+const serveBuild = async (dir) => {
+	const server = serveStatic({ '/': resolve(dir), '/probe-art/': ART });
+	return { server, origin: `http://127.0.0.1:${await listen(server)}` };
+};
+const hosts = { main: await serveBuild(opt.build) };
+if (opt['pinned-build']) hosts.pinned = await serveBuild(opt['pinned-build']);
 const RUNS = {
 	auto: { tier: null, imageTier: { file: 'image@half.webp', resolution: 0.5 } },
 	full: { tier: 'full', imageTier: { file: 'image@half.webp', resolution: 0.5 } },
 	'no-res': { tier: null, imageTier: { file: 'image@half.webp' } },
+	...(hosts.pinned && {
+		pinned: {
+			tier: 'half',
+			imageTier: { file: 'image@half.webp', resolution: 0.5 },
+			build: 'pinned',
+		},
+	}),
 };
 const shots = {};
 const loaded = {};
 for (const [name, run] of Object.entries(RUNS)) {
+	const { server: host, origin } = hosts[run.build ?? 'main'];
 	const mock = await startBookMock('art-tier');
 	const runtime = serveJson({
 		assetBase: `${origin}/probe-art/`,
 		doc: doc4k,
 		editorArt: editorArt(run.imageTier),
+		flipbooks: [clip],
 	});
 	const params = new URLSearchParams({
 		sessionID: `art-tier-${name}`,
@@ -230,17 +274,17 @@ for (const [name, run] of Object.entries(RUNS)) {
 			.filter((u) => u.includes('/probe-art/'))
 			.map((u) => u.split('/probe-art/')[1]);
 	} finally {
-		if (browser.log.some((l) => /error|exception/i.test(l)))
+		if (browser.log.some((l) => /error|exception|netfail/i.test(l)))
 			console.log(
 				`${name} page log:`,
-				browser.log.filter((l) => /error|exception/i.test(l)).slice(0, 10),
+				browser.log.filter((l) => /error|exception|netfail/i.test(l)).slice(0, 10),
 			);
 		browser.close();
 		mock.stop();
 		runtime.close();
 	}
 }
-host.close();
+for (const { server } of Object.values(hosts)) server.close();
 
 let failed = false;
 const ok = (label, condition, detail = '') => {
@@ -261,6 +305,13 @@ ok(
 );
 ok('?tier=full loads the full pages', has('full', 'sheet/page.webp') && has('full', 'image.webp'));
 ok('?tier=full loads nothing @half', !loaded.full.some((u) => u.includes('@half')));
+if (loaded.pinned) {
+	ok(
+		'a build pinned to full loads the full pages, ?tier=half and the small window notwithstanding',
+		has('pinned', 'sheet/page.webp') && has('pinned', 'image.webp'),
+	);
+	ok('  and nothing @half', !loaded.pinned.some((u) => u.includes('@half')));
+}
 
 const same = diffPngs(shots.full, shots.auto, TOLERANCE);
 writeFileSync(join(OUT, 'auto-vs-full-diff.png'), same.map);

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Flipbook, Sprite } from 'pixi-svelte';
+	import { Flipbook, Sprite, setContextRestart } from 'pixi-svelte';
 	import { flipbookPlaybackFrameCount, foldFlipbookPlayback, resolveFlipbook } from 'engine-layout';
 
 	import { getContext } from '../game/context';
@@ -26,10 +26,18 @@
 		 * inline symbol inside a message), so they reuse the clip already bound to the state instead
 		 * of needing a second, sprite-bound copy of the same art kept in sync by hand. */
 		frozen?: boolean;
+		/** A flipbook a reel view keeps between plays (`Symbol.svelte`): put away while true — hidden,
+		 *  stopped, reporting nothing — and started again from its first frame at each new `restart`,
+		 *  as a new mount would. Absent ⇒ mounted per play. */
+		parked?: boolean;
+		restart?: number;
 	};
 
 	const props: Props = $props();
 	const context = getContext();
+	// svelte-ignore state_referenced_locally
+	if (props.parked !== undefined) setContextRestart(() => props.restart);
+	const shown = $derived(props.parked === undefined ? undefined : !props.parked);
 
 	const geometry = $derived(context.stateGameDerived.boardGeometry());
 	const registered = $derived(
@@ -129,8 +137,11 @@
 	);
 
 	$effect(() => {
-		// Re-run whenever the bound state/clip changes — each new state is a fresh beat to complete.
+		// Re-run whenever the bound state/clip changes — each new state is a fresh beat to complete —
+		// and at each play of a kept flipbook, which reports nothing while it is put away.
 		props.symbolInfo;
+		void props.restart;
+		if (props.parked) return;
 		const id = setTimeout(() => props.oncomplete?.(), cycleMs);
 		return () => clearTimeout(id);
 	});
@@ -140,7 +151,8 @@
 	<Flipbook
 		{clip}
 		loop={props.loop}
-		play={!props.frozen}
+		play={!props.frozen && !props.parked}
+		visible={shown}
 		x={props.x}
 		y={props.y}
 		anchor={0.5}
@@ -151,6 +163,7 @@
 	<Sprite
 		x={props.x}
 		y={props.y}
+		visible={shown}
 		anchor={0.5}
 		key={props.symbolInfo.assetKey}
 		width={geometry.cellWidthLocal}

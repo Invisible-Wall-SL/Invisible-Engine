@@ -8,8 +8,13 @@
  * fresh clone, or — far more often — a new git worktree. Four of the six launcher checks failed
  * that way and read as broken code rather than a missing generated file.
  *
- * Guarded rather than unconditional because `sync` costs ~3s against ~2s for the check itself, and
- * the file is missing exactly once per checkout.
+ * `pnpm install` now writes the file (the package's `prepare` runs `svelte-kit sync`, as SvelteKit's
+ * own template does), so a single `pnpm --filter launcher-api check:<x>` works in any installed
+ * checkout. `scripts/check-all.mjs` still runs this once before its parallel checks, for a checkout
+ * where it is missing anyway. If a lone check dies with the error above, run `pnpm install` (or
+ * `svelte-kit sync` in apps/launcher-api).
+ *
+ * Guarded rather than unconditional because `sync` costs ~3s, and the file is usually there.
  */
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';

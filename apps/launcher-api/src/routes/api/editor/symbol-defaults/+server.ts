@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDeployToken } from '$lib/server/deployToken';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
+import { readJson } from '$lib/server/http';
+import { clientKeyOf, projectParam } from '$lib/server/projectLookup';
 import { savePublishedSymbolDefaults } from '$lib/server/symbolDefaults';
 import type { RequestHandler } from './$types';
 
@@ -18,15 +18,10 @@ import type { RequestHandler } from './$types';
 export const PUT: RequestHandler = async ({ url, request }) => {
 	await requireDeployToken(url, 'Symbol-defaults publish is not configured.');
 
-	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const projectKey = projectParam(url);
+	const clientKey = await clientKeyOf(projectKey);
 
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Body must be JSON.');
-	}
+	const body = await readJson(request, 'Body must be JSON.');
 
 	try {
 		const saved = await savePublishedSymbolDefaults(clientKey, projectKey, body);

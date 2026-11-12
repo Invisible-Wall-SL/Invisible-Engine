@@ -20,6 +20,10 @@
 		/** The paying line's authored colour for THIS win (`#rrggbb`), used only when the highlight's
 		 *  `tintMode` is `winLine`. Absent ⇒ that mode falls through to no tint. */
 		winLineColor?: string;
+		/** A frame a reel view keeps between wins (`Symbol.svelte`): put away while true, started again
+		 *  at each new `restart` (`<RigProvider parked restart>`). Absent ⇒ mounted per win. */
+		parked?: boolean;
+		restart?: number;
 	};
 
 	const props: Props = $props();
@@ -40,6 +44,14 @@
 	});
 </script>
 
-<RigProvider x={props.x} y={props.y} key={frameKey} width={SYMBOL_SIZE * 0.19} tint={frameTint}>
+<RigProvider
+	x={props.x}
+	y={props.y}
+	key={frameKey}
+	width={SYMBOL_SIZE * 0.19}
+	tint={frameTint}
+	parked={props.parked}
+	restart={props.restart}
+>
 	<RigTrack trackIndex={0} animationName={frameAnimation} loop />
 </RigProvider>

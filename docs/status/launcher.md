@@ -81,6 +81,120 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-11 — **A project's partner launch is one field on its Game Maker card.** **Partner…**
+  stores the partner's game ID (plus the `PARTNER_RGS` profile, written explicitly even when it was
+  the only one, and an optional delivery alias) on the project row: `projects.partner_launch`
+  (migration `0039_partner_launch`, sparse — null changes nothing), set through
+  `POST /api/game-maker/partner` behind the Publish gate (`gamePublish` + project access). With it
+  set the card shows **▶ Partner** (`/api/partner-session?key=…`, disabled until published) and
+  **▶ Partner page** (`&on=partner`, disabled until a sealed delivery exists for the alias).
+  `/api/partner-session` now takes `key` alone: the query beats the stored setting, which beats the
+  env default (the only profile, and its `gameId`); a query naming another profile does not borrow
+  the stored id (`$lib/partnerLaunch.ts` `resolvePartnerLaunch`). Refusals are an HTML page naming
+  the cause and the fix (`$lib/server/partnerRefusal.ts` — banned player, unknown player, no game
+  id, unconfigured partner, partner unreachable incl. the LaLiga block), `json=1` keeps `{ error }`.
+  The partner's error text has our admin user and password blanked before it is shown
+  (`withoutCredentials`). Only the profile KEYS of `PARTNER_RGS` reach the page. Gate:
+  `check:partner-launch` (47). No prod data set: the owner enters `8` on Getting Hot's card.
+- 2026-11-11 — **The build breakdown stops flagging loaded files as "never loaded", and no build
+  ships `loader.gif`.** On overlay-buffaloduel v9, three of four "Shipped but never loaded" files were
+  loaded: `audio/sounds.mp3` (named by `sounds.json` from the site root, `./assets/audio/…`) and the
+  loading splash's `_boot/engine/R_InvisibleEngine.atlas` (named by `boot.json` from
+  `static/assets/`). `scripts/lib/build-breakdown.mjs` resolved a data file's paths only from beside
+  itself; it now tries the site root and `static/assets/` after that, as it already did for code. The
+  fourth, `loader.gif` (77 KB), is the upstream SDK's old loader that `new-game.mjs` seeded into every
+  repo: deleted from the six engine apps, and `pull-project-assets.mjs` removes a standalone game's
+  copy before it builds (`RETIRED_SEED_FILES`, build-only; `pull.json` `retiredSeedFiles`). Still
+  flagged, correctly: the splash's `.ktx2.atlas` (706 B), which the splash never reads. Guards:
+  `check-build-breakdown-desktop.mjs`, `check-pull-reachability.mjs` (a mutant each).
+- 2026-11-10 — **Desktop launcher v1.0.66: the art picker says which screen a build is for.**
+  The owner found "Art: Auto / Full / Half" unclear, so it now reads **Build for: 🖥 All screens /
+  🕹 Arcade 4K / 📱 Desktop & mobile** and sits on the card's top line (`invisible-launcher` #31).
+  The values are unchanged.
+- 2026-11-10 — **Desktop launcher v1.0.65: an Art picker on each project card** (Auto / Full /
+  Half, `invisible-launcher` #30). Full or Half sets `IE_ART_TIER` for ☁ Publish and 📦 Deliver,
+  so a one-screen build ships one art tier ([arcade-4k-builds](../design/arcade-4k-builds.md)
+  "One-screen builds"); Auto changes nothing. Guide: [tools/invisible-launcher](../tools/invisible-launcher.md).
+- 2026-11-10 — **A baked build ships the rigs only a cinematic casts** (was open item 9). The `art`
+  exporter now seeds `exportEditorArt` with `cinematicRigNames` on a route call too, not only in the
+  runtime pass: `exporters.ts`'s `authoredCinematics(clientKey, projectKey, pass)` returns the
+  pass's shared load, or loads the project's own when there is no pass, and both `art` and
+  `cinematics` read it. So `/api/editor/export/art` and the legacy `export-art` stub now list and
+  write those rig bundles, and every standalone/desktop bake adds them to `editorArt.spines` and
+  `deploy/editor-art/` — the first build of a project with such a cinematic grows by those bundles.
+  Guard: `check:exporter-registry` §6 (68 checks, was 61): a rig placed in no scene but cast by a
+  cinematic is listed and written by the route and the stub, listed by the pass, and registered by
+  the bake; with the old unseeded entry 4 of them fail.
+- 2026-11-10 — **The asset pull leaves the other art tier out of a pinned build**
+  (`pull-project-assets.mjs --art-tier` / `IE_ART_TIER`, `scripts/lib/artTierPin.mjs`;
+  [arcade-4k-builds](../design/arcade-4k-builds.md) "One-screen builds"). Pinned `half`, a full file
+  with a half copy is never downloaded; pinned `full`, no `@half` file ships and a stale one is
+  deleted. A dropped file a kept sheet or atlas names is fetched anyway; export `index.json` files
+  do not count (they list every tier and are never loaded). `pull.json` gains
+  `artTier.notPulled` with sizes. Guard: `check-art-tier-pin.mjs` (28 checks, two mutants caught).
+- 2026-11-09 — **One exporter registry: an asset class is one entry, not three edits.** Rule 8 (every
+  R2 asset class travels export → `deploy/` → bake → pull → register) was three hand-kept lists —
+  `runtimeBundle.ts`'s step list, ten near-identical `api/editor/export-*` routes and ten copies of
+  the fetch/retry/bail block in `bake-editor-doc.mjs`. Now: `$lib/server/exporters.ts` (`EXPORTERS`,
+  `{ id, label, run, emptyResult }` + route messages, `body`, `gate`, `claimsPages`) is the list;
+  `runtimeBundle.ts` runs every entry in one pass (`startExports`/`settleExports`, sharing the page
+  store and cinematics as promises, `_pages/` pruned once the page claimers finish); ONE route
+  `api/editor/export/[asset]` (`exportRoute.ts#handleExport`) serves them, the ten legacy
+  `export-<id>` URLs are two-line stubs over it (game repos' older engine submodules still POST them;
+  the desktop launcher only runs `bake:doc`); the bake loops `scripts/lib/bakeExports.mjs`
+  (`{ asset, label, policy: required | optional | additive }`) through one `runExport`. Every
+  exporter's write-then-prune is `DeployMirror` (`deployMirror.ts`: `put`/`putAll`/`copy`/`claim`/
+  `commit`); `effectExport`, `sharedRigPromote` now write with bounded concurrency like the rest.
+  The bake now calls `/api/editor/export/<id>`, so its "Could not reach" messages name that path.
+  Diagnostics only: `Server-Timing`'s `effects` / `flipbooks` now span their rig-binding half too,
+  and `art`/`symbols`/`cinematics` include the wait for the cinematics load and tiers they need;
+  `fonts`, `sounds`, `flowV2`, `bootSplash` no longer wait for those. **Parity:** an A/B over a seeded
+  in-memory R2 (old tree vs new) gave the same runtime bundle, final R2 state, R2 operations
+  (content types included), legacy route status/body and promote result; the bake against a fake
+  portal gave the same bundle bytes, exit code and log in 15 scenarios (rich, empty, dry run, flow
+  409 ± override, 400/401/404 per policy, unparseable answers, a missing clip frame). Guards:
+  `check:exporter-registry` (61: bake list = registry; `buildRuntimeBundle` runs each once; an
+  un-authored project returns `emptyResult` from the pass and from `/api/editor/export/<id>`; every
+  legacy stub answers the same; the bake POSTs each id and an empty answer adds no bundle section),
+  `check:deploy-mirror` (18), `check:deploy-token-gate` (+ the registry route); both new checks
+  mutant-tested (10 mutants). Source-grep guards that read the old `export-symbols` route
+  (`check:flights`, `coin-label`, `tumble-pattern`, `respin-land`, `clear-reel`) now ask the real
+  registry body (`scripts/lib/symbolsRouteBody.ts`); `check:page-store` and `check:shader-pipeline`
+  read the registry; `check:build-provenance` fakes the new flow path; `check:game-server-config`
+  finds routes that call `handleExport` and covers the new route. (`check:launcher-gates`' per-handler
+  `?project=` scan no longer sees the stubs, which read no query; the gate now lives in
+  `handleExport`, pinned behaviourally by `check:deploy-token-gate`.) How to add a class:
+  [live-assets](../design/live-assets.md) §"Adding an asset class". Found, not changed: open item 9 (fixed 2026-11-10).
+- 2026-11-09 — **One shared tool gate, body reader, conflict answer and project lookup for the API
+  routes.** A review found helpers that existed but were re-typed per route. New
+  `$lib/server/http.ts`: `requireTool(locals, tools, label)` (401 / 403 `Your role does not have
+  access to <label>.`, any-of for a list), `requireToolGrants` + `userGrants` (tool and capability
+  grants read once), `readJson` / `jsonBody` (moved from `director/api.ts`) / `jsonObjectOrNull` /
+  `objectOrNull` / `parseBody(request, zodSchema)`. New `$lib/server/conflict.ts` (apart, so the
+  gate does not load the R2 client): `conflictResponse(e, message)` / `conflictJson` /
+  `conflictFailure` (the form-action `fail(409)`). New
+  `$lib/server/projectLookup.ts`: `clientKeyOf(projectKey)` and `projectParam(url)`. New
+  `requireAdminPanel(locals, 'page' | 'api', message?)` in `$lib/server/admin.ts`. Adopted: the
+  eight per-tool gates (sound, symbols, editor, gameConfig, comfy, pipeline, rig, storybook) are
+  one-line aliases; the six inline editor gates, game-maker add-on/duplicate/import, win-text and
+  the lease use the shared gate; 29 routes read their body through `jsonObjectOrNull`, 17 through
+  `readJson` with their own 400 message, the six Director routes through the shared `jsonBody`;
+  every `ConflictError` → 409 (21 routes, doc-backup restore, Director refusals, the Rigger irig
+  and library writes, the editor and localization save actions) through the conflict helpers;
+  `clientKeyOf` at 28 sites and `projectParam` at 6; the three `adminPanel` copies (the `/admin`
+  page, `api/admin/rigs`, `api/admin/project-footprint`) and `comfyAdmin` through
+  `requireAdminPanel`. `launcherAuth.userHasTool` is gone (`userGrants`). Status codes and bodies
+  are unchanged except: (1) `/comfyui/{nodes,start,stop,pod-image}` parse with `parseBody`, so a
+  body that is not JSON is a 400 `Expected a JSON body.` (it was read as `{}` and refused for its
+  first field) and a non-object one a 400 `Expected a JSON object.`; field refusals keep their
+  messages; (2) a JSON body that is not an object (`null`, an array, a number) now reads as no body
+  on the `jsonObjectOrNull` routes, and on `api/lease` and `api/sounds/file` a `null` body is a
+  400 instead of a 500. Not moved, on purpose: the `api/editor/export-*` routes, `runtimeBundle.ts`
+  and `api/editor/runtime` (another change is reworking them), the desktop/game-maker JSON-envelope
+  bodies (`{ error }` with `no-store`, a different 400 shape than `error()`), and the typed-cast
+  bodies (fonts, files, rigs upload) whose migration means writing a schema. Guard:
+  `check:http-helpers` (35, every helper; mutant-tested); `check:launcher-gates` now also reads
+  `projectParam(` as a project read and pins the lease on `userGrants` + `clientKeyOf`.
 - 2026-11-09 — **Login throttle counts a parallel burst; owner-only admin secrets; admin audit
   log.** Three findings from a code review. (1) `loginThrottle.ts` read a scope's count, added one
   in JS and wrote it back, so N parallel bad logins counted as about one; `countFailure` is now one

@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { readBakeTarget } from '$lib/server/fxBake';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { fxBakeKeys } from '$lib/server/projectPaths';
 import { presignPut } from '$lib/server/r2';
 import { assertAllowed, gate } from '$lib/server/toolScope';
@@ -21,7 +22,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		tool: 'fx',
 		forbiddenMessage: 'Your role does not have access to Invisible FX.',
 	});
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	const target = readBakeTarget(body, projectKey);
 	if (target instanceof Response) return target;
 

@@ -33,6 +33,7 @@ import {
 	type SymbolsDoc,
 } from '../src/routes/(app)/symbols/symbols.client.ts';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
+import { symbolsRouteCarries } from './lib/symbolsRouteBody.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = lfReaderFrom(ROOT);
@@ -297,11 +298,10 @@ rejects('a non-object block', { flights: 'toTotal' });
 		exporter.includes('...(flights ? { flights } : {})'),
 		true,
 	);
-	const endpoint = read('apps/launcher-api/src/routes/api/editor/export-symbols/+server.ts');
 	check(
 		'the export endpoint forwards it (destructure + response) — the bake reads it there',
-		(endpoint.match(/\n\t\t\tflights,/g) ?? []).length,
-		2,
+		symbolsRouteCarries('flights'),
+		true,
 	);
 	const bake = read('apps/launcher-api/scripts/bake-editor-doc.mjs');
 	check(

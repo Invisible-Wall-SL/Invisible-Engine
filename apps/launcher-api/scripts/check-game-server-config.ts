@@ -267,7 +267,7 @@ const allSources = walk(fileURLToPath(new URL('../src', import.meta.url)));
 const deployRoutes = walk(routesDir)
 	.filter((p) => p.endsWith('+server.ts'))
 	.filter((p) =>
-		/getDeployToken|requireDeployToken\(|projectReadClient\(|projectAllowsRead\(/.test(
+		/getDeployToken|requireDeployToken\(|handleExport\(|projectReadClient\(|projectAllowsRead\(/.test(
 			readFileSync(p, 'utf8'),
 		),
 	)
@@ -278,6 +278,7 @@ const mustCover = [
 	'api/published/f/[token]/[project]/[snapshot]/[...rel]/+server.ts',
 	'api/game-config/mock/+server.ts',
 	'api/game-config/doc/+server.ts',
+	'api/editor/export/[asset]/+server.ts',
 	...[
 		'art',
 		'boot',
@@ -313,6 +314,7 @@ async function call(
 		project: 'arcadeparty',
 		snapshot: '20261027T101530Z-3fa9',
 		rel: 'a.json',
+		asset: 'art',
 	};
 	const event = {
 		request,

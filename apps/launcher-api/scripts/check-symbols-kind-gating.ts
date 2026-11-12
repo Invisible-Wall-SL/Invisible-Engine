@@ -429,6 +429,7 @@ const ROLE_BEATS: [SymbolStateName, string[]][] = [
 	['coinUpgrade', ['upgrade']],
 	['rowUnlock', ['unlock']],
 	['mysteryReveal', ['mystery']],
+	['coinEnhance', ['coin']],
 ];
 const NEVER_ON_A_COIN: SymbolStateName[] = ['win', 'postWinStatic', 'bookIntro', 'bookIdle'];
 const TOKEN_STATES: SymbolStateName[] = ['static', 'coinIdle', 'coinLand', 'flyToMeter'];
@@ -538,6 +539,7 @@ check('classic · the coin: the reels, then the respin board', classic.rowOf('BO
 	'coinLand',
 	'coinStick',
 	'coinCollect',
+	'coinEnhance',
 	'jackpotReveal',
 ]);
 check('classic · the blank only rolls and stops', classic.rowOf('BLANK'), [
@@ -643,7 +645,8 @@ check(
 	[
 		'symbolStatesPlayed(visibleStates, facts, {',
 		'clearsBoard: Boolean(data.cascade || data.reelBehaviour.clears),',
-		'{#if !playedStates[symbol]?.includes(state)}',
+		'const rowStates = (row: string): readonly SymbolState[] => playedStates[rowSymbol(row)] ?? [];',
+		'{#if !rowStates(symbol).includes(state)}',
 		'{#each holdAndWinRows as symbol (symbol)}',
 		'if (!data.plays?.[symbol]) continue;',
 		'const found = unplayedStates(',

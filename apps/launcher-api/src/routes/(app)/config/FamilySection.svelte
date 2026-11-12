@@ -32,6 +32,7 @@
 		setCardFirst,
 		setCardResource,
 		setCardRule,
+		setCardTurnOrder,
 		setFamily,
 		setField,
 		setFixedHz,
@@ -553,8 +554,9 @@
 		<h2>Card game</h2>
 		<p class="hint">
 			One player duels an AI on the device. Each side has a fixed <strong>deck</strong>, a hand, a
-			board of units, a hero with <strong>health</strong> and a <strong>resource</strong> that grows each
-			turn and pays for cards. The second player draws one card more than the opening hand.
+			board of units, a hero with <strong>health</strong> and a <strong>resource</strong> that grows
+			each turn and pays for cards. The second player draws one card more than the opening hand. A
+			turn plays cards first and attacks after, unless <strong>Turn order</strong> lets them mix.
 		</p>
 		<fieldset class="panel" disabled={readOnly}>
 			<div class="row">
@@ -588,6 +590,16 @@
 						<option value="random">Random</option>
 						<option value="player">The player</option>
 						<option value="ai">The AI</option>
+					</select></label
+				>
+				<label
+					>Turn order<select
+						value={cardGame.rules.turnOrder}
+						onchange={(e) =>
+							setCardTurnOrder(doc, e.currentTarget.value === 'mixed' ? 'mixed' : 'strict')}
+					>
+						<option value="strict">Play, then attack</option>
+						<option value="mixed">Play and attack in any order</option>
 					</select></label
 				>
 			</div>

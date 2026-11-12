@@ -1,0 +1,35 @@
+# pnpm, Node 22 with the pnpm store cached, and the workspace installed from the lockfile — the
+# set-up every pnpm job repeated by hand. It runs after `actions/checkout` (a local action is read
+# from the checkout) and after `.github/actions/code-changed` where a job has one: gate the call
+# with the same `if:` the copied steps carried.
+#
+# pnpm's version is the root package.json `packageManager`, as before. A job that needs only part of
+# the workspace passes `install-args` (`--filter launcher-api`).
+#
+# NOT used by agent-eval.yml, bug-fix.yml and bug-fix-proof.yml: they pin every action by commit SHA
+# and run a step between Node and the install (a pristine copy, the brief), and
+# `scripts/bug-fix/workflow.fixture.mjs` asserts their steps as written.
+
+name: setup
+description: pnpm, Node 22 with the pnpm store cached, and `pnpm install --frozen-lockfile`.
+
+inputs:
+  install-args:
+    description: Extra arguments for `pnpm install --frozen-lockfile`, e.g. `--filter launcher-api`.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - shell: bash
+      env:
+        INSTALL_ARGS: ${{ inputs.install-args }}
+      # Unquoted on purpose: the input is a list of arguments.
+      run: pnpm install --frozen-lockfile $INSTALL_ARGS

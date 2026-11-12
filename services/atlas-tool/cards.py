@@ -143,7 +143,7 @@ def is_agent(identity) -> bool:
 def _review_holder(identity) -> bool:
     """A person holding `pipelineMerge` on a signed BROWSER launch. Never an
     agent, never an api-token call (a server acting for someone, whatever caps
-    it carries), never a legacy `?k=` session (it names itself in the URL)."""
+    it carries), never a caller without a token (it names itself in the URL)."""
     if identity is None or is_agent(identity):
         return False
     return bool(getattr(identity, "is_browser", False)) and identity.can(REVIEW_CAP)
@@ -554,7 +554,7 @@ def _put(key: str, body: bytes, *, if_match: str | None = None,
                                if_none_match=if_none_match)
         except storage.Conflict:
             raise
-        except Exception as e:  # noqa: BLE001 — classified below
+        except Exception as e:  # classified below
             if _is_transient(e) and attempt < _TRANSIENT_ATTEMPTS - 1:
                 time.sleep(0.1 * (attempt + 1))
                 continue

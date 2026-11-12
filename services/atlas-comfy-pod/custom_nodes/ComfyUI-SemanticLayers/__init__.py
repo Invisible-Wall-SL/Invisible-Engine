@@ -23,7 +23,7 @@ try:
         SemanticRoleSelect,
         SemanticSubjectResolver,
     )
-except Exception:  # noqa: BLE001 - a broken import must not take ComfyUI down with it
+except Exception:  # a broken import must not take ComfyUI down with it
     logger.exception("ComfyUI-SemanticLayers failed to load; its nodes will be unavailable")
     NODE_CLASS_MAPPINGS = {}
     NODE_DISPLAY_NAME_MAPPINGS = {}

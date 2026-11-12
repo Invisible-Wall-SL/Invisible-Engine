@@ -34,6 +34,7 @@ const bundled = await esbuild.build({
 			specialDisplayName,
 			collectorLevelCaption,
 			potCaption,
+			enhancementDisplayName,
 			collectWinTextTemplates,
 			registerTextResolver,
 			clearTextResolver,
@@ -197,6 +198,36 @@ assert(
 assert(
 	mod.resolveWinText({ feature: { rows: '{rows} FILAS' } }).feature.rows === '{rows} FILAS',
 	'the rows line is authored per field',
+);
+
+// --- the Phase 14b lines: a collector bonus's enhancements --------------------------------
+console.info('collector bonus enhancements');
+const r14b = mod.resolveWinText(undefined);
+assert(
+	mod.formatWinText(r14b.feature.enhancementsActive, { enhancements: 'BOOST · MULTIPLY' }) ===
+		'BOOST · MULTIPLY ACTIVE' &&
+		mod.formatWinText(r14b.feature.superBonus) === 'SUPER BONUS' &&
+		mod.formatWinText(r14b.feature.boostHit, { amount: '$5.00' }) === '+$5.00' &&
+		mod.formatWinText(r14b.feature.multiplyHit, { count: 3 }) === '×3',
+	'"BOOST · MULTIPLY ACTIVE", "SUPER BONUS" and the dial hits "+$5.00" / "×3"',
+);
+assert(
+	['extraRow', 'boost', 'multiply', 'extraRespins', 'superBonus']
+		.map((kind) => mod.enhancementDisplayName(r14b, kind))
+		.join(',') === 'EXPAND,BOOST,MULTIPLY,RESPIN,SUPER BONUS',
+	'each enhancement speaks its name; an unnamed one its id in capitals',
+);
+assert(
+	mod.enhancementDisplayName(
+		mod.resolveWinText({ feature: { enhancementNames: { boost: 'TURBO' } } }),
+		'boost',
+	) === 'TURBO' && mod.enhancementDisplayName(r14b, 'other') === 'OTHER',
+	'an enhancement name is authored per kind',
+);
+assert(
+	r14b.featurePlacement.enhancementsActive === 'banner' &&
+		r14b.featurePlacement.superBonus === 'banner',
+	'both entry lines default to the board banner',
 );
 
 // --- the Phase 11a lines: add-respins, upgrade -------------------------------------

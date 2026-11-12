@@ -95,7 +95,7 @@ project's library.
   internal records about who we owe — a shipped bundle is the one place they do not belong. Mirrors
   `fontExport` stripping a font's `recipe`.
 - **Both bundle assemblies** carry it: `bake-editor-doc.mjs` (offline freeze) and `runtimeBundle.ts`
-  (live Game Maker path, via `ensureDeployExports` — which `publishGame` also calls, so a publish
+  (live Game Maker path, via the `exporters.ts` pass — which `publishGame` also calls, so a publish
   gets sounds with no further change).
 - **`pull-project-assets.mjs`** mirrors `sounds/` and prunes it (`sounds` is in
   `GENERATED_SUBTREES`, since 2026-09-28 / #839), so a removed or renamed sound does not linger in

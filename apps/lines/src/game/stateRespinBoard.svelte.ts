@@ -38,9 +38,12 @@ import { stateHoldAndWin } from './stateHoldAndWin.svelte';
  * never swapped out (`coinBoard.svelte.ts`).
  */
 /** A count-up in flight on a held cell's label: which field it stands in for, and its tween — or a
- *  jackpot tier held at its old name until an upgrade's beam lands. */
+ *  jackpot tier held at its old name until an upgrade's beam lands, or a readout printed in place
+ *  of the value (an enhancement hit's "×3" before the coin counts). */
 export type HeldDisplay =
-	{ field: 'value' | 'factor'; tween: Tween<number> } | { field: 'jackpot'; jackpot: string };
+	| { field: 'value' | 'factor'; tween: Tween<number> }
+	| { field: 'jackpot'; jackpot: string }
+	| { field: 'text'; text: string };
 
 export const stateRespinBoard = $state({
 	/** Is the respin board up in place of the reel board? */
@@ -51,6 +54,12 @@ export const stateRespinBoard = $state({
 	 * the picture while the board is still on screen showing what it paid.
 	 */
 	held: [] as HoldAndWinCell[],
+	/**
+	 * Cells drawn in the held layer that the feature's picture does not hold: a collector bonus's
+	 * trigger-spin coins, kept on their seats over the bonus board until the entry collect gathers
+	 * them and they clear (Phase 14b, {@link carryCells}). Empty for every other feature.
+	 */
+	carried: [] as HoldAndWinCell[],
 	/**
 	 * A held cell's presentation state, by `respinCellKey` — a beat's state while it plays
 	 * (`coinStick` as it sticks, `coinBoost` as a special applies, `coinCollect` as a coin is
@@ -90,6 +99,12 @@ export const stateRespinBoard = $state({
 	/** The rows an unlock beat is opening (exclusive): the locked cells above it fade with
 	 *  {@link respinUnlockFade}. 0 ⇒ none. */
 	unlockingTo: 0,
+	/**
+	 * The most rows the open feature can ever have: rows past it are not drawn at all, not even
+	 * locked. A collector bonus's (Phase 14b) — 3 rows, 4 under Expand, 5 under Force 5 on a board
+	 * built for 5. 0 ⇒ every row of the board is drawn, open or locked, as for every other feature.
+	 */
+	drawnRows: 0,
 	/**
 	 * Cells that played their `land` as their own reel stopped on this respin, by `respinCellKey`
 	 * (Invisible Symbols → "Play Land as each cell stops"), so the stick that follows does not play it
@@ -241,9 +256,13 @@ export const completeCellLanding = (key: string) => {
 	resolve?.();
 };
 
-/** The rows the feature opens with — the recorded picture's on an expanding board, else every row. */
+/**
+ * The rows the feature opens with — the recorded picture's on an expanding board, else the grid's
+ * (`HoldAndWinSnapshot.rows`: absent ⇒ the board never grows). A feature with no `rows` on a board
+ * built taller for another mode — the partner's collector bonus without Expand — keeps the grid's.
+ */
 const enteringRows = (respinBoard: RespinBoard): number =>
-	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? respinBoard.rows);
+	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? boardDimensions().y);
 
 /**
  * The reels, built on first use and rebuilt for another respin mode or a board whose size changed —
@@ -278,7 +297,11 @@ const ensureBoard = (): RespinBoard => {
  * the blank — its reel still shows whatever it last landed on, and that is what would reappear.
  */
 export const syncHeldCells = () => {
-	const next = $state.snapshot(stateHoldAndWin.cells);
+	const picture = $state.snapshot(stateHoldAndWin.cells);
+	const carried = $state
+		.snapshot(stateRespinBoard.carried)
+		.filter((cell) => !picture.some((held) => held.reel === cell.reel && held.row === cell.row));
+	const next = carried.length ? [...picture, ...carried] : picture;
 	for (const { reel, row } of releasedCells(stateRespinBoard.held, next)) {
 		board?.settleCell(reel, row, { name: respinBlank() });
 		delete stateRespinBoard.heldState[respinCellKey(reel, row)];
@@ -300,6 +323,8 @@ export const showRespinBoard = () => {
 	const respinBoard = ensureBoard();
 	stateRespinBoard.rows = enteringRows(respinBoard);
 	stateRespinBoard.held = $state.snapshot(stateHoldAndWin.cells);
+	stateRespinBoard.carried = [];
+	stateRespinBoard.drawnRows = 0;
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.dimmed = [];
@@ -349,8 +374,10 @@ export const hideRespinBoard = () => {
 	} else {
 		stateRespinBoard.shown = false;
 		stateRespinBoard.rows = 0;
+		stateRespinBoard.drawnRows = 0;
 	}
 	stateRespinBoard.held = [];
+	stateRespinBoard.carried = [];
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.dimmed = [];
@@ -359,6 +386,28 @@ export const hideRespinBoard = () => {
 	stateRespinBoard.counter.show = false;
 	stateRespinBoard.counter.note = null;
 	eventEmitter.broadcast({ type: 'respinBoardHide' });
+};
+
+/**
+ * Draw `cells` in the held layer though the feature does not hold them — a collector bonus's
+ * trigger-spin coins, which its entry collect gathers before they clear. They stay through every
+ * sync until {@link dropCarried} lets them go.
+ */
+export const carryCells = (cells: readonly HoldAndWinCell[]) => {
+	if (cells.length === 0) return;
+	stateRespinBoard.carried = [
+		...stateRespinBoard.carried,
+		...cells.map(({ reel, row, symbol }) => ({ reel, row, symbol })),
+	];
+	syncHeldCells();
+};
+
+/** Stop carrying the cells at these positions; the next sync takes them off the board. */
+export const dropCarried = (cells: readonly Position[]) => {
+	if (stateRespinBoard.carried.length === 0) return;
+	stateRespinBoard.carried = stateRespinBoard.carried.filter(
+		(cell) => !cells.some((gone) => gone.reel === cell.reel && gone.row === cell.row),
+	);
 };
 
 /** Spin every free cell onto what `cells` names for it; resolves when the last one has landed. A
@@ -453,6 +502,23 @@ export const holdHeldDisplay = (key: string, field: 'value' | 'factor', from: nu
 	const tween = new Tween(from);
 	stateRespinBoard.heldDisplay[key] = { field, tween };
 	return tween;
+};
+
+/**
+ * Print `text` on a held cell's label in place of a count-up held by {@link holdHeldDisplay}, then
+ * hand the label back to that count: the returned undo restores it — a no-op if a later beat already
+ * owns the label.
+ */
+export const showHeldText = (key: string, text: string) => {
+	const display = stateRespinBoard.heldDisplay[key];
+	stateRespinBoard.heldDisplay[key] = { field: 'text', text };
+	// Read back: the store keeps its own proxy of the object, and the undo compares against that.
+	const readout = stateRespinBoard.heldDisplay[key];
+	return () => {
+		if (stateRespinBoard.heldDisplay[key] !== readout) return;
+		if (display) stateRespinBoard.heldDisplay[key] = display;
+		else delete stateRespinBoard.heldDisplay[key];
+	};
 };
 
 /** End a count-up: the label reads the cell's recorded value again. A no-op if a later count (or a

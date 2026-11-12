@@ -7,6 +7,7 @@
 	import { symbolDrawsNothing } from '../game/symbolDraws';
 	import { cellWindow, getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
 	import { completeCellLanding, respinCellLook } from '../game/stateRespinBoard.svelte';
+	import { createShownViews } from '../game/reelViewPool';
 
 	type Props = {
 		cell: RespinBoardCell;
@@ -49,12 +50,12 @@
 			: reelSymbol.symbolY();
 
 	/**
-	 * Only the symbols near the window exist — a rolling strip runs twenty cells long, and giving
+	 * Only the symbols near the window are drawn — a rolling strip runs twenty cells long, and giving
 	 * every one of them its own block on every cell of the board, the frame a respin starts, cost a
-	 * 50–80 ms hitch. Recomputed each frame the strip moves; a symbol mounts as it nears the window.
-	 * At rest only the window's symbol (strip index 1) exists, which the opened mask relies on.
-	 * A symbol that draws nothing in its state (`symbolDrawsNothing`: the blanks most of a strip is
-	 * made of) is not mounted at all, rolling or at rest.
+	 * 50–80 ms hitch. Recomputed each frame the strip moves; a symbol is drawn as it nears the window.
+	 * At rest only the window's symbol (strip index 1) is, which the opened mask relies on. A symbol
+	 * that draws nothing in its state (`symbolDrawsNothing`: the blanks most of a strip is made of) is
+	 * not drawn at all, rolling or at rest.
 	 */
 	const near = (y: number) => Math.abs(y - (cellBox.top + cellBox.height / 2)) < cellBox.height;
 	const shown = $derived(
@@ -76,6 +77,17 @@
 	const shownState = (symbol: { symbolState: SymbolState; rawSymbol: { name: string } }) =>
 		symbol.symbolState === 'land' ? respinCellStopState(symbol.rawSymbol.name) : symbol.symbolState;
 	const key = $derived(respinCellKey(props.cell.reel, props.cell.row));
+
+	/**
+	 * The shown symbols through views (`createShownViews`): a symbol keeps one view for as long as it
+	 * is shown, and the views the last ones left draw the next, so a respin mounts no `Symbol` per
+	 * symbol that rolls past; a cell has as many views as its window ever showed symbols at once (two).
+	 * A view starts each symbol's art as a new mount would (an entry), keeps its sprite, and is hidden
+	 * and left where it was while vacant. Its entry is its paint order, as a symbol mounted later was
+	 * appended over the others.
+	 */
+	const shownViews = createShownViews<(typeof shown)[number]>();
+	const views = $derived(shownViews(shown));
 </script>
 
 <Container visible={!props.held}>
@@ -86,12 +98,21 @@
 		width={columnPitch * spread}
 		height={cellBox.height * spread}
 	/>
-	{#each shown as reelSymbol (reelSymbol)}
-		<Container x={seat.x} y={yOf(reelSymbol)} {scale}>
+	{#each views as view (view.id)}
+		<Container
+			x={seat.x}
+			y={view.entry === undefined ? undefined : yOf(view.cell)}
+			{scale}
+			zIndex={view.entry}
+			visible={view.entry !== undefined}
+		>
 			<Symbol
-				state={shownState(reelSymbol)}
-				rawSymbol={reelSymbol.rawSymbol}
+				state={shownState(view.cell)}
+				rawSymbol={view.cell.rawSymbol}
+				instanceKey={view.entry}
+				vacant={view.entry === undefined}
 				oncomplete={() => {
+					const reelSymbol = view.cell;
 					if (reelSymbol.symbolState !== 'land') return;
 					reelSymbol.symbolState = 'static';
 					completeCellLanding(key);

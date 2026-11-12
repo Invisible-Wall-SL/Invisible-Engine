@@ -93,6 +93,16 @@ export function partnerRgsRegistry(raw: string): Record<string, PartnerRgsConfig
 	return out;
 }
 
+/** The profile ids `PARTNER_RGS` holds — the only part of it a page may see. A malformed value
+ *  reads as none (the launch itself names the error). */
+export function partnerProfileIds(raw: string): string[] {
+	try {
+		return Object.keys(partnerRgsRegistry(raw));
+	} catch {
+		return [];
+	}
+}
+
 export function partnerRgsConfig(raw: string, profileId: string): PartnerRgsConfig {
 	const config = partnerRgsRegistry(raw)[profileId];
 	if (!config) {
@@ -140,6 +150,27 @@ function partnerErrorText(body: CreateSessionResponse): string {
 	const inner = body.response;
 	if (typeof inner === 'string' && inner) return inner;
 	return '';
+}
+
+/** The partner's error text with our admin user and password blanked, should it ever echo them
+ *  (raw, or URL-encoded as they travel in the mint request): that text reaches the refusal page.
+ *  A value under 4 characters is deliberately left alone — blanking it would mangle ordinary words,
+ *  and no real credential is that short. */
+export function withoutCredentials(
+	text: string,
+	config: Pick<PartnerRgsConfig, 'user' | 'pass'>,
+): string {
+	let out = text;
+	for (const secret of [config.pass, config.user]) {
+		if (secret.length < 4) continue;
+		const forms = new Set([
+			secret,
+			encodeURIComponent(secret),
+			new URLSearchParams({ s: secret }).toString().slice(2),
+		]);
+		for (const form of forms) out = out.split(form).join('…');
+	}
+	return out;
 }
 
 interface CreateSessionResponse {
@@ -217,7 +248,7 @@ export async function mintPartnerSession(options: {
 		clearTimeout(timer);
 	}
 
-	const partnerError = partnerErrorText(body);
+	const partnerError = withoutCredentials(partnerErrorText(body), config);
 	if (partnerError) {
 		throw new PartnerRgsError(`Partner RGS refused the session: ${partnerError}`, 502);
 	}

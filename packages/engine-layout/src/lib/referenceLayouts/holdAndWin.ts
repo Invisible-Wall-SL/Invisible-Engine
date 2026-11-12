@@ -12,6 +12,7 @@ import type {
 	Scene,
 } from '../types';
 import { linesSelectorAnchor } from '../coinBoardLines';
+import { anteSwitchNode } from './hud';
 import { HOLD_AND_WIN_BANNER_SHOW_SOURCES } from '../holdAndWinBanners';
 import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton';
 
@@ -140,6 +141,10 @@ export type HoldAndWinTemplateOptions = {
 	/** The base game is the coin board (`docs/design/hold-and-win-coin-board.md`): see
 	 *  {@link holdAndWinReferenceLayout}. */
 	coinBoard?: true;
+	/** A collector bonus with enhancements (Phase 14b, the partner's Fortune Vault Force 5): the
+	 *  Enhancements screen — four Enhancement Dials above the board and the collectors' running total
+	 *  — the "ACTIVE" / "SUPER BONUS" banner screens, and the HUD's ante switch. Absent ⇒ none of them. */
+	enhancements?: true;
 };
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
@@ -258,6 +263,20 @@ const FEATURE_BANNERS: BannerScreen[] = [
 	{ id: 'featureTotalBanner', name: 'Feature total banner', title: 'BONUS WIN $20.00' },
 ];
 
+/** A collector bonus's banner screens (Phase 14b), with the `enhancements` option only. */
+const ENHANCEMENT_BANNERS: BannerScreen[] = [
+	{ id: 'enhancementsBanner', name: 'Enhancements banner', title: 'BOOST · MULTIPLY ACTIVE' },
+	{ id: 'superBonusBanner', name: 'Super bonus banner', title: 'SUPER BONUS', large: true },
+];
+
+/** The four dials, Expand to Respin, as the Enhancements screen places them. */
+const DIALS = [
+	{ kind: 'extraRow', label: 'Expand' },
+	{ kind: 'boost', label: 'Boost' },
+	{ kind: 'multiply', label: 'Multiply' },
+	{ kind: 'extraRespins', label: 'Respin' },
+] as const;
+
 /** The coded banner's title gold (`apps/lines` `HoldAndWinBanner.svelte`). */
 const BANNER_FILL = 0xffd24a;
 
@@ -304,6 +323,7 @@ export function holdAndWinReferenceLayout(
 		potIds: rawPotIds = POT_METERS,
 		jackpotBar,
 		coinBoard,
+		enhancements,
 	}: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
 	// A doc that repeats a meter id fails validation but still loads; one pot per id keeps node ids
@@ -332,6 +352,8 @@ export function holdAndWinReferenceLayout(
 			? { ...spot, dy: spot.dy + Math.sign(spot.dy) * blockGrowth }
 			: spot;
 	const placeAround = placeIn(skeleton.mainSizesMap);
+	/** How far above the board's centre its top edge sits — every row it can open included. */
+	const dialsAbove = ((baseBoard.rows + extraRows) * cellSize) / 2;
 	const place = (wide: Spot, tall: Spot = wide) => placeAround(clear(wide), clear(tall));
 	// The intro/outro are `canvas` screens (their tap dim covers the window), so their text is
 	// pinned to the window centre rather than placed in the main box.
@@ -394,7 +416,9 @@ export function holdAndWinReferenceLayout(
 	const baseBanners = BASE_BANNERS.filter(
 		({ id }) => !POT_BANNER_SCREENS.includes(id) || potIds.length,
 	).map(bannerScene);
-	const featureBanners = FEATURE_BANNERS.map((banner) => modeScene(bannerScene(banner)));
+	const featureBanners = [...FEATURE_BANNERS, ...(enhancements ? ENHANCEMENT_BANNERS : [])].map(
+		(banner) => modeScene(bannerScene(banner)),
+	);
 
 	const messageHost = instance(
 		'message-host',
@@ -496,6 +520,43 @@ export function holdAndWinReferenceLayout(
 				),
 			],
 		}),
+		...(enhancements
+			? [
+					{
+						id: 'enhancements',
+						name: 'Enhancements',
+						// A base screen: the dials stand above the board from the first spin, unlit until a
+						// feature draws them (the partner's game). They show once the game has loaded
+						// (`assetsLoaded`) rather than only in an enhanced feature (their default). The
+						// dials sit in a row just above the open board's top, the collectors' total under
+						// the counter, shown only while the respin board is up.
+						nodes: [
+							...DIALS.map(({ kind, label }, index) =>
+								instance(
+									`enhancement-dial-${kind}`,
+									`${label} dial`,
+									'enhancementDial',
+									placeAround(
+										{ dx: (index - 1.5) * 92, dy: -(dialsAbove + 46) },
+										{ dx: (index - 1.5) * 92, dy: -(dialsAbove + 46) },
+									),
+									{ kind, visibleSource: 'assetsLoaded' },
+								),
+							),
+							{
+								...instance(
+									'collectors-total',
+									'Collectors total',
+									'textBox',
+									place({ dx: -470, dy: 110 }, { dx: 0, dy: 330 }),
+									{ text: '', source: 'collectorsTotal', fontSize: 30, fill: HEADLINE_FILL },
+								),
+								valueBindings: [{ target: 'visible', source: 'cellsTotal' }],
+							},
+						],
+					} satisfies Scene,
+				]
+			: []),
 		modeScene({
 			id: 'totalWinBar',
 			name: 'Total win bar',
@@ -608,8 +669,15 @@ export function holdAndWinReferenceLayout(
 			scenes.push({ ...base, nodes: [...base.nodes, messageHost] }, ...featureScenes);
 		} else if (scene.id === 'basegameOverlays') {
 			scenes.push(scene, ...beatScenes);
-		} else if (coinBoard && scene.id === 'hudBar') {
-			scenes.push({ ...scene, nodes: [...scene.nodes, linesSelectorAnchor(scene)] });
+		} else if ((coinBoard || enhancements) && scene.id === 'hudBar') {
+			scenes.push({
+				...scene,
+				nodes: [
+					...scene.nodes,
+					...(coinBoard ? [linesSelectorAnchor(scene)] : []),
+					...(enhancements ? [anteSwitchNode()] : []),
+				],
+			});
 		} else {
 			scenes.push(scene);
 		}

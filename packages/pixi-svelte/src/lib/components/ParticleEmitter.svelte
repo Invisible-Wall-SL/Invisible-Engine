@@ -183,12 +183,16 @@
 	import {
 		PARTICLE_BUDGET_MIN_SCALED,
 		particleQuality,
+		particlesOff,
 		sampleParticleFrame,
 	} from '../particleBudget';
+	import { perfProbe, probeParticleUpdate } from '../perfProbe';
 
 	const props: Props = $props();
 	const context = getContextApp();
 	const parentContext = getContextParent();
+	// `?particles=off` (a test switch): never updated, the emitter spawns and draws nothing.
+	const off = particlesOff();
 
 	// Tier C: a `spineParticle` layer pools `RigView` instances instead of binding sprite textures.
 	// Register the behavior so the `Emitter` knows the type, then inject the config (with the layer
@@ -222,17 +226,18 @@
 	// and adds `fxMaterial` to every config the emitter is initialised from, so each particle carries
 	// its seed and indexes. A layer plain from mount has no renderer: it is a layer with no material.
 	// svelte-ignore state_referenced_locally
-	const mounted = props.material
-		? mountParticleMaterial({
-				spec: props.material,
-				host: parentContext.parent,
-				textures: spriteTextures ?? [],
-				maxParticles: Number((props.config as { maxParticles?: unknown }).maxParticles),
-				rigParticles: isRigParticle,
-				emitSpeed: props.emitSpeed,
-				slots: particleMaterialSlotsFor(context.stateApp),
-			})
-		: undefined;
+	const mounted =
+		props.material && !off
+			? mountParticleMaterial({
+					spec: props.material,
+					host: parentContext.parent,
+					textures: spriteTextures ?? [],
+					maxParticles: Number((props.config as { maxParticles?: unknown }).maxParticles),
+					rigParticles: isRigParticle,
+					emitSpeed: props.emitSpeed,
+					slots: particleMaterialSlotsFor(context.stateApp),
+				})
+			: undefined;
 	const material = mounted?.material;
 	const emitterConfig = $derived(material ? material.bindConfig(updatedConfig) : updatedConfig);
 	const createEmitter = (): Emitter => {
@@ -305,6 +310,7 @@
 		// particles still fade out via their lifetime). Ambient layers keep `emit` true, so
 		// they take the same `init` branch as before — byte-identical to the prior behaviour.
 		if (props.emit) {
+			if (perfProbe.on) perfProbe.counts.emitterStarts++;
 			emitter.init(emitterConfig);
 			ownerTracked = false;
 			// Untracked: the getter reads live position state, which must not re-run this `init`.
@@ -384,14 +390,15 @@
 				props.emitSpeed,
 				props.timeScale?.() ?? 1,
 			);
-			emitter.update(deltaUpdate);
+			if (perfProbe.on) probeParticleUpdate(emitter, deltaUpdate);
+			else emitter.update(deltaUpdate);
 			skipTransparent();
 			// The mirror, in the same step: the mesh draws this frame's particles.
 			material?.sync(app.renderer);
 		}
 	};
 	const ticker = context.stateApp.pixiApplication?.ticker;
-	ticker?.add(tick);
+	if (!off) ticker?.add(tick);
 
 	onDestroy(() => {
 		ticker?.remove(tick);

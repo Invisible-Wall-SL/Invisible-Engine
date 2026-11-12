@@ -88,8 +88,8 @@ const PINNED = {
 		hudReadout: '89e8c935006c440a',
 		button: '1673e469e2732636',
 		textBox: 'fa7497117bed553e',
-		freeSpinCounter: '5d4d337454a2169c',
-		infoBar: 'fc386c75fba28aa7',
+		freeSpinCounter: '558cdb2eef7db645',
+		infoBar: 'b9de4b51554077c8',
 		loadingIntro: '1a9a5010e5aebad6',
 		transition: '4af3cf66eeaaead6',
 		freeSpinIntroVisual: 'd5692d66c8d6226b',
@@ -97,7 +97,7 @@ const PINNED = {
 		win: '71a38a1aec1b23fe',
 		tapToContinue: '39cf7fc4059e2116',
 		loadingBar: '3166440d4ac35911',
-		expandingSymbol: '5cf3a24b056c210d',
+		expandingSymbol: '0861db2dfb2a224b',
 		freeSpinIntroSymbolReveal: '7a031172a96f7ca2',
 		featureCard: '2140ccce4c6653dc',
 		confirmDialog: '7d44a35a92e64c1e',
@@ -139,6 +139,10 @@ for (const group of ['sceneSets', 'templates', 'components']) {
 
 const doc = mod.getFullSceneSet('holdAndWin');
 const sceneById = new Map(doc.scenes.map((scene) => [scene.id, scene]));
+// A collector bonus with enhancements (Phase 14b) adds its own screens on request only.
+const enhanced = mod.getFullSceneSet('holdAndWin', { enhancements: true });
+const enhancedById = new Map(enhanced.scenes.map((scene) => [scene.id, scene]));
+const ENHANCEMENT_SCREENS = ['enhancements', 'enhancementsBanner', 'superBonusBanner'];
 const walk = (nodes, out = []) => {
 	for (const node of nodes) {
 		out.push(node);
@@ -191,9 +195,64 @@ assert(hosts.length === 1 && hosts[0] === 'basegame', `one infoBar, in basegame 
 const builtinIds = new Set(mod.BUILTIN_COMPONENTS.map((def) => def.id));
 const scaffold = mod.engineOwnedOnly(doc);
 assert(
-	scaffold.scenes.length === doc.scenes.length - mod.SELF_MOUNTED_BANNER_SCREENS.length,
+	scaffold.scenes.length ===
+		doc.scenes.length - doc.scenes.filter((s) => mod.isSelfMountedBannerScreen(s)).length,
 	'the scaffold keeps every screen but the banner screens',
 );
+for (const id of ENHANCEMENT_SCREENS) {
+	assert(!sceneById.has(id), `${id} is in the set without enhancements`);
+}
+// The dials stand above the board in the base game too (the partner's game); the banners are the
+// feature's.
+assert(enhancedById.get('enhancements')?.role === undefined, 'enhancements is not a base screen');
+for (const id of ['enhancementsBanner', 'superBonusBanner']) {
+	assert(enhancedById.get(id)?.modeId === 'holdAndWin', `${id} is not a holdAndWin mode screen`);
+}
+assert(
+	enhanced.scenes.filter((s) => !ENHANCEMENT_SCREENS.includes(s.id)).length === doc.scenes.length,
+	'the enhancements option adds only its own screens',
+);
+{
+	const dials = instancesIn(enhancedById.get('enhancements')).filter(
+		(n) => n.componentId === 'enhancementDial',
+	);
+	assert(
+		JSON.stringify(dials.map((n) => n.params?.kind)) ===
+			JSON.stringify(['extraRow', 'boost', 'multiply', 'extraRespins']),
+		'the Enhancements screen places the four dials, Expand to Respin',
+	);
+	assert(
+		dials.every((n) => n.params?.visibleSource === 'assetsLoaded'),
+		'the dials show once the game has loaded, not only in an enhanced feature',
+	);
+	assert(
+		instancesIn(enhancedById.get('enhancements')).some(
+			(n) => n.params?.source === 'collectorsTotal',
+		),
+		"the Enhancements screen shows the collectors' total",
+	);
+	const anteIn = (set) =>
+		walk(set.scenes.find((sc) => sc.id === 'hudBar').nodes).filter(
+			(n) => n.componentId === 'button' && n.params?.action === 'ante',
+		);
+	const ante = anteIn(enhanced);
+	assert(
+		ante.length === 1 && ante[0].params.visibleSource === 'anteFeature',
+		'the enhancements HUD has one ante switch, shown while the game has one',
+	);
+	assert(!anteIn(doc).length, 'a HUD without the enhancements option has an ante switch');
+	assert(
+		JSON.stringify(
+			enhanced.scenes.find((sc) => sc.id === 'hudBar').nodes.filter((n) => n.id !== 'hud-btn-ante'),
+		) === JSON.stringify(sceneById.get('hudBar').nodes),
+		'the ante switch is the only change to the HUD bar',
+	);
+	const dial = mod.BUILTIN_COMPONENTS.find((d) => d.id === 'enhancementDial');
+	assert(
+		dial?.capability === 'holdAndWin' && dial.signalScopeKind === 'enhancement',
+		'the Enhancement Dial is kind-gated and scoped by enhancement',
+	);
+}
 assert(
 	!scaffold.scenes.some((s) => mod.SELF_MOUNTED_BANNER_SCREENS.includes(s.id)),
 	'a new game carries a banner screen',
@@ -228,7 +287,14 @@ for (const id of PLACED) {
 // Kind gating: offered to Hold and Win only; every other built-in still offered everywhere. The pot
 // parts are gated on `pots`, so the pots overlay add-on (docs/design/pots-overlay.md §4) offers
 // them to any kind, and nothing else of the feature; a Hold and Win block offers all of it.
-const GATED = [...PLACED, 'jackpotTile', 'letterTile', 'cellTile', 'lineOverlay'];
+const GATED = [
+	...PLACED,
+	'jackpotTile',
+	'letterTile',
+	'cellTile',
+	'lineOverlay',
+	'enhancementDial',
+];
 const POTS = ['potMeter'];
 for (const def of mod.BUILTIN_COMPONENTS) {
 	const gated = GATED.includes(def.id);
@@ -439,8 +505,8 @@ const GATE = mod.HOLD_AND_WIN_BANNER_SHOW_SOURCES;
 for (const [kind, ids] of Object.entries(mod.HOLD_AND_WIN_BANNER_SCREENS)) {
 	assert(ids.length > 0, `${kind} has no screen`);
 	for (const id of ids) {
-		assert(sceneById.has(id), `${kind}: the set lacks its screen ${id}`);
-		assert(sceneById.get(id)?.visibleSource === GATE[id], `${id} is not gated on ${GATE[id]}`);
+		assert(enhancedById.has(id), `${kind}: the set lacks its screen ${id}`);
+		assert(enhancedById.get(id)?.visibleSource === GATE[id], `${id} is not gated on ${GATE[id]}`);
 	}
 }
 // The banner screens the game mounts itself: always on top (over the coins in flight, as the coded
@@ -452,10 +518,12 @@ const FEATURE_BANNERS = [
 	'modifiersUnlockedBanner',
 	'wheelPrizeBanner',
 	'rowUnlockedBanner',
+	'enhancementsBanner',
+	'superBonusBanner',
 	'featureTotalBanner',
 ];
 for (const id of mod.SELF_MOUNTED_BANNER_SCREENS) {
-	const scene = sceneById.get(id);
+	const scene = enhancedById.get(id);
 	assert(scene?.alwaysOnTop === true, `${id} is not always on top`);
 	assert(
 		FEATURE_BANNERS.includes(id)
@@ -571,7 +639,7 @@ assert(
 		'wheel',
 		'featureIntro',
 		'jackpotWin',
-		...FEATURE_BANNERS,
+		...FEATURE_BANNERS.filter((id) => !ENHANCEMENT_SCREENS.includes(id)),
 		'featureOutro',
 	];
 	const BASE_BANNERS = ['instantWinBanner', 'randomMetreBanner', 'platformJackpotBanner'];

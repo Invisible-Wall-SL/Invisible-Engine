@@ -17,7 +17,7 @@ import {
 	type MatchResult,
 	type Side,
 } from 'engine-mechanics';
-import { resolveCard, type CardGameDeck, type GameConfigDoc } from 'game-config';
+import { cardMatchRules, resolveCard, type CardGameDeck, type GameConfigDoc } from 'game-config';
 
 /**
  * Invisible Card Library's TEST MATCH (`docs/design/card-games.md` §8.3): a match on the config's
@@ -68,14 +68,7 @@ export function recordFor(
 		seed,
 		decks: [deck(seats[0].deck), deck(seats[1].deck)],
 		library: JSON.parse(JSON.stringify(library)) as unknown[],
-		rules: {
-			startHealth: rules.startHealth,
-			openingHand: rules.openingHand,
-			handLimit: rules.handLimit,
-			boardLimit: rules.boardLimit,
-			resource: rules.resource,
-			turnLimit: rules.turnLimit,
-		},
+		rules: cardMatchRules(rules),
 		first: firstOf(rules.first),
 		ai: ([0, 1] as const)
 			.filter((side) => side !== human)

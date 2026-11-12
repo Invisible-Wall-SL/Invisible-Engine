@@ -18,6 +18,7 @@ from __future__ import annotations
 import mimetypes
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import boto3
@@ -110,7 +111,7 @@ def put(key: str, body: bytes, content_type: str | None = None, *,
         r = _client().put_object(
             Bucket=_bucket(), Key=key, Body=body,
             ContentType=content_type or _ctype(key), **kw)
-    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+    except Exception as e:  # classify, don't swallow
         if kw and _is_precondition_failed(e):
             raise Conflict(key) from e
         raise
@@ -131,7 +132,7 @@ def get_with_etag(key: str) -> tuple[bytes, str] | None:
     """
     try:
         r = _client().get_object(Bucket=_bucket(), Key=key)
-    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+    except Exception as e:  # classify, don't swallow
         resp = getattr(e, "response", None)
         if isinstance(resp, dict):
             code = str(resp.get("Error", {}).get("Code") or "")
@@ -192,7 +193,7 @@ def get_strict(key: str) -> bytes | None:
     """
     try:
         return _client().get_object(Bucket=_bucket(), Key=key)["Body"].read()
-    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+    except Exception as e:  # classify, don't swallow
         # botocore raises ClientError for HTTP-level answers; only a genuine
         # not-found is absence. Everything else — network, throttle, 5xx — is a
         # failure to ASK, and the caller must not read it as an empty shelf.
@@ -225,7 +226,7 @@ def head(key: str) -> dict | None:
     """
     try:
         r = _client().head_object(Bucket=_bucket(), Key=key)
-    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+    except Exception as e:  # classify, don't swallow
         resp = getattr(e, "response", None)
         if isinstance(resp, dict):
             code = str(resp.get("Error", {}).get("Code") or "")
@@ -433,6 +434,35 @@ def push_file(local_path: Path, key: str) -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def mirror_staged(path: Path, staging_root, r2_prefix: str, *,
+                  push: Callable[[Path, str], bool],
+                  claim: Callable[[str, Callable[[], bool]], bool] | None = None) -> None:
+    """Write-through: mirror one staging file to its R2 twin so it persists.
+
+    The key is `<r2_prefix>/<path relative to staging_root>`; a path outside
+    staging, or no R2 prefix, mirrors nothing. Best-effort — never raises.
+
+    `push(path, key) -> bool` is the caller's `push_file`, passed in so a tool's
+    test double reaches it. `claim(rel, push_once) -> bool` is where a tool
+    wraps the push of a key it tracks (the listing claims a prune respects):
+    it returns True when it handled the key — pushing via `push_once()` — and
+    False to have it pushed plainly."""
+    if not (r2_prefix and staging_root):
+        return
+    try:
+        rel = Path(path).resolve().relative_to(Path(staging_root).resolve()).as_posix()
+        key = f"{r2_prefix}/{rel}"
+
+        def push_once() -> bool:
+            return push(Path(path), key)
+
+        if claim is not None and claim(rel, push_once):
+            return
+        push_once()
+    except Exception:  # noqa: BLE001 — best-effort mirror
+        pass
 
 
 # --- local-disk helpers (shared by the cache-pruning endpoints) --------------

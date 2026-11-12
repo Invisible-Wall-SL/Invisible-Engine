@@ -83,14 +83,27 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
     `scripts/bug-fix/` and `scripts/current-games/`;
   - what agents read: `services/director-worker/agents/`, `services/director-worker/families/`,
     `services/director-worker/src/untrusted.ts`, `docs/knowledge/` and `docs/director/DECISIONS/`;
-  - the launcher's fix-run code, the bug and fix-run fixtures, and its migrations:
-    `apps/launcher-api/src/lib/bugFixRuns.ts`, `apps/launcher-api/src/lib/server/bugFixRuns*.ts`,
+  - the launcher's fix-run code and what it leans on, Invisible Pipeline Changes' server and API
+    (the console that gates and merges this run's pull request), the configs that decide what an
+    import loads, the bug, fix-run and Pipeline Changes fixtures, and the launcher's migrations
+    and their runner: `apps/launcher-api/src/lib/bugFixRuns.ts`,
+    `apps/launcher-api/src/lib/bugReports.ts`, `apps/launcher-api/src/lib/server/bugFix*.ts`,
+    `apps/launcher-api/src/lib/server/pipeline*.ts`,
+    `apps/launcher-api/src/lib/server/concurrency.ts`,
+    `apps/launcher-api/src/lib/server/githubApp.ts`,
     `apps/launcher-api/src/lib/server/githubOidc.ts`,
-    `apps/launcher-api/src/routes/api/pipeline/fix-runs/`,
+    `apps/launcher-api/src/routes/api/pipeline/`,
     `apps/launcher-api/src/routes/api/bugs/[number]/fix-runs/`,
+    `apps/launcher-api/vite.config.js`, `apps/launcher-api/svelte.config.js`,
     `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
-    `apps/launcher-api/scripts/check-bug-reports.ts` and `apps/launcher-api/drizzle/`. A test
-    whose natural home is one of these fixtures goes in a new check of its own (below).
+    `apps/launcher-api/scripts/check-bug-reports.ts`,
+    `apps/launcher-api/scripts/check-pipeline-changes.ts`,
+    `apps/launcher-api/scripts/check-pipeline-games.ts`,
+    `apps/launcher-api/src/lib/server/db/migrate.ts` and `apps/launcher-api/drizzle/`. A test
+    whose natural home is one of these fixtures goes in a new check of its own (below);
+  - a `.js`, `.mjs`, `.cjs`, `.mts`, `.cts`, `.jsx` or `.tsx` file, or a file of the same name
+    with no extension, beside a protected `.ts` file counts as that file: the build may load it
+    instead.
 - Change a dependency: a `package.json`'s `dependencies`, `devDependencies`, `peerDependencies`,
   `optionalDependencies`, `bundleDependencies`, `bundledDependencies`, `dependenciesMeta`,
   `peerDependenciesMeta`, `overrides`, `resolutions`, `pnpm`, `packageManager` or `engines`, or
@@ -98,12 +111,11 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
 - Change or remove a script a `package.json` already has (CI runs them), add one a package
   manager runs by itself — `install`, or any new `pre*`, `post*` or `pnpm:*` script (`preview`
   and `prettier` count) — or leave a `package.json` that is not a JSON object. That includes
-  `precheck:<x>`, though most launcher checks have one (`node scripts/ensure-svelte-kit.mjs`): a
-  run that copied the pattern was refused after it had done the work. A new plain `check:<x>`
-  script is fine. A new `apps/launcher-api/scripts/check-<x>.ts`, or a `*.fixture.ts` anywhere,
-  needs no script at all: `pnpm check:all` finds it. Run a new check as a gate with
-  `pnpm check:all --only <its path>`, script or not: it runs `ensure-svelte-kit` first, which a
-  launcher check called on its own needs on a fresh checkout.
+  `precheck:<x>`, though most launcher checks once had one (none needs it now: `pnpm install`
+  runs `svelte-kit sync`): a run that copied the pattern was refused after it had done the work.
+  A new plain `check:<x>` script is fine. A new `apps/launcher-api/scripts/check-<x>.ts`, or a
+  `*.fixture.ts` anywhere, needs no script at all: `pnpm check:all` finds it. Run a new check as a
+  gate with `pnpm check:all --only <its path>`, script or not.
 - Grow, add or delete a `svelte-check-baseline.json` or `eslint-suppressions.json`. They may only
   shrink, and stay JSON objects of numbers; renaming a file they count reads as growth.
 - Add, anywhere in a line the change adds — code, a comment, a string or Markdown prose — a

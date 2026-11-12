@@ -6,6 +6,16 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### Svelte work cost 25–40× more in WebKit than in Chromium
+- **Symptom:** in WebKitGTK a reel board `{#each}` run took ~4 ms (0.15 in Chromium), a `Symbol`
+  teardown ~12–18 ms, a `Container` destroy ~0.3 ms.
+- **Cause:** every Svelte anchor of the Pixi tree sat in one run of ~5–11k siblings beside the
+  canvas, and WebKit walks a parent's children to the nearest element on each DOM insert, remove
+  or move. Detaching the host does not help; an element every ~100 nodes does.
+- **Fix:** `pixi-svelte`'s `Container` keeps its children's anchors in a hidden `<div>` of its own.
+- **Guard:** `containerAnchors.fixture.mjs`; measure DOM costs in WebKit, never only in Chromium.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### Every desktop downloaded the phones' KTX2 transcoder
 - **Symptom:** the runtime page was ~1.3 MB gz, 520 KB of it a transcoder only phones run.
 - **Cause:** `config-vite`'s `assetsInlineLimit: Infinity` inlined `libktx.{js,wasm}` as base64.

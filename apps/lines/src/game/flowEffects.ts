@@ -56,7 +56,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { SECOND } from 'constants-shared/time';
-import type { FlowEffect } from 'engine-flow';
+import type { FlowV2Effect } from 'engine-flow-v2';
 import {
 	formatWinText,
 	resolveSymbolName,
@@ -90,6 +90,8 @@ import {
 	presentCoinsLand,
 	presentCoinUpgrade,
 	presentColumnComplete,
+	presentEnhancementHit,
+	presentEnhancementMiss,
 	presentEntryDrain,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
@@ -124,8 +126,8 @@ import {
 	activeWinModel,
 	boardDimensions,
 	getActiveGameConfig,
-	paddingReels,
 	paylineColor,
+	spinPaddingReels,
 } from './gameConfig';
 import {
 	bakedSymbolNames,
@@ -176,7 +178,7 @@ export const winLevelSoundsStop = () => {
  * stalls the round outright until the player taps.
  *
  * The race lives here, per broadcast, and NOT around the whole effect registry
- * (`flowRuntime`/`flowV2Runtime` hand `flowEffect` to the interpreter directly). Racing the
+ * (`flowV2Runtime` hands `flowEffect` to the interpreter directly). Racing the
  * registry would look like a tidier catch-all but would DETACH board-driving effects: on a
  * whole-feature skip `revealBoard` resolves instantly for all ten free spins, so ten reveals would
  * run concurrently on the same reels and the board would land on whichever finished last. Effects
@@ -760,7 +762,7 @@ const beat =
 	<T extends BookEvent['type']>(
 		type: T,
 		present: (event: BookEventOfType<T>) => Promise<void>,
-	): FlowEffect =>
+	): FlowV2Effect =>
 	(payload) => {
 		const event = payload.bookEvent as BookEvent | undefined;
 		if (event?.type === type) return present(event as BookEventOfType<T>);
@@ -1126,7 +1128,7 @@ export const presentReveal = async ({
 			const { enhancedBoard } = stateGameDerived;
 			const rolling = enhancedBoard.board.some((reel) => reel.reelState.rolling);
 			if (!rolling && !stateGameDerived.boardSwapsInPlace() && !coinBoard) {
-				await enhancedBoard.preSpin({ paddingBoard: paddingReels(bookEvent.gameType) });
+				await enhancedBoard.preSpin({ paddingBoard: spinPaddingReels(bookEvent.gameType) });
 			}
 			await waitForTimeout(spinClock.remainingUntil(deadline));
 		}
@@ -1164,7 +1166,7 @@ export const presentReveal = async ({
 		// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
 		// during the spin; a no-op (returns the strip unchanged) when the mode is off or stood down
 		// (byte-parity).
-		paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
+		paddingBoard: stackedScrollStrip(spinPaddingReels(bookEvent.gameType)),
 		// Sequential reel stop stands down with the roll. It needs no branch of its own: this whole
 		// call is unreachable on a swap-in-place board, and `sequentialStopActive()` reads false there
 		// anyway — belt and braces, so a future caller that reaches the spin some other way still
@@ -1186,10 +1188,10 @@ export const presentReveal = async ({
 
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
-// Flow (`FlowEffect`). Bodies are the coded handler leaves, verbatim.
+// Flow (`FlowV2Effect`). Bodies are the coded handler leaves, verbatim.
 // ---------------------------------------------------------------------------
 
-const effects: Record<string, FlowEffect> = {
+const effects: Record<string, FlowV2Effect> = {
 	/**
 	 * Full-screen camera effect (`cameraEffect`) — shake / flash / zoom punch / chromatic wobble,
 	 * played over the whole game. The kinds are engine-generic (`pixi-svelte`'s `cameraEffects`
@@ -1366,6 +1368,9 @@ const effects: Record<string, FlowEffect> = {
 	 * - `upgradeCoins` (`coinUpgrade`) — the upgrade plays `coinUpgrade`, beams each coin it raises,
 	 *   then the counts (a jackpot coin steps up a tier).
 	 * - `boostCoins` (`coinBoost`) — the multiplier plays `win` (none for the wheel), then the counts.
+	 * - `hitEnhancement` (`enhancementHit`) — a boost or multiply enhancement's dial lights, its beam
+	 *   flies to each landing coin, which plays `coinEnhance` while its label counts up.
+	 * - `missEnhancement` (`enhancementMiss`) — the enhancement's dial shows its X for a beat.
 	 * - `turnSpecialIntoCoin` (`specialBecomesCoin`) — the multiplier lands as a coin.
 	 * - `collectCoins` (`coinCollect`) — each coin pulses and flies into the collector, whose label
 	 *   climbs as each lands.
@@ -1402,6 +1407,8 @@ const effects: Record<string, FlowEffect> = {
 	addRespins: beat('respinsAdded', presentRespinsAdded),
 	upgradeCoins: beat('coinUpgrade', presentCoinUpgrade),
 	boostCoins: beat('coinBoost', presentCoinBoost),
+	hitEnhancement: beat('enhancementHit', presentEnhancementHit),
+	missEnhancement: beat('enhancementMiss', presentEnhancementMiss),
 	turnSpecialIntoCoin: beat('specialBecomesCoin', presentSpecialBecomesCoin),
 	collectCoins: beat('coinCollect', presentCoinCollect),
 	revealMystery: beat('mysteryReveal', presentMysteryReveal),
@@ -1877,7 +1884,7 @@ const effects: Record<string, FlowEffect> = {
 	 * The press sound + modal close stay with the confirm dialog; this is only the state commit.
 	 */
 	commitBuyBonus: () => {
-		stateBet.activeBetModeKey = stateBonus.selectedBetModeKey;
+		stateBetDerived.armBetMode(stateBonus.selectedBetModeKey);
 
 		const data = stateBonusDerived.selectedBetModeData();
 		if (data.type === 'buy') {
@@ -1892,7 +1899,7 @@ const effects: Record<string, FlowEffect> = {
 
 /** The effect resolver the runtime injects (`FlowRuntime.effect` / v2 `FlowV2Env.effect`). Unknown
  *  name ⇒ no-op. */
-export const flowEffect = (name: string): FlowEffect | undefined => effects[name];
+export const flowEffect = (name: string): FlowV2Effect | undefined => effects[name];
 
 /** The names of every implemented effect/command (v2 vocabulary coverage — the runtime asserts every
  *  declared `BOOK_OF_VOCAB` action resolves here). */

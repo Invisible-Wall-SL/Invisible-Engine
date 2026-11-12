@@ -21,8 +21,17 @@ export * from './cameraEffects';
 export * from './anchors';
 // Element FX: shake / bend / light / break ONE container (a node, a screen, the reels).
 export * from './elementFx';
-// Which devices draw fewer pixels a frame (lower resolution, no antialiasing).
+// The level the renderer starts at (`?render=` pins it) and the measured steps down from it.
 export * from './renderTier';
+export * from './renderQuality';
+// Whether every texture stays on the GPU: the one thing a device's reported memory decides.
+export * from './textureResidency';
+// Back buffer, MSAA and an opaque canvas, decided before the context exists; the test switches.
+export * from './renderOptions';
+// `?perf=1`'s per-frame GL counts, what the particles and rigs did in each frame, and what it built.
+export * from './glCounters';
+export * from './perfProbe';
+export * from './churnProbe';
 // The loader's last step: upload every texture and compile every program a game will draw with.
 export * from './gpuWarmup';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).

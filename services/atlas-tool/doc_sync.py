@@ -234,7 +234,7 @@ def _raw_put(key: str, body: bytes, expected: str | None) -> str | None:
             return storage.put(key, body, "application/json", if_none_match="*")
         except storage.Conflict:
             raise
-        except Exception as e:  # noqa: BLE001 — classified below
+        except Exception as e:  # classified below
             if _is_transient(e) and attempt < _TRANSIENT_ATTEMPTS - 1:
                 time.sleep(0.1 * (attempt + 1))
                 continue
@@ -332,7 +332,7 @@ def commit(key: str | None, doc_id: str, local: Path, doc: dict, *,
             doc = rebase(loaded_doc, doc, cur_doc)
             loaded_doc, expected = copy.deepcopy(cur_doc), cur_etag
             continue
-        except Exception as e:  # noqa: BLE001 — R2 did not answer
+        except Exception as e:  # R2 did not answer
             if strict:
                 # Answering 200 for an edit that lives only in staging would be a
                 # silent loss the moment anyone else writes: refuse, say so.
@@ -372,7 +372,7 @@ def create(key: str | None, doc_id: str, local: Path, doc: dict, *,
         cur_etag, cur_doc = _adopt_r2(key, local)
         raise docsave.DocConflict(doc_id, docsave.EXISTS, etag=cur_etag,
                                   doc=cur_doc) from None
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise storage.ObjectUnreadable(f"{doc_id}: write failed: {e}") from e
     return _landed(c, key, doc_id, local, doc, body, new)
 

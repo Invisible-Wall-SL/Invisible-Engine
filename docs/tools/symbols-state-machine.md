@@ -778,7 +778,11 @@ coin's tier. There is no on/off switch: every field you leave alone keeps the ga
   respin board), **Pop when a count lands** (each time a payer, a multiplier or a collect finishes
   counting a label up), each with a pop scale and length; **Count-up length** (ms) replaces the
   coded 600 ms payer / multiplier count, and each collect step scales with it (350/600 of it, the
-  coded proportion). Both pops are off by default.
+  coded proportion). Both pops are off by default. **Pop as an enhancement hit shows (×N / +$X)**
+  and **Hit readout hold** (ms, coded 500, 0 = none): when a Boost or Multiply enhancement hits a
+  coin, the coin's label first prints what hit it ("×3", "+$5.00" — the Win Text `multiplyHit` /
+  `boostHit` wording) in the label's own look for that long, then counts to the new value. That
+  pop is ON unless you switch it off.
 
 Assetless: it travels to the game as `bundle.symbols.coinLabel`, and a Font Maker font it names
 ships with the project's font catalog.
@@ -805,6 +809,35 @@ switch on. An empty cell never plays **Land**, even if the blank symbol binds on
 board** the base game spins on this same board, so with the switch on every base spin's coins play
 **Land** as their cells stop as well. Assetless: it travels to the game as
 `bundle.symbols.respinLandOnStop`.
+
+### Jackpot coins
+
+Shown on a project with **Hold and Win** whose dictionary has a `coin` or `jackpot` symbol, or
+wherever it is already on so it can be switched off. One switch, **Jackpot coins have their own
+art**, off by default.
+
+- **Off** — a coin carrying a jackpot tier draws the coin's own art, and only its
+  [label](#coin-value-label) says which tier it is.
+- **On** — every `coin` / `jackpot` row in the Hold and Win group gets one row per jackpot tier under
+  it (`BONUS` with a `MINI jackpot` chip, …), with the coin's own columns. Bind them like any row:
+  the cell panel, layers, flipbooks and rigs all work the same. The tiers are every tier the
+  project's respin modes declare in [Invisible Game Config](game-config.md), or MINI / MINOR / MAJOR
+  / GRAND when none declares any.
+
+A tier row that is left empty draws the coin's art. So does a state the row leaves empty with
+nothing to inherit inside the row. A state that is empty in the tier row but inherits there (for
+example `Win` borrowing the row's `Static`) draws the tier's art, the same thing the grid's
+"inherits" badge shows. The tier's art draws everywhere the coin draws: the reels, the respin board,
+the win cycle, and a coin carried as a flight's head. An **upgrade** that steps a coin up a tier
+swaps its art when the upgrade's beam lands, at the same moment as its label. **Element FX** and
+**sounds** stay the coin's, so the panel shows neither on a tier row. Set them on the coin's own
+row.
+
+Turning the switch off keeps the tier rows in the doc, so turning it back on restores them. But
+none of them ships while it is off: the export drops every tier row, and their art with it. In the
+doc a tier row is an ordinary row of `symbols` keyed `<coin>:<TIER>` (`BONUS:MINI`, the text the
+Hold and Win wire writes for a jackpot cell). So it ships through the same export → bake → pull
+chain as any symbol's art. The switch travels as `bundle.symbols.jackpotCoinArt`.
 
 ### Winning symbols after the spin
 
@@ -1100,6 +1133,9 @@ On the left is the list of **flight kinds**:
   jackpot coin it steps up a tier, like the boost beam.
 - **Unlock into its row** (`unlockRow`) — on an expanding board, an unlock symbol flying into the
   middle of the locked row it opens, before the row's locked cells fade away.
+- **Enhancement beam** (`enhancementBeam`) — a collector bonus's boost or multiply hit, flying from
+  its dial (an Enhancement Dial, or the game's own row of dials) to each coin it hits. The coin's
+  value starts counting up when its beam lands.
 - One row **per meter** your Game Config declares (`toMeter:<id>`, labelled **Into meter “&lt;id&gt;”**):
   the Hold and Win meters first, then the pots overlay's pots. A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
@@ -1345,11 +1381,11 @@ board clear takes them off the reels), `Intro` and, in a book game, `Explosion` 
 it — never `Win`, `Post-win` or a book state. On top
 of that, a symbol the respin board holds offers Coin idle, Coin land, Coin stick, Coin collect and
 Jackpot reveal; only a payer or a multiplier offers Coin boost, only an add-respins special Respins
-add, an upgrade Coin upgrade, an unlock Row unlock, a mystery Mystery reveal, and a meter's filling
-symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
+add, an upgrade Coin upgrade, an unlock Row unlock, a mystery Mystery reveal, a cash coin Coin
+enhance, and a meter's filling symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
 offer none of these.
 
-**Eleven Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
+**Twelve Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
 game played for that moment before the state existed, so a project that binds none of them looks
 exactly as it did:
 
@@ -1366,6 +1402,7 @@ exactly as it did:
 | **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)                                    | Explosion |
 | **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
 | **Row unlock**     | an unlock symbol applying — opening a locked row of an expanding board before it leaves              | Win       |
+| **Coin enhance**   | a cash coin a boost or multiply enhancement hits as it lands (a collector bonus), while it counts up | Win       |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
 inheritance, so those two read `unset` when empty (the tooltip says what plays). With

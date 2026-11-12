@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { ZodError } from 'zod';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { objectOrNull, readJson } from '$lib/server/http';
 import { requireSoundAccess } from '$lib/server/soundAccess';
 import { loadSoundsDocWithEtag, saveSoundsDoc } from '$lib/server/soundsStorage';
 import { requireProjectScope } from '$lib/server/toolScope';
@@ -56,31 +57,19 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		user,
 		url.searchParams.get('project'),
 	);
-	let body: { doc?: unknown; baseEtag?: unknown; force?: unknown };
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	const body = objectOrNull(await readJson(request, 'Invalid JSON body.'));
 	const baseEtag = writeBaseEtagJson(body);
 	try {
-		const { doc, etag } = await saveSoundsDoc(clientKey, projectKey, body.doc, baseEtag);
+		const { doc, etag } = await saveSoundsDoc(clientKey, projectKey, body?.doc, baseEtag);
 		return json({ clientKey, projectKey, doc, etag });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the
-			// cause. This branch MUST precede the catch-all below for that reason.
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else saved this sound library while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		// Before the catch-all below, which would answer a lost race as a 502.
+		const conflict = conflictResponse(
+			e,
+			'Someone else saved this sound library while you were editing. ' +
+				'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		if (e instanceof ZodError) throw error(400, 'Invalid sound library document.');
 		throw error(502, 'Failed to save the sound library.');
 	}

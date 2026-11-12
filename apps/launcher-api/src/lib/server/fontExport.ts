@@ -25,7 +25,7 @@
 import type { FontCatalog, FontEntry } from 'engine-layout';
 import { catalogFontPrefix, loadRenderableFonts } from './fonts';
 import { SUB } from './projectPaths';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import { DeployMirror } from './deployMirror';
 
 export interface FontExportIndex {
 	/** The catalog of fonts actually exported. `prefix` is the `static/assets/`
@@ -51,22 +51,18 @@ export async function exportEditorFonts(
 	projectKey: string,
 ): Promise<FontExportIndex> {
 	const fontsPrefix = `${SUB.deploy(clientKey, projectKey)}/${EXPORT_SUBTREE}/`;
-	const empty: FontCatalog = { prefix: EXPORT_SUBTREE, fonts: [] };
-
-	// No catalog (or unreadable/invalid) ⇒ export nothing, but still prune any
-	// leftovers from a previous export so deploy/editor-fonts/ mirrors reality.
-	const pruneAndReturn = async (catalog: FontCatalog): Promise<FontExportIndex> => {
-		const existing = await listAllKeys(fontsPrefix);
-		await deleteObjects(existing);
-		return { catalog };
-	};
+	const mirror = new DeployMirror(fontsPrefix);
 
 	// The project's catalog plus the shared library — what the editor draws, so a library font a
 	// shared component def names ships too (`loadRenderableFonts`).
 	const catalog = await loadRenderableFonts(clientKey, projectKey);
-	if (!catalog) return pruneAndReturn(empty);
+	// No catalog (or unreadable/invalid) ⇒ export nothing, but still prune any
+	// leftovers from a previous export so deploy/editor-fonts/ mirrors reality.
+	if (!catalog) {
+		await mirror.commit();
+		return { catalog: { prefix: EXPORT_SUBTREE, fonts: [] } };
+	}
 
-	const written = new Set<string>();
 	const exported: FontEntry[] = [];
 
 	for (const entry of catalog) {
@@ -84,8 +80,7 @@ export async function exportEditorFonts(
 			const destKey = `${fontsPrefix}${f.folder}/${name}`;
 			// Server-side copy the font file verbatim (no bytes through this process —
 			// keeps peak memory flat); skip a missing source file.
-			if (!(await copyObject(`${srcPrefix}/${name}`, destKey))) continue;
-			written.add(destKey);
+			if (!(await mirror.copy(`${srcPrefix}/${name}`, destKey))) continue;
 			copied++;
 		}
 		// Only advertise a font whose files actually shipped. Strip the authoring-only
@@ -97,12 +92,8 @@ export async function exportEditorFonts(
 	}
 
 	const outCatalog: FontCatalog = { prefix: EXPORT_SUBTREE, fonts: exported };
-	const indexKey = `${fontsPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(outCatalog, null, '\t'), 'application/json');
-	written.add(indexKey);
-
-	const existing = await listAllKeys(fontsPrefix);
-	await deleteObjects(existing.filter((k) => !written.has(k)));
+	await mirror.put(`${fontsPrefix}index.json`, JSON.stringify(outCatalog, null, '\t'));
+	await mirror.commit();
 
 	return { catalog: outCatalog };
 }

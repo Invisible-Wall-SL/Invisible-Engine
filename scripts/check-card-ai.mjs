@@ -3,7 +3,10 @@
 // seed — against the committed trace in packages/engine-mechanics/fixtures/cards-ai-replay.json —
 // and from its record; the AI's draws never move the match's stream and its look-ahead never reads
 // it; `hard` keeps inside its `apply()` budget on a full board, at a pinned count; `normal` beats
-// `easy` on seeds 1…100 with the sample decks.
+// `easy` on seeds 1…100 with the sample decks. C5: under the `mixed` turn order the AI plays and
+// attacks in one main phase (lethal there too), stays legal and inside its budget on a full board,
+// and replays against fixtures/cards-ai-mixed-replay.json; a resource gain is scored by what it
+// buys; an allFriendly buff on attack counts toward lethal.
 //
 // Run: pnpm check:card-ai            (--update rewrites the replay fixture)
 
@@ -30,6 +33,7 @@ import { apply, createMatch, legalActions } from '../packages/engine-mechanics/s
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = join(ROOT, 'packages/engine-mechanics/fixtures');
 const REPLAY_FIXTURE = join(FIXTURES, 'cards-ai-replay.json');
+const MIXED_REPLAY_FIXTURE = join(FIXTURES, 'cards-ai-mixed-replay.json');
 const SAMPLE = JSON.parse(readFileSync(join(FIXTURES, 'cards-sample.library.json'), 'utf8'));
 /** The sample decks: every card of the sample library that is not a token, twice (as C1's gate). */
 const DECK = SAMPLE.filter((c) => !c.token).flatMap((c) => [c.id, c.id]);
@@ -45,6 +49,15 @@ const FULL_BOARD_APPLIES = {
 	designCase: { actions: 36, applies: 200 },
 	worstCase: { actions: 95, applies: 600 },
 };
+/** The same boards under the `mixed` turn order, where the ready units' attacks are listed beside
+ *  the plays (at the enemy's guard only), and the worst hand against a board with no guard, where
+ *  every attacker may hit every enemy: the search completes, or stops at the budget. */
+const MIXED_FULL_BOARD_APPLIES = {
+	designCase: { actions: 43, applies: 290 },
+	worstCase: { actions: 102, applies: 600 },
+	unguarded: { actions: 151, applies: 600 },
+};
+const MIXED = { turnOrder: 'mixed' };
 /** The pinned score of normal against easy on seeds 1…100; a change to the AI or the rules moves it. */
 const STRENGTH = { normal: 61, easy: 39 };
 
@@ -87,19 +100,95 @@ const LIBRARY = [
 			},
 		],
 	}),
+	{
+		id: 'spark',
+		name: 'spark',
+		type: 'spell',
+		cost: 0,
+		effects: [{ trigger: 'onPlay', verb: 'gainResource', amount: 2 }],
+	},
+	{
+		id: 'tide',
+		name: 'tide',
+		type: 'spell',
+		cost: 1,
+		effects: [
+			{
+				trigger: 'onPlay',
+				verb: 'heal',
+				amount: 2,
+				target: { kind: 'allFriendly', include: 'characters' },
+			},
+		],
+	},
+	{
+		id: 'fizz',
+		name: 'fizz',
+		type: 'spell',
+		cost: 0,
+		effects: [
+			{
+				trigger: 'onPlay',
+				verb: 'heal',
+				amount: 1,
+				target: { kind: 'chosen', side: 'any', include: 'characters' },
+			},
+			{
+				trigger: 'onPlay',
+				verb: 'heal',
+				amount: 1,
+				target: { kind: 'randomEnemy', include: 'characters' },
+			},
+		],
+	},
+	{
+		id: 'insight',
+		name: 'insight',
+		type: 'spell',
+		cost: 0,
+		effects: [
+			{ trigger: 'onPlay', verb: 'gainResource', amount: 2 },
+			{ trigger: 'onPlay', verb: 'draw', amount: 1 },
+		],
+	},
+	unit('miser', 1, 3, 3, {
+		effects: [{ trigger: 'onAttack', verb: 'gainResource', amount: 2 }],
+	}),
+	unit('banner', 1, 1, 1, {
+		effects: [
+			{
+				trigger: 'onAttack',
+				verb: 'buff',
+				attack: 2,
+				health: 0,
+				until: 'endOfTurn',
+				target: { kind: 'allFriendly', include: 'units' },
+			},
+		],
+	}),
 ];
+/** The sample decks with the C5 cards in: a resource spell, an allFriendly heal and buff. */
+const C5_DECK = [...DECK, 'spark', 'spark', 'tide', 'tide', 'banner', 'banner'];
 
 /**
  * A match set up by hand, as C1's gate builds one: `mine` is side 0's zones (side 0 is active),
  * `theirs` side 1's. A zone lists card ids, or `{ card, ...fields }`. Units on a board arrived on
  * turn 1 and have their attack.
  */
-function table({ phase = 'main', turn = 3, resource = 10, mine, theirs, seed = 'table' } = {}) {
+function table({
+	phase = 'main',
+	turn = 3,
+	resource = 10,
+	mine,
+	theirs,
+	seed = 'table',
+	rules,
+} = {}) {
 	const { match } = createMatch({
 		seed,
 		decks: [[], []],
 		library: LIBRARY,
-		rules: { openingHand: 0 },
+		rules: { openingHand: 0, ...rules },
 		first: 0,
 	});
 	const m = structuredClone({ ...match, library: undefined });
@@ -534,6 +623,205 @@ check('each difficulty replays under a seed (AI vs AI, and from a player record)
 	);
 });
 
+// ---- C5: the mixed turn order, allFriendly and gainResource -----------------------------------
+
+check('mixed: the AI never makes an illegal action and never enters combat (every level)', () => {
+	for (const difficulty of DIFFICULTIES) {
+		for (let seed = 1; seed <= 10; seed++) {
+			const { events, log } = replayMatch({
+				seed,
+				decks: [C5_DECK, C5_DECK],
+				library: LIBRARY,
+				rules: MIXED,
+				ai: [
+					{ side: 0, difficulty },
+					{ side: 1, difficulty },
+				],
+			});
+			assert.ok(
+				!events.some((e) => e.type === 'phaseChanged' && e.phase === 'combat'),
+				`${difficulty} ${seed}`,
+			);
+			assert.ok(
+				log.some((e) => e.action.type === 'attack'),
+				`${difficulty} ${seed} attacks`,
+			);
+		}
+	}
+	for (const difficulty of DIFFICULTIES) {
+		let match = createMatch({
+			seed: 9,
+			decks: [C5_DECK, C5_DECK],
+			library: LIBRARY,
+			rules: MIXED,
+		}).match;
+		const ais = [0, 1].map((side) => createAi({ seed: 9, side, difficulty }));
+		while (!match.result) {
+			const choice = chooseAction(ais[match.active], match);
+			ais[match.active] = choice.ai;
+			const listed = legalActions(match).map((a) => JSON.stringify(a));
+			assert.ok(listed.includes(JSON.stringify(choice.action)), JSON.stringify(choice.action));
+			match = apply(match, choice.action).match;
+		}
+	}
+});
+
+check('mixed: lethal is taken in main, before any play', () => {
+	for (const difficulty of ['normal', 'hard']) {
+		const match = table({
+			rules: MIXED,
+			mine: { board: ['ogre', 'ogre'], hand: ['big'] },
+			theirs: { health: 6, board: ['pup'] },
+		});
+		const { match: after, taken } = playTurn(steady(difficulty, FACE_LIGHT), match);
+		assert.deepEqual(after.result, { winner: 0, reason: 'hero' }, difficulty);
+		assert.ok(
+			taken.every((a) => a.type === 'attack' && 'hero' in a.target),
+			difficulty,
+		);
+	}
+	const strict = table({
+		mine: { board: ['ogre', 'ogre'], hand: ['big'] },
+		theirs: { health: 6, board: ['pup'] },
+	});
+	assert.equal(chooseAction(steady('normal', FACE_LIGHT), strict).action.type, 'play');
+});
+
+check('mixed: one turn both plays and attacks, in the order the AI scores best', () => {
+	for (const difficulty of DIFFICULTIES) {
+		const match = table({
+			rules: MIXED,
+			mine: { board: ['ogre'], hand: ['big', 'pup'] },
+			theirs: { board: ['snack'] },
+		});
+		const { taken } = playTurn(steady(difficulty), match);
+		const kinds = new Set(taken.map((a) => a.type));
+		assert.ok(kinds.has('play') && kinds.has('attack'), `${difficulty}: ${JSON.stringify(taken)}`);
+		assert.deepEqual(taken.at(-1), { type: 'endPhase' });
+	}
+});
+
+check('mixed: each difficulty replays under a seed, and matches the committed trace', () => {
+	const traces = [];
+	for (const difficulty of DIFFICULTIES) {
+		for (const seed of [3, 'ai-replay']) {
+			const run = () =>
+				replayMatch({
+					seed,
+					decks: [C5_DECK, C5_DECK],
+					library: LIBRARY,
+					rules: MIXED,
+					ai: [
+						{ side: 0, difficulty },
+						{ side: 1, difficulty },
+					],
+				});
+			const a = run();
+			assert.equal(JSON.stringify(a.events), JSON.stringify(run().events), `${difficulty} ${seed}`);
+			traces.push({ difficulty, seed, ...summary(a) });
+		}
+	}
+	if (process.argv.includes('--update')) {
+		writeFileSync(MIXED_REPLAY_FIXTURE, `${JSON.stringify(traces, null, '\t')}\n`);
+		return;
+	}
+	assert.deepEqual(
+		traces,
+		JSON.parse(readFileSync(MIXED_REPLAY_FIXTURE, 'utf8')),
+		'the AI replay drifted from cards-ai-mixed-replay.json (run with --update only if meant)',
+	);
+});
+
+check(
+	'a resource gain is scored by what it buys: played when it pays for a card, else held',
+	() => {
+		for (const difficulty of DIFFICULTIES) {
+			const buys = table({ resource: 1, mine: { hand: ['spark', 'big'] } });
+			const { taken } = playTurn(steady(difficulty), buys);
+			assert.deepEqual(
+				taken.slice(0, 2).map((a) => buys.players[0].hand.find((c) => c.uid === a.uid)?.cardId),
+				['spark', 'big'],
+				difficulty,
+			);
+			const idle = table({ resource: 1, mine: { hand: ['spark'] } });
+			assert.deepEqual(
+				chooseAction(steady(difficulty), idle).action,
+				{ type: 'endPhase' },
+				difficulty,
+			);
+		}
+	},
+);
+
+check('mixed: a budget spent on a long hand has still scored the attacks', () => {
+	// Ten spells that each draw from the stream on every target: their trials alone are over the
+	// budget, so with plays tried first no attack would be scored. A free trade is there to take.
+	const spec = {
+		mine: { board: Array(7).fill('ogre'), hand: Array(10).fill('fizz') },
+		theirs: { board: Array(7).fill('snack') },
+	};
+	const plays = legalActions(table(spec)).filter((a) => a.type === 'play').length;
+	assert.ok(plays * 4 > MAX_PLAN_APPLIES, `${plays} plays at 4 trials each`);
+	for (const difficulty of ['normal', 'hard']) {
+		const mixed = table({ ...spec, rules: MIXED });
+		const choice = chooseAction(steady(difficulty), mixed);
+		assert.equal(choice.action.type, 'attack', difficulty);
+		assert.equal(choice.applies, MAX_PLAN_APPLIES, `${difficulty} spends the budget`);
+	}
+	const strict = chooseAction(steady('normal'), table(spec));
+	assert.notEqual(strict.action.type, 'attack', 'strict main lists no attack');
+});
+
+check(
+	'a gain that also draws is played for what it buys; a gain on attack in combat changes nothing',
+	() => {
+		for (const difficulty of DIFFICULTIES) {
+			const match = table({ resource: 1, mine: { hand: ['insight', 'big'], deck: ['giant'] } });
+			const { taken } = playTurn(steady(difficulty), match);
+			const ids = taken
+				.filter((a) => a.type === 'play')
+				.map((a) => match.players[0].hand.find((c) => c.uid === a.uid)?.cardId ?? 'drawn');
+			assert.deepEqual(ids, ['insight', 'big'], difficulty);
+		}
+		const fight = (attacker) =>
+			table({ phase: 'combat', mine: { board: [attacker] }, theirs: { board: ['snack'] } });
+		for (const difficulty of ['normal', 'hard']) {
+			const withGain = chooseAction(steady(difficulty), fight('miser'));
+			const plain = chooseAction(steady(difficulty), fight('ogre'));
+			assert.deepEqual(withGain.action.target, plain.action.target, difficulty);
+			assert.equal(withGain.applies, plain.applies, `${difficulty}: no follow-up in combat`);
+		}
+	},
+);
+
+check('an allFriendly onAttack buff counts toward lethal on every ready unit', () => {
+	const match = table({
+		phase: 'combat',
+		mine: { board: ['banner', 'pup', 'pup'] },
+		theirs: { health: 9, board: [] },
+	});
+	for (const difficulty of ['normal', 'hard']) {
+		const { match: after } = playTurn(steady(difficulty, FACE_LIGHT), match);
+		assert.deepEqual(after.result, { winner: 0, reason: 'hero' }, difficulty);
+	}
+	const first = chooseAction(steady('normal', FACE_LIGHT), match);
+	assert.deepEqual(first.action, {
+		type: 'attack',
+		attacker: match.players[0].board[0].uid,
+		target: { hero: 1 },
+	});
+	assert.ok(first.applies <= MAX_LETHAL_APPLIES);
+});
+
+check('the AI scores allFriendly by its result: a heal on its own hurt side is played', () => {
+	const match = table({
+		resource: 1,
+		mine: { health: 20, board: [{ card: 'big', damage: 2 }], hand: ['tide'] },
+	});
+	const action = chooseAction(steady('normal'), match).action;
+	assert.equal(action.type, 'play');
+});
+
 // ---- the budget and the strength --------------------------------------------------------------
 
 check('hard stays inside its apply() budget on a full board, at a pinned count', () => {
@@ -572,26 +860,43 @@ check('hard stays inside its apply() budget on a full board, at a pinned count',
 			'cinder-bolt',
 		],
 	};
-	const counts = {};
-	for (const [name, hand] of Object.entries(hands)) {
-		const match = table({ mine: { board, hand }, theirs: { board, hand: ['ogre'] } });
-		const choice = chooseAction(steady('hard'), match);
-		counts[name] = { actions: legalActions(match).length, applies: choice.applies };
-		assert.ok(choice.applies <= MAX_PLAN_APPLIES, name);
-	}
-	assert.deepEqual(counts, FULL_BOARD_APPLIES);
-	let worst = 0;
-	for (let seed = 1; seed <= 10; seed++) {
-		let m = createMatch({ seed, decks: DECKS, library: SAMPLE }).match;
-		const ais = [0, 1].map((side) => createAi({ seed, side, difficulty: 'hard' }));
-		while (!m.result) {
-			const choice = chooseAction(ais[m.active], m);
-			ais[m.active] = choice.ai;
-			worst = Math.max(worst, choice.applies);
-			m = apply(m, choice.action).match;
+	for (const [rules, pinned] of [
+		[undefined, FULL_BOARD_APPLIES],
+		[MIXED, MIXED_FULL_BOARD_APPLIES],
+	]) {
+		const counts = {};
+		const cases = Object.entries(hands).map(([name, hand]) => [name, hand, board]);
+		if (rules)
+			cases.push([
+				'unguarded',
+				hands.worstCase,
+				board.map((c) => (c === 'lantern-warden' ? 'ogre' : c)),
+			]);
+		for (const [name, hand, enemy] of cases) {
+			const match = table({
+				rules,
+				mine: { board, hand },
+				theirs: { board: enemy, hand: ['ogre'] },
+			});
+			const choice = chooseAction(steady('hard'), match);
+			counts[name] = { actions: legalActions(match).length, applies: choice.applies };
+			assert.ok(choice.applies <= MAX_PLAN_APPLIES, name);
 		}
+		assert.deepEqual(counts, pinned, rules ? 'mixed' : 'strict');
+		let worst = 0;
+		for (let seed = 1; seed <= 10; seed++) {
+			const decks = rules ? [C5_DECK, C5_DECK] : DECKS;
+			let m = createMatch({ seed, decks, library: rules ? LIBRARY : SAMPLE, rules }).match;
+			const ais = [0, 1].map((side) => createAi({ seed, side, difficulty: 'hard' }));
+			while (!m.result) {
+				const choice = chooseAction(ais[m.active], m);
+				ais[m.active] = choice.ai;
+				worst = Math.max(worst, choice.applies);
+				m = apply(m, choice.action).match;
+			}
+		}
+		assert.ok(worst <= MAX_PLAN_APPLIES, `a sample decision made ${worst} applies`);
 	}
-	assert.ok(worst <= MAX_PLAN_APPLIES, `a sample decision made ${worst} applies`);
 });
 
 check('normal beats easy on seeds 1…100 with the sample decks', () => {

@@ -5,7 +5,7 @@ import { loadDocWithEtag, normalizeDoc, saveDoc } from '$lib/server/localization
 import type { LocalizationDoc } from '$lib/server/localization';
 import { reconcileWithEditor } from '$lib/server/localizationHarvest';
 import { harvestProjectSections } from '$lib/server/localizationSections';
-import { ConflictError } from '$lib/server/r2';
+import { conflictFailure } from '$lib/server/conflict';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveActionScope, resolveToolScope } from '$lib/server/toolScope';
@@ -91,16 +91,13 @@ export const actions: Actions = {
 			const { doc: saved, etag } = await saveDoc(clientKey, projectKey, doc, baseEtag);
 			return { saved: true, updatedAt: saved.updatedAt, etag };
 		} catch (e) {
-			if (e instanceof ConflictError) {
-				// `fail`, not `error()` — the client's envelope parser reads `out.error`.
-				// The local doc stays on screen; nothing here may discard a reviewer's work.
-				return fail(409, {
-					error:
-						'Someone else saved these strings while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-					conflict: true as const,
-				});
-			}
+			// The local doc stays on screen; nothing here may discard a reviewer's work.
+			const conflict = conflictFailure(
+				e,
+				'Someone else saved these strings while you were editing. ' +
+					'Your changes are still here — reload to get their version first.',
+			);
+			if (conflict) return conflict;
 			throw e;
 		}
 	},

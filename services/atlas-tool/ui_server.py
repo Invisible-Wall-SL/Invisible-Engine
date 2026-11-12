@@ -23,7 +23,6 @@ import json
 import os
 import re
 import shutil
-import string
 import subprocess
 import sys
 import threading
@@ -31,7 +30,8 @@ import time
 import traceback
 import urllib.parse
 import urllib.request
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from PIL import Image, ImageChops
@@ -67,6 +67,9 @@ from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + the page precondition)
 from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
 from iw_common import ask_ai  # noqa: E402  (the bar's "Ask the AI" chat, relayed to the launcher)
+from iw_common import comfy  # noqa: E402  (shared ComfyUI client: headers + JSON calls)
+from iw_common import http as iw_http  # noqa: E402  (the request-handler base both tools share)
+from iw_common import storage as iw_storage  # noqa: E402  (mirror_staged: the write-through skeleton)
 from diag_catalog import CATALOG  # noqa: E402
 
 
@@ -191,30 +194,28 @@ _human_bytes = storage.human_bytes
 
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
-    r2_prefix = str(R2_PREFIX)
-    staging_root = Path(STAGING_ROOT)
-    if not r2_prefix:
-        return
-    try:
-        rel = Path(p).resolve().relative_to(staging_root.resolve()).as_posix()
-        # A manifest is claimed BEFORE the push and released only once the push
-        # is CONFIRMED, so the claim means "not known to be in R2" rather than
-        # "this tool wrote it once". The difference is load-bearing: an add-only
-        # claim would exempt every manifest we have ever saved from
-        # `prune_manifests`, which is exactly the sheet the user goes on to
-        # delete in the Sheet Maker — the ghost would then survive the prune
-        # built to remove it.
-        name = rel.split("/", 1)[1] if rel.startswith("manifests/") else ""
-        if name and "/" not in name:
-            ck = project_paths.r2_slug(project_paths.client_name())
-            pk = project_paths.r2_slug(project_paths.project_name())
-            project_paths.note_authored(ck, pk, name)
-            if storage.push_file(Path(p), f"{r2_prefix}/{rel}"):
-                project_paths.clear_authored(ck, pk, name)
-            return
-        storage.push_file(Path(p), f"{r2_prefix}/{rel}")
-    except Exception:  # noqa: BLE001 — best-effort mirror
-        pass
+    iw_storage.mirror_staged(p, Path(STAGING_ROOT), str(R2_PREFIX),
+                             push=storage.push_file, claim=_claim_manifest)
+
+
+def _claim_manifest(rel: str, push: Callable[[], bool]) -> bool:
+    """`_mirror`'s push of a ONE-segment `manifests/<name>`, under its claim.
+
+    A manifest is claimed BEFORE the push and released only once the push is
+    CONFIRMED, so the claim means "not known to be in R2" rather than "this tool
+    wrote it once". The difference is load-bearing: an add-only claim would
+    exempt every manifest we have ever saved from `prune_manifests`, which is
+    exactly the sheet the user goes on to delete in the Sheet Maker — the ghost
+    would then survive the prune built to remove it."""
+    name = rel.split("/", 1)[1] if rel.startswith("manifests/") else ""
+    if not name or "/" in name:
+        return False
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    project_paths.note_authored(ck, pk, name)
+    if push():
+        project_paths.clear_authored(ck, pk, name)
+    return True
 
 
 def _doc_ref(p: Path) -> tuple[str | None, str, str]:
@@ -421,31 +422,11 @@ def with_r2_failures(msg: str, failed: list[str]) -> str:
             "this server and is lost on the next restart or deploy.")
 
 
-# The pre-token shared-secret gate. Kept for the transition window only (see
-# iw_common/launch.py); both unset = open (local dev).
-ATLAS_TOOL_SECRET = os.environ.get("ATLAS_TOOL_SECRET", "")
-GATE = launch.LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET",
-                         legacy_env="ATLAS_TOOL_SECRET", legacy_cookie="atlas_tool",
-                         legacy_header="X-Atlas-Secret")
-
-
-def _truthy_env(name: str) -> bool:
-    """A loose env truthiness test for boolean flags (1/true/yes/on)."""
-    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
-
-
-# Blueprint publishing (upload/overwrite) is the only WRITE path into the SHARED
-# cross-project library, so it's gated separately from the read/run gate above —
-# and gated by KNOWLEDGE OF A SECRET, not a forgeable flag. The launcher appends
-# `bp=<ATLAS_BLUEPRINT_SECRET>` to the /atlas redirect ONLY for users holding the
-# `blueprintPublish` capability (mirrors how it appends `?k=<ATLAS_TOOL_SECRET>`);
-# the tool sets a per-session `atlas_bp=<secret>` cookie and publishing requires
-# that the param/cookie EQUAL the secret. A bare `bp=1` is meaningless — every
-# atlas user already holds `?k=`, so a non-secret flag would let anyone publish.
-# When no publish secret is configured the tool falls back to dev/local rules:
-# open only if there's no tool secret at all (local) or the explicit env override.
-ATLAS_BLUEPRINT_SECRET = os.environ.get("ATLAS_BLUEPRINT_SECRET", "").strip()
-ATLAS_BLUEPRINT_PUBLISH = _truthy_env("ATLAS_BLUEPRINT_PUBLISH")
+# Who is calling and for which (client, project): a launcher-signed token (see
+# iw_common/launch.py); unset = open (local dev). Blueprint publishing — the
+# only WRITE path into the SHARED cross-project library — is the token's
+# `blueprintPublish` capability (see Handler._resolve_publish).
+GATE = launch.LaunchGate(aud="atlas", signing_env="ATLAS_TOOL_SIGNING_SECRET")
 
 # POST routes that write/remove ref images → their Handler method. Dispatched
 # from this table only (`Handler._post`), so every one of them mirrors staging
@@ -2038,21 +2019,29 @@ def resolve_atlas_to_manifest(atlas: str) -> str | None:
 def _tp_frame_to_region(name: str, f: dict) -> dict:
     """Convert ONE TexturePacker (json-hash) frame to the Atlas Maker snake_case
     region. Mirrors apps/launcher-api/scripts/lib/tpRegions.mjs::tpFrameToRegion
-    exactly: frame.x/y/w/h → on-page rect (w/h = unrotated trimmed size);
-    rotated bool; spriteSourceSize.x/y → off_x/off_y; sourceSize.w/h →
-    orig_w/orig_h."""
+    exactly: frame.x/y → on-page origin; frame.w/h → the unrotated trimmed
+    size; rotated bool; spriteSourceSize.x/y → off_x/off_y; sourceSize.w/h →
+    orig_w/orig_h.
+
+    A Sheet Maker `.json` exported before 2026-11-10 swapped a ROTATED frame's
+    w/h to its page footprint; such a frame is exactly its `spriteSourceSize`
+    transposed (and not square), so it is read back upright here — the rule
+    `editorRegions.ts::uprightFrameSize` applies (see `iw_common.texturepacker`)."""
     fr = (f.get("frame") if isinstance(f, dict) else None) or {}
     fw = int(fr.get("w") or 0)
     fh = int(fr.get("h") or 0)
     sss = (f.get("spriteSourceSize") if isinstance(f, dict) else None) or {}
     src = (f.get("sourceSize") if isinstance(f, dict) else None) or {}
+    rotated = bool(isinstance(f, dict) and f.get("rotated"))
+    if rotated and fw != fh and sss.get("w") == fh and sss.get("h") == fw:
+        fw, fh = fh, fw
     return {
         "name": name,
         "x": int(fr.get("x") or 0),
         "y": int(fr.get("y") or 0),
         "w": fw,
         "h": fh,
-        "rotated": bool(isinstance(f, dict) and f.get("rotated")),
+        "rotated": rotated,
         "off_x": int(sss.get("x") or 0),
         "off_y": int(sss.get("y") or 0),
         "orig_w": int(src.get("w") or fw),
@@ -3198,15 +3187,7 @@ def _comfy_headers(comfy_env: dict) -> dict:
     """The headers the render subprocess sends with `comfy_env`: the per-user
     tunnel's CF Access token when a per-user record is in play (the shared one
     is dropped, so it never reaches another origin), else the shared ones."""
-    headers = dict(batch_atlas.CF_HEADERS)
-    if "COMFY_URL" in comfy_env:
-        headers = {k: v for k, v in headers.items()
-                   if not k.lower().startswith("cf-access")}
-        if comfy_env.get("CF_ACCESS_CLIENT_ID"):
-            headers["CF-Access-Client-Id"] = comfy_env["CF_ACCESS_CLIENT_ID"]
-        if comfy_env.get("CF_ACCESS_CLIENT_SECRET"):
-            headers["CF-Access-Client-Secret"] = comfy_env["CF_ACCESS_CLIENT_SECRET"]
-    return headers
+    return comfy.routed_headers(batch_atlas.CF_HEADERS, comfy_env)
 
 
 def resolve_user_comfy_env(user_id: str) -> dict:
@@ -3332,8 +3313,8 @@ def _comfy_answers(url: str, comfy_env: dict) -> bool:
     is in play, else the shared one — so "My computer" fails in a sentence
     before the render, not as a stack of upload timeouts inside it."""
     try:
-        comfy_catalog._http_get_json(f"{url.rstrip('/')}/system_stats",
-                                     _comfy_headers(comfy_env))
+        comfy.get_json(f"{url.rstrip('/')}/system_stats", _comfy_headers(comfy_env),
+                       comfy_catalog.PROBE_TIMEOUT)
         return True
     except Exception:  # noqa: BLE001 — not answering, whatever the reason
         return False
@@ -3645,7 +3626,7 @@ def _run_render(names: list[str], variants: int, user: str, job_ref: str,
         else:
             error = ("the render exited with code %s" % rc if rc is not None
                      else "the render did not start (see the render log)")
-    except Exception as e:  # noqa: BLE001 — record it; the panel already shows it
+    except Exception as e:  # record it; the panel already shows it
         error = str(e)
         raise
     finally:
@@ -8305,8 +8286,7 @@ async function createAtlas(){{
 // Opens the Region Overlay Inspector (not the bare page bytes): it draws each
 // manifest rect over the composed pixels and re-measures the art's real alpha
 // bbox, so a rect/pixel mismatch is visible + screenshottable. location.search
-// rides along so the tool bar's ?home/?tools switcher renders in the new tab
-// (and ?k= re-arms the gate cookie if this tab was the one that carried it).
+// rides along so the tool bar's ?home/?tools switcher renders in the new tab.
 function viewAtlas(){{
   var q=location.search||'';
   window.open('/atlasview'+q+(q?'&':'?')+'t='+Date.now(),'_blank');
@@ -8696,20 +8676,13 @@ def apply_region_edits(edits: list[dict]) -> str:
     return note + (f", {picks} variant pick(s))" if picks else ")")
 
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
+class Handler(iw_http.ToolHandler):
+    gate = GATE
+    tool_title = "Atlas Maker"
 
-    def _send_gate_cookies(self) -> None:
-        # The gate's Set-Cookie headers (a dict can't hold two).
-        for c in getattr(self, "_extra_cookies", None) or ():
-            self.send_header("Set-Cookie", c)
-
-    def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None):
+    def _send(self, code, ctype, body: bytes, extra_headers: dict | None = None, *,
+              no_store: bool = True):
         self._responded = True
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
         merged = dict(extra_headers or {})
         # Every doc this request loaded or wrote, as the page must now hold it
         # (etag + saved_by.rev). The page's fetch wrapper adopts these for the
@@ -8718,51 +8691,18 @@ class Handler(BaseHTTPRequestHandler):
         vers = doc_sync.versions()
         if vers:
             merged.setdefault("X-IW-Doc-Versions", docsave.encode_versions(vers))
-        # Default to no-store (config/JSON/HTML are dynamic). A caller that wants
-        # a cacheable response (image routes, via imgcache.cache_headers) passes
-        # its own Cache-Control, which then wins — don't emit both.
-        if "Cache-Control" not in merged:
-            self.send_header("Cache-Control", "no-store")
-        for k, v in merged.items():
-            self.send_header(k, v)
-        self._send_gate_cookies()
-        self.end_headers()
-        self.wfile.write(body)
+        super()._send(code, ctype, body, merged, no_store=no_store)
 
-    def _authenticate(self) -> bool:
-        """Who is calling and for which (client, project) — see
-        iw_common/launch.py. Answers the request itself and returns False on a
-        refusal, and on a launch (the redirect that takes the token out of the
-        URL once the session cookie is set)."""
-        res = GATE.authenticate(self.path, self.headers)
-        self._identity = res.identity
-        self._extra_cookies = list(res.cookies)
-        if not res.ok:
-            self._send(403, "text/plain; charset=utf-8",
-                       "Forbidden — open the Atlas Maker from the launcher."
-                       .encode("utf-8"))
-            return False
-        if res.redirect and self.command == "GET":
-            self._send(303, "text/plain", b"", {"Location": res.redirect})
-            return False
-        return True
+    def _switch_context(self, client: str, project: str) -> None:
+        """Missing keys fall back to `ATLAS_CLIENT` / `ATLAS_PROJECT`. The path
+        proxies (BATCH_DIR / INPUT_DIR / ...) and project_paths.resolve() read
+        this thread's context."""
+        project_paths.switch_context(client, project)
 
     def _resolve_context(self) -> None:
-        """Apply the caller's (client, project) to THIS request thread.
-
-        With a signed launch the scope comes from the token/session ONLY — a
-        `?client=` / `?project=` in the URL is ignored, and switching project
-        goes back through the launcher. The legacy/open modes keep the old
-        query-then-cookie resolution (done in the gate). Missing keys fall back
-        to the env default (`ATLAS_CLIENT` / `ATLAS_PROJECT`).
-
-        Thread-local: a concurrent request for a different project is fully
-        isolated; the path proxies (BATCH_DIR / INPUT_DIR / ...) and
-        project_paths.resolve() read this thread's context."""
-        ident = self._identity
         # Per-user ComfyUI routing (per-user-comfyui-routing.md) keys on this.
-        self._user_id = ident.sub
-        project_paths.switch_context(ident.client, ident.project)
+        self._user_id = self._identity.sub
+        super()._resolve_context()
 
     # The POSTs that act on "the atlas" (the selected one, unless pinned): a
     # Director call must name it. Library, video and create-by-name routes
@@ -8822,60 +8762,26 @@ class Handler(BaseHTTPRequestHandler):
                 "client": project_paths.client_name(),
                 "project": project_paths.project_name()}
 
-    # Back-compat alias — kept so any legacy in-process call still works.
-    def _resolve_project(self) -> None:
-        self._resolve_context()
-
     def _resolve_publish(self) -> None:
         """Decide whether THIS request may publish a blueprint and set
         `self.can_publish` (read by `_uploadblueprint` and exposed to the page
         so the "＋ New blueprint" affordance only shows when allowed).
 
-        Mirrors the legacy `?k=` secret handling in the gate: the launcher hands off
-        `bp=<ATLAS_BLUEPRINT_SECRET>` ONLY for users holding `blueprintPublish`,
-        and we require the param/cookie to EQUAL that secret. We stick it in a
-        session cookie `atlas_bp=<secret>` (same attributes as the gate's
-        `atlas_tool` cookie) so the capability survives the in-tool navigations
-        that drop the param. A non-secret flag would be forgeable — every atlas
-        user already holds the read secret, so `bp=1` would gate nothing.
+        A signed caller may publish iff its token carries `blueprintPublish`
+        (the launcher puts it there only for users holding the capability; a
+        session keeps its launch's caps). Open mode is local dev and may.
 
-        With a signed launch the permission is the token's `blueprintPublish`
-        capability instead, and none of the secret handling below applies.
-
-        Must run AFTER `_authenticate()` (which initializes `_extra_cookies`)
-        so the extra Set-Cookie rides along on the response."""
+        Must run AFTER `_authenticate()` (which sets `_identity`)."""
         if self._identity.via == "token":
             self.can_publish = self._identity.can(launch.PUBLISH_CAP)
-            return
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        param_bp = q.get("bp", [""])[0]
-        cookie_bp = ""
-        for part in (self.headers.get("Cookie", "") or "").split(";"):
-            part = part.strip()
-            if part.startswith("atlas_bp="):
-                cookie_bp = part[len("atlas_bp="):]
-                break
-        if ATLAS_BLUEPRINT_SECRET:
-            # Production model: knowledge of the publish secret == permission.
-            if param_bp == ATLAS_BLUEPRINT_SECRET and cookie_bp != ATLAS_BLUEPRINT_SECRET:
-                self._extra_cookies.append(
-                    f"atlas_bp={ATLAS_BLUEPRINT_SECRET}; Path=/; HttpOnly; "
-                    "SameSite=None; Secure")
-            self.can_publish = (
-                param_bp == ATLAS_BLUEPRINT_SECRET
-                or cookie_bp == ATLAS_BLUEPRINT_SECRET)
         else:
-            # No publish secret configured → dev/local fallback: allow only when
-            # the tool runs fully open (no read secret) or the explicit env
-            # override is set. Fail safe (closed) when a read secret is set but
-            # no publish secret is — never forgeable-open in a deployed tool.
-            self.can_publish = bool(not ATLAS_TOOL_SECRET or ATLAS_BLUEPRINT_PUBLISH)
+            self.can_publish = self._identity.via == "open"
 
     def _handle_deeplink(self, qs: dict) -> bool:
         """Editor "Open in Atlas Maker" deep-link (shared URL contract).
 
         The editor/launcher sends the user to `/?atlas=<sheetFile>&region=<key>`
-        (plus k/client/project/home). When `atlas` is present we resolve it to
+        (plus the launch token and home). When `atlas` is present we resolve it to
         the generation manifest that OWNS it and make that the active manifest,
         optionally flashing the region's card. When NO Atlas Maker recipe owns
         the atlas, we auto-import the existing TexturePacker/editor sheet into a
@@ -9234,9 +9140,10 @@ class Handler(BaseHTTPRequestHandler):
                        bases=docsave.parse_bases(raw_bases) if raw_bases else None)
         length = int(self.headers.get("Content-Length", 0))
         # The tool's own page POSTs to BARE paths and carries its (client, project)
-        # in cookies. The launcher proxy has no cookies, so it MUST append
-        # `?k=&client=&project=&user=` — and a raw `self.path` comparison never
-        # matches a proxied POST, so the route silently falls through to the 404.
+        # in cookies. The launcher proxy has no cookies, so a call to an open dev
+        # tool appends `?client=&project=&user=` — and a raw `self.path`
+        # comparison never matches a proxied POST, so the route silently falls
+        # through to the 404.
         # GET has always parsed (see do_GET); this makes POST agree. Every bare
         # path is unchanged by the parse, so the tool's own calls behave exactly
         # as before — the only difference is that a proxied call now resolves.
@@ -11669,7 +11576,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload["eur"] = round(bal * rate, 2)
         except urllib.error.HTTPError as e:
             payload = {"ok": False, "error": f"HTTP {e.code}"}
-        except Exception as e:  # noqa: BLE001 — header must never break the UI
+        except Exception:  # noqa: BLE001 — header must never break the UI
             payload = {"ok": False, "error": "unreachable"}
         if payload.get("ok"):
             c["payload"], c["t"] = payload, now   # only cache good reads

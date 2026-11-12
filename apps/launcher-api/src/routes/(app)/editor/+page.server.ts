@@ -24,7 +24,13 @@ import {
 	LOSS_LIMIT_TEXT_OPTIONS,
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
 } from 'constants-shared/autoSpins';
-import { noJackpotTiers, projectAddOns, respinMaxRows, respinModesOf } from '$lib/addOns';
+import {
+	noJackpotTiers,
+	projectAddOns,
+	respinMaxRows,
+	respinModesOf,
+	sceneSetOptionsFor,
+} from '$lib/addOns';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
@@ -36,7 +42,7 @@ import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName, storedProjectGameType } from '$lib/server/projects';
-import { ConflictError } from '$lib/server/r2';
+import { conflictFailure } from '$lib/server/conflict';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
@@ -353,6 +359,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			label,
 			...(maxRows ? { maxRows } : {}),
 		})),
+		// A Hold and Win whose respin mode draws enhancements: the set gains the Enhancements screen and
+		// its two banners (`sceneSetOptionsFor`'s rule).
+		enhancements: Boolean(sceneSetOptionsFor(resolvedGameType, gameConfigDoc).enhancements),
 		// Every spins mode: "Add missing screens" seeds each one's free-spin screens, tagged with its id.
 		spinsModes: spinsModes.map((mode) => ({ id: mode.id, label: mode.label ?? mode.id })),
 		// The board each spins mode plays on, by mode id: In-game view draws the reel grid at it while
@@ -403,17 +412,6 @@ export const actions: Actions = {
 		// deliberately a separate field rather than an omitted etag, so an unguarded
 		// write is always an explicit choice in the payload, never an accident.
 		const baseEtag = writeBaseEtagForm(form);
-		// Someone else saved this project since this tab loaded it. Refuse rather than overwrite
-		// their work — and return `fail`, NOT `error()`, so the client's envelope parser can read
-		// the reason. The client keeps its local doc and stays dirty; nothing here may discard it.
-		const conflict = () =>
-			fail(409, {
-				action: 'save' as const,
-				error:
-					'Someone else saved this project while you were editing. ' +
-					'Your changes are still here — reload to get their version first.',
-				conflict: true as const,
-			});
 		// `backup: 'always'` = "this save is committing a DESTRUCTIVE layout swap" (a scaffold /
 		// custom-kind / reference load the author accepted). Those are exactly the writes someone
 		// wants back, and they are rare, so they bypass the autosave coalescing window in
@@ -434,7 +432,15 @@ export const actions: Actions = {
 				backup,
 			));
 		} catch (e) {
-			if (e instanceof ConflictError) return conflict();
+			// Someone else saved this project since this tab loaded it. Refuse rather than overwrite
+			// their work; the client keeps its local doc and stays dirty.
+			const conflict = conflictFailure(
+				e,
+				'Someone else saved this project while you were editing. ' +
+					'Your changes are still here — reload to get their version first.',
+				{ action: 'save' as const },
+			);
+			if (conflict) return conflict;
 			throw e;
 		}
 		// Non-blocking template validation (§7.1): flag any required slot the

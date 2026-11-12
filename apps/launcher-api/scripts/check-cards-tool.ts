@@ -7,7 +7,8 @@
  *  1. THE FORM OFFERS ONLY VALID EFFECTS. Every trigger × verb × target kind × side × include the
  *     form offers, on a unit and on a spell, makes an effect `validateLibrary` passes; and every
  *     combination the validator accepts is offered (the form hides nothing the rules allow).
- *     `fitEffect` repairs whatever it is given into a valid effect.
+ *     `fitEffect` repairs whatever it is given into a valid effect. C5's `allFriendly` and
+ *     `gainResource` are offered where the validator takes them.
  *  2. THE EDITS MIRROR THE NORMALIZER: each card and deck edit leaves the doc exactly as a save
  *     would store it, and refused edits (a summoned card, a taken id) leave it alone.
  *  3. THE RULES TEXT is `cardText` for a valid card and none for a card with errors; the preview's
@@ -15,6 +16,8 @@
  *  4. THE TEST MATCH uses the game's modules: its match is the very match the game's
  *     `cardSession.ts` deals from the same config and seed, and the device's moves are the same;
  *     a match replays from its record (`replayMatch`); "Run 100" is seeds 1 … 100, deterministic.
+ *     Under the `mixed` turn order too, where the player attacks in main; a strict record is as
+ *     before (it names no turn order).
  *  5. SAVING AND ACCESS: the page saves through `PUT /api/game-config` under the `gameConfig` lease
  *     with the read etag; the load refuses (403) without the Card Library grant and without the Game
  *     Config grant, before it reads anything; every role holding Game Config holds the Card Library.
@@ -102,6 +105,7 @@ const fields: Record<CardEffect['verb'], Record<string, unknown>> = {
 	buff: { attack: 1, health: 1, until: 'endOfTurn' },
 	destroy: {},
 	giveKeyword: { keyword: 'guard' },
+	gainResource: { amount: 2 },
 };
 const targetsFor = (kind: Target['kind']): Target[] =>
 	kind === 'self'
@@ -176,6 +180,44 @@ check(
 	canon(edit.includeChoices('buff')) === canon(['units']),
 );
 check('1. no summon offered without a unit to summon', !edit.verbChoices([]).includes('summon'));
+check(
+	'1. allFriendly is offered for every verb with a target, under every trigger (C5)',
+	CARD_TRIGGERS.every((trigger) =>
+		(['damage', 'heal', 'buff', 'destroy', 'giveKeyword'] as const).every((verb) =>
+			edit.targetChoices({ type: 'unit' }, trigger, verb).includes('allFriendly'),
+		),
+	),
+);
+check(
+	'1. gainResource is offered with no target, under every trigger (C5)',
+	edit.verbChoices(library).includes('gainResource') &&
+		CARD_TRIGGERS.every(
+			(trigger) => edit.targetChoices({ type: 'unit' }, trigger, 'gainResource').length === 0,
+		),
+);
+same(
+	'1. gainResource keeps its amount in range',
+	edit.fitEffect(
+		{ type: 'spell' },
+		{ trigger: 'onPlay', verb: 'gainResource', amount: 99 },
+		library,
+	),
+	{ trigger: 'onPlay', verb: 'gainResource', amount: 10 },
+);
+same(
+	'1. a target off chosen falls back to a random enemy, as before C5',
+	edit.fitEffect(
+		{ type: 'unit' },
+		{ trigger: 'onDeath', verb: 'damage', amount: 1, target: { kind: 'nowhere' } as never },
+		library,
+	),
+	{
+		trigger: 'onDeath',
+		verb: 'damage',
+		amount: 1,
+		target: { kind: 'randomEnemy', include: 'units' },
+	},
+);
 for (const junk of [
 	{},
 	{ verb: 'explode', trigger: 'never', amount: 99, target: { kind: 'everyone' } },
@@ -414,6 +456,38 @@ for (const card of library)
 	check('4. Run 100 plays 100', a?.played === 100);
 	same('4. Run 100 is deterministic', a, b);
 	check('4. Run 100 adds up', !!a && a.wins[0] + a.wins[1] + a.draws === 100);
+	check(
+		'4. a strict record names no turn order (its replay is what it was before C5)',
+		!('turnOrder' in recordFor(sample, seats, 3).rules),
+	);
+	const mixed = fresh();
+	mixed.card!.rules = { ...mixed.card!.rules, turnOrder: 'mixed' };
+	for (const seed of [1, 'mixed']) {
+		const session = createCardSession(mixed, { seed, deck: player.id });
+		const record = recordFor(mixed, [seatFor(player), seatFor(ai)], seed, 0);
+		same(`4. mixed seed ${seed}: the record names the turn order`, record.rules.turnOrder, 'mixed');
+		const run = createTestMatch(record);
+		let attacksInMain = 0;
+		for (let step = 0; step < 400 && !session.match.result; step++) {
+			if (session.match.active === DEVICE) {
+				session.deviceStep();
+				run.aiStep();
+			} else {
+				const legal = session.legal();
+				const action = legal.find((a) => a.type === 'attack') ?? legal[0];
+				if (action.type === 'attack' && session.match.phase === 'main') attacksInMain++;
+				session.act(action);
+				run.act(action);
+			}
+		}
+		same(`4. mixed seed ${seed}: the game's whole match`, run.match, session.match);
+		check(`4. mixed seed ${seed}: the player attacks in main`, attacksInMain > 0);
+		same(
+			`4. mixed seed ${seed}: replays from its record`,
+			replayMatch(run.replay()).match,
+			run.match,
+		);
+	}
 	const src = readFileSync(here('../src/lib/cards/testMatch.ts'), 'utf8');
 	check(
 		'4. the test match imports the rules and the AI from engine-mechanics',

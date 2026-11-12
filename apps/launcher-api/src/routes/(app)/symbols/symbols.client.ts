@@ -152,6 +152,8 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'An upgrade special APPLYING — raising the coins around it, every coin, or a jackpot coin a tier. Leave a cell empty to reuse this symbol’s Win binding.',
 	rowUnlock:
 		'An unlock symbol APPLYING — opening a locked row of an expanding board before it leaves. Leave a cell empty to reuse this symbol’s Win binding.',
+	coinEnhance:
+		'A cash coin a BOOST or MULTIPLY enhancement hits as it lands (a collector bonus) — its beam arriving while the value counts up. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
 /** The token's reading of its three states, for a pots overlay host without the respin feature —
@@ -701,6 +703,10 @@ export interface SymbolsDoc {
 	 *  own cell stops, not when every landed coin sticks after the last cell has stopped. Sparse and
 	 *  default OFF: absent ⇒ Land plays at the stick, exactly as before this existed. */
 	respinLandOnStop?: { enabled?: boolean };
+	/** "Jackpot coins have their own art" — a coin carrying a jackpot tier draws its tier's row of
+	 *  `symbols` (`COIN:MINI`) when bound. Sparse and default OFF: absent ⇒ every coin draws the coin's
+	 *  art, and the export ships no tier row. */
+	jackpotCoinArt?: { enabled?: boolean };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -724,8 +730,8 @@ export interface SymbolsDoc {
 	 *  `bundle.symbols.coinLabel`. */
 	coinLabel?: CoinLabelConfig;
 	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
-	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `unlockRow`, `toMeter`,
-	 *  `toMeter:<id>`). Sparse: absent ⇒ every flight flies the coded glow. Normalized by
+	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `unlockRow`, `enhancementBeam`,
+	 *  `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the coded glow. Normalized by
 	 *  `engine-layout`'s `normalizeFlights` on both sides of the save.
 
 	 *  Passed through verbatim to `bundle.symbols.flights`. */
@@ -775,7 +781,8 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 		state === 'flyToMeter' ||
 		state === 'respinsAdd' ||
 		state === 'coinUpgrade' ||
-		state === 'rowUnlock'
+		state === 'rowUnlock' ||
+		state === 'coinEnhance'
 	)
 		return 'win';
 	return null;
@@ -1309,6 +1316,20 @@ export function setArrivalReleaseEnabled(doc: SymbolsDoc, enabled: boolean): Sym
 	const next = { ...doc };
 	if (enabled) next.arrivalRelease = { enabled: true };
 	else delete next.arrivalRelease;
+	return next;
+}
+
+/** The effective "Jackpot coins have their own art" flag. Defaults to `false` (byte-parity). */
+export function jackpotCoinArtEnabled(doc: SymbolsDoc): boolean {
+	return doc.jackpotCoinArt?.enabled ?? false;
+}
+
+/** Turn "Jackpot coins have their own art" on/off. OFF deletes the key and KEEPS the tier rows, so
+ *  flicking it back on restores the art; the export ships them only while it is on. */
+export function setJackpotCoinArt(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.jackpotCoinArt = { enabled: true };
+	else delete next.jackpotCoinArt;
 	return next;
 }
 
@@ -1891,6 +1912,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		arrivalRelease: doc.arrivalRelease?.enabled === true ? true : null,
 		// And again for the respin board's land timing.
 		respinLandOnStop: doc.respinLandOnStop?.enabled === true ? true : null,
+		jackpotCoinArt: doc.jackpotCoinArt?.enabled === true ? true : null,
 		bookVfx,
 		transition,
 		tumblePattern,

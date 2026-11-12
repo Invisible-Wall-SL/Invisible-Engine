@@ -30,7 +30,6 @@
 		"components-pixi": "workspace:*",
 		"components-ui-pixi": "workspace:*",
 		"engine-layout": "workspace:*",
-		"engine-flow": "workspace:*",
 		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
 		"game-config": "workspace:*",

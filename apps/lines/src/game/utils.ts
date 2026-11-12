@@ -5,6 +5,7 @@ import {
 	drainedMeters,
 	isHoldAndWinEvent,
 } from 'engine-game';
+import { jackpotArtKey } from 'engine-layout';
 import { HOLD_AND_WIN_MODE } from 'game-config';
 
 import { activeWinLevelData, getActiveGameConfig } from './gameConfig';
@@ -18,7 +19,6 @@ import {
 	showAllWinLines,
 	winsOnThisBoard,
 } from './flowEffects';
-import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { trackCascadeStep } from './soundBindings';
@@ -30,7 +30,7 @@ import {
 	startWinCycle,
 	stopWinCycle,
 } from './winSymbolCycle';
-import { bakedWinLineConfig } from '../editor-scenes';
+import { bakedJackpotCoinArt, bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import { activeRespinMode } from './activeRespinMode.svelte';
 import { holdBeforeRespin } from './respinHold.svelte';
@@ -50,9 +50,14 @@ import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
  * Constructed here rather than in `symbolMap.ts` so the ten components that import `getSymbolInfo`
  * from `../game/utils` keep the import they already have.
  */
-export const { getSymbolInfo, hasAuthoredSymbolState } = createSymbolInfo({
+export const { getSymbolInfo, hasAuthoredSymbolState, symbolArtName } = createSymbolInfo({
 	symbolMap,
 	drawsPlaceholder: (name) => symbolPlaceholder(getActiveGameConfig(), name) !== undefined,
+	// A jackpot coin's tier row, only while "Jackpot coins have their own art" is on.
+	tierArtKey: (rawSymbol) =>
+		rawSymbol.jackpot !== undefined && bakedJackpotCoinArt()
+			? jackpotArtKey(rawSymbol.name, rawSymbol.jackpot)
+			: undefined,
 });
 
 /**
@@ -62,7 +67,6 @@ export const { getSymbolInfo, hasAuthoredSymbolState } = createSymbolInfo({
  */
 export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } = createPlayBook({
 	bookEventHandlerMap,
-	getFlowInterpreter,
 	getFlowV2,
 	eventEmitter,
 	runBookEventPresentation,

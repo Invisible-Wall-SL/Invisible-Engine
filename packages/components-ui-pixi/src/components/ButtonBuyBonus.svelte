@@ -13,7 +13,11 @@
 	const { stateXstateDerived, eventEmitter } = getContext();
 	const sizes = { width: UI_BASE_SIZE, height: UI_BASE_SIZE };
 	const disabled = $derived(!stateXstateDerived.isIdle());
-	const active = $derived(stateBetDerived.activeBetMode()?.type === 'activate');
+	// An ante that is the HUD's own switch (`toggle`) is not this button's to disable.
+	const active = $derived(
+		stateBetDerived.activeBetMode()?.type === 'activate' &&
+			!stateBetDerived.activeBetMode()?.toggle,
+	);
 
 	const openModal = () => (stateModal.modal = { name: 'buyBonus' });
 	const disableActiveBetMode = () => (stateBet.activeBetModeKey = 'BASE');

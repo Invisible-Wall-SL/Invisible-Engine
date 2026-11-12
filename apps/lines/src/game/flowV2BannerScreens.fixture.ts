@@ -62,7 +62,9 @@ const ids = (doc: FlowDoc, scenes: Scene[]) => decide(doc, scenes).map(({ scene 
 const bannersIn = (scenes: Scene[]) =>
 	scenes.filter((s) => SELF_MOUNTED_BANNER_SCREENS.includes(modeSceneBaseId(s))).map((s) => s.id);
 
-const HW_SCENES = scenesOf('holdAndWin');
+// The collector bonus's two banner screens come with the reference layout's `enhancements` option.
+const OPT_IN_BANNERS = ['enhancementsBanner', 'superBonusBanner'];
+const HW_SCENES = scenesOf('holdAndWin', { enhancements: true });
 const HW_SEED = freshDrivenSeedDoc('holdAndWin');
 
 console.log('1. the starter flows mount every new banner screen');
@@ -93,7 +95,9 @@ const COIN_SCENES = scenesOf('holdAndWin', { coinBoard: true });
 check(
 	'the coin-board seed mounts the coin board’s (no pot banners: it has no pots)',
 	ids(freshDrivenSeedDoc('holdAndWin', { coinBoard: true }), COIN_SCENES).sort(),
-	SELF_MOUNTED_BANNER_SCREENS.filter((id) => !POT_BANNER_SCREENS.includes(id)).sort(),
+	SELF_MOUNTED_BANNER_SCREENS.filter(
+		(id) => !POT_BANNER_SCREENS.includes(id) && !OPT_IN_BANNERS.includes(id),
+	).sort(),
 );
 
 console.log('2. a respin mode’s copies mount too');

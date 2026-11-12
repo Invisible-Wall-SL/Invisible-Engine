@@ -86,7 +86,7 @@ export default [
 		// `turbo/no-undeclared-env-vars` guards turbo's cache keys: a task that
 		// reads an undeclared env var caches wrongly. Standalone CLI scripts are
 		// never run as turbo tasks, so the rule has nothing to protect there.
-		files: ['**/scripts/**', 'services/**', '**/*.config.{js,mjs,ts}'],
+		files: ['**/scripts/**', 'services/**', 'tools/**', '**/*.config.{js,mjs,ts}'],
 		rules: { 'turbo/no-undeclared-env-vars': 'off' },
 	},
 

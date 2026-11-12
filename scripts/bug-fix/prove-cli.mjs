@@ -346,8 +346,8 @@ const LINKS = {
 	'proof-link-runner': join(HOME, 'actions-runner'),
 };
 const EDIT = {
-	src: join(WS, 'apps/launcher-api/src/lib/bugReports.ts'),
-	srcLine: 'export function bugBrief(bug: BriefInput, origin: string): string {',
+	src: join(WS, 'apps/launcher-api/src/lib/server/bugReports.ts'),
+	srcLine: 'export function parseBugNumber(param: string): number {',
 	pkg: join(WS, 'apps/launcher-api/package.json'),
 	pkgLine: '\t"name": "launcher-api",',
 };
@@ -616,7 +616,7 @@ const CALLS = [
 		{
 			file_path: EDIT.src,
 			old_string: EDIT.srcLine,
-			new_string: EDIT.srcLine.replace('bugBrief', 'bugBriefProof'),
+			new_string: EDIT.srcLine.replace('parseBugNumber', 'parseBugNumberProof'),
 		},
 	],
 	['t_read_pkg', 'Read', { file_path: EDIT.pkg }],

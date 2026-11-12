@@ -7,8 +7,9 @@ import {
 	getActiveScope,
 	setActiveProjectKey,
 } from '$lib/server/auth';
-import { UNASSIGNED_CLIENT, projectPrefix } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, canAccessProject, projectClientKey } from '$lib/server/projects';
+import { projectPrefix } from '$lib/server/projectPaths';
+import { clientKeyOf } from '$lib/server/projectLookup';
+import { DEFAULT_PROJECT_KEY, canAccessProject } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 
@@ -119,7 +120,7 @@ export async function sessionProjectScope(
 		await clearActiveProjectKey(sessionToken, scope.projectKey);
 	}
 	return {
-		clientKey: (await projectClientKey(DEFAULT_PROJECT_KEY)) ?? UNASSIGNED_CLIENT,
+		clientKey: await clientKeyOf(DEFAULT_PROJECT_KEY),
 		projectKey: DEFAULT_PROJECT_KEY,
 	};
 }
@@ -195,7 +196,7 @@ export async function resolveToolScope({
 		// does — explicit scoping must work for unassigned projects too. An unknown,
 		// stale, or RESTRICTED `?project=` (failed `canAccessProject`) is silently
 		// ignored below so a hand-typed param can never 500 or surface a bad pairing.
-		const clientKey = (await projectClientKey(requested)) ?? UNASSIGNED_CLIENT;
+		const clientKey = await clientKeyOf(requested);
 		// Sync the explicit choice into the session so the whole UI agrees.
 		await setActiveProjectKey(sessionToken, requested);
 		return { clientKey, projectKey: requested };
@@ -247,7 +248,7 @@ export async function requireProjectScope(
 	if (!(await canAccessProject(user.id, user.role, projectKey))) {
 		throw error(403, `You do not have access to the project "${projectKey}".`);
 	}
-	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const clientKey = await clientKeyOf(projectKey);
 	return { clientKey, projectKey };
 }
 

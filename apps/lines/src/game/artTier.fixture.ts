@@ -109,5 +109,17 @@ check('?tier=half on the cabinet', tierOf('4K cabinet (3840×2160 @1)', k4, 'hal
 check('?tier=full on a phone', tierOf('iPhone portrait (390×844 @3)', k4, 'full'), 'full');
 check('?tier=quarter is ignored', tierOf('iPhone portrait (390×844 @3)', k4, 'quarter'), 'half');
 
+console.log('7. a build pinned to one tier (IE_ART_TIER) loads only that one');
+const pinnedOn = (name: string, pinned: string, forced?: string) =>
+	chooseArtTier({ ...DEVICES[name], doc: k4, pinned, forced });
+check('pinned half on the cabinet', pinnedOn('4K cabinet (3840×2160 @1)', 'half'), 'half');
+check('pinned full on a phone', pinnedOn('iPhone portrait (390×844 @3)', 'full'), 'full');
+check(
+	'pinned full beats ?tier=half (that build shipped no half art)',
+	pinnedOn('iPhone portrait (390×844 @3)', 'full', 'half'),
+	'full',
+);
+check('an empty pin is no pin', pinnedOn('iPhone portrait (390×844 @3)', ''), 'half');
+
 if (failures) throw new Error(`${failures} art tier check(s) failed`);
 console.log('\n✓ art tier: all checks pass');

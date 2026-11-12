@@ -73,8 +73,9 @@ overlay add-on.
      expands over its reel (reels 2–4) and the clover grows a plus from reel 3 (reels 2–4 in free
      spins); the test server lands them at the reference game's rates, a fairy on about one spin in
      12 and a clover on about one in 8.
-   - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
-     only**. With **Lines game** it also shows a **Jackpots** dropdown:
+   - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default), **Coin board
+     only**, or **Lines game: collector + enhancements**. With **Lines game** it also shows a
+     **Jackpots** dropdown:
      **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain
      Hold and Win: a 5×3, 5-line base game with
      coin symbols on the base reels; 6 or more coins start 3 respins, every coin sticks, a new coin
@@ -114,6 +115,29 @@ overlay add-on.
      reads _No coin overlay preset fits this game type._: pots and dropped tokens are not built
      for a coin board. A project switched to the coin board later, in Game Config, keeps the
      screens and Flow it was created with.
+
+     **Lines game: collector + enhancements** makes the shape of the partner's collector bonus
+     game ([plan](../design/hold-and-win-enhancements.md), Getting Hot): 5×3 with 5 lines and the
+     partner's line paytable; coins (`COIN`, coin and jackpot) land on reels 1, 2, 4 and 5 and the
+     collector (`COLLECT`) on reel 3, which collects every coin in view in the base game. 3 coins
+     or collectors in a row start 3 respins where only the collectors stick; the server draws the
+     enhancements (Expand, Boost, Multiply, Respin) and the super bonus. The four MINI–GRAND
+     jackpots are always on (the Jackpots dropdown is hidden). The bet modes are keyed by the
+     partner's option names so its server reads them: an ante (**HEAT UP**, 5×, a HUD switch whose
+     reels roll only coins, collectors and blanks) and two buys (**COLLECTOR SPIN** 50×, **BUY
+     BONUS** 100×), each marked _Operator can switch off_. Rename the titles in Game Config → Bet
+     modes; the keys must stay. Every number other than the line pays is mock pacing: the partner's
+     server owns the math. The coin and collector are bound to placeholder art in Symbols. The
+     project gets an **Enhancements** screen (the four **Enhancement Dial**s above the board and a
+     **Collectors total** text) that the starter Flow shows from the first spin, as on the partner's
+     game: the dials stand unlit in the base game, light when a bonus draws them, and go back to
+     unlit when it ends; the total shows only in the bonus. It also gets an **ANTE** button
+     in the HUD bar, and a reel grid that leaves room for the 5 rows Expand and the super bonus
+     open. The two enhancement banners play their built-in look until you add their screens from
+     the banner popups in the [Scene Editor](invisible-editor.md). On the Invisible Test
+     Server it is dealt by the mock of the partner's wire (enhancements drawn, dials and beams
+     shown) with nothing to set up: its authoring links at once, its players from its next
+     **Publish**.
    - **Match-3** shows a **Who decides the result?** dropdown, with one line under it describing
      the choice. It starts on **Free play (rules)**:
      - **Free play (rules)** — _The game's own rules, no wallet._ (below).
@@ -259,6 +283,31 @@ Above the list is a browse toolbar, because the list only grows:
 
 The heading shows `N of M` whenever a filter is narrowing the list, and **Clear**
 resets every filter at once.
+
+### Play it on the partner's RGS (Partner…)
+
+A game the partner hosts (their Play4Fun RGS deals it; we build the client) needs the partner's
+own ID for it. **Partner…** on the card asks for it once:
+
+- **Partner game ID** — the partner's number for this game (Getting Hot is `8`, Book of Borut
+  `2`). Empty, or **Remove**, takes the buttons away again.
+- **Partner** — shown only when the launcher knows more than one partner; with one, it is used.
+- **Delivery alias** (optional) — the name our deliveries for this game are filed under. Empty
+  means the card's name without spaces, the partner's convention (`GettingHot`).
+
+Setting it needs the same access as **Publish**, and the button shows only when the launcher has a
+partner configured (`PARTNER_RGS`). Once set, the card shows **Partner: game 8…** and two buttons,
+each opening a new tab with a fresh session on the partner:
+
+- **▶ Partner** — our published game, dealt by the partner's RGS. Disabled until the game is
+  published. It opens in the language and currency picked beside **Play ↗**.
+- **▶ Partner page** — the partner's own page, loading the latest version we delivered for the
+  alias (📦 Deliver in the desktop launcher). Disabled, with the reason on hover, until something
+  has been delivered.
+
+When the partner refuses, the tab says why and what to do rather than showing raw JSON — for
+example _"The partner has banned your test player"_, naming the player and the fix: ask the
+partner to unban it, or add another of their pre-created players to `PARTNER_RGS.players`.
 
 ### Duplicate (reskin for another client)
 

@@ -151,6 +151,18 @@ const SEEDED_HOLD_AND_WIN_ROLES = new Set<string>(
 const hasSeededRole = (roles: string[] | undefined) =>
 	roles?.some((role) => SEEDED_HOLD_AND_WIN_ROLES.has(role)) ?? false;
 
+/** The placeholder a Hold and Win role draws with, for a symbol named outside the presets' set (the
+ *  partner's `COIN`, for one): the preset symbol carrying that role. */
+const ROLE_PLACEHOLDER: Record<string, string> = {
+	coin: 'BONUS',
+	jackpot: 'JACKPOT',
+	collector: 'COLLECT',
+	payer: 'BOOST',
+	coinMultiplier: 'MULTI',
+	mystery: 'MYSTERY',
+	unlock: 'UNLOCK',
+};
+
 /**
  * The symbols doc a `holdAndWin` project is scaffolded with, or `null` when nothing needs binding.
  *
@@ -159,7 +171,8 @@ const hasSeededRole = (roles: string[] | undefined) =>
  * bound draws no art. Every symbol of `config` that carries a Hold and Win role (a `blank` draws
  * nothing by design) gets its `holdAndWin.json` cells — type / assetKey / animationName only, since
  * they bind coded game assets the exporter leaves alone — on the states it plays and the ones those
- * borrow ({@link seededStates}).
+ * borrow ({@link seededStates}). A symbol without cells of its own takes its first role's
+ * ({@link ROLE_PLACEHOLDER}).
  */
 export function holdAndWinSymbolsSeed(config: GameConfigDoc | null): SymbolsDoc | null {
 	if (!config) return null;
@@ -168,7 +181,8 @@ export function holdAndWinSymbolsSeed(config: GameConfigDoc | null): SymbolsDoc 
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, symbol] of Object.entries(config.symbols)) {
 		if (!hasSeededRole(symbol.special_properties)) continue;
-		const cells = defaults[name];
+		const borrowed = symbol.special_properties?.map((role) => ROLE_PLACEHOLDER[role]).find(Boolean);
+		const cells = defaults[name] ?? (borrowed ? defaults[borrowed] : undefined);
 		if (!cells) {
 			console.warn(
 				`[symbols] ${name} has a Hold and Win role but no default art; bind it in /symbols`,

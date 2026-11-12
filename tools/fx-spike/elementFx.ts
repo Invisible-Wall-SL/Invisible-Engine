@@ -3930,14 +3930,15 @@ console.log('element fx — the wiring');
 	);
 	assert(
 		(symbol.match(/oncomplete=\{artComplete\}/g) ?? []).length === 3 &&
+			symbol.includes('oncomplete={art.sprite ? artComplete : undefined}') &&
 			symbol.includes('complete: artComplete,') &&
 			!/oncomplete=\{props\.oncomplete\}|complete: props\.oncomplete/.test(symbol) &&
-			symbol.includes(
-				'const artComplete = $derived(symbolFx ? () => gate.art() : props.oncomplete);',
+			/const artComplete = \$derived\(\s*props\.vacant \? undefined : symbolFx \? \(\) => gate\.art\(\) : props\.oncomplete,\s*\);/.test(
+				symbol,
 			) &&
 			symbol.includes('stateFxGate(waitsForFx, ownArt, () => {') &&
 			symbol.includes('if (visit === gate) props.oncomplete?.();'),
-		'every renderer reports through the gate when the symbol has FX, and straight through when it has none',
+		'every renderer reports through the gate when the symbol has FX, and straight through when it has none (a vacant reel view reports nothing)',
 	);
 	const board = read('apps/lines/src/components/Board.svelte');
 	assert(
@@ -3950,11 +3951,12 @@ console.log('element fx — the wiring');
 		'an explosion with only a melt authored still explodes; win and intro caps count an ending effect as authored',
 	);
 	assert(
-		/\{:else\}\s*\{@render bands\(\)\}\s*\{\/if\}/.test(symbol) &&
+		/\{#key fxKey\}\s*<Container>\s*\{@render bands\(\)\}/.test(symbol) &&
+			!/\{#if symbolFx\}/.test(symbol) &&
 			read('apps/lines/src/editor-scenes.ts').includes(
 				'return bakedBundle.symbols?.symbolFx ?? {};',
 			),
-		'a symbol with no FX draws as before; the baked symbols carry them',
+		'every symbol draws in its FX container, a plain one with no FX (`createFxKey` remounts it as the old `{#if}` did, but not at a view’s entry); the baked symbols carry them',
 	);
 	const vocab = read('packages/engine-flow-v2/src/reference/standardVocab.ts');
 	assert(

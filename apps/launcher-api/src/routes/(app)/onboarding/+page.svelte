@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import type { ToolDef } from '$lib/roles';
-	import { toolDocPath, roleLabel } from '$lib/roles';
+	import { toolDocSlug, roleLabel } from '$lib/roles';
 	import Emblem from '$lib/Emblem.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -34,7 +35,9 @@
 </script>
 
 {#snippet docLink(tool: ToolDef)}
-	<a class="doc" href={`/${toolDocPath(tool.id)}`}>Read the {tool.name} guide</a>
+	<a class="doc" href={resolve('/(app)/docs/[slug]', { slug: toolDocSlug(tool.id) })}
+		>Read the {tool.name} guide</a
+	>
 {/snippet}
 
 <svelte:head><title>Getting started — Invisible Wall</title></svelte:head>
@@ -42,7 +45,7 @@
 <div class="shell">
 	<header>
 		<div class="brand"><Emblem height={18} /> INVISIBLE WALL</div>
-		<a class="ghost" href="/">‹ Launcher</a>
+		<a class="ghost" href={resolve('/')}>‹ Launcher</a>
 	</header>
 
 	<h1>Welcome{data.user.name ? `, ${data.user.name}` : ''}</h1>
@@ -66,7 +69,7 @@
 		<ul class="how">
 			<li>
 				Open any <strong>online</strong> tool from the
-				<a href="/">launcher</a> — it fills the whole window, with nothing to install.
+				<a href={resolve('/')}>launcher</a> — it fills the whole window, with nothing to install.
 			</li>
 			<li>
 				<strong>Local</strong> tools run on your own computer (they need your GPU or a licence).

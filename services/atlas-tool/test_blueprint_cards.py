@@ -42,13 +42,12 @@ import time
 from pathlib import Path
 
 os.environ["ATLAS_STAGING"] = tempfile.mkdtemp(prefix="bp-cards-")
-for _k in ("ATLAS_TOOL_SECRET", "ATLAS_TOOL_SIGNING_SECRET", "RUNPOD_ENDPOINT_GPU"):
+for _k in ("ATLAS_TOOL_SIGNING_SECRET", "RUNPOD_ENDPOINT_GPU"):
     os.environ.pop(_k, None)
 
 import storage  # noqa: E402
 import blueprints  # noqa: E402
 import cards  # noqa: E402
-import doc_sync  # noqa: E402
 import ui_server as u  # noqa: E402
 from iw_common import docsave, launch  # noqa: E402
 
@@ -130,7 +129,6 @@ OWNER = launch.Identity(via="token", sub="owner", uid="u1", name="Owner",
 ARTIST = launch.Identity(via="token", sub="artist", uid="u2", name="Artist",
                          caps=(launch.PUBLISH_CAP,), token_typ="session",
                          issued_at=time.time())
-LEGACY = launch.Identity(via="legacy", sub="legacy")
 AGENT = launch.Identity(via="token", sub="owner", uid="u1", name="Owner",
                         caps=(launch.PUBLISH_CAP, launch.REVIEW_CAP),
                         act_tool="director", act_agent="atlas-technician", act_run="run1",
@@ -483,8 +481,6 @@ def test_review() -> None:
     matte()
     check("review without pipelineMerge refused",
           refused(lambda: save("matte", matte_card(), base_of("matte"), ARTIST, review=True)), True)
-    check("a legacy session cannot review",
-          refused(lambda: save("matte", matte_card(), base_of("matte"), LEGACY, review=True)), True)
     check("an agent cannot review", refused(lambda: save("matte", matte_card(), base_of("matte"),
                                                          AGENT, review=True)), True)
     check("an agent cannot save a draft either",
@@ -523,8 +519,7 @@ def test_review() -> None:
     check("a changed graph makes the reviewed card stale",
           cards.effective_status(stored("matte"), blueprints.get_blueprint("matte")), "stale")
     check("...and so does a deleted blueprint", cards.effective_status(stored("matte"), None), "stale")
-    check("can_review: open dev gate yes, legacy no",
-          (cards.can_review(launch.Identity(via="open")), cards.can_review(LEGACY)), (True, False))
+    check("can_review: open dev gate yes", cards.can_review(launch.Identity(via="open")), True)
 
 
 class UploadHandler:
@@ -780,8 +775,8 @@ def ids(h: RouteHandler) -> list[str]:
 def test_listing() -> None:
     reset()
     for bp_id in ("good", "rough", "old"):
-        matte_bp = publish(bp_id, MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
-                                                "output": {"node": "3"}}, MATTE_PARAMS)
+        publish(bp_id, MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
+                                     "output": {"node": "3"}}, MATTE_PARAMS)
     publish("clip", MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
                                   "output": {"node": "3"}}, MATTE_PARAMS, kind="video")
     publish("sdxl", GEN_GRAPH, {"positive": {"node": "1", "field": "text"}, "output": {"node": "3"}})
@@ -924,8 +919,7 @@ def test_review_needs_a_recent_browser_launch() -> None:
     check("GET /card says why the review button is gone",
           (v["canReview"], v["reviewNeedsRelaunch"]), (False, True))
     check("nothing was reviewed", stored("matte")["status"], "draft")
-    gate = launch.LaunchGate(aud="atlas", signing_env="T_SIGN", legacy_env="T_LEGACY",
-                             legacy_cookie="t", legacy_header="X-T")
+    gate = launch.LaunchGate(aud="atlas", signing_env="T_SIGN")
     os.environ["T_SIGN"] = "s" * 32
     try:
         now = int(time.time())

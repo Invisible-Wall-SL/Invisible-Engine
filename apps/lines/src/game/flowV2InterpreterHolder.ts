@@ -1,14 +1,12 @@
 /**
- * Invisible Flow v2 — the interpreter-handle holder (Phase 4b).
+ * Invisible Flow v2 — the interpreter-handle holder.
  *
- * The v2 runtime needs the LIVE editor doc (loaded async at boot), so — like the v1
- * `flowInterpreterHolder` — Game.svelte builds the handle once the doc resolves and stows it
- * here; the book-event play path (`playBook.ts`) reads it to decide, per event, whether a v2
- * flow drives the presentation.
+ * The v2 runtime needs the LIVE editor doc (loaded async at boot), so Game.svelte builds the
+ * handle once the doc resolves and stows it here; the book-event play path (`playBook.ts`) reads
+ * it to decide, per event, whether a v2 flow drives the presentation.
  *
- * ABSENT by default (no `__IE_FLOW_V2_DOC__` ⇒ `createLinesFlowV2` returns `undefined` ⇒ nothing
- * is set), so `flowV2` stays `undefined` and every book event runs its v1/coded path — the game
- * is byte-identical to current `main`. v2 is a DEV-gated opt-in for now (Phase 5 hard-cuts v1).
+ * ABSENT when no v2 doc is baked or injected (`createLinesFlowV2` returns `undefined`), so every
+ * book event runs its coded handler.
  */
 
 import { stepFlowState } from 'engine-flow-v2';
@@ -45,13 +43,13 @@ export const setFlowV2 = (handle: LinesFlowV2 | undefined): void => {
 	if (typeof globalThis !== 'undefined') globalThis.__IE_FLOW_V2__ = handle;
 };
 
-/** The active v2 handle, or `undefined` when no v2 FlowDoc is authored (v1/coded path owns). */
+/** The active v2 handle, or `undefined` when no v2 FlowDoc is authored (the coded path owns). */
 export const getFlowV2 = (): LinesFlowV2 | undefined => flowV2;
 
 /**
  * Dispatch a NON-book game event (a lifecycle/signal like `load`, or an intent) into the v2 flow.
  * Runs v2 ALONE when the flow OWNS the event (returns `true`); returns `false` when v2 doesn't own
- * it, so the caller runs its v1/coded path unchanged (parity). No v2 doc ⇒ always `false`.
+ * it, so the caller runs its coded path unchanged (parity). No v2 doc ⇒ always `false`.
  */
 export const dispatchFlowV2Event = async (
 	name: string,
@@ -102,10 +100,10 @@ export const resolveFlowV2Press: FlowPressResolver = (
  *      that hold (`mount.complete`), so the SAME exec chain resumes past the show node (show → hide →
  *      next), no separate event needed. This is the common overlay pattern.
  *   2. HANDOFF — the flow authors a dedicated `complete:<id>` event (hide self + show the next screen).
- *      The tap dispatches it. This is what the v1→v2 translator emits.
+ *      The tap dispatches it.
  *
- * Runs v2 ALONE when either resolves (returns `true`); else `false` so the v1 `completeActiveScreen`
- * path runs (parity). No v2 doc / nothing held-or-authored ⇒ `false`.
+ * Runs v2 ALONE when either resolves (returns `true`); else `false` so the boot screens' swap
+ * (`bootScreens.ts`) runs (parity). No v2 doc / nothing held-or-authored ⇒ `false`.
  */
 export const dispatchFlowV2Complete = async (): Promise<boolean> => {
 	const h = flowV2;

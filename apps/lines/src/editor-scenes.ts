@@ -45,6 +45,7 @@ import { chooseArtTier, type ArtTier } from './game/artTier';
 import { gameAssetsBase } from './game/assets';
 import { fallbackEditorScenes } from './game/fallbackLayout';
 import type { StockAssetData } from './game/stockAssets';
+import { stockAssetDataOf } from './game/stockAssetData';
 import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
 
 export { fallbackEditorScenes };
@@ -470,6 +471,10 @@ type BakedBundle = {
 		 * plays its `land` as its own respin cell stops instead of when the coins stick after every
 		 * cell has stopped. Absent ⇒ off (byte-parity). See `engine-game`'s `respinStopState`. */
 		respinLandOnStop?: { enabled?: boolean };
+		/** "Jackpot coins have their own art" (Invisible Symbols State Machine): a coin carrying a
+		 * jackpot tier draws the map row `<coin>:<TIER>` when it is bound (`engine-layout`'s
+		 * `jackpotCoinArt.ts`). Absent ⇒ off, and every coin draws its own art (byte-parity). */
+		jackpotCoinArt?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -706,6 +711,7 @@ function artTier(): ArtTier {
 	if (typeof window === 'undefined') return 'full';
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	chosenArtTier = chooseArtTier({
+		pinned: typeof __IE_ART_TIER__ === 'string' ? __IE_ART_TIER__ : null,
 		forced: new URLSearchParams(window.location.search).get('tier'),
 		window: {
 			width: window.innerWidth,
@@ -991,52 +997,15 @@ export function rigFxEffectIds(): Set<string> {
 	return ids;
 }
 
-/** Bundle sections the stock-asset walk reads in their own right (the doc, the defs through the
- *  component registry, the config through `getActiveGameConfig`, the symbols), or that only index
- *  the project's own files and text (art, fonts, sounds, localization). Every OTHER section is read
- *  for names, so one added later counts without anyone remembering this list. */
-const STOCK_DATA_READ_ELSEWHERE = new Set([
-	'doc',
-	'componentDefs',
-	'componentVersions',
-	'componentDefaults',
-	'config',
-	'symbols',
-	'effects',
-	'rigFx',
-	'shaderEffects',
-	'editorArt',
-	'fonts',
-	'sounds',
-	'localization',
-	'assetBase',
-	'name',
-]);
-
 /**
- * What the stock-asset filter (`game/stockAssets.ts`) reads before the loader starts: the layout
- * this boot mounts — as `loadEditorScenes` resolves it — and every authored doc it renders from.
- * `undefined` when the boot has no doc yet: a dev or live-doc boot fetches its layout after the
- * loader has its list, so it keeps every stock asset.
+ * What the stock-asset filter (`game/stockAssets.ts`) reads before the loader starts
+ * (`game/stockAssetData.ts`). `undefined` when the boot has no doc yet: a dev or live-doc boot
+ * fetches its layout after the loader has its list, so it keeps every stock asset.
  */
 export function bootStockAssetData(): StockAssetData | undefined {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source?.doc) return undefined;
-	return {
-		doc: normalizeHudScenes(source.doc),
-		symbols: source.symbols as StockAssetData['symbols'],
-		effects: source.effects ?? [],
-		rigFx: source.rigFx ?? {},
-		other: Object.entries(source)
-			.filter(([section]) => !STOCK_DATA_READ_ELSEWHERE.has(section))
-			.map(([, value]) => value),
-		editorArt: source.editorArt,
-		componentDefs: [
-			...Object.values(source.componentDefs ?? {}),
-			...(source.componentVersions ?? []),
-		],
-		artReferences: [source.componentDefaults, source.shaderEffects],
-	};
+	return stockAssetDataOf(source);
 }
 
 /**
@@ -1457,6 +1426,21 @@ export function bakedArrivalReleaseEnabled(): boolean {
 		? runtimeBundle!.symbols?.arrivalRelease
 		: hasBakedDoc()
 			? bakedBundle.symbols?.arrivalRelease
+			: undefined;
+	return c?.enabled ?? false;
+}
+
+/**
+ * "Jackpot coins have their own art" — whether a Hold and Win coin carrying a jackpot tier draws its
+ * tier's row of the symbol map (`COIN:MINI`) when that row is bound. Default FALSE: every coin draws
+ * the coin's art, exactly as before. Mirrors `bakedArrivalReleaseEnabled`'s runtime→baked→undefined
+ * resolution.
+ */
+export function bakedJackpotCoinArt(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.jackpotCoinArt
+		: hasBakedDoc()
+			? bakedBundle.symbols?.jackpotCoinArt
 			: undefined;
 	return c?.enabled ?? false;
 }

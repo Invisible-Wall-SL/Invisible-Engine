@@ -7,6 +7,33 @@ traps. It covers the translator (`packages/rgs-translator-eagaming`), the mock R
 (`services/test-server`, `scripts/mock-rgs-server*.mjs`), money, `seq`/`gid`, resume and delivery
 builds. Slot-type traps live in the family files, e.g. [lines](../families/lines.md).
 
+### A refused ante or buy blanked the reels
+- **Symptom:** with the operator's ante switched off, pressing spin cleared the board to empty
+  reels (and opened the error modal).
+- **Cause:** the roll starts on the press, before the server answers; a refused bet runs the
+  machine's error path, whose `settle()` with no board empties every reel.
+- **Fix:** `actor.ts` keeps the board on screen when the round began; the `onBetRefused` hook ends
+  the roll with the new `enhancedBoard.cancelPreSpin()` (the loop finishes its lap at home; a bare
+  `settle` leaves the loop and `rolling` running, and landing a synthetic `spin` left the board
+  undrawn), then settles that board. The refusal is a toast and the option leaves the menu
+  (`refuseBetMode`). Only a mode marked `refusable`: 110 is also the "malformed bet" code, which
+  must stay an error.
+- **Guard:** none automated — played against `DISABLED_OPTIONS=1,2,3` on the partner-wire mock.
+- **PR:** 14c (2026-11-09) · source: `docs/status/hold-and-win.md`
+
+### A 200 page instead of the protocol crashed the spin; an unpriced bet went out as 5 lines
+- **Symptom:** a bet answered by an HTTP 200 that was not JSON (an edge's challenge page, a proxy's
+  HTML) ended in a `TypeError` inside `translateBetResponse` instead of an error the modal names.
+  A bet on a session whose boot config never arrived was sent as `[5, amount / 5]`.
+- **Cause:** `httpFailure` treated a body-less answer as a failure only outside 2xx, so a 2xx page
+  fell through to the round code. `betLineCount` guessed Hot Fruits' 5 lines when no payline set
+  was declared, which a server with an option table reads as option index 5.
+- **Fix:** a body-less answer is an error at ANY status (`ERR_HTTP_BAD_BODY` for a 2xx); the
+  transport already left `seq` where it was. A bet with no option table and no declared paylines
+  is refused before anything is sent (`refuseUnpricedBet`, `ERR_GE`).
+- **Guard:** `check:connection` §2b, §11, §12.
+- **PR:** not recorded (2026-11-09) · source: `docs/status/engine.md`
+
 ### A free-spin feature stalled mid-round after a publish or refusal
 - **Symptom:** the client sat at free spin 7/20 with no way out.
 - **Cause:** every publish or runtime release `POST /refresh`es the test server, which rebuilt each

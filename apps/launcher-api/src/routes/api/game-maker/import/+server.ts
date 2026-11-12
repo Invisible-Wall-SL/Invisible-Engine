@@ -1,16 +1,14 @@
 import { json } from '@sveltejs/kit';
 import { parseModeRoute } from '$lib/bonusImport';
-import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
+import { objectOrNull, userGrants } from '$lib/server/http';
 import {
 	applyBonusImport,
 	importToolsMissing,
 	sourceFeatures,
 } from '$lib/server/projectBonusImport';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { canAccessProject, projectClientKey } from '$lib/server/projects';
-import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { getToolOverrides } from '$lib/server/userToolAccess';
+import { clientKeyOf } from '$lib/server/projectLookup';
+import { canAccessProject } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -34,10 +32,7 @@ async function gate(
 		ok: false,
 		response: json({ error }, { status, headers: NO_STORE }),
 	});
-	const { role, id } = user;
-	const roleOverrides = await getRoleOverrides(role);
-	const toolOverrides = await getToolOverrides(id);
-	const hasTool = (tool: string) => roleHasTool(role, tool, roleOverrides, toolOverrides);
+	const { hasTool } = await userGrants(user);
 	if (!hasTool('gameMaker')) return refuse(403, 'Forbidden');
 	const missing = importToolsMissing(hasTool);
 	if (missing.length) {
@@ -45,12 +40,12 @@ async function gate(
 	}
 	if (!project) return refuse(400, 'Missing project');
 	if (!(await mayAccess(project))) return refuse(404, 'Unknown project');
-	const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
+	const client = await clientKeyOf(project);
 	if (source !== undefined) {
 		if (!source || !(await mayAccess(source))) {
 			return refuse(404, 'Unknown source project');
 		}
-		if (((await projectClientKey(source)) ?? UNASSIGNED_CLIENT) !== client) {
+		if ((await clientKeyOf(source)) !== client) {
 			return refuse(400, 'A bonus can only be imported from a project of the same client.');
 		}
 	}
@@ -101,10 +96,10 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	} catch {
 		return json({ error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
 	}
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+	const body = objectOrNull(raw);
+	if (!body) {
 		return json({ error: 'Expected a JSON object' }, { status: 400, headers: NO_STORE });
 	}
-	const body: Record<string, unknown> = raw as Record<string, unknown>;
 	const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 	const project = text(body.project);
 	const resync = body.resync === true;

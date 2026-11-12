@@ -1,5 +1,11 @@
 import { resolveBetModes, type BetModeKind, type ResolvedBetMode } from 'game-config';
-import { stateConfig, stateMeta, type BetModeData, type BetModeMeta } from 'state-shared';
+import {
+	refusedBetModes,
+	stateConfig,
+	stateMeta,
+	type BetModeData,
+	type BetModeMeta,
+} from 'state-shared';
 
 import { getActiveGameConfig } from './gameConfig';
 import { bakedEditorArtAssets } from '../editor-scenes';
@@ -75,6 +81,9 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 		// Per-mode card param overrides — passed through so the repeater merges them into the item's
 		// values (any card param the mode overrides). `{}` when unauthored ⇒ no overrides (parity).
 		cardParams: mode.cardParams,
+		toggle: mode.toggle,
+		fillerSymbols: mode.fillerSymbols,
+		refusable: mode.refusable,
 		// Art keys are resolved HERE to image URLs (the `assets.* = URL` convention), so the HTML menu
 		// renders them with a plain `<img>`. `button`/`dialogVolatility` have no config home yet, so
 		// stay empty.
@@ -186,7 +195,16 @@ function mergeServerOptions(
 			// An option the config never authored gets a readable label instead of the base game's.
 			...(presentation
 				? {}
-				: { title: prettify(option.key), description: '', dialog: '', card: '', cardParams: {} }),
+				: {
+						title: prettify(option.key),
+						description: '',
+						dialog: '',
+						card: '',
+						cardParams: {},
+						toggle: false,
+						fillerSymbols: [],
+						refusable: false,
+					}),
 			mode: option.key,
 			kind,
 			costMultiplier: option.costMultiplier,
@@ -197,14 +215,17 @@ function mergeServerOptions(
 
 /** The menu keyed by UPPERCASED mode id, in resolved order — the SERVER's options when it declared
  *  any, else the authored config's — less every BUY when the launch's jurisdiction forbids buying a
- *  feature. An ante stays: it modifies the stake of a normal spin rather than buying the bonus. */
+ *  feature (an ante stays: it modifies the stake of a normal spin rather than buying the bonus), and
+ *  less every option the server refused this session. */
 export function buildBetModeMeta(): BetModeMeta {
 	const authored = resolveBetModes(getActiveGameConfig());
 	const options = serverBetOptions();
 	const merged = options && authored.length ? mergeServerOptions(options, authored) : authored;
-	const modes = stateConfig.jurisdiction.disabledBuyFeature
-		? merged.filter((mode) => mode.kind !== 'buy')
-		: merged;
+	const modes = merged.filter(
+		(mode) =>
+			!(stateConfig.jurisdiction.disabledBuyFeature && mode.kind === 'buy') &&
+			!refusedBetModes.has(mode.mode.toUpperCase()),
+	);
 
 	const meta: BetModeMeta = {};
 	for (const mode of modes) {

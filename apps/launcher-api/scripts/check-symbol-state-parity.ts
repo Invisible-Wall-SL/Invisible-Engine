@@ -111,6 +111,7 @@ const FULL: Record<SymbolState, SymbolCell> = {
 	respinsAdd: rig('x_respins_add'),
 	coinUpgrade: rig('x_coin_upgrade'),
 	rowUnlock: rig('x_row_unlock'),
+	coinEnhance: rig('x_coin_enhance'),
 	select: rig('x_select'),
 	hint: rig('x_hint'),
 };

@@ -1,12 +1,13 @@
 import { error, json } from '@sveltejs/kit';
 import {
-	ConflictError,
 	listComponentDefaults,
 	loadComponentDefaultsWithEtag,
 	saveComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { requestedBackupMode } from '$lib/server/docBackupRoutes';
 import { requireEditorAccess } from '$lib/server/editorAccess';
+import { conflictResponse } from '$lib/server/conflict';
+import { readJson } from '$lib/server/http';
 import { requireOptionalProjectKey } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -50,12 +51,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = await requireEditorAccess(locals);
-	let body: unknown;
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON body.');
-	}
+	const body = await readJson(request, 'Invalid JSON body.');
 	if (!isRecord(body)) throw error(400, 'Body must be an object.');
 	const { id, params } = body;
 	const project = await requireOptionalProjectKey(
@@ -78,18 +74,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	} catch (e) {
 		// A lost CAS is a 409, never an opaque failure. `params` was validated above, so anything
 		// else is storage — the HEAD/COPY of the backup or the PUT — and a retryable 502.
-		if (e instanceof ConflictError) {
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else saved these component defaults while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		const conflict = conflictResponse(
+			e,
+			'Someone else saved these component defaults while you were editing. ' +
+				'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		console.error('[component-defaults] save failed:', e);
 		throw error(502, 'Could not save these defaults — storage is unavailable. Please retry.');
 	}

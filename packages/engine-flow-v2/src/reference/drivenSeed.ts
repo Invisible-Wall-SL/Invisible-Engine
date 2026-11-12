@@ -116,6 +116,9 @@ const LETTERS = 'letters';
 const LUCKY_SPIN = 'luckySpin';
 const WHEEL = 'wheel';
 const JACKPOT_WIN = 'jackpotWin';
+/** A collector bonus with enhancements: its dials and collectors' total (the reference layout's
+ *  `enhancements` option) — a base screen, the dials on screen from the first spin. */
+const ENHANCEMENTS = 'enhancements';
 
 /** Every screen the driven game shows once play begins (mounted; cue-driven internal visibility). */
 const GAME_SCREENS = [BASEGAME, HUD_BAR, HUD_CORNERS, SPECIAL_BOOK, FS_COUNTER] as const;
@@ -152,6 +155,23 @@ const COIN_BOARD_SCREENS = [
 
 /** A coin board's feature screens: the mode's own, less the board, which never leaves. */
 const COIN_BOARD_MODE_SCREENS = HOLD_AND_WIN_MODE_SCREENS.filter((id) => id !== RESPIN_BOARD);
+
+/** The Hold and Win feature screens a project's starter shows. */
+const holdAndWinModeScreens = ({ coinBoard = false }: HoldAndWinSeedOptions) =>
+	coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS;
+
+/** The screens a Hold and Win starter shows once play begins, by its two options. */
+const holdAndWinGameScreens = ({
+	coinBoard = false,
+	enhancements = false,
+}: HoldAndWinSeedOptions) => [
+	...(coinBoard ? COIN_BOARD_SCREENS : HOLD_AND_WIN_SCREENS),
+	...(enhancements ? [ENHANCEMENTS] : []),
+];
+
+/** The Hold and Win starter's options: a coin board (its own screens) and a feature with
+ *  enhancements (the Enhancements screen up from the start, as the partner's dials are). */
+export type HoldAndWinSeedOptions = { coinBoard?: boolean; enhancements?: boolean };
 
 /** The round-holding free-spin screens — shown only around their moment, never at start. */
 const HOLD_SCREENS = [FS_INTRO, FS_OUTRO];
@@ -540,6 +560,7 @@ const SEED_CONTAINERS: { id: string; z: number }[] = [
 	{ id: RESPIN_COUNTER, z: 25 },
 	{ id: TOTAL_WIN_BAR, z: 25 },
 	{ id: LETTERS, z: 25 },
+	{ id: ENHANCEMENTS, z: 25 },
 	{ id: FS_COUNTER, z: 30 },
 	{ id: SPECIAL_BOOK, z: 40 },
 	{ id: FS_INTRO, z: 50 },
@@ -738,10 +759,10 @@ export const modeContainerRefs = (ids: readonly string[], modeId: string): Conta
 export const holdAndWinModeGraph = (
 	prefix: string,
 	modeId: string = HOLD_AND_WIN_MODE,
-	{ coinBoard = false }: { coinBoard?: boolean } = {},
+	options: HoldAndWinSeedOptions = {},
 ): Graph => {
 	const screen = (id: string) => modeScreenId(id, modeId);
-	const modeScreens = (coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS).map(screen);
+	const modeScreens = holdAndWinModeScreens(options).map(screen);
 	const modeTrigger = (on: 'enter' | 'exit'): Node => ({
 		id: `${prefix}_${on}`,
 		kind: 'modeTrigger',
@@ -783,7 +804,8 @@ export const holdAndWinModeGraph = (
  * presentation and zero authoring.
  *
  * - **Global graph**: the shared lifecycle rig and base-game presentation (no free spins and no
- *   special book; the kind has neither) with the jackpot bar and the pots on screen from the start,
+ *   special book; the kind has neither) with the jackpot bar and the pots (and a collector bonus's
+ *   Enhancements screen) on screen from the start,
  *   plus the base-game beats of the mechanic: the Lucky Spin intro (inside the `luckySpin` screen),
  *   the pots filling, the instant collect, a base-game jackpot. **On all modes finished** brings the
  *   base music back once the feature is over (a no-op while it already plays). The round's own
@@ -805,7 +827,8 @@ export const holdAndWinModeGraph = (
  * Events with no beat of their own (the random metre, the meter restatement) stay unwired, so their
  * coded handler runs.
  */
-const holdAndWinDrivenSeed = ({ coinBoard = false }: { coinBoard?: boolean } = {}): FlowDoc => {
+const holdAndWinDrivenSeed = (options: HoldAndWinSeedOptions = {}): FlowDoc => {
+	const { coinBoard = false } = options;
 	const choreo = {
 		...choreoForVocabulary(BOOK_OF_CHOREO, HOLD_AND_WIN_VOCAB),
 		...HOLD_AND_WIN_BASE_CHOREO,
@@ -813,20 +836,11 @@ const holdAndWinDrivenSeed = ({ coinBoard = false }: { coinBoard?: boolean } = {
 	// A coin board pays no line in its base game, so it seeds no line-win chain (a `winInfo` that did
 	// arrive would run its coded handler).
 	if (coinBoard) delete choreo.winInfo;
-	const base = buildDrivenSeed(
-		HOLD_AND_WIN_VOCAB,
-		coinBoard ? COIN_BOARD_SCREENS : HOLD_AND_WIN_SCREENS,
-		{
-			choreo,
-			around: { luckySpin: LUCKY_SPIN },
-			declared: [
-				...(coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS),
-				LUCKY_SPIN,
-				WHEEL,
-				JACKPOT_WIN,
-			],
-		},
-	);
+	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, holdAndWinGameScreens(options), {
+		choreo,
+		around: { luckySpin: LUCKY_SPIN },
+		declared: [...holdAndWinModeScreens(options), LUCKY_SPIN, WHEEL, JACKPOT_WIN],
+	});
 	// Right of the global rig (x 0) and the buy subgraph (x 500).
 	const backToBase = buildEntryGraph({
 		prefix: 'base',
@@ -846,7 +860,7 @@ const holdAndWinDrivenSeed = ({ coinBoard = false }: { coinBoard?: boolean } = {
 			data: [...base.graph.data, ...backToBase.data],
 		},
 		modes: {
-			[HOLD_AND_WIN_MODE]: { graph: holdAndWinModeGraph('hw', HOLD_AND_WIN_MODE, { coinBoard }) },
+			[HOLD_AND_WIN_MODE]: { graph: holdAndWinModeGraph('hw', HOLD_AND_WIN_MODE, options) },
 		},
 	};
 };
@@ -987,16 +1001,20 @@ export const drivenSeedTemplateId = (gameType?: string): string =>
  * A fresh DEEP CLONE of the starter flow for a game type — the doc a new project is seeded with, so
  * it owns an independent copy the editor can mutate + save without touching the shared reference.
  * `coinBoard` (a Hold and Win project whose Game Config carries a coin board) picks the coin board's
- * starter; every other type ignores it.
+ * starter; `enhancements` (one whose respin mode draws enhancements) shows the Enhancements screen
+ * from the start and never hides it. Every other type ignores both.
  */
 export function freshDrivenSeedDoc(
 	gameType?: string,
-	{ coinBoard = false }: { coinBoard?: boolean } = {},
+	{ coinBoard = false, enhancements = false }: HoldAndWinSeedOptions = {},
 ): FlowDoc {
 	const id = drivenSeedTemplateId(gameType);
+	const holdAndWin = id === HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId;
 	const seed =
-		coinBoard && id === HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId
-			? HOLD_AND_WIN_COIN_BOARD_DRIVEN_SEED_DOC
-			: DRIVEN_SEEDS[id];
+		holdAndWin && enhancements
+			? holdAndWinDrivenSeed({ coinBoard, enhancements })
+			: coinBoard && holdAndWin
+				? HOLD_AND_WIN_COIN_BOARD_DRIVEN_SEED_DOC
+				: DRIVEN_SEEDS[id];
 	return JSON.parse(JSON.stringify(seed)) as FlowDoc;
 }

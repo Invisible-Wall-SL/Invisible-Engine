@@ -18,8 +18,17 @@ import { rngNext, rngSeed } from './board.js';
 
 export const CARD_KEYWORDS = ['guard', 'swift', 'shield'];
 export const CARD_TRIGGERS = ['onPlay', 'onDeath', 'turnStart', 'onAttack', 'onDamaged'];
-export const CARD_TARGET_KINDS = ['self', 'chosen', 'allEnemies', 'randomEnemy'];
-export const CARD_VERBS = ['damage', 'heal', 'draw', 'summon', 'buff', 'destroy', 'giveKeyword'];
+export const CARD_TARGET_KINDS = ['self', 'chosen', 'allEnemies', 'randomEnemy', 'allFriendly'];
+export const CARD_VERBS = [
+	'damage',
+	'heal',
+	'draw',
+	'summon',
+	'buff',
+	'destroy',
+	'giveKeyword',
+	'gainResource',
+];
 
 /** What each verb may aim at (§3.2): `any` target, `units` only, or no target at all. */
 export const CARD_VERB_TARGETS = {
@@ -30,7 +39,12 @@ export const CARD_VERB_TARGETS = {
 	buff: 'units',
 	destroy: 'units',
 	giveKeyword: 'units',
+	gainResource: 'none',
 };
+
+/** How a turn runs (§2.2): `strict` phases (plays in main, then attacks in combat), or `mixed`, one
+ *  main phase in which the player plays and attacks in any order. */
+export const CARD_TURN_ORDERS = ['strict', 'mixed'];
 
 /** The rules a match plays by when the config leaves them out (§9.1). */
 export const CARD_RULE_DEFAULTS = {
@@ -40,6 +54,7 @@ export const CARD_RULE_DEFAULTS = {
 	boardLimit: 7,
 	resource: { start: 1, perTurn: 1, max: 10 },
 	turnLimit: 60,
+	turnOrder: 'strict',
 };
 
 /** Effects one action may resolve before the match is called a draw (§2.4). */
@@ -56,6 +71,7 @@ const RANGES = {
 	draw: [1, 5],
 	count: [1, 3],
 	buff: [-10, 10],
+	gainResource: [1, 10],
 };
 export const CARD_RANGES = RANGES;
 const SIDES = ['enemy', 'friendly', 'any'];
@@ -141,12 +157,14 @@ const EFFECT_FIELDS = {
 	buff: ['attack', 'health', 'until', 'target'],
 	destroy: ['target'],
 	giveKeyword: ['keyword', 'target'],
+	gainResource: ['amount'],
 };
 const TARGET_FIELDS = {
 	self: [],
 	chosen: ['side', 'include'],
 	allEnemies: ['include'],
 	randomEnemy: ['include'],
+	allFriendly: ['include'],
 };
 
 function readEffect(raw, at, dropped) {
@@ -351,7 +369,7 @@ function checkEffect(card, effect, at, error) {
 		);
 	}
 	const verb = effect.verb;
-	if (verb === 'damage' || verb === 'heal' || verb === 'draw') {
+	if (verb === 'damage' || verb === 'heal' || verb === 'draw' || verb === 'gainResource') {
 		checkRange(effect.amount, verb, `${at}.amount`, error);
 	}
 	if (verb === 'summon') {
@@ -512,6 +530,8 @@ function verbText(effect, names) {
 			return `destroy ${target()}`;
 		case 'giveKeyword':
 			return `give ${target()} ${capitalize(effect.keyword)}`;
+		case 'gainResource':
+			return `gain ${effect.amount} resource this turn`;
 		default:
 			return '';
 	}
@@ -531,6 +551,8 @@ function targetText(target) {
 			return `all enemy ${noun(target.include, true)}`;
 		case 'randomEnemy':
 			return `a random enemy ${noun(target.include)}`;
+		case 'allFriendly':
+			return `all friendly ${noun(target.include, true)}`;
 		default:
 			return '';
 	}
@@ -644,8 +666,20 @@ function resolveRules(rules = {}) {
 			max: rule(resource, 'max', d.resource.max),
 		},
 		turnLimit: rule(r, 'turnLimit', d.turnLimit),
+		turnOrder: turnOrderOf(r.turnOrder ?? d.turnOrder),
 	};
 }
+
+function turnOrderOf(value) {
+	if (!CARD_TURN_ORDERS.includes(value)) {
+		throw new Error(`cards: the rule turnOrder must be "strict" or "mixed" (got ${show(value)})`);
+	}
+	return value;
+}
+
+/** Attacks are declared now: in combat, or in main when the turn order is mixed. */
+const attacksNow = (m) =>
+	m.phase === 'combat' || (m.phase === 'main' && m.rules.turnOrder === 'mixed');
 
 /** Whether the match has a result. */
 export function isOver(match) {
@@ -654,12 +688,14 @@ export function isOver(match) {
 
 /**
  * Every action the active player may take now, in a fixed order: plays in hand order (each legal
- * target in turn, enemies first, units in board order before the hero), or attacks in board order,
- * then `endPhase`, then `concede`. A play is listed without `slot`: any slot from 0 to the board's
+ * target in turn, enemies first, units in board order before the hero), then attacks in board
+ * order, then `endPhase`, then `concede`. Plays are listed in main, attacks in combat, or both in
+ * main under the `mixed` turn order. A play is listed without `slot`: any slot from 0 to the board's
  * length is legal for a listed unit play.
  */
 export function legalActions(match) {
 	if (match.result) return [];
+	if (match.phase !== 'main' && match.phase !== 'combat') return [];
 	const actions = [];
 	const me = match.players[match.active];
 	if (match.phase === 'main') {
@@ -669,13 +705,14 @@ export function legalActions(match) {
 			if (targets === null) actions.push({ type: 'play', uid: card.uid });
 			else for (const target of targets) actions.push({ type: 'play', uid: card.uid, target });
 		}
-	} else if (match.phase === 'combat') {
+	}
+	if (attacksNow(match)) {
 		const targets = attackTargets(match);
 		for (const unit of me.board) {
 			if (!canAttack(match, unit)) continue;
 			for (const target of targets) actions.push({ type: 'attack', attacker: unit.uid, target });
 		}
-	} else return [];
+	}
 	actions.push({ type: 'endPhase' }, { type: 'concede' });
 	return actions;
 }
@@ -697,7 +734,8 @@ export function apply(match, action) {
 			attack(ctx, action);
 			break;
 		case 'endPhase':
-			if (m.phase === 'main') enterPhase(ctx, 'combat');
+			if (m.phase === 'main' && m.rules.turnOrder === 'mixed') endTurn(ctx);
+			else if (m.phase === 'main') enterPhase(ctx, 'combat');
 			else if (m.phase === 'combat') endTurn(ctx);
 			else throw new IllegalAction('phase', `no phase to end in ${m.phase}`);
 			break;
@@ -761,7 +799,7 @@ function play(ctx, action) {
 
 function attack(ctx, action) {
 	const m = ctx.match;
-	if (m.phase !== 'combat')
+	if (!attacksNow(m))
 		throw new IllegalAction('phase', `attacks are made in combat, not ${m.phase}`);
 	const unit = m.players[m.active].board.find((u) => u.uid === action.attacker);
 	if (!unit) throw new IllegalAction('attacker', `unit ${action.attacker} is not on your board`);
@@ -804,7 +842,7 @@ function endTurn(ctx) {
 	const m = ctx.match;
 	enterPhase(ctx, 'end');
 	const expired = [];
-	for (const side of turnOrder(m)) {
+	for (const side of sidesInOrder(m)) {
 		for (const unit of m.players[side].board) {
 			const lapsing = unit.buffs.filter((b) => b.until === 'endOfTurn');
 			if (!lapsing.length) continue;
@@ -897,7 +935,7 @@ function queueRaised(m, raised) {
 }
 
 const rank = (m, owner) => (owner === m.active ? 0 : 1);
-const turnOrder = (m) => [m.active, 1 - m.active];
+const sidesInOrder = (m) => [m.active, 1 - m.active];
 
 function resolveEffect(ctx, item, raised, doomed) {
 	const m = ctx.match;
@@ -909,6 +947,8 @@ function resolveEffect(ctx, item, raised, doomed) {
 			return;
 		case 'summon':
 			return summon(ctx, item, effect);
+		case 'gainResource':
+			return gainResource(ctx, owner, effect.amount);
 	}
 	for (const target of resolveTargets(m, item, effect)) {
 		switch (effect.verb) {
@@ -966,6 +1006,8 @@ function resolveTargets(m, item, effect) {
 			const pool = sideTargets(m, enemy, target.include);
 			return pool.length ? [pool[Math.floor(draw(m) * pool.length)]] : [];
 		}
+		case 'allFriendly':
+			return sideTargets(m, item.owner, target.include);
 	}
 	return [];
 }
@@ -1037,6 +1079,19 @@ function resolveCombat(ctx, item, raised) {
 	if (defender) dealDamage(ctx, { unit: attacker.uid }, back, defender.uid, raised);
 }
 
+/**
+ * Resource for this turn only (§3.2): `current` grows by `amount`, up to the rules' cap, and `max`
+ * is untouched, so the next refill is as before. Gained off its owner's turn, it is gone by their
+ * next refill.
+ */
+function gainResource(ctx, side, amount) {
+	const resource = ctx.match.players[side].resource;
+	const gained = Math.max(0, Math.min(amount, ctx.match.rules.resource.max - resource.current));
+	if (!gained) return;
+	resource.current += gained;
+	ctx.events.push({ type: 'resourceGained', player: side, amount: gained });
+}
+
 function summon(ctx, item, effect) {
 	const m = ctx.match;
 	const board = m.players[item.owner].board;
@@ -1064,7 +1119,7 @@ function summon(ctx, item, effect) {
 function deathCheck(ctx, doomed, raised) {
 	const m = ctx.match;
 	const dying = [];
-	for (const side of turnOrder(m)) {
+	for (const side of sidesInOrder(m)) {
 		const board = m.players[side].board;
 		const dies = (unit) => unit.damage >= unit.health || doomed.has(unit.uid);
 		board.forEach((unit, pos) => {

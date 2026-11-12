@@ -46,7 +46,7 @@ import { SUB } from './projectPaths';
 import { PAGE_REF_PREFIX, type PageStore } from './pageStore';
 import { exportRigBundle, loadSkeletonIndexWithShared } from './rig';
 import { SYMBOL_RIG_LOAD_SCALE } from '$lib/rigScale';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import { DeployMirror } from './deployMirror';
 import {
 	canonicalizeSymbolsDocForExport,
 	loadSymbolsDoc,
@@ -57,6 +57,7 @@ import {
 	isBuiltinRegion,
 	parseScopedFrameRef,
 	scopedFrameRef,
+	withoutJackpotArtRows,
 	type ResolutionTierId,
 } from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
@@ -242,6 +243,10 @@ export interface SymbolExportResult {
 	/** "Play Land as each cell stops" on the Hold and Win respin board — assetless config, another
 	 *  verbatim pass-through. Absent → a coin plays its Land as it sticks, exactly as before. */
 	respinLandOnStop?: SymbolsDoc['respinLandOnStop'];
+	/** "Jackpot coins have their own art" — assetless (the tier rows' art ships in `map` like every
+	 *  symbol's), a verbatim pass-through. Absent → every coin draws its own art, and `map` carries no
+	 *  tier row at all. */
+	jackpotCoinArt?: SymbolsDoc['jackpotCoinArt'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a rig layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -294,6 +299,18 @@ interface SymbolRefs {
 	spriteManifests: Set<string>;
 	/** Rig-cell `assetKey`s (full R2 bundle prefixes). */
 	rigKeys: Set<string>;
+}
+
+/**
+ * The doc as it ships: with "Jackpot coins have their own art" off, without its tier rows
+ * (`COIN:MINI`, `engine-layout/jackpotCoinArt.ts`) — so their art is neither collected into `refs`
+ * nor carried in `map`, and a project that turned the switch off ships byte-identical to one that
+ * never had it. The SAME doc when there is nothing to drop. Exported for `check:jackpot-coin-art`.
+ */
+export function shipJackpotArtOnlyWhenOn(doc: SymbolsDoc): SymbolsDoc {
+	if (doc.jackpotCoinArt?.enabled === true) return doc;
+	const symbols = withoutJackpotArtRows(doc.symbols);
+	return symbols === doc.symbols ? doc : { ...doc, symbols };
 }
 
 /** Walk the (sparse) symbol map and split its cells into bare sprite frame names, scoped sprite
@@ -546,10 +563,12 @@ export async function exportEditorSymbols(
 	// naming problem the flipbook clips had), so a pinned atlas resolves to the full manifest key
 	// the sheet ships under. A correctly-authored doc pays nothing.
 	const doc = await phase('doc', async () =>
-		canonicalizeSymbolsDocForExport(
-			await loadSymbolsDoc(clientKey, projectKey),
-			clientKey,
-			projectKey,
+		shipJackpotArtOnlyWhenOn(
+			await canonicalizeSymbolsDocForExport(
+				await loadSymbolsDoc(clientKey, projectKey),
+				clientKey,
+				projectKey,
+			),
 		),
 	);
 	const refs = collectSymbolRefs(doc);
@@ -557,7 +576,7 @@ export async function exportEditorSymbols(
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const symbolsPrefix = `${deployPrefix}${EXPORT_SUBTREE}/`;
 
-	const written = new Set<string>();
+	const mirror = new DeployMirror(symbolsPrefix);
 	const usedStems = new Set<string>();
 
 	const claimStem = (manifestKey: string): string => {
@@ -613,8 +632,7 @@ export async function exportEditorSymbols(
 			const shared = await opts.pageStore.ensure(set.pageKey, pageExt);
 			if (!shared) return;
 			const sheet = toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`);
-			await putObjectText(`${deployPrefix}${jsonRel}`, sheetText(sheet), 'application/json');
-			written.add(`${deployPrefix}${jsonRel}`);
+			await mirror.put(`${deployPrefix}${jsonRel}`, sheetText(sheet));
 			// The twin is a SECOND spritesheet JSON over the same regions, pointing at the `.ktx2`
 			// page with rects rescaled to its dimensions (equal to the source unless the encoder
 			// downscaled it) and `meta.scale` saying so (`sheetOnPage`). The game registers it on
@@ -627,8 +645,7 @@ export async function exportEditorSymbols(
 					shared.ktx2Width,
 					shared.ktx2Height,
 				);
-				await putObjectText(`${deployPrefix}${ktx2Json}`, sheetText(twin), 'application/json');
-				written.add(`${deployPrefix}${ktx2Json}`);
+				await mirror.put(`${deployPrefix}${ktx2Json}`, sheetText(twin));
 			}
 			const tiered = tierSheets(
 				sheet,
@@ -637,21 +654,14 @@ export async function exportEditorSymbols(
 				(suffix) => `${EXPORT_SUBTREE}/${stem}/${stem}.${version}${suffix}`,
 			);
 			for (const { path, sheet: tierSheet } of tiered.files) {
-				await putObjectText(`${deployPrefix}${path}`, sheetText(tierSheet), 'application/json');
-				written.add(`${deployPrefix}${path}`);
+				await mirror.put(`${deployPrefix}${path}`, sheetText(tierSheet));
 			}
 			tiers = tiered.refs;
 		} else {
 			// Server-side copy the packed page verbatim (no bytes through this process —
 			// keeps peak memory flat); skip if the source page is missing.
-			if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
-			await putObjectText(
-				`${deployPrefix}${jsonRel}`,
-				sheetText(toTexturePackerJson(set, pageFile)),
-				'application/json',
-			);
-			written.add(`${deployPrefix}${jsonRel}`);
-			written.add(`${deployPrefix}${pageRel}`);
+			if (!(await mirror.copy(set.pageKey, `${deployPrefix}${pageRel}`))) return;
+			await mirror.put(`${deployPrefix}${jsonRel}`, sheetText(toTexturePackerJson(set, pageFile)));
 		}
 		const names = set.regions.map((r) => r.name);
 		sheets.push({
@@ -757,7 +767,7 @@ export async function exportEditorSymbols(
 				if (parseRigBundleKey(assetKey)) rigsMissing.push(assetKey);
 				return;
 			}
-			for (const k of result.written) written.add(k);
+			mirror.claim(result.written);
 			rigs.push(result.entry);
 		});
 	});
@@ -812,15 +822,10 @@ export async function exportEditorSymbols(
 		missing,
 		spinesMissing: rigsMissing.sort(),
 	};
-	const indexKey = `${symbolsPrefix}index.json`;
-	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
-	written.add(indexKey);
+	await mirror.put(`${symbolsPrefix}index.json`, JSON.stringify(index, null, '\t'));
 
 	// Prune leftovers from a previous export so deploy/editor-symbols/ mirrors the doc.
-	await phase('prune', async () => {
-		const existing = await listAllKeys(symbolsPrefix);
-		await deleteObjects(existing.filter((k) => !written.has(k)));
-	});
+	await phase('prune', () => mirror.commit());
 
 	// The global highlight override (if any). Its rig bundle was exported in the
 	// loop above (added to `refs.rigKeys`), so it's already in `index.spines` under
@@ -862,6 +867,10 @@ export async function exportEditorSymbols(
 	// The respin board's land timing. Assetless (one switch over when an animation the map already
 	// ships plays), so the same verbatim pass-through of the already-pruned field.
 	const respinLandOnStop = doc.respinLandOnStop;
+
+	// "Jackpot coins have their own art" — the switch alone; the tier rows ride in `map` (and their
+	// art in `refs`) only while it is on (`shipJackpotArtOnlyWhenOn`).
+	const jackpotCoinArt = doc.jackpotCoinArt;
 
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
@@ -948,6 +957,7 @@ export async function exportEditorSymbols(
 		...(winBeat ? { winBeat } : {}),
 		...(arrivalRelease ? { arrivalRelease } : {}),
 		...(respinLandOnStop ? { respinLandOnStop } : {}),
+		...(jackpotCoinArt ? { jackpotCoinArt } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
 		...(tumblePattern ? { tumblePattern } : {}),

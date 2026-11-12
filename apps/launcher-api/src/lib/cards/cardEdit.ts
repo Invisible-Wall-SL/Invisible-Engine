@@ -140,9 +140,7 @@ function fitTarget(
 	const t = (target ?? {}) as Partial<Target> & { side?: string; include?: string };
 	const kind = kinds.includes(t.kind as TargetKind)
 		? (t.kind as TargetKind)
-		: kinds.includes('chosen')
-			? 'chosen'
-			: kinds[kinds.length - 1];
+		: ((['chosen', 'randomEnemy'] as const).find((k) => kinds.includes(k)) ?? kinds[0]);
 	if (kind === 'self') return { kind };
 	const includes = includeChoices(verb);
 	const include = includes.includes(t.include as Include) ? (t.include as Include) : 'units';
@@ -184,7 +182,8 @@ export function fitEffect(
 				target: target as Target,
 			};
 		case 'draw':
-			return { trigger, verb, amount: num('amount', CARD_RANGES.draw, 1) };
+		case 'gainResource':
+			return { trigger, verb, amount: num('amount', CARD_RANGES[verb], 1) };
 		case 'summon': {
 			const units = summonChoices(lib);
 			const named = units.find((u) => u.id === raw.card) ?? units.find((u) => u.token) ?? units[0];

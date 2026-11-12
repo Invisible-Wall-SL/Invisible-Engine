@@ -62,12 +62,13 @@ check(
 	[0, 0, 0, 0, 0],
 );
 check(
-	'Hold and Win offers the plain template (jackpots on / off), the coin board, then its three',
+	'Hold and Win offers the plain template (jackpots on / off), the coin board, the collector + enhancements, then its three',
 	gameConfigPresetsFor('holdAndWin').map((p) => p.id),
 	[
 		'holdAndWin.plain',
 		'holdAndWin.plainNoJackpots',
 		'holdAndWin.coinBoard',
+		'holdAndWin.enhancements',
 		...HOLD_AND_WIN_PRESET_IDS,
 	],
 );

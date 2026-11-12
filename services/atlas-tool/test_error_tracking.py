@@ -8,8 +8,10 @@ The three ways this goes wrong are all silent:
 
   * a local run / a test reporting into the production project, or crashing
     on a box without the package — so no DSN must mean no import at all;
-  * the tool's shared secret riding out in an event: the gate accepts it as
-    `?k=`, as an `atlas_tool=` cookie and as an `X-Atlas-Secret` header;
+  * a credential riding out in an event: the gate takes a launch token as
+    `?iw_launch=` or an `X-IW-Launch` header and a session as an
+    `iw_atlas_session=` cookie, the platform's shared tokens travel as `?k=`,
+    and the signing secret's own value must never appear either;
   * nothing ever arriving: socketserver catches a handler's exception and
     prints it, and both tools turn most failures into a 500 by hand.
 """
@@ -70,30 +72,30 @@ def test_no_dsn_is_a_noop() -> None:
 
 
 def test_scrubber() -> None:
-    url = errors.scrub_url(f"/atlas?k={SECRET}&client=iw&sid=abc123&project=p")
-    check("?k= and sid= are blanked in a URL",
-          (SECRET in url, "abc123" in url), (False, False))
+    url = errors.scrub_url(f"/atlas?iw_launch={SECRET}&client=iw&sid=abc123&k=t0k&project=p")
+    check("?iw_launch=, sid= and k= are blanked in a URL",
+          (SECRET in url, "abc123" in url, "t0k" in url), (False, False, False))
     check("...the harmless params survive", ("client=iw" in url, "project=p" in url),
           (True, True))
-    os.environ["ATLAS_TOOL_SECRET"] = SECRET
+    os.environ["ATLAS_TOOL_SIGNING_SECRET"] = SECRET
     try:
         event = {
-            "message": f"gate cookie atlas_tool={SECRET}; token=t0k3nvalue",
-            "request": {"url": f"https://x/y?k={SECRET}",
-                        "cookies": {"atlas_tool": SECRET},
-                        "headers": {"X-Atlas-Secret": SECRET, "Cookie": "a=b"},
-                        "query_string": f"k={SECRET}&a=1"},
+            "message": f"gate cookie iw_atlas_session={SECRET}; token=t0k3nvalue",
+            "request": {"url": f"https://x/y?iw_launch={SECRET}",
+                        "cookies": {"iw_atlas_session": SECRET},
+                        "headers": {"X-IW-Launch": SECRET, "Cookie": "a=b"},
+                        "query_string": f"iw_launch={SECRET}&a=1"},
             "exception": {"values": [{"type": "RuntimeError",
                                       "value": f"compare failed for {SECRET}"}]},
             "breadcrumbs": {"values": [{
                 "category": "httplib",
                 "data": {"url": "https://r2/obj?X-Amz-Signature=deadbeef&x=1",
-                         "http.query": f"k={SECRET}"}}]},
+                         "http.query": f"iw_launch={SECRET}"}}]},
             "extra": {"password": "hunter22", "ok": "fine"},
         }
         out = errors._before_send(event, {})
     finally:
-        os.environ.pop("ATLAS_TOOL_SECRET", None)
+        os.environ.pop("ATLAS_TOOL_SIGNING_SECRET", None)
     flat = repr(out)
     check("the secret value appears nowhere in the event", SECRET in flat, False)
     check("request cookies + headers are dropped entirely",
@@ -118,7 +120,7 @@ def test_dispatch_500_reaches_capture() -> None:
     try:
         class H(ui_server.Handler):
             def __init__(self) -> None:
-                self.command, self.path = "GET", f"/thumb?k={SECRET}&n=1"
+                self.command, self.path = "GET", f"/thumb?iw_launch={SECRET}&n=1"
                 self.sent: list[int] = []
 
             def _send(self, code, ctype, body, extra_headers=None):
@@ -163,7 +165,7 @@ def test_socketserver_handle_error_reaches_capture() -> None:
     try:
         try:
             urllib.request.urlopen(
-                f"http://127.0.0.1:{srv.server_address[1]}/api/x?k={SECRET}", timeout=10)
+                f"http://127.0.0.1:{srv.server_address[1]}/api/x?iw_launch={SECRET}", timeout=10)
         except (urllib.error.URLError, ConnectionError, OSError):
             pass  # the stdlib closes the socket having written nothing
     finally:
@@ -209,7 +211,7 @@ def test_end_to_end_event_is_scrubbed() -> None:
         "sentry_sdk.init = lambda **kw: orig(transport=T, **kw)\n"
         "from iw_common import errors\n"
         "print('init', errors.init_error_tracking('atlas-tool'))\n"
-        f"errors.capture_error(RuntimeError('bad ?k={SECRET}'), url='/p?k={SECRET}')\n"
+        f"errors.capture_error(RuntimeError('bad {SECRET}'), url='/p?iw_launch={SECRET}')\n"
         "sentry_sdk.flush()\n"
         "e = sent[0]\n"
         "print('service', e['tags']['service'], 'env', e['environment'])\n"
@@ -217,7 +219,7 @@ def test_end_to_end_event_is_scrubbed() -> None:
         f"print('leak', {SECRET!r} in repr(e))\n"
     )
     got = _run_py(code, SENTRY_DSN="https://pub@o0.ingest.sentry.io/0",
-                  ATLAS_TOOL_SECRET=SECRET, RAILWAY_GIT_COMMIT_SHA="abc123")
+                  ATLAS_TOOL_SIGNING_SECRET=SECRET, RAILWAY_GIT_COMMIT_SHA="abc123")
     check("a real client initialises with a DSN, tags service/env/release, leaks nothing",
           got.splitlines()[-4:],
           ["init True", "service atlas-tool env production", "release abc123",

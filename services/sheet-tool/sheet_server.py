@@ -26,7 +26,8 @@ import shutil
 import sys
 import threading
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Callable
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from PIL import Image
@@ -44,6 +45,8 @@ from iw_common import launch  # noqa: E402  (launcher-signed identity + scope)
 from iw_common import docsave  # noqa: E402  (saved_by stamp + compare-and-swap check)
 from iw_common import presence  # noqa: E402  (the person-level "X is editing" soft lease)
 from iw_common import ask_ai  # noqa: E402  (the bar's "Ask the AI" chat, relayed to the launcher)
+from iw_common import http as iw_http  # noqa: E402  (the request-handler base both tools share)
+from iw_common import storage as iw_storage  # noqa: E402  (mirror_staged: the write-through skeleton)
 
 SELF = Path(__file__).resolve().parent
 
@@ -98,11 +101,8 @@ HOST = os.environ.get("SHEET_BIND_HOST", "0.0.0.0")
 BUILD = "v2.2-cloud"
 
 # Who is calling and for which (client, project): a launcher-signed token (see
-# iw_common/launch.py). SHEET_TOOL_SECRET is the pre-token shared-secret gate,
-# kept for the transition window only; both unset = open (local dev).
-GATE = launch.LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET",
-                         legacy_env="SHEET_TOOL_SECRET", legacy_cookie="sheet_tool",
-                         legacy_header="X-Sheet-Secret")
+# iw_common/launch.py); unset = open (local dev).
+GATE = launch.LaunchGate(aud="sheet", signing_env="SHEET_TOOL_SIGNING_SECRET")
 
 
 # ---------------------------------------------------------------------------
@@ -119,50 +119,51 @@ _human_bytes = storage.human_bytes
 def _mirror(p: Path) -> None:
     """Write-through: mirror a staging file to its R2 key so it persists."""
     ctx = _ctx()
-    r2_prefix, staging_root = ctx["r2_prefix"], ctx["staging_root"]
-    if not (r2_prefix and staging_root):
-        return
+    iw_storage.mirror_staged(p, ctx["staging_root"], ctx["r2_prefix"],
+                             push=storage.push_file, claim=_claim_listing)
+
+
+def _claim_listing(rel: str, push: Callable[[], bool]) -> bool:
+    """`_mirror`'s push of a key the listing prune iterates, under its claim.
+
+    Listing state is claimed BEFORE the push and released only once the push is
+    CONFIRMED, so the claim means "not known to be in R2" rather than "this tool
+    wrote it once" — an add-only claim would exempt every sheet we have saved
+    and defeat the prune in its own case. One confirmed file is enough to
+    release a SHEET: the prune asks whether the sheet's R2 prefix has any object
+    at all, and now it does.
+
+    A claimable key is `sheets/<sheet>/<file>` or a ONE-segment
+    `manifests/<name>` — the two shapes the prune actually iterates. A file
+    loose at either root is neither, and must not park a bogus name."""
+    parts = rel.split("/")
+    kind = name = ""
+    if parts[0] == "sheets" and len(parts) >= 3:
+        kind, name = "sheets", parts[1]
+    elif parts[0] == "manifests" and len(parts) == 2:
+        kind, name = "manifests", parts[1]
+    if not name:
+        return False
+    ck = project_paths.r2_slug(project_paths.client_name())
+    pk = project_paths.r2_slug(project_paths.project_name())
+    # The claim covers the write->push window and is always released; whether
+    # the bytes LANDED is recorded separately, because that outcome has to
+    # persist until a push succeeds and must not leak a unit of a balanced count
+    # when it does not.
+    #
+    # ORDER MATTERS: the flag goes on BEFORE the count comes off, or there is an
+    # instant where the key is neither counted nor flagged and a concurrent prune
+    # deletes it. `landed` is pre-bound so a push that somehow raises still
+    # records "did not land" rather than skipping the flag entirely and leaving
+    # the key unprotected.
+    landed = False
+    project_paths.note_authored(ck, pk, kind, name)
     try:
-        rel = Path(p).resolve().relative_to(Path(staging_root).resolve()).as_posix()
-        # Listing state is claimed BEFORE the push and released only once the
-        # push is CONFIRMED, so the claim means "not known to be in R2" rather
-        # than "this tool wrote it once" — an add-only claim would exempt every
-        # sheet we have saved and defeat the prune in its own case. One confirmed
-        # file is enough to release a SHEET: the prune asks whether the sheet's
-        # R2 prefix has any object at all, and now it does.
-        # A claimable key is `sheets/<sheet>/<file>` or a ONE-segment
-        # `manifests/<name>` — the two shapes the prune actually iterates. A
-        # file loose at either root is neither, and must not park a bogus name.
-        parts = rel.split("/")
-        kind = name = ""
-        if parts[0] == "sheets" and len(parts) >= 3:
-            kind, name = "sheets", parts[1]
-        elif parts[0] == "manifests" and len(parts) == 2:
-            kind, name = "manifests", parts[1]
-        if name:
-            ck = project_paths.r2_slug(project_paths.client_name())
-            pk = project_paths.r2_slug(project_paths.project_name())
-            # The claim covers the write->push window and is always released;
-            # whether the bytes LANDED is recorded separately, because that
-            # outcome has to persist until a push succeeds and must not leak a
-            # unit of a balanced count when it does not.
-            #
-            # ORDER MATTERS: the flag goes on BEFORE the count comes off, or
-            # there is an instant where the key is neither counted nor flagged
-            # and a concurrent prune deletes it. `landed` is pre-bound so a push
-            # that somehow raises still records "did not land" rather than
-            # skipping the flag entirely and leaving the key unprotected.
-            landed = False
-            project_paths.note_authored(ck, pk, kind, name)
-            try:
-                landed = storage.push_file(Path(p), f"{r2_prefix}/{rel}")
-            finally:
-                project_paths.mark_pushed(ck, pk, kind, name, landed)
-                project_paths.clear_authored(ck, pk, kind, name)
-            return
-        storage.push_file(Path(p), f"{r2_prefix}/{rel}")
-    except Exception:  # noqa: BLE001 — best-effort mirror
-        pass
+        landed = push()
+    finally:
+        project_paths.mark_pushed(ck, pk, kind, name, landed)
+        project_paths.clear_authored(ck, pk, kind, name)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1230,7 +1231,6 @@ def _export(payload: dict, dest: Path) -> dict:
     if blocked:
         return {"error": blocked}
     basename = sheet
-    dest_dir = (payload.get("dest_dir") or "").strip()
     fmts = payload.get("formats", {})
     width = int(payload.get("canvas_w", 1024))
     height = int(payload.get("canvas_h", 1024))
@@ -3071,55 +3071,21 @@ def status_for(result) -> int:
     return 409 if isinstance(result, dict) and result.get("conflict") is True else 200
 
 
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):  # quieter console
-        pass
-
-    def _authenticate(self) -> bool:
-        """Who is calling and for which (client, project) — see
-        iw_common/launch.py. Answers the request itself and returns False on a
-        refusal, and on a launch (the redirect that takes the token out of the
-        URL once the session cookie is set)."""
-        res = GATE.authenticate(self.path, self.headers)
-        self._identity = res.identity
-        self._extra_cookies = list(res.cookies)
-        if not res.ok:
-            self._send_bytes("Forbidden — open the Sheet Maker from the launcher."
-                             .encode("utf-8"), "text/plain; charset=utf-8", 403)
-            return False
-        if res.redirect and self.command == "GET":
-            self._send_bytes(b"", "text/plain", 303, {"Location": res.redirect})
-            return False
-        return True
+class Handler(iw_http.ToolHandler):
+    gate = GATE
+    tool_title = "Sheet Maker"
 
     def _reply(self, result) -> None:
         self._send_json(result, status_for(result))
 
     def _send_json(self, obj, code=200):
-        data = json.dumps(obj).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self._apply_cookie()
-        self.end_headers()
-        self.wfile.write(data)
+        # No Cache-Control on JSON answers — unlike `_send_bytes`.
+        self._send(code, "application/json", json.dumps(obj).encode("utf-8"),
+                   no_store=False)
 
     def _send_bytes(self, data: bytes, ctype: str, code=200,
                     extra_headers: dict | None = None):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        # Default to no-store (HTML/JSON/dynamic). Image routes pass their own
-        # Cache-Control (via imgcache.cache_headers) for ETag revalidation — let
-        # that win instead of emitting an uncacheable no-store alongside it.
-        headers = extra_headers or {}
-        if "Cache-Control" not in headers:
-            self.send_header("Cache-Control", "no-store")
-        for k, v in headers.items():
-            self.send_header(k, v)
-        self._apply_cookie()
-        self.end_headers()
-        self.wfile.write(data)
+        self._send(code, ctype, data, extra_headers)
 
     def _serve_sprite(self, p: Path, ctype: str):
         """Serve a sprite file with ETag-based revalidation. Uses `max-age=0,
@@ -3136,27 +3102,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_bytes(p.read_bytes(), ctype, 200, imgcache.cache_headers(etag, max_age=0))
 
-    def _apply_cookie(self):
-        # The gate's Set-Cookie headers (session, or the legacy scope cookies).
-        for c in getattr(self, "_extra_cookies", None) or ():
-            self.send_header("Set-Cookie", c)
-
-    def _resolve_context(self) -> None:
-        """Apply the caller's (client, project) to THIS request thread.
-
-        With a signed launch the scope comes from the token/session ONLY — a
-        `?client=` / `?project=` in the URL is ignored, and switching project
-        goes back through the launcher. The legacy/open modes keep the old
-        query-then-cookie resolution (done in the gate). Missing keys fall back
-        to the env default (`SHEET_CLIENT` / `SHEET_PROJECT`).
-
-        Thread-local: a concurrent request for a different project is fully
-        isolated — every handler reads paths via _ctx() at call time."""
-        project_paths.switch_context(self._identity.client, self._identity.project)
-
-    # Back-compat alias — kept so any legacy in-process call still works.
-    def _resolve_project(self) -> None:
-        self._resolve_context()
+    def _switch_context(self, client: str, project: str) -> None:
+        """Missing keys fall back to `SHEET_CLIENT` / `SHEET_PROJECT`; every
+        handler reads paths via _ctx() at call time."""
+        project_paths.switch_context(client, project)
 
     def _body(self) -> bytes:
         n = int(self.headers.get("Content-Length", 0) or 0)
@@ -3226,7 +3175,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/ask-ai":
             # The bar's chat: forwarded to the launcher for this user, nothing local.
             ask_ai.relay(self, iss="sheet", secret_env="SHEET_TOOL_SIGNING_SECRET",
-                         identity=self._identity, before_end=self._apply_cookie)
+                         identity=self._identity, before_end=self._send_gate_cookies)
             return
         ctype = self.headers.get("Content-Type", "")
         try:

@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
-import { requireComfyAccess } from '$lib/server/comfyAccess';
+import { PodBody, requireComfyAccess } from '$lib/server/comfyAccess';
+import { parseBody } from '$lib/server/http';
 import { fleetPayload, getEffectiveFleet, podResume } from '$lib/server/runpod';
 import { markActivity } from '$lib/server/runpodActivity';
 import type { RequestHandler } from './$types';
@@ -16,9 +17,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
 export const POST: RequestHandler = async ({ locals, request }) => {
 	await requireComfyAccess(locals);
 
-	const body = (await request.json().catch(() => ({}))) as { podId?: unknown };
-	const podId = typeof body.podId === 'string' ? body.podId.trim() : '';
-	if (!podId) throw error(400, 'Missing podId.');
+	const { podId } = await parseBody(request, PodBody);
 
 	const fleet = await getEffectiveFleet();
 	if (!fleet.some((p) => p.id === podId)) throw error(400, 'Unknown pod.');

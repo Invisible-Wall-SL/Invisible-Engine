@@ -10,6 +10,11 @@
 		y?: number;
 		symbolInfo: ReturnType<typeof getSymbolInfo>;
 		oncomplete?: () => void;
+		/** A kept sprite handed its next entry by a view (`Symbol`'s `instanceKey`): it reports as a
+		 *  new sprite would on mount. */
+		restart?: number;
+		/** A view's kept sprite is hidden while the view draws other art or nothing (`artDraw`). */
+		visible?: boolean;
 	};
 
 	const props: Props = $props();
@@ -27,6 +32,7 @@
 
 	$effect(() => {
 		props.symbolInfo;
+		void props.restart;
 		props.oncomplete?.();
 	});
 </script>
@@ -42,5 +48,6 @@
 	key={props.symbolInfo.assetKey}
 	width={geometry.cellWidthLocal}
 	height={geometry.cellHeightLocal}
+	visible={props.visible}
 	contain
 />

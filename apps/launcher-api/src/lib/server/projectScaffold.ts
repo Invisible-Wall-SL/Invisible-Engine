@@ -35,6 +35,7 @@ import { sceneSetOptionsFor } from '$lib/addOns';
 import {
 	gameConfigSeedFor,
 	holdAndWinCoinBoardSeed,
+	holdAndWinEnhancementsSeed,
 	holdAndWinTemplateSeed,
 	type LinesPresetId,
 } from './gameConfigDefaults';
@@ -312,7 +313,8 @@ async function replaceOtherKindDocs(
 /**
  * Write any missing seed files for `(client, project)` into R2. A `holdAndWin` project's Game Config
  * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off,
- * or with `holdAndWinBase: 'coinBoard'` the template with no line game (hold-and-win-coin-board);
+ * or with `holdAndWinBase: 'coinBoard'` the template with no line game (hold-and-win-coin-board),
+ * or with `holdAndWinBase: 'enhancements'` the partner's collector bonus (hold-and-win-enhancements);
  * else from `holdAndWinPreset`, one of the three reference games (the samples and the gates); else
  * from the kind's default, the config an un-authored project already plays. `linesPreset` seeds a
  * `lines` project from a lines preset (the Book of Thermopylae) and its scenes from the preset's own
@@ -344,17 +346,21 @@ export async function scaffoldProject(
 	const outcome = match3Outcome(gameType, opts.outcome, stored);
 	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
 	const coinBoard = plain !== undefined && opts.holdAndWinBase === 'coinBoard';
+	const enhanced = plain !== undefined && opts.holdAndWinBase === 'enhancements';
 	const config = coinBoard
 		? holdAndWinCoinBoardSeed()
-		: plain
-			? holdAndWinTemplateSeed(plain)
-			: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset, outcome);
-	// A coin board's screens and Flow are its own template's, so a new one (nothing stored yet) is
-	// shaped by the config about to be seeded.
-	const shapedBy = stored ?? (coinBoard ? config : null);
+		: enhanced
+			? holdAndWinEnhancementsSeed()
+			: plain
+				? holdAndWinTemplateSeed(plain)
+				: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset, outcome);
+	// A coin board's screens and Flow are its own template's, and the enhancements' screens come with
+	// theirs, so a new one (nothing stored yet) is shaped by the config about to be seeded.
+	const shapedBy = stored ?? (coinBoard || enhanced ? config : null);
+	const shape = sceneSetOptionsFor(gameType, shapedBy);
 	const reference =
 		getFullSceneSet(sceneSet, {
-			...sceneSetOptionsFor(gameType, shapedBy),
+			...shape,
 			...(outcome === 'rgs' ? { outcome } : {}),
 		}) ?? (await loadKind(gameType))?.doc;
 	// The plain game's screens and Flow are never written without its config.
@@ -362,14 +368,19 @@ export async function scaffoldProject(
 		throw new Error(
 			coinBoard
 				? 'No Hold and Win coin board template default.'
-				: `No Hold and Win template default for jackpots ${plain}.`,
+				: enhanced
+					? 'No Hold and Win collector + enhancements template default.'
+					: `No Hold and Win template default for jackpots ${plain}.`,
 		);
 	}
 	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
 	const flow = flowWithoutScreens(
 		outcome === 'rgs'
 			? structuredClone(MATCH3_RGS_DRIVEN_SEED_DOC)
-			: freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) }),
+			: freshDrivenSeedDoc(gameType, {
+					coinBoard: Boolean(shapedBy?.coinBoard),
+					enhancements: Boolean(shape.enhancements),
+				}),
 		dropped,
 	);
 	const scenes = scaffoldLayoutDoc(project, gameType, reference);

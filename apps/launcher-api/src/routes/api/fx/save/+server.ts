@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { saveEffect } from '$lib/server/fxStorage';
-import { ConflictError } from '$lib/server/r2';
+import { conflictResponse } from '$lib/server/conflict';
+import { jsonObjectOrNull } from '$lib/server/http';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -28,7 +29,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to Invisible FX.',
 	});
 
-	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+	const body = await jsonObjectOrNull(request);
 	if (!body || typeof body.doc !== 'object' || body.doc === null) throw error(400, 'missing doc');
 
 	// SCOPE GUARD — this endpoint resolves the project from the SESSION while the /fx page
@@ -60,24 +61,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		);
 		return json({ ok: true, id, name: doc.name, layers: doc.layers.length, etag });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			// A never-saved effect (baseEtag null) conflicts because the NAME is taken —
-			// say that, rather than "someone saved while you were editing", which would be
-			// baffling for an effect the author just created.
-			const isCreate = baseEtag === null;
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message: isCreate
-						? 'An effect with that name already exists in this project. ' +
-							'Rename yours, or overwrite theirs.'
-						: 'Someone else saved this effect while you were editing. ' +
-							'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		// A never-saved effect (baseEtag null) conflicts because the NAME is taken —
+		// say that, rather than "someone saved while you were editing", which would be
+		// baffling for an effect the author just created.
+		const conflict = conflictResponse(
+			e,
+			baseEtag === null
+				? 'An effect with that name already exists in this project. ' +
+						'Rename yours, or overwrite theirs.'
+				: 'Someone else saved this effect while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+		);
+		if (conflict) return conflict;
 		throw e;
 	}
 };

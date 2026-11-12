@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ColorField from '$lib/ColorField.svelte';
@@ -340,7 +341,10 @@
 				entry.order === undefined &&
 				!entry.text &&
 				!entry.card &&
-				!entry.cardParams
+				!entry.cardParams &&
+				!entry.toggle &&
+				!entry.refusable &&
+				!entry.fillerSymbols
 			)
 				delete map[key];
 		}
@@ -356,6 +360,50 @@
 		else {
 			const entry = doc.betModePresentation?.[key];
 			if (entry) delete entry.kind;
+			prunePresentation(key);
+		}
+	}
+
+	/** An ante shown as the HUD's on/off switch rather than a buy-menu card. */
+	function betModeToggleValue(key: string): boolean {
+		return doc.betModePresentation?.[key]?.toggle === true;
+	}
+	function setBetModeToggle(key: string, on: boolean) {
+		if (on) ensurePresentation(key).toggle = true;
+		else {
+			const entry = doc.betModePresentation?.[key];
+			if (entry) delete entry.toggle;
+			prunePresentation(key);
+		}
+	}
+
+	/** The operator may switch this option off: a server refusal is then a message, not an error. */
+	function betModeRefusableValue(key: string): boolean {
+		return doc.betModePresentation?.[key]?.refusable === true;
+	}
+	function setBetModeRefusable(key: string, on: boolean) {
+		if (on) ensurePresentation(key).refusable = true;
+		else {
+			const entry = doc.betModePresentation?.[key];
+			if (entry) delete entry.refusable;
+			prunePresentation(key);
+		}
+	}
+
+	/** The symbols the reels roll while this mode is the stake (presentation only). Unset ⇒ the base
+	 *  strips. */
+	function betModeFillerHas(key: string, symbol: string): boolean {
+		return doc.betModePresentation?.[key]?.fillerSymbols?.includes(symbol) ?? false;
+	}
+	function setBetModeFiller(key: string, symbol: string, on: boolean) {
+		const current = doc.betModePresentation?.[key]?.fillerSymbols ?? [];
+		const next = on
+			? [...current.filter((name) => name !== symbol), symbol]
+			: current.filter((name) => name !== symbol);
+		if (next.length) ensurePresentation(key).fillerSymbols = next;
+		else {
+			const entry = doc.betModePresentation?.[key];
+			if (entry) delete entry.fillerSymbols;
 			prunePresentation(key);
 		}
 	}
@@ -1834,6 +1882,52 @@
 										</select></label
 									>
 								</div>
+								{#if effectiveKind(key) !== 'base'}
+									<div class="bm-fields bm-reels">
+										{#if effectiveKind(key) === 'ante'}
+											<label class="fld toggle"
+												><input
+													type="checkbox"
+													checked={betModeToggleValue(key)}
+													onchange={(e) => setBetModeToggle(key, e.currentTarget.checked)}
+												/><span
+													>HUD switch <em>(button action “ante on/off”, not a buy card)</em></span
+												></label
+											>
+										{/if}
+										<label class="fld toggle"
+											><input
+												type="checkbox"
+												checked={betModeRefusableValue(key)}
+												onchange={(e) => setBetModeRefusable(key, e.currentTarget.checked)}
+											/><span
+												>Operator can switch off <em
+													>(a server refusal shows a message and removes it, not an error)</em
+												></span
+											></label
+										>
+										<div class="fld">
+											<span
+												>Filler symbols <em
+													>the reels roll only these while this mode is the stake — none ⇒ the base
+													strips</em
+												></span
+											>
+											<div class="bm-filler">
+												{#each Object.keys(doc.symbols) as symbol (symbol)}
+													<label class="fld toggle"
+														><input
+															type="checkbox"
+															checked={betModeFillerHas(key, symbol)}
+															onchange={(e) =>
+																setBetModeFiller(key, symbol, e.currentTarget.checked)}
+														/><span>{symbol}</span></label
+													>
+												{/each}
+											</div>
+										</div>
+									</div>
+								{/if}
 							</div>
 
 							<div class="bm-block">
@@ -2836,9 +2930,9 @@
 				<p class="hint">
 					Moved. What the game plays at each moment — the reel-stop ladder, the cascade pop, the
 					landing cues, the per-symbol exceptions and the win-tier stings — is authored in
-					<a href="/sound">Invisible Sound</a>, next to the library the cues are picked from and the
-					button that plays them. Splitting "which sound" from "the sounds" across two tools is what
-					let a name sit bound to nothing for the whole life of the fork.
+					<a href={resolve('/sound')}>Invisible Sound</a>, next to the library the cues are picked
+					from and the button that plays them. Splitting "which sound" from "the sounds" across two
+					tools is what let a name sit bound to nothing for the whole life of the fork.
 				</p>
 			</section>
 		{/if}
@@ -3672,6 +3766,14 @@
 	.bm-menu {
 		grid-template-columns: 150px 110px minmax(200px, 280px);
 		justify-content: start;
+	}
+	.bm-reels {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.bm-filler {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0 14px;
 	}
 	.bm-copy {
 		grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -55,6 +55,9 @@ export function bakeCoinLabel(c) {
 		if (Number.isFinite(c.animation.countMs)) animation.countMs = c.animation.countMs;
 		const boostPop = pick(c.animation.boostPop, POP);
 		if (boostPop) animation.boostPop = boostPop;
+		const hitPop = pick(c.animation.hitPop, POP);
+		if (hitPop) animation.hitPop = hitPop;
+		if (Number.isFinite(c.animation.hitMs)) animation.hitMs = c.animation.hitMs;
 		if (Object.keys(animation).length) out.animation = animation;
 	}
 	return Object.keys(out).length ? out : undefined;

@@ -124,7 +124,7 @@ const bake = (port, env, dir) =>
 const GATES = [
 	{
 		gate: 'invalid-flow',
-		path: '/api/editor/export-flow',
+		path: '/api/editor/export/flow',
 		flag: '--allow-invalid-flow',
 		env: 'ALLOW_INVALID_FLOW',
 		body: {
@@ -134,7 +134,7 @@ const GATES = [
 	},
 	{
 		gate: 'flow-wrong-kind',
-		path: '/api/editor/export-flow',
+		path: '/api/editor/export/flow',
 		body: {
 			error: 'This project\'s kind is "arcade" but its flow is a "bookOf" flow.',
 			reason: 'flow-wrong-kind',

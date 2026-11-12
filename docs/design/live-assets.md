@@ -46,6 +46,34 @@ and symbols reach. Every other folder is pulled only if the game's code names it
 engine's own apps a committed one is left and reported. `--no-prune` restores mirror-everything.
 Rules and their safety limits: `apps/launcher-api/scripts/lib/assetReachability.mjs`.
 
+## Adding an asset class — one registry entry (2026-11-09)
+
+Every asset class a game ships from R2 is ONE entry in the exporter registry,
+`apps/launcher-api/src/lib/server/exporters.ts` (`EXPORTERS`): `{ id, label, run, emptyResult }`
+plus the route's messages and, where it applies, `body` (the route's JSON), `gate` (a refusal
+before anything is written) and `claimsPages` (writes into the shared page store). Both bundle
+paths walk that one list, so rule 8 holds by construction:
+
+- **online** — `runtimeBundle.ts` runs every entry in one pass (`startExports`), sharing the page
+  store and the authored cinematics, and prunes `_pages/` once every `claimsPages` entry is done;
+- **desktop / standalone bake** — `bake-editor-doc.mjs` POSTs `/api/editor/export/<id>`
+  (`exportRoute.ts`) for each entry of `scripts/lib/bakeExports.mjs` and hands the body to its
+  reader. The legacy `/api/editor/export-<id>` URLs are stubs over the same handler, because a
+  game repo's older engine submodule still calls them; a new class gets no legacy stub.
+
+An exporter writes its own `deploy/<subtree>/` through a `DeployMirror` (`deployMirror.ts`):
+`put` / `putAll` / `copy` / `claim` record what the pass shipped, `commit` deletes everything else
+under the prefix. `pull-project-assets.mjs` mirrors all of `deploy/`, so a new subtree needs no
+puller change.
+
+**To add a class:** (1) write the exporter (`<thing>Export.ts`, writing through a `DeployMirror`);
+(2) add its registry entry — `emptyResult` is what it returns for a project that authored none;
+(3) add `{ asset, label, policy }` to `bakeExports.mjs` and a reader in the bake that embeds
+nothing for an empty answer; (4) embed it in `RuntimeBundle` and register it in the game
+(`editor-scenes.ts`). `check:exporter-registry` fails until (2) and (3) agree, `buildRuntimeBundle`
+runs it, an un-authored project yields `emptyResult` from both the pass and the route, and the bake
+of that empty answer adds no bundle section.
+
 ## Two gaps to close
 
 ### 1. Producer — deploy must emit game-ready spritesheets
@@ -150,7 +178,7 @@ shipped game.
    by the editor REGION NAMES — the engine's exact lookup keys) + a copy of the page under
    `deploy/editor-art/<stem>/`, plus an `index.json`. Stale objects from a previous export
    are pruned; the export is idempotent.
-2. **Trigger** — `POST /api/editor/export-art?project=<key>&k=<token>` (same
+2. **Trigger** — `POST /api/editor/export/art?project=<key>&k=<token>` (same
    `EDITOR_DOC_SECRET` gate as the doc endpoint). `bake-editor-doc.mjs` calls it right
    before writing the bundle and embeds the returned index as `bundle.editorArt`.
 3. **Transport** — unchanged: `pull-project-assets.mjs` mirrors `deploy/` →
@@ -175,7 +203,7 @@ shipped game. This mirrors the editor-art transport exactly:
    descriptor + page images (bitmap) or web-font files into `deploy/editor-fonts/<folder>/`,
    preserving file names so a bitmap descriptor's relative page refs resolve. Writes an
    `index.json` (the exported `FontCatalog`); prunes stale objects; idempotent.
-2. **Trigger** — `POST /api/editor/export-fonts?project=<key>&k=<token>` (same
+2. **Trigger** — `POST /api/editor/export/fonts?project=<key>&k=<token>` (same
    `EDITOR_DOC_SECRET` gate). `bake-editor-doc.mjs` calls it right after the art export and
    embeds the returned catalog as `bundle.fonts.catalog`.
 3. **Transport** — `pull-project-assets.mjs` mirrors `deploy/` → `static/assets/`, now
@@ -277,7 +305,7 @@ page-relative `assets/` on a baked build and the launcher's **path-form**
 extensions, which `Assets.load` requires to select a rig parser (the
 query-form `?rel=` would not — see `gotcha_pixi_assetsload_querystring_url`).
 
-It runs inside `ensureDeployExports`, so Publish and the live assemble share one
+It is the `boot` entry of the exporter registry, so Publish and the live assemble share one
 export path, and it reuses `exportRigBundle` rather than owning any copying of
 its own — a boot logo is an ordinary rig that happens to be read early.
 
@@ -329,7 +357,7 @@ nothing in the editor can re-point a rig node's `assetKey` after it is created.
 ## Published snapshots — the ONLINE chain's own `deploy → bake` step (added 2026-09-29)
 
 The online Game Maker path used to have no freeze at all: every player boot ran the whole export
-chain live (`/api/editor/runtime` → `buildRuntimeBundle` → `ensureDeployExports`, ~20-26s for a
+chain live (`/api/editor/runtime` → `buildRuntimeBundle` → every `exporters.ts` entry, ~20-26s for a
 real project) and was handed `assetBase` = the live `deploy/` tree. So any autosave — including a
 flow the publish gate would refuse — reached the next player, and the tree a running game was
 loading from could be rewritten or pruned under it.
@@ -366,7 +394,7 @@ snapshots ≈ ≤1 GB per project — cents per month. Revisit if projects grow 
 **Consistency.** Every assemble — authoring boots and Publish — runs under
 `runtimeBundleCache.withDeployWrite`: one per project at a time (so the copy is of exactly the tree
 its own assemble wrote) and at most two across the launcher (the container has OOM'd mid-bake).
-Writers OUTSIDE the launcher's assembles (the desktop bake's `/api/editor/export-*` calls, the
+Writers OUTSIDE the launcher's assembles (the desktop bake's `/api/editor/export/<id>` calls, the
 Python atlas/sheet tools) are not under that lock; see `docs/status/game-maker.md` for what that
 leaves open.
 
@@ -376,7 +404,7 @@ directly and never sees `published/`.
 ## The shared build/deploy token (admin-managed)
 
 All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,
-`/api/editor/export-art`, `/api/editor/export-fonts`, `/api/localization/strings`) and the
+`/api/editor/export/<id>`, `/api/localization/strings`) and the
 runtime layout fetch share ONE token (`?k=` / `secret`). The desktop launcher fetches it from
 `GET /api/launcher/deploy-token` and injects it into game builds so `bake:doc` / `pull:assets`
 / the exports run authenticated on any machine.

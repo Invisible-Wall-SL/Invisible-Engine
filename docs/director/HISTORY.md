@@ -15,6 +15,36 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-10 · Phase 10 · launcher-studio (13D follow-up: the launcher code a run may not change)
+- Did: closed open item 4's protected-path gap. `bugFixRunsChange.ts` now also refuses:
+  - `src/lib/server/bugFix*.ts`, which adds `bugFixWorkflow.ts`;
+  - `src/lib/server/pipeline*.ts` and all of `src/routes/api/pipeline/`: Pipeline Changes'
+    server and API, the console that gates and merges a run's PR;
+  - `$lib/bugReports.ts`, `concurrency.ts` and `githubApp.ts`;
+  - from the `code-reviewer` pass: `vite.config.js`, `svelte.config.js`, `db/migrate.ts`, and
+    Pipeline Changes' two fixtures;
+  - any `.js`/`.mjs`/… file, or an extensionless one, beside a protected `.ts`: Vite would load it
+    in the `.ts`'s place.
+
+  That is 32 more tracked files. The set is the imports of what validates, commits and merges a
+  fix run, walked to the end and cut at shared infrastructure. `coordinator.md` and
+  `settings.json` were updated to match.
+- Files: `apps/launcher-api/src/lib/server/bugFixRunsChange.ts`,
+  `apps/launcher-api/scripts/check-bug-fix-runs.ts`,
+  `scripts/bug-fix/{coordinator.md,settings.json,workflow.fixture.mjs}`,
+  `docs/status/bug-reports.md`.
+- Branch / PR: `claude/competent-heisenberg-f36c32` (#1597).
+- Tests: `check:bug-fix-runs` has a refusal case for each newly protected file and four
+  near-miss controls (122 checks). Each new rule was proved by a hand-planted mutant.
+  `check:bug-fix-workflow` now requires the prompt's globs to cover every file a path rule
+  refuses, and the prompt to carry the sibling rule. It has 215 mutants, 34 of them new.
+  `check:bug-reports`, `check:pipeline-games` and ESLint pass.
+- Decisions: shared modules stay open: `env.ts`, `db/`, `roles.ts`, `appSettings.ts`, `costs/`,
+  `http.ts`, `zip.ts`, the bug store and the `(app)/pipeline/` pages. So does the agent-eval
+  harness, which judges only agent-definition changes, and a run cannot make one.
+- Next: the owner's calls on `invisible-rig.js` and on the fix-run rules that sit in shared files
+  (open item 4). The two-connection Postgres proof is still owed.
+
 ## 2026-11-09 · Phase 10 · infra-railway (13D follow-up: the run is told the launcher's refusals)
 - Did: `scripts/bug-fix/coordinator.md`'s Never list now names everything `bugFixRunsChange.ts`
   refuses:

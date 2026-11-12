@@ -32,6 +32,15 @@
 		 * caring what the game's asset index happens to say. Absent ⇒ factor 1 ⇒ unchanged.
 		 */
 		loadScaleBase?: number;
+		/**
+		 * KEPT between plays instead of mounted per play (`rigKeep.ts`): put away while true —
+		 * neither updated nor drawn, its bound effects and clips let go — and brought back at the
+		 * next {@link restart}. Absent ⇒ an ordinary rig, mounted and unmounted by its caller.
+		 */
+		parked?: boolean;
+		/** A kept rig's play: a new value starts the rig and what is bound to it again from the top,
+		 *  in place, as a new mount would (`setContextRestart`). */
+		restart?: unknown;
 	};
 </script>
 
@@ -44,7 +53,12 @@
 	import RiggedEffect from './RiggedEffect.svelte';
 	import RiggedFlipbook from './RiggedFlipbook.svelte';
 	import { rigAnchorPoint, rigFramePivot } from '../rigBox';
-	import { getContextApp, setContextRigLoadScale } from '../context.svelte';
+	import {
+		getContextApp,
+		setContextRestart,
+		setContextRigLoadScale,
+		setContextRigParked,
+	} from '../context.svelte';
 	import { getRigLoadScale } from '../rigLoadScale';
 	import { EMPTY_RIG_BOUND_CONTENT, resolveRigBoundContent } from '../rigBoundContent';
 	import { hasAssetKey, warnMissingAsset } from '../missingAsset';
@@ -56,6 +70,8 @@
 		children,
 		scale: scaleProp,
 		loadScaleBase,
+		parked,
+		restart,
 		...baseRigProps
 	}: Props = $props();
 	const context = getContextApp();
@@ -127,6 +143,13 @@
 	const bound = $derived(
 		resolved ? resolveRigBoundContent(resolved.assetKey) : EMPTY_RIG_BOUND_CONTENT,
 	);
+
+	// Kept (`parked` given): its subtree is told when it is put away and when a play starts.
+	// svelte-ignore state_referenced_locally
+	if (parked !== undefined) {
+		setContextRigParked(() => !!parked);
+		setContextRestart(() => restart);
+	}
 </script>
 
 <!-- Load-aware diagnostic: a rig mounted by the (now generically mounted) game tree

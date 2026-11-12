@@ -443,7 +443,11 @@ const facade: Facade = await import('./src/engineFacade.ts');
 const { rgsUrl } = partner;
 const sid = 'fx-collector-respin';
 
-// A bet before the session sent `config` is refused (110), and answered as a clean refusal.
+// A bet before the session sent `config` is a clean refusal with no round. The facade refuses it
+// itself now, before anything is sent: with no boot config it cannot price the bet
+// (`refuseUnpricedBet`, ERR_GE, #1562). The server's own 110 for it is
+// `check-holdandwin-partner-wire.mjs`'s.
+const sentBeforeEarly = partner.log.length;
 const early = (await hush(() =>
 	facade.requestBet({
 		sessionID: 'fx-unconfigured',
@@ -453,7 +457,8 @@ const early = (await hush(() =>
 		rgsUrl,
 	}),
 )) as Answer;
-check('a bet before config: refused as ERR_110', early.status?.statusCode, 'ERR_110');
+check('a bet before config: refused as unpriced (ERR_GE)', early.status?.statusCode, 'ERR_GE');
+check('...and never sent to the partner', partner.log.length, sentBeforeEarly);
 check('...with no round handed to the engine', early.round, undefined);
 
 await hush(() => facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' }));
@@ -551,6 +556,11 @@ partner.script([LOSING, CENTER, BUY]);
 		],
 	);
 	check('center coin: its amount is the bonusWin pay', collect?.amount, 2700);
+	check(
+		'center coin: the collector, its total off collectWindow and what it gathered',
+		collect?.collectors,
+		[{ reel: 2, row: 0, symbol: { name: 'COLLECT', value: 27 }, amount: 2700 }],
+	);
 	check(
 		'center coin: the MINI is presented, not paid again',
 		book.filter((e) => e.type === 'jackpotWin').map((e) => [e.tier, e.amount, e.source, e.banked]),

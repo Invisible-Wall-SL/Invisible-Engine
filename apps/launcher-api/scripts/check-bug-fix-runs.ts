@@ -24,12 +24,12 @@
  *    screenshots of the run's own bug only;
  *  - the result: spend first, once, at most 10 models a run; the claim a lease (fresh → 409, two
  *    minutes stale → taken over); the endings that open nothing; a bug closed meanwhile; 400s that
- *    never echo the result's paths; every §5 rule — protected paths by ancestry and by name, the
- *    base tree's directories, files, links and submodules, lockfiles, `package.json` keys and
- *    lifecycle scripts, ratchets, added lines' secrets and suppression comments, hidden Unicode,
- *    size, scope, gates, privacy over folded keys and names; run text stripped of format characters,
- *    HTML comments and CI-skip directives, its tags shown as text, capped by code points, unlinked
- *    after the cut, quiet;
+ *    never echo the result's paths; every §5 rule — protected paths by ancestry and by name (the
+ *    shared code beside them left open), the base tree's directories, files, links and submodules,
+ *    lockfiles, `package.json` keys and lifecycle scripts, ratchets, added lines' secrets and
+ *    suppression comments, hidden Unicode, size, scope, gates, privacy over folded keys and names;
+ *    run text stripped of format characters, HTML comments and CI-skip directives, its tags shown
+ *    as text, capped by code points, unlinked after the cut, quiet;
  *  - a fix: the App's calls in order on the base tree, the exec bit kept, a DRAFT PR; GitHub writes
  *    retried (5xx, network, short rate limits); a failure after the claim ends `failed` — or
  *    `pr_opened` when GitHub has the PR — and deletes a stray branch; any error after the claim;
@@ -1569,7 +1569,9 @@ check(
 );
 
 // ── Live runs for the result tests ────────────────────────────────────────────
-let ghSeq = 9500;
+/** Clear of the Actions run ids the tests pick by hand (9001–9999): a live run holding one of
+ *  those makes a later bind of it refused. */
+let ghSeq = 20_000;
 /** A live, bound run on `bug` for a result test. */
 function liveRun(bug = 1, over: Partial<BugFixRun> = {}): { id: string; gh: number } {
 	const at = tick();
@@ -1802,7 +1804,43 @@ check(
 );
 
 // ── Results: each §5 rule, with a planted change ──────────────────────────────
-const planted: [string, Record<string, unknown>, string][] = [
+type Planted = [string, Record<string, unknown>, string];
+/** The console that gates, merges and reverts a run's PR: every module and route of it. */
+const PIPELINE_SERVER = [
+	'pipelineAccess',
+	'pipelineAgentEval',
+	'pipelineAgents',
+	'pipelineApprovals',
+	'pipelineChanges',
+	'pipelineGames',
+	'pipelineMerge',
+	'pipelineMerges',
+	'pipelineReport',
+].map((m) => `apps/launcher-api/src/lib/server/${m}.ts`);
+const PIPELINE_API = [
+	'agents',
+	'agents/[name]',
+	'agents/[name]/changes',
+	'bugs',
+	'catalogue',
+	'changes',
+	'changes/[number]',
+	'changes/[number]/approvals',
+	'changes/[number]/merge',
+	'changes/[number]/ready',
+	'changes/[number]/report/[...path]',
+	'games',
+	'merges',
+	'merges/[number]/revert',
+].map((r) => `apps/launcher-api/src/routes/api/pipeline/${r}/+server.ts`);
+const refusedAs =
+	(entry: string) =>
+	(path: string): Planted => [
+		path,
+		{ files: [file(path)] },
+		`it touches a protected path (${entry})`,
+	];
+const planted: Planted[] = [
 	['another base', { baseSha: 'c'.repeat(40) }, 'it is not based on the commit the run was given'],
 	['no gate', { gates: [] }, 'a fix needs a changed file and a gate that passed'],
 	[
@@ -1996,6 +2034,28 @@ const planted: [string, Record<string, unknown>, string][] = [
 		{ files: [file('apps/launcher-api/src/lib/server/githubOidc.ts')] },
 		'it touches a protected path (apps/launcher-api/src/lib/server/githuboidc.ts)',
 	],
+	[
+		'the fix-run workflow',
+		{ files: [file('apps/launcher-api/src/lib/server/bugFixWorkflow.ts')] },
+		"it touches a protected path (the launcher's fix-run modules)",
+	],
+	[
+		'the bug vocabulary',
+		{ files: [file('apps/launcher-api/src/lib/bugReports.ts')] },
+		'it touches a protected path (apps/launcher-api/src/lib/bugreports.ts)',
+	],
+	[
+		'the concurrency helpers',
+		{ files: [file('apps/launcher-api/src/lib/server/concurrency.ts')] },
+		'it touches a protected path (apps/launcher-api/src/lib/server/concurrency.ts)',
+	],
+	[
+		'the GitHub App',
+		{ files: [file('apps/launcher-api/src/lib/server/githubApp.ts')] },
+		'it touches a protected path (apps/launcher-api/src/lib/server/githubapp.ts)',
+	],
+	...PIPELINE_SERVER.map(refusedAs("Invisible Pipeline Changes' server modules")),
+	...PIPELINE_API.map(refusedAs('apps/launcher-api/src/routes/api/pipeline')),
 	[
 		'this fixture',
 		{ files: [file('apps/launcher-api/scripts/check-bug-fix-runs.ts')] },
@@ -2421,7 +2481,7 @@ const planted: [string, Record<string, unknown>, string][] = [
 	[
 		"the job's routes",
 		{ files: [file('apps/launcher-api/src/routes/api/pipeline/fix-runs/[id]/brief/+server.ts')] },
-		'it touches a protected path (apps/launcher-api/src/routes/api/pipeline/fix-runs)',
+		'it touches a protected path (apps/launcher-api/src/routes/api/pipeline)',
 	],
 	[
 		'the Start and Stop routes',
@@ -2443,6 +2503,39 @@ const planted: [string, Record<string, unknown>, string][] = [
 		{ files: [file('apps/launcher-api/drizzle/0038_more.sql')] },
 		'it touches a protected path (apps/launcher-api/drizzle)',
 	],
+	...[
+		'apps/launcher-api/src/lib/server/db/migrate.ts',
+		'apps/launcher-api/vite.config.js',
+		'apps/launcher-api/svelte.config.js',
+		'apps/launcher-api/scripts/check-pipeline-changes.ts',
+		'apps/launcher-api/scripts/check-pipeline-games.ts',
+	].map((path) => refusedAs(path)(path)),
+	// A source file, or one with no extension, beside a protected `.ts` is what an extensionless
+	// import may load instead.
+	...(
+		[
+			[
+				'apps/launcher-api/src/lib/server/githubApp.js',
+				'apps/launcher-api/src/lib/server/githubapp.ts',
+			],
+			['apps/launcher-api/src/lib/server/bugFixRunsChange.mjs', "the launcher's fix-run modules"],
+			['apps/launcher-api/src/lib/bugReports.js', 'apps/launcher-api/src/lib/bugreports.ts'],
+			[
+				'apps/launcher-api/src/lib/server/concurrency.MJS',
+				'apps/launcher-api/src/lib/server/concurrency.ts',
+			],
+			['services/director-worker/src/untrusted.js', 'services/director-worker/src/untrusted.ts'],
+			[
+				'apps/launcher-api/src/lib/server/pipelineMerge.mts',
+				"Invisible Pipeline Changes' server modules",
+			],
+			[
+				'apps/launcher-api/src/lib/server/githubApp',
+				'apps/launcher-api/src/lib/server/githubapp.ts',
+			],
+			['services/director-worker/src/untrusted', 'services/director-worker/src/untrusted.ts'],
+		] as [string, string][]
+	).map(([path, entry]) => refusedAs(entry)(path)),
 	[
 		'a path outside ASCII',
 		{ files: [file(`docs/caf${E_ACUTE}.md`)] },
@@ -2473,6 +2566,26 @@ check(
 		label,
 		['no_fix', 'needs_person', `The change was refused (${rule}).`, []],
 	]),
+);
+const nearMisses = [
+	'apps/launcher-api/src/lib/server/bugReports.ts',
+	'apps/launcher-api/src/lib/server/env.ts',
+	'apps/launcher-api/src/lib/server/env.js',
+	'apps/launcher-api/src/lib/server/env',
+	'apps/launcher-api/src/lib/server/db/schema.ts',
+	'apps/launcher-api/src/routes/(app)/pipeline/BugsPanel.svelte',
+	'apps/launcher-api/src/lib/server/pipelines/x.ts',
+];
+const taken: [string, unknown][] = [];
+for (const path of nearMisses) {
+	const r = liveRun(7);
+	const a = await result(r.id, r.gh, good({ files: [file(path)] }));
+	taken.push([path, [a.body.status, runOf(r.id).reason]]);
+}
+check(
+	'shared code beside a protected path is a fix a run may make: the bug store, env.ts and a .js or extensionless file beside it, the schema beside the migration runner, the Pipeline Changes page, a folder named like the pipeline modules',
+	taken,
+	nearMisses.map((path) => [path, ['pr_opened', null]]),
 );
 gh.truncated = true;
 const huge = liveRun(1);

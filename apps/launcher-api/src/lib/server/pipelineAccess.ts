@@ -1,12 +1,6 @@
 import { error } from '@sveltejs/kit';
-import {
-	PIPELINE_MERGE_CAPABILITY,
-	roleHasCapability,
-	roleHasTool,
-	type ToolOverrides,
-} from '$lib/roles';
-import { getRoleOverrides } from './roleToolAccess';
-import { getToolOverrides } from './userToolAccess';
+import { PIPELINE_MERGE_CAPABILITY } from '$lib/roles';
+import { requireToolGrants } from './http';
 
 /**
  * The session gates for Invisible Pipeline Changes' own endpoints (`/api/pipeline/changes/*`,
@@ -20,18 +14,8 @@ export async function requirePipelineAccess(locals: App.Locals): Promise<User> {
 
 type User = NonNullable<App.Locals['user']>;
 
-/** The user and the two override layers the capability gate reads again, fetched once. */
-async function entitled(
-	locals: App.Locals,
-): Promise<{ user: User; roleOverrides: ToolOverrides; overrides: ToolOverrides }> {
-	if (!locals.user) throw error(401, 'Not authenticated');
-	const roleOverrides = await getRoleOverrides(locals.user.role);
-	const overrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'pipelineChanges', roleOverrides, overrides)) {
-		throw error(403, 'Your role does not have access to Invisible Pipeline Changes.');
-	}
-	return { user: locals.user, roleOverrides, overrides };
-}
+const entitled = (locals: App.Locals) =>
+	requireToolGrants(locals, 'pipelineChanges', 'Invisible Pipeline Changes');
 
 /**
  * The extra gate for approving a changed screen, editing an agent definition, merging a change
@@ -42,8 +26,8 @@ export async function requirePipelineMerge(
 	locals: App.Locals,
 	action = 'Approving a changed screen',
 ): Promise<User> {
-	const { user, roleOverrides, overrides } = await entitled(locals);
-	if (!roleHasCapability(user.role, PIPELINE_MERGE_CAPABILITY, roleOverrides, overrides)) {
+	const { user, grants } = await entitled(locals);
+	if (!grants.hasCapability(PIPELINE_MERGE_CAPABILITY)) {
 		throw error(403, `${action} needs the "Merge pipeline changes" capability.`);
 	}
 	return user;

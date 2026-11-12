@@ -11,5 +11,7 @@ declare const __IE_BUILD__: {
 	lockfileSha256?: string;
 	launcherVersion?: string;
 };
+/** A build pinned to one art tier (`config-vite` `artTierPin.js`), `''` when it picks per screen. */
+declare const __IE_ART_TIER__: string;
 /** The game families compiled into the bundle (`config-vite` `PUBLIC_IE_FAMILIES`); `slot` always. */
 declare const __IE_FAMILIES__: readonly import('game-config').ConfigFamily[];
