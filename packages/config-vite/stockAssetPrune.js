@@ -32,6 +32,8 @@ import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
+import { withStockTwinFiles } from './stockTwins.js';
+
 const ENGINE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const BUNDLE = join(ENGINE_ROOT, 'apps/lines/src/baked-editor-bundle.json');
 const PLAN_MODULE = join(ENGINE_ROOT, 'apps/lines/src/game/stockAssetBuild.ts');
@@ -105,13 +107,14 @@ function closure(assetsDir, roots) {
 	return seen;
 }
 
-/** A page's other encodings beside it (the 🗜 Optimize WebP twin, a KTX2 copy). */
+/** A page's other encodings beside it (the 🗜 Optimize WebP twin, a KTX2 copy, the engine's
+ *  premultiplied KTX2 twin of a stock page). */
 const withTwins = (assetsDir, rels) => {
 	const out = new Set(rels);
 	for (const rel of rels) {
 		if (!PAGE_EXT.test(rel)) continue;
 		const stem = rel.replace(PAGE_EXT, '');
-		for (const ext of ['.png', '.webp', '.jpg', '.jpeg', '.avif', '.ktx2', '.basis']) {
+		for (const ext of ['.png', '.webp', '.jpg', '.jpeg', '.avif', '.ktx2', '.pm.ktx2', '.basis']) {
 			if (existsSync(join(assetsDir, stem + ext))) out.add(stem + ext);
 		}
 	}
@@ -132,7 +135,7 @@ export function pruneStockFiles(assetsDir, plan) {
 	const skipped = new Set(plan.skipped);
 	const keptRoots = [];
 	const skippedRoots = [];
-	for (const [key, files] of Object.entries(plan.files)) {
+	for (const [key, files] of Object.entries(withStockTwinFiles(plan.files))) {
 		(skipped.has(key) ? skippedRoots : keptRoots).push(...files);
 	}
 	// A kept key whose own file is absent loads nothing from this folder, so it protects nothing.

@@ -5,6 +5,16 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### Invisible Sound lists no Flow cue, and Publish lets a Flow-only draft through
+- **Symptom:** `/sound` showed no Flow cues on any of the 20 projects with a flow, and Publish
+  never blocked a draft sound only the Flow plays (found by the sound-reachability work, 2026-11-12).
+- **Cause:** `flowSoundBindings` (`soundUsage.ts`) read `flow.nodes`, which no FlowDoc has (nodes
+  sit in `graph`, mode graphs, groups); its fixture fed the same wrong `{ nodes }` shape.
+- **Fix:** one walk and one sound-pin rule, `$lib/flowSoundCues.ts`, for usage, gate and export.
+- **Guard:** `check:sounds-doc` §15 over a real FlowDoc (9 planted mutants);
+  `check:sound-reachability` §6 runs the real gate. Feed a fixture the real doc shape.
+- **PR:** see git log (2026-11-12) · source: this lesson
+
 ### Prettier strips TypeScript generics from Svelte markup expressions
 - **Symptom:** after `prettier --write` on a `.svelte` file, svelte-check reports "Generic type
   'Record' requires 2 type argument(s)" — `{#snippet f(bag: Record<string, number>)}` became

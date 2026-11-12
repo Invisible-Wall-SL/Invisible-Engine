@@ -88,6 +88,36 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
+- **Partner captures owed by the mock audit** (2026-11-12, table in
+  `reference/play4fun-protocol.md` "Mock audit"). Each one: a real browser tab on the partner's
+  game page (Cloudflare blocks server-side fetches), DevTools network filtered on `engine` with
+  "Preserve log", then save every request body and answer of the rounds named. Add what it shows to
+  the reference and make the mock and the gate (`check:mock-wire`) match.
+  - **Free-spin retrigger.** A partner free-spins game (Book of Thermopylae again, or any partner
+    title with scatter free spins): buy or play until a free spin retriggers. Record that free
+    spin's whole answer. It settles whether the server sends a `retrigger` event on free spins at
+    all, and its fields. It also settles where the retrigger's `spinTrigger` sits against
+    `playedSpin` and `playedBonusSpin`, and which `bonus` key it names. Until then the mocks send
+    both, and the facade celebrates once (`freeSpinRetriggerAt`).
+  - **Ways and cluster wins.** If the partner has a ways game and a cluster game, record one paying
+    base spin of each. It settles the `spinWin` `mode` (their client knows `line`, `scatter` and
+    `consecutive`, a cell list), what `occurs` counts, and the `context` shape. Our `ways` and
+    `cluster` modes are invented.
+  - **Cascades and board multipliers.** If the partner has a tumble game, record a losing spin, a
+    one-step tumble win, a chain of three or more, and a spin where a multiplier is collected. If
+    they have none, ask whether they plan one. `tumbleStep`, `multiplierCollect` and `MULT:<v>` are
+    ours.
+  - **Wilds that change the board.** If a partner game has expanding or growing wilds, record a
+    spin where one expands. Ours copies Slotmotion's _Fairy's Charm_ (`expandedWild`,
+    `growingWild`, `symbolSetInMatrix`).
+- **The facade reads a spin's events in one pass; the partner's client reads them in two.** The
+  partner's client takes `bet` and `playedSpin` first, so a server may send `spinWin` after the
+  board. Our facade drops a win that comes after its `playedSpin`: `check:mock-wire` fails when the
+  lines mock is changed to send wins after the board. Every capture so far sends wins first, so
+  nothing breaks today. Making the facade read `bet` and `playedSpin` first, like their client,
+  would remove the risk for every new partner game. That is a runtime change to every game's book,
+  so it needs its own branch and the current-games check.
+
 - **Phone or desktop, and the screen's real pixels** (2026-11-12) — `pixi-svelte` `deviceClass.ts`
   is the one place that decides, once at boot: a **phone** (every phone and tablet, a phone in
   Desktop site mode included) loads the KTX2 art, a **desktop** (desktop, laptop, arcade cabinet)
@@ -231,7 +261,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   spinning `lateMs` and `jsMs` should fall toward the idle ones. Headless Chromium shows no
   pathological GL work at base-game idle (43 draws, one scene pass, its resolve and copy, no
   uploads, no round trips, ~2.75× screen coverage), so what costs on the iPhone has to be read
-  there. The Copy must read `perf: 5` or later: it then carries `spikes` (the last 30 long
+  there. The Copy must read `perf: 5` or later (`perf: 7`, 2026-11-12, also lists every texture
+  and every KTX2 fallback): it then carries `spikes` (the last 30 long
   frames, each with its frame and the one before, and a likely cause, `churn` among them) and
   `spikeCauses` (every spike since Reset, by cause, idle, spinning and round), and per phase what
   the frames built and threw away. Paste the whole Copy; the spikes are what says JS or not. What to expect, and which
@@ -276,6 +307,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `Transition` node in `basegameOverlays` nothing fires; kept because an awaited show of that
   screen measures it), `anticipation` 4.7 MB (no authored anticipation `spineKey`). `sounds.mp3` (4.9 MB) stays: the coded game plays stock names (`sfx_btn_spin`,
   `sfx_reel_stop_*`) the project's 17 sounds do not replace.
+
+- **Why an iPhone loads most KTX2 twins as WebP — needs the owner's `perf: 7` Copy** (2026-11-12
+  change, below). An iPhone reading of `overlay-buffaloduel` held 7 ASTC textures where Chromium,
+  WebKitGTK and an Android phone hold 24; its numbers fit 17 twins falling back to their WebP. The
+  Copy's `ktx2Fallbacks` names each fallback and its error, and `textureList` every texture. Open
+  the game with `&perf=1` on the iPhone, let it load, Copy. Then republish the three games so the
+  font twins and the pages under 1 Mpix get theirs (an assemble after the launcher deploy).
 
 - **KTX2 transcoder follow-ups** (2026-11-03 change, below). (1) Serve one copy of
   `libktx.<hash>.*` from a shared path (e.g. `/_shared/`) so a phone moving between games reuses
@@ -352,10 +390,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   4096×6000 page, 94 MB, 0.2–0.3 s in WebKitGTK): WebGL2 sub-rectangle uploads could split it.
   (3) The splash's teardown (`loseContext()`) waits for the GPU process: 1.9–6.5 s in Chromium
   software GL, nothing in WebKitGTK, no spike on the Android phone.
-  Next: the owner's `?perf=1` Copy (`perf: 5`) on an iPhone with #1601, the churn counters and
-  this change released. The ~118 MB of resident textures on
-  `commonoverlayproject` is mostly uncompressed stock WebP/PNG sheets (`symbols2/3`, `SD2_Coin`,
-  `reels_frame`, `fs_screen`); moving them to KTX2 like the atlas pages would cut it several-fold.
+  Next: the owner's `?perf=1` Copy (`perf: 5` or later) on an iPhone with #1601, the churn
+  counters and this change released. The stock WebP/PNG sheets that made most of
+  `commonoverlayproject`'s resident textures have KTX2 twins since 2026-11-12 (Recent changes,
+  "the compressed tier loads every page compressed").
 
 - **Lines-family table games: gaps left by the 2026-09-29 buy fix** (from its `code-reviewer` pass).
   - **Engine-side, need a runtime release:**
@@ -564,6 +602,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-12 — **Mock audit: every event the test RGS sends, against the partner's wire.** The
+  table is in `reference/play4fun-protocol.md` ("Mock audit"). It lists each event as captured,
+  read by the partner's client, from another provider, or ours.
+  - **A free-spin retrigger now speaks the partner's wire.** Their client reads a retrigger only off
+    a `spinTrigger` during free spins and has no `retrigger` case. The lines and book mocks now send
+    that `spinTrigger` before our `retrigger`. The facade (`freeSpinRetriggerAt`) celebrates a
+    retrigger from the `spinTrigger` alone, once, and the `retrigger` that may follow adds nothing.
+    Before this, a partner free-spins game would have added its spins with no celebration. This is
+    a runtime release.
+  - **The parity digests moved for that one event.** `check:lines-parity`, `check:freespins` (book),
+    `check:pots-overlay` and launcher `check:deal-parity` (two cases) were re-pinned. With the new
+    `spinTrigger` removed, every answer is byte-identical to the old digests (checked before
+    re-pinning).
+  - **New gate `check:mock-wire`** (`rgs-translator-eagaming/mockWire.fixture.ts`, in `check:rgs`).
+    It plays losing, line-win, collect, trigger, retrigger and buy rounds of the lines, book and
+    collector mocks through the real facade. Each `spinWin` must land as a `winInfo` on its own board.
+    Proven against three planted mutants: #1634 reverted, wins sent after the board, and the
+    facade's `spinTrigger` retrigger removed.
+  - The captures still owed are under "Open items" above, and Getting Hot's is Hold and Win item 16.
 - 2026-11-12 — **The start screen's tap no longer mounts the screens it shows: they are mounted
   under the loading bar, hidden and dormant, and start in place at their show** (branch
   `worktree-agent-abbfabf18782b2a57`, on top of the loading-bar change below (#1628), rebased on
@@ -650,6 +707,143 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`performance.memory` is coarse here, so the heap was read after a GC). A start-up chain can
     end in `complete:<id>` (`test1`, `cloud`: `freeSpinIntro`, `freeSpinOutro`): those screens
     stay mounted and dormant from the bar until the feature shows them.
+
+- 2026-11-12 — **The compressed tier loads every page compressed: the stock art gets KTX2 twins,
+  the page floor drops to 256×256, bitmap fonts get twins, and `?perf=1` names every texture**
+  (worktree branch `worktree-agent-a26762441350cb273`, not pushed; held for the owner's look at the
+  phone captures). Design: [gpu-compressed-textures](../design/gpu-compressed-textures.md)
+  "Coverage". The tier choice (`preferCompressedTextures`) is unchanged; only what that tier loads.
+  - **Why:** the owner's iPhone `?perf=1` reading of `overlay-buffaloduel` (on `a7a4ae73`) held 63
+    BGRA8 textures (238 MB) and 7 ASTC (14.2 MB).
+  - **That reading against the inventory below.** Headless Chromium as that iPhone holds, at the
+    same 780×1398 canvas, 39 BGRA8 (64.9 MB) and 24 ASTC (57.3 MB) after a spin. Every 7 of those
+    24 ASTC pages that read 14.2 MB (2,535 such sets) leaves 17 pages, and those 17 loaded as their
+    WebP instead cost 237.1–237.4 MB of BGRA8 with the rest: the iPhone's 238 MB. Count: 39 + 17 = 56
+    against its 63, the 7 more being text and pooled textures, which vary by moment (~0.1 MB each).
+    So on the iPhone 17 of the 24 twins fell back to their WebP, and the stock art (42 MB here) was
+    uncompressed besides. Headless Chromium and WebKitGTK (MiniBrowser, `?quality=low`, the iPhone
+    UA) both load all 24 twins as ASTC, as the Nothing Phone (1) did on 2026-11-10 (24 ASTC, 57 MB).
+    Why iOS fell back is not known, and which 17 cannot be told from counts; `?perf=1` now records
+    each fallback and its error (below). One suspect, measured but not proven on a device: Pixi
+    8.22's KTX2 worker never frees a `ktxTexture`, so its wasm heap holds every twin it transcoded
+    for the session: 97 MB after this game's 26 twins in Node, 33 MB when each is freed.
+  - **Inventory** (headless Chromium as an iPhone: its UA, 390×699, DPR 3, `?quality=low`; the
+    live snapshots `…131516Z-d775`, `…131141Z-0ae6`, `…130958Z-afdf` through the harness's servers;
+    every texture in `renderer.texture.managedTextures` at each capture, classified by its URL
+    against the snapshot and the runtime build). At each game's peak capture, MB of GPU memory:
+
+    | Why uncompressed | `overlay-buffaloduel` | `commonoverlayproject` | `bookofborutremake` |
+    |---|---|---|---|
+    | already compressed (KTX2 twin) | 57.3 (24) | 18.9 (7) | 81.3 (13) |
+    | stock coded sheet, no twin exists | 42.0 (7) | 67.4 (11) | 13.6 (4) |
+    | project page under 1 Mpix, no twin made | 9.3 (6) | 2.5 (1) | 0.4 (2) |
+    | bitmap-font page, fonts get no twin | 7.2 (4) | 4.5 (3) | 3.8 (4) |
+    | render target (cannot be compressed) | 4.8 (6) | 4.8 (5) | 8.9 (8) |
+    | text / canvas texture (cannot be compressed) | 1.8 (16) | 2.0 (16) | 0.7 (14) |
+    | twin made but not registered | 0 | 0 | 0 |
+    | **peak total** | **122.5** | **100.1** | **108.7** |
+
+    No twin was ever left unregistered: every page with a `.pm.ktx2` beside it loaded it.
+  - **What changed:**
+    - **Stock twins.** `scripts/check-stock-ktx2.mjs --write` encodes every stock page over the
+      floor with the launcher's encoder (`encodePageToKtx2`, premultiplied `.pm.ktx2`), PADDED to
+      whole 4×4 blocks so no coordinate moves, writes a twin descriptor beside each descriptor
+      (`x.ktx2.atlas` / `.ktx2.json` / `.ktx2.xml`, `ktx2Descriptors.ts`) and the hashes of what each
+      was made from in `apps/lines/src/game/stockTwins.json`: 23 descriptors, 13.4 MB of twins in
+      `apps/lines/static/assets/`. `payFrame` (a 1001×996 standalone image) gets none: padding it
+      would draw it larger. On the compressed tier `stockAssetsOnTier` (`stockTwins.ts`, applied in
+      `stateApp.ts`) points each shipped twin's entry at it, the original as its `fallback`; the
+      boot's stock skip compares against the same table (it compared the coded one, and would
+      have skipped nothing twinned).
+    - **Every build ships the twins its own art matches.** `config-vite` `stockTwins.js` names the
+      shipped twins in `__IE_STOCK_TWINS__`, decided from the build's `static/assets/`: only a
+      descriptor whose file and pages are the engine's bytes. For a game repo it copies the twin
+      files its `static/` lacks into the build (a repo seeded before today has none) and skips any
+      stock file the game replaced; the engine's own apps carry all of them. The stock prune takes
+      a left-out key's twins with it (`withStockTwinFiles`).
+    - **The page floor is 256×256** (`MIN_ENCODE_PIXELS` 1 Mpix → 65,536 px). A twin-less page is
+      re-tried on every assemble, so the next assemble or Publish encodes them; no revision bump.
+    - **Bitmap fonts get twins.** `fontExport.ts` encodes each page padded, writes
+      `<descriptor>.ktx2.<ext>` beside it, content-cached by the page's ETag + size and the encoder
+      revision (`<page>.meta.json`), records `FontEntry.ktx2DescriptorFile`; `bakedFontAssets(…,
+      compressed)` loads it with the plain descriptor as fallback. Chain: export → `deploy/
+      editor-fonts/` (export-generated, so the pull mirrors it and a version freezes it) → bake
+      embeds the catalog → register. Gated by `KTX2_ENCODE`, as every twin is.
+    - **`?perf=1` Copy is `perf: 7`** (main's `perf: 6` plus): `textureList` (every texture: source file, kind, size,
+      format, MB) and `ktx2Fallbacks` (every `.ktx2` that fell back to its WebP/PNG, with the
+      error), so the next iPhone reading says which pages it held uncompressed and why. Every URL
+      in either is cut to its last two path segments: a deploy URL carries the read token.
+      Checked in the browser: a stock twin removed from the build fell back to its WebP, and the
+      Copy listed it with Pixi's error.
+  - **GPU memory on the phone tier** (MB; headless Chromium as the iPhone above; the same seeded
+    rounds and snapshots on each side; "republish" is each snapshot as this branch's launcher would
+    republish it, made locally with its own encoder and sheet code: small pages and fonts twinned).
+    Uncompressed MB in brackets:
+
+    | Screen | before | after the runtime release | after a republish |
+    |---|---|---|---|
+    | `overlay-buffaloduel` base game | 122.2 (64.9) | 90.7 (22.9) | 78.3 (6.4) |
+    | `overlay-buffaloduel` big win | 122.1 (64.9) | 90.6 (22.8) | 78.3 (6.3) |
+    | `overlay-buffaloduel` free spins | 122.0 (64.7) | 90.5 (22.7) | 78.1 (6.2) |
+    | `commonoverlayproject` base game | 100.1 (81.2) | 49.6 (13.8) | 44.3 (6.8) |
+    | `commonoverlayproject` big win | 100.1 (81.2) | 49.6 (13.8) | 44.3 (6.8) |
+    | `commonoverlayproject` free spins | 99.9 (81.1) | 49.4 (13.7) | 44.2 (6.7) |
+    | `bookofborutremake` base game (a line win) | 107.1 (25.8) | 96.9 (12.2) | 94.1 (8.4) |
+    | `bookofborutremake` big win | 108.7 (27.4) | 98.5 (13.8) | 95.7 (10.0) |
+    | `bookofborutremake` free spins | 106.6 (25.3) | 96.4 (11.7) | 93.6 (7.9) |
+
+    What stays uncompressed after a republish is what cannot be compressed: render targets (the
+    780×1398 back buffer and filter targets, ~5–9 MB) and text textures (~1–2 MB), plus a rig page
+    under the floor (`bookofborutremake`'s 223×68, 0.06 MB). (The local republish left that game's
+    990×96 rig text page, 0.4 MB, untwinned; a real one twins it.) On the iPhone, if its 17 fallbacks
+    persist, the stock twins go through the same transcoder and may fall back too: the `perf: 7`
+    Copy says.
+  - **What phones would see** (each side against "before", the same frame): after the runtime
+    release, 6 of the 9 screens are pixel-identical (most twinned stock pages are loaded but not on
+    screen there); the two overlay games' big-win coins (`SD2_Coin`) differ at coin edges only (at
+    most 63/255, 0.1–0.7% of pixels over 8/255, PSNR 46–55 dB) and the book line win at a few
+    pixels (0.003%). After a republish, bitmap-font text and FX differ by at most 18–50/255 (PSNR
+    54–60 dB), except `commonoverlayproject`'s board: its symbols come from the shared
+    `symbolsStatic` sheet (386×1645), now over the floor, whose twin the launcher floors to 384×1644
+    and whose frames it rescales (`sheetOnPage`), so symbol edges move by under a pixel (4.3% of
+    pixels over 8/255, at most 169/255 on edges, PSNR 34.8 dB). Every floored twin already does
+    this; on a small page the ≤3 px is a larger share. Padding instead of flooring, as the stock
+    twins do, would avoid it, but every consumer of a shared page would have to stop rescaling and
+    a standalone image would draw larger, so it is left as a follow-up for the owner to weigh.
+    The side-by-side images and 2× crops are in the hand-off for the owner's call.
+  - **Gates** (rebased on `main` `b6e28c9d`): `check:stock-ktx2` (23 descriptors; 5 planted
+    mutations each caught: a hand-edited twin descriptor, a changed stock page, a missing twin, a
+    descriptor left out, a stale encoder revision), `scripts/check-stock-twins.mts` (5 rules, each
+    against a planted mutation), `packages/engine-layout/bakedFonts.fixture.ts` (3 rules, each
+    against a planted mutation), `check:font-ktx2` (15), `check:ktx2-alignment` (33),
+    `check:ktx2-premultiplied` (37), `check:page-store` (24), `check:build-breakdown` (40),
+    `scripts/check-stock-asset-prune.mts`; `node scripts/check-all.mjs --only apps/lines,
+    packages/pixi-svelte,packages/engine-layout,packages/config-vite,ktx2,stock,font,page-store,
+    build-breakdown` 84/84; `pnpm check:svelte --only apps/lines,packages/pixi-svelte,
+    packages/engine-layout,apps/launcher-api` at baseline (145, 14, 290, 44); `check:element-fx`,
+    `check:agents-knowledge`, `check:undefined-names`; Prettier and ESLint on the changed files.
+    Current-games harness (`e9fd75f8` against this branch, the 34 games of the live list as read
+    at 11:53, snapshots pinned at 15:31), run a game at a time (the shared disk could not hold every
+    unit's screens at once; each game's both sides rendered, compared and reported by the harness):
+    **13 pass, 0 changed screens** (`overlay-buffaloduel`, `commonoverlayproject`,
+    `bookofborutremake`, `overlay-wallstreet`, `overlay-wallstreet2`, `overlay-wishworld`,
+    `getting-hot`, `particlespin`, `holdandwintestsolo`, `borut-pots-sample`, `test6`, `test2`,
+    `test1`); not rendered: `salmons` (main's runtime refuses it: no `rooms_url`), `test-card`
+    (main's runtime cannot play it either), 9 desktop builds, 7 unpublished, 1 global; two error
+    rows that name main's own failure, identical on both sides: `hw-3pots-sample` (its big-wins
+    round never pays: step 7) and `cloud` (base step 9 never reached): main's runtime fails them
+    the same way, so this branch is not what fails them; the expected "12 pass · 0 fail · 9 not
+    rendered" line was read on an older `main` and game list. Three units hung with the page idle
+    under the shared machine's load and passed when re-run; one hit ENOSPC on the shared disk and
+    passed when re-run. The branch build predates the last change (`ktx2Fallbacks` cutting URLs to
+    their tail), which runs only when a `.ktx2` fails, so never on the tier the harness renders.
+    `main` then moved to `b6e28c9d` (#1628, #1632, #1633); the branch was rebased and the gates
+    above re-run, the harness not.
+  - **Not verified:** a real iPhone or Android phone (the owner's `perf: 7` Copy is the test, and
+    the only way to learn why the iPhone's twins fell back); the font twins and the lower floor
+    on a real assemble (they run at the next Publish; here a local copy of each snapshot was given
+    them with the launcher's own encoder and sheet code); `?quality=low` on a desktop-built game
+    repo build (the copy step is covered by `check-stock-twins.mts` only).
 
 - 2026-11-12 — **The loading bar keeps moving while the GPU warm-up runs, and the engine splash is
   ready before it shows** (branch `worktree-agent-abbfabf18782b2a57`, from `main` at `b7701125`;

@@ -81,6 +81,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-12 — **More pages get KTX2 twins: the floor is a 256×256 page and bitmap fonts get
+  them.** `ktx2Dimensions.ts` `MIN_ENCODE_PIXELS` 1 Mpix → 65,536 px (a twin-less page is re-tried
+  on every assemble, so the next one encodes them; no revision bump); `fontExport.ts` encodes each
+  bitmap font page padded to whole blocks (`encodePageToKtx2(…, { pad: true })`,
+  `ktx2Descriptors.ts`) and writes `<descriptor>.ktx2.<ext>`, recorded as `ktx2DescriptorFile`,
+  content-cached per page. Both under `KTX2_ENCODE`. Guards: `check:ktx2-alignment` (§7–8),
+  `check:font-ktx2`. Why and the measurements: [engine](engine.md) Recent changes, same date.
 - 2026-11-12 — **A project can name its partner player.** The partner banned the pooled `player4`
   and asked us to use another one; the pool lives in the `PARTNER_RGS` secret, so changing it was an
   owner-only Railway edit that also reshuffles every user. Now `PartnerLaunch.player` (optional, one

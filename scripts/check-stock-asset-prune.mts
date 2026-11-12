@@ -209,13 +209,20 @@ check(
 	allSymbols.left.filter((rel) => rel.startsWith('spines/symbols/')),
 	[],
 );
-check('a lone rig goes whole', prune(['bigwin']).removed, [
+check('a lone rig goes whole, with its KTX2 twin atlas and twin page', prune(['bigwin']).removed, [
 	'spines/bigwin/big_wins.atlas',
+	'spines/bigwin/big_wins.ktx2.atlas',
+	'spines/bigwin/big_wins.pm.ktx2',
 	'spines/bigwin/big_wins.png',
 	'spines/bigwin/big_wins.webp',
 	'spines/bigwin/index.ts',
 	'spines/bigwin/mm_bigwin.json',
 ]);
+check(
+	'a kept key keeps its KTX2 twin',
+	prune(['H1']).left.filter((rel) => /\.ktx2/.test(rel) && rel.startsWith('spines/symbols/')),
+	['spines/symbols/symbols.ktx2.atlas', 'spines/symbols/symbols.pm.ktx2'],
+);
 check(
 	'a sheet takes its image',
 	prune(['reelsFrame']).removed.filter((rel) => rel.startsWith('sprites/reelsFrame/')).length > 1,

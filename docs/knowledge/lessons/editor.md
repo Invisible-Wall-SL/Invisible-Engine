@@ -6,6 +6,15 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
+### The reel grid's selection box sat a row below the board
+
+- **Symptom:** in Getting Hot the reel grid's box and handles framed one row below the cells.
+- **Cause:** the box re-derived the board size from the node (`reels`/`rows`, anchor only); the
+  draw uses `reelGridGeometry` (Game Config count + board nudge). Nudge Y −79 = one cell.
+- **Fix:** the box is `reelGridBox`, read off `reelGridGeometry` — one definition for both.
+- **Guard:** `check:reel-grid-box`.
+- **PR:** #1642 (2026-11-12) · source: `docs/status/editor.md`
+
 ### An added layout bucket drew a Stake-sized box and no coded HUD
 
 - **Symptom:** a bucket added in the layout profile without a canvas size showed at 1422×800.
@@ -259,16 +268,6 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **Fix:** every panel edit bumps the nonce (`markDirty()` → `canvasRedrawNonce`).
 - **Guard:** none. A new edit path must bump the nonce.
 - **PR:** not recorded (2026-07-15) · source: `docs/history.md`
-
-### An author screen showed in the editor but not in the game
-
-- **Symptom:** a new HUD screen or the info bar drew in the editor; the game showed a fallback.
-- **Cause:** `Game.svelte` mounted scenes by hard-coded id (`infoBar`, `basegame`…); the editor
-  mints `hud_…` ids.
-- **Fix:** `extraMountScenes` mounts every unreserved screen in list order; identity is
-  `Scene.role` (`sceneByRole`), never an id. See [components](components.md) (no hard-coding).
-- **Guard:** `test-resting-scenes.mjs`; the generic mount itself.
-- **PR:** not recorded (2026-06-19, 2026-06-29, 2026-07-01) · source: `docs/history.md`
 
 ### A rig shows in the editor but not in the game
 

@@ -5,6 +5,7 @@ import {
 	summariseSoundLicences,
 	type SoundLicenceSummary,
 } from '../soundUsage';
+import { loadFlowV2Library } from './flowV2LibraryStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { loadSoundsDoc } from './soundsStorage';
@@ -49,13 +50,14 @@ export async function checkSoundsForPublish(
 		licences: { bound: 0, missingLicence: [], nonCommercial: [], byLicence: [] },
 	};
 
-	let library, config, symbols, flow;
+	let library, config, symbols, flow, flowLibrary;
 	try {
-		[library, config, symbols, flow] = await Promise.all([
+		[library, config, symbols, flow, flowLibrary] = await Promise.all([
 			loadSoundsDoc(clientKey, projectKey),
 			loadGameConfigDoc(clientKey, projectKey),
 			loadSymbolsDoc(clientKey, projectKey),
 			loadFlowV2Doc(clientKey, projectKey),
+			loadFlowV2Library(),
 		]);
 	} catch {
 		return empty;
@@ -65,7 +67,7 @@ export async function checkSoundsForPublish(
 	// the engine's. Short-circuit so the common case costs nothing.
 	if (!library?.entries?.length) return empty;
 
-	const byName = collectSoundBindings({ config, symbols, flow });
+	const byName = collectSoundBindings({ config, symbols, flow, flowLibrary });
 	const hasBinding = (name: string) => byName.has(name);
 
 	// The BUILT-IN names matter here, and getting this wrong would put a hole straight through the

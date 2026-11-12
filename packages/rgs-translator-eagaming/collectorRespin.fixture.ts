@@ -149,6 +149,35 @@ const LOSING: ScriptedRound = {
 	],
 };
 
+// A line win: three PIC6 on the middle line. The partner sends `spinWin` after the board it pays.
+const LINE_BOARD = [
+	['PIC1', 'PIC6', 'PIC9'],
+	['PIC2', 'PIC6', 'PIC8'],
+	['PIC3', 'PIC6', 'PIC9'],
+	['PIC4', 'PIC8', 'PIC1'],
+	['PIC5', 'PIC9', 'PIC2'],
+];
+const LINE_WIN: ScriptedRound = {
+	option: 0,
+	win: 120,
+	answers: [
+		[
+			...spinHead(0),
+			ev('playWindow', LINE_BOARD),
+			ev('spinWin', {
+				what: 'PIC6',
+				occurs: 3,
+				mode: 'line',
+				pay: 120,
+				context: { paylineId: 0, payline: PAYLINES[0], direction: 'left' },
+			}),
+			ev('playedSpin', LINE_BOARD),
+			ev('gameEnd', { win: 120 }),
+			ev('gameRoundOver', { win: 120 }),
+		],
+	],
+};
+
 // Center Coin: a collector on reel 3 gathers a 2× coin and a MINI coin; no trigger (reel 2 is
 // blank). It ends with `gameEnd` but no `gameRoundOver`: the client's `collect` closes it.
 const CENTER_DEALT = [
@@ -499,7 +528,7 @@ const commonChecks = (label: string, book: BookEvent[]) => {
 };
 
 // 1. A base spin with nothing on it.
-partner.script([LOSING, CENTER, BUY]);
+partner.script([LOSING, LINE_WIN, CENTER, BUY]);
 {
 	const answer = await bet('BASE');
 	const book = answer.round?.state ?? [];
@@ -517,6 +546,27 @@ partner.script([LOSING, CENTER, BUY]);
 		['H1', 'H1', 'L1', 'L3', 'L3'],
 	);
 	check('base spin: closed in its own batch', answer.round?.active, false);
+	await endRound();
+}
+
+// 1b. A line win: its `winInfo` follows the reveal, so the winning symbols play their win animation.
+{
+	const answer = await bet('BASE');
+	const book = answer.round?.state ?? [];
+	const types = commonChecks('line win', book);
+	check(
+		'line win: one winInfo, right after the reveal',
+		types.filter((t) => t === 'winInfo').length === 1 &&
+			types.indexOf('winInfo') === types.indexOf('reveal') + 1,
+		true,
+	);
+	const info = book.find((e) => e.type === 'winInfo') as
+		{ wins: { kind: number; positions: { reel: number; row: number }[] }[] } | undefined;
+	check(
+		'line win: its line in the padded board, three of a kind',
+		[info?.wins[0].positions, info?.wins[0].kind],
+		[[0, 1, 2, 3, 4].map((reel) => ({ reel, row: 2 })), 3],
+	);
 	await endRound();
 }
 

@@ -17,3 +17,6 @@ declare const __IE_ART_TIER__: string;
 declare const __IE_FAMILIES__: readonly import('game-config').ConfigFamily[];
 /** A standalone build that may have left stock files out (`config-vite` `stockAssetPrune.js`). */
 declare const __IE_STOCK_PRUNED__: boolean;
+/** The stock descriptors whose KTX2 twins this build ships, each to its twin, relative to `assets/`
+ *  (`config-vite` `stockTwins.js`). */
+declare const __IE_STOCK_TWINS__: Record<string, string>;

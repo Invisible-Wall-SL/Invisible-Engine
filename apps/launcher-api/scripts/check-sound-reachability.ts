@@ -11,7 +11,8 @@
  *     win tier), the legacy config and symbols docs, a mode's music, the layout (a screen
  *     timeline's cue, a `win` instance's `<alias>Sfx`, a reel grid's anticipation sound), a
  *     component def's timeline, a version the layout PINS, a per-project param default, the flow
- *     (its graph, a mode's graph, a group's body), the shared function library, and a cinematic
+ *     (its graph, a mode's graph, a group's body), the shared function library (read whole, so
+ *     a function no flow calls keeps its sound too: uncertainty keeps), and a cinematic
  *     (a `sfx:` / `music:` / `stop:` cue and a `pick` alternate). A sound named after a shipped
  *     audiosprite region ships with no doc naming it: the engine's own code plays it.
  *  2. A sound nothing names does not ship.
@@ -25,6 +26,9 @@
  *  5. The rule's two "not a source" claims still hold in the code: no FX effect plays a sound, and
  *     no runtime code reads a rig event's `audio`. Every shipped audiosprite region and every slot
  *     default is an engine name.
+ *  6. Through the REAL `checkSoundsForPublish`: a draft only the flow plays blocks Publish, from
+ *     the flow's graph, a mode's graph, a group's body and a library function the flow calls (the
+ *     walk is `flowSoundCues.ts`, shared with this rule). A function nothing calls does not block.
  */
 import { mock } from 'node:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -170,6 +174,7 @@ const PLAYED: Record<string, string> = {
 	mode_flow: "a flow mode's graph",
 	group_flow: "a flow group's body",
 	lib_flow: 'a shared library function',
+	lib_uncalled: 'a library function no flow calls (the library is read whole)',
 	cine_hit: "a cinematic's sfx cue",
 	cine_pick: "a cinematic cue's pick alternate",
 	cine_stop: "a cinematic's stop cue",
@@ -221,12 +226,16 @@ const SOURCES: SoundSources = {
 		graph: graph([
 			cueNode('c1', 'soundOnce', lit('SoundEffectName', 'flow_once')),
 			{ id: 'g1', kind: 'group', body: graph([cueNode('c2', 'soundOnce', lit('SoundEffectName', 'group_flow'))]) }, // prettier-ignore
+			{ id: 'call', kind: 'functionCall', ref: 'f1' },
 		]),
 		modes: { holdAndWin: { graph: graph([cueNode('c3', 'soundMusic', lit('MusicName', 'mode_flow'))]) } }, // prettier-ignore
 	},
 	flowLibrary: {
 		version: 2,
-		functions: [{ id: 'f1', body: graph([cueNode('c4', 'soundOnce', lit('SoundEffectName', 'lib_flow'))]) }], // prettier-ignore
+		functions: [
+			{ id: 'f1', body: graph([cueNode('c4', 'soundOnce', lit('SoundEffectName', 'lib_flow'))]) }, // prettier-ignore
+			{ id: 'f2', body: graph([cueNode('c5', 'soundOnce', lit('SoundEffectName', 'lib_uncalled'))]) }, // prettier-ignore
+		],
 	},
 	cinematics: [
 		{
@@ -448,6 +457,24 @@ for (const ref of ['soundOnce', 'soundMusic', 'soundLoop', 'soundStop']) {
 		`code: the vocabulary marks ${ref}'s name as a sound`,
 		namesSoundAtRunTime({ nodes: [cueNode('x', ref, { kind: 'wire' })] }),
 		true,
+	);
+}
+
+// ── 6. The publish gate reads the flow through the same walk, over the mocked storage ──────
+{
+	const { checkSoundsForPublish } = await import('../src/lib/server/soundPublishCheck.ts');
+	useLibrary(ALL);
+	const gate = await checkSoundsForPublish(CLIENT, PROJECT);
+	const FLOW_ONLY = ['flow_once', 'mode_flow', 'group_flow', 'lib_flow'];
+	check(
+		'gate: a draft only the flow plays blocks (its graph, a mode, a group, a called function)',
+		FLOW_ONLY.filter((name) => !gate.unapproved.includes(name)),
+		[],
+	);
+	check(
+		'gate: …but not one only an uncalled library function names (nothing plays it)',
+		gate.unapproved.includes('lib_uncalled'),
+		false,
 	);
 }
 

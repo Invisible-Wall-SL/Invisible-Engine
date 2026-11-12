@@ -236,6 +236,64 @@ Against our facade's vocabulary:
 - The Hold and Win mock adds a whole family of its own on top of the partner's respin model — see
   [hold-and-win-wire.md](hold-and-win-wire.md), which is ours and marked as the swap seam.
 
+### Mock audit — where each event our mocks send comes from (2026-11-12)
+
+Our test RGS has to answer the way the partner's server does (owner rule, 2026-11-12). This table
+lists every event, field group and order the mocks (`scripts/mock-rgs-server*.mjs` and their helper
+modules, wired in `services/test-server/makeMock.mjs`) send, and what grounds it. The sources:
+
+- **Captured:** seen in a partner session: Hot Fruits (lines), Book of Thermopylae (2026-05-25,
+  free spins and buy), Fortune Vault Force 5 (2026-11-09,
+  [collector respin capture](play4fun-collector-respin-capture.md)).
+- **Partner client:** their client's handler reads this shape (`p4f-slotty-core`,
+  `server-handler/hyper-gaming/`). That proves the shape exists, but not the order a server sends it
+  in: the client reads `bet` and `playedSpin` first and everything else after, so any order works for
+  it.
+- **Other provider:** captured from Slotmotion's _Fairy's Charm_, not from the partner.
+- **Ours:** invented to exercise a feature no partner capture shows. A real shape replaces it.
+
+| Event (and where it sits)                                                                                                                                                                                                 | Mocks                                     | Source                                                                                     | Open capture                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `config`, `bet`, `gameStart`, `spinStart`                                                                                                                                                                                 | every mock                                | Captured                                                                                   | —                                        |
+| `spinWin` mode `line` `{what, occurs, pay, context: {paylineId, payline, direction}}`, before its board's `playedSpin`                                                                                                    | lines, book                               | Captured (Hot Fruits) · partner client                                                     | —                                        |
+| `spinWin` mode `scatter`, `context` a list of `{reel, row}` (a zero `pay` lights a trigger)                                                                                                                               | lines, book                               | Partner client                                                                             | —                                        |
+| `spinWin` mode `ways` / `cluster`                                                                                                                                                                                         | lines (ways, cluster, scatter-pays games) | Ours. Their client knows `line`, `scatter`, `consecutive`                                  | engine: ways and cluster wins            |
+| `playedSpin`: the whole board, reels × rows                                                                                                                                                                               | every slot mock                           | Captured                                                                                   | —                                        |
+| `spinTrigger {spins: [{prob, spins}], occurs, bonus, trigger}` on a base trigger or buy                                                                                                                                   | lines, book, collector                    | Captured · partner client                                                                  | —                                        |
+| `spinTrigger` on a free-spin **retrigger**, before `playedBonusSpin`                                                                                                                                                      | lines, book                               | Partner client: the only event it reads a retrigger from (`isRetrigger = isFreeSpin`)      | engine: free-spin retrigger              |
+| `retrigger {spins, occurs, total, left, bonus}` on a free-spin retrigger, after that `spinTrigger`                                                                                                                        | lines, book                               | Ours. The partner sends `retrigger {games}` in respins; on free spins, unknown             | engine: free-spin retrigger              |
+| `enterBonus`, `playedBonusSpin`, `playedBonusSpins` (`playing`, `bonusPlayed`, `spins`, `played`, `left`)                                                                                                                 | lines, book                               | Captured (Book of Thermopylae) · partner client                                            | —                                        |
+| `bonusWin {bonus, pay, isSpinWin: true}` before each free-spin `spinWin`                                                                                                                                                  | lines, book                               | Captured (Book of Thermopylae)                                                             | —                                        |
+| `pickRandomly {items, state, scope: 'enterState', item}`: the expanding special                                                                                                                                           | lines, book                               | Captured (Book of Thermopylae)                                                             | —                                        |
+| `gameEnd {win}`, `gameRoundOver {win}`, and which rounds stay open for `collect`                                                                                                                                          | every mock                                | Captured                                                                                   | —                                        |
+| `tumbleStep`, `multiplierCollect`, `MULT:<v>` cells                                                                                                                                                                       | lines (cascade, scatter-pays games)       | Ours                                                                                       | engine: cascades                         |
+| `expandedWild`, `growingWild`, then `symbolSetInMatrix {reel, row, symbol, oldSymbol}`                                                                                                                                    | lines (expanding / growing wilds)         | Other provider. The partner client reads `symbolSetInMatrix {reel, row, symbol}`           | engine: wilds that change the board      |
+| `jackpots`, `bonusSymbol`, `playWindow`, `cellPayAmount`, `collect`, `bonusWin {isSpinWin: false}`, `collectWindow`, `boostsAwarded`, `boostsEnabled`, `boost`, `multiplier`, `retrigger {games}`, in the capture's order | collector (partner wire)                  | Captured (Fortune Vault)                                                                   | —                                        |
+| `spinWin` on a collector base spin: after `cellPayAmount`, before `collect`, all before `playedSpin`                                                                                                                      | collector (partner wire)                  | Shape captured (Hot Fruits); **its place is a guess**: no collector capture has a line win | hold-and-win: Getting Hot line win       |
+| A natural (unbought) collector trigger, and Force 5                                                                                                                                                                       | collector (partner wire)                  | Ours (captured shapes, deal not seen)                                                      | hold-and-win: Getting Hot line win       |
+| The generic Hold and Win wire (`holdAndWinTrigger`, `coinsLand`, `respinUpdate`, `coinCollect`, `meterLevels`, `jackpotLevels`, `config.holdAndWin`, …)                                                                   | holdandwin (`mock-holdandwin-engine.mjs`) | Ours, the swap seam ([hold-and-win-wire.md](hold-and-win-wire.md))                         | Blocked: the partner's Hold and Win wire |
+| `overlayDrop`, `meterUpdate`, `modeEnter` / `modeExit`, `luckySpin`, `randomMetreTrigger`, `spinTrigger.cause` / `meters`, `config.potsOverlay`                                                                           | pots overlay (`mock-pots-overlay.mjs`)    | Ours (see "Ours, not theirs" below)                                                        | when the partner deals overlays          |
+| The `move` action, `match3Board`, `match3Move`, `match3End`, `config.match3`                                                                                                                                              | match3                                    | Ours ([match3-wire.md](match3-wire.md))                                                    | when a partner match-3 exists            |
+| `platform.jackpots`, `platform.gameRound.jackpot`                                                                                                                                                                         | lines, book (`mock-platform-jackpot.mjs`) | Partner client                                                                             | "Checks owed on the live node", step 5   |
+
+**What changed with this audit:** a free-spin retrigger now sends the partner's `spinTrigger` before
+our `retrigger`. The facade celebrates a retrigger off the `spinTrigger` alone, once, whether or not a
+`retrigger` follows. Before this, a partner free-spins game would have retriggered with no
+celebration. The open captures are written down as open items in
+[status/engine.md](../status/engine.md) and [status/hold-and-win.md](../status/hold-and-win.md).
+
+**The gate:** `pnpm check:mock-wire` (`rgs-translator-eagaming/mockWire.fixture.ts`, part of
+`check:rgs`) plays every outcome the lines, book and collector mocks deal through the real facade:
+losing, line win, base-game collect, trigger, retrigger (also with only the partner's `spinTrigger`)
+and each buy. Each `spinWin` must reach the board it paid on as a `winInfo`. Moving `spinWin` after
+its board, or reverting #1634, fails it.
+
+**Order is one place where we are stricter than the partner.** Their client reads in two passes,
+so a server may send a spin's `spinWin` after its `playedSpin`. Our facade reads in one pass, and a
+win that comes after its board is dropped (that is what #1634 fixed for the collector rewrite). Every
+capture we hold sends wins before the board, so nothing is broken today. A new partner game is
+safe only once its capture shows the same.
+
 ## The boot `config` event
 
 `config.context` — the answer to "does the server tell us the grid, paytable and paylines?", which

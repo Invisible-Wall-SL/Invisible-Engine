@@ -28,6 +28,15 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **Guard:** `startupAhead.fixture.ts`; a mount moved in time must leave the seeded sequence alone.
 - **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
 
+### Phones held most of their textures uncompressed on the compressed tier
+- **Symptom:** an iPhone's `?perf=1` on `overlay-buffaloduel`: 63 BGRA8 (238 MB), 7 ASTC (14 MB).
+- **Cause:** the stock art every game registers (`assets.ts`) had no KTX2 twins; pages under
+  1 Mpix and font pages earned none. Its totals also fit 17 of 24 twins falling back on iOS.
+- **Fix:** stock twins (`check-stock-ktx2.mjs --write`, `stockTwins.ts`), a 256² floor, font
+  twins; `?perf=1` (`perf: 7`) lists every texture and each KTX2 fallback with its reason.
+- **Guard:** `check:stock-ktx2`, `check-stock-twins.mts`, `check:font-ktx2`; list textures by source.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### The loading bar froze while the GPU warm-up ran, and the splash hitched as it appeared
 - **Symptom:** an Android `?perf=1` boot logged 50–100 ms `first use` frames under the bar
   (15–44 MB, up to 12 compiles each) and a 67 ms frame as the engine splash appeared.

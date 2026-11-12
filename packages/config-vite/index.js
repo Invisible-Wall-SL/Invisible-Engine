@@ -15,6 +15,7 @@ import { lazyChunks } from './lazyChunks.js';
 import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
 import { buildProvenance } from './provenance.js';
 import { stockAssetPrune, stockPrunedDefine } from './stockAssetPrune.js';
+import { stockTwinShip, stockTwinsDefine } from './stockTwins.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
 const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
@@ -256,6 +257,7 @@ export default () => {
 			lingui(),
 			lazyChunks(),
 			sentryDebugIds({ enabled: sourcemap() === 'hidden' }),
+			stockTwinShip(),
 			stockAssetPrune(),
 		],
 		logLevel: 'info',
@@ -266,6 +268,7 @@ export default () => {
 			...familySet.define,
 			...artTierDefine(),
 			...stockPrunedDefine({ dev }),
+			...stockTwinsDefine(),
 		},
 		// Dev SSR externalizes workspace packages without a svelte dependency and hands them to Node,
 		// whose ESM loader cannot resolve their extensionless TS re-exports (`./src/scrub`).
