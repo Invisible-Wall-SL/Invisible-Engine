@@ -280,6 +280,8 @@ Above the list is a browse toolbar, because the list only grows:
 - **Group by client** (on by default) splits the list into per-client sections with
   a count each. Turn it off for one flat, globally sorted list; the client then
   shows as a pill on each card instead.
+  Click a client's heading (chevron, name, count) to fold its cards away; the fold is
+  remembered per client in this browser.
 
 The heading shows `N of M` whenever a filter is narrowing the list, and **Clear**
 resets every filter at once.

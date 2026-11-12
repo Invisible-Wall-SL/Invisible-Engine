@@ -64,6 +64,10 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-11-12 — **Client sections fold.** With Group by client on, each client heading is a
+  chevron toggle that hides its cards; folds persist per client in `localStorage`
+  (`iw-game-maker-folded-clients`, restored after mount). Cards themselves do not fold.
+
 - 2026-11-10 — **Hold and Win: Base game → Lines game: collector + enhancements.** A third
   Base game choice that creates the partner's collector bonus game (Getting Hot): its config
   (`holdAndWin.enhancements.json`), the Enhancements screen with four Enhancement Dials and the
