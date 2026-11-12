@@ -1121,6 +1121,13 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-12 — **The respin cells get their own spin feel.** The Scene Editor's reel grid "Spin
+  tuning (advanced)" has two more profiles, **Hold and Win respin** and **— turbo**
+  (`spin.respinNormal` / `spin.respinFast` on the `reelGrid` node). The respin board reads
+  `respinSpinProfile` (the board's profile with the respin fields over it), so a blank field
+  plays the board's value and every game that authors nothing respins as before. Why: a respin
+  cell is a one-row reel (reel length 3, not 5), so the base game's tuned feel came out ~40%
+  quicker on the respin, with no way to slow it without changing the base game.
 - 2026-11-11 — **A collector + enhancements project shows its dials from the first spin**, as the
   partner's game does: the four dials stand unlit above the reels in the base game, light when a
   bonus draws them and go back to unlit when it ends. New projects only; every other template, the

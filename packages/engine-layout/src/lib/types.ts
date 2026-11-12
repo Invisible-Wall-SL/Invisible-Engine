@@ -1064,11 +1064,18 @@ export interface ReelSpinProfile {
 /**
  * Spin tuning split by profile: `normal` overrides the coded `SPIN_OPTIONS_DEFAULT`
  * (also used by anticipated spins), `fast` overrides `SPIN_OPTIONS_FAST` (turbo).
+ * `respinNormal` / `respinFast` tune only the Hold and Win respin cells, over the board's own
+ * profile: a field left out there plays as the board's.
  */
 export interface ReelSpinTuning {
 	normal?: ReelSpinProfile;
 	fast?: ReelSpinProfile;
+	respinNormal?: ReelSpinProfile;
+	respinFast?: ReelSpinProfile;
 }
+
+/** Which reels a spin profile tunes: the board's, or the Hold and Win respin cells'. */
+export type ReelSpinBoard = 'reels' | 'respin';
 
 /**
  * Per-field overrides for the free-spin anticipation overlay — mirrors a game's

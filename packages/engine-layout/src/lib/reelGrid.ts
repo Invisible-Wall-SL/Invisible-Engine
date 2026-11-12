@@ -6,6 +6,7 @@ import type {
 	LayoutType,
 	ReelGridNode,
 	ReelGridPerspective,
+	ReelSpinBoard,
 	ReelSpinProfile,
 } from './types';
 
@@ -141,23 +142,31 @@ export function resolveReelGridLayout(
 	return resolveReelGridFromNode(findReelGridNode(doc), layoutType);
 }
 
+const finiteSpinFields = (profile: ReelSpinProfile | undefined, out: ReelSpinProfile) => {
+	for (const [key, value] of Object.entries(profile ?? {})) {
+		if (Number.isFinite(value)) out[key as keyof ReelSpinProfile] = value as number;
+	}
+	return out;
+};
+
 /**
  * Resolve a `reelGrid` node's spin-FEEL override for one profile (`normal` =
  * default/anticipated, `fast` = turbo). Returns only the FINITE numeric fields
  * the author set, so the game can `{ ...codedOptions, ...override }`. No node /
  * no `spin` / empty profile ⇒ `undefined`, so the game keeps its coded
- * `SPIN_OPTIONS_*` unchanged (parity).
+ * `SPIN_OPTIONS_*` unchanged (parity). The `respin` board reads the board's
+ * profile with its own `respinNormal` / `respinFast` fields on top.
  */
 export function resolveReelSpinProfile(
 	node: ReelGridNode | undefined,
 	which: 'normal' | 'fast',
+	board: ReelSpinBoard = 'reels',
 ): ReelSpinProfile | undefined {
-	const profile = node?.spin?.[which];
-	if (!profile) return undefined;
-	const out: ReelSpinProfile = {};
-	for (const [key, value] of Object.entries(profile)) {
-		if (Number.isFinite(value)) out[key as keyof ReelSpinProfile] = value as number;
-	}
+	const spin = node?.spin;
+	if (!spin) return undefined;
+	const out = finiteSpinFields(spin[which], {});
+	if (board === 'respin')
+		finiteSpinFields(spin[which === 'fast' ? 'respinFast' : 'respinNormal'], out);
 	return Object.keys(out).length ? out : undefined;
 }
 
