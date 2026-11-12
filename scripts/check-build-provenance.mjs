@@ -91,6 +91,9 @@ const fakePortal = (refuse) =>
 				return res.end(JSON.stringify(refuse.body));
 			}
 			res.writeHead(200, { 'content-type': 'application/json' });
+			if (path === '/api/launcher/publish-check') {
+				return res.end(JSON.stringify({ ok: true, checked: ['sounds'], failed: [] }));
+			}
 			res.end(
 				path === '/api/editor/doc' ? JSON.stringify({ doc: { scenes: [{ id: 's' }] } }) : '{}',
 			);

@@ -144,6 +144,7 @@ const PUBLISH_BEARER = [
 	'launcher/game-upload',
 	'launcher/delivery-upload',
 	'launcher/projects',
+	'launcher/publish-check',
 ];
 for (const route of PUBLISH_BEARER) {
 	check(
@@ -334,6 +335,7 @@ const FIXED = [
 	'editor/components',
 	'game-maker/publish',
 	'launcher/register-game',
+	'launcher/publish-check',
 ];
 for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
 	check(`the scan sees api/${route} take a project`, readsProject.has(route), true);
