@@ -12,6 +12,7 @@
 	} from 'utils-shared/spinStop';
 	import { HOLD_TO_SPIN_MS, endSpinHold, startSpinHold } from 'utils-shared/spinHold';
 
+	import { hotkeyPressesFor } from '../hotkeyPress';
 	import OnHotkey from './OnHotkey.svelte';
 
 	type Props = {
@@ -23,35 +24,30 @@
 	const { eventEmitter } = getContextEventEmitter<
 		{ type: 'bet' } | { type: 'stopButtonClick' } | SpinPressSound
 	>();
+	const presses = hotkeyPressesFor(eventEmitter);
 
 	// The Space key's place in the hold it shares with the spin buttons (`utils-shared/spinHold`).
 	const holder = Symbol('space');
-	// When this press's first keyDown landed (0 = no press), and when a round last started.
-	let pressStartedAt = 0;
-	let roundStartedAt = 0;
 
-	$effect(() => {
-		if (props.isIdle && !props.isIdle()) roundStartedAt = performance.now();
+	// A round that starts while Space is down is that press's round, whatever started it.
+	eventEmitter.subscribeOnMount({
+		bet: () => {
+			const press = presses.live('Space');
+			if (press) press.startedRound = true;
+		},
 	});
 
 	// A hold registers 400 ms into the press, and `checkSpaceHold` only chains a round that is still
 	// running then. A fast (turbo) losing spin started by this same press can already be over, which
 	// left the player holding Space at idle with nothing happening — so start the next round here.
 	// Only for a round THIS press started: a Space held through the loading tap or a press-to-continue
-	// ran no round of its own, and still places no bet.
+	// ran no round of its own, and still places no bet. Read off the press, not off the game leaving
+	// idle: the game's resume check as the start screen goes is not a round.
 	const continueFromIdle = () => {
-		if (!props.isIdle?.() || !pressStartedAt || roundStartedAt < pressStartedAt) return;
+		if (!props.isIdle?.() || !presses.live('Space')?.startedRound) return;
 		if (getSpinButtonKey({ isIdle: true }) !== 'spin_default' || hasContinuePress()) return;
 		eventEmitter.broadcast(getSpinPressSound({ isIdle: true }));
 		runSpinOrSlamStop({ isIdle: true, broadcast: eventEmitter.broadcast });
-	};
-
-	const pressStart = () => {
-		if (!pressStartedAt) pressStartedAt = performance.now();
-	};
-
-	const pressEnd = () => {
-		pressStartedAt = 0;
 	};
 
 	const spaceHoldOn = () => {
@@ -60,19 +56,8 @@
 	};
 
 	const spaceHoldOff = () => {
-		pressEnd();
 		endSpinHold(holder);
 	};
 </script>
 
-<!-- A press cancelled by focus loss gets no `onpressend`, so forget it here too. -->
-<svelte:window onblur={pressEnd} />
-
-<OnHotkey
-	hotkey="Space"
-	holdMs={HOLD_TO_SPIN_MS}
-	onpress={pressStart}
-	onpressend={pressEnd}
-	onhold={spaceHoldOn}
-	onholdend={spaceHoldOff}
-/>
+<OnHotkey hotkey="Space" holdMs={HOLD_TO_SPIN_MS} onhold={spaceHoldOn} onholdend={spaceHoldOff} />
