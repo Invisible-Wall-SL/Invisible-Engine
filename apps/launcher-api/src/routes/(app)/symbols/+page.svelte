@@ -93,6 +93,7 @@
 		setBookVfxLayer,
 		setFlightStyle,
 		setHighlight,
+		setSymbolsPartOff,
 		setOverride,
 		setSymbolName,
 		setWinCycleDelay,
@@ -173,6 +174,7 @@
 		type AnticipationTierFx,
 		type BoardGlowConfig,
 		type HighlightCell,
+		type SymbolsOffPart,
 		type HighlightTintMode,
 		type BlendMode,
 		type BookVfxKind,
@@ -2451,6 +2453,23 @@
 						</ul>
 					</div>
 				{/if}
+				{#snippet partSwitch(part: SymbolsOffPart, label: string)}
+					<label class="switch" class:on={!doc.off?.[part]}>
+						<input
+							type="checkbox"
+							aria-label={`${label} in this game`}
+							checked={!doc.off?.[part]}
+							onchange={(e) => {
+								const on = e.currentTarget.checked;
+								doc = setSymbolsPartOff(doc, part, !on);
+								if (!on && part === 'highlight') closeHighlight();
+								if (!on && part === 'boardGlow') closeGlow();
+							}}
+						/>
+						<span class="track"><span class="knob"></span></span>
+						<span class="switch-label">{doc.off?.[part] ? 'Off' : 'On'}</span>
+					</label>
+				{/snippet}
 				<section class="highlight" class:editing={highlightEditing}>
 					<div class="hl-head">
 						<div class="hl-title">
@@ -2461,10 +2480,14 @@
 							</h2>
 						</div>
 						<div class="hl-actions">
-							{#if highlight.overridden}<span class="badge">overridden</span>{/if}
-							{#if highlightEditing}
+							{@render partSwitch('highlight', 'Win frame')}
+							{#if doc.off?.highlight}
+								<!-- Off: nothing to change until it is back on. -->
+							{:else if highlightEditing}
+								{#if highlight.overridden}<span class="badge">overridden</span>{/if}
 								<button type="button" class="ghost" onclick={closeHighlight}>Cancel</button>
 							{:else}
+								{#if highlight.overridden}<span class="badge">overridden</span>{/if}
 								<button type="button" class="hl-change" onclick={openHighlight}>Change</button>
 								{#if highlight.overridden}
 									<button type="button" class="ghost" onclick={resetHighlight}>
@@ -2475,161 +2498,167 @@
 						</div>
 					</div>
 
-					<div class="hl-body">
-						<div class="hl-current">
-							{#if highlight.overridden && highlight.cell}
-								<div class="hl-preview">
-									<SymbolRigPreview
-										assetKey={highlight.cell.assetKey}
-										animationName={highlight.cell.animationName}
-										size={96}
-										{reloadToken}
-									/>
-								</div>
-								<div class="hl-meta">
-									<span class="hl-label">Override</span>
-									<span class="hl-chip">{displayKey(highlight.cell)}</span>
-									{#if highlight.cell.animationName}
-										<span class="hl-anim">{highlight.cell.animationName}</span>
-									{/if}
-									{#if highlight.cell.tintMode === 'winLine'}
-										<span class="hl-anim">tint: win-line colour</span>
-									{:else if highlight.cell.tintMode === 'fixed'}
-										<span class="hl-anim">
-											tint:
-											<span
-												class="hl-swatch"
-												style={`background:${highlight.cell.tintColor ?? '#ffffff'}`}
-											></span>
-											{highlight.cell.tintColor}
+					{#if doc.off?.highlight}
+						<p class="hl-off">Off — winning symbols get no frame, and none of its art ships.</p>
+					{:else}
+						<div class="hl-body">
+							<div class="hl-current">
+								{#if highlight.overridden && highlight.cell}
+									<div class="hl-preview">
+										<SymbolRigPreview
+											assetKey={highlight.cell.assetKey}
+											animationName={highlight.cell.animationName}
+											size={96}
+											{reloadToken}
+										/>
+									</div>
+									<div class="hl-meta">
+										<span class="hl-label">Override</span>
+										<span class="hl-chip">{displayKey(highlight.cell)}</span>
+										{#if highlight.cell.animationName}
+											<span class="hl-anim">{highlight.cell.animationName}</span>
+										{/if}
+										{#if highlight.cell.tintMode === 'winLine'}
+											<span class="hl-anim">tint: win-line colour</span>
+										{:else if highlight.cell.tintMode === 'fixed'}
+											<span class="hl-anim">
+												tint:
+												<span
+													class="hl-swatch"
+													style={`background:${highlight.cell.tintColor ?? '#ffffff'}`}
+												></span>
+												{highlight.cell.tintColor}
+											</span>
+										{/if}
+									</div>
+								{:else if defaultFrameBundle}
+									<div class="hl-preview">
+										<SymbolRigPreview
+											assetKey={defaultFrameBundle.key}
+											animationName={BUILTIN_FRAME.animationName}
+											size={96}
+											{reloadToken}
+										/>
+									</div>
+									<div class="hl-meta">
+										<span class="hl-label">Default (payframe)</span>
+										<span class="hl-chip">{defaultFrameBundle.name}</span>
+										<span class="hl-anim">{BUILTIN_FRAME.animationName}</span>
+									</div>
+								{:else}
+									<div class="hl-preview default">
+										<span class="hl-default-mark">payframe</span>
+									</div>
+									<div class="hl-meta">
+										<span class="hl-label">Default (payframe)</span>
+										<span class="hl-note">
+											The coded default ships with the game and still renders in-game; the launcher
+											just has no copy to preview. Pick an R2 rig to override it.
 										</span>
+									</div>
+								{/if}
+							</div>
+
+							{#if highlightEditing && highlightDraft}
+								<div class="hl-editor">
+									<div class="field">
+										<span class="label">Rig bundle</span>
+										<select
+											value={highlightDraft.assetKey}
+											onchange={(e) => {
+												if (!highlightDraft) return;
+												highlightDraft.assetKey = e.currentTarget.value;
+												highlightDraft.animationName = '';
+												highlightAnimations = [];
+											}}
+										>
+											<option value="">Pick a bundle…</option>
+											{#each rigBundles as b (b.key)}
+												<option value={b.key}>{b.name}</option>
+											{/each}
+										</select>
+									</div>
+									{#if highlightDraft.assetKey}
+										<div class="field">
+											<span class="label">Animation</span>
+											{#if highlightAnimations.length}
+												<select
+													value={highlightDraft.animationName ?? ''}
+													onchange={(e) => {
+														if (highlightDraft)
+															highlightDraft.animationName = e.currentTarget.value;
+													}}
+												>
+													<option value="">(first animation)</option>
+													{#each highlightAnimations as anim (anim)}
+														<option value={anim}>{anim}</option>
+													{/each}
+												</select>
+											{:else}
+												<input
+													type="text"
+													placeholder="animation name"
+													value={highlightDraft.animationName ?? ''}
+													oninput={(e) => {
+														if (highlightDraft)
+															highlightDraft.animationName = e.currentTarget.value;
+													}}
+												/>
+											{/if}
+										</div>
+										<div class="field">
+											<span class="label">Preview</span>
+											<div class="hl-preview">
+												<SymbolRigPreview
+													assetKey={highlightDraft.assetKey}
+													animationName={highlightDraft.animationName}
+													size={96}
+													{reloadToken}
+													onAnimations={(names) => (highlightAnimations = names)}
+												/>
+											</div>
+										</div>
+										<div class="field">
+											<span class="label">Tint</span>
+											<select
+												value={highlightDraft.tintMode ?? 'none'}
+												onchange={(e) =>
+													setHighlightTintChoice(e.currentTarget.value as HighlightTintChoice)}
+											>
+												{#each HIGHLIGHT_TINT_CHOICES as choice (choice.value)}
+													<option value={choice.value}>{choice.label}</option>
+												{/each}
+											</select>
+											<InfoTip>
+												Multiplies the win frame's colour over the winning symbols. "Win-line
+												colour" uses each paying line's colour from the game config; "Fixed colour"
+												uses the swatch below.
+											</InfoTip>
+										</div>
+										{#if highlightDraft.tintMode === 'fixed'}
+											<div class="field">
+												<span class="label">Tint colour</span>
+												<ColorField
+													value={highlightDraft.tintColor ?? HIGHLIGHT_TINT_DEFAULT_COLOR}
+													oninput={(hex) => {
+														if (highlightDraft) highlightDraft.tintColor = hex;
+													}}
+												/>
+											</div>
+										{/if}
 									{/if}
-								</div>
-							{:else if defaultFrameBundle}
-								<div class="hl-preview">
-									<SymbolRigPreview
-										assetKey={defaultFrameBundle.key}
-										animationName={BUILTIN_FRAME.animationName}
-										size={96}
-										{reloadToken}
-									/>
-								</div>
-								<div class="hl-meta">
-									<span class="hl-label">Default (payframe)</span>
-									<span class="hl-chip">{defaultFrameBundle.name}</span>
-									<span class="hl-anim">{BUILTIN_FRAME.animationName}</span>
-								</div>
-							{:else}
-								<div class="hl-preview default">
-									<span class="hl-default-mark">payframe</span>
-								</div>
-								<div class="hl-meta">
-									<span class="hl-label">Default (payframe)</span>
-									<span class="hl-note">
-										The coded default ships with the game and still renders in-game; the launcher
-										just has no copy to preview. Pick an R2 rig to override it.
-									</span>
+									<button
+										type="button"
+										class="apply"
+										disabled={!highlightDraft.assetKey}
+										onclick={applyHighlight}
+									>
+										Apply highlight
+									</button>
 								</div>
 							{/if}
 						</div>
-
-						{#if highlightEditing && highlightDraft}
-							<div class="hl-editor">
-								<div class="field">
-									<span class="label">Rig bundle</span>
-									<select
-										value={highlightDraft.assetKey}
-										onchange={(e) => {
-											if (!highlightDraft) return;
-											highlightDraft.assetKey = e.currentTarget.value;
-											highlightDraft.animationName = '';
-											highlightAnimations = [];
-										}}
-									>
-										<option value="">Pick a bundle…</option>
-										{#each rigBundles as b (b.key)}
-											<option value={b.key}>{b.name}</option>
-										{/each}
-									</select>
-								</div>
-								{#if highlightDraft.assetKey}
-									<div class="field">
-										<span class="label">Animation</span>
-										{#if highlightAnimations.length}
-											<select
-												value={highlightDraft.animationName ?? ''}
-												onchange={(e) => {
-													if (highlightDraft) highlightDraft.animationName = e.currentTarget.value;
-												}}
-											>
-												<option value="">(first animation)</option>
-												{#each highlightAnimations as anim (anim)}
-													<option value={anim}>{anim}</option>
-												{/each}
-											</select>
-										{:else}
-											<input
-												type="text"
-												placeholder="animation name"
-												value={highlightDraft.animationName ?? ''}
-												oninput={(e) => {
-													if (highlightDraft) highlightDraft.animationName = e.currentTarget.value;
-												}}
-											/>
-										{/if}
-									</div>
-									<div class="field">
-										<span class="label">Preview</span>
-										<div class="hl-preview">
-											<SymbolRigPreview
-												assetKey={highlightDraft.assetKey}
-												animationName={highlightDraft.animationName}
-												size={96}
-												{reloadToken}
-												onAnimations={(names) => (highlightAnimations = names)}
-											/>
-										</div>
-									</div>
-									<div class="field">
-										<span class="label">Tint</span>
-										<select
-											value={highlightDraft.tintMode ?? 'none'}
-											onchange={(e) =>
-												setHighlightTintChoice(e.currentTarget.value as HighlightTintChoice)}
-										>
-											{#each HIGHLIGHT_TINT_CHOICES as choice (choice.value)}
-												<option value={choice.value}>{choice.label}</option>
-											{/each}
-										</select>
-										<InfoTip>
-											Multiplies the win frame's colour over the winning symbols. "Win-line colour"
-											uses each paying line's colour from the game config; "Fixed colour" uses the
-											swatch below.
-										</InfoTip>
-									</div>
-									{#if highlightDraft.tintMode === 'fixed'}
-										<div class="field">
-											<span class="label">Tint colour</span>
-											<ColorField
-												value={highlightDraft.tintColor ?? HIGHLIGHT_TINT_DEFAULT_COLOR}
-												oninput={(hex) => {
-													if (highlightDraft) highlightDraft.tintColor = hex;
-												}}
-											/>
-										</div>
-									{/if}
-								{/if}
-								<button
-									type="button"
-									class="apply"
-									disabled={!highlightDraft.assetKey}
-									onclick={applyHighlight}
-								>
-									Apply highlight
-								</button>
-							</div>
-						{/if}
-					</div>
+					{/if}
 				</section>
 
 				{#if !data.coinBoard || doc.boardGlow}
@@ -2644,10 +2673,14 @@
 								</h2>
 							</div>
 							<div class="hl-actions">
-								{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
-								{#if glowEditing}
+								{@render partSwitch('boardGlow', 'Board glow')}
+								{#if doc.off?.boardGlow}
+									<!-- Off: nothing to change until it is back on. -->
+								{:else if glowEditing}
+									{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
 									<button type="button" class="ghost" onclick={closeGlow}>Cancel</button>
 								{:else}
+									{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
 									<button type="button" class="hl-change" onclick={openGlow}>Change</button>
 									{#if doc.boardGlow}
 										<button type="button" class="ghost" onclick={resetGlow}>Reset to default</button
@@ -2657,124 +2690,131 @@
 							</div>
 						</div>
 
-						<div class="hl-body">
-							<div class="hl-current">
-								{#if doc.boardGlow}
-									<div class="hl-preview">
-										<SymbolRigPreview
-											assetKey={doc.boardGlow.assetKey}
-											animationName={doc.boardGlow.animations?.idle ??
-												doc.boardGlow.animations?.start}
-											size={96}
-											{reloadToken}
-										/>
-									</div>
-									<div class="hl-meta">
-										<span class="hl-label">Override</span>
-										<span class="hl-chip">
-											{doc.boardGlow.assetKey.split('/').filter(Boolean).pop()}
-										</span>
-										{#if doc.boardGlow.animations?.idle}
-											<span class="hl-anim">{doc.boardGlow.animations.idle}</span>
+						{#if doc.off?.boardGlow}
+							<p class="hl-off">
+								Off — free spins play with no glow behind the reels, and none of its art ships.
+							</p>
+						{:else}
+							<div class="hl-body">
+								<div class="hl-current">
+									{#if doc.boardGlow}
+										<div class="hl-preview">
+											<SymbolRigPreview
+												assetKey={doc.boardGlow.assetKey}
+												animationName={doc.boardGlow.animations?.idle ??
+													doc.boardGlow.animations?.start}
+												size={96}
+												{reloadToken}
+											/>
+										</div>
+										<div class="hl-meta">
+											<span class="hl-label">Override</span>
+											<span class="hl-chip">
+												{doc.boardGlow.assetKey.split('/').filter(Boolean).pop()}
+											</span>
+											{#if doc.boardGlow.animations?.idle}
+												<span class="hl-anim">{doc.boardGlow.animations.idle}</span>
+											{/if}
+										</div>
+									{:else if defaultGlowBundle}
+										<div class="hl-preview">
+											<SymbolRigPreview
+												assetKey={defaultGlowBundle.key}
+												animationName={BUILTIN_GLOW.animations.idle}
+												size={96}
+												{reloadToken}
+											/>
+										</div>
+										<div class="hl-meta">
+											<span class="hl-label">Default (reelhouse)</span>
+											<span class="hl-chip">{defaultGlowBundle.name}</span>
+											<span class="hl-anim">{BUILTIN_GLOW.animations.idle}</span>
+										</div>
+									{:else}
+										<div class="hl-preview default">
+											<span class="hl-default-mark">reelhouse</span>
+										</div>
+										<div class="hl-meta">
+											<span class="hl-label">Default (reelhouse)</span>
+											<span class="hl-note">
+												The coded default ships with the game and still renders in-game; the
+												launcher just has no copy to preview. Pick an R2 rig to override it.
+											</span>
+										</div>
+									{/if}
+								</div>
+
+								{#if glowEditing && glowDraft}
+									<div class="hl-editor">
+										<div class="field">
+											<span class="label">Rig bundle</span>
+											<select
+												value={glowDraft.assetKey}
+												onchange={(e) => {
+													if (!glowDraft) return;
+													glowDraft.assetKey = e.currentTarget.value;
+													glowDraft.animations = {};
+													glowAnimations = [];
+												}}
+											>
+												<option value="">Pick a bundle…</option>
+												{#each rigBundles as b (b.key)}
+													<option value={b.key}>{b.name}</option>
+												{/each}
+											</select>
+										</div>
+										{#if glowDraft.assetKey}
+											<!-- Three sparse tracks — each left blank keeps its coded `reelhouse_glow_*`
+												 name, so a rig that only renames its loop needs one field. -->
+											{#each GLOW_TRACKS as row (row.track)}
+												<div class="field">
+													<span class="label">{row.label}</span>
+													{#if glowAnimations.length}
+														<select
+															value={glowDraft.animations?.[row.track] ?? ''}
+															onchange={(e) => setGlowTrack(row.track, e.currentTarget.value)}
+														>
+															<option value="">(coded default)</option>
+															{#each glowAnimations as anim (anim)}
+																<option value={anim}>{anim}</option>
+															{/each}
+														</select>
+													{:else}
+														<input
+															type="text"
+															placeholder={BUILTIN_GLOW.animations[row.track]}
+															value={glowDraft.animations?.[row.track] ?? ''}
+															oninput={(e) => setGlowTrack(row.track, e.currentTarget.value)}
+														/>
+													{/if}
+												</div>
+											{/each}
+											<div class="field">
+												<span class="label">Preview</span>
+												<div class="hl-preview">
+													<SymbolRigPreview
+														assetKey={glowDraft.assetKey}
+														animationName={glowDraft.animations?.idle ??
+															glowDraft.animations?.start}
+														size={96}
+														{reloadToken}
+														onAnimations={(names) => (glowAnimations = names)}
+													/>
+												</div>
+											</div>
 										{/if}
-									</div>
-								{:else if defaultGlowBundle}
-									<div class="hl-preview">
-										<SymbolRigPreview
-											assetKey={defaultGlowBundle.key}
-											animationName={BUILTIN_GLOW.animations.idle}
-											size={96}
-											{reloadToken}
-										/>
-									</div>
-									<div class="hl-meta">
-										<span class="hl-label">Default (reelhouse)</span>
-										<span class="hl-chip">{defaultGlowBundle.name}</span>
-										<span class="hl-anim">{BUILTIN_GLOW.animations.idle}</span>
-									</div>
-								{:else}
-									<div class="hl-preview default">
-										<span class="hl-default-mark">reelhouse</span>
-									</div>
-									<div class="hl-meta">
-										<span class="hl-label">Default (reelhouse)</span>
-										<span class="hl-note">
-											The coded default ships with the game and still renders in-game; the launcher
-											just has no copy to preview. Pick an R2 rig to override it.
-										</span>
+										<button
+											type="button"
+											class="apply"
+											disabled={!glowDraft.assetKey}
+											onclick={applyGlow}
+										>
+											Apply board glow
+										</button>
 									</div>
 								{/if}
 							</div>
-
-							{#if glowEditing && glowDraft}
-								<div class="hl-editor">
-									<div class="field">
-										<span class="label">Rig bundle</span>
-										<select
-											value={glowDraft.assetKey}
-											onchange={(e) => {
-												if (!glowDraft) return;
-												glowDraft.assetKey = e.currentTarget.value;
-												glowDraft.animations = {};
-												glowAnimations = [];
-											}}
-										>
-											<option value="">Pick a bundle…</option>
-											{#each rigBundles as b (b.key)}
-												<option value={b.key}>{b.name}</option>
-											{/each}
-										</select>
-									</div>
-									{#if glowDraft.assetKey}
-										<!-- Three sparse tracks — each left blank keeps its coded `reelhouse_glow_*`
-												 name, so a rig that only renames its loop needs one field. -->
-										{#each GLOW_TRACKS as row (row.track)}
-											<div class="field">
-												<span class="label">{row.label}</span>
-												{#if glowAnimations.length}
-													<select
-														value={glowDraft.animations?.[row.track] ?? ''}
-														onchange={(e) => setGlowTrack(row.track, e.currentTarget.value)}
-													>
-														<option value="">(coded default)</option>
-														{#each glowAnimations as anim (anim)}
-															<option value={anim}>{anim}</option>
-														{/each}
-													</select>
-												{:else}
-													<input
-														type="text"
-														placeholder={BUILTIN_GLOW.animations[row.track]}
-														value={glowDraft.animations?.[row.track] ?? ''}
-														oninput={(e) => setGlowTrack(row.track, e.currentTarget.value)}
-													/>
-												{/if}
-											</div>
-										{/each}
-										<div class="field">
-											<span class="label">Preview</span>
-											<div class="hl-preview">
-												<SymbolRigPreview
-													assetKey={glowDraft.assetKey}
-													animationName={glowDraft.animations?.idle ?? glowDraft.animations?.start}
-													size={96}
-													{reloadToken}
-													onAnimations={(names) => (glowAnimations = names)}
-												/>
-											</div>
-										</div>
-									{/if}
-									<button
-										type="button"
-										class="apply"
-										disabled={!glowDraft.assetKey}
-										onclick={applyGlow}
-									>
-										Apply board glow
-									</button>
-								</div>
-							{/if}
-						</div>
+						{/if}
 					</section>
 				{/if}
 
@@ -7164,6 +7204,11 @@
 		font-size: 11px;
 		color: #777;
 		line-height: 1.4;
+	}
+	.hl-off {
+		margin: 8px 0 0;
+		font-size: 12px;
+		color: #9a9aa6;
 	}
 	.hl-editor {
 		display: flex;

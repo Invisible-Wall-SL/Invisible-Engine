@@ -145,6 +145,13 @@ export const FREE_SPIN_SWITCHES: readonly string[] = [
 	'enterFreeSpinOutro',
 ];
 
+/**
+ * What arms the reel anticipation, whose overlay rig is the only thing `Anticipations.svelte` draws
+ * from stock art: the flow action of this name (`flowEffects.ts` `enableAnticipationMode`). It is
+ * mounted only while `stateGame.anticipationMode` is on, so a game no doc arms never draws it.
+ */
+export const ANTICIPATION_SWITCHES: readonly string[] = ['enableAnticipationMode'];
+
 const str = (value: unknown): string | undefined =>
 	typeof value === 'string' && value.length > 0 ? value : undefined;
 const bool = (value: unknown): boolean | undefined =>
@@ -330,6 +337,8 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		names: ['anticipation'],
 	},
 	{ file: 'apps/lines/src/game/bookEventHandlerMap.ts', rule: 'symbols', names: ['explosion'] },
+	// The `?anticipation=` test param that arms the tease at boot, not the rig.
+	{ file: 'apps/lines/src/game/stockAssetBoot.ts', rule: 'notAsset', names: ['anticipation'] },
 	{
 		file: 'apps/lines/src/game/config.ts',
 		rule: 'symbols',

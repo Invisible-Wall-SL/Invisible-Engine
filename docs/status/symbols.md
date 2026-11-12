@@ -85,7 +85,8 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   and rig bundles re-derived from their source sheet when it drifts (`ensureBundleAtlasFresh`).
 - **Doc-level globals** — each sparse (absent ⇒ byte-parity), each with a `gameProfile` chip:
   - `highlight` — the win-frame rig over every winning symbol of any art kind, with a `fixed` or
-    `winLine` multiply tint; `boardGlow` — the free-spin reel-house glow.
+    `winLine` multiply tint; `boardGlow` — the free-spin reel-house glow. `off.highlight` /
+    `off.boardGlow` turn either coded part off: not drawn, no art shipped (`check:symbols-off`).
   - `winLine` — the LINE (`enabled`, `useConfigColor`, `fullPayline`, `allAtOnce` + delay) and the
     AMOUNT TEXT (`text.enabled` defaulting to the line's, `placement: 'boardCenter'`, `countUp`,
     `fadeIn`, and `cueBigWin` — the amount counts up to the first big-win threshold and hands over
@@ -185,6 +186,18 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-12 — **The win frame and the board glow can be turned off.** Owner: a new game had no use
+  for the stock win frame (the `anticipation`/`payframe` rig) or the pink free-spin glow, but every
+  game drew and downloaded them. Each section header now has an **On/Off** switch. Off writes
+  `off: { highlight?: true, boardGlow?: true }` (sparse; a swapped rig stays on the doc, so On
+  restores it). The export ships neither the pointer nor the rig of an off part, the flag reaches both
+  bundle paths, `Symbol.svelte` draws no frame, `BoardFrame.svelte` never lights, and the stock-asset
+  walk (`stockAssets.ts`) keeps neither stock rig. In the same pass, the walk stopped keeping the
+  `anticipation` rig for the **reel anticipation** overlay unless a doc fires
+  `enableAnticipationMode` (or the `?anticipation=` test param is set) — that overlay only mounts
+  while the mode is armed. Gates: `check:symbols-off` (new), `stockAssets.fixture.ts` (three new
+  cases). Runtime change: merging re-points every online game; untouched projects behave as before,
+  apart from no longer downloading the tease rig when nothing arms it.
 - 2026-11-10 — **Jackpot coins can have their own art per tier** (Hold and Win, default off). New
   section **Jackpot coins**. When it is on, each coin row gets one grid row per jackpot tier
   (`<coin>:<TIER>` in `symbols`). The whole story, runtime and gate (`check:jackpot-coin-art`) are in

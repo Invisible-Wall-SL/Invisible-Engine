@@ -17,7 +17,7 @@
 	import { coinLabelFor, coinLabelLookFor, type CoinLabelPopCue } from '../game/coinLabel';
 	import { getActiveGameConfig } from '../game/gameConfig';
 	import { symbolPlaceholder } from '../game/symbolPlaceholder';
-	import { bakedSymbolFx } from '../editor-scenes';
+	import { bakedSymbolFx, bakedSymbolsOff } from '../editor-scenes';
 	import { stateFxGate } from '../game/stateFxGate';
 	import { symbolStateFx } from '../game/symbolStateFx';
 	import {
@@ -179,9 +179,13 @@
 	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had —
 	 * except on a flight's head (`inFlight`): `flyToMeter` frames the cell a special leaves from, not
 	 * the token flying out of it.
+	 *
+	 * A game that turned the win frame off (Invisible Symbols → Highlight) draws none at all.
 	 */
+	const winFrameOff = bakedSymbolsOff()?.highlight === true;
 	const showWinFrame = $derived(
-		!props.vacant &&
+		!winFrameOff &&
+			!props.vacant &&
 			hasArt &&
 			!props.inFlight &&
 			(WIN_HIGHLIGHT_SYMBOL_STATES as readonly string[]).includes(props.state) &&

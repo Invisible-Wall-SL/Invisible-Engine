@@ -354,6 +354,7 @@ async function main() {
 		symbolFx: undefined,
 		highlight: undefined,
 		boardGlow: undefined,
+		off: undefined,
 		winLine: undefined,
 		winCycle: undefined,
 		winExplode: undefined,
@@ -613,6 +614,14 @@ async function main() {
 			// game would land its coins at the stick while the live one landed them at each stop.
 			const respinLandOnStop =
 				s?.respinLandOnStop?.enabled === true ? { enabled: true } : undefined;
+			// The coded parts turned off (the win frame, the board glow). It has to reach BOTH bundle
+			// paths: omit it here and a baked game would draw the stock frame the live one leaves out.
+			const off = (() => {
+				const kept = {};
+				for (const part of ['highlight', 'boardGlow'])
+					if (s?.off?.[part] === true) kept[part] = true;
+				return Object.keys(kept).length ? kept : undefined;
+			})();
 			// "Jackpot coins have their own art" — one default-OFF switch over tier rows the map already
 			// carries (the export ships them only while it is on). It has to reach BOTH bundle paths: omit
 			// it here and a baked game would draw every jackpot coin with the coin's art.
@@ -774,6 +783,7 @@ async function main() {
 				symbolFx: bakeSymbolFx(s?.symbolFx),
 				highlight,
 				boardGlow,
+				off,
 				winLine,
 				winCycle,
 				winExplode,

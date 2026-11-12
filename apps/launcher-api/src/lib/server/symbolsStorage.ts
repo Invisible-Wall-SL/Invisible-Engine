@@ -312,6 +312,19 @@ const boardGlowSchema = z
 	})
 	.strict();
 
+/**
+ * The coded presentation parts a game turns OFF (Invisible Symbols State Machine): the win frame
+ * (`highlight`) and the free-spin board glow (`boardGlow`). Sparse: only `true` persists, so a
+ * project that never turned one off carries no `off` key. An off part is not drawn and its art is
+ * not shipped — any swapped rig stays on the doc so turning it back on restores it.
+ */
+export const SYMBOLS_OFF_PARTS = ['highlight', 'boardGlow'] as const;
+export type SymbolsOffPart = (typeof SYMBOLS_OFF_PARTS)[number];
+
+const symbolsOffSchema = z
+	.object({ highlight: z.literal(true).optional(), boardGlow: z.literal(true).optional() })
+	.strip();
+
 /** Win-line overlay config (Invisible Symbols State Machine). All fields optional and
  *  sparse — anything unset falls through to the game's coded defaults, so an untouched
  *  project ships no `winLine` and renders byte-identical. `enabled` is the LINE's switch:
@@ -818,6 +831,7 @@ export const symbolsDocSchema = z
 		symbolFx: symbolFxSchema.optional(),
 		highlight: highlightCellSchema.optional(),
 		boardGlow: boardGlowSchema.optional(),
+		off: symbolsOffSchema.optional(),
 		winLine: winLineSchema.optional(),
 		stackedPictures: stackedPicturesSchema.optional(),
 		winCycle: winCycleSchema.optional(),
@@ -985,6 +999,15 @@ function pruneEmptyCellLayers(
 	return next as SymbolsDoc['symbols'][string];
 }
 
+/** `off` with only the parts turned off, or `undefined` when none is. */
+export function pruneSymbolsOff(
+	off: Partial<Record<SymbolsOffPart, true>> | undefined,
+): Partial<Record<SymbolsOffPart, true>> | undefined {
+	const kept: Partial<Record<SymbolsOffPart, true>> = {};
+	for (const part of SYMBOLS_OFF_PARTS) if (off?.[part] === true) kept[part] = true;
+	return Object.keys(kept).length ? kept : undefined;
+}
+
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
  * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
@@ -1050,6 +1073,8 @@ export function normalizeSymbolsDoc(
 	// Copied explicitly — this rebuild is a whitelist, so a field that passes Zod but isn't listed
 	// here is still dropped on save (the silent round-trip trap).
 	if (doc.boardGlow) next.boardGlow = doc.boardGlow;
+	const off = pruneSymbolsOff(doc.off);
+	if (off) next.off = off;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;
 	// Sparse whitelist: persist the master toggle (only the non-default ON flag) plus the authored

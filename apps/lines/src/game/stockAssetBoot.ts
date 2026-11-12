@@ -10,6 +10,7 @@ import stockAssets from './assets';
 import { fallbackEditorScenes } from './fallbackLayout';
 import { getActiveGameConfig, getSymbolsInPlay } from './gameConfig';
 import { analyseStockAssets, withoutStockAssets } from './stockAssets';
+import { ANTICIPATION_SWITCHES } from './stockAssetRules';
 
 /**
  * The asset table without the stock assets this project can never draw (`stockAssets.ts`). Called
@@ -23,8 +24,14 @@ import { analyseStockAssets, withoutStockAssets } from './stockAssets';
 export function skipUnusedStockAssets<T extends Record<string, unknown>>(registered: T): T {
 	const data = bootStockAssetData();
 	if (!data) return registered;
+	// `?anticipation=` arms the reel anticipation at boot (`Game.svelte`), as the flow action does.
+	const urlArmsAnticipation =
+		typeof location !== 'undefined' &&
+		new URLSearchParams(location.search).get('anticipation') !== null;
 	const { needed, keptAllBecause, editorArtUnused } = analyseStockAssets({
-		data,
+		data: urlArmsAnticipation
+			? { ...data, other: [...(data.other ?? []), ANTICIPATION_SWITCHES] }
+			: data,
 		fallbackDoc: fallbackEditorScenes,
 		resolveDef: (id, version) =>
 			resolveComponent(id, version).def ?? BUILTIN_COMPONENTS.find((def) => def.id === id),

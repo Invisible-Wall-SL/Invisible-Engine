@@ -208,9 +208,34 @@ check(
 	['anticipation'],
 );
 check(
-	'no anticipation rig ⇒ the coded tease rig',
-	added(input(mutate((d) => delete d.symbols!.anticipation))),
+	'the win frame turned off ⇒ no rig, swapped or coded',
+	added(
+		input(
+			mutate((d) => {
+				delete d.symbols!.highlight;
+				d.symbols!.off = { highlight: true };
+			}),
+		),
+	),
+	[],
+);
+const armsTease = [{ graph: { nodes: [{ kind: 'action', ref: 'enableAnticipationMode' }] } }];
+check(
+	'no anticipation rig ⇒ the coded tease rig, once a flow arms the tease',
+	added(
+		input(
+			mutate((d) => {
+				delete d.symbols!.anticipation;
+				d.other = armsTease;
+			}),
+		),
+	),
 	['anticipation'],
+);
+check(
+	'…and none while nothing arms it',
+	added(input(mutate((d) => delete d.symbols!.anticipation))),
+	[],
 );
 check(
 	'a bone-placed effect ⇒ the foreground rig that hosts it',
@@ -736,6 +761,17 @@ check(
 	freeSpinArt,
 );
 check('with them off, nothing', added(input(withFreeSpinParts(), { config: noFreeSpins })), []);
+check(
+	'with them on and the board glow turned off, the glow keeps nothing',
+	added(
+		input(
+			((data) => ({ ...data, symbols: { ...data.symbols, off: { boardGlow: true } } }))(
+				withFreeSpinParts(),
+			),
+		),
+	),
+	freeSpinArt.filter((key) => key !== 'reelhouse'),
+);
 check(
 	'…unless a flow fires a free-spin cue',
 	added(

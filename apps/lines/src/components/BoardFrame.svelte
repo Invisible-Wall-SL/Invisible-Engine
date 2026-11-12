@@ -8,7 +8,7 @@
 	import { RigProvider, RigTrack } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
-	import { bakedBoardGlow } from '../editor-scenes';
+	import { bakedBoardGlow, bakedSymbolsOff } from '../editor-scenes';
 
 	const context = getContext();
 	const POSITION_ADJUSTMENT = 1.01;
@@ -23,6 +23,8 @@
 	const IDLE = glow?.animations?.idle ?? 'reelhouse_glow_idle';
 	const EXIT = glow?.animations?.exit ?? 'reelhouse_glow_exit';
 	const RIG_SCALE = glow?.sizeRatios ?? { width: 0.62, height: 0.66 };
+	// Turned off in Invisible Symbols: the glow never lights, so its rig is never drawn or shipped.
+	const OFF = bakedSymbolsOff()?.boardGlow === true;
 
 	// Whether the glow should be LIT, tracked by the always-mounted `<Game>` off the
 	// `boardFrameGlow*` cues. Driven as STATE rather than by subscribing to the cues here: this
@@ -40,7 +42,7 @@
 	// leaving it plays exit. Guarded on the current animation so a re-entry mid-exit doesn't
 	// restart the chain — it lands back on start once exit finishes and this re-runs.
 	$effect(() => {
-		if (active) {
+		if (active && !OFF) {
 			if (!animationName) {
 				animationName = START;
 				loop = false;
