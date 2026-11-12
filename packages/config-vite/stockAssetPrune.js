@@ -208,6 +208,9 @@ export const stockAssetPrune = () => {
 	return {
 		name: 'ie-stock-asset-prune',
 		apply: 'build',
+		// `__IE_STOCK_PRUNED__` tells the boot its stock files may be gone, so a test param that would
+		// load one this project's docs never draw (`?anticipation=`) is refused, not fetched.
+		config: () => ({ define: { __IE_STOCK_PRUNED__: JSON.stringify(prunesThisBuild()) } }),
 		configResolved(resolved) {
 			config = resolved;
 		},

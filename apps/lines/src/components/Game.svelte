@@ -270,7 +270,7 @@
 	} from '../game/screenTransitions';
 	import { screenTransitionsOn } from '../game/screenTransitionsBinding';
 	import { GAME_BUILTIN_DEFS } from '../game/builtinDefs';
-	import { skipUnusedStockAssets } from '../game/stockAssetBoot';
+	import { anticipationParamRefused, skipUnusedStockAssets } from '../game/stockAssetBoot';
 	import {
 		PLATFORM_JACKPOT_TIERS,
 		platformJackpotValue,
@@ -725,6 +725,7 @@
 	// before `<App>` mounts the loader. After the defs above, so the project's own resolve; a boot
 	// that has no doc yet (dev, live-doc) keeps every one (`game/stockAssets.ts`).
 	stateApp.assets = skipUnusedStockAssets(stateApp.assets);
+	if (anticipationParamRefused()) stateGame.anticipationMode = false;
 	// Register the project's baked Invisible FX effects so PLACED `effect` nodes resolve their
 	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.

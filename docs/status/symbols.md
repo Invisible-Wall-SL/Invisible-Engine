@@ -188,6 +188,19 @@ or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-11-12 — **Anticipation and win-frame follow-ups** (review notes on #1632 / #1635).
+  - `?anticipation=` on a project whose flow never arms the mode shows the **coded** look: the
+    export dropped the authored `anticipation` block, so the param tests the engine ramp, not the
+    authored styling. On a **pruned standalone build** (`config-vite` sets `__IE_STOCK_PRUNED__`) the
+    param is ignored and the boot logs `[stock-assets] ignored ?anticipation=` — the build left the
+    stock overlay rig out, so nothing is fetched and nothing mounts. The shared runtime and dev are
+    unchanged.
+  - **Publish-time race (known, accepted):** the export reads the flow and the symbols doc at
+    publish. A flow saved mid-publish that newly arms anticipation can ship without the authored
+    styling (coded look) until the next publish; the reverse ships an unused block.
+  - `off` now accepts `false` (`.strict()`, `pruneSymbolsOff` keeps only `true`); the export writes the
+    pruned `off`. The "overridden" badge renders once per header; the **Not used** note names the
+    Flow action as the palette shows it (`enableAnticipationMode`).
 - 2026-11-12 — **The win frame and the board glow can be turned off.** Owner: a new game had no use
   for the stock win frame (the `anticipation`/`payframe` rig) or the pink free-spin glow, but every
   game drew and downloaded them. Each section header now has an **On/Off** switch. Off writes

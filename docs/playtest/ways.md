@@ -97,7 +97,10 @@ this table.
 Add `&anticipation=possible` (or `guaranteed`) to arm reel anticipation — the pre-Flow test path in
 `Game.svelte`. Anticipation is **OFF by default** and otherwise owned by the Flow
 `enableAnticipationMode` effect, and this repo's fallback scenes author no such graph, so without
-that param there is nothing to observe.
+that param there is nothing to observe. The param shows the **coded** anticipation look on a project
+whose flow never arms the mode (its authored Symbols styling is not exported), and a pruned standalone
+build ignores it (`[stock-assets] ignored ?anticipation=` in the console) — playtest authored styling
+through a flow that arms the mode.
 
 ## Route B — launch (the real ways client)
 
