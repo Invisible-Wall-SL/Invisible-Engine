@@ -27,10 +27,13 @@ import {
  *   cache miss of a text and style it was not showing) and each `HTMLText` texture build. A
  *   counter whose label changes pays one per change.
  * - **DOM nodes**: Svelte keeps a comment or text anchor in the page for every block of the Pixi
- *   component tree, in the `<div>` that holds the canvas (`InitialiseApplication`), so each mount
- *   and unmount inserts and removes nodes there. A `MutationObserver` counts them. Its callback is
- *   a microtask queued by the first change, after the frame callback's own timing microtask
- *   (`perfProbe.ts`), so the counting is not in `jsMs`; making the records is, inside Svelte's flush.
+ *   component tree, under the `<div>` that holds the canvas (`InitialiseApplication`), each
+ *   `Container`'s inside an element of its own, so each mount and unmount inserts and removes nodes
+ *   there. A `MutationObserver` counts them: each node a record adds or removes with every node
+ *   under it ({@link nodesIn}), as it stands when the records are read, so a container mounted
+ *   with its children counts them all. Its callback is a microtask queued by the first change,
+ *   after the frame callback's own timing microtask (`perfProbe.ts`), so the counting is not in
+ *   `jsMs`; making the records is, inside Svelte's flush.
  *
  * A frame's churn runs from its first animation-frame callback to the next frame's, as `jsMs` is
  * keyed: what a frame's callbacks, their microtasks and the tasks before the next frame built.
@@ -64,7 +67,7 @@ export interface ChurnCounts {
 	textRenders: number;
 	/** Ms drawing canvas text textures (`HTMLText` builds theirs asynchronously, not timed). */
 	textMs: number;
-	/** Nodes inserted into and removed from the canvas's host `<div>`. */
+	/** Nodes put under and taken from the canvas's host `<div>`, each with the nodes under it. */
 	domAdded: number;
 	domRemoved: number;
 }
@@ -315,13 +318,20 @@ export function probeTextRenders(renderer: Renderer): () => void {
 	};
 }
 
+/** A node and every node under it. */
+export function nodesIn(node: Pick<Node, 'firstChild'>): number {
+	let count = 1;
+	for (let child = node.firstChild; child; child = child.nextSibling) count += nodesIn(child);
+	return count;
+}
+
 /** Count the nodes inserted into and removed from `host` and everything under it; the undo. */
 export function observeDomChurn(host: Node): () => void {
 	const observer = new MutationObserver((records) => {
 		const counts = frames.counts;
 		for (const record of records) {
-			counts.domAdded += record.addedNodes.length;
-			counts.domRemoved += record.removedNodes.length;
+			for (const node of record.addedNodes) counts.domAdded += nodesIn(node);
+			for (const node of record.removedNodes) counts.domRemoved += nodesIn(node);
 		}
 	});
 	observer.observe(host, { childList: true, subtree: true });

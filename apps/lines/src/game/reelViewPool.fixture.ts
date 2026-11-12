@@ -7,7 +7,9 @@
  * Board cells, through `createBoardViews` over spins and a cascade step: a cell keeps one view for
  * as long as it is in the strip; a new cell takes the lowest-numbered free view, so after the first
  * spins no view is ever built again; views are listed in strip order (the order the per-cell
- * components ran in), vacant ones last; an unchanged view is handed out unchanged.
+ * components ran in), vacant ones last; an unchanged view is handed out unchanged, and the list
+ * itself while every view in it is (so a keyed `{#each}` over it does not run), for board cells,
+ * filler and Hold and Win cells alike.
  *
  * Entries (`createEntries`): one number while one cell is drawn, a new one when the view starts
  * drawing or is handed another cell while drawing, none while it draws nothing; views sharing a
@@ -67,6 +69,14 @@ const check = (label: string, ok: boolean, detail = ''): void => {
 	}
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Each list after the first is the one before exactly when it holds the same items in order. */
+const keptExactlyWhenUnchanged = (lists: readonly (readonly unknown[])[]) =>
+	lists.every((list, i) => {
+		if (i === 0) return true;
+		const before = lists[i - 1];
+		const unchanged = list.length === before.length && list.every((item, j) => item === before[j]);
+		return (list === before) === unchanged;
+	});
 
 console.log('band keys');
 check(
@@ -187,6 +197,22 @@ console.log('board cells');
 	check(
 		'the same strip hands out the same items',
 		views(b0).every((v, i) => v === rest[i]),
+	);
+	check('…in the same list', views(b0) === rest && views([...b0]) === rest);
+	const moved = views([cells('n', 1, true)[0], ...b0]);
+	check('a cell that moves row: a new list', moved !== rest && moved[0] !== rest[0]);
+	check('…kept from then on', views([cells('n', 1, true)[0], ...b0]) === moved);
+	const pool = createPoolViews<B>();
+	const fewer = cells('s', 3, true);
+	const wide = pool([fewer[0], undefined, fewer[2]]);
+	check(
+		'filler: the same places shown, the same list',
+		pool([fewer[0], undefined, fewer[2]]) === wide,
+	);
+	const narrow = pool([fewer[0], undefined]);
+	check(
+		'filler: fewer places (a grid with fewer rows), a list of them alone',
+		narrow !== wide && narrow.length === 2 && narrow[0] === wide[0],
 	);
 	const lap1 = cells('f', 5, true);
 	const rolled = views([...lap1, ...b0]);
@@ -367,6 +393,7 @@ const play = (frames: Frame[]) => {
 	let indexAgrees = true;
 	let twoAtOnce = false;
 	const boardBuilt: number[] = [];
+	const boardLists: ReturnType<typeof boardViews>[] = [];
 
 	for (const frame of frames) {
 		frame.column.forEach((cell, i) => (cell.symbolIndex = i));
@@ -374,6 +401,7 @@ const play = (frames: Frame[]) => {
 		const cLog = newLog();
 		// Board cells, through views.
 		const listed = boardViews(frame.column);
+		boardLists.push(listed);
 		boardBuilt.push(Math.max(-1, ...listed.map((v) => v.id)));
 		for (const view of listed) {
 			const drawn = !view.vacant && inWindow(yAt(frame, view.row), frame.rolling);
@@ -439,7 +467,7 @@ const play = (frames: Frame[]) => {
 		items.push(pool);
 		shownLog.push(shown);
 	}
-	return { viewsLog, cellsLog, items, shownLog, indexAgrees, twoAtOnce, boardBuilt };
+	return { viewsLog, cellsLog, items, shownLog, indexAgrees, twoAtOnce, boardBuilt, boardLists };
 };
 
 console.log('rolls through the views');
@@ -461,7 +489,21 @@ for (const step of [7, 33, 100, 170, 260]) {
 		spinEnds.push(frames.length);
 		board = played.result;
 	}
-	const { viewsLog, cellsLog, items, shownLog, indexAgrees, twoAtOnce, boardBuilt } = play(frames);
+	const { viewsLog, cellsLog, items, shownLog, indexAgrees, twoAtOnce, boardBuilt, boardLists } =
+		play(frames);
+	const listsKept = (lists: readonly unknown[]) => new Set(lists).size < lists.length;
+	check(
+		`step ${step}: a board list is handed back exactly while every view in it is unchanged`,
+		keptExactlyWhenUnchanged(boardLists) &&
+			listsKept(boardLists) &&
+			new Set(boardLists).size > spinEnds.length,
+		`${new Set(boardLists).size} lists over ${boardLists.length} frames`,
+	);
+	check(
+		`step ${step}: …and a filler list`,
+		keptExactlyWhenUnchanged(items) && listsKept(items) && new Set(items).size > spinEnds.length,
+		`${new Set(items).size} lists over ${items.length} frames`,
+	);
 
 	const startsDiffer = viewsLog
 		.map((v, i) =>
@@ -638,6 +680,7 @@ for (const step of [9, 40, 100, 160, 250]) {
 	let churned = false;
 	let before: Cell[] = [];
 	let itemsBefore: ReturnType<typeof views> = [];
+	const shownLists: ReturnType<typeof views>[] = [];
 	const painted: Cell[] = [];
 	frames.forEach((frame, f) => {
 		const shown = shownOf(frame);
@@ -645,6 +688,7 @@ for (const step of [9, 40, 100, 160, 250]) {
 		const cLog = newLog();
 		// Through the views.
 		const items = views(shown);
+		shownLists.push(items);
 		for (const item of items) {
 			const next = bandOf(item.entry, item.cell, item.entry !== undefined);
 			bands.set(item.id, move(vLog, bands.get(item.id) ?? NO_BAND, next));
@@ -703,6 +747,11 @@ for (const step of [9, 40, 100, 160, 250]) {
 		`step ${step}: the views paint in the order the components were appended`,
 		paintDiffers.length === 0,
 		paintDiffers.slice(0, 2).join(' | '),
+	);
+	check(
+		`step ${step}: a cell's list is handed back exactly while every view in it is unchanged`,
+		keptExactlyWhenUnchanged(shownLists) && new Set(shownLists).size < shownLists.length,
+		`${new Set(shownLists).size} lists over ${shownLists.length} frames`,
 	);
 	const viewSprites = viewsLog.reduce((n, l) => n + l.spriteMounts, 0);
 	const cellSprites = cellsLog.reduce((n, l) => n + l.spriteMounts, 0);

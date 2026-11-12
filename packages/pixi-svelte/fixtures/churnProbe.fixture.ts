@@ -13,7 +13,8 @@
  * frame's whose callbacks run, kept for the frame before; text renders count each canvas texture
  * drawn through the system's own `getTexture` (a cache hit draws none) and each `HTMLText` build,
  * and the undo restores the systems; the readout's texture list skips the `null` Pixi leaves where a
- * texture was unloaded.
+ * texture was unloaded; a DOM node counts with every node under it (a container's element mounted
+ * with its children's anchors inside), and its own siblings do not.
  */
 import { Emitter, Particle } from '@barvynkoa/particle-emitter';
 import { SkeletonData } from 'engine-rig';
@@ -40,6 +41,8 @@ import {
 	churnKind,
 	emptyChurnCounts,
 	frameChurn,
+	nodesIn,
+	observeDomChurn,
 	probeTextRenders,
 	resetChurn,
 	trackDisplayObjects,
@@ -244,6 +247,69 @@ console.log("the readout's textures");
 		formats.length === 1 && formats[0].count === 1,
 		JSON.stringify(formats),
 	);
+}
+
+console.log('DOM nodes');
+{
+	type FakeNode = { firstChild: FakeNode | null; nextSibling: FakeNode | null };
+	const tree = (children: FakeNode[] = []): FakeNode => {
+		children.forEach((child, i) => (child.nextSibling = children[i + 1] ?? null));
+		return { firstChild: children[0] ?? null, nextSibling: null };
+	};
+	const node = (n: FakeNode) => n as unknown as Node;
+	check('an anchor alone is one node', nodesIn(node(tree())) === 1);
+	check(
+		'an element with three anchors is four',
+		nodesIn(node(tree([tree(), tree(), tree()]))) === 4,
+	);
+	const container = tree([tree(), tree([tree(), tree([tree()])]), tree()]);
+	check(
+		'a container mounted with its children counts every node under it',
+		nodesIn(node(container)) === 7,
+	);
+	const sibling = tree();
+	const first = tree([tree()]);
+	first.nextSibling = sibling;
+	check("a node's own siblings are not under it", nodesIn(node(first)) === 2);
+
+	// The browser's observer, stood in for: the probe's callback, handed a frame's records.
+	type Records = { addedNodes: FakeNode[]; removedNodes: FakeNode[] }[];
+	let deliver: ((records: Records) => void) | undefined;
+	let watched: unknown;
+	const native = globalThis.MutationObserver;
+	globalThis.MutationObserver = class {
+		constructor(callback: (records: Records) => void) {
+			deliver = callback;
+		}
+		observe(target: unknown, options: unknown) {
+			watched = { target, options };
+		}
+		disconnect() {
+			deliver = undefined;
+		}
+	} as unknown as typeof MutationObserver;
+	const host = tree();
+	const undo = observeDomChurn(node(host));
+	check(
+		'the host is observed with everything under it',
+		JSON.stringify(watched) ===
+			JSON.stringify({ target: host, options: { childList: true, subtree: true } }),
+	);
+	resetChurn();
+	churnFrameStarts(300);
+	deliver?.([
+		{ addedNodes: [container, tree()], removedNodes: [] },
+		{ addedNodes: [], removedNodes: [tree([tree(), tree()])] },
+	]);
+	const frame = frameChurn(300);
+	check(
+		"a frame's records count each node added or removed with every node under it",
+		frame?.domAdded === 8 && frame.domRemoved === 3,
+		JSON.stringify({ added: frame?.domAdded, removed: frame?.domRemoved }),
+	);
+	undo();
+	check('the undo disconnects the observer', deliver === undefined);
+	globalThis.MutationObserver = native;
 }
 
 if (failures) throw new Error(`churnProbe.fixture: ${failures} FAILED`);

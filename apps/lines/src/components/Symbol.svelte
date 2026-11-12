@@ -275,6 +275,16 @@
 	const artComplete = $derived(
 		props.vacant ? undefined : symbolFx ? () => gate.art() : props.oncomplete,
 	);
+	/**
+	 * `gate` is read where its art completes, from Pixi's ticker (a rig's `complete`, every frame for
+	 * a looping still), outside any reaction. Read only there, it is unconnected, and Svelte runs
+	 * `ownArt` and `waitsForFx` again on every such read once anything they read has changed, though
+	 * their values have not. Read here too, they stay connected and run only when an input changes;
+	 * the gate is made from the same inputs, only in the flush rather than at its next read.
+	 */
+	$effect.pre(() => {
+		if (symbolFx) void gate;
+	});
 
 	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
 	 *  rig/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
