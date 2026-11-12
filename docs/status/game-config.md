@@ -789,6 +789,9 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+- 2026-11-12 — **No "Reset to template default" on a Hold and Win project.** It restored the legacy
+  Pots default (a duplicate of Reset to preset → Pots) and confused authors; the presets cover it.
+
 - 2026-11-12 — **Every panel is a foldable card.** `config/ConfigSection.svelte` wraps each of the
   25 sections (page + Bonus/Coin overlay/Coin board/Family/Game modes/Online/Wilds) in a bordered
   card with a chevron header; folding unmounts the body and is remembered in `localStorage`

@@ -1572,15 +1572,9 @@
 			{:else}
 				<span>Editing this project's <strong>authored config</strong>.</span>
 			{/if}
-			{#if data.templateDefault}
-				<button
-					class="linkish"
-					onclick={resetToTemplate}
-					title={data.gameType === 'holdAndWin'
-						? "The Hold and Win kind's legacy default, the Pots preset. For the plain game Game Maker creates, use Reset to preset → Plain."
-						: undefined}
-					>Reset to template default{data.gameType === 'holdAndWin' ? ' (Pots)' : ''}</button
-				>
+			<!-- Hold and Win's template default is the legacy Pots preset; its presets cover it. -->
+			{#if data.templateDefault && data.gameType !== 'holdAndWin'}
+				<button class="linkish" onclick={resetToTemplate}>Reset to template default</button>
 			{/if}
 			{#if data.presets.length}
 				<span class="preset-pick">
