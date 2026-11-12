@@ -51,6 +51,7 @@
 		resolveTransform,
 		SYMBOL_STATE_LABELS,
 		symbolStatesForKind,
+		kindCapabilities,
 		TAP_TO_CONTINUE_PARAMS,
 		COMPLETE_ON_LOADED_PARAMS,
 		type ComponentDef,
@@ -1129,6 +1130,34 @@
 		{ profile: 'respinNormal', title: 'Hold and Win respin' },
 		{ profile: 'respinFast', title: 'Hold and Win respin — turbo' },
 	];
+
+	// A respin cell never pre-spins (no pre-spin speed, spin-up, wind-up or stagger) and never
+	// anticipates; its normal spin skips the turbo-only "min roll" check, and a turbo spin rolls no
+	// padding at all (`respinBoard.svelte.ts`, `createReelForSpinning`).
+	const RESPIN_NEVER_READS: ReadonlySet<keyof ReelSpinProfile> = new Set([
+		'reelPreSpinSpeed',
+		'reelSpinUpDuration',
+		'reelWindUp',
+		'reelSpinDelay',
+		'reelPaddingMultiplierAnticipated',
+	]);
+	const RESPIN_PROFILE_NEVER_READS: Partial<
+		Record<SpinProfileKey, ReadonlySet<keyof ReelSpinProfile>>
+	> = {
+		respinNormal: new Set(['reelMinSpinDuration']),
+		respinFast: new Set(['reelPaddingMultiplierFirst', 'reelPaddingMultiplierNormal']),
+	};
+
+	function spinFieldsFor(profile: SpinProfileKey) {
+		const own = RESPIN_PROFILE_NEVER_READS[profile];
+		if (!own) return SPIN_FIELDS;
+		return SPIN_FIELDS.filter((f) => !RESPIN_NEVER_READS.has(f.key) && !own.has(f.key));
+	}
+
+	const hasRespin = $derived(kindCapabilities(gameType, addOns).holdAndWin);
+	const shownSpinProfiles = $derived(
+		hasRespin ? SPIN_PROFILES : SPIN_PROFILES.filter((p) => !p.profile.startsWith('respin')),
+	);
 
 	const SPIN_DEFAULTS: Record<'normal' | 'fast', ReelSpinProfile> = {
 		normal: SPIN_OPTIONS_DEFAULT,
@@ -5110,15 +5139,18 @@
 					a 120 px row (2.4 = 20 symbols/s); times are ms; "length" scales how far the reel spins
 					(the gap between reel stops is 5 × length rows). Two profiles: <strong>Normal</strong>
 					(also drives anticipation) and <strong>Turbo</strong>, where every reel lands together
-					once "min roll" has passed. The <strong>Hold and Win respin</strong> profiles tune only the
-					respin cells: each is a one-row reel, so the same "length" rolls 3 rows where a 3-row reel rolls
-					5. A blank respin field plays the board's value, shown greyed.
+					once "min roll" has passed.
+					{#if hasRespin}
+						The <strong>Hold and Win respin</strong> profiles tune only the respin cells: each is a one-row
+						reel, so the same "length" rolls fewer rows than on the board. A blank respin field plays
+						the board's value, shown greyed; settings a respin cell never uses are left out.
+					{/if}
 				</p>
-				{#each SPIN_PROFILES as p (p.profile)}
+				{#each shownSpinProfiles as p (p.profile)}
 					{@const profile = p.profile}
 					<h4 class="spin-profile">{p.title}</h4>
 					<div class="spin-grid">
-						{#each SPIN_FIELDS as f (f.key)}
+						{#each spinFieldsFor(profile) as f (f.key)}
 							<label class="field">
 								<span>{f.label}</span>
 								{#if f.toggle}

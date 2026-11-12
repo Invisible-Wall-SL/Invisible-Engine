@@ -1292,8 +1292,14 @@ symbol for **bounce size**, and time the whole bounce for **bounce time**. A Tur
 only land once the game server has answered, so **min roll** sets the earliest it lands.
 
 **Hold and Win respin** and **Hold and Win respin — turbo** tune only the respin cells of a
-Hold and Win feature, with the same fields. A blank field plays the board's value (Normal or
-Turbo above), shown greyed, so a game that sets nothing here respins exactly as before. Each
+Hold and Win feature. They show only in a project with a Hold and Win feature (the Hold and Win
+kind, or a declared respin mode). A blank field plays the board's value (Normal or Turbo above),
+shown greyed, so a game that sets nothing here respins exactly as before. A respin cell never
+pre-spins or anticipates, so these profiles leave out pre-spin speed, spin-up, wind-up, reel
+stagger and anticipation length. **Hold and Win respin** also leaves out min roll, and the turbo
+profile leaves out first reel length and spin length, because turbo cells roll no extra length.
+**first reel length** times the leftmost column's cells only. On the turbo profile, any **min
+roll** above 0 lands the cells at once, and 0 lets them slide in. Each
 respin cell is a one-row reel, so its reel length is 3, not 5. With the same settings a
 respin column stops 3 × 1.26 = 3.8 rows after the last, about 190 ms, where a base reel takes
 316 ms. To slow the respin to the base game's pace, raise its **spin length** to about 2.1, or
