@@ -39,7 +39,7 @@
 import sharp from 'sharp';
 import { encodeToKTX2 } from 'ktx2-encoder';
 import { premultiplyRgba } from './ktx2Alpha';
-import { DEFAULT_MAX_DIMENSION, MIN_ENCODE_PIXELS, targetSize } from './ktx2Dimensions';
+import { DEFAULT_MAX_DIMENSION, MIN_ENCODE_PIXELS, paddedSize, targetSize } from './ktx2Dimensions';
 
 // The sizing rules live in `ktx2Dimensions.ts` (no `sharp`, no wasm) so a guard can drive them
 // directly. Re-exported here so every existing importer of this module keeps working.
@@ -49,19 +49,32 @@ export {
 	MAX_ENCODE_PIXELS,
 	MIN_ENCODE_PIXELS,
 	alignDown,
+	alignUp,
+	paddedSize,
 	targetSize,
 } from './ktx2Dimensions';
 
+/** How the decoder reaches the encoded size: resized to it, or extended to it with transparent
+ *  texels along the right and bottom edges (`pad`). */
+type Reshape = { width: number; height: number; pad: boolean };
+
 /** `sharp` decoder the encoder calls to turn compressed page bytes into raw RGBA (the encoder
- *  requires this in Node for LDR inputs), resizing to `target` when the page is being
- *  downscaled, and premultiplying unless the source already is. Mirrors the raw-buffer decode in
+ *  requires this in Node for LDR inputs), reshaping it to the encoded size when that differs from
+ *  the source, and premultiplying unless the source already is. Mirrors the raw-buffer decode in
  *  `rig.ts`. */
-function makeDecoder(target: { width: number; height: number } | null, premultiply: boolean) {
+function makeDecoder(target: Reshape | null, premultiply: boolean) {
 	return async (
 		buffer: Uint8Array,
 	): Promise<{ width: number; height: number; data: Uint8Array }> => {
 		let pipeline = sharp(Buffer.from(buffer)).ensureAlpha();
-		if (target) pipeline = pipeline.resize(target.width, target.height, { fit: 'fill' });
+		if (target?.pad) {
+			const meta = await sharp(Buffer.from(buffer)).metadata();
+			pipeline = pipeline.extend({
+				right: target.width - (meta.width ?? 0),
+				bottom: target.height - (meta.height ?? 0),
+				background: { r: 0, g: 0, b: 0, alpha: 0 },
+			});
+		} else if (target) pipeline = pipeline.resize(target.width, target.height, { fit: 'fill' });
 		const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
 		if (premultiply) premultiplyRgba(data);
 		return { width: info.width, height: info.height, data };
@@ -94,11 +107,18 @@ export interface EncodedKtx2 {
  * `maxDimension` and the area ≤ the encoder cap. Returns the bytes + the encoded dimensions
  * (so the caller can rescale the atlas/sheet coords), or null when the page is too small to
  * bother or anything throws (→ the caller ships the WebP/PNG, parity). `sourcePremultiplied` is
- * for a page whose bytes already are (a rig atlas page declaring `pma: true`).
+ * for a page whose bytes already are (a rig atlas page declaring `pma: true`). `pad` grows the
+ * page to whole blocks instead of flooring it ({@link paddedSize}), so the caller rescales
+ * nothing; a page that would need a downscale then gets no twin.
  */
 export async function encodePageToKtx2(
 	pageBytes: Uint8Array,
-	opts: { mipmaps?: boolean; maxDimension?: number; sourcePremultiplied?: boolean } = {},
+	opts: {
+		mipmaps?: boolean;
+		maxDimension?: number;
+		sourcePremultiplied?: boolean;
+		pad?: boolean;
+	} = {},
 ): Promise<EncodedKtx2 | null> {
 	try {
 		// Cheap dimension read first, so a sub-threshold page never pays the encode cost and
@@ -108,13 +128,17 @@ export async function encodePageToKtx2(
 		const height = meta.height ?? 0;
 		if (width * height < MIN_ENCODE_PIXELS) return null;
 
-		const target = targetSize(width, height, opts.maxDimension ?? DEFAULT_MAX_DIMENSION);
-		// Resize whenever the target differs from the source AT ALL — not only when downscaling.
+		const maxDimension = opts.maxDimension ?? DEFAULT_MAX_DIMENSION;
+		const target = opts.pad
+			? paddedSize(width, height, maxDimension)
+			: targetSize(width, height, maxDimension);
+		if (!target) return null;
+		// Reshape whenever the target differs from the source AT ALL — not only when downscaling.
 		// Block alignment can change the size by a few pixels on a page that needed no downscale,
 		// and gating this on `scale < 1` is what let an unaligned page reach the encoder.
 		const resize =
 			target.width !== width || target.height !== height
-				? { width: target.width, height: target.height }
+				? { width: target.width, height: target.height, pad: !!opts.pad }
 				: null;
 
 		const ktx2 = await withSilencedStdout(() =>

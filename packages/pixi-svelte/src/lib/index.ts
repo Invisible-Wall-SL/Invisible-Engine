@@ -32,6 +32,7 @@ export * from './deviceClass';
 export * from './renderOptions';
 // `?perf=1`'s per-frame GL counts, what the particles and rigs did in each frame, and what it built.
 export * from './glCounters';
+export { ktx2Fallbacks } from './ktx2Transcoder';
 export * from './perfProbe';
 export * from './churnProbe';
 // The loader's last step: upload every texture and compile every program a game will draw with.

@@ -2,6 +2,7 @@ import { bakedFontAssets } from 'engine-layout';
 import { createApp } from 'pixi-svelte';
 
 import {
+	preferCompressedTextures,
 	bakedBookVfxAssets,
 	bakedEditorArtAssets,
 	bakedFlightAssets,
@@ -10,7 +11,17 @@ import {
 	bakedSymbolAssets,
 	bakedSymbolTransitionAssets,
 } from '../editor-scenes';
-import assets from './assets';
+import stockTable, { gameAssetsBase } from './assets';
+import { shippedStockTwins, stockAssetsOnTier } from './stockTwins';
+
+/** The stock table as this device registers it: on the compressed tier each stock asset whose KTX2
+ *  twin the build ships loads that twin (`stockTwins.ts`). */
+export const stockAssetsOnDevice = stockAssetsOnTier(
+	stockTable,
+	shippedStockTwins(),
+	gameAssetsBase(),
+	preferCompressedTextures(),
+);
 
 // Editor-art sheets (atlases the baked layout doc references) + baked project
 // bitmap fonts (Font Maker output) + baked symbol bindings (Invisible Symbols State
@@ -20,7 +31,7 @@ import assets from './assets';
 // mapping lives in the engine (`bakedFontAssets`) so every game shares it.
 export const { stateApp } = createApp({
 	assets: {
-		...assets,
+		...stockAssetsOnDevice,
 		...bakedEditorArtAssets(),
 		// `bakedFontSrcBase()` is NOT optional here, though the parameter has a default.
 		// That default is the page-relative `'assets/'`, which is only ever right while the
@@ -32,7 +43,7 @@ export const { stateApp } = createApp({
 		// At module scope this reads `gameAssetsBase()` — an absolute URL off
 		// `import.meta.url`, settled before anything loads — and live-runtime mode re-registers
 		// with the launcher's base from `Game.svelte`, as it already did.
-		...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase()),
+		...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase(), preferCompressedTextures()),
 		...bakedSymbolAssets(),
 		...bakedBookVfxAssets(),
 		...bakedSymbolTransitionAssets(),
