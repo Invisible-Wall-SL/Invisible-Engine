@@ -13,7 +13,13 @@ import {
 	putObjectBytes,
 	putObjectText,
 } from './r2';
+import type { AuthoredCinematics } from './cinematicExport';
 import { resolveSoundBindings } from './soundLegacy';
+import {
+	ENGINE_SOUND_NAMES,
+	collectPlayedSoundNames,
+	shippedSoundEntries,
+} from './soundReachability';
 import { loadSoundsDoc } from './soundsStorage';
 
 /**
@@ -22,7 +28,8 @@ import { loadSoundsDoc } from './soundsStorage';
  * it auditions in the tool, but the shipped game has never heard of it" gap (CLAUDE.md rule 8).
  *
  * The tool streams audio straight from R2 (`/api/sounds/file`), but a game loads audio only from
- * files in its own `static/assets/`. This copies each library entry's file into:
+ * files in its own `static/assets/`. This copies the file of each library entry the game can PLAY
+ * (`soundReachability.ts`) into:
  *
  *   <client>/<project>/deploy/sounds/<file>
  *   <client>/<project>/deploy/sounds/index.json   ← the exported catalog
@@ -43,6 +50,11 @@ import { loadSoundsDoc } from './soundsStorage';
  * re-encode is kept only when it is actually smaller — so the export still converges and
  * `SOUND_TRANSCODE=0` restores the original bytes. What was done to each file is remembered in
  * `sounds/_transcode.json` so a re-export does not re-encode unchanged audio.
+ *
+ * ONLY WHAT THE GAME CAN PLAY ships. The game preloads every catalogued sound at boot, one bank
+ * each, so a library entry nothing names — an unused take, a sound whose cue was deleted — cost
+ * every player its download and its decoded memory. An entry is kept when the engine's own code
+ * may play it or any game data names it; when that cannot be told, everything ships.
  *
  * ⚠️ **Draft sounds are exported.** The approval gate belongs at PUBLISH (design §6), not here — a
  * test build has to be able to hear what it is reviewing, and an exporter that silently dropped
@@ -65,6 +77,7 @@ const EXPORT_SUBTREE = 'sounds';
 export async function exportProjectSounds(
 	clientKey: string,
 	projectKey: string,
+	preloaded: { cinematics?: Promise<AuthoredCinematics> } = {},
 ): Promise<SoundExportIndex> {
 	const outPrefix = `${SUB.deploy(clientKey, projectKey)}/${EXPORT_SUBTREE}/`;
 	const mirror = new DeployMirror(outPrefix);
@@ -82,10 +95,28 @@ export async function exportProjectSounds(
 
 	const bindings = await resolveSoundBindings(clientKey, projectKey, doc);
 
+	const entries = soundCatalogEntries(doc);
+	// A library of engine-named sounds only is shipped whole without reading anything else: each
+	// one replaces a shipped region the engine's own code may play.
+	const played = entries.some((entry) => !ENGINE_SOUND_NAMES.has(entry.name))
+		? await collectPlayedSoundNames(clientKey, projectKey, {
+				bindings,
+				cinematics: preloaded.cinematics,
+			})
+		: null;
+	const shipped = shippedSoundEntries(entries, played);
+	if (shipped.length < entries.length) {
+		const kept = new Set(shipped);
+		const dropped = entries.filter((entry) => !kept.has(entry)).map((entry) => entry.name);
+		console.info(
+			`[sounds] "${projectKey}": not shipping ${dropped.length} sound(s) nothing plays: [${dropped.join(', ')}]`,
+		);
+	}
+
 	const exported: SoundCatalogEntry[] = [];
 	const cache = await loadTranscodeCache(clientKey, projectKey);
 
-	for (const entry of soundCatalogEntries(doc)) {
+	for (const entry of shipped) {
 		const destKey = `${outPrefix}${entry.file}`;
 		const srcKey = soundFileKey(clientKey, projectKey, entry.file);
 		// A missing source is skipped rather than fatal: an ORPHANED ENTRY (a doc row whose upload
