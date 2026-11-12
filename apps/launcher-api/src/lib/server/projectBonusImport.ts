@@ -307,6 +307,22 @@ export type ScreenRenames = { screens: Record<string, string>; nodes: Record<str
 export const ENHANCEMENTS_SCREEN = 'enhancements';
 
 /**
+ * Whether this layout's own screen `id` serves an imported mode for its shared screen of that id:
+ * only a BASE screen does (a mode screen mounts only while its own mode is on the stack). Added as
+ * another respin mode (`asCopy`), an older source's mode screen keeps its own copy, as its Flow tab
+ * shows and hides it around the feature and would hide the base one.
+ */
+export function sharedScreenHosted(
+	current: LayoutDoc,
+	id: string,
+	sourceIsModeScreen: boolean,
+	asCopy: boolean,
+): boolean {
+	const here = current.scenes.find((s) => s.id === id);
+	return here !== undefined && here.role !== 'mode' && !(sourceIsModeScreen && asCopy);
+}
+
+/**
  * The source's screens for its mode `sourceMode` put in place of `current`'s for `mode` (the same id
  * for a Hold and Win; an imported reels mode's own id here), each re-tagged to `mode`. Only this
  * layout's screens for the mode are replaced, at the place the first of them stood; with none, the
@@ -315,11 +331,14 @@ export const ENHANCEMENTS_SCREEN = 'enhancements';
  * each copied screen and node first (an added respin mode's {@link respinModeCopyId}); absent, they
  * keep the source's ids; `copyName` names each copied screen the same way. Pure.
  *
- * `shared` names the one-per-layout screens the mode needs ({@link ENHANCEMENTS_SCREEN}), by id in
- * either project. This layout's own (a base screen, or another mode's) is kept, so the source's is
- * not copied. Without one here, the source's comes as it is there: a base screen stays a base
- * screen under its own id, after the mode's own, in place of this layout's mode screen of that id
- * (an older project's). A mode screen of that id here that the import brings nothing for is kept.
+ * `shared` names the one-per-layout screens the mode needs ({@link ENHANCEMENTS_SCREEN}), by their
+ * id in the source. A BASE screen of that id here is kept and the mode uses it ({@link
+ * sharedScreenHosted}), so the source's is not copied. Otherwise a source base screen comes as it
+ * is there, after the mode's own, in place of this layout's mode screen of that id (an older
+ * project's) — unless another mode holds the id with a screen of its own, which mounts only in its
+ * mode: then the source's comes as this mode's own copy (`copyId`), as a mode screen always does. A
+ * screen of this mode's for a shared id (the raw id or its `copyId`) that the import brings nothing
+ * for is kept.
  */
 export function mergeImportedScreens(
 	current: LayoutDoc,
@@ -341,8 +360,11 @@ export function mergeImportedScreens(
 	if (!ids.length)
 		return { doc: current, added: [], renamedScreens: [], renamedNodes: [], ids: map };
 	const ownMode = new Set(modeScreenIds(current.scenes, mode));
-	const own = new Set(current.scenes.filter((s) => !ownMode.has(s.id)).map((s) => s.id));
-	const hosted = shared.filter((id) => own.has(id));
+	const others = new Set(current.scenes.filter((s) => !ownMode.has(s.id)).map((s) => s.id));
+	const sourceById = new Map(source.scenes.map((s) => [s.id, s]));
+	const hosted = shared.filter((id) =>
+		sharedScreenHosted(current, id, sourceById.get(id)?.role === 'mode', copyId(id) !== id),
+	);
 	for (const id of hosted) map.screens[id] = id;
 	// The mode's own first, then the shared ones, so a re-sync (which keeps them) finds them in place.
 	const brought = [
@@ -351,8 +373,13 @@ export function mergeImportedScreens(
 			(s) => shared.includes(s.id) && !hosted.includes(s.id) && s.role !== 'mode',
 		),
 	];
-	const broughtIds = new Set(brought.map((s) => s.id));
-	const replaced = new Set([...ownMode].filter((id) => !shared.includes(id) || broughtIds.has(id)));
+	const broughtShared = new Set(brought.map((s) => s.id).filter((id) => shared.includes(id)));
+	const replaced = new Set(
+		[...ownMode].filter((id) => {
+			const sharedId = shared.find((sid) => id === sid || id === copyId(sid));
+			return sharedId === undefined || broughtShared.has(sharedId);
+		}),
+	);
 	const kept = current.scenes.filter((s) => !replaced.has(s.id));
 	const screenIds = new Set(kept.map((s) => s.id));
 	const nodeIds = new Set(kept.flatMap((s) => [...allNodes(s.nodes)].map((n) => n.id)));
@@ -367,7 +394,7 @@ export function mergeImportedScreens(
 				: { ...node, id };
 		});
 	const imported = brought.map((s) => {
-		if (!ids.includes(s.id)) {
+		if (!ids.includes(s.id) && !others.has(s.id)) {
 			screenIds.add(s.id);
 			map.screens[s.id] = s.id;
 			return { ...structuredClone(s), nodes: renameNodes(s.nodes, (id) => id) };
@@ -376,6 +403,7 @@ export function mergeImportedScreens(
 		map.screens[s.id] = id;
 		return {
 			...structuredClone(s),
+			role: 'mode' as const,
 			modeId: mode,
 			id,
 			name: copyName(s.name),
@@ -749,10 +777,18 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 			`${ctx.source} has no screens for this mode: the ones here are kept.`,
 		);
 	}
-	// Only the copied screens are read, so only their rigs are promoted.
+	// Only the copied screens are read, so only their rigs are promoted: never a shared one this
+	// layout keeps.
 	const copied = {
 		...source.doc,
-		scenes: source.doc.scenes.filter((s) => ids.includes(s.id) || ctx.sharedScreens.includes(s.id)),
+		scenes: source.doc.scenes.filter(
+			(s) =>
+				(ids.includes(s.id) || ctx.sharedScreens.includes(s.id)) &&
+				!(
+					ctx.sharedScreens.includes(s.id) &&
+					sharedScreenHosted(current, s.id, s.role === 'mode', ctx.asMode)
+				),
+		),
 	};
 	const merged = mergeImportedScreens(
 		current,
@@ -817,9 +853,10 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
 
 /**
  * `doc` with each one-per-layout screen the mode needs ({@link ImportContext.sharedScreens})
- * declared as a container when the source declares it and `doc` does not, and a note for each one
- * no tab of `doc` shows: since #1603 the game start shows it (a new project's starter), and an
- * import never edits the main graph, so the author adds that show.
+ * declared as a container when the source declares it and `doc` does not, and, for each one that
+ * is a BASE screen here, a note when no tab of `doc` shows it (since #1603 the game start does,
+ * and an import never edits the main graph) and one naming each node that hides it (an older
+ * project's feature exit, which would hide the dials for good). A mode's own copy is its tab's.
  */
 async function sharedContainers(
 	ctx: ImportContext,
@@ -830,23 +867,33 @@ async function sharedContainers(
 	if (!ids.length) return { doc, added: [] };
 	const declared = new Set(doc.containers.map((c) => c.id));
 	const containers = (source?.containers ?? [])
-		.filter((c) => ids.includes(c.id) && !declared.has(c.id))
-		.map((c) => ({ ...c }));
+		.flatMap((c) => {
+			const at = ctx.sharedScreens.indexOf(c.id);
+			return at < 0 ? [] : [{ ...c, id: ids[at], sceneId: ids[at] }];
+		})
+		.filter((c) => !declared.has(c.id));
 	const out = containers.length ? { ...doc, containers: [...doc.containers, ...containers] } : doc;
 	const layout = await loadDocWithEtag(ctx.client, ctx.project, await projectGameType(ctx.project));
-	const inLayout = new Set(layout.corrupt ? [] : layout.doc.scenes.map((s) => s.id));
-	const shown = new Set(
-		flowGraphs(out).flatMap(({ graph }) =>
-			[...flowNodes(graph)].flatMap((n) => (n.kind === 'showContainer' ? [n.ref] : [])),
-		),
+	const base = new Set(
+		layout.corrupt ? [] : layout.doc.scenes.filter((s) => s.role !== 'mode').map((s) => s.id),
 	);
-	const unshown = ids.filter((id) => inLayout.has(id) && !shown.has(id));
+	const nodes = flowGraphs(out).flatMap(({ graph }) => [...flowNodes(graph)]);
+	const refs = (kind: 'showContainer' | 'hideContainer', id: string) =>
+		nodes.flatMap((n) => (n.kind === kind && n.ref === id ? [n.id] : []));
+	const baseIds = ids.filter((id) => base.has(id));
+	const unshown = baseIds.filter((id) => !refs('showContainer', id).length);
+	const hides = baseIds.flatMap((id) => refs('hideContainer', id));
 	return {
 		doc: out,
 		added: containers.map((c) => `container ${c.id}`),
-		note: unshown.length
-			? `Nothing in this flow shows ${unshown.join(', ')}: add Show container → ${unshown.join(', ')} after the game start's base shows.`
-			: undefined,
+		note: notes(
+			unshown.length
+				? `Nothing in this flow shows ${unshown.join(', ')}: add Show container → ${unshown.join(', ')} after the game start's base shows.`
+				: '',
+			hides.length
+				? `${baseIds.join(', ')} stays on screen from the game start: delete ${hides.join(', ')} (Hide container).`
+				: '',
+		),
 	};
 }
 

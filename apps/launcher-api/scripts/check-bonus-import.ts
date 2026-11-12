@@ -102,10 +102,12 @@ const SOURCE = 'hw-classic-sample';
 const HOST = 'borut-pots-sample';
 /** A collector + enhancements project made since #1603: its Enhancements screen is a base screen. */
 const ENH_SOURCE = 'hw-enhancements-sample';
+/** One made before #1603: the Enhancements screen is the mode's, its tab hides it at the exit. */
+const OLD_ENH_SOURCE = 'hw-enhancements-old';
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
 		projectGameType: async (p: string) =>
-			p === SOURCE || p === ENH_SOURCE ? 'holdAndWin' : 'bookOf',
+			[SOURCE, ENH_SOURCE, OLD_ENH_SOURCE].includes(p) ? 'holdAndWin' : 'bookOf',
 	},
 });
 
@@ -835,6 +837,85 @@ console.log('\n4b. a collector mode with enhancements: its one Enhancements scre
 		);
 	});
 
+	// Added as another respin mode (`collect2`): a mode screen mounts only in its own mode.
+	const asCopy = [
+		'collect2',
+		'holdAndWin',
+		(id: string) => `${id}-collect2`,
+		(name: string) => `${name} (Collect 2)`,
+		shared,
+	] as const;
+	const oldSource = layout([scene('respinBoard', mode), scene(ENHANCEMENTS_SCREEN, mode)]);
+	const collect2 = { role: 'mode', modeId: 'collect2' } as const;
+	const copyOf = (doc: LayoutDoc) =>
+		doc.scenes
+			.filter((s) => s.id === `${ENHANCEMENTS_SCREEN}-collect2`)
+			.map((s) => [s.role, s.modeId]);
+
+	await check("added as a mode, an older source into an older layout: the mode's own copy", () => {
+		const hw = scene(ENHANCEMENTS_SCREEN, mode);
+		const out = mergeImportedScreens(layout([scene('basegame'), hw]), oldSource, ...asCopy);
+		same(copyOf(out.doc), [['mode', 'collect2']], 'its own copy');
+		same(out.doc.scenes[1], hw, "Hold and Win's kept");
+		same(
+			out.ids.screens[ENHANCEMENTS_SCREEN],
+			`${ENHANCEMENTS_SCREEN}-collect2`,
+			'its tab shows it',
+		);
+	});
+
+	await check("added as a mode, a new source into an older layout: the mode's own copy", () => {
+		const hw = scene(ENHANCEMENTS_SCREEN, mode);
+		const out = mergeImportedScreens(layout([scene('basegame'), hw]), newSource, ...asCopy);
+		same(copyOf(out.doc), [['mode', 'collect2']], 'its own copy, not under the taken id');
+		same(out.doc.scenes[1], hw, "Hold and Win's kept");
+	});
+
+	await check(
+		'added as a mode, an older source into a new layout: its own copy, the base kept',
+		() => {
+			const own = scene(ENHANCEMENTS_SCREEN);
+			const out = mergeImportedScreens(layout([scene('basegame'), own]), oldSource, ...asCopy);
+			same(copyOf(out.doc), [['mode', 'collect2']], 'its own copy, which its tab hides');
+			same(out.doc.scenes[1], own, 'the base screen kept');
+			same(
+				out.ids.screens[ENHANCEMENTS_SCREEN],
+				`${ENHANCEMENTS_SCREEN}-collect2`,
+				'never the base',
+			);
+		},
+	);
+
+	await check(
+		'a re-sync of a mode added before keeps its copy: replaced, or kept if nothing comes',
+		() => {
+			const stale = scene(`${ENHANCEMENTS_SCREEN}-collect2`, { ...collect2, name: 'stale' });
+			const before = layout([
+				scene('basegame'),
+				scene(ENHANCEMENTS_SCREEN, mode),
+				scene('respinBoard-collect2', collect2),
+				stale,
+			]);
+			for (const [label, from] of [
+				['an older source', oldSource],
+				['a new source', newSource],
+			] as const) {
+				const out = mergeImportedScreens(before, from, ...asCopy);
+				same(copyOf(out.doc), [['mode', 'collect2']], `${label}: one copy`);
+				assert(
+					out.doc.scenes.find((s) => s.id === `${ENHANCEMENTS_SCREEN}-collect2`)?.name !== 'stale',
+					`${label}: not replaced`,
+				);
+			}
+			const none = mergeImportedScreens(before, layout([scene('respinBoard', mode)]), ...asCopy);
+			same(
+				none.doc.scenes.find((s) => s.id === `${ENHANCEMENTS_SCREEN}-collect2`),
+				stale,
+				'a source with none: not deleted',
+			);
+		},
+	);
+
 	await check('a mode without enhancements replaces every screen of the mode, as before', () => {
 		const out = mergeImportedScreens(
 			layout([scene('basegame'), scene('respinBoard', mode), scene(ENHANCEMENTS_SCREEN, mode)]),
@@ -952,6 +1033,52 @@ console.log('\n4b. a collector mode with enhancements: its one Enhancements scre
 			same(flow.containers.filter((c) => c.id === ENHANCEMENTS_SCREEN).length, 1, 'declared once');
 		},
 	);
+
+	await check("an older source's tab that hides the base dials is named in a note", async () => {
+		await scaffoldProject(CLIENT, OLD_ENH_SOURCE, {
+			holdAndWinJackpots: 'on',
+			holdAndWinBase: 'enhancements',
+		});
+		const old = storedJson<LayoutDoc>(editorDocKey(CLIENT, OLD_ENH_SOURCE));
+		put(editorDocKey(CLIENT, OLD_ENH_SOURCE), {
+			...old,
+			scenes: old.scenes.map((s) =>
+				s.id === ENHANCEMENTS_SCREEN ? { ...s, role: 'mode', modeId: 'holdAndWin' } : s,
+			),
+		});
+		const oldFlow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, OLD_ENH_SOURCE));
+		put(flowV2DocKey(CLIENT, OLD_ENH_SOURCE), {
+			...oldFlow,
+			modes: {
+				holdAndWin: {
+					graph: {
+						nodes: [{ id: 'hw_hide_41', kind: 'hideContainer', ref: ENHANCEMENTS_SCREEN }],
+						exec: [],
+						data: [],
+					},
+				},
+			},
+		});
+		// `enh-host-new` holds the base screen since the first import above.
+		const out = await applyBonusImport(CLIENT, 'enh-host-new', {
+			source: OLD_ENH_SOURCE,
+			mode: 'holdAndWin',
+			replace: true,
+			sessionId: ME,
+			at: AT,
+		});
+		assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+		const layout = storedJson<LayoutDoc>(editorDocKey(CLIENT, 'enh-host-new'));
+		same(
+			layout.scenes.filter((s) => s.id.startsWith(ENHANCEMENTS_SCREEN) && !s.id.includes('Banner')),
+			[sourceEnh],
+			'the base screen kept, not doubled',
+		);
+		assert(
+			out.parts.flow.note?.includes('delete hw_hide_41'),
+			`no note on the hide: ${JSON.stringify(out.parts.flow)}`,
+		);
+	});
 }
 
 console.log("\n5. a reels feature: another book game's free spins");
