@@ -816,13 +816,24 @@ const padReel = (reel: string[]): string[] => {
 
 /** Normalise a spinWin's position payload into {reel,row} pairs shifted by the
  *  1-row top padding the reveal adds. Line wins carry `context.payline` (one
- *  row per reel); scatter/expanding wins carry an array of {reel,row}. */
-const winPositions = (c: { mode?: string; context?: unknown }): { reel: number; row: number }[] => {
-	const ctx = c.context as { payline?: number[] } | { reel: number; row: number }[] | undefined;
+ *  row per reel); scatter/expanding wins carry an array of {reel,row}. The engine pays a line's
+ *  leftmost `kind` cells, so a line read from the right (`direction: 'right'`) hands over only its
+ *  `occurs` rightmost cells. */
+const winPositions = (c: {
+	mode?: string;
+	occurs?: number;
+	context?: unknown;
+}): { reel: number; row: number }[] => {
+	const ctx = c.context as
+		{ payline?: number[]; direction?: string } | { reel: number; row: number }[] | undefined;
 	if (Array.isArray(ctx)) return ctx.map((p) => ({ reel: p.reel, row: p.row + 1 }));
-	const payline = (ctx as { payline?: number[] })?.payline;
-	if (payline) return payline.map((row, reel) => ({ reel, row: row + 1 }));
-	return [];
+	const payline = ctx?.payline;
+	if (!payline) return [];
+	const cells = payline.map((row, reel) => ({ reel, row: row + 1 }));
+	const occurs = c.occurs ?? 0;
+	return ctx.direction === 'right' && Number.isInteger(occurs) && occurs > 0
+		? cells.slice(-occurs)
+		: cells;
 };
 
 /** Translate an ordered Play4Fun event stream — base game OR a full aggregated
