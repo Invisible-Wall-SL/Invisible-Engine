@@ -599,7 +599,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `PRIVATE_DATA_COLLECTION` (`packages/error-tracking/src/scrub.ts`) now sets every category off.
   `frameContextLines` (source lines, not personal data) is set to Sentry's default of 5. The object
   is checked with `satisfies Required<…>`, so a category added by a later Sentry bump fails
-  `pnpm --filter error-tracking typecheck`, now a step in CI's Lint workflow. The check is shallow,
+  `pnpm --filter error-tracking typecheck` (a Lint-workflow step for it ships in its own PR, since
+  a workflow edit opts a PR out of the current-games verdict). The check is shallow,
   so a new sub-key inside `graphQL`, `genAI` or `mcp` is not caught. It only works because the
   package's tsconfig now sets `preserveSymlinks: false`. Before, `@sentry/core` did not resolve and
   every Sentry type was `any`. Consumers still inherit `preserveSymlinks: true`, so their own checks
