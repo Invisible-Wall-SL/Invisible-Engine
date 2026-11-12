@@ -1121,6 +1121,19 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-12 — **Respin spin feel follow-ups (#1616 review).** The Scene Editor shows the two
+  respin profiles only when the project has a Hold and Win feature
+  (`kindCapabilities(gameType, addOns).holdAndWin`), and hides the fields a respin cell never reads.
+  The respin board never pre-spins or anticipates, so pre-spin speed, spin-up, wind-up, reel
+  stagger and anticipation length are hidden. Min roll is hidden from the normal respin profile
+  (only the turbo path reads it). First reel length, spin length and speed before bounce are hidden
+  from the turbo profile, because fast padding is 0 and the fast spin slides at `reelSpinSpeed`.
+  The turbo min roll is labelled as the switch it is there: above 0, the cells land at once. First reel length stays on the normal respin profile, because reel 0's
+  cells read it. Stored data and the board profiles are unchanged. `check:respin-modes` now mocks
+  `respinSpinProfile` and checks that `ensureBoard` hands it to the board. It also gained a
+  `resolveReelSpinProfile(…, 'respin')` fixture. Planted mutants fail it: wiring
+  `reelSpinProfile`, swapping respinNormal/respinFast, dropping the respin merge, and dropping the
+  board fields.
 - 2026-11-12 — **The respin cells get their own spin feel.** The Scene Editor's reel grid "Spin
   tuning (advanced)" has two more profiles, **Hold and Win respin** and **— turbo**
   (`spin.respinNormal` / `spin.respinFast` on the `reelGrid` node). The respin board reads

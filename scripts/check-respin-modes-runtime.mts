@@ -85,6 +85,8 @@ import {
 import { createPotsOverlay, withPotsOverlay } from './mock-pots-overlay.mjs';
 import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
 import { createMockRgs as createHoldAndWinMock } from './mock-rgs-server-holdandwin.mjs';
+import { resolveReelSpinProfile } from '../packages/engine-layout/src/lib/reelGrid.ts';
+import type { ReelGridNode } from '../packages/engine-layout/src/lib/types.ts';
 import {
 	resolveWinTextForMode,
 	type WinTextDoc,
@@ -857,7 +859,7 @@ check(
 
 type Seam = {
 	log: string[];
-	builds: { mode?: string; strip: unknown }[];
+	builds: { mode?: string; strip: unknown; profiles: unknown[] }[];
 	controller: ReturnType<typeof createModeController>;
 	playBet: (bet: { state: BookEvent[] }) => Promise<void>;
 	convertTorResumableBet: (bet: { state: BookEvent[]; event: string }) => {
@@ -930,8 +932,16 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 		() => ({ x: doc.numReels, y: GRID_ROWS }),
 		respinBoardShape,
 		sameRespinBoard,
-		(options: { reels: number; rows: number }) => ({ reels: options.reels, rows: options.rows }),
-		{ boardGeometry: () => ({ rowPitchLocal: 1 }), reelSpinProfile: () => undefined },
+		(options: {
+			reels: number;
+			rows: number;
+			spinProfile?: (which: 'normal' | 'fast') => unknown;
+		}) => ({ reels: options.reels, rows: options.rows, spinProfile: options.spinProfile }),
+		{
+			boardGeometry: () => ({ rowPitchLocal: 1 }),
+			reelSpinProfile: (which: 'normal' | 'fast') => ({ board: which }),
+			respinSpinProfile: (which: 'normal' | 'fast') => ({ respin: which }),
+		},
 		() => 0,
 		() => [],
 		() => 'BLANK',
@@ -945,6 +955,7 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 				board: built,
 				mode: activeRespinMode()?.mode,
 				strip: board.respinStrip(0)[0]?.name,
+				profiles: [built.spinProfile?.('normal'), built.spinProfile?.('fast')],
 			} as never);
 		log.push(`board:${type}`);
 	};
@@ -1048,6 +1059,14 @@ for (const flow of [false, true]) {
 		[
 			[MODE_A, HOST.paddingReels.respin[0][0].name],
 			[MODE_B, HOST.paddingReels[KEY_B][0][0].name],
+		],
+	);
+	check(
+		`seam (${branch}): the respin board spins on the node's respin profile, not the board's`,
+		manual.builds.map((b) => b.profiles),
+		[
+			[{ respin: 'normal' }, { respin: 'fast' }],
+			[{ respin: 'normal' }, { respin: 'fast' }],
 		],
 	);
 	const auto = buildSeam(hostDoc(), flow);
@@ -1604,6 +1623,59 @@ check(
 			book.some((e) => e.type === 'jackpotWin' || e.type === 'jackpotLevels'),
 		],
 		[true, true, true, false],
+	);
+}
+
+// ── The respin cells' spin feel (`resolveReelSpinProfile(node, which, 'respin')`) ──
+{
+	const reelGrid = (spin: ReelGridNode['spin']) => ({ kind: 'reelGrid', spin }) as ReelGridNode;
+	const node = reelGrid({
+		normal: { reelSpinSpeed: 2, reelPaddingMultiplierNormal: 1.5 },
+		fast: { reelSpinSpeed: 4 },
+		respinNormal: { reelSpinSpeed: 1 },
+		respinFast: { reelBounceDuration: 90 },
+	});
+	check(
+		'respin profile: a respin field overrides the board field, a board-only field passes through',
+		resolveReelSpinProfile(node, 'normal', 'respin'),
+		{ reelSpinSpeed: 1, reelPaddingMultiplierNormal: 1.5 },
+	);
+	check(
+		'respin profile: turbo reads respinFast over the turbo profile',
+		resolveReelSpinProfile(node, 'fast', 'respin'),
+		{ reelSpinSpeed: 4, reelBounceDuration: 90 },
+	);
+	check(
+		'respin profile: a node with only respin fields gives them alone',
+		[
+			resolveReelSpinProfile(reelGrid({ respinNormal: { reelSpinSpeed: 3 } }), 'normal', 'respin'),
+			resolveReelSpinProfile(reelGrid({ respinNormal: { reelSpinSpeed: 3 } }), 'fast', 'respin'),
+			resolveReelSpinProfile(reelGrid({ respinNormal: { reelSpinSpeed: 3 } }), 'normal'),
+		],
+		[{ reelSpinSpeed: 3 }, undefined, undefined],
+	);
+	const boardOnly = reelGrid({
+		normal: { reelSpinSpeed: 2, reelBounceSizeMulti: 0.1 },
+		fast: { reelMinSpinDuration: 120 },
+	});
+	check(
+		'respin profile: no respin fields ⇒ exactly the board profile',
+		(['normal', 'fast'] as const).map((which) => [
+			resolveReelSpinProfile(boardOnly, which, 'respin'),
+			resolveReelSpinProfile(boardOnly, which),
+		]),
+		[
+			[
+				{ reelSpinSpeed: 2, reelBounceSizeMulti: 0.1 },
+				{ reelSpinSpeed: 2, reelBounceSizeMulti: 0.1 },
+			],
+			[{ reelMinSpinDuration: 120 }, { reelMinSpinDuration: 120 }],
+		],
+	);
+	check(
+		'respin profile: the board itself never reads the respin fields',
+		resolveReelSpinProfile(node, 'normal'),
+		{ reelSpinSpeed: 2, reelPaddingMultiplierNormal: 1.5 },
 	);
 }
 

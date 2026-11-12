@@ -171,6 +171,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-12 — **Spin tuning's Hold and Win respin profiles show only where they apply.** They
+  appear only in a project with a Hold and Win feature (`kindCapabilities(…).holdAndWin`, the kind
+  or a declared respin mode), and leave out the fields the respin cells never read. The help text
+  no longer hard-codes row arithmetic. Details: `docs/status/hold-and-win.md` (same date) and
+  `docs/tools/invisible-editor.md` § "Spin tuning".
 - 2026-11-09 — **Leaving `/editor` for another tool with unsaved work asks first** (branch
   `launcher-unsaved-work-guards`). The page checked `saveState.dirty` only in `beforeunload`, and
   the Timeline panel hand-rolled its own `beforeunload`, so a tool-bar click or Back from a layout
