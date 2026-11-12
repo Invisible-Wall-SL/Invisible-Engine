@@ -296,6 +296,7 @@
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
 		loadEditorScenes,
+		preferCompressedTextures,
 		registerBakedComponents,
 		registerEditorTextLocalization,
 	} from '../editor-scenes';
@@ -398,7 +399,7 @@
 		stateApp.assets = {
 			...stateApp.assets,
 			...bakedEditorArtAssets(),
-			...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase()),
+			...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase(), preferCompressedTextures()),
 			...bakedSymbolAssets(),
 		};
 		// The symbol→binding map is memoised on first read (`symbolMap.ts`), and
@@ -892,10 +893,7 @@
 		...Object.fromEntries(
 			everyJackpotTier().map((name) => [
 				`jackpot.${name.toLowerCase()}`,
-				valueSource(
-					() => jackpotMultiplier(name) * stateBet.betAmount,
-					numberToCurrencyString,
-				),
+				valueSource(() => jackpotMultiplier(name) * stateBet.betAmount, numberToCurrencyString),
 			]),
 		),
 		// The operator platform jackpot (any kind): each tier's value in money (`platformJackpot.<tier>`),
