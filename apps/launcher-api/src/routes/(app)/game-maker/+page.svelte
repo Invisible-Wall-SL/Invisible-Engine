@@ -232,6 +232,28 @@
 		return Object.values(byClient).sort((a, b) => a.label.localeCompare(b.label));
 	});
 
+	/** Client sections the user folded, by group id — this browser only, restored after mount
+	 *  because the page is server-rendered open. */
+	const FOLDED_KEY = 'iw-game-maker-folded-clients';
+	let foldedClients = $state<string[]>([]);
+	onMount(() => {
+		try {
+			foldedClients = JSON.parse(localStorage.getItem(FOLDED_KEY) ?? '[]') as string[];
+		} catch {
+			foldedClients = [];
+		}
+	});
+	function toggleClient(id: string) {
+		foldedClients = foldedClients.includes(id)
+			? foldedClients.filter((g) => g !== id)
+			: [...foldedClients, id];
+		try {
+			localStorage.setItem(FOLDED_KEY, JSON.stringify(foldedClients));
+		} catch {
+			/* storage disabled — the fold just does not survive a reload */
+		}
+	}
+
 	function clearFilters() {
 		search = '';
 		filterClient = '';
@@ -1289,313 +1311,328 @@
 					<p class="muted">Nothing matches these filters.</p>
 				{:else}
 					{#each groups as group (group.id)}
+						{@const folded = Boolean(group.label) && foldedClients.includes(group.id)}
 						{#if group.label}
 							<h3 class="group">
-								{group.label} <span class="gcount">{group.projects.length}</span>
+								<button
+									type="button"
+									class="group-toggle"
+									class:folded
+									aria-expanded={!folded}
+									title={folded ? `Show ${group.label}` : `Fold ${group.label}`}
+									onclick={() => toggleClient(group.id)}
+								>
+									<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+									{group.label} <span class="gcount">{group.projects.length}</span>
+								</button>
 							</h3>
 						{/if}
-						<ul class="projects">
-							{#each group.projects as p (p.key)}
-								{@const partner = partnerButtons({
-									key: p.key,
-									partner: p.partner,
-									profiles: data.partnerProfiles,
-									published: p.published,
-									latestDelivery: p.partnerLatestDelivery,
-								})}
-								<li>
-									<div class="meta">
-										<span class="pname">{p.name}</span>
-										<span class="pkey">{p.key}</span>
-										{#if !groupByClient && p.clientName}
-											<span class="pclient">{p.clientName}</span>
-										{/if}
-										<span class="pedited">scenes edited {relativeTime(p.scenesUpdatedAt)}</span>
-									</div>
+						{#if !folded}<ul class="projects">
+								{#each group.projects as p (p.key)}
+									{@const partner = partnerButtons({
+										key: p.key,
+										partner: p.partner,
+										profiles: data.partnerProfiles,
+										published: p.published,
+										latestDelivery: p.partnerLatestDelivery,
+									})}
+									<li>
+										<div class="meta">
+											<span class="pname">{p.name}</span>
+											<span class="pkey">{p.key}</span>
+											{#if !groupByClient && p.clientName}
+												<span class="pclient">{p.clientName}</span>
+											{/if}
+											<span class="pedited">scenes edited {relativeTime(p.scenesUpdatedAt)}</span>
+										</div>
 
-									<div class="profile">
-										<div class="prow">
-											<span class="plabel">Game</span>
-											<div class="chips">
-												{#each p.profile.facts as fact (fact.id)}
-													<span class="chip {fact.tone ?? 'fact'}" title={fact.title}
-														>{fact.text}</span
-													>
-												{/each}
+										<div class="profile">
+											<div class="prow">
+												<span class="plabel">Game</span>
+												<div class="chips">
+													{#each p.profile.facts as fact (fact.id)}
+														<span class="chip {fact.tone ?? 'fact'}" title={fact.title}
+															>{fact.text}</span
+														>
+													{/each}
+												</div>
+											</div>
+											<div class="prow">
+												<span class="plabel">Using</span>
+												<div class="chips">
+													{#each p.profile.features as feature (feature.id)}
+														<span class="chip feature" title={feature.title}>{feature.text}</span>
+													{:else}
+														<span
+															class="chip none"
+															title="No optional mechanic is switched on yet."
+														>
+															no optional features yet
+														</span>
+													{/each}
+												</div>
 											</div>
 										</div>
-										<div class="prow">
-											<span class="plabel">Using</span>
-											<div class="chips">
-												{#each p.profile.features as feature (feature.id)}
-													<span class="chip feature" title={feature.title}>{feature.text}</span>
-												{:else}
-													<span class="chip none" title="No optional mechanic is switched on yet.">
-														no optional features yet
-													</span>
-												{/each}
-											</div>
-										</div>
-									</div>
 
-									<div class="pub">
-										<button
-											class="primary"
-											onclick={() => requestPublish(p)}
-											disabled={publishing[p.key] || bulkRunning || !!rollingBack[p.key]}
-											title={bulkRunning
-												? 'A bulk republish is running — publishes run one at a time.'
-												: undefined}
-										>
-											{#if publishing[p.key]}
-												Publishing…
-											{:else}
-												{p.published ? 'Re-publish' : 'Publish'}
-											{/if}
-										</button>
-										{#if p.published && p.url}
-											<a
-												class="play"
-												title="Opens the published version — exactly what players get"
-												href={playUrl(p.url)}
-												target="_blank"
-												rel="noopener noreferrer"
-											>
-												Play ↗
-											</a>
-											<!-- An absolute game-server URL, so SvelteKit's resolve() does not apply. -->
-											<!-- eslint-disable svelte/no-navigation-without-resolve -->
-											<a
-												class="play live"
-												href={liveUrl(p.url)}
-												target="_blank"
-												rel="noopener noreferrer"
-												title="Play on the current authoring data — unpublished edits included"
-											>
-												Live ↗
-											</a>
-											<!-- eslint-enable svelte/no-navigation-without-resolve -->
-											<select
-												class="play-lang"
-												title="Language the Play and Live links open the game in"
-												value={launchLocale}
-												onchange={(e) => {
-													launchLocale = e.currentTarget.value;
-													storeLocale(launchLocale);
-												}}
-											>
-												{#each LAUNCH_LOCALES as code (code)}
-													<option value={code}>{localeLabel(code)}</option>
-												{/each}
-											</select>
-											<select
-												class="play-lang"
-												title="Currency the Play and Live links format every amount with"
-												value={launchCurrency}
-												onchange={(e) => {
-													launchCurrency = e.currentTarget.value;
-													storeCurrency(launchCurrency);
-												}}
-											>
-												{#each LAUNCH_CURRENCIES as code (code)}
-													<option value={code}>{code}</option>
-												{/each}
-											</select>
-											<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>
-												{copied === p.key ? 'Copied' : 'Copy URL'}
-											</button>
-										{/if}
-										<!-- A server endpoint that answers with a redirect or a refusal page, not a route. -->
-										<!-- eslint-disable svelte/no-navigation-without-resolve -->
-										{#if partner}
-											{#if partner.card.disabled}
-												<button class="play partner" disabled title={partner.card.disabled}>
-													▶ Partner
-												</button>
-											{:else}
-												<a
-													class="play partner"
-													href={playUrl(partner.card.href)}
-													target="_blank"
-													rel="noopener noreferrer"
-													title={`Our published game on the partner's RGS (${p.partner?.profile ?? data.partnerProfiles[0]}, game ${p.partner?.gameId})`}
-												>
-													▶ Partner
-												</a>
-											{/if}
-											{#if partner.page.disabled}
-												<button class="play partner" disabled title={partner.page.disabled}>
-													▶ Partner page
-												</button>
-											{:else}
-												<a
-													class="play partner"
-													href={partner.page.href}
-													target="_blank"
-													rel="noopener noreferrer"
-													title={`The partner's own page, loading our latest delivery (${p.partnerLatestDelivery})`}
-												>
-													▶ Partner page
-												</a>
-											{/if}
-										{/if}
-										<!-- eslint-enable svelte/no-navigation-without-resolve -->
-										{#if data.canSetPartner && data.partnerProfiles.length}
+										<div class="pub">
 											<button
-												class="dup"
-												title={p.partner
-													? `Played on the partner as game ${p.partner.gameId} — change or clear it`
-													: "Set the partner's game ID to get ▶ Partner buttons on this card"}
-												onclick={() => openPartner(p)}
-											>
-												{p.partner ? `Partner: game ${p.partner.gameId}…` : 'Partner…'}
-											</button>
-										{/if}
-										<button
-											class="dup"
-											title="Copy this game to a new project — same client, or another one, to reskin it"
-											onclick={() => openDuplicate(p)}
-										>
-											Duplicate…
-										</button>
-										<button
-											class="add-on"
-											title={p.hasPotsOverlay
-												? 'Seed any part of the coin overlay this project is still missing'
-												: 'Lay a coin overlay over this game: coins and tokens drop on the board and start a bonus'}
-											onclick={() => openAddOn(p)}
-										>
-											{p.hasPotsOverlay ? 'Coin overlay parts…' : '＋ Coin overlay…'}
-										</button>
-										<button
-											class="add-on"
-											title="Copy a bonus mode of another project of this client into this one, as a new mode"
-											onclick={() => openImport(p)}
-										>
-											Add a bonus mode…
-										</button>
-										{#each p.imports as imported (imported.mode)}
-											<button
-												class="add-on"
-												title={`Copy ${imported.mode} again from ${imported.project} as it is now (imported ${shortDate(Date.parse(imported.at))})`}
-												onclick={() => openImport(p, imported.mode)}
-											>
-												Re-sync {imported.mode} from {imported.project}…
-											</button>
-										{/each}
-										{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
-										{#if publishNote[p.key]}<span class="note">{publishNote[p.key]}</span>{/if}
-									</div>
-
-									{#if p.published && p.engineStale}
-										<div
-											class="stale"
-											role="status"
-											title={`Engine runtime released ${shortDate(p.runtimeReleasedAt)}; this game was last published ${shortDate(p.publishedAt)}.`}
-										>
-											<span class="stale-dot"></span>
-											<div class="stale-body">
-												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the running
-												game may still be on the old engine. Republish to re-hydrate it.
-											</div>
-											<button
-												class="stale-cta"
+												class="primary"
 												onclick={() => requestPublish(p)}
 												disabled={publishing[p.key] || bulkRunning || !!rollingBack[p.key]}
+												title={bulkRunning
+													? 'A bulk republish is running — publishes run one at a time.'
+													: undefined}
 											>
-												{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
-											</button>
-											{#if data.canPurgeCache}
-												<a class="stale-link" href={resolve('/admin')}
-													>still stale? purge edge cache</a
-												>
-											{/if}
-										</div>
-									{:else if p.published && p.engineComparable}
-										<span class="fresh" title={`Last published ${shortDate(p.publishedAt)}.`}>
-											engine up to date
-										</span>
-									{/if}
-									{#if p.published && p.versions}
-										{@const live = liveVersion(p.versions)}
-										<div class="versions">
-											<span class="vlive">
-												Players get the version published
-												<strong>{live ? versionTime(live.createdAt) : 'unknown'}</strong
-												>{#if live?.by}&nbsp;by {live.by}{/if}.
-												{#if live && p.scenesUpdatedAt && p.scenesUpdatedAt > Date.parse(live.createdAt)}
-													<span class="vedited">Scenes edited since — publish to ship them.</span>
+												{#if publishing[p.key]}
+													Publishing…
+												{:else}
+													{p.published ? 'Re-publish' : 'Publish'}
 												{/if}
-												{#if live}
+											</button>
+											{#if p.published && p.url}
+												<a
+													class="play"
+													title="Opens the published version — exactly what players get"
+													href={playUrl(p.url)}
+													target="_blank"
+													rel="noopener noreferrer"
+												>
+													Play ↗
+												</a>
+												<!-- An absolute game-server URL, so SvelteKit's resolve() does not apply. -->
+												<!-- eslint-disable svelte/no-navigation-without-resolve -->
+												<a
+													class="play live"
+													href={liveUrl(p.url)}
+													target="_blank"
+													rel="noopener noreferrer"
+													title="Play on the current authoring data — unpublished edits included"
+												>
+													Live ↗
+												</a>
+												<!-- eslint-enable svelte/no-navigation-without-resolve -->
+												<select
+													class="play-lang"
+													title="Language the Play and Live links open the game in"
+													value={launchLocale}
+													onchange={(e) => {
+														launchLocale = e.currentTarget.value;
+														storeLocale(launchLocale);
+													}}
+												>
+													{#each LAUNCH_LOCALES as code (code)}
+														<option value={code}>{localeLabel(code)}</option>
+													{/each}
+												</select>
+												<select
+													class="play-lang"
+													title="Currency the Play and Live links format every amount with"
+													value={launchCurrency}
+													onchange={(e) => {
+														launchCurrency = e.currentTarget.value;
+														storeCurrency(launchCurrency);
+													}}
+												>
+													{#each LAUNCH_CURRENCIES as code (code)}
+														<option value={code}>{code}</option>
+													{/each}
+												</select>
+												<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>
+													{copied === p.key ? 'Copied' : 'Copy URL'}
+												</button>
+											{/if}
+											<!-- A server endpoint that answers with a redirect or a refusal page, not a route. -->
+											<!-- eslint-disable svelte/no-navigation-without-resolve -->
+											{#if partner}
+												{#if partner.card.disabled}
+													<button class="play partner" disabled title={partner.card.disabled}>
+														▶ Partner
+													</button>
+												{:else}
 													<a
-														class="vbreakdown"
-														href={resolve('/(app)/game-maker/breakdown/[project]/[snapshot]', {
-															project: p.key,
-															snapshot: live.id,
-														})}
-														title="Every asset this version shipped, by category, size and how often it is referenced"
-														>Build breakdown</a
+														class="play partner"
+														href={playUrl(partner.card.href)}
+														target="_blank"
+														rel="noopener noreferrer"
+														title={`Our published game on the partner's RGS (${p.partner?.profile ?? data.partnerProfiles[0]}, game ${p.partner?.gameId})`}
+													>
+														▶ Partner
+													</a>
+												{/if}
+												{#if partner.page.disabled}
+													<button class="play partner" disabled title={partner.page.disabled}>
+														▶ Partner page
+													</button>
+												{:else}
+													<a
+														class="play partner"
+														href={partner.page.href}
+														target="_blank"
+														rel="noopener noreferrer"
+														title={`The partner's own page, loading our latest delivery (${p.partnerLatestDelivery})`}
+													>
+														▶ Partner page
+													</a>
+												{/if}
+											{/if}
+											<!-- eslint-enable svelte/no-navigation-without-resolve -->
+											{#if data.canSetPartner && data.partnerProfiles.length}
+												<button
+													class="dup"
+													title={p.partner
+														? `Played on the partner as game ${p.partner.gameId} — change or clear it`
+														: "Set the partner's game ID to get ▶ Partner buttons on this card"}
+													onclick={() => openPartner(p)}
+												>
+													{p.partner ? `Partner: game ${p.partner.gameId}…` : 'Partner…'}
+												</button>
+											{/if}
+											<button
+												class="dup"
+												title="Copy this game to a new project — same client, or another one, to reskin it"
+												onclick={() => openDuplicate(p)}
+											>
+												Duplicate…
+											</button>
+											<button
+												class="add-on"
+												title={p.hasPotsOverlay
+													? 'Seed any part of the coin overlay this project is still missing'
+													: 'Lay a coin overlay over this game: coins and tokens drop on the board and start a bonus'}
+												onclick={() => openAddOn(p)}
+											>
+												{p.hasPotsOverlay ? 'Coin overlay parts…' : '＋ Coin overlay…'}
+											</button>
+											<button
+												class="add-on"
+												title="Copy a bonus mode of another project of this client into this one, as a new mode"
+												onclick={() => openImport(p)}
+											>
+												Add a bonus mode…
+											</button>
+											{#each p.imports as imported (imported.mode)}
+												<button
+													class="add-on"
+													title={`Copy ${imported.mode} again from ${imported.project} as it is now (imported ${shortDate(Date.parse(imported.at))})`}
+													onclick={() => openImport(p, imported.mode)}
+												>
+													Re-sync {imported.mode} from {imported.project}…
+												</button>
+											{/each}
+											{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
+											{#if publishNote[p.key]}<span class="note">{publishNote[p.key]}</span>{/if}
+										</div>
+
+										{#if p.published && p.engineStale}
+											<div
+												class="stale"
+												role="status"
+												title={`Engine runtime released ${shortDate(p.runtimeReleasedAt)}; this game was last published ${shortDate(p.publishedAt)}.`}
+											>
+												<span class="stale-dot"></span>
+												<div class="stale-body">
+													<strong>Engine update available.</strong>
+													The shared engine runtime shipped after this game was last published, so the
+													running game may still be on the old engine. Republish to re-hydrate it.
+												</div>
+												<button
+													class="stale-cta"
+													onclick={() => requestPublish(p)}
+													disabled={publishing[p.key] || bulkRunning || !!rollingBack[p.key]}
+												>
+													{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
+												</button>
+												{#if data.canPurgeCache}
+													<a class="stale-link" href={resolve('/admin')}
+														>still stale? purge edge cache</a
 													>
 												{/if}
+											</div>
+										{:else if p.published && p.engineComparable}
+											<span class="fresh" title={`Last published ${shortDate(p.publishedAt)}.`}>
+												engine up to date
 											</span>
-											{#if p.versions.snapshots.length > 1}
-												<details>
-													<summary>Published versions ({p.versions.snapshots.length})</summary>
-													<ul>
-														{#each p.versions.snapshots as v (v.id)}
-															<li>
-																<span class="vdate">{versionTime(v.createdAt)}</span>
-																<span class="vby">{v.by ?? ''}</span>
-																{#if v.engine}<span
-																		class="vengine"
-																		title="Engine release live when this version was published"
-																		>engine {v.engine.shortCommit}</span
-																	>{/if}
-																{#if v.flow === 'overridden'}<span class="vflag">flow errors</span
-																	>{/if}
-																<a
-																	class="vbreakdown"
-																	href={resolve(
-																		'/(app)/game-maker/breakdown/[project]/[snapshot]',
-																		{
-																			project: p.key,
-																			snapshot: v.id,
-																		},
-																	)}>breakdown</a
-																>
-																{#if v.id === p.versions.current}
-																	<span class="vcur">live</span>
-																{:else if v.flow !== 'overridden' || data.isOwner}
-																	<button
-																		class="vmake"
-																		onclick={() => rollback(p.key, v)}
-																		disabled={!!rollingBack[p.key] ||
-																			publishing[p.key] ||
-																			bulkRunning}
+										{/if}
+										{#if p.published && p.versions}
+											{@const live = liveVersion(p.versions)}
+											<div class="versions">
+												<span class="vlive">
+													Players get the version published
+													<strong>{live ? versionTime(live.createdAt) : 'unknown'}</strong
+													>{#if live?.by}&nbsp;by {live.by}{/if}.
+													{#if live && p.scenesUpdatedAt && p.scenesUpdatedAt > Date.parse(live.createdAt)}
+														<span class="vedited">Scenes edited since — publish to ship them.</span>
+													{/if}
+													{#if live}
+														<a
+															class="vbreakdown"
+															href={resolve('/(app)/game-maker/breakdown/[project]/[snapshot]', {
+																project: p.key,
+																snapshot: live.id,
+															})}
+															title="Every asset this version shipped, by category, size and how often it is referenced"
+															>Build breakdown</a
+														>
+													{/if}
+												</span>
+												{#if p.versions.snapshots.length > 1}
+													<details>
+														<summary>Published versions ({p.versions.snapshots.length})</summary>
+														<ul>
+															{#each p.versions.snapshots as v (v.id)}
+																<li>
+																	<span class="vdate">{versionTime(v.createdAt)}</span>
+																	<span class="vby">{v.by ?? ''}</span>
+																	{#if v.engine}<span
+																			class="vengine"
+																			title="Engine release live when this version was published"
+																			>engine {v.engine.shortCommit}</span
+																		>{/if}
+																	{#if v.flow === 'overridden'}<span class="vflag">flow errors</span
+																		>{/if}
+																	<a
+																		class="vbreakdown"
+																		href={resolve(
+																			'/(app)/game-maker/breakdown/[project]/[snapshot]',
+																			{
+																				project: p.key,
+																				snapshot: v.id,
+																			},
+																		)}>breakdown</a
 																	>
-																		{rollingBack[p.key] === v.id ? 'Switching…' : 'Make live'}
-																	</button>
-																{/if}
-															</li>
-														{/each}
-													</ul>
-												</details>
-											{/if}
-										</div>
-									{:else if p.published}
-										<span class="vlegacy">
-											Published before versioned snapshots — players get live authoring data.
-											Republish to freeze a version.
-										</span>
-									{/if}
-									{#if p.published && p.url}
-										<a class="url" href={p.url} target="_blank" rel="noopener noreferrer">{p.url}</a
-										>
-									{/if}
-								</li>
-							{/each}
-						</ul>
+																	{#if v.id === p.versions.current}
+																		<span class="vcur">live</span>
+																	{:else if v.flow !== 'overridden' || data.isOwner}
+																		<button
+																			class="vmake"
+																			onclick={() => rollback(p.key, v)}
+																			disabled={!!rollingBack[p.key] ||
+																				publishing[p.key] ||
+																				bulkRunning}
+																		>
+																			{rollingBack[p.key] === v.id ? 'Switching…' : 'Make live'}
+																		</button>
+																	{/if}
+																</li>
+															{/each}
+														</ul>
+													</details>
+												{/if}
+											</div>
+										{:else if p.published}
+											<span class="vlegacy">
+												Published before versioned snapshots — players get live authoring data.
+												Republish to freeze a version.
+											</span>
+										{/if}
+										{#if p.published && p.url}
+											<a class="url" href={p.url} target="_blank" rel="noopener noreferrer"
+												>{p.url}</a
+											>
+										{/if}
+									</li>
+								{/each}
+							</ul>{/if}
 					{/each}
 				{/if}
 			{/if}
@@ -2358,6 +2395,40 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+	}
+	.group-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 2px 6px 2px 2px;
+		border: none;
+		border-radius: 6px;
+		background: none;
+		font: inherit;
+		letter-spacing: inherit;
+		text-transform: inherit;
+		color: inherit;
+		cursor: pointer;
+	}
+	.group-toggle:hover {
+		background: #1a1a22;
+		color: #a4f0d6;
+	}
+	.group-toggle svg {
+		width: 14px;
+		height: 14px;
+		fill: none;
+		stroke: #7a7a88;
+		stroke-width: 1.5;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		transition: transform 0.15s ease;
+	}
+	.group-toggle.folded svg {
+		transform: rotate(-90deg);
+	}
+	.group-toggle.folded {
+		color: #5fa891;
 	}
 	h3.group:first-of-type {
 		margin-top: 0;
