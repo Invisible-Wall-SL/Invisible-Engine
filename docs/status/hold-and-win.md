@@ -1125,7 +1125,10 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     (a) a spin with a line win and no coin collected; (b) a spin with a line win and a collect;
     (c) a natural (unbought) trigger. Write the order down in
     `reference/play4fun-collector-respin-capture.md`. Then move the mock's `spinWin` to match, and
-    update `check-holdandwin-partner-wire.mjs`'s `BASE_ORDER`. `check:mock-wire` proves the facade
+    update `check-holdandwin-partner-wire.mjs`'s `BASE_ORDER`. Also write down the config's
+    `lineAlign` and a right-read win's `direction` (a right-read line win was seen live on
+    2026-11-12); if the game pays both ways, make the mock deal right-read wins too.
+    `check:mock-wire` proves the facade
     still draws the win.
 
 ## Blocked (owner / external)
@@ -1133,6 +1136,14 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-12 — **Getting Hot: a line paid from the right lights the cells that paid.** On the
+  partner's server a line win read from the right (`spinWin` `direction: 'right'`) lit and traced
+  the leftmost `occurs` cells of its payline: three clubs paid on reels 4–2 of the V line, and
+  heart, shovel and club on reels 0–2 lit up. The facade's `winPositions` now hands over only the
+  paying cells of a right-read line, so with the "full payline" underlay on, such a win draws only
+  its paying segment. Our partner-wire mock still reads lines from the left only
+  (`lineAlign: 'left'`); open item 16's capture should record Getting Hot's `lineAlign`. Gate:
+  `collectorRespin.fixture.ts` "right line win". Lesson: `knowledge/lessons/rgs.md`.
 - 2026-11-12 — **Getting Hot: line wins animate again.** On the partner's server (and our
   partner-wire mock), a base-game line win paid but no symbol played its win animation: the
   collector-wire rewrite (`collectorRespin.ts`) re-emitted `spinWin` after the board's `playedSpin`,
