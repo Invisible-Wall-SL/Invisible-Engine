@@ -270,6 +270,8 @@ machine. Use it to check that the right packages went out.
   - not pulled from the project (in `deploy/` but loaded by nothing; tidy them in the Invisible FTP
     Browser);
   - removed from `static/assets` (leftovers of an earlier build or a renamed asset);
+  - stock sample art and stock sound banks the game can never draw or play, left out by the game
+    build;
   - image twins and extra audio formats dropped by 🗜 Optimize;
   - PNG twins and non-mp3 audio dropped by the launcher;
   - images re-encoded, with the size before and after.

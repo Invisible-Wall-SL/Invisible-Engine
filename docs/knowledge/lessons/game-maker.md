@@ -5,6 +5,35 @@ Current state lives in [status/game-maker.md](../../status/game-maker.md); this 
 traps. How the runtime ships: [status/engine.md](../../status/engine.md) ("How the runtime ships")
 and [design/games-deploy.md](../../design/games-deploy.md).
 
+### A desktop build ships stock music the game never plays
+- **Symptom:** overlay-buffaloduel's ☁ Publish with 🗜 Optimize shipped 18 sound files, 6.15 MB,
+  "even music": the whole stock sprite as one 4.90 MB mp3.
+- **Cause:** a game build copies `static/` whole; the build-time prune (`stockAssetPrune.js`)
+  covered the stock art only, and the sprite was one file anyway.
+- **Fix:** the build leaves out the stock banks its boot never loads (`stockSoundBuild.ts`, the
+  boot's own decision), and Optimize lists each bank's containers mp3 first, because the launcher
+  drops every non-mp3 file after it. Now 31 files, 3.46 MB.
+- **Guard:** `check-stock-sound-prune.mts`, `check-stock-audio-build.mjs`.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/sound.md`
+
+### Every game decodes the whole stock audiosprite
+- **Symptom:** every online game downloaded the engine's 408 s stock sprite and decoded all of
+  it (≈ 144 MB of PCM); overlay-buffaloduel can play 154 s of it.
+- **Cause:** one file per container (`static/assets/audio/sounds.*`); howler loads a file whole.
+- **Fix:** 34 banks cut by stream copy (`scripts/split-stock-audio.mjs`); a bank loads when the
+  data names a sound in it (`catalog.stock`), code plays one, or a slot resolves to one.
+- **Guard:** `stockSounds.fixture.ts`, `check-stock-sound-coverage.mjs`, `check:sound-reachability`.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/sound.md`
+
+### A stream-copy cut moves a sound by a few ms per decoder
+- **Symptom:** a cut region decoded up to 1105 samples away from the sprite's, or not identical.
+- **Cause:** `-ss 0` drops a packet; an input-side seek keeps Ogg pre-roll at negative times; an
+  MP3 cut's empty Xing frame moves GStreamer 576 samples off FFmpeg; AAC and AC-3 decode noise.
+- **Fix:** output-side seeks, `-write_xing 0`, a lead per container found by correlation, packets
+  proven byte-identical, every region located again in Chromium and WebKitGTK.
+- **Guard:** `node scripts/split-stock-audio.mjs --check` (a fresh cut, compared byte for byte).
+- **PR:** not recorded (2026-11-12) · source: `docs/status/sound.md`
+
 ### Every player downloads library sounds the game never plays
 - **Symptom:** "We are also shipping sounds and music that we are not using in the final game."
 - **Cause:** `soundExport.ts` copied every `sounds.json` entry into `deploy/sounds/` and the

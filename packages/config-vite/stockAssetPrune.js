@@ -10,6 +10,10 @@
  * skipped keys' files from SvelteKit's client output before the adapter copies it to `build/`.
  * `static/` itself is never touched, so the repo stays clean and every build decides afresh.
  *
+ * The stock SOUND banks go the same way (`apps/lines/src/game/stockSoundBuild.ts`, the boot's own
+ * decision in `stockSounds.ts`): a bank the game can never play leaves the build's
+ * `audio/sounds.json` and its files leave the build.
+ *
  * Only a standalone game build (the cwd is outside the engine) is pruned: the engine's own apps,
  * the shared runtime online games boot included, ship exactly as before. `IE_STOCK_PRUNE=0` turns
  * it off. Every doubt keeps every file: the plan keeping all, a plan that cannot run, a kept key
@@ -35,6 +39,9 @@ import { createServer } from 'vite';
 const ENGINE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const BUNDLE = join(ENGINE_ROOT, 'apps/lines/src/baked-editor-bundle.json');
 const PLAN_MODULE = join(ENGINE_ROOT, 'apps/lines/src/game/stockAssetBuild.ts');
+const SOUND_PLAN_MODULE = join(ENGINE_ROOT, 'apps/lines/src/game/stockSoundBuild.ts');
+/** The stock audio's manifest, relative to the assets root: its banks' files sit beside it. */
+const SOUND_MANIFEST = 'audio/sounds.json';
 
 const PAGE_EXT = /\.(png|webp|jpe?g|avif|ktx2|basis)$/i;
 
@@ -189,6 +196,88 @@ export async function stockAssetPlan(bundlePath = BUNDLE) {
 	}
 }
 
+/**
+ * Leave the stock sound banks `plan.skipped` names out of `assetsDir`: off the manifest first, so
+ * the build's `sounds.json` never names a file it does not carry, then their files. Returns what was
+ * removed (`rel` relative to `assetsDir`) or, when a doubt stopped it, `keptAllBecause`.
+ *
+ * @param {string} assetsDir
+ * @param {{ skipped: string[], files: Record<string, string[]>, keptAllBecause?: string }} plan
+ */
+export function pruneStockSoundBanks(assetsDir, plan) {
+	if (plan.keptAllBecause) return { removed: [], keptAllBecause: plan.keptAllBecause };
+	if (!plan.skipped.length) return { removed: [] };
+	const manifestPath = join(assetsDir, SOUND_MANIFEST);
+	const skipped = new Set(plan.skipped);
+	const kept = new Set(
+		Object.entries(plan.files).flatMap(([id, files]) => (skipped.has(id) ? [] : files)),
+	);
+	const leaving = [];
+	for (const id of plan.skipped) {
+		for (const name of plan.files[id] ?? []) {
+			const rel = sibling(SOUND_MANIFEST, name);
+			if (rel === null) {
+				return {
+					removed: [],
+					keptAllBecause: `bank ${id} names ${name}, outside the assets folder`,
+				};
+			}
+			if (!kept.has(name) && existsSync(join(assetsDir, rel))) leaving.push(rel);
+		}
+	}
+	try {
+		const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+		manifest.banks = manifest.banks.filter((bank) => !skipped.has(bank.id));
+		writeFileSync(manifestPath, `${JSON.stringify(manifest, null, '\t')}\n`);
+	} catch (error) {
+		return {
+			removed: [],
+			keptAllBecause: `the stock sound manifest was not rewritten: ${error.message}`,
+		};
+	}
+	const removed = [];
+	for (const rel of leaving) {
+		const abs = join(assetsDir, rel);
+		removed.push({ rel, bytes: statSync(abs).size });
+		rmSync(abs);
+	}
+	return { removed };
+}
+
+/** Run the build-time sound plan (`stockSoundBuild.ts`) on the bundle and the build's own stock
+ *  audio manifest; any failure keeps every bank. */
+export async function stockSoundPlan(assetsDir, bundlePath = BUNDLE) {
+	const keepAll = (keptAllBecause) => ({ keptAllBecause, skipped: [], files: {} });
+	const manifestPath = join(assetsDir, SOUND_MANIFEST);
+	if (!existsSync(manifestPath)) return keepAll('no stock audio manifest');
+	if (!existsSync(bundlePath)) return keepAll('no baked editor bundle');
+	let bundle;
+	let manifest;
+	try {
+		bundle = JSON.parse(readFileSync(bundlePath, 'utf8'));
+		manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+	} catch (error) {
+		return keepAll(`the bundle or the stock audio manifest is not readable JSON: ${error.message}`);
+	}
+	let server;
+	try {
+		server = await createServer({
+			configFile: false,
+			root: ENGINE_ROOT,
+			logLevel: 'silent',
+			appType: 'custom',
+			server: { middlewareMode: true, hmr: false, ws: false },
+			optimizeDeps: { noDiscovery: true, include: [] },
+		});
+		const { stockSoundBuildPlan } = await server.ssrLoadModule(SOUND_PLAN_MODULE);
+		return stockSoundBuildPlan(bundle, manifest);
+	} catch (error) {
+		return keepAll(`the stock-sound plan did not run: ${error?.message ?? error}`);
+	} finally {
+		await server?.close();
+	}
+}
+
 function writeReport(report) {
 	const dir = process.env.IE_BUILD_REPORT_DIR;
 	if (!dir) return;
@@ -228,10 +317,27 @@ export const stockAssetPrune = () => {
 						: `[config-vite] stock assets: left out ${plan.skipped.length} key(s) this project never ` +
 								`draws — ${removed.length} file(s), ${fmt(bytes)}: ${plan.skipped.join(', ')}`,
 				);
+				const soundPlan = await stockSoundPlan(assetsDir);
+				const sounds = pruneStockSoundBanks(assetsDir, soundPlan);
+				const soundBytes = sounds.removed.reduce((sum, file) => sum + file.bytes, 0);
+				console.info(
+					sounds.keptAllBecause
+						? `[config-vite] stock sounds: kept every bank (${sounds.keptAllBecause})`
+						: `[config-vite] stock sounds: left out ${soundPlan.skipped.length} bank(s) this project ` +
+								`never plays — ${sounds.removed.length} file(s), ${fmt(soundBytes)}`,
+				);
 				writeReport({
 					skipped: keptAllBecause ? [] : plan.skipped,
 					keptAllBecause: keptAllBecause ?? null,
 					removed: removed.map((file) => ({ rel: `assets/${file.rel}`, bytes: file.bytes })),
+					sounds: {
+						skipped: sounds.keptAllBecause ? [] : soundPlan.skipped,
+						keptAllBecause: sounds.keptAllBecause ?? null,
+						removed: sounds.removed.map((file) => ({
+							rel: `assets/${file.rel}`,
+							bytes: file.bytes,
+						})),
+					},
 				});
 			},
 		},

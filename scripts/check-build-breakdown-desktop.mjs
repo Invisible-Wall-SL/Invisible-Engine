@@ -137,6 +137,11 @@ try {
 			{ rel: 'assets/spines/bigwin/big_wins.webp', bytes: 900 },
 			{ rel: 'assets/spines/bigwin/mm_bigwin.json', bytes: 100 },
 		],
+		sounds: {
+			skipped: ['bgm_main'],
+			keptAllBecause: null,
+			removed: [{ rel: 'assets/audio/stock/bgm_main.mp3', bytes: 300 }],
+		},
 	});
 	note('images.json', {
 		converted: [
@@ -214,7 +219,13 @@ try {
 		removed('stockArt')?.detail.includes('(bigwin)'),
 		true,
 	);
-	check('left out: total', b.totals.removedBytes, 8950);
+	check('left out: stock sounds', removed('stockSounds')?.bytes, 300);
+	check(
+		'left out: stock sounds names its banks',
+		removed('stockSounds')?.detail.includes('(bgm_main)'),
+		true,
+	);
+	check('left out: total', b.totals.removedBytes, 9250);
 	check('re-encoded: saving', b.totals.reencodedBytes, 3000);
 
 	check('check: the dead file', issue('Shipped but never loaded'), [

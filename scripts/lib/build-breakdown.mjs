@@ -474,6 +474,15 @@ export function analyzeDesktopBuild(input) {
 		stock?.removed,
 	);
 	step(
+		'stockSounds',
+		'Stock sounds the game never plays',
+		'The engine’s stock sound banks (music beds, effects) that nothing in this project can play: ' +
+			'the boot would never load them, so the game build left them out' +
+			(stock?.sounds?.skipped?.length ? ` (${stock.sounds.skipped.join(', ')})` : '') +
+			'.',
+		stock?.sounds?.removed,
+	);
+	step(
 		'pruned',
 		'Removed from static/assets',
 		'Local files from an earlier build or a renamed asset that nothing loads any more.',
