@@ -1,5 +1,4 @@
-import { SOUND_SLOTS, resolveSounds, type GameConfigDoc } from 'game-config';
-import type { SoundsDoc } from 'engine-layout';
+import { cueSoundOf, type SoundsDoc } from 'engine-layout';
 import { flowSoundCueLabel, projectFlowSoundCues } from './flowSoundCues';
 
 /**
@@ -10,14 +9,16 @@ import { flowSoundCueLabel, projectFlowSoundCues } from './flowSoundCues';
  * in the shipped audiosprite for the whole life of the fork, listed in the Flow editor's dropdown,
  * played by nothing (`docs/status/engine.md`, 2026-08-25).
  *
- * It reads every surface that can bind a sound and reports three checks:
+ * `/sound` builds the index from the choices on screen and the flow's cues, and reports:
  *
- *  - **Unbound** — a library sound no binding names. The `tumble_win_*` class.
+ *  - **Unbound** — a library sound the build does not ship, because nothing names it. The
+ *    `tumble_win_*` class.
  *  - **Missing** — a binding naming a sound that neither the library nor the shipped audiosprite
  *    declares. Howler declines an unknown sprite key SILENTLY, so this is the only way a typo
  *    becomes visible before a player hears the gap.
- *  - **Unapproved but bound** — a draft that something plays. The publish gate (S8) will refuse
- *    these; showing them here means the author is not first told at the moment they ship.
+ *  - **Unapproved but shipped** — a draft the build ships. The publish gate refuses exactly these
+ *    (`soundPublishCheck.ts`); showing them here means the author is not first told at the moment
+ *    they ship.
  *
  * READ-ONLY, deliberately. The bindings stay in the tool that owns the moment
  * (`docs/design/invisible-sound.md` §2.3), so each row links out rather than editing in place: a
@@ -55,123 +56,38 @@ export function flowSoundBindings(flow: unknown, library?: unknown): SoundBindin
 	return out;
 }
 
-/** The game-wide SLOT bindings, resolved through the catalogue so an un-authored slot reports the
- *  default it actually plays rather than looking empty. */
-export function slotSoundBindings(config: GameConfigDoc | null | undefined): SoundBinding[] {
-	const resolved = resolveSounds(config ?? undefined);
-	const out: SoundBinding[] = [];
-	for (const slot of SOUND_SLOTS) {
-		const { names, enabled } = resolved.slot(slot.id);
-		// A silenced slot binds nothing — it is the one gesture that means "play no sound here", so
-		// counting its names would report sounds the game will never ask for.
-		if (!enabled) continue;
-		names.forEach((name, i) => {
-			out.push({
-				name,
-				source: 'slot',
-				where: names.length > 1 ? `${slot.label} · rung ${i + 1}` : slot.label,
-				href: '/config',
-			});
-		});
-	}
-	return out;
-}
-
-/** Win-tier cues — a tier's one-shot and its music bed. */
-export function winTierSoundBindings(config: GameConfigDoc | null | undefined): SoundBinding[] {
-	const out: SoundBinding[] = [];
-	for (const tier of config?.winLevels ?? []) {
-		const alias = tier?.alias ?? tier?.name ?? 'tier';
-		for (const [field, name] of [
-			['sfx', tier?.sound?.sfx],
-			['bgm', tier?.sound?.bgm],
-		] as const) {
-			if (typeof name === 'string' && name) {
-				out.push({ name, source: 'winTier', where: `${alias} · ${field}`, href: '/config' });
-			}
-		}
-	}
-	return out;
-}
-
-/** Per-symbol × state cues and the anticipation pair, both authored in Invisible Symbols. */
-export function symbolSoundBindings(symbols: unknown): SoundBinding[] {
-	const out: SoundBinding[] = [];
-	if (!isRecord(symbols)) return out;
-
-	const perSymbol = symbols.symbolSounds;
-	if (isRecord(perSymbol)) {
-		for (const [symbol, states] of Object.entries(perSymbol)) {
-			if (!isRecord(states)) continue;
-			for (const [state, name] of Object.entries(states)) {
-				if (typeof name === 'string' && name) {
-					out.push({ name, source: 'symbol', where: `${symbol} · ${state}`, href: '/symbols' });
-				}
-			}
-		}
-	}
-
-	const anticipation = symbols.anticipation;
-	if (isRecord(anticipation)) {
-		for (const [field, label] of [
-			['activationSound', 'Anticipation · activation'],
-			['loopSound', 'Anticipation · loop'],
-		] as const) {
-			const name = anticipation[field];
-			if (typeof name === 'string' && name) {
-				out.push({ name, source: 'anticipation', where: label, href: '/symbols' });
-			}
-		}
-	}
-	return out;
-}
-
 /**
- * Every binding this project has, keyed by the sound name it asks for.
- *
- * Computed once, server-side: the config / symbols / flow docs are not editable from `/sound`, so
- * they cannot change while the page is open. The LIBRARY can — which is why the checks below are a
- * separate function the page re-runs on every edit. Splitting them is what keeps the index honest
- * as you rename a sound rather than only until you touch something.
+ * Every name a `/sound` choices block holds, read the way the export reads that block: every string
+ * value, a silenced slot's names included (`soundReachability.ts` `collectSoundNames`, which this
+ * page cannot import from the server side). The page adds these, live, to what the export finds
+ * everywhere else, so an unsaved choice counts at once. `check:sound-reachability` holds the two
+ * readings equal.
  */
-export function collectSoundBindings(input: {
-	config: GameConfigDoc | null | undefined;
-	symbols: unknown;
-	flow: unknown;
-	/** The shared function library; only the functions the flow calls count. */
-	flowLibrary?: unknown;
-}): Map<string, SoundBinding[]> {
-	const bindings = [
-		...slotSoundBindings(input.config),
-		...winTierSoundBindings(input.config),
-		...symbolSoundBindings(input.symbols),
-		...flowSoundBindings(input.flow, input.flowLibrary),
-	];
-	const byName = new Map<string, SoundBinding[]>();
-	for (const binding of bindings) {
-		const list = byName.get(binding.name) ?? [];
-		list.push(binding);
-		byName.set(binding.name, list);
-	}
-	return byName;
-}
-
-export interface SoundUsageInput {
-	library: SoundsDoc | null | undefined;
-	config: GameConfigDoc | null | undefined;
-	symbols: unknown;
-	flow: unknown;
-	flowLibrary?: unknown;
-	/** Names the shipped audiosprite declares — the sounds a game has without uploading anything. */
-	builtinNames: readonly string[];
+export function soundBindingNames(bindings: unknown): Set<string> {
+	const names = new Set<string>();
+	const walk = (value: unknown): void => {
+		if (typeof value === 'string') {
+			if (!value) return;
+			names.add(value);
+			const cue = cueSoundOf(value);
+			if (cue) names.add(cue.name);
+		} else if (Array.isArray(value)) {
+			for (const v of value) walk(v);
+		} else if (isRecord(value)) {
+			for (const v of Object.values(value)) walk(v);
+		}
+	};
+	walk(bindings);
+	return names;
 }
 
 export interface SoundChecks {
-	/** Library sounds nothing plays. */
+	/** Library sounds nothing plays (with `ships`: that the build does not ship). */
 	unbound: string[];
 	/** Bound names that neither the library nor the audiosprite declares — an inaudible typo. */
 	missing: string[];
-	/** Library sounds that are bound but still drafts. */
+	/** Library sounds that are played but still drafts (with `ships`: shipped drafts, the list the
+	 *  publish gate refuses). */
 	unapprovedBound: string[];
 	/**
 	 * Library sounds whose name matches a shipped audiosprite region. These are NOT unbound even
@@ -200,12 +116,17 @@ export interface SoundChecks {
  *
  * `hasBinding` is a predicate rather than the map itself so a caller can pass a plain
  * `Record` across the wire without rebuilding a `Map` (`devalue` does not carry one).
+ *
+ * `ships`, when known, is the export's own answer for a library sound (`soundReachability.ts`);
+ * `unbound` and `unapprovedBound` then follow it alone, so this page and the publish gate list the
+ * same drafts. Until it is known they fall back to the bindings and the built-in overrides.
  */
 export function checkSoundLibrary(
 	library: SoundsDoc | null | undefined,
 	hasBinding: (name: string) => boolean,
 	boundNames: readonly string[],
 	builtinNames: readonly string[],
+	ships?: (name: string) => boolean,
 ): SoundChecks {
 	const entries = library?.entries ?? [];
 	const libraryNames = new Set(entries.map((e) => e.name));
@@ -213,7 +134,7 @@ export function checkSoundLibrary(
 
 	const overridesBuiltin = entries.filter((e) => builtin.has(e.name)).map((e) => e.name);
 	const overriding = new Set(overridesBuiltin);
-	const played = (name: string) => hasBinding(name) || overriding.has(name);
+	const played = ships ?? ((name: string) => hasBinding(name) || overriding.has(name));
 
 	return {
 		unbound: entries.filter((e) => !played(e.name)).map((e) => e.name),
@@ -268,18 +189,4 @@ export function summariseSoundLicences(
 		nonCommercial: bound.filter((e) => NON_COMMERCIAL.test(e.license ?? '')).map((e) => e.name),
 		byLicence: [...byLicence.entries()].map(([licence, names]) => ({ licence, names })),
 	};
-}
-
-/** Bindings + checks in one call — the whole analysis, for a caller holding every doc at once. */
-export function analyseSoundUsage(input: SoundUsageInput): SoundChecks & {
-	byName: Map<string, SoundBinding[]>;
-} {
-	const byName = collectSoundBindings(input);
-	const checks = checkSoundLibrary(
-		input.library,
-		(name) => byName.has(name),
-		[...byName.keys()],
-		input.builtinNames,
-	);
-	return { byName, ...checks };
 }

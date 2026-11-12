@@ -52,7 +52,7 @@ const read =
 		if (failSource === label) throw new Error(`${label} unreadable`);
 		return value();
 	};
-let library: { name: string; file: string }[] = [];
+let library: { name: string; file: string; status?: 'draft' | 'approved' }[] = [];
 const server = (rel: string) => new URL(`../src/lib/server/${rel}`, import.meta.url).href;
 
 mock.module(server('r2.ts'), {
@@ -75,11 +75,14 @@ mock.module(server('r2.ts'), {
 });
 mock.module(server('soundsStorage.ts'), {
 	namedExports: {
-		loadSoundsDoc: async () => ({
-			version: 1,
-			entries: library.map((e, i) => ({ id: `s${i}`, kind: 'sfx', status: 'draft', origin: 'library', durationMs: 500, ...e })), // prettier-ignore
-			bindings: SOURCES.bindings,
-		}),
+		loadSoundsDoc: async () => {
+			if (failSource === 'sounds') throw new Error('sounds unreadable');
+			return {
+				version: 1,
+				entries: library.map((e, i) => ({ id: `s${i}`, kind: 'sfx', status: 'draft', origin: 'library', durationMs: 500, ...e })), // prettier-ignore
+				bindings: SOURCES.bindings,
+			};
+		},
 	},
 });
 mock.module(server('gameConfigStorage.ts'), {
@@ -121,6 +124,7 @@ mock.module(server('cinematicExport.ts'), {
 
 const {
 	ENGINE_SOUND_NAMES,
+	collectPlayedSoundNames,
 	collectSoundNames,
 	namesSoundAtRunTime,
 	playedSoundNames,
@@ -153,6 +157,7 @@ const timeline = (keys: unknown[]) => ({ id: 'tl', tracks: [{ id: 'cues', kind: 
 /** Where each played sound is named — the claim's own label. */
 const PLAYED: Record<string, string> = {
 	slot_bed: 'a /sound slot',
+	muted_bed: 'a silenced /sound slot (its names stay in the doc)',
 	sym_land: "a symbol's state",
 	token_fly: "a pots token's take-off",
 	token_pot: "a pots token's arrival",
@@ -185,7 +190,10 @@ const LIBRARY = [...Object.keys(PLAYED), ...UNPLAYED].map((name) => ({ name }));
 
 const SOURCES: SoundSources = {
 	bindings: {
-		slots: { baseMusic: { names: ['slot_bed'] } },
+		slots: {
+			baseMusic: { names: ['slot_bed'] },
+			freeSpinMusic: { names: ['muted_bed'], enabled: false },
+		},
 		symbols: {
 			H1: { land: 'sym_land' },
 			POT_RED: { flyToMeter: 'token_fly', potArrive: 'token_pot' },
@@ -460,21 +468,152 @@ for (const ref of ['soundOnce', 'soundMusic', 'soundLoop', 'soundStop']) {
 	);
 }
 
-// ── 6. The publish gate reads the flow through the same walk, over the mocked storage ──────
+// ── 6. The publish gate, the export and /sound agree, over the mocked storage ────────────────
 {
 	const { checkSoundsForPublish } = await import('../src/lib/server/soundPublishCheck.ts');
+	const { checkSoundLibrary, soundBindingNames } = await import('../src/lib/soundUsage.ts');
+
+	/** A shipped sound someone approved: it ships, and blocks nothing. */
+	const APPROVED = 'def_cue';
 	useLibrary(ALL);
-	const gate = await checkSoundsForPublish(CLIENT, PROJECT);
-	const FLOW_ONLY = ['flow_once', 'mode_flow', 'group_flow', 'lib_flow'];
+	library = library.map((e) => (e.name === APPROVED ? { ...e, status: 'approved' as const } : e));
+	const drafts = library.filter((e) => e.status !== 'approved').map((e) => e.name);
+	const sorted = (names: Iterable<string>) => [...names].sort();
+
+	interface Scenario {
+		label: string;
+		over?: Partial<SoundSources>;
+		fail?: 'sounds' | 'layout';
+		partial?: boolean;
+	}
+	const SCENARIOS: Scenario[] = [
+		{ label: 'the fixture project' },
+		{ label: 'a flow cue names its sound at run time', over: DYNAMIC['a wired cue name'] },
+		{ label: 'the layout cannot be read', fail: 'layout' },
+		{ label: 'a cinematic cannot be read', partial: true },
+		{ label: 'the sounds doc cannot be read', fail: 'sounds' },
+	];
+	/** Run `fn` with the scenario applied to the mocked storage. */
+	const within = async <T>(s: Scenario, fn: () => Promise<T>): Promise<T> => {
+		const saved = { ...SOURCES };
+		Object.assign(SOURCES, s.over);
+		failSource = s.fail ?? null;
+		partialCinematics = s.partial ?? false;
+		try {
+			return await fn();
+		} finally {
+			Object.assign(SOURCES, saved);
+			failSource = null;
+			partialCinematics = false;
+		}
+	};
+
+	/** The export's answer: the drafts in the catalog it writes. */
+	const exported = (s: Scenario) =>
+		within(s, async () => (await exportNow()).catalog.filter((n) => drafts.includes(n)));
+
+	type Gate = (s: Scenario) => Promise<string[]>;
+	const realGate: Gate = (s) =>
+		within(s, async () => sorted((await checkSoundsForPublish(CLIENT, PROJECT)).unapproved));
+
+	/** `/sound`'s list: the server's walk of everything but the choices, plus the choices on screen. */
+	const page = (s: Scenario, names = soundBindingNames) =>
+		within(s, async () => {
+			const elsewhere = await collectPlayedSoundNames(CLIENT, PROJECT);
+			const choices = names(SOURCES.bindings);
+			const ships = (n: string) => elsewhere === null || elsewhere.has(n) || choices.has(n);
+			const doc = { version: 1, entries: library.map((e) => ({ ...e, status: e.status ?? 'draft' })) }; // prettier-ignore
+			return sorted(checkSoundLibrary(doc as never, () => false, [], [], ships).unapprovedBound);
+		});
+
+	/** The claims over a gate; returns the labels that failed. */
+	const gateClaims = async (gate: Gate): Promise<string[]> => {
+		const failed: string[] = [];
+		const expect = (label: string, ok: boolean) => void (ok || failed.push(label));
+		for (const s of SCENARIOS) {
+			expect(`${s.label}: the gate blocks exactly the drafts the export ships`, JSON.stringify(await gate(s)) === JSON.stringify(sorted(await exported(s)))); // prettier-ignore
+		}
+		const blocked = new Set(await gate(SCENARIOS[0]));
+		const blocks = (names: string[]) => names.every((n) => blocked.has(n));
+		expect('a draft only a /sound choice names blocks', blocks(['slot_bed', 'sym_land', 'token_fly', 'coin_total', 'tease_loop', 'tier_bed'])); // prettier-ignore
+		expect("a draft only a silenced slot names blocks (the export ships it)", blocks(['muted_bed'])); // prettier-ignore
+		expect('a draft only a cinematic cue names blocks', blocks(['cine_hit', 'cine_stop']));
+		expect("a draft only a cinematic cue's pick alternate names blocks", blocks(['cine_pick']));
+		expect('a draft only the flow plays blocks (graph, mode, group, library)', blocks(['flow_once', 'mode_flow', 'group_flow', 'lib_flow', 'lib_uncalled'])); // prettier-ignore
+		expect('an engine-named draft blocks (it replaces a sound the engine plays)', blocks(['sfx_btn_spin'])); // prettier-ignore
+		expect('a draft nothing names does not block', !blocked.has('draft_unused') && !blocked.has('unused_take')); // prettier-ignore
+		expect('an approved sound that ships does not block', !blocked.has(APPROVED));
+		expect('when the export cannot tell, every draft blocks', JSON.stringify(await gate(SCENARIOS[1])) === JSON.stringify(sorted(drafts))); // prettier-ignore
+		expect('when the sounds doc cannot be read, nothing blocks', (await gate(SCENARIOS[4])).length === 0); // prettier-ignore
+		return failed;
+	};
+
+	check('gate: every claim holds on the real gate', await gateClaims(realGate), []);
+	{
+		const s = SCENARIOS[0];
+		const { licences } = await within(s, () => checkSoundsForPublish(CLIENT, PROJECT));
+		check('gate: the licences cover exactly what ships', licences.bound, (await within(s, exportNow)).catalog.length); // prettier-ignore
+	}
+	for (const s of SCENARIOS.slice(0, 4)) {
+		check(`page: lists the gate's drafts (${s.label})`, await page(s), await realGate(s));
+	}
 	check(
-		'gate: a draft only the flow plays blocks (its graph, a mode, a group, a called function)',
-		FLOW_ONLY.filter((name) => !gate.unapproved.includes(name)),
-		[],
+		'page: reads a choices block as the export does (every string, a silenced slot and a cue too)',
+		sorted(soundBindingNames({ ...SOURCES.bindings, extra: ['sfx:cue_named'] })),
+		sorted((() => {
+			const into = new Set<string>();
+			collectSoundNames({ ...SOURCES.bindings, extra: ['sfx:cue_named'] }, into);
+			return into;
+		})()), // prettier-ignore
 	);
+
+	// …and each planted mutant fails them.
+	const rule =
+		(pick: (s: SoundSources) => SoundSources, opts: { quietWhenUnsure?: boolean } = {}): Gate =>
+		(s) =>
+			within(s, async () => {
+				if (s.fail === 'sounds') return [];
+				const sources = { ...SOURCES, cinematics: s.partial ? undefined : SOURCES.cinematics };
+				const played = s.fail || s.partial ? null : playedSoundNames(pick(sources));
+				if (!played && opts.quietWhenUnsure) return [];
+				return sorted(shippedSoundEntries(library, played).filter((e) => drafts.includes(e.name)).map((e) => e.name)); // prettier-ignore
+			});
+	const noPicks = (s: SoundSources): SoundSources => ({
+		...s,
+		cinematics: (s.cinematics as { tracks: { keys: object[] }[] }[]).map((c) => ({
+			...c,
+			tracks: c.tracks.map((t) => ({
+				...t,
+				keys: t.keys.map((k) => ({ ...k, sound: undefined })),
+			})),
+		})),
+	});
+	const GATE_MUTANTS: Record<string, Gate> = {
+		"the old gate's sources (config, symbols, flow)": rule((s) => ({ config: s.config, symbols: s.symbols, flow: s.flow, flowLibrary: s.flowLibrary })), // prettier-ignore
+		'without the /sound choices': rule((s) => ({ ...s, bindings: undefined })),
+		'without the cinematics': rule((s) => ({ ...s, cinematics: undefined })),
+		'without the pick alternates': rule(noPicks),
+		'never blocks an engine-named draft': async (s) =>
+			(await realGate(s)).filter((n) => !ENGINE_SOUND_NAMES.has(n)),
+		'blocks approved sounds too': async (s) =>
+			s.fail === 'sounds' ? [] : sorted(new Set([...(await realGate(s)), APPROVED])),
+		'stays quiet when the export cannot tell': rule((s) => s, { quietWhenUnsure: true }),
+		'blocks every draft, always': async () => sorted(drafts),
+	};
+	for (const [name, mutant] of Object.entries(GATE_MUTANTS)) {
+		const failed = await gateClaims(mutant);
+		check(`gate mutant "${name}" is caught`, failed.length > 0, true);
+		if (failed.length) console.log(`  gate mutant "${name}" caught by: ${failed[0]}`);
+	}
+	const enabledOnly = (b: unknown) => {
+		const slots = (b as { slots?: Record<string, { enabled?: boolean }> }).slots ?? {};
+		const live = Object.fromEntries(Object.entries(slots).filter(([, v]) => v.enabled !== false));
+		return soundBindingNames({ ...(b as object), slots: live });
+	};
 	check(
-		'gate: …but not one only an uncalled library function names (nothing plays it)',
-		gate.unapproved.includes('lib_uncalled'),
-		false,
+		'page mutant "skips a silenced slot, as the played-by index does" is caught',
+		JSON.stringify(await page(SCENARIOS[0], enabledOnly)) !== JSON.stringify(await realGate(SCENARIOS[0])), // prettier-ignore
+		true,
 	);
 }
 

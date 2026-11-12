@@ -24,6 +24,7 @@ import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
 import { projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { collectPlayedSoundNames } from '$lib/server/soundReachability';
 import { loadSoundsDocWithEtag } from '$lib/server/soundsStorage';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -153,6 +154,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		 *  plays, with a link out rather than an editor. Every graph counts: the flow's own, each
 		 *  mode's, a group's body and a library function the flow calls. */
 		flowCues: flowSoundBindings(flow, flowLibrary).map((b) => ({ name: b.name, where: b.where })),
+		/**
+		 * Every name the export ships a sound for, from everything but the choices on this page — the
+		 * page adds those itself, live (`soundBindingNames`). `null` when the export cannot tell and
+		 * ships every sound. The publish gate asks the same walk (`soundPublishCheck.ts`), so the
+		 * page's "not approved" list is the list Publish refuses. STREAMED, not awaited: the walk
+		 * reads the whole game, cinematics included, and takes seconds.
+		 */
+		shipsElsewhere: collectPlayedSoundNames(clientKey, projectKey)
+			.then((names) => (names ? [...names] : null))
+			.catch(() => null),
 		/**
 		 * The shipped audiosprite's own names. Sourced from the generated flow enums because that is
 		 * the list the launcher already trusts for its sound pickers; when S9 retires it this reads
