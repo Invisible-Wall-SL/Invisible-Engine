@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	/**
 	 * The SANDBOX play field (`docs/design/game-families.md` §5.1): the selected character, a
 	 * keyboard-driven dummy player (tag `player`), draggable walls and an optional drawn path, run by
@@ -393,7 +394,7 @@
 		onkeyup={(e) => onKey(e, false)}
 		onblur={() => held.clear()}
 	></canvas>
-	<p class="help">
+	<InfoTip label="Controls">
 		Click the field, then arrow keys / WASD move {snap?.driver === 'controller'
 			? 'the character (its controller)'
 			: 'the dummy player'}{jumps && snap?.driver === 'controller'
@@ -401,7 +402,7 @@
 			: ''}. Drag the player, the character or a wall. Press on empty space to give a pointer
 		controller its pointer. A drawn path stands in for every path a state names (and for
 		<code>{SANDBOX_PATH}</code>).
-	</p>
+	</InfoTip>
 	{#if snap}
 		<dl class="readout">
 			<dt>Brain state</dt>
@@ -467,11 +468,6 @@
 	}
 	canvas:focus {
 		border-color: #5db0ff;
-	}
-	.help {
-		margin: 0;
-		font-size: 12px;
-		color: #8b93a1;
 	}
 	.readout {
 		display: grid;

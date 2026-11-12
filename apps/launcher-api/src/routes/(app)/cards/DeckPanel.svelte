@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		AI_DIFFICULTIES,
 		AI_WEIGHT_DEFAULTS,
@@ -222,7 +223,9 @@
 							</label>
 						{/each}
 					</div>
-					<p class="hint">A blank weight is the difficulty's own. Weights give a deck its style.</p>
+					<InfoTip label="About weights"
+						>A blank weight is the difficulty's own. Weights give a deck its style.</InfoTip
+					>
 				</section>
 			{/if}
 

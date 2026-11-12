@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import {
 		breakAtOf,
@@ -81,8 +82,8 @@
 	<header style="--family:{categoryColor(def.category)}">
 		<strong>{def.label}</strong>
 		<span class="muted">{node.id}</span>
+		<InfoTip alignEnd>{def.description}</InfoTip>
 	</header>
-	<p class="hint">{def.description}</p>
 	{#each errors as message, i (i)}
 		<p class="hint warn">{message}</p>
 	{/each}
@@ -110,10 +111,10 @@
 		</select>
 	</label>
 	{#if choice}
-		<p class="hint">
+		<InfoTip label="This break" alignEnd>
 			{choice.description} Plays as {phaseName(choice.phase)}. Picking another break drops the
 			settings it lacks and resets values past its ranges, and says what changed.
-		</p>
+		</InfoTip>
 	{/if}
 
 	<div class="field">
@@ -145,11 +146,13 @@
 	<p class="hint">{atText}</p>
 
 	{#if params.length}
-		<h4>Settings</h4>
-		<p class="hint">
-			Wire a Param node into a setting and whoever places the effect sets it, on its row in the
-			Scene Editor, Symbols or the Flow; a Number or Colour node, or a value here, fixes it.
-		</p>
+		<h4>
+			Settings
+			<InfoTip alignEnd>
+				Wire a Param node into a setting and whoever places the effect sets it, on its row in the
+				Scene Editor, Symbols or the Flow; a Number or Colour node, or a value here, fixes it.
+			</InfoTip>
+		</h4>
 		{#each params as spec (spec.id)}
 			{@const value = node.values?.[spec.id]}
 			{@const set = value !== undefined}

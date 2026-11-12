@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -546,11 +547,11 @@
 			<div class="form">
 				<section class="card" aria-label="Project">
 					<h1>Create a game with agents</h1>
-					<p class="hint">
+					<InfoTip label="How it works">
 						Same project setup as Game Maker. Pick the client and game type, then a template, and
 						start from design mockups, a style description or both. The agents build it while you
 						review.
-					</p>
+					</InfoTip>
 					<div class="grid four">
 						<label>
 							Name
@@ -609,10 +610,10 @@
 
 				<section class="card" aria-label="Template">
 					<h2>Template</h2>
-					<p class="hint">
+					<InfoTip label="About templates">
 						Start from a {offer?.gameKinds.find((k) => k.id === gameType)?.name ?? ''} game that already
 						works. The agents re-theme it.
-					</p>
+					</InfoTip>
 					{#if offer && templates.length === 0}
 						<p class="muted">
 							No Director template for this game type yet. An admin marks a published game as a
@@ -665,10 +666,10 @@
 
 				<section class="card" aria-label="Starting point">
 					<h2>Starting point</h2>
-					<p class="hint">
+					<InfoTip label="About starting points">
 						Upload design mockups for the agents to recreate, describe a style, or both. Tag each
 						image with the screen it shows.
-					</p>
+					</InfoTip>
 					<div class="mockups">
 						{#each images as img (img.id)}
 							<div class="mockup" class:busy={busyMockup === img.id}>
@@ -855,7 +856,9 @@
 
 				<section class="card" aria-label="Checkpoints">
 					<h2>Checkpoints</h2>
-					<p class="hint">Where the agents stop and wait for you. In between they keep working.</p>
+					<InfoTip label="About checkpoints"
+						>Where the agents stop and wait for you. In between they keep working.</InfoTip
+					>
 					<label class="checkpoint">
 						<input type="checkbox" bind:checked={cpBreakdown} />
 						<span class="cp-text">
@@ -956,7 +959,7 @@
 
 			<aside class="card summary" aria-label="Run summary">
 				<h2>What this run will do</h2>
-				<p class="hint">Filled in from your selections.</p>
+				<InfoTip label="About this summary">Filled in from your selections.</InfoTip>
 
 				<h3>Agents</h3>
 				<ul class="rows">
@@ -1122,13 +1125,9 @@
 		text-transform: uppercase;
 		color: #80808c;
 	}
-	.hint,
 	.muted {
 		color: #9a9aa6;
 		font-size: 13px;
-		margin: 0 0 12px;
-	}
-	.muted {
 		margin: 0;
 	}
 	.err {

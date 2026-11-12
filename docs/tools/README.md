@@ -11,6 +11,9 @@ full-page — never in an iframe). Local tools you install on your own machine.
 > card links to `/docs/<slug>` (rendered from the matching file here). The
 > source of truth stays in this folder — edit the markdown here, not in the app.
 
+> **In every tool, hover the ⓘ** (or a section's title) for what a panel or control does — the
+> explanations live in those tooltips, not on the page. Sections fold with their chevron.
+
 ## Online tools (run in the launcher)
 
 | Tool                                          | Opens at                                                                                 | Default roles                                                        | Doc                                                   |

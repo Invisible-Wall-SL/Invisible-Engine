@@ -88,6 +88,7 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import { UndoHistory } from '$lib/undoHistory';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -2211,30 +2212,30 @@
 				/>
 			{:else if view.kind === 'function' && activeFn}
 				<h3>Function body</h3>
-				<p class="hint">
+				<InfoTip label="Editing the body">
 					Editing <strong>{activeFn.name}</strong>'s body. Wire between the
 					<strong>Entry</strong> and <strong>Result</strong> nodes to define its logic — the signature
 					(its inputs/outputs) is fixed here; Entry/Result can't be deleted. Drag nodes from the palette;
 					Delete removes internal nodes.
-				</p>
+				</InfoTip>
 				<AddNodePalette {vocab} {library} doc={paletteDoc} onadd={addNodeOfKind} {containerLabel} />
 			{:else}
 				{#if activeModeId}
 					<h3>Mode · {modeLabel(activeModeId)}</h3>
-					<p class="hint">
+					<InfoTip label="Mode graph">
 						This graph runs while <code>{activeModeId}</code> is on screen: a signal is handed here
 						first and falls back to the <strong>Global</strong> tab when nothing here handles it.
 						Its
 						<strong>Mode trigger</strong> fires when the mode starts, finishes or resumes.
-					</p>
+					</InfoTip>
 				{:else}
 					<h3>Flow v2 · dev</h3>
-					<p class="hint">
+					<InfoTip label="Canvas">
 						Editable canvas (Phase 2b.2). Template <code>{doc.templateId}</code>. Pins are
 						<strong>derived</strong> from the vocabulary — drag between them to wire; incompatible
 						wires won't drop. Select a node to edit its fields; Delete removes selection.
 						Double-click a <strong>function</strong> node to edit its body.
-					</p>
+					</InfoTip>
 				{/if}
 				<VariablesPanelV2
 					{doc}
@@ -2643,17 +2644,6 @@
 	.close:hover {
 		border-color: #3a4655;
 		color: #e2e8f0;
-	}
-	.hint {
-		color: #64748b;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-	.hint code {
-		color: #93c5fd;
-		background: #11161d;
-		padding: 1px 4px;
-		border-radius: 4px;
 	}
 	/* The canvas + its flow-edge styling now live in FlowCanvasV2 (extracted so it can call
 	   `useSvelteFlow` inside the provider). `.canvas-wrap` is the flex cell that sizes it and

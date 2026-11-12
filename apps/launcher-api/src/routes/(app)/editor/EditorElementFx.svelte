@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		ELEMENT_FX,
 		ELEMENT_FX_CATEGORIES,
@@ -70,7 +71,7 @@
 		newTrigger?: ElementFxTrigger;
 		/** Offer a stop cue (default true). */
 		stopCue?: boolean;
-		/** The text over an empty list, and under a ▶ that found nothing to play on. */
+		/** What the list is (its ⓘ tip), and the line under a ▶ that found nothing to play on. */
 		intro?: string;
 		missedText?: string;
 	}
@@ -334,9 +335,7 @@
 
 <section class="element-fx">
 	<h3>{title}</h3>
-	{#if !rows.length}
-		<p class="muted small">{intro}</p>
-	{/if}
+	<InfoTip label="About effects" alignEnd>{intro}</InfoTip>
 
 	{#each rows as row, index (index)}
 		{#if !row.read}
@@ -422,7 +421,7 @@
 								</select>
 							</label>
 						</div>
-						<p class="hint">{spec.description}</p>
+						<InfoTip label={spec.label} alignEnd>{spec.description}</InfoTip>
 						<div class="row">
 							<label class="field wide">
 								<span>Trigger</span>
@@ -549,13 +548,13 @@
 								Use <strong>On cue</strong> instead.
 							</p>
 						{:else if entry.trigger === 'keyed'}
-							<p class="hint">
+							<InfoTip label="Keyed" alignEnd>
 								Never plays on its own: a timeline (or a state machine state) poses it. In Animate,
 								key its <strong>✦ {spec.label}</strong> rows —
 								<code>{elementFxProgressChannel(entry.id)}</code> (0 at rest … 1 at its end) and its
 								strength <code>{elementFxIntensityChannel(entry.id)}</code> (× its intensity). ▶ plays
 								it once from rest to its end.
-							</p>
+							</InfoTip>
 						{/if}
 						{#if counted(entry.trigger)}
 							<div class="row">
@@ -575,13 +574,13 @@
 							</div>
 						{/if}
 						{#if spec.phase === 'exit'}
-							<p class="hint">
+							<InfoTip label="Exit effect" alignEnd>
 								Ends hidden — stays hidden until its stop cue or an entering effect.
-							</p>
+							</InfoTip>
 						{:else if spec.phase === 'loop' && counted(entry.trigger)}
-							<p class="hint">
+							<InfoTip label="Looping" alignEnd>
 								A looping effect: played a set number of times, it fades in and out.
-							</p>
+							</InfoTip>
 						{/if}
 
 						{#if spec.params.length}
@@ -655,7 +654,7 @@
 									</div>
 								</div>
 								{#if p.note}
-									<p class="hint">{p.note}</p>
+									<InfoTip label={p.label} alignEnd>{p.note}</InfoTip>
 								{/if}
 							{/each}
 						{/if}
@@ -686,9 +685,9 @@
 		<p class="hint">At most {maxEntries} here: remove one to add another.</p>
 	{/if}
 	{#if rows.length && preview}
-		<p class="hint">
+		<InfoTip label="Preview" alignEnd>
 			Preview plays on a still of the element; in the game it plays on the live one.
-		</p>
+		</InfoTip>
 	{/if}
 </section>
 
@@ -932,13 +931,6 @@
 	}
 	.reset:hover:not(:disabled) {
 		color: #fff;
-	}
-	.muted {
-		color: #666;
-		font-size: 12px;
-	}
-	.small {
-		font-size: 11px;
 	}
 	.hint {
 		font-size: 10px;

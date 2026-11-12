@@ -4,6 +4,7 @@
 	 * the screens of pixels they cover (measured by `FxStage` every frame), against the budgets in
 	 * `FX_COST_BUDGET`, with each layer's cost-driving settings and hints. Read-only.
 	 */
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import type { EmitterLayer } from 'engine-fx';
 	import type { ResolvedArt } from './FxStage.svelte';
 	import { largestFrame } from './fxMaterial.client';
@@ -89,14 +90,14 @@
 	</button>
 	{#if open}
 		<div class="costbody">
-			<p class="hint">
+			<InfoTip label="How it's measured">
 				Measured against the <b>preview viewport</b>
 				{#if cost}({cost.viewport.w}×{cost.viewport.h} px at {Math.round(cost.viewport.zoom * 100)}%
 					zoom){/if}: /fx has no game canvas frame, so zooming or resizing the preview changes
 				coverage. Peaks reset when the effect or the view changes. Budget per layer: {FX_COST_BUDGET
 					.layer.live} live, {formatScreens(FX_COST_BUDGET.layer.coverage)} screens; whole effect: {FX_COST_BUDGET
 					.total.live} live, {formatScreens(FX_COST_BUDGET.total.coverage)} screens.
-			</p>
+			</InfoTip>
 			<table>
 				<thead>
 					<tr>
@@ -221,10 +222,6 @@
 		margin: 0 0 6px;
 		color: #64748b;
 		font-size: 11px;
-	}
-	.hint b {
-		color: #94a3b8;
-		font-weight: 600;
 	}
 	table {
 		width: 100%;

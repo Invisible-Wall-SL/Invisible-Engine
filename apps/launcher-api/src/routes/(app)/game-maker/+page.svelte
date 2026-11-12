@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import {
@@ -1014,10 +1015,10 @@
 	<main>
 		<section class="card create">
 			<h2>Create a game</h2>
-			<p class="hint">
+			<InfoTip label="How it works">
 				Pick a client and a game type, give it a name — this creates the project and its cloud
 				scaffold. Author it with the editor + asset tools, then publish below.
-			</p>
+			</InfoTip>
 			<form
 				method="POST"
 				action="?/create"
@@ -1254,10 +1255,10 @@
 							</li>
 						{/each}
 					</ul>
-					<p class="hint bulk-hint">
+					<InfoTip label="About bulk publish">
 						A publish re-exports the project, so each game takes roughly 20 seconds and they run one
 						at a time. The run continues on the server — you can leave this page.
-					</p>
+					</InfoTip>
 				</div>
 			{/if}
 
@@ -2147,13 +2148,9 @@
 		font-size: 12px;
 		color: #7a7a86;
 	}
-	.hint,
 	.muted {
 		color: #9a9aa6;
 		font-size: 13px;
-		margin: 0 0 14px;
-	}
-	.muted {
 		margin: 0;
 	}
 	.outcome-line {
@@ -2338,10 +2335,6 @@
 	}
 	.bulk-item.error .bi-status {
 		color: #ff8c8c;
-	}
-	.bulk-hint {
-		margin: 10px 0 0;
-		font-size: 11px;
 	}
 	.note {
 		color: #d3b483;

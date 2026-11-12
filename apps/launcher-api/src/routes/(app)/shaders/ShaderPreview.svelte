@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { ELEMENT_FX_LIMITS, type CustomElementFx } from 'constants-shared/elementFx';
 	import { Application, UPDATE_PRIORITY, type Ticker } from 'pixi.js';
 	import { untrack } from 'svelte';
@@ -334,7 +335,7 @@
 				title="Restart: every particle gone, the emitter from its first frame"
 				aria-label="Restart">↻</button
 			>
-			<span class="hint inline">Each particle plays its own life.</span>
+			<InfoTip alignEnd>Each particle plays its own life.</InfoTip>
 		</div>
 	{:else}
 		<div class="row transport">
@@ -654,8 +655,5 @@
 	}
 	.hint.warn {
 		color: #d98a3a;
-	}
-	.hint.inline {
-		margin: 0;
 	}
 </style>

@@ -6,6 +6,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type {
 		LocalizationDoc,
@@ -369,8 +370,10 @@
 			     payloads that stretched the bar and pushed the tool switcher into a scroll strip —
 			     and the old `{:else if}` meant a held lease hid every message outright. It renders
 			     as a full-width notice below the bar instead. -->
-			<button class="primary" onclick={() => save()} disabled={lease.readOnly || busy || !saveState.dirty}
-				>Save</button
+			<button
+				class="primary"
+				onclick={() => save()}
+				disabled={lease.readOnly || busy || !saveState.dirty}>Save</button
 			>
 		{/snippet}
 	</ToolTopBar>
@@ -435,7 +438,14 @@
 			></textarea>
 		</label>
 		<label class="ctx">
-			Never translate (comma-separated)
+			<span>
+				Never translate (comma-separated)
+				<InfoTip>
+					These are hidden from the translator and put back where they belong — "Free Spins is over"
+					comes back as "Free Spins terminé". Matching ignores case and keeps the source's own
+					spelling; whole words only.
+				</InfoTip>
+			</span>
 			<input
 				value={protectedTermsText}
 				oninput={(e) => {
@@ -445,11 +455,6 @@
 				placeholder="e.g. Free Spins, Megaways, Book of Borut"
 				spellcheck="false"
 			/>
-			<span class="sublabel">
-				These are hidden from the translator and put back where they belong — "Free Spins is over"
-				comes back as "Free Spins terminé". Matching ignores case and keeps the source's own
-				spelling; whole words only.
-			</span>
 		</label>
 	</section>
 
@@ -528,7 +533,15 @@
 
 	<section class="table-wrap">
 		<div class="toolbar">
-			<h2>Strings</h2>
+			<h2>
+				Strings
+				<InfoTip>
+					Text components placed in the <strong>Scene Editor</strong> are collected automatically
+					below, grouped by screen. Their source text stays in sync with the editor (edit it there);
+					here you fill in or translate each language. Use <strong>Manual strings</strong> for text that
+					isn't an editor component.
+				</InfoTip>
+			</h2>
 			<div class="actions">
 				<!-- Bulk review. Deliberately explicit (scope + confirm) rather than a one-click
 				     "approve everything": reviewed text is what reaches players. -->
@@ -551,13 +564,6 @@
 				</button>
 			</div>
 		</div>
-
-		<p class="hint">
-			Text components placed in the <strong>Scene Editor</strong> are collected automatically below,
-			grouped by screen. Their source text stays in sync with the editor (edit it there); here you
-			fill in or translate each language. Use <strong>Manual strings</strong> for text that isn't an
-			editor component.
-		</p>
 
 		{#each sections as section (section.sceneId)}
 			<div class="block">
@@ -787,11 +793,6 @@
 	.ctx + .ctx {
 		margin-top: 14px;
 	}
-	.sublabel {
-		color: #777;
-		font-size: 12px;
-		line-height: 1.5;
-	}
 	input,
 	textarea {
 		background: #0f0f14;
@@ -935,17 +936,6 @@
 		text-align: center;
 		color: #777;
 		padding: 24px;
-	}
-	.hint {
-		color: #999;
-		font-size: 13px;
-		line-height: 1.5;
-		margin: 0 0 20px;
-		max-width: 78ch;
-	}
-	.hint strong {
-		color: #c8a3ff;
-		font-weight: 600;
 	}
 	.block {
 		margin-bottom: 24px;

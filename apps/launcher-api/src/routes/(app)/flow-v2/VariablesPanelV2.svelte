@@ -6,6 +6,7 @@
 	// whole doc; the page autosaves it like a node edit.
 	import type { FlowDoc, FlowInputBinding, FlowVariable, FlowVariableType } from 'engine-flow-v2';
 	import { renameVariable, setInputBindings, setVariables } from './graphOps';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 
 	let {
 		doc,
@@ -125,7 +126,7 @@
 		<h3>Variables</h3>
 		<button type="button" class="add" onclick={add}>+ Add</button>
 	</div>
-	<p class="hint">
+	<InfoTip label="Variables">
 		{#if modeId === null}
 			Values the game keeps: score, lives, moves. <strong>round</strong> ones restart each spin.
 		{:else}
@@ -133,7 +134,7 @@
 		{/if}
 		A component input follows one as <code>var:&lt;id&gt;</code>; renaming one here does not change
 		those.
-	</p>
+	</InfoTip>
 	{#if renameError}
 		<p class="error">{renameError}</p>
 	{/if}
@@ -223,9 +224,9 @@
 			<h4>Key map</h4>
 			<button type="button" class="add" onclick={addInput}>+ Add</button>
 		</div>
-		<p class="hint">
+		<InfoTip label="Key map">
 			An <strong>On input</strong> node reads an action, never a key, so a rebind leaves the graph alone.
-		</p>
+		</InfoTip>
 		{#each inputs as b, i (i)}
 			<div class="line">
 				<input
@@ -286,7 +287,6 @@
 		font-size: 11px;
 		color: #f87171;
 	}
-	.hint,
 	.empty {
 		margin: 0;
 		font-size: 11px;

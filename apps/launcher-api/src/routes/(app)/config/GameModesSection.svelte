@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ConfigSection from './ConfigSection.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		BASE_GAME_MODE,
 		GAME_MODE_BOARDS,
@@ -156,7 +156,7 @@
 	}
 </script>
 
-<ConfigSection id="gameModes" title="Game modes">
+<SectionCard scope="config" id="gameModes" title="Game modes">
 	{#snippet info()}
 		<p>
 			A mode is a different game a bonus switches into (own board, screens, HUD, music). Tag Scene
@@ -251,7 +251,7 @@
 			{#if newIdProblem}<span class="inline-issue error">{newIdProblem}</span>{/if}
 		</div>
 	</fieldset>
-</ConfigSection>
+</SectionCard>
 
 <style>
 	code {

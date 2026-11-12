@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { onDestroy, untrack } from 'svelte';
 	import {
 		BUG_PRIORITIES,
@@ -124,7 +125,7 @@
 		<h2>{game ? `Report a bug in ${projectName(project)}` : 'Report a pipeline bug'}</h2>
 		<button type="button" class="btn" disabled={busy !== null} onclick={oncancel}>Cancel</button>
 	</div>
-	<p class="hint">
+	<InfoTip label="What to write">
 		{#if game}
 			Something wrong in this game: a win, a screen, a sound, a text. You are recorded as the
 			reporter. Say what happened, on which screen and bet, what you expected, and how to make it
@@ -134,7 +135,7 @@
 			what happened, what you expected, and how to make it happen again; a screenshot is worth a
 			paragraph.
 		{/if}
-	</p>
+	</InfoTip>
 
 	<label class="field">
 		<span>Title</span>
@@ -236,12 +237,6 @@
 </form>
 
 <style>
-	.hint {
-		margin: 0;
-		color: #9a9aa6;
-		font-size: 13px;
-		line-height: 1.5;
-	}
 	.row {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import type { ElementFxParamSpec } from 'constants-shared/elementFx';
 	import {
@@ -88,10 +89,9 @@
 	<header style="--family:{def ? categoryColor(def.category) : '#f87171'}">
 		<strong>{def?.label ?? node.type}</strong>
 		<span class="muted">{node.id}</span>
+		{#if def}<InfoTip alignEnd>{def.description}</InfoTip>{/if}
 	</header>
-	{#if def}
-		<p class="hint">{def.description}</p>
-	{:else}
+	{#if !def}
 		<p class="hint warn">
 			This build has no "{node.type}" node. Delete it, or open the graph in a newer build.
 		</p>

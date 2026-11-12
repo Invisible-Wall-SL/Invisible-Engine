@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ConfigSection from './ConfigSection.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { resolve } from '$app/paths';
 
 	import {
@@ -122,7 +122,7 @@
 	{/each}
 {/snippet}
 
-<ConfigSection id="family" title="Game family">
+<SectionCard scope="config" id="family" title="Game family">
 	{#snippet info()}
 		<p>
 			What kind of game this is. A <strong>slot</strong> spins reels. A <strong>match-3</strong>
@@ -181,10 +181,10 @@
 	</fieldset>
 	{@render issueList('family')}
 	{@render issueList('outcome')}
-</ConfigSection>
+</SectionCard>
 
 {#if family === 'match3'}
-	<ConfigSection id="match3" title="Match-3">
+	<SectionCard scope="config" id="match3" title="Match-3">
 		{#snippet info()}
 			<p>
 				The board is the <strong>Grid</strong> above — its reels are the columns. A swap that lines
@@ -304,11 +304,11 @@
 		</fieldset>
 		{@render issueList('match3')}
 		{@render issueList('numRows')}
-	</ConfigSection>
+	</SectionCard>
 {/if}
 
 {#if family === 'arcade'}
-	<ConfigSection id="arcade" title="Arcade">
+	<SectionCard scope="config" id="arcade" title="Arcade">
 		{#snippet info()}
 			<p>
 				The <strong>play field</strong> is where objects move, in design pixels; left empty it is
@@ -548,14 +548,14 @@
 		{#each issuesFor('arcade').filter((i) => !i.path.startsWith('arcade.online')) as issue (issue.path + issue.message)}
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 		{/each}
-	</ConfigSection>
+	</SectionCard>
 	{#if doc.arcade?.online}
 		<OnlineSection bind:doc online={doc.arcade.online} {issuesFor} {readOnly} />
 	{/if}
 {/if}
 
 {#if family === 'card'}
-	<ConfigSection id="cardGame" title="Card game">
+	<SectionCard scope="config" id="cardGame" title="Card game">
 		{#snippet info()}
 			<p>
 				One player duels an AI on the device. Each side has a fixed <strong>deck</strong>, a hand, a
@@ -618,7 +618,7 @@
 			</p>
 		</fieldset>
 		{@render issueList('card')}
-	</ConfigSection>
+	</SectionCard>
 {/if}
 
 <style>

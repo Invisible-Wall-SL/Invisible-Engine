@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
@@ -1486,10 +1487,10 @@
 				{@render slider('End max', range.endMax, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'end', 'max', v)),
 				)}
-				<p class="hint">
+				<InfoTip label="Min / Max ranges" alignEnd>
 					Each particle spawns somewhere in the Start range and ends somewhere in the End range —
 					the four bounds are independent.
-				</p>
+				</InfoTip>
 			{:else}
 				{@render slider('Start', range.startMax, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'start', 'max', v)),
@@ -2031,12 +2032,12 @@
 									<span>Loop each particle's clip</span>
 								</label>
 							{/if}
-							<p class="hint">
+							<InfoTip label="Rig particles" alignEnd>
 								Each particle is a pooled rig instance playing a clip. Keep <code
 									>Max particles</code
 								>
 								low — a rig particle is far heavier than a sprite (tens, not hundreds).
-							</p>
+							</InfoTip>
 						{/if}
 					{/if}
 				</section>
@@ -2128,11 +2129,11 @@
 											<span>Loop while the particle lives</span>
 										</label>
 									{/if}
-									<p class="hint">
+									<InfoTip label="Flipbook timing" alignEnd>
 										Match lifetime stretches the {selected.art.frames.length} frames across each particle's
 										life (they play through exactly once). Give it a real fps instead to pin the animation
 										speed — then Loop decides whether it repeats or holds on the last frame.
-									</p>
+									</InfoTip>
 								{/if}
 								{#if !(selected.art.animated ?? false)}
 									<div class="mix">
@@ -2158,10 +2159,10 @@
 												<span class="pct">{Math.round(mixPercents[i] ?? 0)}%</span>
 											</div>
 										{/each}
-										<p class="hint">
+										<InfoTip label="Image mix" alignEnd>
 											Each particle gets ONE image, chosen by these shares (drag to weight). Turn on
 											Flipbook instead to animate all frames on every particle.
-										</p>
+										</InfoTip>
 									</div>
 								{/if}
 							{/if}
@@ -2319,11 +2320,11 @@
 										)}</span
 									>
 								</div>
-								<p class="hint">
+								<InfoTip label="Load reading" alignEnd>
 									{selectedLoad.measured
 										? 'The peak the preview has measured since this layer last changed.'
 										: "An estimate until the preview draws it: the most particles alive × the largest frame at the largest scale, padded, × the graph's cost."}
-								</p>
+								</InfoTip>
 							{/if}
 							{#each selectedNotes as note, i (i)}
 								<p class="mnote m-{note.level}">{note.level === 'info' ? 'ⓘ' : '⚠'} {note.text}</p>
@@ -2363,11 +2364,11 @@
 							{@render slider('Pivot Y', spriteXf.anchorY, 0, 1, 0.01, (v) =>
 								patchConfig(setSpriteTransform(config, { anchorY: v })),
 							)}
-							<p class="hint">
+							<InfoTip label="Rotation & pivot" alignEnd>
 								Rotation turns the art on the particle without changing where it flies, and adds to
 								any spin or locked angle. The pivot is the point of the art that sits on the spawn
 								position and that it turns around — centre by default; Top hangs the art below it.
-							</p>
+							</InfoTip>
 						</section>
 					{/if}
 				{/if}
@@ -2465,11 +2466,11 @@
 								{/each}
 							</datalist>
 						{/if}
-						<p class="hint">
+						<InfoTip label="Event" alignEnd>
 							Fires when a Flow <strong>Broadcast</strong> / <strong>fireCue</strong> (or any game event)
 							of this exact name is emitted. Pick a known event, or type a custom cue name — it must match
 							the name used in Flow.
-						</p>
+						</InfoTip>
 						<label class="row">
 							<span>Stop event</span>
 							<input
@@ -2483,11 +2484,11 @@
 									)}
 							/>
 						</label>
-						<p class="hint">
+						<InfoTip label="Stop event" alignEnd>
 							Optional — fire on <strong>Event</strong>, keep emitting, then <strong>stop</strong>
 							when a Flow Broadcast / fireCue of this name is emitted (for a continuous effect). Blank
 							⇒ it stops by Duration / <code>emitterLifetime</code> instead.
-						</p>
+						</InfoTip>
 						<label class="row">
 							<span>Scope</span>
 							<input
@@ -2500,12 +2501,12 @@
 									)}
 							/>
 						</label>
-						<p class="hint">
+						<InfoTip label="Scope" alignEnd>
 							Optional — fire only on events about one part: a pot's meter id (<code>red</code>), a
 							jackpot tier (<code>grand</code>), a reel; <code>*</code> for every part. Blank ⇒ placed
 							inside a scoped component (a Pot Meter, a jackpot tile) it skips the other parts of that
 							kind; anywhere else, every event.
-						</p>
+						</InfoTip>
 						<label class="row">
 							<span>Duration (ms)</span>
 							<input
@@ -2517,9 +2518,9 @@
 								onchange={(e) => updateSelected((l) => setTriggerDuration(l, numOrBlank(e)))}
 							/>
 						</label>
-						<p class="hint">
+						<InfoTip label="Duration" alignEnd>
 							Blank ⇒ the config's <code>emitterLifetime</code> governs how long the burst emits.
-						</p>
+						</InfoTip>
 					{/if}
 				</section>
 
@@ -2567,12 +2568,12 @@
 						{@render slider('Distance (px)', brst.distance, 0, 400, 1, (v) =>
 							patchConfig(setBurst(config, 'distance', v)),
 						)}
-						<p class="hint">
+						<InfoTip label="Burst" alignEnd>
 							Fires particles in an even fan — one every Spacing° from the Start angle, spawned
 							Distance px out (0 = from the centre). Burst owns the launch direction, so the
 							Direction controls below step aside. Pair with a short emitter lifetime for a one-shot
 							explosion.
-						</p>
+						</InfoTip>
 					{:else if shape?.kind === 'circle'}
 						{@render slider('Radius', shape.radius, 0, 400, 1, (v) =>
 							patchConfig(setSpawnRadius(config, v)),
@@ -2592,7 +2593,9 @@
 							patchConfig(setSpawnRect(config, shape.width, v)),
 						)}
 					{:else if shape?.kind === 'point'}
-						<p class="hint">Particles spawn from a single point at the emitter origin.</p>
+						<InfoTip label="Point" alignEnd
+							>Particles spawn from a single point at the emitter origin.</InfoTip
+						>
 					{:else}
 						<p class="hint">This config has no spawn shape — pick one to add it.</p>
 					{/if}
@@ -2626,11 +2629,11 @@
 						{@render slider('Spread (±°)', emission.spread, 0, 180, 1, (v) =>
 							patchConfig(setEmissionArc(config, emission.center, v)),
 						)}
-						<p class="hint">
+						<InfoTip label="Direction" alignEnd>
 							Launch direction: 0° = right, 90° = down, 180° = left, 270° = up. Spread 180° = all
 							directions (each particle picks an angle in Direction ± Spread). A narrow upward arc +
 							gravity makes a fountain.
-						</p>
+						</InfoTip>
 						{#if spin}
 							{@render slider('Spin min (°/s)', spin.minSpeed, -720, 720, 5, (v) =>
 								patchConfig(setParticleSpin(config, { ...spin, minSpeed: v })),
@@ -2641,10 +2644,10 @@
 							{@render slider('Spin accel', spin.accel, -720, 720, 5, (v) =>
 								patchConfig(setParticleSpin(config, { ...spin, accel: v })),
 							)}
-							<p class="hint">
+							<InfoTip label="Spin" alignEnd>
 								Spin is how fast the particle turns as it flies — each one picks a rate between min
 								and max, then accelerates by Spin accel. All zero = no spin.
-							</p>
+							</InfoTip>
 						{/if}
 					{:else}
 						<p class="hint">
@@ -2667,10 +2670,10 @@
 						{@render slider('Locked angle', lockAngle, 0, 360, 1, (v) =>
 							patchConfig(setRotationLock(config, v)),
 						)}
-						<p class="hint">
+						<InfoTip label="Locked angle" alignEnd>
 							Particles still TRAVEL along the direction above — they just don't turn to face it.
 							What flat art (confetti, snowflakes, a flipbook) usually wants.
-						</p>
+						</InfoTip>
 					{/if}
 				</section>
 
@@ -2753,11 +2756,11 @@
 								patchConfig(setCurveBound(config, 'speed', 'end', 'max', v)),
 							)}
 						{/if}
-						<p class="hint">
+						<InfoTip label="Speed curve" alignEnd>
 							Speed along the launch direction, eased over the particle's life. With Min / Max on,
 							each particle launches somewhere in the Start range and eases to somewhere in the End
 							range — the four bounds are independent.
-						</p>
+						</InfoTip>
 					{:else if moveModel === 'gravity' && grav}
 						{@render slider('Start speed min', grav.minStart, 0, 2000, 10, (v) =>
 							patchConfig(setGravity(config, 'minStart', v)),
@@ -2781,11 +2784,11 @@
 							(on) => patchConfig(setGravity(config, 'rotate', on)),
 							true,
 						)}
-						<p class="hint">
+						<InfoTip label="Gravity" alignEnd>
 							Particles launch along the Emission direction at the start speed, then accelerate by
 							this constant pull (positive Y pulls down). Up-direction + downward pull = a fountain.
 							For a gravity you can angle and use in either model, add one under Forces.
-						</p>
+						</InfoTip>
 					{/if}
 				</section>
 
@@ -2938,10 +2941,10 @@
 									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
 									`f${fi}`,
 								)}
-								<p class="hint">
+								<InfoTip label="Swirl" alignEnd>
 									Swirl spins particles around the centre. Radial above 0 flings them OUT
 									(centrifugal); below 0 pulls them IN (centripetal) — balance the two for an orbit.
-								</p>
+								</InfoTip>
 							{:else if force.kind === 'attractor'}
 								{@render slider(
 									'Centre X',
@@ -2997,10 +3000,10 @@
 									(v) => patchConfig(setForceField(config, fi, 'absorb', v)),
 									`f${fi}`,
 								)}
-								<p class="hint">
+								<InfoTip label="Attractor" alignEnd>
 									Positive strength pulls toward the point, negative pushes away. Particles that
 									reach the Absorb radius disappear (0 = never).
-								</p>
+								</InfoTip>
 							{:else if force.kind === 'turbulence'}
 								{@render slider(
 									'Strength',
@@ -3039,10 +3042,10 @@
 									(v) => patchConfig(setForceField(config, fi, 'amount', v)),
 									`f${fi}`,
 								)}
-								<p class="hint">
+								<InfoTip label="Drag" alignEnd>
 									Air resistance on the forced motion (and on the launch in Acceleration mode). The
 									eased Speed curve keeps owning its own launch.
-								</p>
+								</InfoTip>
 							{/if}
 						</div>
 					{/each}
@@ -3059,11 +3062,11 @@
 							{/each}
 						</select>
 					</label>
-					<p class="hint">
+					<InfoTip label="Forces" alignEnd>
 						Forces stack on top of the Movement above and work in either model. Strengths are px/s².
 						Angles: 0° = right, 90° = down, 180° = left, 270° = up. Centres are offsets from the
 						emitter.
-					</p>
+					</InfoTip>
 				</section>
 
 				<section>
@@ -3106,11 +3109,11 @@
 						{@render slider('Intensity max', overlay.max, 0, 1, 0.01, (v) =>
 							patchConfig(setColorOverlayField(config, 'max', v)),
 						)}
-						<p class="hint">
+						<InfoTip label="Overlay intensity" alignEnd>
 							Every particle draws its own intensity between min and max — 0 leaves the art
 							untouched, 1 replaces it with the overlay colour. Lays ON TOP of the over-life tint,
 							so a spread here breaks up a flat-coloured burst.
-						</p>
+						</InfoTip>
 					{/if}
 				</section>
 
@@ -3131,7 +3134,9 @@
 							<option value="multiply">Multiply</option>
 						</select>
 					</label>
-					<p class="hint">Add / screen give the additive glow fire, sparks and magic want.</p>
+					<InfoTip label="Blend mode" alignEnd
+						>Add / screen give the additive glow fire, sparks and magic want.</InfoTip
+					>
 				</section>
 
 				<section>
@@ -3140,9 +3145,9 @@
 						ontoggle={(e) => (leavesOpen = (e.currentTarget as HTMLDetailsElement).open)}
 					>
 						<summary>All parameters</summary>
-						<p class="hint">
+						<InfoTip label="All parameters" alignEnd>
 							Every value of this layer a parameter can drive, including the ones with no row above.
-						</p>
+						</InfoTip>
 						{#each leafGroups as group (group.name)}
 							<div class="leafgroup">
 								<span class="lghead">{group.name}</span>

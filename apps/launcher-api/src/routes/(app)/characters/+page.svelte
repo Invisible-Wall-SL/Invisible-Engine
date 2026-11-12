@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import {
@@ -355,13 +356,14 @@
 				<button class="danger" onclick={() => save(true)}>Overwrite with mine</button>
 			</div>
 		{/if}
-		<p class="intro">
+		<InfoTip label="About characters">
 			The things on <b>{data.projectName ?? data.projectKey}</b>'s play field that move by
 			themselves: a <b>look</b> (a component), a <b>body</b>, <b>movement</b>, a <b>controller</b>
 			when the player drives it and a <b>brain</b> when it acts on its own. They are saved in the
 			game config, so
-			<a href={resolve('/config')}>Invisible Game Config</a> and this tool share one edit lease.
-		</p>
+			<a class="tip-link" href={resolve('/config')}>Invisible Game Config</a> and this tool share one
+			edit lease.
+		</InfoTip>
 		{#if !arcade}
 			<p class="warn">
 				This project's config is not an arcade config, so it has no characters. Set its family in
@@ -412,7 +414,7 @@
 						title="A character whose look is this component">＋ Add</button
 					>
 				</div>
-				<p class="hint">A component is the look of one character at most.</p>
+				<InfoTip label="One look each">A component is the look of one character at most.</InfoTip>
 			</aside>
 
 			<main class="detail">
@@ -477,10 +479,10 @@
 
 					<section>
 						<h2>Body</h2>
-						<p class="hint">
+						<InfoTip label="About bodies">
 							The body of <code>{character.component}</code> — the same entry as Game Config's Arcade
 							bodies table: what it collides as.
-						</p>
+						</InfoTip>
 						{#if lookBody}
 							{@const comp = character.component}
 							<div class="grid">
@@ -606,12 +608,12 @@
 
 					<section>
 						<h2>Movement</h2>
-						<p class="hint">
+						<InfoTip label="Empty fields">
 							Empty is instant (accel, decel, turn rate), uncapped (max speed, max fall) or no pull
 							(gravity). With gravity the character falls, and only its left / right is steered.
 							With a side-scroll jump, gravity is the pull while falling (the jump's height and time
 							set the rise; empty ⇒ the jump's own); a flap needs it.
-						</p>
+						</InfoTip>
 						<div class="grid">
 							{#each edit.MOVEMENT_KEYS as key (key)}
 								<label
@@ -755,7 +757,7 @@
 							{/if}
 						{/if}
 						{#if character.controller && character.controller.kind !== 'pointer'}
-							<p class="hint">
+							<InfoTip label="Controls">
 								The keyboard controllers read the Flow input map's actions
 								{#each ARCADE_CONTROLLER_ACTIONS as a, i (a)}{i ? ', ' : ''}<code>{a}</code>{/each}
 								(map the keys in Invisible Flow); with none held, a pressed pointer or touch steers.
@@ -769,17 +771,17 @@
 											? 'anywhere'
 											: 'above the character'}.{/if}
 								{/if}
-							</p>
+							</InfoTip>
 						{/if}
 					</section>
 
 					<section>
 						<h2>Brain</h2>
-						<p class="hint">
+						<InfoTip label="How a brain works">
 							States are behaviours, arrows are transitions: the first whose conditions all hold
 							fires (Any's first, then the current state's, in order). Drag a behaviour onto the
 							canvas, or click it, to add a state.
-						</p>
+						</InfoTip>
 						<div class="palette">
 							{#each ARCADE_BEHAVIOURS as b (b)}
 								<button
@@ -1096,14 +1098,14 @@
 
 					<section>
 						<h2>Abilities</h2>
-						<p class="hint">
+						<InfoTip label="How abilities work">
 							A button that, off its cooldown, hits every character of its targets within its reach:
 							a stun holds them still, a catch puts them out (hidden) and back where they spawned,
 							each for its time; a hook raises <code>hit</code> on the nearest only. Played: hold
 							the Flow input map's <code>ability1</code> / <code>ability2</code>. On its brain: used
 							whenever a target is in reach. Flow: <b>Use Ability</b>. A hit raises
 							<code>hit</code> / <code>caught</code> with the Score as <code>points</code>.
-						</p>
+						</InfoTip>
 						{#if online}
 							<p class="warn">
 								This game is online: its room plays the abilities of Game Config → Online → Rules,
@@ -1208,11 +1210,11 @@
 
 					<section>
 						<h2>Zone forces</h2>
-						<p class="hint">
+						<InfoTip label="About zone forces">
 							A zone (Game Config → Zones) that pushes the bodies in it while they move, px/s: a
 							river's current, wind. With no character ticked it pushes every body. These are the
 							whole game's, not this character's.
-						</p>
+						</InfoTip>
 						{#if edit.forceIssues(issues).length}
 							<p class="err">{issueText(edit.forceIssues(issues))}</p>
 						{/if}
@@ -1260,11 +1262,11 @@
 
 					<section>
 						<h2>Anim inputs</h2>
-						<p class="hint">
+						<InfoTip label="About anim inputs">
 							What drives the look's state machine inputs: <code>speed</code>, <code>vx</code>,
 							<code>vy</code>, <code>facing</code> (1 or -1) are numbers; <code>moving</code> and
 							<code>state:&lt;id&gt;</code> (in that brain state) are true / false.
-						</p>
+						</InfoTip>
 						{#if !lookInputs.length && !strayInputs.length}
 							<p class="hint">
 								<code>{character.component}</code> has no number or bool inputs. Add them in its state
@@ -1311,10 +1313,10 @@
 
 					<section>
 						<h2>Sandbox</h2>
-						<p class="hint">
+						<InfoTip label="About the sandbox">
 							Placeholder shapes, the real <code>engine-mechanics</code> at {resolved.fixedHz} steps a
 							second. Nothing here is saved.
-						</p>
+						</InfoTip>
 						{#key character.id}
 							<CharacterSandbox
 								{character}
@@ -1353,14 +1355,7 @@
 		margin: 0 auto;
 		box-sizing: border-box;
 	}
-	.intro {
-		margin: 0 0 16px;
-		font-size: 13px;
-		color: #b9b9c4;
-		line-height: 1.6;
-		max-width: 900px;
-	}
-	.intro a {
+	.tip-link {
 		color: #7ee0c0;
 	}
 	.warn {

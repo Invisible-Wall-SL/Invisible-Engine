@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { resolve } from '$app/paths';
 	import { deserialize, enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
@@ -882,12 +883,12 @@
 	>
 		<section>
 			<h2>Roles</h2>
-			<p class="muted hint">
+			<InfoTip label="About roles">
 				Per-role defaults from the tool registry, overridable here. <strong>Grant</strong> forces a
 				capability on, <strong>Revoke</strong> forces it off, <strong>Default</strong> reverts to the
 				baseline. User-level overrides (per user) still win on top of these. Capabilities are grouped
 				and searchable so the matrix stays readable as more are added.
-			</p>
+			</InfoTip>
 			{#if !data.isOwner}
 				<p class="muted hint">
 					Read-only: only an admin can change what a role is granted, as a role's grants include
@@ -985,14 +986,14 @@
 	>
 		<section>
 			<h2>Tools</h2>
-			<p class="muted hint">
+			<InfoTip label="About tools">
 				The platform tool registry (read-only here). Each tool's per-role and per-user availability
 				is managed in the <button type="button" class="link" onclick={() => (tab = 'roles')}>
 					Roles
 				</button>
 				tab and the per-user panel in
 				<button type="button" class="link" onclick={() => (tab = 'users')}> Users </button>.
-			</p>
+			</InfoTip>
 			<div class="table tools-table">
 				<div class="row head tools-head">
 					<span>Tool</span>
@@ -1128,12 +1129,12 @@
 		{#if data.deletedProjects.length > 0}
 			<section>
 				<h2>Deleted projects</h2>
-				<p class="muted hint">
+				<InfoTip label="About deleted projects">
 					Deleting a project only hides it — every file it owns is still in R2 and a restore brings
 					it back with its read token intact, so published game URLs keep working.
 					<strong>Purge files</strong> is the only destructive action here: it permanently deletes the
 					project's R2 objects and drops the row for good.
-				</p>
+				</InfoTip>
 				<div class="projects">
 					{#each data.deletedProjects as p (p.key)}
 						<div class="project-row deleted">
@@ -1175,13 +1176,13 @@
 		<!-- Book-of → Lines (docs/design/book-feature.md §6). Dry run first; Apply re-derives the plan. -->
 		<section>
 			<h2>Migrate Book-of projects to Lines</h2>
-			<p class="muted hint">
+			<InfoTip label="How the migration works">
 				Every project of the retired <code>bookOf</code> kind becomes a Lines project with the expanding
 				symbol: its config (through History), its layout's kind, its kind, and a republish of its online
 				game. Rebuild its desktop builds from the desktop launcher first. Run the dry run, then Apply:
 				it runs one project at a time. A migrated project is not listed again; one whose republish did
 				not land is, until it does.
-			</p>
+			</InfoTip>
 			<div class="migration-actions">
 				<form method="POST" action="?/bookOfDryRun" use:enhance>
 					<button type="submit" class="small">Census and dry run</button>
@@ -1276,11 +1277,11 @@
 		     step 5): what `publish-game-via-portal.mjs --table-capable` sets, without a command line. -->
 		<section id="table-capable">
 			<h2>Desktop builds: table-capable stamp</h2>
-			<p class="muted hint">
+			<InfoTip label="About the stamp">
 				A desktop build (its own bundle, not the shared runtime) is sold its bet table by the test
 				server only when its manifest entry is stamped table-capable. The Book-of migration blocks a
 				project whose desktop build is not stamped.
-			</p>
+			</InfoTip>
 			<p class="warn">
 				Only stamp a build rebuilt on an engine from {data.tableCapableEngine.date} (commit
 				<code>{data.tableCapableEngine.commit}</code>, {data.tableCapableEngine.pr}) or later, or
@@ -1333,10 +1334,10 @@
 	>
 		<section>
 			<h2>Clients</h2>
-			<p class="muted hint">
+			<InfoTip label="About clients">
 				Clients group projects. Granting a user a client (in the per-user panel under Users) grants
 				access to every project owned by that client.
-			</p>
+			</InfoTip>
 			<div class="projects">
 				{#each data.clients as c (c.key)}
 					<div class="project-row">
@@ -1379,7 +1380,7 @@
 	>
 		<section>
 			<h2>Games</h2>
-			<p class="muted hint">
+			<InfoTip label="About games">
 				Each game has its own name + launch URL, and is scoped to a project: it appears on the home
 				Games grid only when that project (or its client) is selected. Leave the project as
 				<em>Global</em> to show it on every selection. The launch URL gets the active project
@@ -1391,7 +1392,7 @@
 				path to actually load. The last dropdown shows the <strong>project</strong> the game is
 				scoped to — that is the project's own name, not the game's, so renaming a game here never
 				changes it (rename the project on the <em>Projects</em> tab).
-			</p>
+			</InfoTip>
 			<div class="projects">
 				<div class="project-row col-heads">
 					<span class="key">key</span>
@@ -1478,12 +1479,12 @@
 	>
 		<section>
 			<h2>Sessions</h2>
-			<p class="muted hint">
+			<InfoTip label="About sessions">
 				Select a user in the <button type="button" class="link" onclick={() => (tab = 'users')}>
 					Users
 				</button> tab, then load their active sessions there to revoke individual or all sessions. The
 				session list shows a colour + icon badge per state (active, expiring, expired).
-			</p>
+			</InfoTip>
 			{#if selected}
 				<div class="card">
 					<h3>Sessions for <span class="mono">{selected.email}</span></h3>
@@ -1537,12 +1538,12 @@
 	>
 		<section>
 			<h2>Costs</h2>
-			<p class="muted hint">
+			<InfoTip label="About costs">
 				What the pipeline is spending, per provider. Figures come straight from each provider's own
 				API and are cached for ten minutes — hit <strong>Refresh</strong> to re-read them now.
 				Anything marked <span class="pill est">estimate</span> is our arithmetic over usage counters rather
 				than a billed figure, so reconcile against the provider's invoice, not against this page.
-			</p>
+			</InfoTip>
 
 			{#await data.costs}
 				<p class="muted">Reading provider costs…</p>
@@ -1771,13 +1772,13 @@
 								</div>
 							{/each}
 						</div>
-						<p class="muted hint table-note">
+						<InfoTip label="About this table">
 							Press Enter in any cell to save. Boxed cells are typed in — RunPod and Railway can't
 							report a monthly total, so their figures come from you. Anthropic (agents) is part of
 							the Anthropic bill, so it is left out of Total in any month Anthropic has a figure
 							(and out of Measured spend while the Anthropic card reports). Anthropic's report lags
 							a little, so agent spend can briefly run ahead of it.
-						</p>
+						</InfoTip>
 					</div>
 				{:else}
 					<div class="card">
@@ -1791,7 +1792,7 @@
 
 				<div class="card">
 					<h3>Import history</h3>
-					<p class="muted hint">
+					<InfoTip label="Import format">
 						No provider can be asked for a past month, so history is typed in. One line per
 						provider-month — <span class="mono">month, provider, amount</span> — separated by
 						commas, tabs or spaces. Month can be <span class="mono">2026-05</span>,
@@ -1800,7 +1801,7 @@
 						<span class="mono">1,234.56</span> or <span class="mono">1.234,56</span>. Lines starting
 						<span class="mono">#</span> are ignored. Imported months are marked as typed in and locked,
 						so the estimator never overwrites them.
-					</p>
+					</InfoTip>
 
 					{#if form?.action === 'importCostMonths' && form.preview}
 						<div class="import-preview">
@@ -1852,14 +1853,14 @@
 					</form>
 				</div>
 
-				<p class="muted hint">
+				<InfoTip label="Months and currencies">
 					Months are <strong>Europe/Madrid calendar months</strong> grouped into calendar years,
 					matching the Spanish tax year. The open month updates on every refresh and moves up and
 					down as the providers revise their estimates; once it ends it is frozen and never
 					recomputed — the providers can't rebuild a past month, so a filed figure has to stop
 					moving. <strong>USD is our estimate; the EUR you enter is the real charge</strong> and is the
 					number to file. They will not match exactly: card FX spread sits between them.
-				</p>
+				</InfoTip>
 
 				<p class="muted hint">
 					Snapshot taken {fmtDate(costs.fetchedAt)}{costs.cached ? ' (cached)' : ''}.
@@ -1886,14 +1887,14 @@
 	>
 		<section>
 			<h2>Settings</h2>
-			<p class="muted hint">
+			<InfoTip label="About settings">
 				Build &amp; deploy secrets managed in the database (overriding any Railway env-var
 				bootstrap). Only admins can view, set, or rotate these. Values are masked by default.
-			</p>
+			</InfoTip>
 
 			<div class="card">
 				<h3>Deploy token</h3>
-				<p class="muted hint">
+				<InfoTip label="About the deploy token">
 					The shared token the desktop launcher fetches (<span class="mono"
 						>GET /api/launcher/deploy-token</span
 					>) and injects into game builds so <span class="mono">bake:doc</span>,
@@ -1903,7 +1904,7 @@
 					<button type="button" class="link" onclick={() => (tab = 'roles')}>Roles</button>).
 					Rotating requires game rebuilds to pick up the new token; already-deployed (baked) games
 					are unaffected since they don't use it at runtime.
-				</p>
+				</InfoTip>
 
 				<div class="token-status">
 					<span class="muted">Current</span>
@@ -1961,17 +1962,17 @@
 
 			<div class="card">
 				<h3>Layout profile (pipeline default)</h3>
-				<p class="muted hint">
+				<InfoTip label="About the layout profile">
 					The default set of layout buckets — each with a design resolution/aspect and the window
-					rule that selects it — seeded into <strong>every</strong> project that hasn't authored its
-					own (Scene Editor → Game Settings → Layout). Changing this reshapes the editor preview
-					frame + HUD box and the runtime bucket selection for all such games.
-					{#if data.layoutProfile.custom}
-						<span class="pill on">custom default set</span>
-					{:else}
-						<span class="pill off">using built-in default</span>
-					{/if}
-				</p>
+					rule that selects it — seeded into <strong>every</strong> project that hasn't authored its own
+					(Scene Editor → Game Settings → Layout). Changing this reshapes the editor preview frame + HUD
+					box and the runtime bucket selection for all such games.
+				</InfoTip>
+				{#if data.layoutProfile.custom}
+					<span class="pill on">custom default set</span>
+				{:else}
+					<span class="pill off">using built-in default</span>
+				{/if}
 
 				<LayoutProfileEditor bind:profile={layoutProfile} />
 
@@ -2007,7 +2008,7 @@
 
 			<div class="card">
 				<h3>Engine boot mark</h3>
-				<p class="muted hint">
+				<InfoTip label="About the boot mark">
 					The rig that opens <strong>every</strong> game — the engine's own mark, shown before the
 					game's splash. This replaced the old vendor logo, so it is admin-owned: a client cannot
 					change it from their project. Pick from the shared rig library (<span class="mono"
@@ -2015,12 +2016,12 @@
 					>). Rigs are authored per project, so get one in there with
 					<strong>Bring a rig into the shared library</strong> below. A game picks up a change on
 					its <strong>next publish</strong>; already-open games keep the mark they booted with.
-					{#if data.bootSplash.engine}
-						<span class="pill on">{data.bootSplash.engine.bundle}</span>
-					{:else}
-						<span class="pill off">no engine mark</span>
-					{/if}
-				</p>
+				</InfoTip>
+				{#if data.bootSplash.engine}
+					<span class="pill on">{data.bootSplash.engine.bundle}</span>
+				{:else}
+					<span class="pill off">no engine mark</span>
+				{/if}
 
 				{#if data.bootSplash.bundles.length === 0}
 					<p class="muted hint">
@@ -2125,7 +2126,7 @@
 						{/if}
 					</div>
 				</div>
-				<p class="muted hint">
+				<InfoTip label="Size and animation">
 					<strong>Size</strong> is a multiplier on the automatic fit, not an absolute size — 1.00×
 					is the mark scaled to sit inside a safe box, so it holds on every screen. Above ~1.6× it
 					can run past the viewport edges. You'll see the change on a game's next publish.
@@ -2133,12 +2134,12 @@
 					Leave <strong>Animation</strong> blank only if the skeleton's first clip is the right one —
 					a rig left on its setup pose renders empty, which looks like a broken splash rather than an
 					unset one.
-				</p>
+				</InfoTip>
 
 				<hr class="boot-rule" />
 
 				<h4>Bring a rig into the shared library</h4>
-				<p class="muted hint">
+				<InfoTip label="About promoting">
 					Rigs are authored inside a project, so a new mark starts life at
 					<span class="mono">&lt;client&gt;/&lt;project&gt;/spines/</span>. This copies one into
 					<span class="mono">_shared/spines/</span> so it can be picked above. It is a
@@ -2148,7 +2149,7 @@
 					Not to be confused with <span class="mono">_shared/rigs/</span>, which holds skeleton
 					documents (no atlas, no textures) that you <em>apply</em> onto art in the Rigger — a game cannot
 					load those.
-				</p>
+				</InfoTip>
 
 				<form
 					method="POST"
@@ -2191,7 +2192,7 @@
 
 			<div class="card">
 				<h3>Edge cache &amp; build</h3>
-				<p class="muted hint">
+				<InfoTip label="About the purge">
 					Asks Cloudflare to drop its cached copies for the
 					<span class="mono">invisiblewall.org</span> zone. Both
 					<span class="mono">app.</span> and <span class="mono">games.invisiblewall.org</span> are
@@ -2201,7 +2202,7 @@
 					<span class="mono">lastHydrate</span> on the games host's
 					<span class="mono">/healthz</span> (see <span class="mono">docs/INFRA.md</span>, "Game
 					freshness").
-				</p>
+				</InfoTip>
 
 				<div class="token-status">
 					<span class="muted">Running build</span>
@@ -2224,22 +2225,22 @@
 
 			<div class="card">
 				<h3>ComfyUI R&amp;D pod fleet</h3>
-				<p class="muted hint">
+				<InfoTip label="About the pod fleet">
 					The on-demand RunPod GPUs behind the <a class="link" href={resolve('/comfyui')}>ComfyUI</a
 					>
-					tool. Artists pick a card and start it (if it's out of free GPUs they try the next); pods
-					auto-stop after an idle window so the GPU only bills while work is happening. A non-empty
-					ComfyUI render queue counts as activity, so a running render is never interrupted. Each
-					pod's ComfyUI URL is derived from its id (<span class="mono"
-						>https://&lt;id&gt;-8188.proxy.runpod.net</span
-					>).
-					{#if !data.runpod.configured}
-						<br /><strong>Not configured</strong> — set
+					tool. Artists pick a card and start it (if it's out of free GPUs they try the next); pods auto-stop
+					after an idle window so the GPU only bills while work is happening. A non-empty ComfyUI render
+					queue counts as activity, so a running render is never interrupted. Each pod's ComfyUI URL is
+					derived from its id (<span class="mono">https://&lt;id&gt;-8188.proxy.runpod.net</span>).
+				</InfoTip>
+				{#if !data.runpod.configured}
+					<p class="muted hint">
+						<strong>Not configured</strong> — set
 						<span class="mono">RUNPOD_API_KEY</span> in the launcher environment and add at least
 						one pod below (a legacy <span class="mono">RUNPOD_POD_ID</span> env still works as a single
 						"Default" pod).
-					{/if}
-				</p>
+					</p>
+				{/if}
 
 				<form method="POST" action="?/setRunpodPods" use:enhance class="runpod-fleet">
 					{#each runpodPods as pod, i (i)}
@@ -2325,11 +2326,11 @@
 
 			<div class="card">
 				<h3>Invisible Director</h3>
-				<p class="muted hint">
+				<InfoTip label="About the run budget">
 					Each Director run stops and asks before it spends past its budget. A run copies the cap
 					when it starts, so a change here applies to new runs only. Default
 					<strong>${data.director.budgetDefaultUsd}</strong>.
-				</p>
+				</InfoTip>
 				<form method="POST" action="?/setDirectorBudget" use:enhance class="runpod-idle">
 					<label class="minutes">
 						Run budget (USD)
@@ -2344,10 +2345,10 @@
 					</label>
 					<button type="submit">Save budget</button>
 				</form>
-				<p class="muted hint">
+				<InfoTip label="Repair budget">
 					A game repair run renders nothing, so it has its own, smaller cap. Default
 					<strong>${data.director.repairBudgetDefaultUsd}</strong>.
-				</p>
+				</InfoTip>
 				<form method="POST" action="?/setDirectorRepairBudget" use:enhance class="runpod-idle">
 					<label class="minutes">
 						Repair run budget (USD)
@@ -2364,10 +2365,10 @@
 				</form>
 
 				<h4 class="director-sub">Pipeline bug fix runs</h4>
-				<p class="muted hint">
+				<InfoTip label="Fix run budget">
 					A fix run on a pipeline bug runs Claude Code in GitHub Actions and stops at its own cap.
 					Default <strong>${data.pipelineFix.budgetDefaultUsd}</strong>.
-				</p>
+				</InfoTip>
 				<form method="POST" action="?/setPipelineFixBudget" use:enhance class="runpod-idle">
 					<label class="minutes">
 						Fix run budget (USD)
@@ -2382,11 +2383,11 @@
 					</label>
 					<button type="submit">Save fix run budget</button>
 				</form>
-				<p class="muted hint">
+				<InfoTip label="Monthly ceiling">
 					Once this calendar month's fix runs have spent the ceiling, new ones are refused; a run
 					already going is never stopped. Default
 					<strong>${data.pipelineFix.monthlyDefaultUsd}</strong>.
-				</p>
+				</InfoTip>
 				<form method="POST" action="?/setPipelineFixMonthly" use:enhance class="runpod-idle">
 					<label class="minutes">
 						Monthly ceiling (USD)
@@ -2401,10 +2402,10 @@
 					</label>
 					<button type="submit">Save ceiling</button>
 				</form>
-				<p class="muted hint">
+				<InfoTip label="Live fix runs">
 					How many fix runs may be going at once, over every bug. Default
 					<strong>{data.pipelineFix.maxLiveDefault}</strong>.
-				</p>
+				</InfoTip>
 				<form method="POST" action="?/setPipelineFixMaxLive" use:enhance class="runpod-idle">
 					<label class="minutes">
 						At most at once
@@ -2421,13 +2422,13 @@
 				</form>
 
 				<h4 class="director-sub">Abandoned mockups and QA drafts</h4>
-				<p class="muted hint">
+				<InfoTip label="About the cleanup">
 					Mockups uploaded under a key that never became a game. Clears every such key with no
 					project, no run and nothing uploaded for the days below (default
 					<strong>{data.director.pendingMockupDaysDefault}</strong>). An existing project's files
 					are never touched. The same click clears QA's draft copies of a project whose runs all
 					ended 14 days ago, and any unfinished draft over an hour old.
-				</p>
+				</InfoTip>
 				<form method="POST" action="?/sweepDirectorMockups" use:enhance class="runpod-idle">
 					<label class="minutes">
 						Older than (days)
@@ -2451,10 +2452,10 @@
 						<span class="pill on">pricing.json</span>
 					{/if}
 				</h4>
-				<p class="muted hint">
+				<InfoTip label="About pricing">
 					From <span class="mono">services/director-worker/pricing.json</span> (a reviewed file — changing
 					it is a pipeline change). Each call is priced when it is recorded.
-				</p>
+				</InfoTip>
 				{#if data.director.pricingOverrideError}
 					<p class="banner error">
 						The stored override is ignored: {data.director.pricingOverrideError}
@@ -3570,9 +3571,6 @@
 		margin: 0;
 		display: flex;
 		justify-content: flex-end;
-	}
-	.table-note {
-		margin-top: 10px;
 	}
 	.import-text {
 		width: 100%;

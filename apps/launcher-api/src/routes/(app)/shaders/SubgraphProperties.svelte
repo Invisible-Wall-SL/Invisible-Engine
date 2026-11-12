@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		SUBGRAPH_CALL,
 		SUBGRAPH_IN,
@@ -48,7 +49,12 @@
 				: 'This subgraph is gone.'}
 		</p>
 	{:else if isCall}
-		<h4>Subgraph</h4>
+		<h4>
+			Subgraph
+			<InfoTip alignEnd
+				>Its inputs and outputs are edited on its Input and Output nodes inside.</InfoTip
+			>
+		</h4>
 		<label class="field">
 			<span>Name</span>
 			<input
@@ -59,20 +65,21 @@
 			/>
 		</label>
 		<p class="hint">
-			Called {calls} time{calls === 1 ? '' : 's'}: editing it changes every call. Its inputs and
-			outputs are edited on its Input and Output nodes inside.
+			Called {calls} time{calls === 1 ? '' : 's'}: editing it changes every call.
 		</p>
 		<div class="row">
 			<button type="button" onclick={() => onOpen(sub.id)}>Open {subgraphName(sub)}</button>
 			<button type="button" {disabled} onclick={() => onUngroup(node.id)}>Ungroup</button>
 		</div>
 	{:else}
-		<h4>{side === 'inputs' ? 'Inputs' : 'Outputs'} of {subgraphName(sub)}</h4>
-		<p class="hint">
-			{side === 'inputs'
-				? 'Each is a port on every call. A call left unwired there reads the value set on it, else the default here, else 0.'
-				: 'Each is a port on every call. One left unwired here gives its default, else 0.'}
-		</p>
+		<h4>
+			{side === 'inputs' ? 'Inputs' : 'Outputs'} of {subgraphName(sub)}
+			<InfoTip alignEnd>
+				{side === 'inputs'
+					? 'Each is a port on every call. A call left unwired there reads the value set on it, else the default here, else 0.'
+					: 'Each is a port on every call. One left unwired here gives its default, else 0.'}
+			</InfoTip>
+		</h4>
 		<PortListEditor
 			ports={sub[side]}
 			noun={side === 'inputs' ? 'input' : 'output'}

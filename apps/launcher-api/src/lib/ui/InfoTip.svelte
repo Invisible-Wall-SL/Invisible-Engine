@@ -3,26 +3,50 @@
 
 	/**
 	 * Field-level help: an ⓘ (with an optional short `label`) whose explanation shows as a tooltip on
-	 * hover or keyboard focus — the in-section counterpart of `ConfigSection`'s `info` (pipeline UI
+	 * hover or keyboard focus — the in-section counterpart of `SectionCard`'s `info` (pipeline UI
 	 * rule: no walls of text in a tool). The text stays in the DOM, so SSR and the fixtures read it.
+	 *
+	 * The tip is `position: fixed`, placed against the viewport when it opens: an ⓘ inside a
+	 * scrolling side panel would otherwise have its tip clipped by the panel. It opens below the ⓘ,
+	 * flips above when there is no room, and is kept inside the window.
 	 */
 	interface Props {
 		/** A few words naming what the tip explains; empty = icon only. */
 		label?: string;
-		/** Open the tip leftwards, for an ⓘ near the right edge. */
+		/** Line the tip up with the ⓘ's right edge instead of its left (right-hand panels). */
 		alignEnd?: boolean;
 		children: Snippet;
 	}
 	const { label = '', alignEnd = false, children }: Props = $props();
 	const id = $props.id();
+
+	const GAP = 6;
+	const MARGIN = 8;
+	let trigger = $state<HTMLButtonElement>();
+	let tip = $state<HTMLSpanElement>();
+	let top = $state(0);
+	let left = $state(0);
+
+	function place() {
+		if (!trigger || !tip) return;
+		const at = trigger.getBoundingClientRect();
+		const { width, height } = tip.getBoundingClientRect();
+		const below = at.bottom + GAP;
+		const above = at.top - GAP - height;
+		top = below + height > innerHeight - MARGIN && above >= MARGIN ? above : below;
+		const from = alignEnd ? at.right - width : at.left;
+		left = Math.max(MARGIN, Math.min(from, innerWidth - width - MARGIN));
+	}
 </script>
 
-<span class="info-tip">
+<span class="info-tip" role="presentation" onmouseenter={place}>
 	<button
+		bind:this={trigger}
 		type="button"
 		class="trigger"
 		aria-label={label || 'More about this'}
 		aria-describedby={id}
+		onfocus={place}
 	>
 		<svg viewBox="0 0 16 16" aria-hidden="true">
 			<circle cx="8" cy="8" r="6.25" />
@@ -30,14 +54,14 @@
 		</svg>
 		{#if label}<span class="label">{label}</span>{/if}
 	</button>
-	<span class="tip" class:end={alignEnd} role="tooltip" {id}>{@render children()}</span>
+	<span bind:this={tip} class="tip" role="tooltip" {id} style:top="{top}px" style:left="{left}px"
+		>{@render children()}</span
+	>
 </span>
 
 <style>
 	.info-tip {
-		position: relative;
 		display: inline-flex;
-		align-self: center;
 		vertical-align: middle;
 	}
 	.trigger {
@@ -53,7 +77,7 @@
 		cursor: help;
 	}
 	.info-tip:hover .trigger,
-	.trigger:focus-visible {
+	.info-tip:focus-within .trigger {
 		color: #b8b8c4;
 	}
 	.trigger:focus-visible {
@@ -70,10 +94,8 @@
 		stroke-linecap: round;
 	}
 	.tip {
-		position: absolute;
-		top: calc(100% + 6px);
-		left: 0;
-		z-index: 30;
+		position: fixed;
+		z-index: 1000;
 		display: block;
 		width: max-content;
 		max-width: min(520px, 80vw);
@@ -96,12 +118,8 @@
 			opacity 0.12s ease,
 			visibility 0s linear 0.12s;
 	}
-	.tip.end {
-		left: auto;
-		right: 0;
-	}
 	.info-tip:hover .tip,
-	.trigger:focus-visible + .tip {
+	.info-tip:focus-within .tip {
 		visibility: visible;
 		opacity: 1;
 		transition-delay: 0.25s, 0.25s;

@@ -6,6 +6,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		WIN_TEXT_FEATURE_FIELDS,
 		WIN_TEXT_FEATURE_LABELS,
@@ -604,7 +605,7 @@
 				decide every round (Invisible Game Config → Game family), and it never shows a win.
 			</p>
 		{/if}
-		<p class="intro">
+		<InfoTip label="Templates">
 			What the game <em>says</em> about a win. Every field is a <strong>template</strong> — write
 			<code>{TOKEN_HELP}</code>
 			and the game fills them in. <code>{'{symbolName}'}</code> becomes the symbol's own name
@@ -613,7 +614,7 @@
 			here follows, with no edit. Templates are translated in
 			<a href={resolve('/localization')}>Invisible Localization</a>; the currency in
 			<code>{'{amount}'}</code> follows the player's own locale automatically.
-		</p>
+		</InfoTip>
 		{#if namedCount === 0}
 			<p class="warn">
 				<strong>None of this game's symbols has a name yet.</strong> Until you name them in
@@ -623,27 +624,31 @@
 		{/if}
 
 		<section>
-			<h2>Win-line message</h2>
-			<p class="hint">
-				The message drawn with the win line. A win uses the <strong>most specific</strong> cell that
-				is filled in: an exact symbol × count beats <em>Any count</em>, which beats
-				<em>Any symbol</em>, which beats the default in the corner. Leave a cell blank to inherit —
-				the grey text shows what it will inherit.
-				{#if excludedSymbols.length}
-					<br />
+			<h2>
+				Win-line message
+				<InfoTip>
+					The message drawn with the win line. A win uses the <strong>most specific</strong> cell
+					that is filled in: an exact symbol × count beats <em>Any count</em>, which beats
+					<em>Any symbol</em>, which beats the default in the corner. Leave a cell blank to inherit
+					— the grey text shows what it will inherit.
+				</InfoTip>
+			</h2>
+			{#if excludedSymbols.length}
+				<p class="hint">
 					<strong>{excludedSymbols.join(', ')}</strong>
 					{excludedSymbols.length === 1 ? 'is not listed' : 'are not listed'}: a scatter pays
 					anywhere rather than along a line, so the game draws no win line for it and this message
 					would never appear. Use the
 					<em>Info-bar message</em> below for those wins.
-				{/if}
-				{#if data.coins.length}
-					<br />
+				</p>
+			{/if}
+			{#if data.coins.length}
+				<p class="hint">
 					<strong>{data.coins.join(', ')}</strong>
 					{data.coins.length === 1 ? 'is not listed' : 'are not listed'}: a pots overlay drops its
 					coins over a cell, never along a line, so no win line names them.
-				{/if}
-			</p>
+				</p>
+			{/if}
 			{@render boardPicker()}
 
 			<div class="grid-wrap">
@@ -724,11 +729,13 @@
 		</section>
 
 		<section>
-			<h2>Win amount</h2>
-			<p class="hint">
-				How the pay amount is stamped on the win line. <code>{'{amount}'}</code> is already formatted
-				in the player's currency.
-			</p>
+			<h2>
+				Win amount
+				<InfoTip>
+					How the pay amount is stamped on the win line. <code>{'{amount}'}</code> is already formatted
+					in the player's currency.
+				</InfoTip>
+			</h2>
 			<label class="single">
 				<span>Amount format</span>
 				<input
@@ -740,24 +747,28 @@
 		</section>
 
 		<section>
-			<h2>Info-bar message</h2>
-			<p class="hint">
-				The transient message shown when a win pays. It <strong>names the symbol</strong> that paid
-				— write <code>{'{symbolName}'}</code> and the game fills in the name from
-				<a href={resolve('/symbols')}>Invisible Symbols</a>, so a win reads
-				<em>“You win $4.00 with 4 Bananas”</em>. Three separate lines because the game shows
-				whichever fits what it knows: a message fired without a symbol (any flow can fire one) falls
-				back to the amount-only line rather than printing a blank name.
-			</p>
-			{#if data.capabilities.bookReveal}
-				<p class="hint">
-					A <strong>Book-of expanding symbol</strong> gets its own line. When the special symbol
-					fills whole reels, <code>{'{count}'}</code> is the number of <strong>reels</strong> it covers
-					— not the number of icons on screen — so the ordinary sentence miscounts what the player is
-					looking at (four boots named over a board showing twelve). Leave it blank to fall back to the
-					amount + symbol line.
-				</p>
-			{/if}
+			<h2>
+				Info-bar message
+				<InfoTip>
+					<p>
+						The transient message shown when a win pays. It <strong>names the symbol</strong> that
+						paid — write <code>{'{symbolName}'}</code> and the game fills in the name from
+						<a href={resolve('/symbols')}>Invisible Symbols</a>, so a win reads
+						<em>“You win $4.00 with 4 Bananas”</em>. Three separate lines because the game shows
+						whichever fits what it knows: a message fired without a symbol (any flow can fire one)
+						falls back to the amount-only line rather than printing a blank name.
+					</p>
+					{#if data.capabilities.bookReveal}
+						<p>
+							A <strong>Book-of expanding symbol</strong> gets its own line. When the special symbol
+							fills whole reels, <code>{'{count}'}</code> is the number of <strong>reels</strong> it covers
+							— not the number of icons on screen — so the ordinary sentence miscounts what the player
+							is looking at (four boots named over a board showing twelve). Leave it blank to fall back
+							to the amount + symbol line.
+						</p>
+					{/if}
+				</InfoTip>
+			</h2>
 			<p class="hint">
 				Live preview for <code>{previewSymbol}</code> × {PREVIEW_COUNT}:
 				<strong class="preview">{toastPreview || '—'}</strong>
@@ -808,13 +819,14 @@
 					checked={doc.toast?.symbolAsImage ?? false}
 					onchange={(e) => setSymbolAsImage(e.currentTarget.checked)}
 				/>
-				<span
-					>Show the symbol as an <strong>image</strong> instead of its name — the
+				<span>Show the symbol as an <strong>image</strong> instead of its name</span>
+				<InfoTip>
+					The
 					<code>{'{symbolName}'}</code> in the toast is drawn as the symbol itself, sized to the text.
 					An animated symbol — flipbook or rig — is held on its first frame: the token stands in for a
 					NAME, and something moving inside a sentence pulls the eye off the words. Falls back to the
-					name if a symbol has no art.</span
-				>
+					name if a symbol has no art.
+				</InfoTip>
 			</label>
 			{#if doc.toast?.symbolAsImage}
 				<label class="single size">
@@ -838,25 +850,29 @@
 					/>
 					<em>% of the text height</em>
 				</label>
-				<p class="hint">
+				<InfoTip label="Symbol size">
 					How tall the symbol is drawn in the <strong>info bar</strong> only — 100% stands as tall as
 					the words, whatever the size of the bar's text box. The text keeps its size, unless a much wider
 					symbol makes the line too long for the bar.
-				</p>
+				</InfoTip>
 			{/if}
 		</section>
 
 		{#if data.capabilities.freeSpins}
 			<section>
-				<h2>Free spins</h2>
-				<p class="hint">
-					The celebration line shown when a player wins <strong>extra free spins mid-feature</strong
-					>
-					(a retrigger). Write <code>{'{count}'}</code> where the number of extra spins goes, so it
-					reads <em>“You won +10 Extra Free Spins”</em>. Authored as one sentence so it
-					<a href={resolve('/localization')}>translates</a> correctly. Bind a text node's source to
-					<code>freeSpinsAddedText</code> to show it (or <code>freeSpinsAdded</code> for a bare number).
-				</p>
+				<h2>
+					Free spins
+					<InfoTip>
+						The celebration line shown when a player wins <strong
+							>extra free spins mid-feature</strong
+						>
+						(a retrigger). Write <code>{'{count}'}</code> where the number of extra spins goes, so
+						it reads <em>“You won +10 Extra Free Spins”</em>. Authored as one sentence so it
+						<a href={resolve('/localization')}>translates</a> correctly. Bind a text node's source
+						to
+						<code>freeSpinsAddedText</code> to show it (or <code>freeSpinsAdded</code> for a bare number).
+					</InfoTip>
+				</h2>
 				<label class="single">
 					<span>Retrigger (+N extra)</span>
 					<input
@@ -913,22 +929,24 @@
 		{/if}
 
 		{#if data.capabilities.holdAndWin}
-			<p class="hint">
+			<InfoTip label="Hold and Win lines">
 				Every line here is what the game draws. The respin counter lines — <em>Respin counter</em>,
 				<em>Respins awarded</em>, <em>Respins reset</em>, <em>Last respin</em> — are what the coded
 				counter shows, and what an authored Respin Counter shows when its source is
 				<code>respinCounterText</code>. The intro and outro are empty until you write them, and draw
 				nothing until then.
-			</p>
+			</InfoTip>
 			{#if data.respinModes.length > 1}
 				<section>
-					<h2>Respin mode</h2>
-					<p class="hint">
-						This game has several respin modes, and each speaks its own jackpot, respin, wheel and
-						feature total / intro / outro lines. The primary's are every mode's fallback: a line
-						another mode leaves blank reads the primary's (shown greyed in its field). The special,
-						collector and pot names are the whole game's, written on the primary.
-					</p>
+					<h2>
+						Respin mode
+						<InfoTip>
+							This game has several respin modes, and each speaks its own jackpot, respin, wheel and
+							feature total / intro / outro lines. The primary's are every mode's fallback: a line
+							another mode leaves blank reads the primary's (shown greyed in its field). The
+							special, collector and pot names are the whole game's, written on the primary.
+						</InfoTip>
+					</h2>
 					<label class="single">
 						<span>Editing</span>
 						<select bind:value={editMode}>
@@ -944,15 +962,17 @@
 				</section>
 			{/if}
 			<section>
-				<h2>Jackpots</h2>
-				<p class="hint">
-					What the player reads for each jackpot tier, and the banners a jackpot win shows. The
-					tiers are this game's own, from <a href={resolve('/config')}>Invisible Game Config</a>;
-					leave a tier blank and it is called by its config name. Write <code>{'{jackpot}'}</code>
-					where the tier's caption goes (the tier it rose to, on an upgrade) and
-					<code>{'{amount}'}</code> for what it paid — for a progressive tier, the live pool the server
-					paid out, not its seed.
-				</p>
+				<h2>
+					Jackpots
+					<InfoTip>
+						What the player reads for each jackpot tier, and the banners a jackpot win shows. The
+						tiers are this game's own, from <a href={resolve('/config')}>Invisible Game Config</a>;
+						leave a tier blank and it is called by its config name. Write <code>{'{jackpot}'}</code>
+						where the tier's caption goes (the tier it rose to, on an upgrade) and
+						<code>{'{amount}'}</code> for what it paid — for a progressive tier, the live pool the server
+						paid out, not its seed.
+					</InfoTip>
+				</h2>
 				{#each jackpotTiers as tier (tier)}
 					<label class="single">
 						<span>{tier}</span>
@@ -982,12 +1002,14 @@
 			</section>
 
 			<section>
-				<h2>Respins</h2>
-				<p class="hint">
-					The respin counter and its moments. <code>{'{count}'}</code> is a number of respins — the respins
-					left on the counter, the respins awarded when the feature starts, the respins an add-respins
-					special adds.
-				</p>
+				<h2>
+					Respins
+					<InfoTip>
+						The respin counter and its moments. <code>{'{count}'}</code> is a number of respins — the
+						respins left on the counter, the respins awarded when the feature starts, the respins an add-respins
+						special adds.
+					</InfoTip>
+				</h2>
 				{#each WIN_TEXT_RESPIN_FIELDS as field (field)}
 					<label class="single">
 						<span>{WIN_TEXT_RESPIN_LABELS[field]}</span>
@@ -1003,19 +1025,22 @@
 
 			{#if onPrimary}
 				<section>
-					<h2>Hold and Win feature</h2>
-					<p class="hint">
-						The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
-						<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins
-						or another mode reads as its own pot name, below) and
-						<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
-						names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro
-						and outro draw nothing until you write them. Each announced line shows on the
-						<em>Board banner</em>
-						(the built-in plate, or its banner screen in the Scene Editor), in the <em>Info bar</em>
-						with the game's other messages, in both, or nowhere (<em>Off</em>); the beat keeps its
-						pacing either way.
-					</p>
+					<h2>
+						Hold and Win feature
+						<InfoTip>
+							The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
+							<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free
+							spins or another mode reads as its own pot name, below) and
+							<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
+							names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The
+							intro and outro draw nothing until you write them. Each announced line shows on the
+							<em>Board banner</em>
+							(the built-in plate, or its banner screen in the Scene Editor), in the
+							<em>Info bar</em>
+							with the game's other messages, in both, or nowhere (<em>Off</em>); the beat keeps its
+							pacing either way.
+						</InfoTip>
+					</h2>
 					{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
 						<label class="single">
 							<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
@@ -1038,11 +1063,11 @@
 							>
 						</label>
 					{/each}
-					<p class="hint">
+					<InfoTip label="Names">
 						Names: the specials (as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write
 						them), the collector levels the wheel raises (<code>{'{level}'}</code>; an unnamed level
 						reads ×4) and this game's pots (<code>{'{pot}'}</code>):
-					</p>
+					</InfoTip>
 					{#each nameRows as row (`${row.map}:${row.key}`)}
 						<label class="single">
 							<span>{row.label}</span>
@@ -1056,12 +1081,15 @@
 				</section>
 			{:else}
 				<section>
-					<h2>Hold and Win feature — {editing?.label}</h2>
-					<p class="hint">
-						This mode's total, intro and outro. <code>{'{amount}'}</code> is the feature's total and
-						<code>{'{count}'}</code> the respins it opens with. The other feature lines and the names
-						are the whole game's — switch to the primary to edit them.
-					</p>
+					<h2>
+						Hold and Win feature — {editing?.label}
+						<InfoTip>
+							This mode's total, intro and outro. <code>{'{amount}'}</code> is the feature's total
+							and
+							<code>{'{count}'}</code> the respins it opens with. The other feature lines and the names
+							are the whole game's — switch to the primary to edit them.
+						</InfoTip>
+					</h2>
 					{#each WIN_TEXT_MODE_FEATURE_FIELDS as field (field)}
 						<label class="single">
 							<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
@@ -1078,13 +1106,15 @@
 
 			{#if editing?.hasWheel}
 				<section>
-					<h2>Wheel</h2>
-					<p class="hint">
-						The pre-feature wheel: its segment labels and the banner its prize shows.
-						<code>{'{count}'}</code> is the boost multiplier or the number of extra collects,
-						<code>{'{level}'}</code> the collector's new level. A jackpot segment reads its tier's caption
-						from above.
-					</p>
+					<h2>
+						Wheel
+						<InfoTip>
+							The pre-feature wheel: its segment labels and the banner its prize shows.
+							<code>{'{count}'}</code> is the boost multiplier or the number of extra collects,
+							<code>{'{level}'}</code> the collector's new level. A jackpot segment reads its tier's caption
+							from above.
+						</InfoTip>
+					</h2>
 					{#each WIN_TEXT_WHEEL_FIELDS as field (field)}
 						<label class="single">
 							<span>{WIN_TEXT_WHEEL_LABELS[field]}</span>
@@ -1100,14 +1130,16 @@
 			{/if}
 		{:else if data.capabilities.pots}
 			<section>
-				<h2>Pots</h2>
-				<p class="hint">
-					The pots overlay's lines. <code>{'{pot}'}</code> is a pot's name (below),
-					<code>{'{level}'}</code> its fill and <code>{'{max}'}</code> the level that fills it;
-					<code>{'{meter}'}</code> in <em>Pot full</em> is the full pot's own name, since a pot here
-					starts free spins or another mode rather than a special. <em>Pot full</em> is saved and translated,
-					and shows once a beat uses it.
-				</p>
+				<h2>
+					Pots
+					<InfoTip>
+						The pots overlay's lines. <code>{'{pot}'}</code> is a pot's name (below),
+						<code>{'{level}'}</code> its fill and <code>{'{max}'}</code> the level that fills it;
+						<code>{'{meter}'}</code> in <em>Pot full</em> is the full pot's own name, since a pot
+						here starts free spins or another mode rather than a special. <em>Pot full</em> is saved and
+						translated, and shows once a beat uses it.
+					</InfoTip>
+				</h2>
 				{#each WIN_TEXT_POT_FIELDS as field (field)}
 					<label class="single">
 						<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
@@ -1128,11 +1160,11 @@
 						>
 					</label>
 				{/each}
-				<p class="hint">
+				<InfoTip label="Pot names">
 					This game's pots, from <a href={resolve('/config')}>Invisible Game Config</a> (<code
 						>{'{pot}'}</code
 					>; an unnamed pot reads its id in capitals):
-				</p>
+				</InfoTip>
 				{#each potNameRows as row (row.key)}
 					<label class="single">
 						<span>{row.label}</span>
@@ -1147,13 +1179,15 @@
 		{/if}
 
 		<section>
-			<h2>Platform jackpot</h2>
-			<p class="hint">
-				The operator's own jackpot, which runs above the game in any kind of game. It shows only
-				where the casino's platform runs one. Its tiers are the platform's names. Leave one blank
-				and it is written in capitals. <code>{'{jackpot}'}</code> is the tier's caption and
-				<code>{'{amount}'}</code> is what the platform paid.
-			</p>
+			<h2>
+				Platform jackpot
+				<InfoTip>
+					The operator's own jackpot, which runs above the game in any kind of game. It shows only
+					where the casino's platform runs one. Its tiers are the platform's names. Leave one blank
+					and it is written in capitals. <code>{'{jackpot}'}</code> is the tier's caption and
+					<code>{'{amount}'}</code> is what the platform paid.
+				</InfoTip>
+			</h2>
 			{#each PLATFORM_TIERS as tier (tier)}
 				<label class="single">
 					<span>{tier}</span>
@@ -1218,15 +1252,6 @@
 		max-width: 1400px;
 		width: 100%;
 		margin: 0 auto;
-	}
-	.intro {
-		margin: 0 0 24px;
-		font-size: 13px;
-		color: #b9b9c4;
-		line-height: 1.6;
-	}
-	.intro a {
-		color: #7ee0c0;
 	}
 	section {
 		margin-bottom: 34px;

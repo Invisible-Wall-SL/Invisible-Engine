@@ -15,6 +15,7 @@
 	import { invalidateAll, replaceState } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import VideoMode from './VideoMode.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
@@ -1155,10 +1156,10 @@
 					<a class="pexport" href={resolve('/api/flipbook/animations')} download
 						>⤓ Export all clips</a
 					>
-					<p class="phint">
-						An <b>animation</b> plist (ordered frames + timing), not a sprite-sheet plist — those go
-						in the Sheet Maker.
-					</p>
+					<InfoTip label="Animation plist">
+						An <b>animation</b> plist (ordered frames + timing), not a sprite-sheet plist — those go in
+						the Sheet Maker.
+					</InfoTip>
 					{#if importNote}<p class="pnote">{importNote}</p>{/if}
 					{#if importError}
 						<p class="perr">{importError}</p>
@@ -1506,12 +1507,14 @@
 				</select>
 				{#if sequenceOffers.length > 0}
 					<div class="seqs">
-						<h4>Detected animation{sequenceOffers.length === 1 ? '' : 's'}</h4>
-						<p class="seqhint">
-							Consecutively-numbered regions — probably one animation each. Sheets are combined only
-							when their frame numbers do NOT overlap (a multipacked atlas); sheets that reuse the
-							same numbering each get their own run, so a clip never mixes two symbols.
-						</p>
+						<h4>
+							Detected animation{sequenceOffers.length === 1 ? '' : 's'}
+							<InfoTip alignEnd>
+								Consecutively-numbered regions — probably one animation each. Sheets are combined
+								only when their frame numbers do NOT overlap (a multipacked atlas); sheets that
+								reuse the same numbering each get their own run, so a clip never mixes two symbols.
+							</InfoTip>
+						</h4>
 						<!-- Keyed by sheet + FIRST FRAME, not by stem: one sheet can offer several runs of the
 					     same stem (a gap splits a run), and every Sheet-Maker sheet uses the stem `frame`,
 					     so a stem key collides and Svelte drops rows. A run's first frame is unique. -->
@@ -2017,12 +2020,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: #7dd3fc;
-	}
-	.seqhint {
-		margin: 0 0 7px;
-		font-size: 11px;
-		line-height: 1.35;
-		color: #7c8798;
 	}
 	.seq {
 		display: flex;
