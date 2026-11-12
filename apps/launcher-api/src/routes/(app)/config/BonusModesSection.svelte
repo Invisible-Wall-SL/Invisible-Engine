@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ConfigIconButton from './ConfigIconButton.svelte';
+	import ConfigSection from './ConfigSection.svelte';
 	import {
 		BASE_GAME_MODE,
 		HOLD_AND_WIN_MODE,
@@ -179,8 +181,7 @@
 	{/each}
 {/snippet}
 
-<section class="bonus">
-	<h2>Bonus modes</h2>
+<ConfigSection id="bonusModes" title="Bonus modes">
 	<p class="hint">
 		The games a bonus switches into. A <strong>respin mode</strong> is a Hold and Win game of its
 		own, with its own rules, respin strips and symbols; a project can have several. What starts each
@@ -222,18 +223,22 @@
 			{@const strips = doc.paddingReels[gameType]?.length ?? 0}
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row tight">
-					<h3>{mode.label ?? mode.id}</h3>
 					{#if mode.holdAndWin}
-						<button
-							class="small push"
-							aria-expanded={!folded[mode.id]}
+						<ConfigIconButton
+							icon="chevron"
+							label={folded[mode.id] ? 'Show rules' : 'Fold rules'}
+							expanded={!folded[mode.id]}
 							onclick={() => (folded[mode.id] = !folded[mode.id])}
-							>{folded[mode.id] ? 'Show rules' : 'Hide rules'}</button
-						>
+						/>
 					{/if}
-					<button class="small danger" class:push={!mode.holdAndWin} onclick={() => remove(mode.id)}
-						>Remove</button
-					>
+					<h3>{mode.label ?? mode.id}</h3>
+					<span class="push"></span>
+					<ConfigIconButton
+						icon="trash"
+						label="Remove {mode.label ?? mode.id}"
+						danger
+						onclick={() => remove(mode.id)}
+					/>
 				</div>
 				<div class="row">
 					<label
@@ -278,6 +283,12 @@
 			{@const routes = routesOf(mode.id)}
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row tight">
+					<ConfigIconButton
+						icon="chevron"
+						label={folded[mode.id] ? 'Show rules' : 'Fold rules'}
+						expanded={!folded[mode.id]}
+						onclick={() => (folded[mode.id] = !folded[mode.id])}
+					/>
 					<h3>{mode.label ?? mode.id}</h3>
 					<span class="note"
 						><code>{mode.id}</code> · N spins of a game, then back · started by {routes
@@ -285,9 +296,17 @@
 							.join(', ') ||
 							'nothing yet — route a pot, a buy, Lucky Spin or the random metre to it in Coin overlay'}</span
 					>
-					<button class="small danger push" onclick={() => removeSpins(mode.id)}>Remove</button>
+					<span class="push"></span>
+					<ConfigIconButton
+						icon="trash"
+						label="Remove {mode.label ?? mode.id}"
+						danger
+						onclick={() => removeSpins(mode.id)}
+					/>
 				</div>
-				<SpinsModeEditor bind:doc {mode} {issuesFor} {readOnly} />
+				{#if !folded[mode.id]}
+					<SpinsModeEditor bind:doc {mode} {issuesFor} {readOnly} />
+				{/if}
 			</fieldset>
 		{/if}
 	{/each}
@@ -324,20 +343,9 @@
 	{#if !bonusModes.some((b) => b.mode.id !== BASE_GAME_MODE)}
 		<p class="note">This project has no bonus mode.</p>
 	{/if}
-</section>
+</ConfigSection>
 
 <style>
-	.bonus {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	h3 {
 		margin: 0;
 		font-size: 12px;
@@ -425,8 +433,5 @@
 	}
 	.inline-issue.info {
 		color: #8fc7ff;
-	}
-	button.danger {
-		color: #ff8a8a;
 	}
 </style>

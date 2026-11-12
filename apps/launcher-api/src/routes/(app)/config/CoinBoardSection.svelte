@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ConfigSection from './ConfigSection.svelte';
 	import {
 		COIN_BOARD_PAY_RULES,
 		activePaylineIds,
@@ -162,8 +163,7 @@
 	</div>
 {/snippet}
 
-<section class="coin-board">
-	<h2>Coin board</h2>
+<ConfigSection id="coinBoard" title="Coin board">
 	<p class="hint">
 		<strong>Lines game</strong>: the base game spins the reels, and enough coins start the Hold and
 		Win. <strong>Coin board only</strong>: there is no line game — every spin deals coins and blanks
@@ -349,20 +349,9 @@
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 		{/each}
 	</fieldset>
-</section>
+</ConfigSection>
 
 <style>
-	.coin-board {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	.legend em,
 	label span em {
 		font-style: normal;

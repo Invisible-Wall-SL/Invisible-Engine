@@ -25,6 +25,11 @@ before — an un-authored project still runs the compiled template.
 
 ## The panels
 
+Every panel is a card with a **chevron** before its title: click either to fold it to its
+header. The fold is remembered in this browser (for every project) and never saved to the config.
+Respin and spins modes inside **Bonus modes** fold the same way, and a **bin** icon on a card's
+header removes it (it always asks first).
+
 - **Return to player** — the declared RTP. The Game Maker card renders it as the
   game's `97% RTP` chip, and the in-game info page's rules add an **RTP — 97.00%**
   rule — but only where the operator allows RTP display (`showTheoreticalPayback`);
@@ -435,7 +440,7 @@ only then does it join the config, because a pot missing either would be dropped
 discards a draft, or removes a pot along with its drop-table rows. The last pot's **×** works
 exactly like setting **How many** to 0 (same rule, same coin row), and the last value-coin row can
 go only while there is a pot (the **×** is greyed out otherwise; hover it for why) — to take out
-both, use **Remove pots and drops**. With no pots the table says _No pots: value coins only_.
+both, use the **bin** on the Pots and drops header. With no pots the table says _No pots: value coins only_.
 Changing **How many** discards open drafts first.
 
 **Drops** — mock math; the real RGS decides what drops:
@@ -467,7 +472,7 @@ what the game shows; the server never sees it.
 
 Problems show under the row or field they belong to, and that field gets a red border.
 
-**Remove pots and drops** asks first, then takes out the pots, the drop table and their token
+The **bin** on the Pots and drops header asks first, then takes out the pots, the drop table and their token
 symbols. If the Hold and Win is the overlay's bonus, its respin mode goes too, with its respin
 strips and symbols. Everything else in the config is kept.
 
@@ -538,8 +543,8 @@ What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _C
   `holdAndWin` id is locked: its screens and its Flow tab know the mode by that name.
 - Its **respin strips** (the game type they pad from, and how many reels) and what it is **started
   by** (or _nothing yet — route a trigger or a pot to it in Coin overlay_).
-- **Show rules** / **Hide rules** folds its rules editor (below).
-- **Remove** asks first, then takes out its rules, every trigger and meter that starts it, its
+- The **chevron** before its name folds its rules editor (below).
+- The **bin** asks first, then takes out its rules, every trigger and meter that starts it, its
   respin strips and the Hold and Win symbols only they deal. A pot that started it is re-routed to
   free spins — or, with free spins off, removed with its drops; a note under the heading says which.
   The rest of the config is kept.
@@ -692,7 +697,7 @@ Lucky Spin or the random metre to it in Coin overlay_), then:
 - **Strips** — which strip set it plays and how many reels it has. When that does not match its
   grid, **Fit strips to N reels** cycles or cuts them; with no strips, **Copy the base strips**
   copies the base game's.
-- **Remove** asks first, then takes out its game, its strips and every route to it. A pot that
+- The **bin** asks first, then takes out its game, its strips and every route to it. A pot that
   started it is re-routed to free spins, or removed when free spins are off.
 
 A field left on the base game's is not stored: the mode follows the base game for it, so a later

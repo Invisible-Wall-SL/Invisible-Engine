@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ConfigSection from './ConfigSection.svelte';
 	import { resolve } from '$app/paths';
 
 	import {
@@ -121,8 +122,7 @@
 	{/each}
 {/snippet}
 
-<section>
-	<h2>Game family</h2>
+<ConfigSection id="family" title="Game family">
 	<p class="hint">
 		What kind of game this is. A <strong>slot</strong> spins reels. A <strong>match-3</strong>
 		board does not spin: the player swaps two gems, runs explode, the rest fall and refill. An
@@ -179,11 +179,10 @@
 	</fieldset>
 	{@render issueList('family')}
 	{@render issueList('outcome')}
-</section>
+</ConfigSection>
 
 {#if family === 'match3'}
-	<section>
-		<h2>Match-3</h2>
+	<ConfigSection id="match3" title="Match-3">
 		<p class="hint">
 			The board is the <strong>Grid</strong> above — its reels are the columns. A swap that lines up
 			at least the <strong>minimum run</strong> of one gem in a row or a column matches. Each
@@ -301,12 +300,11 @@
 		</fieldset>
 		{@render issueList('match3')}
 		{@render issueList('numRows')}
-	</section>
+	</ConfigSection>
 {/if}
 
 {#if family === 'arcade'}
-	<section>
-		<h2>Arcade</h2>
+	<ConfigSection id="arcade" title="Arcade">
 		<p class="hint">
 			The <strong>play field</strong> is where objects move, in design pixels; left empty it is the
 			screen. The game steps its motion a fixed number of times a second, so a replay is exact at
@@ -543,15 +541,14 @@
 		{#each issuesFor('arcade').filter((i) => !i.path.startsWith('arcade.online')) as issue (issue.path + issue.message)}
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 		{/each}
-	</section>
+	</ConfigSection>
 	{#if doc.arcade?.online}
 		<OnlineSection bind:doc online={doc.arcade.online} {issuesFor} {readOnly} />
 	{/if}
 {/if}
 
 {#if family === 'card'}
-	<section>
-		<h2>Card game</h2>
+	<ConfigSection id="cardGame" title="Card game">
 		<p class="hint">
 			One player duels an AI on the device. Each side has a fixed <strong>deck</strong>, a hand, a
 			board of units, a hero with <strong>health</strong> and a <strong>resource</strong> that grows
@@ -611,21 +608,10 @@
 			</p>
 		</fieldset>
 		{@render issueList('card')}
-	</section>
+	</ConfigSection>
 {/if}
 
 <style>
-	section {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	.hint {
 		margin: 0 0 12px;
 		font-size: 12px;
