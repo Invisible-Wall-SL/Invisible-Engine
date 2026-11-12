@@ -19,17 +19,17 @@
 		"config-svelte": "workspace:*",
 		"config-lingui": "workspace:*",
 		"config-storybook": "workspace:*",
-		"@storybook/addon-svelte-csf": "5.1.5",
+		"@storybook/addon-svelte-csf": "5.1.6",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
-		"svelte-check": "4.7.7"
+		"svelte-check": "4.7.8"
 	},
 	"dependencies": {
 		"lodash": "4.18.1",
 		"@types/lodash": "4.17.27",
-		"svelte": "5.57.2",
+		"svelte": "5.57.3",
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.70.3",
-		"@lingui/core": "6.10.1",
+		"@lingui/core": "6.12.0",
 		"rgs-requests": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"engine-layout": "workspace:*",

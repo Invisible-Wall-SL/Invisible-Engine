@@ -74,11 +74,6 @@
       "count": 1
     }
   },
-  "apps/launcher-api/src/lib/BootMarkPreview.svelte": {
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
   "apps/launcher-api/src/lib/BootSplash.svelte": {
     "svelte/no-at-html-tags": {
       "count": 1
@@ -346,16 +341,6 @@
       "count": 4
     }
   },
-  "apps/lines/src/stories/EngineLayoutValueFeed.stories.svelte": {
-    "svelte/prefer-svelte-reactivity": {
-      "count": 1
-    }
-  },
-  "apps/lines/src/stories/HudComponentInstance.stories.svelte": {
-    "svelte/prefer-svelte-reactivity": {
-      "count": 1
-    }
-  },
   "apps/number-picker/src/game/bookEventHandlerMap.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 11
@@ -476,20 +461,12 @@
       "count": 1
     }
   },
-  "packages/engine-game/src/components/CountUpInteraction.svelte": {
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
   "packages/engine-game/src/game/playBook.ts": {
     "turbo/no-undeclared-env-vars": {
       "count": 1
     }
   },
   "packages/engine-layout/src/lib/ComponentInstance.svelte": {
-    "no-useless-assignment": {
-      "count": 1
-    },
     "svelte/prefer-svelte-reactivity": {
       "count": 4
     }
@@ -740,18 +717,8 @@
       "count": 1
     }
   },
-  "tools/flow-spike/phase4Runtime.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "tools/flow-spike/vocabulary.ts": {
     "no-useless-assignment": {
-      "count": 1
-    }
-  },
-  "tools/flow-spike/winInfoParity.ts": {
-    "@typescript-eslint/no-unused-vars": {
       "count": 1
     }
   },
