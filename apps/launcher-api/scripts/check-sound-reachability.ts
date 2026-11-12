@@ -17,12 +17,14 @@
  *  2. A sound nothing names does not ship.
  *  3. Uncertainty keeps: a flow sound cue fed by a wire, an accessor or a data edge, in the flow or
  *     a library function, ships every sound.
- *  4. Through the REAL `exportProjectSounds` over mocked storage: `deploy/sounds/` and the catalog
+ *  4. The STOCK list (`catalog.stock`): exactly the engine's stock sounds the data names, a cue's
+ *     included, and none when a name is built at run time (the runtime then loads every bank).
+ *  5. Through the REAL `exportProjectSounds` over mocked storage: `deploy/sounds/` and the catalog
  *     hold exactly the played sounds, a previously exported unplayed file is pruned, the pinned
  *     version is read by its number, the runtime pass's cinematics are used rather than re-read, an
- *     unreadable source or a partly read cinematic list ships everything, and a library of
- *     engine-named sounds only reads nothing else.
- *  5. The rule's two "not a source" claims still hold in the code: no FX effect plays a sound, and
+ *     unreadable source or a partly read cinematic list ships everything and lists no stock, and a
+ *     game with no library of its own still gets its stock list.
+ *  6. The rule's two "not a source" claims still hold in the code: no FX effect plays a sound, and
  *     no runtime code reads a rig event's `audio`. Every shipped audiosprite region and every slot
  *     default is an engine name.
  */
@@ -118,9 +120,12 @@ mock.module(server('cinematicExport.ts'), {
 const {
 	ENGINE_SOUND_NAMES,
 	collectSoundNames,
+	namedSoundNames,
 	namesSoundAtRunTime,
 	playedSoundNames,
 	shippedSoundEntries,
+	stockSoundReach,
+	withEngineNames,
 } = await import('../src/lib/server/soundReachability.ts');
 type SoundSources = Parameters<typeof playedSoundNames>[0];
 
@@ -220,6 +225,7 @@ const SOURCES: SoundSources = {
 		version: 2,
 		graph: graph([
 			cueNode('c1', 'soundOnce', lit('SoundEffectName', 'flow_once')),
+			cueNode('c5', 'soundOnce', lit('SoundEffectName', 'jng_intro_fs')),
 			{ id: 'g1', kind: 'group', body: graph([cueNode('c2', 'soundOnce', lit('SoundEffectName', 'group_flow'))]) }, // prettier-ignore
 		]),
 		modes: { holdAndWin: { graph: graph([cueNode('c3', 'soundMusic', lit('MusicName', 'mode_flow'))]) } }, // prettier-ignore
@@ -237,6 +243,7 @@ const SOURCES: SoundSources = {
 					keys: [
 						{ time: 0, cue: 'sfx:cine_hit', sound: { pick: ['cine_pick'] } },
 						{ time: 1, cue: 'stop:music:cine_stop' },
+						{ time: 2, cue: 'sfx:sfx_superfreespin' },
 					],
 				},
 			],
@@ -339,7 +346,50 @@ for (const [name, mutant] of Object.entries(MUTANTS)) {
 	if (failed.length) console.log(`  mutant "${name}" caught by: ${failed[0]}`);
 }
 
-// ── 4. Through the real export, over the mocked storage ─────────────────────────
+// ── 4. The stock list, and each of its mutants ──────────────────────────────────
+/** The stock sounds SOURCES names: a flow cue's literal and a cinematic cue's sound. */
+const STOCK_NAMED = ['jng_intro_fs', 'sfx_superfreespin'];
+type StockRule = (sources: SoundSources) => string[] | undefined;
+function stockClaims(rule: StockRule): string[] {
+	const failed: string[] = [];
+	if (JSON.stringify(rule(SOURCES)) !== JSON.stringify(STOCK_NAMED))
+		failed.push(`4. the stock list is exactly ${STOCK_NAMED.join(', ')}`);
+	for (const [label, over] of Object.entries(DYNAMIC)) {
+		if (rule({ ...SOURCES, ...over }) !== undefined) failed.push(`4. ${label} lists no stock`);
+	}
+	return failed;
+}
+const realStock: StockRule = (sources) => stockSoundReach(namedSoundNames(sources))?.names;
+check('stock: the real list passes every claim', stockClaims(realStock), []);
+check(
+	'stock: the list carries the version the runtime trusts',
+	stockSoundReach(namedSoundNames(SOURCES))?.version,
+	(await import('engine-layout')).STOCK_SOUND_REACH_VERSION,
+);
+const STOCK_MUTANTS: Record<string, StockRule> = {
+	'every engine name listed (the played set)': (sources) => {
+		const named = namedSoundNames(sources);
+		return named ? stockSoundReach(withEngineNames(named))?.names : undefined;
+	},
+	'exact strings only (a cue string is not parsed)': (sources) => {
+		if (namesSoundAtRunTime(sources.flow) || namesSoundAtRunTime(sources.flowLibrary)) return undefined; // prettier-ignore
+		const names = new Set<string>();
+		exactStrings(Object.values(sources), names);
+		return stockSoundReach(names)?.names;
+	},
+	'a list despite a name built at run time': (sources) => {
+		const names = new Set<string>();
+		collectSoundNames(Object.values(sources), names);
+		return stockSoundReach(names)?.names;
+	},
+};
+for (const [name, mutant] of Object.entries(STOCK_MUTANTS)) {
+	const failed = stockClaims(mutant);
+	check(`stock mutant "${name}" is caught`, failed.length > 0, true);
+	if (failed.length) console.log(`  stock mutant "${name}" caught by: ${failed[0]}`);
+}
+
+// ── 5. Through the real export, over the mocked storage ─────────────────────────
 const { exportProjectSounds } = await import('../src/lib/server/soundExport.ts');
 const SRC = `${CLIENT}/${PROJECT}/sounds/files/`;
 const OUT = `${CLIENT}/${PROJECT}/deploy/sounds/`;
@@ -354,9 +404,15 @@ const exportNow = async (preloaded?: Parameters<typeof exportProjectSounds>[2]) 
 	return {
 		catalog: catalog.sounds.map((s) => s.name).sort(),
 		files: keysUnder(OUT).map((k) => k.slice(OUT.length)),
+		stock: catalog.stock?.names,
 	};
 };
 const ALL = LIBRARY.map((e) => e.name);
+const LAYOUT_KEY = (await import('../src/lib/server/projectPaths.ts')).editorDocKey(
+	CLIENT,
+	PROJECT,
+);
+R2.set(LAYOUT_KEY, '{}');
 const PLAYED_NAMES = Object.keys(PLAYED);
 
 useLibrary(ALL);
@@ -380,6 +436,7 @@ R2.set(`${OUT}${fileOf('unused_take')}`, 'exported by an older export');
 	);
 	check('export: the pinned version is read by its number', reads.includes(`pinned(banner,${PROJECT},3)`), true); // prettier-ignore
 	check('export: a route call reads the cinematics itself', reads.includes(`cinematics(${CLIENT},${PROJECT})`), true); // prettier-ignore
+	check('export: the catalog lists the stock sounds the data names', out.stock, STOCK_NAMED);
 }
 {
 	const preloaded = Promise.resolve(cinematics());
@@ -392,27 +449,33 @@ for (const source of ['layout', 'componentDefs', 'pinned', 'flow', 'cinematics',
 	const out = await exportNow();
 	failSource = null;
 	check(`export: an unreadable ${source} ships every sound`, out.catalog, [...ALL].sort());
+	check(`export: …and lists no stock (every bank loads)`, out.stock, undefined);
 }
 {
 	partialCinematics = true;
 	const out = await exportNow();
 	partialCinematics = false;
 	check('export: a cinematic the listing could not read ships every sound', out.catalog, [...ALL].sort()); // prettier-ignore
+	check('export: …and lists no stock', out.stock, undefined);
 }
 {
 	useLibrary(['sfx_btn_spin', 'bgm_main']);
 	const out = await exportNow();
 	check('export: engine-named sounds only ship whole', out.catalog, ['bgm_main', 'sfx_btn_spin']);
-	check('export: …without reading a single other doc', reads, []);
+	check('export: …and the stock list is still written', out.stock, STOCK_NAMED);
 }
 {
 	useLibrary([]);
 	const out = await exportNow();
-	check('export: an empty library reads nothing and ships nothing', [reads, out.catalog], [[], []]);
+	check('export: an empty library ships nothing', out.catalog, []);
 	check('export: …and prunes what an older export left', out.files, ['index.json']);
+	check('export: …and a game with no library of its own gets its stock list', out.stock, STOCK_NAMED); // prettier-ignore
+	R2.delete(LAYOUT_KEY);
+	check('export: a project with no layout of its own lists no stock (every bank)', (await exportNow()).stock, undefined); // prettier-ignore
+	R2.set(LAYOUT_KEY, '{}');
 }
 
-// ── 5. The "not a source" claims, held to the code ───────────────────────────────
+// ── 6. The "not a source" claims, held to the code ───────────────────────────────
 const ROOT = new URL('../../../', import.meta.url).pathname;
 function filesUnder(dir: string): string[] {
 	const out: string[] = [];
@@ -437,10 +500,15 @@ check(
 		.filter((f) => /\baudioPath\b/.test(readFileSync(join(ROOT, f), 'utf8'))),
 	[],
 );
-const sprite = JSON.parse(readFileSync(join(ROOT, 'apps/lines/static/assets/audio/sounds.json'), 'utf8')); // prettier-ignore
+// The stock audio's manifest: banks, or the single sprite it was before them.
+const stockAudio = JSON.parse(readFileSync(join(ROOT, 'apps/lines/static/assets/audio/sounds.json'), 'utf8')) as { sprite?: Record<string, unknown>; banks?: { sprite: Record<string, unknown> }[] }; // prettier-ignore
+const stockNames = stockAudio.banks
+	? stockAudio.banks.flatMap((bank) => Object.keys(bank.sprite))
+	: Object.keys(stockAudio.sprite ?? {});
+check('code: the stock sounds read', stockNames.length >= 50, true);
 check(
-	'code: every shipped audiosprite region is an engine name',
-	Object.keys(sprite.sprite).filter((n) => !ENGINE_SOUND_NAMES.has(n)),
+	'code: every shipped stock sound is an engine name',
+	stockNames.filter((n) => !ENGINE_SOUND_NAMES.has(n)),
 	[],
 );
 for (const ref of ['soundOnce', 'soundMusic', 'soundLoop', 'soundStop']) {
