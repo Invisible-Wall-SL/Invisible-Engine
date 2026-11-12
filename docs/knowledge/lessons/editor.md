@@ -13,7 +13,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
   draw uses `reelGridGeometry` (Game Config count + board nudge). Nudge Y −79 = one cell.
 - **Fix:** the box is `reelGridBox`, read off `reelGridGeometry` — one definition for both.
 - **Guard:** `check:reel-grid-box`.
-- **PR:** pending (2026-11-12) · source: `docs/status/editor.md`
+- **PR:** #1642 (2026-11-12) · source: `docs/status/editor.md`
 
 ### An added layout bucket drew a Stake-sized box and no coded HUD
 
