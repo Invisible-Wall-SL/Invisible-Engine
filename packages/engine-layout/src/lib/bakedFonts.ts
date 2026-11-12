@@ -16,6 +16,8 @@ import type { FontCatalog, FontEntry } from './fontCatalog';
 export interface BakedFontAsset {
 	type: 'font';
 	src: string;
+	/** The descriptor naming the uncompressed pages, when `src` is its KTX2 twin. */
+	fallback?: string;
 	preload: boolean;
 	/** The family key to register the loaded `BitmapFont` under — the font's unique
 	 *  `id`, so variants sharing a `<info face>` don't collide (see `bakedFontAssets`). */
@@ -40,18 +42,26 @@ export interface BakedFontAsset {
  * `bakedFontSrcBase()`; the live-runtime path (Invisible Game Maker) passes the launcher's
  * absolute `/api/deploy?…&rel=` base so a cross-origin generic bundle resolves the same files. Web fonts load via
  * {@link registerBakedWebFonts}. Empty catalog (un-baked / no fonts) ⇒ `{}`.
+ *
+ * `compressed` is the device's texture tier (`preferCompressedTextures` in `apps/lines`): there a
+ * font the export gave KTX2 twins loads its twin descriptor ({@link FontEntry.ktx2DescriptorFile}),
+ * with the plain descriptor as the `fallback` `AssetsLoader` loads if it fails.
  */
 export function bakedFontAssets(
 	catalog: FontCatalog | undefined,
 	srcBase: string,
+	compressed: boolean,
 ): Record<string, BakedFontAsset> {
 	const out: Record<string, BakedFontAsset> = {};
 	if (!catalog) return out;
 	for (const f of catalog.fonts) {
 		if (f.kind !== 'bitmap' || !f.descriptorFile) continue;
+		const at = (file: string) => `${srcBase}${catalog.prefix}/${f.folder}/${file}`;
 		out[`bakedFont/${f.id}`] = {
 			type: 'font',
-			src: `${srcBase}${catalog.prefix}/${f.folder}/${f.descriptorFile}`,
+			...(compressed && f.ktx2DescriptorFile
+				? { src: at(f.ktx2DescriptorFile), fallback: at(f.descriptorFile) }
+				: { src: at(f.descriptorFile) }),
 			preload: true,
 			family: f.id,
 		};

@@ -7,6 +7,7 @@ import {
 	probeTextRenders,
 	type ChurnCounts,
 } from './churnProbe';
+import { urlTail } from './ktx2Transcoder';
 import {
 	currentFrameAt,
 	frameJsMs,
@@ -101,6 +102,21 @@ export interface TextureFormatSummary {
 	mb: number;
 }
 
+/** One texture the renderer holds: where it came from and its GPU size. */
+export interface TextureListEntry {
+	/** The file it was loaded from (its last two path segments, so no token rides along), or
+	 *  Pixi's label for one made at runtime (`texturePool_3`: a text or a render target). */
+	src: string;
+	/** `compressed` (a KTX2 page), `image` (a WebP/PNG page), `canvas` (text drawn at runtime) or
+	 *  `target` (a render target, or a pooled texture holding nothing). */
+	kind: 'compressed' | 'image' | 'canvas' | 'target';
+	width: number;
+	height: number;
+	format: string;
+	/** Approximate GPU memory, MB (rounded to 0.01). */
+	mb: number;
+}
+
 const UPLOADS = new Set([
 	'texImage2D',
 	'texSubImage2D',
@@ -190,6 +206,44 @@ export function textureFormats(
 		.sort((a, b) => b.mb - a.mb);
 }
 
+/** A texture's source as the Copy names it: a URL's last two path segments, else its label. */
+const textureSrc = (label: string): string =>
+	label.startsWith('data:') ? 'data:' : /^(https?|blob|file):/.test(label) ? urlTail(label) : label;
+
+/**
+ * Every texture the renderer holds, largest first: what `?perf=1`'s Copy lists so a device reading
+ * says which pages a phone holds uncompressed, not only how many.
+ */
+export function textureList(
+	sources: readonly (TextureSource | null | undefined)[],
+): TextureListEntry[] {
+	const out: TextureListEntry[] = [];
+	for (const source of sources) {
+		if (!source) continue;
+		const format = String(source.format);
+		const resource: unknown = source.resource;
+		const kind =
+			source.uploadMethodId === 'compressed'
+				? 'compressed'
+				: resource == null
+					? 'target'
+					: /^texturePool_/.test(source.label ?? '') ||
+						  (typeof HTMLCanvasElement !== 'undefined' && resource instanceof HTMLCanvasElement) ||
+						  (typeof OffscreenCanvas !== 'undefined' && resource instanceof OffscreenCanvas)
+						? 'canvas'
+						: 'image';
+		out.push({
+			src: textureSrc(source.label ?? ''),
+			kind,
+			width: source.pixelWidth,
+			height: source.pixelHeight,
+			format,
+			mb: Math.round((source.pixelWidth * source.pixelHeight * bytesPerPixel(format)) / 1e4) / 100,
+		});
+	}
+	return out.sort((a, b) => b.mb - a.mb);
+}
+
 type GlMethod = (...args: unknown[]) => unknown;
 
 interface FilterSystemInternals {
@@ -248,6 +302,7 @@ interface HeapMemory {
 export interface RendererProbe {
 	info(): RendererInfo;
 	textures(): TextureFormatSummary[];
+	textureList(): TextureListEntry[];
 	dispose(): void;
 }
 
@@ -269,6 +324,9 @@ export function instrumentApp(
 ): RendererProbe {
 	const { renderer, ticker } = app;
 	const gl = (renderer as unknown as { gl: WebGL2RenderingContext }).gl;
+	// WebGL's texture system; the type is the union of every renderer's.
+	const managedTextures = () =>
+		(renderer.texture as unknown as { managedTextures: (TextureSource | null)[] }).managedTextures;
 	const native = Object.getPrototypeOf(gl) as WebGL2RenderingContext;
 	let frame = emptyGpuFrame();
 	const own = gl as unknown as Record<string, GlMethod>;
@@ -453,11 +511,10 @@ export function instrumentApp(
 			};
 		},
 		textures() {
-			// WebGL's texture system; the type is the union of every renderer's.
-			return textureFormats(
-				(renderer.texture as unknown as { managedTextures: (TextureSource | null)[] })
-					.managedTextures,
-			);
+			return textureFormats(managedTextures());
+		},
+		textureList() {
+			return textureList(managedTextures());
 		},
 		dispose() {
 			ticker.remove(onTickStart);

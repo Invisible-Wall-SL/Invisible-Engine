@@ -6,10 +6,10 @@ import {
 } from 'engine-layout';
 
 import { bootStockAssetData } from '../editor-scenes';
-import stockAssets from './assets';
 import { fallbackEditorScenes } from './fallbackLayout';
 import { getActiveGameConfig, getSymbolsInPlay } from './gameConfig';
 import { analyseStockAssets, withoutStockAssets } from './stockAssets';
+import { stockAssetsOnDevice } from './stateApp';
 import { ANTICIPATION_SWITCHES } from './stockAssetRules';
 
 /**
@@ -40,7 +40,9 @@ export function skipUnusedStockAssets<T extends Record<string, unknown>>(registe
 		config: getActiveGameConfig(),
 		symbolsInPlay: getSymbolsInPlay(),
 	});
-	const { assets, skipped } = withoutStockAssets(registered, stockAssets, needed);
+	// The table as this device registered it: on the compressed tier a twinned entry is not the
+	// coded one, and `withoutStockAssets` skips only an entry that is still the stock one.
+	const { assets, skipped } = withoutStockAssets(registered, stockAssetsOnDevice, needed);
 	const art = editorArtUnused.filter((key) => key in assets);
 	const kept: T = art.length ? { ...assets } : assets;
 	for (const key of art) delete kept[key];
