@@ -100,9 +100,12 @@ mock.module(src('lib/server/r2.ts'), {
 
 const SOURCE = 'hw-classic-sample';
 const HOST = 'borut-pots-sample';
+/** A collector + enhancements project made since #1603: its Enhancements screen is a base screen. */
+const ENH_SOURCE = 'hw-enhancements-sample';
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
-		projectGameType: async (p: string) => (p === SOURCE ? 'holdAndWin' : 'bookOf'),
+		projectGameType: async (p: string) =>
+			p === SOURCE || p === ENH_SOURCE ? 'holdAndWin' : 'bookOf',
 	},
 });
 
@@ -128,6 +131,7 @@ const {
 	applyBonusImport,
 	rewriteSourceRigs,
 	mergeImportedScreens,
+	ENHANCEMENTS_SCREEN,
 	mergeImportedWinText,
 	mergeImportedModeWinText,
 	spokenModeLines,
@@ -671,6 +675,284 @@ await check(
 		same(out.renamedScreens, ['hud_bonus → hud_bonus-2'], 'reported');
 	},
 );
+
+console.log('\n4b. a collector mode with enhancements: its one Enhancements screen');
+
+{
+	const scene = (id: string, extra: Partial<Scene> = {}) =>
+		({ id, name: id, nodes: [{ id: `${id}-node`, kind: 'sprite' }], ...extra }) as Scene;
+	const mode = { role: 'mode', modeId: 'holdAndWin' } as const;
+	const layout = (scenes: Scene[]) =>
+		({
+			version: 1,
+			projectKey: 'p',
+			mainSizesMap: {},
+			scenes,
+			updatedAt: '',
+		}) as unknown as LayoutDoc;
+	// A source made since #1603: the dials are a base screen, the banner the mode's own.
+	const newSource = layout([
+		scene('basegame'),
+		scene(ENHANCEMENTS_SCREEN, { name: 'Enhancements (source art)' }),
+		scene('respinBoard', mode),
+		scene('enhancementsBanner', mode),
+	]);
+	const roles = (doc: LayoutDoc) =>
+		doc.scenes.map((s) => [s.id, s.role ?? 'base', s.modeId ?? '', s.name]);
+	const shared = [ENHANCEMENTS_SCREEN];
+
+	await check('a new source into a layout without Enhancements brings it, as a base screen', () => {
+		const out = mergeImportedScreens(
+			layout([scene('basegame'), scene('respinBoard', mode), scene('outro')]),
+			newSource,
+			'holdAndWin',
+			'holdAndWin',
+			undefined,
+			undefined,
+			shared,
+		);
+		same(
+			roles(out.doc),
+			[
+				['basegame', 'base', '', 'basegame'],
+				['respinBoard', 'mode', 'holdAndWin', 'respinBoard'],
+				['enhancementsBanner', 'mode', 'holdAndWin', 'enhancementsBanner'],
+				[ENHANCEMENTS_SCREEN, 'base', '', 'Enhancements (source art)'],
+				['outro', 'base', '', 'outro'],
+			],
+			'screens',
+		);
+		same(out.ids.screens[ENHANCEMENTS_SCREEN], ENHANCEMENTS_SCREEN, 'mapped to itself');
+	});
+
+	await check('added as another respin mode, the base screen keeps its own id', () => {
+		const out = mergeImportedScreens(
+			layout([scene('basegame'), scene('respinBoard', mode)]),
+			newSource,
+			'collect2',
+			'holdAndWin',
+			(id) => `${id}-collect2`,
+			(name) => `${name} (Collect 2)`,
+			shared,
+		);
+		const enh = out.doc.scenes.find((s) => s.id === ENHANCEMENTS_SCREEN);
+		assert(enh && enh.role === undefined && enh.modeId === undefined, 'not a base screen');
+		same(enh.nodes[0]?.id, `${ENHANCEMENTS_SCREEN}-node`, 'its node keeps its id');
+		assert(
+			!out.doc.scenes.some((s) => s.id === `${ENHANCEMENTS_SCREEN}-collect2`),
+			'copied as a mode screen',
+		);
+	});
+
+	await check("a layout's own base Enhancements screen is kept, never doubled", () => {
+		const own = scene(ENHANCEMENTS_SCREEN, { name: 'Enhancements (host art)' });
+		const out = mergeImportedScreens(
+			layout([scene('basegame'), own, scene('respinBoard', mode)]),
+			newSource,
+			'holdAndWin',
+			'holdAndWin',
+			undefined,
+			undefined,
+			shared,
+		);
+		same(
+			out.doc.scenes.filter(
+				(s) => s.id.startsWith(ENHANCEMENTS_SCREEN) && s.id !== 'enhancementsBanner',
+			),
+			[own],
+			"the host's, byte for byte",
+		);
+		same(out.renamedScreens, [], 'nothing renamed');
+	});
+
+	await check("an older source's mode Enhancements screen uses a host's base one", () => {
+		const own = scene(ENHANCEMENTS_SCREEN, { name: 'Enhancements (host art)' });
+		const out = mergeImportedScreens(
+			layout([scene('basegame'), own]),
+			layout([scene('respinBoard', mode), scene(ENHANCEMENTS_SCREEN, mode)]),
+			'holdAndWin',
+			'holdAndWin',
+			undefined,
+			undefined,
+			shared,
+		);
+		same(
+			out.doc.scenes.map((s) => s.id),
+			['basegame', ENHANCEMENTS_SCREEN, 'respinBoard'],
+			'one Enhancements screen',
+		);
+		same(out.doc.scenes[1], own, "the host's");
+		same(
+			out.ids.screens[ENHANCEMENTS_SCREEN],
+			ENHANCEMENTS_SCREEN,
+			"the Flow tab shows the host's",
+		);
+	});
+
+	await check("an older layout's mode Enhancements screen is replaced by the new source's", () => {
+		const out = mergeImportedScreens(
+			layout([
+				scene('basegame'),
+				scene('respinBoard', mode),
+				scene(ENHANCEMENTS_SCREEN, mode),
+				scene('outro'),
+			]),
+			newSource,
+			'holdAndWin',
+			'holdAndWin',
+			undefined,
+			undefined,
+			shared,
+		);
+		same(
+			roles(out.doc),
+			[
+				['basegame', 'base', '', 'basegame'],
+				['respinBoard', 'mode', 'holdAndWin', 'respinBoard'],
+				['enhancementsBanner', 'mode', 'holdAndWin', 'enhancementsBanner'],
+				[ENHANCEMENTS_SCREEN, 'base', '', 'Enhancements (source art)'],
+				['outro', 'base', '', 'outro'],
+			],
+			'still there, now the base screen',
+		);
+	});
+
+	await check("an older layout's mode Enhancements screen the source has none for is kept", () => {
+		const old = scene(ENHANCEMENTS_SCREEN, mode);
+		const out = mergeImportedScreens(
+			layout([scene('basegame'), scene('respinBoard', mode), old]),
+			layout([scene('respinBoard', mode)]),
+			'holdAndWin',
+			'holdAndWin',
+			undefined,
+			undefined,
+			shared,
+		);
+		same(
+			out.doc.scenes.find((s) => s.id === ENHANCEMENTS_SCREEN),
+			old,
+			'not deleted',
+		);
+	});
+
+	await check('a mode without enhancements replaces every screen of the mode, as before', () => {
+		const out = mergeImportedScreens(
+			layout([scene('basegame'), scene('respinBoard', mode), scene(ENHANCEMENTS_SCREEN, mode)]),
+			newSource,
+			'holdAndWin',
+		);
+		same(
+			out.doc.scenes.map((s) => s.id),
+			['basegame', 'respinBoard', 'enhancementsBanner'],
+			'screens',
+		);
+	});
+}
+
+{
+	await scaffoldProject(CLIENT, ENH_SOURCE, {
+		holdAndWinJackpots: 'on',
+		holdAndWinBase: 'enhancements',
+	});
+	const sourceLayout = storedJson<LayoutDoc>(editorDocKey(CLIENT, ENH_SOURCE));
+	const sourceEnh = sourceLayout.scenes.find((s) => s.id === ENHANCEMENTS_SCREEN);
+	assert(
+		sourceEnh && sourceEnh.role === undefined,
+		'the scaffold made no base Enhancements screen',
+	);
+	const enhSourceBytes = under(`${CLIENT}/${ENH_SOURCE.replace(/-/g, '_')}`);
+	/** A pots host, as `makeHost` makes one; `old` gives it a pre-#1603 mode Enhancements screen,
+	 *  declared and shown by its Hold and Win tab. */
+	const enhHost = async (project: string, old: boolean) => {
+		await scaffoldProject(CLIENT, project);
+		const out = await applyPotsOverlayAddOn(CLIENT, project, {
+			sessionId: ME,
+			preset: 'threePots',
+			flow: true,
+		});
+		assert(out.ok, `the add-on refused: ${out.ok ? '' : out.error}`);
+		if (!old) return;
+		const layout = storedJson<LayoutDoc>(editorDocKey(CLIENT, project));
+		put(editorDocKey(CLIENT, project), {
+			...layout,
+			scenes: [
+				...layout.scenes,
+				{ ...sourceEnh, name: 'Enhancements (old)', role: 'mode', modeId: 'holdAndWin' },
+			],
+		});
+		const flow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, project));
+		put(flowV2DocKey(CLIENT, project), {
+			...flow,
+			containers: [
+				...flow.containers,
+				{ id: ENHANCEMENTS_SCREEN, sceneId: ENHANCEMENTS_SCREEN, z: 40 },
+			],
+		});
+	};
+	const importInto = (project: string) =>
+		applyBonusImport(CLIENT, project, {
+			source: ENH_SOURCE,
+			mode: 'holdAndWin',
+			replace: true,
+			sessionId: ME,
+			at: AT,
+		});
+
+	await check('import into a project without Enhancements brings the base screen', async () => {
+		const project = 'enh-host-new';
+		await enhHost(project, false);
+		const out = await importInto(project);
+		assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+		const layout = storedJson<LayoutDoc>(editorDocKey(CLIENT, project));
+		const enh = layout.scenes.filter((s) => s.id.startsWith(ENHANCEMENTS_SCREEN));
+		same(
+			enh.find((s) => s.id === ENHANCEMENTS_SCREEN),
+			sourceEnh,
+			"the source's base screen, as it is there",
+		);
+		assert(out.parts.layout.added.includes(ENHANCEMENTS_SCREEN), 'not reported');
+		const flow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, project));
+		assert(
+			flow.containers.some((c) => c.id === ENHANCEMENTS_SCREEN),
+			'the Flow does not declare it',
+		);
+		assert(
+			out.parts.flow.note?.includes(`Show container → ${ENHANCEMENTS_SCREEN}`),
+			`no note on the missing show: ${JSON.stringify(out.parts.flow)}`,
+		);
+		const again = await applyBonusImport(CLIENT, project, {
+			mode: 'holdAndWin',
+			resync: true,
+			sessionId: ME,
+			at: AT,
+		});
+		assert(again.ok, `re-sync refused: ${again.ok ? '' : again.error}`);
+		same(again.parts.layout.status, 'present', 'a re-sync keeps the one here');
+		same(
+			under(`${CLIENT}/${ENH_SOURCE.replace(/-/g, '_')}`),
+			enhSourceBytes,
+			'the source is never written',
+		);
+	});
+
+	await check(
+		'an older project keeps an Enhancements screen: the base one, never deleted',
+		async () => {
+			const project = 'enh-host-old';
+			await enhHost(project, true);
+			const out = await importInto(project);
+			assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+			const layout = storedJson<LayoutDoc>(editorDocKey(CLIENT, project));
+			same(
+				layout.scenes.filter((s) => s.id === ENHANCEMENTS_SCREEN),
+				[sourceEnh],
+				'one Enhancements screen, the base one',
+			);
+			const flow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, project));
+			same(flow.containers.filter((c) => c.id === ENHANCEMENTS_SCREEN).length, 1, 'declared once');
+		},
+	);
+}
 
 console.log("\n5. a reels feature: another book game's free spins");
 

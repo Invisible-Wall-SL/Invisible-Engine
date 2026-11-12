@@ -775,6 +775,21 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
+- 2026-11-12 — **Importing a collector respin mode brings its Enhancements screen and deletes
+  nothing it doesn't replace** (branch `launcher-bonus-import-enhancements`, follow-up to #1603).
+  Since #1603 a collector + enhancements project's `enhancements` screen is a BASE screen, so the
+  import (`mergeImportedScreens`, `projectBonusImport.ts`), which copied only `role: 'mode'`
+  screens, left it behind; and an older target whose `enhancements` was still the mode's screen
+  lost it with nothing in its place. Now a mode whose rules draw enhancements names
+  `ENHANCEMENTS_SCREEN` as a one-per-layout screen: the target's own (base, or another mode's) is
+  kept and the mode uses it; without one, the source's comes as it is there (a base screen under
+  its own id, after the mode's own, even when added as another respin mode); an older target's
+  mode screen is replaced by it, or kept when the source has none. A mode without enhancements
+  merges exactly as before. The Flow part declares the container from the source when the target
+  does not, and notes when no tab shows it: the import never edits the main graph, so the author
+  adds #1603's game-start **Show container → enhancements**. Guard: `check:bonus-import` §4b
+  (seven merge cases, and two imports from a scaffolded collector + enhancements source).
+
 - 2026-10-09 — **Phase 7c: the samples and the new layers played in a real browser** (PR #1159).
   - **Played** in Chromium against the shipped runtime and the real test server: the four published
     samples (read-only from R2) and games built on a local launcher for each new layer. The
