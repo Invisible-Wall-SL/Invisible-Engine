@@ -14,10 +14,11 @@ import type { BrowserOptions } from '@sentry/browser';
 /**
  * Sentry's `dataCollection` init option, set to collect nothing about the person or the request.
  * Sentry 11 defaults every one of these to ON (user, cookies, headers, bodies, query strings,
- * local variables, GraphQL / AI / MCP payloads, DB and queue arguments, source lines), so leaving
- * a key out is the opposite of private. `Required` makes a category added by a Sentry bump fail the
- * typecheck until it is set here. The scrubbers below are the second line, for what reaches an
- * event through messages, breadcrumbs and extras.
+ * local variables, GraphQL / AI / MCP payloads, DB and queue arguments), so leaving a key out is
+ * the opposite of private. `frameContextLines` (our own source around a frame) stays at Sentry's
+ * default of 5. `Required` makes a category added by a Sentry bump fail the typecheck until it is
+ * set here. The scrubbers below are the second line, for what reaches an event through messages,
+ * breadcrumbs and extras.
  */
 export const PRIVATE_DATA_COLLECTION = {
 	userInfo: false,
@@ -31,7 +32,7 @@ export const PRIVATE_DATA_COLLECTION = {
 	databaseQueryData: false,
 	queues: false,
 	stackFrameVariables: false,
-	frameContextLines: 0,
+	frameContextLines: 5,
 } satisfies Required<NonNullable<BrowserOptions['dataCollection']>>;
 
 const SENSITIVE_PARAM =

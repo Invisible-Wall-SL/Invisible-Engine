@@ -595,12 +595,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 ## Recent changes
 
 - 2026-11-12 — **Sentry still collects nothing after 11.11.** `@sentry/core` 11.11 added `mcp`, and
-  `graphQL`, `genAI`, `databaseQueryData`, `queues` and `frameContextLines` were never set, so all
-  of them defaulted ON. `PRIVATE_DATA_COLLECTION` (`packages/error-tracking/src/scrub.ts`) now sets
-  every category off (`frameContextLines: 0`). It is checked with `satisfies Required<…>`, so a
-  category added by a later Sentry bump fails `typecheck`. That check only works because the
-  package's tsconfig now sets `preserveSymlinks: false`. Before, `@sentry/core` did not resolve and
-  every Sentry type was `any`. `check:scrub` asserts every leaf is off. This is a runtime release.
+  `graphQL`, `genAI`, `databaseQueryData` and `queues` were never set, so all of them defaulted ON.
+  `PRIVATE_DATA_COLLECTION` (`packages/error-tracking/src/scrub.ts`) now sets every category off.
+  `frameContextLines` (source lines, not personal data) is set to Sentry's default of 5. The object
+  is checked with `satisfies Required<…>`, so a category added by a later Sentry bump fails
+  `typecheck`. That check only works because the package's tsconfig now sets
+  `preserveSymlinks: false`. Before, `@sentry/core` did not resolve and every Sentry type was `any`.
+  `check:scrub` asserts every other leaf is off. This is a runtime release.
 
 - 2026-11-12 — **Mock audit: every event the test RGS sends, against the partner's wire.** The
   table is in `reference/play4fun-protocol.md` ("Mock audit"). It lists each event as captured,

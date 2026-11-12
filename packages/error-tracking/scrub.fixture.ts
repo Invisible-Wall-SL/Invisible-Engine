@@ -54,7 +54,10 @@ addSensitiveParam('t');
 assert.equal(scrubText('/engine?t=abc&x=1'), `/engine?t=${SCRUBBED}&x=1`);
 assert.ok(!scrubUrl('https://p.test/?T=abc').includes('abc'));
 
-// Sentry collects nothing: every category, nested ones included, is off.
+// Sentry collects nothing about the person: every category, nested ones included, is off. Only
+// frameContextLines (source lines, not personal data) keeps Sentry's default.
+const { frameContextLines, ...personal } = PRIVATE_DATA_COLLECTION;
+assert.equal(typeof frameContextLines, 'number');
 const collecting = (value: unknown, path: string): string[] =>
 	Array.isArray(value)
 		? value.length
@@ -62,10 +65,10 @@ const collecting = (value: unknown, path: string): string[] =>
 			: []
 		: value && typeof value === 'object'
 			? Object.entries(value).flatMap(([k, v]) => collecting(v, `${path}.${k}`))
-			: value === false || value === 0
+			: value === false
 				? []
 				: [path];
-assert.deepEqual(collecting(PRIVATE_DATA_COLLECTION, 'dataCollection'), []);
+assert.deepEqual(collecting(personal, 'dataCollection'), []);
 for (const key of ['graphQL', 'genAI', 'mcp'] as const)
 	assert.ok(key in PRIVATE_DATA_COLLECTION, `dataCollection.${key} is left at Sentry's default`);
 
