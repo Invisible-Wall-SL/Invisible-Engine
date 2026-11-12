@@ -96,6 +96,25 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-12 — **A 3.8 export imports too (upgraded to 4.2 on the way in).** `spine38Upgrade.ts`
+  rewrites a 3.8 skeleton into the 4.2 format before the import's irig conversion: bone `transform`
+  → `inherit`, constraint mixes (`rotateMix` → `mixRotate`, `translateMix` → `mixX`, …), linked-mesh
+  `deform` → `timelines`, slot `color` / `twoColor` keys → `rgba` / `rgba2`, rotate `angle` →
+  `value` unwrapped by whole turns (3.8 rotated between keys the short way round, 4.x does not),
+  path `position` / `spacing` keys → `value`, animation `deform` → `attachments.….deform`, and every
+  curve from one normalised Bézier shared by the key's values to one absolute Bézier per value. The
+  atlas needs nothing (the reader reads the 3.x region fields). `importSkeleton` upgrades a 3.8
+  export; the Rigger asks `/api/rigger/import/upgrade` for the 4.2 skeleton so its own loader checks
+  the result before anything is written. Exports older than 3.8 are still refused. Gate:
+  `scripts/spine38-upgrade.fixture.ts` poses the upgraded file in `engine-rig` against an
+  independent 3.8 evaluator written from the 3.8 runtime's rules (exact Bézier solve) for every
+  converted timeline kind, within 5% of a key step (the runtime's curve sampling; 8 mutants of the
+  upgrader land at 44% and above); `SPINE38_DIR=<folder>` runs it over real exports too. Run
+  against the reference runtime's nine 3.8 example rigs: all pass, worst 3.2% (a near-vertical curve
+  start); against the same rigs' 4.2 re-exports, 121 of 178 unchanged curve segments match Spine's
+  own conversion to 0.01 and all 1,679 comparable rotate key values match it exactly (the rest were
+  re-edited in 4.x). Not tried on the owner's own 3.8 rig yet (`DarkAssassin.json`). Launcher
+  deploy, not a runtime release.
 - 2026-11-12 — **Import an exported rig as a new `.irig`.** ＋ New rig → *or import an exported
   rig* takes a skeleton (4.x `.json`, or an `.irig`), its `.atlas` and the atlas's page images.
   The browser checks it first (binary `.skel`, 3.x exports, missing pages, pages outside the

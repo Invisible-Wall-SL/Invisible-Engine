@@ -1,6 +1,12 @@
 import { TextureAtlas, isIrigDocument } from 'engine-rig';
 import { irigDocProblem } from './riggerIrig';
 import { asIrigOrSpine42 } from './riggerNewRig';
+import {
+	OLDEST_UPGRADABLE,
+	exportVersion,
+	isUpgradableSpine3,
+	upgradeSpine38Json,
+} from './spine38Upgrade';
 
 /** The page images an imported atlas may name, by extension, with the type R2 stores them under. */
 export const IMPORT_PAGE_TYPES: Readonly<Record<string, string>> = {
@@ -58,20 +64,12 @@ export function importAtlasPages(
 	return { ok: true, pages, text: atlasText };
 }
 
-/** `skeleton.spine`'s major.minor, or null when the file does not say. */
-function exportVersion(doc: Record<string, unknown>): [number, number] | null {
-	const head = doc.skeleton;
-	const v = head && typeof head === 'object' ? (head as Record<string, unknown>).spine : undefined;
-	const m = typeof v === 'string' ? /^(\d+)\.(\d+)/.exec(v) : null;
-	return m ? [Number(m[1]), Number(m[2])] : null;
-}
-
 /**
  * The `.irig` an imported skeleton becomes, or why it cannot. A 4.x JSON export is imported as irig
  * v1 when that only drops keys the 4.2 reader ignores, and otherwise kept as 4.2, the rule every
- * new rig follows (`asIrigOrSpine42`); an `.irig` (a ⤓ .irig download) is taken as it is. Before
- * 4.0 the format differs (curves, timelines), so a 3.x export is refused rather than half read.
- * Either way the result must pass the reference checks a save passes (`irigDocProblem`).
+ * new rig follows (`asIrigOrSpine42`); an `.irig` (a ⤓ .irig download) is taken as it is. A 3.8
+ * export is first upgraded to 4.2 (`upgradeSpine38Json`); an older 3.x one is refused rather than
+ * half read, since the upgrader is built on the 3.8 format. Either way the result must pass the reference checks a save passes (`irigDocProblem`).
  */
 export function importSkeleton(
 	skeleton: unknown,
@@ -84,16 +82,21 @@ export function importSkeleton(
 		if (!Array.isArray(raw.bones))
 			return refuse(400, 'this JSON is not a skeleton (it has no bones)');
 		const version = exportVersion(raw);
-		if (version && version[0] < 4) {
+		if (version && version[0] < 4 && !isUpgradableSpine3(raw)) {
 			return refuse(
 				422,
-				`this skeleton was exported from version ${version.join('.')}; export it again as 4.2 JSON`,
+				`this skeleton was exported from version ${version.join('.')}; ` +
+					`export it again from ${OLDEST_UPGRADABLE.join('.')} or later`,
 			);
 		}
 	}
 	const doc = isIrigDocument(raw)
 		? raw
-		: asIrigOrSpine42(JSON.parse(JSON.stringify(raw)) as Record<string, unknown>);
+		: asIrigOrSpine42(
+				isUpgradableSpine3(raw)
+					? upgradeSpine38Json(raw)
+					: (JSON.parse(JSON.stringify(raw)) as Record<string, unknown>),
+			);
 	const problem = irigDocProblem(doc);
 	if (problem) return refuse(422, `this skeleton would not load (${problem})`);
 	return { ok: true, doc };

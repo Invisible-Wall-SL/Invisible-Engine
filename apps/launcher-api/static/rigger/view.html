@@ -6183,8 +6183,23 @@ async function importRigExport(fileList){
   catch (e){ return fail(skels[0].name + " is not valid JSON."); }
   if (!doc || !Array.isArray(doc.bones)) return fail(skels[0].name + " is not a skeleton (it has no bones).");
   const ver = doc.skeleton && typeof doc.skeleton.spine === "string" ? doc.skeleton.spine : "";
-  if (typeof doc.irig !== "number" && /^[0-3]\./.test(ver))
-    return fail(skels[0].name + " was exported from version " + ver + ". Export it again as 4.2 JSON.");
+  // A 3.8 export is upgraded to 4.2 by the server first (/api/rigger/import/upgrade), then checked
+  // below like any 4.x one. An older 3.x export is a different format again: refused.
+  let upgradedFrom = "";
+  const v3 = typeof doc.irig !== "number" ? /^([0-3])\.(\d+)/.exec(ver) : null;
+  if (v3){
+    if (+v3[1] < 3 || +v3[2] < 8)
+      return fail(skels[0].name + " was exported from version " + ver + ". Export it again from 3.8 or later.");
+    note.textContent = "upgrading from " + ver + "…";
+    try {
+      const r = await fetch("/api/rigger/import/upgrade", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ skeleton: doc }),
+      });
+      if (!r.ok) throw new Error(await respErr(r));
+      doc = (await r.json()).skeleton;
+      upgradedFrom = ver;
+    } catch (e){ return fail(skels[0].name + " could not be upgraded from " + ver + ": " + ((e && e.message) || e)); }
+  }
   atlasText = await atlases[0].text();
   try { if (!RIG) await loadRuntime(loadedLine || DEFAULT_RUNTIME); }
   catch (e){ return fail(String((e && e.message) || e)); }
@@ -6241,7 +6256,7 @@ async function importRigExport(fileList){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target) await selectSkeleton(target);
-    setRigStatus("imported “" + name + "”" + (j.irig ? " as .irig" : " (kept as 4.2 — the import would change a value)")
+    setRigStatus("imported “" + name + "”" + (upgradedFrom ? " (upgraded from " + upgradedFrom + ")" : "") + (j.irig ? " as .irig" : " (kept as 4.2 — the import would change a value)")
       + (missingCount ? " · " + missingCount + " image(s) not in the atlas" : ""));
   } catch (e){ note.textContent = ""; input.value = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
