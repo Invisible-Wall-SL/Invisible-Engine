@@ -367,7 +367,7 @@ Publish now does, once, what a standalone build does with `bake` + `pull`:
 ```
 <C>/<P>/published/pointer.json            { current, snapshots[≤5] }   CAS-written, the only mutable key
 <C>/<P>/published/<id>/runtime.json       the RuntimeBundle as assembled at publish
-<C>/<P>/published/<id>/deploy/**          server-side copy of deploy/ taken under the same lock
+<C>/<P>/published/<id>/deploy/**          server-side copy of what a player loads of deploy/ (same lock)
 ```
 
 - **Players** (`/api/editor/runtime` without `authoring=1`) get `runtime.json` of the pointer's
@@ -380,7 +380,7 @@ Publish now does, once, what a standalone build does with `bake` + `pull`:
   (`no published snapshot — LIVE assemble for a player boot`), until republished.
 - **Rollback** is a pointer flip to a retained id (`POST /api/game-maker/rollback`).
 
-**Why a full copy of `deploy/`, not content-hashed names.** The exporters rewrite `deploy/` in
+**Why a copy of `deploy/`, not content-hashed names.** The exporters rewrite `deploy/` in
 place (stems keep their names; `_pages/` is pruned to the latest export's set), so a snapshot
 pointing into the live tree would change or 404 under a running game. Content-hashing every
 exporter's output means rewriting ~10 exporters and re-pointing every parent → child relative
@@ -390,6 +390,9 @@ prune has. A copy keeps the relative tree intact, is correct by construction, an
 as "delete a prefix". Cost (measured 2026-09-29): 130-200 MB / 240-430 objects per project, copied
 with `CopyObject` (no bytes through the launcher, ~430 Class A ops per publish); five retained
 snapshots ≈ ≤1 GB per project — cents per month. Revisit if projects grow an order of magnitude.
+Since 2026-11-12 the copy is only what a player loads (`versionFiles`, the build pull's rule):
+the exporters' subtrees plus what the bundle names, so the Sheet Maker's and Atlas Maker's source
+folders (`sprites/`, `spines/`) stay behind — 776 → 503 MB over the 17 versions current then.
 
 **Consistency.** Every assemble — authoring boots and Publish — runs under
 `runtimeBundleCache.withDeployWrite`: one per project at a time (so the copy is of exactly the tree
