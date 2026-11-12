@@ -789,6 +789,12 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+- 2026-11-12 — **Section descriptions are tooltips.** Each section's intro paragraph moved into
+  `ConfigSection`'s `info` snippet, shown on hovering the title or ⓘ (always in the DOM, so SSR and
+  the fixtures still see it). Live-status paragraphs stay inline (Expanding symbol / wilds "cannot
+  use", Sounds' "Moved"). ~15 field-level help paragraphs inside sections (stepped grid, tumble,
+  expanding symbol, paylines…) are still inline — next pass. New pipeline rule: CLAUDE.md hard rule 10.
+
 - 2026-11-12 — **No "Reset to template default" on a Hold and Win project.** It restored the legacy
   Pots default (a duplicate of Reset to preset → Pots) and confused authors; the presets cover it.
 

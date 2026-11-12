@@ -157,11 +157,13 @@
 </script>
 
 <ConfigSection id="gameModes" title="Game modes">
-	<p class="hint">
-		A mode is a different game a bonus switches into (own board, screens, HUD, music). Tag Scene
-		Editor screens with the role <strong>game mode</strong> + this id to show them while the mode plays.
-		Built-in modes can be overridden field by field — a blank field keeps the built-in value shown greyed.
-	</p>
+	{#snippet info()}
+		<p>
+			A mode is a different game a bonus switches into (own board, screens, HUD, music). Tag Scene
+			Editor screens with the role <strong>game mode</strong> + this id to show them while the mode plays.
+			Built-in modes can be overridden field by field — a blank field keeps the built-in value shown greyed.
+		</p>
+	{/snippet}
 	{#each blockIssues as issue (issue.path + issue.message)}
 		<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 	{/each}
@@ -252,13 +254,6 @@
 </ConfigSection>
 
 <style>
-	.hint {
-		margin: 0 0 12px;
-		font-size: 12px;
-		color: #8b8b98;
-		line-height: 1.6;
-		max-width: 900px;
-	}
 	code {
 		font-family: ui-monospace, monospace;
 		background: #16161d;

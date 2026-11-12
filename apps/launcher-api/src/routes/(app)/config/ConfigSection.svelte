@@ -35,6 +35,10 @@
 	 * One Game Config section: a card with a foldable header. Folding unmounts the body, so a long
 	 * config stays light to scroll; the fold survives reloads (restored after mount, since the page
 	 * is server-rendered open).
+	 *
+	 * What a section IS goes in `info`, shown as a tooltip when the title or the ⓘ is hovered or
+	 * focused — never as a paragraph in the body (pipeline UI rule: no walls of text in a tool). The
+	 * body keeps only status that changes with the config (a warning, a "cannot use" note).
 	 */
 	interface Props {
 		/** Stable persistence key, unique on the page. */
@@ -42,9 +46,11 @@
 		title: string;
 		/** Extra header controls, right-aligned (prefer `ConfigIconButton`). */
 		actions?: Snippet;
+		/** What this section is for — rendered in the hover tooltip. */
+		info?: Snippet;
 		children: Snippet;
 	}
-	const { id, title, actions, children }: Props = $props();
+	const { id, title, actions, info, children }: Props = $props();
 
 	let open = $state(true);
 	onMount(() => {
@@ -65,7 +71,24 @@
 			expanded={open}
 			onclick={toggle}
 		/>
-		<h2><button type="button" class="title" onclick={toggle}>{title}</button></h2>
+		<div class="label">
+			<h2><button type="button" class="title" onclick={toggle}>{title}</button></h2>
+			{#if info}
+				<button
+					type="button"
+					class="info-btn"
+					aria-label="About {title}"
+					aria-describedby="cfg-tip-{id}"
+				>
+					<svg viewBox="0 0 16 16" aria-hidden="true">
+						<circle cx="8" cy="8" r="6.25" />
+						<path d="M8 7.25v4M8 4.9v.1" />
+					</svg>
+				</button>
+				<div class="tip" role="tooltip" id="cfg-tip-{id}">{@render info()}</div>
+			{/if}
+		</div>
+		<span class="spacer"></span>
 		{#if actions}<div class="actions">{@render actions()}</div>{/if}
 	</header>
 	{#if open}
@@ -90,13 +113,21 @@
 	.cfg-sec:not(.folded) header {
 		border-bottom: 1px solid #1d1d26;
 	}
+	.label {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		min-width: 0;
+	}
+	.spacer {
+		flex: 1;
+	}
 	h2 {
 		margin: 0;
-		flex: 1;
 		min-width: 0;
 	}
 	.title {
-		width: 100%;
 		padding: 0 0 2px;
 		line-height: 1;
 		border: none;
@@ -115,6 +146,69 @@
 	}
 	.title:hover {
 		color: #a4f0d6;
+	}
+	.info-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		padding: 0;
+		border: none;
+		border-radius: 50%;
+		background: none;
+		color: #5a5a68;
+		cursor: help;
+	}
+	.label:hover .info-btn,
+	.info-btn:focus-visible {
+		color: #b8b8c4;
+	}
+	.info-btn:focus-visible {
+		outline: 1px solid #7ee0c0;
+	}
+	.info-btn svg {
+		width: 14px;
+		height: 14px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.4;
+		stroke-linecap: round;
+	}
+	.tip {
+		position: absolute;
+		top: calc(100% + 8px);
+		left: 0;
+		z-index: 30;
+		width: max-content;
+		max-width: min(560px, 80vw);
+		padding: 10px 12px;
+		border: 1px solid #2e2e3a;
+		border-radius: 8px;
+		background: #1a1a22;
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+		font-size: 12px;
+		line-height: 1.55;
+		color: #b8b8c4;
+		text-transform: none;
+		letter-spacing: normal;
+		visibility: hidden;
+		opacity: 0;
+		transition:
+			opacity 0.12s ease,
+			visibility 0s linear 0.12s;
+	}
+	.label:hover .tip,
+	.info-btn:focus-visible + .tip {
+		visibility: visible;
+		opacity: 1;
+		transition-delay: 0.25s, 0.25s;
+	}
+	.tip :global(p) {
+		margin: 0 0 8px;
+	}
+	.tip :global(p:last-child) {
+		margin-bottom: 0;
 	}
 	.actions {
 		display: flex;

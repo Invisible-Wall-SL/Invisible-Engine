@@ -182,18 +182,21 @@
 {/snippet}
 
 <ConfigSection id="bonusModes" title="Bonus modes">
-	<p class="hint">
-		The games a bonus switches into. A <strong>respin mode</strong> is a Hold and Win game of its
-		own, with its own rules, respin strips and symbols; a project can have several. What starts each
-		one — a coin count, a pot, a buy, Lucky Spin — is set in <strong>Coin overlay</strong>. A symbol
-		joins a respin game by its <strong>special properties</strong> in Symbols below (<code
-			>coin</code
-		>,
-		<code>jackpot</code>, <code>collector</code>, <code>coinMultiplier</code>, <code>payer</code>,
-		<code>mystery</code>, <code>addRespins</code>, <code>upgrade</code>, <code>meterSpecial</code>,
-		<code>blank</code>, <code>unlock</code>). The server stays the authority on outcomes — these
-		weights drive the test mock and the readouts.
-	</p>
+	{#snippet info()}
+		<p>
+			The games a bonus switches into. A <strong>respin mode</strong> is a Hold and Win game of its
+			own, with its own rules, respin strips and symbols; a project can have several. What starts
+			each one — a coin count, a pot, a buy, Lucky Spin — is set in <strong>Coin overlay</strong>. A
+			symbol joins a respin game by its <strong>special properties</strong> in Symbols below (<code
+				>coin</code
+			>,
+			<code>jackpot</code>, <code>collector</code>, <code>coinMultiplier</code>, <code>payer</code>,
+			<code>mystery</code>, <code>addRespins</code>, <code>upgrade</code>,
+			<code>meterSpecial</code>,
+			<code>blank</code>, <code>unlock</code>). The server stays the authority on outcomes — these
+			weights drive the test mock and the readouts.
+		</p>
+	{/snippet}
 	{#if notice}
 		<p class="inline-issue {notice.kind === 'error' ? 'error' : 'info'}">{notice.text}</p>
 	{/if}
