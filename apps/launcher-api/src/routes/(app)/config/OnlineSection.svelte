@@ -106,12 +106,14 @@
 {/snippet}
 
 <ConfigSection id="onlineRoom" title="Online room">
-	<p class="hint">
-		The game is played in rooms on the <strong>Invisible Game Server</strong>: the server steps
-		every player and sends each device the room; a device sends its inputs only. Publish writes the
-		server's address into the game's launch. A <strong>character</strong> is what a player can be: a body
-		from the Arcade section and a speed. Empty numbers are the defaults.
-	</p>
+	{#snippet info()}
+		<p>
+			The game is played in rooms on the <strong>Invisible Game Server</strong>: the server steps
+			every player and sends each device the room; a device sends its inputs only. Publish writes
+			the server's address into the game's launch. A <strong>character</strong> is what a player can be:
+			a body from the Arcade section and a speed. Empty numbers are the defaults.
+		</p>
+	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
 			{#each ROOM_INTS as [key, label, range] (key)}
@@ -267,12 +269,14 @@
 </ConfigSection>
 
 <ConfigSection id="onlineRules" title="Online rules">
-	<p class="hint">
-		What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
-		that pushes players (px/s), or the round's <strong>goal</strong>. An <strong>ability</strong> is a
-		button that catches, stuns or hooks players of its target characters within its reach. A round ends
-		at the goal or on its clock, and the next starts after a pause.
-	</p>
+	{#snippet info()}
+		<p>
+			What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
+			that pushes players (px/s), or the round's <strong>goal</strong>. An <strong>ability</strong> is
+			a button that catches, stuns or hooks players of its target characters within its reach. A round
+			ends at the goal or on its clock, and the next starts after a pause.
+		</p>
+	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
 			<label
@@ -499,10 +503,12 @@
 </ConfigSection>
 
 <ConfigSection id="bots" title="Bots">
-	<p class="hint">
-		Bots fill a room's empty places while anyone is in it, each playing an online character with a
-		brain from Invisible Characters. A joining player takes a bot's place.
-	</p>
+	{#snippet info()}
+		<p>
+			Bots fill a room's empty places while anyone is in it, each playing an online character with a
+			brain from Invisible Characters. A joining player takes a bot's place.
+		</p>
+	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
 		{#if bots}
 			{@render generated("the bots' spawns")}

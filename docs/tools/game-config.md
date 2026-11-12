@@ -26,7 +26,8 @@ before — an un-authored project still runs the compiled template.
 ## The panels
 
 Every panel is a card with a **chevron** before its title: click either to fold it to its
-header. The fold is remembered in this browser (for every project) and never saved to the config.
+header. Hover the title (or the **ⓘ** beside it) for what the panel is for — the descriptions
+live in that tooltip, not on the page. The fold is remembered in this browser (for every project) and never saved to the config.
 Respin and spins modes inside **Bonus modes** fold the same way, and a **bin** icon on a card's
 header removes it (it always asks first).
 

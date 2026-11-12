@@ -123,12 +123,14 @@
 {/snippet}
 
 <ConfigSection id="family" title="Game family">
-	<p class="hint">
-		What kind of game this is. A <strong>slot</strong> spins reels. A <strong>match-3</strong>
-		board does not spin: the player swaps two gems, runs explode, the rest fall and refill. An
-		<strong>arcade</strong> game is a play field of moving objects. A <strong>card</strong> game is a
-		duel against the device. The page shows only the sections the family uses.
-	</p>
+	{#snippet info()}
+		<p>
+			What kind of game this is. A <strong>slot</strong> spins reels. A <strong>match-3</strong>
+			board does not spin: the player swaps two gems, runs explode, the rest fall and refill. An
+			<strong>arcade</strong> game is a play field of moving objects. A <strong>card</strong> game is
+			a duel against the device. The page shows only the sections the family uses.
+		</p>
+	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
 			<label
@@ -183,12 +185,14 @@
 
 {#if family === 'match3'}
 	<ConfigSection id="match3" title="Match-3">
-		<p class="hint">
-			The board is the <strong>Grid</strong> above — its reels are the columns. A swap that lines up
-			at least the <strong>minimum run</strong> of one gem in a row or a column matches. Each
-			column's
-			<strong>refill strip</strong> is the order new gems fall in from the top.
-		</p>
+		{#snippet info()}
+			<p>
+				The board is the <strong>Grid</strong> above — its reels are the columns. A swap that lines
+				up at least the <strong>minimum run</strong> of one gem in a row or a column matches. Each
+				column's
+				<strong>refill strip</strong> is the order new gems fall in from the top.
+			</p>
+		{/snippet}
 		<fieldset class="panel" disabled={readOnly}>
 			<div class="row">
 				<label
@@ -305,18 +309,21 @@
 
 {#if family === 'arcade'}
 	<ConfigSection id="arcade" title="Arcade">
-		<p class="hint">
-			The <strong>play field</strong> is where objects move, in design pixels; left empty it is the
-			screen. The game steps its motion a fixed number of times a second, so a replay is exact at
-			any frame rate. A <strong>body</strong> gives a component a shape to collide with, and
-			<strong>tags</strong> say what it is (<code>player</code>, <code>enemy</code>,
-			<code>pickup</code>). <strong>Edges</strong> says what a body does at the field's edge: stop (<code
-				>clamp</code
-			>), come back on the far side (<code>wrap</code>) or leave (<code>pass</code>, which raises
-			<em>Leave bounds</em>). Two tags in <strong>Collisions</strong>
-			raise <em>Collide</em> when bodies carrying them touch; a <strong>zone</strong> raises
-			<em>Enter zone</em> and <em>Leave zone</em>.
-		</p>
+		{#snippet info()}
+			<p>
+				The <strong>play field</strong> is where objects move, in design pixels; left empty it is
+				the screen. The game steps its motion a fixed number of times a second, so a replay is exact
+				at any frame rate. A <strong>body</strong> gives a component a shape to collide with, and
+				<strong>tags</strong> say what it is (<code>player</code>, <code>enemy</code>,
+				<code>pickup</code>). <strong>Edges</strong> says what a body does at the field's edge: stop
+				(<code>clamp</code>), come back on the far side (<code>wrap</code>) or leave (<code
+					>pass</code
+				>, which raises
+				<em>Leave bounds</em>). Two tags in <strong>Collisions</strong>
+				raise <em>Collide</em> when bodies carrying them touch; a <strong>zone</strong> raises
+				<em>Enter zone</em> and <em>Leave zone</em>.
+			</p>
+		{/snippet}
 		<fieldset class="panel" disabled={readOnly}>
 			<div class="row">
 				<label
@@ -549,12 +556,15 @@
 
 {#if family === 'card'}
 	<ConfigSection id="cardGame" title="Card game">
-		<p class="hint">
-			One player duels an AI on the device. Each side has a fixed <strong>deck</strong>, a hand, a
-			board of units, a hero with <strong>health</strong> and a <strong>resource</strong> that grows
-			each turn and pays for cards. The second player draws one card more than the opening hand. A
-			turn plays cards first and attacks after, unless <strong>Turn order</strong> lets them mix.
-		</p>
+		{#snippet info()}
+			<p>
+				One player duels an AI on the device. Each side has a fixed <strong>deck</strong>, a hand, a
+				board of units, a hero with <strong>health</strong> and a <strong>resource</strong> that
+				grows each turn and pays for cards. The second player draws one card more than the opening
+				hand. A turn plays cards first and attacks after, unless <strong>Turn order</strong> lets them
+				mix.
+			</p>
+		{/snippet}
 		<fieldset class="panel" disabled={readOnly}>
 			<div class="row">
 				{#each CARD_RULE_FIELDS as [key, label, min] (key)}
@@ -612,13 +622,6 @@
 {/if}
 
 <style>
-	.hint {
-		margin: 0 0 12px;
-		font-size: 12px;
-		color: #8b8b98;
-		line-height: 1.6;
-		max-width: 900px;
-	}
 	.note {
 		margin: 8px 0 0;
 		font-size: 11px;

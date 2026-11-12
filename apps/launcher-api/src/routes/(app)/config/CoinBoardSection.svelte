@@ -164,13 +164,15 @@
 {/snippet}
 
 <ConfigSection id="coinBoard" title="Coin board">
-	<p class="hint">
-		<strong>Lines game</strong>: the base game spins the reels, and enough coins start the Hold and
-		Win. <strong>Coin board only</strong>: there is no line game — every spin deals coins and blanks
-		onto the board, and only the cells an active payline passes through deal, trigger and pay. The
-		other cells sit under the overlay. The base strips should then deal only coins, jackpots and
-		blanks.
-	</p>
+	{#snippet info()}
+		<p>
+			<strong>Lines game</strong>: the base game spins the reels, and enough coins start the Hold
+			and Win. <strong>Coin board only</strong>: there is no line game — every spin deals coins and
+			blanks onto the board, and only the cells an active payline passes through deal, trigger and
+			pay. The other cells sit under the overlay. The base strips should then deal only coins,
+			jackpots and blanks.
+		</p>
+	{/snippet}
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row tight">
 			<label class="check"
@@ -359,13 +361,6 @@
 		text-transform: none;
 		letter-spacing: 0;
 		color: #6f6f7d;
-	}
-	.hint {
-		margin: 0 0 12px;
-		font-size: 12px;
-		color: #8b8b98;
-		line-height: 1.6;
-		max-width: 900px;
 	}
 	.note {
 		font-size: 11px;

@@ -1659,11 +1659,13 @@
 		-->
 		{#if sections.has('rtp')}
 			<ConfigSection id="rtp" title="Return to player">
-				<p class="hint">
-					Shown on the game's profile card, and on the info page's rules wherever the operator
-					allows RTP display (<code>showTheoreticalPayback</code>). The rules also state the base
-					bet mode's max win.
-				</p>
+				{#snippet info()}
+					<p>
+						Shown on the game's profile card, and on the info page's rules wherever the operator
+						allows RTP display (<code>showTheoreticalPayback</code>). The rules also state the base
+						bet mode's max win.
+					</p>
+				{/snippet}
 				<div class="fields">
 					<label
 						><span>RTP</span><input
@@ -1681,19 +1683,21 @@
 		<!-- Grid ------------------------------------------------------------------->
 		{#if sections.has('grid')}
 			<ConfigSection id="grid" title="Grid">
-				<p class="hint">
-					Reels and visible rows. <strong>Widening</strong> the grid auto-fills the new reels —
-					strips clone the last reel and paylines keep their shape — so you never re-enter them by
-					hand.
-					<strong>Shrinking</strong> leaves the extra reels in place (trimming loses authored
-					strips); use <strong>Match grid</strong> to drop them down to the new count.
-				</p>
-				{#if family === 'match3'}
-					<p class="hint">
-						The match-3 <strong>board</strong>: its reels are the columns, every column the same
-						height.
+				{#snippet info()}
+					<p>
+						Reels and visible rows. <strong>Widening</strong> the grid auto-fills the new reels —
+						strips clone the last reel and paylines keep their shape — so you never re-enter them by
+						hand.
+						<strong>Shrinking</strong> leaves the extra reels in place (trimming loses authored
+						strips); use <strong>Match grid</strong> to drop them down to the new count.
 					</p>
-				{/if}
+					{#if family === 'match3'}
+						<p>
+							The match-3 <strong>board</strong>: its reels are the columns, every column the same
+							height.
+						</p>
+					{/if}
+				{/snippet}
 				{#if family === 'slot'}
 					<p class="hint">
 						Give the reels <strong>different row counts</strong> for a stepped board — a
@@ -1767,17 +1771,21 @@
 		<!-- Bet modes -------------------------------------------------------------->
 		{#if sections.has('betModes')}
 			<ConfigSection id="betModes" title="Bet modes">
-				<p class="hint">
-					Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the
-					base bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the
-					math export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
-					<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave
-					on
-					<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
-					<strong>Card</strong> component this mode's buy-feature card renders (blank ⇒ the default
-					<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is authored
-					here as source text and translated in the <strong>Invisible Localization</strong> tool.
-				</p>
+				{#snippet info()}
+					<p>
+						Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the
+						base bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the
+						math export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
+						<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave
+						on
+						<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
+						<strong>Card</strong> component this mode's buy-feature card renders (blank ⇒ the
+						default
+						<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is
+						authored here as source text and translated in the
+						<strong>Invisible Localization</strong> tool.
+					</p>
+				{/snippet}
 
 				{#if resolvedBetModes.length}
 					<div class="menu-preview" aria-label="Resolved menu order">
@@ -2164,26 +2172,28 @@
 		<!-- Symbols ---------------------------------------------------------------->
 		{#if sections.has('symbols')}
 			<ConfigSection id="symbols" title="Symbols">
-				<p class="hint">
-					The symbol <strong>dictionary</strong> — art, properties, payouts. The
-					<span class="badge in">in play</span>
-					badge means the symbol appears on a reel strip and so can actually reach the board; a
-					<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a
-					payout no one can win), and Invisible Symbols does not list it.
-					<strong>Click the badge</strong>
-					to put a symbol on the reels or take it off.
-					{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
-						section, <strong>Coins</strong>, below.{/if}
-					{#if showsPays}
-						Paytable is
-						<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
-						<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on
-						the board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
-					{:else}
-						This game pays no money, so its gems have no pays; points come from the
-						<strong>Match-3</strong> section.
-					{/if}
-				</p>
+				{#snippet info()}
+					<p>
+						The symbol <strong>dictionary</strong> — art, properties, payouts. The
+						<span class="badge in">in play</span>
+						badge means the symbol appears on a reel strip and so can actually reach the board; a
+						<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a
+						payout no one can win), and Invisible Symbols does not list it.
+						<strong>Click the badge</strong>
+						to put a symbol on the reels or take it off.
+						{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
+							section, <strong>Coins</strong>, below.{/if}
+						{#if showsPays}
+							Paytable is
+							<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+							<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on
+							the board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
+						{:else}
+							This game pays no money, so its gems have no pays; points come from the
+							<strong>Match-3</strong> section.
+						{/if}
+					</p>
+				{/snippet}
 				{#if showsPays}
 					<div class="server-import">
 						<button onclick={() => openServerImport()} disabled={!data.serverGameKeys.length}>
@@ -2308,13 +2318,15 @@
 		{#if sections.has('coinSymbols') && coinNames.length}
 			<!-- Coins ------------------------------------------------------------------>
 			<ConfigSection id="coins" title="Coins">
-				<p class="hint">
-					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
-					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
-					— and which pot it fills — is the overlay's to decide, under
-					<strong>Coin overlay</strong>, so it carries no in play / unused badge. Its art is bound
-					in Invisible Symbols.
-				</p>
+				{#snippet info()}
+					<p>
+						The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
+						pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is
+						used — and which pot it fills — is the overlay's to decide, under
+						<strong>Coin overlay</strong>, so it carries no in play / unused badge. Its art is bound
+						in Invisible Symbols.
+					</p>
+				{/snippet}
 				<div class="grid-wrap">
 					<table class="grid">
 						<thead>
@@ -2357,19 +2369,23 @@
 		<!-- Win model -------------------------------------------------------------->
 		{#if sections.has('winModel')}
 			<ConfigSection id="wins" title="How wins are decided">
-				{#if family === 'match3'}
-					<p class="hint">
-						<strong>Match-3</strong> — a run of {resolveMatch3(snapshot).minRun} or more of one gem in
-						a row or a column wins, and every board tumbles: matches explode, the gems above fall and
-						new ones refill. A win is priced on the whole bet, from the paytable in
-						<strong>Symbols</strong>. Set the run length in <strong>Match-3</strong>.
-					</p>
-				{:else}
-					<p class="hint">
-						The <strong>win model</strong> is what makes this a lines game or a ways / cluster /
-						scatter one. It decides which symbols on the board count as a win — the paylines below
-						only matter for a <strong>Lines</strong> game.
-					</p>
+				{#snippet info()}
+					{#if family === 'match3'}
+						<p>
+							<strong>Match-3</strong> — a run of {resolveMatch3(snapshot).minRun} or more of one gem
+							in a row or a column wins, and every board tumbles: matches explode, the gems above fall
+							and new ones refill. A win is priced on the whole bet, from the paytable in
+							<strong>Symbols</strong>. Set the run length in <strong>Match-3</strong>.
+						</p>
+					{:else}
+						<p>
+							The <strong>win model</strong> is what makes this a lines game or a ways / cluster /
+							scatter one. It decides which symbols on the board count as a win — the paylines below
+							only matter for a <strong>Lines</strong> game.
+						</p>
+					{/if}
+				{/snippet}
+				{#if family !== 'match3'}
 					<div class="fields">
 						<label
 							><span>Win model</span><select
@@ -2785,11 +2801,13 @@
 		<!-- Reel behaviour --------------------------------------------------------->
 		{#if sections.has('reelBehaviour')}
 			<ConfigSection id="reelBehaviour" title="Reel behaviour">
-				<p class="hint">
-					How a round ARRIVES on the board. This is one answer for the whole game — not per screen
-					and not per aspect ratio — which is why it lives here rather than in the Scene Editor
-					beside the board's shape.
-				</p>
+				{#snippet info()}
+					<p>
+						How a round ARRIVES on the board. This is one answer for the whole game — not per screen
+						and not per aspect ratio — which is why it lives here rather than in the Scene Editor
+						beside the board's shape.
+					</p>
+				{/snippet}
 				<label class="check"
 					><input
 						type="checkbox"
@@ -3014,14 +3032,16 @@
 		<!-- Big win tiers ------------------------------------------------------------>
 		{#if sections.has('winLevels')}
 			<ConfigSection id="bigWinTiers" title="Big win tiers">
-				<p class="hint">
-					The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
-					amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-					<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
-					sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
-					reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
-					aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
-				</p>
+				{#snippet info()}
+					<p>
+						The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and
+						an amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
+						<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
+						sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
+						reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically
+						and aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
+					</p>
+				{/snippet}
 
 				{#if bigResolved.length}
 					<div class="menu-preview" aria-label="Big-win tiers">

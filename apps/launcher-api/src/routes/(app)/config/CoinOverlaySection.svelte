@@ -1339,19 +1339,21 @@
 {/snippet}
 
 <ConfigSection id="coinOverlay" title="Coin overlay">
-	<p class="hint">
-		An option the base game switches on: what lands in the base game — coins on the reels, tokens
-		dropped over them, pots that fill — and what <strong>starts</strong> a bonus. Every trigger, pot
-		and meter names the mode it starts; the respin games themselves are in
-		<strong>Bonus modes</strong>. Adding a preset merges its blocks and symbols into the config and
-		never replaces what is already here; a name the config already uses is renamed. Token symbols
-		live in the dictionary only — a strip never deals them.
-	</p>
-	<p class="hint">
-		After saving an overlay change, reload any open game tab: a tab keeps the overlay it booted
-		with. Token art is seeded only by Game Maker's <strong>＋ Coin overlay…</strong> (or
-		<strong>Coin overlay parts…</strong>); otherwise bind it in /symbols.
-	</p>
+	{#snippet info()}
+		<p>
+			An option the base game switches on: what lands in the base game — coins on the reels, tokens
+			dropped over them, pots that fill — and what <strong>starts</strong> a bonus. Every trigger,
+			pot and meter names the mode it starts; the respin games themselves are in
+			<strong>Bonus modes</strong>. Adding a preset merges its blocks and symbols into the config
+			and never replaces what is already here; a name the config already uses is renamed. Token
+			symbols live in the dictionary only — a strip never deals them.
+		</p>
+		<p>
+			After saving an overlay change, reload any open game tab: a tab keeps the overlay it booted
+			with. Token art is seeded only by Game Maker's <strong>＋ Coin overlay…</strong> (or
+			<strong>Coin overlay parts…</strong>); otherwise bind it in /symbols.
+		</p>
+	{/snippet}
 	{#if notice}
 		<p class="inline-issue {notice.kind === 'error' ? 'error' : 'info'}">{notice.text}</p>
 	{/if}
