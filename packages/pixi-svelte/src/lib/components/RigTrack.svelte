@@ -30,7 +30,13 @@
 	import { onDestroy, untrack } from 'svelte';
 
 	import { propsSyncEffect } from '../utils.svelte';
-	import { getContextRestart, getContextRig, onRestart } from '../context.svelte';
+	import {
+		getContextRestart,
+		getContextRig,
+		getContextRigParked,
+		onRestart,
+	} from '../context.svelte';
+	import { restartRigPose } from '../rigKeep';
 	import { shouldApplyRigAnimation } from '../rigTrackReplay';
 
 	const props: Props = $props();
@@ -44,13 +50,12 @@
 	// from its first frame.
 	const restart = getContextRestart();
 	onRestart(restart, () => {
-		rig.state.clearTracks();
-		rig.skeleton.setToSetupPose();
-		rig.skeleton.time = 0;
-		for (const constraint of rig.skeleton.physicsConstraints) constraint.reset();
+		restartRigPose(rig);
 		appliedReplay = undefined;
 		track = null;
 	});
+	// A kept rig put away (`<RigProvider parked>`) applies nothing until its next play starts it.
+	const parked = getContextRigParked();
 
 	// Fall back to the skeleton's first animation when no name is given — matches the
 	// Symbols tool's "(first animation)" option and its preview (SymbolRigPreview),
@@ -62,6 +67,7 @@
 	);
 
 	$effect(() => {
+		if (parked?.()) return;
 		// Re-apply when the INTENDED animation changes, or when an event-driven cue FIRES AGAIN
 		// (`replay`) — but NOT when the live track has merely advanced to the queued `then`
 		// animation (`addAnimation` below), which would otherwise restart the primary in a loop.

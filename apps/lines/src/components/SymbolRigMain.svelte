@@ -18,6 +18,10 @@
 		 * so a zero `timeScale` simply never advances off that pose — no setup-pose fallback, which
 		 * would be a DIFFERENT picture from the one the animation opens on. */
 		frozen?: boolean;
+		/** Art a reel view keeps between plays (`Symbol.svelte`): put away while true, started again
+		 *  at each new `restart` (`<RigProvider parked restart>`). Absent ⇒ mounted per play. */
+		parked?: boolean;
+		restart?: number;
 	};
 
 	const props: Props = $props();
@@ -50,6 +54,8 @@
 	height={geometry.cellHeightLocal * SYMBOL_RIG_FILL}
 	fit="contain"
 	rebroadcastEvents
+	parked={props.parked}
+	restart={props.restart}
 >
 	<RigTrack
 		loop={props.loop}

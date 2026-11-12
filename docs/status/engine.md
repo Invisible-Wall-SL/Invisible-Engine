@@ -265,10 +265,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   re-checks only the cells that cross (Recent changes). Since the second 2026-11-11 change a Hold
   and Win respin cell draws through views too, and a view keeps its `Symbol`'s containers and one
   sprite whatever it draws (ranked churners 2 and 3). What a rolling frame still pays before the
-  Pixi tick: art that must start again per cell to keep its timing and its `Math.random` draws (a
-  rig with its `RigView`, its track and its rigged effects; a flipbook; Element FX; a coin label).
-  A `RigView` pool is not done: measured in place, a rig start is ~1.8 ms of WebKitGTK and the
-  `RigView` ~0.7 of it (Recent changes, 2026-11-11, "rig started again").
+  Pixi tick: art that must start again per cell to keep its timing and its `Math.random` draws.
+  Since 2026-11-12 a view keeps its rig art, flipbook art and win frame and starts them again in
+  place (Recent changes, "the board idle after a win"): no new `RigView` or component, the restart
+  itself instead, plus a rig's rigged effects (mounted per beat), Element FX and a coin label. That
+  is the per-view form of the `RigView` pool measured in 2026-11-11 ("rig started again": a start
+  ~1.8 ms of WebKitGTK, the `RigView` ~0.7 of it).
   **Step 4 works from the ranked churn list** (Recent changes, 2026-11-11, "Churn sweep"): in
   WebKit the Hold and Win bonus (28–44 s of main thread over idle per bonus on the overlay
   games), a free-spins feature (36 s on `bookofborutremake`), big and line wins (2–10 s) and every
@@ -280,9 +282,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   run outside effects (timeline samples, the reel views' `shown`), the flush's own work outside
   effects (~0.2–0.35 ms a flush in WebKitGTK, ~85 ms a free spin), and the rig path
   (`BaseRigProvider`'s mount and prop sync, ~100 ms a free spin). Of the churn, what is left after
-  ranked churners 2 and 3: the bonus board mounting and unmounting whole, and the win
-  presentation remounting per line cycle (also while idle after a win; its DOM share is gone, its
-  rigs and objects are not). A spin still flushes every frame because each reel's
+  ranked churners 2–4: the bonus board mounting and unmounting whole. The win presentation no
+  longer remounts per line cycle (Recent changes, 2026-11-12, "the board idle after a win"): idle
+  after a win, `overlay-buffaloduel` builds nothing and starts no rig; a pass still mounts a rig's
+  bound effect per beat (`RiggedEffect`'s emitters, on `bookofborutremake`) and the info-bar win
+  toast. A spin still flushes every frame because each reel's
   `Tween.current` changes and `readyToSpinEffect` reads it. Also open: rig ticks (rigs keep
   ticking when hidden; `syncDisplay` alone was ~2.5 s of a ~120 s book feature in WebKitGTK, more
   than building and destroying its `RigView`s), idle particle layers updating every frame,
@@ -499,6 +503,134 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **The board idle after a win no longer rebuilds the win presentation: a reel view
+  keeps its rig art, flipbook art and win frame between plays and starts them again in place, a rig
+  keeps its bound clip across beats, and the win line keeps its stroke and stamp** (branch
+  `engine/win-presentation-kept-views`, on `claude/nice-albattani-a03tcm` at `06132fd9`; the last
+  item of the iPhone plan's step 4, ranked churner 4 of the 2026-11-11 churn sweep).
+  - **Why it rebuilt, per pass of the resting win cycle** (`winSymbolCycle.ts` sets each paying
+    cell to `win`, then `postWinStatic`, and shows and hides that win's line):
+    1. `Symbol.svelte`'s frame band (`{#key restartWhen(showWinFrame || multiplier)}`, then
+       `{#if showWinFrame}`): the win frame (`SymbolWinFrame`, a rig with its bound clip) mounted
+       as the cell turned `win` and was destroyed at `postWinStatic`.
+    2. A rig symbol's win draws on the animating layer (`ReelSymbol.svelte` `animating`,
+       `SymbolWrap.svelte` `show`), so the view there started a new entry (`createEntries`) and
+       `Symbol`'s `{#key artKey}` mounted its `SymbolRigMain` again, with its rigged effects.
+    3. The same art band mounted a view's flipbook win art (`SymbolFlipbook`) per play.
+    4. `RiggedFlipbook.svelte`'s `{#key runId}` mounted the frame's bound clip again on every
+       beat: each lap of a looping frame.
+    5. `WinLine.svelte`'s `{#if lines.length || cue}` and `{#each lines (entry.id)}` mounted the
+       container, stroke and stamp per line and destroyed them at each hide.
+  - **What changed** (two commits):
+    1. **A view keeps its rig art and its win frame** (`<RigProvider parked restart>`,
+       `pixi-svelte/src/lib/rigKeep.ts`). A play is what a mount was (`createEntries` over the rig
+       arm; `createWinFrames` for the frame, decided once per visit, and not kept when a visit
+       starts under a multiplier stamp, which a mounted frame paints over). Between plays the rig
+       is put away: off the ticker, hidden, its rigged effects and clips let go (the parked
+       context). Each play starts it again where and when its mount ran, in pre-effects at its
+       place in the tree: its update registered again at the end of the ticker (rig events start
+       effects whose emitters draw `Math.random`, in the order rigs update), the setup pose with
+       no track, and what `BaseRigProvider` measured at mount (size, and a box-less rig's pivot,
+       from the first pose; skin; locale, which the setup pose undoes) measured again after the
+       track's first pose, as at a mount. A rig with no authored box restarts in place too
+       (Rigger imports such as `overlay-buffaloduel`'s `R_WinEffect` frame have none). Symbols
+       that are not views mount as before.
+    2. **A view keeps its flipbook art the same way** (`SymbolFlipbook`'s `parked`/`restart`:
+       hidden, stopped and silent away, its clip from frame 0 and its beat timed again at each
+       play); **`RiggedFlipbook` keeps its clip** from its first beat, started again from frame 0
+       per beat and hidden and stopped while taken down; **`WinLine` keeps its container, stroke
+       and stamp** one line at a time with no big-win run-up (the list path, all lines at once or
+       the run-up, is as before), drawing the stroke again per line and reporting the stamp's size
+       to each line it is handed.
+  - **Before / after** (`06132fd9` vs both commits, unminified; the churn sweep's method: published
+    snapshot + test server, `WIN_X=5,5,5`, `?perf=1`, real clock, each "idle after a win" window
+    15 s after a paying spin's round ends; WebKitGTK 400×230 over its own `WebKitWebDriver`, two
+    interleaved runs a side, 4 windows each; Chromium 734×321, one run a side):
+
+    | per 15 s idle after a line win, WebKitGTK    | `overlay-buffaloduel`           | `bookofborutremake`                     |
+    | -------------------------------------------- | ------------------------------- | --------------------------------------- |
+    | objects built / destroyed                    | 238 / 217 → 0 / 0               | 562 / 540 → 302 / 299                   |
+    | rigs started                                 | 28 → 0                          | 29 → 0                                  |
+    | component mounts (instrumented copy)         | 355 → 0                         | 351 → 155                               |
+    | DOM nodes added + removed                    | 2,578 → 452                     | 3,038 → 1,577                           |
+    | Svelte, total (instrumented copy)            | 1,499 → 1,148 ms                | 405 → 321 ms                            |
+    | Svelte, the win presentation's components    | 140 → 32 ms                     | 210 → 118 ms                            |
+    | JS−render / after the tick, ms a frame       | 5.0 / 5.9 → 4.8 / 5.5           | 0.8 / 2.5 → 0.9 / 2.3                   |
+    | fps / frames over 33 ms                      | 38.7 / 14% → 44.3 / 8%          | 48.2 / 6% → 49.4 / 5%                   |
+    | a line-win spin: built / destroyed, rigs     | 1,008 / 782, 70 → 576 / 237, 28 | 3,514 / 3,380, 200 → 2,682 / 2,111, 119 |
+    | Chromium, idle 15 s: built / destroyed, rigs | 227 / 197, 25 → 0 / 0, 0        | 385 / 379, 22 → 250 / 247, 0            |
+    | Chromium, JS−render / after, ms a frame      | 7.8 / 9.2 → 7.0 / 7.7           | 1.0 / 3.3 → 1.0 / 2.8                   |
+
+    What `bookofborutremake` still builds idle is its win rig's bound effect, started per beat
+    (`RiggedEffect`: ~213 particles and the effect's containers per 15 s, unchanged), and the
+    info-bar win toast it re-shows each pass. Chromium's no-win spin on `overlay-buffaloduel` (4
+    spins a side): 573 / 432 → 530 / 319 objects, 35 → 26 rigs, JS−render / after / late
+    11.6 / 11.8 / 13.1 → 10.0 / 10.2 / 12.8 ms a frame; no page errors either side. The machine
+    ran the parity harness and the frame captures alongside (load average ~10 on 4 cores, Chromium
+    at ~17 fps), so a frame time moves by tens of percent between runs: read the counts. In the
+    instrumented copy most of `overlay-buffaloduel`'s idle Svelte time is not the win presentation
+    but the flush outside effects and the pots overlay's timeline samples (~1.1 s of 1.15), which
+    this does not touch.
+
+  - **Parity:** current-games harness, local, determinism mode, base (`06132fd9`) vs both commits,
+    unminified, every scenario, every capture byte-identical and on the same frame:
+    `overlay-buffaloduel` 17/17, `bookofborutremake` 17/17, `commonoverlayproject` 17/17,
+    `holdandwintestsolo` 11/11 (Hold and Win, jackpot), stand-ins `cg-lines` 17/17 and
+    `cg-cluster` 14/14 (93 of 93). The harness captures a line win once, so the win cycle was also
+    captured frame by frame (determinism mode, 1280×720, the harness's serve and play libraries,
+    sha-256 of each capture, `WIN_X=2`, from the first frame of the seed's first winning spin):
+    `overlay-buffaloduel` every frame for 1,500 frames, through the round's own narration of its
+    ten wins, 1,500/1,500 identical on the same frames (1,500 distinct pictures), on commit 1
+    alone too; then every 2nd frame from frame 1,500 for 2,000 frames into the resting cycle,
+    1,000/1,000 (1,000 distinct, the game idle and the cycle replaying in every one);
+    `bookofborutremake` every frame for 1,500 frames, the round's five wins and then 823 frames of
+    the resting cycle, 1,500/1,500 (1,500 distinct). Hold and Win respin cells are views too, so
+    their coin rigs are kept: the respins frame by frame (the 2026-11-11 method, every 3rd frame),
+    `overlay-buffaloduel`'s `pot:red` bonus, tapped past its intro, 650/650 identical on the same
+    frames (519 with the respin board up, 650 distinct pictures), `holdandwintestsolo`'s forced
+    trigger 450/450 (314 with the board up).
+  - **Gates:** `rigKeep.fixture.ts` (new: against real `RigView`s on a shared ticker, seven rig
+    cases — the win frame twice, a symbol rig with an event twice, one whose state mixes, one with
+    no authored box, one with physics — every frame of a play after a play and a stretch away is
+    a new view's: pose, events, slot meshes; put away it is off the ticker and moves nothing; the
+    ticker order of a play; source pins for the five components), `reelViewPool.fixture.ts` (+ the
+    kept rig, flipbook and frame against their keyed bands over 6,000 random steps of entries,
+    vacancies, art kinds, wins and stamps, the frame's paint order against the stamp, source
+    pins), `winLineKeep.fixture.ts` (new, source pins); 31 mutations (each line of `rigKeep.ts`,
+    each component rule, the frame decision, the `Symbol` and `WinLine` wiring) each fail one of
+    them. `check:all` for `apps/lines` (17) and `pixi-svelte` (18), `verify-swap-in-place-mode`,
+    `verify-board-paint-order`, `verify-symbol-wrap-context`, `verify-symbol-seat`,
+    `verify-stepped-grid`, `verify-tumble-pattern`, `verify-win-explode-pop`,
+    `verify-symbol-overflow`, `verify-board-tiles`, `verify-win-beat-budget`,
+    `verify-pot-meter-mount`, the launcher's `check:symbol-layers`, `check:clear-reel`,
+    `check:respin-land`, `check:jackpot-coin-art`, `check:symbol-fx`; `check:element-fx`;
+    `check:svelte --only` at baseline for `apps/lines` (145) and `pixi-svelte` (14); Prettier and
+    ESLint clean.
+  - **Found, not fixed:**
+    - **A rig's bound effect still mounts per beat** (`RiggedEffect.svelte`'s `{#key runId}`:
+      its `EffectPlayer`, emitters and `RigBoneAttach`; ~15 a 15 s idle window and ~213 particles
+      on `bookofborutremake`). Unlike the clip, an emitter started again is not a new one: its
+      particles, pool and `Math.random` draws carry over, so keeping it needs its own parity work.
+    - **The info-bar win toast re-mounts its text per pass** where a project shows the message
+      in the cycle (`bookofborutremake`: `TextBox`, `CatalogText`, `MessageSymbol` with its
+      `Symbol` and sprite, ~5 a window). A text component keyed on its message, outside the reel
+      views.
+    - **`overlay-buffaloduel`'s idle Svelte time is the pots overlay**: ~1.1 s of every 15 s in
+      the instrumented WebKitGTK copy goes to the flush outside effects and the timeline samples
+      of nodes a timeline plays (`drive.sample()`, `foldBoundTransform`, ~43,000 evaluations
+      each a window), not to the win presentation. The largest idle cost left; not looked into
+      here.
+    - **Empty keyed blocks still re-key** (`Symbol`'s `{#key props.state}` and `{#key artKey}`
+      with nothing in them): ~450 DOM nodes a 15 s window, no objects. Cheap since the anchors sit
+      in their container's element.
+    - `bookofborutremake`'s board glow (`BoardFrame`) still remounts each loop (out of scope: it
+      changes pixels).
+  - **Not verified:** a real iPhone (the owner's `perf: 5` Copy is the test); the minified build;
+    the per-frame times on a quiet machine; the games the local parity runs did not cover (CI's
+    current-games run covers every live game); a project that tints its frame per line
+    (`tintMode: winLine`) or stamps a multiplier on a winning symbol, which the fixtures model but
+    no captured game exercises.
 
 - 2026-11-12 — **WebKit walked every anchor of the Pixi tree on each DOM change; a `Container` now
   keeps its children's anchors in an element of its own, the reel views hand back an unchanged

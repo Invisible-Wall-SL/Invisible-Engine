@@ -39,9 +39,17 @@
  * components were appended, each view mounts its sprite once, and no view is built after the first
  * respins.
  *
+ * Kept art and win frames: a view's `Symbol` keeps its rig and flipbook art (a play per entry its arm draws,
+ * `createEntries`) and its win frame (`createWinFrames`, decided once per visit) between plays.
+ * Over random runs of entries, vacancies, art kinds, wins and multiplier stamps, each starts a play
+ * on exactly the steps its keyed band mounted it and stops on the steps the band destroyed it, and
+ * the frame keeps the band's paint order against the stamp; a symbol that is not a view mounts its
+ * frame as before.
+ *
  * Plus source pins: every band of `Symbol.svelte` is keyed through this module inside an
  * unconditional Element FX container, a vacant symbol reports nothing, a view's sprite reports each
- * entry and is hidden while it does not draw, and `RespinCell` draws through its views in their
+ * entry and is hidden while it does not draw, a view's kept art and frame are drawn outside their
+ * keyed band and report only while they play, and `RespinCell` draws through its views in their
  * paint order.
  */
 
@@ -54,6 +62,7 @@ import {
 	createFxKey,
 	createPoolViews,
 	createShownViews,
+	createWinFrames,
 	placeCells,
 	shownCellsByIndex,
 	shownCellsByY,
@@ -778,6 +787,171 @@ check(
 );
 KINDS = MIXED;
 
+// ---- kept rig art and win frames --------------------------------------------------------------
+// A view's `Symbol` keeps its rig art and its win frame between plays. Each must start a play on
+// exactly the steps its keyed band mounted it, stop on the steps the band destroyed it, and keep the
+// band's paint order, through random runs of entries, vacancies, art kinds, wins and stamps.
+console.log('kept rig art and win frames play where the keyed bands mounted');
+{
+	type Art = 'rig' | 'flipbook' | 'sprite' | 'none';
+	type Step = { entry: number | undefined; art: Art; shown: boolean; stamp: boolean };
+	let seed = 11;
+	const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const steps: Step[] = [];
+	let entry: number | undefined = 1;
+	let nextEntry = 2;
+	let art: Art = 'sprite';
+	let shown = false;
+	let stamp = false;
+	for (let i = 0; i < 6000; i++) {
+		const r = rand();
+		if (r < 0.05) entry = undefined;
+		else if (r < 0.12 || (entry === undefined && r < 0.3)) entry = nextEntry++;
+		if (rand() < 0.15)
+			art = (['rig', 'flipbook', 'sprite', 'none'] as const)[Math.floor(rand() * 4)];
+		if (rand() < 0.2) shown = !shown;
+		if (rand() < 0.05) stamp = !stamp;
+		steps.push({ entry, art, shown, stamp });
+	}
+	/** `{#key k}{#if on}`: mounted where it turns on or its key moves while on, gone where it turns
+	 *  off or its key moves. */
+	const keyedBlock = () => {
+		let key: unknown;
+		let on = false;
+		return (nextKey: unknown, nextOn: boolean) => {
+			const moved = nextKey !== key;
+			const event = `${on && (!nextOn || moved) ? '-' : ''}${nextOn && (!on || moved) ? '+' : ''}`;
+			key = nextKey;
+			on = nextOn;
+			return event;
+		};
+	};
+	const played = () => {
+		let play: number | undefined;
+		return (next: number | undefined) => {
+			const event = `${play !== undefined && next !== play ? '-' : ''}${next !== undefined && next !== play ? '+' : ''}`;
+			play = next;
+			return event;
+		};
+	};
+
+	for (const kind of ['rig', 'flipbook'] as const) {
+		const base = keyedBlock();
+		const plays = createEntries();
+		const kept = played();
+		let mismatch = '';
+		let starts = 0;
+		steps.forEach((step, i) => {
+			const vacant = step.entry === undefined;
+			const keyed = artDraw(
+				artRestart({
+					hasArt: step.art !== 'none',
+					type: step.art === 'rig' ? 'spine' : step.art,
+					placeholder: false,
+				}),
+				vacant,
+			).keyed;
+			const want = base(bandKey(true, step.entry, keyed), keyed && step.art === kind);
+			const got = kept(plays(keyed && step.art === kind, step.entry));
+			if (got.includes('+')) starts += 1;
+			if (want !== got && !mismatch)
+				mismatch = `step ${i}: band ${want || '·'}, kept ${got || '·'}`;
+		});
+		check(
+			`the kept ${kind} starts and stops on the steps its keyed band mounted and destroyed it (${starts} plays)`,
+			!mismatch && starts > 100,
+			mismatch,
+		);
+	}
+
+	// The frame band, as `Symbol` draws it: `{#key restartWhen(frame || stamp)}{#if frame}F{/if}
+	// {#if stamp}S{/if}{/key}` before; now the kept frame before that block, and the block drawing the
+	// frame only for a visit the kept frame does not draw. A mount appends to the band.
+	type Item = { kind: 'F' | 'S'; kept?: boolean };
+	const band = () => {
+		let items: Item[] = [];
+		let key: unknown;
+		let frameOn = false;
+		let stampOn = false;
+		return {
+			items: () => items,
+			step(nextKey: unknown, frame: boolean, stampNow: boolean) {
+				let event = '';
+				const keep = items.filter((item) => item.kept);
+				if (nextKey !== key) {
+					if (frameOn) event += '-';
+					items = [...keep];
+					if (frame) {
+						items.push({ kind: 'F' });
+						event += '+';
+					}
+					if (stampNow) items.push({ kind: 'S' });
+				} else {
+					if (frameOn && !frame) {
+						items = items.filter((item) => item.kept || item.kind !== 'F');
+						event += '-';
+					}
+					if (stampOn && !stampNow) items = items.filter((item) => item.kind !== 'S');
+					if (!frameOn && frame) {
+						items.push({ kind: 'F' });
+						event += '+';
+					}
+					if (!stampOn && stampNow) items.push({ kind: 'S' });
+				}
+				key = nextKey;
+				frameOn = frame;
+				stampOn = stampNow;
+				return event;
+			},
+			mountKept() {
+				items.push({ kind: 'F', kept: true });
+			},
+		};
+	};
+	for (const view of [true, false]) {
+		const before = band();
+		const now = band();
+		const winFrames = createWinFrames();
+		const keptPlays = played();
+		let keptMounted = false;
+		let mismatch = '';
+		let keptStarts = 0;
+		steps.forEach((step, i) => {
+			const vacant = step.entry === undefined;
+			const show = !vacant && step.shown;
+			const multiplier = !vacant && step.stamp ? 2 : undefined;
+			const want = before.step(bandKey(view, step.entry, show || !!multiplier), show, !!multiplier);
+			const frame = winFrames(view, show, step.entry, multiplier);
+			if (frame.play !== undefined && !keptMounted) {
+				keptMounted = true;
+				now.mountKept();
+			}
+			const keptEvent = keptPlays(frame.play);
+			if (keptEvent.includes('+')) keptStarts += 1;
+			const blockEvent = now.step(
+				bandKey(view, step.entry, (show && !frame.kept) || !!multiplier),
+				show && !frame.kept,
+				!!multiplier,
+			);
+			const got = `${keptEvent.includes('-') || blockEvent.includes('-') ? '-' : ''}${keptEvent.includes('+') || blockEvent.includes('+') ? '+' : ''}`;
+			const order = (items: Item[]) =>
+				items
+					.filter((item) => !item.kept || frame.play !== undefined)
+					.map((item) => item.kind)
+					.join('');
+			if (!mismatch && (want !== got || order(before.items()) !== order(now.items())))
+				mismatch = `step ${i}: band ${want || '·'} ${order(before.items())}, now ${got || '·'} ${order(now.items())}`;
+		});
+		check(
+			view
+				? `a view's win frame starts, stops and paints where its band mounted, destroyed and appended it (${keptStarts} kept plays)`
+				: 'a symbol that is not a view mounts its frame in its band, as before',
+			!mismatch && (view ? keptStarts > 100 : keptStarts === 0),
+			mismatch,
+		);
+	}
+}
+
 type Fs = { readFileSync(path: URL, encoding: 'utf8'): string };
 // Imported by name at run time: this package's tsconfig carries no Node types.
 void import('node:' + 'fs').then((fs: Fs) => {
@@ -822,6 +996,59 @@ void import('node:' + 'fs').then((fs: Fs) => {
 			/\{#if !art\.keyed\}/.test(markup) &&
 			/void props\.restart;\s*props\.oncomplete\?\.\(\);/.test(sprite) &&
 			sprite.includes('visible={props.visible}'),
+	);
+	check(
+		"a view's rig art is kept outside the keyed art, played and put away by its plays",
+		/const rigPlay = \$derived\(\s*view \? rigPlays\(art\.keyed && hasArt && !isFlipbook && !isSprite, props\.instanceKey\) : undefined,\s*\);/.test(
+			symbol,
+		) &&
+			/const rigInfo = \$derived\(rigPlay !== undefined \? \(keptRig = symbolInfo\) : keptRig\);/.test(
+				symbol,
+			) &&
+			/\{#if rigInfo\}\s*<SymbolRigMain[^>]*symbolInfo=\{rigInfo\}[^>]*parked=\{rigPlay === undefined\}\s+restart=\{rigPlay\}/.test(
+				markup,
+			) &&
+			/complete: rigPlay === undefined \? undefined : artComplete/.test(markup) &&
+			/\{:else if !view\}\s*<SymbolRigMain/.test(markup),
+	);
+	check(
+		"a view's win frame is kept before its band, and the band draws only the visits it does not",
+		/const winFrame = \$derived\(winFrames\(view, showWinFrame, props\.instanceKey, multiplier\)\);/.test(
+			symbol,
+		) &&
+			/\{#if drawsKeptFrame\}\s*<SymbolWinFrame[^>]*parked=\{winFrame\.play === undefined\}\s+restart=\{winFrame\.play\}\s*\/>\s*\{\/if\}\s*\{#key restartWhen\(\(showWinFrame && !winFrame\.kept\) \|\| multiplier\)\}\s*\{#if showWinFrame && !winFrame\.kept\}/.test(
+				markup,
+			),
+	);
+	check(
+		"a view's flipbook art is kept outside the keyed art, played and put away by its plays",
+		/const flipbookPlay = \$derived\(\s*view \? flipbookPlays\(art\.keyed && hasArt && isFlipbook, props\.instanceKey\) : undefined,\s*\);/.test(
+			symbol,
+		) &&
+			/\{#if flipbookInfo\}\s*<SymbolFlipbook[^>]*symbolInfo=\{flipbookInfo\}[^>]*parked=\{flipbookPlay === undefined\}\s+restart=\{flipbookPlay\}\s+oncomplete=\{flipbookPlay === undefined \? undefined : artComplete\}/.test(
+				markup,
+			) &&
+			/\{:else if isFlipbook\}\s*\{#if !view\}\s*<SymbolFlipbook/.test(markup),
+	);
+	const flipbook = read('SymbolFlipbook.svelte');
+	check(
+		'a kept flipbook restarts its clip at each play, and is hidden, stopped and silent while away',
+		/if \(props\.parked !== undefined\) setContextRestart\(\(\) => props\.restart\);/.test(
+			flipbook,
+		) &&
+			/void props\.restart;\s*if \(props\.parked\) return;\s*const id = setTimeout/.test(
+				flipbook,
+			) &&
+			/play=\{!props\.frozen && !props\.parked\}\s+visible=\{shown\}/.test(flipbook) &&
+			(flipbook.match(/visible=\{shown\}/g) ?? []).length === 2,
+	);
+	const rigMain = read('SymbolRigMain.svelte');
+	const winFrameSource = read('SymbolWinFrame.svelte');
+	check(
+		'both hand the kept props to their RigProvider',
+		[rigMain, winFrameSource].every((source) =>
+			/parked=\{props\.parked\}\s+restart=\{props\.restart\}/.test(source),
+		),
 	);
 	const wrap = read('SymbolWrap.svelte');
 	check(

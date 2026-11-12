@@ -299,6 +299,35 @@ export const artDraw = (restart: BandRestart, vacant: boolean | undefined): ArtD
 	return { keyed: !vacant && restart === 'remount', sprite: false };
 };
 
+/** A `Symbol`'s win frame now: drawn by the frame it keeps (`kept`), and that frame's play. */
+export type WinFrameDraw = { kept: boolean; play: number | undefined };
+
+/**
+ * Where a `Symbol` draws its win frame: in the frame a view keeps between wins, or mounted in its
+ * band as before views. A VISIT is what a mount of the frame was: from when the cell shows it, or the
+ * view starts a new entry while it does, to when it stops. A view's visit is drawn by the kept frame
+ * (`<RigProvider parked restart>`), started again in place at each visit and put away between them,
+ * unless the symbol stamps a multiplier when it starts: the frame and the stamp share a band, and a
+ * frame mounted while the stamp is there is appended over it, where a kept frame would stay under.
+ * Decided once per visit, so a stamp coming or going mid-visit leaves the frame playing, as it did.
+ */
+export const createWinFrames = () => {
+	const visits = createEntries();
+	let visit: number | undefined;
+	let kept = false;
+	return (
+		view: boolean,
+		shown: boolean,
+		entry: number | undefined,
+		multiplier: number | undefined,
+	): WinFrameDraw => {
+		const now = visits(view && shown, entry);
+		if (now !== visit) kept = now !== undefined && !multiplier;
+		visit = now;
+		return { kept, play: kept ? now : undefined };
+	};
+};
+
 /**
  * The `{#key}` of a `Symbol`'s Element FX container, from its `instanceKey` and whether it has
  * Element FX. The container used to be there only for a symbol with Element FX, so a symbol turning
