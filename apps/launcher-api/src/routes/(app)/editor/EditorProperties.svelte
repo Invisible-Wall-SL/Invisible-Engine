@@ -1102,7 +1102,8 @@
 
 	// Spin-FEEL tuning fields (reelGrid node, advanced). Each maps to a
 	// `SpinningReelSpinOptions` key; blank = the game's coded default for that
-	// profile. Authored under `node.spin.{normal,fast}`.
+	// profile. Authored under `node.spin.{normal,fast}`; the Hold and Win respin cells'
+	// `respinNormal` / `respinFast` fall back to the board's profile, field by field.
 	const SPIN_FIELDS: { key: keyof ReelSpinProfile; label: string; toggle?: boolean }[] = [
 		{ key: 'reelSpinSpeed', label: 'spin speed' },
 		{ key: 'reelPreSpinSpeed', label: 'pre-spin speed' },
@@ -1120,23 +1121,40 @@
 		{ key: 'reelMinSpinDuration', label: 'min roll (ms)' },
 	];
 
+	type SpinProfileKey = keyof NonNullable<ReelGridNode['spin']>;
+
+	const SPIN_PROFILES: { profile: SpinProfileKey; title: string }[] = [
+		{ profile: 'normal', title: 'Normal' },
+		{ profile: 'fast', title: 'Turbo' },
+		{ profile: 'respinNormal', title: 'Hold and Win respin' },
+		{ profile: 'respinFast', title: 'Hold and Win respin — turbo' },
+	];
+
 	const SPIN_DEFAULTS: Record<'normal' | 'fast', ReelSpinProfile> = {
 		normal: SPIN_OPTIONS_DEFAULT,
 		fast: SPIN_OPTIONS_FAST,
 	};
 
-	function readSpin(n: ReelGridNode, profile: 'normal' | 'fast', key: keyof ReelSpinProfile) {
+	function readSpin(n: ReelGridNode, profile: SpinProfileKey, key: keyof ReelSpinProfile) {
 		return n.spin?.[profile]?.[key] ?? '';
 	}
 
-	function spinDefault(profile: 'normal' | 'fast', key: keyof ReelSpinProfile): string {
-		const value = SPIN_DEFAULTS[profile][key];
+	/** What a blank field plays: the coded default, or — on a respin profile — the board's value. */
+	function spinDefault(
+		n: ReelGridNode,
+		profile: SpinProfileKey,
+		key: keyof ReelSpinProfile,
+	): string {
+		const base = profile === 'respinNormal' ? 'normal' : profile === 'respinFast' ? 'fast' : null;
+		const value = base
+			? (n.spin?.[base]?.[key] ?? SPIN_DEFAULTS[base][key])
+			: SPIN_DEFAULTS[profile as 'normal' | 'fast'][key];
 		return value == null ? '' : String(value);
 	}
 
 	function writeSpin(
 		n: ReelGridNode,
-		profile: 'normal' | 'fast',
+		profile: SpinProfileKey,
 		key: keyof ReelSpinProfile,
 		raw: number,
 	): void {
@@ -1146,7 +1164,7 @@
 		else delete prof[key];
 		spin[profile] = Object.keys(prof).length ? prof : undefined;
 		// Drop an empty tuning object so an untouched node carries no `spin` (parity).
-		n.spin = spin.normal || spin.fast ? spin : undefined;
+		n.spin = spin.normal || spin.fast || spin.respinNormal || spin.respinFast ? spin : undefined;
 		markDirty();
 	}
 
@@ -5092,10 +5110,12 @@
 					a 120 px row (2.4 = 20 symbols/s); times are ms; "length" scales how far the reel spins
 					(the gap between reel stops is 5 × length rows). Two profiles: <strong>Normal</strong>
 					(also drives anticipation) and <strong>Turbo</strong>, where every reel lands together
-					once "min roll" has passed.
+					once "min roll" has passed. The <strong>Hold and Win respin</strong> profiles tune only the
+					respin cells: each is a one-row reel, so the same "length" rolls 3 rows where a 3-row reel rolls
+					5. A blank respin field plays the board's value, shown greyed.
 				</p>
-				{#each [{ profile: 'normal', title: 'Normal' }, { profile: 'fast', title: 'Turbo' }] as p (p.profile)}
-					{@const profile = p.profile as 'normal' | 'fast'}
+				{#each SPIN_PROFILES as p (p.profile)}
+					{@const profile = p.profile}
 					<h4 class="spin-profile">{p.title}</h4>
 					<div class="spin-grid">
 						{#each SPIN_FIELDS as f (f.key)}
@@ -5113,7 +5133,7 @@
 											)}
 									>
 										<option value=""
-											>default ({spinDefault(profile, f.key) === '1' ? 'on' : 'off'})</option
+											>default ({spinDefault(node, profile, f.key) === '1' ? 'on' : 'off'})</option
 										>
 										<option value="1">on</option>
 										<option value="0">off</option>
@@ -5122,7 +5142,7 @@
 									<input
 										type="number"
 										step="0.01"
-										placeholder={spinDefault(profile, f.key)}
+										placeholder={spinDefault(node, profile, f.key)}
 										value={readSpin(node, profile, f.key)}
 										oninput={(e) => writeSpin(node, profile, f.key, e.currentTarget.valueAsNumber)}
 									/>

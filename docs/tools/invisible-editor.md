@@ -1291,6 +1291,14 @@ time the gap between reel stops for **spin length**. Measure the overshoot as a 
 symbol for **bounce size**, and time the whole bounce for **bounce time**. A Turbo spin can
 only land once the game server has answered, so **min roll** sets the earliest it lands.
 
+**Hold and Win respin** and **Hold and Win respin — turbo** tune only the respin cells of a
+Hold and Win feature, with the same fields. A blank field plays the board's value (Normal or
+Turbo above), shown greyed, so a game that sets nothing here respins exactly as before. Each
+respin cell is a one-row reel, so its reel length is 3, not 5. With the same settings a
+respin column stops 3 × 1.26 = 3.8 rows after the last, about 190 ms, where a base reel takes
+316 ms. To slow the respin to the base game's pace, raise its **spin length** to about 2.1, or
+lower its **spin speed**.
+
 #### Perspective (advanced)
 
 With the **reel grid** node selected, a **"Perspective (advanced)"** section sits

@@ -286,7 +286,7 @@ const ensureBoard = (): RespinBoard => {
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),
 		onCellLand,
-		spinProfile: stateGameDerived.reelSpinProfile,
+		spinProfile: stateGameDerived.respinSpinProfile,
 	});
 	return board;
 };
