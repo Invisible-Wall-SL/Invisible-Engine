@@ -732,6 +732,11 @@ check that the right packages went out. A **Version** picker switches between re
 - **Game content:** game type, scenes, components, symbols, fonts, sounds, languages, text strings,
   clips, effects, shaders, cinematics, and whether the flow, game config and win text are authored.
 - **Assets CSV**, **Files CSV** and **JSON** download the lists.
+- **What a version holds:** only the files a player can load. That is the exporters' output (scene
+  art, symbols, atlas pages, fonts, sounds, the loading screen, effects, clips, shaders) and any
+  other file `runtime.json` names. The Sheet Maker's and Atlas Maker's source folders (`sprites/`,
+  `spines/`) stay out. A version published before 2026-11-12 still carries them, so its totals,
+  file count and **Same bytes shipped twice** are higher than what a player downloads.
 
 The first open of a version takes a few seconds (it reads the version's files); the result is then
 stored with the version and opens instantly. It is read-only: any Game Maker user with access to

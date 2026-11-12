@@ -64,6 +64,38 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-11-12 — **A published version freezes only what a player loads.** `stageSnapshot` copied
+  all of `deploy/` (`copyDeployTree`), so every version carried the Sheet Maker's and Atlas Maker's
+  source folders (`sprites/`, `spines/`, which the exports repack into `_pages/`) and by-products
+  the bundle embeds instead (`cinematics/`, top-level `flow*.json`). No player requests them, but the
+  Build breakdown listed ~69 MB of them as **Same bytes shipped twice** and counted them in **Total
+  incl. engine**.
+  - **The rule:** `versionFiles` in `apps/launcher-api/scripts/lib/assetReachability.mjs`, beside
+    `GENERATED_SUBTREES`. It is the build pull's rule with the runtime bundle as the only game
+    source: the generated subtrees whole, plus any other file or folder the bundle names (a path
+    inside any string, a string that is a listed file or folder, and what a kept descriptor names).
+    When in doubt it keeps the file. The copy runs under the same `withDeployWrite` lock, and a kept
+    file that vanishes still fails the publish.
+  - **Director drafts use the same filter** (`director/ops/build.ts`). QA plays the set a version
+    would freeze, so a filter mistake shows in QA before it reaches players.
+  - **Measured on the 17 current versions** (read-only R2): 776 → 503 MB, 2,665 → 2,083 objects.
+    Biggest: Test6 195.4 → 88.1 MB, test1 150.8 → 73.6 MB, Book of Borut remake 76.4 → 46.7 MB,
+    borut_pots_sample 122.3 → 97.7 MB. No bundle names a file outside the generated subtrees, so
+    on today's data the kept set is exactly those subtrees. A static walk from each bundle (named
+    paths, font and sound catalogs, `_boot/`, then every path in each reached file) found no
+    reachable file outside the kept set.
+  - **Played, not only read:** the current-games harness rendered the `base` scenario of every
+    current version on one main runtime, once from the full snapshot and once from the filtered
+    one (files outside it 404). Result: 14 pass · 1 fail · 2 not rendered · 0 changed screens, 57
+    of 57 screens byte-identical, and the same 918 file requests on both sides with no 404. The
+    fail is `cloud`, which stops at the same step on the full snapshot too. The two not rendered are
+    `salmons` and `test-card`, whose arcade and card runtimes were not built for the run.
+  - **Existing versions are untouched.** They leave as the five retained versions roll over. The
+    first new version's breakdown lists the dropped files under **Changes since the previous
+    version → removed**.
+  - Gate: `check:version-files` (Lint; 17 checks, 7 planted mutant filters).
+    `check:director-adapters` now plants a raw sprite that a draft must leave behind.
+
 - 2026-11-12 — **Client sections fold.** With Group by client on, each client heading is a
   chevron toggle that hides its cards; folds persist per client in `localStorage`
   (`iw-game-maker-folded-clients`, restored after mount). Cards themselves do not fold.

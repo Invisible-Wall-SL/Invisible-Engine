@@ -11,9 +11,9 @@
  *
  *   pointer.json            { version, current, snapshots[] }   — the ONLY mutable object
  *   <id>/runtime.json       the RuntimeBundle as assembled at publish (no `assetBase`/`name`)
- *   <id>/deploy/**          a server-side copy of `deploy/` taken under the same lock
+ *   <id>/deploy/**          a server-side copy of what a player loads of `deploy/` (same lock)
  *
- * WHY A FULL COPY OF `deploy/` rather than content-hashed names. The assemble rewrites `deploy/` IN
+ * WHY A COPY OF `deploy/` rather than content-hashed names. The assemble rewrites `deploy/` IN
  * PLACE: stems keep their names across exports (`editor-art/<stem>/<stem>.json`), and the `_pages/`
  * prune deletes every page the latest export did not claim. A snapshot that pointed into the live
  * tree would therefore change or lose files under a running game on the next authoring boot. The
@@ -23,7 +23,15 @@
  * is still referenced is the worst failure the prune has). A copy keeps the relative tree intact,
  * is correct by construction, and garbage-collects by deleting one prefix.
  *
- * Cost, measured 2026-09-29: a real project's `deploy/` is 130-200 MB in 240-430 objects. The copy
+ * WHAT IS COPIED: only what a player can load (`versionFiles`, the same rule a build's pull uses) —
+ * the exporters' subtrees whole, plus anything else the bundle names. The Sheet Maker's and Atlas
+ * Maker's source folders (`sprites/`, `spines/`), which the exports repack into `_pages/`, and the
+ * by-products whose content the bundle embeds (`cinematics/`, `flow-v2.json`) stay behind. Until
+ * 2026-11-12 every version carried them: 107 MB of Test6's 195 MB, counted by the Build breakdown
+ * as player downloads.
+ *
+ * Cost, measured 2026-09-29: a real project's `deploy/` is 130-200 MB in 240-430 objects; the
+ * filtered copy (2026-11-12, the 17 current versions) is a third smaller, 776 → 503 MB. The copy
  * is server-side (`CopyObject` — no bytes through this process, one Class A op each), so a publish
  * costs ~430 ops and a few seconds; keeping {@link RETAINED_SNAPSHOTS} snapshots stores ≤1 GB per
  * project, i.e. cents per month at R2's storage price. Re-evaluate if projects grow 10×.
@@ -36,6 +44,7 @@
  * unreferenced folder younger than {@link ORPHAN_AGE_MS} may be another publish's staged, not-yet-
  * committed snapshot, and is left alone.
  */
+import { versionFiles } from '../../../scripts/lib/assetReachability.mjs';
 import type { RuntimeBundle } from './runtimeBundle';
 import { mapWithConcurrency } from './concurrency';
 import { publishedPointerKey, SUB } from './projectPaths';
@@ -239,12 +248,27 @@ export async function discardSnapshot(client: string, project: string, id: strin
 }
 
 /**
- * Server-side copy of every object under `deployPrefix` to `destPrefix` (both end in `/`), at
- * bounded fan-out. Shared by a published snapshot and a Director draft, so the two freeze a
- * `deploy/` tree the same way. Returns the objects copied.
+ * Server-side copy of the objects under `deployPrefix` a player of `bundle` can load, to
+ * `destPrefix` (both end in `/`), at bounded fan-out: the generated subtrees whole, plus whatever
+ * else `bundle` names (`versionFiles`). Raw tool folders no player requests (`sprites/`, `spines/`)
+ * stay behind.
+ * Shared by a published snapshot and a Director draft, so QA plays exactly the set a version would
+ * freeze. Returns the objects copied.
  */
-export async function copyDeployTree(deployPrefix: string, destPrefix: string) {
-	const objects = (await listAllObjects(deployPrefix)).filter((o) => !o.key.endsWith('/'));
+export async function copyDeployTree(
+	deployPrefix: string,
+	destPrefix: string,
+	bundle: RuntimeBundle,
+) {
+	const listed = (await listAllObjects(deployPrefix)).filter((o) => !o.key.endsWith('/'));
+	const kept = new Set(
+		await versionFiles(
+			listed.map((o) => o.key.slice(deployPrefix.length)),
+			bundle,
+			async (rel) => (await getObjectTextWithEtag(`${deployPrefix}${rel}`))?.text ?? null,
+		),
+	);
+	const objects = listed.filter((o) => kept.has(o.key.slice(deployPrefix.length)));
 	await mapWithConcurrency(objects, COPY_CONCURRENCY, async (o) => {
 		const rel = o.key.slice(deployPrefix.length);
 		// Listed a moment ago, gone now: something rewrote deploy/ outside the lock. Freezing the
@@ -257,9 +281,10 @@ export async function copyDeployTree(deployPrefix: string, destPrefix: string) {
 }
 
 /**
- * Freeze `bundle` + the current `deploy/` tree as a new, NOT YET LIVE snapshot. The caller must
- * have assembled `bundle` under the same `withDeployWrite` it holds now, so the copy is of exactly
- * the tree that assemble wrote. On failure the partial copy is removed and the error rethrown.
+ * Freeze `bundle` + what its players load of `deploy/` as a new, NOT YET LIVE snapshot. The caller
+ * must have assembled `bundle` under the same `withDeployWrite` it holds now, so the copy is of
+ * exactly the tree that assemble wrote. On failure the partial copy is removed and the error
+ * rethrown.
  */
 export async function stageSnapshot(
 	client: string,
@@ -271,7 +296,7 @@ export async function stageSnapshot(
 	const deployPrefix = `${SUB.deploy(client, project)}/`;
 	const prefix = snapshotPrefix(client, project, id);
 	try {
-		const objects = await copyDeployTree(deployPrefix, `${prefix}deploy/`);
+		const objects = await copyDeployTree(deployPrefix, `${prefix}deploy/`, bundle);
 		// Written LAST: a snapshot without its `runtime.json` is never served, so a crash mid-copy
 		// leaves an orphan for the next commit to sweep, never a half-populated live snapshot.
 		await putObjectText(`${prefix}runtime.json`, JSON.stringify(bundle), 'application/json');

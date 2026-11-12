@@ -1,6 +1,7 @@
 // Which files under a game's `static/assets/` the game can actually load — so a build ships those
-// and nothing else. Used by pull-project-assets.mjs; Node builtins only (it runs inside a game
-// repo, where the engine submodule's node_modules is never installed).
+// and nothing else. Used by pull-project-assets.mjs, and by Publish for what a version freezes
+// (`versionFiles`); Node builtins only (it runs inside a game repo, where the engine submodule's
+// node_modules is never installed).
 //
 // TWO KINDS OF FOLDER. The export-generated subtrees (`editor-art/`, `_pages/`, …) are written by
 // the launcher's exports, which already ship only what the game's scenes, flow and symbols reach
@@ -174,6 +175,67 @@ export async function scanSources(roots, tops, { skip = [] } = {}) {
 	};
 	for (const root of roots) await walk(root);
 	return { refs, scanned };
+}
+
+/** A bundle string as a deploy rel: no query, no leading `./` or `/`, no trailing `/`. */
+const asRel = (s) =>
+	s
+		.split(/[?#]/)[0]
+		.replace(/\\/g, '/')
+		.replace(/^(?:\.?\/)+/, '')
+		.replace(/\/+$/, '');
+
+function eachString(value, visit) {
+	if (typeof value === 'string') visit(value);
+	else if (Array.isArray(value)) for (const v of value) eachString(v, visit);
+	else if (value && typeof value === 'object')
+		for (const v of Object.values(value)) eachString(v, visit);
+}
+
+/**
+ * The files of a `deploy/` listing (`rels`) a PUBLISHED VERSION freezes (`publishedRuntime.ts`) —
+ * the same rule as a build's, with the version's runtime `bundle` as the only game source. A player
+ * boots the shared runtime, which loads from the version's copy only what the bundle names (an
+ * index path, a catalog prefix), what those files name in turn (an atlas its page), and the boot
+ * splash under `_boot/`. So the generated subtrees are kept whole, and every other folder only where the
+ * bundle names it: a path inside any string (`collectRefs`, as the pull reads the baked bundle), or
+ * a whole string that IS a listed file or folder (a bare top-level name has no `/` for
+ * `collectRefs` to see). The Sheet Maker's and Atlas Maker's source folders (`sprites/`,
+ * `spines/`), which the exports repack into the generated subtrees, stay out. `readText(rel)` reads
+ * a kept descriptor outside the generated subtrees so what it names is kept too (the exports write
+ * their own subtrees self-contained, so theirs are not read).
+ */
+export async function versionFiles(rels, bundle, readText) {
+	const source = rels.filter((rel) => !isGenerated(rel));
+	const tops = [
+		...new Set(source.filter((rel) => rel.includes('/')).map((rel) => rel.split('/')[0])),
+	];
+	const refs = collectRefs(emptyRefs(), JSON.stringify(bundle), { json: true, tops });
+	const listed = new Set(source);
+	const folders = new Set(
+		source.flatMap((rel) => {
+			const segs = rel.split('/');
+			return segs.slice(1).map((_, i) => segs.slice(0, i + 1).join('/'));
+		}),
+	);
+	eachString(bundle, (s) => {
+		const rel = asRel(s);
+		if (listed.has(rel)) addRef(refs, rel, '');
+		else if (folders.has(rel)) refs.dirs.add(rel);
+	});
+	const seen = new Set();
+	for (;;) {
+		const before = refs.files.size + refs.dirs.size;
+		for (const rel of source) {
+			if (seen.has(rel) || !isReachable(rel, refs)) continue;
+			if (!DESCRIPTOR_EXTS.has(extname(rel).toLowerCase())) continue;
+			seen.add(rel);
+			const text = await readText(rel);
+			if (text !== null) collectRefs(refs, text, { json: true, tops });
+		}
+		if (refs.files.size + refs.dirs.size === before) break;
+	}
+	return rels.filter((rel) => isReachable(rel, refs));
 }
 
 /**

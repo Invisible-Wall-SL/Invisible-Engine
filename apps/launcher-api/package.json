@@ -49,6 +49,7 @@
 		"check:project-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scope.ts",
 		"check:build-breakdown": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-build-breakdown.ts",
 		"check:published-runtime": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-published-runtime.ts",
+		"check:version-files": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-version-files.ts",
 		"check:project-scaffold": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scaffold.ts",
 		"check:mock-contract": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-mock-contract.ts",
 		"check:deploy-read": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-read.ts",

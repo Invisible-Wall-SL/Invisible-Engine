@@ -190,6 +190,7 @@ export const requestDraft = defineOp<Record<string, never>, RequestDraftResult>(
 				const objects = await copyDeployTree(
 					`${SUB.deploy(clientKey, projectKey)}/`,
 					`${prefix}deploy/`,
+					assembled,
 				);
 				const meta: DraftMeta = {
 					draftId,
