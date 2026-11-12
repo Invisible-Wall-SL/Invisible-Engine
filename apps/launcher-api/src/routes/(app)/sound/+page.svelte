@@ -18,7 +18,7 @@
 		type SoundOrigin,
 		type SoundsDoc,
 	} from 'engine-layout';
-	import { checkSoundLibrary, type SoundBinding } from '$lib/soundUsage';
+	import { checkSoundLibrary, soundBindingNames, type SoundBinding } from '$lib/soundUsage';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -234,12 +234,38 @@
 		return index;
 	});
 	const boundNames = $derived(Object.keys(bindings));
+
+	/**
+	 * What a build ships from everything but the choices on screen — the export's own walk, streamed
+	 * in by the server. `null`: the export cannot tell, so it ships every sound. `undefined`: not
+	 * arrived yet, and the checks below fall back to the bindings.
+	 */
+	let shipsElsewhere = $state<string[] | null | undefined>(undefined);
+	$effect(() => {
+		let current = true;
+		shipsElsewhere = undefined;
+		data.shipsElsewhere.then((names) => {
+			if (current) shipsElsewhere = names;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	const choiceNames = $derived(soundBindingNames(choices));
+	/** Whether a build ships a library sound: the publish gate's answer, with unsaved choices in. */
+	const ships = $derived.by(() => {
+		const elsewhere = shipsElsewhere;
+		const chosen = choiceNames;
+		if (elsewhere === undefined) return undefined;
+		return (name: string) => elsewhere === null || elsewhere.includes(name) || chosen.has(name);
+	});
 	const checks = $derived(
 		checkSoundLibrary(
 			$state.snapshot(doc),
 			(name) => boundNames.includes(name),
 			boundNames,
 			data.builtinNames,
+			ships,
 		),
 	);
 	const overriding = $derived(new Set(checks.overridesBuiltin));
@@ -1153,6 +1179,15 @@
 											>
 												replaces a built-in
 											</span>
+										{:else if ships?.(entry.name)}
+											<span
+												class="use bound"
+												title={shipsElsewhere === null
+													? "Invisible Sound can't tell which sounds this game plays, so a build ships every one."
+													: 'Named outside this page — a screen timeline, a cinematic, a component or an older setting — so a build ships it.'}
+											>
+												ships
+											</span>
 										{:else}
 											<span
 												class="use unbound"
@@ -1272,11 +1307,25 @@
 			<h2>
 				What's actually played
 				<InfoTip>
-					Everything the sections above bind, plus the flow's own cues, checked against the library.
-					A problem here is one you cannot hear: a sound the game asks for and does not have plays
-					nothing and reports nothing.
+					Everything the sections above bind, plus the flow's own cues and every other place the
+					game names a sound (screen timelines, cinematics, components), checked against the
+					library. A problem here is one you cannot hear: a sound the game asks for and does not
+					have plays nothing and reports nothing.
 				</InfoTip>
 			</h2>
+
+			{#if shipsElsewhere === undefined}
+				<p class="hint">
+					Still reading the rest of the game (screen timelines, cinematics, components) for the
+					sounds it plays…
+				</p>
+			{:else if shipsElsewhere === null}
+				<p class="warn">
+					<strong>Invisible Sound can't tell which sounds this game plays</strong> — a flow cue builds
+					its sound's name while the game runs, or part of the game could not be read. So a build ships
+					every sound, and every draft stops Publish.
+				</p>
+			{/if}
 
 			{#if checks.missing.length}
 				<p class="warn">
@@ -1289,12 +1338,11 @@
 			{#if checks.unapprovedBound.length}
 				<p class="warn">
 					<strong
-						>{checks.unapprovedBound.length} sound{checks.unapprovedBound.length === 1
-							? ' is'
-							: 's are'} played but not approved:</strong
+						>{checks.unapprovedBound.length} sound{checks.unapprovedBound.length === 1 ? '' : 's'} the
+						game ships {checks.unapprovedBound.length === 1 ? 'is' : 'are'} not approved:</strong
 					>
-					{checks.unapprovedBound.join(', ')}. They work — this is the list to review before you
-					ship.
+					{checks.unapprovedBound.join(', ')}. They play — but Publish stops on them until they are
+					approved, or you choose to publish anyway.
 				</p>
 			{/if}
 			{#if checks.unbound.length}
@@ -1304,8 +1352,10 @@
 							? ''
 							: 's'}:</strong
 					>
-					{checks.unbound.join(', ')}. Either give {checks.unbound.length === 1 ? 'it' : 'them'} a moment
-					above, or rename to match a built-in sound to replace it.
+					{checks.unbound.join(', ')}.
+					{#if ships}A build leaves {checks.unbound.length === 1 ? 'it' : 'them'} out.{/if}
+					Either give {checks.unbound.length === 1 ? 'it' : 'them'} a moment above, or rename to match
+					a built-in sound to replace it.
 				</p>
 			{/if}
 			{#if entries.length > 0 && !checks.missing.length && !checks.unbound.length}

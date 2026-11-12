@@ -5,6 +5,15 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### Publish lets out draft sounds the build ships
+- **Symptom:** 27 draft sounds on 7 projects shipped with no publish block: picked on `/sound`, or
+  played only by a cinematic cue (measured 2026-11-12).
+- **Cause:** the gate (`soundPublishCheck.ts`) kept its own list of what plays (config, symbols,
+  flow) apart from what the export ships (`soundReachability.ts`); new homes reached only one.
+- **Fix:** the gate asks the export's question (same calls, same resolved choices); `/sound` lists it.
+- **Guard:** `check:sound-reachability` §6: gate == export == page over 5 scenarios, 9 mutants.
+- **PR:** see git log (2026-11-12) · source: this lesson
+
 ### Invisible Sound lists no Flow cue, and Publish lets a Flow-only draft through
 - **Symptom:** `/sound` showed no Flow cues on any of the 20 projects with a flow, and Publish
   never blocked a draft sound only the Flow plays (found by the sound-reachability work, 2026-11-12).
