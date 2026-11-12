@@ -9,7 +9,7 @@ const RETRY_DELAY_MS = 1_000;
  * Point Pixi's KTX2 loader at the engine's self-hosted transcoder, fetched and checked on the
  * FIRST `.ktx2` load rather than at boot.
  *
- * WHY LAZILY. Only the compressed tier (`preferCompressedTextures` in `apps/lines`) loads a
+ * WHY LAZILY. Only the compressed tier (`compressedTextures`, `deviceClass.ts`) loads a
  * `.ktx2`, so a desktop never downloads the ~520 KB gz transcoder at all. Pixi likewise creates its
  * worker only on the first `.ktx2` load.
  *

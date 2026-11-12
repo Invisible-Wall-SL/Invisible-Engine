@@ -34,7 +34,7 @@ import {
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import { captureError } from 'error-tracking';
-import { renderSettings } from 'pixi-svelte';
+import { compressedTextures, deviceScreenPixelRatio, renderSettings } from 'pixi-svelte';
 import { setAuthoredMainSizesMap, setAuthoredLayoutProfile } from 'utils-layout';
 
 import type { SoundEffectName } from './game/sound';
@@ -562,30 +562,13 @@ function hasRuntimeBundle(): boolean {
 }
 
 /** ADAPTIVE texture-quality tier — one build serves every device. When a KTX2 variant was
- * baked, load it (4× less VRAM, full resolution) on memory-constrained devices, and the
- * uncompressed full-res original on high-memory ones (arcade / kiosk / desktop, best quality).
- *
- * Auto-detect: ALL mobile — iOS + Android — plus any low-`deviceMemory` (≤4 GB) device get
- * compression. It's a near-lossless VRAM win with no downside on phones, and compression is NOT
- * a resolution cut: every page ≤4096 stays full-res; only a page over the encoder's ~12 Mpix cap
- * (a rare oversized cinematic) is downscaled, and that's unavoidable, not a tier choice. Desktop
- * gets uncompressed full-res. `?quality=high` (arcade cabinets wanting pristine uncompressed) /
- * `?quality=low` force it. Read raw (like `runtime`/`project`/`k`) so it resolves at import time
- * before SvelteKit context; SSR defaults to compressed (safe). */
+ * baked, load it (4× less VRAM, full resolution) on every phone and tablet and on low-memory
+ * devices, and the uncompressed full-res original on desktops and arcade cabinets (best quality).
+ * Compression is NOT a resolution cut: every page ≤4096 stays full-res; only a page over the
+ * encoder's ~12 Mpix cap (a rare oversized cinematic) is downscaled. Which device is which, and the
+ * `?quality=high|low` pins, live in `pixi-svelte` `deviceClass.ts`. SSR defaults to compressed. */
 function preferCompressedTextures(): boolean {
-	if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
-	const q = new URLSearchParams(window.location.search).get('quality');
-	if (q === 'high') return false;
-	if (q === 'low') return true;
-	const ua = navigator.userAgent || '';
-	const isIOS =
-		/iPad|iPhone|iPod/.test(ua) ||
-		// iPadOS 13+ reports as desktop Safari; disambiguate by touch support.
-		(navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1);
-	const isAndroid = /Android/i.test(ua);
-	const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-	const lowMem = typeof mem === 'number' && mem <= 4;
-	return isIOS || isAndroid || lowMem;
+	return typeof window === 'undefined' || compressedTextures();
 }
 
 /** Public form of {@link hasRuntimeBundle} for the boot path — true only after a
@@ -716,13 +699,16 @@ function artTier(): ArtTier {
 		window: {
 			width: window.innerWidth,
 			height: window.innerHeight,
-			devicePixelRatio: window.devicePixelRatio,
+			pixelRatio: deviceScreenPixelRatio(),
 		},
 		maxResolution: renderSettings().maxResolution,
 		doc: source?.doc ?? null,
 	});
 	return chosenArtTier;
 }
+
+/** The art tier this page chose, once art has registered (`?perf=1` reports it). */
+export const artTierInForce = (): ArtTier | undefined => chosenArtTier;
 
 /** A sheet's src on the chosen tier: its tier copy when the export wrote one, else the full sheet. */
 function sheetSrc(

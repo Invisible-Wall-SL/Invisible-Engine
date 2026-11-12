@@ -27,12 +27,12 @@
 	import ktxTranscoderJsUrl from '../transcoders/ktx/libktx.js?url';
 	import ktxTranscoderWasmUrl from '../transcoders/ktx/libktx.wasm?url';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
-	import { devicePixelRatio } from 'svelte/reactivity/window';
 
 	import { getContextApp } from '../context.svelte';
 	import { disposeCameraEffects } from '../cameraEffects';
 	import { disposeScreenTransitions } from '../screenFx/screenTransition';
 	import { renderSettings } from '../renderTier';
+	import { canvasResolution, deviceScreenPixelRatio } from '../deviceClass';
 	import { installRenderQuality } from '../renderQuality';
 	import { trimBackBufferPasses } from '../backBufferPasses';
 	import {
@@ -117,15 +117,17 @@
 			// approves the edge pixels the canvas's own MSAA changes; `?backbuffer=0` shows that.
 			useBackBuffer: options.useBackBuffer,
 			powerPreference: 'high-performance',
-			// Clamp the backing-store resolution to [1, 2]. Upper cap: on high-DPR phones
-			// (iPhone 16 = 3) an uncapped DPR allocates every framebuffer + render-texture at
-			// 9× the pixel area, which blows past iOS Safari's per-tab memory cap and crashes
-			// the WebContent process ("A problem repeatedly occurred"); 2 is visually identical.
-			// Lower floor: a DPR below 1 (a zoomed-out / fractional-scaled display) would render
-			// the whole scene SUB-native, so thin antialiased text ghosts into a faint echo that
-			// reads as "double text". Never render below 1:1. `?render=reduced` lowers the cap, and
-			// `renderQuality.ts` lowers it later on a device that cannot keep up.
-			resolution: Math.min(Math.max(devicePixelRatio.current ?? 1, 1), render.maxResolution),
+			// The screen's real pixels per CSS pixel at boot (`deviceClass.ts`: a phone showing the
+			// desktop site zooms the page out, so its DPR alone over-draws ~3×), clamped to [1, 2].
+			// Upper cap: on high-DPR phones (iPhone 16 = 3) an uncapped DPR allocates every
+			// framebuffer + render-texture at 9× the pixel area, which blows past iOS Safari's
+			// per-tab memory cap and crashes the WebContent process ("A problem repeatedly
+			// occurred"); 2 is visually identical. Lower floor: a DPR below 1 (a zoomed-out /
+			// fractional-scaled display) would render the whole scene SUB-native, so thin
+			// antialiased text ghosts into a faint echo that reads as "double text". Never render
+			// below 1:1. `?render=reduced` lowers the cap, and `renderQuality.ts` lowers it later on
+			// a device that cannot keep up.
+			resolution: canvasResolution(deviceScreenPixelRatio(), render.maxResolution),
 			resizeTo: window,
 		});
 

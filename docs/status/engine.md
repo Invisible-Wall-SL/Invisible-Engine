@@ -72,14 +72,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   ≤ 4 GB leaves them to the GC, `textureResidency.ts`) and compiling every program the game can
   draw with: each authored Element FX with its own params, the camera chroma split, the rig dark
   tint (`pixi-svelte` `gpuWarmup.ts`; the game's scan is `apps/lines/src/game/authoredFxUses.ts`).
-  Spread across frames behind the loading screen. Every device starts at full quality (pixel ratio
-  up to 2, MSAA); the game lowers it only when frames measurably fall behind while a round plays,
+  Spread across frames behind the loading screen. Every device starts at full quality (the
+  screen's pixel ratio up to 2, MSAA; next bullet); the game lowers it only when frames measurably
+  fall behind while a round plays,
   never from device memory (`renderQuality.ts`, 2026-11-10 below). `?render=full` pins full,
   `?render=reduced` pins resolution ≤ 1.5 without MSAA (`renderTier.ts`). A warm-up that throws
   never holds the load, and a hidden tab (no frames) finishes it on a 50 ms timeout: verified with
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
+- **Phone or desktop, and the screen's real pixels** (2026-11-12) — `pixi-svelte` `deviceClass.ts`
+  is the one place that decides, once at boot: a **phone** (every phone and tablet, a phone in
+  Desktop site mode included) loads the KTX2 art, a **desktop** (desktop, laptop, arcade cabinet)
+  the uncompressed pages. The rule is in [gpu-compressed-textures](../design/gpu-compressed-textures.md)
+  "Adaptive quality tier"; a screen without touch, or with a mouse or touchpad as its primary
+  pointer, never reaches the new part of it. The renderer's resolution and the art tier use the
+  screen's pixel ratio: the DPR times the zoom-out of a page zoomed out at boot, read once, clamped
+  to [1, 2] as before. `?perf=1` reports the class and the signal that decided it (`device`,
+  `perf: 6`). Guards: `apps/lines/src/game/deviceClass.fixture.ts`,
+  `scripts/playtest/device-class-probe.mjs`.
 - **Reel motion drawn in the frame it is sampled for, carried through lap ends, cells placed
   without Svelte + `?perf=1`** (2026-11-09; the frame-timestamp sampling since 2026-11-08) — a
   reel's strip is a `FrameTween` (`pixi-svelte/frameClock`, reactive shell `frameTween.svelte.ts`)
@@ -139,7 +150,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     numbers in `perfStats.ts`): display refresh estimate, fps, frame-interval p50/p95/max and
     hitches over 33/50/100 ms for idle and spinning, the reel step error in px (each drawn step
     against the frame's interval × the speed), a 30 fps cap flag (Low Power Mode), and Copy (one
-    JSON line: UA, DPR, the render-quality mode and level, canvas size, the numbers) and Reset.
+    JSON line: UA, DPR, the device class and why, the render-quality mode and level, canvas size,
+    the numbers) and Reset.
     Without the flag its chunk is never loaded and the frame clock has no probe. Since 2026-11-09
     it also reads the GPU side: see the next bullet.
 - **Renderer setup for tiled GPUs, the `?perf=1` GPU readout and the render test switches**
@@ -185,6 +197,16 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **Phone or desktop — the owner's reading on a real phone** (2026-11-12 change, below). Owed: the
+  same `?perf=1` Copy as the 2026-11-12 report, from the Galaxy S25 in Chrome with Desktop site on,
+  on the release that carries it. Expect `perf: 6`, `device.class` `phone` with `reason`
+  `zoomed-out`, `resolution` ≈ 1.102, `canvas` ≈ 1080×1951 and the KTX2 pages as
+  `astc-4x4-unorm` in `textures`. Then, if one is at hand, an Android tablet in landscape (expect
+  `reason` `phone-gpu` and its GPU's name) and a touch cabinet (expect `desktop`, unchanged). The
+  boot splash (`components-shared` `LoaderRig.svelte`, its own short-lived Pixi app) still draws at
+  the raw DPR, uncapped (2.8125 on that phone); giving it `screenPixelRatio` needs a
+  `components-shared` → `pixi-svelte` dependency it does not have yet.
+
 - **Render quality thresholds — the iPhone 13 Pro reading is still owed** (2026-11-10 changes,
   below). Read on the released build (`cbbb3b7`): the S25 Ultra and the Pixel 9 Pro in Brave stayed
   at the top level with no switch; the Nothing Phone (1) stepped to 1.75 at 13% slow (17.8 ms) and
@@ -202,10 +224,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   spinning `lateMs` and `jsMs` should fall toward the idle ones. Headless Chromium shows no
   pathological GL work at base-game idle (43 draws, one scene pass, its resolve and copy, no
   uploads, no round trips, ~2.75× screen coverage), so what costs on the iPhone has to be read
-  there. The Copy must read `perf: 5`: it then carries `spikes` (the last 30 long frames, each with
-  its frame and the one before, and a likely cause, `churn` among them) and `spikeCauses` (every
-  spike since Reset, by cause, idle, spinning and round), and per phase what the frames built and
-  threw away. Paste the whole Copy; the spikes are what says JS or not. What to expect, and which
+  there. The Copy must read `perf: 5` or later: it then carries `spikes` (the last 30 long
+  frames, each with its frame and the one before, and a likely cause, `churn` among them) and
+  `spikeCauses` (every spike since Reset, by cause, idle, spinning and round), and per phase what
+  the frames built and threw away. Paste the whole Copy; the spikes are what says JS or not. What to expect, and which
   moments churn most in WebKit: the ranked list in Recent changes, 2026-11-11 ("Churn sweep").
   Procedure, Low Power Mode off, the game opened on its own (not inside the launcher), each URL with
   `&perf=1`: wait ~20 s idle, tap the readout open, Reset, wait 20 s, then spin ~10 times (and one
@@ -518,6 +540,108 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **A phone or tablet showing the desktop site gets the phone treatment: KTX2 art, a
+  canvas no bigger than its screen, and the `half` art tier where half covers** (worktree branch
+  `worktree-agent-a7b82e521caada923`, on `b7701125`). Owner's rule: "a touch device should default
+  to phone, unless it is an arcade."
+  - **Why** (the owner's `?perf=1` Copy on `main` `c26b7e3c`): a Galaxy S25 in Chrome with Desktop
+    site on sent `X11; Linux x86_64` (Adreno 830, DPR 2.8125, viewport 980×1770: Chrome lays the
+    page out 980 px wide, ignoring its `width=device-width`, and zooms it out onto the 384 px wide
+    screen). `preferCompressedTextures` read the UA, so it loaded 73 BGRA8 textures (332.9 MB); the
+    renderer drew at min(DPR, 2) = 2, a 1960×3540 canvas for a screen 1080 px wide (~3.3× its
+    pixels); a 4K game would have loaded `full`. Chrome shows the desktop site by default on
+    Android tablets and foldables.
+  - **The rule** (`pixi-svelte` `deviceClass.ts`, now the one home; spelled out in
+    [gpu-compressed-textures](../design/gpu-compressed-textures.md) "Adaptive quality tier"): the UA
+    or a touch Mac, as before; no touch, or a mouse or touchpad as the primary pointer, is a desktop
+    without reading anything else; a touch screen with a finger as its primary pointer is a phone
+    when its page was zoomed out to fit, else when the GPU's name is a phone family (Adreno, Mali,
+    Immortalis, PowerVR, Apple, Xclipse, Maleoon) not on Direct3D; anything else stays a desktop
+    (a desktop GPU, a masked name such as Brave's, no WebGL). `?quality=high|low` still pin the
+    format, and a pinned page never reads the GPU.
+  - **Why those signals.** Touch points and a coarse pointer alone also describe a touch cabinet
+    with no mouse attached, so they only open the question. The zoom-out costs nothing and is
+    decisive: a desktop browser never zooms a page out at load, and the page asks for
+    `width=device-width`, so a page zoomed out at boot is a phone browser that ignored it. It cannot
+    cover a tablet in landscape (wide enough that nothing is zoomed), so the GPU decides there. The
+    renderer does not exist when the art is registered (`stateApp` builds the asset table at
+    import; a `?runtime=1` boot right after its bundle arrives), so the name comes from a throwaway
+    context: 1×1, no antialias or depth, lost at once, and made only for a touch-first device whose
+    UA says desktop and whose page was not zoomed out. Every screen without touch, every
+    mouse-or-touchpad laptop and every phone whose UA admits it never makes one; iOS never does (its
+    desktop mode is a touch Mac), so Safari's context limit is not touched. Direct3D in the name is
+    a Windows PC whoever made the chip, so a Snapdragon Surface in tablet mode stays a desktop.
+  - **The screen's real pixels.** `screenPixelRatio` = DPR × the visual viewport's zoom-out at boot.
+    Chrome's `devicePixelRatio` carries the browser's own page zoom but never the visual viewport's
+    (the report itself: DPR 2.8125 at a 980 px viewport; Chromium's mobile emulation the same), so
+    nothing counts twice; a zoom-in counts as 1. Read once, the first time anything asks, so a later
+    pinch never re-resolutions the game; in Chromium the zoom is already in place at the page's
+    first script, so a baked build that asks at import reads the same value. `canvasResolution`
+    clamps it to [1, cap] as before, and the art tier uses the same function, so the canvas and the
+    tier agree. A scale within 1e-6 over a tier's still counts as covered: a 1080 px wide phone
+    shows a 2160 px wide box at exactly half, and in single precision the Pixel 8's zoom lands
+    5e-9 over it (it would have picked `full`).
+  - **What each device gets now** (`deviceClass.fixture.ts`; art tier for a 4K game, before → now):
+    - Galaxy S25, Desktop site: WebP, res 2, 1960×3540, `full` → phone (`zoomed-out`), KTX2,
+      res 1.102, 1080×1951, `half`. Pixel 8, Desktop site: the same, 1080×2126.
+    - Galaxy S24 (Exynos), Samsung Internet, Desktop site, landscape: WebP → KTX2; res 2, `half`
+      unchanged.
+    - Galaxy Tab S9, portrait: WebP, res 2 → KTX2, res 1.633 (1600×2423), `full` both. Landscape,
+      not zoomed out: WebP → KTX2 by its GPU (`phone-gpu`); res 2, `full` unchanged. Pixel Tablet
+      (Mali) the same.
+    - Galaxy Z Fold6 inner screen: WebP, res 2, `full` → KTX2, res 1.894 (1856×2013), `half`.
+    - Budget phone (DPR 2, 360 px), Desktop site: res 2 (1960×4050), `full` → res 1 (980×2025,
+      the 1:1 floor), `half`; KTX2 both (4 GB).
+    - iPhone on an operator page with no viewport meta (Safari zooms it out): res 2 → res 1.194
+      (1170×1993), KTX2 and `full` unchanged.
+    - ARM Chromebook with touch (Snapdragon 7c), tablet mode: WebP → KTX2 (`phone-gpu`); as a
+      laptop (touchpad): unchanged.
+    - Unchanged, by the fixture's literal copy of the old rule: iPad in desktop mode, iPhone,
+      Pixel 9 Pro, Windows touch laptop (touchpad, and folded into a tablet: `windows-gpu`),
+      Snapdragon Surface, 4K touch cabinets on Linux (`desktop-gpu`, the S25's very UA) and on
+      Windows, 1080p touch cabinet, Brave tablet with a masked GPU, a touch kiosk without WebGL,
+      every screen without touch (Windows, Mac, a 4 GB laptop, the current-games harness).
+  - **`?perf=1`**: the Copy is `perf: 6` with `device` (class, reason, the GPU when it was read,
+    touch points, coarse pointer, zoom, screen, screen pixel ratio, KTX2 or not, art tier); the
+    HUD has a `device` line.
+  - **Verified here:**
+    - `apps/lines/src/game/deviceClass.fixture.ts` (new, in `check:all`): 380 checks over 26 real
+      device signatures and 16 GPU names; every row's class, reason, GPU read, format, resolution,
+      canvas and 4K tier, `same` rows equal to the old rule, phones checked against their own
+      screen's pixels, the pins, and a stubbed browser (signals read once; one 1×1 context, lost;
+      none without touch or under a pin). 22 planted mutations, each caught (each gate, each GPU
+      family list, Direct3D, the zoom, the zoom-in, the floor, the pin order, the memo, the probe's
+      size and loss, the art tier's ratio, the slack and a slack too wide).
+    - Chromium emulation (`scripts/playtest/device-class-probe.mjs`, the harness's base and head
+      `lines` runtimes; the S25 as Chrome's desktop UA, 5 touch points, coarse pointer, DPR 2.8125,
+      a 384 px screen, the viewport meta dropped so the page lays out 980 wide at zoom 0.392, and
+      the Adreno 830's name): before, `image.webp` + `page.webp` and a 1960×3544 canvas at res 2;
+      now `image@half.ktx2` + `page@half.ktx2` (transcoded to `astc-4x4-unorm`), 1080×1953 at
+      res 1.102, `device` `phone`/`zoomed-out`; with `?quality=high` the `@half.webp` files. A
+      1280 px tablet at zoom 1 with the Adreno 740's name: `phone-gpu`, the full `.ktx2` files;
+      with SwiftShader's own name: `desktop-gpu`, the same WebP files and canvas as before. The
+      same desktop UA without touch at DPR 1 and 2: the same files and canvas on both builds.
+    - The current-games harness's browser reports 0 touch points, `pointer: none`, DPR 1 and
+      zoom 1: `no-touch`, no GPU read, resolution 1, as before. Current-games harness, local,
+      determinism mode, `b7701125` vs this branch (release builds; the game list rebuilt from R2,
+      as this machine has no `PIPELINE_GAMES_URL`, so 34 rows where CI lists 21): the `base`
+      scenario of every live game, `14 pass · 1 fail · 19 not rendered · 0 changed screen(s)`,
+      56 of 56 screens the same. The fail is `cloud`: main's runtime stalls at the same step on
+      both sides (0 of 2 screens changed). Not rendered: 9 desktop builds, 7 unpublished, 1 global,
+      `salmons` (main refuses it: no `?rooms_url=`), `test-card` (main stalls). Every scenario of
+      `overlay-buffaloduel` (17/17) and `holdandwintestsolo` (11/11): `2 pass · 0 fail · 0 not
+      rendered · 0 changed screen(s)`. The rest ran `base` only: the change acts at boot (the
+      class, the canvas resolution, which art registers), and every scenario of every game was
+      ~6 h on this shared machine; CI's run on the PR plays them all. One unit (`test1` on main)
+      hung when its browser stopped answering; it was rendered again from the same frozen plan.
+    - `check:svelte` at baseline (pixi-svelte 14, lines 145); `check:all --only packages/pixi-svelte`
+      18/18, `--only apps/lines` 18/18, `--only art-tier` 1/1; `check:element-fx`,
+      `check:agents-knowledge` pass; Prettier and ESLint clean on the changed files.
+  - **Not verified:** a real phone, tablet or cabinet (Open items: the owner's S25 reading); the
+    exact float Chrome reports for the zoom; the desktop-mode UAs of Samsung Internet and Firefox
+    (the rule does not read them past "not iOS/Android"); how a tablet wider than 980 px lays out
+    in Desktop site mode (the fixture takes it as not zoomed out, so its GPU decides).
 
 - 2026-11-12 — **One key press is one action: a press belongs to the newest hotkey listening for it,
   so Space does what a tap does** (branched from `main` at `1f481967`; owner-approved, "also do the

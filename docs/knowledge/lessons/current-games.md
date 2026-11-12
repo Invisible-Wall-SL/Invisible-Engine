@@ -6,6 +6,16 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### A phone in Desktop site mode loaded desktop art at 3× its screen's pixels
+- **Symptom:** a Galaxy S25 (Chrome, Desktop site) read 73 BGRA8 textures (333 MB) and a
+  1960×3540 canvas for a 1080 px wide screen in `?perf=1`; tablets and foldables do it by default.
+- **Cause:** the KTX2 test read the UA, which Desktop site makes a Linux desktop; the canvas used
+  the DPR (2.8125), but the page is laid out 980 px wide and zoomed out, so 1 CSS px ≈ 1.1 px.
+- **Fix:** `pixi-svelte` `deviceClass.ts`: a touch-first device whose page was zoomed out to fit or
+  whose GPU is a phone family is a phone; resolution and art tier use DPR × the boot zoom-out.
+- **Guard:** `deviceClass.fixture.ts` (26 device signatures), `device-class-probe.mjs`.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### One Space ran two surfaces where a tap runs one
 - **Symptom:** a free-spin big win's Space ran the win gate's dismiss and the authored screen's
   tap; on `overlay-buffaloduel`'s big-win count-up it slammed the round and stepped the count.
