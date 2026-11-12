@@ -77,6 +77,11 @@
 			"svelte": "./src/lib/warmupSchedule.ts",
 			"default": "./src/lib/warmupSchedule.ts"
 		},
+		"./deviceClass": {
+			"types": "./src/lib/deviceClass.ts",
+			"svelte": "./src/lib/deviceClass.ts",
+			"default": "./src/lib/deviceClass.ts"
+		},
 		"./frameClock": {
 			"types": "./src/lib/frameClock.ts",
 			"svelte": "./src/lib/frameClock.ts",

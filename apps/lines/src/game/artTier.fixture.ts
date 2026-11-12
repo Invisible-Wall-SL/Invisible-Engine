@@ -43,8 +43,8 @@ const k4 = {
 };
 const hd = { mainSizesMap: { desktop: box(1920, 1080), portrait: box(1080, 1920) } };
 
-const device = (width: number, height: number, devicePixelRatio: number, maxResolution = 2) => ({
-	window: { width, height, devicePixelRatio },
+const device = (width: number, height: number, pixelRatio: number, maxResolution = 2) => ({
+	window: { width, height, pixelRatio },
 	maxResolution,
 });
 const DEVICES: Record<string, ReturnType<typeof device>> = {

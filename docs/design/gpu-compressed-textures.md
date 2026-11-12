@@ -83,20 +83,33 @@ when the twin was chosen but fails (transcoder unreachable or invalid, `.ktx2` 4
 
 ## Adaptive quality tier
 
-ONE build serves every device. `editor-scenes.ts` `preferCompressedTextures()` auto-detects:
-**every phone — iOS and Android** (WebKit's per-tab memory cap is why this exists) **or low
-`deviceMemory` (≤4 GB)** → load the compressed KTX2 variants (4× less VRAM, **same resolution**);
-everything else (desktop, **arcade/kiosk**) → the uncompressed full-res originals (best quality).
-The phone test reads the user agent, so a phone browser in "Desktop site" mode (no `Android` in
-its UA) gets the uncompressed pages — which is how one Android phone can look different from
-another (2026-10-15, below in "Alpha").
-`?quality=high` / `?quality=low` force it. So the low/high split is **compressed vs uncompressed
-at full resolution**, not a resolution cut — arcade keeps pristine art, iPhone fits in memory.
-A page over 4096 px (or ~11 Mpix) IS downscaled for its twin; its sheet JSON then carries
-`meta.scale` = the ratio, so every frame keeps its logical size (`sheetOnPage.ts`, since
-2026-11-09 — before that a natural-size frame drew smaller on the compressed tier). A standalone
-image over the cap still does (see [arcade-4k-builds](arcade-4k-builds.md) Phase 1).
-KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode
+ONE build serves every device. **Every phone and tablet** (WebKit's per-tab memory cap is why this
+exists) **or low `deviceMemory` (≤4 GB)** → load the compressed KTX2 variants (4× less VRAM,
+**same resolution**); everything else (desktop, laptop, **arcade/kiosk**) → the uncompressed
+full-res originals (best quality). `?quality=high` / `?quality=low` force it.
+
+Which device is a phone is decided once, at boot, in `pixi-svelte` `deviceClass.ts` (owner's rule,
+2026-11-12: a touch device is a phone unless it is an arcade):
+
+1. the user agent names iOS or Android, or a Mac reports touch (an iPad, or an iPhone asking for
+   desktop sites): a phone;
+2. no touch, or a mouse or touchpad as the primary pointer (`pointer: coarse` false): a desktop;
+3. a touch screen with a finger as its primary pointer is a phone when the browser zoomed the page
+   out to fit (it ignored the page's `width=device-width`: a phone browser showing the desktop
+   site), or when its GPU is a phone family (Adreno, Mali, Immortalis, PowerVR, Apple, Xclipse,
+   Maleoon) not driven through Direct3D. The GPU's name comes from a throwaway 1×1 WebGL context,
+   made only here; a desktop GPU, a masked name or no WebGL leaves it a desktop.
+
+Before 2026-11-12 only step 1 existed, so a phone browser in "Desktop site" mode (a Linux desktop
+UA; the default on Android tablets and foldables) got the uncompressed pages — which is how one
+Android phone could look different from another (2026-10-15, below in "Alpha").
+
+So the low/high split is **compressed vs uncompressed at full resolution**, not a resolution cut —
+arcade keeps pristine art, iPhone fits in memory. A page over 4096 px (or ~11 Mpix) IS
+downscaled for its twin; its sheet JSON then carries `meta.scale` = the ratio, so every frame
+keeps its logical size (`sheetOnPage.ts`, since 2026-11-09 — before that a natural-size frame drew
+smaller on the compressed tier). A standalone image over the cap still does (see
+[arcade-4k-builds](arcade-4k-builds.md) Phase 1). KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode
 cost) — `encodePageToKtx2` takes a `mipmaps` opt, off by default, for a future downscale tier.
 
 ## Rig / rig atlases (the dominant VRAM)

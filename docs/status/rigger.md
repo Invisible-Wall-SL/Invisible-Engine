@@ -96,6 +96,19 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-12 — **Import an exported rig as a new `.irig`.** ＋ New rig → *or import an exported
+  rig* takes a skeleton (4.x `.json`, or an `.irig`), its `.atlas` and the atlas's page images.
+  The browser checks it first (binary `.skel`, 3.x exports, missing pages, pages outside the
+  atlas's folder, and a parse through the Rigger's own tolerant loader). `/api/rigger/import`
+  converts it (`importSkeleton` in `riggerImport.ts`: irig v1 through `asIrigOrSpine42`, the
+  new-rig rule, then `irigDocProblem`), claims `<name>.irig` and presigns a PUT for each page;
+  `/api/rigger/import/finish` checks the pages landed, writes `<name>.atlas` as a create-only
+  write (it can never replace an existing rig's atlas) and reindexes. An import abandoned before
+  finish leaves only the claim and pages, which `reclaimAbandonedClaims` frees after 10 minutes.
+  Every `.json` export in the repo with an `.atlas` beside it converts to irig v1 (68), except a
+  parity fixture whose page sits in another folder (refused, by design). Gates: 17 import checks
+  in `check-rigger-writes.ts` (2 mutants caught). Not live-verified against R2: the browser flow
+  ran against stubbed routes with a real 4.1 export. Launcher deploy, not a runtime release.
 - 2026-11-09 — **irig v1, Phase 5: every project rig on R2 is irig v1** (owner approved the write).
   `r2-migrate-irig.ts --write` wrote all 246 project rigs through the save's `writeIrig`, each
   with its 4.2 file in the rig's 🕘 History; a dry run after it reports 246 `already`. Not written,

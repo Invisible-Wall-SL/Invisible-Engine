@@ -538,6 +538,9 @@
         <label style="margin-top:9px;">or upload images</label>
         <input type="file" id="newRigFiles" accept="image/png,image/webp,image/jpeg" multiple
           style="width:100%;font-size:11px;color:var(--dim);">
+        <label style="margin-top:9px;" title="Pick a rig export's skeleton (.json, or an .irig), its .atlas and every page image the atlas names, together. It becomes a new rig in this project, saved as .irig; the name above is used, or the skeleton's file name.">or import an exported rig</label>
+        <input type="file" id="newRigImport" accept=".json,.irig,.atlas,.txt,.skel,image/png,image/webp,image/jpeg" multiple
+          style="width:100%;font-size:11px;color:var(--dim);">
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
     </div>
@@ -6156,6 +6159,91 @@ async function createRigFromImages(files){
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
+  finally { hideLoading(); }
+}
+
+// Import an existing rig export as a NEW rig: its skeleton (a 4.x .json, or an .irig), its .atlas
+// and the page images the atlas names. Checked here through the same tolerant loader the Rigger
+// opens with, converted to .irig by /api/rigger/import, pages PUT straight to R2 (presigned: a page
+// is often over the request-body cap), then /api/rigger/import/finish writes the atlas and lists it.
+async function importRigExport(fileList){
+  const note = $("#newRigNote");
+  const files = Array.from(fileList);
+  const input = $("#newRigImport");
+  const fail = (msg) => { note.textContent = ""; input.value = ""; showAlert(msg, "Import failed"); };
+  const low = (f) => f.name.toLowerCase();
+  if (files.some((f) => low(f).endsWith(".skel")))
+    return fail("A binary .skel can't be imported. Export the rig as JSON (4.2) and pick that .json instead.");
+  const skels = files.filter((f) => /\.(json|irig)$/.test(low(f)));
+  const atlases = files.filter((f) => /\.atlas(\.txt)?$/.test(low(f)));
+  if (skels.length !== 1) return fail("Pick exactly one skeleton file (.json or .irig) — " + skels.length + " picked.");
+  if (atlases.length !== 1) return fail("Pick the skeleton's .atlas file too — " + atlases.length + " picked.");
+  let doc, atlasText, atlas;
+  try { doc = JSON.parse(await skels[0].text()); }
+  catch (e){ return fail(skels[0].name + " is not valid JSON."); }
+  if (!doc || !Array.isArray(doc.bones)) return fail(skels[0].name + " is not a skeleton (it has no bones).");
+  const ver = doc.skeleton && typeof doc.skeleton.spine === "string" ? doc.skeleton.spine : "";
+  if (typeof doc.irig !== "number" && /^[0-3]\./.test(ver))
+    return fail(skels[0].name + " was exported from version " + ver + ". Export it again as 4.2 JSON.");
+  atlasText = await atlases[0].text();
+  try { if (!RIG) await loadRuntime(loadedLine || DEFAULT_RUNTIME); }
+  catch (e){ return fail(String((e && e.message) || e)); }
+  try { atlas = new RIG.TextureAtlas(atlasText); }
+  catch (e){ return fail(atlases[0].name + " could not be read: " + ((e && e.message) || e)); }
+  const pages = atlas.pages.map((p) => p.name);
+  if (!pages.length) return fail(atlases[0].name + " names no page images.");
+  const away = pages.find((p) => /[\/\\]/.test(p) || p.startsWith("."));
+  if (away) return fail(atlases[0].name + " names the page \"" + away + "\" in another folder. Export the rig with its pages beside the atlas.");
+  const pageFiles = [], missing = [];
+  for (const p of pages){
+    const f = files.find((x) => x.name === p) || files.find((x) => low(x) === p.toLowerCase());
+    if (f) pageFiles.push({ name: p, file: f }); else missing.push(p);
+  }
+  if (missing.length) return fail("The atlas names page image(s) you didn't pick: " + missing.join(", ") + ". Pick them together with the skeleton and atlas.");
+  const keep = missingArt;
+  missingArt = [];
+  let missingCount = 0;
+  try {
+    new RIG.SkeletonJson(makeAttachmentLoader(atlas)).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    missingCount = missingArt.length;
+  } catch (e){
+    return fail(skels[0].name + " would not load: " + ((e && e.message) || e));
+  } finally { missingArt = keep; }
+  const typed = ($("#newRigName").value || "").trim();
+  const name = (typed || skels[0].name.replace(/\.[^.]+$/, "")).replace(/[^A-Za-z0-9_-]/g, "_");
+  if (!name) return fail("Enter a rig name.");
+  if (!confirmLeaveRig("Importing “" + name + "” opens it, which")){ input.value = ""; return; }
+  showLoading("Importing " + name + "…");
+  try {
+    note.textContent = "converting…";
+    const r = await fetch("/api/rigger/import", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, projectKey: curProjectKey, skeleton: doc, atlas: atlasText,
+        pages: pageFiles.map((p) => ({ name: p.name, size: p.file.size })) }),
+    });
+    if (!r.ok) throw new Error(await respErr(r));
+    const j = await r.json();
+    let done = 0;
+    for (const u of j.uploads){
+      note.textContent = "uploading page " + (++done) + " of " + j.uploads.length + "…";
+      const pf = pageFiles.find((p) => p.name === u.name);
+      const put = await fetch(u.url, { method: "PUT", headers: { "content-type": u.contentType }, body: pf.file });
+      if (!put.ok) throw new Error("uploading " + u.name + " failed (HTTP " + put.status + ")");
+    }
+    note.textContent = "finishing…";
+    const fin = await fetch("/api/rigger/import/finish", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, projectKey: curProjectKey, atlas: atlasText }),
+    });
+    if (!fin.ok) throw new Error(await respErr(fin));
+    $("#newRig").style.display = "none"; $("#newRigName").value = ""; input.value = "";
+    note.textContent = "";
+    await loadSkeletons(true);
+    const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
+    if (target) await selectSkeleton(target);
+    setRigStatus("imported “" + name + "”" + (j.irig ? " as .irig" : " (kept as 4.2 — the import would change a value)")
+      + (missingCount ? " · " + missingCount + " image(s) not in the atlas" : ""));
+  } catch (e){ note.textContent = ""; input.value = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
 
@@ -13931,6 +14019,7 @@ function wire(){
   $("#newRigCancel").onclick = () => { $("#newRig").style.display = "none"; };
   $("#newRigCreate").onclick = createNewRig;
   $("#newRigFiles").onchange = (e) => { if (e.target.files && e.target.files.length) createRigFromImages(e.target.files); };
+  $("#newRigImport").onchange = (e) => { if (e.target.files && e.target.files.length) importRigExport(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#boundsBtn").onclick = (e) => {
     // Shift-click = re-fit the frame automatically (clear a hand-set lock + recompute).

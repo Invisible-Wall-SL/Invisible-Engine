@@ -26,6 +26,8 @@ export * from './renderTier';
 export * from './renderQuality';
 // Whether every texture stays on the GPU: the one thing a device's reported memory decides.
 export * from './textureResidency';
+// Phone or desktop (which art format), and the screen's real pixel ratio: decided once at boot.
+export * from './deviceClass';
 // Back buffer, MSAA and an opaque canvas, decided before the context exists; the test switches.
 export * from './renderOptions';
 // `?perf=1`'s per-frame GL counts, what the particles and rigs did in each frame, and what it built.

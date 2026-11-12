@@ -102,10 +102,14 @@ pages cross 4096, so this had to be fixed first: it is Phase 1.
      unknown tier id).
 4. **The runtime picks a tier** — BUILT (engine, 2026-11-09). `apps/lines/src/game/artTier.ts`
    `chooseArtTier`: the art's on-screen scale is the window's fit of the canvas box (the box of the
-   window's bucket, as `createLayout` picks it) times the device pixel ratio capped by the render
-   tier; the smallest tier still covering it wins, else `full`. Decided once at boot, before art
-   registers; `?tier=full|half` forces it. A 4K game: full on a 4K cabinet and a 1440p desktop,
-   half on a 1080p desktop and a phone; a 2× iPad in portrait shows it at 71% and keeps full. A game
+   window's bucket, as `createLayout` picks it) times the screen's pixel ratio capped by the render
+   tier, the same resolution the renderer draws at (`pixi-svelte` `screenPixelRatio`: the DPR, times
+   the zoom-out of a page the browser zoomed out at boot, so a phone showing the desktop site counts
+   its real pixels, 2026-11-12); the smallest tier still covering it wins, else `full`. A scale a
+   hair over a tier's (1e-6, browser float noise) still counts as covered: a 1080 px wide phone
+   shows a 2160 px wide box at exactly half. Decided once at boot, before art registers;
+   `?tier=full|half` forces it. A 4K game: full on a 4K cabinet and a 1440p desktop, half on a
+   1080p desktop and a phone (in Desktop site mode too, since 2026-11-12); a 2× iPad in portrait shows it at 71% and keeps full. A game
    with no tiers has nothing to pick, so every entry falls back to its full files (parity).
    - `editor-scenes.ts` registers each sheet, image and rig from its tier entry when it has one
      (`sheetSrc` / `imageSrc` / `rigSrc`), the KTX2/WebP choice unchanged on top; an image carries
