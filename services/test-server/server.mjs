@@ -302,13 +302,14 @@ const swapMock = (key, contract, channel) => {
 		twin,
 		meta?.tableCapable,
 	);
-	const keepBetShape = sellsTable(meta) && sameWire(previous, next);
+	const sells = sellsTable(meta);
+	const keepBetShape = sells && sameWire(previous, next);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
 			next.sessions.set(sid, carrySession(session, { keepBetShape }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape });
+	holdOpenRounds(previous, next, { sells });
 	pool[key] = next;
 	const fingerprint = fingerprintOf(contract);
 	// The registry's protocol/grid/cascade describe the PLAYER mock (the index page, and the contract
@@ -339,7 +340,7 @@ const carryPins = (previous, next, sells) => {
 			next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape: keepsBetTable });
+	holdOpenRounds(previous, next, { sells });
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per

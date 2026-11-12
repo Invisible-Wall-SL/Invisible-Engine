@@ -17,8 +17,11 @@
  *     refused, never priced against the partner's table; once it re-reads `config`, it bets.
  *  3. A partner-wire contract change that stays on the partner's wire keeps the tab's config.
  *  4. The swap back onto ours refuses the partner-booted tab's bet until it re-reads.
- *  5. A `/refresh` whose manifest moves a game onto the partner's wire resets its sessions, so the
- *     stale tab's bet is refused there too.
+ *  5. A round held open across the switch (by the instance that dealt it) hands its session over
+ *     without that config when it closes — after one switch, or after the partner's game changes
+ *     again while it is held: the hold is judged against the round's own owner, not the last swap.
+ *  6. A `/refresh` whose manifest moves a game onto the partner's wire resets its sessions, so the
+ *     stale tab's bet is refused there too, held round or not.
  */
 
 import { spawn } from 'node:child_process';
@@ -31,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const LIVE = 'livegame';
+const startBalance = 1_000_000;
 const PUBLISHED = 'refreshgame';
 const TOKEN = 'fixture-token';
 
@@ -145,6 +149,8 @@ const server = spawn(process.execPath, [join(here, 'server.mjs')], {
 		PORT: String(port),
 		TEST_SERVER_SECRET: '',
 		CONTRACT_TTL_MS: '0',
+		SEED: 'mock-switch',
+		START_BALANCE: String(startBalance),
 	},
 	stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -163,7 +169,7 @@ const refresh = async () => {
 	return false;
 };
 
-/** One tab: its own sid, playing whole rounds (bet + play, then collect when one stays open). */
+/** One tab: its own sid, playing rounds the way the facade does — one action per seq POSITION. */
 const tab = (game, sid) => {
 	const post = (actions, gid, seq = 0) =>
 		call(
@@ -172,16 +178,31 @@ const tab = (game, sid) => {
 			`/api/${game}/rgs/engine?sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`,
 			actions,
 		);
+	/** Bets `[option, 1]` and plays, leaving any round still open (a bought feature): the answer. */
+	const open = (option) =>
+		post([
+			{ action: 'bet', context: [option, 1] },
+			{ action: 'play', context: '' },
+		]);
+	/** Closes a round opened by `open`: collects, playing on first while a feature is still going. */
+	const close = async (answer) => {
+		const gid = answer?.platform?.gameRound?.id;
+		if (answer?.error || !gid) return answer;
+		for (let seq = 2; seq < 400; seq++) {
+			const collected = await post([{ action: 'collect' }], gid, seq);
+			if (!collected?.error) return collected;
+			if ((await post([{ action: 'play' }], gid, seq))?.error) return collected;
+		}
+		return null;
+	};
 	return {
 		config: () => post([{ action: 'config' }]),
+		open,
+		close,
 		/** Bets `[option, 1]` and closes the round; the answer to the bet, or its refusal. */
 		bet: async (option) => {
-			const answer = await post([
-				{ action: 'bet', context: [option, 1] },
-				{ action: 'play', context: '' },
-			]);
-			const gid = answer?.platform?.gameRound?.id;
-			if (!answer?.error && gid) await post([{ action: 'collect' }], gid, 2);
+			const answer = await open(option);
+			await close(answer);
 			return answer;
 		},
 		balance: async () => (await post([]))?.platform?.balance,
@@ -211,7 +232,9 @@ try {
 	liveGrid = OURS;
 	const switched = tab(LIVE, 'wire-switch');
 	check(JSON.stringify(tableOf(await switched.config())) === '[10,1000]', 'another tab is told our table'); // prettier-ignore
+	check(!(await switched.bet(1))?.error, '…and buys on it, so its balance is its own');
 	const held = await switched.balance();
+	check(held !== startBalance, '…which is no longer the start balance', ` (${held})`);
 	liveGrid = PARTNER;
 	const stale = await switched.bet(1);
 	check(Boolean(stale?.error), 'after the swap onto the partner’s wire its bet is refused, not priced by the partner’s table', stale?.error ? '' : ` — staked ${staked(stale)}`); // prettier-ignore
@@ -233,14 +256,51 @@ try {
 	check(JSON.stringify(tableOf(await switched.config())) === '[10,1000]', '…until it re-reads our table'); // prettier-ignore
 	check(!(await switched.bet(0))?.error, '…and then bets');
 
-	// 5. A refresh that moves a game onto the partner's wire.
+	// 5. A round still open across the switch is held by the instance that dealt it; once it closes,
+	// the session it hands over must not bring our config onto the partner's wire — after one swap,
+	// or after the partner's game changes again while the round is held.
+	for (const [label, after] of [
+		['one switch', [PARTNER]],
+		['a partner change while held', [PARTNER, PARTNER_RESIZED]],
+	]) {
+		liveGrid = OURS;
+		const holder = tab(LIVE, `held-${after.length}`);
+		check(JSON.stringify(tableOf(await holder.config())) === '[10,1000]', `${label}: a tab is told our table`); // prettier-ignore
+		const opened = await holder.open(1);
+		check(!opened?.error && Boolean(opened?.platform?.gameRound?.id), `${label}: it buys a feature on our mock, its round open`); // prettier-ignore
+		for (const grid of after) {
+			liveGrid = grid;
+			await holder.balance();
+		}
+		const closed = await holder.close(opened);
+		check(Boolean(closed) && !closed.error, `${label}: the held round closes on the instance that dealt it`, closed?.error ? ` — ${closed.error}` : ''); // prettier-ignore
+		const staleBet = await holder.bet(1);
+		check(Boolean(staleBet?.error), `${label}: the tab’s next bet is refused, not priced by the partner’s table`, staleBet?.error ? '' : ` — staked ${staked(staleBet)}`); // prettier-ignore
+		check(JSON.stringify(tableOf(await holder.config())) === '[10,50,500,1000]', `${label}: …until it re-reads the partner’s`); // prettier-ignore
+	}
+
+	// 6. A refresh that moves a game onto the partner's wire, then another that changes it there,
+	// with one tab idle and one holding a round open on our mock across both.
 	const published = tab(PUBLISHED, 'refresh-switch');
+	const holding = tab(PUBLISHED, 'refresh-held');
 	check(JSON.stringify(tableOf(await published.config())) === '[10,1000]', 'a published game’s tab is told our table'); // prettier-ignore
+	check(JSON.stringify(tableOf(await holding.config())) === '[10,1000]', '…and so is a second tab'); // prettier-ignore
+	const openAcross = await holding.open(1);
+	check(!openAcross?.error, '…which buys a feature on our mock, its round open');
 	manifest(PARTNER);
 	check(await refresh(), 'POST /refresh lands with the game on the partner’s wire');
 	const refreshed = await published.bet(1);
 	check(Boolean(refreshed?.error), 'the stale tab’s bet is refused, not priced by the partner’s table', refreshed?.error ? '' : ` — staked ${staked(refreshed)}`); // prettier-ignore
 	check(JSON.stringify(tableOf(await published.config())) === '[10,50,500,1000]', '…until it re-reads the partner’s'); // prettier-ignore
+	manifest(PARTNER_RESIZED);
+	check(
+		await refresh(),
+		'POST /refresh lands with the partner’s game changed, the round still held',
+	);
+	const closedAcross = await holding.close(openAcross);
+	check(Boolean(closedAcross) && !closedAcross.error, 'the held round closes on our mock');
+	const heldStale = await holding.bet(1);
+	check(Boolean(heldStale?.error), '…and the tab’s next bet is refused, not priced by the partner’s table', heldStale?.error ? '' : ` — staked ${staked(heldStale)}`); // prettier-ignore
 } catch (e) {
 	failures++;
 	console.log(`  ✗ ${e.message}`);

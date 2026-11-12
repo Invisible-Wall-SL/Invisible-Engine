@@ -1142,8 +1142,13 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   (`sameWire`) carries the balance without the config (`swapMock`) or resets the sessions
   (`carryPins`): the stale tab's bet is refused (`unexpected action: bet` / "reload the game") and a
   reload re-reads. A same-wire swap (a re-priced buy, a resized partner board) keeps the tab's table
-  exactly as before. Gate: `services/test-server/mockSwitch.fixture.mjs` (found by `check:all`): real
-  server, stub launcher; mutant (`sameWire` always true) fails 4 checks.
+  exactly as before. A round held open across the switch (`openRounds.mjs`) is judged against the
+  instance that dealt it, not the latest swap: a hold now records whether the game sells a table and
+  its release carries the config only when `sameWire(hold.owner, next)`, so a partner change while
+  the round is held can no longer re-stamp it as same-wire (review repro: staked 50). Gate:
+  `services/test-server/mockSwitch.fixture.mjs` (found by `check:all`): real server, stub launcher,
+  idle and held-round tabs across a contract swap, a swap chain and a `/refresh` chain; mutants
+  (`sameWire` always true: 4 checks fail; holds re-stamped by the latest swap: both chain cases fail).
 - 2026-11-12 — **Getting Hot: line wins animate again.** On the partner's server (and our
   partner-wire mock), a base-game line win paid but no symbol played its win animation: the
   collector-wire rewrite (`collectorRespin.ts`) re-emitted `spinWin` after the board's `playedSpin`,

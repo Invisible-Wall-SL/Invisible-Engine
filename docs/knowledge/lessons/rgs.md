@@ -80,8 +80,10 @@ builds. Slot-type traps live in the family files, e.g. [lines](../families/lines
 - **Cause:** the test server's rebuild carried a runtime tab's `configSent` and bet table across
   mock types; the partner mock reads the option index against its own `[10, 50, 500, 1000]`.
 - **Fix:** `makeMock` stamps the partner mock's `wire`; a rebuild that changes wire (`sameWire`)
-  drops the carried config, so the tab's bet is refused and a reload re-reads.
-- **Guard:** `services/test-server/mockSwitch.fixture.mjs`.
+  drops the carried config, so the tab's bet is refused and a reload re-reads. A held open round is
+  judged against the instance that dealt it, never the latest swap, which a chain of swaps re-stamps.
+- **Guard:** `services/test-server/mockSwitch.fixture.mjs` (idle and held-round tabs, swap and
+  `/refresh` chains).
 - **PR:** not recorded (2026-11-12) · source: `docs/status/hold-and-win.md`
 
 ### The operator's turbo, autoplay and opening bet were ignored
