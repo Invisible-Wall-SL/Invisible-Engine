@@ -155,7 +155,7 @@
 		over100: b.hitches[100],
 	});
 
-	/** Phone or desktop, which signal decided it and what that chose (`pixi-svelte` `deviceClass.ts`). */
+	/** Phone or desktop, the signal that decided it and what it chose (`deviceClass.ts`). */
 	const device = () => {
 		const signals = deviceSignals();
 		return {

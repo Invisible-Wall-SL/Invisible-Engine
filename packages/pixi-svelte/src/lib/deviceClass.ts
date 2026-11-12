@@ -15,13 +15,14 @@ import { lowMemoryDevice } from './textureResidency';
  * - otherwise the GPU: the families built only into phone and tablet chips are a phone, unless
  *   driven through Direct3D (a Windows PC on a Snapdragon); NVIDIA, AMD, Intel and the software
  *   renderers are a desktop, and so is a GPU the browser hides or masks (Brave).
- * A screen without touch, or a touch screen beside a mouse or touchpad (a touch laptop, a clamshell
- * Chromebook), stays a desktop and its GPU is never read. What the rule cannot tell stays a desktop,
- * as every such device was before.
+ * A screen without touch, or a touch screen beside a mouse or touchpad (a touch laptop, a
+ * clamshell Chromebook), stays a desktop and its GPU is never read. What the rule cannot tell stays
+ * a desktop, as every such device was before.
  *
  * The renderer does not exist yet when the art is registered, so the GPU's name comes from a
- * throwaway context, made only for a touch-first device whose UA says desktop and whose page was not
- * zoomed out (a tablet in landscape, a cabinet). iOS never needs one: its desktop mode is a touch Mac.
+ * throwaway context, made only for a touch-first device whose UA says desktop and whose page was
+ * not zoomed out (a tablet in landscape, a cabinet). iOS never needs one: its desktop mode is a
+ * touch Mac.
  */
 
 export type DeviceClass = 'phone' | 'desktop';
@@ -157,7 +158,7 @@ export function readGpuName(): string | undefined {
 let signals: DeviceSignals | undefined;
 let verdict: DeviceVerdict | undefined;
 
-/** This device's signals, read the first time anything asks: the zoom at boot, never a later pinch. */
+/** This device's signals, read when first asked: the zoom at boot, never a later pinch. */
 export const deviceSignals = (): DeviceSignals => (signals ??= readDeviceSignals());
 
 /** This device's class, decided the first time anything asks. */

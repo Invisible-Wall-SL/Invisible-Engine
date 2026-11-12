@@ -1,7 +1,7 @@
 /**
- * Offline fixture for phone-or-desktop and the screen's real pixels (`pixi-svelte` `deviceClass.ts`)
- * over real device signatures, with what each device then loads: KTX2 or not, the renderer's
- * resolution and canvas, and the art tier of a 4K game (`artTier.ts`). Run with tsx:
+ * Offline fixture for phone-or-desktop and the screen's real pixels (`pixi-svelte`
+ * `deviceClass.ts`) over real device signatures, with what each device then loads: KTX2 or not,
+ * the renderer's resolution and canvas, and the art tier of a 4K game (`artTier.ts`). Run with tsx:
  *   pnpm --filter launcher-api exec tsx ../lines/src/game/deviceClass.fixture.ts
  *
  * Pins:
