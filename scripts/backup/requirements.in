@@ -1,0 +1,6 @@
+boto3
+psycopg[binary]
+# psycopg needs tzdata only on Windows, where restores run (docs/guides/backups.md). Listed without
+# a marker so pip-compile on Linux still pins and hashes it; otherwise a hash-checked install on
+# Windows refuses the unpinned dependency.
+tzdata
