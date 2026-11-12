@@ -137,6 +137,13 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:rgs
 
+      # Error reporting collects nothing about the player. `PRIVATE_DATA_COLLECTION` must name every
+      # Sentry data-collection category (`satisfies Required<…>`), so a Sentry bump that adds one —
+      # on by default, as `mcp` was in 11.11 — fails here until it is turned off.
+      - name: error-tracking typechecks
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm --filter error-tracking typecheck
+
       # Paytable + info-page figures — the import/partner-reference/drift contract `/config` and the
       # publish gate rely on, and the RTP / max-win rules copy every online game renders.
       - name: paytable and info-page figures
