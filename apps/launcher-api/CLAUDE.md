@@ -19,7 +19,7 @@ The Studio portal at `app.invisiblewall.org` (Railway service `launcher`, + Post
   and `svelte-check` isn't a dep. **A type error compiles and ships green** (verified 2026-07-17 by
   deleting a required key from a `Record<Union, true>` and watching the build pass). So the build proves
   "it bundles", never "it's correct".
-- **What does run:** `pnpm lint` from the repo root (ESLint 9 with the `eslint-suppressions.json`
+- **What does run:** `pnpm lint` from the repo root (ESLint 10 with the `eslint-suppressions.json`
   baseline — a NEW violation fails CI; run it from the root, not the package, or the baseline doesn't
   apply) and `pnpm check:undefined-names` (a narrow `tsc` pass for names that don't exist, `.ts` and
   `.svelte`). Both run in `lint.yml`, with the launcher's `check:*` fixtures.

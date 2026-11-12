@@ -45,7 +45,9 @@ const loadProfile = (name, envVar) => {
 	try {
 		profile = JSON.parse(raw);
 	} catch (error) {
-		throw new Error(`${envVar}='${name}': ${file} is not valid JSON — ${error.message}`);
+		throw new Error(`${envVar}='${name}': ${file} is not valid JSON — ${error.message}`, {
+			cause: error,
+		});
 	}
 
 	const problems = deliveryProfileProblems(profile);

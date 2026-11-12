@@ -41,7 +41,7 @@
 		"esbuild": "0.28.2",
 		"config-svelte": "workspace:*",
 		"config-vite": "workspace:*",
-		"eslint": "9.21.0",
+		"eslint": "10.14.0",
 		"eslint-config-custom": "workspace:*",
 		"prettier": "3.9.10",
 		"prettier-plugin-svelte": "3.3.3",
