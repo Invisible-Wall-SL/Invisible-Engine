@@ -126,8 +126,9 @@ export const winState = $state<{
  * (`waitForPress`). Both, or the release is only half a release: a parked win whose authored tap
  * won the top press released the escalation hold and then kept waiting for a press that had
  * already happened — the pointer appeared dead while the Space key still worked, because every
- * `PressToContinue` fires its OWN hotkey directly and only the POINTER is routed to the top
- * surface alone. `awaitingDismiss` is deliberately left set — clearing it would drop
+ * `PressToContinue` then fired its OWN hotkey and only the POINTER went to the top surface alone.
+ * Space now goes to the newest surface too (`components-shared` `hotkeyPress.ts`), so both inputs
+ * rely on this release. `awaitingDismiss` is deliberately left set — clearing it would drop
  * `WinAnimation`'s `holdOutro` and start an exit clip in the same beat the overlay is leaving. A no-op
  * when no hold is armed, which is every non-escalating win and every untapped one.
  */

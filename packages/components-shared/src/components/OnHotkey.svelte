@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
 	import { getContextEventEmitter } from 'utils-event-emitter';
 	import { createInterruptible } from 'utils-shared/interruptible';
 	import { waitForTimeout } from 'utils-shared/wait';
 
+	import { hotkeyPressesFor, listensTo } from '../hotkeyPress';
 	import type { EmitterEventHotKey } from '../types';
 
 	type Props = {
@@ -12,6 +13,9 @@
 		disabled?: boolean;
 		/** How long a press must last to become a hold (default 400 ms). */
 		holdMs?: number;
+		/** Acting on a press takes it: a press belongs to the newest hotkey listening for it when the
+		 *  key goes down, and the others let it pass (`hotkeyPress.ts`). Without `onpress` (a hold
+		 *  alone) the hotkey takes no press and sees every one. */
 		onpress?: () => void;
 		onpressend?: () => void;
 		onhold?: () => void;
@@ -25,6 +29,8 @@
 
 	const props: Props = $props();
 	const context = getContextEventEmitter<EmitterEventHotKey>();
+	const presses = hotkeyPressesFor(context.eventEmitter);
+	const owner = Symbol('hotkey');
 	const interruptible = createInterruptible();
 	const WAIT_TO_HOLD_TIMEOUT = 400;
 	let isHolding = $state(false);
@@ -82,17 +88,30 @@
 		if (document.visibilityState === 'hidden') cancelPress();
 	};
 
-	context.eventEmitter.subscribeOnMount({
-		hotKey: (emitterEvent) => {
-			if (props.disabled) return;
-			if (emitterEvent.key !== props.hotkey) return;
-			if (props.ignorePressInProgress) {
-				if (emitterEvent.repeat) return;
-				if (emitterEvent.action === 'keyUp' && !pressSeen) return;
-			}
-			if (emitterEvent.action === 'keyUp') return keyUp();
-			if (emitterEvent.action === 'keyDown') return keyDown();
-		},
+	const listener = () => ({
+		hotkey: props.hotkey,
+		disabled: props.disabled,
+		ignorePressInProgress: props.ignorePressInProgress,
+		pressSeen,
+	});
+
+	onMount(() => {
+		const leave = props.onpress
+			? presses.join(owner, (event) => listensTo(event, listener()) === 'keyDown')
+			: undefined;
+		const unsubscribe = context.eventEmitter.subscribe({
+			hotKey: (emitterEvent) => {
+				const action = listensTo(emitterEvent, listener());
+				if (!action) return;
+				if (props.onpress && !presses.owns(emitterEvent, owner)) return;
+				if (action === 'keyUp') return keyUp();
+				return keyDown();
+			},
+		});
+		return () => {
+			unsubscribe();
+			leave?.();
+		};
 	});
 
 	$effect(() => {

@@ -341,12 +341,19 @@ for (const mask of ['fixed', 'shipped'] as const) {
 		),
 		'expected the hotkey event to carry `repeat`',
 	);
-	const hotkey = read('packages/components-shared/src/components/OnHotkey.svelte');
+	// The opt-in gate is `OnHotkey`'s listener filter, `listensTo` (`hotkeyPress.ts`).
+	assert.ok(
+		read('packages/components-shared/src/components/OnHotkey.svelte').includes(
+			'const action = listensTo(emitterEvent, listener());',
+		),
+		'expected OnHotkey to act through `listensTo`',
+	);
+	const gate = read('packages/components-shared/src/hotkeyPress.ts');
 	for (const wiring of [
-		'if (emitterEvent.repeat) return;',
-		"if (emitterEvent.action === 'keyUp' && !pressSeen) return;",
+		'if (event.repeat) return undefined;',
+		"if (event.action === 'keyUp' && !listener.pressSeen) return undefined;",
 	]) {
-		assert.ok(hotkey.includes(wiring), `expected OnHotkey's opt-in gate to wire \`${wiring}\``);
+		assert.ok(gate.includes(wiring), `expected OnHotkey's opt-in gate to wire \`${wiring}\``);
 	}
 	for (const surface of ['PressToContinue', 'CountUpInteraction']) {
 		assert.ok(
