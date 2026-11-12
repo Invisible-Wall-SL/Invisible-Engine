@@ -66,6 +66,7 @@ const readBundle = (bundlePath) => {
 	} catch (e) {
 		throw new Error(
 			`${bundlePath} is not valid JSON (${e.message}); re-run the bake (\`pnpm bake:doc\`).`,
+			{ cause: e },
 		);
 	}
 };

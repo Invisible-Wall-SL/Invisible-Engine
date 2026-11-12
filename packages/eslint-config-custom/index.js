@@ -8,7 +8,7 @@ import globals from 'globals';
 
 /**
  * Shared flat config for the monorepo. A single `eslint.config.mjs` at the repo
- * root re-exports this; ESLint 9 walks up from each workspace to find it, so
+ * root re-exports this; ESLint walks up from each workspace to find it, so
  * per-package config files are not needed.
  */
 export default [

@@ -39,9 +39,54 @@
       "count": 4
     }
   },
+  "apps/launcher-api/scripts/check-bug-fix-runs.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/check-director-adapters.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/check-director-events.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "apps/launcher-api/scripts/check-pipeline-changes.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "apps/launcher-api/scripts/check-unused-symbols-in-game.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/generate-game-config-defaults.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/scripts/optimize-build-assets.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/BootMarkPreview.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "apps/launcher-api/src/lib/BootSplash.svelte": {
     "svelte/no-at-html-tags": {
       "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/ColorField.svelte": {
+    "no-useless-assignment": {
+      "count": 3
     }
   },
   "apps/launcher-api/src/lib/ToolTopBar.svelte": {
@@ -62,9 +107,39 @@
       "count": 1
     }
   },
+  "apps/launcher-api/src/lib/server/director/ops/build.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/director/templates.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/flipbookStorage.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "apps/launcher-api/src/lib/server/fontExport.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/githubOidc.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/manifestBasename.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/text/rigTextRaster.client.ts": {
+    "no-useless-assignment": {
+      "count": 2
     }
   },
   "apps/launcher-api/src/routes/(app)/+page.svelte": {
@@ -79,6 +154,9 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/admin/+page.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    },
     "svelte/no-useless-mustaches": {
       "count": 1
     }
@@ -107,6 +185,9 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    },
     "svelte/prefer-svelte-reactivity": {
       "count": 30
     }
@@ -187,6 +268,11 @@
       "count": 2
     }
   },
+  "apps/launcher-api/src/routes/(app)/pipeline/+page.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "apps/launcher-api/src/routes/(app)/storybook/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
       "count": 1
@@ -215,6 +301,21 @@
   "apps/lines/src/components/FreeSpinOutroVisual.svelte": {
     "svelte/prefer-writable-derived": {
       "count": 1
+    }
+  },
+  "apps/lines/src/components/Symbol.svelte": {
+    "no-useless-assignment": {
+      "count": 4
+    }
+  },
+  "apps/lines/src/components/SymbolWrap.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/components/WinLine.svelte": {
+    "no-useless-assignment": {
+      "count": 2
     }
   },
   "apps/lines/src/editor-scenes.ts": {
@@ -365,12 +466,30 @@
       "count": 1
     }
   },
+  "packages/config-vite/svelteVersions.fixture.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "packages/engine-game/fixtures/winEscalationOutro.fixture.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "packages/engine-game/src/components/CountUpInteraction.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "packages/engine-game/src/game/playBook.ts": {
     "turbo/no-undeclared-env-vars": {
       "count": 1
     }
   },
   "packages/engine-layout/src/lib/ComponentInstance.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    },
     "svelte/prefer-svelte-reactivity": {
       "count": 4
     }
@@ -380,13 +499,28 @@
       "count": 1
     }
   },
+  "packages/engine-rig/src/constraints.ts": {
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
   "packages/pixi-svelte/src/lib/assetLoad.ts": {
     "@typescript-eslint/ban-ts-comment": {
       "count": 1
     }
   },
+  "packages/pixi-svelte/src/lib/components/BaseRigProvider.svelte": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "packages/pixi-svelte/src/lib/components/InitialiseApplication.svelte": {
     "svelte/no-dom-manipulating": {
+      "count": 1
+    }
+  },
+  "packages/pixi-svelte/src/lib/components/RiggedFlipbook.svelte": {
+    "no-useless-assignment": {
       "count": 1
     }
   },
@@ -476,8 +610,18 @@
       "count": 1
     }
   },
+  "scripts/bug-fix/fake-anthropic.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "scripts/check-bonus-modes-protocol.mjs": {
     "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "scripts/check-holdandwin-protocol.mjs": {
+    "no-useless-assignment": {
       "count": 2
     }
   },
@@ -486,13 +630,43 @@
       "count": 1
     }
   },
+  "scripts/check-online-rules.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "scripts/check-platform-jackpot.mjs": {
     "no-unused-vars": {
       "count": 1
     }
   },
+  "scripts/check-pots-overlay-protocol.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/check-respin-modes-runtime.mts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/check-secrets.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "scripts/console-sniffer.js": {
     "no-empty": {
+      "count": 1
+    }
+  },
+  "scripts/current-games/lib/builtins.mjs": {
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
+  "scripts/current-games/lib/render.mjs": {
+    "no-useless-assignment": {
       "count": 1
     }
   },
@@ -511,8 +685,53 @@
       "count": 1
     }
   },
+  "scripts/gen-flow-v2-sound-enums.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/gen-flow-vocabulary.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "scripts/lib/compile-slice.mjs": {
+    "preserve-caught-error": {
+      "count": 2
+    }
+  },
   "scripts/verify-symbol-seat.mjs": {
     "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "services/atlas-comfy-pod/custom_nodes/ComfyUI-Invisible-ErrorRecall/web/errorRecall.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/atlas-tool/doc-guard.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/director-worker/scripts/prove-lease.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/director-worker/src/launcher.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/director-worker/src/mockups/analyze.fixture.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "services/test-server/server.mjs": {
+    "no-useless-assignment": {
       "count": 1
     }
   },
@@ -526,8 +745,28 @@
       "count": 1
     }
   },
+  "tools/flow-spike/vocabulary.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
   "tools/flow-spike/winInfoParity.ts": {
     "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/fx-spike/modelHelpers.ts": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "tools/fx-spike/nineSliceParity.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "tools/game-config-spike/docModel.ts": {
+    "no-useless-assignment": {
       "count": 1
     }
   },
@@ -564,6 +803,11 @@
       "count": 1
     }
   },
+  "tools/rigger-spike/chrome.mjs": {
+    "preserve-caught-error": {
+      "count": 2
+    }
+  },
   "tools/rigger-spike/cinematic-storage.mjs": {
     "no-unused-vars": {
       "count": 3
@@ -596,6 +840,11 @@
   },
   "tools/rigger-spike/rigtext-autosync.mjs": {
     "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/rigger-spike/sequence-all.mjs": {
+    "no-useless-assignment": {
       "count": 1
     }
   },
