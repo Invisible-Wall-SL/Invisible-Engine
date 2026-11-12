@@ -138,10 +138,15 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardOverride.node = node;
 	};
 
-	/** The editor's authored spin FEEL for a profile, merged over the coded options by every reel —
-	 *  the board's and the Hold and Win respin cells'. Undefined ⇒ the coded constants (parity). */
+	/** The editor's authored spin FEEL for a profile, merged over the coded options by the board's
+	 *  reels. Undefined ⇒ the coded constants (parity). */
 	const reelSpinProfile = (which: 'normal' | 'fast') =>
 		resolveReelSpinProfile(boardOverride.node ?? undefined, which);
+
+	/** The same for the Hold and Win respin cells: the board's profile with the respin fields over
+	 *  it, so an unauthored respin plays exactly as the board does. */
+	const respinSpinProfile = (which: 'normal' | 'fast') =>
+		resolveReelSpinProfile(boardOverride.node ?? undefined, which, 'respin');
 
 	/**
 	 * Board LATTICE derived from the override, in board-LOCAL space (before the
@@ -1441,6 +1446,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardClearsOutgoing,
 		boardTileArt,
 		reelSpinProfile,
+		respinSpinProfile,
 		anticipationActive,
 		sequentialStopActive,
 		boardWindowHeight,
