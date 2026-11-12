@@ -13,7 +13,10 @@
  *     with a reason before Publish; ▶ Partner page disabled until something is delivered; the
  *     hrefs carry only the key.
  *  4. Refusals read as a cause + a fix, are HTML-escaped, and never carry the admin credentials.
+ *  5. Saving for a project deleted or renamed since the access check answers 404, not ok.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
 	normalizePartnerLaunch,
 	parsePartnerLaunchInput,
@@ -302,6 +305,36 @@ check('…nor the admin user', echoed.includes('admin-user'), false);
 check(
 	'…but keeps the sentence',
 	echoed.startsWith('Partner RGS refused the session: denied'),
+	true,
+);
+
+// 5. The save answers 404 when the project went away after the access check (zero rows updated).
+//    A source pin — the UPDATE needs a database.
+const projectsSrc = readFileSync(
+	fileURLToPath(new URL('../src/lib/server/projects.ts', import.meta.url)),
+	'utf8',
+);
+const saveSrc = readFileSync(
+	fileURLToPath(new URL('../src/routes/api/game-maker/partner/+server.ts', import.meta.url)),
+	'utf8',
+);
+check(
+	'setPartnerLaunch reports whether a row was updated',
+	/setPartnerLaunch\([^)]*\): Promise<boolean>[\s\S]*?\.returning\([\s\S]*?return rows\.length > 0;/.test(
+		projectsSrc,
+	),
+	true,
+);
+check(
+	'the save answers 404 when no row was updated',
+	/if \(!\(await setPartnerLaunch\(project, parsed\.value\)\)\) \{[\s\S]*?status: 404/.test(
+		saveSrc,
+	),
+	true,
+);
+check(
+	'a gone project is not logged as a save',
+	saveSrc.indexOf('status: 404') < saveSrc.indexOf('console.info'),
 	true,
 );
 

@@ -81,6 +81,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-12 — **Saving a partner launch for a project that is gone answers 404.**
+  `setPartnerLaunch` now `.returning()`s and reports whether a row changed, so a project deleted or
+  renamed between `POST /api/game-maker/partner`'s access check and its UPDATE is refused (404,
+  "reload Game Maker") instead of answering `{ok:true}` and logging a save that never happened. The
+  plain-segment regex is now one export, `SEGMENT_RE` in `$lib/partnerLaunch`, reused by Game
+  Maker's `latestDelivery`, `/api/partner-session` and `partnerDelivery.ts` (was `ALIAS_RE`). Gate:
+  `check:partner-launch` pins the zero-rows → 404 path (a source pin; the UPDATE needs a DB).
 - 2026-11-12 — **A project can name its partner player.** The partner banned the pooled `player4`
   and asked us to use another one; the pool lives in the `PARTNER_RGS` secret, so changing it was an
   owner-only Railway edit that also reshuffles every user. Now `PartnerLaunch.player` (optional, one
