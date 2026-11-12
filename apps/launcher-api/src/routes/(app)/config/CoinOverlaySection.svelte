@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ConfigIconButton from './ConfigIconButton.svelte';
 	import ConfigSection from './ConfigSection.svelte';
+	import InfoTip from './InfoTip.svelte';
 	import {
 		COIN_OVERLAY_STYLES,
 		HOLD_AND_WIN_SPECIALS,
@@ -885,9 +886,9 @@
 				</select></label
 			>
 			{#if overlay.timing === 'withReel'}
-				<span class="hint"
+				<InfoTip
 					>Each token rolls in on its reel and lands with it; tokens that never land roll past on
-					the strip, about as often as the drop chance.</span
+					the strip, about as often as the drop chance.</InfoTip
 				>
 			{/if}
 		</div>
@@ -906,9 +907,9 @@
 				onchange={(e) => setPotsStayFull(overlay, e.currentTarget.checked)}
 			/><span>Pots stay full during their bonus</span></label
 		>
-		<span class="hint"
+		<InfoTip
 			>A full pot stays drawn full while the bonus it started plays, and drains when that bonus
-			ends. Off: it drains as the bonus starts.</span
+			ends. Off: it drains as the bonus starts.</InfoTip
 		>
 	</div>
 {/snippet}
@@ -1431,13 +1432,6 @@
 		text-transform: none;
 		letter-spacing: 0;
 		color: #6f6f7d;
-	}
-	.hint {
-		margin: 0 0 12px;
-		font-size: 12px;
-		color: #8b8b98;
-		line-height: 1.6;
-		max-width: 900px;
 	}
 	.note {
 		font-size: 11px;

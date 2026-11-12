@@ -789,6 +789,14 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+- 2026-11-12 — **Field help is tooltips too.** New `config/InfoTip.svelte` (ⓘ + optional short
+  label, explanation on hover/focus). 16 descriptive help paragraphs became InfoTips (stepped
+  boards, alignment, server/pasted paytable import, tumble, win models, free-spins timing and
+  partner games, expanding symbol, swap in place / styles / clearing, line colours, big-win seed,
+  coin-overlay token timing and full pots); the wilds sections' descriptions moved into their
+  section tooltip. Kept inline as live status: the free-spins summary, "cannot use" notes, the
+  Hold and Win lines note, "couldn't reach the RGS", managed win bands, Online's "add X first".
+
 - 2026-11-12 — **Section descriptions are tooltips.** Each section's intro paragraph moved into
   `ConfigSection`'s `info` snippet, shown on hovering the title or ⓘ (always in the DOM, so SSR and
   the fixtures still see it). Live-status paragraphs stay inline (Expanding symbol / wilds "cannot
