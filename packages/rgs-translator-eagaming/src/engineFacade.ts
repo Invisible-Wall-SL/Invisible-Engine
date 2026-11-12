@@ -180,6 +180,9 @@ const match3Stake = new Map<string, number>();
 
 /** The wire events of a respin feature without rules that are dropped; its overlay events (drops,
  *  pots) still translate, and its `gameEnd` closes the round as any round's does. */
+/** A bonus ENTERING after a free spin's `spinTrigger`: that trigger opens a feature, not more spins. */
+const RETRIGGER_ENDS = new Set(['enterBonus', 'holdAndWinTrigger', 'modeEnter', 'gameEnd']);
+
 const RULELESS_SKIPPED = new Set([
 	'holdAndWinTrigger',
 	'enterBonus',
@@ -1122,6 +1125,34 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 		specialRaw = undefined;
 	};
 
+	/**
+	 * A `spinTrigger` during free spins is a RETRIGGER when no bonus entry follows it before the spin's
+	 * counter: the partner's own client reads a free-spin retrigger off `spinTrigger` alone
+	 * (`isRetrigger = isFreeSpin`) and has no `retrigger` case. Its new total is that counter's
+	 * `played + left`. When our `retrigger` event follows as well, that event celebrates, once.
+	 */
+	const freeSpinRetriggerAt = (
+		at: number,
+	): { celebrate: Record<string, unknown> | null } | null => {
+		let celebrate = true;
+		for (const next of events.slice(at + 1)) {
+			if (next.event === 'retrigger') celebrate = false;
+			if (RETRIGGER_ENDS.has(next.event)) return null;
+			if (next.event !== 'playedBonusSpin') continue;
+			if (!celebrate) return { celebrate: null };
+			const spins = (events[at].context as { spins?: { spins?: number }[] } | undefined)?.spins;
+			const counter = (next.context ?? {}) as { played?: number; left?: number };
+			return {
+				celebrate: {
+					type: 'freeSpinRetrigger',
+					extraFs: Array.isArray(spins) ? spins.reduce((sum, s) => sum + (s.spins ?? 0), 0) : 0,
+					total: (counter.played ?? 0) + (counter.left ?? 0),
+				},
+			};
+		}
+		return null;
+	};
+
 	for (const [i, e] of events.entries()) {
 		// Read with its spin's board (`pushWildRewritesOf`).
 		if (wildRewrites.consumed.has(i)) continue;
@@ -1166,6 +1197,11 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 				break;
 			}
 			case 'spinTrigger': {
+				const again = inFreeSpins() ? freeSpinRetriggerAt(i) : null;
+				if (again) {
+					if (again.celebrate) push(again.celebrate);
+					break;
+				}
 				const spins = (e.context as { spins?: { spins?: number }[] | number })?.spins;
 				totalFs = Array.isArray(spins) ? (spins[0]?.spins ?? 0) : (spins ?? 0);
 				triggerOf = (e.context as { trigger?: { of?: string } })?.trigger?.of;

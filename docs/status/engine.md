@@ -86,6 +86,36 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   rAF frozen for 70 s, all 28 uploads done by 11.9 s. Making an FX pass draws its seed, so the warm-up makes them with
   `Math.random` answering a constant: otherwise a seeded run (`?ie_determinism`, current-games) drew
   every later number shifted (`commonoverlayproject` 14/17 screens changed; fixed: 0 px vs main).
+- **Partner captures owed by the mock audit** (2026-11-12, table in
+  `reference/play4fun-protocol.md` "Mock audit"). Each one: a real browser tab on the partner's
+  game page (Cloudflare blocks server-side fetches), DevTools network filtered on `engine` with
+  "Preserve log", then save every request body and answer of the rounds named. Add what it shows to
+  the reference and make the mock and the gate (`check:mock-wire`) match.
+  - **Free-spin retrigger.** A partner free-spins game (Book of Thermopylae again, or any partner
+    title with scatter free spins): buy or play until a free spin retriggers. Record that free
+    spin's whole answer. It settles whether the server sends a `retrigger` event on free spins at
+    all, and its fields. It also settles where the retrigger's `spinTrigger` sits against
+    `playedSpin` and `playedBonusSpin`, and which `bonus` key it names. Until then the mocks send
+    both, and the facade celebrates once (`freeSpinRetriggerAt`).
+  - **Ways and cluster wins.** If the partner has a ways game and a cluster game, record one paying
+    base spin of each. It settles the `spinWin` `mode` (their client knows `line`, `scatter` and
+    `consecutive`, a cell list), what `occurs` counts, and the `context` shape. Our `ways` and
+    `cluster` modes are invented.
+  - **Cascades and board multipliers.** If the partner has a tumble game, record a losing spin, a
+    one-step tumble win, a chain of three or more, and a spin where a multiplier is collected. If
+    they have none, ask whether they plan one. `tumbleStep`, `multiplierCollect` and `MULT:<v>` are
+    ours.
+  - **Wilds that change the board.** If a partner game has expanding or growing wilds, record a
+    spin where one expands. Ours copies Slotmotion's _Fairy's Charm_ (`expandedWild`,
+    `growingWild`, `symbolSetInMatrix`).
+- **The facade reads a spin's events in one pass; the partner's client reads them in two.** The
+  partner's client takes `bet` and `playedSpin` first, so a server may send `spinWin` after the
+  board. Our facade drops a win that comes after its `playedSpin`: `check:mock-wire` fails when the
+  lines mock is changed to send wins after the board. Every capture so far sends wins first, so
+  nothing breaks today. Making the facade read `bet` and `playedSpin` first, like their client,
+  would remove the risk for every new partner game. That is a runtime change to every game's book,
+  so it needs its own branch and the current-games check.
+
 - **Phone or desktop, and the screen's real pixels** (2026-11-12) — `pixi-svelte` `deviceClass.ts`
   is the one place that decides, once at boot: a **phone** (every phone and tablet, a phone in
   Desktop site mode included) loads the KTX2 art, a **desktop** (desktop, laptop, arcade cabinet)
@@ -557,6 +587,25 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-11-12 — **Mock audit: every event the test RGS sends, against the partner's wire.** The
+  table is in `reference/play4fun-protocol.md` ("Mock audit"). It lists each event as captured,
+  read by the partner's client, from another provider, or ours.
+  - **A free-spin retrigger now speaks the partner's wire.** Their client reads a retrigger only off
+    a `spinTrigger` during free spins and has no `retrigger` case. The lines and book mocks now send
+    that `spinTrigger` before our `retrigger`. The facade (`freeSpinRetriggerAt`) celebrates a
+    retrigger from the `spinTrigger` alone, once, and the `retrigger` that may follow adds nothing.
+    Before this, a partner free-spins game would have added its spins with no celebration. This is
+    a runtime release.
+  - **The parity digests moved for that one event.** `check:lines-parity`, `check:freespins` (book)
+    and `check:pots-overlay` were re-pinned. With the new `spinTrigger` removed, every answer is
+    byte-identical to the old digests (checked before re-pinning).
+  - **New gate `check:mock-wire`** (`rgs-translator-eagaming/mockWire.fixture.ts`, in `check:rgs`).
+    It plays losing, line-win, collect, trigger, retrigger and buy rounds of the lines, book and
+    collector mocks through the real facade. Each `spinWin` must land as a `winInfo` on its own board.
+    Proven against three planted mutants: #1634 reverted, wins sent after the board, and the
+    facade's `spinTrigger` retrigger removed.
+  - The captures still owed are under "Open items" above, and Getting Hot's is Hold and Win item 16.
 
 - 2026-11-12 — **The loading bar keeps moving while the GPU warm-up runs, and the engine splash is
   ready before it shows** (branch `worktree-agent-abbfabf18782b2a57`, from `main` at `b7701125`;
