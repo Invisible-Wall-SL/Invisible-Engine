@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ConfigSection from './ConfigSection.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		GROWING_WILD_PATTERNS,
 		defaultGrowingReels,
@@ -105,7 +105,7 @@
 {/snippet}
 
 {#if expanding && (offered || expandingBlock)}
-	<ConfigSection id="expandingWilds" title="Expanding wilds">
+	<SectionCard scope="config" id="expandingWilds" title="Expanding wilds">
 		{#snippet info()}
 			<p>
 				A wild that fills its whole reel when it lands, before any win is counted. Which reels it
@@ -185,11 +185,11 @@
 			</fieldset>
 		{/if}
 		{@render issueList('expandingWilds')}
-	</ConfigSection>
+	</SectionCard>
 {/if}
 
 {#if growing && (offered || growingBlock)}
-	<ConfigSection id="growingWild" title="Growing wild">
+	<SectionCard scope="config" id="growingWild" title="Growing wild">
 		{#snippet info()}
 			<p>
 				A wild that copies itself onto the cells around it when it lands, after any wild has
@@ -277,7 +277,7 @@
 			</fieldset>
 		{/if}
 		{@render issueList('growingWild')}
-	</ConfigSection>
+	</SectionCard>
 {/if}
 
 <style>

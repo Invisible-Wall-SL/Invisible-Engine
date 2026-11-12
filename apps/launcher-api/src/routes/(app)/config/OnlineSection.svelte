@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ConfigSection from './ConfigSection.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		ARCADE_NETCODES,
 		ARCADE_ONLINE_BOT_DEFAULTS,
@@ -105,7 +105,7 @@
 	{/each}
 {/snippet}
 
-<ConfigSection id="onlineRoom" title="Online room">
+<SectionCard scope="config" id="onlineRoom" title="Online room">
 	{#snippet info()}
 		<p>
 			The game is played in rooms on the <strong>Invisible Game Server</strong>: the server steps
@@ -266,9 +266,9 @@
 	{@render issueList('arcade.online.patchHz')}
 	{@render issueList('arcade.online.spawn')}
 	{@render issueList('arcade.online.nearby')}
-</ConfigSection>
+</SectionCard>
 
-<ConfigSection id="onlineRules" title="Online rules">
+<SectionCard scope="config" id="onlineRules" title="Online rules">
 	{#snippet info()}
 		<p>
 			What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
@@ -500,9 +500,9 @@
 		</div>
 	</fieldset>
 	{@render issueList('arcade.online.rules')}
-</ConfigSection>
+</SectionCard>
 
-<ConfigSection id="bots" title="Bots">
+<SectionCard scope="config" id="bots" title="Bots">
 	{#snippet info()}
 		<p>
 			Bots fill a room's empty places while anyone is in it, each playing an online character with a
@@ -595,7 +595,7 @@
 		</div>
 	</fieldset>
 	{@render issueList('arcade.online.bots')}
-</ConfigSection>
+</SectionCard>
 
 <style>
 	.readonly {

@@ -413,9 +413,9 @@ check(
 		holds(configPage, '{#each reelSymbolNames as name (name)}'),
 	true,
 );
-const coinsAt = configPage.indexOf('<ConfigSection id="coins" title="Coins">');
+const coinsAt = configPage.indexOf('<SectionCard scope="config" id="coins" title="Coins">');
 const coinsSection =
-	coinsAt < 0 ? '' : configPage.slice(coinsAt, configPage.indexOf('</ConfigSection>', coinsAt));
+	coinsAt < 0 ? '' : configPage.slice(coinsAt, configPage.indexOf('</SectionCard>', coinsAt));
 check(
 	'/config lists the coins in a section of their own, in pot order, with no in play / unused badge',
 	holds(

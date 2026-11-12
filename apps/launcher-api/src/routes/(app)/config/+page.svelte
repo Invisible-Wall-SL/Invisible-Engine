@@ -77,8 +77,8 @@
 	import BonusModesSection from './BonusModesSection.svelte';
 	import CoinBoardSection from './CoinBoardSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
-	import ConfigSection from './ConfigSection.svelte';
-	import InfoTip from './InfoTip.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import FamilySection from './FamilySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import WildsSections from './WildsSections.svelte';
@@ -1659,7 +1659,7 @@
 			`rtp` IS read (`gameProfile.ts` renders the "97% RTP" line), so it keeps its field.
 		-->
 		{#if sections.has('rtp')}
-			<ConfigSection id="rtp" title="Return to player">
+			<SectionCard scope="config" id="rtp" title="Return to player">
 				{#snippet info()}
 					<p>
 						Shown on the game's profile card, and on the info page's rules wherever the operator
@@ -1678,12 +1678,12 @@
 						/></label
 					>
 				</div>
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- Grid ------------------------------------------------------------------->
 		{#if sections.has('grid')}
-			<ConfigSection id="grid" title="Grid">
+			<SectionCard scope="config" id="grid" title="Grid">
 				{#snippet info()}
 					<p>
 						Reels and visible rows. <strong>Widening</strong> the grid auto-fills the new reels —
@@ -1766,12 +1766,12 @@
 						<button onclick={matchGridWidth}>Match grid ({doc.numReels} reels)</button>
 					</div>
 				{/if}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- Bet modes -------------------------------------------------------------->
 		{#if sections.has('betModes')}
-			<ConfigSection id="betModes" title="Bet modes">
+			<SectionCard scope="config" id="betModes" title="Bet modes">
 				{#snippet info()}
 					<p>
 						Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the
@@ -2149,7 +2149,7 @@
 						nothing to sell unless the game has a Hold and Win or pots bonus.
 					</p>
 				{/if}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		{#if sections.has('coinBoard') && (data.gameType === 'holdAndWin' || doc.coinBoard)}
@@ -2172,7 +2172,7 @@
 
 		<!-- Symbols ---------------------------------------------------------------->
 		{#if sections.has('symbols')}
-			<ConfigSection id="symbols" title="Symbols">
+			<SectionCard scope="config" id="symbols" title="Symbols">
 				{#snippet info()}
 					<p>
 						The symbol <strong>dictionary</strong> — art, properties, payouts. The
@@ -2313,12 +2313,12 @@
 				{#each issuesFor('symbols') as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		{#if sections.has('coinSymbols') && coinNames.length}
 			<!-- Coins ------------------------------------------------------------------>
-			<ConfigSection id="coins" title="Coins">
+			<SectionCard scope="config" id="coins" title="Coins">
 				{#snippet info()}
 					<p>
 						The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
@@ -2364,12 +2364,12 @@
 						</tbody>
 					</table>
 				</div>
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- Win model -------------------------------------------------------------->
 		{#if sections.has('winModel')}
-			<ConfigSection id="wins" title="How wins are decided">
+			<SectionCard scope="config" id="wins" title="How wins are decided">
 				{#snippet info()}
 					{#if family === 'match3'}
 						<p>
@@ -2499,12 +2499,12 @@
 						<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 					{/each}
 				{/if}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- Free spins ------------------------------------------------------------->
 		{#if sections.has('freeSpins') && offersFreeSpins}
-			<ConfigSection id="freeSpins" title="Free spins">
+			<SectionCard scope="config" id="freeSpins" title="Free spins">
 				<div class="fields">
 					<label
 						><span>Free spins</span><select
@@ -2608,21 +2608,21 @@
 				{#each freeSpinsIssues as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- A stored expanding symbol the panel does not offer here (another win model, a Book-of kind,
 		     a Hold and Win game): it can still be removed, so an error it raises never blocks Save for
 		     good. With free spins merely off it is kept, so switching them on restores it. -->
 		{#if sections.has('expandingSymbol') && expandingBlock && !(offersExpandingSymbol && offersFreeSpins)}
-			<ConfigSection id="expandingSymbol" title="Expanding symbol">
+			<SectionCard scope="config" id="expandingSymbol" title="Expanding symbol">
 				<p class="hint">
 					This config has an expanding symbol (Book-of), which this game cannot use.
 					<button class="linkish" onclick={removeExpanding} disabled={lease.readOnly}
 						>Remove the expanding symbol</button
 					>
 				</p>
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- The expanding symbol (Book-of): on/off, then a weight and a reel count per symbol it may be. -->
@@ -2801,7 +2801,7 @@
 
 		<!-- Reel behaviour --------------------------------------------------------->
 		{#if sections.has('reelBehaviour')}
-			<ConfigSection id="reelBehaviour" title="Reel behaviour">
+			<SectionCard scope="config" id="reelBehaviour" title="Reel behaviour">
 				{#snippet info()}
 					<p>
 						How a round ARRIVES on the board. This is one answer for the whole game — not per screen
@@ -2923,7 +2923,7 @@
 				{#each issuesFor('reelBehaviour') as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		{#if sections.has('gameModes')}
@@ -2932,7 +2932,7 @@
 
 		<!-- Sounds ----------------------------------------------------------------->
 		{#if sections.has('sounds')}
-			<ConfigSection id="sounds" title="Sounds">
+			<SectionCard scope="config" id="sounds" title="Sounds">
 				<p class="hint">
 					Moved. What the game plays at each moment — the reel-stop ladder, the cascade pop, the
 					landing cues, the per-symbol exceptions and the win-tier stings — is authored in
@@ -2940,12 +2940,12 @@
 					from and the button that plays them. Splitting "which sound" from "the sounds" across two
 					tools is what let a name sit bound to nothing for the whole life of the fork.
 				</p>
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- Paylines --------------------------------------------------------------->
 		{#if sections.has('paylines')}
-			<ConfigSection id="paylines" title="Paylines">
+			<SectionCard scope="config" id="paylines" title="Paylines">
 				{#if winModelType !== 'lines'}
 					<div class="banner locked">
 						<strong>This game pays by {winModelType}, so these paylines are not used.</strong> They stay
@@ -3027,12 +3027,12 @@
 				{#each issuesFor('paylines') as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 
 		<!-- Big win tiers ------------------------------------------------------------>
 		{#if sections.has('winLevels')}
-			<ConfigSection id="bigWinTiers" title="Big win tiers">
+			<SectionCard scope="config" id="bigWinTiers" title="Big win tiers">
 				{#snippet info()}
 					<p>
 						The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and
@@ -3142,7 +3142,7 @@
 				{#each issuesFor('escalateTiers') as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
-			</ConfigSection>
+			</SectionCard>
 		{/if}
 	</div>
 

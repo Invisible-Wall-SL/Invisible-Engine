@@ -1,6 +1,6 @@
 <script lang="ts">
-	import ConfigIconButton from './ConfigIconButton.svelte';
-	import ConfigSection from './ConfigSection.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		BASE_GAME_MODE,
 		HOLD_AND_WIN_MODE,
@@ -181,7 +181,7 @@
 	{/each}
 {/snippet}
 
-<ConfigSection id="bonusModes" title="Bonus modes">
+<SectionCard scope="config" id="bonusModes" title="Bonus modes">
 	{#snippet info()}
 		<p>
 			The games a bonus switches into. A <strong>respin mode</strong> is a Hold and Win game of its
@@ -227,7 +227,7 @@
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row tight">
 					{#if mode.holdAndWin}
-						<ConfigIconButton
+						<IconButton
 							icon="chevron"
 							label={folded[mode.id] ? 'Show rules' : 'Fold rules'}
 							expanded={!folded[mode.id]}
@@ -236,7 +236,7 @@
 					{/if}
 					<h3>{mode.label ?? mode.id}</h3>
 					<span class="push"></span>
-					<ConfigIconButton
+					<IconButton
 						icon="trash"
 						label="Remove {mode.label ?? mode.id}"
 						danger
@@ -286,7 +286,7 @@
 			{@const routes = routesOf(mode.id)}
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row tight">
-					<ConfigIconButton
+					<IconButton
 						icon="chevron"
 						label={folded[mode.id] ? 'Show rules' : 'Fold rules'}
 						expanded={!folded[mode.id]}
@@ -300,7 +300,7 @@
 							'nothing yet — route a pot, a buy, Lucky Spin or the random metre to it in Coin overlay'}</span
 					>
 					<span class="push"></span>
-					<ConfigIconButton
+					<IconButton
 						icon="trash"
 						label="Remove {mode.label ?? mode.id}"
 						danger
@@ -346,7 +346,7 @@
 	{#if !bonusModes.some((b) => b.mode.id !== BASE_GAME_MODE)}
 		<p class="note">This project has no bonus mode.</p>
 	{/if}
-</ConfigSection>
+</SectionCard>
 
 <style>
 	h3 {

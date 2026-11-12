@@ -1,7 +1,7 @@
 <script lang="ts">
-	import ConfigIconButton from './ConfigIconButton.svelte';
-	import ConfigSection from './ConfigSection.svelte';
-	import InfoTip from './InfoTip.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		COIN_OVERLAY_STYLES,
 		HOLD_AND_WIN_SPECIALS,
@@ -553,7 +553,7 @@
 				>
 			</h3>
 			<span class="push"></span>
-			<ConfigIconButton
+			<IconButton
 				icon="trash"
 				label="Remove pots and drops"
 				danger
@@ -1339,7 +1339,7 @@
 	</fieldset>
 {/snippet}
 
-<ConfigSection id="coinOverlay" title="Coin overlay">
+<SectionCard scope="config" id="coinOverlay" title="Coin overlay">
 	{#snippet info()}
 		<p>
 			An option the base game switches on: what lands in the base game — coins on the reels, tokens
@@ -1413,7 +1413,7 @@
 		{/if}
 		{@render triggersEditor(doc.coinOverlay)}
 	{/if}
-</ConfigSection>
+</SectionCard>
 
 <style>
 	h3 {

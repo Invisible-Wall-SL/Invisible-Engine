@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
-	 * The Game Config's small square icon button — the fold chevron and the remove bin on every
-	 * section and panel header, so header controls sit quietly beside the title instead of as text
+	 * The tools' small square icon button — the fold chevron and the remove bin on section and
+	 * panel headers, so header controls sit quietly beside the title instead of as text
 	 * buttons. `label` is both the tooltip and the accessible name.
 	 */
 	interface Props {

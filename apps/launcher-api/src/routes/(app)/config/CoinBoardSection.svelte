@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ConfigSection from './ConfigSection.svelte';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import {
 		COIN_BOARD_PAY_RULES,
 		activePaylineIds,
@@ -163,7 +163,7 @@
 	</div>
 {/snippet}
 
-<ConfigSection id="coinBoard" title="Coin board">
+<SectionCard scope="config" id="coinBoard" title="Coin board">
 	{#snippet info()}
 		<p>
 			<strong>Lines game</strong>: the base game spins the reels, and enough coins start the Hold
@@ -351,7 +351,7 @@
 			<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 		{/each}
 	</fieldset>
-</ConfigSection>
+</SectionCard>
 
 <style>
 	.legend em,

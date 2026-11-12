@@ -3,7 +3,7 @@
 
 	/**
 	 * Field-level help: an ⓘ (with an optional short `label`) whose explanation shows as a tooltip on
-	 * hover or keyboard focus — the in-section counterpart of `ConfigSection`'s `info` (pipeline UI
+	 * hover or keyboard focus — the in-section counterpart of `SectionCard`'s `info` (pipeline UI
 	 * rule: no walls of text in a tool). The text stays in the DOM, so SSR and the fixtures read it.
 	 */
 	interface Props {

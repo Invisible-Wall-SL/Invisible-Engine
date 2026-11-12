@@ -1,25 +1,26 @@
 <script lang="ts" module>
 	/**
-	 * Which Game Config sections the author folded, by section id — view state only, never saved to
-	 * the doc, shared across projects. Default OPEN: a key is stored only while folded.
+	 * Which sections of a tool the user folded, by section id, under `iw-<scope>-collapsed-sections`
+	 * — view state only, never saved to a doc, shared across projects. Default OPEN: an id is stored
+	 * only while folded.
 	 */
-	const KEY = 'iw-config-collapsed-sections';
+	const keyOf = (scope: string) => `iw-${scope}-collapsed-sections`;
 
-	function loadFolded(): Set<string> {
+	function loadFolded(scope: string): Set<string> {
 		try {
-			const raw = localStorage.getItem(KEY);
+			const raw = localStorage.getItem(keyOf(scope));
 			return new Set(raw ? (JSON.parse(raw) as string[]) : []);
 		} catch {
 			return new Set();
 		}
 	}
 
-	function storeFolded(id: string, folded: boolean): void {
-		const all = loadFolded();
+	function storeFolded(scope: string, id: string, folded: boolean): void {
+		const all = loadFolded(scope);
 		if (folded) all.add(id);
 		else all.delete(id);
 		try {
-			localStorage.setItem(KEY, JSON.stringify([...all]));
+			localStorage.setItem(keyOf(scope), JSON.stringify([...all]));
 		} catch {
 			/* storage disabled — the fold just does not survive a reload */
 		}
@@ -29,10 +30,10 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
 
-	import ConfigIconButton from './ConfigIconButton.svelte';
+	import IconButton from './IconButton.svelte';
 
 	/**
-	 * One Game Config section: a card with a foldable header. Folding unmounts the body, so a long
+	 * One tool section: a card with a foldable header. Folding unmounts the body, so a long
 	 * config stays light to scroll; the fold survives reloads (restored after mount, since the page
 	 * is server-rendered open).
 	 *
@@ -41,31 +42,33 @@
 	 * body keeps only status that changes with the config (a warning, a "cannot use" note).
 	 */
 	interface Props {
-		/** Stable persistence key, unique on the page. */
+		/** The tool this card belongs to (`config`, `fx`, …) — namespaces the stored folds. */
+		scope: string;
+		/** Stable persistence key, unique within the tool. */
 		id: string;
 		title: string;
-		/** Extra header controls, right-aligned (prefer `ConfigIconButton`). */
+		/** Extra header controls, right-aligned (prefer `IconButton`). */
 		actions?: Snippet;
 		/** What this section is for — rendered in the hover tooltip. */
 		info?: Snippet;
 		children: Snippet;
 	}
-	const { id, title, actions, info, children }: Props = $props();
+	const { scope, id, title, actions, info, children }: Props = $props();
 
 	let open = $state(true);
 	onMount(() => {
-		open = !loadFolded().has(id);
+		open = !loadFolded(scope).has(id);
 	});
 
 	function toggle() {
 		open = !open;
-		storeFolded(id, !open);
+		storeFolded(scope, id, !open);
 	}
 </script>
 
 <section class="cfg-sec" class:folded={!open}>
 	<header>
-		<ConfigIconButton
+		<IconButton
 			icon="chevron"
 			label={open ? `Fold ${title}` : `Show ${title}`}
 			expanded={open}
@@ -78,14 +81,14 @@
 					type="button"
 					class="info-btn"
 					aria-label="About {title}"
-					aria-describedby="cfg-tip-{id}"
+					aria-describedby="{scope}-tip-{id}"
 				>
 					<svg viewBox="0 0 16 16" aria-hidden="true">
 						<circle cx="8" cy="8" r="6.25" />
 						<path d="M8 7.25v4M8 4.9v.1" />
 					</svg>
 				</button>
-				<div class="tip" role="tooltip" id="cfg-tip-{id}">{@render info()}</div>
+				<div class="tip" role="tooltip" id="{scope}-tip-{id}">{@render info()}</div>
 			{/if}
 		</div>
 		<span class="spacer"></span>
