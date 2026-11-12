@@ -334,7 +334,8 @@ check(
 );
 check(
 	'a gone project is not logged as a save',
-	saveSrc.indexOf('status: 404') < saveSrc.indexOf('console.info'),
+	saveSrc.includes('status: 404') &&
+		saveSrc.indexOf('status: 404') < saveSrc.indexOf('console.info'),
 	true,
 );
 
