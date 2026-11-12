@@ -126,6 +126,7 @@ mock.module(server('r2.ts'), {
 			}),
 		deleteObject: async (key: string) => remove(key),
 		deleteObjects: async (keys: string[]) => keys.forEach(remove),
+		presignPut: async (key: string, contentType: string) => `https://r2.test/${key}#${contentType}`,
 	},
 });
 
@@ -187,6 +188,8 @@ const { stampSavedBy } = await import('../src/lib/server/savedBy.ts');
 const { migrateIrigs } = await import('../src/lib/server/irigMigration.ts');
 const { irigBackupsPrefix } = await import('../src/lib/server/riggerIrig.ts');
 const reindex = await import(`${routes}/editor/rigs/reindex/+server.ts`);
+const importBegin = await import(`${routes}/rigger/import/+server.ts`);
+const importFinish = await import(`${routes}/rigger/import/finish/+server.ts`);
 
 let checks = 0;
 let failures = 0;
@@ -1000,6 +1003,138 @@ for (const hold of ['before', 'after'] as const) {
 		'abandoned, both read it first: every create that answered 200 left a whole rig',
 		[a.status !== 200 || created('Hero'), b.status !== 200 || created('hero')],
 		[true, true],
+	);
+}
+
+// ── Import an exported rig: begin (convert + claim + presign) → PUT pages → finish (atlas + list) ─
+{
+	const ATLAS =
+		'hero.png\nsize: 4,4\nhead\n  bounds: 0,0,2,2\n\nhero2.png\nsize: 4,4\narm\n  bounds: 0,0,1,1\n';
+	const export42 = {
+		skeleton: { spine: '4.2.40', hash: 'x' },
+		bones: [{ name: 'root' }, { name: 'head', parent: 'root', y: 10 }],
+		slots: [{ name: 'head', bone: 'head', attachment: 'head' }],
+		skins: [{ name: 'default', attachments: { head: { head: { width: 2, height: 2 } } } }],
+		animations: { idle: { bones: { head: { rotate: [{ time: 0.5, value: 10 }] } } } },
+	};
+	const pages = [
+		{ name: 'hero.png', size: 10 },
+		{ name: 'hero2.png', size: 10 },
+	];
+	const begin = (over: Record<string, unknown> = {}) =>
+		call(importBegin.POST, {
+			name: 'Hero',
+			projectKey: 'p1',
+			skeleton: export42,
+			atlas: ATLAS,
+			pages,
+			...over,
+		});
+	const finish = (over: Record<string, unknown> = {}) =>
+		call(importFinish.POST, { name: 'Hero', projectKey: 'p1', atlas: ATLAS, ...over });
+	const heroFiles = () =>
+		[...bucket.keys()]
+			.filter((k) => k.startsWith(`${RIGS}/Hero/`))
+			.map((k) => k.slice(RIGS.length + 6));
+
+	seedProject();
+	const b = await begin();
+	const stored = JSON.parse(text(`${RIGS}/Hero/Hero.irig`) ?? '{}');
+	check(
+		'import: begin converts the export to irig v1, claims it and presigns every atlas page',
+		[
+			b.status,
+			b.body.irig,
+			stored.irig,
+			stored.skeleton?.importedFrom,
+			(b.body.uploads as { name: string; contentType: string }[]).map((u) => [
+				u.name,
+				u.contentType,
+			]),
+		],
+		[
+			200,
+			true,
+			1,
+			'4.2.40',
+			[
+				['hero.png', 'image/png'],
+				['hero2.png', 'image/png'],
+			],
+		],
+	);
+	check(
+		'import: begin writes no atlas and does not list the rig',
+		[heroFiles(), listed().includes('Hero')],
+		[['Hero.irig'], false],
+	);
+
+	const early = await finish();
+	check(
+		'import: finish before the pages are up is a 400 and writes no atlas',
+		[early.status, /hero\.png/.test(String(early.body.message)), heroFiles()],
+		[400, true, ['Hero.irig']],
+	);
+	seedStore(`${RIGS}/Hero/hero.png`, 'png');
+	seedStore(`${RIGS}/Hero/hero2.png`, 'png');
+	const done = await finish();
+	check(
+		'import: finish writes <name>.atlas as sent and lists the rig, keeping the others',
+		[done.status, text(`${RIGS}/Hero/Hero.atlas`) === ATLAS, listed()],
+		[200, true, ['A', 'B', 'Hero']],
+	);
+	const again = await finish({ atlas: 'other.png\nsize: 1,1\n' });
+	seedStore(`${RIGS}/Hero/other.png`, 'png');
+	const replace = await finish({ atlas: 'other.png\nsize: 1,1\n' });
+	check(
+		'import: finish never replaces an existing atlas',
+		[again.status, replace.status, text(`${RIGS}/Hero/Hero.atlas`) === ATLAS],
+		[400, 409, true],
+	);
+	const taken = await begin({ name: 'hero' });
+	check('import: a taken name (any case) is a 409', taken.status, 409);
+
+	const refusals: [string, Record<string, unknown>, number][] = [
+		['a page the atlas names but was not sent', { pages: [pages[0]] }, 400],
+		[
+			'an atlas page with a path',
+			{ atlas: '../x.png\nsize: 1,1\n', pages: [{ name: '../x.png', size: 1 }] },
+			400,
+		],
+		[
+			'an atlas page that is not an image',
+			{ atlas: 'x.txt\nsize: 1,1\n', pages: [{ name: 'x.txt', size: 1 }] },
+			400,
+		],
+		['an empty page', { pages: [{ name: 'hero.png', size: 0 }, pages[1]] }, 400],
+		['a 3.8 export', { skeleton: { ...export42, skeleton: { spine: '3.8.99' } } }, 422],
+		[
+			'a slot on a missing bone',
+			{ skeleton: { ...export42, slots: [{ name: 's', bone: 'nope' }] } },
+			422,
+		],
+		['JSON that is not a skeleton', { skeleton: { hello: 1 } }, 400],
+		['no projectKey', { projectKey: undefined }, 400],
+		['another project', { projectKey: 'p2' }, 409],
+	];
+	for (const [label, over, status] of refusals) {
+		seedProject();
+		const r = await begin({ name: 'Fresh', ...over });
+		check(`import: ${label} is a ${status} and writes nothing`, [r.status, writes], [status, []]);
+	}
+
+	seedProject();
+	const asIrig = await begin({ name: 'Copy', skeleton: stored });
+	check('import: an .irig is taken as it is', [asIrig.status, asIrig.body.irig], [200, true]);
+
+	seedProject();
+	seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
+	seedStore(`${RIGS}/Hero/hero.png`, 'png', STALE);
+	const reclaim = await begin();
+	check(
+		'import: an abandoned import of the same name is reclaimed by the next one',
+		[reclaim.status, JSON.parse(text(`${RIGS}/Hero/Hero.irig`) ?? '{}').irig, heroFiles()],
+		[200, 1, ['Hero.irig']],
 	);
 }
 
