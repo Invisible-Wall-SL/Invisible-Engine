@@ -46,6 +46,18 @@
  * most two views and hands them one symbol after another.
  */
 
+/**
+ * `list`, unless it holds the same items in the same order as `previous`, which is then handed back:
+ * the views' lists are new arrays on every call, and a keyed `{#each}` handed a new array runs again
+ * (it reconciles every item, though none changed). Handed the same array, it does not run.
+ */
+const keepList = <T>(previous: T[] | undefined, list: T[]): T[] =>
+	previous !== undefined &&
+	previous.length === list.length &&
+	list.every((item, i) => item === previous[i])
+		? previous
+		: list;
+
 /** A board cell's view: the `{#each}` key, the cell it draws (or last drew, `vacant`), its row. */
 export type BoardView<C> = { id: number; cell: C; row: number; vacant: boolean };
 
@@ -55,7 +67,8 @@ export type BoardView<C> = { id: number; cell: C; row: number; vacant: boolean }
  * takes the lowest-numbered free view, or a new one. Listed in strip order with the vacant views
  * last: a keyed `{#each}` keeps its items' effects in list order, so the views run, and start their
  * cells' art, in the order the per-cell components did. An item is handed out again unchanged while
- * its cell, row and vacancy are, so the `{#each}` sees no change.
+ * its cell, row and vacancy are, so the `{#each}` sees no change, and the list while every item is
+ * ({@link keepList}): a strip change on one reel does not run the other reels' `{#each}`.
  */
 export const createBoardViews = <C extends { padding: boolean }>(
 	ownsView: (cell: C) => boolean = (cell) => !cell.padding,
@@ -63,6 +76,7 @@ export const createBoardViews = <C extends { padding: boolean }>(
 	const owners = new Map<C, number>();
 	const last: C[] = [];
 	const items: BoardView<C>[] = [];
+	let listedBefore: BoardView<C>[] | undefined;
 	const item = (id: number, cell: C, row: number, vacant: boolean): BoardView<C> => {
 		const kept = items[id];
 		if (kept && kept.cell === cell && kept.row === row && kept.vacant === vacant) return kept;
@@ -90,7 +104,7 @@ export const createBoardViews = <C extends { padding: boolean }>(
 		});
 		for (let id = 0; id < last.length; id++)
 			if (!taken.has(id)) listed.push(item(id, last[id], items[id]?.row ?? 0, true));
-		return listed;
+		return (listedBefore = keepList(listedBefore, listed));
 	};
 };
 
@@ -176,19 +190,23 @@ export type PoolView<C> = { cell: C | undefined; vacant: boolean };
  * The filler views, from each crossing's shown cells: a view is built the first time it is handed a
  * cell and then lives on, VACANT while its entry is empty. Each view's item is handed out again
  * unchanged until its cell or its vacancy changes, so a keyed `{#each}` over them changes an item
- * only then (anything reading a view's props would otherwise be re-checked on every crossing).
+ * only then (anything reading a view's props would otherwise be re-checked on every crossing), and
+ * the list runs the `{#each}` only then ({@link keepList}): a crossing that hands no view a new
+ * cell changes nothing.
  */
 export const createPoolViews = <C>() => {
 	const items: PoolView<C>[] = [];
+	let listedBefore: PoolView<C>[] | undefined;
 	return (shown: readonly (C | undefined)[]): PoolView<C>[] => {
 		items.length = shown.length;
-		return shown.map((now, slot) => {
+		const listed = shown.map((now, slot) => {
 			const kept = items[slot];
 			const cell = now ?? kept?.cell;
 			const vacant = now === undefined;
 			if (kept && kept.cell === cell && kept.vacant === vacant) return kept;
 			return (items[slot] = { cell, vacant });
 		});
+		return (listedBefore = keepList(listedBefore, listed));
 	};
 };
 
@@ -224,20 +242,24 @@ export type ShownView<C> = { id: number; cell: C; entry: number | undefined };
  * order, which is the order the per-symbol components mounted in. A component mounted later was
  * appended over the ones before it, so the entry is also the view's PAINT ORDER (its `zIndex`): where
  * two symbols overlap in the window the newer one draws over the older, as before views. An item is
- * handed out again unchanged while its view's symbol and entry are.
+ * handed out again unchanged while its view's symbol and entry are, and the list while every item
+ * is ({@link keepList}).
  */
 export const createShownViews = <C extends { padding: boolean }>() => {
 	const views = createBoardViews<C>(() => true);
 	const counter = { count: 0 };
 	const entries: ReturnType<typeof createEntries>[] = [];
 	const items: ShownView<C>[] = [];
-	return (shown: readonly C[]): ShownView<C>[] =>
-		views(shown).map(({ id, cell, vacant }) => {
+	let listedBefore: ShownView<C>[] | undefined;
+	return (shown: readonly C[]): ShownView<C>[] => {
+		const listed = views(shown).map(({ id, cell, vacant }) => {
 			const entry = (entries[id] ??= createEntries(counter))(!vacant, cell);
 			const kept = items[id];
 			if (kept && kept.cell === cell && kept.entry === entry) return kept;
 			return (items[id] = { id, cell, entry });
 		});
+		return (listedBefore = keepList(listedBefore, listed));
+	};
 };
 
 /**
