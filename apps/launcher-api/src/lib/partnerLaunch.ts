@@ -17,9 +17,13 @@ export interface PartnerLaunch {
 	profile?: string;
 	/** The delivery alias `on=partner` looks up. Absent ⇒ the card's name without spaces. */
 	alias?: string;
+	/** The partner player id this game launches as. Absent ⇒ the pool assignment in `PARTNER_RGS`
+	 *  (`partnerRemoteId`). For when the partner bans or retires a pooled player. */
+	player?: string;
 }
 
-/** A partner game id, profile id or alias: one plain segment (it lands in a query and an R2 key). */
+/** A partner game id, profile id, alias or player id: one plain segment (it lands in a query and an
+ *  R2 key). */
 const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /** The partner's alias convention: the game's display name with the spaces removed. */
@@ -30,12 +34,13 @@ export function defaultPartnerAlias(cardName: string): string {
 /** The stored value, or null when it is absent or not one we wrote. Never throws. */
 export function normalizePartnerLaunch(raw: unknown): PartnerLaunch | null {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
-	const { gameId, profile, alias } = raw as Record<string, unknown>;
+	const { gameId, profile, alias, player } = raw as Record<string, unknown>;
 	if (typeof gameId !== 'string' || !SEGMENT_RE.test(gameId)) return null;
 	return {
 		gameId,
 		...(typeof profile === 'string' && SEGMENT_RE.test(profile) ? { profile } : {}),
 		...(typeof alias === 'string' && SEGMENT_RE.test(alias) ? { alias } : {}),
+		...(typeof player === 'string' && SEGMENT_RE.test(player) ? { player } : {}),
 	};
 }
 
@@ -45,7 +50,7 @@ export function normalizePartnerLaunch(raw: unknown): PartnerLaunch | null {
  * partner later never silently moves this project to it.
  */
 export function parsePartnerLaunchInput(
-	input: { gameId?: unknown; profile?: unknown; alias?: unknown },
+	input: { gameId?: unknown; profile?: unknown; alias?: unknown; player?: unknown },
 	profiles: readonly string[],
 ): { ok: true; value: PartnerLaunch | null } | { ok: false; error: string } {
 	const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
@@ -70,7 +75,14 @@ export function parsePartnerLaunchInput(
 	if (alias && !SEGMENT_RE.test(alias)) {
 		return { ok: false, error: 'The delivery alias is letters, digits, "_" and "-" only.' };
 	}
-	return { ok: true, value: { gameId, profile, ...(alias ? { alias } : {}) } };
+	const player = text(input.player);
+	if (player && !SEGMENT_RE.test(player)) {
+		return { ok: false, error: 'The partner player is letters, digits, "_" and "-" only.' };
+	}
+	return {
+		ok: true,
+		value: { gameId, profile, ...(alias ? { alias } : {}), ...(player ? { player } : {}) },
+	};
 }
 
 export interface ResolvedPartnerLaunch {
@@ -80,12 +92,16 @@ export interface ResolvedPartnerLaunch {
 	alias: string;
 	/** The alias was named (query or stored) rather than derived from the card's name. */
 	aliasNamed: boolean;
+	/** Undefined ⇒ the profile's player pool decides (`partnerRemoteId`). */
+	player?: string;
 }
 
 /**
  * Who `/api/partner-session` launches: the query beats the project's stored setting, which beats
- * the env default. The stored game id and alias belong to the stored profile, so a query naming a
- * DIFFERENT profile does not borrow them (that would mint game 8 of one partner on another).
+ * the env default. The stored game id, alias and player belong to the stored profile, so a query
+ * naming a DIFFERENT profile does not borrow them (that would mint game 8 of one partner on
+ * another). A `player` that is not one plain segment is an error rather than ignored: it would
+ * otherwise silently fall back to the banned pool player the caller was routing around.
  */
 export function resolvePartnerLaunch(options: {
 	query: URLSearchParams;
@@ -109,11 +125,16 @@ export function resolvePartnerLaunch(options: {
 	}
 	const own = stored && storedProfile === profileId ? stored : null;
 	const alias = asked('alias') ?? own?.alias;
+	const player = asked('player') ?? own?.player;
+	if (player !== undefined && !SEGMENT_RE.test(player)) {
+		return { error: 'The partner player (?player=) is letters, digits, "_" and "-" only.' };
+	}
 	return {
 		profileId,
 		gameId: asked('game') ?? own?.gameId,
 		alias: alias ?? defaultPartnerAlias(options.cardName),
 		aliasNamed: alias !== undefined,
+		...(player !== undefined ? { player } : {}),
 	};
 }
 

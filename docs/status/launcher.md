@@ -81,6 +81,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-12 — **A project can name its partner player.** The partner banned the pooled `player4`
+  and asked us to use another one; the pool lives in the `PARTNER_RGS` secret, so changing it was an
+  owner-only Railway edit that also reshuffles every user. Now `PartnerLaunch.player` (optional, one
+  plain segment, in the existing `projects.partner_launch` jsonb — no migration) is set as
+  **Partner player** in Game Maker's Partner… dialog, and `&player=` on `/api/partner-session`
+  overrides it for one launch (query > stored, same-profile only > pool). A malformed `?player=` is
+  refused rather than falling back to the banned pool player. The banned/unknown-player refusal page
+  now names this fix. Gate: `check:partner-launch` (stored/query/other-profile/bad-value resolution,
+  the id reaching `remote_id`, form parsing).
 - 2026-11-12 — **Descriptions are tooltips in every launcher tool (CLAUDE.md hard rule 10).** The
   shared pieces live in `src/lib/ui/`: `SectionCard` (foldable card, `scope` namespaces the stored
   folds, `info` snippet = header tooltip), `InfoTip` (ⓘ + optional label; the tip is

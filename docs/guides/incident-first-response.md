@@ -269,7 +269,7 @@ time in UTC, and the full error string.
 | a 200 with `not authorized` (code 118) | a real session-level refusal from their server | relaunch to mint a fresh session; if it persists, raise it with the partner |
 | `/api/partner-session` answers 404 | no partner profile is configured for that delivery-profile id | check the `PARTNER_RGS` keys (owner) |
 | `/api/partner-session` answers 500 | `PARTNER_RGS` is invalid JSON or is missing a field | fix the variable and apply it (owner). Never paste its contents in chat |
-| `/api/partner-session` answers 502 | the partner refused, or answered badly, when asked for a session (for example `player not found` for a pool player they never created) | the message names their reason; raise it with the partner |
+| `/api/partner-session` answers 502 | the partner refused, or answered badly, when asked for a session (for example `player not found` for a pool player they never created, or `Player is banned`) | the message names their reason; raise it with the partner, or set another player they created as **Partner player** on the game's card (Partner…) |
 | a server-side `curl` to the partner is bounced | their node sits behind a Cloudflare challenge | probe from a real browser tab on the game origin instead |
 | a player reports a double stake after a network drop | the browser re-sent a POST on its own over HTTP/1.1; the game cannot see it happen | collect the round ids; raise it with the partner ([reference](../reference/play4fun-protocol.md#resending--theirs-and-ours-2026-09-29)) |
 
