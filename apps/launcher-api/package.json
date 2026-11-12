@@ -145,6 +145,7 @@
 		"check:flights": "tsx --tsconfig tsconfig.scripts.json scripts/check-flights.ts",
 		"check:win-cycle": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-cycle.ts",
 		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",
+		"check:sound-reachability": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-sound-reachability.ts",
 		"check:symbol-fx": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-symbol-fx.ts",
 		"check:sounds-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-sounds-doc.ts",
 		"check:spins-modes-contract": "node scripts/ensure-svelte-kit.mjs && tsx --tsconfig tsconfig.scripts.json scripts/check-spins-modes-contract.ts",

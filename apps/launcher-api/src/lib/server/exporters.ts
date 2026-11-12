@@ -155,7 +155,9 @@ const sounds = define({
 	label: 'sounds',
 	notConfigured: 'Sound export is not configured.',
 	failed: 'Failed to export the project sounds.',
-	run: ({ clientKey, projectKey }) => exportProjectSounds(clientKey, projectKey),
+	// The pass's cinematics: a sound only a cinematic's cue plays still ships (`soundReachability`).
+	run: ({ clientKey, projectKey, pass }) =>
+		exportProjectSounds(clientKey, projectKey, { cinematics: pass?.cinematics }),
 	emptyResult: { catalog: { prefix: 'sounds', sounds: [] } } satisfies SoundExportIndex,
 });
 

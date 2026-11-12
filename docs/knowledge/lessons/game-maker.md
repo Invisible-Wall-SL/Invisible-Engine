@@ -5,6 +5,15 @@ Current state lives in [status/game-maker.md](../../status/game-maker.md); this 
 traps. How the runtime ships: [status/engine.md](../../status/engine.md) ("How the runtime ships")
 and [design/games-deploy.md](../../design/games-deploy.md).
 
+### Every player downloads library sounds the game never plays
+- **Symptom:** "We are also shipping sounds and music that we are not using in the final game."
+- **Cause:** `soundExport.ts` copied every `sounds.json` entry into `deploy/sounds/` and the
+  catalog, and the game preloads one `Howl` per catalogued sound at boot. Art had reachability.
+- **Fix:** ship what the game can play (`soundReachability.ts`): engine names, and any name the
+  game data holds, as a string or inside a `sfx:`/`music:` cue. Unsure ⇒ ship everything.
+- **Guard:** `check:sound-reachability` (Lint), with planted mutants.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/sound.md`
+
 ### Build breakdown counts raw sprite sheets as player downloads
 - **Symptom:** a version's breakdown shows ~69 MB of "Same bytes shipped twice", and Total incl.
   engine is far above what a player loads (Test6: 107 MB of its 195 MB is `sprites/`).
