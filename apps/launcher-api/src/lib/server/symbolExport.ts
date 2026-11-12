@@ -39,6 +39,7 @@
  * `bakedSymbolMap()` merges the map. Stale objects from a previous export are
  * pruned. Idempotent — re-running converges.
  */
+import { flowArmsAnticipation, shipAnticipationOnlyWhenArmed } from './anticipationArmed';
 import { sheetVersion } from './assetVersion';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
@@ -566,15 +567,19 @@ export async function exportEditorSymbols(
 	// Repair any sprite cell whose scoped atlas ref names its manifest by a bare basename (the same
 	// naming problem the flipbook clips had), so a pinned atlas resolves to the full manifest key
 	// the sheet ships under. A correctly-authored doc pays nothing.
-	const doc = await phase('doc', async () =>
-		shipJackpotArtOnlyWhenOn(
-			await canonicalizeSymbolsDocForExport(
-				await loadSymbolsDoc(clientKey, projectKey),
-				clientKey,
-				projectKey,
+	// A reel-anticipation block no flow can arm ships nothing: its swapped overlay rig never plays.
+	const doc = await phase('doc', async () => {
+		const [loaded, armed] = await Promise.all([
+			loadSymbolsDoc(clientKey, projectKey),
+			flowArmsAnticipation(clientKey, projectKey),
+		]);
+		return shipAnticipationOnlyWhenArmed(
+			shipJackpotArtOnlyWhenOn(
+				await canonicalizeSymbolsDocForExport(loaded, clientKey, projectKey),
 			),
-		),
-	);
+			armed,
+		);
+	});
 	const refs = collectSymbolRefs(doc);
 
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
