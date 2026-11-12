@@ -23,6 +23,7 @@
 	} from 'engine-fx';
 	import type { ResolveArt } from '$lib/fx/effectEmitter.client';
 	import type { FxStageCost } from './fxCost.client';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		captureEffectBake,
 		uploadEffectBake,
@@ -338,11 +339,11 @@
 							)}), each drawn with its own blend.
 						</p>
 					{/if}
-					<p class="hint">
+					<InfoTip label="Rig keyframe beats">
 						Fired by a rig keyframe, the loop starts on the beat, follows its bone and fades out
 						over {beatFadeOut.toFixed(2)} s (the longest particle life) when the beat ends. A flight trail
 						plays live.
-					</p>
+					</InfoTip>
 					{#if blockers.length}
 						<ul class="blockers">
 							{#each blockers as reason (reason)}

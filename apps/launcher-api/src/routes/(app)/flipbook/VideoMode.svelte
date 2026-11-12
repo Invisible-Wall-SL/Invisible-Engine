@@ -18,6 +18,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { findUnexposedGates } from '$lib/blueprintGates';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import RunPicker, { type RunPickerItem } from '$lib/RunPicker.svelte';
 	import RegionThumb, { clearPageImages } from '../editor/RegionThumb.svelte';
 	import {
@@ -2313,11 +2314,11 @@ ${endScript}</body></html>`;
 					/>
 					<button onclick={() => openPicker('rail')}>Pick…</button>
 				</div>
-				<p class="hint">
+				<InfoTip label="Source image">
 					Image-to-video animates this still. Point it at a symbol's source art and the model moves
 					that art — a file already in the project, a region cropped straight out of one of its
 					atlases, or an image from your computer.
-				</p>
+				</InfoTip>
 			</div>
 
 			<label class="fld">
@@ -2434,12 +2435,12 @@ ${endScript}</body></html>`;
 						</dd>
 					{/if}
 				</dl>
-				<p class="hint">
+				<InfoTip label="Recorded settings">
 					Only settings that were <b>changed</b> are recorded — everything else ran at the blueprint's
 					own default, and since a blueprint can be updated after a run, that default is not something
 					this panel can honestly show you after the fact. Seeds are per variation: hover a tile's seed
 					to copy the one that reproduces it exactly.
-				</p>
+				</InfoTip>
 			</details>
 		{/if}
 
@@ -2586,12 +2587,12 @@ ${endScript}</body></html>`;
 					<button onclick={() => (regenSeed = '')}>🎲 New</button>
 				</div>
 			</label>
-			<p class="hint">
+			<InfoTip label="Seed and prompt">
 				The two knobs are independent, and that is the point. <b>Hold the seed</b> and change the
 				prompt to see what one word does to a fixed roll of the dice. <b>Hold the prompt</b>
 				and take a new seed for another roll of the same idea. A changed prompt is recorded on this tile
 				alone — the session keeps the prompt that describes the rest of the grid.
-			</p>
+			</InfoTip>
 			<p class="hint">
 				This replaces #{String(regen.index).padStart(3, '0')} in place, and costs one more GPU job. The
 				render that is there now is deleted.
@@ -2619,13 +2620,13 @@ ${endScript}</body></html>`;
 				<p class="pill err">{dupErr}</p>
 			{/if}
 
-			<p class="hint">
+			<InfoTip label="Duplicate">
 				A <b>new tile</b> in this same grid, running the seed below with whatever you change here. #{String(
 					dupOf.index,
 				).padStart(3, '0')} is not touched — the two sit side by side, which is the comparison this is
-				for: the same roll of the dice with the background cutout on and with it off, or one word of
-				the prompt different.
-			</p>
+				for: the same roll of the dice with the background cutout on and with it off, or one word of the
+				prompt different.
+			</InfoTip>
 
 			<label class="fld">
 				<span>Prompt</span>
@@ -2660,11 +2661,11 @@ ${endScript}</body></html>`;
 					<button onclick={() => (dupSeed = '')}>🎲 New</button>
 				</div>
 			</label>
-			<p class="hint">
+			<InfoTip label="Seed">
 				It opens on <b>this tile's own seed</b>, and that is the point: holding it is what makes the
 				two renders comparable, so any difference you see is the setting you changed and not another
 				roll of the dice. Clear it only when you want a different roll as well.
-			</p>
+			</InfoTip>
 
 			{#if recipeBlueprint}
 				{#each dupParamGroups as g (g.group)}
@@ -2683,11 +2684,11 @@ ${endScript}</body></html>`;
 				</p>
 			{/if}
 
-			<p class="hint">
+			<InfoTip label="Blueprint">
 				The blueprint is fixed: it is what every tile in this grid is described by, and its settings
 				are the ones above. A different blueprint is a different session — use <b>Generate</b>.
 				Costs one more GPU job, and only what you actually change is recorded on the new tile.
-			</p>
+			</InfoTip>
 			<div class="actions">
 				<button class="go" disabled={dupBusy || !dupPrompt.trim()} onclick={doDup}>
 					{dupBusy ? 'Starting…' : '⧉ Duplicate it'}
@@ -2767,8 +2768,11 @@ ${endScript}</body></html>`;
 
 				<p class="hint">
 					<b>{willPack}</b> frame{willPack === 1 ? '' : 's'} will be packed at
-					{(probe.fps / Math.max(1, stride)).toFixed(1)} fps. Frames are alpha-trimmed, so the cost is
-					ink, not canvas — but every frame is atlas space, and a clip spanning several pages is normal.
+					{(probe.fps / Math.max(1, stride)).toFixed(1)} fps.
+					<InfoTip label="Atlas cost">
+						Frames are alpha-trimmed, so the cost is ink, not canvas — but every frame is atlas
+						space, and a clip spanning several pages is normal.
+					</InfoTip>
 				</p>
 
 				<div class="actions">
@@ -2886,7 +2890,7 @@ ${endScript}</body></html>`;
 					</select>
 				</label>
 
-				<p class="hint">
+				<InfoTip label="Fit">
 					<b>Fit</b> is how each frame maps into the cell the Atlas Maker builds for its region:
 					<b>contain</b>
 					scales it uniformly inside the cell and leaves transparent margins — the one that keeps a sequence
@@ -2894,15 +2898,18 @@ ${endScript}</body></html>`;
 					<b>cover</b>
 					fills the cell and crops the overflow; <b>fill</b> stretches to the cell exactly, distorting
 					any frame whose shape differs from it.
-				</p>
+				</InfoTip>
 
 				<p class="hint">
 					<b>{willExport}</b>
 					frame{willExport === 1 ? '' : 's'} will be exported at
-					<b>full resolution ({refsProbe.width}×{refsProbe.height}), untrimmed</b> — no downscale, no
-					alpha crop, nothing packed. That is the whole difference from 🎞 Make flipbook, and the reason
-					to come here: each frame lands as a reference image already wired to its own region, ready
-					to be regenerated in the Atlas Maker.
+					<b>full resolution ({refsProbe.width}×{refsProbe.height}), untrimmed</b> — no downscale,
+					no alpha crop, nothing packed.
+					<InfoTip label="Why export here">
+						That is the whole difference from 🎞 Make flipbook, and the reason to come here: each
+						frame lands as a reference image already wired to its own region, ready to be
+						regenerated in the Atlas Maker.
+					</InfoTip>
 				</p>
 
 				<div class="actions">
@@ -2954,17 +2961,17 @@ ${endScript}</body></html>`;
 				>
 					⤓ Animated WEBP
 				</a>
-				<p class="hint">The render exactly as generated: one looping file, alpha intact.</p>
+				<InfoTip>The render exactly as generated: one looping file, alpha intact.</InfoTip>
 
 				<button class="dl" disabled={dlBusy} onclick={downloadZip}>
 					{dlBusy ? 'Building the frame sequence…' : '⤓ PNG frame sequence (.zip)'}
 				</button>
-				<p class="hint">
+				<InfoTip>
 					Every frame at full resolution and <b>untrimmed</b> — this is the interchange export, not
 					the packer, so nothing is cropped or downscaled. An <code>info.json</code> rides along carrying
 					the frame rate, which is the one thing a folder of stills cannot. Built on demand, so a long
 					render takes a moment.
-				</p>
+				</InfoTip>
 			</div>
 		</div>
 	{/if}
@@ -2977,11 +2984,11 @@ ${endScript}</body></html>`;
 				<strong>Publish a video blueprint</strong>
 				<button onclick={() => (pubOpen = false)}>✕</button>
 			</header>
-			<p class="hint">
+			<InfoTip label="How to publish">
 				Pick a ComfyUI <b>API-format</b> export (Settings → “Save (API Format)”), then point each
-				role at a node. Only <b>output</b> is required. It publishes as a <b>video</b> blueprint, so
-				it appears here and not in the Atlas Maker.
-			</p>
+				role at a node. Only <b>output</b> is required. It publishes as a <b>video</b> blueprint, so it
+				appears here and not in the Atlas Maker.
+			</InfoTip>
 
 			<label class="fld">
 				<span>Workflow file</span>
@@ -2998,14 +3005,13 @@ ${endScript}</body></html>`;
 				>
 
 				<div class="fld"><span>Bindings (role → node input)</span></div>
-				<p class="hint">
+				<InfoTip label="Suggested">
 					<b>Suggested</b> is a ranking, not a shortlist — every input in the graph is under
 					<b>All node inputs</b> below it. Graphs that pull their knobs out into
 					<code>Primitive</code> nodes are read through the wire, so a prompt suggestion points at
 					the
-					<code>PrimitiveString</code> that feeds the encoder rather than at the encoder's own wired
-					input.
-				</p>
+					<code>PrimitiveString</code> that feeds the encoder rather than at the encoder's own wired input.
+				</InfoTip>
 				{#each PUBLISH_ROLES as r (r.role)}
 					{@const sugg = suggestionsByRole[r.role] ?? []}
 					<label class="brow">
@@ -3060,11 +3066,11 @@ ${endScript}</body></html>`;
 						{/each}
 					</div>
 				{/if}
-				<p class="hint">
+				<InfoTip label="Size">
 					There is deliberately no <b>width</b>/<b>height</b> role here. On a video blueprint the runner
 					would fill them from the Atlas Maker's still-image defaults (1024), and 1024² across an 80-frame
 					batch is a VRAM and wall-clock blowup. Expose generation size as a setting below instead.
-				</p>
+				</InfoTip>
 
 				<div class="fld">
 					<span>Exposed settings (optional)</span>
@@ -3101,11 +3107,11 @@ ${endScript}</body></html>`;
 				{/if}
 				{#if pubSpecsNote}<p class="hint">{pubSpecsNote}</p>{/if}
 				{#if pubParams.length}
-					<p class="hint">
+					<InfoTip label="Settings">
 						Pick the input first — the key, type and default are read off the graph's own baked
 						value, and the bounds and option list off the node's own contract. A blank default
 						publishes as <b>0</b>, and the default is what runs on every render nobody overrode.
-					</p>
+					</InfoTip>
 				{/if}
 				{#each pubParams as prm, i (i)}
 					<div class="prow">
@@ -3251,8 +3257,7 @@ ${endScript}</body></html>`;
 					{/each}
 					{#each pickFiles as f (f.path)}
 						<li>
-							<button class="file" onclick={() => setSource(f.path, f.name, '')}>🖼 {f.name}</button
-							>
+							<button class="file" onclick={() => setSource(f.path, f.name, '')}>🖼 {f.name}</button>
 						</li>
 					{/each}
 				</ul>
@@ -3334,9 +3339,9 @@ ${endScript}</body></html>`;
 					</label>
 				</div>
 				<p class="crumb">
-					PNG, JPEG or WEBP, up to {MAX_SOURCE_BYTES / 1024 / 1024} MB. The file is copied into this
-					project's asset store, so the same still can be reused for another run without picking it off
-					your disk again.
+					PNG, JPEG or WEBP, up to {MAX_SOURCE_BYTES / 1024 / 1024} MB. The file is copied into this project's
+					asset store, so the same still can be reused for another run without picking it off your disk
+					again.
 				</p>
 			{/if}
 		</div>
@@ -3639,9 +3644,6 @@ ${endScript}</body></html>`;
 	.dl:hover:not(:disabled) {
 		background: #27364a;
 	}
-	.actions .hint {
-		margin: -2px 0 4px;
-	}
 	.danger {
 		color: #fca5a5;
 	}
@@ -3768,9 +3770,6 @@ ${endScript}</body></html>`;
 	}
 	.recipe .tag.warn {
 		color: #fbbf24;
-	}
-	.recipe .hint {
-		margin: 10px 0 2px;
 	}
 
 	.grid {

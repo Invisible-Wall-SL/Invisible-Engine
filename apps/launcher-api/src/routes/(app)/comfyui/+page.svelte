@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -773,12 +774,12 @@
 			<!-- Fleet control panel. -->
 			<section class="hero">
 				<h1>ComfyUI — cloud R&amp;D</h1>
-				<p class="lede">
+				<InfoTip label="How it works">
 					Interactive ComfyUI on on-demand RunPod GPUs. Pick a card and start it — if it's out of
 					free GPUs, try the next one. Build and test generation networks, then export them as
 					blueprints the Invisible Atlas Maker can generate with. Idle pods auto-stop so the GPU
 					only bills while you're working.
-				</p>
+				</InfoTip>
 
 				{#if !status}
 					<div class="panel">
@@ -1159,8 +1160,8 @@
 								Held for another {status.leaseMinutes} min while you work — then auto-stops after
 								{status.idleMinutes} min idle. Re-open ComfyUI to extend.
 							{:else}
-								Pods auto-stop after {status.idleMinutes} min idle. Opening ComfyUI holds one for an
-								hour so a pod is never reclaimed mid-session.
+								Pods auto-stop after {status.idleMinutes} min idle. Opening ComfyUI holds one for an hour
+								so a pod is never reclaimed mid-session.
 							{/if}
 						</p>
 					{/if}
@@ -1245,13 +1246,13 @@
 												</li>
 											{/each}
 										</ul>
-										<p class="note">
+										<InfoTip label="Node packs">
 											Node packs live in the pod's <strong>container image</strong>, not on the
 											volume. Anything installed later with ComfyUI-Manager is written to the
 											container and <strong>disappears when the pod is recreated on resume</strong>
 											— to keep a pack, an admin adds it under <strong>Custom nodes</strong>
 											above — the commit rebuilds the image — then updates the pod to that build.
-										</p>
+										</InfoTip>
 									{/if}
 								{/if}
 
@@ -1282,11 +1283,11 @@
 						roles).
 					</li>
 				</ol>
-				<p class="note">
+				<InfoTip label="Custom nodes">
 					Any custom node or model your network needs must also live on the shared pipeline backend,
 					or the blueprint won't run in the Atlas Maker — check with the team before relying on a
 					brand-new node.
-				</p>
+				</InfoTip>
 			</section>
 		{/if}
 	</main>
@@ -1831,12 +1832,6 @@
 	}
 	.flow a {
 		color: #7ee0c0;
-	}
-	.note {
-		margin: 18px 0 0;
-		font-size: 13px;
-		color: #b9974e;
-		line-height: 1.55;
 	}
 	code {
 		background: #1c1c24;

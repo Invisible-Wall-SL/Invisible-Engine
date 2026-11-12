@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -353,11 +354,11 @@
 						: ''}</span
 				>
 			</div>
-			<p class="hint">
+			<InfoTip label="About this list">
 				Each package the game loads, with every file it pulls in (atlas pages included). <em
 					>Uses</em
 				> is how many times the game data — scenes, components, symbols, flow, effects — names it.
-			</p>
+			</InfoTip>
 			<div class="filters">
 				<input placeholder="Search name, key or where used…" bind:value={assetQuery} />
 				<select bind:value={assetType}>
@@ -680,7 +681,6 @@
 		color: #7a7a86;
 		font-weight: 400;
 	}
-	.hint,
 	.muted {
 		color: #9a9aa6;
 		font-size: 13px;

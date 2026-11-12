@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { resolve } from '$app/paths';
 	import { asAuthoringLaunch } from '$lib/gameLaunch';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -921,10 +922,10 @@
 	{#if fonts.length || fontsErr}
 		<section class="card" aria-label="Font requests">
 			<h2>Fonts to bake</h2>
-			<p class="hint">
+			<InfoTip label="About font requests">
 				Director never adds a font to the game. Bake and save each one in Invisible Font Maker, then
 				mark the request done.
-			</p>
+			</InfoTip>
 			{#if fontsErr}<p class="err">{fontsErr}</p>{/if}
 			<ul class="fonts">
 				{#each fonts as f (f.folder)}
@@ -981,10 +982,10 @@
 					<p class="board"><strong>Tool or area:</strong> {review.pipeline.areaName}</p>
 					<p class="board"><strong>Title:</strong> {review.pipeline.title}</p>
 					<p class="board">{review.pipeline.text}</p>
-					<p class="small">
+					<InfoTip label="What happens next">
 						It is filed Open, not sent to Pipeline Changes. The game bug then shows “Waiting on
 						pipeline”.
-					</p>
+					</InfoTip>
 				</div>
 			{/if}
 		{:else}
@@ -1005,10 +1006,10 @@
 			'Send back with my note',
 		)}
 		{#if actionErr}<p class="err" role="alert">{actionErr}</p>{/if}
-		<p class="small">
+		<InfoTip label="About approving">
 			Approving ends the run. Director never publishes: you do, in Game Maker, and that publish
 			resolves a fixed bug.
-		</p>
+		</InfoTip>
 	</section>
 {/snippet}
 
@@ -1347,10 +1348,10 @@
 				{/each}
 			</ol>
 			{#if made.tile}
-				<p class="small">
+				<InfoTip label="The finished tile">
 					The finished tile is the last step's image, committed verbatim to the region and shown
 					beside the variants above.
-				</p>
+				</InfoTip>
 			{/if}
 		</details>
 	{/if}
@@ -1485,7 +1486,9 @@
 					`Approve ${toReview.length === 1 ? 'this region' : `these ${toReview.length} regions`}`,
 					'Redo with my note',
 				)}
-				<span class="small">Approved art goes into this project's Atlas Maker sheet.</span>
+				<InfoTip label="Where it goes" alignEnd
+					>Approved art goes into this project's Atlas Maker sheet.</InfoTip
+				>
 			</div>
 		{/if}
 	</section>
@@ -1916,10 +1919,10 @@
 									</div>
 								{/each}
 							</div>
-							<p class="muted">
+							<InfoTip label="Legend">
 								Numbers match the list. Dashed boxes are what the Mockup analyst found; red means it
 								clashes with something locked in the template, amber that it is your call.
-							</p>
+							</InfoTip>
 						</section>
 
 						<section class="card" aria-label="Needs your call">
@@ -1969,10 +1972,10 @@
 						{#if crops.length}
 							<section class="card" aria-label="Crops per region">
 								<h2>Crops per region</h2>
-								<p class="hint">
+								<InfoTip label="About crops">
 									Cut from your mockups for each matched region: the art director judges every
 									variant against them.
-								</p>
+								</InfoTip>
 								<div class="crops">
 									{#each crops as crop (crop.region)}
 										<figure>
@@ -2322,9 +2325,9 @@
 										? ''
 										: 'Wait for the licence list: the build is approved only once it is read.',
 								)}
-								<p class="small">
+								<InfoTip label="About approving">
 									Approving ends the run. Director never publishes: you do, in Game Maker.
-								</p>
+								</InfoTip>
 							</section>
 						{:else if waitingOnRepair}
 							{@render repairPanel()}

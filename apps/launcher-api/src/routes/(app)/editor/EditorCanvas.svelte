@@ -69,6 +69,7 @@
 		type Scene,
 		type SceneProjection,
 	} from 'engine-layout';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import type { EffectParamValues } from 'engine-fx';
 	import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
 	import {
@@ -7582,17 +7583,19 @@
 		</div>
 	{/if}
 	<div class="hint">
-		{#if animateKeys}
-			Animate: drag / corners / top circle = key the move, scale or turn at the playhead · scroll =
-			zoom · shift/middle/right-drag = pan · Esc = deselect
-		{:else if animate}
-			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan · Esc
-			= parent / deselect · Shift+/ = shortcuts
-		{:else}
-			click = select{pickAcross ? ' (any screen)' : ''} · drag = move · corners = scale (Shift = non-uniform)
-			· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = parent
-			/ deselect · Shift+/ = shortcuts
-		{/if}
+		<InfoTip label="Canvas controls">
+			{#if animateKeys}
+				Animate: drag / corners / top circle = key the move, scale or turn at the playhead · scroll
+				= zoom · shift/middle/right-drag = pan · Esc = deselect
+			{:else if animate}
+				Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan ·
+				Esc = parent / deselect · Shift+/ = shortcuts
+			{:else}
+				click = select{pickAcross ? ' (any screen)' : ''} · drag = move · corners = scale (Shift = non-uniform)
+				· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = parent
+				/ deselect · Shift+/ = shortcuts
+			{/if}
+		</InfoTip>
 	</div>
 	{#snippet viewToggle(
 		label: string,
@@ -7993,10 +7996,6 @@
 		/* Above the canvas art layers (scene groups + HUD reach z-index 1001 in this same
 		   stacking context) so the hint text is never buried. */
 		z-index: 2000;
-		color: #666;
-		font-size: 11px;
-		pointer-events: none;
-		text-shadow: 0 1px 2px #000;
 	}
 	/* Unified top overlay: the device/mode bar (left) and the action buttons (right) share
 	   ONE flex row so they can never overlap — when the canvas is narrow or the text is

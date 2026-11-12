@@ -81,6 +81,18 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-12 — **Descriptions are tooltips in every launcher tool (CLAUDE.md hard rule 10).** The
+  shared pieces live in `src/lib/ui/`: `SectionCard` (foldable card, `scope` namespaces the stored
+  folds, `info` snippet = header tooltip), `InfoTip` (ⓘ + optional label; the tip is
+  `position: fixed`, placed against the viewport on hover/focus so scrolling side panels cannot clip
+  it, flips above when there is no room, stays open while focus is inside it) and `IconButton`.
+  About 260 description paragraphs moved into InfoTips across FX, Scene Editor panels, Flow, Shader
+  Graph, Symbols, Flipbook, Win Text, Sound, Localization, Fonts, Characters, Cards, ComfyUI,
+  Director, Admin, Game Maker and Bug Reports; status text (warnings, empty states, "add X first",
+  counts) stays inline. Not covered: the static Rigger / Rig Viewer pages and the Python Atlas /
+  Sheet tools. Lesson filed: Prettier strips generics in Svelte markup
+  (`docs/knowledge/lessons/launcher.md`).
+
 - 2026-11-11 — **A project's partner launch is one field on its Game Maker card.** **Partner…**
   stores the partner's game ID (plus the `PARTNER_RGS` profile, written explicitly even when it was
   the only one, and an optional delivery alias) on the project row: `projects.partner_launch`

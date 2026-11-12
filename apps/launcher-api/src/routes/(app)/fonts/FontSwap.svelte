@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { COMPONENTS_VIEW_PARAM, COMPONENTS_VIEW_VALUE } from '$lib/componentLinks';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import FontPreview from './FontPreview.svelte';
 	import {
 		fetchSwapFonts,
@@ -83,12 +84,14 @@
 </script>
 
 <section class="swap">
-	<p class="intro muted">
-		Point every use of one font at another across this project: Scene Editor text and components,
-		project components and their defaults, Flow messages and Symbols. Need a new font to swap in?
-		Make it in <button class="link" onclick={() => onmake('import')}>Import</button> or
-		<button class="link" onclick={() => onmake('generate')}>Generate</button> first.
-	</p>
+	<div>
+		<InfoTip label="Font swap">
+			Point every use of one font at another across this project: Scene Editor text and components,
+			project components and their defaults, Flow messages and Symbols. Need a new font to swap in?
+			Make it in <button class="link" onclick={() => onmake('import')}>Import</button> or
+			<button class="link" onclick={() => onmake('generate')}>Generate</button> first.
+		</InfoTip>
+	</div>
 
 	{#if loading}
 		<p class="muted">Loading fonts…</p>
@@ -221,10 +224,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
-	}
-	.intro {
-		margin: 0;
-		max-width: 760px;
 	}
 	.muted {
 		color: #888;

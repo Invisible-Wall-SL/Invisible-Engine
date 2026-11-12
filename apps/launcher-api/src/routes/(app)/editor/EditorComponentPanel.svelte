@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ComponentDef } from 'engine-layout';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 
 	import ComponentList from './ComponentList.svelte';
 
@@ -16,10 +17,10 @@
 
 <section class="cmp">
 	<div class="tool-link">
-		<p class="hint">
+		<InfoTip label="Components">
 			Reusable prefabs (overlays, UI groups, scenery). <strong>Place</strong> one into the active scene,
 			or open one to edit it on the stage.
-		</p>
+		</InfoTip>
 		<button type="button" class="open-tool" onclick={() => onOpenTool()}>
 			◇ Open components
 		</button>
@@ -59,7 +60,8 @@
 	}
 	.tool-link {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
+		justify-content: space-between;
 		gap: 8px;
 		padding: 10px;
 		border: 1px solid #2a2433;
@@ -75,17 +77,10 @@
 		border-radius: 6px;
 		cursor: pointer;
 		font-family: inherit;
-		align-self: flex-start;
 	}
 	.open-tool:hover {
 		border-color: #7ee0c0;
 		color: #7ee0c0;
-	}
-	.hint {
-		color: #888;
-		font-size: 11px;
-		margin: 0;
-		line-height: 1.4;
 	}
 	h3 {
 		font-size: 11px;

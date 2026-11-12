@@ -35,6 +35,7 @@
 	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -2269,11 +2270,11 @@
 				/>
 				<span>Loop</span>
 			</label>
-			<span class="hint">
+			<InfoTip alignEnd>
 				{draft.loop === false
 					? 'Plays once, then holds on its last frame.'
 					: 'Repeats for as long as the symbol is in this state.'}
-			</span>
+			</InfoTip>
 		</div>
 	{/if}
 {/snippet}
@@ -2306,7 +2307,7 @@
 				<option value="reverse">Reverse</option>
 				<option value="pingpong">Ping-pong</option>
 			</select>
-			<span class="hint">
+			<InfoTip alignEnd>
 				{draft.direction === 'reverse'
 					? 'Plays the clip’s frames backwards — no second clip, no duplicated art.'
 					: draft.direction === 'pingpong'
@@ -2314,7 +2315,7 @@
 						: draft.direction === 'forward'
 							? 'Plays in the authored order.'
 							: 'Follows the clip. Change it in /flipbook and every state that never overrode it follows.'}
-			</span>
+			</InfoTip>
 		</div>
 		<div class="field">
 			<span class="label">Mirror</span>
@@ -2349,10 +2350,10 @@
 					<span>Flip Y</span>
 				</label>
 			</div>
-			<span class="hint">
+			<InfoTip alignEnd>
 				Flips the drawn frames about the cell's centre — a render transform, so it needs no second
 				set of art.
-			</span>
+			</InfoTip>
 		</div>
 		<div class="field">
 			<span class="label">Speed</span>
@@ -2369,7 +2370,7 @@
 					draft.fps = e.currentTarget.value.trim() === '' || !(n > 0) ? undefined : n;
 				}}
 			/>
-			<span class="hint">Frames per second for this state only. Empty follows the clip.</span>
+			<InfoTip alignEnd>Frames per second for this state only. Empty follows the clip.</InfoTip>
 		</div>
 	{/if}
 {/snippet}
@@ -2453,10 +2454,11 @@
 				<section class="highlight" class:editing={highlightEditing}>
 					<div class="hl-head">
 						<div class="hl-title">
-							<h2>Highlight (win frame)</h2>
-							<p class="hl-sub">
-								A single global rig that loops over winning symbols. Shared by every symbol.
-							</p>
+							<h2>
+								Highlight (win frame) <InfoTip>
+									A single global rig that loops over winning symbols. Shared by every symbol.
+								</InfoTip>
+							</h2>
 						</div>
 						<div class="hl-actions">
 							{#if highlight.overridden}<span class="badge">overridden</span>{/if}
@@ -2599,11 +2601,11 @@
 												<option value={choice.value}>{choice.label}</option>
 											{/each}
 										</select>
-										<span class="hl-note">
+										<InfoTip>
 											Multiplies the win frame's colour over the winning symbols. "Win-line colour"
 											uses each paying line's colour from the game config; "Fixed colour" uses the
 											swatch below.
-										</span>
+										</InfoTip>
 									</div>
 									{#if highlightDraft.tintMode === 'fixed'}
 										<div class="field">
@@ -2634,11 +2636,12 @@
 					<section class="highlight" class:editing={glowEditing}>
 						<div class="hl-head">
 							<div class="hl-title">
-								<h2>Free-spin board glow</h2>
-								<p class="hl-sub">
-									The glow behind the reels during free spins. Swap the art for any R2 rig bundle (a
-									Rigger rig included); the game still plays it start → idle → exit.
-								</p>
+								<h2>
+									Free-spin board glow <InfoTip>
+										The glow behind the reels during free spins. Swap the art for any R2 rig bundle
+										(a Rigger rig included); the game still plays it start → idle → exit.
+									</InfoTip>
+								</h2>
 							</div>
 							<div class="hl-actions">
 								{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
@@ -2779,14 +2782,15 @@
 					<section class="winline tumblepattern" class:expanded={tumblePattern !== 'all'}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Explosion pattern</h2>
-								<p class="wl-sub">
-									The order the winning symbols blow up in. By default the whole board explodes in
-									one frame; pick a pattern and it comes apart in waves instead — column by column,
-									row by row, out from the middle — with a gap between each wave. Purely how it
-									looks: the same symbols explode, pay the same, and are replaced the same way. The
-									board-clear step of a swap-in-place board follows this too.
-								</p>
+								<h2>
+									Explosion pattern <InfoTip>
+										The order the winning symbols blow up in. By default the whole board explodes in
+										one frame; pick a pattern and it comes apart in waves instead — column by
+										column, row by row, out from the middle — with a gap between each wave. Purely
+										how it looks: the same symbols explode, pay the same, and are replaced the same
+										way. The board-clear step of a swap-in-place board follows this too.
+									</InfoTip>
+								</h2>
 							</div>
 							<label class="field tp-pick">
 								<span class="label">Pattern</span>
@@ -2821,13 +2825,15 @@
 										{/each}
 									</div>
 									<div class="tp-legend">
-										<p class="wl-note">{TUMBLE_PATTERN_HINTS[tumblePattern]}</p>
-										<p class="wl-note">
-											The number in each cell is the wave it pops on, replayed here on a 5×3 board
-											at the gap you picked. Your game's own grid drives the real thing, and the
-											waves are counted over the symbols that actually won — a win on three reels
-											pops in three waves, never with two empty ones in front of it.
-										</p>
+										<InfoTip label="Pattern"
+											><p>{TUMBLE_PATTERN_HINTS[tumblePattern]}</p>
+											<p>
+												The number in each cell is the wave it pops on, replayed here on a 5×3 board
+												at the gap you picked. Your game's own grid drives the real thing, and the
+												waves are counted over the symbols that actually won — a win on three reels
+												pops in three waves, never with two empty ones in front of it.
+											</p></InfoTip
+										>
 									</div>
 								</div>
 							</div>
@@ -2849,16 +2855,18 @@
 											/>
 										</label>
 									</div>
-									<p class="wl-note">
+									<InfoTip label="Gap cost">
 										Default {TUMBLE_STEP_MS_DEFAULT} ms. The gap is added to the explosion step the player
 										waits through on every cascading spin, so the whole step grows by the gap times one
 										less than the number of waves — a 5-column sweep at 80 ms costs 320 ms.
-										{#if tumblePerSeat}
+									</InfoTip>
+									{#if tumblePerSeat}
+										<p class="wl-note">
 											<strong> This pattern pops one symbol at a time,</strong>
 											so its cost grows with the size of the win rather than with the board: a 15-symbol
 											win at {tumbleStep} ms adds {14 * tumbleStep} ms. Keep the gap short.
-										{/if}
-									</p>
+										</p>
+									{/if}
 								</div>
 							</div>
 						{/if}
@@ -2872,11 +2880,12 @@
 					<section class="bookvfx">
 						<div class="hl-head">
 							<div class="hl-title">
-								<h2>Transition</h2>
-								<p class="hl-sub">
-									Plays at the seat when a symbol explodes, over the explosion's end and the intro's
-									start. Delay = ms after the explosion fires.
-								</p>
+								<h2>
+									Transition <InfoTip>
+										Plays at the seat when a symbol explodes, over the explosion's end and the
+										intro's start. Delay = ms after the explosion fires.
+									</InfoTip>
+								</h2>
 							</div>
 							<div class="hl-actions">
 								{#if doc.transition}<span class="badge">set</span>{/if}
@@ -3030,13 +3039,13 @@
 												<option value={fx.id}>{fx.name}</option>
 											{/each}
 										</select>
-										<p class="hint">
+										<InfoTip label="Effect">
 											The effect plays once from Invisible FX — open <a href={resolve('/fx')}
 												>Invisible FX</a
 											>
 											to edit it. It emits for its authored duration (or one explosion beat when it has
 											none) and then lets its particles die out.
-										</p>
+										</InfoTip>
 									</div>
 									{#if transitionDraft.effectId}
 										<div class="field">
@@ -3089,24 +3098,26 @@
 										Let the next spin start as soon as the symbols are back
 									</span>
 								</label>
-								<p class="hint">
-									Separate from the transition above. On a board whose new symbols
-									<strong>emerge</strong> in place, the round is held until the last symbol has
-									finished its <strong>Intro</strong>. Turn this on and it is released the moment
-									every symbol is back on screen instead. Nothing is shortened: every intro still
-									plays in full and still settles into its resting art, whether or not its animation
-									reports finishing — only what the round WAITS for changes.
-								</p>
-								{#if arOn}
-									<p class="hint">
-										The trade is that the next spin may begin over an intro still rising — worth
-										watching once at speed before shipping it. Measured on the live
-										<code>test6</code>: a spin's symbol clips were done 2.1 s in and the round
-										released at 3.4 s, the gap being the arrival beat running out its two-second
-										cap. A cascade step pays the same wait again, which is why the pause between two
-										wins of one spin feels like the pause after it.
+								<InfoTip label="Arrival release">
+									<p>
+										Separate from the transition above. On a board whose new symbols
+										<strong>emerge</strong> in place, the round is held until the last symbol has
+										finished its <strong>Intro</strong>. Turn this on and it is released the moment
+										every symbol is back on screen instead. Nothing is shortened: every intro still
+										plays in full and still settles into its resting art, whether or not its
+										animation reports finishing — only what the round WAITS for changes.
 									</p>
-								{/if}
+									{#if arOn}
+										<p>
+											The trade is that the next spin may begin over an intro still rising — worth
+											watching once at speed before shipping it. Measured on the live
+											<code>test6</code>: a spin's symbol clips were done 2.1 s in and the round
+											released at 3.4 s, the gap being the arrival beat running out its two-second
+											cap. A cascade step pays the same wait again, which is why the pause between
+											two wins of one spin feels like the pause after it.
+										</p>
+									{/if}
+								</InfoTip>
 								{#if !data.reelBehaviour.emerge}
 									<p class="hint">
 										This project does not use the <strong>emerge</strong> swap style (<strong
@@ -3126,12 +3137,13 @@
 					<section class="bookvfx">
 						<div class="hl-head">
 							<div class="hl-title">
-								<h2>Book symbol VFX</h2>
-								<p class="hl-sub">
-									Two layers drawn behind and in front of the book symbol during free spins. Each
-									can be a sprite frame, a rig animation, an Invisible Flipbook clip, or an
-									Invisible FX effect. Leave a layer unset to draw nothing.
-								</p>
+								<h2>
+									Book symbol VFX <InfoTip>
+										Two layers drawn behind and in front of the book symbol during free spins. Each
+										can be a sprite frame, a rig animation, an Invisible Flipbook clip, or an
+										Invisible FX effect. Leave a layer unset to draw nothing.
+									</InfoTip>
+								</h2>
 							</div>
 						</div>
 
@@ -3330,14 +3342,14 @@
 															<option value={fx.id}>{fx.name}</option>
 														{/each}
 													</select>
-													<p class="hint">
+													<InfoTip label="FX size">
 														The effect plays from Invisible FX — open <a href={resolve('/fx')}
 															>Invisible FX</a
 														>
 														to edit it. For an FX layer, <strong>Size</strong> below is a scale multiplier
 														on the effect's authored size (1 = as authored), not a cell fit — so 10 is
 														10× (huge); dial it down (e.g. 0.5) to fit the cell.
-													</p>
+													</InfoTip>
 												</div>
 												{#if bookVfxDraft.effectId}
 													<div class="field">
@@ -3427,23 +3439,24 @@
 					<section class="bookvfx flights">
 						<div class="hl-head">
 							<div class="hl-title">
-								<h2>Flights</h2>
-								<p class="hl-sub">
-									{#if potsOnly}
-										How a pots overlay token flies into its pot. Per pot (or every pot at once): the
-										head that travels, the trail it leaves (an Invisible FX effect), the effect on
-										impact, the shape of the route and the timing. Anything left unset flies the
-										built-in gold glow; a single pot falls back to “every pot” first.
-									{:else}
-										How things fly in Hold and Win — a coin into the total win, a coin into a
-										collector, a special into its meter, a boost beam, an add-respins' "+N" into the
-										respin counter, an upgrade's beam at each coin it raises, an unlock symbol into
-										the row it opens. Per kind: the head that travels, the trail it leaves (an
-										Invisible FX effect), the effect on impact, the shape of the route around the
-										winning cells, and the timing. Anything left unset flies the built-in gold glow;
-										a single meter falls back to “every meter” first.
-									{/if}
-								</p>
+								<h2>
+									Flights <InfoTip>
+										{#if potsOnly}
+											How a pots overlay token flies into its pot. Per pot (or every pot at once):
+											the head that travels, the trail it leaves (an Invisible FX effect), the
+											effect on impact, the shape of the route and the timing. Anything left unset
+											flies the built-in gold glow; a single pot falls back to “every pot” first.
+										{:else}
+											How things fly in Hold and Win — a coin into the total win, a coin into a
+											collector, a special into its meter, a boost beam, an add-respins' "+N" into
+											the respin counter, an upgrade's beam at each coin it raises, an unlock symbol
+											into the row it opens. Per kind: the head that travels, the trail it leaves
+											(an Invisible FX effect), the effect on impact, the shape of the route around
+											the winning cells, and the timing. Anything left unset flies the built-in gold
+											glow; a single meter falls back to “every meter” first.
+										{/if}
+									</InfoTip>
+								</h2>
 							</div>
 						</div>
 
@@ -3964,13 +3977,13 @@
 									token={!!flightToken}
 									label={flightKey === 'toCounter' ? '+2' : undefined}
 								/>
-								<p class="hint">
+								<InfoTip label="About the preview">
 									The route is planned by the same code the game flies with, and the head, its size,
 									tint, trail and arrival effect are the ones picked above. The coded trail is drawn
 									as an approximation of the in-game gold glow.{#if flightToken}
 										A pots token flies as itself in place of the head: it is drawn here as
 										<strong>{flightToken}</strong>.{/if}
-								</p>
+								</InfoTip>
 							</div>
 						</div>
 					</section>
@@ -4002,14 +4015,16 @@
 					<section class="winline" class:expanded={stackedOn}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Stacked pictures</h2>
-								<p class="wl-sub">
-									Turn a symbol into a single <strong>tall picture</strong> that fills several cells
-									for the stacked-picture reel mode. Pick which symbols are stacked, how many cells
-									tall each is, and each one's two pictures: the <em>resting</em> picture it
-									normally shows, and an optional <em>winning</em> picture it swaps to while it
-									pays. A tall picture is the <em>only</em> thing a stacked symbol shows. Off by default.
-								</p>
+								<h2>
+									Stacked pictures <InfoTip>
+										Turn a symbol into a single <strong>tall picture</strong> that fills several
+										cells for the stacked-picture reel mode. Pick which symbols are stacked, how
+										many cells tall each is, and each one's two pictures: the <em>resting</em>
+										picture it normally shows, and an optional <em>winning</em> picture it swaps to
+										while it pays. A tall picture is the <em>only</em> thing a stacked symbol shows. Off
+										by default.
+									</InfoTip>
+								</h2>
 							</div>
 							<label class="switch" class:on={stackedOn}>
 								<input
@@ -4034,11 +4049,11 @@
 										<span class="track"><span class="knob"></span></span>
 										<span class="switch-label">Show the tall picture only at full height</span>
 									</label>
-									<p class="hint">
+									<InfoTip>
 										On: a landed stack shorter than the symbol's height shows the normal single
 										symbols instead of a cropped tall picture. Off: a partial stack shows the top of
 										the picture.
-									</p>
+									</InfoTip>
 								</div>
 								<div class="wl-group">
 									<label class="switch" class:on={stackedEdgeCutoffs}>
@@ -4050,13 +4065,13 @@
 										<span class="track"><span class="knob"></span></span>
 										<span class="switch-label">Cut-off tall pictures at the board edges</span>
 									</label>
-									<p class="hint">
+									<InfoTip>
 										On: a stacked symbol touching the TOP or BOTTOM edge draws a cut-off tall
 										picture — the visible slice of a symbol scrolled partly off-screen (top edge
 										shows the bottom of the picture, bottom edge the top), for any run length. This
 										overrides "full-height only" at the edges. Off: edge stacks follow the setting
 										above.
-									</p>
+									</InfoTip>
 								</div>
 								<div class="wl-group">
 									<h3>Stacked symbols</h3>
@@ -4093,11 +4108,11 @@
 											oninput={(e) => setStackedWinHold(e.currentTarget.value)}
 										/>
 									</label>
-									<p class="hint">
+									<InfoTip>
 										How long a winning stack stays lit — the beat its win picture plays for. The
 										cells under a tall picture have no per-symbol win animation to wait on, so the
 										game holds this fixed time instead. Blank ⇒ {STACKED_WIN_HOLD_MS_DEFAULT}ms.
-									</p>
+									</InfoTip>
 								</div>
 
 								{#each stackedList as s (s.name)}
@@ -4149,10 +4164,10 @@
 										</div>
 										<div class="stacked-controls">
 											<h3>{s.name} · winning</h3>
-											<p class="hint">
+											<InfoTip>
 												Shown while this stack is part of a paying line — the animation it pays out
 												with. Unset ⇒ it keeps showing the picture on the left.
-											</p>
+											</InfoTip>
 											<div class="stacked-art-actions">
 												<button
 													type="button"
@@ -4191,12 +4206,13 @@
 				<section class="winline" class:expanded={winLineOn}>
 					<div class="wl-head">
 						<div class="wl-text">
-							<h2>Win lines</h2>
-							<p class="wl-sub">
-								The line traced across each winning payline. On by default; turn it off to draw no
-								line, or style it below. The stamped win amount is its own section underneath — turn
-								this one off and that one on to show the amount with no line under it.
-							</p>
+							<h2>
+								Win lines <InfoTip>
+									The line traced across each winning payline. On by default; turn it off to draw no
+									line, or style it below. The stamped win amount is its own section underneath —
+									turn this one off and that one on to show the amount with no line under it.
+								</InfoTip>
+							</h2>
 						</div>
 						<label class="switch" class:on={winLineOn}>
 							<input
@@ -4233,11 +4249,11 @@
 													: 'Off'}</span
 											>
 										</label>
-										<span class="hint">
+										<InfoTip>
 											When on (default), each winning line draws in that payline's colour from the
 											Invisible Game Config, falling back to the swatch below. Turn off to make the
 											swatch authoritative and ignore the config colour.
-										</span>
+										</InfoTip>
 									</div>
 									<label
 										class="field"
@@ -4379,19 +4395,21 @@
 										/>
 									</label>
 								</div>
-								<p class="wl-note">
-									Off (the default), the line traces only the winning symbols, up to where the
-									amount is stamped. On, the WHOLE payline is drawn across all reels in the colour
-									above, with the winning segment on top.
-								</p>
-								<p class="wl-note">
-									<strong>Show all win lines at once</strong> changes how a multi-line win is told: instead
-									of one line at a time — draw, light its symbols, clear, next — every paying line of
-									the spin appears together, each one a short beat after the last, each in its own payline
-									colour from the Game Config, and they all STAY on screen until the next spin. The symbols
-									still celebrate one win at a time underneath them. Set the beat to 0s to have every
-									line appear in the same frame.
-								</p>
+								<InfoTip label="Line options"
+									><p>
+										Off (the default), the line traces only the winning symbols, up to where the
+										amount is stamped. On, the WHOLE payline is drawn across all reels in the colour
+										above, with the winning segment on top.
+									</p>
+									<p>
+										<strong>Show all win lines at once</strong> changes how a multi-line win is told:
+										instead of one line at a time — draw, light its symbols, clear, next — every paying
+										line of the spin appears together, each one a short beat after the last, each in its
+										own payline colour from the Game Config, and they all STAY on screen until the next
+										spin. The symbols still celebrate one win at a time underneath them. Set the beat
+										to 0s to have every line appear in the same frame.
+									</p></InfoTip
+								>
 							</div>
 
 							<button type="button" class="ghost wl-reset" onclick={resetWinLineStyle}>
@@ -4404,12 +4422,13 @@
 				<section class="winline" class:expanded={winTextOn}>
 					<div class="wl-head">
 						<div class="wl-text">
-							<h2>Win amount text</h2>
-							<p class="wl-sub">
-								The win amount stamped for each paying line, with the authored win message above it.
-								Its own switch, separate from the line: leave this on with Win lines off to announce
-								the amount without drawing anything across the reels.
-							</p>
+							<h2>
+								Win amount text <InfoTip>
+									The win amount stamped for each paying line, with the authored win message above
+									it. Its own switch, separate from the line: leave this on with Win lines off to
+									announce the amount without drawing anything across the reels.
+								</InfoTip>
+							</h2>
 						</div>
 						<label class="switch" class:on={winTextOn}>
 							<input
@@ -4470,19 +4489,22 @@
 										</select>
 									</label>
 								</div>
-								<p class="wl-note">
-									The amount uses a bitmap font, so the colour tints it — clean on a light font, but
-									tinting an already-coloured font (e.g. gold) just darkens it. To recolour cleanly,
-									pick a differently-coloured font.
-								</p>
-								<p class="wl-note">
-									<strong>Position</strong> decides where the amount lands.
-									<em>At the winning line</em> (the default) stamps it just past the last paying
-									symbol, flipping above the line when there is no room below.
-									<em>Centre of the reels</em> ignores where the win landed and puts it in the middle
-									of the reel window instead — one amount at a time, so with "show all win lines at once"
-									on you read the win being announced rather than every amount piled on the same spot.
-								</p>
+								<InfoTip label="Font and position"
+									><p>
+										The amount uses a bitmap font, so the colour tints it — clean on a light font,
+										but tinting an already-coloured font (e.g. gold) just darkens it. To recolour
+										cleanly, pick a differently-coloured font.
+									</p>
+									<p>
+										<strong>Position</strong> decides where the amount lands.
+										<em>At the winning line</em> (the default) stamps it just past the last paying
+										symbol, flipping above the line when there is no room below.
+										<em>Centre of the reels</em> ignores where the win landed and puts it in the middle
+										of the reel window instead — one amount at a time, so with "show all win lines at
+										once" on you read the win being announced rather than every amount piled on the same
+										spot.
+									</p></InfoTip
+								>
 							</div>
 
 							<div class="wl-group">
@@ -4566,27 +4588,29 @@
 										/>
 									</label>
 								</div>
-								<p class="wl-note">
-									Off (the default), the amount appears at its full value the moment the line lands.
-									On, it runs up from zero over the length above — and the win narration WAITS for
-									it: the symbols only start celebrating once the number has landed, so the count is
-									read rather than talked over. A slammed spin skips the count entirely and stamps
-									the final amount.
-								</p>
-								<p class="wl-note">
-									<strong>Count up to cue the big win</strong> turns that count into the big win's run-up,
-									and only on a round that actually reaches a big-win tier — every other spin keeps the
-									ordinary per-line amounts. On such a round the stamp shows the ROUND TOTAL (not one
-									payline's payout), centred on the reels, counting from zero up to the big-win threshold;
-									at that number it hides and the big-win overlay comes up and carries the count the rest
-									of the way to the total. A project with no big-win tiers in the Game Config has nothing
-									to cue, so nothing changes.
-								</p>
-								<p class="wl-note">
-									<strong>Fade the amount in</strong> brings the stamp up from transparent over the fade
-									length, WHILE the count is already running — the number is moving as it arrives, not
-									after. Independent of the count: a stamp that appears whole can fade in too.
-								</p>
+								<InfoTip label="Count-up and fade"
+									><p>
+										Off (the default), the amount appears at its full value the moment the line
+										lands. On, it runs up from zero over the length above — and the win narration
+										WAITS for it: the symbols only start celebrating once the number has landed, so
+										the count is read rather than talked over. A slammed spin skips the count
+										entirely and stamps the final amount.
+									</p>
+									<p>
+										<strong>Count up to cue the big win</strong> turns that count into the big win's run-up,
+										and only on a round that actually reaches a big-win tier — every other spin keeps
+										the ordinary per-line amounts. On such a round the stamp shows the ROUND TOTAL (not
+										one payline's payout), centred on the reels, counting from zero up to the big-win
+										threshold; at that number it hides and the big-win overlay comes up and carries the
+										count the rest of the way to the total. A project with no big-win tiers in the Game
+										Config has nothing to cue, so nothing changes.
+									</p>
+									<p>
+										<strong>Fade the amount in</strong> brings the stamp up from transparent over the
+										fade length, WHILE the count is already running — the number is moving as it arrives,
+										not after. Independent of the count: a stamp that appears whole can fade in too.
+									</p></InfoTip
+								>
 							</div>
 
 							<button type="button" class="ghost wl-reset" onclick={resetWinTextStyle}>
@@ -4600,13 +4624,14 @@
 					<section class="winline" class:expanded={rlOn}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Coins landing on the respin board</h2>
-								<p class="wl-sub">
-									By default a coin plays its <strong>Land</strong> animation as it sticks, and the
-									coins stick together once the <em>last</em> cell of the respin has stopped. Turn
-									this on and each coin plays <strong>Land</strong> the moment its own cell stops, with
-									its landing sound.
-								</p>
+								<h2>
+									Coins landing on the respin board <InfoTip>
+										By default a coin plays its <strong>Land</strong> animation as it sticks, and
+										the coins stick together once the <em>last</em> cell of the respin has stopped.
+										Turn this on and each coin plays <strong>Land</strong> the moment its own cell stops,
+										with its landing sound.
+									</InfoTip>
+								</h2>
 							</div>
 							<label class="switch" class:on={rlOn}>
 								<input
@@ -4622,7 +4647,7 @@
 						{#if rlOn}
 							<div class="wl-config">
 								<div class="wl-group">
-									<p class="wl-note">
+									<InfoTip label="Land at the stop">
 										Sticking then does not play <strong>Land</strong> again: a coin with
 										<strong>Coin stick</strong> left empty just settles into its resting art (the
 										coin label's "Pop as the coin sticks" still pops then). Bind
@@ -4633,7 +4658,7 @@
 										stick once the last coin's <strong>Land</strong> has finished. On a coin board
 										the base game spins on this board too, so its coins also play
 										<strong>Land</strong> as their cells stop.
-									</p>
+									</InfoTip>
 								</div>
 							</div>
 						{/if}
@@ -4644,13 +4669,14 @@
 					<section class="winline" class:expanded={jcaOn}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Jackpot coins</h2>
-								<p class="wl-sub">
-									A coin carrying a jackpot tier draws the coin's art, and only its label says which
-									tier it is. Turn this on and each tier gets a row of its own under the coin below,
-									with the coin's states, so a <strong>MINI</strong> can look like a different coin
-									from a <strong>GRAND</strong>.
-								</p>
+								<h2>
+									Jackpot coins <InfoTip>
+										A coin carrying a jackpot tier draws the coin's art, and only its label says
+										which tier it is. Turn this on and each tier gets a row of its own under the
+										coin below, with the coin's states, so a <strong>MINI</strong> can look like a
+										different coin from a <strong>GRAND</strong>.
+									</InfoTip>
+								</h2>
 							</div>
 							<label class="switch" class:on={jcaOn}>
 								<input
@@ -4671,12 +4697,14 @@
 											(mode) => mode.jackpotTiers.length,
 										)
 											? ' (from Invisible Game Config)'
-											: ' (Game Config declares none, so the four the presets use)'}. A tier row
-										left empty, or a state left empty in it, draws the coin's art. An upgrade
-										changes the art when its beam lands, together with the label. Element FX and
-										sounds stay the coin's. Turning this off keeps the rows here but ships none of
-										them.
+											: ' (Game Config declares none, so the four the presets use)'}.
 									</p>
+									<InfoTip label="Tier rows">
+										A tier row left empty, or a state left empty in it, draws the coin's art. An
+										upgrade changes the art when its beam lands, together with the label. Element FX
+										and sounds stay the coin's. Turning this off keeps the rows here but ships none
+										of them.
+									</InfoTip>
 								</div>
 							</div>
 						{/if}
@@ -4687,12 +4715,13 @@
 					<section class="winline" class:expanded={true}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Coin value label</h2>
-								<p class="wl-sub">
-									The value a Hold and Win coin prints on itself — its cash, a payer's or an
-									upgrade's "+", a multiplier's "×", an add-respins' "+N", or its jackpot tier.
-									Every field left alone keeps the game's coded label.
-								</p>
+								<h2>
+									Coin value label <InfoTip>
+										The value a Hold and Win coin prints on itself — its cash, a payer's or an
+										upgrade's "+", a multiplier's "×", an add-respins' "+N", or its jackpot tier.
+										Every field left alone keeps the game's coded label.
+									</InfoTip>
+								</h2>
 							</div>
 						</div>
 						<div class="wl-config">
@@ -4731,13 +4760,13 @@
 										/>
 									</label>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Size and colour">
 									Cash coins, collectors, payers and multipliers. The size is a multiple of the
 									symbol. The label is bitmap text, so the colour MULTIPLIES the font's own colours:
 									over the gold builtin, cyan reads green and pink reads orange. For a colour that
 									reads true, pick the neutral <strong>silver</strong> builtin (it keeps its shading)
 									or a white Font Maker font.
-								</p>
+								</InfoTip>
 							</div>
 
 							<div class="wl-group">
@@ -4788,11 +4817,11 @@
 										</label>
 									</div>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Decimals and trim">
 									<strong>Decimals</strong> is the fewest printed; a digit that is not zero is never
 									cut, so the label can never read as a different amount. <strong>Trim</strong> drops
 									every trailing zero ($3.00 → $3, $1.50 → $1.5).
-								</p>
+								</InfoTip>
 							</div>
 
 							<div class="wl-group">
@@ -4811,10 +4840,10 @@
 											</select>
 										</label>
 									</div>
-									<p class="wl-note">
+									<InfoTip label="Tiers">
 										The tiers of the respin mode picked here. A label is kept by tier name, so a
 										tier two modes share shares its label.
-									</p>
+									</InfoTip>
 								{/if}
 								{#each clTiers as tier (tier)}
 									{@const entry = cl.jackpots?.[tier]}
@@ -4870,11 +4899,11 @@
 										</label>
 									</div>
 								{/each}
-								<p class="wl-note">
+								<InfoTip label="Jackpot labels">
 									One row per jackpot tier in the Game Config (MINI, MINOR, MAJOR and GRAND when it
 									declares none). Blank text prints the tier's name; a multiplied jackpot keeps its
 									"×2". An unset style uses the cash style above.
-								</p>
+								</InfoTip>
 							</div>
 
 							<div class="wl-group">
@@ -4936,10 +4965,10 @@
 										/>
 									</label>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Offsets">
 									Offsets move the label from the centre of the cell, in symbol sizes (Y down). A
 									label wider than <strong>Max width</strong> shrinks to fit it.
-								</p>
+								</InfoTip>
 							</div>
 
 							<div class="wl-group">
@@ -5023,7 +5052,7 @@
 										/>
 									</label>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Pops and timing">
 									The first two pops are off by default. <strong>Count-up length</strong> is how
 									long a label takes to count to its new value when a payer pays it or a multiplier
 									boosts it (coded 600 ms). Each step of a collector's collect scales with it —
@@ -5033,7 +5062,7 @@
 									look for the
 									<strong>hit readout hold</strong> (0 = straight to the count), with its own pop — on
 									unless you turn it off.
-								</p>
+								</InfoTip>
 							</div>
 
 							{#if doc.coinLabel}
@@ -5053,14 +5082,15 @@
 					<section class="winline" class:expanded={wcOn}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Winning symbols after the spin</h2>
-								<p class="wl-sub">
-									Keep the round's winning symbols animating on the resting board until the player
-									spins again, instead of freezing on their post-win frame. A spin that paid several
-									lines steps through them one line at a time, in the order the round paid them,
-									then starts over. Autoplay and space-hold skip it, since the next spin is already
-									on its way.
-								</p>
+								<h2>
+									Winning symbols after the spin <InfoTip>
+										Keep the round's winning symbols animating on the resting board until the player
+										spins again, instead of freezing on their post-win frame. A spin that paid
+										several lines steps through them one line at a time, in the order the round paid
+										them, then starts over. Autoplay and space-hold skip it, since the next spin is
+										already on its way.
+									</InfoTip>
+								</h2>
 							</div>
 							<label class="switch" class:on={wcOn}>
 								<input
@@ -5090,12 +5120,12 @@
 										</label>
 									</div>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Darken">
 									While the win is celebrated — and until the player spins again — every symbol that
 									is not part of a paying line is drawn darkened, so the winning line stands out.
 									This is independent of the replay above: it applies even with "Winning symbols
 									after the spin" off. A losing spin leaves the whole board at full brightness.
-								</p>
+								</InfoTip>
 							</div>
 
 							<div class="wl-group">
@@ -5114,7 +5144,7 @@
 										</label>
 									</div>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Hold after a big win">
 									Free spins normally run one after another on their own, so closing a big win in
 									the middle of a feature hands straight over to the next spin and the reels start
 									rolling before the player has read the board. Turn this on and the feature rests
@@ -5124,7 +5154,7 @@
 									not held (the free-spin outro follows it, and that already waits for a press), and
 									autoplay or space-hold skips the wait, since the player has asked for hands-off
 									play.
-								</p>
+								</InfoTip>
 							</div>
 
 							<div class="wl-group">
@@ -5143,13 +5173,13 @@
 										</label>
 									</div>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Hold to spin">
 									Turn this on and pressing and holding the spin button plays like holding Space:
 									after a moment the button spins (or stops a spin already rolling), then rounds
 									keep coming in turbo until the player lets go. A quick press stays an ordinary
 									spin. Off, the button only takes a click. Holding Space works either way, and
 									neither is offered where the jurisdiction forbids autoplay.
-								</p>
+								</InfoTip>
 							</div>
 						</div>
 
@@ -5210,7 +5240,7 @@
 											</label>
 										</div>
 									</div>
-									<p class="wl-note">
+									<InfoTip label="Replay options">
 										On (the default), each pass also draws that line and stamps its amount — the
 										full per-win narration on repeat. Off, the replay re-animates the winning
 										symbols only and leaves the board's line as the spin left it. "Replay the win
@@ -5221,7 +5251,7 @@
 										of the line and defaults OFF: turn it on to re-show that win's info toast ("You
 										win $X with N Bananas") on every pass, otherwise the message only shows once
 										when the round first presents.
-									</p>
+									</InfoTip>
 								</div>
 							</div>
 						{/if}
@@ -5232,14 +5262,15 @@
 					<section class="winline" class:expanded={weOn}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Winning symbols explode</h2>
-								<p class="wl-sub">
-									When a win has finished playing, each winning symbol plays its <strong
-										>Explosion</strong
-									> animation before settling back into its post-win art — the symbol goes out with a
-									pop instead of simply stopping. It is not removed from the board: taking symbols off
-									stays the job of the cascade, or of "Clear the board" in Reel behaviour.
-								</p>
+								<h2>
+									Winning symbols explode <InfoTip>
+										When a win has finished playing, each winning symbol plays its <strong
+											>Explosion</strong
+										> animation before settling back into its post-win art — the symbol goes out with
+										a pop instead of simply stopping. It is not removed from the board: taking symbols
+										off stays the job of the cascade, or of "Clear the board" in Reel behaviour.
+									</InfoTip>
+								</h2>
 							</div>
 							<label class="switch" class:on={weOn}>
 								<input
@@ -5268,7 +5299,7 @@
 										/>
 									</label>
 								</div>
-								<p class="wl-note">
+								<InfoTip label="Win beat cap">
 									The longest ONE winning symbol may hold the round — its <strong>Win</strong>
 									animation, and the <strong>Explosion</strong> the switch above adds after it.
 									Leave the box empty and there is no limit: every beat runs for exactly as long as
@@ -5278,21 +5309,21 @@
 									Worth reaching for on a cascading game, where a two-second win is paid once per
 									tumble and a three-step cascade spends six seconds celebrating before the next
 									spin is released. This is independent of the pop above and applies with it off.
-								</p>
+								</InfoTip>
 							</div>
 						</div>
 
 						{#if weOn}
 							<div class="wl-config">
 								<div class="wl-group">
-									<p class="wl-note">
+									<InfoTip label="Explosion art">
 										Bind the art in the <strong>Explosion</strong> column of the grid below — this switch
 										plays whatever is there, and a symbol with nothing bound falls back the way it always
 										does. The pop happens once, on the spin's own win presentation: the resting replay
 										above re-lights the same symbols until the next spin and deliberately does not pop
 										them again. A symbol hidden underneath a stacked picture is skipped too, since the
 										tall picture is what is drawn there.
-									</p>
+									</InfoTip>
 								</div>
 							</div>
 						{/if}
@@ -5317,16 +5348,17 @@
 					<section class="winline anticipation" class:expanded={true}>
 						<div class="wl-head">
 							<div class="wl-text">
-								<h2>Reel anticipation</h2>
-								<p class="wl-sub">
-									The escalating tease the game plays while a big win is still reachable on the
-									reels yet to stop. Pick the activation STING and the sustained LOOP sounds once
-									for the whole mode; then, per configured big-win tier, style the intensity (the
-									camera zoom, the overlay rig's scale / opacity / tint, and the loop + sting
-									volumes), climbing as the reachable win crosses each tier. The mode itself is
-									turned on and off from Flow; this only styles it. Leave a field at its default to
-									keep the game's coded value.
-								</p>
+								<h2>
+									Reel anticipation <InfoTip>
+										The escalating tease the game plays while a big win is still reachable on the
+										reels yet to stop. Pick the activation STING and the sustained LOOP sounds once
+										for the whole mode; then, per configured big-win tier, style the intensity (the
+										camera zoom, the overlay rig's scale / opacity / tint, and the loop + sting
+										volumes), climbing as the reachable win crosses each tier. The mode itself is
+										turned on and off from Flow; this only styles it. Leave a field at its default
+										to keep the game's coded value.
+									</InfoTip>
+								</h2>
 							</div>
 							{#if anticipationOverridden}
 								<div class="hl-actions">
@@ -5352,12 +5384,12 @@
 												<option value={b.key}>{b.name}</option>
 											{/each}
 										</select>
-										<span class="wl-note">
+										<InfoTip>
 											The per-reel overlay skeleton. The default is the game's built-in
 											<code>anticipation</code> rig; a swapped bundle must expose the
 											<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
 											intro → loop → out chaining).
-										</span>
+										</InfoTip>
 									</div>
 
 									<div class="field">
@@ -5384,13 +5416,13 @@
 												oninput={(e) => setAnticipationAnimation(e.currentTarget.value)}
 											/>
 										{/if}
-										<span class="wl-note">
+										<InfoTip>
 											Which animation SET the overlay plays — a rig's differently-sized
 											anticipations. The game appends <code>_intro / _loop / _out</code>, so this is
 											the base name (e.g. <code>anticipation3</code> →
 											<code>anticipation3_intro</code>). The unnumbered
 											<code>anticipation</code> is the game's default.
-										</span>
+										</InfoTip>
 									</div>
 
 									<div class="field">
@@ -5421,22 +5453,22 @@
 												/>
 											</label>
 										</div>
-										<span class="wl-note">
+										<InfoTip>
 											The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
 											coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
 											anticipation set the height to your reel's row count (e.g. <code>5</code>) and
 											the width to about <code>1</code>. Leave blank to keep the coded beam.
-										</span>
+										</InfoTip>
 									</div>
 
 									<div class="field">
 										<span class="label">Sounds</span>
-										<span class="wl-note">
+										<InfoTip>
 											The tease's activation STING and sustained LOOP are picked in
 											<a href={resolve('/sound')}>Invisible Sound</a>, with the rest of the game's
 											audio. Their per-tier VOLUMES stay here — they are part of the intensity ramp
 											below, not a choice of sound.
-										</span>
+										</InfoTip>
 									</div>
 								</div>
 
@@ -5605,12 +5637,12 @@
 											</div>
 										{/each}
 									</div>
-									<p class="wl-note">
+									<InfoTip label="Tint">
 										A white tint (<code>#ffffff</code>) leaves the overlay's own colours; a hotter
 										tint multiplies over them — the coded defaults ramp white → hot orange as the
 										tiers climb. The reel-tease mode is armed from Flow (enable / disable
 										anticipation); with it off, none of this renders.
-									</p>
+									</InfoTip>
 								{/if}
 							</div>
 						</div>
@@ -6079,10 +6111,10 @@
 					     under the binding above rather than beside it. -->
 					<div class="field layers">
 						<span class="label">Layers</span>
-						<p class="hint">
+						<InfoTip alignEnd>
 							Extra art drawn with this state's own picture. Top of the list is drawn first —
 							<strong>Behind</strong> puts a layer under the symbol, everything else goes over it.
-						</p>
+						</InfoTip>
 						{#if draft.layers?.length}
 							<div class="layer-list">
 								{#each draft.layers as layer, i (i)}
@@ -6251,10 +6283,10 @@
 																<option value={fx.id}>{fx.name}</option>
 															{/each}
 														</select>
-														<p class="hint">
+														<InfoTip alignEnd>
 															For an FX layer <strong>Size</strong> is a scale multiplier on the effect's
 															authored size (1 = as authored), not a cell fit.
-														</p>
+														</InfoTip>
 													</div>
 													{#if layer.effectId}
 														<div class="field">
@@ -6290,12 +6322,12 @@
 														/>
 														<span>Dim with symbol</span>
 													</label>
-													<span class="hint">
+													<InfoTip alignEnd>
 														With <strong>Darken the non-winning symbols</strong> on, a losing cell
 														is drawn darkened. Untick to keep THIS layer at full brightness while
 														the rest of the symbol darkens — for a glow that should stay lit.
 														<strong>Not previewed here</strong> — the dim only happens during a win.
-													</span>
+													</InfoTip>
 												</div>
 
 												<div class="field">
@@ -6312,10 +6344,10 @@
 																<option value={mode}>{BLEND_MODE_LABELS[mode]}</option>
 															{/each}
 														</select>
-														<span class="hint">
+														<InfoTip alignEnd>
 															How this layer's pixels combine with what is drawn beneath it.
 															<strong>Not previewed here</strong> — check it in the game.
-														</span>
+														</InfoTip>
 													{:else}
 														<span class="hint">
 															A <strong>Rig</strong> layer cannot blend. A Pixi blend never reaches skeleton
@@ -6390,11 +6422,11 @@
 							     base binding on one shared WebGL canvas (a context-count limit), so it cannot
 							     composite layers over it, and the blend result is therefore not previewable
 							     here at all. Saying so beats drawing a lie. -->
-							<p class="hint">
+							<InfoTip label="Preview limits" alignEnd>
 								The grid and the previews above show each binding <strong>on its own</strong>.
 								Layers are not composited over the symbol and blend modes are not previewed — the
 								composition is only real in the game.
-							</p>
+							</InfoTip>
 						{/if}
 					</div>
 				{/if}
@@ -6430,11 +6462,11 @@
 						{#if (fxEntries?.length ?? 0) >= SYMBOL_FX_MAX}
 							<span class="hint">{SYMBOL_FX_MAX} effects is the limit for one state.</span>
 						{/if}
-						<p class="hint">
+						<InfoTip label="Element FX" alignEnd>
 							Not part of the cell: an effect is in the doc as soon as you add it (no Apply), and
 							<strong>Reset to default</strong> leaves it. A state plays only its own effects, even where
 							it borrows another state's art.
-						</p>
+						</InfoTip>
 						{#if fxStates.length}
 							<div class="fx-states">
 								<span class="hint">✦ on {at.symbol}:</span>
@@ -7055,11 +7087,6 @@
 		font-size: 15px;
 		color: #e0e0e8;
 	}
-	.hl-sub {
-		margin: 2px 0 0;
-		font-size: 12px;
-		color: #8a8a96;
-	}
 	.hl-actions {
 		display: flex;
 		align-items: center;
@@ -7583,9 +7610,6 @@
 		gap: 14px 20px;
 		align-items: start;
 	}
-	.ant-fields .wl-note {
-		max-width: none;
-	}
 	/* Overlay size: two compact labelled number inputs side by side. */
 	.ant-size {
 		display: flex;
@@ -7705,10 +7729,6 @@
 	.tp-legend {
 		flex: 1 1 320px;
 		min-width: 260px;
-	}
-	.tp-legend .wl-note:first-child {
-		margin-top: 0;
-		color: #9a9aa6;
 	}
 	.wl-text h2 {
 		margin: 0;

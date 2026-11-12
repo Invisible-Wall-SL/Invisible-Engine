@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import {
@@ -308,13 +309,14 @@
 				<button class="danger" onclick={() => save(true)}>Overwrite with mine</button>
 			</div>
 		{/if}
-		<p class="intro">
+		<InfoTip label="About cards">
 			The cards and decks of <b>{data.projectName ?? data.projectKey}</b>. They are saved in the
-			game config, so <a href={resolve('/config')}>Invisible Game Config</a> and this tool share one
-			edit lease and one History. Rules text is written from each card's effects; each sentence,
-			name and flavour line is a string in
-			<a href={resolve('/localization')}>Invisible Localization</a>'s Cards section.
-		</p>
+			game config, so <a class="tip-link" href={resolve('/config')}>Invisible Game Config</a> and
+			this tool share one edit lease and one History. Rules text is written from each card's
+			effects; each sentence, name and flavour line is a string in
+			<a class="tip-link" href={resolve('/localization')}>Invisible Localization</a>'s Cards
+			section.
+		</InfoTip>
 		{#if !isCard}
 			<p class="warn">
 				This project's config is not a card config, so it has no cards. Set its family in Invisible
@@ -525,10 +527,10 @@
 
 								<section>
 									<h2>Effects</h2>
-									<p class="hint">
+									<InfoTip label="How effects work">
 										Up to three. Each is a trigger, a verb and a target; a list offers only what the
 										rules allow after the choices to its left.
-									</p>
+									</InfoTip>
 									{#each c.effects ?? [] as effect, e (e)}
 										{@const target = targetOf(effect)}
 										{@const kinds = edit.targetChoices(c, effect.trigger, effect.verb)}
@@ -821,14 +823,7 @@
 		margin: 0 auto;
 		box-sizing: border-box;
 	}
-	.intro {
-		margin: 0 0 16px;
-		font-size: 13px;
-		color: #b9b9c4;
-		line-height: 1.6;
-		max-width: 900px;
-	}
-	.intro a {
+	.tip-link {
 		color: #7ee0c0;
 	}
 	.body :global(.warn) {

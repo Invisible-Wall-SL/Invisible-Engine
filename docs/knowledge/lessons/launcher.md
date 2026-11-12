@@ -5,6 +5,19 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### Prettier strips TypeScript generics from Svelte markup expressions
+- **Symptom:** after `prettier --write` on a `.svelte` file, svelte-check reports "Generic type
+  'Record' requires 2 type argument(s)" — `{#snippet f(bag: Record<string, number>)}` became
+  `Record`, and `value as NonNullable<T['x']>` in an `onchange` became `as NonNullable`
+  (2026-11-12, the tooltip pass).
+- **Cause:** the pinned `prettier` 3.9.10 + `prettier-plugin-svelte` 3.3.3 with `svelte` 5.57.3
+  (bumped in #1613) drop type arguments inside template expressions; `<script>` generics are kept.
+  Reproduced on a 10-line file. A generic that is merely widened can type-check and slip through.
+- **Fix:** restore the type arguments by hand and do not re-run Prettier over those lines.
+- **Guard:** none yet — after formatting a `.svelte` file, diff it for lost `<…>` type arguments
+  (`git diff -U0 | grep '^-.*[A-Za-z]<'`) and run svelte-check; never format a whole directory.
+- **PR:** the tooltip pass (see git log, 2026-11-12) · source: this lesson
+
 ### Two PRs each add a launcher migration; merged out of order, one is silently skipped
 - **Symptom:** two open PRs each generated a migration (9F's 0034, 9G's 0035, 2026-10-27). Had
   the later-generated one merged first, production would have skipped the other; fresh-DB tests

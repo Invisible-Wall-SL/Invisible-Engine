@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { componentUpdateAvailable } from '$lib/timeline/sharedTimelines';
 	import type { GameTemplate, LayoutNode, Scene } from 'engine-layout';
 	import { tick } from 'svelte';
@@ -485,9 +486,9 @@
 {#if !scene || scene.nodes.length === 0}
 	<p class="muted">No nodes yet. Drag assets from the Library into the canvas.</p>
 {:else}
-	<p class="hint">
+	<InfoTip label="Layer order">
 		Order mirrors the canvas paint order — top row is rendered first (lowest layer).
-	</p>
+	</InfoTip>
 	{#if isolatedId && onToggleIsolate && ancestorIds(scene.nodes, isolatedId)}
 		{@const isoId = isolatedId}
 		<div class="isolating">
@@ -788,11 +789,6 @@
 	.muted {
 		color: #666;
 		font-size: 12px;
-	}
-	.hint {
-		color: #666;
-		font-size: 11px;
-		margin: 0 0 10px;
 	}
 	.slots {
 		margin: 0 0 14px;

@@ -59,6 +59,7 @@
 	} from 'engine-flow-v2';
 	import { customElementFxVersion } from '$lib/customElementFx.svelte';
 	import { isStageEffect, stageKindRefusal } from '$lib/flowScreenFx';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		screenTransitionKindGroups,
 		screenTransitionKindLabel,
@@ -623,11 +624,11 @@
 
 	<div class="fields">
 		{#if isSignatureNode}
-			<p class="ro-note">
+			<InfoTip label="Signature node">
 				This is the function's {node.kind === 'functionEntry' ? 'Entry' : 'Result'} node — it carries
 				the function's fixed signature. Wire to/from its pins to author the body; the signature itself
 				isn't editable here.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if isRefKind}
@@ -651,11 +652,11 @@
 				/>
 				<span class="flabel">Hold until this screen completes (tap)</span>
 			</label>
-			<p class="hint">
+			<InfoTip label="Hold">
 				Pauses the round after mounting until the overlay's <strong>Tap to continue</strong> fires
 				its
 				<code>complete</code> — the generic free-spin/intro/outro hold.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'fireCue'}
@@ -667,26 +668,28 @@
 				/>
 				<span class="flabel">Wait for this cue to finish</span>
 			</label>
-			<p class="hint">
-				Pauses the chain until the cue finishes, instead of firing it and running straight on. Turn
-				this ON when a LATER node undoes what the cue starts — e.g.
-				<code>boardWithAnimateSymbols</code> must be awaited or the
-				<code>hideWinLine</code> after it erases the win line before the symbols finish animating.
-			</p>
-			<p class="hint">
-				What "finishes" means depends on the cue. An <strong>engine</strong> cue waits for its
-				listeners. A cue <strong>you named</strong> in the Scene Editor has no listener that can
-				report back, so it waits for the <strong>animation it starts</strong> — the longest clip any cued
-				rig or flipbook plays for this signal, on a screen this flow currently shows. A looping cue waits
-				one cycle (a loop has no end, and you asked to wait). Nothing shown names the cue ⇒ no wait. The
-				wait is turbo-scaled and a slam collapses it, like a Delay.
-			</p>
-			<p class="hint">
-				"Shown" means <strong>shown by this flow</strong> — a screen it mounted with
-				<strong>Show</strong>. A cued character on a screen the <em>game</em> puts up, with no
-				<strong>Show</strong> for it anywhere in this flow, is not measured and the wait is zero
-				(the cue still fires, and still animates). Pair it with a <strong>Delay</strong> there.
-			</p>
+			<InfoTip label="Waiting for a cue"
+				><p>
+					Pauses the chain until the cue finishes, instead of firing it and running straight on.
+					Turn this ON when a LATER node undoes what the cue starts — e.g.
+					<code>boardWithAnimateSymbols</code> must be awaited or the
+					<code>hideWinLine</code> after it erases the win line before the symbols finish animating.
+				</p>
+				<p>
+					What "finishes" means depends on the cue. An <strong>engine</strong> cue waits for its
+					listeners. A cue <strong>you named</strong> in the Scene Editor has no listener that can
+					report back, so it waits for the <strong>animation it starts</strong> — the longest clip any
+					cued rig or flipbook plays for this signal, on a screen this flow currently shows. A looping
+					cue waits one cycle (a loop has no end, and you asked to wait). Nothing shown names the cue
+					⇒ no wait. The wait is turbo-scaled and a slam collapses it, like a Delay.
+				</p>
+				<p>
+					"Shown" means <strong>shown by this flow</strong> — a screen it mounted with
+					<strong>Show</strong>. A cued character on a screen the <em>game</em> puts up, with no
+					<strong>Show</strong> for it anywhere in this flow, is not measured and the wait is zero
+					(the cue still fires, and still animates). Pair it with a <strong>Delay</strong> there.
+				</p></InfoTip
+			>
 		{/if}
 
 		{#if (node.kind === 'componentInstance' || node.kind === 'waitForState') && !spawnedWait}
@@ -723,13 +726,13 @@
 		{/if}
 
 		{#if node.kind === 'componentInstance' && instanceDecl}
-			<p class="hint">
+			<InfoTip label="Component pins">
 				Its pins follow the component: <strong>Set</strong> applies the fed inputs;
 				<strong>▸ trigger</strong>
 				inlets apply them and fire; <strong>on‹Event›</strong> outlets start their own chain when
 				the component raises the event; <strong>‹layer›.state</strong> reads the state machine. A text
 				input takes a localization key.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'waitForState' && node.componentId !== undefined}
@@ -790,16 +793,16 @@
 					{/each}
 				</select>
 			</label>
-			<p class="hint">
+			<InfoTip label="Waiting">
 				Holds the chain until the layer is in that state (at once when it already is). An instance
 				not on screen, or hidden, does not hold; a slam releases it.
-			</p>
+			</InfoTip>
 			{#if spawnedWait}
-				<p class="hint">
+				<InfoTip label="Instance input">
 					Feed <strong>instance</strong> the handle to wait on (a Spawn's output, a
 					<code>$live</code> loop's <code>$item</code>). Blank on a chain a spawned instance's event
 					started: that instance.
-				</p>
+				</InfoTip>
 			{/if}
 		{/if}
 
@@ -850,20 +853,20 @@
 					and list the components it may spawn.
 				</p>
 			{:else}
-				<p class="hint">
+				<InfoTip label="When it refuses">
 					<strong>spawned</strong> is off when the layer refuses it: it is full (cap {spawnLayer?.cap ??
 						'?'}), does not list the component, or the cell is off its grid. The layer lists what it
 					may spawn in the Scene Editor.
-				</p>
+				</InfoTip>
 			{/if}
 		{/if}
 
 		{#if node.kind === 'despawn'}
-			<p class="hint">
+			<InfoTip label="Despawn">
 				Removes the instance on <strong>instance</strong> (a Spawn's output, a <code>$live</code>
 				loop's <code>$item</code>). One already gone is ignored, so removing inside a loop over the
 				same layer is safe.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'instanceRef'}
@@ -881,13 +884,13 @@
 					{/each}
 				</select>
 			</label>
-			<p class="hint">
+			<InfoTip label="Spawned pins">
 				Its pins follow the component, as on a placed instance. Feed <strong>instance</strong> the
 				handle to address; its <strong>on‹Event›</strong> outlets run when ANY spawned
 				<code>{node.componentId || '…'}</code> raises the event, and then a blank
 				<strong>instance</strong> means the one that raised it (also on
 				<code>$trigger.instance</code>).
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'group'}
@@ -933,12 +936,12 @@
 					{/each}
 				</select>
 			</label>
-			<p class="hint">
+			<InfoTip label="Mode trigger">
 				Starts a chain when the engine's mode stack moves this mode. <strong>Enter</strong> fires
 				when the mode actually starts — a queued mode starts later than the book's
 				<code>modeEnter</code>. Its <code>total</code> output carries what the mode won on
 				<strong>Exit</strong>.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'enterMode'}
@@ -952,23 +955,23 @@
 					<option value="queue">Queue — play it after the current modes finish</option>
 				</select>
 			</label>
-			<p class="hint">
+			<InfoTip label="Merging">
 				A mode already playing or queued merges instead of starting twice. The book stays the source
 				of truth: this orders the presentation, it never invents a feature.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'exitMode'}
-			<p class="hint">
+			<InfoTip label="Exit mode">
 				Blank closes the mode on screen. Feed <code>total</code> to tell its exit trigger what it won.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'allModesFinished'}
-			<p class="hint">
+			<InfoTip label="All modes finished">
 				Fires when no mode is playing or queued — back at the base game. Collect, big win and idle
 				hang off this. It only fires from the Global tab or the Base game tab.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'setVariable' || node.kind === 'changeVariable' || node.kind === 'onVariable'}
@@ -1066,10 +1069,10 @@
 						</select>
 					</label>
 				</div>
-				<p class="hint">
+				<InfoTip label="Crossing">
 					"Lives reaches 0" is <strong>down</strong> through 0: the chain runs the write that takes it
 					there, with no polling.
-				</p>
+				</InfoTip>
 			{/if}
 		{/if}
 
@@ -1084,10 +1087,10 @@
 					onchange={(e) => onStateFieldChange({ every: optionalNumber(e.currentTarget.value) })}
 				/>
 			</label>
-			<p class="hint">
+			<InfoTip label="Ticks">
 				For game rules (spawn every 800 ms, speed up every 10 s). A tick chain may not wait (no
 				Delay, no awaited cue or cinematic); under 100 ms is warned.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'startTimer' || node.kind === 'stopTimer' || node.kind === 'pauseTimer' || node.kind === 'onTimer'}
@@ -1110,16 +1113,16 @@
 				/>
 				<span class="flabel">Repeat — restart each time it runs out</span>
 			</label>
-			<p class="hint">
-				Starting a running timer restarts it. Timers run on the game's frame: they stop when the game
-				stops drawing (a hidden tab), not for a menu or a modal.
-			</p>
+			<InfoTip label="Timers">
+				Starting a running timer restarts it. Timers run on the game's frame: they stop when the
+				game stops drawing (a hidden tab), not for a menu or a modal.
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'pauseTimer'}
-			<p class="hint">
+			<InfoTip label="Pause / Resume">
 				Wire <strong>Pause</strong> to hold the timer, <strong>Resume</strong> to let it run on.
-			</p>
+			</InfoTip>
 		{/if}
 
 		{#if node.kind === 'onInput'}
@@ -1147,7 +1150,9 @@
 					<option value="up">Up</option>
 				</select>
 			</label>
-			<p class="hint">Map keys to actions in the <strong>Variables</strong> panel's key map.</p>
+			<InfoTip label="Key map"
+				>Map keys to actions in the <strong>Variables</strong> panel's key map.</InfoTip
+			>
 		{/if}
 
 		{#if node.kind === 'playCinematic'}
@@ -1172,11 +1177,11 @@
 					/>
 				{/if}
 			</label>
-			<p class="hint">
+			<InfoTip label="Timeline or cinematic">
 				A <strong>Timeline</strong> animates a screen's nodes (Scene Editor → Animate); a
 				<strong>Cinematic</strong> stages rigs (<strong>/rigger → Cinematic</strong>). Either ships
 				with the game.
-			</p>
+			</InfoTip>
 			{#each timelineIssues[node.ref] ?? [] as issue, i (`${i}:${issue}`)}
 				<p class="hint warn">⚠ {issue}</p>
 			{/each}
@@ -1208,10 +1213,10 @@
 				/>
 				<span class="flabel">Wait for it to finish</span>
 			</label>
-			<p class="hint">
+			<InfoTip label="Loop vs wait">
 				These two are mutually exclusive — a looping cinematic never finishes, so waiting for one
 				would hang the round. Turning either on clears the other.
-			</p>
+			</InfoTip>
 		{/if}
 		{#if node.kind === 'textMessage'}
 			<label class="field">
@@ -1224,10 +1229,10 @@
 					onchange={(e) => onTextChange(e.currentTarget.value)}
 				></textarea>
 			</label>
-			<p class="hint">
+			<InfoTip label="Localization key">
 				This exact text is the <strong>localization key</strong> — it's the default line shown, and what
 				the translator resolves per language.
-			</p>
+			</InfoTip>
 
 			<label class="field">
 				<span class="flabel">Placement</span>
@@ -1241,11 +1246,11 @@
 					{/each}
 				</select>
 			</label>
-			<p class="hint">
+			<InfoTip label="Placement">
 				<strong>Info bar</strong> shows it in the game's shared message line, exactly like win
 				messages (single slot — the latest message wins). <strong>Fixed position</strong> draws it as
 				its own overlay at the anchor below.
-			</p>
+			</InfoTip>
 
 			<label class="field">
 				<span class="flabel">Visible while (state gate)</span>
@@ -1261,11 +1266,11 @@
 					{/each}
 				</select>
 			</label>
-			<p class="hint">
+			<InfoTip label="State gate">
 				A sustained game state that shows the message continuously — e.g. <strong>Idle</strong> for
 				a standing "Click spin button to start". Leave on <strong>None</strong> for a transient
 				message driven only by a <code>Show</code> wire.
-			</p>
+			</InfoTip>
 
 			{#if placementOf(node) === 'anchor'}
 				<div class="place-row">
@@ -1292,9 +1297,9 @@
 						/>
 					</label>
 				</div>
-				<p class="hint">
+				<InfoTip label="Anchor">
 					Normalized position on the game canvas — 0,0 is top-left, 1,1 bottom-right.
-				</p>
+				</InfoTip>
 			{/if}
 
 			<label class="field">
@@ -1308,11 +1313,11 @@
 					onchange={(e) => onAutoHideChange(Number(e.currentTarget.value))}
 				/>
 			</label>
-			<p class="hint">
+			<InfoTip label="Auto-hide">
 				For a transient message shown via a <code>Show</code> wire (e.g. a "Good luck" fired from
 				the spin button, ~1200 ms). <strong>0 / empty</strong> keeps it up until a
 				<code>Hide</code> wire or the state gate turns off.
-			</p>
+			</InfoTip>
 
 			{#if placementOf(node) === 'anchor'}
 				<label class="field">
@@ -1349,11 +1354,11 @@
 						/>
 					</label>
 				</div>
-				<p class="hint">
+				<InfoTip label="Style fallback">
 					Blank fields fall back to the game's default text style. <strong>Font</strong> lists the
 					project's fonts (the same set the Scene Editor offers); <strong>Game default</strong> uses the
 					font the rest of the game text renders in.
-				</p>
+				</InfoTip>
 			{/if}
 		{/if}
 
@@ -1545,11 +1550,11 @@
 						{transitionLoadText(transitionKind)}
 					</p>
 				{/if}
-				<p class="hint">
+				<InfoTip label="Transition">
 					Freezes the screen and goes on at once. Put the screen change right after this node, then
 					<strong>Wait for transition</strong>. A blocking transition is a flourish over a screen
 					that does not change.
-				</p>
+				</InfoTip>
 				{#if transitionKind && shaderQuery?.(transitionKind)}
 					<a class="shader-link" href="{resolve('/shaders')}?{shaderQuery(transitionKind)}"
 						>Open in Shader Graph ↗</a
@@ -1881,16 +1886,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
-	}
-	.ro-note {
-		margin: 0;
-		font-size: 11px;
-		line-height: 1.5;
-		color: #94a3b8;
-		border: 1px solid #1f2937;
-		border-radius: 6px;
-		background: #11161d;
-		padding: 8px 10px;
 	}
 	.field {
 		display: flex;

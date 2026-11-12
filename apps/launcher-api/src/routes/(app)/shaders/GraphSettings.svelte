@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import {
 		CUSTOM_ELEMENT_FX_PADDING_MAX,
@@ -256,7 +257,7 @@
 		</p>
 	{/if}
 
-	<h4>Params <span class="muted">— rows set where the effect is placed</span></h4>
+	<h4>Params <InfoTip alignEnd>Rows set where the effect is placed.</InfoTip></h4>
 	{#each doc.params as param, index (index)}
 		<div class="card">
 			<div class="row">
@@ -373,7 +374,7 @@
 		{/each}
 	</div>
 
-	<h4>Passes <span class="muted">— built-in effects drawn after the graph</span></h4>
+	<h4>Passes <InfoTip alignEnd>Built-in effects drawn after the graph.</InfoTip></h4>
 	{#each ignoredOf('passes') as text (text)}
 		<p class="ignored">{text}</p>
 	{/each}
@@ -478,7 +479,7 @@
 		</div>
 	{/if}
 
-	<h4>Motion <span class="muted">— the element's own movement over a play</span></h4>
+	<h4>Motion <InfoTip alignEnd>The element's own movement over a play.</InfoTip></h4>
 	{#each ignoredOf('motion', 'padding') as text (text)}
 		<p class="ignored">{text}</p>
 	{/each}
@@ -612,11 +613,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #94a3b8;
-	}
-	h4 .muted {
-		text-transform: none;
-		letter-spacing: 0;
-		font-weight: normal;
 	}
 	.field {
 		display: grid;

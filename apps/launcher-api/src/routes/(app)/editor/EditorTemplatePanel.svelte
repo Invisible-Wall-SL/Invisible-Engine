@@ -1,4 +1,5 @@
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import type { GameTemplate, LayoutNode, Scene } from 'engine-layout';
 
 	interface Props {
@@ -77,12 +78,12 @@
 {:else}
 	<section class="tpl">
 		<h3>{template.gameType} <span class="count">template</span></h3>
-		<p class="hint">
-			To fill a slot: open the <strong>Library</strong> tab and <strong>drag an asset onto a
-			slot below</strong>. It's placed on the canvas, tagged to that slot. (Or drop it on the
-			canvas and pick the slot in <strong>Properties</strong>.) <span class="mount-note">Mount
-			slots are engine-owned anchors — no asset needed.</span>
-		</p>
+		<InfoTip label="Filling slots">
+			To fill a slot: open the <strong>Library</strong> tab and
+			<strong>drag an asset onto a slot below</strong>. It's placed on the canvas, tagged to that
+			slot. (Or drop it on the canvas and pick the slot in <strong>Properties</strong>.)
+			<span class="mount-note">Mount slots are engine-owned anchors — no asset needed.</span>
+		</InfoTip>
 		{#each template.scenes as scene (scene.id)}
 			{@const filled = filledFor(scene.id)}
 			<div class="scene">
@@ -145,12 +146,6 @@
 		margin: 0 0 4px;
 		color: #c8a3ff;
 		text-transform: capitalize;
-	}
-	.hint {
-		color: #777;
-		font-size: 11px;
-		margin: 0 0 12px;
-		line-height: 1.4;
 	}
 	.count {
 		color: #666;

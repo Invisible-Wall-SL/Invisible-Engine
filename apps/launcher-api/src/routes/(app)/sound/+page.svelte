@@ -5,6 +5,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import {
@@ -671,13 +672,13 @@
 			</div>
 		{/if}
 
-		<p class="intro">
+		<InfoTip label="Moments and library">
 			Every sound this game makes, and every sound it owns. The sections below are the game's
 			<strong>moments</strong> — pick what each one plays, mute it, or hear it. Underneath is the
 			<strong>library</strong>: upload new audio, say where it came from, and approve what is
 			cleared to ship. Cues placed on the <a href={resolve('/flow-v2')}>flow graph</a> are the one thing
 			still authored elsewhere, and they are listed here so nothing is hidden.
-		</p>
+		</InfoTip>
 
 		{#if data.unmigrated}
 			<p class="warn migrate">
@@ -690,12 +691,22 @@
 		{/if}
 
 		<section class="authoring">
-			<h2>Game moments</h2>
-			<p class="hint">
-				Every beat the engine sounds. A moment you leave alone plays the engine's own cue — a real
-				sound, not silence — so this list is complete from day one and you change only what should
-				differ.
-			</p>
+			<h2>
+				Game moments
+				<InfoTip>
+					<p>
+						Every beat the engine sounds. A moment you leave alone plays the engine's own cue — a
+						real sound, not silence — so this list is complete from day one and you change only what
+						should differ.
+					</p>
+					<p>
+						A ladder's last rung <strong>holds</strong>: a sixth reel or a ninth cascade step keeps
+						playing it rather than falling silent. Clearing a moment's only cue is not offered — use
+						<strong>silent</strong>, so "the author meant nothing here" stays distinguishable from
+						"the author emptied it by accident".
+					</p>
+				</InfoTip>
+			</h2>
 
 			{#each data.slots as slot (slot.id)}
 				{@const names = slotNames(slot)}
@@ -704,6 +715,10 @@
 				<div class="moment" class:muted={!on}>
 					<div class="moment-head">
 						<span class="moment-label">{slot.label}</span>
+						<InfoTip>
+							{slot.description}
+							{#if slot.ladderIndex}<br />Which rung plays is decided by {slot.ladderIndex}{/if}
+						</InfoTip>
 						{#if slot.kind === 'ladder'}<span class="tag">ladder of {names.length}</span>{/if}
 						{#if changed}<span class="tag changed">changed</span>{/if}
 						<span class="spacer"></span>
@@ -726,10 +741,6 @@
 							{on ? 'plays' : 'silent'}
 						</label>
 					</div>
-					<p class="moment-desc">{slot.description}</p>
-					{#if slot.ladderIndex}
-						<p class="moment-desc idx">Which rung plays is decided by {slot.ladderIndex}</p>
-					{/if}
 					<div class="cues">
 						{#each names as name, i (i)}
 							<div class="cue">
@@ -755,21 +766,17 @@
 					</div>
 				</div>
 			{/each}
-			<p class="hint">
-				A ladder's last rung <strong>holds</strong>: a sixth reel or a ninth cascade step keeps
-				playing it rather than falling silent. Clearing a moment's only cue is not offered — use
-				<strong>silent</strong>, so "the author meant nothing here" stays distinguishable from "the
-				author emptied it by accident".
-			</p>
 		</section>
 
 		<section class="authoring">
-			<h2>Per-symbol cues</h2>
-			<p class="hint">
-				A noise ONE symbol makes at a moment, instead of the game-wide cue above. Optional, and
-				normally empty — add a row only for a symbol that should sound like itself. Only the states
-				the engine actually asks about are offered.
-			</p>
+			<h2>
+				Per-symbol cues
+				<InfoTip>
+					A noise ONE symbol makes at a moment, instead of the game-wide cue above. Optional, and
+					normally empty — add a row only for a symbol that should sound like itself. Only the
+					states the engine actually asks about are offered.
+				</InfoTip>
+			</h2>
 			{#if symbolRows.length}
 				<div class="grid" style="--cols:{data.symbolStates.length}">
 					<div class="grow head">
@@ -820,12 +827,15 @@
 
 		{#if data.tokenIds.length}
 			<section class="authoring">
-				<h2>Overlay tokens</h2>
-				<p class="hint">
-					The pots overlay's tokens: the noise each makes as it <strong>lands</strong> on its cell,
-					<strong>takes off</strong> for its pot, and <strong>reaches the pot</strong>. Unset, a
-					token lands on the game-wide landing cue and flies in silence.
-				</p>
+				<h2>
+					Overlay tokens
+					<InfoTip>
+						The pots overlay's tokens: the noise each makes as it <strong>lands</strong> on its
+						cell,
+						<strong>takes off</strong> for its pot, and <strong>reaches the pot</strong>. Unset, a
+						token lands on the game-wide landing cue and flies in silence.
+					</InfoTip>
+				</h2>
 				<div class="grid" style="--cols:{data.tokenMoments.length}">
 					<div class="grow head">
 						<span>Token</span>
@@ -851,11 +861,13 @@
 
 		{#if data.coinIds.length}
 			<section class="authoring">
-				<h2>Hold and Win coins</h2>
-				<p class="hint">
-					The noise each coin makes as it lands in the Total Win bar when the respins end, one per
-					coin. Unset, the coins land silently.
-				</p>
+				<h2>
+					Hold and Win coins
+					<InfoTip>
+						The noise each coin makes as it lands in the Total Win bar when the respins end, one per
+						coin. Unset, the coins land silently.
+					</InfoTip>
+				</h2>
 				<div class="grid" style="--cols:1">
 					<div class="grow head">
 						<span>Coin</span>
@@ -878,13 +890,15 @@
 		{/if}
 
 		<section class="authoring">
-			<h2>Reel anticipation</h2>
-			<p class="hint">
-				The tease while a big win is still reachable on the reels yet to stop: a
-				<strong>sting</strong> when it starts, a <strong>loop</strong> that holds under it. Whether
-				the mode runs at all is decided in <a href={resolve('/flow-v2')}>Invisible Flow</a>; what it
-				sounds like is decided here.
-			</p>
+			<h2>
+				Reel anticipation
+				<InfoTip>
+					The tease while a big win is still reachable on the reels yet to stop: a
+					<strong>sting</strong> when it starts, a <strong>loop</strong> that holds under it.
+					Whether the mode runs at all is decided in
+					<a href={resolve('/flow-v2')}>Invisible Flow</a>; what it sounds like is decided here.
+				</InfoTip>
+			</h2>
 			<div class="pairs">
 				<div class="pair">
 					<span>Activation sting</span>
@@ -905,13 +919,15 @@
 
 		{#if data.winTiers.length}
 			<section class="authoring">
-				<h2>Win tiers</h2>
-				<p class="hint">
-					What a celebration sounds like at each tier — the one-shot <strong>sting</strong> that
-					opens it and the <strong>music</strong> that runs under the count-up. Which tiers exist,
-					and at what multiple, is <a href={resolve('/config')}>config</a>; what they sound like is
-					here.
-				</p>
+				<h2>
+					Win tiers
+					<InfoTip>
+						What a celebration sounds like at each tier — the one-shot <strong>sting</strong> that
+						opens it and the <strong>music</strong> that runs under the count-up. Which tiers exist,
+						and at what multiple, is <a href={resolve('/config')}>config</a>; what they sound like
+						is here.
+					</InfoTip>
+				</h2>
 				<div class="grid tiers">
 					<div class="grow head">
 						<span>Tier</span><span>Sting</span><span>Music bed</span>
@@ -935,12 +951,15 @@
 		{/if}
 
 		<section class="authoring">
-			<h2>Flow cues <span class="tag">read-only</span></h2>
-			<p class="hint">
-				A cue placed on the graph. It has wires, a condition and a position in a sequence, so it
-				stays where it can see them — change one in <a href={resolve('/flow-v2')}>Invisible Flow</a
-				>. Listed here so this page can still show <em>every</em> sound the game makes.
-			</p>
+			<h2>
+				Flow cues <span class="tag">read-only</span>
+				<InfoTip>
+					A cue placed on the graph. It has wires, a condition and a position in a sequence, so it
+					stays where it can see them — change one in <a href={resolve('/flow-v2')}
+						>Invisible Flow</a
+					>. Listed here so this page can still show <em>every</em> sound the game makes.
+				</InfoTip>
+			</h2>
 			{#if data.flowCues.length}
 				<div class="flowlist">
 					{#each data.flowCues as cue, i (i)}
@@ -957,7 +976,15 @@
 		</section>
 
 		<section>
-			<h2>Add sounds</h2>
+			<h2>
+				Add sounds
+				<InfoTip>
+					A file is stored the moment it uploads, but it only becomes part of the library when you
+					<strong>save</strong>. Leave without saving and the bytes stay behind unreferenced — and
+					nothing else can see the sound: every picker in the launcher, the flow graph's cues
+					included, offers a library sound only once it is saved.
+				</InfoTip>
+			</h2>
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="drop"
@@ -1017,12 +1044,6 @@
 					</p>
 				{/if}
 			</div>
-			<p class="hint">
-				A file is stored the moment it uploads, but it only becomes part of the library when you
-				<strong>save</strong>. Leave without saving and the bytes stay behind unreferenced — and
-				nothing else can see the sound: every picker in the launcher, the flow graph's cues
-				included, offers a library sound only once it is saved.
-			</p>
 		</section>
 
 		{#if entries.length === 0}
@@ -1240,20 +1261,22 @@
 				</section>
 			{/each}
 
-			<p class="hint">
+			<InfoTip label="Drafts">
 				A <strong>draft</strong> still plays everywhere — in the game, in a test build, here. It only
 				blocks a publish, so an unapproved sound is never silently missing; you are told before you ship
 				it.
-			</p>
+			</InfoTip>
 		{/if}
 
 		<section>
-			<h2>What's actually played</h2>
-			<p class="hint">
-				Everything the sections above bind, plus the flow's own cues, checked against the library. A
-				problem here is one you cannot hear: a sound the game asks for and does not have plays
-				nothing and reports nothing.
-			</p>
+			<h2>
+				What's actually played
+				<InfoTip>
+					Everything the sections above bind, plus the flow's own cues, checked against the library.
+					A problem here is one you cannot hear: a sound the game asks for and does not have plays
+					nothing and reports nothing.
+				</InfoTip>
+			</h2>
 
 			{#if checks.missing.length}
 				<p class="warn">
@@ -1302,11 +1325,11 @@
 				can't re-bind from a tool
 			</button>
 			{#if showNotRebindable}
-				<p class="hint">
+				<InfoTip label="Built-in sounds">
 					These ship with the engine and are played from its own code — no moment, symbol, tier or
 					flow cue names them, so there is nothing to point somewhere else. To change one, upload
 					your own sound <strong>under the same name</strong> and it replaces it.
-				</p>
+				</InfoTip>
 				<p class="names">{checks.notRebindable.join(' · ')}</p>
 			{/if}
 		</section>
@@ -1357,16 +1380,6 @@
 		font-size: 11px;
 		color: #8b8b98;
 		white-space: nowrap;
-	}
-	.moment-desc {
-		margin: 6px 0 0;
-		font-size: 12px;
-		color: #8b8b98;
-		line-height: 1.55;
-		max-width: 860px;
-	}
-	.moment-desc.idx {
-		color: #6f6f7d;
 	}
 	.cues {
 		display: flex;
@@ -1502,15 +1515,6 @@
 		max-width: 1400px;
 		width: 100%;
 		margin: 0 auto;
-	}
-	.intro {
-		margin: 0 0 24px;
-		font-size: 13px;
-		color: #b9b9c4;
-		line-height: 1.6;
-	}
-	.intro a {
-		color: #7ee0c0;
 	}
 	section {
 		margin-bottom: 30px;
