@@ -663,7 +663,9 @@ try {
 			issues: [],
 		};
 		const { body } = render(page.default, { props: { data } } as never);
-		const headings = [...body.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1].trim());
+		const headings = [...body.matchAll(/<h2[^>]*>(?:<button[^>]*>)?([^<]*)<\/(?:button|h2)>/g)].map(
+			(m) => m[1].trim(),
+		);
 		const unknown = headings.filter((h) => !HEADINGS[h] && !NOT_SECTIONS.has(h));
 		check(`3. every heading is known`, !unknown.length, unknown.join());
 		return {
@@ -745,7 +747,9 @@ try {
 	})!;
 	const ONLINE_HEADINGS = ['Online room', 'Online rules', 'Bots'];
 	const headingsOf = (body: string) =>
-		[...body.matchAll(/<h2[^>]*>([^<]*)<\/h2>/g)].map((m) => m[1].trim());
+		[...body.matchAll(/<h2[^>]*>(?:<button[^>]*>)?([^<]*)<\/(?:button|h2)>/g)].map((m) =>
+			m[1].trim(),
+		);
 	check(
 		'3. arcade: the online sections only on an online game, after Arcade',
 		!headingsOf(renderPage(arcade).body).some((h) => ONLINE_HEADINGS.includes(h)) &&
