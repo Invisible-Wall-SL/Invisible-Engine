@@ -4208,6 +4208,8 @@
 							{/if}
 							{#key activeScene.id}
 								<EditorElementFx
+									title="Screen Element FX"
+									intro="Effects that play on this whole screen — everything on it at once: a shake, a 3D flip, a wave, a glow, a crumble — looping while it is shown, when it appears, or on a cue. A selected element's own effects are under its properties below."
 									entries={activeScene.elementFx}
 									cueListId={SIGNAL_SUGGESTIONS_ID}
 									keyable={false}

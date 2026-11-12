@@ -103,6 +103,7 @@
 		topMidWorld,
 		pointInQuad,
 		reelGridGeometry,
+		reelGridBox,
 		type ReelGridSeat,
 		resolveBoneRiderRigKey,
 		standardToWorld,
@@ -3431,6 +3432,7 @@
 			const projection = tilemapProjection(node);
 			if (projection) return tilemapBox(node, projection, t);
 		}
+		if (node.kind === 'reelGrid') return reelGridBox(node, t.anchor, gridDimensions);
 		return nodeBox(
 			node,
 			t,
