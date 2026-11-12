@@ -584,9 +584,9 @@ authored doc, not the template. Pots and Collector are not offered at Create: ad
 from the project's card, or reset to one of these presets here. To switch a plain game's jackpots
 on or off, reset to the other **Plain** entry.
 
-**Reset to template default** on a Hold and Win project reads **Reset to template default (Pots)**:
-it restores the kind's legacy default, the Pots game, which is what a Hold and Win project that
-never saved a config plays. It is not the plain template; use **Reset to preset → Plain** for that.
+A Hold and Win project has no **Reset to template default** link: the kind's template default is
+the legacy Pots game, which **Reset to preset → Pots** already gives. Use **Reset to preset →
+Plain** for the game Game Maker creates.
 
 ### The rules
 
