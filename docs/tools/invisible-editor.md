@@ -1296,10 +1296,12 @@ Hold and Win feature. They show only in a project with a Hold and Win feature (t
 kind, or a declared respin mode). A blank field plays the board's value (Normal or Turbo above),
 shown greyed, so a game that sets nothing here respins exactly as before. A respin cell never
 pre-spins or anticipates, so these profiles leave out pre-spin speed, spin-up, wind-up, reel
-stagger and anticipation length. **Hold and Win respin** also leaves out min roll, and the turbo
-profile leaves out first reel length and spin length, because turbo cells roll no extra length.
-**first reel length** times the leftmost column's cells only. On the turbo profile, any **min
-roll** above 0 lands the cells at once, and 0 lets them slide in. Each
+stagger and anticipation length. **Hold and Win respin** also leaves out min roll. The turbo
+profile leaves out first reel length, spin length and speed before bounce, because turbo cells
+roll no extra length and slide at one speed. On the respin board, **first reel length** sets how
+far the leftmost column's cells roll; its default is 0, so they roll no extra length. On the
+turbo profile, **min roll** works as a switch: any value above 0 (the default is 170) lands the
+cells at once. Set it to 0 to make them slide in at the turbo **spin speed**. Each
 respin cell is a one-row reel, so its reel length is 3, not 5. With the same settings a
 respin column stops 3 × 1.26 = 3.8 rows after the last, about 190 ms, where a base reel takes
 316 ms. To slow the respin to the base game's pace, raise its **spin length** to about 2.1, or

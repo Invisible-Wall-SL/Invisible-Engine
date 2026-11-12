@@ -1133,7 +1133,8 @@
 
 	// A respin cell never pre-spins (no pre-spin speed, spin-up, wind-up or stagger) and never
 	// anticipates; its normal spin skips the turbo-only "min roll" check, and a turbo spin rolls no
-	// padding at all (`respinBoard.svelte.ts`, `createReelForSpinning`).
+	// padding and slides at one speed (`respinBoard.svelte.ts`, `createReelForSpinning`). With no
+	// pre-spin, a turbo cell's min roll only decides whether it lands at once (> 0) or slides in.
 	const RESPIN_NEVER_READS: ReadonlySet<keyof ReelSpinProfile> = new Set([
 		'reelPreSpinSpeed',
 		'reelSpinUpDuration',
@@ -1145,13 +1146,21 @@
 		Record<SpinProfileKey, ReadonlySet<keyof ReelSpinProfile>>
 	> = {
 		respinNormal: new Set(['reelMinSpinDuration']),
-		respinFast: new Set(['reelPaddingMultiplierFirst', 'reelPaddingMultiplierNormal']),
+		respinFast: new Set([
+			'reelPaddingMultiplierFirst',
+			'reelPaddingMultiplierNormal',
+			'reelSpinSpeedBeforeBounce',
+		]),
 	};
 
 	function spinFieldsFor(profile: SpinProfileKey) {
 		const own = RESPIN_PROFILE_NEVER_READS[profile];
 		if (!own) return SPIN_FIELDS;
-		return SPIN_FIELDS.filter((f) => !RESPIN_NEVER_READS.has(f.key) && !own.has(f.key));
+		return SPIN_FIELDS.filter((f) => !RESPIN_NEVER_READS.has(f.key) && !own.has(f.key)).map((f) =>
+			profile === 'respinFast' && f.key === 'reelMinSpinDuration'
+				? { ...f, label: 'min roll (> 0 lands at once)' }
+				: f,
+		);
 	}
 
 	const hasRespin = $derived(kindCapabilities(gameType, addOns).holdAndWin);

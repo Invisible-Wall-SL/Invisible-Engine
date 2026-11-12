@@ -1126,8 +1126,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   (`kindCapabilities(gameType, addOns).holdAndWin`), and hides the fields a respin cell never reads.
   The respin board never pre-spins or anticipates, so pre-spin speed, spin-up, wind-up, reel
   stagger and anticipation length are hidden. Min roll is hidden from the normal respin profile
-  (only the turbo path reads it), and first reel length and spin length are hidden from the turbo
-  profile (fast padding is 0). First reel length stays on the normal respin profile, because reel 0's
+  (only the turbo path reads it). First reel length, spin length and speed before bounce are hidden
+  from the turbo profile, because fast padding is 0 and the fast spin slides at `reelSpinSpeed`.
+  The turbo min roll is labelled as the switch it is there: above 0, the cells land at once. First reel length stays on the normal respin profile, because reel 0's
   cells read it. Stored data and the board profiles are unchanged. `check:respin-modes` now mocks
   `respinSpinProfile` and checks that `ensureBoard` hands it to the board. It also gained a
   `resolveReelSpinProfile(…, 'respin')` fixture. Planted mutants fail it: wiring
