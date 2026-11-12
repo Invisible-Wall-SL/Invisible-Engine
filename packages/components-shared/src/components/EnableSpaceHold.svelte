@@ -60,4 +60,5 @@
 	};
 </script>
 
+<!-- No `onpress`: hold-to-spin takes no press, so each press goes to the hotkey that acts on it. -->
 <OnHotkey hotkey="Space" holdMs={HOLD_TO_SPIN_MS} onhold={spaceHoldOn} onholdend={spaceHoldOff} />
