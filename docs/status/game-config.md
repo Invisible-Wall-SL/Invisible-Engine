@@ -789,6 +789,13 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+- 2026-11-12 — **Every panel is a foldable card.** `config/ConfigSection.svelte` wraps each of the
+  25 sections (page + Bonus/Coin overlay/Coin board/Family/Game modes/Online/Wilds) in a bordered
+  card with a chevron header; folding unmounts the body and is remembered in `localStorage`
+  (`iw-config-collapsed-sections`, restored after mount since the page is SSR'd). Header text
+  buttons became icons (`ConfigIconButton.svelte`: chevron / bin) — respin and spins mode cards
+  (spins modes now fold too) and Pots and drops. The banner's stray gap before "." is fixed.
+
 - 2026-11-10 — **Hold and Win rules → Respins: The server draws enhancements**
   (`holdAndWin.enhancements: true`, sparse, presentation only) — the marker that gives a project
   the Enhancements screen, its banners and a 5-row reserve; and **Reset to preset → Collector +

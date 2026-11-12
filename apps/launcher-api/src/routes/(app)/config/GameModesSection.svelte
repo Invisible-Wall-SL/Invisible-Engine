@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ConfigSection from './ConfigSection.svelte';
 	import {
 		BASE_GAME_MODE,
 		GAME_MODE_BOARDS,
@@ -155,8 +156,7 @@
 	}
 </script>
 
-<section class="modes">
-	<h2>Game modes</h2>
+<ConfigSection id="gameModes" title="Game modes">
 	<p class="hint">
 		A mode is a different game a bonus switches into (own board, screens, HUD, music). Tag Scene
 		Editor screens with the role <strong>game mode</strong> + this id to show them while the mode plays.
@@ -249,20 +249,9 @@
 			{#if newIdProblem}<span class="inline-issue error">{newIdProblem}</span>{/if}
 		</div>
 	</fieldset>
-</section>
+</ConfigSection>
 
 <style>
-	.modes {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	.hint {
 		margin: 0 0 12px;
 		font-size: 12px;

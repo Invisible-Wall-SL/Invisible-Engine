@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ConfigSection from './ConfigSection.svelte';
 	import {
 		GROWING_WILD_PATTERNS,
 		defaultGrowingReels,
@@ -104,8 +105,7 @@
 {/snippet}
 
 {#if expanding && (offered || expandingBlock)}
-	<section>
-		<h2>Expanding wilds</h2>
+	<ConfigSection id="expandingWilds" title="Expanding wilds">
 		{#if !offered}
 			<p class="hint">
 				This config has expanding wilds, which this game cannot use: they need a lines game that
@@ -183,12 +183,11 @@
 			</fieldset>
 		{/if}
 		{@render issueList('expandingWilds')}
-	</section>
+	</ConfigSection>
 {/if}
 
 {#if growing && (offered || growingBlock)}
-	<section>
-		<h2>Growing wild</h2>
+	<ConfigSection id="growingWild" title="Growing wild">
 		{#if !offered}
 			<p class="hint">
 				This config has a growing wild, which this game cannot use: it needs a lines game that does
@@ -274,21 +273,10 @@
 			</fieldset>
 		{/if}
 		{@render issueList('growingWild')}
-	</section>
+	</ConfigSection>
 {/if}
 
 <style>
-	section {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	.hint {
 		margin: 0 0 12px;
 		font-size: 12px;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ConfigSection from './ConfigSection.svelte';
 	import {
 		ARCADE_NETCODES,
 		ARCADE_ONLINE_BOT_DEFAULTS,
@@ -104,8 +105,7 @@
 	{/each}
 {/snippet}
 
-<section>
-	<h2>Online room</h2>
+<ConfigSection id="onlineRoom" title="Online room">
 	<p class="hint">
 		The game is played in rooms on the <strong>Invisible Game Server</strong>: the server steps
 		every player and sends each device the room; a device sends its inputs only. Publish writes the
@@ -264,10 +264,9 @@
 	{@render issueList('arcade.online.patchHz')}
 	{@render issueList('arcade.online.spawn')}
 	{@render issueList('arcade.online.nearby')}
-</section>
+</ConfigSection>
 
-<section>
-	<h2>Online rules</h2>
+<ConfigSection id="onlineRules" title="Online rules">
 	<p class="hint">
 		What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
 		that pushes players (px/s), or the round's <strong>goal</strong>. An <strong>ability</strong> is a
@@ -497,10 +496,9 @@
 		</div>
 	</fieldset>
 	{@render issueList('arcade.online.rules')}
-</section>
+</ConfigSection>
 
-<section>
-	<h2>Bots</h2>
+<ConfigSection id="bots" title="Bots">
 	<p class="hint">
 		Bots fill a room's empty places while anyone is in it, each playing an online character with a
 		brain from Invisible Characters. A joining player takes a bot's place.
@@ -591,20 +589,9 @@
 		</div>
 	</fieldset>
 	{@render issueList('arcade.online.bots')}
-</section>
+</ConfigSection>
 
 <style>
-	section {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	.readonly {
 		font-size: 12px;
 		color: #8b8b98;

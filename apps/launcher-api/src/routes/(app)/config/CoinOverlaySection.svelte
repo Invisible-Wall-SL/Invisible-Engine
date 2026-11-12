@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ConfigIconButton from './ConfigIconButton.svelte';
+	import ConfigSection from './ConfigSection.svelte';
 	import {
 		COIN_OVERLAY_STYLES,
 		HOLD_AND_WIN_SPECIALS,
@@ -549,9 +551,14 @@
 						: 'value coins drop over the symbols; enough on one spin start Hold and Win'}</em
 				>
 			</h3>
-			<button class="small danger push" onclick={removeOverlay} disabled={readOnly}
-				>Remove pots and drops</button
-			>
+			<span class="push"></span>
+			<ConfigIconButton
+				icon="trash"
+				label="Remove pots and drops"
+				danger
+				disabled={readOnly}
+				onclick={removeOverlay}
+			/>
 		</div>
 
 		<div class="row tight count-row">
@@ -1331,8 +1338,7 @@
 	</fieldset>
 {/snippet}
 
-<section class="addons">
-	<h2>Coin overlay</h2>
+<ConfigSection id="coinOverlay" title="Coin overlay">
 	<p class="hint">
 		An option the base game switches on: what lands in the base game — coins on the reels, tokens
 		dropped over them, pots that fill — and what <strong>starts</strong> a bonus. Every trigger, pot
@@ -1404,20 +1410,9 @@
 		{/if}
 		{@render triggersEditor(doc.coinOverlay)}
 	{/if}
-</section>
+</ConfigSection>
 
 <style>
-	.addons {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	h3 {
 		margin: 0;
 		font-size: 12px;
@@ -1592,11 +1587,6 @@
 		padding: 4px 10px;
 		font-size: 11px;
 		cursor: pointer;
-	}
-	button.small.danger {
-		background: #2a1b1b;
-		border-color: #4a2f2f;
-		color: #e09090;
 	}
 	button.small:disabled {
 		opacity: 0.4;
