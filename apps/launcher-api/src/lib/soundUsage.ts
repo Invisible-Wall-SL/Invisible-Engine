@@ -1,5 +1,6 @@
 import { SOUND_SLOTS, resolveSounds, type GameConfigDoc } from 'game-config';
 import type { SoundsDoc } from 'engine-layout';
+import { flowSoundCueLabel, projectFlowSoundCues } from './flowSoundCues';
 
 /**
  * THE USAGE INDEX — which sounds this project actually plays, and which it only stores.
@@ -36,39 +37,20 @@ export interface SoundBinding {
 	href: string;
 }
 
-/** Sound-typed enums a flow literal may carry. A cue's `name` input is `enumLit('SoundEffectName',
- *  …)` / `enumLit('MusicName', …)`, so the ENUM is what identifies a sound — not the node's `ref`,
- *  which would tie this to today's cue list and miss any node kind added later. */
-const SOUND_ENUMS = new Set(['SoundName', 'SoundEffectName', 'MusicName']);
-
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * Every sound name a flow graph plays, with the node that plays it.
- *
- * Walks each node's `inputs` for a literal whose declared type is a sound enum, rather than looking
- * for `ref === 'soundOnce'`. Shape-agnostic on purpose: a new cue, an action, or a function call
- * that takes a sound is found without touching this.
+ * Every sound name a project's flow plays, with the node that plays it: the flow's own graph, each
+ * mode's graph, every group body, and the shared library functions the flow calls. Which nodes
+ * play which sound is `flowSoundCues.ts`'s answer, the same one the export ships by. A name only
+ * known at run time (a wire, an accessor) binds nothing here.
  */
-export function flowSoundBindings(flow: unknown): SoundBinding[] {
-	const nodes = isRecord(flow) && Array.isArray(flow.nodes) ? flow.nodes : [];
+export function flowSoundBindings(flow: unknown, library?: unknown): SoundBinding[] {
 	const out: SoundBinding[] = [];
-	for (const node of nodes) {
-		if (!isRecord(node) || !isRecord(node.inputs)) continue;
-		for (const source of Object.values(node.inputs)) {
-			if (!isRecord(source) || source.kind !== 'literal') continue;
-			const type = source.type;
-			if (!isRecord(type) || type.t !== 'enum' || !SOUND_ENUMS.has(String(type.name))) continue;
-			if (typeof source.value !== 'string' || !source.value) continue;
-			const ref = typeof node.ref === 'string' ? node.ref : String(node.kind ?? 'node');
-			out.push({
-				name: source.value,
-				source: 'flow',
-				where: `${ref} · ${String(node.id ?? '?')}`,
-				href: '/flow-v2',
-			});
-		}
+	for (const cue of projectFlowSoundCues(flow, library)) {
+		if (!cue.name) continue;
+		out.push({ name: cue.name, source: 'flow', where: flowSoundCueLabel(cue), href: '/flow-v2' });
 	}
 	return out;
 }
@@ -156,12 +138,14 @@ export function collectSoundBindings(input: {
 	config: GameConfigDoc | null | undefined;
 	symbols: unknown;
 	flow: unknown;
+	/** The shared function library; only the functions the flow calls count. */
+	flowLibrary?: unknown;
 }): Map<string, SoundBinding[]> {
 	const bindings = [
 		...slotSoundBindings(input.config),
 		...winTierSoundBindings(input.config),
 		...symbolSoundBindings(input.symbols),
-		...flowSoundBindings(input.flow),
+		...flowSoundBindings(input.flow, input.flowLibrary),
 	];
 	const byName = new Map<string, SoundBinding[]>();
 	for (const binding of bindings) {
@@ -177,6 +161,7 @@ export interface SoundUsageInput {
 	config: GameConfigDoc | null | undefined;
 	symbols: unknown;
 	flow: unknown;
+	flowLibrary?: unknown;
 	/** Names the shipped audiosprite declares — the sounds a game has without uploading anything. */
 	builtinNames: readonly string[];
 }

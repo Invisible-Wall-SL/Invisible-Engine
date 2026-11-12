@@ -132,6 +132,11 @@ A cue placed on the [flow graph](./flow.md) has wires, a condition and a positio
 sequence, so it stays where it can see them. They are listed here, with a link out, so
 this page can still show _every_ sound the game makes.
 
+Every part of the flow counts: the main graph, each game mode's graph, the inside of a
+group, and a shared function the flow calls. Each row names the cue node, then, in
+brackets, where it sits, for example `soundMusic · fireCue-1 (holdAndWin mode)`. A cue whose
+sound comes in on a wire is not listed, because its sound is only known while the game runs.
+
 > **Moved here.** These choices used to live in Invisible Game Config, Invisible
 > Symbols and the Scene Editor. If this project was set up before the move, the page
 > opens showing what it already plays — read out of those tools — and says so. Your
@@ -248,6 +253,7 @@ written; say yes and it publishes, because sometimes a test build is exactly wha
 Only sounds that are actually **played** can stop a publish. A draft sitting unused in the
 library never blocks anything — that's what a library is for. A sound named after a
 built-in counts as played even though nothing "binds" it, because the engine plays it.
+A sound only a flow cue plays counts too (any cue listed under **Flow cues**).
 
 A successful publish also tells you what it just shipped, licence-wise: a warning when a
 played sound has a non-commercial licence, or a note listing any played sounds with no
