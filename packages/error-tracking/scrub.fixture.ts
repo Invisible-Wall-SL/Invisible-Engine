@@ -3,7 +3,14 @@
  * tracker. Run: `pnpm --filter error-tracking check:scrub`.
  */
 import assert from 'node:assert/strict';
-import { SCRUBBED, addSensitiveParam, scrubDeep, scrubText, scrubUrl } from './src/scrub.ts';
+import {
+	PRIVATE_DATA_COLLECTION,
+	SCRUBBED,
+	addSensitiveParam,
+	scrubDeep,
+	scrubText,
+	scrubUrl,
+} from './src/scrub.ts';
 
 const rgs = 'https://gs.example.com/rgs/engine?sid=abc123&seq=4&gid=77';
 assert.equal(
@@ -46,5 +53,20 @@ assert.equal(scrubText('/engine?t=abc'), '/engine?t=abc');
 addSensitiveParam('t');
 assert.equal(scrubText('/engine?t=abc&x=1'), `/engine?t=${SCRUBBED}&x=1`);
 assert.ok(!scrubUrl('https://p.test/?T=abc').includes('abc'));
+
+// Sentry collects nothing: every category, nested ones included, is off.
+const collecting = (value: unknown, path: string): string[] =>
+	Array.isArray(value)
+		? value.length
+			? [path]
+			: []
+		: value && typeof value === 'object'
+			? Object.entries(value).flatMap(([k, v]) => collecting(v, `${path}.${k}`))
+			: value === false || value === 0
+				? []
+				: [path];
+assert.deepEqual(collecting(PRIVATE_DATA_COLLECTION, 'dataCollection'), []);
+for (const key of ['graphQL', 'genAI', 'mcp'] as const)
+	assert.ok(key in PRIVATE_DATA_COLLECTION, `dataCollection.${key} is left at Sentry's default`);
 
 console.log('error-tracking scrub: ok');
