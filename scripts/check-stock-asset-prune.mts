@@ -17,6 +17,8 @@
  *     kept key whose file cannot be read.
  *  5. ONLY A STANDALONE GAME BUILD is pruned: never one run inside the engine (its apps, the shared
  *     runtime online games boot), and not with `IE_STOCK_PRUNE=0`.
+ *  6. `?anticipation=` ON A PRUNED BUILD: the build tells the boot (`__IE_STOCK_PRUNED__`, never in
+ *     dev), and the boot refuses the param only when it needs a stock rig the URL-less walk left out.
  */
 
 import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -32,11 +34,20 @@ import {
 } from '../packages/engine-layout/src/lib/index.ts';
 import type { GameConfigDoc } from '../packages/game-config/index.ts';
 
-import { prunesThisBuild, pruneStockFiles } from '../packages/config-vite/stockAssetPrune.js';
+import {
+	prunesThisBuild,
+	pruneStockFiles,
+	stockPrunedDefine,
+} from '../packages/config-vite/stockAssetPrune.js';
 import compiledConfig from '../apps/lines/src/game/config.ts';
 import { fallbackEditorScenes } from '../apps/lines/src/game/fallbackLayout.ts';
 import { stockAssetBuildPlan, stockAssetFiles } from '../apps/lines/src/game/stockAssetBuild.ts';
-import { analyseStockAssets } from '../apps/lines/src/game/stockAssets.ts';
+import {
+	analyseStockAssets,
+	anticipationRigLeftOut,
+	type StockAssetData,
+} from '../apps/lines/src/game/stockAssets.ts';
+import { anticipationParam } from '../apps/lines/src/game/anticipationParam.ts';
 import { stockAssetDataOf } from '../apps/lines/src/game/stockAssetData.ts';
 import { PART_NEEDS, STOCK_KEYS } from '../apps/lines/src/game/stockAssetRules.ts';
 
@@ -253,6 +264,52 @@ check(
 		prunesThisBuild(join(ENGINE_ROOT, '..', 'some-game'), { IE_STOCK_PRUNE: '0' }),
 	],
 	[false, false, true, false],
+);
+
+console.log('\n6. ?anticipation= on a pruned build');
+const game = join(ENGINE_ROOT, '..', 'some-game');
+check(
+	'__IE_STOCK_PRUNED__: a game repo build, its dev server, the engine, IE_STOCK_PRUNE=0',
+	[
+		stockPrunedDefine({ cwd: game, env: {} }).__IE_STOCK_PRUNED__,
+		stockPrunedDefine({ dev: true, cwd: game, env: {} }).__IE_STOCK_PRUNED__,
+		stockPrunedDefine({ cwd: ENGINE_ROOT, env: {} }).__IE_STOCK_PRUNED__,
+		stockPrunedDefine({ cwd: game, env: { IE_STOCK_PRUNE: '0' } }).__IE_STOCK_PRUNED__,
+	],
+	['true', 'false', 'false', 'false'],
+);
+check(
+	'only possible / guaranteed arm',
+	['?anticipation=possible', '?anticipation=guaranteed', '?anticipation=1', ''].map(
+		anticipationParam,
+	),
+	['possible', 'guaranteed', null, null],
+);
+const withSymbols = (symbols: StockAssetData['symbols']): StockAssetData => ({
+	...stockAssetDataOf(reference)!,
+	symbols,
+});
+const keptByWinFrame = new Set(
+	referencePlan.skipped.includes('anticipation') ? [] : ['anticipation'],
+);
+check(
+	'refused: the stock rig left out; a swapped stock rig left out',
+	[
+		anticipationRigLeftOut(withSymbols(undefined), new Set()),
+		anticipationRigLeftOut(withSymbols({ anticipation: { spineKey: 'reelhouse' } }), new Set()),
+	],
+	[true, true],
+);
+check(
+	'not refused: the default win frame keeps the rig; an R2 rig is never stock',
+	[
+		anticipationRigLeftOut(withSymbols(undefined), keptByWinFrame),
+		anticipationRigLeftOut(
+			withSymbols({ anticipation: { spineKey: 'c/p/rigs/tease' } }),
+			new Set(),
+		),
+	],
+	[false, false],
 );
 
 if (failures) {

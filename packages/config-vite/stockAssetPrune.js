@@ -48,6 +48,19 @@ export const prunesThisBuild = (cwd = process.cwd(), env = process.env) => {
 	return !insideEngine && env.IE_STOCK_PRUNE !== '0';
 };
 
+/**
+ * `__IE_STOCK_PRUNED__`: whether this build's stock files may be gone, so the boot refuses a test
+ * param that would load one its project's docs never draw (`?anticipation=`). Never in dev, which
+ * serves `static/` whole.
+ */
+export const stockPrunedDefine = ({
+	dev = false,
+	cwd = process.cwd(),
+	env = process.env,
+} = {}) => ({
+	__IE_STOCK_PRUNED__: JSON.stringify(!dev && prunesThisBuild(cwd, env)),
+});
+
 /** `rel` (posix, relative to the assets root) resolved against `from`'s folder; null outside it. */
 const sibling = (from, name) => {
 	const joined = posix.normalize(posix.join(posix.dirname(from), name.replace(/\\/g, '/')));

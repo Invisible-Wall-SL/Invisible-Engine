@@ -2481,13 +2481,14 @@
 						</div>
 						<div class="hl-actions">
 							{@render partSwitch('highlight', 'Win frame')}
+							{#if !doc.off?.highlight && highlight.overridden}
+								<span class="badge">overridden</span>
+							{/if}
 							{#if doc.off?.highlight}
 								<!-- Off: nothing to change until it is back on. -->
 							{:else if highlightEditing}
-								{#if highlight.overridden}<span class="badge">overridden</span>{/if}
 								<button type="button" class="ghost" onclick={closeHighlight}>Cancel</button>
 							{:else}
-								{#if highlight.overridden}<span class="badge">overridden</span>{/if}
 								<button type="button" class="hl-change" onclick={openHighlight}>Change</button>
 								{#if highlight.overridden}
 									<button type="button" class="ghost" onclick={resetHighlight}>
@@ -2674,13 +2675,14 @@
 							</div>
 							<div class="hl-actions">
 								{@render partSwitch('boardGlow', 'Board glow')}
+								{#if !doc.off?.boardGlow && doc.boardGlow}
+									<span class="badge">overridden</span>
+								{/if}
 								{#if doc.off?.boardGlow}
 									<!-- Off: nothing to change until it is back on. -->
 								{:else if glowEditing}
-									{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
 									<button type="button" class="ghost" onclick={closeGlow}>Cancel</button>
 								{:else}
-									{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
 									<button type="button" class="hl-change" onclick={openGlow}>Change</button>
 									{#if doc.boardGlow}
 										<button type="button" class="ghost" onclick={resetGlow}>Reset to default</button
@@ -5413,7 +5415,7 @@
 						{#if !data.anticipationArmed}
 							<p class="hl-off">
 								Not used — no flow turns it on, so the game never teases and none of its art ships.
-								Add an Enable anticipation mode node in Invisible Flow to use it.
+								Add the <code>enableAnticipationMode</code> action in Invisible Flow to use it.
 							</p>
 						{/if}
 
