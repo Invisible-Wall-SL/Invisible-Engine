@@ -20,7 +20,7 @@
 	import { bakedSymbolFx } from '../editor-scenes';
 	import { stateFxGate } from '../game/stateFxGate';
 	import { symbolStateFx } from '../game/symbolStateFx';
-	import { artKept, artRestart, bandKey } from '../game/reelViewPool';
+	import { artDraw, artRestart, bandKey, createFxKey } from '../game/reelViewPool';
 
 	type Props = {
 		x?: number;
@@ -86,20 +86,18 @@
 		 *  board, not a symbol in the air. */
 		inFlight?: boolean;
 		/**
-		 * Which entry a reel view is drawing (`SymbolWrap` → `ReelSymbol`): a new number each time the
-		 * view starts drawing a cell. The view outlives the cells it is handed, so each band that draws
-		 * something is keyed on it and starts again per entry — a rig on frame 0, a state's Element FX
-		 * and its beat gate fresh — exactly as a newly mounted symbol would; a bound sprite is handed
-		 * the new cell's texture instead, and the band containers themselves are kept
+		 * Which entry a view is drawing (`SymbolWrap` → `ReelSymbol`, `RespinCell`): a new number each
+		 * time the view starts drawing a cell. The view outlives the cells it is handed, so each band
+		 * that draws something is keyed on it and starts again per entry — a rig on frame 0, a state's
+		 * Element FX and its beat gate fresh — exactly as a newly mounted symbol would; the view's
+		 * sprite is handed the new cell's texture instead, and the containers themselves are kept
 		 * (`game/reelViewPool.ts`). Omitted everywhere else, where no band ever restarts.
 		 */
 		instanceKey?: number;
-		/** Set by a reel view only: it draws nothing for now (no cell, out of the window, or no token
-		 *  to ride), and reports nothing. Anything it drew is let go, as the cell's own component was. */
+		/** Set by a view only: it draws nothing for now (no cell, out of the window, or no token to
+		 *  ride), and reports nothing. Anything it drew is let go, as the cell's own component was,
+		 *  but its sprite, kept hidden for the next one it draws (`artDraw`). */
 		vacant?: boolean;
-		/** While `vacant`, keep a bound sprite for the next entry to rebind. Only for a symbol the
-		 *  caller hides while it is vacant. */
-		keepSprite?: boolean;
 	};
 
 	const props: Props = $props();
@@ -240,13 +238,15 @@
 
 	/**
 	 * PER-STATE ELEMENT FX (Invisible Symbols State Machine → a state's "Element FX"): a Land that
-	 * shakes, a Win that glows, an Explosion that melts. A symbol with any authored draws all its
-	 * bands inside ONE container of its own, which the effects play on — whole, frame and stamp
-	 * included; every other symbol draws exactly as before, with no container added. The choice is
-	 * per SYMBOL, not per state, so moving between states never remounts the art. A state plays its
-	 * own list only (no inheritance): its `enter` entries as the symbol enters it, its `always`
-	 * entries looping while it stays — `{#key}` on the state ends them as it leaves. The inline
-	 * message icon (`frozen`) plays none.
+	 * shakes, a Win that glows, an Explosion that melts. A symbol draws all its bands inside ONE
+	 * container of its own, which the effects play on — whole, frame and stamp included. With none
+	 * authored it is a plain container (no filter, no transform), so it draws the same pixels; it is
+	 * there either way so that a view handed a symbol with FX after one without keeps its bands
+	 * (`createFxKey`). A symbol whose own cell turns between the two still starts every band again,
+	 * as it did when the container came and went. Moving between states never remounts the art. A
+	 * state plays its own list only (no inheritance): its `enter` entries as the symbol enters it, its
+	 * `always` entries looping while it stays — `{#key}` on the state ends them as it leaves. The
+	 * inline message icon (`frozen`) plays none.
 	 *
 	 * The state's beat waits for its `enter` entries that end (`stateFxGate`): the art's completion
 	 * is held until they have played out, so a Land shake is not ended by a still picture completing
@@ -282,15 +282,22 @@
 	const layerKey = (layer: SymbolLayerSpec, i: number): string =>
 		`${i}:${layer.kind}:${layer.assetKey ?? layer.clipId ?? layer.effectId ?? ''}`;
 
-	/** Each band's `{#key}` (`bandKey`): constant unless a reel view starts drawing a new entry. */
+	/** Each band's `{#key}` (`bandKey`): constant unless a view starts drawing a new entry. */
 	const view = $derived(props.vacant !== undefined);
 	const restartWhen = (draws: unknown) =>
-		bandKey(view, props.instanceKey, draws && !props.vacant ? 'remount' : 'none');
-	const artRestarts = $derived(
-		artRestart({ hasArt, type: symbolInfo.type, placeholder: placeholder !== undefined }),
+		bandKey(view, props.instanceKey, !!draws && !props.vacant);
+	const fxKeys = createFxKey();
+	const fxKey = $derived(fxKeys(props.instanceKey, symbolFx !== undefined));
+	const art = $derived(
+		artDraw(
+			artRestart({ hasArt, type: symbolInfo.type, placeholder: placeholder !== undefined }),
+			props.vacant,
+		),
 	);
-	const keepsArt = $derived(artKept(artRestarts, props.vacant, props.keepSprite));
-	const artKey = $derived(bandKey(view, props.instanceKey, keepsArt ? artRestarts : 'none'));
+	const artKey = $derived(bandKey(view, props.instanceKey, art.keyed));
+	/** The sprite a view keeps (`artDraw`): the last one it drew, from the first; undefined before. */
+	let keptSprite: typeof symbolInfo | undefined;
+	const spriteInfo = $derived(art.sprite ? (keptSprite = symbolInfo) : keptSprite);
 	const multiplier = $derived(props.vacant ? undefined : props.rawSymbol.multiplier);
 	const drawsLabel = $derived(!props.vacant && !!coinLabel && !props.inFlight);
 </script>
@@ -307,7 +314,7 @@
 	are contiguous; nothing may be re-ordered to share a container, since the containers ARE the
 	bands.
 -->
-{#if symbolFx}
+{#key fxKey}
 	<Container>
 		{@render bands()}
 		{#key restartWhen(stateFx.length)}
@@ -318,9 +325,7 @@
 			{/key}
 		{/key}
 	</Container>
-{:else}
-	{@render bands()}
-{/if}
+{/key}
 
 {#snippet bands()}
 	<Container>
@@ -338,9 +343,19 @@
 	</Container>
 
 	<Container tint={props.tint}>
+		{#if spriteInfo}
+			<SymbolSprite
+				symbolInfo={spriteInfo}
+				x={props.x}
+				y={props.y}
+				visible={art.sprite}
+				restart={props.instanceKey}
+				oncomplete={art.sprite ? artComplete : undefined}
+			/>
+		{/if}
 		{#key artKey}
-			{#if !keepsArt}
-				<!-- A vacant view: nothing. -->
+			{#if !art.keyed}
+				<!-- Nothing: no art, a vacant view, or a view's sprite (above). -->
 			{:else if !hasArt}
 				{#if placeholder}
 					<SymbolPlaceholder
@@ -362,13 +377,7 @@
 					oncomplete={artComplete}
 				/>
 			{:else if isSprite}
-				<SymbolSprite
-					{symbolInfo}
-					x={props.x}
-					y={props.y}
-					restart={props.instanceKey}
-					oncomplete={artComplete}
-				/>
+				<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={artComplete} />
 			{:else}
 				<SymbolRigMain
 					{loop}
