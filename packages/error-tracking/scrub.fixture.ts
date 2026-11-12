@@ -64,12 +64,14 @@ const collecting = (value: unknown, path: string): string[] =>
 			? [path]
 			: []
 		: value && typeof value === 'object'
-			? Object.entries(value).flatMap(([k, v]) => collecting(v, `${path}.${k}`))
+			? 'deny' in value
+				? [path]
+				: Object.entries(value).flatMap(([k, v]) => collecting(v, `${path}.${k}`))
 			: value === false
 				? []
 				: [path];
 assert.deepEqual(collecting(personal, 'dataCollection'), []);
-for (const key of ['graphQL', 'genAI', 'mcp'] as const)
+for (const key of ['graphQL', 'genAI', 'mcp', 'databaseQueryData', 'queues'] as const)
 	assert.ok(key in PRIVATE_DATA_COLLECTION, `dataCollection.${key} is left at Sentry's default`);
 
 console.log('error-tracking scrub: ok');

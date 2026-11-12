@@ -16,8 +16,9 @@ import type { BrowserOptions } from '@sentry/browser';
  * Sentry 11 defaults every one of these to ON (user, cookies, headers, bodies, query strings,
  * local variables, GraphQL / AI / MCP payloads, DB and queue arguments), so leaving a key out is
  * the opposite of private. `frameContextLines` (our own source around a frame) stays at Sentry's
- * default of 5. `Required` makes a category added by a Sentry bump fail the typecheck until it is
- * set here. The scrubbers below are the second line, for what reaches an event through messages,
+ * default of 5. `Required` makes a category added by a Sentry bump fail the typecheck (run in CI)
+ * until it is set here. It is shallow: a new sub-key inside `graphQL`, `genAI` or `mcp` is not
+ * caught. The scrubbers below are the second line, for what reaches an event through messages,
  * breadcrumbs and extras.
  */
 export const PRIVATE_DATA_COLLECTION = {
