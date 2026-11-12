@@ -296,6 +296,10 @@ own ID for it. **Partner…** on the card asks for it once:
 - **Partner** — shown only when the launcher knows more than one partner; with one, it is used.
 - **Delivery alias** (optional) — the name our deliveries for this game are filed under. Empty
   means the card's name without spaces, the partner's convention (`GettingHot`).
+- **Partner player** (optional) — the player id on the partner's side this game launches as, for
+  everyone. Empty uses the launcher's player pool. Set it when the partner bans a test player
+  (the refusal tab says "Player is banned") and names another one to use. One launch can also try a
+  player with `&player=<id>` on the ▶ Partner link.
 
 Setting it needs the same access as **Publish**, and the button shows only when the launcher has a
 partner configured (`PARTNER_RGS`). Once set, the card shows **Partner: game 8…** and two buttons,

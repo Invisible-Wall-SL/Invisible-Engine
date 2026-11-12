@@ -18,6 +18,10 @@ export interface PartnerRefusalAdvice {
 	steps: string[];
 }
 
+const PLAYER_STEP =
+	'Or play as another player the partner has created: set "Partner player" on the game\'s card in ' +
+	'Invisible Game Maker ("Partner…"), or add `&player=<id>` to this link for one launch.';
+
 const POOL_STEP =
 	'Or add another player the partner has already created to the `players` list of this partner in ' +
 	'the launcher\'s `PARTNER_RGS` variable (Railway, service "launcher"). Note that changing the ' +
@@ -29,15 +33,16 @@ export function partnerRefusalAdvice(message: string, status: number): PartnerRe
 		const player = banned[1];
 		return {
 			title: 'The partner has banned your test player',
-			cause: `The partner RGS refused to open a session for "${player}", the pooled test player your launcher account plays as: it is banned on their side.`,
-			steps: [`Ask the partner to unban the player "${player}".`, POOL_STEP],
+			cause: `The partner RGS refused to open a session for "${player}", the test player this launch used: it is banned on their side.`,
+			steps: [`Ask the partner to unban the player "${player}".`, PLAYER_STEP, POOL_STEP],
 		};
 	}
 	if (/player not found/i.test(message)) {
 		return {
 			title: 'The partner does not know your test player',
-			cause: 'The partner RGS has no player with the id your launcher account plays as.',
+			cause: 'The partner RGS has no player with the id this launch used.',
 			steps: [
+				'Check the "Partner player" set on the game\'s card, or the `&player=` on this link.',
 				'Ask the partner to create the players listed for this partner in `PARTNER_RGS.players`.',
 				POOL_STEP,
 			],

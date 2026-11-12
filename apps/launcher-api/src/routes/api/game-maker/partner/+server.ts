@@ -12,7 +12,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
 /**
  * Set — or clear — which partner game a project is played as: Game Maker's "Partner…" on a card.
  *
- *   POST /api/game-maker/partner  { project, gameId, profile?, alias? }   (gameId '' clears it)
+ *   POST /api/game-maker/partner  { project, gameId, profile?, alias?, player? }   (gameId '' clears it)
  *   → 200 { ok, partner }   (`partner` null when cleared)
  *
  * Same gate as Publish (the `gamePublish` capability + project access): it decides where the
@@ -43,7 +43,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!parsed.ok) return json({ error: parsed.error }, { status: 400, headers: NO_STORE });
 	await setPartnerLaunch(project, parsed.value);
 	console.info(
-		`[partner] ${project}: ${locals.user.email} set partner game ${parsed.value ? `${parsed.value.profile}/${parsed.value.gameId}` : '(none)'}`,
+		`[partner] ${project}: ${locals.user.email} set partner game ${parsed.value ? `${parsed.value.profile}/${parsed.value.gameId}${parsed.value.player ? ` as ${parsed.value.player}` : ''}` : '(none)'}`,
 	);
 	return json({ ok: true, partner: parsed.value }, { headers: NO_STORE });
 };

@@ -269,6 +269,7 @@
 	let partnerGameId = $state('');
 	let partnerProfile = $state('');
 	let partnerAlias = $state('');
+	let partnerPlayer = $state('');
 	let partnerBusy = $state(false);
 	let partnerErr = $state('');
 
@@ -280,6 +281,7 @@
 		partnerProfile =
 			stored && data.partnerProfiles.includes(stored) ? stored : (data.partnerProfiles[0] ?? '');
 		partnerAlias = p.partner?.alias ?? '';
+		partnerPlayer = p.partner?.player ?? '';
 		partnerErr = '';
 	}
 
@@ -297,6 +299,7 @@
 					gameId: clear ? '' : partnerGameId,
 					profile: partnerProfile,
 					alias: partnerAlias,
+					player: partnerPlayer,
 				}),
 			});
 			const out = await res.json().catch(() => ({}));
@@ -2008,6 +2011,17 @@
 							spellcheck="false"
 							placeholder={partnerFor.partnerDefaultAlias}
 						/>
+					</label>
+					<label>
+						<span>
+							Partner player (optional)
+							<InfoTip label="Partner player">
+								The player id on the partner's side this game launches as, for everyone. Empty uses
+								the launcher's player pool. Set it when the partner bans or retires a pooled player
+								and tells you which one to use instead.
+							</InfoTip>
+						</span>
+						<input bind:value={partnerPlayer} spellcheck="false" placeholder="pool" />
 					</label>
 				</div>
 				<p class="confirm-note">

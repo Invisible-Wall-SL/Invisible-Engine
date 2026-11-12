@@ -110,6 +110,19 @@ check(
 		aliasNamed: false,
 	},
 );
+check('stored player used', resolve('', { ...stored, player: 'player7' }).player, 'player7');
+check(
+	'query player beats stored',
+	resolve('player=player9', { ...stored, player: 'player7' }).player,
+	'player9',
+);
+check('no player means the pool', 'player' in resolve('', stored), false);
+check(
+	'a query naming another profile does not borrow the stored player',
+	'player' in resolve('profile=other', { ...stored, player: 'player7' }, two),
+	false,
+);
+check('a bad ?player= is an error, not the pool', 'error' in resolve('player=a%26b', stored), true);
 check('several profiles and none named is an error', 'error' in resolve('', null, two), true);
 check('no profiles at all is an error', 'error' in resolve('', null, []), true);
 
@@ -135,6 +148,22 @@ check(
 	await gameIdSent('gameId' in r1 ? r1.gameId : 'x'),
 	'8',
 );
+async function playerSent(player: string | undefined): Promise<string | null> {
+	let sent: URL | undefined;
+	await mintPartnerSession({
+		config: partnerRgsConfig(ONE, '2complex'),
+		profileId: '2complex',
+		userId: 'u1',
+		player,
+		fetchImpl: (async (input: string | URL | Request) => {
+			sent = new URL(String(input));
+			return new Response(JSON.stringify({ response: { token: 't' } }));
+		}) as typeof fetch,
+	});
+	return sent?.searchParams.get('remote_id') ?? null;
+}
+check('the set player is the remote_id', await playerSent('player7'), 'player7');
+check('no player is the pool player', await playerSent(undefined), 'player4');
 check('no id falls to the env gameId', await gameIdSent('gameId' in r2 ? r2.gameId : 'x'), '2');
 
 // ── 2. what the form may store ────────────────────────────────────────────────
@@ -148,6 +177,15 @@ check('alias kept', parsePartnerLaunchInput({ gameId: '2', alias: 'BookOfBetOpti
 	value: { gameId: '2', profile: '2complex', alias: 'BookOfBetOptions' },
 });
 check('bad id refused', parsePartnerLaunchInput({ gameId: '8&x=1' }, one).ok, false);
+check('player kept', parsePartnerLaunchInput({ gameId: '8', player: ' player7 ' }, one), {
+	ok: true,
+	value: { gameId: '8', profile: '2complex', player: 'player7' },
+});
+check('bad player refused', parsePartnerLaunchInput({ gameId: '8', player: 'a b' }, one).ok, false);
+check('normalize keeps a player', normalizePartnerLaunch({ gameId: '8', player: 'player7' }), {
+	gameId: '8',
+	player: 'player7',
+});
 check('bad alias refused', parsePartnerLaunchInput({ gameId: '8', alias: 'a/b' }, one).ok, false);
 check(
 	'unknown profile refused',
@@ -201,7 +239,8 @@ const banned = partnerRefusalAdvice(
 );
 check('banned: names the player', banned.cause.includes('"player4"'), true);
 check('banned: unban step', banned.steps[0], 'Ask the partner to unban the player "player4".');
-check('banned: pool step', banned.steps[1].includes('PARTNER_RGS'), true);
+check('banned: player step', banned.steps[1].includes('Partner player'), true);
+check('banned: pool step', banned.steps[2].includes('PARTNER_RGS'), true);
 check(
 	'not found',
 	partnerRefusalAdvice('Partner RGS refused the session: player not found: x', 502).title,

@@ -22,7 +22,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
 /**
  * Launch a published game against a PARTNER RGS.
  *
- *   GET /api/partner-session?key=<gameKey>[&profile=<profileId>][&game=<partnerGameId>]
+ *   GET /api/partner-session?key=<gameKey>[&profile=<profileId>][&game=<partnerGameId>][&player=<id>]
  *   → 302 to the game, carrying `?rgs_profile=…&<sessionParam>=<freshly minted token>`
  *   → 302 …&json=1 returns `{ url, token, gameName }` instead, for scripting
  *   → 302 …&on=partner to the partner's OWN launch URL for that session (the `game_url` their
@@ -33,9 +33,10 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *     partner's per-session `config.versionPath` — so a new delivery needs nobody to repoint the
  *     game on their server. No delivered version found and none given ⇒ their server's own setting.
  *
- * `profile`, `game` and `alias` default to the project's stored partner launch (set on its Game
- * Maker card, `$lib/partnerLaunch.ts`), then to the env: the only profile `PARTNER_RGS` has, and
- * that profile's `gameId`. So the card's ▶ Partner buttons pass only `key`.
+ * `profile`, `game`, `alias` and `player` default to the project's stored partner launch (set on
+ * its Game Maker card, `$lib/partnerLaunch.ts`), then to the env: the only profile `PARTNER_RGS`
+ * has, that profile's `gameId`, and the user's player from its pool. So the card's ▶ Partner
+ * buttons pass only `key`.
  *
  * A refusal is an HTML page that names the cause and the fix (`partnerRefusal.ts`) — the buttons
  * open this in a tab, so that page is what the user reads. `json=1` keeps `{ error }` for scripts.
@@ -130,6 +131,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			profileId: launch.profileId,
 			userId: locals.user.id,
 			gameId: launch.gameId,
+			player: launch.player,
 			versionPath,
 		});
 		if (onPartner && !gameUrl) {

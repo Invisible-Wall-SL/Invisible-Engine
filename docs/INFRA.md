@@ -912,7 +912,9 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 > - `players` is **required in practice for this partner**: it answers `player not found` for a
 >   `remote_id` it did not pre-create (and does so with **HTTP 200** and an error body, so a caller
 >   that only checks the status sees success). Launcher users are spread across the pool
->   deterministically, so a given user keeps the same partner wallet between launches.
+>   deterministically, so a given user keeps the same partner wallet between launches. A project can
+  override the pool with **Partner player** on its Game Maker card (or `&player=` per launch), which
+  is the quick fix when the partner bans a pooled player.
 > - `sessionParam` must match the delivery profile's `session.param` — the launcher decides where
 >   to PUT the token, the game decides where to READ it, and a disagreement is a game that refuses
 >   to boot. Defaults to `sid`.
