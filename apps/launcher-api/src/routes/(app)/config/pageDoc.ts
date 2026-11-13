@@ -4,6 +4,7 @@ import {
 	stripWidthFor,
 	type GameConfigDoc,
 	type HoldAndWinGame,
+	type AddRowsAt,
 	type LegacyBonusKeys,
 	type RespinPlay,
 } from 'game-config';
@@ -31,6 +32,13 @@ export const adoptSaved = (saved: GameConfigDoc): GameConfigDoc => structuredClo
 export const setRespinPlay = (rules: HoldAndWinGame, play: RespinPlay): void => {
 	if (play === 'manual') rules.play = 'manual';
 	else delete rules.play;
+};
+
+/** Set where a respin mode's growing board draws the rows it adds, in place. Only `above` is stored:
+ *  `below` is the default, so choosing it leaves the rules as a project that never chose saved them. */
+export const setAddRowsAt = (rules: HoldAndWinGame, at: AddRowsAt): void => {
+	if (at === 'above') rules.addRowsAt = 'above';
+	else delete rules.addRowsAt;
 };
 
 /** Mark a respin mode as one whose server draws enhancements, in place. Only `true` is stored, so

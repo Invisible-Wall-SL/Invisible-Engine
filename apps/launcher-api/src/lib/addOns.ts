@@ -50,6 +50,8 @@ export type RespinModeInfo = {
 	/** Its board grows to this many rows (its rules' `expansion`, or the rows its enhancements can
 	 *  open). */
 	maxRows?: number;
+	/** Its board's added rows draw above the base grid (its rules' `addRowsAt`). */
+	addRowsAt?: 'above';
 	/** Its rules' jackpot tiers, in order. */
 	jackpotTiers: string[];
 	/** The server draws entry enhancements for it (its rules' `enhancements`). */
@@ -71,6 +73,7 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
+			...(maxRows && mode.holdAndWin.addRowsAt === 'above' ? { addRowsAt: 'above' as const } : {}),
 			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
 			...(enhancements ? { enhancements: true as const } : {}),
 		};
@@ -118,6 +121,13 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
 	return rows || undefined;
 }
 
+/** The tallest respin board draws its added rows above the base grid, so the base reel grid's
+ *  reserve lowers it instead of lifting it. */
+export const respinRowsAbove = (modes: readonly RespinModeInfo[]): boolean => {
+	const rows = respinMaxRows(modes);
+	return modes.some((mode) => mode.maxRows === rows && mode.addRowsAt === 'above');
+};
+
 /**
  * The scene-set options a project's layout is seeded from. A Hold and Win kind's own block is its
  * base game, so only an overlay names its pots there; every other kind gets the add-on screens
@@ -138,6 +148,7 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
+		...(maxRows && respinRowsAbove(modes) ? { addRowsAt: 'above' as const } : {}),
 		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(gameType === 'holdAndWin' && doc?.coinBoard ? { coinBoard: true as const } : {}),
 		...(gameType === 'holdAndWin' && modes.some((mode) => mode.enhancements)
@@ -145,10 +156,11 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 			: {}),
 		...(modes.length
 			? {
-					respinModes: modes.map(({ id, label, maxRows }) => ({
+					respinModes: modes.map(({ id, label, maxRows, addRowsAt }) => ({
 						id,
 						label,
 						...(maxRows ? { maxRows } : {}),
+						...(addRowsAt ? { addRowsAt } : {}),
 					})),
 				}
 			: {}),

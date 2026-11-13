@@ -1172,6 +1172,36 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **Where a growing respin board draws its added rows is a Game Config setting, and
+  Getting Hot adds them on top.** New field on the Hold and Win block, `addRowsAt: 'below' |
+  'above'` (absent ⇒ `below`, so every existing game draws as before). It covers an `expansion`
+  board's unlocked rows and Expand / the super bonus, which have no `expansion` block. `/config` →
+  Hold and Win rules → Respins → **Rows added** (shown with enhancements or an expansion). Game
+  Maker's collector + enhancements template sets `above`: the partner confirmed rows count
+  top-down and Expand's row and both of Force 5's go on top, and the owner saw it in their game (the
+  collector stays where it is on screen, a row appears above it).
+  - It is presentation only: a row's INDEX never changes (a held cell keeps its row, the reducer's
+    rule), only where it draws. `respinSeatRow` (`stateRespinBoard.svelte.ts`) maps a respin row to
+    its lattice row: `above` draws row `base` at `-1`, the next at `-2`, so the board grows upward
+    and nothing on it moves. Every respin cell, tile, held symbol, locked cell (so the unlock fade
+    plays on top) and flight goes through it; the coded counter and dials sit above the top drawn row
+    (`respinTopSeatRow`). An Enhancements screen placed in the Scene Editor stays put.
+  - The partner's wire is mapped onto our rows by the facade (#1666): their bonus board numbers the
+    opened rows first (top-down), ours number them outward from the base rows, which `above` draws
+    upward. So the wire's top row draws at the top.
+  - The Scene Editor follows it (#1659's reserve and #1661's preview landed alongside):
+    **⇕ Reserve rows** LOWERS the board by half its extra rows for rows added above
+    (`boardNudgeRows` +n/2, the grown block still centred where the base board was), and offers to
+    swap a lift a below-reserve wrote; **preview N rows** draws the locked rows on top. The scaffold
+    (`addRowsAt` on the Hold and Win template / scene-set options, per respin mode) seeds a new
+    game the same way and puts the Locked rows handle above the grid. **Getting Hot:** once
+    `/config` → Rows added is Above the board, the editor offers ⇕ Reserve rows again (a
+    −1 row lift becomes +1); press it, then publish.
+  - Gate: `packages/game-config/holdAndWin.fixture.ts` (presets absent, template `above`, `above`
+    kept, junk dropped); `test-hold-and-win-template.mjs` (an above reserve nudges +1.5 rows on a
+    6-row board, reads as reserved only for above, flips a below reserve; the scaffold and a
+    respin mode's own `addRowsAt` place the Locked rows handle above). Measured locally: with `above`, row 3 draws at y −60 (row 0 at 60) and the
+    top seat moves to −1; with the default, row 3 stays at 420.
 - 2026-11-13 — **A feature with a banked part ends again.** Since #1443 (2026-10-28) the feature
   end's banked step (`presentHoldAndWinEnd`, `step(order.length, …)`) played the coin collect sound
   of `order[order.length]`, which does not exist: `TypeError: Cannot read properties of undefined

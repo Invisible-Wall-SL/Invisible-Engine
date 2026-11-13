@@ -792,6 +792,7 @@
           "fromTriggeringSpecials": false
         },
         "enhancements": true,
+        "addRowsAt": "above",
         "specials": {
           "collector": {
             "level": 1,

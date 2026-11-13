@@ -418,6 +418,45 @@ const SIZE = {
 		'other kinds ignore maxRows',
 	);
 	assert(mod.expandingBoardReserved(plain, 3), 'a board that never grows is always reserved');
+
+	// Rows added ABOVE (Game Config `addRowsAt: 'above'`, Getting Hot's Expand / Force 5): the reserve
+	// lowers the board by half its extra rows instead of lifting it, so the grown block still sits
+	// where the base board's centre was; the scaffold and the Locked rows handle follow.
+	const above = mod.reserveExpandingBoard(plain, 6, [], 'above');
+	assert(
+		gridOf(above).cellSize === 66 && gridOf(above).boardNudgeRows === 1.5,
+		`rows added above nudge the board DOWN 1.5 rows (got ${gridOf(above).boardNudgeRows})`,
+	);
+	assert(mod.expandingBoardReserved(above, 6, [], 'above'), 'an above reserve reads as reserved');
+	assert(
+		!mod.expandingBoardReserved(above, 6),
+		'and not as a below one, so Reserve offers the swap',
+	);
+	const swapped = gridOf(mod.reserveExpandingBoard(once, 6, [], 'above'));
+	assert(swapped.boardNudgeRows === 1.5, 'reserving above over a below reserve flips the nudge');
+	const seededAbove = mod.getFullSceneSet('holdAndWin', { maxRows: 6, addRowsAt: 'above' });
+	assert(gridOf(seededAbove).boardNudgeRows === 1.5, 'getFullSceneSet takes addRowsAt');
+	const lockedRowsY = (d) =>
+		walk(d.scenes.flatMap((sc) => sc.nodes)).find((n) => n.id === 'locked-rows').y;
+	const centreY = gridOf(withOption).y;
+	assert(
+		lockedRowsY(withOption) > centreY &&
+			lockedRowsY(seededAbove) < centreY &&
+			lockedRowsY(seededAbove) - centreY === centreY - lockedRowsY(withOption),
+		'the Locked rows handle sits above the base grid when the rows open above',
+	);
+	const moded = mod.getFullSceneSet('holdAndWin', {
+		maxRows: 5,
+		respinModes: [
+			{ id: 'holdAndWin', maxRows: 5 },
+			{ id: 'force', maxRows: 5, addRowsAt: 'above' },
+		],
+	});
+	const lockedY = (id) => walk(moded.scenes.flatMap((sc) => sc.nodes)).find((n) => n.id === id).y;
+	assert(
+		lockedY('locked-rows') > centreY && lockedY('locked-rows-force') < centreY,
+		"a respin mode's own addRowsAt lays its screens out for rows above",
+	);
 }
 
 // THE RESERVE HOLDS ON A SCALED GRID. The game adds the board nudge in layout px OUTSIDE the grid's
