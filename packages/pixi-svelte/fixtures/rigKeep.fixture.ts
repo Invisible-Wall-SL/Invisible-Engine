@@ -360,8 +360,8 @@ function run(read: (path: string) => string): void {
 		const source = (name: string) => read(`../src/lib/components/${name}`);
 		const provider = source('RigProvider.svelte');
 		check(
-			'RigProvider tells its subtree when it is put away and when a play starts, only when kept',
-			/if \(parked !== undefined\) \{\s*setContextRigParked\(\(\) => !!parked\);\s*setContextRestart\(\(\) => restart\);\s*\}/.test(
+			'RigProvider tells its subtree when it is put away and when a play starts, only when kept; on content mounted ahead, away until its show, which is a new play',
+			/if \(parked !== undefined\) \{\s*setContextRigParked\(\(\) => !!parked \|\| !!dormant\?\.\(\)\);\s*setContextRestart\(dormant \? \(\) => \(dormant\(\) \? ASLEEP : restart\) : \(\) => restart\);\s*\}/.test(
 				provider,
 			),
 		);

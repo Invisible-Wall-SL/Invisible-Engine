@@ -240,6 +240,9 @@ const portal = (exportBodies: (id: string) => unknown) =>
 			if (path === '/api/editor/doc') {
 				return res.end(JSON.stringify({ doc: { scenes: [{ id: 's', nodes: [] }] } }));
 			}
+			if (path === '/api/launcher/publish-check') {
+				return res.end(JSON.stringify({ ok: true, checked: ['sounds'], failed: [] }));
+			}
 			res.end(JSON.stringify(asset ? exportBodies(asset) : {}));
 		});
 		server.listen(0, '127.0.0.1', () => ready({ server, posted }));

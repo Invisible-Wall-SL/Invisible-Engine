@@ -21,7 +21,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Ask the AI** — every `ToolTopBar` has an **Ask the AI** button (left of Report bug) that opens `$lib/AskAiPanel.svelte`: a floating chat, dragged by its title bar, closed or minimized only by its own buttons. `POST /api/ask-ai` (`$lib/server/askAi.ts`) checks the asker has the tool, then streams Claude's answer as NDJSON. The system prompt is the tool's guide (`docs/tools/<slug>.md`, prompt-cached), its owning agents (`docs/knowledge/owners.json` + each `.claude/agents/<name>.md` description, written to `src/lib/tool-docs/agents.json` by `scripts/copy-tool-docs.mjs`) and the other tools the asker can open. Read-only, sees no project data. Chat per tool in sessionStorage, window position in localStorage. **Atlas + Sheet Maker:** their HTML bar mounts the vanilla twin `iw_common/ask_ai.js`, which posts to the tool's own `POST /ask-ai`; `iw_common/ask_ai.py` relays it to `/api/ask-ai` with an `X-IW-Relay` token (`{typ:"relay", aud:"launcher", iss, uid}`, 60 s, signed with the tool's `*_TOOL_SIGNING_SECRET`), verified by `$lib/server/toolRelay.ts`; the launcher re-reads the user and their access from Postgres, and a relay may only ask about its own tool. Contract: `check:tool-relay-token` + `services/atlas-tool/test_ask_ai.py` share one vector. **Rigger:** its static `view.html` loads `/shared/ask-ai.js` (generated from `iw_common/ask_ai.js` by `scripts/sync-ask-ai.mjs`; CI's `check-all` runs its `--check`) and posts to `/api/ask-ai` on the session, same-origin. Guide: [tools/launcher.md § Ask the AI](../tools/launcher.md).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
-- **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored, published under `<project>build` — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
+- **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored, published under `<project>build` — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `publish-check` (the online Publish's checks for a desktop build), `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
 - **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, `0030_director_job_steps` with 8E `0031_director_drop_preset_json` with 8F (it drops data) and `0033_director_draft_jobs` with 9D, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
@@ -68,6 +68,16 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    [infra](infra.md)). The first Director run with QA is its first real play, and it is waiting on
    Anthropic credits. Check that the Live run shows "N of M screens reached" and not `no_player`.
 
+9. **Desktop app: the publish checks' refusal** (`invisible-launcher`, not reachable from this
+   repo; 2026-11-12 entry below). The bake writes it to `IE_BUILD_REFUSAL_JSON` in the shape the
+   flow and paytable refusals use, naming `override: { flag: '--publish-anyway', env:
+   'IE_PUBLISH_ANYWAY' }` (or `null`). To check in `Invisible_Launcher.py`: (a) the Build refused
+   dialog's **Build anyway** sets the env the refusal names, rather than a hard-coded
+   `ALLOW_INVALID_FLOW` / `ALLOW_PAYTABLE_DRIFT`; (b) a `publish-checks` refusal (several findings)
+   shows every line of `details`; (c) whether a refused build still writes its breakdown (the
+   verdict is in the report folder either way). Optional: ask `GET /api/launcher/publish-check`
+   with the session before building, so the reasons show without a build.
+
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
   since desktop launcher v1.0.56 the R2 key no longer lives on any publisher's desktop. From v1.0.61
@@ -81,6 +91,43 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-12 — **A desktop ☁ Publish / 📦 Deliver runs the online Publish's checks.** The desktop
+  path (`game-upload`, `register-game`, the bake) never ran the sound gate, so a desktop build
+  shipped draft sounds the online Publish refuses (overlay-buffaloduel: 15).
+  - **Portal:** `publishChecks.ts` `runPublishChecks(project)` calls the gates `publishGame.ts`
+    runs before it builds (`checkSoundsForPublish`; `checkFlowV2ForPublish` + `flowGateRefusal`;
+    `unplayableFamilyMessage`) and returns every failure as `{ id, reason, items, fixIn,
+    overridable }`, the ids being the online refusal reasons. `publishGame.ts` is unchanged, so a
+    gate change reaches both paths. `GET /api/launcher/publish-check?project=` answers a
+    publisher's session (`gamePublish` + `canAccessProject`, as `register-game`) or the deploy
+    token `?k=` (the bake's; the key resolves as `/api/editor/doc` resolves it). A route of its
+    own, not a `game-upload` field: that one takes the game key (`<project>build`), writes R2 and
+    takes no deploy token.
+  - **Build:** `bake-editor-doc.mjs` asks right after the doc fetch, before any export writes
+    `deploy/` and before the compile (`scripts/lib/publishCheck.mjs`). Only a bake with a token
+    asks, which is a ☁ Publish or 📦 Deliver: `apps/lines`, CI and the current-games harness never
+    bake with one, and a dry run skips it. A failure stops the bake (exit 1) with each reason and
+    where to fix it, writes the refusal to `IE_BUILD_REFUSAL_JSON` (one finding keeps its gate id,
+    several are `publish-checks`) and the verdict to `publish-check.json` in
+    `IE_BUILD_REPORT_DIR`; `build-breakdown.mjs` shows a build shipped past them.
+  - **Override:** `IE_PUBLISH_ANYWAY=1` / `--publish-anyway` lifts every finding that has one
+    (draft sounds, flow errors), `=<id>,<id>` only those; `ALLOW_INVALID_FLOW=1` still lifts the
+    flow, and the bake passes a flow lift on to the flow export. A flow of another kind and a family
+    the runtime cannot play have none.
+  - **A check the portal does not answer stops the build** (`publish-check-unreachable`), as the
+    doc fetch and the pull stop a build that has a token: a network error, a 5xx after the bake's
+    retries, a portal without the route (404, e.g. mid-deploy) or an answer with no verdict. Only
+    `IE_PUBLISH_ANYWAY=1` ships past it, recorded as `unchecked`.
+  - **Impact** (real `runPublishChecks` over every R2 project, read-only, after #1647): of the
+    projects with a desktop build on the test server, these now stop: overlay-buffaloduel (15 draft
+    sounds), overlay-wallstreet2, overlay-wishworld, commonoverlayproject (3 each), test6 (2),
+    bookofborutremake (1). overlay-wallstreet and rocketreskintest1 (3 each) would on their first.
+    bookofborut's flow (16 errors) was already refused by the bake's flow export; it now stops
+    before the exports.
+  - **Gate:** `check:desktop-publish-checks` (Lint): the route's refusals and auth, the real bake
+    against it, the breakdown, 13 planted mutants. The three gates that drive the bake against a
+    fake portal (`check-build-provenance`, `check-exporter-registry`, `check-shader-pipeline`)
+    answer the new route. The app's side is open item 9.
 - 2026-11-12 — **A desktop build no longer pulls the exports' own records, and the build breakdown
   says what is never loaded.** Engine side and measurements: [status/engine.md](engine.md)
   (2026-11-12, "A desktop build and a delivery ship only what the game loads").

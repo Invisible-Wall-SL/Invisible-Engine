@@ -8,7 +8,8 @@
 //   --report-dir  the folder the build steps wrote their notes into (`IE_BUILD_REPORT_DIR`):
 //                 pull.json (pull:assets), bake.json (bake:doc), images.json (the launcher's
 //                 🗜 Optimize image pass), stock.json (the stock sample art the game build left
-//                 out, `config-vite` stockAssetPrune.js). Defaults to $IE_BUILD_REPORT_DIR.
+//                 out, `config-vite` stockAssetPrune.js), publish-check.json (the bake's publish
+//                 checks). Defaults to $IE_BUILD_REPORT_DIR.
 //   --out         where to write build-breakdown.html + build-breakdown.json (default: report dir)
 //   --json        also write a small result record there — `{ ok, html, json, totals, issues }` —
 //                 so the launcher never scrapes console output
@@ -26,6 +27,7 @@ import {
 	renderBreakdownHtml,
 	SCANNED_EXT,
 } from './lib/build-breakdown.mjs';
+import { publishCheckIssues } from '../apps/launcher-api/scripts/lib/publishCheck.mjs';
 
 const MAX_SCANNED_BYTES = 8 * 1024 * 1024;
 
@@ -119,6 +121,9 @@ async function main() {
 			project: bake?.project ?? null,
 		},
 	});
+
+	// What the bake's publish checks said (`publish-check.json`): a build shipped past them says so.
+	breakdown.issues.unshift(...publishCheckIssues(readJson(join(reportDir, 'publish-check.json'))));
 
 	await mkdir(outDir, { recursive: true });
 	const htmlPath = join(outDir, 'build-breakdown.html');

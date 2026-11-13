@@ -8,6 +8,7 @@
 		Anchor,
 		App,
 		Container,
+		Dormant,
 		Text,
 		configureRenderQuality,
 		registerGpuWarmup,
@@ -1410,6 +1411,36 @@
 	// path this is `false`, and the board falls through to its unconditional coded mount (the
 	// `!isFlowDriven` gate below).
 	const isBasegameActive = $derived(activeScreenIds.includes(basegameScreenId));
+	// The base game is on screen. Mounted ahead (`basegameAhead`), it is hidden until then.
+	const basegameUp = $derived(!isFlowDriven || isBasegameActive);
+	// The base game (its board and its below- and above-reel layers) too, when a start-up chain shows
+	// it: the last step, dormant until its first show (`<Dormant>`) and kept then. Hidden again, it is
+	// unmounted, and a later show mounts it as before. Only a reel board: a play field, a card table
+	// and a match-3 board start their loop, match or session as they mount. Not when the tap turns the
+	// anticipation mode on: that moves the reel stack into `<AnticipationCamera>`'s branch, which
+	// builds it again there.
+	let basegameAhead = $state(false);
+	registerGpuWarmup(() =>
+		flowV2DrivesScreens &&
+		mechanic.id === 'reels' &&
+		flowV2Handle?.startupShown.includes(basegameScreenId) &&
+		!flowV2Handle.chainCallsAction('tapToStart', 'enableAnticipationMode') &&
+		!isBasegameActive
+			? [
+					() =>
+						mountWithoutRandomDraws(() =>
+							flushSync(() => {
+								basegameAhead = true;
+							}),
+						),
+				]
+			: [],
+	);
+	$effect.pre(() => {
+		if (isBasegameActive) untrack(() => (basegameAhead = false));
+	});
+	/** Mounted ahead and not shown yet: read once, when the base game mounts. */
+	const basegameDormant = (): boolean => untrack(() => basegameAhead && !isBasegameActive);
 	// Design doc §14 (win-overlay twin) — the SINGLE decision for which WIN surface mounts, so the
 	// mount site can't drift from the exactly-one-`winUpdate`-subscriber invariant. See
 	// `resolveWinMount`.
@@ -2386,172 +2417,182 @@
 
 			When neither the boot screens nor a v2 flow drive the screens (`!isFlowDriven` — a doc with
 			no loading/basegame scene), the base game renders UNCONDITIONALLY. -->
-	{#if !isFlowDriven || isBasegameActive}
-		<!-- The base game INTERLEAVES with the engine-owned reels via the reelGrid split: the authored
-				 below-reel layers (e.g. the board background) render BEHIND the board, the above-reel layers
-				 in front. This runs under the boot screens AND v2 — a v2 flow shows the `basegame` CONTAINER, but
-				 `<FlowV2Mount>` SKIPS basegame (below), so THIS split is the sole basegame renderer and the
-				 reel z-order is preserved (rendering the whole scene as one block put the background above
-				 the reels). -->
-		<FlowMount scene={basegameMountBelowReel}>
-			{#snippet fallback()}
-				<!-- Remounted per play inside its own container, so it keeps its place under the board: a
-				     remount appends to its parent, which would put these layers over the reels. -->
-				<Container>
-					{#key basegameDrive?.key}
-						<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
-					{/key}
-				</Container>
-			{/snippet}
-		</FlowMount>
-
-		<!-- Authored free-spin board glow — the BELOW-reel slot, so it draws behind the reels
-				 exactly where the coded `<BoardFrame>`'s `zIndex:-1` rig does. `game` space ⇒
-				 <LayoutScene> self-wraps in its own MainContainer, so do NOT wrap it again here
-				 (that double-scales it). Only mounts when the author put real content in the scene;
-				 that same condition suppresses the coded rig below, so the two never both draw. -->
-		{#if suppressCodedBoardGlow && glowScene}
-			<LayoutScene scene={glowScene} />
-		{/if}
-
-		<!-- The reel stack (coded glow frame + reels), factored into a snippet so the
-				 reel-anticipation camera can wrap it WITHOUT duplicating it. Rendered verbatim
-				 when the mode is off ⇒ byte-identical to the un-wrapped mount (parity). -->
-		{#snippet reelStack()}
-			{#if !suppressCodedBoardGlow}
-				<BoardFrame active={boardGlowActive} />
-			{/if}
-			<Board />
-			<!-- The tokens a pots overlay drops over the board's symbols — an unconditional, empty
-			     container until a drop (`OverlayTokens.svelte`). -->
-			<OverlayTokens />
-			<!-- The cascade + multiplier-collect overlays, mounted BESIDE the board because that is
-					 what they are: `TumbleBoard` stands in for the reels for the length of a tumble
-					 (`boardHide` → it shows → `boardShow`), and `MultiplierBoard` flies the landed
-					 multipliers to the board centre. Both render NOTHING until their own cue arrives, so a
-					 game whose RGS never sends `tumbleBoard`/`boardMultiplierInfo` is byte-identical with
-					 them here — which is why they can mount unconditionally rather than behind a game-type
-					 test the runtime has no way to make.
-
-					 Mounted DIRECTLY rather than through `registerBoundComponents` (where they started, and
-					 where they were unreachable — a registry entry only says a scene node MAY bind them,
-					 and nothing did, so they never mounted and their cues fired into nothing). A direct
-					 mount also cannot double-subscribe the way a bind anchor plus a coded mount would. They
-					 need no placement: both position themselves from `boardLayout()`, so there is nothing
-					 for an author to move. -->
-			<TumbleBoard />
-			<MultiplierBoard />
-			<!-- The Hold and Win respin board — an unconditional, empty container until a feature puts
-			     the per-cell board up in the reels' place (`RespinBoard.svelte`). -->
-			<RespinBoard />
-			<!-- A match-3 board's pointer surface (`Match3Input.svelte`), which also starts its session.
-			     Only a mechanic that takes board input mounts it, so no slot game builds it. -->
-			{#if mechanic.boardInput}
-				<Match3Input />
-			{/if}
-		{/snippet}
-
-		<!-- An arcade game's play field (`ArcadeStage.svelte`) and a card game's table
-		     (`CardTable.svelte`) stand in for the reel stack: neither has a board. Only a mechanic that
-		     is one mounts it, so a slot game renders the reel stack exactly as before. -->
-		{#if mechanic.playField}
-			<MainContainer>
-				<ArcadeStage scenes={editorDoc.scenes} />
-			</MainContainer>
-		{:else if mechanic.cardTable}
-			<MainContainer>
-				<CardTable scenes={editorDoc.scenes} />
-			</MainContainer>
+	{#if !isFlowDriven || isBasegameActive || basegameAhead}
+		<!-- Mounted ahead (`basegameAhead`): dormant until the base game shows, then kept. -->
+		{#if basegameDormant()}
+			<Dormant shown={() => isBasegameActive}>
+				{@render basegame()}
+			</Dormant>
 		{:else}
-			<MainContainer>
-				<!-- ELEMENT FX on the reels: the reel stack's own container, aimed at as `reels` by a Flow
-				     `elementEffect` and playing the reel grid node's authored effects. Neither adds a child. -->
-				<Anchor name={ELEMENT_FX_REELS_TARGET} />
-				{#key reelFx}
-					{#if reelFx.length}
-						<ElementFxPlayer entries={reelFx} />
-					{/if}
-				{/key}
-				<BoardDrive
-					drive={basegameDrive}
-					node={basegameReelGrid}
-					layoutType={context.stateLayoutDerived.layoutType()}
-					layoutHeld={!!basegameHeldReelGrid}
-				>
-					{#if stateGameDerived.anticipationActive()}
-						<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
-								 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights
-								 MainContainer or the editor coordinate boxes. Both are inside the camera so they
-								 zoom together; the camera + overlays are identity until a reel arms. The camera is
-								 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
-								 off ⇒ the overlays render without the zoom (rig stack + grey-out only).
+			{@render basegame()}
+		{/if}
+		{#snippet basegame()}
+			<!-- The base game INTERLEAVES with the engine-owned reels via the reelGrid split: the authored
+					 below-reel layers (e.g. the board background) render BEHIND the board, the above-reel layers
+					 in front. This runs under the boot screens AND v2 — a v2 flow shows the `basegame` CONTAINER, but
+					 `<FlowV2Mount>` SKIPS basegame (below), so THIS split is the sole basegame renderer and the
+					 reel z-order is preserved (rendering the whole scene as one block put the background above
+					 the reels). -->
+			<FlowMount scene={basegameMountBelowReel}>
+				{#snippet fallback()}
+					<!-- Remounted per play inside its own container, so it keeps its place under the board: a
+					     remount appends to its parent, which would put these layers over the reels. -->
+					<Container>
+						{#key basegameDrive?.key}
+							<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
+						{/key}
+					</Container>
+				{/snippet}
+			</FlowMount>
 
-								 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
-								 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
-								 path a game with the mode off already takes — the bare reel stack, no camera, no
-								 overlays. That also takes the geometry-bound anticipation GREY-OUT down with it.
-								 The per-symbol win dim is a different feature entirely (`SYMBOL_DIM_TINT` through
-								 `SymbolWrap`, no geometry) and is untouched. -->
-						{#if stateGame.anticipationZoom}
-							<AnticipationCamera>
+			<!-- Authored free-spin board glow — the BELOW-reel slot, so it draws behind the reels
+					 exactly where the coded `<BoardFrame>`'s `zIndex:-1` rig does. `game` space ⇒
+					 <LayoutScene> self-wraps in its own MainContainer, so do NOT wrap it again here
+					 (that double-scales it). Only mounts when the author put real content in the scene;
+					 that same condition suppresses the coded rig below, so the two never both draw. -->
+			{#if suppressCodedBoardGlow && glowScene}
+				<LayoutScene scene={glowScene} />
+			{/if}
+
+			<!-- The reel stack (coded glow frame + reels), factored into a snippet so the
+					 reel-anticipation camera can wrap it WITHOUT duplicating it. Rendered verbatim
+					 when the mode is off ⇒ byte-identical to the un-wrapped mount (parity). -->
+			{#snippet reelStack()}
+				{#if !suppressCodedBoardGlow}
+					<BoardFrame active={boardGlowActive} />
+				{/if}
+				<Board />
+				<!-- The tokens a pots overlay drops over the board's symbols — an unconditional, empty
+				     container until a drop (`OverlayTokens.svelte`). -->
+				<OverlayTokens />
+				<!-- The cascade + multiplier-collect overlays, mounted BESIDE the board because that is
+						 what they are: `TumbleBoard` stands in for the reels for the length of a tumble
+						 (`boardHide` → it shows → `boardShow`), and `MultiplierBoard` flies the landed
+						 multipliers to the board centre. Both render NOTHING until their own cue arrives, so a
+						 game whose RGS never sends `tumbleBoard`/`boardMultiplierInfo` is byte-identical with
+						 them here — which is why they can mount unconditionally rather than behind a game-type
+						 test the runtime has no way to make.
+
+						 Mounted DIRECTLY rather than through `registerBoundComponents` (where they started, and
+						 where they were unreachable — a registry entry only says a scene node MAY bind them,
+						 and nothing did, so they never mounted and their cues fired into nothing). A direct
+						 mount also cannot double-subscribe the way a bind anchor plus a coded mount would. They
+						 need no placement: both position themselves from `boardLayout()`, so there is nothing
+						 for an author to move. -->
+				<TumbleBoard />
+				<MultiplierBoard />
+				<!-- The Hold and Win respin board — an unconditional, empty container until a feature puts
+				     the per-cell board up in the reels' place (`RespinBoard.svelte`). -->
+				<RespinBoard />
+				<!-- A match-3 board's pointer surface (`Match3Input.svelte`), which also starts its session.
+				     Only a mechanic that takes board input mounts it, so no slot game builds it. -->
+				{#if mechanic.boardInput}
+					<Match3Input />
+				{/if}
+			{/snippet}
+
+			<!-- An arcade game's play field (`ArcadeStage.svelte`) and a card game's table
+			     (`CardTable.svelte`) stand in for the reel stack: neither has a board. Only a mechanic that
+			     is one mounts it, so a slot game renders the reel stack exactly as before. -->
+			{#if mechanic.playField}
+				<MainContainer>
+					<ArcadeStage scenes={editorDoc.scenes} />
+				</MainContainer>
+			{:else if mechanic.cardTable}
+				<MainContainer>
+					<CardTable scenes={editorDoc.scenes} />
+				</MainContainer>
+			{:else}
+				<MainContainer visible={basegameUp}>
+					<!-- ELEMENT FX on the reels: the reel stack's own container, aimed at as `reels` by a Flow
+					     `elementEffect` and playing the reel grid node's authored effects. Neither adds a child. -->
+					<Anchor name={ELEMENT_FX_REELS_TARGET} />
+					{#key reelFx}
+						{#if reelFx.length && basegameUp}
+							<ElementFxPlayer entries={reelFx} />
+						{/if}
+					{/key}
+					<BoardDrive
+						drive={basegameDrive}
+						node={basegameReelGrid}
+						layoutType={context.stateLayoutDerived.layoutType()}
+						layoutHeld={!!basegameHeldReelGrid}
+					>
+						{#if stateGameDerived.anticipationActive()}
+							<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
+									 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights
+									 MainContainer or the editor coordinate boxes. Both are inside the camera so they
+									 zoom together; the camera + overlays are identity until a reel arms. The camera is
+									 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
+									 off ⇒ the overlays render without the zoom (rig stack + grey-out only).
+
+									 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
+									 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
+									 path a game with the mode off already takes — the bare reel stack, no camera, no
+									 overlays. That also takes the geometry-bound anticipation GREY-OUT down with it.
+									 The per-symbol win dim is a different feature entirely (`SYMBOL_DIM_TINT` through
+									 `SymbolWrap`, no geometry) and is untouched. -->
+							{#if stateGame.anticipationZoom}
+								<AnticipationCamera>
+									{@render reelStack()}
+									<Anticipations />
+								</AnticipationCamera>
+							{:else}
 								{@render reelStack()}
 								<Anticipations />
-							</AnticipationCamera>
+							{/if}
 						{:else}
 							{@render reelStack()}
-							<Anticipations />
 						{/if}
-					{:else}
-						{@render reelStack()}
-					{/if}
-				</BoardDrive>
-			</MainContainer>
-		{/if}
-
-		{#if basegameMount}
-			{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
-				<LayoutScene scene={basegameMountAboveReel} />
+					</BoardDrive>
+				</MainContainer>
 			{/if}
-		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-			<Container>
-				{#key basegameDrive?.key}
-					<LayoutScene scene={basegameAboveReel} nodeDriver={basegameDrive?.driver} />
-				{/key}
+
+			{#if basegameMount}
+				{#if basegameMountAboveReel && basegameMountAboveReel.nodes.length}
+					<LayoutScene scene={basegameMountAboveReel} />
+				{/if}
+			{:else if basegameAboveReel && basegameAboveReel.nodes.length}
+				<Container>
+					{#key basegameDrive?.key}
+						<LayoutScene scene={basegameAboveReel} nodeDriver={basegameDrive?.driver} />
+					{/key}
+				</Container>
+			{/if}
+
+			<!-- The add-on's Pots screen under a driven v2 flow that never shows it. Inside this gate, so it
+					 is up exactly while the board is, as the coded pots are (base game, free spins, Hold and
+					 Win). At the screen's own Screens-list z, as a flow container or the coded mount would put
+					 it: above the board, below the HUD and the overlays the add-on merged after it. -->
+			{#if flowV2EnginePots}
+				<EngineScreenMount
+					scene={flowV2EnginePots.scene}
+					z={flowV2EnginePots.z}
+					flow={flowV2Handle}
+					slot={screenSlots(flowV2EnginePots.scene)}
+				/>
+			{/if}
+
+			<!-- The win line + the amount it stamps are HUD chrome, not board furniture: they read as
+					 the game TELLING the player what they won, so nothing the author layers over the board
+					 may bury them. They used to live inside the board `<MainContainer>` above (implicit z 0),
+					 which put them under every list-ordered screen — the HUD, the base-game overlays, an
+					 author's own above-reel art. Now they mount as their OWN board-space layer at
+					 `LAYER_BAND_WIN_PRESENTATION`, above that whole band and still below the pinned
+					 takeovers + the engine's round-blocking gates.
+
+					 `<WinLine>` positions through `<BoardContainer>` (board-local coords), so it needs the
+					 game-space transform its old parent gave it — hence its own `<MainContainer>` here.
+					 `<MainContainer>` is pure derived layout, so a second instance costs nothing and
+					 reproduces the identical transform: the line lands in exactly the same PLACE, only
+					 higher in the stack. Still inside the base-game gate, so it unmounts with the board
+					 exactly as before. -->
+			<Container zIndex={LAYER_BAND_WIN_PRESENTATION} visible={basegameUp}>
+				<MainContainer>
+					<WinLine />
+				</MainContainer>
 			</Container>
-		{/if}
-
-		<!-- The add-on's Pots screen under a driven v2 flow that never shows it. Inside this gate, so it
-				 is up exactly while the board is, as the coded pots are (base game, free spins, Hold and
-				 Win). At the screen's own Screens-list z, as a flow container or the coded mount would put
-				 it: above the board, below the HUD and the overlays the add-on merged after it. -->
-		{#if flowV2EnginePots}
-			<EngineScreenMount
-				scene={flowV2EnginePots.scene}
-				z={flowV2EnginePots.z}
-				flow={flowV2Handle}
-				slot={screenSlots(flowV2EnginePots.scene)}
-			/>
-		{/if}
-
-		<!-- The win line + the amount it stamps are HUD chrome, not board furniture: they read as
-				 the game TELLING the player what they won, so nothing the author layers over the board
-				 may bury them. They used to live inside the board `<MainContainer>` above (implicit z 0),
-				 which put them under every list-ordered screen — the HUD, the base-game overlays, an
-				 author's own above-reel art. Now they mount as their OWN board-space layer at
-				 `LAYER_BAND_WIN_PRESENTATION`, above that whole band and still below the pinned
-				 takeovers + the engine's round-blocking gates.
-
-				 `<WinLine>` positions through `<BoardContainer>` (board-local coords), so it needs the
-				 game-space transform its old parent gave it — hence its own `<MainContainer>` here.
-				 `<MainContainer>` is pure derived layout, so a second instance costs nothing and
-				 reproduces the identical transform: the line lands in exactly the same PLACE, only
-				 higher in the stack. Still inside the base-game gate, so it unmounts with the board
-				 exactly as before. -->
-		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
-			<MainContainer>
-				<WinLine />
-			</MainContainer>
-		</Container>
+		{/snippet}
 	{/if}
 
 	<!--

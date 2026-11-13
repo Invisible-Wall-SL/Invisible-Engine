@@ -45,6 +45,14 @@ import { BAKE_EXPORTS } from './lib/bakeExports.mjs';
 import { writeBuildReport } from './lib/buildReportDir.mjs';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
 import { bakeSymbolFx } from './lib/bakeSymbolFx.mjs';
+import {
+	describePublishCheck,
+	lifts,
+	PUBLISH_CHECK_REPORT,
+	publishAnywayFrom,
+	publishCheckRefusal,
+	runPublishCheck,
+} from './lib/publishCheck.mjs';
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
@@ -58,7 +66,7 @@ const DEFAULT_BASE = 'https://app.invisiblewall.org';
 const USAGE =
 	'Usage: node bake-editor-doc.mjs --project <projectKey> [--dest <out.json>] \\\n' +
 	'         [--base <url>] [--token <t>] [--dry-run] [--optional] [--allow-invalid-flow]\n' +
-	'         [--allow-paytable-drift]\n' +
+	'         [--allow-paytable-drift] [--publish-anyway [<ids>]]\n' +
 	'\n' +
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
 	'                                (NOT <client>/<project> — the client is\n' +
@@ -77,6 +85,11 @@ const USAGE =
 	'                                — it never silently ships the default layout.\n' +
 	'  --allow-invalid-flow          bake even when the flow fails validation (also env\n' +
 	'                                ALLOW_INVALID_FLOW=1). Without it such a bake stops.\n' +
+	"  --publish-anyway [<ids>]      with a token, the bake first runs the online Publish's\n" +
+	'                                checks (draft sounds, flow errors, an unplayable family)\n' +
+	'                                and stops on a failure. This ships past every one that\n' +
+	'                                has an override, or only the listed ids (also env\n' +
+	'                                IE_PUBLISH_ANYWAY=1 | <ids>). See lib/publishCheck.mjs.\n' +
 	'  --allow-paytable-drift        bake even when the authored paytable disagrees with the\n' +
 	'                                partner paytable captured in /config (also env\n' +
 	'                                ALLOW_PAYTABLE_DRIFT=1). Without it such a bake stops.';
@@ -130,7 +143,9 @@ const base = (getFlag('base') || DEFAULT_BASE).replace(/\/+$/, '');
 const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.LIVE_ASSETS_TOKEN;
 const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
-const allowInvalidFlow = hasFlag('allow-invalid-flow') || process.env.ALLOW_INVALID_FLOW === '1';
+const publishAnyway = publishAnywayFrom(args, process.env);
+// `--allow-invalid-flow` / ALLOW_INVALID_FLOW=1, or the publish checks' override naming the flow.
+const allowInvalidFlow = lifts(publishAnyway, 'invalid-flow');
 const allowPaytableDrift =
 	hasFlag('allow-paytable-drift') || process.env.ALLOW_PAYTABLE_DRIFT === '1';
 
@@ -197,6 +212,28 @@ function refuseAtGate({ gate, error, details, fixIn, flag, env }) {
 				? `\n  Fix it in ${fixIn}, or re-run with ${flag} (env ${env}=1) to bake it anyway.`
 				: `\n  Fix it in ${fixIn}.`),
 	);
+}
+
+/**
+ * The checks the online Publish runs, asked of the portal (`lib/publishCheck.mjs`): the verdict goes
+ * to the build report folder, and a failure stops the bake at a gate, unless `--publish-anyway` /
+ * `IE_PUBLISH_ANYWAY` lifts it.
+ */
+async function publishChecks() {
+	const verdict = await runPublishCheck({
+		base,
+		project,
+		token,
+		lifted: publishAnyway,
+		get: (url) => fetchRetry(url, undefined, 'publish checks'),
+	});
+	writeBuildReport(PUBLISH_CHECK_REPORT, verdict);
+	for (const line of describePublishCheck(verdict)) {
+		if (verdict.status === 'passed') console.info(line);
+		else console.warn(line);
+	}
+	const refusal = publishCheckRefusal(verdict);
+	if (refusal) refuseAtGate(refusal);
 }
 
 async function bodySnippet(res) {
@@ -312,6 +349,10 @@ async function main() {
 	if (!doc || !Array.isArray(doc.scenes) || doc.scenes.length === 0) {
 		bail(`no authored doc for ${project} — has the project been opened + saved in the editor?`);
 	}
+
+	// The online Publish's checks, before any export writes `deploy/` or anything is compiled.
+	if (dryRun) console.info('(dry run) skipping the publish checks.');
+	else await publishChecks();
 
 	// ── The exports ──────────────────────────────────────────────────────────────────────────────
 	// One POST per launcher exporter, in `BAKE_EXPORTS` order (`lib/bakeExports.mjs` — the twin of the

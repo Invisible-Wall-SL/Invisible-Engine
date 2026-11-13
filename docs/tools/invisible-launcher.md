@@ -162,8 +162,10 @@ short fingerprints, a delivery's result dialog shows them too, and the partner's
 `EMBED.md` lists them in §5.
 
 **When the engine refuses a build, you get its reason, not a log tail.** The engine
-stops a build at three gates:
+stops a build at these gates:
 
+- **the publish checks** (below): draft sounds, flow errors, a flow left from a kind
+  change, a game family the runtime cannot play,
 - **an invalid flow**: Invisible Flow validation errors,
 - **a drifted paytable**: the authored paytable disagrees with the partner's
   captured one,
@@ -177,6 +179,31 @@ paytable override rebuilds with that one gate lifted (`ALLOW_INVALID_FLOW=1` /
 `ALLOW_PAYTABLE_DRIFT=1`). A missing-art override only re-packages the build already on
 disk, which takes seconds. The fix itself belongs in the tool that owns the data. See the
 [publisher runbook](../guides/publisher-runbook.md) for what each refusal means.
+
+**Every ☁ Publish and 📦 Deliver runs the online Publish's checks first** *(engine,
+2026-11-12)*. Before the build exports or compiles anything, the engine asks the portal for
+the checks the Invisible Game Maker's Publish runs, and stops the build if one fails:
+
+| Check | Fix it in | Ship anyway? |
+| --- | --- | --- |
+| sounds the game ships that are still marked draft | Invisible Sound: approve each one, or delete the ones the game should not play | yes |
+| flow validation errors | Invisible Flow → Validation panel | yes |
+| a flow left from a kind change | /admin: re-scaffold the project, or change its kind back | no |
+| a game family the runtime cannot play yet | Invisible Game Config | no |
+
+The progress log names each problem and where to fix it, and the **Build refused** dialog
+lists them. The refusal names its override, `IE_PUBLISH_ANYWAY=1`, the way the flow refusal
+names `ALLOW_INVALID_FLOW=1`. If the dialog does not offer it for these, set
+`IE_PUBLISH_ANYWAY=1` in the environment you start the launcher from (for example, run
+`set IE_PUBLISH_ANYWAY=1` in a Command Prompt and start the launcher from it), publish, then
+start it normally again. `IE_PUBLISH_ANYWAY=unapproved-sounds` lifts only the sounds. A build
+shipped this way says so in its **📊 Build breakdown** (*Shipped past the publish checks*).
+
+**If the portal cannot be asked, the build stops** (*Could not run the publish checks*), so a
+build never ships unchecked by accident. The portal may be restarting after a deploy: wait a
+minute and publish again. `IE_PUBLISH_ANYWAY=1` ships past this too, and the breakdown then
+says *Publish checks never ran*. A build with no portal token (a local `pnpm build`) never
+runs the checks.
 
 **🗜 Optimize never makes the art worse** *(from v1.0.56)*. PNG atlas pages become
 **near-lossless WebP**, the setting the engine's page store uses: no pixel moves by

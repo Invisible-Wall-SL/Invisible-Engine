@@ -76,8 +76,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   program (`warmupSchedule.ts`; a page over 8 MB alone), and it fills the bar's last 15%; the boot
   splash prepares under the bar too, and so do the flow screens the start screen's tap shows,
   mounted hidden and dormant, one a warm-up step, and started in place at their show (2026-11-12
-  below, "the start screen's tap"). Every device starts at full quality (pixel ratio
-  up to 2, MSAA); the game lowers it only when frames measurably fall behind while a round plays,
+  below, "the start screen's tap"), and then a reel game's base game and board with the reels'
+  filler views, unless the tap turns the anticipation mode on (2026-11-13 below, "the base game
+  and its board"). Every device starts at full quality (pixel ratio up to 2, MSAA); the game lowers it
+  only when frames measurably fall behind while a round plays,
 
   Spread across frames behind the loading screen. Every device starts at full quality (the
   screen's pixel ratio up to 2, MSAA; next bullet); the game lowers it only when frames measurably
@@ -378,17 +380,23 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   compiles and the splash's context, program and page now land under the bar, and so do the flow
   screens the start screen's tap shows (Recent changes, 2026-11-12, "the start screen's tap"): the
   tap's mount work fell 63% on `overlay-buffaloduel` and 53% on `bookofborutremake`, its freeze
-  in WebKitGTK from 0.54–0.69 s to 0.30–0.39 s on the first. Left: (1) **the rest of the tap**:
-  the base game screen and its board, which the game mounts itself (about half of the book's
-  tap), and the wake of the screens mounted ahead: every effect there that reads whether its
-  screen has shown runs again, and what starts a clock of its own (emitters, rig-bound effects,
-  coded parts, Element FX) mounts then. Moving the board ahead means starting its reels, symbol
-  rigs and first strip's draws in place: a change of its own (churn rank 5). A step under the bar
-  that mounts one screen ahead ran up to ~80 ms in Chromium (`overlay-buffaloduel`); a phone may
-  show it as one slow bar frame, and splitting it means mounting a screen in parts. (2) A page
+  in WebKitGTK from 0.54–0.69 s to 0.30–0.39 s on the first; and so do the base game and its board
+  (Recent changes, 2026-11-13, "the base game and its board"): the tap's DOM inserts on
+  `overlay-buffaloduel` are now 518 (1,457 before). Left: (1) **the wake**: at the show every
+  effect on what was mounted ahead that reads whether it has shown runs again, and what starts a
+  clock of its own (emitters, rig-bound effects, coded parts, Element FX) mounts then; on
+  `overlay-buffaloduel` the base game's below- and above-reel layers are also remounted by
+  `basegame_intro`'s drive key. (2) **A base game whose tap turns the anticipation mode on**
+  (`bookofborutremake`) still mounts at the tap: the mode moves the reel stack into
+  `<AnticipationCamera>`'s branch; keeping the camera mounted would change what a mid-game mode
+  change does, an owner call. (3) **The first spin**: a reel view's `Symbol` and its kept rig are
+  built on its first draw (the filler views themselves are built ahead now); next, a per-skeleton
+  `RigView` stock under the bar, and the symbols ahead once the one-level difference they left on
+  `bookofborutremake` is explained (Recent changes). A step under the bar that mounts one screen
+  ahead ran up to ~80 ms in Chromium; a phone may show it as one slow bar frame. (4) A page
   over 8 MB still uploads in one frame under the bar (`bookofborutremake`'s uncompressed
   4096×6000 page, 94 MB, 0.2–0.3 s in WebKitGTK): WebGL2 sub-rectangle uploads could split it.
-  (3) The splash's teardown (`loseContext()`) waits for the GPU process: 1.9–6.5 s in Chromium
+  (5) The splash's teardown (`loseContext()`) waits for the GPU process: 1.9–6.5 s in Chromium
   software GL, nothing in WebKitGTK, no spike on the Android phone.
   Next: the owner's `?perf=1` Copy (`perf: 5` or later) on an iPhone with #1601, the churn
   counters and this change released. The stock WebP/PNG sheets that made most of
@@ -615,6 +623,114 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   (3) `namedBy` also matches through `%XX`, backslashes and any case. `stock.json` gains
   `sweepKeptBecause`. The shared runtime is not pruned, so online games are untouched. Gate:
   `check-stock-asset-prune.mts` §8 (10 checks, each failing on the code before it).
+- 2026-11-13 — **The base game and its board are mounted under the loading bar too, dormant, and
+  start in place at the start screen's tap; the reels' filler views are built with them** (branch
+  `engine-board-ahead`, on `main` at `aca60cdb`, after #1637; owner decision: "do the board and the
+  first spin next").
+  - **What was left at the tap after #1637:** the base game the game mounts itself (its below- and
+    above-reel layers, the board and its reels, the win line). On `bookofborutremake` the reel stack
+    was then built a second time: its tap chain turns the anticipation mode on, which moves the reel
+    stack from the bare `{#if}` branch into `<AnticipationCamera>`'s.
+  - **What the first spin built** (Chromium profiles and DOM inserts by component, spin 1 vs spin
+    2): the reels' filler views (`ReelSymbol`, `SymbolWrap`, then their `Symbol`), built the first
+    time a view is handed a cell, so on the first roll; and each view's first draw of a rig (its
+    kept `RigView`, `RigProvider`, bound effects), the "7 rigs" of the phone's report.
+  - **What changed:**
+    1. **Mounted ahead** (`Game.svelte`): when a start-up chain shows the base game of a reel
+       game, the last warm-up step mounts the whole base-game block, without a random draw, inside
+       `<Dormant shown={() => isBasegameActive}>` (`pixi-svelte`): dormant and hidden until the
+       show, kept then; hidden again later, it is unmounted and a later show mounts it as before.
+       The board's `MainContainer` and the win line are hidden, and the reels' Element FX wait,
+       until it is up. Only a reel board (`mechanic.id === 'reels'`): a play field, a card table
+       and a match-3 board start their loop, match or session as they mount.
+    2. **Dormant all the way down:** `<Dormant>` hands down a dormant scope
+       (`setContextDormantScope`) and a restart key its show changes. A `<LayoutScene>` inside
+       sleeps with it, and a restart key of its own changes at the show too; a start-up screen
+       given `dormant` itself (#1637) keeps its own key as is. A kept rig (a reel view's,
+       `<RigProvider parked>`) is put away while dormant and its show is a new play, so it starts as
+       a rig mounted at the tap would.
+    3. **Filler views ahead:** on a board mounted ahead, `ReelPaddingPool` hands its pool a seed
+       (`createPoolViews(…, seed)`), so every filler view (`ReelSymbol`, `SymbolWrap`) is built
+       with the board, vacant. A view's `Symbol` and its rig are still built on its first draw.
+    4. **Not when the tap turns the anticipation mode on** (`chainCallsAction('tapToStart',
+       'enableAnticipationMode')`, e.g. `bookofborutremake`): mounted ahead, that reel stack would
+       be built again in the camera's branch at the tap, so that base game mounts at its show as
+       before. `<AnticipationCamera>` is unchanged.
+  - **Tried and dropped:**
+    - *The camera mounted with every board* (identity unless armed): the book's board could then
+      go ahead too (its tap DOM inserts 667 → 36, its frames identical then), but a flow turning
+      the mode on while the board is up would no longer rebuild the reel stack, as `main` does.
+      A behaviour change for the owner to decide, not part of this change.
+    - *The symbols ahead* (a view's content mounted before it draws): the book's first-spin DOM
+      inserts 1,224 → 355, but 40 pixels one level off in 3 of 442 frames (`a228`, `b066`, `b228`,
+      while the anticipating reel rolls); cause not found.
+    - *Clocks paused in place* (a flipbook's, a placeholder's, a layer's, a sprite's completion,
+      `<EffectPlayer>`'s emission, gated on dormancy): not needed. Gating the `<Flipbook>`
+      primitive itself changed `test6`'s board from the first frame after the tap (its soft edge
+      drew hard).
+    - *Leaving perspective boards out:* `test6`'s board differed from 1 s after the tap, and
+      looked like a perspective, camera or clock problem. It was item 2's composed restart key,
+      which first also reached #1637's start-up screens, so each restarted at its show; it did so
+      with the board not ahead at all. Composed only under `<Dormant>`, `test6`'s board goes ahead
+      and is identical. Found by a build that differed from `main` by ONE change; the earlier
+      bisects, "everything but X", each still carried it.
+  - **Before / after** (`main` `5b1557b7` vs the branch, minified, both games, both tiers, two
+    boots a side, the tap then two spins; a boot's spins land on a book the test server picks, so
+    the spins' counts vary with the outcome; load 1–4; taken before the reel-board test of item 1,
+    which changes nothing on a reel game):
+
+    | WebKitGTK 400×230 | tap: frame spanning it (ms) | tap DOM inserts | 1st spin: longest frame (ms) / DOM inserts |
+    |---|---|---|---|
+    | duel low | 298, 191 → 220, 212 | 1,457, 1,464 → 518, 518 | 681/1,986, 231/1,946 → 168/1,960, 148/2,121 |
+    | duel high | 196, 262 → 171, 159 | 1,457, 1,464 → 518, 518 | 350/1,983, 168/2,105 → 244/1,908, 743/1,663 |
+    | book low | 147, 179 → 151, 158 | 667 → 668 | 202/1,269, 55/1,266 → 190/1,263, 177/1,295 |
+    | book high | 158, 198 → 160, 174 | 667 → 668 | 136/1,245, 178/1,302 → 154/1,277, 52/1,250 |
+
+    | Chromium 734×421 | tap: `pointerup` script (ms) | tap DOM inserts | 1st spin: longest script (ms) / DOM inserts | JS heap after GC, before the tap / after the spins (MB) |
+    |---|---|---|---|---|
+    | duel low | 187, 191 → 110, 123 | 1,457 → 518 | 32/2,085, 33/2,113 → 9/1,915, 37/2,039 | 27.1, 27.0 / 42.2, 41.9 → 30.5, 30.5 / 42.1, 42.3 |
+    | duel high | 150, 169 → 144, 112 | 1,464 → 518 | 36/2,024, 34/2,033 → 24/1,997, 23/1,837 | 27.1, 27.1 / 41.8, 42.6 → 30.6, 30.5 / 42.3, 41.8 |
+    | book low | 113, 60 → 99, 75 | 667 → 668 | 26/1,226, 45/1,252 → 24/1,233, 31/1,229 | 18.2 / 30.8–31.0 → 18.2–18.3 / 30.7–30.8 |
+    | book high | 95, 112 → 127, 106 | 667 → 668 | 18/1,250, 59/1,266 → 34/1,267, 27/1,270 | 18.2–18.3 / 30.8 → 18.3 / 30.7–31.3 |
+
+    - **The tap**, `overlay-buffaloduel`: 64% fewer DOM inserts (1,457 → 518), its `pointerup`
+      script in Chromium 150–191 → 110–144 ms, the frame spanning it in WebKitGTK 191–298 →
+      159–220 ms. `bookofborutremake`: unchanged (item 4). Rechecked on `aca60cdb` (Chromium, one
+      boot a side): the duel's tap DOM inserts 1,464 → 511, the book's 667 → 668.
+    - **The first spin:** no clear change at this sample (the duel's DOM inserts 1,946–2,113 →
+      1,663–2,121): the shells built ahead are a small share of it; each view's `Symbol` and rig,
+      built on its first draw, are the bulk, and stay (below).
+    - **Memory:** the JS heap before the tap +3.4 MB on `overlay-buffaloduel` (the base game is
+      held from the bar), the same after the spins; the book's unchanged. GPU: the same texture
+      data uploaded to the tap and over the run on both sides (91 / 281 MB duel low / high, 96 /
+      460 MB book); what is mounted ahead uploads nothing until it shows.
+  - **Frame by frame** (determinism mode, minified, every 3rd frame, sha-256, `main` `aca60cdb` vs
+    the branch): through the tap (61 frames), the first spin (80) and the second (80) on
+    `overlay-buffaloduel` and `test6` (both boards mounted ahead) and `bookofborutremake` (not):
+    663 of 663 byte-identical. What is woken starts as a fresh mount would.
+  - **Current-games harness** (determinism, `main` `aca60cdb` vs the branch, game by game on the 17
+    games of the local list; the full listing needs `PIPELINE_GAMES_URL` / `PIPELINE_CI_TOKEN`):
+    the base scenario 14 pass · 0 fail · 3 not rendered · 0 changed screen(s), and every lines
+    scenario of the two heavy games (`line-win`, `free-spins`, `big-wins`, `fs-transition`,
+    `big-win-intro`) 2 pass · 0 changed. Not rendered on either side: `cloud` (its screen script
+    stops at step 9), and `salmons` and `test-card`, which the slot runtime refuses; on their own
+    arcade and card runtimes `salmons` needs a rooms server and `test-card` stops at step 9.
+  - **Verified here:** `basegameAhead.fixture.ts` (the seeded pool, the wiring in `Game.svelte`,
+    `<Dormant>`, `<LayoutScene>`, the kept rig, the seeded filler pool; 23 planted mutations
+    caught, among them a key composed for a screen given `dormant` and a play field, card table or
+    match-3 board mounted ahead); `rigKeep.fixture.ts` and
+    `check-canvas-window-scale` updated. Gates, on `main` at `aca60cdb`: `check:svelte`
+    `apps/lines` 145, `packages/pixi-svelte` 14, `packages/engine-layout` 290 (all at baseline);
+    `check-all` on `pixi-svelte`, `apps/lines`, `engine-layout`, `components-shared`, every check
+    that reads a changed file and the spikes (`check:element-fx` among them) 167/167;
+    `check:agents-knowledge`; ESLint and Prettier on the changed files.
+  - **Not verified:** a real phone (the owner's `?perf=1`: the tap and the first round's `bet`
+    frame); WebKitGTK memory; the harness's full CI listing. The arcade and card games
+    (`salmons`, `test-card`) render on neither side here (no rooms server; the screen script
+    stops at step 9), so they are kept off the ahead path by the mechanic test, not by a render.
+  - **Next:** the book's board (the camera question in "Tried and dropped"); a view's `Symbol` and
+    kept rig ahead (a per-skeleton `RigView` stock under the bar), once the one-level difference
+    the symbols ahead left on `bookofborutremake` is explained.
 - 2026-11-12 — **A desktop build and a delivery ship only what the game loads: the build also leaves
   out the art the boot skips and the sample folders' dead files.** The owner's ☁ Publish of
   `overlay_buffaloduel` (v12, engine `248b7157`) shipped 337 files, 53.5 MB, with 38 files of

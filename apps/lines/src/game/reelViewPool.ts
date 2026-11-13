@@ -188,20 +188,22 @@ export type PoolView<C> = { cell: C | undefined; vacant: boolean };
 
 /**
  * The filler views, from each crossing's shown cells: a view is built the first time it is handed a
- * cell and then lives on, VACANT while its entry is empty. Each view's item is handed out again
- * unchanged until its cell or its vacancy changes, so a keyed `{#each}` over them changes an item
- * only then (anything reading a view's props would otherwise be re-checked on every crossing), and
- * the list runs the `{#each}` only then ({@link keepList}): a crossing that hands no view a new
- * cell changes nothing.
+ * cell and then lives on, VACANT while its entry is empty. Handed a `seed`, a view not built yet is
+ * built at once, vacant on that cell (a vacant view draws nothing and follows nothing about its
+ * cell), so the reel's first roll builds no view: a board mounted ahead of its first show
+ * (`ReelPaddingPool`) builds them then. Each view's item is handed out again unchanged until its
+ * cell or its vacancy changes, so a keyed `{#each}` over them changes an item only then (anything
+ * reading a view's props would otherwise be re-checked on every crossing), and the list runs the
+ * `{#each}` only then ({@link keepList}): a crossing that hands no view a new cell changes nothing.
  */
 export const createPoolViews = <C>() => {
 	const items: PoolView<C>[] = [];
 	let listedBefore: PoolView<C>[] | undefined;
-	return (shown: readonly (C | undefined)[]): PoolView<C>[] => {
+	return (shown: readonly (C | undefined)[], seed?: C): PoolView<C>[] => {
 		items.length = shown.length;
 		const listed = shown.map((now, slot) => {
 			const kept = items[slot];
-			const cell = now ?? kept?.cell;
+			const cell = now ?? kept?.cell ?? seed;
 			const vacant = now === undefined;
 			if (kept && kept.cell === cell && kept.vacant === vacant) return kept;
 			return (items[slot] = { cell, vacant });
