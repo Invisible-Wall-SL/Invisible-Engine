@@ -1551,9 +1551,13 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		total: event.total - counted,
 	});
 	const step = (index: number, amount: number, shown: number) => {
-		playCoinCollectSound(order[index].symbol.name);
 		stateBet.winBookEventAmount = shown;
 		eventEmitter.broadcast({ type: 'respinTallyStep', index, amount, total: shown });
+	};
+	const land = (index: number) => {
+		const coin = order[index];
+		playCoinCollectSound(coin.symbol.name);
+		step(index, coin.amount, tally.arrive(index));
 	};
 	stateRespinBoard.dimmed = plan.dimmed.map(({ reel, row }) => respinCellKey(reel, row));
 	await showLineMultiples(plan.marks);
@@ -1561,15 +1565,14 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	for (const { run, cells } of plan.steps) {
 		const first = flown;
 		flown += cells.length;
-		const flights = flyCoinsToTotal(cells, (index) =>
-			step(first + index, order[first + index].amount, tally.arrive(first + index)),
-		);
+		const flights = flyCoinsToTotal(cells, (index) => land(first + index));
 		if (!run) await flights;
 		else await presentLineRun(run, flights);
 	}
 	if (stateBet.winBookEventAmount !== tally.final) {
 		// The bar is still counting to the last coin's value: let it land, THEN hold the beat, or the
-		// banked part joins mid-count and the beat is never seen.
+		// banked part joins mid-count and the beat is never seen. The banked part is no coin, so it
+		// plays no coin's collect sound.
 		if (banked > 0) await waitPresentation(TALLY_LAND_MS + BANKED_BEAT_MS);
 		step(order.length, tally.final - stateBet.winBookEventAmount, tally.final);
 	}
