@@ -15,6 +15,7 @@ import {
 	createMockRgs,
 	ENHANCEMENT_BITS,
 	flagsOf,
+	FORCE_FIVE_BITS,
 	PARTNER_GAME as G,
 } from './mock-rgs-server-holdandwin-partner.mjs';
 
@@ -184,6 +185,9 @@ const collectorsOn = (board) =>
 	board[G.collectorReel]
 		.map((c, row) => (c.startsWith('COLLECT') ? { reel: G.collectorReel, row, cell: c } : null))
 		.filter(Boolean);
+/** The board's coin cells, in place: what a collect must leave where it found them. */
+const coinsOn = (board) =>
+	JSON.stringify(board.map((reel) => reel.map((c) => (c.startsWith('COIN') ? c : null))));
 const totalOf = (cell) => (cell === 'COLLECT' ? 0 : Number(cell.slice('COLLECT_'.length)));
 
 // ---------- one round, played as a client plays it ----------
@@ -255,9 +259,12 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 	const board = ctxs(spin, 'playWindow')[0];
 	check(boardOk(board, G.rows), `${where}: a whole 5×3 reel-major board`);
 	const played = ctxs(spin, 'playedSpin')[0];
+	// The partner's rule: playedSpin is the board after everything the spin did, so after a collect
+	// it is collectWindow (the coins stay beside COLLECT_<total>); with nothing done, playWindow.
+	const endBoard = ctxs(spin, 'collectWindow')[0] ?? board;
 	check(
-		JSON.stringify(played) === JSON.stringify(board),
-		`${where}: playedSpin is the dealt board`,
+		JSON.stringify(played) === JSON.stringify(endBoard),
+		`${where}: playedSpin is the board after the spin`,
 	);
 	for (let reel = 0; reel < G.reels; reel++) {
 		for (const c of board[reel]) {
@@ -290,9 +297,11 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 	const basePaid = checkCollects(spin, coins, inView, where);
 	if (basePaid) {
 		stats.baseCollects++;
+		const name = ctxs(spin, 'enterBonus').length ? 'initialspin' : 'winWithoutTrigger';
 		check(
-			ctxs(spin, 'bonusWin')[0].bonus === 'initialspin',
-			`${where}: the base collect is bonusWin "initialspin"`,
+			ctxs(spin, 'bonusWin')[0].bonus === name,
+			`${where}: the base collect is bonusWin "${name}"`,
+			ctxs(spin, 'bonusWin')[0].bonus,
 		);
 	}
 	let collected = basePaid;
@@ -300,6 +309,7 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 	if (basePaid) {
 		const cw = ctxs(spin, 'collectWindow')[0];
 		check(boardOk(cw, G.rows), `${where}: collectWindow is a whole board`);
+		check(coinsOn(cw) === coinsOn(board), `${where}: the collected coins stay on collectWindow`);
 		for (const c of collectorsOn(cw))
 			check(totalOf(c.cell) === totals.get(keyOf(c)), `${where}: COLLECT_<cents> = its total`);
 	}
@@ -325,14 +335,14 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 		const flags = flagsOf(bits);
 		if (flags.powerFive) {
 			stats.supers++;
-			check(bits === '11111', `${where}: Force 5 has every enhancement`);
+			check(bits === FORCE_FIVE_BITS, `${where}: Force 5 is its own set, ${FORCE_FIVE_BITS}`);
 		} else
 			check(
 				flags.expand + flags.boost + flags.multiply + flags.respin >= 1,
 				`${where}: the bonus has at least one enhancement`,
 			);
 		if (flags.expand) stats.expand++;
-		const rows = G.rows + (flags.expand ? (flags.powerFive ? 2 : 1) : 0);
+		const rows = G.rows + (flags.powerFive ? 2 : flags.expand ? 1 : 0);
 		const start = flags.powerFive ? 5 : flags.respin ? 4 : 3;
 		check(enter.left === start, `${where}: the counter starts at ${start}`, `left ${enter.left}`);
 		check(
@@ -366,8 +376,8 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			const rb = ctxs(e, 'playWindow')[0];
 			check(boardOk(rb, rows), `${at}: a whole board of ${rows} rows`, `${rb?.[0]?.length}`);
 			check(
-				JSON.stringify(ctxs(e, 'playedSpin')[0]) === JSON.stringify(rb),
-				`${at}: playedSpin is the dealt board`,
+				JSON.stringify(ctxs(e, 'playedSpin')[0]) === JSON.stringify(ctxs(e, 'collectWindow')[0]),
+				`${at}: playedSpin is the board after the respin (collectWindow)`,
 			);
 			const rc = coinsOf(e, base, at);
 			const fresh = new Set(rc.map(keyOf));
@@ -397,8 +407,8 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			// Boost and multiply: a hit names a fresh cash coin; a miss is "X".
 			const mods = new Map();
 			for (const [ev2, field, on] of [
-				['boost', 'boost', flags.boost],
-				['multiplier', 'multiplier', flags.multiply],
+				['boost', 'boost', flags.boost || flags.powerFive],
+				['multiplier', 'multiplier', flags.multiply || flags.powerFive],
 			]) {
 				const got = ctxs(e, ev2);
 				if (!on) {
@@ -671,15 +681,15 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 		const r = await playRound(srv, 'f', option, 4, `force:${spec}`, `force:${spec}`);
 		return { r, before };
 	};
-	for (const bits of ['10000', '01000', '00010', '00001', '11010', '01011', '11111']) {
-		const { r } = await forced(`enhancements:${bits}`, bits === '11111' ? 0 : 3);
+	for (const bits of ['10000', '01000', '00010', '00001', '11010', '01011', FORCE_FIVE_BITS]) {
+		const { r } = await forced(`enhancements:${bits}`, bits === FORCE_FIVE_BITS ? 0 : 3);
 		check(r.enter?.bonusTriggers === bits, `force:enhancements:${bits} deals that set`);
 	}
 	{
 		const { r } = await forced('superBonus');
 		const board = ctxs(r.events, 'enterBonus')[0];
 		check(
-			board?.bonusTriggers === '11111' && board.window.rows === 5,
+			board?.bonusTriggers === FORCE_FIVE_BITS && board.window.rows === 5,
 			'force:superBonus starts Force 5 on a 5×5 board',
 		);
 	}
@@ -726,7 +736,8 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 		);
 	}
 	for (const bad of [
-		'enhancements:00100',
+		'enhancements:11111',
+		'enhancements:10100',
 		'enhancements:00000',
 		'enhancements:1',
 		'nope',

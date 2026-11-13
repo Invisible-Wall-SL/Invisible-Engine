@@ -19,9 +19,18 @@
  * taking every coin's full value; `retrigger {games}`; a feature (and a winning base round) closed by
  * the client's `collect`; `config` before the first `bet` (errorCode 110); `seq` as a position.
  *
+ * Confirmed by the partner (2026-11-13): `playWindow` is the board before anything happens in the
+ * spin and `playedSpin` the board after all of it, so after a collect `playedSpin` equals
+ * `collectWindow`, where the collected coins stay beside `COLLECT_<total>`; a collect in a spin with
+ * no trigger is `bonusWin {bonus: "winWithoutTrigger"}`, `"initialspin"` when the spin also
+ * triggers; their bonus table lists the 15 mixes of expand, boost, multiply and respin, and Force 5
+ * alone as `00100`.
+ *
  * What is OURS, because the capture does not show it: the five paylines' rows, the `from` of
  * `spinTrigger.trigger`, the fields of `enterBonus` / `playedBonusSpin` beyond those named, Force 5's
- * exact strength (it opens 5×5 at entry here), and boost-then-multiply when both hit one coin.
+ * exact strength (it opens 5×5 at entry here, with Boost and Multiply rolling every respin),
+ * `boostsEnabled` repeating `00100` through Force 5, coins leaving a respin's `collectWindow`, and
+ * boost-then-multiply when both hit one coin.
  *
  * Forced beats (authoring and tests): `play.context = "force:<token>[,<token>…]"`, or held for a
  * session's next round by `POST …/force?sid=<sid>&beat=<tokens>`. Tokens: `enhancements:<bits>`,
@@ -77,6 +86,8 @@ export const PARTNER_GAME = Object.freeze({
 
 /** The bonus id's bits, in the partner's order (`boostsAwarded`, `spinTrigger.bonus`). */
 export const ENHANCEMENT_BITS = ['expand', 'boost', 'powerFive', 'multiply', 'respin'];
+/** Force 5's bonus id: the `powerFive` bit alone, never mixed with the other four. */
+export const FORCE_FIVE_BITS = '00100';
 /** Our enhancement kinds (design §3.3) for each bit but `powerFive`, which is the super bonus. */
 const BIT_KIND = {
 	expand: 'extraRow',
@@ -293,13 +304,15 @@ export function parsePartnerForce(spec) {
 	}
 	if (force.bits) {
 		const on = flagsOf(force.bits);
-		if (on.powerFive && force.bits !== '11111')
-			errors.push('Force 5 draws all four enhancements: enhancements:11111');
+		if (on.powerFive && force.bits !== FORCE_FIVE_BITS)
+			errors.push(`Force 5 is its own set, never mixed: enhancements:${FORCE_FIVE_BITS}`);
 		if (!on.powerFive && !['expand', 'boost', 'multiply', 'respin'].some((b) => on[b]))
 			errors.push('the bonus draws at least one enhancement');
-		if (force.superBonus && force.bits !== '11111') errors.push('superBonus is enhancements:11111');
-		if (force.boostHit && !on.boost) errors.push('boostHit needs the boost bit');
-		if (force.multiplyHit && !on.multiply) errors.push('multiplyHit needs the multiply bit');
+		if (force.superBonus && force.bits !== FORCE_FIVE_BITS)
+			errors.push(`superBonus is enhancements:${FORCE_FIVE_BITS}`);
+		if (force.boostHit && !on.boost && !on.powerFive) errors.push('boostHit needs the boost bit');
+		if (force.multiplyHit && !on.multiply && !on.powerFive)
+			errors.push('multiplyHit needs the multiply bit');
 	}
 	if (force.baseCollect && Object.keys(force).some((k) => !BASE_COLLECT_FLAGS.includes(k)))
 		errors.push('baseCollect pays a collect with no bonus; it takes only twoCollectors');
@@ -502,10 +515,10 @@ export function createPartnerCollectorEngine(opts = {}) {
 		return gathered * collectors.length;
 	};
 
-	/** The enhancement set: forced bits, else the draw. Force 5 draws all. */
+	/** The enhancement set: forced bits, else the draw. Force 5 is its own set. */
 	const drawBits = (superBonus, force) => {
 		if (force?.bits) return force.bits;
-		if (superBonus) return '11111';
+		if (superBonus) return FORCE_FIVE_BITS;
 		const pool = pacing.enhancements.pool;
 		const kinds = new Set();
 		const draw = pacing.enhancements.draw;
@@ -550,7 +563,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 		const collectorsLanded = collectorsOf(board).length > 0;
 		const chance = pacing.trigger.chance;
 		const superBonus =
-			Boolean(force?.superBonus || force?.bits === '11111') ||
+			Boolean(force?.superBonus || force?.bits === FORCE_FIVE_BITS) ||
 			(!force && collectorsLanded && rand() < chance.rate);
 		const triggered =
 			!force?.baseCollect && (superBonus || runOf(board).length >= pacing.trigger.run.min);
@@ -559,7 +572,6 @@ export function createPartnerCollectorEngine(opts = {}) {
 			for (let i = 0; i < n; i++) placeCoin(board, pick(coinReels), (c) => 'symbol' in c);
 		}
 		const run = runOf(board);
-		const dealt = windowOf(board);
 
 		events.push(jackpotsEvent(), spinStartEvent());
 		const coins = coinsOf(board);
@@ -575,21 +587,29 @@ export function createPartnerCollectorEngine(opts = {}) {
 			round.win += paid;
 			events.push({
 				event: 'bonusWin',
-				context: { bonus: 'initialspin', pay: paid, isSpinWin: false },
+				context: {
+					bonus: triggered ? 'initialspin' : 'winWithoutTrigger',
+					pay: paid,
+					isSpinWin: false,
+				},
 			});
 			events.push({ event: 'collectWindow', context: windowOf(board) });
 		}
+		// The board after everything the spin did: the collectors carry their totals, the coins stay.
+		const played = windowOf(board);
 		if (!triggered) {
-			events.push({ event: 'playedSpin', context: dealt });
+			events.push({ event: 'playedSpin', context: played });
 			return;
 		}
 		const bits = drawBits(superBonus, force);
 		const flags = flagsOf(bits);
 		const pool = (superBonus ? pacing.superBonus.enhancements : pacing.enhancements).pool;
-		const rows = G.rows + (flags.expand ? (enhancementOf(pool, 'extraRow')?.rows ?? 1) : 0);
-		const start = flags.respin
-			? (enhancementOf(pool, 'extraRespins')?.start ?? pacing.respins.start + 1)
-			: pacing.respins.start;
+		const rows =
+			G.rows + (flags.expand || superBonus ? (enhancementOf(pool, 'extraRow')?.rows ?? 1) : 0);
+		const start =
+			flags.respin || superBonus
+				? (enhancementOf(pool, 'extraRespins')?.start ?? pacing.respins.start + 1)
+				: pacing.respins.start;
 		events.push({ event: 'boostsAwarded', context: { ...flags } });
 		const occurs = superBonus && run.length < pacing.trigger.run.min ? 1 : run.length;
 		events.push({
@@ -601,7 +621,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 				trigger: { occurs: [3, 4, 5], from: superBonus ? chance.name : 'run' },
 			},
 		});
-		events.push({ event: 'playedSpin', context: dealt });
+		events.push({ event: 'playedSpin', context: played });
 		const triggering = coins
 			.concat(collectors)
 			.filter((c) => run.includes(c.reel) || (superBonus && c.reel === collectorReel))
@@ -668,8 +688,6 @@ export function createPartnerCollectorEngine(opts = {}) {
 		}
 		const coins = coinsOf(board).map((c) => ({ ...c, original: c.cell.coin }));
 		const cash = coins.filter((c) => !isJackpot(c.cell.coin));
-		const dealt = windowOf(board);
-
 		events.push(jackpotsEvent(), spinStartEvent());
 		events.push({ event: 'boostsEnabled', context: { ...f.flags } });
 		const flushPays = pushCoins(events, board, coins, base);
@@ -681,7 +699,8 @@ export function createPartnerCollectorEngine(opts = {}) {
 			if (!hit) return null;
 			return { coin: pick(cash), value: weighted(e.values).value };
 		};
-		if (f.flags.boost) {
+		// Force 5 rolls Boost and Multiply every respin; its bonus id carries only `powerFive`.
+		if (f.flags.boost || f.superBonus) {
 			const hit = roll('boost', force?.boostHit);
 			if (hit) {
 				const startingPay = coinPay(hit.coin.cell.coin, base);
@@ -694,7 +713,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 				});
 			} else hits.push({ event: 'boost', context: { boost: 'X' } });
 		}
-		if (f.flags.multiply) {
+		if (f.flags.multiply || f.superBonus) {
 			const hit = roll('multiply', force?.multiplyHit);
 			if (hit) {
 				const startingPay = coinPay(hit.coin.cell.coin, base);
@@ -729,7 +748,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 			f.left = f.start;
 		}
 		f.played += 1;
-		events.push({ event: 'playedSpin', context: dealt });
+		events.push({ event: 'playedSpin', context: windowOf(after) });
 		const snapshot = { played: f.played, left: f.left, bonus: f.bits };
 		events.push({ event: 'playedBonusSpin', context: snapshot });
 		if (f.left === 0) {

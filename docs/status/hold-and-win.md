@@ -1135,6 +1135,20 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **The partner-wire mock answers a collect and Force 5 as the partner's server
+  does.** Their developer confirmed the shapes
+  ([capture, "Confirmed by the partner"](../reference/play4fun-collector-respin-capture.md)):
+  - `playedSpin` is now the board after the spin (after a collect it equals `collectWindow`), not
+    the dealt board again. The collected coins stay on both, beside `COLLECT_<total>`.
+  - A collect in a spin with no trigger is `bonusWin "winWithoutTrigger"`; `"initialspin"` only
+    when the spin also triggers.
+  - Force 5 is the bonus id `00100` (their table lists it alone), not `11111`: the mock opens it
+    5×5 from 5 respins and rolls Boost and Multiply every respin; `force:superBonus` and
+    `enhancements:00100` deal it, and a set mixing `powerFive` with another bit is refused.
+  - The client already read all three right: the reels stop on `playWindow`, totals come from
+    `collectWindow`, and the round pays `bonusWin` / `gameEnd`, never a sum of the board.
+    `collectorRespin.fixture` (101) now replays the confirmed boards; `check:holdandwin-partner`
+    checks the three rules.
 - 2026-11-12 — **A switch between the partner's wire and ours no longer carries a tab's config
   (#1602 review).** When a running project gained or lost `holdAndWin.enhancements`, the test
   server's rebuild (`swapMock` on a contract change, `carryPins` on a `/refresh`) carried each
