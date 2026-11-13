@@ -181,6 +181,11 @@ Shipped capabilities on `main`:
   Gate: `check:screen-cue-fx` §4. ⏳ Not yet browser-verified. Open: the owner reported a screen
   effect "playing continuously" — not reproduced; the runtime and the editor's ▶ both play an _On
   cue_ entry once per fire, and only **Always** loops.
+- 2026-11-13 — **Reel grid: preview N rows grows only the selected grid; ⇕ Reserve rows reads the
+  canvas factor.** In a multi-grid scene the switch drew every reel grid grown; it now applies to the
+  selected one, in the edited screen. ⇕ Reserve rows passes every layout's canvas factor (not just
+  the open tab's), so an old px lift on a rescaled, drag-resized grid is swapped, not doubled. Detail: `docs/status/hold-and-win.md` Recent changes
+  2026-11-13 (#1659 review).
 - 2026-11-13 — **Reel grid: board nudge rows + a grown-board preview.** A new **board nudge rows**
   field moves the board by whole row pitches as each layout draws them (`boardNudgeRows`, mirrored
   from the game's resolver in `reelGridGeometry`), and **preview N rows** (shown when the Game Config
