@@ -1177,16 +1177,23 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   scale was 1 when a canvas rescale ran: `canvasRescale` multiplies the node's scale and its px nudge
   by the same k, so a drag-resized grid (scale s0 ≠ 1) rescaled later stored the lift × k at scale
   s0 × k, matched neither, and Reserve kept the px lift AND added the row lift (lifted about twice as
-  far, reading as reserved). `isLegacyLift` now checks the lift at ×1 and at the doc's **canvas
-  factor** (how many times the game-type reference the canvas is; the editor's `canvasFactor`,
-  passed to `expandingBoardReserved` / `reserveExpandingBoard`) and no longer guesses from the grid's
-  scale, which also stops it clearing a hand-set nudge that happened to equal lift × scale. Not
-  covered: a lift written between two rescales (it carries only the later factor); it is kept, as
-  an author nudge would be. Loading still writes nothing; only the button does. Editor: the **preview
-  N rows** switch grows only the selected reel grid, not every grid in a multi-grid scene. Guard:
-  `test-hold-and-win-template.mjs` swaps the lift at scale 1, canvas-rescaled, drag-resized, and
-  drag-resized then rescaled (×1.5, ×2), and keeps hand-set nudges (mutants: dropping the factor
-  fails 3 cases; the old scale guess clears a hand-set nudge). **Getting Hot:** its status here gives
+  far, reading as reserved). `isLegacyLift` now also tries the doc's **canvas factors**: how many
+  times the game-type reference each layout's box is. The editor passes every layout's factor, so
+  the answer doesn't depend on the open tab. This holds for a drag-resized grid on a canvas rescaled
+  from the reference size. The grid's own scales stay as candidates for a scale-1 grid on a canvas
+  authored at another size. Not covered: a lift written between two rescales (it carries only the
+  later factor) is kept, as an author's nudge would be. Loading still writes nothing; only the
+  button does. Editor: the **preview N rows** switch grows only the selected reel grid in the edited
+  screen, not every grid (every screen's grid is `reel-grid`). Guard: `test-hold-and-win-template.mjs`
+  swaps the lift in these cases:
+  - scale 1, rescaled or not;
+  - a scale-1 grid on a 1280-wide canvas rescaled ×2;
+  - drag-resized, rescaled or not (×1.5, ×2);
+  - a ×2 canvas with one layout box hand-edited.
+
+  It keeps hand-set nudges. Planted-bug checks: dropping the canvas factors fails 3 cases, dropping
+  the grid scales fails the 1280 case, using one layout's factor fails the hand-edited case.
+  **Getting Hot:** its status here gives
   cells 79 px, a −79 px lift and scale 2.59 with no canvas rescale (factor 1), which the guard already
   matched; this change asks nothing new of the owner. The step owed since #1659 stands: press ⇕
   Reserve rows on it, then publish. If the board then sits about twice as high as it should, the

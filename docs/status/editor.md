@@ -173,8 +173,8 @@ Shipped capabilities on `main`:
 ## Recent changes
 - 2026-11-13 — **Reel grid: preview N rows grows only the selected grid; ⇕ Reserve rows reads the
   canvas factor.** In a multi-grid scene the switch drew every reel grid grown; it now applies to the
-  selected one. ⇕ Reserve rows passes the editor's `canvasFactor` so an old px lift on a rescaled,
-  drag-resized grid is swapped, not doubled. Detail: `docs/status/hold-and-win.md` Recent changes
+  selected one, in the edited screen. ⇕ Reserve rows passes every layout's canvas factor (not just
+  the open tab's), so an old px lift on a rescaled, drag-resized grid is swapped, not doubled. Detail: `docs/status/hold-and-win.md` Recent changes
   2026-11-13 (#1659 review).
 - 2026-11-13 — **Reel grid: board nudge rows + a grown-board preview.** A new **board nudge rows**
   field moves the board by whole row pitches as each layout draws them (`boardNudgeRows`, mirrored

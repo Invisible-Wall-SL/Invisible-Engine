@@ -1962,6 +1962,14 @@
 		const cur = mainSizesMap[currentLayoutType];
 		return ref && cur && ref.width > 0 ? cur.width / ref.width : 1;
 	});
+	/** Every layout's {@link canvasFactor} (those with a reference box), so whether the reel grid is
+	 * reserved does not depend on the open layout tab. */
+	const canvasFactors = $derived(
+		Object.entries(mainSizesMap).flatMap(([lt, cur]) => {
+			const ref = referenceMainSizes?.[lt as LayoutType];
+			return ref && ref.width > 0 ? [cur.width / ref.width] : [];
+		}),
+	);
 	/**
 	 * Does the reel grid still lack room for the rows an expanding respin board grows into? (The
 	 * scaffold reserves them only for a config that expanded when the layout was seeded.)
@@ -1971,7 +1979,7 @@
 			!expandingBoardReserved(
 				{ ...data.doc, scenes, mainSizesMap },
 				data.expansionMaxRows ?? 0,
-				canvasFactor,
+				canvasFactors,
 			),
 	);
 	/** The canvas draws the reel grid grown to the respin board's `maxRows` (the reel grid's
@@ -1984,7 +1992,7 @@
 		scenes = reserveExpandingBoard(
 			{ ...data.doc, scenes, mainSizesMap },
 			data.expansionMaxRows,
-			canvasFactor,
+			canvasFactors,
 		).scenes;
 		markDirty();
 	}

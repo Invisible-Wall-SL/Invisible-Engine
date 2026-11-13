@@ -495,7 +495,8 @@ const SIZE = {
 	);
 	// The old lift is recognised at any grid scale: a canvas rescale by k multiplies the node's scale
 	// AND its px nudge by k (the cells stay), so the stored lift is −40 × k whatever scale the grid
-	// had before (Getting Hot's was drag-resized to 2.59). The doc's canvas factor names k.
+	// had before (Getting Hot's was drag-resized to 2.59). The doc's canvas factors name k for a doc
+	// that sat at the reference size; the grid's scale names it for a scale-1 grid on any canvas.
 	const withGrid = (patch) => ({
 		...scaled,
 		scenes: scaled.scenes.map((sc) => ({
@@ -504,20 +505,30 @@ const SIZE = {
 		})),
 	});
 	const liftCases = [
-		['scale 1, never rescaled', { scale: { x: 1, y: 1 }, boardNudgeY: -40 }, 1],
-		['scale 1, canvas-rescaled ×1.5', { scale: { x: 1.5, y: 1.5 }, boardNudgeY: -60 }, 1.5],
-		['drag-resized to 2.59, never rescaled', { boardNudgeY: -40 }, 1],
+		['scale 1, never rescaled', { scale: { x: 1, y: 1 }, boardNudgeY: -40 }, []],
+		['scale 1, canvas-rescaled ×1.5', { scale: { x: 1.5, y: 1.5 }, boardNudgeY: -60 }, [1.5]],
+		[
+			'scale 1 on a 1280-wide canvas, rescaled ×2 (factor 2560 / 1920)',
+			{ scale: { x: 2, y: 2 }, boardNudgeY: -80 },
+			[2560 / 1920],
+		],
+		['drag-resized to 2.59, never rescaled', { boardNudgeY: -40 }, []],
 		[
 			'drag-resized to 2.59, then canvas-rescaled ×2',
 			{ scale: { x: 5.18, y: 5.18 }, boardNudgeY: -80 },
-			2,
+			[2],
 		],
 		[
 			'drag-resized to 2.59, then canvas-rescaled ×1.5',
 			{ scale: { x: 2.59 * 1.5, y: 2.59 * 1.5 }, boardNudgeY: -40 * 1.5 },
-			1.5,
+			[1.5],
 		],
-		['reserved after a ×2 canvas rescale', { boardNudgeY: -40 }, 2],
+		[
+			'rescaled ×2, one layout box hand-edited (any layout tab open)',
+			{ scale: { x: 5.18, y: 5.18 }, boardNudgeY: -80 },
+			[1.7, 2, 2, 2],
+		],
+		['reserved after a ×2 canvas rescale', { boardNudgeY: -40 }, [2]],
 	];
 	for (const [label, patch, factor] of liftCases) {
 		const doc = withGrid(() => patch);
@@ -537,12 +548,12 @@ const SIZE = {
 			`${label}: reserving again changes nothing`,
 		);
 	}
-	// A px nudge that is not the old lift at the doc's canvas factor is the author's: kept beside the
-	// row lift — including one that equals the old lift × the grid's scale (no rescale happened).
+	// A px nudge that is not the old lift at any of those factors is the author's: kept beside the
+	// row lift.
 	for (const [label, patch, factor] of [
-		['hand-set −25 px', { boardNudgeY: -25 }, 1],
-		['hand-set −25 px on a ×2 canvas', { scale: { x: 5.18, y: 5.18 }, boardNudgeY: -25 }, 2],
-		['old lift × grid scale, never rescaled', { boardNudgeY: -40 * 2.59 }, 1],
+		['hand-set −25 px', { boardNudgeY: -25 }, []],
+		['hand-set −25 px on a ×2 canvas', { scale: { x: 5.18, y: 5.18 }, boardNudgeY: -25 }, [2]],
+		['hand-set −50 px on a ×2 canvas', { scale: { x: 5.18, y: 5.18 }, boardNudgeY: -50 }, [2]],
 	]) {
 		const g = gridOf(
 			mod.reserveExpandingBoard(
@@ -559,7 +570,7 @@ const SIZE = {
 	// Loading never moves a doc: only the button writes (the editor reads `expandingBoardReserved`).
 	const loaded = withGrid(() => ({ boardNudgeY: -40 }));
 	const before = JSON.stringify(loaded);
-	mod.expandingBoardReserved(loaded, maxRows, 1);
+	mod.expandingBoardReserved(loaded, maxRows);
 	assert(JSON.stringify(loaded) === before, 'reading the reserve state leaves the doc unchanged');
 	// A board that no longer grows (maxRows back to its rows) loses its row lift.
 	const reserved = mod.reserveExpandingBoard(scaled, maxRows);
