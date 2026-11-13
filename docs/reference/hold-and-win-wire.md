@@ -535,7 +535,7 @@ The partner's Fortune Vault Force 5 (our Getting Hot, game 8) sends its own even
 | `boostsAwarded` / `spinTrigger` / `enterBonus` | `holdAndWinTrigger {cause: "run", cells: collectors, enhancements, expansion?}`, the trigger spin's collect as `coinCollect`, then `enterBonus` |
 | a respin's `cellPayAmount` / `boost` / `multiplier` / `collect` / `collectWindow` | `coinsLand`, `enhancementHit` / `enhancementMiss`, `coinCollect` per collector, `cellsCleared` |
 | `retrigger`, `playedBonusSpin {played, left}` | `respinUpdate`, the snapshot |
-| the bonus board's rows, which number the rows Expand / Force 5 opened FIRST (the entry collector at row 0 of the 3-row board is at row 1 of the 4-row one) | our rows: the base rows keep their index and the opened rows follow them (they draw below) |
+| the bonus board's rows, top-down, the rows Expand / Force 5 opened on TOP (the entry collector at row 0 of the 3-row board is at row 1 of Expand's 4-row board, row 2 of Force 5's) | our rows: the base rows keep their index and the opened rows follow them, outward from the base rows (the wire's row 0 is our last) |
 | `playedBonusSpins` + `gameEnd` | `holdAndWinEnd` (the sum of the collectors), then theirs |
 
 The flags map to `enhancements`: expand → `extraRow`, boost → `boost`, powerFive → `superBonus`,

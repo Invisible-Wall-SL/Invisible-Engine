@@ -1136,8 +1136,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 - 2026-11-13 — **Getting Hot: a surprise trigger drops its coins and collector onto the board,
-  and the partner's real round replays as a test.** Their developer sent one full round from their
-  server log ([capture, "One real round"](../reference/play4fun-collector-respin-capture.md)): a
+  and the partner's three real rounds replay as tests.** Their developer sent full rounds from their
+  server log ([capture, "Real rounds"](../reference/play4fun-collector-respin-capture.md)): a
   `surpriseTrigger {state: 16}` after a `playWindow` with no coin and no collector, the server's
   added coins and collector on `collectWindow` / `playedSpin`, then 13 Expand respins with two
   collectors, a MINI coin and `gameEnd 1060`.
@@ -1159,9 +1159,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Money** already read right: totals off the boards, wins off `bonusWin` / `gameEnd`. A
     `collect.pay` with no board after it now reads as the collector's new total (the partner's
     meaning).
-  - Gate: `collectorRespin.fixture.ts` plays the real round end to end through the facade (every
-    respin's board, each collector's total, the counter, the MINI, the reducer against every
-    snapshot, gameEnd 1060 and the balance). Before the fix 11 of its checks failed.
+  - **Two more rounds** followed: a natural trigger into `11010` (Boost and Multiply hitting two
+    coins in one respin, `cellPayAmount` already carrying the modified value, the misses sent on a
+    quiet respin too) and a Force 5 through a surprise trigger (`state` 4). `state` is the awarded
+    bonus as a binary number (16 = Expand). The partner confirmed rows count top-down and that
+    Expand's row and both of Force 5's go on top; the reader numbers the opened rows outward from the
+    base rows, so the wire's top row is our last.
+  - Gate: `collectorRespin.fixture.ts` plays all three rounds end to end through the facade (every
+    respin's board on our rows, each collector's total, the hits, the counter, the jackpot coins,
+    the reducer against every snapshot, gameEnd and the balance). Before the fix 11 of the first
+    round's checks failed; the Force 5 board catches an opened-row order mapped the wrong way.
 - 2026-11-13 — **The partner-wire mock answers a collect and Force 5 as the partner's server
   does.** Their developer confirmed the shapes
   ([capture, "Confirmed by the partner"](../reference/play4fun-collector-respin-capture.md)):

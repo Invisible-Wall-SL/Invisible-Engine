@@ -223,10 +223,10 @@ export const normalizeCollectorRespin = (
 	/*
 	 * Where the wire numbers the rows an Expand (or Force 5) opened. Our board keeps the base rows
 	 * where they were and numbers the opened ones after them (the reducer's "a held cell's row never
-	 * changes"). The partner's wire numbers
-	 * the opened rows FIRST: in the 2026-11-13 round the entry collector at row 0 of the 3-row board is
-	 * at row 1 of the 4-row one. Read off the round where it can be — the shift that seats the entry's
-	 * collectors on a collector of the first bonus board — else that measured convention.
+	 * changes"). The partner's wire numbers the opened rows FIRST, because they go on top: in their
+	 * 2026-11-13 rounds the entry collector at row 0 of the 3-row board is at row 1 of Expand's 4-row
+	 * one and at row 2 of Force 5's 5-row one. Read off the round where it can be (the shift that
+	 * seats the entry's collectors on a collector of the first bonus board), else that convention.
 	 */
 	let rowShift = 0;
 	const seatRowShift = (entryCollectors: readonly Position[], height: number) => {
@@ -238,9 +238,17 @@ export const normalizeCollectorRespin = (
 			).length;
 		return seated(0) > seated(opened) ? 0 : opened;
 	};
+	/*
+	 * Wire row → ours. The opened rows sit ABOVE the base rows on their board (the partner,
+	 * 2026-11-13: rows count top-down, and Expand's row and both of Force 5's go on top), so the wire's
+	 * row 0 is the opened row furthest from the base rows: our last. Ours number the opened rows
+	 * outward from the base rows, the order an unlocking board opens them, which a Game Config
+	 * `addRowsAt: 'above'` draws upward (`respinSeatRow`).
+	 */
 	const ourRow = (row: number) => {
 		if (!inBonus || rowShift === 0 || rows === undefined) return row;
-		return (row - rowShift + rows) % rows;
+		const base = rows - rowShift;
+		return row >= rowShift ? row - rowShift : base + (rowShift - 1 - row);
 	};
 	const ourBoard = (board: string[][]) => {
 		if (!inBonus || rowShift === 0 || rows === undefined) return board;
