@@ -55,6 +55,7 @@
 	import { rigAnchorPoint, rigFramePivot } from '../rigBox';
 	import {
 		getContextApp,
+		getContextDormant,
 		setContextRestart,
 		setContextRigLoadScale,
 		setContextRigParked,
@@ -144,11 +145,15 @@
 		resolved ? resolveRigBoundContent(resolved.assetKey) : EMPTY_RIG_BOUND_CONTENT,
 	);
 
-	// Kept (`parked` given): its subtree is told when it is put away and when a play starts.
+	// Kept (`parked` given): its subtree is told when it is put away and when a play starts. Kept on
+	// content mounted ahead (`setContextDormant`), it is put away until that content shows, and the
+	// show is a new play: it starts there as a rig mounted at that moment would.
+	const dormant = getContextDormant();
+	const ASLEEP = Symbol('asleep');
 	// svelte-ignore state_referenced_locally
 	if (parked !== undefined) {
-		setContextRigParked(() => !!parked);
-		setContextRestart(() => restart);
+		setContextRigParked(() => !!parked || !!dormant?.());
+		setContextRestart(dormant ? () => (dormant() ? ASLEEP : restart) : () => restart);
 	}
 </script>
 

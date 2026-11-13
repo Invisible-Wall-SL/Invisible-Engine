@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getContextDormant } from 'pixi-svelte';
+
 	import ReelSymbol from './ReelSymbol.svelte';
 	import { getContext } from '../game/context';
 	import { getSymbolSeat, stateGame, type ReelSymbol as Cell } from '../game/stateGame.svelte';
@@ -86,7 +88,11 @@
 			: shownCellsByY(placed, slots, yOf, enterAt),
 	);
 	const poolViews = createPoolViews<Cell>();
-	const views = $derived(poolViews(shown));
+	// On a board mounted ahead of its first show (`<Dormant>`), every view (its `ReelSymbol` and
+	// `SymbolWrap`) is built with it, vacant, so the first roll builds none; a view's symbol is still
+	// built on its first draw, as before.
+	const ahead = getContextDormant()?.() ?? false;
+	const views = $derived(poolViews(shown, ahead ? props.column[0] : undefined));
 </script>
 
 {#each views as view, slot (slot)}
