@@ -164,8 +164,8 @@ short fingerprints, a delivery's result dialog shows them too, and the partner's
 **When the engine refuses a build, you get its reason, not a log tail.** The engine
 stops a build at these gates:
 
-- **the publish checks** (below): draft sounds, flow errors, a flow left from a kind
-  change, a game family the runtime cannot play,
+- **the publish checks** (below): flow errors, a flow left from a kind change, a game
+  family the runtime cannot play (draft sounds only warn),
 - **an invalid flow**: Invisible Flow validation errors,
 - **a drifted paytable**: the authored paytable disagrees with the partner's
   captured one,
@@ -186,18 +186,21 @@ the checks the Invisible Game Maker's Publish runs, and stops the build if one f
 
 | Check | Fix it in | Ship anyway? |
 | --- | --- | --- |
-| sounds the game ships that are still marked draft | Invisible Sound: approve each one, or delete the ones the game should not play | yes |
+| sounds the game ships that are still marked draft | Invisible Sound: approve each one, or delete the ones the game should not play | always: a warning, never a stop *(2026-11-13)* |
 | flow validation errors | Invisible Flow → Validation panel | yes |
 | a flow left from a kind change | /admin: re-scaffold the project, or change its kind back | no |
 | a game family the runtime cannot play yet | Invisible Game Config | no |
 
-The progress log names each problem and where to fix it, and the **Build refused** dialog
-lists them. The refusal names its override, `IE_PUBLISH_ANYWAY=1`, the way the flow refusal
-names `ALLOW_INVALID_FLOW=1`. If the dialog does not offer it for these, set
+Draft sounds never stop a build: the progress log prints *⚠ publish checks: shipping with a
+warning* and names each one, and the **📊 Build breakdown** says *Shipped with publish-check
+warnings*. The progress log names each other problem and where to fix it, and the **Build
+refused** dialog lists them. The refusal names its override, `IE_PUBLISH_ANYWAY=1`, the way
+the flow refusal names `ALLOW_INVALID_FLOW=1`. If the dialog does not offer it for these, set
 `IE_PUBLISH_ANYWAY=1` in the environment you start the launcher from (for example, run
 `set IE_PUBLISH_ANYWAY=1` in a Command Prompt and start the launcher from it), publish, then
-start it normally again. `IE_PUBLISH_ANYWAY=unapproved-sounds` lifts only the sounds. A build
-shipped this way says so in its **📊 Build breakdown** (*Shipped past the publish checks*).
+start it normally again. `IE_PUBLISH_ANYWAY=invalid-flow` lifts only the flow errors; an older
+`IE_PUBLISH_ANYWAY=unapproved-sounds` setting is harmless and does nothing. A build shipped
+this way says so in its **📊 Build breakdown** (*Shipped past the publish checks*).
 
 **If the portal cannot be asked, the build stops** (*Could not run the publish checks*), so a
 build never ships unchecked by accident. The portal may be restarting after a deploy: wait a

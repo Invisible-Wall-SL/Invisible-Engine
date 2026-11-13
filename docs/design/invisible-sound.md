@@ -281,12 +281,18 @@ An unapproved **sound** has no fallback. It falls back to silence, and §1.3 is 
 silence is invisible. A reviewed-only bundle would ship a game that is quietly missing cues, and
 nobody would find out in QA.
 
-**So: approval gates PUBLISH, not playback.**
+**So: approval is reported at PUBLISH, never a filter on playback.**
 
 - A `draft` sound plays everywhere — dev, test server, authoring boot, player boot.
-- `/game-maker` publish **refuses** when a sound that is *bound* to something is still `draft`,
-  listing them, with an explicit `allowUnapproved` override for a deliberate test build.
-- An unbound draft never blocks anything. That is what a library is for.
+- Every publish path names the drafts the build ships: the online Publish's result, each bulk
+  item, the desktop bake's log and its build breakdown. It never refuses on them.
+- An unbound draft is never named. That is what a library is for.
+
+**Decision (owner, 2026-11-13): approval no longer gates release; drafts ship with a warning.**
+"I want to be able to ship even if I have draft sounds, it should not block me from bulk publishing
+as well." Until then Publish refused a shipped draft unless a person chose *publish anyway*, and a
+bulk run, which never overrides, skipped every such game. The silence argument above still holds,
+and is why the warning names each draft rather than dropping it.
 
 **Provenance is not decoration.** `origin` / `model` / `author` / `license` exist because sounds now
 arrive from AI models and external musicians, and a non-commercial-licensed cue sitting in a shipped

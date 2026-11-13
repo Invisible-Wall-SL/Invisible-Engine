@@ -5,6 +5,16 @@ Current state lives in [status/game-maker.md](../../status/game-maker.md); this 
 traps. How the runtime ships: [status/engine.md](../../status/engine.md) ("How the runtime ships")
 and [design/games-deploy.md](../../design/games-deploy.md).
 
+### Bulk publish skips every game with a draft sound
+- **Symptom:** "it should not block me from bulk publishing": a bulk run skipped every project with
+  a draft sound (8, overlay-buffaloduel's 15 the most), and a desktop ☁ Publish stopped on them.
+- **Cause:** the sound check was a refusal (`unapproved-sounds`, `publishGame.ts`) with a
+  person-only override; bulk never overrides, and #1650 made it a desktop failure too.
+- **Fix:** drafts are reported, never refused: `PublishResult.draftSounds`, the bulk item's
+  `draftSounds`, `runPublishChecks` `warnings[]`. `checkSoundsForPublish` stays the one list.
+- **Guard:** `check:online-publish` (a bulk run ships a drafted game), `check:desktop-publish-checks`.
+- **PR:** not recorded (2026-11-13) · source: `docs/status/game-maker.md`
+
 ### A desktop build ships stock music the game never plays
 - **Symptom:** overlay-buffaloduel's ☁ Publish with 🗜 Optimize shipped 18 sound files, 6.15 MB,
   "even music": the whole stock sprite as one 4.90 MB mp3.
