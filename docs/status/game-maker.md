@@ -9,7 +9,7 @@
 Closes the "author online → play" gap without a per-game repo, CLI, or desktop build. Ships **one prebuilt generic engine runtime** that boots any project from R2 — players from the project's **published snapshot**, authors (launcher links, `ie_authoring=1`) from its live authoring data. Publish is a **data + manifest operation, not a build**.
 
 - **Scaffold** — the `gameMaker` tool at `/game-maker` (full-page; `admin`, `developer`, `pipelineTester` by default). "Create a game" seeds the launcher project + its cloud scaffold (`editor/scenes.json`, `atlas_config.json`, `manifests/`, `input/refs/`, `sheet_config.json`, `localization/strings.json`) — same scaffold as the `/admin` create action. Any tool holder can create; you then author with the existing online tools (editor / atlas / sheet / fonts / symbols / localization).
-- **Publish** (Phase 1, `/api/game-maker/publish`, `gamePublish` capability) — assembles the runtime bundle ONCE, re-checks the flow it actually ships, and freezes bundle + a copy of `deploy/` as an immutable **published snapshot** (`publishedRuntime.ts`; R2 `<client>/<project>/published/`), then mints/reuses a per-project **read-only token** for the runtime's public live fetches (never exposes the shared deploy token), read-modify-writes `test_server/games.json` with `{ protocol, name, runtime }`, upserts the portal `games` row with a runtime-pointed launch URL, best-effort refreshes the test server, and only then points players at the new snapshot. Result plays at `https://games.invisiblewall.org/<key>/` against the mock RGS. **Refusals** (409, before anything is written): draft sounds (any publisher may override), flow validation errors (#833) and paytable drift against a stored partner reference (#855) — those two only the admin role may override, and bulk skips them; a desktop-built game is final. A desktop ☁ Publish / 📦 Deliver runs the same sound, flow and family checks through `publishChecks.ts` ([launcher.md](launcher.md), 2026-11-12). Non-blocking post-publish notes: sound licences, a missing flow, and rig bundles that resolved to nothing (#839).
+- **Publish** (Phase 1, `/api/game-maker/publish`, `gamePublish` capability) — assembles the runtime bundle ONCE, re-checks the flow it actually ships, and freezes bundle + a copy of `deploy/` as an immutable **published snapshot** (`publishedRuntime.ts`; R2 `<client>/<project>/published/`), then mints/reuses a per-project **read-only token** for the runtime's public live fetches (never exposes the shared deploy token), read-modify-writes `test_server/games.json` with `{ protocol, name, runtime }`, upserts the portal `games` row with a runtime-pointed launch URL, best-effort refreshes the test server, and only then points players at the new snapshot. Result plays at `https://games.invisiblewall.org/<key>/` against the mock RGS. **Refusals** (409, before anything is written): flow validation errors (#833) and paytable drift against a stored partner reference (#855) — only the admin role may override them, and bulk skips them; a desktop-built game is final. **Draft sounds never refuse** (owner, 2026-11-13): the result's `draftSounds` names the shipped drafts. A desktop ☁ Publish / 📦 Deliver runs the same sound (a warning), flow and family checks through `publishChecks.ts` ([launcher.md](launcher.md), 2026-11-12). Non-blocking post-publish notes: draft sounds shipped, sound licences, a missing flow, and rig bundles that resolved to nothing (#839).
 - **Published snapshots + rollback** (2026-09-29) — player boots (`/api/editor/runtime` without `authoring=1`) read the pointer's snapshot: no exporters, two cached R2 reads, `ETag` = snapshot id (reload → 304), `assetBase` = `/api/published/f/<token>/<project>/<id>/` served `immutable`. Five snapshots retained; the Game Maker card shows the live one and **Published versions → Make live** flips the pointer (`POST /api/game-maker/rollback`; reviving a flow-override version is owner-only). **Play ↗** opens the published version, **Live ↗** the current authoring data. A game published before snapshots falls back to the live assemble (logged `no published snapshot`) until republished. Design + the full-copy-vs-hashed-names decision: [live-assets.md § Published snapshots](../design/live-assets.md).
 - **Publish pins the session** — after a successful publish the endpoint `setActiveProjectKey(session, project)` so the top bar + home selector land on the just-built project (fixed the "selection jumps to another client on Re-publish" footgun).
 - **Generic runtime (Phase 0)** — `GET /api/editor/runtime?project=&k=` (`runtimeBundle.ts`) serves a project's full `BakedBundle` live; `apps/lines` boots it via opt-in `?runtime=1`, parity-guaranteed byte-identical when off. Assets served via the **path-form** `/api/deploy/f/<token>/<client>/<project>/<...rel>` route so rig/spritesheet/bitmap-font sub-pages resolve relative to their parent URL.
@@ -20,7 +20,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - **Bulk republish — one button for a whole engine release** (2026-08-24). The stale badge told you a game was behind the shipped runtime, but clearing it was a per-project chore: open every project, press *Republish + Reconcile*. The hub header now carries **Republish N stale games** (shown only while something is stale) and **Republish all (N)**, gated on `gamePublish` like Publish itself, running the SAME `publishGame` flow per game — no second publish path to keep in sync. Shape: an in-memory job (`publishAllJob.ts`) walking targets **sequentially** in the BACKGROUND (`publishAllRunner.ts`), polled by the page at `/api/game-maker/publish-all` (GET status · POST start · DELETE stop).
   - **Background, not a long request** — a publish re-runs all seven exporters (~17-19s each measured), so a 20-game run outlives any request timeout and would pin the author's tab open. The job survives navigation; re-opening the page re-attaches to the run.
   - **Sequential, not fan-out** — the exporters are the launcher's most memory-hungry path (a parallel bake has OOM'd the service), and parallel publishes would also make the CAS retries on the shared `test_server/games.json` fight each other. The per-project Publish buttons are disabled while a run is in flight for the same reason.
-  - **A blocked publish is `skipped`, not a failure** — a desktop-built game in the list is an expected outcome in bulk (`PublishBlockedError` → skipped with its reason), and a genuine failure is reported in place while the run continues. One bad project can't strand the rest.
+  - **A blocked publish is `skipped`, not a failure** — a desktop-built game in the list is an expected outcome in bulk (`PublishBlockedError` → skipped with its reason), and a genuine failure is reported in place while the run continues. One bad project can't strand the rest. A game with draft sounds publishes; its item carries `draftSounds` ("shipped with N draft sounds").
   - **Cancel stops BETWEEN games** — the in-flight publish always finishes, because a publish is a multi-step R2 + manifest write and aborting mid-way half-registers a game.
   - **It deliberately does NOT pin the session's active project.** The single-project endpoint does (publishing one game is a statement about which game you mean); doing it for a bulk run would move the selection to whichever game happened to be last.
   - **One definition of "stale", shared** — the badge's comparison moved into `engineStaleness.ts` (`engineStalenessIndex`), used by both the page loader and the bulk endpoint, so the button's count and the run's target list can never disagree.
@@ -64,6 +64,35 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-11-13 — **Draft sounds ship with a warning on every publish path; nothing refuses them.**
+  The owner: "I want to be able to ship even if I have draft sounds, it should not block me from
+  bulk publishing as well." The sound gate refused a shipped draft unless a person chose *publish
+  anyway*, and a bulk run (which never overrides) skipped every game with one: overlay-buffaloduel
+  (15), overlay-wallstreet2, overlay-wishworld, commonoverlayproject, overlay-wallstreet,
+  rocketreskintest1 (3 each), test6 (2), bookofborutremake (1). A desktop ☁ Publish stopped on the
+  same list (#1650). Every other gate is unchanged: the flow gate (`invalid-flow` with its
+  override, `flow-wrong-kind` with none), the family gate, paytable drift and the own-bundle guard.
+  - **One list, still:** `checkSoundsForPublish` decides what counts as a shipped draft; nothing
+    else does. `publishGame` calls it after the gates (it is no longer one), logs the drafts and
+    returns them as `PublishResult.draftSounds`. `publishGateRefusal` (the Book-of migration's
+    dry run) no longer reads the sound library.
+  - **Single Publish:** the page shows *⚠ Shipped N sounds still marked draft: …* under the card,
+    after the publish, instead of a confirm dialog. **Bulk:** `runPublishAll` records the list on
+    the item (`PublishAllItem.draftSounds`) and the panel shows *shipped with N draft sounds*.
+    **Desktop:** `runPublishChecks` lists drafts under `warnings[]`; detail in
+    [launcher.md](launcher.md).
+  - **Removed as dead:** the `allowUnapproved` option and body field, the page's confirm-and-retry
+    branch, the `unapproved-sounds` refusal reason and its `canOverride` case.
+  - `/sound`'s copy and the sound guide say drafts ship and are named. The decision is recorded in
+    [invisible-sound.md](../design/invisible-sound.md) §6.
+  - **Gates:** `check:online-publish` (a slot with drafts publishes and its result names them; a
+    bulk run through the real `publishAllJob` → `publishAllRunner` → `publishGame` publishes it
+    and records the drafts on its item; both fail on the old code with "skipped … still marked
+    draft"), `check:desktop-publish-checks` (195 claims, 17 mutants, 4 new: the portal and the
+    build refusing drafts again, a build that reads no warnings, a log without them),
+    `check:book-of-migration` (`bookofpots` now blocked by a flow error; the remake ships a draft
+    and republishes), `check-build-breakdown-desktop.mjs`, `check:sound-reachability` and
+    `check:sounds-doc` (wording: the list is "named", not "blocks").
 - 2026-11-12 — **A desktop build (☁ Publish, 📦 Deliver) ships only what the game loads, too.** The
   owner's `overlay_buffaloduel` build shipped 38 files of "Coded game art", 6.3 MB of exported art
   the boot never loads (test6's 4096² UI page via a shared component default, an unplaced rig) and

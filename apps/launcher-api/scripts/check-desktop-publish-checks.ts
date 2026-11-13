@@ -5,18 +5,23 @@
  *  1. The portal: the REAL `runPublishChecks` behind the REAL `GET /api/launcher/publish-check`,
  *     over stubbed gate INPUTS (the sound gate's answer, the stored flow's verdict, the config in an
  *     in-memory R2, the project rows) and the REAL gate decisions (`flowGateRefusal`,
- *     `unplayableFamilyMessage`): each refusal, which ones a person may override, both callers'
- *     auth (a publisher's session held to its projects, the build's deploy token), and a key resolved
- *     as the bake's doc fetch resolves it.
+ *     `unplayableFamilyMessage`): each refusal, which ones a person may override, draft sounds as a
+ *     WARNING that never fails the verdict (the owner's call, 2026-11-13), both callers' auth (a
+ *     publisher's session held to its projects, the build's deploy token), and a key resolved as the
+ *     bake's doc fetch resolves it.
  *  2. The build: the REAL `bake-editor-doc.mjs` against a portal that answers the check through that
  *     route. It stops on each refusal before any export or compile, with the reason and where to fix
  *     it in the log, the refusal in `IE_BUILD_REFUSAL_JSON` and the verdict in the report folder; the
- *     override lets the overridable ones through and never the others; a portal that cannot answer
- *     stops it; a bake with no token (a dev build, CI) and a dry run never ask.
+ *     override lets the overridable ones through and never the others; draft sounds bake on, named
+ *     in the log and the verdict, and an old `IE_PUBLISH_ANYWAY=unapproved-sounds` is harmless; a
+ *     portal that cannot answer stops it; a bake with no token (a dev build, CI) and a dry run never
+ *     ask.
  *  3. Local builds stay off the portal: `apps/lines` builds with no bake, no workflow bakes, and a
  *     scaffolded game bakes before it pulls or compiles.
- *  4. The build breakdown (the REAL `scripts/build-breakdown.mjs`) shows a build shipped past them.
- *  5. Planted mutants of the portal module, the build's module and the bake: each is caught.
+ *  4. The build breakdown (the REAL `scripts/build-breakdown.mjs`) shows a build shipped past them,
+ *     and one that shipped draft sounds.
+ *  5. Planted mutants of the portal module, the build's module and the bake: each is caught, a
+ *     portal and a build that turn draft sounds back into a refusal included.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -71,6 +76,10 @@ const PROJECTS: Record<string, Project> = {
 	everything: {
 		drafts: ['sfx_coin'],
 		flow: { status: 'invalid', templateId: 'lines', errors: FLOW_ERRORS },
+	},
+	twofold: {
+		flow: { status: 'invalid', templateId: 'lines', errors: FLOW_ERRORS },
+		config: ARCADE,
 	},
 	elsewhere: {},
 };
@@ -177,8 +186,14 @@ check(
 
 type Answer = { status: number; body: unknown };
 type Handler = (url: URL, headers?: Record<string, string>) => Promise<Answer>;
-type Failure = { id: string; reason: string; items: string[]; fixIn: string; overridable: boolean };
-type Verdict = { ok: boolean; checked: string[]; failed: Failure[]; publishAnyway?: unknown };
+type Finding = { id: string; reason: string; items: string[]; fixIn: string; overridable: boolean };
+type Verdict = {
+	ok: boolean;
+	checked: string[];
+	failed: Finding[];
+	warnings: Finding[];
+	publishAnyway?: unknown;
+};
 
 /** The real route, called the way SvelteKit calls it: a thrown `error()` becomes its status. */
 const viaRoute: Handler = async (url, headers = {}) => {
@@ -197,7 +212,12 @@ const verdictOf = async (project: string): Promise<Verdict> =>
 	(await ask(`project=${project}&k=${TOKEN}`)).body as Verdict;
 
 const clean = await ask(`project=clean&k=${TOKEN}`);
-check('a clean project passes', clean.status === 200 && (clean.body as Verdict).ok === true);
+check(
+	'a clean project passes, with no warning',
+	clean.status === 200 &&
+		(clean.body as Verdict).ok === true &&
+		(clean.body as Verdict).warnings.length === 0,
+);
 check(
 	'it says which checks ran',
 	JSON.stringify((clean.body as Verdict).checked) === '["sounds","flow","family"]',
@@ -209,19 +229,28 @@ check(
 		JSON.stringify(SERVER_PUBLISH_ANYWAY) === JSON.stringify(client.PUBLISH_ANYWAY),
 );
 
-const only = async (project: string): Promise<Failure | undefined> => {
+const only = async (project: string): Promise<Finding | undefined> => {
 	const v = await verdictOf(project);
 	return v.ok === false && v.failed.length === 1 ? v.failed[0] : undefined;
 };
-const drafts = await only('drafts');
+const draftVerdict = await verdictOf('drafts');
+const [drafts] = draftVerdict.warnings;
 check(
-	'draft sounds: refused, every draft named, overridable',
-	drafts?.id === 'unapproved-sounds' &&
+	'draft sounds: a warning, not a failure — the verdict passes and names every draft',
+	draftVerdict.ok === true &&
+		draftVerdict.failed.length === 0 &&
+		draftVerdict.warnings.length === 1 &&
+		drafts.id === 'unapproved-sounds' &&
 		drafts.items.join() === 'sfx_coin,sfx_win' &&
-		drafts.reason === '2 sounds the game ships are still marked draft.' &&
+		drafts.reason === 'The game ships 2 sounds still marked draft.' &&
 		drafts.fixIn.startsWith('Invisible Sound') &&
-		drafts.overridable === true,
-	JSON.stringify(drafts),
+		drafts.overridable === false,
+	JSON.stringify(draftVerdict),
+);
+check(
+	'one draft reads in the singular',
+	(await verdictOf('everything')).warnings[0]?.reason ===
+		'The game ships 1 sound still marked draft.',
 );
 check(
 	'the sound gate is asked for the project under its own client',
@@ -255,9 +284,17 @@ check(
 );
 const everything = await verdictOf('everything');
 check(
+	'a draft sound beside a failure: the failure fails, the draft still only warns',
+	everything.ok === false &&
+		everything.failed.map((f) => f.id).join() === 'invalid-flow' &&
+		everything.warnings.map((f) => f.id).join() === 'unapproved-sounds',
+	JSON.stringify(everything),
+);
+const twofold = await verdictOf('twofold');
+check(
 	'every check runs: one answer lists every problem, in the online order',
-	everything.failed.map((f) => f.id).join() === 'unapproved-sounds,invalid-flow',
-	JSON.stringify(everything.failed.map((f) => f.id)),
+	twofold.failed.map((f) => f.id).join() === 'invalid-flow,unplayable-family',
+	JSON.stringify(twofold.failed.map((f) => f.id)),
 );
 
 const status = async (query: string, headers?: Record<string, string>) =>
@@ -300,7 +337,12 @@ type Run = {
 	code: number | null;
 	log: string;
 	refusal: { gate?: string; error?: string; details?: string[]; override?: unknown } | null;
-	report: { status?: string; overridden?: string[]; blocking?: string[] } | null;
+	report: {
+		status?: string;
+		overridden?: string[];
+		blocking?: string[];
+		warnings?: { id?: string; items?: string[] }[];
+	} | null;
 	asked: string[];
 	exported: string[];
 	baked: boolean;
@@ -415,6 +457,23 @@ const through = (r: Run): [string, boolean][] => [
 	['exports', r.exported[0]?.startsWith('art') === true],
 	['bakes the bundle', r.baked],
 ];
+/** A build that baked on past draft sounds: nothing refused, every draft named in the log and verdict. */
+const warned = (r: Run, names: string[]): [string, boolean][] => [
+	...through(r),
+	['writes no refusal', r.refusal === null],
+	[
+		'records the drafts as a warning',
+		r.report?.warnings?.map((w) => `${w.id}:${w.items?.join()}`).join() ===
+			`unapproved-sounds:${names.join()}`,
+	],
+	[
+		'the log names each draft and where to approve it, as a warning',
+		['never stops a build', 'still marked draft', 'Invisible Sound', ...names].every((t) =>
+			r.log.includes(t),
+		),
+	],
+	['reports passed, nothing shipped past', r.report?.status === 'passed' && r.report.overridden?.length === 0], // prettier-ignore
+];
 
 const SCENARIOS: Scenario[] = [
 	{
@@ -430,17 +489,19 @@ const SCENARIOS: Scenario[] = [
 	{
 		id: 'draft sounds',
 		project: 'drafts',
-		claims: (r) => [
-			...stopped(r, 'unapproved-sounds', UMBRELLA),
-			['every draft in the refusal', r.refusal?.details?.join() === 'sfx_coin,sfx_win'],
-			[
-				'the log says what and where to fix it',
-				['still marked draft', 'sfx_coin', 'sfx_win', 'Invisible Sound'].every((t) =>
-					r.log.includes(t),
-				),
-			],
-			['the log names the override', r.log.includes('IE_PUBLISH_ANYWAY=1')],
-		],
+		claims: (r) => warned(r, ['sfx_coin', 'sfx_win']),
+	},
+	{
+		id: 'draft sounds, an old IE_PUBLISH_ANYWAY=unapproved-sounds',
+		project: 'drafts',
+		env: { IE_PUBLISH_ANYWAY: 'unapproved-sounds' },
+		claims: (r) => warned(r, ['sfx_coin', 'sfx_win']),
+	},
+	{
+		id: 'draft sounds, IE_PUBLISH_ANYWAY=1',
+		project: 'drafts',
+		env: { IE_PUBLISH_ANYWAY: '1' },
+		claims: (r) => warned(r, ['sfx_coin', 'sfx_win']),
 	},
 	{
 		id: 'flow errors',
@@ -470,50 +531,66 @@ const SCENARIOS: Scenario[] = [
 	},
 	{
 		id: 'two failures',
-		project: 'everything',
+		project: 'twofold',
 		claims: (r) => [
-			...stopped(r, 'publish-checks', UMBRELLA),
+			...stopped(r, 'publish-checks', null),
 			[
 				'the refusal lists both',
-				r.refusal?.details?.some((d) => d.includes('sfx_coin')) === true &&
-					r.refusal?.details?.some((d) => d.includes('Invisible Flow')) === true,
+				r.refusal?.details?.some((d) => d.includes('Invisible Flow')) === true &&
+					r.refusal?.details?.some((d) => d.includes('Invisible Game Config')) === true,
 			],
 		],
 	},
 	{
-		id: 'draft sounds, IE_PUBLISH_ANYWAY=1',
-		project: 'drafts',
+		id: 'flow errors, IE_PUBLISH_ANYWAY=1',
+		project: 'badflow',
 		env: { IE_PUBLISH_ANYWAY: '1' },
 		claims: (r) => [
 			...through(r),
 			['reports overridden', r.report?.status === 'overridden'],
-			['records what shipped anyway', r.report?.overridden?.join() === 'unapproved-sounds'],
-			['says so in the log', r.log.includes('shipping anyway') && r.log.includes('sfx_win')],
+			['records what shipped anyway', r.report?.overridden?.join() === 'invalid-flow'],
+			[
+				'says so in the log',
+				r.log.includes('shipping anyway') && r.log.includes(FLOW_ERRORS[1].message),
+			],
 		],
 	},
 	{
-		id: 'draft sounds, --publish-anyway',
-		project: 'drafts',
+		id: 'flow errors, --publish-anyway',
+		project: 'badflow',
 		args: ['--publish-anyway'],
 		claims: through,
 	},
 	{
-		id: 'draft sounds, IE_PUBLISH_ANYWAY=0',
-		project: 'drafts',
+		id: 'flow errors, IE_PUBLISH_ANYWAY=0',
+		project: 'badflow',
 		env: { IE_PUBLISH_ANYWAY: '0' },
-		claims: (r) => stopped(r, 'unapproved-sounds', UMBRELLA),
+		claims: (r) => stopped(r, 'invalid-flow', UMBRELLA),
 	},
 	{
-		id: 'two failures, only the sounds lifted',
+		id: 'draft sounds and flow errors',
+		project: 'everything',
+		claims: (r) => [
+			...stopped(r, 'invalid-flow', UMBRELLA),
+			[
+				'the refusal is the flow alone',
+				r.refusal?.details?.join('|') === FLOW_ERRORS.map((e) => e.message).join('|'),
+			],
+			['the log still names the draft', r.log.includes('sfx_coin') && r.log.includes('never stops a build')], // prettier-ignore
+			['the verdict records the warning', r.report?.warnings?.[0]?.id === 'unapproved-sounds'],
+		],
+	},
+	{
+		id: 'draft sounds and flow errors, only the sounds named',
 		project: 'everything',
 		env: { IE_PUBLISH_ANYWAY: 'unapproved-sounds' },
 		claims: (r) => [
 			...stopped(r, 'invalid-flow', UMBRELLA),
-			['records the lifted one', r.report?.overridden?.join() === 'unapproved-sounds'],
+			['lifts nothing', r.report?.overridden?.length === 0],
 		],
 	},
 	{
-		id: 'two failures, IE_PUBLISH_ANYWAY=1',
+		id: 'draft sounds and flow errors, IE_PUBLISH_ANYWAY=1',
 		project: 'everything',
 		env: { IE_PUBLISH_ANYWAY: '1' },
 		claims: (r) => [
@@ -522,6 +599,8 @@ const SCENARIOS: Scenario[] = [
 				'the flow export is told too, so it does not refuse the same flow again',
 				r.exported.some((e) => e.startsWith('flow?') && e.includes('allowInvalidFlow=1')),
 			],
+			['records only the flow as shipped anyway', r.report?.overridden?.join() === 'invalid-flow'],
+			['and the draft as a warning', r.report?.warnings?.[0]?.items?.join() === 'sfx_coin'],
 		],
 	},
 	{
@@ -567,7 +646,7 @@ const SCENARIOS: Scenario[] = [
 		],
 	},
 	{
-		id: 'a portal without the route, only the sounds lifted',
+		id: 'a portal without the route, an old sounds-only lift',
 		project: 'drafts',
 		mode: '404',
 		env: { IE_PUBLISH_ANYWAY: 'unapproved-sounds' },
@@ -650,7 +729,7 @@ check(
 const failing = await verdict(async () => new Response('upstream error', { status: 502 }));
 check('a 5xx after the retries is unreachable', failing.status === 'unreachable');
 const mismatch = await verdict(async () =>
-	Response.json({ ok: true, checked: ['sounds'], failed: [{ id: 'unapproved-sounds' }] }),
+	Response.json({ ok: true, checked: ['flow'], failed: [{ id: 'invalid-flow' }] }),
 );
 check('an answer that contradicts itself is no verdict', mismatch.status === 'unreachable');
 check(
@@ -660,7 +739,7 @@ check(
 		return (
 			!lifted.all &&
 			client.lifts(lifted, 'invalid-flow') &&
-			!client.lifts(lifted, 'unapproved-sounds')
+			!client.lifts(lifted, 'publish-check-unreachable')
 		);
 	})(),
 );
@@ -693,8 +772,9 @@ check(
 );
 
 // ── 4. The build breakdown ──────────────────────────────────────────────────────────────────────
-console.log('4. the build breakdown shows a build shipped past the checks');
-const overriddenReport = runs.get('draft sounds, IE_PUBLISH_ANYWAY=1')?.report;
+console.log('4. the build breakdown shows a build shipped past the checks, or with draft sounds');
+const overriddenReport = runs.get('flow errors, IE_PUBLISH_ANYWAY=1')?.report;
+const draftsReport = runs.get('draft sounds')?.report;
 const passedReport = runs.get('a clean project')?.report;
 const breakdownIssues = (report: unknown): { title: string; level: string; items: string[] }[] => {
 	const dir = mkdtempSync(join(tmpdir(), 'ie-publish-check-breakdown-'));
@@ -723,9 +803,23 @@ const breakdownIssues = (report: unknown): { title: string; level: string; items
 const shipped = breakdownIssues(overriddenReport);
 const past = shipped.find((i) => i.title === 'Shipped past the publish checks');
 check(
-	'a build shipped past the checks says so, naming each draft',
-	past?.level === 'warn' && past.items.some((i) => i.includes('sfx_coin')),
+	'a build shipped past the checks says so, naming each flow error',
+	past?.level === 'warn' && past.items.some((i) => i.includes(FLOW_ERRORS[1].message)),
 	JSON.stringify(shipped.map((i) => i.title)),
+);
+const withDrafts = breakdownIssues(draftsReport);
+const draftIssue = withDrafts.find((i) => i.title === 'Shipped with publish-check warnings');
+check(
+	'a build that shipped draft sounds says how many, naming each',
+	draftIssue?.level === 'warn' &&
+		draftIssue.items.some((i) => i.startsWith('The game ships 2 sounds still marked draft.')) &&
+		['sfx_coin', 'sfx_win'].every((n) => draftIssue.items.some((i) => i.trim() === n)),
+	JSON.stringify(withDrafts),
+);
+check(
+	'…and does not call it shipped past the checks',
+	!withDrafts.some((i) => i.title === 'Shipped past the publish checks'),
+	JSON.stringify(withDrafts.map((i) => i.title)),
 );
 check(
 	'a build that passed adds nothing',
@@ -747,6 +841,12 @@ const MUTANTS: Mutant[] = [
 		file: 'portal',
 		from: 'if (sounds.unapproved.length) {',
 		to: 'if (sounds.unapproved.length < 0) {',
+	},
+	{
+		name: 'the portal refuses draft sounds again',
+		file: 'portal',
+		from: "warnings.push({\n\t\t\tid: 'unapproved-sounds',",
+		to: "failed.push({\n\t\t\tid: 'unapproved-sounds',",
 	},
 	{
 		name: 'the portal lets a flow of another kind be overridden',
@@ -771,6 +871,24 @@ const MUTANTS: Mutant[] = [
 		file: 'client',
 		from: 'failed.filter((f) => f.overridable && lifts(lifted, f.id))',
 		to: 'failed.filter((f) => lifts(lifted, f.id))',
+	},
+	{
+		name: 'the build stops on a warning',
+		file: 'client',
+		from: 'const blocking = failed.filter((f) => !shipped.includes(f));',
+		to: 'const blocking = [...failed, ...warnings].filter((f) => !shipped.includes(f));',
+	},
+	{
+		name: 'the build reads no warnings',
+		file: 'client',
+		from: 'const warnings = Array.isArray(answer.warnings) ? answer.warnings.map(asFailure) : [];',
+		to: 'const warnings = [];',
+	},
+	{
+		name: 'the bake log leaves the warnings out',
+		file: 'client',
+		from: 'for (const f of verdict.warnings) lines.push',
+		to: 'for (const f of []) lines.push',
 	},
 	{
 		name: 'the override never lifts',

@@ -76,7 +76,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    `ALLOW_INVALID_FLOW` / `ALLOW_PAYTABLE_DRIFT`; (b) a `publish-checks` refusal (several findings)
    shows every line of `details`; (c) whether a refused build still writes its breakdown (the
    verdict is in the report folder either way). Optional: ask `GET /api/launcher/publish-check`
-   with the session before building, so the reasons show without a build.
+   with the session before building, so the reasons show without a build. Since 2026-11-13 draft
+   sounds are a `warnings[]` entry, never a refusal; a launcher setting that passes
+   `IE_PUBLISH_ANYWAY=unapproved-sounds` is harmless and can be dropped.
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
@@ -91,6 +93,18 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-13 — **A desktop ☁ Publish / 📦 Deliver bakes on past draft sounds, with a warning.**
+  The owner ships drafts (the whole change: [game-maker.md](game-maker.md), 2026-11-13).
+  `runPublishChecks` now returns `warnings[]` beside `failed[]`, same item shape (`overridable`
+  false: nothing to lift), and drafts go there, so they never turn `ok` false. The draft reason
+  reads *The game ships N sounds still marked draft.* `scripts/lib/publishCheck.mjs` carries
+  `warnings` into the verdict and `publish-check.json`, the bake logs them (*⚠ publish checks:
+  shipping with a warning*) and goes on, and `build-breakdown.mjs` shows *Shipped with
+  publish-check warnings*. A build with only warnings reports `passed`, not `overridden`.
+  `IE_PUBLISH_ANYWAY` still lifts `invalid-flow` and the fail-closed unreachable case; an old
+  `IE_PUBLISH_ANYWAY=unapproved-sounds` names no failure, so it lifts nothing and stops nothing.
+  A portal not yet on this change still answers drafts as a failure, so a build refuses them until
+  the launcher deploys.
 - 2026-11-12 — **A desktop ☁ Publish / 📦 Deliver runs the online Publish's checks.** The desktop
   path (`game-upload`, `register-game`, the bake) never ran the sound gate, so a desktop build
   shipped draft sounds the online Publish refuses (overlay-buffaloduel: 15).

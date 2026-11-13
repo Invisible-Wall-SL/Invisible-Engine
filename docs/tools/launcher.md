@@ -191,7 +191,7 @@ What blocks a project, before anything is written: someone else has its `/config
 open; its config or layout does not read; its board is not 5×3; it has no scatter; its free spins
 are switched off (turn them on in `/config`); one of its desktop builds is not stamped
 table-capable (rebuild it, then stamp it — see below); or its republish would be refused
-by a publish check (a draft sound, an invalid flow, a paytable that differs from the partner's) —
+by a publish check (an invalid flow, a paytable that differs from the partner's) —
 fix what it names and run the dry run again. A desktop build and a partner game's card are never
 republished. A project whose republish is pending stays on the list until it lands. Running it
 again after everything is done changes nothing. The owner's step-by-step runbook is in

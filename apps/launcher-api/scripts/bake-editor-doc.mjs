@@ -86,9 +86,9 @@ const USAGE =
 	'  --allow-invalid-flow          bake even when the flow fails validation (also env\n' +
 	'                                ALLOW_INVALID_FLOW=1). Without it such a bake stops.\n' +
 	"  --publish-anyway [<ids>]      with a token, the bake first runs the online Publish's\n" +
-	'                                checks (draft sounds, flow errors, an unplayable family)\n' +
-	'                                and stops on a failure. This ships past every one that\n' +
-	'                                has an override, or only the listed ids (also env\n' +
+	'                                checks (flow errors and an unplayable family stop it,\n' +
+	'                                draft sounds only warn). This ships past every failure\n' +
+	'                                that has an override, or only the listed ids (also env\n' +
 	'                                IE_PUBLISH_ANYWAY=1 | <ids>). See lib/publishCheck.mjs.\n' +
 	'  --allow-paytable-drift        bake even when the authored paytable disagrees with the\n' +
 	'                                partner paytable captured in /config (also env\n' +
@@ -229,7 +229,7 @@ async function publishChecks() {
 	});
 	writeBuildReport(PUBLISH_CHECK_REPORT, verdict);
 	for (const line of describePublishCheck(verdict)) {
-		if (verdict.status === 'passed') console.info(line);
+		if (line.startsWith('✓')) console.info(line);
 		else console.warn(line);
 	}
 	const refusal = publishCheckRefusal(verdict);

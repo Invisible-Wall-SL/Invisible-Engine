@@ -1297,9 +1297,9 @@
 			{/each}
 
 			<InfoTip label="Drafts">
-				A <strong>draft</strong> still plays everywhere — in the game, in a test build, here. It only
-				blocks a publish, so an unapproved sound is never silently missing; you are told before you ship
-				it.
+				A <strong>draft</strong> still plays everywhere — in the game, in a test build, here — and it
+				ships when you publish. Publish names every draft it ships, so an unapproved sound is never silently
+				missing and never a surprise.
 			</InfoTip>
 		{/if}
 
@@ -1323,7 +1323,7 @@
 				<p class="warn">
 					<strong>Invisible Sound can't tell which sounds this game plays</strong> — a flow cue builds
 					its sound's name while the game runs, or part of the game could not be read. So a build ships
-					every sound, and every draft stops Publish.
+					every sound, and Publish names every draft.
 				</p>
 			{/if}
 
@@ -1341,8 +1341,8 @@
 						>{checks.unapprovedBound.length} sound{checks.unapprovedBound.length === 1 ? '' : 's'} the
 						game ships {checks.unapprovedBound.length === 1 ? 'is' : 'are'} not approved:</strong
 					>
-					{checks.unapprovedBound.join(', ')}. They play — but Publish stops on them until they are
-					approved, or you choose to publish anyway.
+					{checks.unapprovedBound.join(', ')}. They play and they ship; Publish names them until
+					they are approved.
 				</p>
 			{/if}
 			{#if checks.unbound.length}

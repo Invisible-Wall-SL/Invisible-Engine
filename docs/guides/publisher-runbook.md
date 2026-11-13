@@ -53,12 +53,15 @@ its findings in a **Build refused** dialog. You can override from the dialog, bu
 
 | Refusal | What it means | Fix it properly |
 | --- | --- | --- |
-| **N sounds the game ships are still marked draft** | a publish check: the build would ship sounds nobody approved | Invisible Sound → approve each, or delete the ones the game should not play |
 | **N publish checks failed** | several of the checks the online Publish runs failed; each is listed | the tool named on each line |
 | **Could not run the publish checks** | the portal did not answer the check (down, or restarting after a deploy) | wait a minute and publish again |
 | **The flow failed validation** | the Invisible Flow graph has errors (e.g. one exec-out wired twice, a missing scene) | Invisible Flow → Validation panel, save, publish again |
 | **The paytable disagrees with the partner's** | the authored paytable no longer matches the one captured from the partner's `/config` | Invisible Game Config → fix or re-import the paytable |
 | **The game references art that will not ship** *(Deliver only)* | placed regions or rigs that no shipped atlas contains | re-pick or re-pack them in the editor |
+
+Draft sounds are not on this list: since 2026-11-13 they never stop a build. The progress log
+warns *The game ships N sounds still marked draft* and the **📊 Build breakdown** lists them under
+*Shipped with publish-check warnings*; approve them in Invisible Sound when they are final.
 
 Override only when you know why the check is wrong for this build. Nothing is published or
 delivered until you confirm. A missing-art override re-packages the build you already have, so it

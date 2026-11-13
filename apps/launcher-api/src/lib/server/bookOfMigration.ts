@@ -629,7 +629,7 @@ export async function applyBookOfMigrationTo(
 		}
 		invalidateRuntimeBundle(key);
 		// 4. Republish what players boot, so its snapshot carries the block and the manifest the lines
-		// contract. Its gates passed in the plan; one that refuses now (a draft sound since) is
+		// contract. Its gates passed in the plan; one that refuses now (a flow error since) is
 		// reported for the owner, never overridden.
 		const failed: string[] = [];
 		for (const game of games) {

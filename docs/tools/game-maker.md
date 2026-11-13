@@ -595,8 +595,6 @@ game) plus a few seconds to copy its files.
   Anyone who may publish can choose **Publish anyway**; it only warns. A publish that goes through
   also resolves the project's game bugs that a repair run has fixed ("Fixed, waiting on publish"
   in [Game Bug Reports](game-bugs.md)).
-- **Sounds still marked draft** in Invisible Sound. The dialog names them; **Publish anyway**
-  ships them.
 - **Flow errors.** The saved [flow](/docs/flow) is validated the way its Validation panel does,
   and any red error stops the publish with the list. It is checked again on the exact flow the
   version freezes, so an edit saved while the publish runs cannot slip an error past it. An **admin** gets a **Publish anyway**
@@ -628,6 +626,10 @@ Step by step, with what to do after each refusal: the
 
 A project with **no** saved flow still publishes, with a note under the card that it plays
 without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it one).
+
+Sounds still marked draft in Invisible Sound never stop a publish: they ship, and a note under
+the card names them — **⚠ Shipped N sounds still marked draft: …** Approve them in
+[Invisible Sound](./sound.md#draft-and-approved) when they are final.
 
 After a successful publish, notes under the card can also flag (never blocking): sounds with a
 non-commercial or missing licence, and **⚠ rig bundles that resolved to nothing** — a rig
@@ -796,7 +798,9 @@ rest stay queued.
 Games that have their own desktop build are **skipped** with the reason shown,
 never overwritten — so are games whose flow has validation errors (a bulk run
 never overrides a refusal; publish those one at a time) — and a game that fails is reported in place while the run
-carries on — one bad project can't strand the other twenty. While a bulk run is
+carries on — one bad project can't strand the other twenty. A game with sounds still marked
+draft is **republished**, and its row says **shipped with N draft sounds** (hover it for the
+names). While a bulk run is
 going, the per-project Publish buttons are disabled: publishes are deliberately
 serialised, because a publish is the launcher's most memory-hungry operation.
 

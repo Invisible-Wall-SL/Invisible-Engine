@@ -180,8 +180,8 @@ Three answers, in increasing order of certainty:
    dropdown on a Scene Editor timeline — your project's sounds are listed **first**
    (marked ★ on the timeline, with **▶** to hear them at the cue's settings), above the
    engine's built-in names. If it is not in that dropdown, it is
-   not in the library. (Draft sounds are offered too; approval gates publishing, not
-   picking.)
+   not in the library. (Draft sounds are offered too; approval never stops picking or
+   publishing.)
 3. **The files themselves**, if your role has the [FTP Browser](./ftp-browser.md)
    (`/files` — admins, developers, pipeline testers and audio; **not** artists). It
    shows what is actually in storage: look under `<client>/<project>/sounds/`.
@@ -247,24 +247,27 @@ and we're clear to use it".
 **A draft still plays.** In the game, in a test build, here — everywhere. Approval does
 not mute anything.
 
-What it gates is **publishing**. Publishing a game **stops** if a sound the build ships is
-still a draft: it names them and asks whether to go ahead anyway. Say no and nothing is
-written; say yes and it publishes, because sometimes a test build is exactly what you want.
+It does not stop **publishing** either. Every publish names the drafts it ships, after
+the fact: a **⚠ Shipped N sounds still marked draft** note under the game's card in the
+[Game Maker](./game-maker.md), **shipped with N draft sounds** on a bulk republish's row,
+and a warning in a desktop build's log and **📊 Build breakdown**. Approve them here when
+they are final. (Until 2026-11-13 Publish stopped on them and asked; the owner chose to
+ship drafts.)
 
-Only sounds the build actually **ships** can stop a publish. Those are the sounds something
+Only sounds the build actually **ships** are named. Those are the sounds something
 names: a moment, symbol or tier on this page (even a moment you switched off, because its
 choice is kept), a flow cue, a screen timeline, a cinematic cue or one of its random
 alternates, or a component. A sound named after a built-in ships too, even though nothing
-"binds" it, because the engine plays it. A draft nothing names never blocks anything: a
-build leaves it out, and that's what a library is for.
+"binds" it, because the engine plays it. A draft nothing names is never named: a build
+leaves it out, and that's what a library is for.
 
 The warning at the bottom of the page, **"N sounds the game ships are not approved"**, is
-the same list Publish stops on. Reading the whole game takes a few seconds, so until it has
+the same list Publish names. Reading the whole game takes a few seconds, so until it has
 the page says **"Still reading the rest of the game…"** and lists only what this page binds.
 
 If Invisible Sound **can't tell** which sounds the game plays (a flow cue builds its
 sound's name while the game runs, or part of the game could not be read), a build ships
-every sound, so every draft stops Publish, and the page says so.
+every sound, so Publish names every draft, and the page says so.
 
 A successful publish also tells you what it just shipped, licence-wise: a warning when a
 shipped sound has a non-commercial licence, or a note listing any shipped sounds with no
@@ -274,8 +277,8 @@ This is deliberately the opposite way round from
 [Invisible Localization](./localization.md), where unreviewed text simply doesn't ship.
 An unreviewed _string_ falls back to English — visible, obviously provisional. An
 unapproved _sound_ would fall back to **silence**, and silence is invisible: nobody
-notices it in testing. So the check happens at the moment you ship, loudly, instead of
-quietly removing audio.
+notices it in testing. So drafts ship, and every publish names them, instead of quietly
+removing audio.
 
 Un-approving a sound clears the review — an approval you can't take back would be
 worthless.

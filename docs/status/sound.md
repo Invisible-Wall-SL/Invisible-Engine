@@ -4,7 +4,7 @@
 
 **One-line state:** shipped — build plan S1–S10 complete. A project picks what plays at every
 moment of the game here, from a library it uploads, describes and approves on the same page, and it
-ships through the full asset chain behind a publish gate. The library half is click-tested live; the
+ships through the full asset chain; every publish names the drafts it ships. The library half is click-tested live; the
 choices half is still owed a signed-in click-through (open item 1).
 
 ## Current state
@@ -147,15 +147,15 @@ the publish gate refuses.
 - Read-only, with each row linking to the tool that owns it (design §2.3; the design's own "editable
   here: yes" rows were corrected to match).
 
-**S8 — the publish gate (done; verified against real R2).** `soundPublishCheck.ts` runs before
-anything is written: a draft the build SHIPS refuses the publish, naming them. Since 2026-11-12
-"ships" is the export's own answer (`soundReachability.ts`, with the same resolved choices).
-`/game-maker` asks once and offers **publish anyway** (`allowUnapproved`); every other blocked
-publish stays final, since overriding one would overwrite a real game's files. A successful publish
-returns a licence summary — a warning for a played sound with a non-commercial licence, a note for
-one with no licence at all.
+**S8 — the publish check (done; verified against real R2).** `soundPublishCheck.ts` lists the
+drafts the build SHIPS. Since 2026-11-12 "ships" is the export's own answer
+(`soundReachability.ts`, with the same resolved choices). **Since 2026-11-13 it never refuses**
+(owner: drafts ship): the online Publish returns them as `draftSounds` and shows a note, a bulk
+item records them, and a desktop build warns in its log and breakdown
+([game-maker.md](game-maker.md), 2026-11-13). A successful publish also returns a licence summary —
+a warning for a played sound with a non-commercial licence, a note for one with no licence at all.
 
-- **An unapproved built-in OVERRIDE blocks too.** It is played by the engine's own code with no doc
+- **An unapproved built-in OVERRIDE is listed too.** It is played by the engine's own code with no doc
   naming it, so a bindings-only gate would miss the one case most likely to be an unreviewed
   re-skin. This is the mutation the offline fixture could not catch — see Recent changes.
 - The licence flag is a **heuristic over free text and only ever warns**. Blocking a release on a
@@ -237,6 +237,11 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 - _None._
 
 ## Recent changes
+
+- 2026-11-13 — **Draft sounds no longer stop a publish; every publish names them** (owner
+  decision, design §6). `checkSoundsForPublish` is unchanged and still the one list; the online,
+  bulk and desktop paths report it instead of refusing. Detail:
+  [game-maker.md](game-maker.md) (2026-11-13).
 
 - 2026-11-12 — **The engine's stock audio ships as banks, and a game loads only the ones it can
   reach** (branch `engine/stock-sound-banks`, committed locally, not pushed; owner-approved plan

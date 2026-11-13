@@ -93,7 +93,6 @@ but never published, or someone made an older version live.
 
    | Refusal | Who can override | The proper fix |
    | --- | --- | --- |
-   | Sounds still marked draft | anyone who can publish: **Publish anyway** in *"Publish with unapproved sounds?"* | approve them in Invisible Sound |
    | Flow errors | `admin` only: **Publish anyway** in *"Publish with flow errors?"*. Everyone else is told to fix it or ask an admin. | Invisible Flow → Validation panel, save, publish again |
    | The paytable differs from the partner's captured one | `admin` only: *"Publish with a paytable that differs from the partner's?"* | in Invisible Game Config, import the capture, or correct it |
    | *"… already has its own published build (a desktop-launcher game)"* | nobody; this refusal is final | publish that game from the desktop launcher (section D) |
@@ -101,7 +100,8 @@ but never published, or someone made an older version live.
    A flow errors override is recorded: the version is tagged **flow errors** in the version list.
    Only override when you know why the check is wrong for this game.
 4. **Read the notes under the card.** They do not block, but each one is something players will see:
-   a sound with a non-commercial licence or no licence, *"no saved flow"* (the game plays without
+   sounds still marked draft (they shipped; approve them in Invisible Sound when final), a sound
+   with a non-commercial licence or no licence, *"no saved flow"* (the game plays without
    the free-spin intro and outro), or *"rig bundle(s) resolved to nothing"* (they will be missing
    in the game). Fix these in the tool that owns them, then publish again.
 5. **Play what players get.** Press **Play ↗**, which opens the published version.

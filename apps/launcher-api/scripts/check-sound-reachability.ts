@@ -28,9 +28,10 @@
  *  6. The rule's two "not a source" claims still hold in the code: no FX effect plays a sound, and
  *     no runtime code reads a rig event's `audio`. Every shipped audiosprite region and every slot
  *     default is an engine name.
- *  6. Through the REAL `checkSoundsForPublish`: a draft only the flow plays blocks Publish, from
- *     the flow's graph, a mode's graph, a group's body and a library function the flow calls (the
- *     walk is `flowSoundCues.ts`, shared with this rule). A function nothing calls does not block.
+ *  6. Through the REAL `checkSoundsForPublish`: Publish's draft-sound warning lists exactly the
+ *     drafts the export ships, and `/sound` lists the same; a draft only the flow plays is listed,
+ *     from the flow's graph, a mode's graph, a group's body and the function library (the walk is
+ *     `flowSoundCues.ts`, shared with this rule).
  */
 import { mock } from 'node:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -536,12 +537,12 @@ for (const ref of ['soundOnce', 'soundMusic', 'soundLoop', 'soundStop']) {
 	);
 }
 
-// ── 6. The publish gate, the export and /sound agree, over the mocked storage ────────────────
+// ── 6. The publish check, the export and /sound agree, over the mocked storage ───────────────
 {
 	const { checkSoundsForPublish } = await import('../src/lib/server/soundPublishCheck.ts');
 	const { checkSoundLibrary, soundBindingNames } = await import('../src/lib/soundUsage.ts');
 
-	/** A shipped sound someone approved: it ships, and blocks nothing. */
+	/** A shipped sound someone approved: it ships, and is never listed. */
 	const APPROVED = 'def_cue';
 	useLibrary(ALL);
 	library = library.map((e) => (e.name === APPROVED ? { ...e, status: 'approved' as const } : e));
@@ -599,20 +600,20 @@ for (const ref of ['soundOnce', 'soundMusic', 'soundLoop', 'soundStop']) {
 		const failed: string[] = [];
 		const expect = (label: string, ok: boolean) => void (ok || failed.push(label));
 		for (const s of SCENARIOS) {
-			expect(`${s.label}: the gate blocks exactly the drafts the export ships`, JSON.stringify(await gate(s)) === JSON.stringify(sorted(await exported(s)))); // prettier-ignore
+			expect(`${s.label}: the check lists exactly the drafts the export ships`, JSON.stringify(await gate(s)) === JSON.stringify(sorted(await exported(s)))); // prettier-ignore
 		}
-		const blocked = new Set(await gate(SCENARIOS[0]));
-		const blocks = (names: string[]) => names.every((n) => blocked.has(n));
-		expect('a draft only a /sound choice names blocks', blocks(['slot_bed', 'sym_land', 'token_fly', 'coin_total', 'tease_loop', 'tier_bed'])); // prettier-ignore
-		expect("a draft only a silenced slot names blocks (the export ships it)", blocks(['muted_bed'])); // prettier-ignore
-		expect('a draft only a cinematic cue names blocks', blocks(['cine_hit', 'cine_stop']));
-		expect("a draft only a cinematic cue's pick alternate names blocks", blocks(['cine_pick']));
-		expect('a draft only the flow plays blocks (graph, mode, group, library)', blocks(['flow_once', 'mode_flow', 'group_flow', 'lib_flow', 'lib_uncalled'])); // prettier-ignore
-		expect('an engine-named draft blocks (it replaces a sound the engine plays)', blocks(['sfx_btn_spin'])); // prettier-ignore
-		expect('a draft nothing names does not block', !blocked.has('draft_unused') && !blocked.has('unused_take')); // prettier-ignore
-		expect('an approved sound that ships does not block', !blocked.has(APPROVED));
-		expect('when the export cannot tell, every draft blocks', JSON.stringify(await gate(SCENARIOS[1])) === JSON.stringify(sorted(drafts))); // prettier-ignore
-		expect('when the sounds doc cannot be read, nothing blocks', (await gate(SCENARIOS[4])).length === 0); // prettier-ignore
+		const listed = new Set(await gate(SCENARIOS[0]));
+		const lists = (names: string[]) => names.every((n) => listed.has(n));
+		expect('a draft only a /sound choice names is listed', lists(['slot_bed', 'sym_land', 'token_fly', 'coin_total', 'tease_loop', 'tier_bed'])); // prettier-ignore
+		expect("a draft only a silenced slot names is listed (the export ships it)", lists(['muted_bed'])); // prettier-ignore
+		expect('a draft only a cinematic cue names is listed', lists(['cine_hit', 'cine_stop']));
+		expect("a draft only a cinematic cue's pick alternate names is listed", lists(['cine_pick']));
+		expect('a draft only the flow plays is listed (graph, mode, group, library)', lists(['flow_once', 'mode_flow', 'group_flow', 'lib_flow', 'lib_uncalled'])); // prettier-ignore
+		expect('an engine-named draft is listed (it replaces a sound the engine plays)', lists(['sfx_btn_spin'])); // prettier-ignore
+		expect('a draft nothing names is not listed', !listed.has('draft_unused') && !listed.has('unused_take')); // prettier-ignore
+		expect('an approved sound that ships is not listed', !listed.has(APPROVED));
+		expect('when the export cannot tell, every draft is listed', JSON.stringify(await gate(SCENARIOS[1])) === JSON.stringify(sorted(drafts))); // prettier-ignore
+		expect('when the sounds doc cannot be read, none is listed', (await gate(SCENARIOS[4])).length === 0); // prettier-ignore
 		return failed;
 	};
 
@@ -661,12 +662,12 @@ for (const ref of ['soundOnce', 'soundMusic', 'soundLoop', 'soundStop']) {
 		'without the /sound choices': rule((s) => ({ ...s, bindings: undefined })),
 		'without the cinematics': rule((s) => ({ ...s, cinematics: undefined })),
 		'without the pick alternates': rule(noPicks),
-		'never blocks an engine-named draft': async (s) =>
+		'never lists an engine-named draft': async (s) =>
 			(await realGate(s)).filter((n) => !ENGINE_SOUND_NAMES.has(n)),
-		'blocks approved sounds too': async (s) =>
+		'lists approved sounds too': async (s) =>
 			s.fail === 'sounds' ? [] : sorted(new Set([...(await realGate(s)), APPROVED])),
 		'stays quiet when the export cannot tell': rule((s) => s, { quietWhenUnsure: true }),
-		'blocks every draft, always': async () => sorted(drafts),
+		'lists every draft, always': async () => sorted(drafts),
 	};
 	for (const [name, mutant] of Object.entries(GATE_MUTANTS)) {
 		const failed = await gateClaims(mutant);

@@ -195,8 +195,8 @@ steps 4 and 5 define the symbols and tiers.
   the flow's `soundMusic` cue on **tapToStart** (step 9). Point that at your track too.
 - Two sounds with the same name, or a name with a space or a dot, lose a row on save. Renaming a
   sound doesn't re-point the moments that play it ([Names](../tools/sound.md#names)).
-- A draft sound that the game plays stops Publish (step 10). Approve it, or publish anyway on
-  purpose ([Draft and Approved](../tools/sound.md#draft-and-approved)).
+- A draft sound that the game plays still ships: Publish (step 10) names it in a note. Approve it
+  when it is final ([Draft and Approved](../tools/sound.md#draft-and-approved)).
 
 **Done when:** each moment plays your sound when you press ▶, both beds loop, and every sound the
 game plays is Approved.
@@ -292,9 +292,9 @@ game", first check whether it was published:
 - A line under the buttons says which version players get, and warns when scenes were edited
   after it.
 
-**Publish refuses, before writing anything,** on: sounds still marked draft; flow validation
-errors; a paytable that differs from the partner reference; or a game that has its own desktop
-build. Each refusal names the problem. Fix it in the tool that owns it. Overriding a flow or
+**Publish refuses, before writing anything,** on: flow validation errors; a paytable that differs
+from the partner reference; or a game that has its own desktop build. Sounds still marked draft
+do not stop it: they ship, and a note names them. Each refusal names the problem. Fix it in the tool that owns it. Overriding a flow or
 paytable refusal is admin-only.
 
 **Rolling back content:** **Published versions** → **Make live** switches players to an older

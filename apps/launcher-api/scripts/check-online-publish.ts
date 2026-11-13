@@ -13,7 +13,10 @@
  *    live `wss://rooms.invisiblewall.org`), the exact parameter `apps/lines` `game/online.ts` boots
  *    from, beside the `project` it joins;
  *  - an offline arcade game and a slot publish with no address and carry no `rooms_url`;
- *  - an authoring launch of the online game keeps its `rooms_url`.
+ *  - an authoring launch of the online game keeps its `rooms_url`;
+ *  - draft sounds never refuse a publish (the owner's call, 2026-11-13): the gate passes, the
+ *    publish names them in its result, and a bulk run through the REAL `publishAllJob.ts` →
+ *    `publishAllRunner.ts` publishes the game and records them on its item.
  */
 import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
@@ -56,6 +59,7 @@ const KINDS: Record<string, string> = {
 	salmonsonline: 'arcade',
 	arcadeoffline: 'arcade',
 	slotgame: 'lines',
+	draftslot: 'lines',
 };
 const CONFIGS: Record<string, GameConfigDoc> = {
 	salmonsonline: {
@@ -69,7 +73,10 @@ const CONFIGS: Record<string, GameConfigDoc> = {
 		arcade: { field: { w: 800, h: 600 } },
 	} as GameConfigDoc,
 	slotgame: {} as GameConfigDoc,
+	draftslot: {} as GameConfigDoc,
 };
+/** The shipped sounds still marked draft, per project — what the sound check would answer. */
+const DRAFTS: Record<string, string[]> = { draftslot: ['sfx_coin', 'sfx_win'] };
 mockAll('lib/server/projects.ts', {
 	projectGameType: async (key: string) => KINDS[key] ?? null,
 	projectClientKey: async () => CLIENT,
@@ -108,8 +115,8 @@ mockAll('lib/server/runtimeBundle.ts', {
 	}),
 });
 mockAll('lib/server/soundPublishCheck.ts', {
-	checkSoundsForPublish: async () => ({
-		unapproved: [],
+	checkSoundsForPublish: async (_client: string, project: string) => ({
+		unapproved: DRAFTS[project] ?? [],
 		licences: { total: 0, approved: 0, byLicence: {} },
 	}),
 });
@@ -131,6 +138,7 @@ mockAll('lib/server/testServerRefresh.ts', {
 
 const { publishGame, publishGateRefusal, PublishBlockedError } =
 	await import('../src/lib/server/publishGame.ts');
+const { startPublishAllJob } = await import('../src/lib/server/publishAllJob.ts');
 const { gameConfigDocKey } = await import('../src/lib/server/projectPaths.ts');
 const { TEST_SERVER_MANIFEST_KEY } = await import('../src/lib/server/testServerManifest.ts');
 const { asAuthoringLaunch } = await import('../src/lib/gameLaunch.ts');
@@ -229,6 +237,43 @@ await check('an online game publishes with rooms_url = the address', async () =>
 	const { url: unset } = await publish('salmonsonline');
 	assert(paramsOf(unset).get('rooms_url') === 'wss://rooms.invisiblewall.org', `unset: ${unset}`);
 });
+
+await check(
+	'draft sounds never refuse a publish: it ships, and its result names them',
+	async () => {
+		assert((await publishGateRefusal('draftslot')) === null, 'the gate refused it');
+		const result = await publish('draftslot');
+		assert(result.draftSounds.join() === 'sfx_coin,sfx_win', `drafts: ${result.draftSounds}`);
+		assert(URLS.get('draftslot') === result.url, 'no game row');
+		assert(manifestHas('draftslot'), 'no manifest entry');
+		assert((await publish('slotgame')).draftSounds.length === 0, 'a game with no draft lists some');
+	},
+);
+
+await check(
+	'a bulk run publishes a game with draft sounds and records them on its item',
+	async () => {
+		URLS.delete('draftslot');
+		const job = startPublishAllJob({
+			targets: [
+				{ key: 'draftslot', name: 'Draft slot' },
+				{ key: 'slotgame', name: 'Slot game' },
+			],
+			scope: 'published',
+			launcherOrigin: ORIGIN,
+			startedBy: 'publisher@example.test',
+		});
+		for (let i = 0; job.finishedAt === null && i < 200; i++) {
+			await new Promise((tick) => setTimeout(tick, 5));
+		}
+		assert(job.finishedAt !== null, 'the run never finished');
+		const [drafted, clean] = job.items;
+		assert(drafted.status === 'ok', `draftslot: ${drafted.status} ${drafted.message ?? ''}`);
+		assert(drafted.draftSounds?.join() === 'sfx_coin,sfx_win', `item: ${JSON.stringify(drafted)}`);
+		assert(URLS.has('draftslot'), 'draftslot was not published');
+		assert(clean.status === 'ok' && clean.draftSounds === undefined, JSON.stringify(clean));
+	},
+);
 
 await check('the runtime boots from the parameter publish writes', () => {
 	const online = readFileSync(new URL('../../lines/src/game/online.ts', import.meta.url), 'utf8');

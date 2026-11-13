@@ -5,13 +5,15 @@
 // The PORTAL runs the checks (`GET /api/launcher/publish-check` → `src/lib/server/publishChecks.ts`,
 // which calls the gate functions the online Publish calls), so a gate changed there reaches every
 // desktop build the day it deploys. This file decides only what the build does with the answer:
-// bake on when nothing failed or every finding was lifted, stop (exit 1) otherwise.
+// bake on when nothing failed or every failure was lifted, stop (exit 1) otherwise. A WARNING (the
+// draft sounds the game ships, since 2026-11-13) never stops it: it is logged and reported.
 //
-//   IE_PUBLISH_ANYWAY=1         / --publish-anyway         lift every finding that has an override
+//   IE_PUBLISH_ANYWAY=1         / --publish-anyway         lift every failure that has an override
 //   IE_PUBLISH_ANYWAY=<id>,<id> / --publish-anyway <ids>   lift only those
 //   ALLOW_INVALID_FLOW=1        / --allow-invalid-flow     the bake's flow override = `invalid-flow`
 //
-// A finding with no override (`flow-wrong-kind`, `unplayable-family`) stops the build whatever is set.
+// A failure with no override (`flow-wrong-kind`, `unplayable-family`) stops the build whatever is
+// set. An id that names no failure lifts nothing, so an old `unapproved-sounds` setting is harmless.
 //
 // A CHECK THE PORTAL DID NOT ANSWER STOPS THE BUILD — a network error, a 5xx after the retries, a
 // portal older than the route (404), an answer with no verdict — as the doc fetch and the deploy
@@ -72,6 +74,7 @@ function unanswered(project, error, lifted) {
 		error,
 		checked: [],
 		failed: [],
+		warnings: [],
 		overridden: shipped ? [PUBLISH_CHECK_UNREACHABLE] : [],
 		blocking: shipped ? [] : [PUBLISH_CHECK_UNREACHABLE],
 		override: shipped ? null : PUBLISH_ANYWAY,
@@ -82,9 +85,9 @@ function unanswered(project, error, lifted) {
  * Ask the portal and decide. `get(url)` fetches; the bake passes its retrying fetch. Never throws:
  * every failure to get a verdict is an `unreachable` (or, lifted, `unchecked`) verdict.
  *
- * `status`: `passed` · `overridden` (findings shipped anyway) · `refused` · `unreachable` ·
- * `unchecked`. `blocking` lists what stops the build; `override` is what would let it through, or
- * `null` when something blocking has none.
+ * `status`: `passed` · `overridden` (failures shipped anyway) · `refused` · `unreachable` ·
+ * `unchecked`; `warnings` never move it. `blocking` lists what stops the build; `override` is what
+ * would let it through, or `null` when something blocking has none.
  */
 export async function runPublishCheck({ base, project, token, lifted, get = (url) => fetch(url) }) {
 	const url =
@@ -107,6 +110,7 @@ export async function runPublishCheck({ base, project, token, lifted, get = (url
 	if (!failed || !Array.isArray(answer?.checked) || answer.ok !== (failed.length === 0)) {
 		return unanswered(project, 'the portal answered without a verdict', lifted);
 	}
+	const warnings = Array.isArray(answer.warnings) ? answer.warnings.map(asFailure) : [];
 	const shipped = failed.filter((f) => f.overridable && lifts(lifted, f.id));
 	const blocking = failed.filter((f) => !shipped.includes(f));
 	return {
@@ -114,6 +118,7 @@ export async function runPublishCheck({ base, project, token, lifted, get = (url
 		status: blocking.length ? 'refused' : shipped.length ? 'overridden' : 'passed',
 		checked: answer.checked.map(String),
 		failed,
+		warnings,
 		overridden: shipped.map((f) => f.id),
 		blocking: blocking.map((f) => f.id),
 		override: blocking.length && blocking.every((f) => f.overridable) ? PUBLISH_ANYWAY : null,
@@ -130,6 +135,10 @@ export function describePublishCheck(verdict) {
 		lines.push(
 			`✓ publish checks: ${verdict.checked.join(', ')} pass (the online Publish's checks).`,
 		);
+	}
+	if (verdict.warnings.length) {
+		lines.push('⚠ publish checks: shipping with a warning (a warning never stops a build):');
+		for (const f of verdict.warnings) lines.push(...findingLines(f).map((l) => `    ${l}`));
 	}
 	if (verdict.status === 'refused') {
 		lines.push('✖ publish checks: this build fails the checks the online Publish runs.');
@@ -184,11 +193,12 @@ export function publishCheckRefusal(verdict) {
 
 /**
  * The build breakdown's checks for `publish-check.json` (`scripts/build-breakdown.mjs`), as its
- * `{ level, title, detail, items }`. A build that passed adds none.
+ * `{ level, title, detail, items }`. A build that passed with no warning adds none.
  */
 export function publishCheckIssues(report) {
 	if (!report || typeof report !== 'object') return [];
 	const failed = Array.isArray(report.failed) ? report.failed.map(asFailure) : [];
+	const warnings = Array.isArray(report.warnings) ? report.warnings.map(asFailure) : [];
 	const overridden = Array.isArray(report.overridden) ? report.overridden : [];
 	const blocking = Array.isArray(report.blocking) ? report.blocking : [];
 	const shipped = failed.filter((f) => overridden.includes(f.id));
@@ -202,6 +212,16 @@ export function publishCheckIssues(report) {
 				`This build was told to ship anyway (${PUBLISH_ANYWAY.env}). The online Publish refuses ` +
 				'the same game until these are fixed or overridden.',
 			items: shipped.flatMap(findingLines),
+		});
+	}
+	if (warnings.length) {
+		issues.push({
+			level: 'warn',
+			title: 'Shipped with publish-check warnings',
+			detail:
+				'Nothing here stopped the build: the online Publish ships the same game with the same ' +
+				'warnings.',
+			items: warnings.flatMap(findingLines),
 		});
 	}
 	if (report.status === 'unchecked') {

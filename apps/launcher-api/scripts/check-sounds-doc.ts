@@ -491,12 +491,12 @@ console.log('\n16. the three checks');
 	check('with ships: not rebindable still reads the bindings', withShips.notRebindable, ['bgm_main', 'sfx_reel_stop_1']); // prettier-ignore
 }
 
-console.log('\n17. the publish gate — what blocks a release, and what only warns');
+console.log('\n17. the publish check — which drafts a release names, and the licences');
 {
 	const played = (names: string[]) => (n: string) => names.includes(n);
 
-	// The GATE itself is `checkSoundLibrary().unapprovedBound` (§16). What matters here is the rule
-	// around it: only a PLAYED draft blocks, and an override counts as played.
+	// The LIST itself is `checkSoundLibrary().unapprovedBound` (§16). What matters here is the rule
+	// around it: only a PLAYED draft is listed, and an override counts as played.
 	const lib = norm({
 		entries: [
 			good({ id: 'a', name: 'bound_draft' }),
@@ -505,14 +505,14 @@ console.log('\n17. the publish gate — what blocks a release, and what only war
 		],
 	});
 	const gate = checkSoundLibrary(lib, played(['bound_draft', 'bound_ok']), ['bound_draft', 'bound_ok'], []); // prettier-ignore
-	check('a played draft blocks', gate.unapprovedBound, ['bound_draft']);
+	check('a played draft is listed', gate.unapprovedBound, ['bound_draft']);
 	check('an unused draft does not', gate.unapprovedBound.includes('idle_draft'), false);
 	check('an approved sound does not', gate.unapprovedBound.includes('bound_ok'), false);
 	// A re-skin of a built-in is played by the engine's own code with no doc naming it. Judged by
-	// bindings alone it would look idle, and an unapproved override would sail straight past the one
-	// check meant to catch it.
+	// bindings alone it would look idle, and an unapproved override would ship unnamed, past the
+	// one check meant to name it.
 	const skin = norm({ entries: [good({ id: 'x', name: 'sfx_btn_spin' })] });
-	check('an unapproved built-in override blocks too', checkSoundLibrary(skin, () => false, [], ['sfx_btn_spin']).unapprovedBound, ['sfx_btn_spin']); // prettier-ignore
+	check('an unapproved built-in override is listed too', checkSoundLibrary(skin, () => false, [], ['sfx_btn_spin']).unapprovedBound, ['sfx_btn_spin']); // prettier-ignore
 
 	console.log('  — licences');
 	const licLib = norm({

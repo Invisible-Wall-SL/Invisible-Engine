@@ -602,6 +602,7 @@
 		name: string;
 		status: 'pending' | 'running' | 'ok' | 'skipped' | 'error';
 		message?: string;
+		draftSounds?: string[];
 		ms?: number;
 	};
 	type BulkJob = {
@@ -691,6 +692,10 @@
 		}
 	}
 
+	/** A bulk item's warning: drafts ship (the owner's call, 2026-11-13), and the run says how many. */
+	const shippedDrafts = (names: string[]) =>
+		`shipped with ${names.length} draft sound${names.length === 1 ? '' : 's'}`;
+
 	/** How many games the chosen scope would cover, for the confirmation dialog. */
 	const bulkScopeCount = (scope: 'stale' | 'published') =>
 		scope === 'stale' ? staleCount : publishedCount;
@@ -724,16 +729,15 @@
 		if (project) await publish(project.key);
 	}
 
-	/** The refusals an author (or, for the last two, an admin) has already chosen to push past. */
+	/** What an author (or, for the flow and the paytable, an admin) has already chosen to push past. */
 	type PublishOverrides = {
-		allowUnapproved?: boolean;
 		allowInvalidFlow?: boolean;
 		allowPaytableDrift?: boolean;
 		confirmRepairRun?: boolean;
 	};
 
 	async function publish(projectKey: string, overrides: PublishOverrides = {}) {
-		const { allowUnapproved, allowInvalidFlow, allowPaytableDrift, confirmRepairRun } = overrides;
+		const { allowInvalidFlow, allowPaytableDrift, confirmRepairRun } = overrides;
 		publishing = { ...publishing, [projectKey]: true };
 		publishErr = { ...publishErr, [projectKey]: '' };
 		publishNote = { ...publishNote, [projectKey]: '' };
@@ -758,27 +762,6 @@
 					return;
 				}
 				await publish(projectKey, { ...overrides, confirmRepairRun: true });
-				return;
-			}
-			// An UNAPPROVED-SOUNDS refusal is one an author may legitimately push past — it protects a
-			// review step, not a real game's files. So it asks, once, naming the sounds. A game with its
-			// own desktop build stays final: overriding it would overwrite something that cannot be
-			// rebuilt from here.
-			if (res.status === 409 && out?.reason === 'unapproved-sounds' && !allowUnapproved) {
-				const names: string[] = Array.isArray(out.details) ? out.details : [];
-				const ok = await askConfirm({
-					title: 'Publish with unapproved sounds?',
-					message:
-						`${out.error}\n\n` +
-						`These play in the game but nobody has signed them off:\n  ${names.join('\n  ')}`,
-					confirmLabel: 'Publish anyway',
-					danger: true,
-				});
-				if (!ok) {
-					publishErr = { ...publishErr, [projectKey]: out.error };
-					return;
-				}
-				await publish(projectKey, { ...overrides, allowUnapproved: true });
 				return;
 			}
 			// An INVALID-FLOW refusal lists the validator's errors. Only the owner role gets the override
@@ -849,6 +832,19 @@
 					[projectKey]:
 						`Shipped ${sounds.bound} project sound${sounds.bound === 1 ? '' : 's'}. ` +
 						`No licence recorded for: ${sounds.missingLicence.join(', ')}.`,
+				};
+			}
+			// Draft sounds ship (the owner's call, 2026-11-13): named here, after the fact, never asked.
+			const drafts: string[] = Array.isArray(out?.draftSounds) ? out.draftSounds : [];
+			if (drafts.length) {
+				const one = drafts.length === 1;
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						`⚠ Shipped ${drafts.length} sound${one ? '' : 's'} still marked draft: ` +
+						`${drafts.join(', ')}. Approve ${one ? 'it' : 'them'} in Invisible Sound when ` +
+						`${one ? 'it is' : 'they are'} final.`,
 				};
 			}
 			if (out?.flow === 'absent') {
@@ -1255,6 +1251,11 @@
 								<span class="bi-status">{bulkStatusLabel(item)}</span>
 								{#if item.message}<span class="bi-msg" title={item.message}>{item.message}</span
 									>{/if}
+								{#if item.draftSounds?.length}
+									<span class="bi-msg" title={item.draftSounds.join(', ')}
+										>{shippedDrafts(item.draftSounds)}</span
+									>
+								{/if}
 							</li>
 						{/each}
 					</ul>
