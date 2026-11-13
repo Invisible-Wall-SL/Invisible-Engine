@@ -544,11 +544,13 @@ console.log('1. the contract: inputs only with the block, the Hold and Win bonus
 console.log('2. parity: no block, the host byte for byte; with it, the host deals the same game');
 {
 	// The book mock's answers, hashed by `digest` below, as `main` dealt them before the overlay
-	// seam existed (`git show e4a78f1:scripts/mock-rgs-server-book.mjs`, 2026-10-02).
+	// seam existed (`git show e4a78f1:scripts/mock-rgs-server-book.mjs`, 2026-10-02). Re-taken
+	// 2026-11-12 for the partner's `spinTrigger` a free-spin retrigger now sends before our `retrigger`;
+	// without it, the deal is byte-identical.
 	const MAIN_DIGESTS = {
-		plain: '0d724397a1a76c3b',
-		trigger: '6bb55df574755de0',
-		paytable: 'c2447ad6adca7af4',
+		plain: 'ab6b848b0052b475',
+		trigger: 'f6ac85008f795f38',
+		paytable: 'c266a373013e172c',
 	};
 	const digest = async (opts, rounds) => {
 		const mock = createBookMock({ seed: 'book-parity', ...opts });

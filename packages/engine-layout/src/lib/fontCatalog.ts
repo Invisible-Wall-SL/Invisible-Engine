@@ -60,6 +60,12 @@ export interface FontEntry {
 	descriptorFormat?: FontDescriptorFormat;
 	/** Bitmap only: page image filenames (relative to `folder`). */
 	pageFiles?: string[];
+	/**
+	 * Bitmap only, SHIPPED-ONLY: the descriptor naming the pages' premultiplied `.pm.ktx2` twins
+	 * (relative to `folder`), written by the export when it encodes them. The compressed texture
+	 * tier loads it, with {@link descriptorFile} as its fallback (`bakedFontAssets`).
+	 */
+	ktx2DescriptorFile?: string;
 	/** Web only: the downloadable font files. */
 	files?: FontFile[];
 	/**

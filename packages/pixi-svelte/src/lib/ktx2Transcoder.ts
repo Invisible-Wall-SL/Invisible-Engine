@@ -65,17 +65,36 @@ async function fetchBytes(url: string): Promise<ArrayBuffer> {
 	return response.arrayBuffer();
 }
 
-let fellBack = false;
+/**
+ * A URL as `?perf=1`'s Copy names it: its last two path segments. A deploy URL carries the
+ * project's read token, and the Copy is pasted where anyone can read it.
+ */
+export const urlTail = (url: string): string => {
+	try {
+		return new URL(url).pathname.split('/').filter(Boolean).slice(-2).join('/');
+	} catch {
+		return url;
+	}
+};
+
+/** How many fallbacks {@link ktx2Fallbacks} keeps: enough for every page of a game, bounded. */
+const FALLBACKS_KEPT = 100;
+const fallbacks: { key: string; reason: string }[] = [];
+
+/** Every asset whose `.ktx2` failed this session and loaded its WebP/PNG twin instead, with why. */
+export const ktx2Fallbacks = (): readonly { key: string; reason: string }[] => fallbacks;
 
 /**
  * Say ONCE per session that compressed textures were replaced by their uncompressed twins. One
  * broken transcoder fails every `.ktx2` on the board, and a line per texture would bury the
- * reason. It is a `console.warn`, so an active Sentry client records it as a breadcrumb.
+ * reason. It is a `console.warn`, so an active Sentry client records it as a breadcrumb. Every
+ * fallback is also kept, with its reason, for `?perf=1`'s Copy ({@link ktx2Fallbacks}).
  */
 export function noteKtx2Fallback(key: string, error: unknown): void {
-	if (fellBack) return;
-	fellBack = true;
 	const reason = error instanceof Error ? error.message : String(error);
+	if (fallbacks.length < FALLBACKS_KEPT)
+		fallbacks.push({ key, reason: reason.replace(/\b(?:https?|blob):\/\/[^\s'"]+/g, urlTail) });
+	if (fallbacks.length > 1) return;
 	console.warn(
 		`[ktx2] '${key}' failed to load compressed (${reason}); loading its WebP/PNG twin instead. ` +
 			`Later fallbacks this session are not logged.`,

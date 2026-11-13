@@ -7,6 +7,36 @@ traps. It covers the translator (`packages/rgs-translator-eagaming`), the mock R
 (`services/test-server`, `scripts/mock-rgs-server*.mjs`), money, `seq`/`gid`, resume and delivery
 builds. Slot-type traps live in the family files, e.g. [lines](../families/lines.md).
 
+### A line paid from the right lit the left end of the line
+
+- **Symptom:** on the partner's Getting Hot, a 3-of-a-kind line win paid the right amount, but the
+  lit cells and the drawn line were reels 0–2 (heart, shovel, club: no win), not the three clubs
+  on reels 4, 3, 2 that paid.
+- **Cause:** the partner reads some lines from the right (`spinWin` `context.direction:
+  'right'`). The facade's `winPositions` handed over the whole payline and ignored `direction`;
+  the engine's `winningPositionsOf` keeps the leftmost `kind` cells of a line.
+- **Fix:** `winPositions` hands over only the `occurs` rightmost cells of a line read from the
+  right. A left-read line is unchanged.
+- **Guard:** `collectorRespin.fixture.ts` "right line win" (fails without the fix).
+- **PR:** this one (2026-11-12) · source: `docs/status/hold-and-win.md`
+
+### A partner free-spin retrigger would have played with no celebration
+
+- **Symptom:** none seen live yet. Found by auditing the mocks against the partner's client: on a
+  partner free-spins game, a retrigger would add its spins to the counter but play no retrigger
+  celebration.
+- **Cause:** the facade celebrated only our mock's `retrigger` event. The partner's client has no
+  `retrigger` case; it reads a free-spin retrigger off a `spinTrigger` that arrives during free
+  spins. Our mocks never sent one, so no gate ever played the partner's shape.
+- **Fix:** the mocks send the partner's `spinTrigger` before our `retrigger`. The facade
+  (`freeSpinRetriggerAt`) celebrates from the `spinTrigger`, once, whether or not a `retrigger`
+  follows.
+- **Guard:** `check:mock-wire` plays every outcome each mock deals through the facade, including a
+  retrigger with our `retrigger` stripped out. The table in `reference/play4fun-protocol.md` ("Mock
+  audit") marks every event the mocks send as captured, partner client, other provider or ours. An
+  event marked ours needs a capture before a game ships on it.
+- **PR:** this one (2026-11-12) · source: `docs/status/engine.md`
+
 ### Getting Hot paid its line wins but no symbol animated
 - **Symptom:** on the partner's collector game (Getting Hot), a line win credited the WIN meter
   but the winning symbols never played their win animation and no line was drawn.

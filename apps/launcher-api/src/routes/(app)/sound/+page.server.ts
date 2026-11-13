@@ -19,10 +19,12 @@ import { roleHasTool } from '$lib/roles';
 import { symbolCueStates } from '$lib/soundMoments';
 import { flowSoundBindings } from '$lib/soundUsage';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import { loadFlowV2Library } from '$lib/server/flowV2LibraryStorage';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
 import { projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { collectPlayedSoundNames } from '$lib/server/soundReachability';
 import { loadSoundsDocWithEtag } from '$lib/server/soundsStorage';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -61,11 +63,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 
 	// Every surface that can bind a sound, read together so the usage index can say which library
 	// sounds are actually played. Read-only here — each row links to the tool that owns it.
-	const [{ doc, etag }, config, symbols, flow] = await Promise.all([
+	const [{ doc, etag }, config, symbols, flow, flowLibrary] = await Promise.all([
 		loadSoundsDocWithEtag(clientKey, projectKey),
 		loadGameConfigDoc(clientKey, projectKey),
 		loadSymbolsDoc(clientKey, projectKey),
 		loadFlowV2Doc(clientKey, projectKey),
+		loadFlowV2Library(),
 	]);
 
 	/**
@@ -148,8 +151,19 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** Win tiers, in threshold order, for the tier rows. */
 		winTiers: (config?.winLevels ?? []).map((t) => ({ alias: t.alias, name: t.name })),
 		/** Flow cues stay in the graph — listed here so the page can still show every sound the game
-		 *  plays, with a link out rather than an editor. */
-		flowCues: flowSoundBindings(flow).map((b) => ({ name: b.name, where: b.where })),
+		 *  plays, with a link out rather than an editor. Every graph counts: the flow's own, each
+		 *  mode's, a group's body and a library function the flow calls. */
+		flowCues: flowSoundBindings(flow, flowLibrary).map((b) => ({ name: b.name, where: b.where })),
+		/**
+		 * Every name the export ships a sound for, from everything but the choices on this page — the
+		 * page adds those itself, live (`soundBindingNames`). `null` when the export cannot tell and
+		 * ships every sound. The publish gate asks the same walk (`soundPublishCheck.ts`), so the
+		 * page's "not approved" list is the list Publish refuses. STREAMED, not awaited: the walk
+		 * reads the whole game, cinematics included, and takes seconds.
+		 */
+		shipsElsewhere: collectPlayedSoundNames(clientKey, projectKey)
+			.then((names) => (names ? [...names] : null))
+			.catch(() => null),
 		/**
 		 * The shipped audiosprite's own names. Sourced from the generated flow enums because that is
 		 * the list the launcher already trusts for its sound pickers; when S9 retires it this reads

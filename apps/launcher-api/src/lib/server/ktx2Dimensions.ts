@@ -6,8 +6,13 @@
  * wrong, and it needs to be checkable in milliseconds rather than behind a real encode.
  */
 
-/** Below this source area, the encode/download cost isn't worth it — ship the WebP/PNG. */
-export const MIN_ENCODE_PIXELS = 1_000_000;
+/**
+ * Below this source area (a 256×256 page, 0.26 MB as RGBA) the GPU saving is under 0.2 MB a page,
+ * so the WebP/PNG ships alone. It was 1 Mpix, which left every page between the two uncompressed
+ * on phones: on `overlay-buffaloduel` that was its baked FX flipbooks and the shared static symbol
+ * sheet, 9.3 MB of its compressed tier (2026-11-12).
+ */
+export const MIN_ENCODE_PIXELS = 65_536;
 /** Stay safely under the bundled Basis v2.5 encoder's ~12 Mpix hard cap (a page over it is
  *  downscaled to fit, not skipped). */
 export const MAX_ENCODE_PIXELS = 11_000_000;
@@ -72,4 +77,27 @@ export function targetSize(
 	const w = alignDown(scale >= 1 ? width : width * scale);
 	const h = alignDown(scale >= 1 ? height : height * scale);
 	return { width: w, height: h, scale };
+}
+
+/** Round UP to a whole block. */
+export const alignUp = (n: number) => Math.max(BLOCK, Math.ceil(n / BLOCK) * BLOCK);
+
+/**
+ * The dimensions a page is encoded at when its descriptor's coordinates must not move: the source
+ * size grown to whole 4×4 blocks, the new texels transparent along the right and bottom edges, so
+ * every pixel keeps its coordinate and nothing is rescaled. For a descriptor whose coordinates are
+ * whole pixels a rescale cannot keep (a bitmap font's glyph rects), or whose regions may touch the
+ * page edge (the engine's stock sheets). Null when the page would need a downscale to fit
+ * `maxDimension` or {@link MAX_ENCODE_PIXELS}: such a page keeps no twin.
+ */
+export function paddedSize(
+	width: number,
+	height: number,
+	maxDimension: number = DEFAULT_MAX_DIMENSION,
+): { width: number; height: number } | null {
+	const w = alignUp(width);
+	const h = alignUp(height);
+	return Math.max(w, h) <= maxDimension && w * h <= MAX_ENCODE_PIXELS
+		? { width: w, height: h }
+		: null;
 }

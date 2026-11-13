@@ -460,6 +460,7 @@ export function analyzeBuild(input: BreakdownInput): BuildBreakdown {
 		};
 		const paths = [
 			f.descriptorFile ? at(f.descriptorFile) : null,
+			f.ktx2DescriptorFile ? at(f.ktx2DescriptorFile) : null,
 			...(f.pageFiles ?? []).map(at),
 			...(f.files ?? []).map((w) => at(w.file)),
 		];

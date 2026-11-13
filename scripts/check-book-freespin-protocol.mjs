@@ -209,15 +209,17 @@ const PARITY = {
 
 /**
  * Taken from origin/main's book mock (2026-10-07, before this rule) with `--print --mock`.
+ * Re-taken 2026-11-12 when a free-spin retrigger began sending the partner's `spinTrigger` before
+ * our `retrigger`: with that one event removed, every answer is byte-identical to the old digests.
  * A Book-of project that authored no free-spins rule must keep exactly this deal.
  */
 const PINNED = {
-	'plain base rounds': 'e6886d9488162e56',
-	'forced trigger (FORCE_TRIGGER)': '59686cb9763b609b',
-	'bought feature (bet option 1)': 'cd48bfff2b17fede',
-	'a narrower pool and an authored table': 'de463c2b1377988e',
-	'pots overlay → free spins, a pot forced full': '0304500ded66227b',
-	'pots overlay → Hold and Win (3 Pots), forced trigger': '20bf55a93c44110c',
+	'plain base rounds': '77e5d93a16e5249c',
+	'forced trigger (FORCE_TRIGGER)': 'ddc5395a49dbdf22',
+	'bought feature (bet option 1)': '87cc3489dde05742',
+	'a narrower pool and an authored table': '8a320aac545e10f2',
+	'pots overlay → free spins, a pot forced full': '930ceac30036da4f',
+	'pots overlay → Hold and Win (3 Pots), forced trigger': '9bf73fa0b76e40ef',
 };
 
 if (opt.print) {

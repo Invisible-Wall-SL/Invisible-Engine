@@ -34,8 +34,11 @@ when the twin was chosen but fails (transcoder unreachable or invalid, `.ktx2` 4
   and every page is floored to whole 4×4 blocks (see "Block alignment" and "Automatic
   downscaling" below) — the encoder reports the size it used and callers rescale their coords to
   it. The pixels are **premultiplied** before encoding and the twin is named `.pm.ktx2` (see
-  "Alpha" below). Returns null (→ ship WebP) when a page is < 1 Mpix, or on any failure. stdout is
-  silenced (the wasm spams per-slice).
+  "Alpha" below). Returns null (→ ship WebP) when a page is under a 256×256 page's area
+  (`MIN_ENCODE_PIXELS`; 1 Mpix until 2026-11-12, see "Coverage"), or on any failure. stdout is
+  silenced (the wasm spams per-slice). With `pad: true` the page is grown to whole 4×4 blocks with
+  transparent texels instead of floored (`paddedSize`), so no coordinate of its descriptor moves;
+  such a page gets no twin if it would need a downscale. Fonts and the engine's stock art use it.
 - **Export funnel** — `PageStore.ensure()` (`pageStore.ts`) gives every sheet, image and rig page
   its twin, once per content hash: `_pages/<hash>.pm.ktx2` beside the shared WebP (an
   already-premultiplied rig page gets its own `<hash>.srcpm.pm.ktx2`, see "Alpha"). A sheet then
@@ -80,6 +83,42 @@ when the twin was chosen but fails (transcoder unreachable or invalid, `.ktx2` 4
   must for the textures. (2) **`blob:` under a CSP.** Pixi's KTX2 worker is itself a `blob:`
   worker and loads the checked transcoder with `importScripts(blob:…)`, so a page with a Content
   Security Policy must allow `blob:` in `worker-src` and `script-src`.
+
+## Coverage: what the compressed tier loads compressed
+
+Everything that is a page loaded from a file, since 2026-11-12. Measured on the compressed tier
+before that change (headless Chromium, iPhone UA, 390×699 DPR 3, the live snapshots), 7–67 MB a
+game was still uncompressed RGBA from three gaps, each closed here:
+
+- **The engine's stock art** (`apps/lines/src/game/assets.ts`: `reels_frame`, `symbols2/3`,
+  `SD2_Coin`, `fs_screen`, the stock fonts…), registered for every game, had no twins at all.
+  `scripts/check-stock-ktx2.mjs --write` encodes every stock page with the launcher's encoder,
+  padded, beside the page in `apps/lines/static/assets/`, writes a twin descriptor beside each
+  descriptor (`x.ktx2.atlas`, `x.ktx2.json`, `x.ktx2.xml`) and records the hash of every file a
+  twin came from in `apps/lines/src/game/stockTwins.json`; the same script without `--write` is
+  the gate (in `check:all`). A build ships a twin only beside the engine's own bytes: `config-vite`
+  `stockTwins.js` copies the twins a game repo's `static/` lacks, skips any stock file the game
+  replaced, and names what shipped in `__IE_STOCK_TWINS__`. On the compressed tier
+  `stockAssetsOnTier` (`apps/lines/src/game/stockTwins.ts`) points each shipped twin's entry at it,
+  the original as its `fallback`; the stock skip compares against that same table. One standalone
+  stock image (`payFrame`, 1001×996) keeps no twin: padding it would draw it larger.
+- **Pages between 256×256 and 1 Mpix** (baked FX flipbooks, the shared static symbol sheet) were
+  under the old floor. They get a twin at the next assemble: a page with no twin is re-tried on
+  every assemble, so no encoder revision bump is needed.
+- **Bitmap font pages** never had twins. `fontExport.ts` now encodes each page padded (a glyph rect
+  is whole pixels, so it cannot be rescaled), writes `<descriptor>.ktx2.<ext>` beside it, content-
+  cached by the page's ETag + size and the encoder revision (`<page>.meta.json`), and records it as
+  `FontEntry.ktx2DescriptorFile`; `bakedFontAssets(…, compressed)` loads it with the plain
+  descriptor as fallback. It rides the existing chain: `editor-fonts/` is an export-generated
+  subtree, so bake embeds the catalog, the pull mirrors it and a version freezes it.
+
+What stays uncompressed, because it is drawn at runtime: render targets (the back buffer, filter
+and `cacheAsTexture` targets: ~5 MB at a phone's 780×1398 idle, more during an FX-heavy win), text
+textures (Pixi `Text`, ~1–2 MB), and a page under the floor.
+
+`?perf=1`'s Copy (`perf: 7`) lists every texture by source, kind, size and format
+(`textureList`) and every `.ktx2` that fell back to its WebP/PNG with the reason
+(`ktx2Fallbacks`), so a device's reading names what it holds uncompressed.
 
 ## Adaptive quality tier
 
@@ -253,3 +292,11 @@ next publish.
   coords) if compression-at-full-res ever isn't enough for a very low-memory device.
 - Isolate the encode in a worker/child process (non-blocking + memory-isolated + stdout
   captured) so it's safe to run inline on the shared launcher without the OFF default.
+- Pad a shared page to whole blocks instead of flooring it, as the stock twins and font twins do,
+  so a small page's frames do not move by up to 3 px; needs every consumer of a shared page to
+  stop rescaling, and a standalone image to keep its size.
+- Free each `ktxTexture` after its transcode. Pixi 8.22's KTX2 worker never calls `delete()`, so
+  its wasm heap holds every twin it transcoded for the session (97 MB after
+  `overlay-buffaloduel`'s 26 twins in Node, 33 MB when each is freed). A suspect for an iPhone
+  loading most twins as WebP, not shown on a device: read the `perf: 7` Copy's `ktx2Fallbacks`
+  first.

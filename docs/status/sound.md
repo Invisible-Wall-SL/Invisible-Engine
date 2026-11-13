@@ -129,22 +129,27 @@ into all four non-Svelte tool-bar twins, which `scripts/check-toolbar-icons.mjs`
 **The `audio` role was the point.** It existed already — `ftpBrowser`, `storybook`,
 `invisibleLauncher` — and had no audio tool in it. That is the role this whole tool is for.
 
-**S7 — the usage index (done).** `apps/launcher-api/src/lib/soundUsage.ts` reads every surface that
-can bind a sound — game-wide slots (through `resolveSounds`, so an un-authored project still reports
-the catalogue defaults it plays), win tiers, per-symbol × state cues, the anticipation pair, and
-flow-graph cues — and reports **unbound**, **missing** and **unapproved-but-bound**, plus the two
-lists that make them readable (`overridesBuiltin`, `notRebindable`).
+**S7 — the usage index (done).** `apps/launcher-api/src/lib/soundUsage.ts` checks the library against
+what the game names — the choices on the page, flow-graph cues, and (since 2026-11-12) the export's
+own walk of everything else — and reports **unbound**, **missing** and **unapproved-but-shipped**,
+plus the two lists that make them readable (`overridesBuiltin`, `notRebindable`). Unbound and the
+not-approved list follow the export once its answer arrives, so the page lists exactly the drafts
+the publish gate refuses.
 
 - **Bindings are collected server-side, checks run on the page.** The config/symbols/flow docs are
   not editable from `/sound` so they cannot go stale while it is open; the library can, so renaming
   a sound shows it becoming unbound immediately rather than after a reload.
-- **A flow cue is found by its literal's ENUM TYPE, not by the node's `ref`** — so an action or a
-  function call that takes a sound is found without touching the collector.
+- **Which flow nodes play which sound has one home since 2026-11-12:** `$lib/flowSoundCues.ts`
+  walks every graph (the flow's own, each mode's, group bodies, called library functions) and
+  reads a sound pin by its vocabulary declaration or by a sound-enum literal, so a function call
+  that takes a sound is found without touching the collector. The usage index, the publish gate
+  and the export's reachability all read it.
 - Read-only, with each row linking to the tool that owns it (design §2.3; the design's own "editable
   here: yes" rows were corrected to match).
 
 **S8 — the publish gate (done; verified against real R2).** `soundPublishCheck.ts` runs before
-anything is written: a sound the game PLAYS that is still a draft refuses the publish, naming them.
+anything is written: a draft the build SHIPS refuses the publish, naming them. Since 2026-11-12
+"ships" is the export's own answer (`soundReachability.ts`, with the same resolved choices).
 `/game-maker` asks once and offers **publish anyway** (`allowUnapproved`); every other blocked
 publish stays final, since overriding one would overwrite a real game's files. A successful publish
 returns a licence summary — a warning for a played sound with a non-commercial licence, a note for
@@ -226,9 +231,6 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
 4. **The shipped audiosprite still loads whole.** Every game downloads and decodes all 408 s of
    it; 26–175 s of that is unreachable per game. Plan and numbers: the 2026-11-12 entry below.
    _Done 2026-11-12: it ships as 34 banks and a game loads those it can reach (Recent changes)._
-5. **The flow-cue half of the usage index reads nothing.** `flowSoundBindings` (`soundUsage.ts`)
-   reads `flow.nodes`; a `FlowDoc` keeps nodes in `graph.nodes` and `modes[*].graph.nodes`. So
-   `/sound` lists no flow cue and the publish gate never sees a draft bound only in the flow.
 
 ## Blocked (owner / external)
 
@@ -289,8 +291,34 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
     plays Ogg) or m4a (a Safari that does not); mp3 only where neither plays, ac3 never. So ogg
     and m4a are the two a full build needs; mp3 and ac3 are dead weight there, but trimming is
     Optimize's job and stays opt-in.
-  - **Measured, boot audio (stock + project) and decoded PCM, before → after.** BOOT_TABLE
-  - **Proof.** HARNESS_LINE Fixtures, each with planted mutants:
+  - **Measured online, stock audio downloaded and all audio decoded at boot, before → after**, on
+    every published game booted from its snapshot: Chromium through the harness's hook on audio
+    XHR bytes and `decodeAudioData` output, WebKitGTK from the files it fetched and their decoded
+    length (44.1 kHz stereo float). Both browsers pick ogg. A game's own sounds are unchanged.
+
+    | Game | Stock banks | Stock MB | PCM MB, Chromium | PCM MB, WebKitGTK |
+    |---|---|---|---|---|
+    | overlay-buffaloduel | 14 | 3.73 → 1.90 | 177 → 94 | 147 → 64 |
+    | bookofborutremake, borut-pots-sample | 18 | 3.73 → 3.47 | 223 → 197 | 223 → 197 |
+    | commonoverlayproject, overlay-wallstreet, -wallstreet2, -wishworld, rocketreskintest1 | 17 | 3.73 → 3.41 | 147 → 118 | 147 → 118 |
+    | getting-hot, holdandwintestsolo, test-card | 16 | 3.73 → 3.39 | 144 → 114 | 144 → 115 |
+    | cloud, hw-3pots-sample, particlespin, test1, test2 | 19 | 3.73 → 3.50 | 144 → 119 | 144 → 119 |
+    | test6 | 19 | 3.73 → 3.50 | 205 → 180 | 205 → 180 |
+    | salmons | — | no audio: it refuses to boot without a game server, both sides | | |
+
+    WebKitGTK's buffaloduel figure is lower because this GStreamer cannot decode the project's m4a
+    sounds, before and after alike. Safari was not measured: it plays the first container a bank
+    lists that it answers `canPlayType` for, ogg where it plays Ogg Vorbis, else m4a (mp3 in an
+    Optimize build), each with that file's own lead.
+  - **Proof.** The current-games harness on all 18 published games, every scenario, main's
+    runtime (`5122d0d`) against this branch's, the branch's stock list in each bundle: 15 games
+    pass with **0 changed screens**, and across 3,729 sound plays the two sides' sequences (name,
+    stock or project, frame) are identical, with no missing-sound warning and no load error.
+    The remake still returns to the stock `bgm_main` after a win bed, at the same frame. cloud,
+    salmons and test-card do not play under the harness on either side (the same stall at the
+    same step, a refusal without a game server, a card game under the slot script), so only their
+    boots compare, and those match. Five games republished during the run were measured on their
+    new snapshots. Fixtures, each with planted mutants:
     `stockSounds.fixture.ts` (claims 1–6 on the real rule and the shipped manifest, 11 mutants),
     `check:sound-reachability` (stock list, 3 more mutants), `check-stock-audio-build.mjs`
     (refresh, optimize and its order, 8 mutants), `check-stock-sound-prune.mts` (the build keeps
@@ -299,6 +327,99 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   - **Not done:** `scripts/author-sfx-btn-stop.mjs` predates the split and works on the other
     apps' sprites only. A desktop build opened in live mode (`?project=…&k=…`) or with a dev flow
     opt-in may want a bank its build left out; that sound is silent there, as left-out art is.
+
+- 2026-11-12 — **Publish blocks every draft the build ships** (branch
+  `launcher-sound-gate-ships`, committed locally, not pushed; owner-approved). Closes open item 5.
+  The gate read config, symbols and the flow through its own collectors, so it never saw a sound
+  chosen on `/sound` (`SoundsDoc.bindings`) or a cinematic cue: 27 shipped drafts on 7 projects
+  went out unblocked.
+  - **The rule.** `checkSoundsForPublish` asks the export's question:
+    `resolveSoundBindings` → `collectPlayedSoundNames` → `shippedSoundEntries`, the three calls
+    `exportProjectSounds` makes. A draft blocks when the build ships it, and licences cover what
+    ships. So every place the export finds a name counts: the `/sound` choices (a silenced slot's
+    kept names too), flow cues (the whole function library), screen timelines, components,
+    cinematic cues and their `pick` alternates. **Engine-named drafts block:** the export ships
+    them because they replace a sound the engine plays from its own code, and that is the re-skin
+    most in need of review. `soundExport.ts` and `soundReachability.ts` are untouched (the
+    sprite-split branch reshapes both). The gate's old collectors (`collectSoundBindings`,
+    `slot`/`winTier`/`symbolSoundBindings`, `analyseSoundUsage`) had no other caller and are gone.
+  - **When unsure, the gate answers what the export does.** The sounds doc cannot be read: the
+    export ships no library sound, so nothing blocks. Any other source cannot be read, a cinematic
+    is only partly read, or a flow cue builds its name at run time: the export ships every sound,
+    so every draft blocks. A run-time name can be any of them, and an unreadable document may name
+    any of them; a transient failure costs a retry or "publish anyway", where staying quiet would
+    let an unreviewed sound out unnoticed.
+  - **`/sound` lists the same drafts.** The server streams the export's walk of everything but the
+    page's own choices (`shipsElsewhere`, unawaited: from this container it takes 4–19 s,
+    cinematics most of it); the page adds its live choices with `soundBindingNames`, which reads a
+    choices block as the export's `collectSoundNames` does. `checkSoundLibrary` takes the answer
+    as `ships`: "unbound" and the not-approved list follow it, "missing" and "not rebindable" stay
+    about the bindings. Until the walk lands the page says "Still reading the rest of the game…"
+    and falls back to the bindings; when the export cannot tell, the page says so. A row nothing
+    on the page binds but the build ships reads **ships**, no longer "unused". The
+    not-approved line now reads "N sounds the game ships are not approved … Publish stops on
+    them".
+  - **Measured read-only on today's R2:** **27 drafts on 7 projects newly block**, exactly the
+    item-5 list, and no draft stops blocking. overlay_buffaloduel 4 → 15 (`small_explosions`,
+    `rocket_Fire`, `reel_stop_1`, `counter_loop`, `spinification`, `big_win_awesome`,
+    `big_win_big`, `big_win_fantastic`, `scatter_first`, `scatter_other` from `/sound` choices;
+    `gearpile-explosion-3-386885` from a cinematic). overlay_wallstreet, overlay_wallstreet2,
+    overlay_wishworld, commonoverlayproject, rocketreskintest1 0 → 3 (`small_explosions`,
+    `rocket_Fire`, `gearpile-explosion-3-386885`). test6 1 → 2
+    (`magiksolo-pirate-tavern-full-version-167990`). bookofborutremake and borut_pots_sample
+    unchanged at 1. On buffaloduel, test6 and overlay_wallstreet the page's list, computed with its
+    own functions on the real docs, equals the gate's (15, 2, 3).
+  - **Proof.** `check:sound-reachability` §6 (Lint): over five scenarios (the fixture project, a
+    run-time flow name, an unreadable layout, a partly read cinematic, an unreadable sounds doc) the
+    real gate blocks exactly the drafts the real export ships, and `/sound`'s list equals it. A
+    `/sound`-only, silenced-slot-only, cinematic-only, `pick`-only, flow-only and engine-named draft
+    each blocks; an unnamed draft and an approved shipped sound do not. 8 planted gate mutants and 1
+    page mutant are caught (56 claims). `check:sounds-doc` §16 pins `ships`. 8 source mutants
+    planted by hand in `soundPublishCheck.ts` and `soundUsage.ts` were each caught.
+  - Not done: the gate does not skip an orphaned entry (a doc row whose file is missing in R2),
+    which the export's copy loop drops; such a draft blocks though nothing ships. ⏳ The streamed
+    list was not seen in a signed-in browser: the server render shows the waiting line, and the
+    resolved list is held by the fixture and the real-doc comparison.
+
+- 2026-11-12 — **Flow cues count: `/sound` lists them, and Publish blocks a draft only the Flow
+  plays** (worktree branch, committed locally, not pushed). Closes the old open item 5, found by
+  the reachability work below. `flowSoundBindings` (`soundUsage.ts`) read `flow.nodes`, which no
+  FlowDoc has, so it returned nothing on all 20 projects with a flow (overlay_buffaloduel: 0,
+  where `doc.graph` holds 3 cues and its `holdAndWin` mode 5). Its fixture fed it a bare
+  `{ nodes }`, the same wrong shape, so it passed.
+  - **One home.** `$lib/flowSoundCues.ts` holds the walk `soundReachability.ts` already did
+    (structural: every `{ nodes, data }` pair, so the flow's graph, each mode's, a group's body at
+    any depth, a library function's body) and one rule for a sound pin: declared by a vocabulary,
+    or holding a sound-enum literal. A wire, an accessor or a data edge into the pin makes the
+    name a run-time one: the export then ships every sound and the usage index lists nothing (an
+    edge wins over the node's literal in `resolveDataIn`). `namesSoundAtRunTime` and
+    `flowSoundBindings` both read it; neither keeps a copy.
+  - **The library.** The usage index and the gate count only the library functions the flow
+    calls, and those they call: the library is shared, and a function nothing calls plays
+    nothing here. The export still reads it whole (uncertainty keeps). Today it holds one
+    function, `StaggerStop`; it has no sound cue and no flow calls it, so no number changes.
+  - **Labels.** A row now says where the node sits: `soundMusic · fireCue-1 (holdAndWin mode)`,
+    `… (freeSpins mode › group Outer)`, `… (function Fanfare)`. A cue in the flow's own graph
+    reads as before.
+  - **A stricter gate (owner-approved).** `checkSoundsForPublish` reads the flow and the library
+    through the same walk. Measured read-only on today's R2 docs (20 projects with a flow, 9 with
+    a library, every library sound a draft): `/sound` lists 0 → 5–9 flow cues on 16 projects, and
+    **7 drafts on 4 projects now block Publish** until approved, none of them blocked before:
+    overlay_buffaloduel `loader_music` and `background_music` (flow graph),
+    `prizes_to_win_awesome_fantastic` and `medium_pay` (holdAndWin mode); bookofborutremake and
+    borut_pots_sample `playlistsons-wild-west-466301`; test6
+    `art_roseman-swing-big-band-600073`. The other library projects' flows play engine sounds only.
+  - **Proof.** `check:sounds-doc` §15 runs over a real FlowDoc (graph, a mode, groups nested in a
+    mode, a called function and one it calls, an uncalled one, an edge-overridden literal); 9
+    planted mutants each caught, among them "reads `flow.nodes`", "the flow's own graph only",
+    "skips the mode graphs", "one level of groups only" and "reads the whole library".
+    `check:sound-reachability` §6 runs the real `checkSoundsForPublish` over the mocked storage
+    (42 claims). 11 source mutants planted by hand in `flowSoundCues.ts`, `soundUsage.ts` and
+    `soundPublishCheck.ts` were each caught by one of the two.
+  - **Rendered.** The built `/sound` page, rendered server-side with overlay_buffaloduel's real
+    docs, lists its 8 flow cues with their placement labels, and the 4 drafts the flow plays show
+    a "Flow:" use in their "played by" chip. The page's data shape is unchanged. ⏳ Not
+    click-tested in a signed-in browser.
 
 - 2026-11-12 — **A game ships only the sounds it can play** (worktree branch, committed locally,
   not pushed). The owner: _"We are also shipping sounds and music that we are not using in the

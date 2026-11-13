@@ -322,8 +322,8 @@ export const SYMBOLS_OFF_PARTS = ['highlight', 'boardGlow'] as const;
 export type SymbolsOffPart = (typeof SYMBOLS_OFF_PARTS)[number];
 
 const symbolsOffSchema = z
-	.object({ highlight: z.literal(true).optional(), boardGlow: z.literal(true).optional() })
-	.strip();
+	.object({ highlight: z.boolean().optional(), boardGlow: z.boolean().optional() })
+	.strict();
 
 /** Win-line overlay config (Invisible Symbols State Machine). All fields optional and
  *  sparse — anything unset falls through to the game's coded defaults, so an untouched
@@ -1001,7 +1001,7 @@ function pruneEmptyCellLayers(
 
 /** `off` with only the parts turned off, or `undefined` when none is. */
 export function pruneSymbolsOff(
-	off: Partial<Record<SymbolsOffPart, true>> | undefined,
+	off: Partial<Record<SymbolsOffPart, boolean>> | undefined,
 ): Partial<Record<SymbolsOffPart, true>> | undefined {
 	const kept: Partial<Record<SymbolsOffPart, true>> = {};
 	for (const part of SYMBOLS_OFF_PARTS) if (off?.[part] === true) kept[part] = true;

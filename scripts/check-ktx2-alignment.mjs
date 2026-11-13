@@ -27,7 +27,10 @@ import {
 	BLOCK,
 	DEFAULT_MAX_DIMENSION,
 	MAX_ENCODE_PIXELS,
+	MIN_ENCODE_PIXELS,
 	alignDown,
+	alignUp,
+	paddedSize,
 	targetSize,
 } from '../apps/launcher-api/src/lib/server/ktx2Dimensions.ts';
 
@@ -123,5 +126,38 @@ for (const [w, h] of [
 	const t = targetSize(w, h, DEFAULT_MAX_DIMENSION);
 	ok(`${w}x${h} → ${t.width}x${t.height} aligned`, aligned(t));
 }
+
+console.log(
+	'\n7. the padded size (fonts, stock sheets) grows to whole blocks and never moves a pixel',
+);
+ok('alignUp(1791) === 1792', alignUp(1791) === 1792, String(alignUp(1791)));
+ok('alignUp(2048) === 2048 (already aligned, untouched)', alignUp(2048) === 2048);
+ok('alignUp never returns 0', alignUp(0) === BLOCK && alignUp(1) === BLOCK);
+{
+	let worst = null;
+	for (let w = 1; w <= 4096 && !worst; w += 5) {
+		for (const h of [1, 89, 214, 1023, 1645, 1909, 2048, 2685, 4093, 4096]) {
+			const t = paddedSize(w, h, DEFAULT_MAX_DIMENSION);
+			if (w * h > MAX_ENCODE_PIXELS) {
+				if (t !== null && t.width * t.height > MAX_ENCODE_PIXELS) worst = `${w}x${h} over area cap`;
+				continue;
+			}
+			if (t === null) {
+				if (alignUp(w) * alignUp(h) <= MAX_ENCODE_PIXELS) worst = `${w}x${h} refused`;
+				continue;
+			}
+			if (!aligned(t)) worst = `${w}x${h} -> ${t.width}x${t.height} unaligned`;
+			else if (t.width < w || t.height < h) worst = `${w}x${h} -> ${t.width}x${t.height} shrank`;
+			else if (t.width - w >= BLOCK || t.height - h >= BLOCK) worst = `${w}x${h} grew a block`;
+			if (worst) break;
+		}
+	}
+	ok('every padded size is aligned, never smaller, and grows by less than a block', !worst, worst);
+}
+ok('a page over the max dimension gets no padded twin', paddedSize(4097, 100) === null);
+ok('a page over the area cap gets no padded twin', paddedSize(4000, 3000) === null);
+
+console.log('\n8. the floor below which a page keeps no twin is a 256×256 page');
+ok('MIN_ENCODE_PIXELS === 256 * 256', MIN_ENCODE_PIXELS === 256 * 256, String(MIN_ENCODE_PIXELS));
 
 console.log(`\nPASS: ${checks} checks.\n`);

@@ -2320,6 +2320,17 @@ export function createMockRgs(opts = {}) {
 						if (added > 0 && pendingRound.bonus.total + added <= limit) {
 							pendingRound.bonus.left += added;
 							pendingRound.bonus.total += added;
+							// The partner's client reads a free-spin retrigger off this `spinTrigger`; the
+							// `retrigger` after it is ours (docs/reference/play4fun-protocol.md, "Mock audit").
+							events.push({
+								event: 'spinTrigger',
+								context: {
+									spins: [{ prob: 1, spins: added }],
+									occurs: fsTriggers,
+									bonus: bonusKey,
+									trigger: spinTriggerRule,
+								},
+							});
 							events.push({
 								event: 'retrigger',
 								context: {

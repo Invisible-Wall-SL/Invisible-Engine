@@ -39,7 +39,7 @@
  * when a flow sound cue takes its name from a wire or an accessor: a name built at run time, which
  * no walk of the data can resolve.
  */
-import { SOUND_NAMES, TEMPLATE_VOCABULARIES } from 'engine-flow-v2';
+import { SOUND_NAMES } from 'engine-flow-v2';
 import {
 	STOCK_SOUND_REACH_VERSION,
 	collectComponentPins,
@@ -48,6 +48,7 @@ import {
 	type StockSoundReach,
 } from 'engine-layout';
 import { SOUND_SLOTS } from 'game-config';
+import { flowSoundCues } from '../flowSoundCues';
 import { loadAuthoredCinematics, type AuthoredCinematics } from './cinematicExport';
 import { mapWithConcurrency } from './concurrency';
 import { listComponentDefaults } from './componentDefaultsStorage';
@@ -89,71 +90,13 @@ export function collectSoundNames(value: unknown, into: Set<string>): void {
 	}
 }
 
-const SOUND_ENUMS = new Set(['SoundName', 'SoundEffectName', 'MusicName']);
-
-/** Node `ref` → its data-ins that take a sound name, over every template's vocabulary, so a sound
- *  cue or action a template adds is covered without touching this file. */
-const SOUND_INPUTS: ReadonlyMap<string, ReadonlySet<string>> = (() => {
-	const out = new Map<string, Set<string>>();
-	for (const vocab of Object.values(TEMPLATE_VOCABULARIES)) {
-		const decls = [
-			...vocab.cues.map((c) => ({ name: c.name, params: c.payload })),
-			...vocab.actions.map((a) => ({ name: a.name, params: a.params })),
-		];
-		for (const { name, params } of decls) {
-			for (const param of params) {
-				if (param.type.t !== 'enum' || !SOUND_ENUMS.has(param.type.name)) continue;
-				const pins = out.get(name) ?? new Set<string>();
-				pins.add(param.name);
-				out.set(name, pins);
-			}
-		}
-	}
-	return out;
-})();
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-	typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /**
  * Whether a flow plays a sound whose name only exists at run time: a sound-taking data-in fed by a
- * wire or an accessor rather than a literal. Every graph is checked — the flow's own, each mode's,
- * a group's body and a library function's — because each is a `{ nodes, data }` pair.
+ * wire, an accessor or a data edge rather than a literal. Every graph is checked (the flow's own,
+ * each mode's, a group's body, a library function's) by the walk the usage index reads too.
  */
 export function namesSoundAtRunTime(flow: unknown): boolean {
-	let found = false;
-	const visit = (value: unknown): void => {
-		if (found) return;
-		if (Array.isArray(value)) {
-			for (const v of value) visit(v);
-			return;
-		}
-		if (!isRecord(value)) return;
-		if (Array.isArray(value.nodes)) {
-			const fed = new Set<string>();
-			for (const edge of Array.isArray(value.data) ? value.data : []) {
-				const to = isRecord(edge) && isRecord(edge.to) ? edge.to : undefined;
-				if (to) fed.add(`${String(to.node)}\u0000${String(to.pin)}`);
-			}
-			for (const node of value.nodes) {
-				if (!isRecord(node) || typeof node.ref !== 'string') continue;
-				const pins = SOUND_INPUTS.get(node.ref);
-				if (!pins) continue;
-				const inputs = isRecord(node.inputs) ? node.inputs : {};
-				for (const pin of pins) {
-					const source = inputs[pin];
-					const nonLiteral = isRecord(source) && source.kind !== 'literal';
-					if (nonLiteral || fed.has(`${String(node.id)}\u0000${pin}`)) {
-						found = true;
-						return;
-					}
-				}
-			}
-		}
-		for (const v of Object.values(value)) visit(v);
-	};
-	visit(flow);
-	return found;
+	return flowSoundCues(flow).some((cue) => cue.name === null);
 }
 
 /** Every document the game reads a sound name from — see the file header for why each is here. */

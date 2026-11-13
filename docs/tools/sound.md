@@ -132,6 +132,11 @@ A cue placed on the [flow graph](./flow.md) has wires, a condition and a positio
 sequence, so it stays where it can see them. They are listed here, with a link out, so
 this page can still show _every_ sound the game makes.
 
+Every part of the flow counts: the main graph, each game mode's graph, the inside of a
+group, and a shared function the flow calls. Each row names the cue node, then, in
+brackets, where it sits, for example `soundMusic · fireCue-1 (holdAndWin mode)`. A cue whose
+sound comes in on a wire is not listed, because its sound is only known while the game runs.
+
 > **Moved here.** These choices used to live in Invisible Game Config, Invisible
 > Symbols and the Scene Editor. If this project was set up before the move, the page
 > opens showing what it already plays — read out of those tools — and says so. Your
@@ -214,6 +219,7 @@ picker turns red and says the sound no longer exists. Repoint it, or rename back
 | duration             | Measured from the file. Read-only.                                                                                 |
 | **vol**              | Base volume, `0`–`1`. Blank means full. This scales with the player's own volume setting — it doesn't override it. Anything outside `0`–`1` is discarded, so `50` (meaning percent) stores nothing; there is no way to make a sound *louder* than its file. |
 | **loop**             | Whether the sound repeats while it plays. **Required for a music bed** — without it the track plays once and the game falls silent underneath itself. Wrong for one-shots. It is the small checkbox just right of **vol**. |
+| use                  | Whether the game uses this sound: **played by N** (hover to see what plays it), **replaces a built-in**, **ships** (nothing on this page binds it, but something else names it, such as a screen timeline, a cinematic or a component, so a build carries it), or **unused** (nothing names it, so a build leaves it out). |
 | **Draft / Approved** | See below.                                                                                                         |
 | **×**                | Remove from the library. The file itself stays in storage.                                                         |
 
@@ -241,16 +247,27 @@ and we're clear to use it".
 **A draft still plays.** In the game, in a test build, here — everywhere. Approval does
 not mute anything.
 
-What it gates is **publishing**. Publishing a game **stops** if a sound that game plays is
+What it gates is **publishing**. Publishing a game **stops** if a sound the build ships is
 still a draft: it names them and asks whether to go ahead anyway. Say no and nothing is
 written; say yes and it publishes, because sometimes a test build is exactly what you want.
 
-Only sounds that are actually **played** can stop a publish. A draft sitting unused in the
-library never blocks anything — that's what a library is for. A sound named after a
-built-in counts as played even though nothing "binds" it, because the engine plays it.
+Only sounds the build actually **ships** can stop a publish. Those are the sounds something
+names: a moment, symbol or tier on this page (even a moment you switched off, because its
+choice is kept), a flow cue, a screen timeline, a cinematic cue or one of its random
+alternates, or a component. A sound named after a built-in ships too, even though nothing
+"binds" it, because the engine plays it. A draft nothing names never blocks anything: a
+build leaves it out, and that's what a library is for.
+
+The warning at the bottom of the page, **"N sounds the game ships are not approved"**, is
+the same list Publish stops on. Reading the whole game takes a few seconds, so until it has
+the page says **"Still reading the rest of the game…"** and lists only what this page binds.
+
+If Invisible Sound **can't tell** which sounds the game plays (a flow cue builds its
+sound's name while the game runs, or part of the game could not be read), a build ships
+every sound, so every draft stops Publish, and the page says so.
 
 A successful publish also tells you what it just shipped, licence-wise: a warning when a
-played sound has a non-commercial licence, or a note listing any played sounds with no
+shipped sound has a non-commercial licence, or a note listing any shipped sounds with no
 licence recorded at all.
 
 This is deliberately the opposite way round from
