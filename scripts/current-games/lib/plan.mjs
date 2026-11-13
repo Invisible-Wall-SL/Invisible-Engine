@@ -84,9 +84,9 @@ export const contractHash = (contract) =>
  * `draw: 'every'` canary 120–350 s, big-wins 90–210 s, free spins ~60 s, the rest 10–45 s. Only
  * the balance across shards depends on it.
  */
-const COSTS_FILE = join(HERE, 'costs.json');
+export const COSTS_FILE = join(HERE, 'costs.json');
 const measured = existsSync(COSTS_FILE) ? JSON.parse(readFileSync(COSTS_FILE, 'utf8')).seconds : {};
-const weightOf = (key, scenario) =>
+export const weightOf = (key, scenario) =>
 	measured[`${key}/${scenario.id}`] ??
 	(scenario.canary
 		? 300

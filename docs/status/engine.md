@@ -610,6 +610,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-13 — **current-games: 10 render shards, 60-minute limit, and a fresh `costs.json`.**
+  Run 43370261063 lost `render (1)` at 45 minutes on a runner twice as slow (every unit 2x: test6/base
+  309 s against 156 s) and the report failed with no screen changed. The balancing was already
+  longest-first by `costs.json`, but the table dated from 2026-10-05: it held 42 s for
+  `bookofborutpartner/base` (188 s now), so the split was 30 min on its heaviest shard against a
+  21 min mean (run 43354641488: 41 min on shard 2). The table is now the lower of two normal runs
+  (a runner only adds time; the same unit differed up to 2x between runs) and drops the games that
+  are gone. Replayed on the 2026-11-13 runs: 8 shards put 19.8 min on the heaviest against a 19.3
+  mean (28.2 with the old table); 10 shards 17.4 against 15.4, so 35 min at twice the time, 58% of
+  the new 60-minute limit (8 shards at twice the time would not fit 45).
+  `shards.fixture.mjs` pins the balance, the 2x margin, the default weights and that the workflow's
+  matrix matches `SHARDS`. Harness only; the verdict, "not rendered" rules and report are unchanged.
 - 2026-11-13 — **The base game and its board are mounted under the loading bar too, dormant, and
   start in place at the start screen's tap; the reels' filler views are built with them** (branch
   `engine-board-ahead`, on `main` at `aca60cdb`, after #1637; owner decision: "do the board and the

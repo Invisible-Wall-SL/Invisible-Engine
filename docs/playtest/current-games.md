@@ -350,7 +350,7 @@ no status (next section):
    every shard.
 3. **`gates`** runs every game type's `check:*` gates once, beside the build: they test the
    branch's source, not its runtime, so they do not hold up the renders.
-4. **`render`** is 20 shards. Each renders its share of the units (`--phase render`), one at a
+4. **`render`** is 10 shards (`SHARDS`, 60 minutes each; `shards.fixture.mjs` keeps the heaviest at 70% of that at twice the time). Each renders its share of the units (`--phase render`), one at a
    time; the plan balances them by each unit's measured seconds (`scripts/current-games/costs.json`,
    refreshed from the `costs:` line a run prints). It installs the headless shell from that cache
    offline (online, as before, when there is no entry for its image), then lifts the runner's
