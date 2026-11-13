@@ -26,15 +26,31 @@
  * triggers; their bonus table lists the 15 mixes of expand, boost, multiply and respin, and Force 5
  * alone as `00100`.
  *
- * What is OURS, because the capture does not show it: the five paylines' rows, the `from` of
- * `spinTrigger.trigger`, the fields of `enterBonus` / `playedBonusSpin` beyond those named, Force 5's
- * exact strength (it opens 5×5 at entry here, with Boost and Multiply rolling every respin),
- * `boostsEnabled` repeating `00100` through Force 5, coins leaving a respin's `collectWindow`, and
- * boost-then-multiply when both hit one coin.
+ * Their REAL rounds (server log, 2026-11-13; `packages/rgs-translator-eagaming/collectorRespinRealRound.ts`,
+ * a surprise trigger into Expand, a natural trigger into `11010`, a Force 5) and what the partner
+ * confirmed with them: a surprise trigger (`surpriseTrigger {state}`, `state` the awarded bonus's
+ * bits read in binary) tops up a dealt board that would not trigger, the added coins and collector
+ * missing from `playWindow` (the collector has no `bonusSymbol`); Force 5 arrives only that way, with
+ * `spinTrigger.occurs` 5; `spinTrigger.trigger.from` is `""`; `collect.pay` is the collector's NEW
+ * total; `cellPayAmount` carries a coin's value after Boost and Multiply and comes before their
+ * events, and Boost applies before Multiply when both hit one coin; a respin's collected coins stay
+ * on its `collectWindow` and `playedSpin`; a respin where nothing lands sends no `collectWindow`,
+ * `bonusWin` or `retrigger` (the Boost and Multiply misses still come); rows count top-down and the
+ * rows Expand and Force 5 open go on top (a base row moves down by the opened rows); `enterBonus` /
+ * `playedBonusSpin` carry `bonusTriggers: {"<bits>": 1}`, `bonusPlayed`, `spins`, `state: "main"`,
+ * …; the bonus's `spinStart.reels` are filtered display strips and the base game's long ones.
+ *
+ * What is OURS, because nothing they sent shows it: the five paylines' rows, the surprise trigger's
+ * rate, what it adds and how often it is Force 5, Force 5's exact strength (it opens 5×5 at entry
+ * here, with Boost and Multiply rolling every respin), the base strips' symbols (their lengths are
+ * theirs), and the order of `spinWin` and `cellPayAmount` in a base spin.
  *
  * Forced beats (authoring and tests): `play.context = "force:<token>[,<token>…]"`, or held for a
- * session's next round by `POST …/force?sid=<sid>&beat=<tokens>`. Tokens: `enhancements:<bits>`,
- * `boostHit`, `multiplyHit`, `superBonus`, `twoCollectors`, `trigger`, `jackpot:<TIER>` (a jackpot
+ * session's next round by `POST …/force?sid=<sid>&beat=<tokens>`. Tokens: `surprise` (a dealt
+ * board with no coin and no collector, topped up into the bonus — their real round; with
+ * `enhancements:10000` it is that round's Expand), `enhancements:<bits>`, `boostHit`,
+ * `multiplyHit`, `superBonus` (Force 5, through a surprise), `twoCollectors`, `trigger`,
+ * `jackpot:<TIER>` (a jackpot
  * coin of that tier in the trigger run), `baseCollect` (alone, or `baseCollect,twoCollectors`: two
  * collectors each take the coin) ({@link parsePartnerForce}).
  *
@@ -158,21 +174,15 @@ export const DEFAULT_PARTNER_PACING = Object.freeze({
 			['GRAND', 0.1],
 		]),
 	},
-	/** §3.1 — `run`: 3+ adjacent reels showing a coin or collector; `chance`: Force 5's roll. */
+	/** §3.1 — `run`: 3+ adjacent reels showing a coin or collector. */
 	trigger: {
 		run: { min: 3, roles: ['coin', 'collector'] },
-		chance: { role: 'collector', reels: [2], rate: 0.01, name: 'superBonus' },
 	},
-	/** §3.2 — coins added to the trigger board before it locks. The partner sends the board whole,
-	 *  so a top-up is invisible on the wire: the added coins are simply on it. */
-	topUp: {
-		rate: 0.25,
-		count: w([
-			[1, 3],
-			[2, 1],
-		]),
-		roles: ['coin'],
-	},
+	/** §3.2 — the SURPRISE TRIGGER (their real rounds, 2026-11-13): a base spin that would not
+	 *  trigger is topped up to one after the deal — coins and a collector the dealt `playWindow` does
+	 *  not show — announced by `surpriseTrigger {state}`, `state` the bonus it awards as its five bits
+	 *  read in binary. Force 5 reaches the bonus only this way (`superBonusShare` of the surprises). */
+	surprise: { rate: 0.03, superBonusShare: 0.08 },
 	/** The respin board: how often a respin lands anything, how many, and the collector's share
 	 *  (the capture averaged ~9 respins a bonus). */
 	respins: {
@@ -262,6 +272,7 @@ export const DEFAULT_PARTNER_PACING = Object.freeze({
 // ---------- forced beats ----------
 
 const FORCE_FLAGS = [
+	'surprise',
 	'boostHit',
 	'multiplyHit',
 	'superBonus',
@@ -459,10 +470,33 @@ export function createPartnerCollectorEngine(opts = {}) {
 	};
 
 	const jackpotsEvent = () => ({ event: 'jackpots', context: { ...G.jackpots } });
-	const spinStartEvent = () => ({
+	/** The bonus's `spinStart.reels`: FILTERED display strips, all `BLANK` but one coin (a collector
+	 *  on reel 3), as their real round sends them — not the strips the server deals from. */
+	const BONUS_RANGES = [15, 15, 30, 15, 15];
+	const bonusStrips = () =>
+		BONUS_RANGES.map((length, reel) =>
+			Array.from({ length }, (_, i) =>
+				i === 14 ? (reel === collectorReel ? 'COLLECT' : 'COIN') : 'BLANK',
+			),
+		);
+	/** The base game's `spinStart.reels`: long strips of their real lengths ([118, 124, 5, 115, 109]),
+	 *  laid out from each reel's table. Display only: this mock deals from the weighted tables. */
+	const BASE_RANGES = [118, 124, 5, 115, 109];
+	const baseStrips = (stripsKey) => {
+		const set = pacing.strips[stripsKey] ?? pacing.strips.basegame;
+		return BASE_RANGES.map((length, reel) => {
+			const table = set.reels[reel];
+			const one = table.flatMap(({ symbol, weight }) =>
+				Array.from({ length: Math.max(1, Math.round(weight)) }, () => symbol),
+			);
+			return Array.from({ length }, (_, i) => one[i % one.length]);
+		});
+	};
+	const spinStartEvent = (bonus = false, stripsKey = 'basegame') => ({
 		event: 'spinStart',
 		context: {
 			symbols: [...G.lineSymbols, 'COIN', 'COLLECT', 'BLANK'],
+			reels: bonus ? bonusStrips() : baseStrips(stripsKey),
 			symbolsPay: { line: [...G.lineSymbols] },
 			wildSymbols: [],
 			lineAlign: 'any',
@@ -471,10 +505,40 @@ export function createPartnerCollectorEngine(opts = {}) {
 			betOptions: [...G.betOptions],
 			betOptionNames: [...G.betOptionNames],
 			maxWinMp: [...G.maxWinMp],
+			stops: [],
+			ranges: bonus ? [...BONUS_RANGES] : [...BASE_RANGES],
 		},
 	});
-	/** `bonusSymbol` per coin, the board, then `cellPayAmount` per coin (its final value). */
-	const pushCoins = (events, board, coins, base) => {
+	/** `enterBonus` / `playedBonusSpin` / `playedBonusSpins`, in the real round's shape. */
+	const bonusState = (f, { entry = false } = {}) => {
+		const trigger = { occurs: [f.occurs], from: f.from };
+		return {
+			prob: 1,
+			additionalPrice: 0,
+			triggers: 1,
+			played: f.played,
+			left: f.left,
+			multiplier: {},
+			bonusTriggers: { [f.bits]: 1 },
+			bonusPlayed: entry
+				? {}
+				: {
+						[f.bits]: {
+							count: f.played,
+							base: { count: 0, multiplierCount: 0 },
+							states: {},
+						},
+					},
+			spins:
+				f.left > 0
+					? [{ spins: f.left, bonus: f.bits, trigger, ...(entry ? {} : { state: 'main' }) }]
+					: [],
+			...(entry
+				? { triggering: { bonus: f.bits, trigger } }
+				: { playing: f.bits, state: 'main', trigger }),
+		};
+	};
+	const bonusSymbols = (events, coins, base) => {
 		for (const { reel, row, cell, original } of coins) {
 			const from = original ?? cell.coin;
 			events.push({
@@ -487,7 +551,20 @@ export function createPartnerCollectorEngine(opts = {}) {
 				},
 			});
 		}
-		events.push({ event: 'playWindow', context: windowOf(board) });
+	};
+	/**
+	 * `bonusSymbol` per coin, the board, then `cellPayAmount` per coin (its final value). `dealt`: a
+	 * surprise trigger's board as dealt (`playWindow`), before the coins in `added` were put on it;
+	 * their `bonusSymbol` waits for the caller (after `surpriseTrigger`).
+	 */
+	const pushCoins = (events, board, coins, base, dealt = board, added = []) => {
+		const late = new Set(added.map((c) => `${c.reel}:${c.row}`));
+		bonusSymbols(
+			events,
+			coins.filter((c) => !late.has(`${c.reel}:${c.row}`)),
+			base,
+		);
+		events.push({ event: 'playWindow', context: windowOf(dealt) });
 		return () => {
 			for (const { reel, row, cell, original } of coins) {
 				const from = original ?? cell.coin;
@@ -508,9 +585,10 @@ export function createPartnerCollectorEngine(opts = {}) {
 	const collectAll = (events, collectors, coins, base) => {
 		const gathered = coins.reduce((s, c) => s + coinPay(c.cell.coin, base), 0);
 		if (!gathered || !collectors.length) return 0;
+		// `collect.pay` is the collector's NEW total (their real round: 80, then 80 + 40 = 120).
 		for (const { reel, row, cell } of collectors) {
 			cell.collector += gathered;
-			events.push({ event: 'collect', context: { reel, row, pay: gathered } });
+			events.push({ event: 'collect', context: { reel, row, pay: cell.collector } });
 		}
 		return gathered * collectors.length;
 	};
@@ -552,7 +630,14 @@ export function createPartnerCollectorEngine(opts = {}) {
 			board[collectorReel][Math.floor(rand() * G.rows)] = { collector: 0 };
 			placeCoin(board, pick([0, 4]));
 		}
-		if (round.isBuy || force?.bonus) satisfyRun(board);
+		const wantsForce5 = Boolean(force?.superBonus || force?.bits === FORCE_FIVE_BITS);
+		if ((force?.surprise || wantsForce5) && !round.isBuy) {
+			// Their real round: nothing on the dealt board, everything added after it.
+			for (let reel = 0; reel < G.reels; reel++)
+				for (let row = 0; row < G.rows; row++)
+					if (!('symbol' in board[reel][row]) || board[reel][row].symbol === 'BLANK')
+						board[reel][row] = { symbol: pick(G.lineSymbols) };
+		} else if (round.isBuy || force?.bonus) satisfyRun(board);
 		if (force?.jackpot) {
 			const run = runOf(board);
 			const coins = coinsOf(board);
@@ -560,27 +645,50 @@ export function createPartnerCollectorEngine(opts = {}) {
 			board[at.reel][at.row] = { coin: force.jackpot };
 		}
 		if (force?.twoCollectors && collectorsOf(board).length < 2) placeCollector(board);
-		const collectorsLanded = collectorsOf(board).length > 0;
-		const chance = pacing.trigger.chance;
+		const dealtTrigger = !force?.baseCollect && runOf(board).length >= pacing.trigger.run.min;
+		const surprise =
+			!dealtTrigger &&
+			!force?.baseCollect &&
+			!round.isBuy &&
+			Boolean(force?.surprise || wantsForce5 || (!force && rand() < pacing.surprise.rate));
+		// Force 5 comes only through a surprise trigger (their real Force 5 round, `state` 4).
 		const superBonus =
-			Boolean(force?.superBonus || force?.bits === FORCE_FIVE_BITS) ||
-			(!force && collectorsLanded && rand() < chance.rate);
-		const triggered =
-			!force?.baseCollect && (superBonus || runOf(board).length >= pacing.trigger.run.min);
-		if (triggered && !force && rand() < pacing.topUp.rate) {
-			const n = weighted(pacing.topUp.count).value;
-			for (let i = 0; i < n; i++) placeCoin(board, pick(coinReels), (c) => 'symbol' in c);
+			surprise && (wantsForce5 || (!force && rand() < pacing.surprise.superBonusShare));
+		const dealt = board.map((reel) => [...reel]);
+		// The lines pay on the board as dealt, before a surprise trigger tops it up.
+		const wins = evaluateLines(dealt, round.betPerLine);
+		if (surprise) {
+			// A collector on reel 3, a coin on each other reel of a run of three, and maybe one more:
+			// always at least one coin, as in their round.
+			satisfyRun(board);
+			const coinAdded = () =>
+				board.some((reel, r) => reel.some((c, row) => 'coin' in c && c !== dealt[r][row]));
+			if (!coinAdded() || rand() < 0.5) placeCoin(board, pick(coinReels), (c) => 'symbol' in c);
 		}
+		const added = surprise
+			? board.flatMap((reel, r) =>
+					reel.flatMap((cell, row) => (cell !== dealt[r][row] ? [{ reel: r, row, cell }] : [])),
+				)
+			: [];
+		const addedCoins = added.filter((c) => 'coin' in c.cell);
+		const triggered = dealtTrigger || surprise;
 		const run = runOf(board);
 
-		events.push(jackpotsEvent(), spinStartEvent());
+		const bits = triggered ? drawBits(superBonus, force) : undefined;
+
+		events.push(jackpotsEvent(), spinStartEvent(false, round.stripsKey));
 		const coins = coinsOf(board);
-		pushCoins(events, board, coins, round.base)();
-		const wins = evaluateLines(board, round.betPerLine);
+		const flushBasePays = pushCoins(events, board, coins, round.base, dealt, addedCoins);
 		for (const win of wins) {
 			events.push({ event: 'spinWin', context: win });
 			round.win += win.pay;
 		}
+		if (surprise) {
+			events.push({ event: 'surpriseTrigger', context: { state: parseInt(bits, 2) } });
+			// A collector it adds has no `bonusSymbol`: it shows only through its `collect`.
+			bonusSymbols(events, addedCoins, round.base);
+		}
+		flushBasePays();
 		const collectors = collectorsOf(board);
 		const paid = collectAll(events, collectors, coins, round.base);
 		if (paid) {
@@ -601,7 +709,6 @@ export function createPartnerCollectorEngine(opts = {}) {
 			events.push({ event: 'playedSpin', context: played });
 			return;
 		}
-		const bits = drawBits(superBonus, force);
 		const flags = flagsOf(bits);
 		const pool = (superBonus ? pacing.superBonus.enhancements : pacing.enhancements).pool;
 		const rows =
@@ -611,24 +718,31 @@ export function createPartnerCollectorEngine(opts = {}) {
 				? (enhancementOf(pool, 'extraRespins')?.start ?? pacing.respins.start + 1)
 				: pacing.respins.start;
 		events.push({ event: 'boostsAwarded', context: { ...flags } });
-		const occurs = superBonus && run.length < pacing.trigger.run.min ? 1 : run.length;
+		// Their Force 5 round sends `occurs` 5; a run's is its length. `from` is "" in every real round.
+		const occurs = superBonus ? 5 : run.length;
+		const from = '';
 		events.push({
 			event: 'spinTrigger',
 			context: {
 				spins: [{ prob: 1, spins: start }],
 				occurs,
 				bonus: bits,
-				trigger: { occurs: [3, 4, 5], from: superBonus ? chance.name : 'run' },
+				trigger: { occurs: [3, 4, 5], from },
 			},
 		});
 		events.push({ event: 'playedSpin', context: played });
-		const triggering = coins
-			.concat(collectors)
-			.filter((c) => run.includes(c.reel) || (superBonus && c.reel === collectorReel))
-			.map(({ reel, row }) => ({ reel, row }));
-		// Only the collectors stay, each with what it gathered in this spin.
-		const keep = collectors.map(({ reel, row, cell }) => ({ reel, row, total: cell.collector }));
+		// Only the collectors stay, each with what it gathered in this spin. The bonus board numbers
+		// the rows Expand (or Force 5) opens FIRST: their real round's collector at row 0 of the
+		// 3-row board is at row 1 of the 4-row one.
+		const opened = rows - G.rows;
+		const keep = collectors.map(({ reel, row, cell }) => ({
+			reel,
+			row: row + opened,
+			total: cell.collector,
+		}));
 		round.feature = {
+			occurs,
+			from,
 			bits,
 			flags,
 			superBonus,
@@ -640,19 +754,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 			collectors: keep,
 			ended: false,
 		};
-		events.push({
-			event: 'enterBonus',
-			context: {
-				left: start,
-				played: 0,
-				triggers: 1,
-				bonusTriggers: bits,
-				spins: [{ spins: start, bonus: bits }],
-				triggering,
-				playing: bits,
-				window: { reels: G.reels, rows },
-			},
-		});
+		events.push({ event: 'enterBonus', context: bonusState(round.feature, { entry: true }) });
 	};
 
 	/** One respin of the open feature. */
@@ -688,7 +790,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 		}
 		const coins = coinsOf(board).map((c) => ({ ...c, original: c.cell.coin }));
 		const cash = coins.filter((c) => !isJackpot(c.cell.coin));
-		events.push(jackpotsEvent(), spinStartEvent());
+		events.push(jackpotsEvent(), spinStartEvent(true));
 		events.push({ event: 'boostsEnabled', context: { ...f.flags } });
 		const flushPays = pushCoins(events, board, coins, base);
 
@@ -732,11 +834,11 @@ export function createPartnerCollectorEngine(opts = {}) {
 		if (paid) {
 			round.win += paid;
 			events.push({ event: 'bonusWin', context: { bonus: f.bits, pay: paid, isSpinWin: false } });
+			// The collected coins STAY on this respin's collectWindow and playedSpin, beside each
+			// COLLECT_<total>; the next respin deals them away (only the collectors carry over).
+			events.push({ event: 'collectWindow', context: windowOf(board) });
 		}
-		// Coins do not stick: once gathered they leave, and only the collectors stay.
-		const after = board.map((reel) => reel.map((c) => ('coin' in c ? { symbol: 'BLANK' } : c)));
-		events.push({ event: 'collectWindow', context: windowOf(after) });
-		f.collectors = collectorsOf(after).map(({ reel, row, cell }) => ({
+		f.collectors = collectorsOf(board).map(({ reel, row, cell }) => ({
 			reel,
 			row,
 			total: cell.collector,
@@ -748,12 +850,12 @@ export function createPartnerCollectorEngine(opts = {}) {
 			f.left = f.start;
 		}
 		f.played += 1;
-		events.push({ event: 'playedSpin', context: windowOf(after) });
-		const snapshot = { played: f.played, left: f.left, bonus: f.bits };
-		events.push({ event: 'playedBonusSpin', context: snapshot });
+		// A respin where nothing lands sends only playWindow, playedSpin and playedBonusSpin.
+		events.push({ event: 'playedSpin', context: windowOf(board) });
+		events.push({ event: 'playedBonusSpin', context: bonusState(f) });
 		if (f.left === 0) {
 			f.ended = true;
-			events.push({ event: 'playedBonusSpins', context: snapshot });
+			events.push({ event: 'playedBonusSpins', context: bonusState(f) });
 			events.push({ event: 'gameEnd', context: { win: round.win } });
 		}
 	};
