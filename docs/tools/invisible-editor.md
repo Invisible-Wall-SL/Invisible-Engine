@@ -2527,9 +2527,15 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   `multiply`, `extraRespins` Respin). It shows only during a feature that drew enhancements
   (**visibleSource** `enhancementsShow`), so other games never see it. With nothing inside, the
   game draws its own round dial: dim when off, gold when on, flashing with what it adds on a hit
-  ("+$5.00", "×3"), a red X on a miss. Put your art inside its **Dial** part and show each piece by
-  a `visible` binding on `enhancement.{kind}.state` (0 off, 1 on, 2 hit, 3 miss); **pulseScale**
-  pulses it on each light, hit and miss. A cue on **Enhancement — on / hit / miss** inside it plays
+  ("+$5.00", "×3"), a red X on a miss. To give it your own look, **⧉ Duplicate** it and edit the
+  copy. Put your art inside its **Dial** part: with nothing there the game draws its own dial.
+  The copy comes with a **State machine** (Animate → State machine) that enters **Off**, **On**,
+  **Hit** or **Miss** as the game moves its **state** input (fed from `enhancement.{kind}.state`:
+  0 off, 1 on, 2 hit while its beam flies, 3 miss), and one timeline per state, _Dial: off_ …
+  _Dial: miss_, which start empty. Key each look's opacity in its timeline (Off shows the dim art,
+  Hit plays the flash…). Use opacity, not hide: a hidden piece unmounts. Then place your copy
+  instead of the built-in dial, one per **kind**. A `visible` binding on the same value still works
+  for a simple show/hide. **pulseScale** pulses it on each light, hit and miss. A cue on **Enhancement — on / hit / miss** inside it plays
   on its own dial only. A dial on screen is where a hit's beam leaves from, and the game's own row
   of dials above the board steps aside once one is placed, so place all four (one per kind),
   usually on a Hold and Win screen of their own above the board. A **Text Box** with source

@@ -1176,6 +1176,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **The Enhancement Dial has a state machine** (owner report: "there is no way to
+  author the enhancement states"). The built-in `enhancementDial` declares a number input `state`
+  fed from `enhancement.{kind}.state` and a one-layer machine, **Off / On / Hit / Miss**, each
+  entered from `any` when the input equals 0 / 1 / 2 / 3. Its four timelines,
+  `c_enhancementdial_<state>`, are built in (`ENHANCEMENT_DIAL_TIMELINES`) and key nothing, so the
+  coded dial and the pulse draw exactly as before. ⧉ Duplicate copies them into the project, where
+  the author keys the art's opacity per state. This mirrors the Counter Segment. The editor's
+  State machine tab now counts a built-in component's own timelines as present (it listed project
+  timelines only, so opening a built-in machine showed every state as "missing timeline") and
+  previews them. Gate: `check:component-state-machine` §12. Not verified in the browser.
 - 2026-11-13 — **Where a growing respin board draws its added rows is a Game Config setting, and
   Getting Hot adds them on top.** New field on the Hold and Win block, `addRowsAt: 'below' |
   'above'` (absent ⇒ `below`, so every existing game draws as before). It covers an `expansion`

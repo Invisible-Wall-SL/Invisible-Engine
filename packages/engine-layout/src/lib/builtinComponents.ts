@@ -13,7 +13,7 @@ import {
 import { kindCapabilities, type KindCapabilityConfig } from './kindCapabilities';
 import { POT_SKIN_PARAMS } from './potSkin';
 import { WHEEL_SKIN_PARAMS } from './wheelSkin';
-import type { ComponentDef, ComponentParam, LayoutNode } from './types';
+import { SM_ANY_STATE, type ComponentDef, type ComponentParam, type LayoutNode } from './types';
 
 /**
  * Built-in component defs — the code path that makes a {@link ComponentDef}
@@ -3021,15 +3021,25 @@ export const ENHANCEMENT_DIAL_COMPONENT = 'enhancementDial';
 /** The enhancements a dial can stand for — Expand, Boost, Multiply, Respin. */
 export const ENHANCEMENT_DIAL_KINDS = ['extraRow', 'boost', 'multiply', 'extraRespins'] as const;
 
+/** The dial's number input the game feeds from `enhancement.{kind}.state`. */
+export const ENHANCEMENT_DIAL_STATE_INPUT = 'state';
+/** The dial's states, each entered while its input equals the state's index (0 off … 3 miss). */
+export const ENHANCEMENT_DIAL_STATES = ['Off', 'On', 'Hit', 'Miss'] as const;
+export type EnhancementDialState = (typeof ENHANCEMENT_DIAL_STATES)[number];
+export const enhancementDialTimelineId = (state: EnhancementDialState): string =>
+	`c_${ENHANCEMENT_DIAL_COMPONENT.toLowerCase()}_${state.toLowerCase()}`;
+
 /**
  * One of a collector bonus's four enhancement dials (Phase 14b, the partner's Fortune Vault Force 5):
  * `kind` names its enhancement. Shown for the whole of a feature that drew enhancements
  * (`enhancementsShow`), so a game whose features draw none never shows it. SKINNABLE: the author's
  * art sits INSIDE the coded `Dial` part, which pulses it on each light, hit and miss (`pulseScale`)
- * and registers the dial's beam anchor; each piece shows in one state through a `visible` binding on
- * `enhancement.{kind}.state` (0 off, 1 on, 2 hit, 3 miss). The dial is scoped by its kind (12a), so a
- * cue on **Enhancement — hit** inside it plays on its own dial only. With nothing inside, the part
- * draws the coded dial. A mounted dial counts in, so the coded row above the board steps aside.
+ * and registers the dial's beam anchor. Its state machine enters Off / On / Hit / Miss as its
+ * `state` input (`enhancement.{kind}.state`: 0 off, 1 on, 2 hit, 3 miss) changes; the built-in
+ * timelines key nothing, so a ⧉ copy keys its own art in them. A `visible` binding on the same value
+ * works too. The dial is scoped by its kind (12a), so a cue on **Enhancement — hit** inside it plays
+ * on its own dial only. With nothing inside, the part draws the coded dial. A mounted dial counts
+ * in, so the coded row above the board steps aside.
  */
 export const ENHANCEMENT_DIAL_DEF: ComponentDef = {
 	id: ENHANCEMENT_DIAL_COMPONENT,
@@ -3068,6 +3078,35 @@ export const ENHANCEMENT_DIAL_DEF: ComponentDef = {
 			default: 'enhancementsShow',
 		},
 	],
+	inputs: [
+		{
+			id: ENHANCEMENT_DIAL_STATE_INPUT,
+			kind: 'number',
+			default: 0,
+			source: 'enhancement.{kind}.state',
+			note: '0 off, 1 on, 2 hit (its beam is flying), 3 miss — the game feeds it.',
+		},
+	],
+	stateMachine: {
+		layers: [
+			{
+				id: 'dial',
+				name: 'Dial',
+				entry: 'Off',
+				states: ENHANCEMENT_DIAL_STATES.map((state, n) => ({
+					id: state,
+					timeline: enhancementDialTimelineId(state),
+					pos: { x: 260, y: n * 120 },
+				})),
+				transitions: ENHANCEMENT_DIAL_STATES.map((state, n) => ({
+					id: `dial-${state.toLowerCase()}`,
+					from: SM_ANY_STATE,
+					to: state,
+					conditions: [{ input: ENHANCEMENT_DIAL_STATE_INPUT, op: '==' as const, value: n }],
+				})),
+			},
+		],
+	},
 };
 
 /** The Hold and Win components, in palette order. */
