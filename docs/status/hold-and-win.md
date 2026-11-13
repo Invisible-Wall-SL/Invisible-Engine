@@ -1176,6 +1176,25 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **The partner-wire mock speaks the partner's real Getting Hot round.** Every rule
+  their server log shows ([capture, "One real round"](../reference/play4fun-collector-respin-capture.md))
+  is now dealt by `mock-rgs-server-holdandwin-partner.mjs`, and each has a check in
+  `check:holdandwin-partner`:
+  - `collect.pay` is the collector's NEW total, not what it gathered.
+  - A respin's collected coins stay on its `collectWindow` and `playedSpin`; the next respin
+    deals them away.
+  - A respin where nothing lands sends no `collectWindow`, `bonusWin` or `retrigger`.
+  - A collector that lands, or that a surprise adds, has no `bonusSymbol`.
+  - `enterBonus` / `playedBonusSpin` carry the real shapes: `bonusTriggers: {"<bits>": 1}`,
+    `bonusPlayed`, `spins` (what is left), `state: "main"`, and a `triggering` OBJECT.
+  - The bonus board numbers Expand's (and Force 5's) opened rows first: an entry collector moves
+    down by the opened rows.
+  - The bonus's `spinStart.reels` are filtered display strips (`ranges` [15, 15, 30, 15, 15]).
+  - The old silent top-up is gone. In its place, a surprise trigger (rate 3%, pacing) tops up a
+    base spin that would not trigger: `surpriseTrigger {state: 16}` after `playWindow`, the added
+    coins' `bonusSymbol` after it, `spinTrigger.trigger.from: ""`. New force token `surprise`;
+    `surprise,enhancements:10000` is their round.
+  - Mutants planted, one per new rule, all caught. Playbook `getting-hot.md` S9.
 - 2026-11-13 — **Getting Hot: a surprise trigger drops its coins and collector onto the board,
   and the partner's three real rounds replay as tests.** Their developer sent full rounds from their
   server log ([capture, "Real rounds"](../reference/play4fun-collector-respin-capture.md)): a

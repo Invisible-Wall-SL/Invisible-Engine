@@ -6,6 +6,16 @@
 // bonus id, the rows, the counter, coins never sticking, and boost and multiply only on a cash coin
 // that landed that respin. Then every forced beat and every transport refusal.
 //
+// The rules the partner's REAL round shows (their server log, 2026-11-13,
+// `packages/rgs-translator-eagaming/collectorRespinRealRound.ts`) each have a check here: a surprise
+// trigger tops up a dealt board that would not trigger (`surpriseTrigger {state}`; the added coins
+// and collector are not on `playWindow`, and the collector has no `bonusSymbol`); `collect.pay` is
+// the collector's NEW total; a respin's collected coins stay on its `collectWindow` and `playedSpin`;
+// a respin where nothing lands sends no `collectWindow`, `bonusWin` or `retrigger`; the bonus board
+// numbers the rows Expand opens FIRST; `enterBonus` / `playedBonusSpin` carry their shapes
+// (`bonusTriggers` an object, `state: "main"`, …); the bonus's `spinStart.reels` are filtered
+// display strips.
+//
 //   pnpm check:holdandwin-partner
 
 import { createHash } from 'node:crypto';
@@ -89,8 +99,10 @@ const BASE_ORDER = [
 	'spinStart',
 	'bonusSymbol',
 	'playWindow',
-	'cellPayAmount',
 	'spinWin',
+	'surpriseTrigger',
+	'bonusSymbol',
+	'cellPayAmount',
 	'collect',
 	'bonusWin',
 	'collectWindow',
@@ -129,14 +141,15 @@ const inOrder = (events, order) => {
 	return null;
 };
 
-/** The coins a spin's events name: `bonusSymbol` + `cellPayAmount`, checked against each other. */
+/** The coins a spin's events name: `bonusSymbol` + `cellPayAmount`, matched by cell (their real
+ *  round sends the two in different orders). */
 const coinsOf = (events, base, where) => {
 	const landed = ctxs(events, 'bonusSymbol');
 	const pays = ctxs(events, 'cellPayAmount');
 	check(landed.length === pays.length, `${where}: one cellPayAmount per bonusSymbol`);
-	return landed.map((b, i) => {
-		const p = pays[i];
-		check(keyOf(b) === keyOf(p), `${where}: cellPayAmount follows bonusSymbol's cell order`);
+	return landed.map((b) => {
+		const p = pays.find((x) => keyOf(x) === keyOf(b)) ?? {};
+		check(keyOf(b) === keyOf(p), `${where}: every bonusSymbol cell has its cellPayAmount`);
 		check(b.symbol === `COIN_${p.original}`, `${where}: bonusSymbol is COIN_<original>`, b.symbol);
 		if (isTier(p.original)) {
 			check(
@@ -155,8 +168,12 @@ const coinsOf = (events, base, where) => {
 	});
 };
 
-/** Each collector in view takes every coin's full value: one `collect` per collector, all on reel 3. */
-const checkCollects = (events, coins, collectorsInView, where) => {
+/**
+ * Each collector in view takes every coin's full value: one `collect` per collector, all on reel 3,
+ * each `pay` the collector's NEW total (`totals`: each one's total before; their real round). Returns
+ * what the spin paid: every coin once per collector.
+ */
+const checkCollects = (events, coins, collectorsInView, totals, where) => {
 	const collects = ctxs(events, 'collect');
 	const gathered = coins.reduce((s, c) => s + c.pay, 0);
 	if (!gathered || !collectorsInView.length) {
@@ -170,16 +187,34 @@ const checkCollects = (events, coins, collectorsInView, where) => {
 	);
 	for (const c of collects) {
 		check(c.reel === G.collectorReel, `${where}: collectors only on reel 3`);
-		check(c.pay === gathered, `${where}: a collector takes every coin's full value`);
+		check(
+			c.pay === (totals.get(keyOf(c)) ?? 0) + gathered,
+			`${where}: collect.pay is the collector's new total (every coin's full value added)`,
+			`${c.pay} vs ${(totals.get(keyOf(c)) ?? 0) + gathered}`,
+		);
 	}
-	const sum = collects.reduce((s, c) => s + c.pay, 0);
+	const sum = gathered * collects.length;
 	const bonusWin = ctxs(events, 'bonusWin');
 	check(
 		bonusWin.length === 1 && bonusWin[0].pay === sum && bonusWin[0].isSpinWin === false,
-		`${where}: bonusWin pays the collects' sum`,
+		`${where}: bonusWin pays every coin once per collector`,
 	);
 	return sum;
 };
+
+/** The longest run of adjacent reels each showing a coin or a collector. */
+const runOn = (board) => {
+	let best = 0;
+	let cur = 0;
+	for (const reel of board) {
+		cur = reel.some((c) => c.startsWith('COIN') || c.startsWith('COLLECT')) ? cur + 1 : 0;
+		best = Math.max(best, cur);
+	}
+	return best;
+};
+const special = (c) => c.startsWith('COIN') || c.startsWith('COLLECT');
+/** `enterBonus.bonusTriggers` is `{"<bits>": 1}` (their real round). */
+const bonusIdOf = (enter) => Object.keys(enter?.bonusTriggers ?? {})[0];
 
 const collectorsOn = (board) =>
 	board[G.collectorReel]
@@ -188,6 +223,9 @@ const collectorsOn = (board) =>
 /** The board's coin cells, in place: what a collect must leave where it found them. */
 const coinsOn = (board) =>
 	JSON.stringify(board.map((reel) => reel.map((c) => (c.startsWith('COIN') ? c : null))));
+/** Where the coins are, whatever they now read (a boost or multiply raises a coin's value). */
+const coinCells = (board) =>
+	JSON.stringify(board.map((reel) => reel.map((c) => c.startsWith('COIN'))));
 const totalOf = (cell) => (cell === 'COLLECT' ? 0 : Number(cell.slice('COLLECT_'.length)));
 
 // ---------- one round, played as a client plays it ----------
@@ -204,6 +242,8 @@ const stats = {
 	retriggers: 0,
 	twoCollectorCollects: 0,
 	baseCollects: 0,
+	surprises: 0,
+	quietRespins: 0,
 	jackpotCoinsInBonus: 0,
 	byOption: [0, 0, 0, 0],
 	openWins: 0,
@@ -262,12 +302,56 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 	// The partner's rule: playedSpin is the board after everything the spin did, so after a collect
 	// it is collectWindow (the coins stay beside COLLECT_<total>); with nothing done, playWindow.
 	const endBoard = ctxs(spin, 'collectWindow')[0] ?? board;
+	const surprise = ctxs(spin, 'surpriseTrigger')[0];
 	check(
 		JSON.stringify(played) === JSON.stringify(endBoard),
 		`${where}: playedSpin is the board after the spin`,
 	);
+	if (!surprise)
+		check(
+			JSON.stringify(ctxs(spin, 'collectWindow')[0] ?? played) === JSON.stringify(played) &&
+				board.every((reel, r) => reel.every((c, row) => special(c) === special(played[r][row]))),
+			`${where}: with no surprise trigger, nothing is added after playWindow`,
+		);
+	if (surprise) {
+		stats.surprises++;
+		check(Number.isInteger(surprise.state), `${where}: surpriseTrigger {state}`);
+		check(
+			runOn(board) < 3,
+			`${where}: a surprise trigger tops up a dealt board that would not trigger`,
+		);
+		const added = played.flatMap((reel, r) =>
+			reel.flatMap((c, row) =>
+				special(c) && !special(board[r][row]) ? [{ reel: r, row, cell: c }] : [],
+			),
+		);
+		check(
+			added.some((c) => c.cell.startsWith('COIN')),
+			`${where}: the surprise adds coins playWindow does not show`,
+		);
+		const at = names(spin).indexOf('surpriseTrigger');
+		const after = spin.slice(at).filter((e) => e.event === 'bonusSymbol');
+		const addedCoins = added.filter((c) => c.cell.startsWith('COIN'));
+		check(
+			after.length === addedCoins.length &&
+				addedCoins.every((c) => after.some((b) => keyOf(b.context) === keyOf(c))),
+			`${where}: each added coin's bonusSymbol follows surpriseTrigger`,
+		);
+		check(
+			!ctxs(spin, 'bonusSymbol').some((b) => played[b.reel][b.row].startsWith('COLLECT')),
+			`${where}: an added collector has no bonusSymbol`,
+		);
+		check(
+			collectorsOn(played).length > 0 && runOn(played) >= 3,
+			`${where}: the topped-up board triggers with a collector`,
+		);
+		check(
+			ctxs(spin, 'spinTrigger')[0]?.trigger.from === '',
+			`${where}: a surprise trigger's spinTrigger.trigger.from is ""`,
+		);
+	}
 	for (let reel = 0; reel < G.reels; reel++) {
-		for (const c of board[reel]) {
+		for (const c of played[reel]) {
 			if (c.startsWith('COIN'))
 				check(G.coinReels.includes(reel), `${where}: coins only on reels 1, 2, 4, 5`);
 			if (c.startsWith('COLLECT'))
@@ -293,8 +377,8 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			w.pay === G.paytable[w.what][w.occurs - 3] * betPerLine,
 			`${where}: a line pays its paytable × the bet per line`,
 		);
-	const inView = collectorsOn(board);
-	const basePaid = checkCollects(spin, coins, inView, where);
+	const inView = collectorsOn(played);
+	const basePaid = checkCollects(spin, coins, inView, new Map(), where);
 	if (basePaid) {
 		stats.baseCollects++;
 		const name = ctxs(spin, 'enterBonus').length ? 'initialspin' : 'winWithoutTrigger';
@@ -309,7 +393,10 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 	if (basePaid) {
 		const cw = ctxs(spin, 'collectWindow')[0];
 		check(boardOk(cw, G.rows), `${where}: collectWindow is a whole board`);
-		check(coinsOn(cw) === coinsOn(board), `${where}: the collected coins stay on collectWindow`);
+		check(
+			coinsOn(cw) === coinsOn(played) && coins.every((c) => cw[c.reel][c.row].startsWith('COIN')),
+			`${where}: the collected coins stay on collectWindow`,
+		);
 		for (const c of collectorsOn(cw))
 			check(totalOf(c.cell) === totals.get(keyOf(c)), `${where}: COLLECT_<cents> = its total`);
 	}
@@ -328,9 +415,26 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 		);
 		const bits = ENHANCEMENT_BITS.map((b) => String(awarded[b])).join('');
 		check(
-			trigger.bonus === bits && enter.bonusTriggers === bits,
-			`${where}: spinTrigger.bonus = enterBonus.bonusTriggers = the five bits`,
-			`${trigger.bonus} ${enter.bonusTriggers} ${bits}`,
+			trigger.bonus === bits &&
+				JSON.stringify(enter.bonusTriggers) === JSON.stringify({ [bits]: 1 }),
+			`${where}: spinTrigger.bonus = the five bits; enterBonus.bonusTriggers = {"<bits>": 1}`,
+			`${trigger.bonus} ${JSON.stringify(enter.bonusTriggers)} ${bits}`,
+		);
+		check(
+			enter.prob === 1 &&
+				enter.additionalPrice === 0 &&
+				enter.triggers === 1 &&
+				enter.played === 0 &&
+				JSON.stringify(enter.multiplier) === '{}' &&
+				JSON.stringify(enter.bonusPlayed) === '{}' &&
+				enter.spins.length === 1 &&
+				enter.spins[0].bonus === bits &&
+				enter.spins[0].spins === enter.left &&
+				enter.triggering?.bonus === bits &&
+				JSON.stringify(enter.triggering.trigger) === JSON.stringify(enter.spins[0].trigger) &&
+				!('window' in enter),
+			`${where}: enterBonus in the real round's shape (prob, multiplier {}, spins, triggering {})`,
+			JSON.stringify(enter),
 		);
 		const flags = flagsOf(bits);
 		if (flags.powerFive) {
@@ -350,7 +454,7 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			`${where}: spinTrigger {spins, occurs, bonus, trigger {occurs: [3,4,5], from}}`,
 		);
 		check(
-			!collectorsOn(board).length === false,
+			collectorsOn(played).length > 0,
 			`${where}: every bonus opens with a collector (any run of 3 crosses reel 3)`,
 		);
 		check(
@@ -358,6 +462,17 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			`${where}: a feature round stays open after the base spin`,
 		);
 
+		// The bonus board numbers the rows Expand (or Force 5) opens FIRST: each base row moves down by
+		// the opened rows (their real round: the collector at row 0 of 3 is at row 1 of 4).
+		const opened = rows - G.rows;
+		const entryTotals = new Map(collectorsOn(played).map((c) => [keyOf(c), totalOf(c.cell)]));
+		totals = new Map(
+			[...entryTotals].map(([k, v]) => {
+				const [reel, row] = k.split(':').map(Number);
+				return [`${reel}:${row + opened}`, v];
+			}),
+		);
+		let firstRespin = true;
 		let left = start;
 		let ended = false;
 		for (let guard = 0; guard < 500 && !ended; guard++) {
@@ -375,9 +490,32 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			);
 			const rb = ctxs(e, 'playWindow')[0];
 			check(boardOk(rb, rows), `${at}: a whole board of ${rows} rows`, `${rb?.[0]?.length}`);
+			if (firstRespin) {
+				check(
+					[...totals.keys()].every((k) => {
+						const [reel, row] = k.split(':').map(Number);
+						return rb[reel][row].startsWith('COLLECT');
+					}),
+					`${at}: each entry collector sits ${opened} row(s) lower (the opened rows come first)`,
+				);
+				firstRespin = false;
+			}
+			const ss = ctxs(e, 'spinStart')[0];
 			check(
-				JSON.stringify(ctxs(e, 'playedSpin')[0]) === JSON.stringify(ctxs(e, 'collectWindow')[0]),
-				`${at}: playedSpin is the board after the respin (collectWindow)`,
+				JSON.stringify(ss?.ranges) === '[15,15,30,15,15]' &&
+					Array.isArray(ss.reels) &&
+					ss.reels.every(
+						(strip, r) =>
+							strip.length === ss.ranges[r] &&
+							strip.filter((c) => c !== 'BLANK').join() ===
+								(r === G.collectorReel ? 'COLLECT' : 'COIN'),
+					),
+				`${at}: spinStart.reels are filtered display strips (one coin or collector each)`,
+			);
+			check(
+				JSON.stringify(ctxs(e, 'playedSpin')[0]) ===
+					JSON.stringify(ctxs(e, 'collectWindow')[0] ?? rb),
+				`${at}: playedSpin is the board after the respin (collectWindow, else playWindow)`,
 			);
 			const rc = coinsOf(e, base, at);
 			const fresh = new Set(rc.map(keyOf));
@@ -459,7 +597,14 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			const newCollectors = cols.filter((c) => !totals.has(keyOf(c)));
 			for (const c of newCollectors)
 				check(c.cell === 'COLLECT', `${at}: a collector lands bare (COLLECT)`, c.cell);
-			const paid = checkCollects(e, rc, cols, at);
+			const paid = checkCollects(e, rc, cols, totals, at);
+			if (!rc.length && !newCollectors.length) {
+				stats.quietRespins++;
+				check(
+					!['collectWindow', 'bonusWin', 'retrigger', 'collect'].some((n) => names(e).includes(n)),
+					`${at}: a respin where nothing lands sends no collectWindow, bonusWin or retrigger`,
+				);
+			}
 			if (paid && cols.length > 1) stats.twoCollectorCollects++;
 			win += paid;
 			collected += paid;
@@ -468,12 +613,15 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			);
 			totals = after;
 			const cw = ctxs(e, 'collectWindow')[0];
-			check(
-				boardOk(cw, rows) && cw.flat().every((c) => !c.startsWith('COIN')),
-				`${at}: collectWindow keeps only the collectors`,
-			);
-			for (const c of collectorsOn(cw))
-				check(totalOf(c.cell) === totals.get(keyOf(c)), `${at}: collectWindow shows each total`);
+			check(Boolean(cw) === paid > 0, `${at}: collectWindow exactly when a collect happened`);
+			if (cw) {
+				check(
+					boardOk(cw, rows) && coinCells(cw) === coinCells(rb),
+					`${at}: the collected coins stay on collectWindow (and playedSpin)`,
+				);
+				for (const c of collectorsOn(cw))
+					check(totalOf(c.cell) === totals.get(keyOf(c)), `${at}: collectWindow shows each total`);
+			}
 			// The counter.
 			left -= 1;
 			const re = ctxs(e, 'retrigger')[0];
@@ -491,6 +639,20 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 				pb?.left === left,
 				`${at}: playedBonusSpin.left is the counter`,
 				`${pb?.left} vs ${left}`,
+			);
+			check(
+				pb?.state === 'main' &&
+					pb.playing === bits &&
+					pb.prob === 1 &&
+					JSON.stringify(pb.multiplier) === '{}' &&
+					JSON.stringify(pb.bonusTriggers) === JSON.stringify({ [bits]: 1 }) &&
+					pb.bonusPlayed?.[bits]?.count === pb.played &&
+					JSON.stringify(pb.bonusPlayed[bits].base) === '{"count":0,"multiplierCount":0}' &&
+					(left > 0
+						? pb.spins.length === 1 && pb.spins[0].spins === left && pb.spins[0].state === 'main'
+						: pb.spins.length === 0),
+				`${at}: playedBonusSpin in the real round's shape (state "main", bonusPlayed, spins left)`,
+				JSON.stringify(pb),
 			);
 			ended = names(e).includes('gameEnd');
 			check(ended === (left === 0), `${at}: the feature ends exactly when the counter runs out`);
@@ -683,14 +845,33 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 	};
 	for (const bits of ['10000', '01000', '00010', '00001', '11010', '01011', FORCE_FIVE_BITS]) {
 		const { r } = await forced(`enhancements:${bits}`, bits === FORCE_FIVE_BITS ? 0 : 3);
-		check(r.enter?.bonusTriggers === bits, `force:enhancements:${bits} deals that set`);
+		check(bonusIdOf(r.enter) === bits, `force:enhancements:${bits} deals that set`);
 	}
 	{
 		const { r } = await forced('superBonus');
-		const board = ctxs(r.events, 'enterBonus')[0];
+		const first = ctxs(r.answers[1]?.events ?? [], 'playWindow')[0];
 		check(
-			board?.bonusTriggers === FORCE_FIVE_BITS && board.window.rows === 5,
+			bonusIdOf(r.enter) === FORCE_FIVE_BITS && first?.every((reel) => reel.length === 5),
 			'force:superBonus starts Force 5 on a 5×5 board',
+		);
+	}
+	{
+		const { r, before } = await forced('surprise');
+		check(
+			stats.surprises > before.surprises && Boolean(r.enter),
+			'force:surprise tops up a dealt board with nothing on it into the bonus',
+		);
+		const dealt = ctxs(r.events, 'playWindow')[0];
+		check(
+			dealt.flat().every((c) => !special(c)),
+			'force:surprise deals no coin and no collector (their real round)',
+		);
+	}
+	{
+		const { r, before } = await forced('surprise,enhancements:10000');
+		check(
+			stats.surprises > before.surprises && bonusIdOf(r.enter) === '10000',
+			'force:surprise,enhancements:10000 is their real round: a surprise into Expand',
 		);
 	}
 	{
@@ -755,7 +936,7 @@ check(a2 === a3, 'one seed deals one game', `${a2} vs ${a3}`);
 	const held = await srv.force('f', 'enhancements:00011');
 	check(held.ok === true, '…/force holds a beat for the next round');
 	const { enter } = await playRound(srv, 'f', 0, 4, '', 'held force');
-	check(enter?.bonusTriggers === '00011', 'the held beat deals the next round');
+	check(bonusIdOf(enter) === '00011', 'the held beat deals the next round');
 	await srv.close();
 }
 
@@ -771,6 +952,8 @@ for (const [k, min] of Object.entries({
 	retriggers: 10,
 	twoCollectorCollects: 1,
 	baseCollects: 10,
+	surprises: 3,
+	quietRespins: 20,
 	jackpotCoinsInBonus: 1,
 	openWins: 10,
 	closedLosses: 10,

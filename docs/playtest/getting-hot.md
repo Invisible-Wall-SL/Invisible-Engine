@@ -52,6 +52,9 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - `twoCollectors`, `trigger`, `baseCollect`; `baseCollect,twoCollectors` is a base collect into two collectors.
 - `jackpot:<TIER>` (MINI, MINOR, MAJOR, GRAND): a jackpot coin of that tier in the trigger run, e.g.
   `trigger,jackpot:GRAND`.
+- `surprise`: a surprise trigger, as in the partner's real round. The dealt board has no coin and no
+  collector. After it, `surpriseTrigger {state}` and the added coins and collector top it up into
+  the bonus. `surprise,enhancements:10000` is that round's Expand bonus.
 
 ## Scenarios
 
@@ -122,11 +125,34 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - Mock with `DISABLED_OPTIONS=3`, ante on → Bonus Buy. **Expect:** the toast, the board kept, the
   switch still lit, the next spin `bet [1, …]`.
 
+### S9 — Surprise trigger (`surprise,enhancements:10000`)
+
+- **Expect, base game:**
+  - The reels stop on a board with no coin and no collector.
+  - Then "SURPRISE!" holds while the server's coins and the collector on reel 3 drop onto their
+    cells one by one, each playing Coin top-up (unauthored: Land).
+  - The Flow cue `respinTopUp` fires once, with the cells and the server's `state` (16).
+- **Expect, at entry:**
+  - The bonus opens WITH the dropped collector, with the dropped coins carried on their seats.
+  - The entry collect flies them in, and the collector's label and the COLLECTOR readout end on
+    their sum.
+  - Then Expand opens its row as in S3.
+- **Expect, every respin:** a collector keeps its seat. A respin where nothing lands just counts
+  down.
+
 ## Every round
 
 - 0 console errors other than the stub config's known "no entry in the symbol map" for COIN and
   COLLECT (no Symbols doc). No "Missing handler" error.
 - Balance after = before − stake + `gameEnd` win.
+
+## Played (2026-11-13, surprise trigger, branches `claude/gh-surprise-trigger-real-round` + `claude/gh-partner-mock-real-round`)
+
+S9 was played on the real clock in the headless shell against the partner-wire mock (seed 7), with
+the collector + enhancements template. The reels stopped on a board with nothing on it. Four coins
+and the collector dropped in under "SURPRISE!". The bonus opened with the collector and carried
+coins, and the entry collect made it $10.00 (4 + 1 + 5). 0 console errors apart from the stub's
+symbol map. Frames: the session notes folder, `surprise-trigger-screens/`.
 
 ## Played (2026-11-09, Phase 14b, branch `hold-and-win/14b-collector-respin-presentation`)
 
