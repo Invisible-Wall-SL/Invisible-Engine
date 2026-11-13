@@ -180,6 +180,50 @@ console.log('3. the cue inspector suggests the screen’s On-cue Element FX');
 	eq('the editor panel passes cueSuggestions for a screen', /cueSuggestions: \(\) => \(!component && scene \? elementFxCueSuggestions\(scene\) : \[\]\)/.test(panel), true); // prettier-ignore
 }
 
+console.log('4. the cue inspector makes a cue play an effect on the element picked');
+{
+	const scene = JSON.parse(JSON.stringify(SCENE)) as Scene;
+	eq('targets: the screen, then every node', S.cueFxTargets(scene).map((t) => t.key), ['screen', 'node:bg', 'node:grid']); // prettier-ignore
+	eq('a cue already a signal keeps its name', S.addCueFx(scene, `signal:${CUE}`, 'node:bg', 'wobble'), `signal:${CUE}`); // prettier-ignore
+	const bg = scene.nodes[0] as { elementFx?: unknown };
+	eq('…the node gets an On-cue entry, played once', bg.elementFx, [{ id: 'efx1', kind: 'wobble', trigger: 'cue', cue: CUE }]); // prettier-ignore
+	eq('…and the cue lists it', S.cueFxPlayed(scene, `signal:${CUE}`).map((p) => p.ref), ['screen#efx1', 'node:bg#efx1', 'node:grid#efx3']); // prettier-ignore
+	eq(
+		'an empty cue becomes a fresh signal',
+		S.addCueFx(scene, '', 'screen', 'shake'),
+		'signal:cue1',
+	);
+	eq('…its id apart from the screen’s', scene.elementFx?.at(-1), { id: 'efx3', kind: 'shake', trigger: 'cue', cue: 'cue1' }); // prettier-ignore
+	eq('a gone node adds nothing', S.addCueFx(scene, '', 'node:nope', 'shake'), null);
+	eq('removing takes it off its node', S.removeCueFx(scene, 'node:bg#efx1'), true);
+	eq('…and drops the emptied list', 'elementFx' in bg, false);
+	const html = (cue: string, cueEffects?: () => unknown): string => {
+		const el = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
+		const tl = mount(null, {
+			doc: reelIntro(cue),
+			ev: EV,
+			inspector: el as unknown as HTMLElement,
+			...(cueEffects && { host: { cueEffects } }),
+		});
+		tl.setTime(1);
+		tl.addCue(cue);
+		const out = el.innerHTML;
+		tl.destroy();
+		return out;
+	};
+	const block = () => ({
+		playing: S.cueFxPlayed(scene, `signal:${CUE}`),
+		targets: S.cueFxTargets(scene),
+		kinds: [{ label: 'Emphasis', options: [{ value: 'wobble', label: 'Wobble' }] }],
+	});
+	const drawn = html(`signal:${CUE}`, block);
+	eq('the block offers the element picker', drawn.includes('id="cineCueFxTarget"'), true);
+	eq('…and the effect picker', drawn.includes('<option value="wobble">Wobble</option>'), true);
+	eq('…and lists what the cue plays', drawn.includes('data-cuefxdel="node:grid#efx3"'), true);
+	eq('an sfx: cue gets no block', html('sfx:click', block).includes('cineCueFxTarget'), false);
+	eq('no hook (/rigger): no block', html(`signal:${CUE}`).includes('cineCueFxTarget'), false);
+}
+
 if (failures) {
 	console.error(`\n${failures} check(s) failed.`);
 	process.exit(1);

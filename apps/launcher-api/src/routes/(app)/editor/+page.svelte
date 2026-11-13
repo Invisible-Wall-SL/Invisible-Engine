@@ -3967,6 +3967,10 @@
 							{baseLayoutType}
 							layoutLabel={activeProfile.buckets.find((b) => b.id === currentLayoutType)?.label}
 							cueLists={data.cueLists}
+							onSceneEdit={() => {
+								scenes = [...scenes];
+								markDirty();
+							}}
 						/>
 					</div>
 				{/if}

@@ -377,6 +377,9 @@ const HOST_DEFAULTS = {
 	cueNames: () => ({}),
 	auditionSound: null, // ▶ beside a sound cue's name; absent ⇒ no ▶ at all
 	auditioning: () => null,
+	cueEffects: () => null,
+	addCueEffect: () => null,
+	removeCueEffect: noop,
 };
 
 /**
@@ -2562,12 +2565,48 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	<label class="wide">cue<input type="text" data-cueact="cue" value="${esc(cur)}" placeholder="fx:my_effect"></label>
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>${named.note}
-<div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
+<div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>${cueEffectsMarkup(cur)}
 <div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>${
 			suggested.length
 				? `<div class="cineNote">A <code>signal:</code> cue plays every <b>Element FX</b> on this screen and its nodes whose trigger is <i>On cue</i> with that name (without <code>signal:</code>): ${suggested.map((x) => `<code>${esc(x.cue)}</code>`).join(', ')}.</div>`
 				: ''
 		}${cueSoundMarkup(sel)}`;
+	}
+
+	/**
+	 * The cue's EFFECTS block (`host.cueEffects`): each Element FX this cue plays, with 🗑, and an
+	 * element + effect picker that makes it play one more. Only for an empty or `signal:` cue — any
+	 * other kind would have to be replaced to play an effect.
+	 */
+	function cueEffectsMarkup(cur) {
+		if (cur && cueNamespace(cur) !== 'signal') return '';
+		const fx = host.cueEffects(cur);
+		if (!fx) return '';
+		const playing = fx.playing
+			.map(
+				(p) =>
+					`<div class="cineRow"><span style="flex:1">✨ ${esc(p.label)}</span><button data-cuefxdel="${esc(p.ref)}" title="Stop this cue playing it (removes the effect from the element)">🗑</button></div>`,
+			)
+			.join('');
+		const targets = fx.targets
+			.map(
+				(t) =>
+					`<option value="${esc(t.key)}">${esc(t.label).replace(/^ +/, (s) => '&nbsp;'.repeat(s.length))}</option>`,
+			)
+			.join('');
+		const kinds = fx.kinds
+			.map(
+				(g) =>
+					`<optgroup label="${esc(g.label)}">${g.options.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</optgroup>`,
+			)
+			.join('');
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b title="The Element FX this cue plays when the timeline reaches it — once each, on the element you pick. They are saved on the element (its Element FX, trigger On cue).">✨ Effects</b><small>${fx.playing.length || 'none yet'}</small></div>
+${playing}
+<div class="cineStripInsp">
+	<label class="wide">on<select id="cineCueFxTarget" title="The element the effect plays on">${targets}</select></label>
+	<label class="wide">effect<select id="cineCueFxKind" title="The effect to play"><option value="">＋ add effect…</option>${kinds}</select></label>
+</div>`;
 	}
 
 	/**
@@ -3062,6 +3101,23 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 
 		const delCueBtn = q('#cineDelCue');
 		if (delCueBtn) delCueBtn.onclick = () => selCueTime !== null && deleteCue(selCueTime);
+		const fxKind = q('#cineCueFxKind');
+		if (fxKind)
+			fxKind.onchange = (e) => {
+				const k = selectedCue();
+				const target = q('#cineCueFxTarget');
+				if (!e.target.value || !k || !target) return;
+				const cue = host.addCueEffect(k.cue || '', target.value, e.target.value);
+				if (!cue) return;
+				if (cue !== k.cue) setCueField(selCueTime, 'cue', cue);
+				else render();
+			};
+		root.querySelectorAll('[data-cuefxdel]').forEach((node) => {
+			node.onclick = () => {
+				host.removeCueEffect(node.dataset.cuefxdel);
+				render();
+			};
+		});
 		const cuePick = q('#cineCuePick');
 		if (cuePick)
 			cuePick.onchange = (e) => {
