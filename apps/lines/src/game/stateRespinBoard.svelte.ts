@@ -22,8 +22,9 @@ import { coinBoardLockedCells, isCoinBoard } from './coinBoard.svelte';
 import { respinBoardShape, sameRespinBoard } from './respinModes';
 import { eventEmitter } from './eventEmitter';
 import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
+import { respinCellLead } from './respinSeat';
 import { playReelStopSound, playSymbolLandSound } from './soundBindings';
-import { cellSymbolLead, stateGameDerived } from './stateGame.svelte';
+import { stateGameDerived } from './stateGame.svelte';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 
 /**
@@ -147,8 +148,16 @@ export const insideRespinCellTile = (): boolean => getContext(INSIDE_CELL_TILE) 
 /**
  * The authored art of a LOCKED cell of an expanding board, handed over by a mounted `lockedRow`
  * component (`RespinLockedRows`). None ⇒ the coded locked overlay. Same claim model as the tiles.
+ * `component` names a component each locked cell draws as instead of `art`.
  */
-export type RespinLockedLook = { art?: ReelGridTileArt; tint?: string };
+export type RespinLockedLook = { art?: ReelGridTileArt; tint?: string; component?: string };
+
+const INSIDE_LOCKED_CELL = Symbol('insideRespinLockedCell');
+
+/** Marks a locked cell's own component for everything mounted in it: a Locked Row nested there must
+ *  publish no look, or it would replace the one that mounted it. */
+export const markInsideRespinLockedCell = () => setContext(INSIDE_LOCKED_CELL, true);
+export const insideRespinLockedCell = (): boolean => getContext(INSIDE_LOCKED_CELL) === true;
 let lockedLooks = $state.raw<{ id: number; look: RespinLockedLook }[]>([]);
 
 export const respinLockedLook = (): RespinLockedLook | null => lockedLooks.at(-1)?.look ?? null;
@@ -267,8 +276,8 @@ const enteringRows = (respinBoard: RespinBoard): number =>
 /**
  * The reels, built on first use and rebuilt for another respin mode or a board whose size changed —
  * each mode plays on its own rules and strips. An expanding board builds every cell of its `maxRows`
- * up front — the rows below the base grid sit on the same lattice, one pitch each further down — and
- * draws the ones not yet open as locked.
+ * up front — the rows past the base grid sit on the same lattice, one pitch each further out, where
+ * `expansion.grow` seats them (`respinSeat.ts`) — and draws the ones not yet open as locked.
  */
 const ensureBoard = (): RespinBoard => {
 	const { x: reels, y: gridRows } = boardDimensions();
@@ -281,7 +290,7 @@ const ensureBoard = (): RespinBoard => {
 		reels,
 		rows,
 		symbolHeight: () => stateGameDerived.boardGeometry().rowPitchLocal,
-		symbolLead: cellSymbolLead,
+		symbolLead: respinCellLead,
 		initial: respinSeedBoard({ reels, rows, blank: respinBlank() }),
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),

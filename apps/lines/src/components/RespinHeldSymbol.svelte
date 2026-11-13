@@ -6,7 +6,7 @@
 	import { coinLabelPops, type CoinLabelPopCue } from '../game/coinLabel';
 	import { boardDimensions } from '../game/gameConfig';
 	import { respinHeldState } from '../game/respinLanding';
-	import { getSymbolSeat } from '../game/stateGame.svelte';
+	import { respinCellSeat } from '../game/respinSeat';
 	import { completeHeldBeat, HELD_REST, stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
 	type Props = {
@@ -30,7 +30,7 @@
 	 */
 	const vacant = $derived(props.entry === undefined);
 	const key = $derived(respinCellKey(props.cell.reel, props.cell.row));
-	const seat = $derived(getSymbolSeat(props.cell.reel, props.cell.row));
+	const seat = $derived(respinCellSeat(props.cell.reel, props.cell.row));
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	/**
 	 * Paint order by SEAT, never by when the cell stuck: cells join this layer one respin at a time,

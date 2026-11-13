@@ -794,6 +794,28 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'rowOpening',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'row',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
+			type: 'rowOpened',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'row',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'respinJackpotWin',
 			group: 'Hold and Win',
 			fields: [

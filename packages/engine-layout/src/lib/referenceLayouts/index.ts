@@ -42,9 +42,11 @@ export {
 	POT_BANNER_SCREENS,
 	POTS_SCREEN,
 	EXPANDING_BLOCK_SHARE,
+	expandingBoardLiftRows,
 	expandingBoardReserve,
 	expandingBoardReserved,
 	reserveExpandingBoard,
+	type ExpandingBoardGrow,
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
 // The game HUD as editor scenes (identical across game types) — used by the
@@ -207,6 +209,7 @@ const laidOutFor = (
 		: holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, {
 				potIds: options.potIds,
 				maxRows,
+				...(options.grow ? { grow: options.grow } : {}),
 				...(options.jackpotBar === false ? { jackpotBar: false } : {}),
 				...(options.coinBoard ? { coinBoard: true } : {}),
 				...(options.enhancements ? { enhancements: true } : {}),
@@ -226,10 +229,11 @@ function referenceWithModes(
 	options: SceneSetOptions,
 	modes: readonly RespinModeScreens[],
 ): Scene[] {
-	const { potIds, maxRows, jackpotBar, coinBoard, enhancements } = options;
+	const { potIds, maxRows, grow, jackpotBar, coinBoard, enhancements } = options;
 	const reference = holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, {
 		potIds,
 		maxRows,
+		...(grow ? { grow } : {}),
 		...(jackpotBar === false ? { jackpotBar } : {}),
 		...(coinBoard ? { coinBoard } : {}),
 		...(enhancements ? { enhancements } : {}),

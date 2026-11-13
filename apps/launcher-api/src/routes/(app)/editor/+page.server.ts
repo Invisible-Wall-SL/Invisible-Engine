@@ -27,6 +27,7 @@ import {
 import {
 	noJackpotTiers,
 	projectAddOns,
+	respinGrow,
 	respinMaxRows,
 	respinModesOf,
 	sceneSetOptionsFor,
@@ -352,6 +353,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// A project whose Game Config expands a respin board: the rows the tallest grows to, so the
 		// scaffold, "Add missing screens" and the reserve action make room for them. Null ⇒ none.
 		expansionMaxRows: respinMaxRows(respinModes) ?? null,
+		// Where that board draws its opened rows (Game Config → Board expansion): the reserve lifts
+		// for it and the grown-board preview draws them there. Null ⇒ below.
+		expansionGrow: respinGrow(respinModes) ?? null,
 		// Every declared respin mode, each with the rows its own board grows to: "Add missing
 		// screens" seeds each one's respin screens, tagged with its id. Empty ⇒ none.
 		respinModes: respinModes.map(({ id, label, maxRows }) => ({

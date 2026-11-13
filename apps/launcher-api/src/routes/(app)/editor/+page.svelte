@@ -1937,6 +1937,7 @@
 	 *  mode that draws enhancements gets the Enhancements screen and its banners. */
 	const sceneSetOptions = $derived<SceneSetOptions>({
 		...(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {}),
+		...(data.expansionMaxRows && data.expansionGrow ? { grow: data.expansionGrow } : {}),
 		...(data.noJackpotTiers ? { jackpotBar: false as const } : {}),
 		...(data.coinBoard ? { coinBoard: true as const } : {}),
 		...(data.enhancements ? { enhancements: true as const } : {}),
@@ -1957,7 +1958,11 @@
 	 */
 	const needsExpansionReserve = $derived(
 		Boolean(data.expansionMaxRows) &&
-			!expandingBoardReserved({ ...data.doc, scenes, mainSizesMap }, data.expansionMaxRows ?? 0),
+			!expandingBoardReserved(
+				{ ...data.doc, scenes, mainSizesMap },
+				data.expansionMaxRows ?? 0,
+				data.expansionGrow ?? undefined,
+			),
 	);
 	/** The canvas draws the reel grid grown to the respin board's `maxRows` (the reel grid's
 	 *  Properties switch; view only, never saved). */
@@ -1969,6 +1974,7 @@
 		scenes = reserveExpandingBoard(
 			{ ...data.doc, scenes, mainSizesMap },
 			data.expansionMaxRows,
+			data.expansionGrow ?? undefined,
 		).scenes;
 		markDirty();
 	}
@@ -2186,7 +2192,7 @@
 					? [
 							{
 								label: `⇕ Reserve rows for board expansion (${data.expansionMaxRows})`,
-								title: `This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board by half its extra rows (its board nudge rows, which follow each layout's scale) so the grown board fits where the base board was — the grid does not move; preview it with the reel grid's "preview rows" switch, and move the pieces below it if they still overlap.`,
+								title: `This game's respin board grows to ${data.expansionMaxRows} rows ${data.expansionGrow === 'above' ? 'above' : data.expansionGrow === 'split' ? 'below and above' : 'below'} the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and moves the board by half its extra rows (its board nudge rows, which follow each layout's scale) so the grown board fits where the base board was — the grid does not move; preview it with the reel grid's "preview rows" switch, and move the pieces around it if they still overlap.`,
 								onSelect: reserveExpansionRows,
 							},
 						]
@@ -3899,6 +3905,7 @@
 						grownBoardRows={previewGrownBoard && selectedNode?.kind === 'reelGrid'
 							? data.expansionMaxRows
 							: null}
+						grownBoardGrow={data.expansionGrow}
 						repeaterSources={data.repeaterSources}
 						{componentDefaults}
 						{componentMap}

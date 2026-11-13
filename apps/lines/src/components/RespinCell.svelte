@@ -5,7 +5,8 @@
 	import Symbol from './Symbol.svelte';
 	import { respinCellStopState } from '../game/respinLanding';
 	import { symbolDrawsNothing } from '../game/symbolDraws';
-	import { cellWindow, getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
+	import { respinCellSeat, respinCellWindow } from '../game/respinSeat';
+	import { stateGameDerived } from '../game/stateGame.svelte';
 	import { completeCellLanding, respinCellLook } from '../game/stateRespinBoard.svelte';
 	import { createShownViews } from '../game/reelViewPool';
 
@@ -30,8 +31,8 @@
 	 */
 	props.cell.cellReel.readyToSpinEffect();
 
-	const seat = $derived(getSymbolSeat(props.cell.reel, props.cell.row));
-	const cellBox = $derived(cellWindow(props.cell.reel, props.cell.row));
+	const seat = $derived(respinCellSeat(props.cell.reel, props.cell.row));
+	const cellBox = $derived(respinCellWindow(props.cell.reel, props.cell.row));
 	/** The column pitch — the mask's width, so art drawn to its cell's width is never clipped sideways. */
 	const columnPitch = $derived(SYMBOL_SIZE + stateGameDerived.boardGeometry().columnExtraLocal);
 	const rolling = $derived(props.cell.cellReel.reelState.motion !== 'stopped');

@@ -12,6 +12,7 @@
 		enhancementsVisible,
 		type EnhancementDial,
 	} from '../game/holdAndWinEnhancements.svelte';
+	import { respinTopSeatRow } from '../game/respinSeat';
 	import { cellWindow, getSymbolX } from '../game/stateGame.svelte';
 
 	/**
@@ -24,7 +25,7 @@
 	const SPACING = SYMBOL_SIZE * 0.78;
 
 	const x = $derived((getSymbolX(0) + getSymbolX(boardDimensions().x - 1)) / 2);
-	const y = $derived(cellWindow(0, 0).top - SYMBOL_SIZE * 0.95);
+	const y = $derived(cellWindow(0, respinTopSeatRow()).top - SYMBOL_SIZE * 0.95);
 	const pulses = Object.fromEntries(
 		ENHANCEMENT_DIALS.map((kind) => [
 			kind,

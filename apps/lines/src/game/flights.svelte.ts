@@ -31,7 +31,8 @@ import { roundSkip } from 'utils-shared/skipToken';
 
 import { bakedEffects, bakedFlights } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
-import { getSymbolSeat, stateGameDerived } from './stateGame.svelte';
+import { respinCellSeat } from './respinSeat';
+import { stateGameDerived } from './stateGame.svelte';
 import type { SymbolState } from './types';
 import { inUnskippablePresentation } from './unskippablePresentation';
 
@@ -225,7 +226,7 @@ const boardContainer = () => resolveAnchor(FLIGHT_BOARD_ANCHOR);
 const cellGlobal = (reel: number, row: number): FlightPoint | undefined => {
 	const board = boardContainer();
 	if (!board) return undefined;
-	const seat = getSymbolSeat(reel, row);
+	const seat = respinCellSeat(reel, row);
 	return board.toGlobal({ x: seat.x, y: seat.y });
 };
 
@@ -233,7 +234,7 @@ const cellGlobal = (reel: number, row: number): FlightPoint | undefined => {
 const cellRectGlobal = (reel: number, row: number): FlightRect | undefined => {
 	const board = boardContainer();
 	if (!board) return undefined;
-	const seat = getSymbolSeat(reel, row);
+	const seat = respinCellSeat(reel, row);
 	const geometry = stateGameDerived.boardGeometry();
 	const w = (geometry.cellWidthLocal * seat.scale) / 2;
 	const h = (geometry.cellHeightLocal * seat.scale) / 2;

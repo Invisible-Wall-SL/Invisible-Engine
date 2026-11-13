@@ -5135,8 +5135,9 @@
 						<span
 							>preview {expansionMaxRows} rows <InfoTip alignEnd
 								>Draws the respin board grown to its {expansionMaxRows} rows (Game Config → Board expansion):
-								the rows it opens are drawn below the base rows, locked, where the game adds them. View
-								only — nothing is saved.</InfoTip
+								the rows it opens are drawn locked, where the game adds them (below the base rows, above
+								them, or alternating, as Board expansion's "Opened rows are drawn" says). View only —
+								nothing is saved.</InfoTip
 							></span
 						>
 						<input type="checkbox" bind:checked={previewGrownBoard} />

@@ -618,7 +618,7 @@ reported under `modes.<id>.holdAndWin`.
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;
   every letter lit pays the jackpot).
-- **Board expansion** — tick **Rows unlock during the feature** to grow the respin board below the
+- **Board expansion** — tick **Rows unlock during the feature** to grow the respin board past the
   base grid. **Starts at** must be the grid's rows (the base game plays them); **Grows to** is the
   most rows it reaches. **A row opens when**:
   - **the bottom open row is full** — every cell of it held;
@@ -627,7 +627,13 @@ reported under `modes.<id>.holdAndWin`.
   - **enough symbols are held** — one threshold per row that can open, rising, each reachable on
     the rows open before it.
 
-  **An unlock resets the respins** (on by default). **Row jackpots** pay a jackpot once when that
+  **An unlock resets the respins** (on by default). **Opened rows are drawn** below the base rows
+  (the default), above them, or alternating (below, then above). **A row opens with** the coded
+  fade (the default) or **the Locked Row component's open** (the Scene Editor's Locked Row needs a
+  **lockedComponent**; without one it still fades), with **Between rows** ms between rows (the
+  checker refuses more than 5000). These three are presentation only: the server, the mock and a
+  held cell's row never change, and the Scene Editor's **⇕ Reserve rows** follows the direction.
+  **Row jackpots** pay a jackpot once when that
   many rows are open (e.g. 6 rows → GRAND). With a full-board jackpot, a full board means every
   cell of **all** the rows it can grow to. The checker refuses column letters with expansion (a
   letter needs a fixed column height) and the full-row rule when only collectors stick (a row could

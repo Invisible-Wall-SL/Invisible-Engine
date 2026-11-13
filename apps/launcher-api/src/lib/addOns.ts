@@ -9,6 +9,7 @@ import {
 	resolveOutcome,
 	respinModeDecls,
 	spinsModeDecls,
+	type ExpansionGrow,
 	type GameConfigDoc,
 	type GameOutcome,
 } from 'game-config';
@@ -50,6 +51,9 @@ export type RespinModeInfo = {
 	/** Its board grows to this many rows (its rules' `expansion`, or the rows its enhancements can
 	 *  open). */
 	maxRows?: number;
+	/** Where its expanding board draws the opened rows (its rules' `expansion.grow`); absent ⇒
+	 *  below. */
+	grow?: ExpansionGrow;
 	/** Its rules' jackpot tiers, in order. */
 	jackpotTiers: string[];
 	/** The server draws entry enhancements for it (its rules' `enhancements`). */
@@ -68,10 +72,12 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 		const enhancements = mode.holdAndWin.enhancements === true;
 		const grows = mode.holdAndWin.expansion?.maxRows ?? 0;
 		const maxRows = enhancements ? Math.max(grows, ENHANCEMENTS_MAX_ROWS) : grows;
+		const grow = mode.holdAndWin.expansion?.grow;
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
+			...(maxRows && grow ? { grow } : {}),
 			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
 			...(enhancements ? { enhancements: true as const } : {}),
 		};
@@ -119,6 +125,13 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
 	return rows || undefined;
 }
 
+/** Where the tallest respin board ({@link respinMaxRows}) draws its opened rows — the direction the
+ *  base reel grid's reserve lifts for. `undefined` ⇒ below. */
+export function respinGrow(modes: readonly RespinModeInfo[]): ExpansionGrow | undefined {
+	const rows = respinMaxRows(modes);
+	return rows ? modes.find((mode) => mode.maxRows === rows)?.grow : undefined;
+}
+
 /**
  * The scene-set options a project's layout is seeded from. A Hold and Win kind's own block is its
  * base game, so only an overlay names its pots there; every other kind gets the add-on screens
@@ -135,10 +148,12 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 	const modes = respinModesOf(doc);
 	const spins = doc ? spinsModeDecls(doc) : [];
 	const maxRows = respinMaxRows(modes);
+	const grow = respinGrow(modes);
 	const addOn =
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
+		...(grow ? { grow } : {}),
 		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(gameType === 'holdAndWin' && doc?.coinBoard ? { coinBoard: true as const } : {}),
 		...(gameType === 'holdAndWin' && modes.some((mode) => mode.enhancements)

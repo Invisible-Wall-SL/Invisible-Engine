@@ -16,11 +16,17 @@ import {
 	HOLD_AND_WIN_TEST_FIXTURES,
 } from './src/holdAndWinPresets.ts';
 import {
+	EXPANSION_GROWS,
+	EXPANSION_OPEN_STYLES,
+	MAX_OPEN_STAGGER_MS,
 	configuredSpecials,
+	expansionSeatRow,
+	holdAndWinServerRules,
 	jackpotLadder,
 	respinBoardMaxRows,
 	symbolsWithRole,
 } from './src/holdAndWin.ts';
+import { holdAndWinMockInputs } from './src/holdAndWinMock.ts';
 import {
 	inPlayStripKeys,
 	potsOverlayOf,
@@ -764,6 +770,128 @@ check(
 	],
 	[['holdAndWin.expansion.rule'], ['holdAndWin.expansion']],
 );
+
+console.log('\nboard expansion — where the rows are drawn and how they open (presentation only)');
+{
+	const raw = (expansion: Record<string, unknown>) =>
+		primaryHoldAndWin(
+			normalize({
+				...clone(HOLD_AND_WIN_PRESETS.pots),
+				holdAndWin: {
+					...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin),
+					expansion: { startRows: 3, maxRows: 6, rule: 'fullRow', ...expansion },
+				},
+			}),
+		)?.expansion;
+	const base = { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: true };
+	check(
+		'every grow, open style and a stagger are kept as written',
+		[
+			...EXPANSION_GROWS.map((grow) => raw({ grow })?.grow),
+			...EXPANSION_OPEN_STYLES.map((openStyle) => raw({ openStyle })?.openStyle),
+			raw({ openStyle: 'component', openStagger: 120 })?.openStagger,
+			raw({ openStagger: 0 })?.openStagger,
+		],
+		['below', 'above', 'split', 'fade', 'component', 120, 0],
+	);
+	check(
+		'an unknown grow or style, or a stagger that is not a non-negative number, is dropped (the rest kept)',
+		[
+			raw({ grow: 'sideways' }),
+			raw({ grow: 2 }),
+			raw({ openStyle: 'explode' }),
+			raw({ openStagger: -5 }),
+			raw({ openStagger: '80' }),
+		],
+		[base, base, base, base, base],
+	);
+	check('absent fields normalize exactly as before', raw({}), base);
+
+	const issuesFor = (expansion: Record<string, unknown>) =>
+		expansionIssues(
+			withBlock(fullRow, (d) => Object.assign(d.holdAndWin!.expansion!, expansion)),
+		).filter((path) => path.endsWith('openStagger') || path.endsWith('grow'));
+	check(
+		'the validator accepts every grow and a component stagger; refuses a stagger past the cap and names one the fade ignores',
+		[
+			...EXPANSION_GROWS.map((grow) => issuesFor({ grow })),
+			issuesFor({ openStyle: 'component', openStagger: 300 }),
+			issuesFor({ openStyle: 'component', openStagger: MAX_OPEN_STAGGER_MS }),
+			issuesFor({ openStyle: 'component', openStagger: MAX_OPEN_STAGGER_MS + 1 }),
+			issuesFor({ openStagger: 300 }),
+		],
+		[
+			[],
+			[],
+			[],
+			[],
+			[],
+			['error:holdAndWin.expansion.openStagger'],
+			['warning:holdAndWin.expansion.openStagger'],
+		],
+	);
+	check(
+		'the presentation fields change no issue of any other field',
+		expansionIssues(
+			withBlock(fullRow, (d) =>
+				Object.assign(d.holdAndWin!.expansion!, { grow: 'split', openStyle: 'component' }),
+			),
+		),
+		expansionIssues(fullRow),
+	);
+
+	const styled = withBlock(fullRow, (d) =>
+		Object.assign(d.holdAndWin!.expansion!, {
+			grow: 'above',
+			openStyle: 'component',
+			openStagger: 200,
+		}),
+	);
+	check(
+		'the mock deals the same block with or without them',
+		JSON.stringify(holdAndWinMockInputs(styled)),
+		JSON.stringify(holdAndWinMockInputs(fullRow)),
+	);
+	const plainBlock = primaryHoldAndWin(fullRow)!;
+	check(
+		'a block without them reaches the server untouched (the same object)',
+		holdAndWinServerRules(plainBlock) === plainBlock,
+		true,
+	);
+	for (const id of HOLD_AND_WIN_PRESET_IDS) {
+		const doc = normalize(HOLD_AND_WIN_PRESETS[id]);
+		const block = primaryHoldAndWin(doc);
+		check(
+			`preset ${id}: no grow / openStyle / openStagger, so its mock inputs are unchanged`,
+			[block?.expansion?.grow, block?.expansion?.openStyle, block?.expansion?.openStagger],
+			[undefined, undefined, undefined],
+		);
+	}
+
+	// The seat map: data row → the seat row the respin board draws it at (B = 3 base rows, M = 7).
+	const seats = (grow: (typeof EXPANSION_GROWS)[number] | undefined) =>
+		Array.from({ length: 7 }, (_, row) => expansionSeatRow(row, 3, grow));
+	check('seats: absent ⇒ every row is its own seat', seats(undefined), [0, 1, 2, 3, 4, 5, 6]);
+	check('seats: below ⇒ every row is its own seat', seats('below'), [0, 1, 2, 3, 4, 5, 6]);
+	check(
+		'seats: above ⇒ the base rows stay, the k-th opened row sits at -k',
+		seats('above'),
+		[0, 1, 2, -1, -2, -3, -4],
+	);
+	check(
+		'seats: split ⇒ odd k below (B + (k-1)/2), even k above (-k/2)',
+		seats('split'),
+		[0, 1, 2, 3, -1, 4, -2],
+	);
+	for (const grow of EXPANSION_GROWS) {
+		const all = seats(grow);
+		check(
+			`seats: ${grow} seats every row once, and the drawn block is contiguous`,
+			[new Set(all).size, Math.max(...all) - Math.min(...all) + 1],
+			[7, 7],
+		);
+	}
+}
 
 console.log('\nin play — a line symbol stays off the respin strips');
 for (const id of HOLD_AND_WIN_PRESET_IDS) {

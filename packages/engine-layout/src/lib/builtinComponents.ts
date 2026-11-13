@@ -2972,6 +2972,13 @@ export const RESPIN_CELLS_DEF: ComponentDef = {
  * it sits does not matter — the coded `RespinLockedRows` hands its art to the respin board, which
  * stamps it at each locked cell's seat. Not placed, or no image ⇒ the coded overlay (a dark panel
  * marked LOCKED). Draws nothing on a board that never grows.
+ *
+ * SKINNABLE: `lockedComponent` names a component each locked cell draws as instead of
+ * `lockedImage` (sized to the cell, fed its `reel` and `row`), so a locked plate can carry its own
+ * idle. Under `holdAndWin.expansion.openStyle: 'component'` a row opens by firing
+ * {@link LOCKED_CELL_OPEN_SIGNAL} at each of its cells — scoped `row:<data row>`, so only that row's
+ * cells hear it — and waiting for the timeline it starts (one that holds the cue, else the longest
+ * `open` timeline or state of the component), capped so a missing one never hangs the round.
  */
 export const LOCKED_ROW_DEF: ComponentDef = {
 	id: 'lockedRow',
@@ -2990,8 +2997,22 @@ export const LOCKED_ROW_DEF: ComponentDef = {
 	params: [
 		{ key: 'lockedImage', kind: 'image', label: 'art over every locked cell' },
 		{ key: 'lockedTint', kind: 'color' },
+		{
+			key: 'lockedComponent',
+			kind: 'component',
+			default: '',
+			label: 'each locked cell drawn as (blank = lockedImage)',
+			fedParams: ['reel', 'row'],
+		},
 	],
 };
+
+/** The signal a locked cell's component hears when its row opens (`openStyle: 'component'`): a
+ *  trigger input or a timeline's "Plays on" named `open`. */
+export const LOCKED_CELL_OPEN_SIGNAL = 'open';
+
+/** The signal-scope kind a locked cell listens under — `row:<data row>`. */
+export const LOCKED_CELL_SCOPE_KIND = 'row';
 
 /** What a mounted Enhancement Dial counts in under, whatever its id, so the coded dials row steps
  *  aside. */

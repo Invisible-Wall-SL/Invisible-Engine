@@ -283,13 +283,30 @@ export type HoldAndWinWheel = { prizes: WheelPrize[] };
 export const EXPANSION_RULES = ['fullRow', 'unlockSymbol', 'coinCount'] as const;
 export type ExpansionRule = (typeof EXPANSION_RULES)[number];
 
+/**
+ * Where an expanding board DRAWS the rows it opens (presentation only — see {@link expansionSeatRow}).
+ * `below` (the default) under the base rows; `above` over them; `split` alternating, below first.
+ */
+export const EXPANSION_GROWS = ['below', 'above', 'split'] as const;
+export type ExpansionGrow = (typeof EXPANSION_GROWS)[number];
+
+/** How a locked row opens: `fade` (the default) — the coded fade; `component` — each locked cell's
+ *  Locked Row component plays its `open`, row by row. */
+export const EXPANSION_OPEN_STYLES = ['fade', 'component'] as const;
+export type ExpansionOpenStyle = (typeof EXPANSION_OPEN_STYLES)[number];
+
+/** The longest `openStagger` the validator accepts: past it, an unlock holds the round too long. */
+export const MAX_OPEN_STAGGER_MS = 5000;
+
 /** Reaching `rows` open rows awards `jackpot` (banked, once per feature). */
 export type RowJackpot = { rows: number; jackpot: string };
 
 /**
  * Board expansion (design §7 11b): the respin board opens with `startRows` rows — the base grid's —
- * and unlocks rows BELOW them up to `maxRows`, so a held cell's row index never changes. Locked rows
- * hold nothing. A full board (`boardEnd.fullBoardJackpot`) is every cell of `maxRows`.
+ * and unlocks rows `startRows…maxRows-1` in DATA, so a held cell's row index never changes. Locked
+ * rows hold nothing. A full board (`boardEnd.fullBoardJackpot`) is every cell of `maxRows`. Where
+ * an opened row is DRAWN (`grow`) and how it opens (`openStyle`, `openStagger`) are presentation:
+ * the server, the mock and the wire never read them ({@link holdAndWinServerRules}).
  */
 export type HoldAndWinExpansion = {
 	startRows: number;
@@ -306,6 +323,12 @@ export type HoldAndWinExpansion = {
 	/** An unlock resets the respin counter to its start. */
 	resetsRespins: boolean;
 	rowJackpots?: RowJackpot[];
+	/** Where the opened rows are drawn; absent ⇒ `below`. */
+	grow?: ExpansionGrow;
+	/** How a locked row opens; absent ⇒ `fade`. */
+	openStyle?: ExpansionOpenStyle;
+	/** `component` opening only: ms between one row's opening and the next's; absent ⇒ 0. */
+	openStagger?: number;
 };
 
 export type HoldAndWin = {
@@ -682,7 +705,48 @@ const expansion = (raw: unknown): HoldAndWinExpansion | undefined => {
 		return rows !== undefined && name ? { rows, jackpot: name } : undefined;
 	});
 	if (rowJackpots.length) out.rowJackpots = rowJackpots;
+	const grow = oneOf(EXPANSION_GROWS, raw.grow);
+	if (grow) out.grow = grow;
+	const openStyle = oneOf(EXPANSION_OPEN_STYLES, raw.openStyle);
+	if (openStyle) out.openStyle = openStyle;
+	const openStagger = num(raw.openStagger);
+	if (openStagger !== undefined && openStagger >= 0) out.openStagger = openStagger;
 	return out;
+};
+
+/** The expansion fields only the client reads — where the rows are drawn and how they open. */
+const EXPANSION_PRESENTATION = ['grow', 'openStyle', 'openStagger'] as const;
+
+/**
+ * `block` as the server deals it: without the expansion's presentation fields (`grow`,
+ * `openStyle`, `openStagger`), which change no round. The same object when it carries none, so a
+ * block without them hands the mock exactly what it always did.
+ */
+export const holdAndWinServerRules = (block: HoldAndWin): HoldAndWin => {
+	const expansion = block.expansion;
+	if (!expansion || !EXPANSION_PRESENTATION.some((key) => expansion[key] !== undefined)) {
+		return block;
+	}
+	const { grow: _grow, openStyle: _style, openStagger: _stagger, ...rules } = expansion;
+	return { ...block, expansion: rules };
+};
+
+/**
+ * The SEAT row an expanding board of `baseRows` base rows draws DATA row `row` at (presentation
+ * only: the wire, the reducer and a held cell keep the data row). The k-th opened row (k ≥ 1) is
+ * data row `baseRows - 1 + k`: `below` (absent) seats it there; `above` at `-k`, over the base rows;
+ * `split` alternates — odd k below (`baseRows + (k - 1) / 2`), even k above (`-k / 2`). A base row,
+ * or any row under `below`, is its own seat — the same number, so the base board never moves.
+ */
+export const expansionSeatRow = (
+	row: number,
+	baseRows: number,
+	grow: ExpansionGrow | undefined,
+): number => {
+	if (grow === undefined || grow === 'below' || row < baseRows) return row;
+	const k = row - baseRows + 1;
+	if (grow === 'above') return -k;
+	return k % 2 === 1 ? baseRows + (k - 1) / 2 : -(k / 2);
 };
 
 /**
@@ -1403,6 +1467,19 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 				);
 			}
 		});
+		if (grow.openStagger !== undefined) {
+			if (grow.openStagger > MAX_OPEN_STAGGER_MS) {
+				error(
+					'expansion.openStagger',
+					`Each row waits ${grow.openStagger} ms for the one before; keep it at ${MAX_OPEN_STAGGER_MS} ms or less, or an unlock stalls the round.`,
+				);
+			} else if (grow.openStagger > 0 && grow.openStyle !== 'component') {
+				warning(
+					'expansion.openStagger',
+					'Only a component opening is staggered; the coded fade opens every row at once.',
+				);
+			}
+		}
 	}
 
 	return issues;

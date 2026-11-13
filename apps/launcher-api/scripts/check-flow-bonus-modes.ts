@@ -30,7 +30,8 @@
  *     and Win Phase 14a enhancements (`enhancementHit` / `enhancementMiss`, the
  *     `HoldAndWinEnhancement` enum, the `run` cause, `enhancements` on the entry and snapshot), and
  *     its Phase 14b presentation (the `hitEnhancement` / `missEnhancement` actions, four cues and
- *     the `enhancements` value) are pinned on their own and left out of the vocabulary hash.
+ *     the `enhancements` value) and an expanding board's `rowOpening` / `rowOpened` cues are pinned
+ *     on their own and left out of the vocabulary hash.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -363,6 +364,8 @@ const ENHANCEMENT_CUES = [
 	'superBonusEnter',
 ];
 const ENHANCEMENT_VALUE = 'enhancements';
+/** An expanding board's per-row opening cues (expanding-board authoring item 4), added after 14b. */
+const ROW_OPEN_CUES = ['rowOpening', 'rowOpened'];
 /** `coinInstantCollect`'s optional `collectors` (every collector takes every coin), added after 14b. */
 const INSTANT_COLLECTORS = 'collectors';
 /** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue,
@@ -392,7 +395,10 @@ const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 			? { ...s, fields: s.fields.filter((f) => f.name !== 'enhancements') }
 			: s,
 	),
-	cues: vocab.cues.filter((c) => c.name !== AWARD_CUE && !ENHANCEMENT_CUES.includes(c.name)),
+	cues: vocab.cues.filter(
+		(c) =>
+			c.name !== AWARD_CUE && !ENHANCEMENT_CUES.includes(c.name) && !ROW_OPEN_CUES.includes(c.name),
+	),
 	values: vocab.values.filter((v) => v.name !== ENHANCEMENT_VALUE),
 });
 
@@ -563,6 +569,13 @@ for (const [name, kind, doc] of currentDocs()) {
 			`5. ${name} · the award cue is there`,
 			docVocab.cues.some((cue) => cue.name === AWARD_CUE),
 			true,
+		);
+		same(
+			`5. ${name} · the row opening cues are there, each carrying its row`,
+			docVocab.cues
+				.filter((cue) => ROW_OPEN_CUES.includes(cue.name))
+				.map((cue) => [cue.name, cue.payload.map((field) => field.name)]),
+			ROW_OPEN_CUES.map((name) => [name, ['row']]),
 		);
 	}
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;

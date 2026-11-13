@@ -1,7 +1,10 @@
 <script lang="ts">
 	import {
 		BOARD_END_TYPES,
+		EXPANSION_GROWS,
+		EXPANSION_OPEN_STYLES,
 		EXPANSION_RULES,
+		MAX_OPEN_STAGGER_MS,
 		HOLD_AND_WIN_SPECIALS,
 		HOLD_AND_WIN_SYMBOL_ROLES,
 		RESPIN_PLAY,
@@ -15,6 +18,8 @@
 		symbolsWithRole,
 		type BoardEnd,
 		type CoinValueEntry,
+		type ExpansionGrow,
+		type ExpansionOpenStyle,
 		type ExpansionRule,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -87,6 +92,15 @@
 		fullRow: 'Filling the bottom open row opens the next',
 		unlockSymbol: 'An unlock symbol landing opens a row',
 		coinCount: 'Enough held symbols open a row',
+	};
+	const EXPANSION_GROW_LABELS: Record<ExpansionGrow, string> = {
+		below: 'Below the base rows',
+		above: 'Above the base rows',
+		split: 'Alternating — below, then above',
+	};
+	const EXPANSION_OPEN_STYLE_LABELS: Record<ExpansionOpenStyle, string> = {
+		fade: 'The coded fade',
+		component: "The Locked Row component's open",
 	};
 	const SPECIAL_HINTS: Record<HoldAndWinSpecial, string> = {
 		collector: 'Gathers the value of the coins on the board into itself.',
@@ -373,6 +387,25 @@
 		toggleReel(target, reel, on);
 		if (target.reels) grow.unlockReels = target.reels;
 		else delete grow.unlockReels;
+	}
+	/** The defaults (`below`, `fade`, no stagger) are not stored, so a board left at them saves
+	 *  exactly as a project that never had the fields. */
+	function setGrow(grow: HoldAndWinExpansion, value: string) {
+		const next = EXPANSION_GROWS.find((g) => g === value);
+		if (next && next !== 'below') grow.grow = next;
+		else delete grow.grow;
+	}
+	function setOpenStyle(grow: HoldAndWinExpansion, value: string) {
+		const next = EXPANSION_OPEN_STYLES.find((o) => o === value);
+		if (next === 'component') grow.openStyle = next;
+		else {
+			delete grow.openStyle;
+			delete grow.openStagger;
+		}
+	}
+	function setOpenStagger(grow: HoldAndWinExpansion, ms: number) {
+		if (ms > 0) grow.openStagger = ms;
+		else delete grow.openStagger;
 	}
 	function addRowJackpot(hw: HoldAndWinGame, grow: HoldAndWinExpansion) {
 		(grow.rowJackpots ??= []).push({ rows: grow.maxRows, jackpot: lastJackpot(hw) });
@@ -808,7 +841,7 @@
 
 		<!-- Board expansion ------------------------------------------------------------------->
 		<div class="panel">
-			<h3>Board expansion <em>the respin board unlocks rows below the base grid</em></h3>
+			<h3>Board expansion <em>the respin board unlocks rows past the base grid</em></h3>
 			<label class="check"
 				><input
 					type="checkbox"
@@ -851,6 +884,40 @@
 								>An unlock resets the respins</span
 							></label
 						>
+					</div>
+					<div class="row">
+						<label
+							><span>Opened rows are drawn <em>presentation only</em></span><select
+								value={grow.grow ?? 'below'}
+								onchange={(e) => setGrow(grow, e.currentTarget.value)}
+							>
+								{#each EXPANSION_GROWS as g (g)}
+									<option value={g}>{EXPANSION_GROW_LABELS[g]}</option>
+								{/each}
+							</select></label
+						>
+						<label
+							><span>A row opens with</span><select
+								value={grow.openStyle ?? 'fade'}
+								onchange={(e) => setOpenStyle(grow, e.currentTarget.value)}
+							>
+								{#each EXPANSION_OPEN_STYLES as o (o)}
+									<option value={o}>{EXPANSION_OPEN_STYLE_LABELS[o]}</option>
+								{/each}
+							</select></label
+						>
+						{#if grow.openStyle === 'component'}
+							<label
+								><span>Between rows <em>ms</em></span><input
+									type="number"
+									min="0"
+									max={MAX_OPEN_STAGGER_MS}
+									step="50"
+									value={grow.openStagger ?? 0}
+									oninput={num((n) => n >= 0 && setOpenStagger(grow, n), true)}
+								/></label
+							>
+						{/if}
 					</div>
 					{#if grow.rule === 'coinCount' && grow.thresholds}
 						{@const thresholds = grow.thresholds}
