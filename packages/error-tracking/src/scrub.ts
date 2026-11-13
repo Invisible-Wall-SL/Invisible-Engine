@@ -9,20 +9,32 @@
  * token format is theirs to change.
  */
 
+import type { BrowserOptions } from '@sentry/browser';
+
 /**
  * Sentry's `dataCollection` init option, set to collect nothing about the person or the request.
  * Sentry 11 defaults every one of these to ON (user, cookies, headers, bodies, query strings,
- * local variables), so leaving the option out is the opposite of private. The scrubbers below are
- * the second line, for what reaches an event through messages, breadcrumbs and extras.
+ * local variables, GraphQL / AI / MCP payloads, DB and queue arguments), so leaving a key out is
+ * the opposite of private. `frameContextLines` (our own source around a frame) stays at Sentry's
+ * default of 5. `Required` makes a category added by a Sentry bump fail the typecheck
+ * until it is set here. It is shallow: a new sub-key inside `graphQL`, `genAI` or `mcp` is not
+ * caught. The scrubbers below are the second line, for what reaches an event through messages,
+ * breadcrumbs and extras.
  */
 export const PRIVATE_DATA_COLLECTION = {
 	userInfo: false,
 	cookies: false,
 	httpHeaders: false,
-	httpBodies: [] as never[],
+	httpBodies: [],
 	urlQueryParams: false,
+	graphQL: { document: false, variables: false },
+	genAI: { inputs: false, outputs: false },
+	mcp: { inputs: false, outputs: false },
+	databaseQueryData: false,
+	queues: false,
 	stackFrameVariables: false,
-};
+	frameContextLines: 5,
+} satisfies Required<NonNullable<BrowserOptions['dataCollection']>>;
 
 const SENSITIVE_PARAM =
 	/^(sid|sessionid|session|session_id|token|access_token|auth|key|k|secret|password|signature|sig)$/i;
