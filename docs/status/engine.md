@@ -647,6 +647,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     (`248b7157`); the branch was then rebased on `e6ffe7fb` (#1640, #1647) and its gates re-run.
   - Gates: `check-stock-asset-prune.mts` (sections 4 and 6), `check-pull-reachability.mjs`,
     `check-build-breakdown-desktop.mjs`; 20 planted mutants, each caught.
+- 2026-11-12 — **Sentry still collects nothing after 11.11.** `@sentry/core` 11.11 added `mcp`, and
+  `graphQL`, `genAI`, `databaseQueryData` and `queues` were never set, so all of them defaulted ON.
+  `PRIVATE_DATA_COLLECTION` (`packages/error-tracking/src/scrub.ts`) now sets every category off.
+  `frameContextLines` (source lines, not personal data) is set to Sentry's default of 5. The object
+  is checked with `satisfies Required<…>`, so a category added by a later Sentry bump fails
+  `pnpm --filter error-tracking typecheck` (a Lint-workflow step for it ships in its own PR, since
+  a workflow edit opts a PR out of the current-games verdict). The check is shallow,
+  so a new sub-key inside `graphQL`, `genAI` or `mcp` is not caught. It only works because the
+  package's tsconfig now sets `preserveSymlinks: false`. Before, `@sentry/core` did not resolve and
+  every Sentry type was `any`. Consumers still inherit `preserveSymlinks: true`, so their own checks
+  see `any` here. `check:scrub` asserts every other leaf is off and that none uses `deny`. This is a
+  runtime release.
 
 - 2026-11-12 — **Mock audit: every event the test RGS sends, against the partner's wire.** The
   table is in `reference/play4fun-protocol.md` ("Mock audit"). It lists each event as captured,

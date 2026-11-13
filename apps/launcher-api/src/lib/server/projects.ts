@@ -305,9 +305,15 @@ export async function getPartnerLaunch(key: string): Promise<PartnerLaunch | nul
 	return normalizePartnerLaunch(row?.partnerLaunch);
 }
 
-/** Store a project's partner launch; null clears it. */
-export async function setPartnerLaunch(key: string, value: PartnerLaunch | null): Promise<void> {
-	await getDb().update(projects).set({ partnerLaunch: value }).where(eq(projects.key, key));
+/** Store a project's partner launch; null clears it. False when no project has that key (deleted or
+ *  renamed since the caller's access check). */
+export async function setPartnerLaunch(key: string, value: PartnerLaunch | null): Promise<boolean> {
+	const rows = await getDb()
+		.update(projects)
+		.set({ partnerLaunch: value })
+		.where(eq(projects.key, key))
+		.returning({ key: projects.key });
+	return rows.length > 0;
 }
 
 /**

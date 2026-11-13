@@ -103,6 +103,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `ktx2DescriptorFile` counts as its file.
   - Gates: `check-pull-reachability.mjs` 52, `check-build-breakdown-desktop.mjs` 46, each new rule
     with a planted mutant. Guide: [tools/invisible-launcher.md](../tools/invisible-launcher.md).
+- 2026-11-12 — **Saving a partner launch for a project that is gone answers 404.**
+  `setPartnerLaunch` now `.returning()`s and reports whether a row changed, so a project deleted or
+  renamed between `POST /api/game-maker/partner`'s access check and its UPDATE is refused (404,
+  "reload Game Maker") instead of answering `{ok:true}` and logging a save that never happened. The
+  plain-segment regex is now one export, `SEGMENT_RE` in `$lib/partnerLaunch`, reused by Game
+  Maker's `latestDelivery`, `/api/partner-session` and `partnerDelivery.ts` (was `ALIAS_RE`). Gate:
+  `check:partner-launch` pins the zero-rows → 404 path (a source pin; the UPDATE needs a DB).
 - 2026-11-12 — **More pages get KTX2 twins: the floor is a 256×256 page and bitmap fonts get
   them.** `ktx2Dimensions.ts` `MIN_ENCODE_PIXELS` 1 Mpix → 65,536 px (a twin-less page is re-tried
   on every assemble, so the next one encodes them; no revision bump); `fontExport.ts` encodes each
