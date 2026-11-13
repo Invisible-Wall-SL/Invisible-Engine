@@ -1136,6 +1136,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-12 — **A switch between the partner's wire and ours no longer carries a tab's config
+  (#1602 review).** When a running project gained or lost `holdAndWin.enhancements`, the test
+  server's rebuild (`swapMock` on a contract change, `carryPins` on a `/refresh`) carried each
+  runtime tab's `configSent` and bet table onto the other mock, so a tab told our `[10, 1000]` bet
+  option 1 on the partner's `[10, 50, 500, 1000]` and was charged 50 for its "buy" until it reloaded.
+  `makeMock` now stamps the partner mock `wire: 'partner'`, and a rebuild that changes wire
+  (`sameWire`) carries the balance without the config (`swapMock`) or resets the sessions
+  (`carryPins`): the stale tab's bet is refused (`unexpected action: bet` / "reload the game") and a
+  reload re-reads. A same-wire swap (a re-priced buy, a resized partner board) keeps the tab's table
+  exactly as before. A round held open across the switch (`openRounds.mjs`) is judged against the
+  instance that dealt it, not the latest swap: a hold now records whether the game sells a table and
+  its release carries the config only when `sameWire(hold.owner, next)`, so a partner change while
+  the round is held can no longer re-stamp it as same-wire (review repro: staked 50). Gate:
+  `services/test-server/mockSwitch.fixture.mjs` (found by `check:all`): real server, stub launcher,
+  idle and held-round tabs across a contract swap, a swap chain and a `/refresh` chain; mutants
+  (`sameWire` always true: 4 checks fail; holds re-stamped by the latest swap: both chain cases fail).
 - 2026-11-12 — **Getting Hot: a line paid from the right lights the cells that paid.** On the
   partner's server a line win read from the right (`spinWin` `direction: 'right'`) lit and traced
   the leftmost `occurs` cells of its payline: three clubs paid on reels 4–2 of the V line, and

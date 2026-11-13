@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 
 import { carrySession } from '../../scripts/mock-rgs-server.mjs';
 import { holdOpenRounds, mockForSession } from './openRounds.mjs';
-import { makeMock, sellsTable, validGrid } from './makeMock.mjs';
+import { makeMock, sameWire, sellsTable, validGrid } from './makeMock.mjs';
 import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
 import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
@@ -283,7 +283,8 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
  * gains or loses a buy would otherwise be priced by a table it never saw, and one open when a book
  * game gains the overlay dealt drops and pot bonuses it cannot draw. A reload asks for `config` and
  * gets the new one. An unstamped desktop build's sessions are re-sent the config on their next
- * heartbeat, as before.
+ * heartbeat, as before. A swap between the partner's wire and ours (`sameWire`) carries no config
+ * either: the tab's describes the other game's table, so its session keeps its balance and re-reads.
  */
 const swapMock = (key, contract, channel) => {
 	const twin = channel === AUTHORING;
@@ -291,7 +292,6 @@ const swapMock = (key, contract, channel) => {
 	const previous = own(pool, key);
 	const meta = own(registry, key);
 	const runtime = meta?.runtime;
-	const keepBetShape = sellsTable(meta);
 	const next = makeMock(
 		contract.protocol,
 		twin ? `mock:${key}/${AUTHORING}` : `mock:${key}`,
@@ -302,12 +302,14 @@ const swapMock = (key, contract, channel) => {
 		twin,
 		meta?.tableCapable,
 	);
+	const sells = sellsTable(meta);
+	const keepBetShape = sells && sameWire(previous, next);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
 			next.sessions.set(sid, carrySession(session, { keepBetShape }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape });
+	holdOpenRounds(previous, next, { sells });
 	pool[key] = next;
 	const fingerprint = fingerprintOf(contract);
 	// The registry's protocol/grid/cascade describe the PLAYER mock (the index page, and the contract
@@ -327,16 +329,18 @@ const swapMock = (key, contract, channel) => {
  * desktop build's sessions are reset as before. A process restart still loses everything; a table
  * game then refuses the stale tab's bet rather than guess (see the mock's `bet`). A round still
  * open — a free-spin feature mid-way — is answered by the instance that dealt it until it closes,
- * for every game (`holdOpenRounds`).
+ * for every game (`holdOpenRounds`). A refresh between the partner's wire and ours (`sameWire`) resets
+ * the sessions too, so no tab bets on a table it never saw.
  */
-const carryPins = (previous, next, keepsBetTable) => {
+const carryPins = (previous, next, sells) => {
+	const keepsBetTable = sells && sameWire(previous, next);
 	if (keepsBetTable && previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
 			const fresh = { ...session, balance: next.startBalance };
 			next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape: keepsBetTable });
+	holdOpenRounds(previous, next, { sells });
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per

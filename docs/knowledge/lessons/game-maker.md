@@ -34,6 +34,16 @@ and [design/games-deploy.md](../../design/games-deploy.md).
 - **Guard:** `node scripts/split-stock-audio.mjs --check` (a fresh cut, compared byte for byte).
 - **PR:** not recorded (2026-11-12) · source: `docs/status/sound.md`
 
+### A desktop build ships art and files the game never loads
+- **Symptom:** "Why are we still shipping coded game art and other things not used?" (a desktop
+  build of `overlay_buffaloduel`: 337 files, 53.5 MB, 23 "same bytes twice", 8 "never named").
+- **Cause:** the build pruned only stock keys. Art the boot skips (`editorArtUnused`), stock-folder
+  leftovers (`index.ts`, font `.json`), KTX2 encode records and the splash's twin still shipped.
+- **Fix:** `stockAssetPrune.js` drops them all; the pull skips by-products (`isEncoderRecord`,
+  `bootSplashFiles`); the breakdown traces "never loaded" and credits frames and cue sounds.
+- **Guard:** `check-stock-asset-prune.mts`, `check-pull-reachability.mjs`, the desktop breakdown.
+- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+
 ### Every player downloads library sounds the game never plays
 - **Symptom:** "We are also shipping sounds and music that we are not using in the final game."
 - **Cause:** `soundExport.ts` copied every `sounds.json` entry into `deploy/sounds/` and the

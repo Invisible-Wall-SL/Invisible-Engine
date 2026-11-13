@@ -14,6 +14,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *
  *   POST /api/game-maker/partner  { project, gameId, profile?, alias?, player? }   (gameId '' clears it)
  *   → 200 { ok, partner }   (`partner` null when cleared)
+ *   → 404 when the project was deleted or renamed after the access check
  *
  * Same gate as Publish (the `gamePublish` capability + project access): it decides where the
  * card's ▶ Partner buttons send everyone who can see the card.
@@ -41,7 +42,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 	const parsed = parsePartnerLaunchInput(body, partnerProfileIds(ENV.PARTNER_RGS));
 	if (!parsed.ok) return json({ error: parsed.error }, { status: 400, headers: NO_STORE });
-	await setPartnerLaunch(project, parsed.value);
+	if (!(await setPartnerLaunch(project, parsed.value))) {
+		return json(
+			{ error: 'That project no longer exists — it was deleted or renamed. Reload Game Maker.' },
+			{ status: 404, headers: NO_STORE },
+		);
+	}
 	console.info(
 		`[partner] ${project}: ${locals.user.email} set partner game ${parsed.value ? `${parsed.value.profile}/${parsed.value.gameId}${parsed.value.player ? ` as ${parsed.value.player}` : ''}` : '(none)'}`,
 	);

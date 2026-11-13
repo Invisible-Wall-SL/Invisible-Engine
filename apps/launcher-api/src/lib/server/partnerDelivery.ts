@@ -24,6 +24,7 @@ import {
 	S3Client,
 } from '@aws-sdk/client-s3';
 import { error, isHttpError } from '@sveltejs/kit';
+import { SEGMENT_RE } from '$lib/partnerLaunch';
 import { assertSafeRel } from './deployServe';
 import { ENV } from './env';
 import { bundleContentType, MAX_RELAY_FILE_BYTES, type RelayedFile } from './gameBundleRelay';
@@ -38,7 +39,6 @@ const HOST_PAGE = 'embed.html';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 const RECORD_ROOT = 'deliveries';
 
-const ALIAS_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const VERSION_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62})$/;
 
 export function deliveryConfigured(): boolean {
@@ -59,7 +59,7 @@ function assertConfigured(): void {
 
 /** The partner's `gameAlias`: the game's display name with spaces removed. */
 export function assertAlias(alias: string): void {
-	if (!ALIAS_RE.test(alias)) {
+	if (!SEGMENT_RE.test(alias)) {
 		throw error(400, `Invalid gameAlias '${alias}' — letters, digits, '_' and '-' only.`);
 	}
 }
@@ -75,7 +75,9 @@ export function assertVersionPath(version: string): void {
 
 /** The CDN folder one delivery lives in, inside the partner's bucket. */
 export function deliveryPrefix(alias: string, version: string, brand = ENV.DELIVERY_BRAND): string {
-	if (!ALIAS_RE.test(brand)) throw error(500, `DELIVERY_BRAND '${brand}' is not a plain segment.`);
+	if (!SEGMENT_RE.test(brand)) {
+		throw error(500, `DELIVERY_BRAND '${brand}' is not a plain segment.`);
+	}
 	assertAlias(alias);
 	assertVersionPath(version);
 	return `${brand}/games/${version}/${alias}/`;
