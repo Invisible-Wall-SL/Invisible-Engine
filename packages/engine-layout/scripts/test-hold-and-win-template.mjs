@@ -493,22 +493,85 @@ const SIZE = {
 		mod.resolveReelGridFromNode(gridOf(scaled), 'desktop').boardNudgeY === 0,
 		'no row nudge ⇒ the resolved nudge is the px nudge, unchanged',
 	);
-	// A canvas rescale scales the node's scale and its px nudge together, so an old lift of −40 at
-	// scale 1 is −60 at scale 1.5: still the old lift, swapped rather than doubled.
-	const rescaled = {
+	// The old lift is recognised at any grid scale: a canvas rescale by k multiplies the node's scale
+	// AND its px nudge by k (the cells stay), so the stored lift is −40 × k whatever scale the grid
+	// had before (Getting Hot's was drag-resized to 2.59). The doc's canvas factors name k for a doc
+	// that sat at the reference size; the grid's scale names it for a scale-1 grid on any canvas.
+	const withGrid = (patch) => ({
 		...scaled,
 		scenes: scaled.scenes.map((sc) => ({
 			...sc,
-			nodes: sc.nodes.map((n) =>
-				n.kind === 'reelGrid' ? { ...n, scale: { x: 1.5, y: 1.5 }, boardNudgeY: -60 } : n,
-			),
+			nodes: sc.nodes.map((n) => (n.kind === 'reelGrid' ? { ...n, ...patch(n) } : n)),
 		})),
-	};
-	const swapped = gridOf(mod.reserveExpandingBoard(rescaled, maxRows));
-	assert(
-		swapped.boardNudgeY === undefined && swapped.boardNudgeRows === -1,
-		`a rescaled legacy lift is swapped, not doubled (got ${swapped.boardNudgeY}, ${swapped.boardNudgeRows})`,
-	);
+	});
+	const liftCases = [
+		['scale 1, never rescaled', { scale: { x: 1, y: 1 }, boardNudgeY: -40 }, []],
+		['scale 1, canvas-rescaled ×1.5', { scale: { x: 1.5, y: 1.5 }, boardNudgeY: -60 }, [1.5]],
+		[
+			'scale 1 on a 1280-wide canvas, rescaled ×2 (factor 2560 / 1920)',
+			{ scale: { x: 2, y: 2 }, boardNudgeY: -80 },
+			[2560 / 1920],
+		],
+		['drag-resized to 2.59, never rescaled', { boardNudgeY: -40 }, []],
+		[
+			'drag-resized to 2.59, then canvas-rescaled ×2',
+			{ scale: { x: 5.18, y: 5.18 }, boardNudgeY: -80 },
+			[2],
+		],
+		[
+			'drag-resized to 2.59, then canvas-rescaled ×1.5',
+			{ scale: { x: 2.59 * 1.5, y: 2.59 * 1.5 }, boardNudgeY: -40 * 1.5 },
+			[1.5],
+		],
+		[
+			'rescaled ×2, one layout box hand-edited (any layout tab open)',
+			{ scale: { x: 5.18, y: 5.18 }, boardNudgeY: -80 },
+			[1.7, 2, 2, 2],
+		],
+		['reserved after a ×2 canvas rescale', { boardNudgeY: -40 }, [2]],
+	];
+	for (const [label, patch, factor] of liftCases) {
+		const doc = withGrid(() => patch);
+		assert(
+			!mod.expandingBoardReserved(doc, maxRows, factor),
+			`${label}: the old px lift reads as unreserved`,
+		);
+		const once = mod.reserveExpandingBoard(doc, maxRows, factor);
+		const g = gridOf(once);
+		assert(
+			g.boardNudgeY === undefined && g.boardNudgeRows === -1,
+			`${label}: the old px lift is swapped for the row lift, not doubled (got ${g.boardNudgeY}, ${g.boardNudgeRows})`,
+		);
+		assert(mod.expandingBoardReserved(once, maxRows, factor), `${label}: and reads as reserved`);
+		assert(
+			JSON.stringify(mod.reserveExpandingBoard(once, maxRows, factor)) === JSON.stringify(once),
+			`${label}: reserving again changes nothing`,
+		);
+	}
+	// A px nudge that is not the old lift at any of those factors is the author's: kept beside the
+	// row lift.
+	for (const [label, patch, factor] of [
+		['hand-set −25 px', { boardNudgeY: -25 }, []],
+		['hand-set −25 px on a ×2 canvas', { scale: { x: 5.18, y: 5.18 }, boardNudgeY: -25 }, [2]],
+		['hand-set −50 px on a ×2 canvas', { scale: { x: 5.18, y: 5.18 }, boardNudgeY: -50 }, [2]],
+	]) {
+		const g = gridOf(
+			mod.reserveExpandingBoard(
+				withGrid(() => patch),
+				maxRows,
+				factor,
+			),
+		);
+		assert(
+			g.boardNudgeY === patch.boardNudgeY && g.boardNudgeRows === -1,
+			`${label}: the px nudge is kept beside the row lift (got ${g.boardNudgeY}, ${g.boardNudgeRows})`,
+		);
+	}
+	// Loading never moves a doc: only the button writes (the editor reads `expandingBoardReserved`).
+	const loaded = withGrid(() => ({ boardNudgeY: -40 }));
+	const before = JSON.stringify(loaded);
+	mod.expandingBoardReserved(loaded, maxRows);
+	assert(JSON.stringify(loaded) === before, 'reading the reserve state leaves the doc unchanged');
 	// A board that no longer grows (maxRows back to its rows) loses its row lift.
 	const reserved = mod.reserveExpandingBoard(scaled, maxRows);
 	assert(!mod.expandingBoardReserved(reserved, 3), 'a stale row lift reads as unreserved');
