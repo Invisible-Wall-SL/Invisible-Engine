@@ -1106,7 +1106,12 @@
 						frameHeight,
 						previewResolveTransform,
 					);
-		const geo = reelGridGeometry(node, leaf.anchor, gridDimensions);
+		const geo = reelGridGeometry(
+			node,
+			leaf.anchor,
+			gridDimensions,
+			resolveTransform(node, layoutType).scale,
+		);
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
 			(top) => worldTransformOf(top, sc),

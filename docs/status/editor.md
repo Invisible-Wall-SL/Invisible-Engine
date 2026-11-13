@@ -171,6 +171,14 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-13 — **The reel grid previews where the game draws it.** The board nudge is in the node's
+  x/y units, and the game adds it outside the grid's scale (`boardLayout()`). The editor drew it
+  inside, so a scaled grid moved by the nudge × the scale. Getting Hot (nudge −79 at scale 2.59)
+  showed its board 126 px higher than the game drew it. `reelGridGeometry` now takes the node's
+  resolved scale and divides the nudge by it: board, rig symbols and selection box all follow. A
+  launcher change: no game moves, the editor shows where each one already is. Open: **⇕ Reserve
+  rows for board expansion** writes its lift in unscaled cell px, so a scaled grid is lifted less
+  than half its extra rows (and per-layout scales differ while the nudge is one value).
 - 2026-11-12 — **The reel grid's selection box sits on the board.** It was sized from the node's
   own `reels`/`rows` around its anchor, while the board is drawn at the Game Config's count and
   moved by the board nudge. Getting Hot (board nudge Y −79, one cell) drew its cells a row above its
