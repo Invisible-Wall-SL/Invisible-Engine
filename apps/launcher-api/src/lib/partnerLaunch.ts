@@ -24,7 +24,7 @@ export interface PartnerLaunch {
 
 /** A partner game id, profile id, alias or player id: one plain segment (it lands in a query and an
  *  R2 key). */
-const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+export const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /** The partner's alias convention: the game's display name with the spaces removed. */
 export function defaultPartnerAlias(cardName: string): string {

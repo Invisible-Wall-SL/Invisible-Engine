@@ -7,6 +7,19 @@ traps. It covers the translator (`packages/rgs-translator-eagaming`), the mock R
 (`services/test-server`, `scripts/mock-rgs-server*.mjs`), money, `seq`/`gid`, resume and delivery
 builds. Slot-type traps live in the family files, e.g. [lines](../families/lines.md).
 
+### A line paid from the right lit the left end of the line
+
+- **Symptom:** on the partner's Getting Hot, a 3-of-a-kind line win paid the right amount, but the
+  lit cells and the drawn line were reels 0–2 (heart, shovel, club: no win), not the three clubs
+  on reels 4, 3, 2 that paid.
+- **Cause:** the partner reads some lines from the right (`spinWin` `context.direction:
+  'right'`). The facade's `winPositions` handed over the whole payline and ignored `direction`;
+  the engine's `winningPositionsOf` keeps the leftmost `kind` cells of a line.
+- **Fix:** `winPositions` hands over only the `occurs` rightmost cells of a line read from the
+  right. A left-read line is unchanged.
+- **Guard:** `collectorRespin.fixture.ts` "right line win" (fails without the fix).
+- **PR:** this one (2026-11-12) · source: `docs/status/hold-and-win.md`
+
 ### A partner free-spin retrigger would have played with no celebration
 
 - **Symptom:** none seen live yet. Found by auditing the mocks against the partner's client: on a
@@ -73,6 +86,18 @@ builds. Slot-type traps live in the family files, e.g. [lines](../families/lines
 - **Guard:** `openRounds.fixture.mjs`; `check:connection` §10 and §10b.
 - **PR:** not recorded (2026-10-02) · source: `docs/status/engine.md` ·
   [lines.md](../families/lines.md#known-failure-modes)
+
+### A tab was priced by the partner's bet table after its project switched mock
+- **Symptom:** a tab booted on our Hold and Win table `[10, 1000]` was charged 50 for its buy
+  once the project gained `holdAndWin.enhancements`, until it reloaded.
+- **Cause:** the test server's rebuild carried a runtime tab's `configSent` and bet table across
+  mock types; the partner mock reads the option index against its own `[10, 50, 500, 1000]`.
+- **Fix:** `makeMock` stamps the partner mock's `wire`; a rebuild that changes wire (`sameWire`)
+  drops the carried config, so the tab's bet is refused and a reload re-reads. A held open round is
+  judged against the instance that dealt it, never the latest swap, which a chain of swaps re-stamps.
+- **Guard:** `services/test-server/mockSwitch.fixture.mjs` (idle and held-round tabs, swap and
+  `/refresh` chains).
+- **PR:** not recorded (2026-11-12) · source: `docs/status/hold-and-win.md`
 
 ### The operator's turbo, autoplay and opening bet were ignored
 - **Symptom:** a licence's "no turbo" did nothing, and every game opened on $1.

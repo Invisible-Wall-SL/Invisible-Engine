@@ -259,7 +259,34 @@ export interface SoundCatalog {
 	 * byte-identical.
 	 */
 	bindings?: SoundBindings;
+	/**
+	 * The engine's STOCK sounds this game's data names, so the runtime loads only the stock banks it
+	 * can play (`apps/lines` `stockSounds.ts`). Absent ⇒ every bank loads: a bundle exported before
+	 * this existed, or one whose reach the export could not tell.
+	 */
+	stock?: StockSoundReach;
 }
+
+/**
+ * Which stock sounds a game's DATA names: every string in it, and the sound inside a timeline cue,
+ * as the export's reachability walk finds them (`soundReachability.ts`).
+ *
+ * Only the data half. What the engine's own code plays, and what an unset slot defaults to, is the
+ * RUNTIME's to add: a published snapshot keeps booting on every later runtime release, and a later
+ * engine may play a stock sound from code that an older export never knew about.
+ */
+export interface StockSoundReach {
+	/** {@link STOCK_SOUND_REACH_VERSION} when exported; any other value is not trusted. */
+	version: number;
+	names: string[];
+}
+
+/**
+ * Bump when the runtime gains a way to play a stock sound that the export's walk does not see
+ * (a sound named from a document it does not read, say). Every list exported before then is then
+ * ignored, so a game that has not been republished loads every bank rather than lose a sound.
+ */
+export const STOCK_SOUND_REACH_VERSION = 1;
 
 /**
  * The shipping form of a library doc. Order preserved; nothing is re-validated here because the doc

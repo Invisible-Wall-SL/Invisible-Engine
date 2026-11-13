@@ -13,7 +13,13 @@
 
 import posix from 'node:path/posix';
 
-export const BREAKDOWN_VERSION = 1;
+export const BREAKDOWN_VERSION = 2;
+
+/** A descriptor this small that matches another one is two assets over the same pages, not waste. */
+const SMALL_DESCRIPTOR = 4096;
+
+/** A timeline cue that plays a sound (`engine-layout` `cueSoundOf`): its name. */
+const CUE_SOUND = /^(?:stop:)?(?:sfx|music):(.+)$/;
 
 /** Largest side a texture should have: most mobile GPUs refuse anything bigger. */
 export const MAX_TEXTURE_SIDE = 4096;
@@ -207,9 +213,10 @@ export function analyzeDesktopBuild(input) {
 	const categoryOf = (rel) => {
 		if (!rel.startsWith(assetsPrefix)) {
 			if (CODE_EXT.test(rel)) return 'code';
-			// A file the code imports is emitted beside the chunks (`_app/immutable/assets/…`).
-			if (IMAGE_EXT.test(rel) || AUDIO_EXT.test(rel) || FONT_EXT.test(rel)) return 'coded';
-			return 'other';
+			// A file the code imports is emitted beside the chunks (`_app/immutable/assets/…`). One at
+			// the build root (the page's `favicon.svg`) belongs to the shell, not to the game's art.
+			const media = IMAGE_EXT.test(rel) || AUDIO_EXT.test(rel) || FONT_EXT.test(rel);
+			return media && rel.includes('/') ? 'coded' : 'other';
 		}
 		const inner = rel.slice(assetsPrefix.length);
 		const top = inner.split('/')[0];
@@ -230,6 +237,7 @@ export function analyzeDesktopBuild(input) {
 			case '_boot':
 				return 'boot';
 			case 'cinematics':
+			case 'clips':
 			case 'effects':
 			case 'flipbooks':
 			case 'editor-shaders':
@@ -259,21 +267,27 @@ export function analyzeDesktopBuild(input) {
 		});
 	}
 
-	// 2. Assets, from the bundle's indices. Their path fields MUST resolve.
+	// 2. Assets, from the bundle's indices. Their path fields MUST resolve, bar the files the game
+	// build left out because the boot never loads them (`stock.json`).
+	const leftOut = new Set(
+		[...(stock?.removed ?? []), ...(stock?.art?.removed ?? [])].map((file) => file.rel),
+	);
 	const assets = [];
 	const ownFiles = new Map();
+	const frameNames = new Map();
 	const expect = (raw, referrer, role) => {
 		if (!raw) return null;
 		const rel = asset(raw);
 		if (!rel) return null;
 		if (role) roles.set(rel, role);
-		if (!fileSet.has(rel)) miss(rel, referrer);
+		if (!fileSet.has(rel) && !leftOut.has(rel)) miss(rel, referrer);
 		return rel;
 	};
 	const addAsset = (type, key, name, paths, category) => {
 		const id = `${type}:${key}`;
 		if (ownFiles.has(id)) return;
 		const own = paths.filter(Boolean);
+		if (own.length && own.every((rel) => leftOut.has(rel))) return;
 		ownFiles.set(id, own);
 		assets.push({
 			id,
@@ -299,6 +313,7 @@ export function analyzeDesktopBuild(input) {
 				expect(s.json, label, 'spritesheet'),
 				expect(s.ktx2Json, label, 'spritesheet'),
 			]);
+			if (Array.isArray(s.names)) frameNames.set(`sheet:${s.key}`, s.names);
 		}
 		for (const i of index?.images ?? []) {
 			addAsset('image', i.key, lastSegment(i.key), [expect(i.file, label), expect(i.ktx2, label)]);
@@ -325,6 +340,7 @@ export function analyzeDesktopBuild(input) {
 			f.name === f.id ? f.name : `${f.name} (${f.id})`,
 			[
 				f.descriptorFile ? at(f.descriptorFile) : null,
+				f.ktx2DescriptorFile ? at(f.ktx2DescriptorFile) : null,
 				...(f.pageFiles ?? []).map(at),
 				...(f.files ?? []).map((w) => at(w.file)),
 			],
@@ -366,8 +382,15 @@ export function analyzeDesktopBuild(input) {
 		addAsset('loading splash', boot, 'Loading splash', [boot], 'boot');
 	}
 
-	// 4. Usage — how many times the game data names each asset's key.
+	// 4. Usage — how many times the game data names each asset: its key, a frame of a sheet (frames
+	// register bare, and a `<sheet key>::<frame>` ref names both), a sound inside a timeline cue
+	// (`sfx:<name>`, `music:<name>`, `stop:` forms — `engine-layout` `cueSoundOf`).
 	const usage = new Map();
+	const credit = new Map();
+	const link = (name, s) => {
+		if (!credit.has(name)) credit.set(name, new Set());
+		credit.get(name).add(s);
+	};
 	if (bundle) {
 		walkStrings(bundle, (s, path) => {
 			if (s.length < 2 || s.length > 400) return;
@@ -376,6 +399,14 @@ export function analyzeDesktopBuild(input) {
 			const where = usage.get(s);
 			const label = whereLabel(path, bundle);
 			where.set(label, (where.get(label) ?? 0) + 1);
+			link(s, s);
+			const scope = s.lastIndexOf('::');
+			if (scope > 0) {
+				link(s.slice(0, scope), s);
+				link(s.slice(scope + 2), s);
+			}
+			const cue = CUE_SOUND.exec(s);
+			if (cue) link(cue[1], s);
 		});
 	}
 	const owners = new Map();
@@ -396,15 +427,17 @@ export function analyzeDesktopBuild(input) {
 		a.sharedBytes = a.files
 			.filter((rel) => (owners.get(rel) ?? 0) > 1)
 			.reduce((s, rel) => s + (bytesOf.get(rel) ?? 0), 0);
-		const names = new Set([a.key]);
+		const names = new Set([a.key, ...(frameNames.get(a.id) ?? [])]);
 		if (a.type === 'rig') names.add(lastSegment(a.key));
 		if (a.type === 'font') {
 			const entry = fontCatalog?.fonts?.find((f) => f.id === a.key);
 			if (entry) names.add(entry.name);
 		}
+		const strings = new Set();
+		for (const name of names) for (const s of credit.get(name) ?? []) strings.add(s);
 		const where = new Map();
-		for (const name of names) {
-			for (const [label, n] of usage.get(name) ?? []) where.set(label, (where.get(label) ?? 0) + n);
+		for (const s of strings) {
+			for (const [label, n] of usage.get(s) ?? []) where.set(label, (where.get(label) ?? 0) + n);
 		}
 		a.uses = [...where.values()].reduce((x, y) => x + y, 0);
 		a.usedIn = [...where]
@@ -413,7 +446,19 @@ export function analyzeDesktopBuild(input) {
 	}
 	assets.sort((x, y) => y.bytes - x.bytes || x.name.localeCompare(y.name));
 
-	// 5. Per file.
+	// 5. Per file. A file is LOADED when the shell loads it (code), the bundle or the boot names it,
+	// or a loaded file names it: a page only a never-loaded descriptor names is never loaded either.
+	const loaded = new Set();
+	const queue = files.filter((f) => CODE_EXT.test(f.rel)).map((f) => f.rel);
+	for (const [target, from] of referrers) {
+		if ([...from].some((r) => !fileSet.has(r))) queue.push(target);
+	}
+	while (queue.length) {
+		const rel = queue.pop();
+		if (loaded.has(rel)) continue;
+		loaded.add(rel);
+		for (const next of out.get(rel) ?? []) queue.push(next);
+	}
 	const firstWithHash = new Map();
 	const rows = files.map((f) => {
 		const row = {
@@ -422,6 +467,7 @@ export function analyzeDesktopBuild(input) {
 			category: categoryOf(f.rel),
 			kind: kindOf(f.rel),
 			refs: refCount.get(f.rel) ?? 0,
+			loaded: loaded.has(f.rel),
 			referrers: [...(referrers.get(f.rel) ?? [])].sort().slice(0, 12),
 		};
 		const d = dims.get(f.rel);
@@ -443,8 +489,13 @@ export function analyzeDesktopBuild(input) {
 		.filter((c) => c.files > 0)
 		.sort((a, b) => b.bytes - a.bytes);
 
-	const unreferenced = rows.filter((r) => r.refs === 0 && ASSET_KINDS.has(r.kind));
-	const duplicates = rows.filter((r) => r.duplicateOf);
+	const unreferenced = rows.filter((r) => !r.loaded && ASSET_KINDS.has(r.kind));
+	const sameText = (r) =>
+		r.bytes <= SMALL_DESCRIPTOR &&
+		(['rig-atlas', 'spritesheet', 'index', 'data'].includes(r.kind) ||
+			/\.(atlas|xml|fnt)$/i.test(r.rel));
+	const duplicates = rows.filter((r) => r.duplicateOf && !sameText(r));
+	const descriptorTwins = rows.filter((r) => r.duplicateOf && sameText(r));
 	const oversized = rows.filter(
 		(r) => r.dims && (r.dims.w > MAX_TEXTURE_SIDE || r.dims.h > MAX_TEXTURE_SIDE),
 	);
@@ -465,13 +516,39 @@ export function analyzeDesktopBuild(input) {
 		pull?.notPulled,
 	);
 	step(
+		'stockSounds',
+		'Stock sounds the game never plays',
+		'The engine’s stock sound banks (music beds, effects) that nothing in this project can play: ' +
+			'the boot would never load them, so the game build left them out' +
+			(stock?.sounds?.skipped?.length ? ` (${stock.sounds.skipped.join(', ')})` : '') +
+			'.',
+		stock?.sounds?.removed,
+	);
+	step(
 		'stockArt',
 		'Stock sample art the game never draws',
 		'The engine’s coded sample art (big win, coins, sample symbols, …) that nothing in this ' +
 			'project can reach: the boot would never load it, so the game build left it out' +
 			(stock?.skipped?.length ? ` (${stock.skipped.join(', ')})` : '') +
-			'.',
+			'. So did what else sits in those sample folders that no kept key loads (their `index.ts` ' +
+			'files, a font’s unused `.json`).',
 		stock?.removed,
+	);
+	step(
+		'editorArt',
+		'Exported art the game never loads',
+		'Scene art only a component default names, where every placement picks its own: the boot ' +
+			'never loads it, so the game build left it out' +
+			(stock?.art?.skipped?.length ? ` (${stock.art.skipped.join(', ')})` : '') +
+			'. Change or clear that default in the Component Editor to stop exporting it.',
+		stock?.art?.removed,
+	);
+	step(
+		'byproducts',
+		'Export records no game reads',
+		'Written by the exports for their own use (KTX2 encode records, the loading splash’s KTX2 ' +
+			'twin it never selects), so the build never downloaded them.',
+		pull?.byproducts,
 	);
 	step(
 		'pruned',
@@ -556,8 +633,8 @@ export function analyzeDesktopBuild(input) {
 	issue(
 		'warn',
 		'Shipped but never loaded',
-		'Asset files nothing in the bundle, the code or another shipped file names. Players may ' +
-			'never download them, but they make the build and every upload bigger.',
+		'Asset files nothing in the bundle or the code reaches, directly or through a file the game ' +
+			'loads. Players never download them, but they make the build and every upload bigger.',
 		unreferenced.map((r) => `${r.rel} (${formatBytes(r.bytes)})`),
 	);
 	issue(
@@ -580,8 +657,17 @@ export function analyzeDesktopBuild(input) {
 	issue(
 		'info',
 		'Same bytes shipped twice',
-		'Files whose content is identical to another shipped file.',
+		'Files whose content is identical to another shipped file: a player who loads both ' +
+			'downloads the bytes twice.',
 		duplicates.map((r) => `${r.rel} = ${r.duplicateOf} (${formatBytes(r.bytes)})`),
+	);
+	issue(
+		'info',
+		'Identical small descriptors',
+		`Atlas, sheet and index texts under ${formatBytes(SMALL_DESCRIPTOR)} that match another ` +
+			'one: two assets packed into the same pages describe them alike and each loads its own ' +
+			'beside itself, and two empty indexes read the same. Expected, not waste.',
+		descriptorTwins.map((r) => `${r.rel} = ${r.duplicateOf} (${formatBytes(r.bytes)})`),
 	);
 	issue(
 		'info',
@@ -846,7 +932,7 @@ function assetsCard() {
 }
 function filesCard() {
   const q = state.fq.toLowerCase();
-  const rows = b.files.filter((f) => (state.category === 'all' || f.category === state.category) && (state.fk === 'all' || f.kind === state.fk) && (!state.fu || f.refs === 0) && (!q || f.rel.toLowerCase().includes(q)))
+  const rows = b.files.filter((f) => (state.category === 'all' || f.category === state.category) && (state.fk === 'all' || f.kind === state.fk) && (!state.fu || !f.loaded) && (!q || f.rel.toLowerCase().includes(q)))
     .sort((x, y) => state.fs === 'rel' ? x.rel.localeCompare(y.rel) : state.fs === 'refs' ? y.refs - x.refs || y.bytes - x.bytes : y.bytes - x.bytes);
   const kinds = [...new Set(b.files.map((f) => f.kind))].sort();
   const total = rows.reduce((s, f) => s + f.bytes, 0);
@@ -854,10 +940,10 @@ function filesCard() {
     '<div class="filters"><input type="search" data-k="fq" placeholder="Search path…" value="' + esc(state.fq) + '">' +
     '<select data-k="fk"><option value="all">All kinds</option>' + kinds.map((k) => '<option' + (state.fk === k ? ' selected' : '') + '>' + esc(k) + '</option>').join('') + '</select>' +
     '<select data-k="fs"><option value="bytes"' + (state.fs === 'bytes' ? ' selected' : '') + '>Largest first</option><option value="refs"' + (state.fs === 'refs' ? ' selected' : '') + '>Most referenced first</option><option value="rel"' + (state.fs === 'rel' ? ' selected' : '') + '>Path</option></select>' +
-    '<label class="count"><input type="checkbox" data-k="fu"' + (state.fu ? ' checked' : '') + '> Unreferenced only</label></div>' +
+    '<label class="count"><input type="checkbox" data-k="fu"' + (state.fu ? ' checked' : '') + '> Never loaded only</label></div>' +
     '<div class="scroll"><table><thead><tr><th>Path</th><th>Kind</th><th class="n">Size</th><th class="n">Refs</th><th>Referenced by</th><th class="n">Pixels</th></tr></thead><tbody>';
   for (const f of rows.slice(0, state.flimit)) {
-    h += '<tr' + (f.refs === 0 && f.kind !== 'code' ? ' class="dim"' : '') + '><td>' + dot(f.category) + '<code>' + esc(f.rel) + '</code>' + (f.duplicateOf ? '<span class="tag" title="same bytes as ' + esc(f.duplicateOf) + '">dup</span>' : '') + '</td>' +
+    h += '<tr' + (!f.loaded && f.kind !== 'code' ? ' class="dim"' : '') + '><td>' + dot(f.category) + '<code>' + esc(f.rel) + '</code>' + (f.duplicateOf ? '<span class="tag" title="same bytes as ' + esc(f.duplicateOf) + '">dup</span>' : '') + '</td>' +
       '<td>' + esc(f.kind) + '</td><td class="n">' + fmt(f.bytes) + '</td><td class="n">' + f.refs + '</td>' +
       '<td class="where" title="' + esc(f.referrers.join('\\n')) + '">' + esc(f.referrers.slice(0, 2).join(', ')) + (f.referrers.length > 2 ? ' +' + (f.referrers.length - 2) : '') + '</td>' +
       '<td class="n">' + (f.dims ? f.dims.w + '×' + f.dims.h : '') + '</td></tr>';

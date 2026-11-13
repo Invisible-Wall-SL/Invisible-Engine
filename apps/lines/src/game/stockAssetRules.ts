@@ -315,11 +315,7 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		rule: 'reference',
 		names: ['gold', 'goldblur', 'silver', 'purple'],
 	},
-	{
-		file: 'apps/lines/src/components/Game.svelte',
-		rule: 'notAsset',
-		names: ['anticipation', 'transition'],
-	},
+	{ file: 'apps/lines/src/components/Game.svelte', rule: 'notAsset', names: ['transition'] },
 	{ file: 'apps/lines/src/components/ReelSymbol.svelte', rule: 'symbols', names: ['explosion'] },
 	{ file: 'apps/lines/src/components/Symbol.svelte', rule: 'symbols', names: ['M'] },
 	{ file: 'apps/lines/src/components/Symbol.svelte', rule: 'always', names: ['gold'] },
@@ -336,9 +332,9 @@ export const STOCK_CONSUMERS: readonly StockConsumer[] = [
 		rule: 'mount',
 		names: ['anticipation'],
 	},
-	{ file: 'apps/lines/src/game/bookEventHandlerMap.ts', rule: 'symbols', names: ['explosion'] },
 	// The `?anticipation=` test param that arms the tease at boot, not the rig.
-	{ file: 'apps/lines/src/game/stockAssetBoot.ts', rule: 'notAsset', names: ['anticipation'] },
+	{ file: 'apps/lines/src/game/anticipationParam.ts', rule: 'notAsset', names: ['anticipation'] },
+	{ file: 'apps/lines/src/game/bookEventHandlerMap.ts', rule: 'symbols', names: ['explosion'] },
 	{
 		file: 'apps/lines/src/game/config.ts',
 		rule: 'symbols',

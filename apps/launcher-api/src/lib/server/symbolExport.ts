@@ -51,6 +51,7 @@ import { DeployMirror } from './deployMirror';
 import {
 	canonicalizeSymbolsDocForExport,
 	loadSymbolsDoc,
+	pruneSymbolsOff,
 	type SymbolCell,
 	type SymbolsDoc,
 } from './symbolsStorage';
@@ -904,9 +905,12 @@ export async function exportEditorSymbols(
 
 	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
-	// this is a verbatim pass-through of the sparse authored doc (alias-keyed per-tier FX). Absent →
-	// the coded `codedTierFx` ramp.
+	// this is a verbatim pass-through of the sparse authored doc (alias-keyed per-tier FX). Absent —
+	// never authored, or dropped above because no flow arms `enableAnticipationMode` → the coded
+	// `codedTierFx` ramp.
 	const anticipation = doc.anticipation;
+
+	const off = pruneSymbolsOff(doc.off);
 
 	// Hold and Win flights. A sprite/rig head already shipped via `refs` above, a flipbook head's
 	// clip via the editor-art clip walk (`collectPlayedClipIds` reads every `clipId` in this doc), and
@@ -960,7 +964,7 @@ export async function exportEditorSymbols(
 		...(symbolFx ? { symbolFx } : {}),
 		...(highlight ? { highlight } : {}),
 		...(boardGlow ? { boardGlow } : {}),
-		...(doc.off ? { off: doc.off } : {}),
+		...(off ? { off } : {}),
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
 		...(winExplode ? { winExplode } : {}),

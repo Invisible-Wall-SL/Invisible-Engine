@@ -15,7 +15,7 @@ import {
 	roleHasCapability,
 	roleHasTool,
 } from '$lib/roles';
-import { defaultPartnerAlias } from '$lib/partnerLaunch';
+import { defaultPartnerAlias, SEGMENT_RE } from '$lib/partnerLaunch';
 import { ENV } from '$lib/server/env';
 import { listSealedVersions } from '$lib/server/partnerDelivery';
 import { partnerProfileIds } from '$lib/server/partnerRgs';
@@ -95,7 +95,7 @@ async function scenesLastModified(clientKey: string, projectKey: string): Promis
 /** The newest sealed delivery for an alias, or null — none, an alias that cannot have any, or an R2
  *  error (which costs the ▶ Partner page button its enabled state, not the page). */
 async function latestDelivery(alias: string): Promise<string | null> {
-	if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(alias)) return null;
+	if (!SEGMENT_RE.test(alias)) return null;
 	try {
 		return (await listSealedVersions(alias)).at(-1) ?? null;
 	} catch {

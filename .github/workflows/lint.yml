@@ -137,6 +137,13 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:rgs
 
+      # Error reporting collects nothing about the player. `PRIVATE_DATA_COLLECTION` must name every
+      # Sentry data-collection category (`satisfies Required<…>`), so a Sentry bump that adds one —
+      # on by default, as `mcp` was in 11.11 — fails here until it is turned off.
+      - name: error-tracking typechecks
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm --filter error-tracking typecheck
+
       # Paytable + info-page figures — the import/partner-reference/drift contract `/config` and the
       # publish gate rely on, and the RTP / max-win rules copy every online game renders.
       - name: paytable and info-page figures
@@ -186,7 +193,9 @@ jobs:
       # `version-files` pins what Publish (and a Director draft) freezes of `deploy/`: the generated
       # subtrees whole and whatever the runtime bundle names, never the raw `sprites/` no player loads.
       # `sound-reachability` pins what the sound export ships: only the library sounds the game can
-      # play (every place a name can sit), and every sound when that cannot be told.
+      # play (every place a name can sit), and every sound when that cannot be told; and the stock
+      # sounds the data names. `stock-audio-build` pins how the stock banks reach a standalone build:
+      # the pull replaces a game repo's old engine sprite, and `--optimize` trims each bank.
       # `desktop-publish-checks` pins that a desktop ☁ Publish / 📦 Deliver runs the online Publish's
       # checks: the portal answers each refusal, the bake stops on it before any export, the override
       # lifts only the overridable ones, an unanswered check stops the build, a dev build never asks.
@@ -199,4 +208,4 @@ jobs:
       # so no gate runs in both jobs.
       - name: launcher gates hold
         if: steps.changes.outputs.code == 'true'
-        run: node scripts/check-all.mjs --jobs 4 --only check-launcher-gates.ts,check-component-links.ts,check-save-state.ts,check-editor-hierarchy.ts,check-editor-shortcuts.ts,check-director-access.ts,check-director-adapters.ts,check-project-scope.ts,check-project-create.ts,check-lease-scope.ts,check-change-password.ts,check-deploy-read.ts,check-game-server-config.ts,check-mock-contract.ts,check-event-bound-flags.mjs,check-tool-launch-token.ts,check-director-costs.ts,check-director-mockups.ts,check-director-events.ts,check-director-runs.ts,check-director-prompts.ts,check-director-live.ts,check-blueprint-catalogue.ts,check-build-breakdown.ts,check-font-swap.ts,check-toolbar-icons.mjs,check-version-files.ts,check-sound-reachability.ts,check-desktop-publish-checks.ts
+        run: node scripts/check-all.mjs --jobs 4 --only check-launcher-gates.ts,check-component-links.ts,check-save-state.ts,check-editor-hierarchy.ts,check-editor-shortcuts.ts,check-director-access.ts,check-director-adapters.ts,check-project-scope.ts,check-project-create.ts,check-lease-scope.ts,check-change-password.ts,check-deploy-read.ts,check-game-server-config.ts,check-mock-contract.ts,check-event-bound-flags.mjs,check-tool-launch-token.ts,check-director-costs.ts,check-director-mockups.ts,check-director-events.ts,check-director-runs.ts,check-director-prompts.ts,check-director-live.ts,check-blueprint-catalogue.ts,check-build-breakdown.ts,check-font-swap.ts,check-toolbar-icons.mjs,check-version-files.ts,check-sound-reachability.ts,check-stock-audio-build.mjs,check-desktop-publish-checks.ts

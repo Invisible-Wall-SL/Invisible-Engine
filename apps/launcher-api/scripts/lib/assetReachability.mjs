@@ -18,7 +18,7 @@
 // costs bytes; a dropped one costs art the player should see.
 
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, posix } from 'node:path';
 
 export const GENERATED_SUBTREES = [
 	'editor-art',
@@ -258,4 +258,55 @@ export async function followDescriptors(dir, rels, refs, tops, seen) {
 		collectRefs(refs, text, { json: true, tops });
 	}
 	return refs.files.size + refs.dirs.size > before;
+}
+
+/**
+ * A generated file a BUILD never ships, though its subtree is otherwise mirrored whole: an
+ * exporter's KTX2 encode record (the source it was made from, the encoder revision, the twin and its
+ * size) — `<twin>.ktx2.meta.json` beside a rig's twin, `_pages/<hash>.meta.json` for a shared page,
+ * `editor-fonts/<font>/<font>.meta.json` for a font page. Only the next export reads one; no game
+ * does.
+ */
+export const isEncoderRecord = (rel) =>
+	isGenerated(rel) &&
+	(/\.ktx2\.meta\.json$/i.test(rel) ||
+		/^(_pages|editor-fonts)\/(?:[^/]+\/)?[^/]+\.meta\.json$/i.test(rel));
+
+const BOOT_INDEX = '_boot/boot.json';
+const PAGE_LINE = /\.(png|webp|jpe?g|avif|ktx2|basis)$/i;
+
+/**
+ * The `_boot/` files the loading splash loads: `boot.json`, every `_boot/` path it names (each
+ * tier's `atlas` and `skeleton`), and the pages each named atlas lists. The rig export also writes a
+ * KTX2 twin atlas and page there, which the splash never selects (`LoaderRig.svelte` loads the
+ * entry's `atlas`). `readText(rel)` reads a deploy file, `null` when absent. Returns `null` — keep
+ * all of `_boot/` — when the index or an atlas it names cannot be read.
+ */
+export async function bootSplashFiles(readText) {
+	const text = await readText(BOOT_INDEX);
+	if (text === null) return null;
+	let index;
+	try {
+		index = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const keep = new Set([BOOT_INDEX]);
+	const named = [];
+	eachString(index, (s) => {
+		const rel = asRel(s);
+		if (rel.startsWith('_boot/')) named.push(rel);
+	});
+	for (const rel of named) {
+		keep.add(rel);
+		if (!rel.endsWith('.atlas')) continue;
+		const atlas = await readText(rel);
+		if (atlas === null) return null;
+		const dir = rel.slice(0, rel.lastIndexOf('/'));
+		for (const line of atlas.split(/\r?\n/)) {
+			const page = line.trim();
+			if (page && !page.includes(':') && PAGE_LINE.test(page)) keep.add(posix.join(dir, page));
+		}
+	}
+	return keep;
 }

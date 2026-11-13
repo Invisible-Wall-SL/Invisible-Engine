@@ -61,6 +61,21 @@ check(
 	false,
 );
 check(
+	'an `off: false` is accepted and persists nothing',
+	'off' in normalizeSymbolsDoc({ symbols: {}, off: { highlight: false, boardGlow: false } }),
+	false,
+);
+check(
+	'only the parts set `true` persist',
+	normalizeSymbolsDoc({ symbols: {}, off: { highlight: false, boardGlow: true } }).off,
+	{ boardGlow: true },
+);
+check(
+	'an unknown part is dropped, the known ones kept',
+	normalizeSymbolsDoc({ symbols: {}, off: { winFrame: true, highlight: true } }).off,
+	{ highlight: true },
+);
+check(
 	'both off round-trip',
 	normalizeSymbolsDoc({ ...swapped, off: { highlight: true, boardGlow: true } }).off,
 	{ highlight: true, boardGlow: true },
@@ -114,7 +129,8 @@ check(
 	[
 		"!doc.off?.highlight && doc.highlight?.type === 'spine' && doc.highlight.assetKey",
 		'const boardGlow = doc.off?.boardGlow ? undefined : doc.boardGlow;',
-		'...(doc.off ? { off: doc.off } : {}),',
+		'const off = pruneSymbolsOff(doc.off);',
+		'...(off ? { off } : {}),',
 	].filter((line) => !exporter.includes(line)),
 	[],
 );

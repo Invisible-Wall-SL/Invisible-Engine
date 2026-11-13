@@ -178,6 +178,36 @@ const LINE_WIN: ScriptedRound = {
 	],
 };
 
+// A line read from the right (the partner's Getting Hot does): three PIC6 on reels 4, 3, 2 of the V line.
+// Read from the left, the same line starts PIC1, PIC1, PIC6: a two-symbol run that pays nothing.
+const RIGHT_BOARD = [
+	['PIC1', 'PIC6', 'PIC9'],
+	['PIC9', 'PIC1', 'PIC8'],
+	['PIC3', 'PIC6', 'PIC6'],
+	['PIC4', 'PIC6', 'PIC6'],
+	['PIC6', 'PIC8', 'PIC2'],
+];
+const RIGHT_LINE_WIN: ScriptedRound = {
+	option: 0,
+	win: 100,
+	answers: [
+		[
+			...spinHead(0),
+			ev('playWindow', RIGHT_BOARD),
+			ev('spinWin', {
+				what: 'PIC6',
+				occurs: 3,
+				mode: 'line',
+				pay: 100,
+				context: { paylineId: 3, payline: PAYLINES[3], direction: 'right' },
+			}),
+			ev('playedSpin', RIGHT_BOARD),
+			ev('gameEnd', { win: 100 }),
+			ev('gameRoundOver', { win: 100 }),
+		],
+	],
+};
+
 // Center Coin: a collector on reel 3 gathers a 2× coin and a MINI coin; no trigger (reel 2 is
 // blank). It ends with `gameEnd` but no `gameRoundOver`: the client's `collect` closes it.
 const CENTER_DEALT = [
@@ -528,7 +558,7 @@ const commonChecks = (label: string, book: BookEvent[]) => {
 };
 
 // 1. A base spin with nothing on it.
-partner.script([LOSING, LINE_WIN, CENTER, BUY]);
+partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, CENTER, BUY]);
 {
 	const answer = await bet('BASE');
 	const book = answer.round?.state ?? [];
@@ -566,6 +596,28 @@ partner.script([LOSING, LINE_WIN, CENTER, BUY]);
 		'line win: its line in the padded board, three of a kind',
 		[info?.wins[0].positions, info?.wins[0].kind],
 		[[0, 1, 2, 3, 4].map((reel) => ({ reel, row: 2 })), 3],
+	);
+	await endRound();
+}
+
+// 1c. A line read from the right lights its rightmost cells, not the leftmost `kind` of the line.
+{
+	const answer = await bet('BASE');
+	const book = answer.round?.state ?? [];
+	commonChecks('right line win', book);
+	const info = book.find((e) => e.type === 'winInfo') as
+		{ wins: { kind: number; positions: { reel: number; row: number }[] }[] } | undefined;
+	check(
+		'right line win: the three paying cells of the V line, padded',
+		[info?.wins[0].positions, info?.wins[0].kind],
+		[
+			[
+				{ reel: 2, row: 3 },
+				{ reel: 3, row: 2 },
+				{ reel: 4, row: 1 },
+			],
+			3,
+		],
 	);
 	await endRound();
 }
