@@ -21,6 +21,11 @@
 	 * `respinCollectStep` fires once per collected coin, as it takes off for the collector (its
 	 * landing is a `flightArrive` with flight `toCollector`).
 
+	 * `rowOpening` / `rowOpened` fire for each row an expanding board opens, in the order they open,
+	 * as it starts and finishes opening (the coded fade, or the Locked Row component's `open`); `row`
+	 * is its DATA row — the wire's numbering (`respinRowsUnlocked.from…rows - 1`), whichever side of
+	 * the base rows `addRowsAt` draws it on.
+	 *
 	 * `respinCounterAward` fires as the feature opens and the counter shows the respins awarded.
 	 * `respinAddRespins` fires as an add-respins special applies (its "+N" landing in the counter is a
 	 * `flightArrive` with flight `toCounter`), `respinCoinUpgrade` as an upgrade applies (each beam's
@@ -109,6 +114,8 @@
 				cause: ExpansionRule;
 				unlockers: HoldAndWinCell[];
 		  }
+		| { type: 'rowOpening'; row: number }
+		| { type: 'rowOpened'; row: number }
 		| {
 				type: 'respinJackpotWin';
 				tier: string;

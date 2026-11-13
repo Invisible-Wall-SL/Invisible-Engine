@@ -140,11 +140,20 @@ export type RespinPlay = (typeof RESPIN_PLAY)[number];
 /**
  * Where a growing respin board DRAWS the rows it adds past the base grid — an expanding board's
  * unlocked rows, Expand's and the super bonus's: `below` the base rows, as every game always has,
- * or `above` them. Presentation only: a held cell keeps its row either way, and a partner's wire is
- * mapped onto these rows by the facade. Absent ⇒ `below`.
+ * `above` them, or `split` — alternating, the first below, the next above. Presentation only: a held
+ * cell keeps its row either way, and a partner's wire is mapped onto these rows by the facade
+ * (see {@link addedRowSeat}). Absent ⇒ `below`.
  */
-export const ADD_ROWS_AT = ['below', 'above'] as const;
+export const ADD_ROWS_AT = ['below', 'above', 'split'] as const;
 export type AddRowsAt = (typeof ADD_ROWS_AT)[number];
+
+/** How a locked row opens: `fade` (the default) — the coded fade; `component` — each locked cell's
+ *  Locked Row component plays its `open`, row by row. */
+export const ROW_OPEN_STYLES = ['fade', 'component'] as const;
+export type RowOpenStyle = (typeof ROW_OPEN_STYLES)[number];
+
+/** The longest `openStagger` the validator accepts: past it, an unlock holds the round too long. */
+export const MAX_OPEN_STAGGER_MS = 5000;
 export type Stickiness = (typeof STICKINESS)[number];
 
 /** `anyCoin` — only a new coin or jackpot resets the counter; `anySpecial` — any new coin, jackpot
@@ -297,8 +306,9 @@ export type RowJackpot = { rows: number; jackpot: string };
 
 /**
  * Board expansion (design §7 11b): the respin board opens with `startRows` rows — the base grid's —
- * and unlocks rows BELOW them up to `maxRows`, so a held cell's row index never changes. Locked rows
- * hold nothing. A full board (`boardEnd.fullBoardJackpot`) is every cell of `maxRows`.
+ * and unlocks rows `startRows…maxRows-1` in DATA, so a held cell's row index never changes. Locked
+ * rows hold nothing. A full board (`boardEnd.fullBoardJackpot`) is every cell of `maxRows`. Where
+ * an opened row is DRAWN and how it opens are the block's (`addRowsAt`, `openStyle`, `openStagger`).
  */
 export type HoldAndWinExpansion = {
 	startRows: number;
@@ -342,6 +352,11 @@ export type HoldAndWin = {
 	enhancements?: true;
 	/** Where the board draws the rows it adds ({@link ADD_ROWS_AT}); absent ⇒ `below`. */
 	addRowsAt?: AddRowsAt;
+	/** How a locked row opens ({@link ROW_OPEN_STYLES}); absent ⇒ `fade`. Presentation only: the
+	 *  server never reads it ({@link holdAndWinServerRules}). */
+	openStyle?: RowOpenStyle;
+	/** `component` opening only: ms between one row's opening and the next's; absent ⇒ 0. */
+	openStagger?: number;
 };
 
 /** The rows Expand and the super bonus can open a feature's board to (the partner's 5×5). */
@@ -709,6 +724,36 @@ const expansion = (raw: unknown): HoldAndWinExpansion | undefined => {
 };
 
 /**
+ * `block` as the server deals it: without the row opening's presentation fields (`openStyle`,
+ * `openStagger`), which change no round. The same object when it carries neither, so a block
+ * without them hands the mock exactly what it always did.
+ */
+export const holdAndWinServerRules = (block: HoldAndWin): HoldAndWin => {
+	if (block.openStyle === undefined && block.openStagger === undefined) return block;
+	const { openStyle: _style, openStagger: _stagger, ...rules } = block;
+	return rules;
+};
+
+/**
+ * The SEAT row a growing board of `baseRows` base rows draws respin row `row` at, under
+ * {@link ADD_ROWS_AT} (presentation only: the wire, the reducer and a held cell keep the row). The
+ * k-th added row (k ≥ 1) is row `baseRows - 1 + k`: `below` (absent) seats it there; `above` at `-k`
+ * (`baseRows - 1 - row`), over the base rows; `split` alternates — odd k below
+ * (`baseRows + (k - 1) / 2`), even k above (`-k / 2`). A base row, or any row under `below`, is its
+ * own seat — the same number, so the base board never moves.
+ */
+export const addedRowSeat = (
+	row: number,
+	baseRows: number,
+	addRowsAt: AddRowsAt | undefined,
+): number => {
+	if (addRowsAt === undefined || addRowsAt === 'below' || row < baseRows) return row;
+	if (addRowsAt === 'above') return baseRows - 1 - row;
+	const k = row - baseRows + 1;
+	return k % 2 === 1 ? baseRows + (k - 1) / 2 : -(k / 2);
+};
+
+/**
  * Canonicalize a `holdAndWin` block, or `undefined` when there is none. Any object normalizes to a
  * full block (defaults filled: 3 respins resetting on a new coin, every coin sticks, no board end),
  * because the block's PRESENCE is what makes a project a Hold and Win game — a half-typed block is
@@ -749,6 +794,10 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 	if (raw.enhancements === true) out.enhancements = true;
 	const addRowsAt = oneOf(ADD_ROWS_AT, raw.addRowsAt);
 	if (addRowsAt) out.addRowsAt = addRowsAt;
+	const openStyle = oneOf(ROW_OPEN_STYLES, raw.openStyle);
+	if (openStyle) out.openStyle = openStyle;
+	const openStagger = num(raw.openStagger);
+	if (openStagger !== undefined && openStagger >= 0) out.openStagger = openStagger;
 	return out;
 }
 
@@ -1431,6 +1480,20 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 				);
 			}
 		});
+	}
+
+	if (block.openStagger !== undefined) {
+		if (block.openStagger > MAX_OPEN_STAGGER_MS) {
+			error(
+				'openStagger',
+				`Each row waits ${block.openStagger} ms for the one before; keep it at ${MAX_OPEN_STAGGER_MS} ms or less, or an unlock stalls the round.`,
+			);
+		} else if (block.openStagger > 0 && block.openStyle !== 'component') {
+			warning(
+				'openStagger',
+				'Only a component opening is staggered; the coded fade opens every row at once.',
+			);
+		}
 	}
 
 	return issues;

@@ -136,8 +136,9 @@
 		addOns?: KindCapabilityConfig;
 		/** The rows the project's respin board grows to (Game Config → Board expansion), if it grows. */
 		expansionMaxRows?: number | null;
-		/** Those rows open above the base grid (Game Config `addRowsAt: 'above'`). */
-		expansionRowsAbove?: boolean;
+		/** Where those rows open (Game Config `addRowsAt`): above the base grid, or alternating below
+		 *  and above. `null` ⇒ below. */
+		expansionRowsAt?: 'above' | 'split' | null;
 		/** The canvas draws the reel grid grown to {@link expansionMaxRows} (view only, never saved). */
 		previewGrownBoard?: boolean;
 		node: LayoutNode | null;
@@ -442,7 +443,7 @@
 		gameType,
 		addOns,
 		expansionMaxRows = null,
-		expansionRowsAbove = false,
+		expansionRowsAt = null,
 		previewGrownBoard = $bindable(false),
 	}: Props = $props();
 
@@ -5138,8 +5139,12 @@
 						<span
 							>preview {expansionMaxRows} rows <InfoTip alignEnd
 								>Draws the respin board grown to its {expansionMaxRows} rows (Game Config → Board expansion):
-								the rows it opens are drawn {expansionRowsAbove ? 'above' : 'below'} the base rows, locked,
-								where the game adds them. View only — nothing is saved.</InfoTip
+								the rows it opens are drawn {expansionRowsAt === 'above'
+									? 'above'
+									: expansionRowsAt === 'split'
+										? 'alternately below and above'
+										: 'below'} the base rows, locked, where the game adds them. View only — nothing is
+								saved.</InfoTip
 							></span
 						>
 						<input type="checkbox" bind:checked={previewGrownBoard} />

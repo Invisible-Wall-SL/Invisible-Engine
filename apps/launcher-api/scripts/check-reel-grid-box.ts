@@ -146,6 +146,14 @@ check(
 	liftedGame !== undefined && near(liftedGame.boardNudgeY, -79 * SCALE),
 	`got ${liftedGame?.boardNudgeY}`,
 );
+// A board whose rows open ABOVE it (`addRowsAt: 'above'`) is reserved by lowering it.
+const lowered = grid({ boardNudgeRows: 1.5, scale: { x: SCALE, y: SCALE } });
+framesBoard('6. a board lowered for rows above: the box is the drawn board', lowered);
+landsWhereTheGameDoes(
+	'6. a board lowered for rows above lands where the game draws it',
+	lowered,
+	reelGridBox(lowered, lowered.anchor, undefined, scaleOf(lowered)),
+);
 const both = grid({ boardNudgeRows: -1, boardNudgeY: 12, scale: { x: SCALE, y: SCALE } });
 landsWhereTheGameDoes(
 	'6. a row nudge plus a px nudge lands where the game draws it',

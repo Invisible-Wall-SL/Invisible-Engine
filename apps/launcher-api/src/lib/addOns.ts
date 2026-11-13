@@ -50,8 +50,9 @@ export type RespinModeInfo = {
 	/** Its board grows to this many rows (its rules' `expansion`, or the rows its enhancements can
 	 *  open). */
 	maxRows?: number;
-	/** Its board's added rows draw above the base grid (its rules' `addRowsAt`). */
-	addRowsAt?: 'above';
+	/** Its board's added rows draw above the base grid, or alternate below and above (its rules'
+	 *  `addRowsAt`); absent ⇒ below. */
+	addRowsAt?: 'above' | 'split';
 	/** Its rules' jackpot tiers, in order. */
 	jackpotTiers: string[];
 	/** The server draws entry enhancements for it (its rules' `enhancements`). */
@@ -68,12 +69,14 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
 	return respinModeDecls(doc).map((mode) => {
 		const enhancements = mode.holdAndWin.enhancements === true;
+		const at = mode.holdAndWin.addRowsAt;
+		const rowsAt = at === 'above' || at === 'split' ? at : undefined;
 		const maxRows = holdAndWinMaxRows(mode.holdAndWin);
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
-			...(maxRows && mode.holdAndWin.addRowsAt === 'above' ? { addRowsAt: 'above' as const } : {}),
+			...(maxRows && rowsAt ? { addRowsAt: rowsAt } : {}),
 			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
 			...(enhancements ? { enhancements: true as const } : {}),
 		};
@@ -121,11 +124,11 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
 	return rows || undefined;
 }
 
-/** The tallest respin board draws its added rows above the base grid, so the base reel grid's
- *  reserve lowers it instead of lifting it. */
-export const respinRowsAbove = (modes: readonly RespinModeInfo[]): boolean => {
+/** Where the tallest respin board draws its added rows — above the base grid (the base reel grid's
+ *  reserve lowers it instead of lifting it) or alternating (`split`); `undefined` ⇒ below. */
+export const respinRowsAt = (modes: readonly RespinModeInfo[]): RespinModeInfo['addRowsAt'] => {
 	const rows = respinMaxRows(modes);
-	return modes.some((mode) => mode.maxRows === rows && mode.addRowsAt === 'above');
+	return modes.find((mode) => mode.maxRows === rows && mode.addRowsAt)?.addRowsAt;
 };
 
 /**
@@ -144,11 +147,12 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 	const modes = respinModesOf(doc);
 	const spins = doc ? spinsModeDecls(doc) : [];
 	const maxRows = respinMaxRows(modes);
+	const rowsAt = respinRowsAt(modes);
 	const addOn =
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
-		...(maxRows && respinRowsAbove(modes) ? { addRowsAt: 'above' as const } : {}),
+		...(maxRows && rowsAt ? { addRowsAt: rowsAt } : {}),
 		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(gameType === 'holdAndWin' && doc?.coinBoard ? { coinBoard: true as const } : {}),
 		...(gameType === 'holdAndWin' && modes.some((mode) => mode.enhancements)

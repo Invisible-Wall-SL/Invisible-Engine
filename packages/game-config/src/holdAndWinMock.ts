@@ -6,6 +6,7 @@
  */
 
 import {
+	holdAndWinServerRules,
 	isHoldAndWinSymbol,
 	symbolHoldAndWinRoles,
 	symbolsWithRole,
@@ -78,8 +79,9 @@ const occursMap = (rows: Array<Record<string, number>> | undefined) => {
 
 /** The mock's inputs for a doc, or `undefined` when it has no Hold and Win (`primaryHoldAndWin`). */
 export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs | undefined {
-	const block = primaryHoldAndWin(doc);
-	if (!block) return undefined;
+	const primary = primaryHoldAndWin(doc);
+	if (!primary) return undefined;
+	const block = holdAndWinServerRules(primary);
 	const inBase = new Set(symbolsInPlayForGameType(doc, 'basegame'));
 	const inPlay = new Set(symbolsInPlay(doc));
 	const coinDealt = symbolsWithRole(doc, 'coin').some((name) => inPlay.has(name));
@@ -133,7 +135,7 @@ function respinModeInputs(
 		return {
 			mode,
 			gameType,
-			block,
+			block: holdAndWinServerRules(block),
 			blank,
 			symbols: symbolsFor(new Set(strips.flatMap((t) => symbolsInPlayForGameType(doc, t)))),
 		};

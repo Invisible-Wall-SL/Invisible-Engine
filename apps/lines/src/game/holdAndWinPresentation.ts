@@ -98,6 +98,7 @@ import {
 import { hideWheel, showWheel, spinWheelTo, wheelSegments } from './holdAndWinWheel.svelte';
 import { armLuckySpinReveal } from './luckySpin';
 import { respinCellStopAuthored, respinHeldState } from './respinLanding';
+import { playLockedRowOpen } from './respinRowOpen';
 import {
 	playCoinCollectSound,
 	playSymbolLandSound,
@@ -117,6 +118,7 @@ import {
 	holdHeldDisplay,
 	openRespinRows,
 	openRespinRowsTo,
+	respinLockedLook,
 	respinUnlockFade,
 	holdHeldJackpot,
 	landingSymbol,
@@ -559,11 +561,35 @@ const baseBoardCoins = (kept: readonly Position[]): HoldAndWinCell[] => {
 };
 
 /**
- * Open the rows up to `rows` — the locked cells fade away under the "ROW UNLOCKED · 5 ROWS" line and
- * the rows are open from the next respin. Shared by an unlock beat and an enhancement that opens rows
- * at entry.
+ * The component a COMPONENT opening plays on (Game Config `openStyle: 'component'` and a Locked Row
+ * whose `lockedComponent` names one), else `undefined` — the coded fade.
+ */
+const rowOpenComponent = (): string | undefined =>
+	activeRespinRules()?.openStyle === 'component' ? respinLockedLook()?.component : undefined;
+
+/** A component opening: each row's locked cells play `open`, then that row opens. */
+const openRowByRow = async (opening: readonly number[], component: string) => {
+	const stagger = activeRespinRules()?.openStagger ?? 0;
+	for (const [index, row] of opening.entries()) {
+		if (index > 0 && stagger > 0) await roundSkip.wait(stagger);
+		eventEmitter.broadcast({ type: 'rowOpening', row });
+		await playLockedRowOpen(row, component);
+		openRespinRowsTo(row + 1);
+		eventEmitter.broadcast({ type: 'rowOpened', row });
+	}
+};
+
+/**
+ * Open the rows up to `rows` under the "ROW UNLOCKED · 5 ROWS" line; they are open from the next
+ * respin. Shared by an unlock beat and an enhancement that opens rows at entry. The coded fade takes
+ * every opening row's locked cells away at once; a component opening ({@link rowOpenComponent})
+ * plays its `open` row by row, in the order they open, `openStagger` ms apart, each row opening as
+ * its `open` ends. Either way each opening row is announced with the cues `rowOpening` and
+ * `rowOpened`, `row` being its DATA row (the wire's numbering, as `rowsUnlocked.from…rows - 1`).
  */
 const openRowsTo = async (rows: number) => {
+	const from = openRespinRows();
+	const opening = Array.from({ length: Math.max(0, rows - from) }, (_, i) => from + i);
 	const text = rowUnlockedText(rows);
 	const banner = announceFeatureLine('rowUnlocked', {
 		kind: 'rowUnlocked',
@@ -571,6 +597,17 @@ const openRowsTo = async (rows: number) => {
 		detail: text.detail,
 		size: 'small',
 	});
+	const component = rowOpenComponent();
+	if (component) {
+		await Promise.all([
+			openRowByRow(opening, component),
+			banner ? holdBanner(ROW_UNLOCK_HOLD_MS) : undefined,
+		]);
+		openRespinRowsTo(rows);
+		hideHoldAndWinBanner(banner);
+		return;
+	}
+	for (const row of opening) eventEmitter.broadcast({ type: 'rowOpening', row });
 	stateRespinBoard.unlockingTo = Math.max(rows, openRespinRows());
 	respinUnlockFade.set(1, { duration: 0 });
 	await Promise.all([
@@ -579,6 +616,7 @@ const openRowsTo = async (rows: number) => {
 	]);
 	openRespinRowsTo(rows);
 	stateRespinBoard.unlockingTo = 0;
+	for (const row of opening) eventEmitter.broadcast({ type: 'rowOpened', row });
 	hideHoldAndWinBanner(banner);
 };
 

@@ -3,9 +3,11 @@
 		ADD_ROWS_AT,
 		BOARD_END_TYPES,
 		EXPANSION_RULES,
+		MAX_OPEN_STAGGER_MS,
 		HOLD_AND_WIN_SPECIALS,
 		HOLD_AND_WIN_SYMBOL_ROLES,
 		RESPIN_PLAY,
+		ROW_OPEN_STYLES,
 		RESPIN_RESETS,
 		SPECIAL_SYMBOL_ROLE,
 		STICKINESS,
@@ -28,6 +30,7 @@
 		type MysteryReveal,
 		type AddRowsAt,
 		type RespinPlay,
+		type RowOpenStyle,
 		type RespinReset,
 		type Stickiness,
 		type UpgradeSpecial,
@@ -36,7 +39,13 @@
 		type WheelPrize,
 	} from 'game-config';
 	import { ROLE_LABELS, SPECIAL_LABELS, num } from './bonusLabels';
-	import { setAddRowsAt, setEnhancements, setRespinPlay } from './pageDoc';
+	import {
+		setAddRowsAt,
+		setEnhancements,
+		setOpenStagger,
+		setOpenStyle,
+		setRespinPlay,
+	} from './pageDoc';
 
 	/**
 	 * One respin mode's Hold and Win RULES (`docs/design/hold-and-win.md` §1.3, §5;
@@ -79,6 +88,11 @@
 	const ADD_ROWS_LABELS: Record<AddRowsAt, string> = {
 		below: 'Below the board',
 		above: 'Above the board',
+		split: 'Alternating — below, then above',
+	};
+	const ROW_OPEN_STYLE_LABELS: Record<RowOpenStyle, string> = {
+		fade: 'The coded fade',
+		component: "The Locked Row component's open",
 	};
 	const RESET_LABELS: Record<RespinReset, string> = {
 		anyCoin: 'A new coin or jackpot resets the count',
@@ -774,6 +788,29 @@
 							{/each}
 						</select></label
 					>
+					<label
+						title="How a locked row opens: the coded fade, or the Scene Editor's Locked Row component (its lockedComponent) playing its open on each cell, row by row. Presentation only."
+						><span>A row opens with</span><select
+							value={hw.openStyle ?? 'fade'}
+							onchange={(e) => setOpenStyle(hw, e.currentTarget.value as RowOpenStyle)}
+						>
+							{#each ROW_OPEN_STYLES as o (o)}
+								<option value={o}>{ROW_OPEN_STYLE_LABELS[o]}</option>
+							{/each}
+						</select></label
+					>
+					{#if hw.openStyle === 'component'}
+						<label
+							><span>Between rows <em>ms</em></span><input
+								type="number"
+								min="0"
+								max={MAX_OPEN_STAGGER_MS}
+								step="50"
+								value={hw.openStagger ?? 0}
+								oninput={num((n) => n >= 0 && setOpenStagger(hw, n), true)}
+							/></label
+						>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -827,7 +864,7 @@
 
 		<!-- Board expansion ------------------------------------------------------------------->
 		<div class="panel">
-			<h3>Board expansion <em>the respin board unlocks rows below the base grid</em></h3>
+			<h3>Board expansion <em>the respin board unlocks rows past the base grid</em></h3>
 			<label class="check"
 				><input
 					type="checkbox"

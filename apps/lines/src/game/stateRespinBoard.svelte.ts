@@ -13,7 +13,7 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
-import { holdAndWinBlankSymbol } from 'game-config';
+import { addedRowSeat, holdAndWinBlankSymbol } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { bakedRespinLandOnStop } from '../editor-scenes';
@@ -148,8 +148,17 @@ export const insideRespinCellTile = (): boolean => getContext(INSIDE_CELL_TILE) 
 /**
  * The authored art of a LOCKED cell of an expanding board, handed over by a mounted `lockedRow`
  * component (`RespinLockedRows`). None ⇒ the coded locked overlay. Same claim model as the tiles.
+ * `component` names a component each locked cell draws as instead of `art`.
  */
-export type RespinLockedLook = { art?: ReelGridTileArt; tint?: string };
+export type RespinLockedLook = { art?: ReelGridTileArt; tint?: string; component?: string };
+
+const INSIDE_LOCKED_CELL = Symbol('insideRespinLockedCell');
+
+/** Marks a locked cell's own component for everything mounted in it: a Locked Row nested there must
+ *  publish no look, or it would replace the one that mounted it. */
+export const markInsideRespinLockedCell = () => setContext(INSIDE_LOCKED_CELL, true);
+export const insideRespinLockedCell = (): boolean => getContext(INSIDE_LOCKED_CELL) === true;
+
 let lockedLooks = $state.raw<{ id: number; look: RespinLockedLook }[]>([]);
 
 export const respinLockedLook = (): RespinLockedLook | null => lockedLooks.at(-1)?.look ?? null;
@@ -268,12 +277,13 @@ const enteringRows = (respinBoard: RespinBoard): number =>
 /**
  * Where a respin row DRAWS, on the board's row lattice. A row past the base grid — an expanding
  * board's unlocked row, Expand's, the super bonus's — draws one pitch further down for each, or, under
- * Game Config `addRowsAt: 'above'`, one pitch further up (row `base` at `-1`, the next at `-2`). The
- * row's INDEX never changes (a held cell keeps its row); only where it is drawn does.
+ * Game Config `addRowsAt: 'above'`, one pitch further up (row `base` at `-1`, the next at `-2`), or,
+ * under `split`, alternately below and above (`addedRowSeat`). The row's INDEX never changes (a held
+ * cell keeps its row); only where it is drawn does.
  */
 export const respinSeatRow = (row: number): number => {
 	const base = boardDimensions().y;
-	return row >= base && activeRespinMode()?.block.addRowsAt === 'above' ? base - 1 - row : row;
+	return row >= base ? addedRowSeat(row, base, activeRespinMode()?.block.addRowsAt) : row;
 };
 
 // A flight to or from a respin cell leaves from where the cell draws.
@@ -282,16 +292,21 @@ setFlightSeatRow((row) => (stateRespinBoard.shown ? respinSeatRow(row) : row));
 /** The top row the board draws, on its lattice: 0, or above it while rows are added on top. Where
  *  the coded counter and dials stand above the board. */
 export const respinTopSeatRow = (): number => {
-	if (activeRespinMode()?.block.addRowsAt !== 'above') return 0;
+	const addRowsAt = activeRespinMode()?.block.addRowsAt;
+	if (addRowsAt !== 'above' && addRowsAt !== 'split') return 0;
 	const drawn = stateRespinBoard.drawnRows || openRespinRows();
-	return Math.min(0, respinSeatRow(Math.max(0, drawn - 1)));
+	if (addRowsAt === 'above') return Math.min(0, respinSeatRow(Math.max(0, drawn - 1)));
+	// `split`: the last row is not always the highest — the highest is the last one added above.
+	let top = 0;
+	for (let row = 0; row < drawn; row += 1) top = Math.min(top, respinSeatRow(row));
+	return top;
 };
 
 /**
  * The reels, built on first use and rebuilt for another respin mode or a board whose size changed —
  * each mode plays on its own rules and strips. An expanding board builds every cell of its `maxRows`
- * up front — the rows below the base grid sit on the same lattice, one pitch each further down — and
- * draws the ones not yet open as locked.
+ * up front — the rows past the base grid sit on the same lattice, one pitch each further out, where
+ * `addRowsAt` seats them ({@link respinSeatRow}) — and draws the ones not yet open as locked.
  */
 const ensureBoard = (): RespinBoard => {
 	const { x: reels, y: gridRows } = boardDimensions();

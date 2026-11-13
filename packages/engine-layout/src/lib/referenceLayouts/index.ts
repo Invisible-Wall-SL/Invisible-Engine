@@ -42,9 +42,11 @@ export {
 	POT_BANNER_SCREENS,
 	POTS_SCREEN,
 	EXPANDING_BLOCK_SHARE,
+	expandingBoardLiftRows,
 	expandingBoardReserve,
 	expandingBoardReserved,
 	reserveExpandingBoard,
+	type ExpandingRowsAt,
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
 // The game HUD as editor scenes (identical across game types) — used by the
@@ -134,8 +136,9 @@ export type RespinModeScreens = {
 	id: string;
 	label?: string;
 	maxRows?: number;
-	/** Its board's added rows draw above the base grid (its Game Config `addRowsAt`). */
-	addRowsAt?: 'above';
+	/** Its board's added rows draw above the base grid, or alternate below and above (its Game
+	 *  Config `addRowsAt`). */
+	addRowsAt?: 'above' | 'split';
 };
 
 /** A declared SPINS bonus mode (`GameModeDecl.spins`, bonus-games Phase 8) the scene set seeds

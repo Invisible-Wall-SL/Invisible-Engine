@@ -17,11 +17,17 @@ import {
 	HOLD_AND_WIN_TEST_FIXTURES,
 } from './src/holdAndWinPresets.ts';
 import {
+	ADD_ROWS_AT,
+	MAX_OPEN_STAGGER_MS,
+	ROW_OPEN_STYLES,
+	addedRowSeat,
 	configuredSpecials,
+	holdAndWinServerRules,
 	jackpotLadder,
 	respinBoardMaxRows,
 	symbolsWithRole,
 } from './src/holdAndWin.ts';
+import { holdAndWinMockInputs } from './src/holdAndWinMock.ts';
 import {
 	inPlayStripKeys,
 	potsOverlayOf,
@@ -765,6 +771,136 @@ check(
 	],
 	[['holdAndWin.expansion.rule'], ['holdAndWin.expansion']],
 );
+
+console.log('\nadded rows and row opening — split, openStyle, openStagger (presentation only)');
+{
+	const raw = (fields: Record<string, unknown>) =>
+		primaryHoldAndWin(
+			normalize({
+				...clone(HOLD_AND_WIN_PRESETS.pots),
+				holdAndWin: {
+					...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin),
+					expansion: { startRows: 3, maxRows: 6, rule: 'fullRow' },
+					...fields,
+				},
+			}),
+		);
+	const plain = raw({});
+	check(
+		'every addRowsAt, open style and a stagger are kept as written, on the block',
+		[
+			...ADD_ROWS_AT.map((addRowsAt) => raw({ addRowsAt })?.addRowsAt),
+			...ROW_OPEN_STYLES.map((openStyle) => raw({ openStyle })?.openStyle),
+			raw({ openStyle: 'component', openStagger: 120 })?.openStagger,
+			raw({ openStagger: 0 })?.openStagger,
+		],
+		['below', 'above', 'split', 'fade', 'component', 120, 0],
+	);
+	check(
+		'an unknown style, or a stagger that is not a non-negative number, is dropped (the rest kept)',
+		[
+			raw({ openStyle: 'explode' }),
+			raw({ openStagger: -5 }),
+			raw({ openStagger: '80' }),
+			raw({ addRowsAt: 'sideways' }),
+		].map((block) => JSON.stringify(block)),
+		[plain, plain, plain, plain].map((block) => JSON.stringify(block)),
+	);
+	check(
+		'inside `expansion` they are not read (they live on the block)',
+		JSON.stringify(
+			raw({
+				expansion: {
+					startRows: 3,
+					maxRows: 6,
+					rule: 'fullRow',
+					grow: 'split',
+					openStyle: 'component',
+					openStagger: 100,
+				},
+			}),
+		),
+		JSON.stringify(plain),
+	);
+
+	const issuesFor = (fields: Record<string, unknown>) =>
+		validateGameConfigDoc(withBlock(fullRow, (d) => Object.assign(d.holdAndWin!, fields)))
+			.filter((i) => i.path.endsWith('openStagger') || i.path.endsWith('addRowsAt'))
+			.map((i) => `${i.severity}:${i.path}`);
+	check(
+		'the validator accepts every addRowsAt and a component stagger; refuses a stagger past the cap and names one the fade ignores',
+		[
+			...ADD_ROWS_AT.map((addRowsAt) => issuesFor({ addRowsAt })),
+			issuesFor({ openStyle: 'component', openStagger: 300 }),
+			issuesFor({ openStyle: 'component', openStagger: MAX_OPEN_STAGGER_MS }),
+			issuesFor({ openStyle: 'component', openStagger: MAX_OPEN_STAGGER_MS + 1 }),
+			issuesFor({ openStagger: 300 }),
+		],
+		[[], [], [], [], [], ['error:holdAndWin.openStagger'], ['warning:holdAndWin.openStagger']],
+	);
+	check(
+		'the presentation fields change no issue of any other field',
+		validateGameConfigDoc(
+			withBlock(fullRow, (d) =>
+				Object.assign(d.holdAndWin!, { addRowsAt: 'split', openStyle: 'component' }),
+			),
+		).map((i) => `${i.severity}:${i.path}`),
+		validateGameConfigDoc(fullRow).map((i) => `${i.severity}:${i.path}`),
+	);
+
+	const styled = withBlock(fullRow, (d) =>
+		Object.assign(d.holdAndWin!, { openStyle: 'component', openStagger: 200 }),
+	);
+	check(
+		'the mock deals the same block with or without openStyle / openStagger',
+		JSON.stringify(holdAndWinMockInputs(styled)),
+		JSON.stringify(holdAndWinMockInputs(fullRow)),
+	);
+	const plainBlock = primaryHoldAndWin(fullRow)!;
+	check(
+		'a block without them reaches the server untouched (the same object)',
+		holdAndWinServerRules(plainBlock) === plainBlock,
+		true,
+	);
+	for (const id of HOLD_AND_WIN_PRESET_IDS) {
+		const block = primaryHoldAndWin(normalize(HOLD_AND_WIN_PRESETS[id]));
+		check(
+			`preset ${id}: no openStyle / openStagger`,
+			[block?.openStyle, block?.openStagger],
+			[undefined, undefined],
+		);
+	}
+	const template = primaryHoldAndWin(normalize(clone(HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE)));
+	check(
+		'the collector template sets no openStyle / openStagger',
+		[template?.openStyle, template?.openStagger],
+		[undefined, undefined],
+	);
+
+	// The seat map: a respin row → the seat row the board draws it at (B = 3 base rows, M = 7).
+	const seats = (addRowsAt: (typeof ADD_ROWS_AT)[number] | undefined) =>
+		Array.from({ length: 7 }, (_, row) => addedRowSeat(row, 3, addRowsAt));
+	check('seats: absent ⇒ every row is its own seat', seats(undefined), [0, 1, 2, 3, 4, 5, 6]);
+	check('seats: below ⇒ every row is its own seat', seats('below'), [0, 1, 2, 3, 4, 5, 6]);
+	check(
+		'seats: above ⇒ the base rows stay, the k-th added row sits at -k (#1669: base - 1 - row)',
+		seats('above'),
+		[0, 1, 2, -1, -2, -3, -4],
+	);
+	check(
+		'seats: split ⇒ odd k below (B + (k-1)/2), even k above (-k/2)',
+		seats('split'),
+		[0, 1, 2, 3, -1, 4, -2],
+	);
+	for (const addRowsAt of ADD_ROWS_AT) {
+		const all = seats(addRowsAt);
+		check(
+			`seats: ${addRowsAt} seats every row once, and the drawn block is contiguous`,
+			[new Set(all).size, Math.max(...all) - Math.min(...all) + 1],
+			[7, 7],
+		);
+	}
+}
 
 console.log('\nin play — a line symbol stays off the respin strips');
 for (const id of HOLD_AND_WIN_PRESET_IDS) {

@@ -915,8 +915,8 @@ Hold and Win beats prints copy.
 ## Open items / next
 
 - **Expanding respin board — authoring controls (plan 2026-11-13, session "H&W expanding board
-  authoring"; Getting Hot 3 → 5 rows).** Four gaps, in priority order. 1–2 are built (Recent changes
-  2026-11-13); **3–4 wait for the owner's go-ahead on the plan below** before anything is built.
+  authoring"; Getting Hot 3 → 5 rows).** Four gaps, in priority order. All four are built (Recent
+  changes 2026-11-13); 3–4 are not played in a browser yet (Owner checklist 17).
   1. **The reserve holds on every layout — built.** `reelGrid.boardNudgeRows` lifts the board by
      whole row pitches as each layout draws them (cell height + gap × that layout's scale), on top of
      the px `boardNudgeY`; `resolveReelGridFromNode` folds it into the resolved nudge, so the game,
@@ -929,27 +929,22 @@ Hold and Win beats prints copy.
      rows** (view only): the canvas draws the rows the respin board opens below the base rows at the
      game's row pitch, locked (the selected Locked Row's art, else the coded panel), the grown block
      outlined.
-  3. **Where the rows are added (plan, not built).** `holdAndWin.expansion.grow: 'below' | 'above' |
-     'split'`, absent = `below` (today). Presentation only — the wire, the reducer and a held cell's
-     row index are unchanged (rows still unlock as `from…rows-1` in data); the respin board maps an
-     opened row to a seat: `below` row r at r, `above` the k-th opened row at `-k`, `split`
-     alternating below then above. The reserve follows (`boardNudgeRows` = `-extra/2` below,
-     `+extra/2` above, `0` / ±½ split), so the same ⇕ Reserve rows button fits it; the preview
-     draws the rows where the switch puts them. Touches `game-config` (field + validator + the
-     /config Board expansion panel), `RespinBoard` / `RespinLockedCell` seats, the coin flights'
-     targets (`presentRowsUnlocked` flies to `event.from + index`), the reserve and the preview.
-     Gates: a reducer-free seat map fixture, the template's reserve guard per direction, and the
-     current-games harness (no game sets `grow`).
-  4. **How a row opens (plan, not built).** Two authored parts, both absent = today's coded look:
-     (a) **the locked cell** — the Locked Row component already carries `lockedImage` / `lockedTint`;
-     add an optional **component** (`lockedComponent`) drawn per locked cell, so an artist builds a
-     locked plate with its own idle animation; (b) **the opening** — `expansion.openStyle: 'fade' |
-     'component'`, absent = `fade` (today's coded fade under "ROW UNLOCKED"). `component` plays the
-     locked cell component's `open` state per cell (row by row, `stagger` ms) and waits for it, and
-     the beat emits Flow cue signals `rowOpening {row}` / `rowOpened {row}` so a flow can hang FX,
-     sound or a camera move on each row; the `unlockRows` beat and the `rowsUnlocked` event stay
-     as they are. Owner to choose: (b) as a component state, or as a timeline on the Respin board
-     screen.
+  3. **Where the rows are added — built** as #1669's `holdAndWin.addRowsAt` (beside `expansion`,
+     so Expand / the super bonus are covered too) plus this session's third value, `split`: the
+     k-th added row draws below for odd k, above for even k (`addedRowSeat`, read by
+     `respinSeatRow` / `respinTopSeatRow`). Presentation only: a held cell keeps its row. The
+     reserve lifts `(above − below) / 2` rows (`expandingBoardLiftRows`), and the template, ⇕
+     Reserve rows and the grown-board preview follow it. **Open:** the coded pots and letters still
+     stand above row 0 (a board with rows on top can draw them under the pots); paint order of held
+     coins is still by row index.
+  4. **How a row opens — built.** The Locked Row's `lockedComponent` draws a component per locked
+     cell (scoped `row:<data row>`); the Hold and Win block's `openStyle: 'component'` (beside
+     `addRowsAt`; absent = `fade`) plays its `open` row by row, `openStagger` ms apart (refused past
+     5000), waiting for a timeline that holds the cue, else the longest `open` timeline or state,
+     capped at 4 s. Every opening emits the Flow cues `rowOpening` / `rowOpened {row}` (the DATA
+     row), whatever the style. The owner's question "(b) as a component state, or as a timeline on
+     the Respin board screen" was answered by the plan's own words: a component state (a trigger
+     input or a timeline named `open`).
 
 - **Phase 12c next (part 1 is #1006):**
   - **12a is merged in** (the coded pot uses its `meterStage`). The create type keeps the Pot
@@ -1167,6 +1162,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     collector, and `spinWin` came right after `playWindow`, before `playedSpin`, which fits the mock's
     order. (b) and (c) are still owed.
 
+17. **Try the expanding board's new switches on a project** (after #1664 merges and its runtime
+    release passes). On an expanding project, set `/config` → Respins → **Rows added** to
+    *Alternating*, press **⇕ Reserve rows** in `/editor`, check the **preview N rows** switch,
+    publish and force unlocks (`unlock:3`, [hw-3pots-sample](../playtest/hw-3pots-sample.md) with
+    `pots-expansion-fullrow`): the rows open below, above, below and the coins land on them. Then
+    give the Locked Row a **lockedComponent** with an `open` timeline (tick **holds the cue**), set
+    Respins → **A row opens with** to the component, and check each row plays it in turn. Both
+    settings sit on the Hold and Win block, so Getting Hot can use them as it is.
+
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
@@ -1202,6 +1206,29 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     6-row board, reads as reserved only for above, flips a below reserve; the scaffold and a
     respin mode's own `addRowsAt` place the Locked rows handle above). Measured locally: with `above`, row 3 draws at y −60 (row 0 at 60) and the
     top seat moves to −1; with the default, row 3 stays at 420.
+- 2026-11-13 — **An expanding board can alternate where its rows go, and choose how a row opens**
+  (session "H&W expanding board authoring", items 3–4 of the plan in Open items; PR #1664, merged
+  with #1669). Item 3 is #1669's `addRowsAt` (below) plus a third value, **`split`**: the k-th added
+  row draws below for odd k (`base + (k-1)/2`), above for even k (`-k/2`). One pure seat map,
+  `addedRowSeat` (game-config), is what `respinSeatRow` and `respinTopSeatRow` (the highest seat
+  drawn, not the last row) read; the reserve lifts `(above − below) / 2` rows
+  (`expandingBoardLiftRows`: `below` and `above` exactly as #1669, `split` 0 or −½, and a 0 lift
+  writes no row nudge); `/config` → Rows added offers *Alternating*; `respinRowsAt` threads it
+  (`expansionRowsAt`) to the scene set, ⇕ Reserve rows and the preview, which draws the rows where
+  the game seats them. Item 4: the Locked Row's new `lockedComponent` param draws a component per
+  locked cell (scoped `row:<data row>`, guarded against a Locked Row nested in it); the Hold and
+  Win block's `openStyle: 'component'` (beside `addRowsAt`, so a game that grows only by its
+  enhancements can set it; absent = `fade`) fires `open` at each opening row's cells in turn,
+  `openStagger` ms apart (refused past 5000, warned when the fade would ignore it), and waits
+  (`respinRowOpen.ts`: a timeline that holds the cue, else the longest `open` timeline or state,
+  capped at 4 s); every opening, the coded fade included, broadcasts `rowOpening` / `rowOpened
+  {row}` (the DATA row), now Flow cues. The mock's inputs strip `openStyle` / `openStagger`
+  (`holdAndWinServerRules`); no preset or template sets them, and with every new field absent each
+  game is byte-identical to main. Guards: `holdAndWin.fixture` (the seat map ×3, `split` kept,
+  validator, mock inputs equal), `test-hold-and-win-template.mjs` (per direction × 4/5/6 rows on
+  the scaled grid through the game's resolver and seat map; absent = `below` byte for byte),
+  `check:reel-grid-box` §6 (a lowered board), `check:flow-bonus-modes` (the two cues pinned on
+  their own). Not played in a browser (Owner checklist 17).
 - 2026-11-13 — **A feature with a banked part ends again.** Since #1443 (2026-10-28) the feature
   end's banked step (`presentHoldAndWinEnd`, `step(order.length, …)`) played the coin collect sound
   of `order[order.length]`, which does not exist: `TypeError: Cannot read properties of undefined
