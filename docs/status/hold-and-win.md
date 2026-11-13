@@ -1176,6 +1176,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **The Enhancement Dial has a state machine** (owner report: "there is no way to
+  author the enhancement states"). The built-in `enhancementDial` declares a number input `state`
+  fed from `enhancement.{kind}.state` and a one-layer machine, **Off / On / Hit / Miss**, each
+  entered from `any` when the input equals 0 / 1 / 2 / 3. Its four timelines,
+  `c_enhancementdial_<state>`, are built in (`ENHANCEMENT_DIAL_TIMELINES`) and key nothing, so the
+  coded dial and the pulse draw exactly as before. ⧉ Duplicate copies them into the project, where
+  the author keys the art's opacity per state. This mirrors the Counter Segment. The editor's
+  State machine tab now counts a built-in component's own timelines as present (it listed project
+  timelines only, so opening a built-in machine showed every state as "missing timeline") and
+  previews them. Gate: `check:component-state-machine` §12. Not verified in the browser.
 - 2026-11-13 — **Getting Hot: a surprise trigger drops its coins and collector onto the board,
   and the partner's three real rounds replay as tests.** Their developer sent full rounds from their
   server log ([capture, "Real rounds"](../reference/play4fun-collector-respin-capture.md)): a

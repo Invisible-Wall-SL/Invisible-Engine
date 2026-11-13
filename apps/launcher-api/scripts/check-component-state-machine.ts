@@ -30,7 +30,10 @@
  *     timeline at the state's clock, the player's mixed sample, cues from the lower point only, a
  *     bracket switch that does not restart, a transition out mixing from the frozen mix, the exit
  *     time on the primary, missing points, the registry binding every point, validation, what
- *     saves — and that a machine without a blend never reports a mix.
+ *     saves — and that a machine without a blend never reports a mix;
+ * 12. the Enhancement Dial's starter machine: its `state` input follows the placement's kind, its
+ *     built-in timelines resolve and key nothing (the coded dial draws as before), it validates
+ *     clean, enters Off / On / Hit / Miss as the value moves, and a copy saves it unchanged.
  *
  * What it cannot prove: the Svelte wiring in `ComponentInstance.svelte` (ticker, bus, context) —
  * that is the owner's browser check.
@@ -99,6 +102,10 @@ const S = await import('../src/lib/timeline/screenTimeline.ts');
 const PP = await import('../../../packages/engine-layout/src/lib/potPieces.ts');
 const E = await import('../../../packages/engine-layout/src/lib/componentEvents.ts');
 const { easeShape } = await import('engine-cinematic');
+const BC = await import('../../../packages/engine-layout/src/lib/builtinComponents.ts');
+const BT = await import('../../../packages/engine-layout/src/lib/builtinTimelines.ts');
+const CP = await import('../../../packages/engine-layout/src/lib/componentParams.ts');
+const VB = await import('../../../packages/engine-layout/src/lib/valueBindings.ts');
 
 let failures = 0;
 let passes = 0;
@@ -2735,6 +2742,80 @@ eq(
 			},
 		);
 	}
+}
+
+// ---- 12. the Enhancement Dial's starter machine ------------------------------------------------
+
+{
+	const dial = BC.ENHANCEMENT_DIAL_DEF;
+	const sortedKeys = (value: unknown): unknown =>
+		Array.isArray(value)
+			? value.map(sortedKeys)
+			: value && typeof value === 'object'
+				? Object.fromEntries(
+						Object.keys(value)
+							.sort()
+							.map((k) => [k, sortedKeys((value as Record<string, unknown>)[k])]),
+					)
+				: value;
+	eq(
+		'dial: its state input follows the instance’s own kind',
+		BC.ENHANCEMENT_DIAL_KINDS.map((kind) =>
+			VB.expandSourceTemplate(
+				dial.inputs?.[0]?.source ?? '',
+				CP.resolveComponentParams(dial, { kind }),
+			),
+		),
+		BC.ENHANCEMENT_DIAL_KINDS.map((kind) => `enhancement.${kind}.state`),
+	);
+	L.registerComponentTimelines(BT.BUILTIN_TIMELINES);
+	const { docs, durations } = L.instanceTimelineDocs(dial.id, dial.stateMachine);
+	eq(
+		'dial: its four timelines are built in, hosted on the dial',
+		docs.map((d: CinematicDoc) => [d.id, d.host?.kind === 'component' && d.host.componentId]),
+		BC.ENHANCEMENT_DIAL_STATES.map((s) => [BC.enhancementDialTimelineId(s), dial.id]),
+	);
+	eq(
+		'dial: the machine validates clean',
+		M.validateStateMachine(dial, new Set(docs.map((d: CinematicDoc) => d.id))),
+		[],
+	);
+	const runner = new M.ComponentStateMachineRunner(
+		dial.stateMachine!,
+		I.componentInputs(dial),
+		durations,
+	);
+	const seen: string[] = [];
+	for (const value of [0, 1, 2, 1, 3, 0, 2]) {
+		runner.setInput(BC.ENHANCEMENT_DIAL_STATE_INPUT, value);
+		runner.advance(1 / 60);
+		seen.push(runner.plays()[0].state);
+	}
+	eq('dial: off → on → hit → on → miss → off → hit, as the value moves', seen, [
+		'Off',
+		'On',
+		'Hit',
+		'On',
+		'Miss',
+		'Off',
+		'Hit',
+	]);
+	const player = new L.ComponentTimelinePlayer(docs, dial.root.children, () => ({}));
+	runner.plays().forEach((play, layer) => player.drive(play.layer, layer, play));
+	eq(
+		'dial: the built-in timelines key nothing, so the coded dial draws as before',
+		dial.root.children.map((n: LayoutNode) => player.sample(n.id)),
+		[undefined],
+	);
+	eq(
+		'dial: a ⧉ copy saves the input and the machine unchanged',
+		(() => {
+			const saved = normalizeComponent(JSON.parse(JSON.stringify(dial)));
+			return sortedKeys([saved?.inputs, saved?.stateMachine]);
+		})(),
+		sortedKeys([dial.inputs, dial.stateMachine]),
+	);
+	L.registerComponentTimelines([]);
 }
 
 console.log(
