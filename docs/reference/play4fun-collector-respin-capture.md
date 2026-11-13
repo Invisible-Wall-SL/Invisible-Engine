@@ -133,6 +133,19 @@ collectWindow [[…]]   retrigger {games}   playedSpin [[…]]   playedBonusSpin
 
 The last respin adds `playedBonusSpins` and `gameEnd`; the client then posts `collect`.
 
+A base spin with a line win, a coin and no collector (Getting Hot, 2026-11-13, `[bet [0, 10], play]`):
+
+```text
+bet {total: 100, betPerLine: 10, paylines[5]}   gameStart {totalBet, betPerLine}   jackpots
+spinStart {…, wildSymbols: [], lineAlign: "any", lineCoinciding: false}
+bonusSymbol {reel: 0, row: 0, symbol: "COIN_5", win: 500}   playWindow [[…]]
+spinWin {what: "PIC5", occurs: 3, mode: "line", pay: 1000, mpInfo: {mp: 1, replacements: 0},
+         mpBonusInfo: null, context: {paylineId: 2, payline: [2,2,2,2,2], direction: "any"}}
+playedSpin [[…]]   gameEnd {win: 1000}
+```
+
+The board's bottom line was PIC2, PIC5, PIC5, PIC5, PIC6: an `any` line pays a run wherever it sits.
+
 ## What it tells us about the game
 
 - **The bonus id is the enhancement set.** `boostsAwarded` is five 0/1 flags in the order expand,

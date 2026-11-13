@@ -1125,11 +1125,10 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     (a) a spin with a line win and no coin collected; (b) a spin with a line win and a collect;
     (c) a natural (unbought) trigger. Write the order down in
     `reference/play4fun-collector-respin-capture.md`. Then move the mock's `spinWin` to match, and
-    update `check-holdandwin-partner-wire.mjs`'s `BASE_ORDER`. Also write down the config's
-    `lineAlign` and a right-read win's `direction` (a right-read line win was seen live on
-    2026-11-12); if the game pays both ways, make the mock deal right-read wins too.
-    `check:mock-wire` proves the facade
-    still draws the win.
+    update `check-holdandwin-partner-wire.mjs`'s `BASE_ORDER`. `check:mock-wire` proves the facade
+    still draws the win. **(a) is captured** (2026-11-13, in that reference): a coin landed but no
+    collector, and `spinWin` came right after `playWindow`, before `playedSpin`, which fits the mock's
+    order. (b) and (c) are still owed.
 
 ## Blocked (owner / external)
 
@@ -1152,6 +1151,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   `services/test-server/mockSwitch.fixture.mjs` (found by `check:all`): real server, stub launcher,
   idle and held-round tabs across a contract swap, a swap chain and a `/refresh` chain; mutants
   (`sameWire` always true: 4 checks fail; holds re-stamped by the latest swap: both chain cases fail).
+- 2026-11-13 — **Getting Hot: a line win lights the run that paid, wherever it sits.** The fix
+  below did not cover the partner's real wire. A capture off the live game (2026-11-13) shows
+  Getting Hot reads every line `any` way: `spinStart` carries `lineAlign: 'any'`, and each line
+  `spinWin` says `direction: 'any'`. Three PIC5 on reels 1–3 of the bottom line paid, and reels 0–2
+  lit up. The facade's `winPositions` now finds the first run of `occurs` reels along the payline
+  whose cells hold the paying symbol or a `wildSymbols` wild, on the board the win paid on. The
+  partner-wire mock now reads lines `any` way too (best run per line) and sends `lineAlign: 'any'`,
+  `wildSymbols` and `direction: 'any'`, so the mock's wins exercise this path. Gate:
+  `collectorRespin.fixture.ts` "any line win" (the captured round). Lesson: `knowledge/lessons/rgs.md`.
 - 2026-11-12 — **Getting Hot: a line paid from the right lights the cells that paid.** On the
   partner's server a line win read from the right (`spinWin` `direction: 'right'`) lit and traced
   the leftmost `occurs` cells of its payline: three clubs paid on reels 4–2 of the V line, and

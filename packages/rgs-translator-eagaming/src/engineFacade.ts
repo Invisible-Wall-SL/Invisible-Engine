@@ -816,14 +816,16 @@ const padReel = (reel: string[]): string[] => {
 
 /** Normalise a spinWin's position payload into {reel,row} pairs shifted by the
  *  1-row top padding the reveal adds. Line wins carry `context.payline` (one
- *  row per reel); scatter/expanding wins carry an array of {reel,row}. The engine pays a line's
- *  leftmost `kind` cells, so a line read from the right (`direction: 'right'`) hands over only its
- *  `occurs` rightmost cells. */
-const winPositions = (c: {
-	mode?: string;
-	occurs?: number;
-	context?: unknown;
-}): { reel: number; row: number }[] => {
+ *  row per reel); scatter/expanding wins carry an array of {reel,row}. The engine lights a line's
+ *  leftmost `kind` cells, so a line that pays elsewhere hands over only the cells that paid: its
+ *  `occurs` rightmost cells when read from the right (`direction: 'right'`), and when it pays
+ *  anywhere along the line (`direction: 'any'`), the first run of `occurs` reels whose cells on
+ *  `board` all hold the paying symbol or a wild. */
+const winPositions = (
+	c: { what?: string; mode?: string; occurs?: number; context?: unknown },
+	board?: string[][],
+	wilds: readonly string[] = [],
+): { reel: number; row: number }[] => {
 	const ctx = c.context as
 		{ payline?: number[]; direction?: string } | { reel: number; row: number }[] | undefined;
 	if (Array.isArray(ctx)) return ctx.map((p) => ({ reel: p.reel, row: p.row + 1 }));
@@ -831,9 +833,20 @@ const winPositions = (c: {
 	if (!payline) return [];
 	const cells = payline.map((row, reel) => ({ reel, row: row + 1 }));
 	const occurs = c.occurs ?? 0;
-	return ctx.direction === 'right' && Number.isInteger(occurs) && occurs > 0
-		? cells.slice(-occurs)
-		: cells;
+	if (!Number.isInteger(occurs) || occurs < 1 || occurs >= cells.length) return cells;
+	if (ctx.direction === 'right') return cells.slice(-occurs);
+	if (ctx.direction !== 'any' || !board) return cells;
+	const pays = (reel: number) => {
+		const cell = board[reel]?.[payline[reel]];
+		if (cell === undefined) return false;
+		const name = parseCell(cell).name;
+		return name === c.what || wilds.includes(name);
+	};
+	for (let start = 0; start + occurs <= cells.length; start++) {
+		const run = cells.slice(start, start + occurs);
+		if (run.every((cell) => pays(cell.reel))) return run;
+	}
+	return cells;
 };
 
 /** Translate an ordered Play4Fun event stream — base game OR a full aggregated
@@ -874,6 +887,8 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 		context?: unknown;
 	}[] = [];
 	let runningTotal = 0;
+	// The symbols a line win may count as its own (`spinStart`'s `wildSymbols`).
+	let wildSymbols: string[] = [];
 	// `freegame` in the host's own free spins; a reels mode of the project's own plays on its own.
 	let gameType = 'basegame';
 	// The reels mode of the project's own the free spins play in (an imported free spins), if any.
@@ -1062,7 +1077,7 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 		return (c.context as { paylineId?: number })?.paylineId ?? -1;
 	};
 
-	const flushWins = () => {
+	const flushWins = (board?: string[][]) => {
 		for (const c of pendingWins) {
 			const winAmount = toBookEventAmount(c.pay ?? 0, betBaseCents);
 			runningTotal += winAmount;
@@ -1074,7 +1089,7 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 						symbol: mapSymbol(activeMapping, c.what),
 						kind: c.occurs,
 						win: winAmount,
-						positions: winPositions(c),
+						positions: winPositions(c, board, wildSymbols),
 						meta: {
 							lineIndex: lineIndexFor(c),
 							multiplier: 1,
@@ -1189,9 +1204,13 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 			continue;
 		}
 		switch (e.event) {
+			case 'spinStart': {
+				const wilds = (e.context as { wildSymbols?: unknown } | undefined)?.wildSymbols;
+				if (Array.isArray(wilds)) wildSymbols = wilds.map(String);
+				break;
+			}
 			case 'config':
 			case 'gameStart':
-			case 'spinStart':
 			case 'bonusWin': // wrapper around the following spinWin — pay comes from spinWin
 				break;
 			case 'bet': {
@@ -1302,7 +1321,7 @@ const adaptEventsForEngine = (sid: string, wireEvents: Play4FunBookEvent[]): unk
 				// buffer — used to fire a mid-feature big-win overlay on a single big
 				// free spin (below). flushWins itself only draws the win LINES.
 				const spinWinCents = pendingWins.reduce((sum, c) => sum + (c.pay ?? 0), 0);
-				flushWins();
+				flushWins(reels);
 				// A single FREE SPIN whose OWN win reaches the BIG tier gets the big-win
 				// overlay (setWin → Win.svelte bigwin rig), exactly as a base-game big
 				// win does at `gameEnd`. The RGS only sends per-spin `winInfo` + one

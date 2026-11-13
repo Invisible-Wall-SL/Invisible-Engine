@@ -416,22 +416,30 @@ export function createPartnerCollectorEngine(opts = {}) {
 			reel.map((c, row) => ('coin' in c ? { reel: r, row, cell: c } : null)).filter(Boolean),
 		);
 
+	// The partner's Getting Hot reads a line `any` way (capture 2026-11-13): a run of 3+ of a symbol
+	// pays wherever it sits along the line. A line pays its best run once.
 	const evaluateLines = (board, betPerLine) => {
 		const wins = [];
 		G.paylines.forEach((line, p) => {
 			const seq = line.map((row, reel) => board[reel][row]?.symbol);
-			const what = seq[0];
-			if (!G.paytable[what]) return;
-			let occurs = 0;
-			while (occurs < seq.length && seq[occurs] === what) occurs++;
-			const mult = G.paytable[what][occurs - 3];
-			if (!mult) return;
+			let best = null;
+			for (let start = 0; start < seq.length;) {
+				const what = seq[start];
+				let end = start + 1;
+				while (end < seq.length && seq[end] === what) end++;
+				const mult = G.paytable[what]?.[end - start - 3];
+				if (mult && (!best || mult > best.mult)) best = { what, occurs: end - start, mult };
+				start = end;
+			}
+			if (!best) return;
 			wins.push({
-				what,
-				occurs,
-				pay: mult * betPerLine,
+				what: best.what,
+				occurs: best.occurs,
+				pay: best.mult * betPerLine,
 				mode: 'line',
-				context: { paylineId: p, payline: line, direction: 'left' },
+				mpInfo: { mp: 1, replacements: 0 },
+				mpBonusInfo: null,
+				context: { paylineId: p, payline: line, direction: 'any' },
 			});
 		});
 		return wins;
@@ -443,6 +451,9 @@ export function createPartnerCollectorEngine(opts = {}) {
 		context: {
 			symbols: [...G.lineSymbols, 'COIN', 'COLLECT', 'BLANK'],
 			symbolsPay: { line: [...G.lineSymbols] },
+			wildSymbols: [],
+			lineAlign: 'any',
+			lineCoinciding: false,
 			gameCost: G.gameCost,
 			betOptions: [...G.betOptions],
 			betOptionNames: [...G.betOptionNames],
@@ -736,7 +747,7 @@ export function createPartnerCollectorEngine(opts = {}) {
 				symbols: [...G.lineSymbols, 'COIN', 'COLLECT', 'BLANK'],
 				symbolsPay: { line: [...G.lineSymbols] },
 				wildSymbols: [],
-				lineAlign: 'left',
+				lineAlign: 'any',
 				lineCoinciding: false,
 				gameCost: G.gameCost,
 				betOptions: [...G.betOptions],

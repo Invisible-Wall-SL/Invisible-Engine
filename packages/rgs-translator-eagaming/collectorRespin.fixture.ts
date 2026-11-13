@@ -208,6 +208,39 @@ const RIGHT_LINE_WIN: ScriptedRound = {
 	],
 };
 
+// A line read `any` way, as captured off the partner's Getting Hot (2026-11-13): three PIC5 in the
+// middle of the bottom line (reels 1–3), between a PIC2 and a PIC6.
+const ANY_BOARD = [
+	['COIN_5', 'PIC9', 'PIC2'],
+	['PIC7', 'PIC7', 'PIC5'],
+	['PIC9', 'PIC7', 'PIC5'],
+	['PIC5', 'PIC6', 'PIC5'],
+	['PIC7', 'PIC9', 'PIC6'],
+];
+const ANY_LINE_WIN: ScriptedRound = {
+	option: 0,
+	win: 1000,
+	answers: [
+		[
+			...spinHead(0),
+			ev('bonusSymbol', { reel: 0, row: 0, symbol: 'COIN_5', win: 500 }),
+			ev('playWindow', ANY_BOARD),
+			ev('spinWin', {
+				what: 'PIC5',
+				occurs: 3,
+				mode: 'line',
+				pay: 1000,
+				mpInfo: { mp: 1, replacements: 0 },
+				mpBonusInfo: null,
+				context: { paylineId: 2, payline: PAYLINES[2], direction: 'any' },
+			}),
+			ev('playedSpin', ANY_BOARD),
+			ev('gameEnd', { win: 1000 }),
+			ev('gameRoundOver', { win: 1000 }),
+		],
+	],
+};
+
 // Center Coin: a collector on reel 3 gathers a 2× coin and a MINI coin; no trigger (reel 2 is
 // blank). It ends with `gameEnd` but no `gameRoundOver`: the client's `collect` closes it.
 const CENTER_DEALT = [
@@ -558,7 +591,7 @@ const commonChecks = (label: string, book: BookEvent[]) => {
 };
 
 // 1. A base spin with nothing on it.
-partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, CENTER, BUY]);
+partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, ANY_LINE_WIN, CENTER, BUY]);
 {
 	const answer = await bet('BASE');
 	const book = answer.round?.state ?? [];
@@ -618,6 +651,21 @@ partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, CENTER, BUY]);
 			],
 			3,
 		],
+	);
+	await endRound();
+}
+
+// 1d. A line read `any` way lights the run that paid, wherever it sits on the line.
+{
+	const answer = await bet('BASE');
+	const book = answer.round?.state ?? [];
+	commonChecks('any line win', book);
+	const info = book.find((e) => e.type === 'winInfo') as
+		{ wins: { kind: number; positions: { reel: number; row: number }[] }[] } | undefined;
+	check(
+		'any line win: the three PIC5 in the middle of the bottom line, padded',
+		[info?.wins[0].positions, info?.wins[0].kind],
+		[[1, 2, 3].map((reel) => ({ reel, row: 3 })), 3],
 	);
 	await endRound();
 }
