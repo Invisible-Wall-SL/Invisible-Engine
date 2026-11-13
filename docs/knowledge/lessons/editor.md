@@ -6,6 +6,17 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
+### Reserving an expanding board's rows fell short on a scaled grid
+
+- **Symptom:** Getting Hot's grown 5-row respin board ran off the bottom of the screen.
+- **Cause:** ⇕ Reserve rows wrote the lift in unscaled px (`-(extra × cellSize) / 2`); the game adds
+  the px nudge outside each layout's grid scale (2.59 desktop), so the lift was 79 px, not 205.
+- **Fix:** `boardNudgeRows` — a lift in row pitches that follows each layout's scale; the reserve
+  writes it and swaps the old px lift for it.
+- **Guard:** `test-hold-and-win-template.mjs` (grown block centred on 4 scaled layouts),
+  `check:reel-grid-box` §6.
+- **PR:** (this PR, 2026-11-13) · source: `docs/status/hold-and-win.md`
+
 ### The reel grid was framed, then drawn, off the game's board
 
 - **Symptom:** Getting Hot: the box sat a row below the cells; then the game drew the board lower.
@@ -279,21 +290,9 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
 - **Guard:** none dedicated; `check:art-scope` covers the export walk.
 - **PR:** not recorded (2026-06-18, 2026-06-29) · source: `docs/history.md`
 
-### A new sheet's art did not reach the game
+### Older traps, folded into their rules
 
-- **Symptom:** a deployed sheet "didn't ship"; only its uniquely named region showed new art.
-- **Cause:** the engine loads every sheet into one map by bare frame name, last loaded wins, and a
-  remake sheet reused the old sheet's region names (`assetLoad.ts`, `LayoutNodeView`).
-- **Fix:** frames register scoped too (`<assetKey>::<region>`, `editorArtKey.ts`); a sprite tries
-  the scoped key first (`fallbackKey`); `image` params store the scoped ref.
-- **Guard:** the bake prints `region "X" exists in N sheets` (`bake-editor-doc.mjs`).
-- **PR:** not recorded (2026-06-12, 2026-06-17) · source: `docs/history.md`
-
-### HUD rotation was dropped in game
-
-- **Symptom:** a rotated (or free-placed) HUD element looked right in the editor, not in game.
-- **Cause:** the HUD bar and corners render through the bespoke `LayoutEditable.svelte`, which
-  re-implements placement; `hudPos()` returned no rotation and dropped free nodes.
-- **Fix:** rotation and free nodes added. Still open: corner logo and game name ignore `scale`.
-- **Guard:** none. Check `LayoutEditable` whenever a transform field is added.
-- **PR:** not recorded (2026-06-10, 2026-06-14) · source: `docs/history.md`
+- Sheet region names are not unique across sheets: frames also register scoped
+  (`<assetKey>::<region>`, `editorArtKey.ts`) and the bake warns `region "X" exists in N sheets`.
+- The HUD bar and corners place nodes in `LayoutEditable.svelte`, not the shared placement: check
+  it whenever a transform field is added (corner logo and game name still ignore `scale`).

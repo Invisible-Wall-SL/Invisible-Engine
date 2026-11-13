@@ -914,6 +914,43 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Expanding respin board — authoring controls (plan 2026-11-13, session "H&W expanding board
+  authoring"; Getting Hot 3 → 5 rows).** Four gaps, in priority order. 1–2 are built (Recent changes
+  2026-11-13); **3–4 wait for the owner's go-ahead on the plan below** before anything is built.
+  1. **The reserve holds on every layout — built.** `reelGrid.boardNudgeRows` lifts the board by
+     whole row pitches as each layout draws them (cell height + gap × that layout's scale), on top of
+     the px `boardNudgeY`; `resolveReelGridFromNode` folds it into the resolved nudge, so the game,
+     the respin board and the editor read one number. ⇕ Reserve rows writes `-extra / 2` rows and
+     swaps the old px lift (exactly `-(extra × cellSize) / 2`) for it, keeping any other px nudge.
+     No current game moves: a doc without the field resolves byte-identically, and Getting Hot keeps
+     its −79 px until the owner presses ⇕ Reserve rows (the editor offers it again, since a px-lift
+     doc reads as unreserved). **Owed (owner): press it on Getting Hot, then publish.**
+  2. **An editor preview of the grown board — built.** The reel grid's Properties gain **preview N
+     rows** (view only): the canvas draws the rows the respin board opens below the base rows at the
+     game's row pitch, locked (the selected Locked Row's art, else the coded panel), the grown block
+     outlined.
+  3. **Where the rows are added (plan, not built).** `holdAndWin.expansion.grow: 'below' | 'above' |
+     'split'`, absent = `below` (today). Presentation only — the wire, the reducer and a held cell's
+     row index are unchanged (rows still unlock as `from…rows-1` in data); the respin board maps an
+     opened row to a seat: `below` row r at r, `above` the k-th opened row at `-k`, `split`
+     alternating below then above. The reserve follows (`boardNudgeRows` = `-extra/2` below,
+     `+extra/2` above, `0` / ±½ split), so the same ⇕ Reserve rows button fits it; the preview
+     draws the rows where the switch puts them. Touches `game-config` (field + validator + the
+     /config Board expansion panel), `RespinBoard` / `RespinLockedCell` seats, the coin flights'
+     targets (`presentRowsUnlocked` flies to `event.from + index`), the reserve and the preview.
+     Gates: a reducer-free seat map fixture, the template's reserve guard per direction, and the
+     current-games harness (no game sets `grow`).
+  4. **How a row opens (plan, not built).** Two authored parts, both absent = today's coded look:
+     (a) **the locked cell** — the Locked Row component already carries `lockedImage` / `lockedTint`;
+     add an optional **component** (`lockedComponent`) drawn per locked cell, so an artist builds a
+     locked plate with its own idle animation; (b) **the opening** — `expansion.openStyle: 'fade' |
+     'component'`, absent = `fade` (today's coded fade under "ROW UNLOCKED"). `component` plays the
+     locked cell component's `open` state per cell (row by row, `stagger` ms) and waits for it, and
+     the beat emits Flow cue signals `rowOpening {row}` / `rowOpened {row}` so a flow can hang FX,
+     sound or a camera move on each row; the `unlockRows` beat and the `rowsUnlocked` event stay
+     as they are. Owner to choose: (b) as a component state, or as a timeline on the Respin board
+     screen.
+
 - **Phase 12c next (part 1 is #1006):**
   - **12a is merged in** (the coded pot uses its `meterStage`). The create type keeps the Pot
     Meter's `signalScope` / `signalScopeKind` and is offered only to a Hold and Win project. The
@@ -1169,6 +1206,32 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     respin's board on our rows, each collector's total, the hits, the counter, the jackpot coins,
     the reducer against every snapshot, gameEnd and the balance). Before the fix 11 of the first
     round's checks failed; the Force 5 board catches an opened-row order mapped the wrong way.
+- 2026-11-13 — **⇕ Reserve rows recognises the old px lift at any grid scale (#1659 review).** The
+  swap of the old px lift (`-(extra × cellSize) / 2`) for the row lift only matched a grid whose
+  scale was 1 when a canvas rescale ran: `canvasRescale` multiplies the node's scale and its px nudge
+  by the same k, so a drag-resized grid (scale s0 ≠ 1) rescaled later stored the lift × k at scale
+  s0 × k, matched neither, and Reserve kept the px lift AND added the row lift (lifted about twice as
+  far, reading as reserved). `isLegacyLift` now also tries the doc's **canvas factors**: how many
+  times the game-type reference each layout's box is. The editor passes every layout's factor, so
+  the answer doesn't depend on the open tab. This holds for a drag-resized grid on a canvas rescaled
+  from the reference size. The grid's own scales stay as candidates for a scale-1 grid on a canvas
+  authored at another size. Not covered: a lift written between two rescales (it carries only the
+  later factor) is kept, as an author's nudge would be. Loading still writes nothing; only the
+  button does. Editor: the **preview N rows** switch grows only the selected reel grid in the edited
+  screen, not every grid (every screen's grid is `reel-grid`). Guard: `test-hold-and-win-template.mjs`
+  swaps the lift in these cases:
+  - scale 1, rescaled or not;
+  - a scale-1 grid on a 1280-wide canvas rescaled ×2;
+  - drag-resized, rescaled or not (×1.5, ×2);
+  - a ×2 canvas with one layout box hand-edited.
+
+  It keeps hand-set nudges. Planted-bug checks: dropping the canvas factors fails 3 cases, dropping
+  the grid scales fails the 1280 case, using one layout's factor fails the hand-edited case.
+  **Getting Hot:** its status here gives
+  cells 79 px, a −79 px lift and scale 2.59 with no canvas rescale (factor 1), which the guard already
+  matched; this change asks nothing new of the owner. The step owed since #1659 stands: press ⇕
+  Reserve rows on it, then publish. If the board then sits about twice as high as it should, the
+  stored nudge was not the old lift and was kept: clear its board nudge Y and press it again.
 - 2026-11-13 — **The partner-wire mock answers a collect and Force 5 as the partner's server
   does.** Their developer confirmed the shapes
   ([capture, "Confirmed by the partner"](../reference/play4fun-collector-respin-capture.md)):
@@ -1183,6 +1246,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `collectWindow`, and the round pays `bonusWin` / `gameEnd`, never a sum of the board.
     `collectorRespin.fixture` (101) now replays the confirmed boards; `check:holdandwin-partner`
     checks the three rules.
+- 2026-11-13 — **An expanding board's reserve holds on every layout, and the editor previews the grown
+  board** (session "H&W expanding board authoring", items 1–2 of the plan in Open items). ⇕ Reserve
+  rows used to write the lift as `-(extra × cellSize) / 2` px, but the game adds the board nudge
+  OUTSIDE the grid's per-layout scale (`boardLayout()`, and the editor since #1657), so a scaled grid
+  was lifted by less than half its extra rows: Getting Hot (scale 2.59 desktop, 1.46 portrait) lifted
+  79 px where it needed 205, and its grown 5-row board ran off the bottom. New optional field
+  `reelGrid.boardNudgeRows` (row pitches, following each layout's scale), folded into the resolved
+  `boardNudgeY` by `resolveReelGridFromNode` and mirrored by the editor's `reelGridGeometry`;
+  `reserveExpandingBoard` writes it and swaps the old px lift for it. Absent ⇒ every board resolves
+  exactly as before, so no current game moves (a runtime release on merge; current-games harness on
+  the PR). Editor: a **board nudge rows** field and a **preview N rows** switch on the reel grid
+  (`grownBoardRows` on the canvas; the locked-row preview now steps by the real row pitch, gap
+  included). Guards: `test-hold-and-win-template.mjs` reserves a grid scaled 2.59 / 1.8 / 1.2 / 1.46
+  and checks, through the game's resolver, that the grown block is centred where the base board was
+  on every layout (a mutant that drops the scale fails all four), plus the legacy-lift swap and a kept
+  author nudge; `check:reel-grid-box` §6 proves the editor and game agree on a row-nudged board.
 - 2026-11-12 — **A switch between the partner's wire and ours no longer carries a tab's config
   (#1602 review).** When a running project gained or lost `holdAndWin.enhancements`, the test
   server's rebuild (`swapMock` on a contract change, `carryPins` on a `/refresh`) carried each

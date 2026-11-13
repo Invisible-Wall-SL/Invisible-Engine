@@ -44,6 +44,7 @@ export interface ReelGridLayout {
 	/**
 	 * Whole-board fine px offset, added to the node position. In the node's transform
 	 * units (NOT folded through the cell scale — it lives in layout space). Default 0.
+	 * `boardNudgeY` already includes the node's `boardNudgeRows` (rows × the scaled row pitch).
 	 */
 	boardNudgeX: number;
 	boardNudgeY: number;
@@ -90,7 +91,7 @@ export function resolveReelGridFromNode(
 	const symbolAlignX = Number.isFinite(node.symbolAlignX) ? (node.symbolAlignX as number) : 0.5;
 	const symbolAlignY = Number.isFinite(node.symbolAlignY) ? (node.symbolAlignY as number) : 0.5;
 	const boardNudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
-	const boardNudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
+	const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
 	const scaleX = transform.scale?.x;
 	const cellScale = Number.isFinite(scaleX) && (scaleX as number) > 0 ? (scaleX as number) : 1;
 	// Non-square cell size + inter-cell gaps fold the same (uniform) scale as cellSize,
@@ -99,6 +100,9 @@ export function resolveReelGridFromNode(
 	const ch = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
 	const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
 	const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
+	// The row nudge is in row pitches as this layout draws them, so it folds the scale with the cells.
+	const nudgeRows = Number.isFinite(node.boardNudgeRows) ? (node.boardNudgeRows as number) : 0;
+	const boardNudgeY = nudgeRows ? nudgeY + nudgeRows * (ch + gapY) * cellScale : nudgeY;
 	// Symbol overflow folds the same scale for the same reason the gaps do: it is a px distance on
 	// the board, so an editor resize has to zoom it or a resized board's art would spill by the
 	// pre-resize amount. Absent ⇒ 0 ⇒ multiplying by the scale is still 0 (parity).

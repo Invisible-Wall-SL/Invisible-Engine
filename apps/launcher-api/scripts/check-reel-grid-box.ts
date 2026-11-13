@@ -16,6 +16,8 @@
  *  4. An un-nudged board at the default anchor keeps the old centred box.
  *  5. The board's centre lands where the game's resolver puts it (node x/y + the nudge, unscaled),
  *     at scale 1 and at Getting Hot's 2.59, in a nested grid too.
+ *  6. A ROW nudge (`boardNudgeRows`, what ⇕ Reserve rows writes) follows the scale: the editor and
+ *     the game both lift Getting Hot by whole rows of 79 × 2.59, on top of any px nudge.
  */
 import { resolveReelGridFromNode, type LayoutNode, type ResolvedTransform } from 'engine-layout';
 
@@ -129,6 +131,26 @@ landsWhereTheGameDoes(
 	'5. a nested reel grid (nodeBox) lands there too',
 	gettingHot,
 	nodeBox(gettingHot, at(gettingHot), () => null),
+);
+
+const lifted = grid({ boardNudgeRows: -1, scale: { x: SCALE, y: SCALE } });
+framesBoard('6. a row-nudged board: the box is the drawn board', lifted);
+landsWhereTheGameDoes(
+	'6. a row-nudged board lands where the game draws it (793 − 79 × 2.59)',
+	lifted,
+	reelGridBox(lifted, lifted.anchor, undefined, scaleOf(lifted)),
+);
+const liftedGame = resolveReelGridFromNode(lifted, 'desktop');
+check(
+	'6. the game lifts it by one scaled row',
+	liftedGame !== undefined && near(liftedGame.boardNudgeY, -79 * SCALE),
+	`got ${liftedGame?.boardNudgeY}`,
+);
+const both = grid({ boardNudgeRows: -1, boardNudgeY: 12, scale: { x: SCALE, y: SCALE } });
+landsWhereTheGameDoes(
+	'6. a row nudge plus a px nudge lands where the game draws it',
+	both,
+	reelGridBox(both, both.anchor, undefined, scaleOf(both)),
 );
 
 if (failures) {
