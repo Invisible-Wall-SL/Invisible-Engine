@@ -106,8 +106,10 @@ const { db, log } = recordingDb((call: DbCall) => {
 				return [{ id: r.id, projectKey: r.projectKey }];
 			});
 		}
+		const named = rows.some((r) => params.includes(r.id));
 		return rows
-			.filter((r) => params.includes(r.id) && params.includes(r.projectKey) && !r.revokedAt)
+			.filter((r) => (!named || params.includes(r.id)) && params.includes(r.projectKey))
+			.filter((r) => !r.revokedAt)
 			.map((r) => {
 				r.revokedAt = set.revokedAt as Date;
 				r.revokedBy = set.revokedBy as string;
@@ -139,6 +141,10 @@ mock.module(src('lib/server/projects.ts'), {
 		canAccessProject: async (userId: string) => userId !== 'u-outsider',
 		getPartnerLaunch: async (key: string) => partnerLaunches.get(key) ?? null,
 		projectIsDeleted: async () => false,
+		setPartnerLaunch: async (key: string, value: unknown) => {
+			partnerLaunches.set(key, value);
+			return true;
+		},
 	},
 });
 mock.module(src('lib/server/projectLookup.ts'), {
@@ -184,6 +190,7 @@ const { partnerButtons } = await import('../src/lib/partnerLaunch.ts');
 const play = await import('../src/routes/play/[token]/+server.ts');
 const api = await import('../src/routes/api/game-maker/partner-share/+server.ts');
 const session = await import('../src/routes/api/partner-session/+server.ts');
+const partnerSetter = await import('../src/routes/api/game-maker/partner/+server.ts');
 
 let checks = 0;
 let failures = 0;
@@ -371,7 +378,8 @@ const linkId = rows.at(-1)!.id;
 		method: 'DELETE',
 		user: owner,
 	});
-	check('revoke: through another project refused', outsider.status, 409);
+	check('revoke: through another project refused', outsider.status, 404);
+	check('revoke: …and the link is still live', rows.find((r) => r.id === linkId)?.revokedAt, null);
 	const revoked = await call(api.DELETE, {
 		path: `/api/game-maker/partner-share?project=getting-hot&id=${linkId}`,
 		method: 'DELETE',
@@ -424,6 +432,23 @@ const linkId = rows.at(-1)!.id;
 	check('no partner: an existing link refuses (409)', refused.status, 409);
 	check('no partner: no env-default mint', mints.length, 0);
 	check('no partner: the page is plain and secret-free', secretFree(await refused.text()), true);
+	const listed = await call(api.GET, { path: '/api/game-maker/partner-share?project=no-partner', user: owner }); // prettier-ignore
+	check('no partner: its links can still be listed', [listed.status, ((await listed.json()) as { links: { id: string }[] }).links.map((l) => l.id)], [200, ['stale']]); // prettier-ignore
+	const revokedStale = await call(api.DELETE, { path: '/api/game-maker/partner-share?project=no-partner&id=stale', method: 'DELETE', user: owner }); // prettier-ignore
+	check('no partner: …and revoked', revokedStale.status, 200);
+
+	const { out } = await make('getting-hot', 7);
+	const cleared = tokenOf(out.url);
+	const clear = await call(partnerSetter.POST, {
+		path: '/api/game-maker/partner',
+		method: 'POST',
+		user: owner,
+		body: { project: 'getting-hot', gameId: '' },
+	});
+	check('clearing the partner game: 200', clear.status, 200);
+	check('clearing the partner game revokes every live link', rows.filter((r) => r.projectKey === 'getting-hot' && !r.revokedAt).length, 0); // prettier-ignore
+	partnerLaunches.set('getting-hot', { gameId: '8', profile: '2complex' });
+	check('…so setting it again does not wake an old link', (await open(cleared)).status, 410);
 }
 
 // 6. Who may make links, and the card.

@@ -18,9 +18,10 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *   POST   /api/game-maker/partner-share  { project, days }      → { url, id, expiresAt, links }
  *   DELETE /api/game-maker/partner-share?project=<key>&id=<id>  → { ok, links }
  *
- * Same gate as setting the partner game (the `gamePublish` capability + project access), and only
- * for a project with a partner launch this launcher can mint on — the card's ▶ Partner rule. The
- * link URL is answered ONCE, by the POST: only its hash is stored.
+ * Same gate as setting the partner game (the `gamePublish` capability + project access). MAKING a
+ * link also needs a partner launch this launcher can mint on — the card's ▶ Partner rule; listing
+ * and revoking never do, so a link stays revocable whatever happens to the card's partner setting.
+ * The link URL is answered ONCE, by the POST: only its hash is stored.
  */
 async function publisher(event: RequestEvent): Promise<{ id: string; role: Role } | Response> {
 	const user = event.locals.user;
@@ -62,8 +63,6 @@ export const GET: RequestHandler = async (event) => {
 	const user = await publisher(event);
 	if (user instanceof Response) return user;
 	if (!project || !(await canAccessProject(user.id, user.role, project))) return noAccess();
-	const refused = await notShareable(project);
-	if (refused) return refused;
 	return json({ links: await listShareLinks(project) }, { headers: NO_STORE });
 };
 
@@ -105,8 +104,6 @@ export const DELETE: RequestHandler = async (event) => {
 	const user = await publisher(event);
 	if (user instanceof Response) return user;
 	if (!project || !(await canAccessProject(user.id, user.role, project))) return noAccess();
-	const refused = await notShareable(project);
-	if (refused) return refused;
 	if (!(await revokeShareLink({ projectKey: project, id, userId: user.id }))) {
 		return json(
 			{ error: 'No live link with that id on this project.' },

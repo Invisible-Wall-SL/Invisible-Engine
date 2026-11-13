@@ -4,6 +4,7 @@ import { GAME_PUBLISH_CAPABILITY } from '$lib/roles';
 import { ENV } from '$lib/server/env';
 import { userHasCapability } from '$lib/server/launcherAuth';
 import { partnerProfileIds } from '$lib/server/partnerRgs';
+import { revokeAllShareLinks } from '$lib/server/partnerShare';
 import { canAccessProject, setPartnerLaunch } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
 
@@ -17,7 +18,8 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *   → 404 when the project was deleted or renamed after the access check
  *
  * Same gate as Publish (the `gamePublish` capability + project access): it decides where the
- * card's ▶ Partner buttons send everyone who can see the card.
+ * card's ▶ Partner buttons send everyone who can see the card. Clearing it revokes the project's
+ * share links (`partnerShare.ts`), which would otherwise wake up again for whatever is set next.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
@@ -48,8 +50,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			{ status: 404, headers: NO_STORE },
 		);
 	}
+	const revoked = parsed.value
+		? 0
+		: await revokeAllShareLinks({ projectKey: project, userId: locals.user.id });
 	console.info(
-		`[partner] ${project}: ${locals.user.email} set partner game ${parsed.value ? `${parsed.value.profile}/${parsed.value.gameId}${parsed.value.player ? ` as ${parsed.value.player}` : ''}` : '(none)'}`,
+		`[partner] ${project}: ${locals.user.email} set partner game ${parsed.value ? `${parsed.value.profile}/${parsed.value.gameId}${parsed.value.player ? ` as ${parsed.value.player}` : ''}` : `(none; ${revoked} share link(s) revoked)`}`,
 	);
 	return json({ ok: true, partner: parsed.value }, { headers: NO_STORE });
 };

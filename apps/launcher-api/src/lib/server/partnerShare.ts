@@ -97,6 +97,22 @@ export async function revokeShareLink(options: {
 	return rows.length > 0;
 }
 
+/** Revoke every live link of a project — its partner game was cleared, so no link may come back to
+ *  life when one is set again. The number revoked. */
+export async function revokeAllShareLinks(options: {
+	projectKey: string;
+	userId: string;
+	now?: Date;
+}): Promise<number> {
+	const t = partnerShareLinks;
+	const rows = await getDb()
+		.update(t)
+		.set({ revokedAt: options.now ?? new Date(), revokedBy: options.userId })
+		.where(and(eq(t.projectKey, options.projectKey), isNull(t.revokedAt)))
+		.returning({ id: t.id });
+	return rows.length;
+}
+
 export type ShareRefusal = 'unknown' | 'revoked' | 'expired' | 'busy';
 
 /** Why a link that is NOT live (or out of opens) cannot be used, read from its row. */
@@ -134,8 +150,9 @@ export async function peekShareLink(
 /**
  * Spend one open of a live link, or say why not. ONE conditional UPDATE does the check and the
  * spend, so parallel opens cannot all read "4 of 5 used" and each mint: the row is live, and its
- * minute window is either over (it restarts at 1) or still has room (+1). Every SET expression reads
- * the row as it was before this statement, so the window test means the same thing in each.
+ * minute window is either over (it restarts at 1) or still has room (+1). Parallel opens queue on
+ * the row lock, and each re-checks the WHERE and computes its SET from the row the one before it
+ * committed, so the window test means the same thing in each and the sixth open matches nothing.
  */
 export async function claimShareOpen(
 	token: string,

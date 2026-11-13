@@ -336,8 +336,9 @@ and you have the same access as **Publish**, and it is disabled until the game i
   preview does not start a session.
 - **Live links and Revoke:** the dialog lists the card's live links — who made each, when it
   expires, when it was last opened and how many times — with a bin to **revoke** one. A revoked
-  or expired link opens a plain page saying so; make a new one. Removing the card's partner game
-  stops every link for it.
+  or expired link opens a plain page saying so; make a new one. Revoking stops new opens; a game
+  already open keeps its session until the partner expires it. Removing the card's partner game
+  (**Partner…** → **Remove**) revokes every link for it.
 
 ### Duplicate (reskin for another client)
 
