@@ -171,6 +171,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-12 — **The reel grid's selection box sits on the board.** It was sized from the node's
+  own `reels`/`rows` around its anchor, while the board is drawn at the Game Config's count and
+  moved by the board nudge. Getting Hot (board nudge Y −79, one cell) drew its cells a row above its
+  box. The box now comes from `reelGridGeometry` (`reelGridBox`), the same function that draws the
+  board. Guard: `check:reel-grid-box`. Also: the screen's own Element FX (top of Properties) is now
+  titled **Screen Element FX**, so it no longer reads like a copy of the selected element's
+  Element FX further down.
 - 2026-11-12 — **Spin tuning's Hold and Win respin profiles show only where they apply.** They
   appear only in a project with a Hold and Win feature (`kindCapabilities(…).holdAndWin`, the kind
   or a declared respin mode), and leave out the fields the respin cells never read. The help text

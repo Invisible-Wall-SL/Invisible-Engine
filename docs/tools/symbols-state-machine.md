@@ -1061,9 +1061,10 @@ lines. The **mode itself is armed and disarmed from Flow** (enable / disable ant
 section only _styles_ it.
 
 **Not used.** There is no On/Off switch here, because the mode is already off until the flow turns it
-on. When no flow can (no **Enable anticipation mode** node in the project's flow or the shared
+on. When no flow can (no `enableAnticipationMode` action in the project's flow or the shared
 function library), the section says **Not used**: the game never teases, and neither the coded
-anticipation rig nor a swapped overlay rig ships. Add the node in Invisible Flow to use it.
+anticipation rig nor a swapped overlay rig ships. Add that action (Flow palette → **Actions**) to use
+it. The `?anticipation=` test param on such a project shows the coded look, not this styling.
 
 There is **one tier column per configured big-win tier** — the panel reads the project's big-win
 tiers from **Invisible Game Config** (`/config` → "Big win tiers") and shows a column per tier, in

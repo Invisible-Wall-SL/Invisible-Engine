@@ -1,0 +1,350 @@
+{
+	"encoder": 3,
+	"descriptors": {
+		"fonts/goldBlur/miningfont_gold_blur.xml": {
+			"type": "font",
+			"sha256": "sha256-QEKG4JRrdwc+tA7TX0ZLn0NEqqafnerjSmBmb8U6laM=",
+			"twin": "fonts/goldBlur/miningfont_gold_blur.ktx2.xml",
+			"pages": [
+				{
+					"file": "fonts/goldBlur/miningfont_gold_blur.webp",
+					"sha256": "sha256-yteWvaJBV4G8gI46/IB9/0DZ14cl+wTOhrDGV7oLAz0=",
+					"twin": "fonts/goldBlur/miningfont_gold_blur.pm.ktx2",
+					"twinSha256": "sha256-X55C05RViyPX0OE4WZgQgOzj4r/LCXzHL6VF46SpOuQ=",
+					"width": 1268,
+					"height": 380
+				}
+			]
+		},
+		"fonts/goldFont/mm_gold.xml": {
+			"type": "font",
+			"sha256": "sha256-Rt/Mq+aRQ/nY3NdJvq6E+VkLSGMYjiVmVP+Q+1i/BvI=",
+			"twin": "fonts/goldFont/mm_gold.ktx2.xml",
+			"pages": [
+				{
+					"file": "fonts/goldFont/mm_gold.webp",
+					"sha256": "sha256-cgu/AMdP4izEwOjzBHos76P6rTje2mVl7/cTXnR1Hrk=",
+					"twin": "fonts/goldFont/mm_gold.pm.ktx2",
+					"twinSha256": "sha256-XU5VX6rp4DP8Jddt4vyxd3ijqSMa9e3m7SHvBch64tg=",
+					"width": 1484,
+					"height": 216
+				}
+			]
+		},
+		"fonts/purpleFont/mm_purple.xml": {
+			"type": "font",
+			"sha256": "sha256-1YYphVSjlsqNxDYg4NwNpF1n7UKpSoAQvTR3fFcDV5I=",
+			"twin": "fonts/purpleFont/mm_purple.ktx2.xml",
+			"pages": [
+				{
+					"file": "fonts/purpleFont/mm_purple.png",
+					"sha256": "sha256-MGAgt/V+xSsJ8+7prA4a8lh/iAi5Bvs8xvG0Orldsm4=",
+					"twin": "fonts/purpleFont/mm_purple.pm.ktx2",
+					"twinSha256": "sha256-dIrodBoWPVpps6tla/nrxqO1NKcb2R2+eJHVySV6nGY=",
+					"width": 1124,
+					"height": 180
+				}
+			]
+		},
+		"fonts/silverFont/mm_silver.xml": {
+			"type": "font",
+			"sha256": "sha256-DL999O0W39UPqYEBQZ4I6fHPC2ETBZ6XW8s9oa78RG8=",
+			"twin": "fonts/silverFont/mm_silver.ktx2.xml",
+			"pages": [
+				{
+					"file": "fonts/silverFont/mm_silver.png",
+					"sha256": "sha256-Z5PGau6Dfp5n/ctQiti2C+UL49VlPAzSmWDIPQBI13k=",
+					"twin": "fonts/silverFont/mm_silver.pm.ktx2",
+					"twinSha256": "sha256-aIFI/4ejtQ5JJbUlBeNyhitfnmjmghtQ/WLYH1zWUF8=",
+					"width": 2028,
+					"height": 1864
+				}
+			]
+		},
+		"spines/anticipation/anticipation.atlas": {
+			"type": "spine",
+			"sha256": "sha256-hSQwtpYHciLT/pM8QJTFrBPQoGRkFqM2wDuZsONAcK0=",
+			"twin": "spines/anticipation/anticipation.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/anticipation/anticipation.webp",
+					"sha256": "sha256-zqeWT5/v/cLXU1dbhqeCL5oIP6V9Y83IQuBJoWPnGeU=",
+					"twin": "spines/anticipation/anticipation.pm.ktx2",
+					"twinSha256": "sha256-qbfykZ8mV2SClOlor6cOQ01SMX6y791ge968Ws+j6BM=",
+					"width": 1140,
+					"height": 1036
+				}
+			]
+		},
+		"spines/bigwin/big_wins.atlas": {
+			"type": "spine",
+			"sha256": "sha256-Dl8xsTj20JNyhozw0gD8fvP9oAPzp4t7v/55/Lg+nds=",
+			"twin": "spines/bigwin/big_wins.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/bigwin/big_wins.webp",
+					"sha256": "sha256-BkV4aiZyOaCn1EHaCztU/wp9nus9wtnkSXJCAGujTdw=",
+					"twin": "spines/bigwin/big_wins.pm.ktx2",
+					"twinSha256": "sha256-T19OHs9ZzdXsl9zr+nXiEUIvgvhOmJeR+x1uC+a/aXI=",
+					"width": 680,
+					"height": 1020
+				}
+			]
+		},
+		"spines/foregroundAnimation/mm_bg.atlas": {
+			"type": "spine",
+			"sha256": "sha256-rjJFEfnrFwPJmpROIC0/Na0SXnmZuGX3DsUmH6C/xew=",
+			"twin": "spines/foregroundAnimation/mm_bg.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/foregroundAnimation/mm_bg.webp",
+					"sha256": "sha256-6+9qVAq3WItYNI4D1USYohGZDx/PCVxmYN5MtP1GXVQ=",
+					"twin": "spines/foregroundAnimation/mm_bg.pm.ktx2",
+					"twinSha256": "sha256-CYY4l3MzFckYp75l1LPP3DQGieZJne0g3MVBWyqEhcQ=",
+					"width": 2028,
+					"height": 1440
+				}
+			]
+		},
+		"spines/foregroundFeatureAnimation/mm_bg_feature.atlas": {
+			"type": "spine",
+			"sha256": "sha256-WMYJujRKNVM7Hg8L+eNG23ZWDr5WvhYOPjyD9hwOXwA=",
+			"twin": "spines/foregroundFeatureAnimation/mm_bg_feature.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/foregroundFeatureAnimation/mm_bg_feature.webp",
+					"sha256": "sha256-xZDF5oMkBAoIT9Ei75dnYMf0uqmcl8O4G2N8ddGzTYE=",
+					"twin": "spines/foregroundFeatureAnimation/mm_bg_feature.pm.ktx2",
+					"twinSha256": "sha256-Jxqy1Zf9E5B/oi2sBYTdf+wBL5Wbvsvf3J8pjA9qUYY=",
+					"width": 2036,
+					"height": 1564
+				}
+			]
+		},
+		"spines/fsIntro/fs_screen.atlas": {
+			"type": "spine",
+			"sha256": "sha256-jWaFq6avlcqXczOuom4KVty+17Fc+YtDvpkaggsNSYA=",
+			"twin": "spines/fsIntro/fs_screen.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/fsIntro/fs_screen.webp",
+					"sha256": "sha256-T33aEkDivPA+v8pEcjGD6RVYCWVRckXv6E5yyFT+jpw=",
+					"twin": "spines/fsIntro/fs_screen.pm.ktx2",
+					"twinSha256": "sha256-ebhvvd9qYfk3VGoynuCuCmQ+1/GP0l+qh2/GIcRDUXE=",
+					"width": 1744,
+					"height": 1244
+				}
+			]
+		},
+		"spines/loader/loader.atlas": {
+			"type": "spine",
+			"sha256": "sha256-Fl2WUv9ZZpwZG64XAvuEdnUjLGE+VdaMVkrffJjWZqE=",
+			"twin": "spines/loader/loader.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/loader/loader.webp",
+					"sha256": "sha256-aQ3C11V0yR3XZ6SIFdUVid0+gUI7M+Lf+rGFEnj7x40=",
+					"twin": "spines/loader/loader.pm.ktx2",
+					"twinSha256": "sha256-NJqYWcKhcDv/+QdjTRtsAiuQKGADV6W26bfyI9g1f9M=",
+					"width": 1548,
+					"height": 1540
+				}
+			]
+		},
+		"spines/reelhouse/reelhouse_glow.atlas": {
+			"type": "spine",
+			"sha256": "sha256-gzHIwsuaAuBZzkhHtBT8jRV5zvBxNaGxSsm6rnJ2iGk=",
+			"twin": "spines/reelhouse/reelhouse_glow.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/reelhouse/reelhouse_glow.webp",
+					"sha256": "sha256-S3AKFWyElD8lMD5B5Rlzk5GuR6Tkr6PBDyKZB9M1KBM=",
+					"twin": "spines/reelhouse/reelhouse_glow.pm.ktx2",
+					"twinSha256": "sha256-utYfNr/qRx/mUzn4Tp5LHN2i4mPHM9TAZ9+jhIhK2nA=",
+					"width": 1916,
+					"height": 980
+				}
+			]
+		},
+		"spines/symbols/symbols.atlas": {
+			"type": "spine",
+			"sha256": "sha256-h5CxUlYN11PvsVHwz9SX3Vjtvl3aIlS9mqK1CM6j8TI=",
+			"twin": "spines/symbols/symbols.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/symbols/symbols.webp",
+					"sha256": "sha256-qlnebVNTKnRlqVYtKpPvCR1+1IHkvN1wWBRBXfj8gjQ=",
+					"twin": "spines/symbols/symbols.pm.ktx2",
+					"twinSha256": "sha256-/0chFlSE0yGVIHuYVqa7YhaN+dUomzuqlmnZaTaZu5s=",
+					"width": 1032,
+					"height": 1032
+				}
+			]
+		},
+		"spines/symbols2/symbols2.atlas": {
+			"type": "spine",
+			"sha256": "sha256-kfA/cbJj4Gh150lyh4nvxzpp86ZvqO3Zb0QuCzJjFgs=",
+			"twin": "spines/symbols2/symbols2.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/symbols2/symbols2.webp",
+					"sha256": "sha256-ZrdoAHbwCMJlSYKhLNzdtqFUrBg+x2EVJqP8E1bmuO4=",
+					"twin": "spines/symbols2/symbols2.pm.ktx2",
+					"twinSha256": "sha256-GaHf3Slqu26svL8LT0e5tFdxdfa/3mdpoePotZATW2I=",
+					"width": 1972,
+					"height": 1224
+				}
+			]
+		},
+		"spines/symbols3/symbols3.atlas": {
+			"type": "spine",
+			"sha256": "sha256-mL0z/PDY09Gin9+ZJUNzfkqhB+dcN5hdDySMPqmfVCo=",
+			"twin": "spines/symbols3/symbols3.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/symbols3/symbols3.webp",
+					"sha256": "sha256-cppbfU4b5pWRNepBC1ZcAI6onxOpGOXB6RoW0bfMqik=",
+					"twin": "spines/symbols3/symbols3.pm.ktx2",
+					"twinSha256": "sha256-0jmM0PmQffGOsmXHm9u3JbYl4iMCaVnIz+DMDTqUz2k=",
+					"width": 1608,
+					"height": 1564
+				}
+			]
+		},
+		"spines/transition/transition.atlas": {
+			"type": "spine",
+			"sha256": "sha256-k8C5PahgkRrE7FG1ffKYy9MZFyv3BkSatJ3YnNbyA60=",
+			"twin": "spines/transition/transition.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/transition/transition.webp",
+					"sha256": "sha256-KEGISlvl535VIUPluRb3BkuJQR6C94xfBvtH780EwBA=",
+					"twin": "spines/transition/transition.pm.ktx2",
+					"twinSha256": "sha256-006+ccWztCrx7oIg/2Uh2jIKP7y37j3n1oFFt5UqZ80=",
+					"width": 1220,
+					"height": 1044
+				}
+			]
+		},
+		"spines/tumbleWin/tumble_win.atlas": {
+			"type": "spine",
+			"sha256": "sha256-oEWur96O73v3fRIefL6BMkBBH+N8W7XLSdvOpjU2ZOM=",
+			"twin": "spines/tumbleWin/tumble_win.ktx2.atlas",
+			"pages": [
+				{
+					"file": "spines/tumbleWin/tumble_win.webp",
+					"sha256": "sha256-+e0bqykG6VzziQRi44aZFdf8xih/9pcAxdo994q4d6I=",
+					"twin": "spines/tumbleWin/tumble_win.pm.ktx2",
+					"twinSha256": "sha256-5G0XalquzauGc3fxr27GFPnCY3bdk+0JEkgb2utmj3A=",
+					"width": 1984,
+					"height": 496
+				}
+			]
+		},
+		"sprites/coin/SD2_Coin.json": {
+			"type": "spriteSheet",
+			"sha256": "sha256-e1BXMiSgBfPifWZUv9GVSFvMK/BnjPi8/30oh4E9fXo=",
+			"twin": "sprites/coin/SD2_Coin.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/coin/SD2_Coin.png",
+					"sha256": "sha256-3Jagw32P8NYAG9UCILYYEAA51LJO34p9c5jsUCiqfjI=",
+					"twin": "sprites/coin/SD2_Coin.pm.ktx2",
+					"twinSha256": "sha256-MGKdnESynCPcYW8Bw6MMjKslPH9CeCpAk7aJWy/Rm/4=",
+					"width": 1892,
+					"height": 1152
+				}
+			]
+		},
+		"sprites/freeSpins/freeSpins.json": {
+			"type": "sprites",
+			"sha256": "sha256-gct7Ui7f0QG37jfQLOYjdLR/0TOxE8Dn9ooINI3uauY=",
+			"twin": "sprites/freeSpins/freeSpins.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/freeSpins/freeSpins.webp",
+					"sha256": "sha256-/x9fgeZ3K74x2/GD3dWB5m29f/zlcewqCkHfK2Imxgg=",
+					"twin": "sprites/freeSpins/freeSpins.pm.ktx2",
+					"twinSha256": "sha256-sgPJvQ5B4yoETRglqOJM5HdHJCyrOpIFCPjw2JwBINA=",
+					"width": 932,
+					"height": 984
+				}
+			]
+		},
+		"sprites/pressToContinueText/MM_pressanywhere.json": {
+			"type": "sprites",
+			"sha256": "sha256-UByBaggK5LBZM6PjmfIw9FnJSByvgTxzTfg6VJA0yg4=",
+			"twin": "sprites/pressToContinueText/MM_pressanywhere.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/pressToContinueText/MM_pressanywhere.webp",
+					"sha256": "sha256-zhMy4XoAjMsCvRU4fqhNtdjTtzONKaxFWYpl05gWjRY=",
+					"twin": "sprites/pressToContinueText/MM_pressanywhere.pm.ktx2",
+					"twinSha256": "sha256-qHP3M29KhS4o2XDwKMRU3ZtY0RtyoEQNIZXC/4RGWqU=",
+					"width": 1748,
+					"height": 960
+				}
+			]
+		},
+		"sprites/progressBar/progressBar.json": {
+			"type": "sprites",
+			"sha256": "sha256-tYVCMznUsuNSAktyJPexVzRE5033cXQde0DiFalKZqg=",
+			"twin": "sprites/progressBar/progressBar.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/progressBar/progressBar.webp",
+					"sha256": "sha256-rW0/TxPf7W5yTpCMl0UmjETri0TrPTOvyMpWsNoynO8=",
+					"twin": "sprites/progressBar/progressBar.pm.ktx2",
+					"twinSha256": "sha256-2oyYwD2aNeDjNEl5vr/pkiYEFQ7BYNDfgCXgJV9AaII=",
+					"width": 1484,
+					"height": 92
+				}
+			]
+		},
+		"sprites/reelsFrame/reels_frame.json": {
+			"type": "sprites",
+			"sha256": "sha256-HyJdRi9547nNIXIiqv6O5Hi79rJBW08L5bXR5UsN6lE=",
+			"twin": "sprites/reelsFrame/reels_frame.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/reelsFrame/reels_frame.png",
+					"sha256": "sha256-z8Y/JMefhVgrAgTijWCUKz1UqXRlFDAuBbn3+AVbejg=",
+					"twin": "sprites/reelsFrame/reels_frame.pm.ktx2",
+					"twinSha256": "sha256-I7VpYK2PghmvaNOXm4XX8TD6V9INDLq+foXnC09IuwY=",
+					"width": 1792,
+					"height": 1912
+				}
+			]
+		},
+		"sprites/symbolsStatic/symbolsStatic.json": {
+			"type": "sprites",
+			"sha256": "sha256-+v5gZ1XC+fZ+ush6DShbgvQ+/OlAhMeC/+1vc4tjYJw=",
+			"twin": "sprites/symbolsStatic/symbolsStatic.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/symbolsStatic/symbolsStatic.webp",
+					"sha256": "sha256-3vWEj0v2eczR2PepNU4muI091JcJ4w5eYzuvyLrFK/I=",
+					"twin": "sprites/symbolsStatic/symbolsStatic.pm.ktx2",
+					"twinSha256": "sha256-k0tczcJAulhTJOsbBENEHJDS6AbJ8R7KtPhWX/X56BI=",
+					"width": 388,
+					"height": 1648
+				}
+			]
+		},
+		"sprites/winSmall/MM_Localisation_winsmall.json": {
+			"type": "sprites",
+			"sha256": "sha256-OFljOb++ORuIBNwdFx6tvbW7FFTl/yQDHIJZjy6mtpk=",
+			"twin": "sprites/winSmall/MM_Localisation_winsmall.ktx2.json",
+			"pages": [
+				{
+					"file": "sprites/winSmall/MM_Localisation_winsmall.webp",
+					"sha256": "sha256-ueTqUruYCGB8aVw2tw3v75ItzdWOOJXb7cAhBXcA+e8=",
+					"twin": "sprites/winSmall/MM_Localisation_winsmall.pm.ktx2",
+					"twinSha256": "sha256-eHBeagwNzk+9cFNUKnoaaGJlzQW9lBSt6aht8arJF9c=",
+					"width": 512,
+					"height": 520
+				}
+			]
+		}
+	}
+}

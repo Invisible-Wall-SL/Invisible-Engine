@@ -35,10 +35,7 @@ import {
 import {
 	checkSoundLibrary,
 	flowSoundBindings,
-	slotSoundBindings,
 	summariseSoundLicences,
-	symbolSoundBindings,
-	winTierSoundBindings,
 } from '../src/lib/soundUsage.ts';
 import {
 	BUILTIN_SOUND_OPTIONS,
@@ -438,18 +435,6 @@ console.log('\n15. the usage index reads every surface that can bind a sound');
 		const failed = flowClaims(mutant);
 		check(`mutant "${name}" is caught${failed.length ? ` (${failed[0]})` : ''}`, failed.length > 0, true); // prettier-ignore
 	}
-
-	// The slot defaults ARE bindings — an un-authored project still plays the whole catalogue, which
-	// is the inversion `game-config/sounds.ts` exists for.
-	const slots = slotSoundBindings(null);
-	check('an un-authored config still binds the catalogue', slots.some((b) => b.name === 'tumble_win_1'), true); // prettier-ignore
-	check('a ladder rung is labelled', slots.find((b) => b.name === 'tumble_win_2')?.where, 'Tumble explosion · rung 2'); // prettier-ignore
-	// `enabled: false` is the ONE gesture meaning "play nothing here", so its names are not bound.
-	const silenced = slotSoundBindings({ sounds: { tumbleExplosion: { enabled: false } } } as never);
-	check('a silenced slot binds nothing', silenced.some((b) => b.name.startsWith('tumble_win')), false); // prettier-ignore
-
-	check('a win tier binds its cue and its bed', winTierSoundBindings({ winLevels: [{ alias: 'big', name: 'BIG WIN', threshold: 10, type: 'big', sound: { sfx: 'sfx_winlevel_nice', bgm: 'bgm_winlevel_big' } }] } as never).map((b) => b.name), ['sfx_winlevel_nice', 'bgm_winlevel_big']); // prettier-ignore
-	check('per-symbol and anticipation cues', symbolSoundBindings({ symbolSounds: { H1: { land: 'my_land' } }, anticipation: { activationSound: 'my_sting', loopSound: 'my_loop' } }).map((b) => b.name), ['my_land', 'my_sting', 'my_loop']); // prettier-ignore
 }
 
 console.log('\n16. the three checks');
@@ -495,6 +480,15 @@ console.log('\n16. the three checks');
 	check('…drops out once something binds it', run(lib, { bgm_main: true }).notRebindable, ['sfx_reel_stop_1']); // prettier-ignore
 
 	check('an empty library is all-clear', run(norm({}), {}).unbound, []);
+
+	// SHIPS — the export's own answer, once `/sound` has it. Unbound and the not-approved list then
+	// follow it alone (a cinematic plays `lonely`, so it ships, and a build leaves `used_one` out),
+	// while MISSING and NOT REBINDABLE stay about the bindings.
+	const shipped = new Set(['lonely', 'sfx_reel_stop_1']);
+	const withShips = checkSoundLibrary(lib, (n) => n === 'used_one', ['used_one'], BUILTIN, (n) => shipped.has(n)); // prettier-ignore
+	check('with ships: what the build leaves out is unbound', withShips.unbound, ['used_one']);
+	check('with ships: the not-approved list is the shipped drafts', withShips.unapprovedBound.sort(), ['lonely', 'sfx_reel_stop_1']); // prettier-ignore
+	check('with ships: not rebindable still reads the bindings', withShips.notRebindable, ['bgm_main', 'sfx_reel_stop_1']); // prettier-ignore
 }
 
 console.log('\n17. the publish gate — what blocks a release, and what only warns');

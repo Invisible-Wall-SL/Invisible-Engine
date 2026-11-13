@@ -7,6 +7,7 @@
 		deviceScreenPixelRatio,
 		deviceSignals,
 		instrumentApp,
+		ktx2Fallbacks,
 		perfProbe,
 		renderQualitySnapshot,
 		renderSwitches,
@@ -204,7 +205,7 @@
 		const build = typeof __IE_BUILD__ === 'undefined' ? undefined : __IE_BUILD__;
 		const now = renderQualitySnapshot();
 		return {
-			perf: 6,
+			perf: 7,
 			ua: navigator.userAgent,
 			dpr: window.devicePixelRatio,
 			device: device(),
@@ -218,6 +219,8 @@
 			render: appliedRenderOptions(),
 			gpu: info,
 			textures,
+			textureList: probe?.textureList(),
+			ktx2Fallbacks: ktx2Fallbacks(),
 			refreshHz: s.refreshHz,
 			capped30: s.capped30,
 			seconds: s.seconds,

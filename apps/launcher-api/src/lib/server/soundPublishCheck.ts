@@ -1,15 +1,7 @@
-import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
-import {
-	checkSoundLibrary,
-	collectSoundBindings,
-	summariseSoundLicences,
-	type SoundLicenceSummary,
-} from '../soundUsage';
-import { loadFlowV2Library } from './flowV2LibraryStorage';
-import { loadFlowV2Doc } from './flowV2Storage';
-import { loadGameConfigDoc } from './gameConfigStorage';
+import { summariseSoundLicences, type SoundLicenceSummary } from '../soundUsage';
+import { resolveSoundBindings } from './soundLegacy';
+import { collectPlayedSoundNames, shippedSoundEntries } from './soundReachability';
 import { loadSoundsDoc } from './soundsStorage';
-import { loadSymbolsDoc } from './symbolsStorage';
 
 /**
  * THE PUBLISH GATE for sound — the one place approval means anything.
@@ -20,26 +12,30 @@ import { loadSymbolsDoc } from './symbolsStorage';
  * howler produces without an error and nobody notices in QA. So the check happens loudly at the
  * moment of shipping instead of quietly removing audio (`docs/design/invisible-sound.md` §6).
  *
- * Only a sound something PLAYS can block. An unapproved file sitting unused in the library ships
+ * A draft blocks exactly when the build SHIPS it: the gate asks `soundReachability.ts` the question
+ * `exportProjectSounds` asks, with the same resolved choices. So every place the export finds a
+ * name counts — the `/sound` choices, a cinematic cue and its `pick` alternates, a timeline, a
+ * component, the flow — and so does a draft named after an engine sound, which the export ships
+ * because it replaces one the engine's own code plays. An unapproved file nothing names ships
  * nothing and stops nothing — that is what a library is for.
  */
 
 export interface SoundPublishCheck {
-	/** Bound sounds still marked draft. Non-empty ⇒ the publish is refused unless overridden. */
+	/** Shipped sounds still marked draft. Non-empty ⇒ the publish is refused unless overridden. */
 	unapproved: string[];
 	/** What this publish is about to ship, licence-wise. Informational, never blocking. */
 	licences: SoundLicenceSummary;
 }
 
 /**
- * Read every doc that can bind a sound and report what would block a publish.
+ * Report what would block a publish: the drafts among the library sounds the export would ship.
  *
- * Reads the SAME collectors the `/sound` usage index does, so the tool cannot show a green library
- * that publish then refuses — the list an author sees under "played but not approved" is literally
- * this list.
- *
- * A read failure degrades to "nothing to report" rather than throwing: this is a gate on a release,
- * and a transient R2 hiccup must not become a phantom licensing objection that blocks one.
+ * When unsure, the gate answers what the export would do, so the two never disagree:
+ *  - the sounds doc cannot be read ⇒ the export ships no library sound, so nothing blocks;
+ *  - any other source cannot be read, or a flow cue builds its sound's name at run time ⇒ the
+ *    export ships every sound, so every draft blocks. A name built at run time can be any of them,
+ *    and an unreadable document may name any of them; a transient read failure costs a retry or a
+ *    "publish anyway", where staying quiet would let an unreviewed sound out unnoticed.
  */
 export async function checkSoundsForPublish(
 	clientKey: string,
@@ -50,38 +46,25 @@ export async function checkSoundsForPublish(
 		licences: { bound: 0, missingLicence: [], nonCommercial: [], byLicence: [] },
 	};
 
-	let library, config, symbols, flow, flowLibrary;
+	let library;
 	try {
-		[library, config, symbols, flow, flowLibrary] = await Promise.all([
-			loadSoundsDoc(clientKey, projectKey),
-			loadGameConfigDoc(clientKey, projectKey),
-			loadSymbolsDoc(clientKey, projectKey),
-			loadFlowV2Doc(clientKey, projectKey),
-			loadFlowV2Library(),
-		]);
+		library = await loadSoundsDoc(clientKey, projectKey);
 	} catch {
 		return empty;
 	}
 
 	// A project with no library of its own can neither block nor owe anyone: every sound it plays is
 	// the engine's. Short-circuit so the common case costs nothing.
-	if (!library?.entries?.length) return empty;
+	const entries = library?.entries ?? [];
+	if (!entries.length) return empty;
 
-	const byName = collectSoundBindings({ config, symbols, flow, flowLibrary });
-	const hasBinding = (name: string) => byName.has(name);
-
-	// The BUILT-IN names matter here, and getting this wrong would put a hole straight through the
-	// gate: a sound named after a shipped audiosprite region REPLACES it, so the engine's own code
-	// plays it even though no doc names it. Judged by bindings alone it would look unplayed, and an
-	// unapproved re-skin of `sfx_btn_spin` would sail past the one check meant to catch it.
-	const builtinNames = [...MUSIC_NAMES, ...SOUND_EFFECT_NAMES];
-	const checks = checkSoundLibrary(library, hasBinding, [...byName.keys()], builtinNames);
-	const overriding = new Set(checks.overridesBuiltin);
-	const isPlayed = (name: string) => hasBinding(name) || overriding.has(name);
+	const bindings = await resolveSoundBindings(clientKey, projectKey, library);
+	const played = await collectPlayedSoundNames(clientKey, projectKey, { bindings });
+	const shipped = new Set(shippedSoundEntries(entries, played).map((entry) => entry.name));
+	const ships = (name: string) => shipped.has(name);
 
 	return {
-		unapproved: checks.unapprovedBound,
-		// Licences follow the same rule: an override is shipped audio, so we owe whoever made it.
-		licences: summariseSoundLicences(library, isPlayed),
+		unapproved: entries.filter((e) => e.status !== 'approved' && ships(e.name)).map((e) => e.name),
+		licences: summariseSoundLicences(library, ships),
 	};
 }

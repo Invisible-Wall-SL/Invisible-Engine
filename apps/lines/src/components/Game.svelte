@@ -270,7 +270,8 @@
 	} from '../game/screenTransitions';
 	import { screenTransitionsOn } from '../game/screenTransitionsBinding';
 	import { GAME_BUILTIN_DEFS } from '../game/builtinDefs';
-	import { skipUnusedStockAssets } from '../game/stockAssetBoot';
+	import { anticipationParam } from '../game/anticipationParam';
+	import { anticipationParamRefused, skipUnusedStockAssets } from '../game/stockAssetBoot';
 	import {
 		PLATFORM_JACKPOT_TIERS,
 		platformJackpotValue,
@@ -296,6 +297,7 @@
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
 		loadEditorScenes,
+		preferCompressedTextures,
 		registerBakedComponents,
 		registerEditorTextLocalization,
 	} from '../editor-scenes';
@@ -398,7 +400,7 @@
 		stateApp.assets = {
 			...stateApp.assets,
 			...bakedEditorArtAssets(),
-			...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase()),
+			...bakedFontAssets(bakedFontCatalog(), bakedFontSrcBase(), preferCompressedTextures()),
 			...bakedSymbolAssets(),
 		};
 		// The symbol→binding map is memoised on first read (`symbolMap.ts`), and
@@ -508,20 +510,6 @@
 	// bundle the game will actually run. Un-baked dev or a bundle built before the move ⇒ undefined ⇒
 	// slots and win tiers fall back to the config/coded path exactly as before (byte-identical).
 	publishSoundBindings(bakedSoundBindings());
-
-	// DEV/testing fallback for the reel-anticipation mode. The REAL owner is now the Flow
-	// `enableAnticipationMode` effect (Phase 4, `flowEffects.ts`) — it sets these same flags from an
-	// authored graph. This URL param is kept as the pre-Flow test path: `?anticipation=possible|guaranteed`
-	// turns the mode on at boot so it can be verified live (with the mock RGS) without authoring a flow;
-	// any other / absent value leaves the mode OFF ⇒ nothing mounts, byte-parity. `possible` teases
-	// near-misses (max bound); `guaranteed` only fires once the big win is locked in (min bound).
-	if (typeof location !== 'undefined') {
-		const anticipationParam = new URLSearchParams(location.search).get('anticipation');
-		if (anticipationParam === 'possible' || anticipationParam === 'guaranteed') {
-			stateGame.anticipationMode = true;
-			stateGame.anticipationConfidence = anticipationParam;
-		}
-	}
 
 	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
 	// progress into the pre-mount splash and dismiss it once the game's assets are ready.
@@ -725,6 +713,22 @@
 	// before `<App>` mounts the loader. After the defs above, so the project's own resolve; a boot
 	// that has no doc yet (dev, live-doc) keeps every one (`game/stockAssets.ts`).
 	stateApp.assets = skipUnusedStockAssets(stateApp.assets);
+	// DEV/testing fallback for the reel-anticipation mode. The REAL owner is now the Flow
+	// `enableAnticipationMode` effect (Phase 4, `flowEffects.ts`) — it sets these same flags from an
+	// authored graph. This URL param is kept as the pre-Flow test path: `?anticipation=possible|guaranteed`
+	// turns the mode on at boot so it can be verified live (with the mock RGS) without authoring a flow;
+	// any other / absent value leaves the mode OFF ⇒ nothing mounts, byte-parity. `possible` teases
+	// near-misses (max bound); `guaranteed` only fires once the big win is locked in (min bound).
+	// A pruned standalone build may have left the overlay rig out, so the boot refuses the param there
+	// unless the project's own flow arms the mode (`stockAssetBoot.ts`).
+	const urlConfidence =
+		typeof location !== 'undefined' && !anticipationParamRefused()
+			? anticipationParam(location.search)
+			: null;
+	if (urlConfidence) {
+		stateGame.anticipationMode = true;
+		stateGame.anticipationConfidence = urlConfidence;
+	}
 	// Register the project's baked Invisible FX effects so PLACED `effect` nodes resolve their
 	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
@@ -892,10 +896,7 @@
 		...Object.fromEntries(
 			everyJackpotTier().map((name) => [
 				`jackpot.${name.toLowerCase()}`,
-				valueSource(
-					() => jackpotMultiplier(name) * stateBet.betAmount,
-					numberToCurrencyString,
-				),
+				valueSource(() => jackpotMultiplier(name) * stateBet.betAmount, numberToCurrencyString),
 			]),
 		),
 		// The operator platform jackpot (any kind): each tier's value in money (`platformJackpot.<tier>`),

@@ -571,7 +571,7 @@ function hasRuntimeBundle(): boolean {
  * Compression is NOT a resolution cut: every page ≤4096 stays full-res; only a page over the
  * encoder's ~12 Mpix cap (a rare oversized cinematic) is downscaled. Which device is which, and the
  * `?quality=high|low` pins, live in `pixi-svelte` `deviceClass.ts`. SSR defaults to compressed. */
-function preferCompressedTextures(): boolean {
+export function preferCompressedTextures(): boolean {
 	return typeof window === 'undefined' || compressedTextures();
 }
 
