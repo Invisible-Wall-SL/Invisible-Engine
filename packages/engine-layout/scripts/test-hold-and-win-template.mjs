@@ -29,6 +29,7 @@ const bundled = await esbuild.build({
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
 			`export { reserveExpandingBoard, expandingBoardReserved } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
+			`export { resolveReelGridFromNode } from '../src/lib/reelGrid.ts';`,
 			`export { HOLD_AND_WIN_BANNER_SCREENS, HOLD_AND_WIN_BANNER_SHOW_SOURCES, SELF_MOUNTED_BANNER_SCREENS, bannerScreenFor, bannerScreenShows, isSelfMountedBannerScreen } from '../src/lib/holdAndWinBanners.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
 		].join('\n'),
@@ -403,12 +404,12 @@ const SIZE = {
 		'the grid node does not move',
 	);
 	assert(
-		g1.cellSize === 66 && g1.boardNudgeY === -99,
-		`6 rows reserve 66 px cells nudged up 1.5 rows (got ${g1.cellSize}, ${g1.boardNudgeY})`,
+		g1.cellSize === 66 && g1.boardNudgeRows === -1.5 && g1.boardNudgeY === undefined,
+		`6 rows reserve 66 px cells nudged up 1.5 rows (got ${g1.cellSize}, ${g1.boardNudgeRows})`,
 	);
 	const withOption = mod.getFullSceneSet('holdAndWin', { maxRows: 6 });
 	assert(
-		gridOf(withOption).cellSize === 66 && gridOf(withOption).boardNudgeY === -99,
+		gridOf(withOption).cellSize === 66 && gridOf(withOption).boardNudgeRows === -1.5,
 		'getFullSceneSet takes maxRows',
 	);
 	assert(
@@ -417,6 +418,106 @@ const SIZE = {
 		'other kinds ignore maxRows',
 	);
 	assert(mod.expandingBoardReserved(plain, 3), 'a board that never grows is always reserved');
+}
+
+// THE RESERVE HOLDS ON A SCALED GRID. The game adds the board nudge in layout px OUTSIDE the grid's
+// per-layout scale (`boardLayout()`), so a px lift sized from the unscaled cell fell short on every
+// scaled layout (Getting Hot: scale 2.59 desktop, 1.46 portrait — its grown 5-row board ran off the
+// bottom). Read through the game's own resolver, the reserved grown block is centred on where the base
+// board's centre was, in every layout, whatever that layout's scale.
+{
+	const plain = mod.getFullSceneSet('holdAndWin');
+	const scales = { desktop: 2.59, landscape: 1.8, tablet: 1.2, portrait: 1.46 };
+	const scaled = {
+		...plain,
+		scenes: plain.scenes.map((sc) => ({
+			...sc,
+			nodes: sc.nodes.map((n) => {
+				if (n.kind !== 'reelGrid') return n;
+				const overrides = { ...n.overrides };
+				for (const [type, k] of Object.entries(scales)) {
+					if (type === 'desktop') continue;
+					overrides[type] = { ...overrides[type], scale: { x: k, y: k } };
+				}
+				return {
+					...n,
+					cellSize: 40,
+					scale: { x: scales.desktop, y: scales.desktop },
+					overrides,
+				};
+			}),
+		})),
+	};
+	const gridOf = (d) =>
+		walk(d.scenes.find((sc) => sc.id === 'basegame').nodes).find((n) => n.kind === 'reelGrid');
+	const maxRows = 5;
+	const grid = gridOf(mod.reserveExpandingBoard(scaled, maxRows));
+	for (const type of Object.keys(scales)) {
+		const base = mod.resolveReelGridFromNode(gridOf(scaled), type);
+		const grown = mod.resolveReelGridFromNode(grid, type);
+		const pitch = grown.cellHeight + grown.gapY;
+		const top = grown.y + grown.boardNudgeY - (grid.rows * pitch) / 2;
+		const centre = top + (maxRows * pitch) / 2;
+		assert(
+			Math.abs(centre - (base.y + base.boardNudgeY)) < 1e-6,
+			`${type} (scale ${scales[type]}): the grown ${maxRows}-row block is centred where the base board was (off by ${centre - base.y})`,
+		);
+	}
+	// A doc reserved the old way carries the px lift `-(extra × cellSize) / 2`: re-reserving swaps it
+	// for the row nudge; an author's own px nudge is kept; an unreserved legacy doc reads as unreserved
+	// (so the editor offers the button) and is never moved until the author presses it.
+	const legacy = {
+		...scaled,
+		scenes: scaled.scenes.map((sc) => ({
+			...sc,
+			nodes: sc.nodes.map((n) => (n.kind === 'reelGrid' ? { ...n, boardNudgeY: -40 } : n)),
+		})),
+	};
+	assert(!mod.expandingBoardReserved(legacy, maxRows), 'a px-lift reserve reads as unreserved');
+	const migrated = gridOf(mod.reserveExpandingBoard(legacy, maxRows));
+	assert(
+		migrated.boardNudgeY === undefined && migrated.boardNudgeRows === -1,
+		`the legacy px lift is replaced by the row nudge (got ${migrated.boardNudgeY}, ${migrated.boardNudgeRows})`,
+	);
+	const authored = {
+		...scaled,
+		scenes: scaled.scenes.map((sc) => ({
+			...sc,
+			nodes: sc.nodes.map((n) => (n.kind === 'reelGrid' ? { ...n, boardNudgeY: 7 } : n)),
+		})),
+	};
+	const kept = mod.reserveExpandingBoard(authored, maxRows);
+	assert(gridOf(kept).boardNudgeY === 7, "the author's own px nudge is kept");
+	assert(mod.expandingBoardReserved(kept, maxRows), 'and reads as reserved');
+	assert(
+		mod.resolveReelGridFromNode(gridOf(scaled), 'desktop').boardNudgeY === 0,
+		'no row nudge ⇒ the resolved nudge is the px nudge, unchanged',
+	);
+	// A canvas rescale scales the node's scale and its px nudge together, so an old lift of −40 at
+	// scale 1 is −60 at scale 1.5: still the old lift, swapped rather than doubled.
+	const rescaled = {
+		...scaled,
+		scenes: scaled.scenes.map((sc) => ({
+			...sc,
+			nodes: sc.nodes.map((n) =>
+				n.kind === 'reelGrid' ? { ...n, scale: { x: 1.5, y: 1.5 }, boardNudgeY: -60 } : n,
+			),
+		})),
+	};
+	const swapped = gridOf(mod.reserveExpandingBoard(rescaled, maxRows));
+	assert(
+		swapped.boardNudgeY === undefined && swapped.boardNudgeRows === -1,
+		`a rescaled legacy lift is swapped, not doubled (got ${swapped.boardNudgeY}, ${swapped.boardNudgeRows})`,
+	);
+	// A board that no longer grows (maxRows back to its rows) loses its row lift.
+	const reserved = mod.reserveExpandingBoard(scaled, maxRows);
+	assert(!mod.expandingBoardReserved(reserved, 3), 'a stale row lift reads as unreserved');
+	const unlifted = gridOf(mod.reserveExpandingBoard(reserved, 3));
+	assert(
+		unlifted.boardNudgeRows === undefined && unlifted.cellSize === grid.cellSize,
+		'reserving the base rows clears the row lift and keeps the cells',
+	);
+	assert(mod.expandingBoardReserved(scaled, 3), 'an unlifted board that never grows is reserved');
 }
 
 // An expanding board (11b) reserves its maxRows area: the grid moves up, its cells shrink, and the
@@ -444,7 +545,8 @@ for (const [board, options] of [
 		// The base board is centred on the grid node, lifted by its board nudge; the reserved rows hang
 		// below it.
 		const cx = gx;
-		const top = gy + (grid.boardNudgeY ?? 0) - (board.rows * grid.cellSize) / 2;
+		const lift = (grid.boardNudgeY ?? 0) + (grid.boardNudgeRows ?? 0) * grid.cellSize;
+		const top = gy + lift - (board.rows * grid.cellSize) / 2;
 		const bottomEdge = top + maxRows * grid.cellSize;
 		const cy = (top + bottomEdge) / 2;
 		const bw = (board.reels * grid.cellSize) / 2;
@@ -645,7 +747,7 @@ assert(
 	const BASE_BANNERS = ['instantWinBanner', 'randomMetreBanner', 'platformJackpotBanner'];
 	const HW_PINNED = {
 		plain: 'cc06fdad003f56bb',
-		maxRows6: 'e2ed37df4b4a258c',
+		maxRows6: '16c8d688cb9e209c',
 		hotfire: '70605b3c2065e229',
 	};
 	const BEFORE_WINDOW_SCALE = {
@@ -662,6 +764,20 @@ assert(
 			delete rest.scaleWithWindow;
 			return rest;
 		}),
+	});
+	// The expanding set's reel grid lifts in ROWS (2026-11-13) where it lifted in px: put the px lift
+	// back, and the set must hash as it did, so the row nudge is that change's only edit.
+	const withPxLift = (d) => ({
+		...d,
+		scenes: d.scenes.map((sc) => ({
+			...sc,
+			nodes: sc.nodes.map((n) => {
+				if (n.kind !== 'reelGrid' || n.boardNudgeRows === undefined) return n;
+				const rest = { ...n };
+				delete rest.boardNudgeRows;
+				return { ...rest, boardNudgeY: n.boardNudgeRows * n.cellSize };
+			}),
+		})),
 	});
 	const BEFORE_BANNERS = {
 		plain: '3f585158f5da883f',
@@ -687,11 +803,11 @@ assert(
 			`the Hold and Win set (${name}) seeds its feature intro and outro unscaled`,
 		);
 		assert(
-			hash(withoutWindowScale(set)) === BEFORE_WINDOW_SCALE[name],
+			hash(withPxLift(withoutWindowScale(set))) === BEFORE_WINDOW_SCALE[name],
 			`the Hold and Win set (${name}) changed beyond the window-scale tick`,
 		);
 		assert(
-			hash(withoutBanners(withoutWindowScale(set))) === BEFORE_BANNERS[name],
+			hash(withoutBanners(withPxLift(withoutWindowScale(set)))) === BEFORE_BANNERS[name],
 			`the Hold and Win set (${name}) changed beyond its banner screens`,
 		);
 	}
