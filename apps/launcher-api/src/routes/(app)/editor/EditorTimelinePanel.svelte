@@ -57,7 +57,10 @@
 	import {
 		NODE_IDENTITY,
 		SCREEN_CHANNELS,
+		addCueFx,
 		addRigClipStrip,
+		cueFxPlayed,
+		cueFxTargets,
 		channelKeyState,
 		componentTimelineId,
 		componentTimelinesOf,
@@ -80,6 +83,7 @@
 		onionFrames,
 		playbackCuesCrossed,
 		ratioKeyTracks,
+		removeCueFx,
 		screenCueFx,
 		screenTimelineId,
 		screenTimelinesOf,
@@ -113,6 +117,12 @@
 		textTrackOf,
 		type TextMode,
 	} from '$lib/timeline/timelineRows';
+	import {
+		ELEMENT_FX,
+		ELEMENT_FX_CATEGORIES,
+		customElementFxList,
+		isPlayableElementFxKind,
+	} from 'constants-shared/elementFx';
 	import { playElementFxPreview } from './elementFxPreview.client.svelte';
 	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
@@ -166,6 +176,8 @@
 		layoutLabel?: string;
 		/** The sounds and flow cues the cue inspector lists by name; absent ⇒ every name is typed. */
 		cueLists?: CueLists;
+		/** The cue inspector added or removed an Element FX on `scene` (its screen or a node). */
+		onSceneEdit?: () => void;
 	}
 
 	let {
@@ -182,6 +194,7 @@
 		baseLayoutType,
 		layoutLabel,
 		cueLists,
+		onSceneEdit,
 	}: Props = $props();
 
 	/** The animations a rig node can play on a strip; empty for any other node, or a rig the canvas
@@ -403,6 +416,22 @@
 				}),
 				auditionSound,
 				auditioning: () => auditionCue,
+				cueEffects: (cue: string) =>
+					!component && scene
+						? {
+								playing: cueFxPlayed(scene, cue),
+								targets: cueFxTargets(scene),
+								kinds: cueFxKinds(),
+							}
+						: null,
+				addCueEffect: (cue: string, target: string, kind: string) => {
+					const next = !component && scene ? addCueFx(scene, cue, target, kind) : null;
+					if (next) onSceneEdit?.();
+					return next;
+				},
+				removeCueEffect: (ref: string) => {
+					if (!component && scene && removeCueFx(scene, ref)) onSceneEdit?.();
+				},
 				clips: (actorId: string) => {
 					const open = tl?.doc() ?? doc;
 					const cast = open.stage.cast.find((c) => c.actorId === actorId);
@@ -417,6 +446,20 @@
 		tl.setTime(0);
 		tl.renderTimeline();
 		tl.renderInspector();
+	}
+
+	/** The effects the cue inspector's ✨ Effects block adds, by category, the project's own
+	 *  (`/shaders`) among them. */
+	function cueFxKinds(): { label: string; options: { value: string; label: string }[] }[] {
+		const specs = [...ELEMENT_FX, ...customElementFxList().map((effect) => effect.spec)].filter(
+			(spec) => isPlayableElementFxKind(spec.kind),
+		);
+		return ELEMENT_FX_CATEGORIES.map((category) => ({
+			label: category.label,
+			options: specs
+				.filter((spec) => spec.category === category.id)
+				.map((spec) => ({ value: spec.kind, label: spec.label })),
+		})).filter((group) => group.options.length);
 	}
 
 	// ---- cue audition (the cue inspector's ▶) -------------------------------------------------

@@ -10,7 +10,7 @@
 	import { boardDimensions } from '../game/gameConfig';
 	import { getContext } from '../game/context';
 	import { cellWindow, getSymbolX, stateGameDerived } from '../game/stateGame.svelte';
-	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import { respinTopSeatRow, stateRespinBoard } from '../game/stateRespinBoard.svelte';
 	import RespinCounterArt from './RespinCounterArt.svelte';
 
 	/**
@@ -37,7 +37,7 @@
 	});
 
 	const x = $derived((getSymbolX(0) + getSymbolX(boardDimensions().x - 1)) / 2);
-	const aboveBoard = $derived(cellWindow(0, 0).top - SYMBOL_SIZE * 0.3);
+	const aboveBoard = $derived(cellWindow(0, respinTopSeatRow()).top - SYMBOL_SIZE * 0.3);
 
 	/**
 	 * Above the board — unless the layout puts the board's top at the canvas edge (a portrait layout,

@@ -615,11 +615,26 @@ reported under `modes.<id>.holdAndWin`.
   game start in Flow (see [Flow](flow.md)). A project made with Game Maker's **Lines game:
   collector + enhancements** has it all already.
 
+  **Rows added** (shown with enhancements or a board expansion) says where the board draws the rows
+  it adds: Expand's or the super bonus's, or an unlocked row. **Below the board** is the default,
+  as every game has always drawn them. **Above the board** draws them on top instead, and
+  **Alternating** puts the first below, the next above, and so on; either way the respin counter
+  and the coded dials move up with the top row; an Enhancements screen placed in the Scene
+  Editor stays where you put it, so move its dials up yourself. It is presentation only: what the
+  server opens, and the rows the cells keep, are the same either way. Game Maker's **Lines game:
+  collector + enhancements** sets **Above the board** (`addRowsAt`), as the partner's Getting Hot
+  adds Expand's row and both of Force 5's on top.
+
+  **A row opens with** (same place) is the coded fade (the default) or **the Locked Row component's
+  open**: each opening row's locked cells play their component's `open`, row by row, with **Between
+  rows** ms between them (the checker refuses more than 5000). The Scene Editor's Locked Row needs a
+  **lockedComponent**; without one the rows still fade. Presentation only, like **Rows added**.
+
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;
   every letter lit pays the jackpot).
 - **Board expansion** — tick **Rows unlock during the feature** to grow the respin board below the
-  base grid. **Starts at** must be the grid's rows (the base game plays them); **Grows to** is the
+  base grid (or where **Rows added** says). **Starts at** must be the grid's rows (the base game plays them); **Grows to** is the
   most rows it reaches. **A row opens when**:
   - **the bottom open row is full** — every cell of it held;
   - **an unlock symbol lands** — a symbol tagged `unlock` (pick the reels it may land on); it opens
@@ -627,7 +642,8 @@ reported under `modes.<id>.holdAndWin`.
   - **enough symbols are held** — one threshold per row that can open, rising, each reachable on
     the rows open before it.
 
-  **An unlock resets the respins** (on by default). **Row jackpots** pay a jackpot once when that
+  **An unlock resets the respins** (on by default). Where the opened rows draw and how they open
+  are **Rows added** and **A row opens with**, above. **Row jackpots** pay a jackpot once when that
   many rows are open (e.g. 6 rows → GRAND). With a full-board jackpot, a full board means every
   cell of **all** the rows it can grow to. The checker refuses column letters with expansion (a
   letter needs a fixed column height) and the full-row rule when only collectors stick (a row could

@@ -1863,6 +1863,12 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
     the game. It needs access to Invisible Sound. An engine sound's ▶ is greyed out (it lives in
     the shipped audio sprite, which the launcher can't play a piece of; hear it in the game), and
     a stop cue has none.
+  - **✨ Effects (screen timelines).** An empty or `signal:` cue gets an **Effects** block: each
+    effect the cue plays (🗑 removes it from its element), then **on** (the whole screen or any
+    node) and **effect** (the Element FX list, the project's own Shader Graph effects included).
+    Picking an effect adds it to that element's Element FX as an _On cue_ entry that plays once
+    each time the playhead passes the cue; an empty cue is named `signal:cue1` (then `cue2`, …).
+    Tune it afterwards in the element's **Element FX** section in Properties.
   - **Sound options.** A sound cue gets a **🔊 Sound** (or **🎵 Music**) section under the fields.
     **do** picks **▶ play** or **⏹ stop**. An empty field shows its default and stores nothing, so
     a cue with no options plays exactly as a plain cue always did.
@@ -2490,19 +2496,29 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   a `held`. The preview still shows the **tileImage**.
   **Locked Row** is what an **expanding** respin board (Game Config → Board expansion) draws over
   every cell of a row that has not opened yet (**lockedImage**, **lockedTint**). Without an image the
-  game draws its own dark panel marked LOCKED. Like the tiles, where you drop it doesn't matter; the
-  template puts one on the **Respin board** screen. **Select it** to preview one locked row under the
-  reel grid. The extra rows grow **below** the base grid, so an expanding game needs room there. A
+  game draws its own dark panel marked LOCKED. Its **lockedComponent** picks a component each locked
+  cell draws as instead (sized to the cell, fed its `reel` and `row`), so a locked plate can carry
+  its own idle; with Game Config's **A row opens with: the Locked Row component's open**, a row opens
+  by playing that component's `open` on each of its cells, row by row. Give the component a trigger
+  input named `open` (its state machine moves to an `open` state) or a timeline that plays on `open`;
+  tick that timeline's **holds the cue** and the round waits for its end, otherwise for the longest
+  `open` timeline it has, never more than 4 s. The preview still shows the **lockedImage**. Like the
+  tiles, where you drop it doesn't matter; the template puts one on the **Respin board** screen.
+  **Select it** to preview one locked row next to the reel grid. The extra rows grow **below** the
+  base grid (or **above** it, when Game Config → Respins → **Rows added** is *Above the board*, as
+  Getting Hot's template sets, or alternately below and above for *Alternating*), so an expanding
+  game needs room there. A
   project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
   with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
-  the whole board lifts by half its extra rows (its **board nudge rows**), so the grown board sits where the base
+  the whole board lifts by half its extra rows (lowers, for rows added above; its **board nudge rows**), so the grown board sits where the base
   board was, and the pieces above and below are pushed clear. A project that turns expansion on **later** (or was
   reserved before 2026-11-13, when the lift was a px **board nudge** that fell short on a scaled grid) shows a
   **⇕ Reserve rows for board expansion (N)** entry in the Screens panel's **⋯** menu: it applies the same cell size
   and row lift to the reel grid without moving it (undoable), and swaps an old px lift for the row lift. Move any
   piece that still sits under the grown board yourself.
   To **see** the grown board, select the reel grid and tick **preview N rows** (next to **board nudge rows**): the
-  canvas draws the rows the respin board opens below the base rows, locked (the selected Locked Row's art, else
+  canvas draws the rows the respin board opens where the game opens them (below the base rows, above
+  them, or alternating below then above, as **Rows added** says), locked (the selected Locked Row's art, else
   the coded LOCKED panel), with the whole grown block outlined. It is view only, and it shows on every layout
   tab, so check each one. **board nudge rows** is also a plain field: it moves the whole board by whole rows (−1 =
   one row up) as each layout draws them, on top of the px **board nudge**.

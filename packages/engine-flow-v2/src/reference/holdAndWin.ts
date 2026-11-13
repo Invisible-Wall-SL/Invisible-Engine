@@ -871,6 +871,9 @@ const CUES: TemplateVocabulary['cues'] = [
 			{ name: 'unlockers', type: list(CELL) },
 		],
 	},
+	// Each row an expanding board opens, as it starts and ends opening; `row` is its DATA row.
+	{ name: 'rowOpening', payload: [{ name: 'row', type: INT }] },
+	{ name: 'rowOpened', payload: [{ name: 'row', type: INT }] },
 
 	{
 		name: 'respinJackpotWin',

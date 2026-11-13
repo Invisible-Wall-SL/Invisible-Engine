@@ -92,6 +92,21 @@ export interface TimelineHost {
 	auditionSound?(kind: CueSoundKind, name: string, sound: CueSoundOptions | undefined): void;
 	/** The `sfx:` / `music:` cue being auditioned now, or null — ▶ shows ■ for it. */
 	auditioning?(): string | null;
+	/** The cue inspector's EFFECTS block for `cue`: what it plays, what it can play an effect on,
+	 *  and the effects it can add. Null ⇒ no block (a component, `/rigger`). Default: null. */
+	cueEffects?(cue: string): TimelineCueEffects | null;
+	/** Make `cue` play effect `kind` on `target`: the cue to store (it may become a `signal:`
+	 *  cue), or null when nothing was added. */
+	addCueEffect?(cue: string, target: string, kind: string): string | null;
+	/** Take the effect `ref` off its element. */
+	removeCueEffect?(ref: string): void;
+}
+
+/** What {@link TimelineHost.cueEffects} lists. */
+export interface TimelineCueEffects {
+	playing: Array<{ ref: string; label: string }>;
+	targets: Array<{ key: string; label: string }>;
+	kinds: Array<{ label: string; options: Array<{ value: string; label: string }> }>;
 }
 
 /** A sound the NAME picker lists. */

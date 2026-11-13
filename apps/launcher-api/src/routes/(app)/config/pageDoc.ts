@@ -4,6 +4,8 @@ import {
 	stripWidthFor,
 	type GameConfigDoc,
 	type HoldAndWinGame,
+	type AddRowsAt,
+	type RowOpenStyle,
 	type LegacyBonusKeys,
 	type RespinPlay,
 } from 'game-config';
@@ -31,6 +33,30 @@ export const adoptSaved = (saved: GameConfigDoc): GameConfigDoc => structuredClo
 export const setRespinPlay = (rules: HoldAndWinGame, play: RespinPlay): void => {
 	if (play === 'manual') rules.play = 'manual';
 	else delete rules.play;
+};
+
+/** Set where a respin mode's growing board draws the rows it adds, in place. Only `above` and
+ *  `split` are stored: `below` is the default, so choosing it leaves the rules as a project that
+ *  never chose saved them. */
+export const setAddRowsAt = (rules: HoldAndWinGame, at: AddRowsAt): void => {
+	if (at === 'above' || at === 'split') rules.addRowsAt = at;
+	else delete rules.addRowsAt;
+};
+
+/** Set how a respin mode's locked rows open, in place. Only `component` is stored (with its
+ *  stagger); `fade` is the default, so choosing it drops both fields. */
+export const setOpenStyle = (rules: HoldAndWinGame, style: RowOpenStyle): void => {
+	if (style === 'component') rules.openStyle = 'component';
+	else {
+		delete rules.openStyle;
+		delete rules.openStagger;
+	}
+};
+
+/** Set the ms between rows of a component opening, in place; 0 is the default and is not stored. */
+export const setOpenStagger = (rules: HoldAndWinGame, ms: number): void => {
+	if (ms > 0) rules.openStagger = ms;
+	else delete rules.openStagger;
 };
 
 /** Mark a respin mode as one whose server draws enhancements, in place. Only `true` is stored, so
