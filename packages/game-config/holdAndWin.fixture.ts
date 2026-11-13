@@ -813,9 +813,9 @@ console.log('\nwhere a growing board draws its added rows (addRowsAt)');
 		HOLD_AND_WIN_PRESET_IDS.map(() => undefined),
 	);
 	check(
-		'Game Maker’s collector + enhancements template (Getting Hot) adds them below',
+		'Game Maker’s collector + enhancements template (Getting Hot) adds them on top',
 		primaryHoldAndWin(normalize(clone(HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE)))?.addRowsAt,
-		'below',
+		'above',
 	);
 	const withAt = (addRowsAt: unknown) =>
 		primaryHoldAndWin(

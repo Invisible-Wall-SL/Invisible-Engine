@@ -621,7 +621,8 @@ reported under `modes.<id>.holdAndWin`.
   respin counter and the coded dials move up with them; an Enhancements screen placed in the Scene
   Editor stays where you put it, so move its dials up yourself. It is presentation only: what the
   server opens, and the rows the cells keep, are the same either way. Game Maker's **Lines game:
-  collector + enhancements** sets **Below the board** (`addRowsAt`).
+  collector + enhancements** sets **Above the board** (`addRowsAt`), as the partner's Getting Hot
+  adds Expand's row and both of Force 5's on top.
 
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;

@@ -1135,25 +1135,24 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
-- 2026-11-13 — **Where a growing respin board draws its added rows is a Game Config setting.** The
-  owner: Getting Hot adds Expand's row below, and it must be easy to change. New field on the Hold
-  and Win block, `addRowsAt: 'below' | 'above'` (absent ⇒ `below`, so every existing game draws as
-  before). It covers an `expansion` board's unlocked rows and Expand / the super bonus, which have no
-  `expansion` block. `/config` → Hold and Win rules → Respins → **Rows added** (shown with
-  enhancements or an expansion). Game Maker's collector + enhancements template sets `below`.
+- 2026-11-13 — **Where a growing respin board draws its added rows is a Game Config setting, and
+  Getting Hot adds them on top.** New field on the Hold and Win block, `addRowsAt: 'below' |
+  'above'` (absent ⇒ `below`, so every existing game draws as before). It covers an `expansion`
+  board's unlocked rows and Expand / the super bonus, which have no `expansion` block. `/config` →
+  Hold and Win rules → Respins → **Rows added** (shown with enhancements or an expansion). Game
+  Maker's collector + enhancements template sets `above`: the partner confirmed rows count
+  top-down and Expand's row and both of Force 5's go on top, and the owner saw it in their game (the
+  collector stays where it is on screen, a row appears above it).
   - It is presentation only: a row's INDEX never changes (a held cell keeps its row, the reducer's
     rule), only where it draws. `respinSeatRow` (`stateRespinBoard.svelte.ts`) maps a respin row to
-    its lattice row: `above` draws row `base` at `-1`, the next at `-2`. Every respin cell, tile,
-    held symbol, locked cell and flight goes through it; the coded counter and dials sit above the
-    top drawn row (`respinTopSeatRow`). An Enhancements screen placed in the Scene Editor stays put.
-  - The partner's wire is mapped onto our rows by the facade (#1666, `seatRowShift`): their bonus
-    board numbers the opened row FIRST, ours after the base rows. So the setting decides where the row
-    draws whatever the wire numbers.
-  - **Open (asked the partner):** their round shows the collector at row 0 of the 3-row board and at
-    row 1 of the 4-row one. With row 0 = top that means their client adds the row ABOVE; with row 0 =
-    bottom (which would also flip our base board) it means below. The template follows the owner
-    (`below`) until they answer; flipping it is one `/config` change.
-  - Gate: `packages/game-config/holdAndWin.fixture.ts` (presets absent, template `below`, `above`
+    its lattice row: `above` draws row `base` at `-1`, the next at `-2`, so the board grows upward
+    and nothing on it moves. Every respin cell, tile, held symbol, locked cell (so the unlock fade
+    plays on top) and flight goes through it; the coded counter and dials sit above the top drawn row
+    (`respinTopSeatRow`). An Enhancements screen placed in the Scene Editor stays put.
+  - The partner's wire is mapped onto our rows by the facade (#1666): their bonus board numbers the
+    opened rows first (top-down), ours number them outward from the base rows, which `above` draws
+    upward. So the wire's top row draws at the top.
+  - Gate: `packages/game-config/holdAndWin.fixture.ts` (presets absent, template `above`, `above`
     kept, junk dropped). Measured locally: with `above`, row 3 draws at y −60 (row 0 at 60) and the
     top seat moves to −1; with the default, row 3 stays at 420.
 - 2026-11-13 — **The partner-wire mock answers a collect and Force 5 as the partner's server
