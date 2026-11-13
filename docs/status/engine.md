@@ -602,6 +602,17 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-13 — **The stock-folder sweep keeps a folder whole when it cannot read a kept file's
+  pages.** Follow-up to #1651's review: the sweep deleted every stock-folder file no kept descriptor
+  named *as `namedFiles` parsed it*, so a kept key whose descriptor named its pages in another form
+  drew blank in a desktop or standalone build. `stockAssetPrune.js` now (1) reads Pixi's
+  multi-texture sheet (`textures[].image`), a font quoting `file='…'`, and matches pages without
+  case (a Windows exe loads `Page.png` from `page.png`); (2) skips the sweep of a stock folder whose
+  kept atlas, sheet or font named no page, and of every folder when that descriptor sits outside
+  them or a kept file outside them cannot be read (`artKeptAllBecause` now also stops the sweep);
+  the skipped-key prune still runs; (3) `namedBy` decodes `%XX` and backslashes and ignores case.
+  `stock.json` gains `sweepKeptBecause`. The shared runtime is not pruned, so online games are
+  untouched. Gate: `check-stock-asset-prune.mts` §8 (6 checks, each failing on the old code).
 - 2026-11-12 — **A desktop build and a delivery ship only what the game loads: the build also leaves
   out the art the boot skips and the sample folders' dead files.** The owner's ☁ Publish of
   `overlay_buffaloduel` (v12, engine `248b7157`) shipped 337 files, 53.5 MB, with 38 files of

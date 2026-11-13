@@ -24,6 +24,11 @@
  *  7. EXPORTED ART THE BOOT NEVER LOADS: the plan names the `editorArt` entries no name the game can
  *     draw reaches (as the boot's `editorArtUnused` does) and nothing on doubt; the prune removes
  *     their descriptors, pages and twins, but keeps a page any other kept file names.
+ *  8. THE SWEEP NEVER DELETES ON DOUBT: a kept key's pages stay when its descriptor is a Pixi
+ *     multi-texture sheet, a font quoting `file='…'` or an atlas naming its page in another letter
+ *     case; a kept sheet in a form the parser cannot read keeps its folder whole (every folder when
+ *     it sits outside them), and so does a descriptor outside the stock folders that cannot be read.
+ *     The bundle and the code name a file through URL escapes, backslashes and any letter case.
  */
 
 import {
@@ -48,6 +53,7 @@ import {
 import type { GameConfigDoc } from '../packages/game-config/index.ts';
 
 import {
+	normalisedPathText,
 	prunesThisBuild,
 	pruneStockFiles,
 	stockPrunedDefine,
@@ -506,6 +512,115 @@ check(
 	'a descriptor that cannot be read keeps every art file, and the stock prune still runs',
 	[doubt.removed, doubt.artDoubt, doubt.stock.includes('spines/bigwin/mm_bigwin.json')],
 	[[], true, true],
+);
+
+console.log('\n8. the sweep never deletes on doubt');
+const sweep = (
+	extra: Record<string, string> = {},
+): { left: string[]; removed: string[]; sweepDoubt: boolean } => {
+	const dir = mkdtempSync(join(tmpdir(), 'sweep-prune-'));
+	try {
+		const put = (rel: string, body: string) => {
+			const abs = join(dir, rel);
+			mkdirSync(join(abs, '..'), { recursive: true });
+			writeFileSync(abs, body);
+		};
+		put(
+			'sprites/multi/multi.json',
+			JSON.stringify({ textures: [{ image: 'multi.webp', frames: {} }] }),
+		);
+		put('sprites/multi/multi.webp', 'page');
+		put('sprites/multi/index.ts', 'export {}');
+		put(
+			'fonts/quoted/quoted.xml',
+			"<font><info face='q'/><pages><page id='0' file='quoted.png'/></pages></font>",
+		);
+		put('fonts/quoted/quoted.png', 'page');
+		put('fonts/quoted/index.ts', 'export {}');
+		put('spines/cased/cased.atlas', 'Cased.png\nsize: 4,4\n');
+		put('spines/cased/cased.json', '{"skeleton":{}}');
+		put('spines/cased/cased.png', 'page');
+		put('spines/cased/cased.webp', 'twin');
+		put('spines/cased/index.ts', 'export {}');
+		for (const [rel, body] of Object.entries(extra)) put(rel, body);
+		const result = pruneStockFiles(dir, {
+			skipped: [],
+			files: {
+				multi: ['sprites/multi/multi.json'],
+				quoted: ['fonts/quoted/quoted.xml'],
+				cased: ['spines/cased/cased.atlas', 'spines/cased/cased.json'],
+				...(extra['sprites/odd/odd.json'] ? { odd: ['sprites/odd/odd.json'] } : {}),
+			},
+			folders: [
+				'sprites/multi',
+				'fonts/quoted',
+				'spines/cased',
+				...(extra['sprites/odd/odd.json'] ? ['sprites/odd'] : []),
+			],
+		});
+		return {
+			left: listed(dir),
+			removed: result.removed.map((file: { rel: string }) => file.rel).sort(),
+			sweepDoubt: !!result.sweepKeptBecause,
+		};
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+const read = sweep();
+check(
+	'a multi-texture sheet, a single-quoted font and a page in another case keep their pages',
+	read.left.filter((rel) => !rel.endsWith('index.ts')),
+	[
+		'fonts/quoted/quoted.png',
+		'fonts/quoted/quoted.xml',
+		'spines/cased/cased.atlas',
+		'spines/cased/cased.json',
+		'spines/cased/cased.png',
+		'spines/cased/cased.webp',
+		'sprites/multi/multi.json',
+		'sprites/multi/multi.webp',
+	],
+);
+check(
+	'every descriptor read, the sweep still runs',
+	[read.removed, read.sweepDoubt],
+	[['fonts/quoted/index.ts', 'spines/cased/index.ts', 'sprites/multi/index.ts'], false],
+);
+const odd = sweep({
+	'sprites/odd/odd.json': JSON.stringify({ frames: {}, meta: { images: ['odd.png'] } }),
+	'sprites/odd/odd.png': 'page',
+	'sprites/odd/index.ts': 'export {}',
+});
+check(
+	'a kept sheet whose pages are not read keeps its folder whole; the other folders are swept',
+	[odd.left.filter((rel) => rel.startsWith('sprites/odd/')), odd.removed, odd.sweepDoubt],
+	[
+		['sprites/odd/index.ts', 'sprites/odd/odd.json', 'sprites/odd/odd.png'],
+		['fonts/quoted/index.ts', 'spines/cased/index.ts', 'sprites/multi/index.ts'],
+		true,
+	],
+);
+for (const [label, extra] of [
+	['an unreadable descriptor outside the stock folders', { 'editor-art/bad.json': '{ not json' }],
+	[
+		'a sheet outside the stock folders whose pages are not read',
+		{ 'editor-art/odd.json': JSON.stringify({ frames: {}, meta: { images: ['x.png'] } }) },
+	],
+] as const) {
+	const outside = sweep(extra);
+	check(`${label} sweeps no folder`, [outside.removed, outside.sweepDoubt], [[], true]);
+}
+check(
+	'the bundle and the code name a file through URL escapes, backslashes and any case',
+	[
+		normalisedPathText('"assets/fonts/my%20font/a.json"').includes('fonts/my font/a.json'),
+		normalisedPathText('"fonts\\\\goldFont\\\\MM_Gold.json"').includes(
+			'fonts/goldfont/mm_gold.json',
+		),
+		normalisedPathText('"bad%zz%e0"'),
+	],
+	[true, true, '"bad%zz%e0"'],
 );
 
 if (failures) {
