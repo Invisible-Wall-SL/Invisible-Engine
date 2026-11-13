@@ -37,6 +37,14 @@
 	import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
 	import { partnerButtons } from '$lib/partnerLaunch';
 	import {
+		DEFAULT_SHARE_EXPIRY_DAYS,
+		SHARE_EXPIRY_DAYS,
+		SHARE_OPENS_PER_MINUTE,
+		shareLinkButton,
+		type PartnerShareLinkView,
+	} from '$lib/partnerShare';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import {
 		COIN_OVERLAY_ADD_ON_STYLES,
 		COIN_OVERLAY_PRESET_STYLE,
 		type AddOnOutcome,
@@ -310,6 +318,83 @@
 			partnerErr = e instanceof Error ? e.message : String(e);
 		} finally {
 			partnerBusy = false;
+		}
+	}
+
+	// No-login partner share links (`/play/<token>`): made, listed and revoked per project.
+	let shareFor = $state<Project | null>(null);
+	let shareDays = $state<number>(DEFAULT_SHARE_EXPIRY_DAYS);
+	let shareLinks = $state<PartnerShareLinkView[]>([]);
+	let shareMade = $state('');
+	let shareCopied = $state(false);
+	let shareBusy = $state(false);
+	let shareErr = $state('');
+
+	async function shareCall(
+		method: 'GET' | 'POST' | 'DELETE',
+		project: string,
+		extra: { days?: number; id?: string } = {},
+	): Promise<{ links: PartnerShareLinkView[]; url?: string }> {
+		const query = new URLSearchParams({ project, ...(extra.id ? { id: extra.id } : {}) });
+		const res = await fetch(
+			method === 'POST'
+				? '/api/game-maker/partner-share'
+				: `/api/game-maker/partner-share?${query}`,
+			method === 'POST'
+				? {
+						method,
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ project, days: extra.days }),
+					}
+				: { method },
+		);
+		const out = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(out?.error ?? `Share link request failed (${res.status}).`);
+		return out;
+	}
+
+	async function runShare(step: () => Promise<void>) {
+		shareBusy = true;
+		shareErr = '';
+		try {
+			await step();
+		} catch (e) {
+			shareErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			shareBusy = false;
+		}
+	}
+
+	function openShare(p: Project) {
+		shareFor = p;
+		shareDays = DEFAULT_SHARE_EXPIRY_DAYS;
+		shareLinks = [];
+		shareMade = '';
+		shareCopied = false;
+		void runShare(async () => {
+			shareLinks = (await shareCall('GET', p.key)).links;
+		});
+	}
+
+	const makeShare = (project: string) =>
+		runShare(async () => {
+			const out = await shareCall('POST', project, { days: shareDays });
+			shareMade = out.url ?? '';
+			shareCopied = false;
+			shareLinks = out.links;
+		});
+
+	const revokeShare = (project: string, id: string) =>
+		runShare(async () => {
+			shareLinks = (await shareCall('DELETE', project, { id })).links;
+		});
+
+	async function copyShare() {
+		try {
+			await navigator.clipboard.writeText(shareMade);
+			shareCopied = true;
+		} catch {
+			// clipboard blocked — the link is still selectable in the field.
 		}
 	}
 
@@ -1341,6 +1426,7 @@
 										published: p.published,
 										latestDelivery: p.partnerLatestDelivery,
 									})}
+									{@const share = shareLinkButton({ partner, canPublish: data.canSetPartner })}
 									<li>
 										<div class="meta">
 											<span class="pname">{p.name}</span>
@@ -1481,6 +1567,17 @@
 												{/if}
 											{/if}
 											<!-- eslint-enable svelte/no-navigation-without-resolve -->
+											{#if share}
+												<button
+													class="dup"
+													disabled={!!share.disabled}
+													title={share.disabled ??
+														"A link anyone can open without a launcher account: the game on the partner's RGS, a fresh session each time"}
+													onclick={() => openShare(p)}
+												>
+													Share link…
+												</button>
+											{/if}
 											{#if data.canSetPartner && data.partnerProfiles.length}
 												<button
 													class="dup"
@@ -1973,6 +2070,84 @@
 				{/if}
 			{/snippet}
 		</ConfirmDialog>
+	{/if}
+
+	{#if shareFor}
+		{@const project = shareFor}
+		<div class="modal-backdrop" role="presentation" onclick={() => (shareFor = null)}>
+			<div
+				class="modal wide"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="share-title"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<h3 id="share-title">
+					Share link — {project.name}
+					<InfoTip label="Partner share link">
+						Anyone with the link opens the published game on the partner's RGS (game {project
+							.partner?.gameId}) with the partner's math — no launcher account. Every open mints a
+						fresh session on the partner's test wallet, so the link never goes stale the way a
+						copied session URL does. At most {SHARE_OPENS_PER_MINUTE} opens a minute per link. The link
+						is shown once; revoke it here to turn it off.
+					</InfoTip>
+				</h3>
+				<div class="share-make">
+					<label>
+						Expires after
+						<select bind:value={shareDays} disabled={shareBusy}>
+							{#each SHARE_EXPIRY_DAYS as d (d)}
+								<option value={d}>{d === 1 ? '1 day' : `${d} days`}</option>
+							{/each}
+						</select>
+					</label>
+					<button class="primary" disabled={shareBusy} onclick={() => makeShare(project.key)}>
+						{shareBusy ? 'Working…' : 'Make link'}
+					</button>
+				</div>
+				{#if shareMade}
+					<div class="share-made">
+						<input readonly value={shareMade} onfocus={(e) => e.currentTarget.select()} />
+						<button onclick={copyShare}>{shareCopied ? 'Copied' : 'Copy'}</button>
+					</div>
+					<p class="confirm-note">Copy it now — it cannot be shown again.</p>
+				{/if}
+				{#if shareErr}<p class="err">{shareErr}</p>{/if}
+				{#if shareLinks.length}
+					<table class="share-links">
+						<thead>
+							<tr><th>Made by</th><th>Expires</th><th>Last opened</th><th>Opens</th><th></th></tr>
+						</thead>
+						<tbody>
+							{#each shareLinks as l (l.id)}
+								<tr>
+									<td
+										>{l.createdBy ?? '—'}<span class="ckey"> · {versionTime(l.createdAt)}</span></td
+									>
+									<td>{versionTime(l.expiresAt)}</td>
+									<td>{l.lastOpenedAt ? versionTime(l.lastOpenedAt) : 'never'}</td>
+									<td>{l.openCount}</td>
+									<td>
+										<IconButton
+											icon="trash"
+											label="Revoke this link"
+											danger
+											disabled={shareBusy}
+											onclick={() => revokeShare(project.key, l.id)}
+										/>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{:else if !shareBusy}
+					<p class="confirm-note">No live links for this game.</p>
+				{/if}
+				<div class="confirm-actions">
+					<button onclick={() => (shareFor = null)}>Close</button>
+				</div>
+			</div>
+		</div>
 	{/if}
 
 	{#if partnerFor}
@@ -2689,6 +2864,39 @@
 		display: flex;
 		justify-content: flex-end;
 		gap: 10px;
+	}
+	.share-make,
+	.share-made {
+		display: flex;
+		gap: 10px;
+		align-items: flex-end;
+		margin: 0 0 12px;
+	}
+	.share-made input {
+		flex: 1;
+		min-width: 0;
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
+	}
+	.share-links {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 12px;
+		margin: 6px 0 16px;
+	}
+	.share-links th {
+		text-align: left;
+		color: #8a8a96;
+		font-weight: 500;
+		padding: 4px 6px;
+	}
+	.share-links td {
+		padding: 4px 6px;
+		border-top: 1px solid #24242e;
+		vertical-align: middle;
+	}
+	.share-links .ckey {
+		color: #8a8a96;
 	}
 	.play {
 		color: #7ee0c0;

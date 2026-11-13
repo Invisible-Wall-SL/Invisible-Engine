@@ -29,6 +29,7 @@
 		"check:partner-rgs": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-rgs.ts",
 		"check:partner-launch": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-launch.ts",
 		"check:partner-delivery": "tsx --tsconfig tsconfig.scripts.json scripts/check-partner-delivery.ts",
+		"check:partner-share": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-partner-share.ts",
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",
 		"check:http-helpers": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-http-helpers.ts",

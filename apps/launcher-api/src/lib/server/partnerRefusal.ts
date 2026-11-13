@@ -109,20 +109,15 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
 /** `code` spans for backticked words; everything else escaped. */
 const inline = (s: string) => escapeHtml(s).replace(/`([^`]+)`/g, '<code>$1</code>');
 
-export function partnerRefusalPage(options: {
-	message: string;
-	status: number;
-	gameName?: string;
-}): string {
-	const advice = partnerRefusalAdvice(options.message, options.status);
-	const what = options.gameName ? ` — ${escapeHtml(options.gameName)}` : '';
+/** The plain dark page every partner launch answer is drawn in. `inner` is already-escaped HTML. */
+function partnerPage(title: string, inner: string): string {
 	return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Partner launch refused</title>
+<title>${escapeHtml(title)}</title>
 <style>
 :root { color-scheme: dark; }
 body { margin: 0; background: #0f1115; color: #e6e8ee; font: 15px/1.5 system-ui, sans-serif; }
@@ -134,17 +129,70 @@ ol { padding-left: 20px; }
 li { margin: 6px 0; }
 code { background: #232733; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
 details { margin-top: 24px; color: #9aa1b2; font-size: 13px; }
+button { background: #3b82f6; color: #fff; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; cursor: pointer; }
 </style>
 </head>
 <body>
 <main>
-<h1>${escapeHtml(advice.title)}</h1>
+${inner}
+</main>
+</body>
+</html>`;
+}
+
+export function partnerRefusalPage(options: {
+	message: string;
+	status: number;
+	gameName?: string;
+}): string {
+	const advice = partnerRefusalAdvice(options.message, options.status);
+	const what = options.gameName ? ` — ${escapeHtml(options.gameName)}` : '';
+	return partnerPage(
+		'Partner launch refused',
+		`<h1>${escapeHtml(advice.title)}</h1>
 <p class="sub">Partner launch${what} · HTTP ${options.status}</p>
 <p class="cause">${inline(advice.cause)}</p>
 <h2 style="font-size:15px">What to do</h2>
 <ol>${advice.steps.map((s) => `<li>${inline(s)}</li>`).join('')}</ol>
-<details><summary>The exact message</summary><p>${escapeHtml(options.message)}</p></details>
-</main>
-</body>
-</html>`;
+<details><summary>The exact message</summary><p>${escapeHtml(options.message)}</p></details>`,
+	);
+}
+
+/**
+ * A partner SHARE LINK that cannot be opened (`/play/<token>`): unknown, revoked, expired, opened
+ * too often, or the launch itself refused. Read by someone with no launcher account, so it says
+ * what happened and who to ask — none of the launcher-side fixes `partnerRefusalPage` lists.
+ */
+export function partnerSharePage(options: {
+	title: string;
+	message: string;
+	status: number;
+	gameName?: string;
+	/** The launch's own refusal text, shown folded for whoever sent the link. */
+	detail?: string;
+}): string {
+	const what = options.gameName ? ` — ${escapeHtml(options.gameName)}` : '';
+	return partnerPage(
+		options.title,
+		`<h1>${escapeHtml(options.title)}</h1>
+<p class="sub">Shared game link${what} · HTTP ${options.status}</p>
+<p class="cause">${escapeHtml(options.message)}</p>
+${options.detail ? `<details><summary>The exact message</summary><p>${escapeHtml(options.detail)}</p></details>` : ''}`,
+	);
+}
+
+/**
+ * The page a live share link answers a GET with: it POSTs itself straight back, and only that POST
+ * mints a session. A chat app's link preview fetches with GET and runs no script, so pasting the
+ * link into a conversation spends neither a session nor the link's open budget.
+ */
+export function partnerShareStartPage(options: { gameName: string }): string {
+	const name = escapeHtml(options.gameName);
+	return partnerPage(
+		options.gameName,
+		`<h1>${name}</h1>
+<p class="sub">Starting the game on the partner's server…</p>
+<form method="post" id="go"><button type="submit">Play</button></form>
+<script>document.getElementById('go').submit();</script>`,
+	);
 }

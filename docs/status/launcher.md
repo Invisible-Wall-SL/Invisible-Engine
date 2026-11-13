@@ -93,6 +93,24 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-13 — **No-login partner share links.** Game Maker's **Share link…** (beside ▶ Partner;
+  `gamePublish` + project access + a partner launch this launcher can mint on, the ▶ Partner rule;
+  disabled until published) makes a `/play/<token>` link that lives 1, 7 or 30 days (default 7),
+  lists the project's live links (maker, expiry, last opened, opens) and revokes them
+  (`/api/game-maker/partner-share` GET/POST/DELETE). Storage: `partner_share_links` (migration
+  `0040_partner_share_links`); the token is 32 CSPRNG bytes, base64url, stored as SHA-256 only (the
+  session-cookie pattern), shown once. The public route needs no login: GET peeks and answers a page
+  that POSTs itself back (a chat link preview spends nothing), POST spends one open and mints a
+  FRESH partner session through `launchOnPartner` (`$lib/server/partnerSessionLaunch.ts`, now also
+  the whole of `/api/partner-session`'s minting) with an EMPTY query and the stored partner launch
+  required — no env-default fallback, and nothing the holder adds reaches the launch. Sessions play
+  as the link's own pool slot (`share-<id>`). Rate limit: 5 opens a minute per link, checked and
+  spent by ONE conditional UPDATE (429 + Retry-After). Unknown 404, revoked / expired 410, and a
+  failed mint each answer a plain page (`partnerSharePage`) that names no launcher-side fix;
+  `PARTNER_RGS` reaches no page, redirect or log, and logs name the link id, never its token. Gate:
+  `check:partner-share` (73: create, GET-no-mint, fresh mint per open, redirect shape, no secret,
+  query ignored, expiry, revoke, unknown/malformed, rate limit + the single-statement claim, a
+  project with no partner launch, the API gate, the card gating, `/api/partner-session` unchanged).
 - 2026-11-13 — **A desktop ☁ Publish / 📦 Deliver bakes on past draft sounds, with a warning.**
   The owner ships drafts (the whole change: [game-maker.md](game-maker.md), 2026-11-13).
   `runPublishChecks` now returns `warnings[]` beside `failed[]`, same item shape (`overridable`

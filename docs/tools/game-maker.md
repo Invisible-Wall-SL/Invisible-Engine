@@ -315,6 +315,30 @@ When the partner refuses, the tab says why and what to do rather than showing ra
 example _"The partner has banned your test player"_, naming the player and the fix: ask the
 partner to unban it, or add another of their pre-created players to `PARTNER_RGS.players`.
 
+### Share it with someone who has no launcher account (Share link…)
+
+To show the game to someone outside the pipeline (the partner themselves, say), **Share link…**
+beside ▶ Partner makes a link that opens our published game on the partner's RGS, with the
+partner's math, **without a launcher login**. It shows only when the card has a partner game set
+and you have the same access as **Publish**, and it is disabled until the game is published.
+
+- **Make one:** pick how long it lives (**1 day**, **7 days** — the default — or **30 days**) and
+  **Make link**. The link (`https://app.invisiblewall.org/play/…`) appears once with **Copy**:
+  copy it then, because it cannot be shown again (only a fingerprint of it is stored). Send it
+  however you like.
+- **What opening it does:** every open mints a **fresh session** on the partner's server, so the
+  link keeps working for its whole life — unlike a copied game URL carrying `sid=`, which the
+  partner expires within hours. It plays on the partner's **test wallet**, as the card's Partner
+  player (or the launcher's player pool), never real money. A link plays exactly the card's
+  partner game: nothing added to the link changes the game, partner or player.
+- **Limits:** one link opens at most 5 times a minute (so a leaked link cannot hammer the
+  partner's server); past that it says to wait a minute. Pasting it into a chat is safe: a link
+  preview does not start a session.
+- **Live links and Revoke:** the dialog lists the card's live links — who made each, when it
+  expires, when it was last opened and how many times — with a bin to **revoke** one. A revoked
+  or expired link opens a plain page saying so; make a new one. Removing the card's partner game
+  stops every link for it.
+
 ### Duplicate (reskin for another client)
 
 **Duplicate…** on a card copies the whole game onto a new project key — the same
