@@ -1952,6 +1952,25 @@
 		const ids = addOnSceneIds(projectGameType, sceneSetOptions);
 		return missingScreens.filter((scene) => ids.includes(scene.id));
 	});
+	/** The game-type reference's canonical canvas box (plain JSON from the server), or
+	 * `null` for a game type without a reference layout. */
+	const referenceMainSizes = data.referenceMainSizes;
+	/** How many times the game-type reference this canvas is, read off the current layout's width:
+	 * 1 for a game authored at the reference size, 2 for one rescaled to twice it (a 4K game). A
+	 * box at that multiple of the reference matches it — what a rescale is for. */
+	const canvasFactor = $derived.by(() => {
+		const ref = referenceMainSizes?.[currentLayoutType];
+		const cur = mainSizesMap[currentLayoutType];
+		return ref && cur && ref.width > 0 ? cur.width / ref.width : 1;
+	});
+	/** Every layout's {@link canvasFactor} (those with a reference box), so whether the reel grid is
+	 * reserved does not depend on the open layout tab. */
+	const canvasFactors = $derived(
+		Object.entries(mainSizesMap).flatMap(([lt, cur]) => {
+			const ref = referenceMainSizes?.[lt as LayoutType];
+			return ref && ref.width > 0 ? [cur.width / ref.width] : [];
+		}),
+	);
 	/**
 	 * Does the reel grid still lack room for the rows an expanding respin board grows into? (The
 	 * scaffold reserves them only for a config that expanded when the layout was seeded.)
@@ -1962,6 +1981,7 @@
 				{ ...data.doc, scenes, mainSizesMap },
 				data.expansionMaxRows ?? 0,
 				data.expansionGrow ?? undefined,
+				canvasFactors,
 			),
 	);
 	/** The canvas draws the reel grid grown to the respin board's `maxRows` (the reel grid's
@@ -1975,6 +1995,7 @@
 			{ ...data.doc, scenes, mainSizesMap },
 			data.expansionMaxRows,
 			data.expansionGrow ?? undefined,
+			canvasFactors,
 		).scenes;
 		markDirty();
 	}
@@ -2716,17 +2737,6 @@
 		markDirty();
 	}
 
-	/** The game-type reference's canonical canvas box (plain JSON from the server), or
-	 * `null` for a game type without a reference layout. */
-	const referenceMainSizes = data.referenceMainSizes;
-	/** How many times the game-type reference this canvas is, read off the current layout's width:
-	 * 1 for a game authored at the reference size, 2 for one rescaled to twice it (a 4K game). A
-	 * box at that multiple of the reference matches it — what a rescale is for. */
-	const canvasFactor = $derived.by(() => {
-		const ref = referenceMainSizes?.[currentLayoutType];
-		const cur = mainSizesMap[currentLayoutType];
-		return ref && cur && ref.width > 0 ? cur.width / ref.width : 1;
-	});
 	/** The reference box at this canvas's multiple. */
 	const referenceBoxAtFactor = (lt: LayoutType) => {
 		const ref = referenceMainSizes?.[lt];
