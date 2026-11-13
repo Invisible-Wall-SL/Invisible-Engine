@@ -13,7 +13,7 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
-import { holdAndWinBlankSymbol } from 'game-config';
+import { addedRowSeat, holdAndWinBlankSymbol } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { bakedRespinLandOnStop } from '../editor-scenes';
@@ -21,10 +21,10 @@ import { activeRespinMode } from './activeRespinMode.svelte';
 import { coinBoardLockedCells, isCoinBoard } from './coinBoard.svelte';
 import { respinBoardShape, sameRespinBoard } from './respinModes';
 import { eventEmitter } from './eventEmitter';
+import { setFlightSeatRow } from './flights.svelte';
 import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
-import { respinCellLead } from './respinSeat';
 import { playReelStopSound, playSymbolLandSound } from './soundBindings';
-import { stateGameDerived } from './stateGame.svelte';
+import { cellSymbolLead, stateGameDerived } from './stateGame.svelte';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 
 /**
@@ -158,6 +158,7 @@ const INSIDE_LOCKED_CELL = Symbol('insideRespinLockedCell');
  *  publish no look, or it would replace the one that mounted it. */
 export const markInsideRespinLockedCell = () => setContext(INSIDE_LOCKED_CELL, true);
 export const insideRespinLockedCell = (): boolean => getContext(INSIDE_LOCKED_CELL) === true;
+
 let lockedLooks = $state.raw<{ id: number; look: RespinLockedLook }[]>([]);
 
 export const respinLockedLook = (): RespinLockedLook | null => lockedLooks.at(-1)?.look ?? null;
@@ -274,10 +275,38 @@ const enteringRows = (respinBoard: RespinBoard): number =>
 	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? boardDimensions().y);
 
 /**
+ * Where a respin row DRAWS, on the board's row lattice. A row past the base grid — an expanding
+ * board's unlocked row, Expand's, the super bonus's — draws one pitch further down for each, or, under
+ * Game Config `addRowsAt: 'above'`, one pitch further up (row `base` at `-1`, the next at `-2`), or,
+ * under `split`, alternately below and above (`addedRowSeat`). The row's INDEX never changes (a held
+ * cell keeps its row); only where it is drawn does.
+ */
+export const respinSeatRow = (row: number): number => {
+	const base = boardDimensions().y;
+	return row >= base ? addedRowSeat(row, base, activeRespinMode()?.block.addRowsAt) : row;
+};
+
+// A flight to or from a respin cell leaves from where the cell draws.
+setFlightSeatRow((row) => (stateRespinBoard.shown ? respinSeatRow(row) : row));
+
+/** The top row the board draws, on its lattice: 0, or above it while rows are added on top. Where
+ *  the coded counter and dials stand above the board. */
+export const respinTopSeatRow = (): number => {
+	const addRowsAt = activeRespinMode()?.block.addRowsAt;
+	if (addRowsAt !== 'above' && addRowsAt !== 'split') return 0;
+	const drawn = stateRespinBoard.drawnRows || openRespinRows();
+	if (addRowsAt === 'above') return Math.min(0, respinSeatRow(Math.max(0, drawn - 1)));
+	// `split`: the last row is not always the highest — the highest is the last one added above.
+	let top = 0;
+	for (let row = 0; row < drawn; row += 1) top = Math.min(top, respinSeatRow(row));
+	return top;
+};
+
+/**
  * The reels, built on first use and rebuilt for another respin mode or a board whose size changed —
  * each mode plays on its own rules and strips. An expanding board builds every cell of its `maxRows`
  * up front — the rows past the base grid sit on the same lattice, one pitch each further out, where
- * `expansion.grow` seats them (`respinSeat.ts`) — and draws the ones not yet open as locked.
+ * `addRowsAt` seats them ({@link respinSeatRow}) — and draws the ones not yet open as locked.
  */
 const ensureBoard = (): RespinBoard => {
 	const { x: reels, y: gridRows } = boardDimensions();
@@ -290,7 +319,7 @@ const ensureBoard = (): RespinBoard => {
 		reels,
 		rows,
 		symbolHeight: () => stateGameDerived.boardGeometry().rowPitchLocal,
-		symbolLead: respinCellLead,
+		symbolLead: (reel, row) => cellSymbolLead(reel, respinSeatRow(row)),
 		initial: respinSeedBoard({ reels, rows, blank: respinBlank() }),
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),

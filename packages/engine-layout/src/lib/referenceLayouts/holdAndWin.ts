@@ -79,33 +79,33 @@ export const HOLD_AND_WIN_BOARD: EngineSkeletonBoard = {
 export const HOLD_AND_WIN_HOTFIRE_BOARD: EngineSkeletonBoard = { ...HOLD_AND_WIN_BOARD, reels: 3 };
 
 /**
- * How an EXPANDING board's area is reserved (design §7 11b). Its rows grow below the base grid, so
- * the board's cells shrink until the grown block takes at most this share of the SHORTEST layout
+ * How an EXPANDING board's area is reserved (design §7 11b). Its rows grow below the base grid (or
+ * above it, Game Config `addRowsAt: 'above'`), so the board's cells shrink until the grown block takes at most this share of the SHORTEST layout
  * box's height, and the reel grid's ROW nudge (`boardNudgeRows` — cells, masks and symbols move
  * together; the row lead would move the symbols out of their masks) lifts the base rows by half the
- * extra rows, so the whole `maxRows` block sits where the base board's centre was, in every layout,
+ * extra rows (lowers them, when the rows grow above), so the whole `maxRows` block sits where the
+ * base board's centre was, in every layout,
  * without moving the node. The lift is in rows, not px: the px nudge is added outside each layout's
  * grid scale, so a px lift sized from the unscaled cell fell short on every scaled layout. Both are
  * absolute, so reserving twice changes nothing.
  */
 export const EXPANDING_BLOCK_SHARE = 0.495;
 
-/**
- * Where an expanding board draws the rows it opens — game-config's `EXPANSION_GROWS`
- * (`holdAndWin.expansion.grow`; engine-layout does not depend on game-config). Absent, or a value
- * this build does not know ⇒ `below`.
- */
-export type ExpandingBoardGrow = 'below' | 'above' | 'split';
+/** Where an expanding board's added rows draw (Game Config `addRowsAt`; absent ⇒ `below`;
+ *  `split` alternates, the first below). */
+export type ExpandingRowsAt = 'below' | 'above' | 'split';
 
 /**
  * The row nudge that centres the grown block where the base board was: `(above − below) / 2` rows,
- * counting the `extra` opened rows each way — `below` −extra/2, `above` +extra/2, `split` (odd
- * rows below, even above) `(⌊extra/2⌋ − ⌈extra/2⌉) / 2`, so 0 or −½.
+ * counting the `extra` added rows each way — `below` −extra/2, `above` +extra/2, `split` (odd rows
+ * below, even above) `(⌊extra/2⌋ − ⌈extra/2⌉) / 2`, so 0 or −½.
  */
-export const expandingBoardLiftRows = (extra: number, grow?: ExpandingBoardGrow): number => {
-	if (grow === 'above') return extra / 2;
-	if (grow === 'split') return (Math.floor(extra / 2) - Math.ceil(extra / 2)) / 2;
-	return -extra / 2;
+export const expandingBoardLiftRows = (
+	extra: number,
+	addRowsAt: ExpandingRowsAt = 'below',
+): number => {
+	if (addRowsAt === 'split') return (Math.floor(extra / 2) - Math.ceil(extra / 2)) / 2;
+	return (addRowsAt === 'above' ? extra : -extra) / 2;
 };
 
 /** What reserving `maxRows` writes on a reel grid (an absent field is cleared). */
@@ -145,10 +145,11 @@ const isLegacyLift = (
  * The cell size and row nudge that reserve `maxRows` for a grid of `rows` rows at `cellSize`. A px
  * nudge that is the lift an earlier reserve wrote ({@link isLegacyLift}) is that lift, not the
  * author's, so it is cleared in favour of the row nudge; any other px nudge is kept. A board that no
- * longer grows (`maxRows` ≤ its rows) keeps its cells and loses any row nudge. The lift follows
- * `grow` ({@link expandingBoardLiftRows}); a lift of 0 (an even `split`) writes no row nudge.
- * `canvasFactors` are how many times the game-type reference each layout's box is (none known ⇒
- * only ×1 and the grid's scales are tried).
+ * longer grows (`maxRows` ≤ its rows) keeps its cells and loses any row nudge. `canvasFactors` are how
+ * many times the game-type reference each layout's box is (none known ⇒ only ×1 and the grid's
+ * scales are tried). `addRowsAt` is where the added rows draw: the row nudge lifts the board for
+ * rows below and lowers it for rows above ({@link expandingBoardLiftRows}); a lift of 0 (an even
+ * `split`) writes no row nudge.
  */
 export const expandingBoardReserve = (
 	grid: Pick<
@@ -157,8 +158,8 @@ export const expandingBoardReserve = (
 	>,
 	maxRows: number,
 	mainSizes: LayoutDoc['mainSizesMap'],
-	grow?: ExpandingBoardGrow,
 	canvasFactors: readonly number[] = [],
+	addRowsAt: ExpandingRowsAt = 'below',
 ): ExpandingBoardReserve => {
 	const extra = Math.max(0, maxRows - grid.rows);
 	if (!extra) return { cellSize: grid.cellSize, boardNudgeY: grid.boardNudgeY };
@@ -170,19 +171,19 @@ export const expandingBoardReserve = (
 	const boardNudgeY = isLegacyLift(grid, extra, grid.boardNudgeY, canvasFactors)
 		? undefined
 		: grid.boardNudgeY;
-	const lift = expandingBoardLiftRows(extra, grow);
+	const lift = expandingBoardLiftRows(extra, addRowsAt);
 	return { cellSize, boardNudgeRows: lift === 0 ? undefined : lift, boardNudgeY };
 };
 
-/** Does every reel grid of `doc` already reserve `maxRows`, its rows opening `grow`? */
+/** Does every reel grid of `doc` already reserve `maxRows`? */
 export const expandingBoardReserved = (
 	doc: LayoutDoc,
 	maxRows: number,
-	grow?: ExpandingBoardGrow,
 	canvasFactors: readonly number[] = [],
+	addRowsAt: ExpandingRowsAt = 'below',
 ): boolean =>
 	reelGridsOf(doc).every((grid) => {
-		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap, grow, canvasFactors);
+		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap, canvasFactors, addRowsAt);
 		return (
 			grid.cellSize === want.cellSize &&
 			grid.boardNudgeRows === want.boardNudgeRows &&
@@ -190,20 +191,19 @@ export const expandingBoardReserved = (
 		);
 	});
 
-/** `doc` with every reel grid reserving `maxRows`, its rows opening `grow` (cell size + row nudge;
- *  nothing else moves). */
+/** `doc` with every reel grid reserving `maxRows` (cell size + row nudge; nothing else moves). */
 export const reserveExpandingBoard = (
 	doc: LayoutDoc,
 	maxRows: number,
-	grow?: ExpandingBoardGrow,
 	canvasFactors: readonly number[] = [],
+	addRowsAt: ExpandingRowsAt = 'below',
 ): LayoutDoc => ({
 	...doc,
 	scenes: doc.scenes.map((scene) => ({
 		...scene,
 		nodes: scene.nodes.map((node) => {
 			if (node.kind !== 'reelGrid') return node;
-			const want = expandingBoardReserve(node, maxRows, doc.mainSizesMap, grow, canvasFactors);
+			const want = expandingBoardReserve(node, maxRows, doc.mainSizesMap, canvasFactors, addRowsAt);
 			const { boardNudgeY: _px, boardNudgeRows: _rows, ...rest } = node;
 			return {
 				...rest,
@@ -227,9 +227,10 @@ const reelGridsOf = (doc: LayoutDoc): ReelGridNode[] =>
  */
 export type HoldAndWinTemplateOptions = {
 	maxRows?: number;
-	/** Where the expanding board draws its opened rows (`holdAndWin.expansion.grow`): the reserve
-	 *  lifts the board to suit. Absent ⇒ `below`, as before. */
-	grow?: ExpandingBoardGrow;
+	/** The expanding board's rows draw above the base grid (Game Config `addRowsAt: 'above'`):
+	 *  the reserve lowers the board instead of lifting it; `split` alternates them, below first.
+	 *  Absent ⇒ below. */
+	addRowsAt?: 'above' | 'split';
 	potIds?: readonly string[];
 	jackpotBar?: false;
 	/** The base game is the coin board (`docs/design/hold-and-win-coin-board.md`): see
@@ -414,7 +415,7 @@ export function holdAndWinReferenceLayout(
 	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
 	{
 		maxRows,
-		grow,
+		addRowsAt,
 		potIds: rawPotIds = POT_METERS,
 		jackpotBar,
 		coinBoard,
@@ -430,14 +431,16 @@ export function holdAndWinReferenceLayout(
 		projectKey: 'holdAndWin',
 		board: baseBoard,
 	});
-	const skeleton = extraRows ? reserveExpandingBoard(raw, baseBoard.rows + extraRows, grow) : raw;
+	const skeleton = extraRows
+		? reserveExpandingBoard(raw, baseBoard.rows + extraRows, [], addRowsAt)
+		: raw;
 	const { cellSize } = expandingBoardReserve(
 		baseBoard,
 		baseBoard.rows + extraRows,
 		raw.mainSizesMap,
 	);
-	/** How far the reserved block's edges sit past the base board's. The same for every `grow`: the
-	 *  reserve's lift centres the grown block on the base board's centre whichever way it opens. */
+	/** How far the reserved block's edges sit past the base board's. The same for every `addRowsAt`:
+	 *  the reserve's lift centres the grown block on the base board's centre whichever way it opens. */
 	const blockGrowth =
 		((baseBoard.rows + extraRows) * cellSize - baseBoard.rows * baseBoard.cellSize) / 2;
 	/** A piece at least this far above or below the centre sits above or below the board. */
@@ -588,14 +591,14 @@ export function holdAndWinReferenceLayout(
 							place({ dx: 0, dy: 0 }),
 						),
 						// An expanding board's locked cells (draws nothing on a board that never grows). Its
-						// handle sits over the reserved rows below the base grid (above it when they open above).
+						// handle sits over the reserved rows, on the side of the base grid they open on.
 						instance(
 							'locked-rows',
 							'Locked rows',
 							'lockedRow',
 							placeAround({
 								dx: 0,
-								dy: ((grow === 'above' ? -1 : 1) * (baseBoard.rows * cellSize)) / 2,
+								dy: ((addRowsAt === 'above' ? -1 : 1) * (baseBoard.rows * cellSize)) / 2,
 							}),
 						),
 					],

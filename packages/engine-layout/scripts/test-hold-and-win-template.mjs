@@ -29,7 +29,7 @@ const bundled = await esbuild.build({
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
 			`export { reserveExpandingBoard, expandingBoardReserved, expandingBoardLiftRows } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
-			`export { expansionSeatRow } from '../../game-config/src/holdAndWin.ts';`,
+			`export { addedRowSeat } from '../../game-config/src/holdAndWin.ts';`,
 			`export { resolveReelGridFromNode } from '../src/lib/reelGrid.ts';`,
 			`export { HOLD_AND_WIN_BANNER_SCREENS, HOLD_AND_WIN_BANNER_SHOW_SOURCES, SELF_MOUNTED_BANNER_SCREENS, bannerScreenFor, bannerScreenShows, isSelfMountedBannerScreen } from '../src/lib/holdAndWinBanners.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
@@ -419,6 +419,45 @@ const SIZE = {
 		'other kinds ignore maxRows',
 	);
 	assert(mod.expandingBoardReserved(plain, 3), 'a board that never grows is always reserved');
+
+	// Rows added ABOVE (Game Config `addRowsAt: 'above'`, Getting Hot's Expand / Force 5): the reserve
+	// lowers the board by half its extra rows instead of lifting it, so the grown block still sits
+	// where the base board's centre was; the scaffold and the Locked rows handle follow.
+	const above = mod.reserveExpandingBoard(plain, 6, [], 'above');
+	assert(
+		gridOf(above).cellSize === 66 && gridOf(above).boardNudgeRows === 1.5,
+		`rows added above nudge the board DOWN 1.5 rows (got ${gridOf(above).boardNudgeRows})`,
+	);
+	assert(mod.expandingBoardReserved(above, 6, [], 'above'), 'an above reserve reads as reserved');
+	assert(
+		!mod.expandingBoardReserved(above, 6),
+		'and not as a below one, so Reserve offers the swap',
+	);
+	const swapped = gridOf(mod.reserveExpandingBoard(once, 6, [], 'above'));
+	assert(swapped.boardNudgeRows === 1.5, 'reserving above over a below reserve flips the nudge');
+	const seededAbove = mod.getFullSceneSet('holdAndWin', { maxRows: 6, addRowsAt: 'above' });
+	assert(gridOf(seededAbove).boardNudgeRows === 1.5, 'getFullSceneSet takes addRowsAt');
+	const lockedRowsY = (d) =>
+		walk(d.scenes.flatMap((sc) => sc.nodes)).find((n) => n.id === 'locked-rows').y;
+	const centreY = gridOf(withOption).y;
+	assert(
+		lockedRowsY(withOption) > centreY &&
+			lockedRowsY(seededAbove) < centreY &&
+			lockedRowsY(seededAbove) - centreY === centreY - lockedRowsY(withOption),
+		'the Locked rows handle sits above the base grid when the rows open above',
+	);
+	const moded = mod.getFullSceneSet('holdAndWin', {
+		maxRows: 5,
+		respinModes: [
+			{ id: 'holdAndWin', maxRows: 5 },
+			{ id: 'force', maxRows: 5, addRowsAt: 'above' },
+		],
+	});
+	const lockedY = (id) => walk(moded.scenes.flatMap((sc) => sc.nodes)).find((n) => n.id === id).y;
+	assert(
+		lockedY('locked-rows') > centreY && lockedY('locked-rows-force') < centreY,
+		"a respin mode's own addRowsAt lays its screens out for rows above",
+	);
 }
 
 // THE RESERVE HOLDS ON A SCALED GRID. The game adds the board nudge in layout px OUTSIDE the grid's
@@ -534,22 +573,18 @@ const SIZE = {
 	for (const [label, patch, factor] of liftCases) {
 		const doc = withGrid(() => patch);
 		assert(
-			!mod.expandingBoardReserved(doc, maxRows, undefined, factor),
+			!mod.expandingBoardReserved(doc, maxRows, factor),
 			`${label}: the old px lift reads as unreserved`,
 		);
-		const once = mod.reserveExpandingBoard(doc, maxRows, undefined, factor);
+		const once = mod.reserveExpandingBoard(doc, maxRows, factor);
 		const g = gridOf(once);
 		assert(
 			g.boardNudgeY === undefined && g.boardNudgeRows === -1,
 			`${label}: the old px lift is swapped for the row lift, not doubled (got ${g.boardNudgeY}, ${g.boardNudgeRows})`,
 		);
+		assert(mod.expandingBoardReserved(once, maxRows, factor), `${label}: and reads as reserved`);
 		assert(
-			mod.expandingBoardReserved(once, maxRows, undefined, factor),
-			`${label}: and reads as reserved`,
-		);
-		assert(
-			JSON.stringify(mod.reserveExpandingBoard(once, maxRows, undefined, factor)) ===
-				JSON.stringify(once),
+			JSON.stringify(mod.reserveExpandingBoard(once, maxRows, factor)) === JSON.stringify(once),
 			`${label}: reserving again changes nothing`,
 		);
 	}
@@ -564,7 +599,6 @@ const SIZE = {
 			mod.reserveExpandingBoard(
 				withGrid(() => patch),
 				maxRows,
-				undefined,
 				factor,
 			),
 		);
@@ -588,13 +622,13 @@ const SIZE = {
 	);
 	assert(mod.expandingBoardReserved(scaled, 3), 'an unlifted board that never grows is reserved');
 
-	// WHERE THE ROWS OPEN (`expansion.grow`). Through the game's resolver and the game's own seat map
-	// (`expansionSeatRow`), the whole grown block — the base rows plus every opened row at its seat —
+	// WHERE THE ROWS ARE ADDED (`addRowsAt`, `split` included). Through the game's resolver and the
+	// game's own seat map (`addedRowSeat`), the whole grown block — the base rows plus every opened row at its seat —
 	// is centred where the base board was, on every scaled layout, for every direction and every
 	// count of extra rows (an even and an odd split included).
 	for (const grow of ['below', 'above', 'split']) {
 		for (const grownTo of [4, 5, 6]) {
-			const reserved = mod.reserveExpandingBoard(scaled, grownTo, grow);
+			const reserved = mod.reserveExpandingBoard(scaled, grownTo, [], grow);
 			const g = gridOf(reserved);
 			const extra = grownTo - g.rows;
 			const want =
@@ -607,11 +641,11 @@ const SIZE = {
 			if (want === 0)
 				assert(g.boardNudgeRows === undefined, `${grow} ×${grownTo}: a 0 lift writes none`);
 			assert(
-				mod.expandingBoardReserved(reserved, grownTo, grow),
+				mod.expandingBoardReserved(reserved, grownTo, [], grow),
 				`${grow} ×${grownTo}: reads as reserved`,
 			);
 			const seats = Array.from({ length: grownTo }, (_, row) =>
-				mod.expansionSeatRow(row, g.rows, grow),
+				mod.addedRowSeat(row, g.rows, grow),
 			);
 			for (const type of Object.keys(scales)) {
 				const base = mod.resolveReelGridFromNode(gridOf(scaled), type);
@@ -628,7 +662,7 @@ const SIZE = {
 	}
 	// A reserve for one direction reads as unreserved for another, so ⇕ Reserve rows is offered again
 	// when the author changes it.
-	const above = mod.reserveExpandingBoard(scaled, maxRows, 'above');
+	const above = mod.reserveExpandingBoard(scaled, maxRows, [], 'above');
 	assert(!mod.expandingBoardReserved(above, maxRows), 'an above reserve is not a below one');
 	assert(
 		JSON.stringify(mod.reserveExpandingBoard(above, maxRows)) ===
@@ -637,24 +671,25 @@ const SIZE = {
 	);
 }
 
-// ABSENT `grow` = `below`, byte for byte: the reserve, the template and the scene set.
+// ABSENT `addRowsAt` = `below`, byte for byte: the reserve, the template and the scene set.
 {
 	const plain = mod.getFullSceneSet('holdAndWin');
 	for (const rows of [4, 5, 6]) {
 		assert(
-			JSON.stringify(mod.reserveExpandingBoard(plain, rows, 'below')) ===
+			JSON.stringify(mod.reserveExpandingBoard(plain, rows, [], 'below')) ===
 				JSON.stringify(mod.reserveExpandingBoard(plain, rows)),
 			`reserve ×${rows}: below = absent`,
 		);
 		for (const board of [mod.HOLD_AND_WIN_BOARD, mod.HOLD_AND_WIN_HOTFIRE_BOARD]) {
 			assert(
-				JSON.stringify(mod.holdAndWinReferenceLayout(board, { maxRows: rows, grow: 'below' })) ===
-					JSON.stringify(mod.holdAndWinReferenceLayout(board, { maxRows: rows })),
+				JSON.stringify(
+					mod.holdAndWinReferenceLayout(board, { maxRows: rows, addRowsAt: 'below' }),
+				) === JSON.stringify(mod.holdAndWinReferenceLayout(board, { maxRows: rows })),
 				`template ×${rows}: below = absent`,
 			);
 		}
 		assert(
-			JSON.stringify(mod.getFullSceneSet('holdAndWin', { maxRows: rows, grow: 'below' })) ===
+			JSON.stringify(mod.getFullSceneSet('holdAndWin', { maxRows: rows, addRowsAt: 'below' })) ===
 				JSON.stringify(mod.getFullSceneSet('holdAndWin', { maxRows: rows })),
 			`scene set ×${rows}: below = absent`,
 		);
@@ -669,7 +704,7 @@ const SIZE = {
 	const below = mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD, { maxRows: 6 });
 	const aboveLayout = mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD, {
 		maxRows: 6,
-		grow: 'above',
+		addRowsAt: 'above',
 	});
 	assert(
 		gridOf(aboveLayout).boardNudgeRows === 1.5 && gridOf(below).boardNudgeRows === -1.5,
@@ -688,7 +723,7 @@ const SIZE = {
 	// The split template's pieces clear the same block (the reserve centres it whichever way it opens).
 	assert(
 		handleMoved(
-			mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD, { maxRows: 6, grow: 'split' }),
+			mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD, { maxRows: 6, addRowsAt: 'split' }),
 		) === handleMoved(below),
 		'a split template places every piece as below does',
 	);

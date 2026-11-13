@@ -24,7 +24,7 @@
 	 * `rowOpening` / `rowOpened` fire for each row an expanding board opens, in the order they open,
 	 * as it starts and finishes opening (the coded fade, or the Locked Row component's `open`); `row`
 	 * is its DATA row — the wire's numbering (`respinRowsUnlocked.from…rows - 1`), whichever side of
-	 * the base rows `expansion.grow` draws it on.
+	 * the base rows `addRowsAt` draws it on.
 	 *
 	 * `respinCounterAward` fires as the feature opens and the counter shows the respins awarded.
 	 * `respinAddRespins` fires as an add-respins special applies (its "+N" landing in the counter is a

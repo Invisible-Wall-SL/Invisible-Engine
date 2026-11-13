@@ -561,17 +561,15 @@ const baseBoardCoins = (kept: readonly Position[]): HoldAndWinCell[] => {
 };
 
 /**
- * The component a COMPONENT opening plays on (`expansion.openStyle: 'component'` and a Locked Row
+ * The component a COMPONENT opening plays on (Game Config `openStyle: 'component'` and a Locked Row
  * whose `lockedComponent` names one), else `undefined` — the coded fade.
  */
 const rowOpenComponent = (): string | undefined =>
-	activeRespinRules()?.expansion?.openStyle === 'component'
-		? respinLockedLook()?.component
-		: undefined;
+	activeRespinRules()?.openStyle === 'component' ? respinLockedLook()?.component : undefined;
 
 /** A component opening: each row's locked cells play `open`, then that row opens. */
 const openRowByRow = async (opening: readonly number[], component: string) => {
-	const stagger = activeRespinRules()?.expansion?.openStagger ?? 0;
+	const stagger = activeRespinRules()?.openStagger ?? 0;
 	for (const [index, row] of opening.entries()) {
 		if (index > 0 && stagger > 0) await roundSkip.wait(stagger);
 		eventEmitter.broadcast({ type: 'rowOpening', row });

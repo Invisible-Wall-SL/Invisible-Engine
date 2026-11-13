@@ -9,9 +9,8 @@
 
 	import { boardDimensions } from '../game/gameConfig';
 	import { getContext } from '../game/context';
-	import { respinTopSeatRow } from '../game/respinSeat';
 	import { cellWindow, getSymbolX, stateGameDerived } from '../game/stateGame.svelte';
-	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import { respinTopSeatRow, stateRespinBoard } from '../game/stateRespinBoard.svelte';
 	import RespinCounterArt from './RespinCounterArt.svelte';
 
 	/**

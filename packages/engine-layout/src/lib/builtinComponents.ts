@@ -2975,7 +2975,7 @@ export const RESPIN_CELLS_DEF: ComponentDef = {
  *
  * SKINNABLE: `lockedComponent` names a component each locked cell draws as instead of
  * `lockedImage` (sized to the cell, fed its `reel` and `row`), so a locked plate can carry its own
- * idle. Under `holdAndWin.expansion.openStyle: 'component'` a row opens by firing
+ * idle. Under `holdAndWin.openStyle: 'component'` a row opens by firing
  * {@link LOCKED_CELL_OPEN_SIGNAL} at each of its cells — scoped `row:<data row>`, so only that row's
  * cells hear it — and waiting for the timeline it starts (one that holds the cue, else the longest
  * `open` timeline or state of the component), capped so a missing one never hangs the round.

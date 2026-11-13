@@ -1,13 +1,13 @@
 <script lang="ts">
 	import {
+		ADD_ROWS_AT,
 		BOARD_END_TYPES,
-		EXPANSION_GROWS,
-		EXPANSION_OPEN_STYLES,
 		EXPANSION_RULES,
 		MAX_OPEN_STAGGER_MS,
 		HOLD_AND_WIN_SPECIALS,
 		HOLD_AND_WIN_SYMBOL_ROLES,
 		RESPIN_PLAY,
+		ROW_OPEN_STYLES,
 		RESPIN_RESETS,
 		SPECIAL_SYMBOL_ROLE,
 		STICKINESS,
@@ -18,8 +18,6 @@
 		symbolsWithRole,
 		type BoardEnd,
 		type CoinValueEntry,
-		type ExpansionGrow,
-		type ExpansionOpenStyle,
 		type ExpansionRule,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -30,7 +28,9 @@
 		type HoldAndWinSpecial,
 		type HoldAndWinSymbolRole,
 		type MysteryReveal,
+		type AddRowsAt,
 		type RespinPlay,
+		type RowOpenStyle,
 		type RespinReset,
 		type Stickiness,
 		type UpgradeSpecial,
@@ -39,7 +39,13 @@
 		type WheelPrize,
 	} from 'game-config';
 	import { ROLE_LABELS, SPECIAL_LABELS, num } from './bonusLabels';
-	import { setEnhancements, setRespinPlay } from './pageDoc';
+	import {
+		setAddRowsAt,
+		setEnhancements,
+		setOpenStagger,
+		setOpenStyle,
+		setRespinPlay,
+	} from './pageDoc';
 
 	/**
 	 * One respin mode's Hold and Win RULES (`docs/design/hold-and-win.md` §1.3, §5;
@@ -79,6 +85,15 @@
 		auto: 'Automatic — the respins follow each other, a tap speeds them up',
 		manual: 'Manual — the player presses SPIN for each respin',
 	};
+	const ADD_ROWS_LABELS: Record<AddRowsAt, string> = {
+		below: 'Below the board',
+		above: 'Above the board',
+		split: 'Alternating — below, then above',
+	};
+	const ROW_OPEN_STYLE_LABELS: Record<RowOpenStyle, string> = {
+		fade: 'The coded fade',
+		component: "The Locked Row component's open",
+	};
 	const RESET_LABELS: Record<RespinReset, string> = {
 		anyCoin: 'A new coin or jackpot resets the count',
 		anySpecial: 'Any new coin, jackpot or special resets the count',
@@ -92,15 +107,6 @@
 		fullRow: 'Filling the bottom open row opens the next',
 		unlockSymbol: 'An unlock symbol landing opens a row',
 		coinCount: 'Enough held symbols open a row',
-	};
-	const EXPANSION_GROW_LABELS: Record<ExpansionGrow, string> = {
-		below: 'Below the base rows',
-		above: 'Above the base rows',
-		split: 'Alternating — below, then above',
-	};
-	const EXPANSION_OPEN_STYLE_LABELS: Record<ExpansionOpenStyle, string> = {
-		fade: 'The coded fade',
-		component: "The Locked Row component's open",
 	};
 	const SPECIAL_HINTS: Record<HoldAndWinSpecial, string> = {
 		collector: 'Gathers the value of the coins on the board into itself.',
@@ -387,25 +393,6 @@
 		toggleReel(target, reel, on);
 		if (target.reels) grow.unlockReels = target.reels;
 		else delete grow.unlockReels;
-	}
-	/** The defaults (`below`, `fade`, no stagger) are not stored, so a board left at them saves
-	 *  exactly as a project that never had the fields. */
-	function setGrow(grow: HoldAndWinExpansion, value: string) {
-		const next = EXPANSION_GROWS.find((g) => g === value);
-		if (next && next !== 'below') grow.grow = next;
-		else delete grow.grow;
-	}
-	function setOpenStyle(grow: HoldAndWinExpansion, value: string) {
-		const next = EXPANSION_OPEN_STYLES.find((o) => o === value);
-		if (next === 'component') grow.openStyle = next;
-		else {
-			delete grow.openStyle;
-			delete grow.openStagger;
-		}
-	}
-	function setOpenStagger(grow: HoldAndWinExpansion, ms: number) {
-		if (ms > 0) grow.openStagger = ms;
-		else delete grow.openStagger;
 	}
 	function addRowJackpot(hw: HoldAndWinGame, grow: HoldAndWinExpansion) {
 		(grow.rowJackpots ??= []).push({ rows: grow.maxRows, jackpot: lastJackpot(hw) });
@@ -789,6 +776,42 @@
 						onchange={(e) => setEnhancements(hw, e.currentTarget.checked)}
 					/><span>The server draws enhancements (Expand · Boost · Multiply · Respin)</span></label
 				>
+				{#if hw.enhancements || hw.expansion}
+					<label
+						title="Where the board draws the rows it adds: an Expand or super bonus row, or an unlocked row. Presentation only: what the server opens is the same either way."
+						><span>Rows added</span><select
+							value={hw.addRowsAt ?? 'below'}
+							onchange={(e) => setAddRowsAt(hw, e.currentTarget.value as AddRowsAt)}
+						>
+							{#each ADD_ROWS_AT as at (at)}
+								<option value={at}>{ADD_ROWS_LABELS[at]}</option>
+							{/each}
+						</select></label
+					>
+					<label
+						title="How a locked row opens: the coded fade, or the Scene Editor's Locked Row component (its lockedComponent) playing its open on each cell, row by row. Presentation only."
+						><span>A row opens with</span><select
+							value={hw.openStyle ?? 'fade'}
+							onchange={(e) => setOpenStyle(hw, e.currentTarget.value as RowOpenStyle)}
+						>
+							{#each ROW_OPEN_STYLES as o (o)}
+								<option value={o}>{ROW_OPEN_STYLE_LABELS[o]}</option>
+							{/each}
+						</select></label
+					>
+					{#if hw.openStyle === 'component'}
+						<label
+							><span>Between rows <em>ms</em></span><input
+								type="number"
+								min="0"
+								max={MAX_OPEN_STAGGER_MS}
+								step="50"
+								value={hw.openStagger ?? 0}
+								oninput={num((n) => n >= 0 && setOpenStagger(hw, n), true)}
+							/></label
+						>
+					{/if}
+				{/if}
 			</div>
 		</div>
 
@@ -884,40 +907,6 @@
 								>An unlock resets the respins</span
 							></label
 						>
-					</div>
-					<div class="row">
-						<label
-							><span>Opened rows are drawn <em>presentation only</em></span><select
-								value={grow.grow ?? 'below'}
-								onchange={(e) => setGrow(grow, e.currentTarget.value)}
-							>
-								{#each EXPANSION_GROWS as g (g)}
-									<option value={g}>{EXPANSION_GROW_LABELS[g]}</option>
-								{/each}
-							</select></label
-						>
-						<label
-							><span>A row opens with</span><select
-								value={grow.openStyle ?? 'fade'}
-								onchange={(e) => setOpenStyle(grow, e.currentTarget.value)}
-							>
-								{#each EXPANSION_OPEN_STYLES as o (o)}
-									<option value={o}>{EXPANSION_OPEN_STYLE_LABELS[o]}</option>
-								{/each}
-							</select></label
-						>
-						{#if grow.openStyle === 'component'}
-							<label
-								><span>Between rows <em>ms</em></span><input
-									type="number"
-									min="0"
-									max={MAX_OPEN_STAGGER_MS}
-									step="50"
-									value={grow.openStagger ?? 0}
-									oninput={num((n) => n >= 0 && setOpenStagger(grow, n), true)}
-								/></label
-							>
-						{/if}
 					</div>
 					{#if grow.rule === 'coinCount' && grow.thresholds}
 						{@const thresholds = grow.thresholds}

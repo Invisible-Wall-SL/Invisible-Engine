@@ -57,7 +57,6 @@
 		type CountRepeaterNode,
 		type EffectDoc,
 		type EffectNode,
-		type ExpandingBoardGrow,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -359,9 +358,9 @@
 		 *  to this many rows: an expanding respin board's rows below the base ones, locked, where the game
 		 *  opens them (view only). Every other grid draws its base rows. `null` ⇒ the base rows alone. */
 		grownBoardRows?: number | null;
-		/** Where the grown board's rows open (Game Config → Board expansion `grow`): `above` draws them
-		 *  over the base rows, `split` alternates below then above. `null` ⇒ below. */
-		grownBoardGrow?: ExpandingBoardGrow | null;
+		/** Where the grown rows open (Game Config `addRowsAt`): `above` the base rows, or `split` —
+		 *  alternating below then above. `null` ⇒ below. */
+		grownRowsAt?: 'above' | 'split' | null;
 		/** Per-source SAMPLE data for `repeater` placeholders, resolved from the project's game config
 		 * (currently `featureCards` → one card per non-default bet mode, with each card's per-item
 		 * values). Drives BOTH the placeholder count and the per-box component preview. `null` / an
@@ -502,7 +501,7 @@
 		symbolsDoc = null,
 		gridDimensions = null,
 		grownBoardRows = null,
-		grownBoardGrow = null,
+		grownRowsAt = null,
 		repeaterSources = null,
 		componentMap = new Map(),
 		rigPreview = null,
@@ -3918,11 +3917,11 @@
 	}
 
 	/**
-	 * The rows an expanding respin board opens, drawn where the game seats them (below the base rows,
-	 * above them, or alternating — `grownBoardGrow`, as `expansionSeatRow` seats them) at the game's row
-	 * pitch: the selected `lockedRow` component's look (one row, or every grown row while the grown
-	 * board is previewed), else the coded locked cell (dark, LOCKED) for each row the grown preview
-	 * adds, with the whole grown block outlined. Nothing selected and no preview ⇒ nothing drawn.
+	 * The rows an expanding respin board opens, drawn below the base rows (above them, or alternating
+	 * below then above, as `grownRowsAt` says — the game's `addedRowSeat`) at the game's row pitch: the
+	 * selected `lockedRow` component's look (one row, or every grown row while the grown board is
+	 * previewed), else the coded locked cell (dark, LOCKED) for each row the grown preview adds, with
+	 * the whole grown block outlined. Nothing selected and no preview ⇒ nothing drawn.
 	 */
 	function drawLockedRowPreview(
 		ctx: CanvasRenderingContext2D,
@@ -3943,29 +3942,24 @@
 		const tintText = typeof params.lockedTint === 'string' ? params.lockedTint : '';
 		const tint = /^#[0-9a-f]{6}$/i.test(tintText) ? parseInt(tintText.slice(1), 16) : undefined;
 		const scoped = image ? parseScopedFrameRef(image) : null;
-		// Each column's bottom and top seat.
+		// Each column's bottom and top seat: rows open below the one, above the other.
 		const bottoms = seats.filter(
 			(seat) => !seats.some((other) => other.i === seat.i && other.j > seat.j),
 		);
 		const tops = seats.filter(
 			(seat) => !seats.some((other) => other.i === seat.i && other.j < seat.j),
 		);
-		/** The k-th opened row (from 1): `-n` = n pitches above the top row, `+n` = below the bottom. */
+		/** The k-th added row (from 1), in pitches: `-n` above the top seat, `+n` below the bottom. */
 		const opened = (k: number): number =>
-			grownBoardGrow === 'above'
-				? -k
-				: grownBoardGrow === 'split'
-					? k % 2 === 1
-						? (k + 1) / 2
-						: -(k / 2)
-					: k;
+			grownRowsAt === 'above' ? -k : grownRowsAt === 'split' ? (k % 2 ? (k + 1) / 2 : -(k / 2)) : k;
 		const steps = Array.from({ length: rows }, (_, i) => opened(i + 1));
 		const belowRows = steps.filter((n) => n > 0).length;
 		const aboveRows = steps.length - belowRows;
-		for (const seat of bottoms) {
-			const top = tops.find((other) => other.i === seat.i) ?? seat;
-			for (const step of steps) {
-				const y = step > 0 ? seat.y + pitch * step : top.y + pitch * step;
+		for (const bottom of bottoms) {
+			const top = tops.find((other) => other.i === bottom.i) ?? bottom;
+			for (const n of steps) {
+				const seat = n > 0 ? bottom : top;
+				const y = seat.y + pitch * n;
 				if (scoped) {
 					ctx.save();
 					ctx.translate(seat.x + seat.w / 2, y + seat.h / 2);
@@ -4001,8 +3995,8 @@
 		if (!grownRows) return;
 		const left = Math.min(...seats.map((seat) => seat.x));
 		const right = Math.max(...seats.map((seat) => seat.x + seat.w));
-		const top = Math.min(...tops.map((seat) => seat.y - pitch * aboveRows));
-		const bottom = Math.max(...bottoms.map((seat) => seat.y + seat.h + pitch * belowRows));
+		const top = Math.min(...seats.map((seat) => seat.y - pitch * aboveRows));
+		const bottom = Math.max(...seats.map((seat) => seat.y + seat.h + pitch * belowRows));
 		ctx.lineWidth = 2;
 		ctx.strokeStyle = 'rgba(255, 196, 93, 0.9)';
 		ctx.setLineDash([8 / zoom, 6 / zoom]);
@@ -6271,7 +6265,7 @@
 		void tilemapPaint.brush;
 		// The grown-board preview switch (Properties, on a reel grid) redraws the board.
 		void grownBoardRows;
-		void grownBoardGrow;
+		void grownRowsAt;
 		schedule();
 	});
 

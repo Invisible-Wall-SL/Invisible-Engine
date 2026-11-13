@@ -56,12 +56,13 @@ Owner agent: `hold-and-win-games`.
   pacing, not math.
 - **Coin board stake** is lines × bet per line; a fixed board sends its active line count
   (`apps/lines/src/game/coinBoardStake.ts`, `coinBoardStake.fixture.ts`).
-- **An opened row keeps its DATA row; only its seat moves.** `expansion.grow` (`above` / `split`),
-  `openStyle` and `openStagger` are presentation: the mock's inputs strip them
-  (`holdAndWinServerRules`), and every respin-board seat goes through `apps/lines`
-  `respinSeat.ts` (`expansionSeatRow`), which hands a base row, and any row without `grow`, to
-  `getSymbolSeat` unchanged. A new respin-board drawing must seat through it, never
-  `getSymbolSeat(reel, row)` directly (`holdAndWin.fixture`, `test-hold-and-win-template.mjs`).
+- **An added row keeps its DATA row; only its seat moves.** `addRowsAt` (`above` / `split`),
+  `openStyle` and `openStagger` are presentation (the mock's inputs strip the last two,
+  `holdAndWinServerRules`). Every respin-board seat goes through `respinSeatRow`
+  (`apps/lines` `stateRespinBoard.svelte.ts`, over game-config's `addedRowSeat`), which hands a base
+  row, and any row without `addRowsAt`, to `getSymbolSeat` unchanged. A new respin-board drawing
+  must seat through it, never `getSymbolSeat(reel, row)` directly (`holdAndWin.fixture`,
+  `test-hold-and-win-template.mjs`).
 - **Forcing is authoring-only.** A player mock refuses forces; the authoring twin
   (`/api/<key>/authoring/…`) takes them (`services/test-server/makeMock.mjs`).
 

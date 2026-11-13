@@ -46,7 +46,7 @@ export {
 	expandingBoardReserve,
 	expandingBoardReserved,
 	reserveExpandingBoard,
-	type ExpandingBoardGrow,
+	type ExpandingRowsAt,
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
 // The game HUD as editor scenes (identical across game types) — used by the
@@ -132,7 +132,14 @@ const FULL_SCENE_SOURCES: Record<
 
 /** A declared respin mode the scene set seeds screens for: its id, the name the tools show it by,
  *  and the rows its board grows to. */
-export type RespinModeScreens = { id: string; label?: string; maxRows?: number };
+export type RespinModeScreens = {
+	id: string;
+	label?: string;
+	maxRows?: number;
+	/** Its board's added rows draw above the base grid, or alternate below and above (its Game
+	 *  Config `addRowsAt`). */
+	addRowsAt?: 'above' | 'split';
+};
 
 /** A declared SPINS bonus mode (`GameModeDecl.spins`, bonus-games Phase 8) the scene set seeds
  *  screens for: its id and the name the tools show it by. */
@@ -198,18 +205,18 @@ function modeCopy(scene: Scene, mode: { id: string; label?: string }): Scene {
 	};
 }
 
-/** The reference scenes laid out for `maxRows` — `reference` itself when that is its own. */
+/** The reference scenes laid out for `mode`'s rows — `reference` itself when they are its own. */
 const laidOutFor = (
 	reference: Scene[],
 	options: SceneSetOptions,
-	maxRows: number | undefined,
+	{ maxRows, addRowsAt }: RespinModeScreens,
 ): Scene[] =>
-	maxRows === options.maxRows
+	maxRows === options.maxRows && addRowsAt === options.addRowsAt
 		? reference
 		: holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, {
 				potIds: options.potIds,
 				maxRows,
-				...(options.grow ? { grow: options.grow } : {}),
+				...(addRowsAt ? { addRowsAt } : {}),
 				...(options.jackpotBar === false ? { jackpotBar: false } : {}),
 				...(options.coinBoard ? { coinBoard: true } : {}),
 				...(options.enhancements ? { enhancements: true } : {}),
@@ -218,7 +225,11 @@ const laidOutFor = (
 /** The respin modes `options` seeds screens for. */
 const respinModesIn = (options: SceneSetOptions): readonly RespinModeScreens[] =>
 	options.respinModes ?? [
-		{ id: HOLD_AND_WIN_MODE, ...(options.maxRows ? { maxRows: options.maxRows } : {}) },
+		{
+			id: HOLD_AND_WIN_MODE,
+			...(options.maxRows ? { maxRows: options.maxRows } : {}),
+			...(options.addRowsAt ? { addRowsAt: options.addRowsAt } : {}),
+		},
 	];
 
 /**
@@ -229,18 +240,18 @@ function referenceWithModes(
 	options: SceneSetOptions,
 	modes: readonly RespinModeScreens[],
 ): Scene[] {
-	const { potIds, maxRows, grow, jackpotBar, coinBoard, enhancements } = options;
+	const { potIds, maxRows, addRowsAt, jackpotBar, coinBoard, enhancements } = options;
 	const reference = holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, {
 		potIds,
 		maxRows,
-		...(grow ? { grow } : {}),
+		...(addRowsAt ? { addRowsAt } : {}),
 		...(jackpotBar === false ? { jackpotBar } : {}),
 		...(coinBoard ? { coinBoard } : {}),
 		...(enhancements ? { enhancements } : {}),
 	}).scenes;
 	const perMode = modes.map((mode) => ({
 		mode,
-		scenes: laidOutFor(reference, options, mode.maxRows),
+		scenes: laidOutFor(reference, options, mode),
 	}));
 	return reference.flatMap((scene, at) =>
 		scene.role === 'mode' && scene.modeId === HOLD_AND_WIN_MODE

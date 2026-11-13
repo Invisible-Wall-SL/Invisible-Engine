@@ -11,7 +11,7 @@ import { scopeOf } from 'utils-event-emitter';
 import { roundSkip } from 'utils-shared/skipToken';
 
 /**
- * A COMPONENT OPENING of an expanding board's locked row (`expansion.openStyle: 'component'`): the
+ * A COMPONENT OPENING of an expanding board's locked row (Game Config `openStyle: 'component'`): the
  * locked cells' component (the Locked Row's `lockedComponent`) plays its `open` on the row's cells,
  * and the beat waits for it. Waited for by what the component authors — a timeline on `open` that
  * holds the cue is observed to its end; failing that, the longest timeline it plays on `open`, or in

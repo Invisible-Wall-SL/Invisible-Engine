@@ -12,8 +12,8 @@
 		enhancementsVisible,
 		type EnhancementDial,
 	} from '../game/holdAndWinEnhancements.svelte';
-	import { respinTopSeatRow } from '../game/respinSeat';
 	import { cellWindow, getSymbolX } from '../game/stateGame.svelte';
+	import { respinTopSeatRow } from '../game/stateRespinBoard.svelte';
 
 	/**
 	 * THE CODED ENHANCEMENT DIALS (Phase 14b) — Expand, Boost, Multiply and Respin in a row above the

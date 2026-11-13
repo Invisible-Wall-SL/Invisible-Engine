@@ -9,7 +9,6 @@ import {
 	resolveOutcome,
 	respinModeDecls,
 	spinsModeDecls,
-	type ExpansionGrow,
 	type GameConfigDoc,
 	type GameOutcome,
 } from 'game-config';
@@ -51,9 +50,9 @@ export type RespinModeInfo = {
 	/** Its board grows to this many rows (its rules' `expansion`, or the rows its enhancements can
 	 *  open). */
 	maxRows?: number;
-	/** Where its expanding board draws the opened rows (its rules' `expansion.grow`); absent ⇒
-	 *  below. */
-	grow?: ExpansionGrow;
+	/** Its board's added rows draw above the base grid, or alternate below and above (its rules'
+	 *  `addRowsAt`); absent ⇒ below. */
+	addRowsAt?: 'above' | 'split';
 	/** Its rules' jackpot tiers, in order. */
 	jackpotTiers: string[];
 	/** The server draws entry enhancements for it (its rules' `enhancements`). */
@@ -70,13 +69,14 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
 	return respinModeDecls(doc).map((mode) => {
 		const enhancements = mode.holdAndWin.enhancements === true;
+		const at = mode.holdAndWin.addRowsAt;
+		const rowsAt = at === 'above' || at === 'split' ? at : undefined;
 		const maxRows = holdAndWinMaxRows(mode.holdAndWin);
-		const grow = mode.holdAndWin.expansion?.grow;
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
-			...(maxRows && grow ? { grow } : {}),
+			...(maxRows && rowsAt ? { addRowsAt: rowsAt } : {}),
 			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
 			...(enhancements ? { enhancements: true as const } : {}),
 		};
@@ -124,12 +124,12 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
 	return rows || undefined;
 }
 
-/** Where the tallest respin board ({@link respinMaxRows}) draws its opened rows — the direction the
- *  base reel grid's reserve lifts for. `undefined` ⇒ below. */
-export function respinGrow(modes: readonly RespinModeInfo[]): ExpansionGrow | undefined {
+/** Where the tallest respin board draws its added rows — above the base grid (the base reel grid's
+ *  reserve lowers it instead of lifting it) or alternating (`split`); `undefined` ⇒ below. */
+export const respinRowsAt = (modes: readonly RespinModeInfo[]): RespinModeInfo['addRowsAt'] => {
 	const rows = respinMaxRows(modes);
-	return rows ? modes.find((mode) => mode.maxRows === rows)?.grow : undefined;
-}
+	return modes.find((mode) => mode.maxRows === rows && mode.addRowsAt)?.addRowsAt;
+};
 
 /**
  * The scene-set options a project's layout is seeded from. A Hold and Win kind's own block is its
@@ -147,12 +147,12 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 	const modes = respinModesOf(doc);
 	const spins = doc ? spinsModeDecls(doc) : [];
 	const maxRows = respinMaxRows(modes);
-	const grow = respinGrow(modes);
+	const rowsAt = respinRowsAt(modes);
 	const addOn =
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
-		...(grow ? { grow } : {}),
+		...(maxRows && rowsAt ? { addRowsAt: rowsAt } : {}),
 		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(gameType === 'holdAndWin' && doc?.coinBoard ? { coinBoard: true as const } : {}),
 		...(gameType === 'holdAndWin' && modes.some((mode) => mode.enhancements)
@@ -160,10 +160,11 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 			: {}),
 		...(modes.length
 			? {
-					respinModes: modes.map(({ id, label, maxRows }) => ({
+					respinModes: modes.map(({ id, label, maxRows, addRowsAt }) => ({
 						id,
 						label,
 						...(maxRows ? { maxRows } : {}),
+						...(addRowsAt ? { addRowsAt } : {}),
 					})),
 				}
 			: {}),

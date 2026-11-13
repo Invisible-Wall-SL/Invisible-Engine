@@ -2505,19 +2505,20 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   `open` timeline it has, never more than 4 s. The preview still shows the **lockedImage**. Like the
   tiles, where you drop it doesn't matter; the template puts one on the **Respin board** screen.
   **Select it** to preview one locked row next to the reel grid. The extra rows grow **below** the
-  base grid unless Game Config's **Opened rows are drawn** says above or alternating, so an
-  expanding game needs room there. A
+  base grid (or **above** it, when Game Config → Respins → **Rows added** is *Above the board*, as
+  Getting Hot's template sets, or alternately below and above for *Alternating*), so an expanding
+  game needs room there. A
   project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
   with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
-  the whole board lifts by half its extra rows (its **board nudge rows**), so the grown board sits where the base
+  the whole board lifts by half its extra rows (lowers, for rows added above; its **board nudge rows**), so the grown board sits where the base
   board was, and the pieces above and below are pushed clear. A project that turns expansion on **later** (or was
   reserved before 2026-11-13, when the lift was a px **board nudge** that fell short on a scaled grid) shows a
   **⇕ Reserve rows for board expansion (N)** entry in the Screens panel's **⋯** menu: it applies the same cell size
   and row lift to the reel grid without moving it (undoable), and swaps an old px lift for the row lift. Move any
   piece that still sits under the grown board yourself.
   To **see** the grown board, select the reel grid and tick **preview N rows** (next to **board nudge rows**): the
-  canvas draws the rows the respin board opens where the game opens them (below the base rows, above them, or
-  alternating below then above), locked (the selected Locked Row's art, else
+  canvas draws the rows the respin board opens where the game opens them (below the base rows, above
+  them, or alternating below then above, as **Rows added** says), locked (the selected Locked Row's art, else
   the coded LOCKED panel), with the whole grown block outlined. It is view only, and it shows on every layout
   tab, so check each one. **board nudge rows** is also a plain field: it moves the whole board by whole rows (−1 =
   one row up) as each layout draws them, on top of the px **board nudge**.

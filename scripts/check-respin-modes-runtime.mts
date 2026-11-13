@@ -947,7 +947,7 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 			'sameRespinBoard',
 			'createRespinBoard',
 			'stateGameDerived',
-			'respinCellLead',
+			'cellSymbolLead',
 			'respinSeedBoard',
 			'respinBlank',
 			'onCellStopping',

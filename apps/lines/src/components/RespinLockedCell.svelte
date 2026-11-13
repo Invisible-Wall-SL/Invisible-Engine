@@ -10,10 +10,11 @@
 	import { scopeOf } from 'utils-event-emitter';
 
 	import { getContext } from '../game/context';
-	import { respinCellSeat, respinCellWindow } from '../game/respinSeat';
+	import { cellWindow, getSymbolSeat } from '../game/stateGame.svelte';
 	import {
 		markInsideRespinLockedCell,
 		respinLockedLook,
+		respinSeatRow,
 		respinUnlockFade,
 		stateRespinBoard,
 	} from '../game/stateRespinBoard.svelte';
@@ -27,7 +28,7 @@
 	 * ONE LOCKED cell of an expanding respin board (design §7 11b) — a row not yet open. It holds
 	 * nothing and never spins; it shows the authored `lockedRow` look (`respinLockedLook`): its
 	 * `lockedComponent` drawn on the cell, else its art, else the coded overlay — a dark panel marked
-	 * LOCKED. Sized to the cell's own box, at its seat (`respinCellSeat`, so a row opened above the
+	 * LOCKED. Sized to the cell's own box, at its seat (`respinSeatRow`, so a row added above the
 	 * base rows sits there), like a respin cell's tile. While its row fades open
 	 * (`stateRespinBoard.unlockingTo`) it fades out.
 	 *
@@ -37,11 +38,11 @@
 	setComponentSignalScope(scopeOf(LOCKED_CELL_SCOPE_KIND, props.row));
 	markInsideRespinLockedCell();
 
-	const seat = $derived(respinCellSeat(props.reel, props.row));
+	const seat = $derived(getSymbolSeat(props.reel, respinSeatRow(props.row)));
 	const columnPitch = $derived(
 		SYMBOL_SIZE + context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
-	const cellHeight = $derived(respinCellWindow(props.reel, props.row).height);
+	const cellHeight = $derived(cellWindow(props.reel, respinSeatRow(props.row)).height);
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	const look = $derived(respinLockedLook());
 	const alpha = $derived(props.row < stateRespinBoard.unlockingTo ? respinUnlockFade.current : 1);
