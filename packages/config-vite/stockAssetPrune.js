@@ -88,10 +88,11 @@ const isRecord = (value) => typeof value === 'object' && value !== null && !Arra
 /**
  * The files `rel` names in turn (an atlas's pages, a sheet's images and related packs, a font's
  * pages), and whether it is a page descriptor: an atlas, a font, or a sheet JSON. A page descriptor
- * that names no page is in a form this parser does not read.
+ * that names no page, or a font naming fewer than it declares, is in a form this parser does not
+ * read (`partial`).
  */
 function namedFiles(assetsDir, rel) {
-	const text = readFileSync(join(assetsDir, rel), 'utf8');
+	const text = readFileSync(join(assetsDir, rel), 'utf8').replace(/^\uFEFF/, '');
 	if (/\.atlas$/i.test(rel)) {
 		const names = text
 			.split(/\r?\n/)
@@ -101,10 +102,15 @@ function namedFiles(assetsDir, rel) {
 	}
 	if (/\.(xml|fnt)$/i.test(rel)) {
 		// `<page id="0" file="…"/>` in an XML font, `page id=0 file="…"` in a text `.fnt`, either quote.
-		const names = [...text.matchAll(/\bpage\b[^>\n]*\bfile=(?:"([^"]+)"|'([^']+)')/g)].map(
+		const names = [...text.matchAll(/\bpage\b[^>]*?\bfile=(?:"([^"]+)"|'([^']+)')/g)].map(
 			(m) => m[1] ?? m[2],
 		);
-		return { names, pageDescriptor: /<font\b|^\s*(info|common)\s/m.test(text) };
+		const declared = Number(/\bcommon\b[^>\n]*\bpages=["']?(\d+)/.exec(text)?.[1] ?? 0);
+		return {
+			names,
+			pageDescriptor: /<font\b|^\s*(info|common)\s/m.test(text),
+			partial: names.length < declared,
+		};
 	}
 	if (/\.json$/i.test(rel)) {
 		const doc = JSON.parse(text);
@@ -129,7 +135,7 @@ function namedFiles(assetsDir, rel) {
 
 /**
  * Every file `roots` load, followed through what each names; throws when one cannot be read. A page
- * descriptor that names no page is pushed onto `unread`: what it draws from is unknown.
+ * descriptor whose pages are not all read is pushed onto `unread`: what it draws from is unknown.
  */
 function closure(assetsDir, roots, unread = []) {
 	const seen = new Set();
@@ -138,8 +144,8 @@ function closure(assetsDir, roots, unread = []) {
 		const rel = queue.pop();
 		if (seen.has(rel)) continue;
 		seen.add(rel);
-		const { names, pageDescriptor } = namedFiles(assetsDir, rel);
-		if (pageDescriptor && !names.some((name) => PAGE_EXT.test(name))) unread.push(rel);
+		const { names, pageDescriptor, partial } = namedFiles(assetsDir, rel);
+		if (partial || (pageDescriptor && !names.some((name) => PAGE_EXT.test(name)))) unread.push(rel);
 		for (const name of names) {
 			const next = sibling(rel, name);
 			if (next === null) throw new Error(`${rel} names ${name}, outside the assets folder`);
@@ -213,7 +219,14 @@ export function pruneStockFiles(assetsDir, plan, { isNamed = () => false } = {})
 	}
 	// A kept key whose own file is absent loads nothing from this folder, so it protects nothing.
 	const exists = (rel) => existsSync(join(assetsDir, rel));
-	const folderOf = (rel) => folders.find((folder) => rel.startsWith(`${folder}/`));
+	// The outermost stock folder holding `rel`, so a nested folder is swept with its parent.
+	const folderOf = (rel) =>
+		folders
+			.filter((folder) => rel.startsWith(`${folder}/`))
+			.reduce(
+				(outer, folder) => (outer && outer.length <= folder.length ? outer : folder),
+				undefined,
+			);
 	const inStockFolder = (rel) => folderOf(rel) !== undefined;
 	const leavingRoots = new Set([...stockLeaving, ...artLeaving]);
 	const all = filesUnder(assetsDir);
@@ -250,7 +263,9 @@ export function pruneStockFiles(assetsDir, plan, { isNamed = () => false } = {})
 	// descriptor whose pages are unknown keeps its folder whole, or every folder when it sits outside
 	// them (its pages may be anywhere), and so does a kept file that could not be read.
 	const unswept = new Set(unread.map(folderOf));
-	const sweepsNone = !!artKeptAllBecause || unswept.has(undefined);
+	// An unread descriptor that reaches out of its folder may draw from any other.
+	const reachesOut = (rel) => /\.\.[\\/]/.test(readFileSync(join(assetsDir, rel), 'utf8'));
+	const sweepsNone = !!artKeptAllBecause || unswept.has(undefined) || unread.some(reachesOut);
 	const sweepKeptBecause =
 		artKeptAllBecause ??
 		(unread.length ? `no page read from ${[...new Set(unread)].sort().join(', ')}` : undefined);
@@ -420,7 +435,7 @@ function writeReport(report) {
 const fmt = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 
 /** `text` with URL escapes decoded, backslashes (escaped or not) as `/`, and no case. */
-export const normalisedPathText = (text) =>
+const normalisedPathText = (text) =>
 	text
 		.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
 			try {
@@ -431,6 +446,13 @@ export const normalisedPathText = (text) =>
 		})
 		.replace(/\\+/g, '/')
 		.toLowerCase();
+
+/** Whether `text` names `rel`: as written, or through URL escapes, backslashes and any case. */
+export const namesIn = (text) => {
+	const named = normalisedPathText(text);
+	const raw = text.toLowerCase();
+	return (rel) => named.includes(rel.toLowerCase()) || raw.includes(rel.toLowerCase());
+};
 
 /** Whether the baked bundle or the built client code names `rel`: what keeps a stock-folder file
  *  the stock table does not load. Code that cannot be read names everything. */
@@ -443,8 +465,7 @@ function namedBy(codeDir) {
 	} catch {
 		return () => true;
 	}
-	const named = normalisedPathText(text);
-	return (rel) => named.includes(rel.toLowerCase());
+	return namesIn(text);
 }
 
 /** The Vite plugin: prunes after SvelteKit's server pass wrote the client output, before the adapter. */

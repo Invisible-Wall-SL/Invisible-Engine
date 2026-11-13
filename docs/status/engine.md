@@ -610,9 +610,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   case (a Windows exe loads `Page.png` from `page.png`); (2) skips the sweep of a stock folder whose
   kept atlas, sheet or font named no page, and of every folder when that descriptor sits outside
   them or a kept file outside them cannot be read (`artKeptAllBecause` now also stops the sweep);
-  the skipped-key prune still runs; (3) `namedBy` decodes `%XX` and backslashes and ignores case.
-  `stock.json` gains `sweepKeptBecause`. The shared runtime is not pruned, so online games are
-  untouched. Gate: `check-stock-asset-prune.mts` §8 (6 checks, each failing on the old code).
+  the skipped-key prune still runs. A font naming fewer pages than its `common pages=` declares
+  counts as unread, and an unread descriptor reaching `../` out of its folder stops every folder;
+  (3) `namedBy` also matches through `%XX`, backslashes and any case. `stock.json` gains
+  `sweepKeptBecause`. The shared runtime is not pruned, so online games are untouched. Gate:
+  `check-stock-asset-prune.mts` §8 (10 checks, each failing on the code before it).
 - 2026-11-12 — **A desktop build and a delivery ship only what the game loads: the build also leaves
   out the art the boot skips and the sample folders' dead files.** The owner's ☁ Publish of
   `overlay_buffaloduel` (v12, engine `248b7157`) shipped 337 files, 53.5 MB, with 38 files of

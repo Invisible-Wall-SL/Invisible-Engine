@@ -28,7 +28,8 @@
  *     multi-texture sheet, a font quoting `file='…'` or an atlas naming its page in another letter
  *     case; a kept sheet in a form the parser cannot read keeps its folder whole (every folder when
  *     it sits outside them), and so does a descriptor outside the stock folders that cannot be read.
- *     The bundle and the code name a file through URL escapes, backslashes and any letter case.
+ *     So does one reaching out of its folder, and a font naming fewer pages than it declares. The
+ *     bundle and the code name a file as written or through URL escapes, backslashes and any case.
  */
 
 import {
@@ -53,7 +54,7 @@ import {
 import type { GameConfigDoc } from '../packages/game-config/index.ts';
 
 import {
-	normalisedPathText,
+	namesIn,
 	prunesThisBuild,
 	pruneStockFiles,
 	stockPrunedDefine,
@@ -611,16 +612,50 @@ for (const [label, extra] of [
 	const outside = sweep(extra);
 	check(`${label} sweeps no folder`, [outside.removed, outside.sweepDoubt], [[], true]);
 }
+const reaching = sweep({
+	'sprites/odd/odd.json': JSON.stringify({ frames: {}, meta: { images: ['../shared/x.png'] } }),
+	'sprites/shared/x.png': 'page',
+});
 check(
-	'the bundle and the code name a file through URL escapes, backslashes and any case',
-	[
-		normalisedPathText('"assets/fonts/my%20font/a.json"').includes('fonts/my font/a.json'),
-		normalisedPathText('"fonts\\\\goldFont\\\\MM_Gold.json"').includes(
-			'fonts/goldfont/mm_gold.json',
-		),
-		normalisedPathText('"bad%zz%e0"'),
-	],
-	[true, true, '"bad%zz%e0"'],
+	'a kept sheet whose pages are not read and which reaches out of its folder sweeps no folder',
+	[reaching.removed, reaching.sweepDoubt],
+	[[], true],
+);
+const twoPages = sweep({
+	'fonts/quoted/quoted.xml':
+		'<font><common pages="2"/><pages><page id="0" file="quoted.png"/>' +
+		'<page id="1"\n file="second.png"/></pages></font>',
+	'fonts/quoted/second.png': 'page',
+});
+check(
+	'a font page written across lines is read',
+	twoPages.left.includes('fonts/quoted/second.png'),
+	true,
+);
+const undercount = sweep({
+	'fonts/quoted/quoted.xml':
+		'<font><common pages="2"/><pages><page id="0" file="quoted.png"/></pages></font>',
+	'fonts/quoted/second.png': 'page',
+});
+check(
+	'a font naming fewer pages than it declares keeps its folder whole',
+	[undercount.left.includes('fonts/quoted/second.png'), undercount.sweepDoubt],
+	[true, true],
+);
+check(
+	'a BOM before a sheet is no doubt',
+	sweep({ 'editor-art/bom.json': '\uFEFF' + JSON.stringify({ skeleton: {} }) }).sweepDoubt,
+	false,
+);
+const named = namesIn(
+	'"assets/fonts/my%20font/a.json" "fonts\\\\goldFont\\\\MM_Gold.json" "a%20b.png"',
+);
+check(
+	'the bundle and the code name a file through URL escapes, backslashes, any case, or as written',
+	['fonts/my font/a.json', 'fonts/goldFont/mm_gold.json', 'a%20b.png', 'fonts/other.json'].map(
+		named,
+	),
+	[true, true, true, false],
 );
 
 if (failures) {
