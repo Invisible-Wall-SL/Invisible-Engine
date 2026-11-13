@@ -44,6 +44,7 @@ export interface ReelGridLayout {
 	/**
 	 * Whole-board fine px offset, added to the node position. In the node's transform
 	 * units (NOT folded through the cell scale — it lives in layout space). Default 0.
+	 * `boardNudgeY` already includes the node's `boardNudgeRows` (rows × the scaled row pitch).
 	 */
 	boardNudgeX: number;
 	boardNudgeY: number;
@@ -90,7 +91,7 @@ export function resolveReelGridFromNode(
 	const symbolAlignX = Number.isFinite(node.symbolAlignX) ? (node.symbolAlignX as number) : 0.5;
 	const symbolAlignY = Number.isFinite(node.symbolAlignY) ? (node.symbolAlignY as number) : 0.5;
 	const boardNudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
-	const boardNudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
+	const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
 	const scaleX = transform.scale?.x;
 	const cellScale = Number.isFinite(scaleX) && (scaleX as number) > 0 ? (scaleX as number) : 1;
 	// Non-square cell size + inter-cell gaps fold the same (uniform) scale as cellSize,
@@ -106,6 +107,9 @@ export function resolveReelGridFromNode(
 	// Positive only, matching the editor input's own `v > 0` gate: this grows a clip, and a negative
 	// would SHRINK the board window instead — cutting art that fits its cell today, on every game
 	// running the shared bundle, from a number nothing in the UI can produce. Unusable ⇒ 0 ⇒ off.
+	// The row nudge is in row pitches as this layout draws them, so it folds the scale with the cells.
+	const nudgeRows = Number.isFinite(node.boardNudgeRows) ? (node.boardNudgeRows as number) : 0;
+	const boardNudgeY = nudgeRows ? nudgeY + nudgeRows * (ch + gapY) * cellScale : nudgeY;
 	const overflowX =
 		Number.isFinite(node.overflowX) && (node.overflowX as number) > 0
 			? (node.overflowX as number)

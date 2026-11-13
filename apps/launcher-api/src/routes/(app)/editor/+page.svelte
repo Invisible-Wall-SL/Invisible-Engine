@@ -1959,8 +1959,11 @@
 		Boolean(data.expansionMaxRows) &&
 			!expandingBoardReserved({ ...data.doc, scenes, mainSizesMap }, data.expansionMaxRows ?? 0),
 	);
-	/** Shrink the reel grid's cells and lift the whole board (its board nudge) so the respin board's
-	 *  extra rows fit below the base grid — the node does not move; nothing else changes; undoable. */
+	/** The canvas draws the reel grid grown to the respin board's `maxRows` (the reel grid's
+	 *  Properties switch; view only, never saved). */
+	let previewGrownBoard = $state(false);
+	/** Shrink the reel grid's cells and lift the whole board by half its extra rows (its row nudge) so
+	 *  the respin board's extra rows fit below the base grid — the node does not move; undoable. */
 	function reserveExpansionRows(): void {
 		if (!data.expansionMaxRows) return;
 		scenes = reserveExpandingBoard(
@@ -2183,7 +2186,7 @@
 					? [
 							{
 								label: `⇕ Reserve rows for board expansion (${data.expansionMaxRows})`,
-								title: `This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board (its board nudge) so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`,
+								title: `This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board by half its extra rows (its board nudge rows, which follow each layout's scale) so the grown board fits where the base board was — the grid does not move; preview it with the reel grid's "preview rows" switch, and move the pieces below it if they still overlap.`,
 								onSelect: reserveExpansionRows,
 							},
 						]
@@ -3893,6 +3896,9 @@
 						symbolDefaults={data.symbolDefaults}
 						symbolsDoc={data.symbolsDoc}
 						gridDimensions={shownGridDimensions}
+						grownBoardRows={previewGrownBoard && selectedNode?.kind === 'reelGrid'
+							? data.expansionMaxRows
+							: null}
 						repeaterSources={data.repeaterSources}
 						{componentDefaults}
 						{componentMap}
@@ -4224,6 +4230,8 @@
 						node={selectedNode}
 						gameType={projectGameType}
 						addOns={data.addOns}
+						expansionMaxRows={data.expansionMaxRows}
+						bind:previewGrownBoard
 						{componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}

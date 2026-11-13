@@ -932,6 +932,13 @@ export interface ReelGridNode extends BaseNode {
 	boardNudgeX?: number;
 	boardNudgeY?: number;
 	/**
+	 * Board nudge in ROWS — a vertical whole-board offset in row pitches (cell height + gap, as each
+	 * layout draws it), added to {@link boardNudgeY}. Unlike the px nudge it follows each layout's
+	 * scale, so one value lifts the board by the same number of rows everywhere — how an expanding
+	 * respin board's room is reserved (`reserveExpandingBoard`). Negative = up. Absent = 0.
+	 */
+	boardNudgeRows?: number;
+	/**
 	 * SYMBOL OVERFLOW — how far past the reel window a LANDED symbol's art may spill, in px
 	 * (the same units as the cell size). The board is clipped to its window so a rolling strip
 	 * cannot be seen above or below the reels; the cost is that art drawn larger than its cell —

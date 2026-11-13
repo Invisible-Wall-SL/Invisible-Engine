@@ -1482,8 +1482,12 @@ export function reelGridGeometry(
 	const unscale = (v: number | undefined) => (v !== undefined && v > 0 ? v : 1);
 	const nudgeX =
 		(Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0) / unscale(scale?.x);
-	const nudgeY =
+	const nudgePxY =
 		(Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0) / unscale(scale?.y);
+	// The row nudge is in row pitches, which scale with the board, so in this local space it is just
+	// rows × pitch (`resolveReelGridFromNode` folds the same into the game's nudge).
+	const nudgeRows = Number.isFinite(node.boardNudgeRows) ? (node.boardNudgeRows as number) : 0;
+	const nudgeY = nudgeRows ? nudgePxY + nudgeRows * pitchY : nudgePxY;
 	// Clip-only, so it is read here and never enters `left`/`top`/`width`/`height` or a seat. Read
 	// through the SAME "finite and positive" gate the engine's resolver uses — a negative would
 	// shrink the window rather than grow it, and the preview must reject exactly what the game does.

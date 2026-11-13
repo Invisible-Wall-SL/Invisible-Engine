@@ -6,6 +6,17 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
+### Reserving an expanding board's rows fell short on a scaled grid
+
+- **Symptom:** Getting Hot's grown 5-row respin board ran off the bottom of the screen.
+- **Cause:** ⇕ Reserve rows wrote the lift in unscaled px (`-(extra × cellSize) / 2`); the game adds
+  the px nudge outside each layout's grid scale (2.59 desktop), so the lift was 79 px, not 205.
+- **Fix:** `boardNudgeRows` — a lift in row pitches that follows each layout's scale; the reserve
+  writes it and swaps the old px lift for it.
+- **Guard:** `test-hold-and-win-template.mjs` (grown block centred on 4 scaled layouts),
+  `check:reel-grid-box` §6.
+- **PR:** (this PR, 2026-11-13) · source: `docs/status/hold-and-win.md`
+
 ### The reel grid was framed, then drawn, off the game's board
 
 - **Symptom:** Getting Hot: the box sat a row below the cells; then the game drew the board lower.
