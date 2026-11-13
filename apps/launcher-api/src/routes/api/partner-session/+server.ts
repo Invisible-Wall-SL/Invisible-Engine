@@ -1,5 +1,5 @@
 import { isHttpError, json, redirect } from '@sveltejs/kit';
-import { resolvePartnerLaunch } from '$lib/partnerLaunch';
+import { resolvePartnerLaunch, SEGMENT_RE } from '$lib/partnerLaunch';
 import { ENV } from '$lib/server/env';
 import { partnerRgsRefusal } from '$lib/server/familyGate';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
@@ -111,7 +111,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			} else {
 				if (launch.aliasNamed) assertAlias(launch.alias);
 				// A derived alias that is not a plain segment simply has no deliveries to find.
-				if (launch.aliasNamed || /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(launch.alias)) {
+				if (launch.aliasNamed || SEGMENT_RE.test(launch.alias)) {
 					versionPath = (await listSealedVersions(launch.alias)).at(-1);
 				}
 			}
