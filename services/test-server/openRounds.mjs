@@ -24,18 +24,25 @@
  */
 
 import { carrySession } from '../../scripts/mock-rgs-server.mjs';
+import { sameWire } from './makeMock.mjs';
 
 const HOLD_TTL_MS = Number(process.env.OPEN_ROUND_HOLD_TTL_MS ?? 6 * 60 * 60 * 1000);
 
-/** mock → Map<sid, { owner, roundId, since, keepBetShape }>: sessions another instance answers. */
+/** mock → Map<sid, { owner, roundId, since, sells }>: sessions another instance answers. */
 const held = new WeakMap();
 
 const openRoundOf = (mock, sid) => mock?.sessions?.get(sid)?.round ?? null;
 
-/** Move a held session whose round has closed onto `mock`, with the balance the round left. */
+/**
+ * Move a held session whose round has closed onto `mock`, with the balance the round left. Its config
+ * goes with it only when the game sells a table and the instance that dealt the round is on `mock`'s
+ * wire: a hold can outlive several rebuilds, so it is decided against the round's own owner, never
+ * against whichever swap came last.
+ */
 const release = (mock, sid, hold) => {
 	const settled = hold.owner.sessions.get(sid);
-	if (settled) mock.sessions.set(sid, carrySession(settled, { keepBetShape: hold.keepBetShape }));
+	const keepBetShape = hold.sells && sameWire(hold.owner, mock);
+	if (settled) mock.sessions.set(sid, carrySession(settled, { keepBetShape }));
 };
 
 /**
@@ -43,18 +50,18 @@ const release = (mock, sid, hold) => {
  * holding for an older instance; a held round that has closed since is settled onto `next`. Call
  * once per rebuild, AFTER `next`'s sessions have been carried from `previous`.
  */
-export const holdOpenRounds = (previous, next, { keepBetShape }) => {
+export const holdOpenRounds = (previous, next, { sells }) => {
 	if (!previous?.sessions || !next?.sessions) return;
 	const now = Date.now();
 	const holds = new Map();
 	for (const [sid, hold] of held.get(previous) ?? []) {
 		if (!openRoundOf(hold.owner, sid)) release(next, sid, hold);
-		else if (now - hold.since < HOLD_TTL_MS) holds.set(sid, { ...hold, keepBetShape });
+		else if (now - hold.since < HOLD_TTL_MS) holds.set(sid, { ...hold, sells });
 	}
 	for (const sid of previous.sessions.keys()) {
 		const round = openRoundOf(previous, sid);
 		if (!holds.has(sid) && round)
-			holds.set(sid, { owner: previous, roundId: round.id, since: now, keepBetShape });
+			holds.set(sid, { owner: previous, roundId: round.id, since: now, sells });
 	}
 	if (holds.size > 0) held.set(next, holds);
 };
