@@ -7,7 +7,12 @@
 	import { boardDimensions } from '../game/gameConfig';
 	import { respinHeldState } from '../game/respinLanding';
 	import { getSymbolSeat } from '../game/stateGame.svelte';
-	import { completeHeldBeat, HELD_REST, stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import {
+		completeHeldBeat,
+		HELD_REST,
+		respinSeatRow,
+		stateRespinBoard,
+	} from '../game/stateRespinBoard.svelte';
 
 	type Props = {
 		cell: HoldAndWinCell;
@@ -30,7 +35,7 @@
 	 */
 	const vacant = $derived(props.entry === undefined);
 	const key = $derived(respinCellKey(props.cell.reel, props.cell.row));
-	const seat = $derived(getSymbolSeat(props.cell.reel, props.cell.row));
+	const seat = $derived(getSymbolSeat(props.cell.reel, respinSeatRow(props.cell.row)));
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	/**
 	 * Paint order by SEAT, never by when the cell stuck: cells join this layer one respin at a time,

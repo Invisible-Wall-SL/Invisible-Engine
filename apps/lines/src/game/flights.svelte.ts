@@ -221,11 +221,18 @@ const isCell = (end: unknown): end is { reel: number; row: number } =>
 
 const boardContainer = () => resolveAnchor(FLIGHT_BOARD_ANCHOR);
 
+/** Where a cell's row DRAWS on the board's lattice: the respin board registers its own
+ *  (`respinSeatRow`, rows added above the grid draw above it); every other cell sits on its row. */
+let seatRow: (row: number) => number = (row) => row;
+export const setFlightSeatRow = (map: (row: number) => number) => {
+	seatRow = map;
+};
+
 /** A cell's centre, global. */
 const cellGlobal = (reel: number, row: number): FlightPoint | undefined => {
 	const board = boardContainer();
 	if (!board) return undefined;
-	const seat = getSymbolSeat(reel, row);
+	const seat = getSymbolSeat(reel, seatRow(row));
 	return board.toGlobal({ x: seat.x, y: seat.y });
 };
 
@@ -233,7 +240,7 @@ const cellGlobal = (reel: number, row: number): FlightPoint | undefined => {
 const cellRectGlobal = (reel: number, row: number): FlightRect | undefined => {
 	const board = boardContainer();
 	if (!board) return undefined;
-	const seat = getSymbolSeat(reel, row);
+	const seat = getSymbolSeat(reel, seatRow(row));
 	const geometry = stateGameDerived.boardGeometry();
 	const w = (geometry.cellWidthLocal * seat.scale) / 2;
 	const h = (geometry.cellHeightLocal * seat.scale) / 2;

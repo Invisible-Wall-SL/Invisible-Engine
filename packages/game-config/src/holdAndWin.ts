@@ -136,6 +136,15 @@ export const STICKINESS = ['allCoins', 'collectorsOnly'] as const;
  */
 export const RESPIN_PLAY = ['auto', 'manual'] as const;
 export type RespinPlay = (typeof RESPIN_PLAY)[number];
+
+/**
+ * Where a growing respin board DRAWS the rows it adds past the base grid — an expanding board's
+ * unlocked rows, Expand's and the super bonus's: `below` the base rows, as every game always has,
+ * or `above` them. Presentation only: a held cell keeps its row either way, and a partner's wire is
+ * mapped onto these rows by the facade. Absent ⇒ `below`.
+ */
+export const ADD_ROWS_AT = ['below', 'above'] as const;
+export type AddRowsAt = (typeof ADD_ROWS_AT)[number];
 export type Stickiness = (typeof STICKINESS)[number];
 
 /** `anyCoin` — only a new coin or jackpot resets the counter; `anySpecial` — any new coin, jackpot
@@ -331,6 +340,8 @@ export type HoldAndWin = {
 	 * the collectors' total and the two banners, and reserves {@link ENHANCEMENTS_MAX_ROWS} rows.
 	 */
 	enhancements?: true;
+	/** Where the board draws the rows it adds ({@link ADD_ROWS_AT}); absent ⇒ `below`. */
+	addRowsAt?: AddRowsAt;
 };
 
 /** The rows Expand and the super bonus can open a feature's board to (the partner's 5×5). */
@@ -724,6 +735,8 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 	const play = oneOf(RESPIN_PLAY, raw.play);
 	if (play) out.play = play;
 	if (raw.enhancements === true) out.enhancements = true;
+	const addRowsAt = oneOf(ADD_ROWS_AT, raw.addRowsAt);
+	if (addRowsAt) out.addRowsAt = addRowsAt;
 	return out;
 }
 

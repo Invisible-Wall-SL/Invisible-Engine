@@ -715,6 +715,8 @@ export const HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE: RawGameConfig = {
 		applyOrder: ['collector'],
 		activeModifiers: { atEntry: ['collector'], fromTriggeringSpecials: false },
 		enhancements: true,
+		// Getting Hot adds Expand's row below the board (the owner, 2026-11-13); /config changes it.
+		addRowsAt: 'below',
 	},
 };
 

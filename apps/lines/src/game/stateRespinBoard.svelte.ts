@@ -21,6 +21,7 @@ import { activeRespinMode } from './activeRespinMode.svelte';
 import { coinBoardLockedCells, isCoinBoard } from './coinBoard.svelte';
 import { respinBoardShape, sameRespinBoard } from './respinModes';
 import { eventEmitter } from './eventEmitter';
+import { setFlightSeatRow } from './flights.svelte';
 import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
 import { playReelStopSound, playSymbolLandSound } from './soundBindings';
 import { cellSymbolLead, stateGameDerived } from './stateGame.svelte';
@@ -265,6 +266,28 @@ const enteringRows = (respinBoard: RespinBoard): number =>
 	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? boardDimensions().y);
 
 /**
+ * Where a respin row DRAWS, on the board's row lattice. A row past the base grid — an expanding
+ * board's unlocked row, Expand's, the super bonus's — draws one pitch further down for each, or, under
+ * Game Config `addRowsAt: 'above'`, one pitch further up (row `base` at `-1`, the next at `-2`). The
+ * row's INDEX never changes (a held cell keeps its row); only where it is drawn does.
+ */
+export const respinSeatRow = (row: number): number => {
+	const base = boardDimensions().y;
+	return row >= base && activeRespinMode()?.block.addRowsAt === 'above' ? base - 1 - row : row;
+};
+
+// A flight to or from a respin cell leaves from where the cell draws.
+setFlightSeatRow((row) => (stateRespinBoard.shown ? respinSeatRow(row) : row));
+
+/** The top row the board draws, on its lattice: 0, or above it while rows are added on top. Where
+ *  the coded counter and dials stand above the board. */
+export const respinTopSeatRow = (): number => {
+	if (activeRespinMode()?.block.addRowsAt !== 'above') return 0;
+	const drawn = stateRespinBoard.drawnRows || openRespinRows();
+	return Math.min(0, respinSeatRow(Math.max(0, drawn - 1)));
+};
+
+/**
  * The reels, built on first use and rebuilt for another respin mode or a board whose size changed —
  * each mode plays on its own rules and strips. An expanding board builds every cell of its `maxRows`
  * up front — the rows below the base grid sit on the same lattice, one pitch each further down — and
@@ -281,7 +304,7 @@ const ensureBoard = (): RespinBoard => {
 		reels,
 		rows,
 		symbolHeight: () => stateGameDerived.boardGeometry().rowPitchLocal,
-		symbolLead: cellSymbolLead,
+		symbolLead: (reel, row) => cellSymbolLead(reel, respinSeatRow(row)),
 		initial: respinSeedBoard({ reels, rows, blank: respinBlank() }),
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),

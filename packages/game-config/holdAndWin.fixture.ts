@@ -11,6 +11,7 @@
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import { gameConfigErrors, validateGameConfigDoc } from './src/validate.ts';
 import {
+	HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_TEST_FIXTURES,
@@ -800,6 +801,31 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 			.map((i) => `${i.severity}:${i.path}`),
 		['warning:paddingReels.respin'],
 	);
+}
+
+console.log('\nwhere a growing board draws its added rows (addRowsAt)');
+{
+	check(
+		'no preset says, so every board draws them below as before',
+		HOLD_AND_WIN_PRESET_IDS.map(
+			(id) => primaryHoldAndWin(normalize(clone(HOLD_AND_WIN_PRESETS[id])))?.addRowsAt,
+		),
+		HOLD_AND_WIN_PRESET_IDS.map(() => undefined),
+	);
+	check(
+		'Game Maker’s collector + enhancements template (Getting Hot) adds them below',
+		primaryHoldAndWin(normalize(clone(HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE)))?.addRowsAt,
+		'below',
+	);
+	const withAt = (addRowsAt: unknown) =>
+		primaryHoldAndWin(
+			normalize({
+				...clone(HOLD_AND_WIN_PRESETS.classic),
+				holdAndWin: { ...clone(HOLD_AND_WIN_PRESETS.classic).holdAndWin, addRowsAt },
+			}),
+		)?.addRowsAt;
+	check('`above` is kept', withAt('above'), 'above');
+	check('junk is dropped (draws below)', [withAt('left'), withAt(1)], [undefined, undefined]);
 }
 
 console.log(failures === 0 ? '\nAll Hold and Win assertions passed.\n' : `\n${failures} FAILED\n`);

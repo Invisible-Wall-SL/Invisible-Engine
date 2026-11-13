@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		ADD_ROWS_AT,
 		BOARD_END_TYPES,
 		EXPANSION_RULES,
 		HOLD_AND_WIN_SPECIALS,
@@ -25,6 +26,7 @@
 		type HoldAndWinSpecial,
 		type HoldAndWinSymbolRole,
 		type MysteryReveal,
+		type AddRowsAt,
 		type RespinPlay,
 		type RespinReset,
 		type Stickiness,
@@ -34,7 +36,7 @@
 		type WheelPrize,
 	} from 'game-config';
 	import { ROLE_LABELS, SPECIAL_LABELS, num } from './bonusLabels';
-	import { setEnhancements, setRespinPlay } from './pageDoc';
+	import { setAddRowsAt, setEnhancements, setRespinPlay } from './pageDoc';
 
 	/**
 	 * One respin mode's Hold and Win RULES (`docs/design/hold-and-win.md` §1.3, §5;
@@ -73,6 +75,10 @@
 	const PLAY_LABELS: Record<RespinPlay, string> = {
 		auto: 'Automatic — the respins follow each other, a tap speeds them up',
 		manual: 'Manual — the player presses SPIN for each respin',
+	};
+	const ADD_ROWS_LABELS: Record<AddRowsAt, string> = {
+		below: 'Below the board',
+		above: 'Above the board',
 	};
 	const RESET_LABELS: Record<RespinReset, string> = {
 		anyCoin: 'A new coin or jackpot resets the count',
@@ -756,6 +762,19 @@
 						onchange={(e) => setEnhancements(hw, e.currentTarget.checked)}
 					/><span>The server draws enhancements (Expand · Boost · Multiply · Respin)</span></label
 				>
+				{#if hw.enhancements || hw.expansion}
+					<label
+						title="Where the board draws the rows it adds: an Expand or super bonus row, or an unlocked row. Presentation only: what the server opens is the same either way."
+						><span>Rows added</span><select
+							value={hw.addRowsAt ?? 'below'}
+							onchange={(e) => setAddRowsAt(hw, e.currentTarget.value as AddRowsAt)}
+						>
+							{#each ADD_ROWS_AT as at (at)}
+								<option value={at}>{ADD_ROWS_LABELS[at]}</option>
+							{/each}
+						</select></label
+					>
+				{/if}
 			</div>
 		</div>
 

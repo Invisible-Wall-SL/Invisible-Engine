@@ -6,6 +6,7 @@
 	import { cellWindow, getSymbolSeat } from '../game/stateGame.svelte';
 	import {
 		respinLockedLook,
+		respinSeatRow,
 		respinUnlockFade,
 		stateRespinBoard,
 	} from '../game/stateRespinBoard.svelte';
@@ -21,11 +22,11 @@
 	 * coded overlay: a dark panel marked LOCKED. Sized to the cell's own box, at its seat, like a
 	 * respin cell's tile. While its row is opening (`stateRespinBoard.unlockingTo`) it fades out.
 	 */
-	const seat = $derived(getSymbolSeat(props.reel, props.row));
+	const seat = $derived(getSymbolSeat(props.reel, respinSeatRow(props.row)));
 	const columnPitch = $derived(
 		SYMBOL_SIZE + context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
-	const cellHeight = $derived(cellWindow(props.reel, props.row).height);
+	const cellHeight = $derived(cellWindow(props.reel, respinSeatRow(props.row)).height);
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	const look = $derived(respinLockedLook());
 	const alpha = $derived(props.row < stateRespinBoard.unlockingTo ? respinUnlockFade.current : 1);

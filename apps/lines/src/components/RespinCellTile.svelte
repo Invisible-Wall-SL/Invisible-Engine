@@ -7,7 +7,7 @@
 
 	import { getContext } from '../game/context';
 	import { cellWindow, getSymbolSeat } from '../game/stateGame.svelte';
-	import { markInsideRespinCellTile } from '../game/stateRespinBoard.svelte';
+	import { markInsideRespinCellTile, respinSeatRow } from '../game/stateRespinBoard.svelte';
 
 	type Props = {
 		reel: number;
@@ -35,11 +35,11 @@
 	 * A `tile` component (Phase 12c) is authored on one cell's box (`CELL_TILE_SIZE` square) and
 	 * scaled to this one, fed its `reel`, `row` and `held`.
 	 */
-	const seat = $derived(getSymbolSeat(props.reel, props.row));
+	const seat = $derived(getSymbolSeat(props.reel, respinSeatRow(props.row)));
 	const columnPitch = $derived(
 		SYMBOL_SIZE + context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
-	const cellHeight = $derived(cellWindow(props.reel, props.row).height);
+	const cellHeight = $derived(cellWindow(props.reel, respinSeatRow(props.row)).height);
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	const shrink = $derived(1 - props.gap);
 	const fit = $derived({
