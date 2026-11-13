@@ -124,7 +124,7 @@ env:
   # The commit the run is about: the PR head, not its merge commit.
   HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  SHARDS: 8
+  SHARDS: 10
 
 jobs:
   prepare:
@@ -378,11 +378,11 @@ jobs:
   render:
     needs: [prepare, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v7
 

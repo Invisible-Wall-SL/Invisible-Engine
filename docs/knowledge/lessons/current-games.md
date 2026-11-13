@@ -6,6 +6,16 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
+### A render shard died at its limit with no screen changed
+- **Symptom:** run 43370261063: `render (1)` cancelled at 45 min on a runner 2x slower (its push run:
+  24 min); the report failed it. Run 43354641488 had shards from 11.7 to 41 min.
+- **Cause:** the split was longest-first by `costs.json`, but the table was five weeks old (partner
+  `base` 42 s, now 188 s), so two heavy bases shared a shard; and 8 shards x ~21 min leave no room.
+- **Fix:** table refreshed from two normal runs (the lower of each unit), `SHARDS` 10, limit 60 min.
+- **Guard:** `shards.fixture.mjs` (balance, 2x margin, workflow matrix). Refresh `costs.json` from
+  a run's `costs:` line whenever a base render changes; the shard times are the check.
+- **PR:** not recorded (2026-11-13) · source: `docs/status/engine.md`
+
 ### The tap and the first spin still built the board and its views
 - **Symptom:** after #1637 an S25 still froze 200 ms at the tap, and the first round's `bet` frame
   built 177 objects, 7 rigs and ~2,190 DOM nodes.
@@ -251,19 +261,15 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **PR:** not recorded (2026-09-29) · source: `docs/status/engine.md`
 
 ### Game dev servers showed ERR_MODULE_NOT_FOUND
-- **Symptom:** `pnpm --dir apps/lines dev` served a module-not-found overlay after #852.
-- **Cause:** Vite dev SSR externalised `error-tracking`, whose extensionless re-exports Node could
-  not resolve. Production builds were never affected.
-- **Fix:** `ssr.noExternal: ['error-tracking']` in `packages/config-vite/index.js` (all six apps).
-- **Guard:** none; a dev-only break, so boot a dev server after adding a non-Svelte package.
+- **Symptom / cause:** dev servers served a module-not-found overlay after #852: Vite dev SSR
+  externalised `error-tracking`, whose extensionless re-exports Node cannot resolve (builds fine).
+- **Fix / guard:** `ssr.noExternal: ['error-tracking']` in `packages/config-vite/index.js`; none else.
 - **PR:** #860 (2026-09-29) · source: `docs/status/engine.md`
 
 ### A fixture stayed red on main after a refactor
-- **Symptom:** `winTapLand.fixture.ts` red on `main` for weeks; read as a regression.
-- **Cause:** it grepped `Game.svelte` for a source line that #692 moved into
-  `apps/lines/src/game/celebrationLock.ts`; the behaviour was unchanged.
-- **Fix:** the marker points at the new module.
-- **Guard:** `check:engine-game` runs every fixture in CI. Prefer behaviour over source greps.
+- **Symptom / cause:** `winTapLand.fixture.ts` red for weeks, read as a regression: it grepped
+  `Game.svelte` for a line #692 moved to `apps/lines/src/game/celebrationLock.ts`. Marker repointed.
+- **Guard:** `check:engine-game` runs every fixture in CI; prefer behaviour over source greps.
 - **PR:** #692 caused it (2026-09-28) · source: `docs/status/engine.md`
 
 ### An animation stalls only under automation
@@ -276,11 +282,9 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **PR:** #808, #809 (2026-09-28) · source: `docs/status/playtester.md`
 
 ### Measured download size disagreed with DevTools
-- **Symptom:** DevTools showed 70 MB while `performance.getEntriesByType('resource')` showed ~5.
-- **Cause:** `runtime=1` art is fetched inside a Web Worker (invisible to the main frame's entries)
-  and cross-origin without `Timing-Allow-Origin` (`transferSize: 0`).
-- **Fix:** measure by resolving each sheet's pages against the deploy and fetching them.
-- **Guard:** none; measure before theorising (the first theory, KTX2 twins, was wrong).
+- **Symptom / cause:** DevTools 70 MB, `performance.getEntriesByType('resource')` ~5: `runtime=1` art
+  loads in a Web Worker, cross-origin without `Timing-Allow-Origin` (`transferSize: 0`).
+- **Fix / guard:** resolve each sheet's pages against the deploy and fetch them; measure first.
 - **PR:** not recorded (2026-09-23) · source: `docs/status/engine.md`
 
 ### The Buy Feature button was missing only on phones
@@ -292,8 +296,5 @@ Traps of one game type live in its family file, e.g. [lines](../families/lines.m
 - **PR:** #778 (2026-09-23) · source: `docs/status/engine.md`
 
 ### Page state read from a source import disagreed with the game
-- **Symptom:** a probe read every `state-shared` flag as false while the game behaved otherwise.
-- **Cause:** a raw `/@fs/…/stateUi.svelte.ts` import loads a DUPLICATE module instance.
-- **Fix:** read shared state through the barrel `packages/state-shared/index.ts`.
-- **Guard:** none; recorded in the playtester harness notes.
-- **PR:** not recorded (2026-07-30) · source: `docs/status/playtester.md`
+- **Symptom / cause:** a probe read every `state-shared` flag false: a raw `/@fs/…` import loads a
+  DUPLICATE module; use `packages/state-shared/index.ts` (2026-07-30, `status/playtester.md`).
