@@ -230,12 +230,105 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
    (one doc, one save) and worth doing.
 4. **The shipped audiosprite still loads whole.** Every game downloads and decodes all 408 s of
    it; 26–175 s of that is unreachable per game. Plan and numbers: the 2026-11-12 entry below.
+   _Done 2026-11-12: it ships as 34 banks and a game loads those it can reach (Recent changes)._
 
 ## Blocked (owner / external)
 
 - _None._
 
 ## Recent changes
+
+- 2026-11-12 — **The engine's stock audio ships as banks, and a game loads only the ones it can
+  reach** (branch `engine/stock-sound-banks`, committed locally, not pushed; owner-approved plan
+  from the entry below). Every game downloaded the whole 408 s stock audiosprite and decoded all
+  of it, ≈ 144 MB of PCM, whatever it could play.
+  - **The split** (`scripts/split-stock-audio.mjs`): 34 banks in `static/assets/audio/stock/`,
+    each a region of the sprite or a run of neighbours always loaded together (a slot ladder, or
+    regions the engine's code plays). Cut by STREAM COPY, not re-encoded (re-encoding costs
+    ~20 dB, `author-sfx-btn-stop.mjs`): every bank's packets are byte-identical to a run of the
+    sprite's. Ogg and MP3 regions decode to the same samples; AAC and AC-3 differ only by
+    their decoder noise (noise substitution, mantissa dither), ±0.03 dB per 2048-sample block.
+    A copy cuts on packets, so each file carries a measured `lead` (ms) and the runtime picks
+    the container itself to apply it: the first the bank lists that the browser plays
+    (`canPlayAudioFormat`), as howler did with a sprite's `src`. Checked in the
+    browsers by decoding sprite and banks with Web Audio and locating every region: Chromium
+    ogg/m4a/mp3 and WebKitGTK ogg land on the sample. WebKitGTK MP3 sits 1105 samples earlier
+    than its OWN decode of the sprite, because GStreamer ignores the sprite's gapless header
+    (it played every MP3 region 25 ms late); from a bank it starts where Chromium and FFmpeg
+    do. `--check` re-cuts and compares byte for byte.
+  - **What loads** (`apps/lines/src/game/stockSounds.ts`): a bank loads when the game's DATA
+    names one of its sounds (`SoundCatalog.stock`, written by the export from the same walk as
+    the library), the engine's CODE plays one (`CODED_STOCK_SOUNDS`, the `always` rows of
+    `stockSoundRules.ts`, held to every source literal by `check-stock-sound-coverage.mjs`), or
+    a SLOT resolves to one (as `activeSounds()` does). The data half comes from the export and
+    the other two from the runtime, because a snapshot keeps booting on later releases.
+    A stock sound the project replaces with its own upload is not loaded.
+  - **Every doubt loads every bank:** no list (a bundle exported before this, or a project with no
+    saved layout), a list of another `STOCK_SOUND_REACH_VERSION` (bump it when the runtime gains a
+    sound source the export does not read), a flow other than the bundle's (the dev opt-ins), or
+    a game repo whose `static/` still holds the old sprite.
+  - **The chain:** the runtime release publishes `assets/audio/stock/` (and now sends `audio/mp4`
+    and `audio/ac3`). A standalone build gets the banks from `pull:assets`: a game repo's
+    `static/` is a scaffold-time copy, so `lib/stockAudioRefresh.mjs` replaces its old engine
+    sprite with the banks before the build (a sprite naming a sound the engine never shipped is
+    the game's own and is left alone). 🗜 Optimize trims each bank to the requested containers
+    and lists them in that order, mp3 first, because the launcher then drops every non-mp3 file
+    (a runtime trying ogg first would have asked for a file the build no longer has). The game
+    build then leaves out the banks the game never plays, files and manifest entries
+    (`stockSoundBuild.ts`, the boot's own decision on the baked bundle, run by `config-vite`
+    `stockAssetPrune.js` beside the stock art); the build breakdown lists them under "Stock
+    sounds the game never plays". Delivery is the same build; bank files resolve beside
+    `sounds.json`, as the sprite's did.
+  - **Desktop build, overlay-buffaloduel** (☁ Publish, 🗜 Optimize: its audio steps run for real
+    over the published snapshot, then the real `build-breakdown.mjs`): Sounds **18 files,
+    6.15 MB → 31 files, 3.46 MB**. The stock audio was the whole sprite as one 4.90 MB mp3 ("even
+    music"); it is now 14 bank mp3s, 2.09 MB. `bgm_main` and 19 other banks are left out; the
+    free-spin bed (the `freeSpinMusic` default) and the win beds (played by code) stay, because the
+    game can still play them. The "before" is the owner's own figure to the byte count. The
+    remake: 4 files, 8.10 MB → 21 files, 7.25 MB (stock 4.90 → 4.00 MB; it reaches 18 banks).
+  - **Containers.** An Optimize build ships mp3 only, and every browser plays it. Without
+    Optimize all four ship and the runtime picks ogg (Chromium, Firefox, WebKitGTK, a Safari that
+    plays Ogg) or m4a (a Safari that does not); mp3 only where neither plays, ac3 never. So ogg
+    and m4a are the two a full build needs; mp3 and ac3 are dead weight there, but trimming is
+    Optimize's job and stays opt-in.
+  - **Measured online, stock audio downloaded and all audio decoded at boot, before → after**, on
+    every published game booted from its snapshot: Chromium through the harness's hook on audio
+    XHR bytes and `decodeAudioData` output, WebKitGTK from the files it fetched and their decoded
+    length (44.1 kHz stereo float). Both browsers pick ogg. A game's own sounds are unchanged.
+
+    | Game | Stock banks | Stock MB | PCM MB, Chromium | PCM MB, WebKitGTK |
+    |---|---|---|---|---|
+    | overlay-buffaloduel | 14 | 3.73 → 1.90 | 177 → 94 | 147 → 64 |
+    | bookofborutremake, borut-pots-sample | 18 | 3.73 → 3.47 | 223 → 197 | 223 → 197 |
+    | commonoverlayproject, overlay-wallstreet, -wallstreet2, -wishworld, rocketreskintest1 | 17 | 3.73 → 3.41 | 147 → 118 | 147 → 118 |
+    | getting-hot, holdandwintestsolo, test-card | 16 | 3.73 → 3.39 | 144 → 114 | 144 → 115 |
+    | cloud, hw-3pots-sample, particlespin, test1, test2 | 19 | 3.73 → 3.50 | 144 → 119 | 144 → 119 |
+    | test6 | 19 | 3.73 → 3.50 | 205 → 180 | 205 → 180 |
+    | salmons | — | no audio: it refuses to boot without a game server, both sides | | |
+
+    WebKitGTK's buffaloduel figure is lower because this GStreamer cannot decode the project's m4a
+    sounds, before and after alike. Safari was not measured: it plays the first container a bank
+    lists that it answers `canPlayType` for, ogg where it plays Ogg Vorbis, else m4a (mp3 in an
+    Optimize build), each with that file's own lead.
+  - **Proof.** The current-games harness on all 18 published games, every scenario, main's
+    runtime (`5122d0d`) against this branch's, the branch's stock list in each bundle: 15 games
+    pass with **0 changed screens**, and across 3,729 sound plays the two sides' sequences (name,
+    stock or project, frame) are identical, with no missing-sound warning and no load error.
+    The remake still returns to the stock `bgm_main` after a win bed, at the same frame. cloud,
+    salmons and test-card do not play under the harness on either side (the same stall at the
+    same step, a refusal without a game server, a card game under the slot script), so only their
+    boots compare, and those match. Five games republished during the run were measured on their
+    new snapshots. On the final build (merged with main at `ab927f1c`, the container order read
+    off each bank), overlay-buffaloduel and the remake ran again, every scenario: the same 475
+    plays, 0 changed screens. Fixtures, each with planted mutants:
+    `stockSounds.fixture.ts` (claims 1–6 on the real rule and the shipped manifest, 11 mutants),
+    `check:sound-reachability` (stock list, 3 more mutants), `check-stock-audio-build.mjs`
+    (refresh, optimize and its order, 8 mutants), `check-stock-sound-prune.mts` (the build keeps
+    exactly what the boot loads, the prune; 7 mutants), `check-build-breakdown-desktop.mjs`,
+    `check-stock-sound-coverage.mjs`.
+  - **Not done:** `scripts/author-sfx-btn-stop.mjs` predates the split and works on the other
+    apps' sprites only. A desktop build opened in live mode (`?project=…&k=…`) or with a dev flow
+    opt-in may want a bank its build left out; that sound is silent there, as left-out art is.
 
 - 2026-11-12 — **Publish blocks every draft the build ships** (branch
   `launcher-sound-gate-ships`, committed locally, not pushed; owner-approved). Closes open item 5.
@@ -395,6 +488,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
     meaning load everything. The runtime loads only listed files. Prove it with this play log,
     because the harness compares pixels and a silenced bed draws nothing. It edits the shared
     runtime, so it re-points every online game on merge.
+  - Done the same day, by stream copy rather than re-encoding: see the entry above.
 
 - 2026-10-28 — **A Hold and Win coin can sound as it lands in the total** (branch
   `claude/fervent-ride-ccp7qf`, in review). Asked for a sound on the coin collect at the end of
@@ -499,6 +593,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   - 2026-11-12: measured on the 18 published games, the "genuinely dead" premise does not hold.
     17 reach `bgm_main` (the `baseMusic` slot default, the remake included) and all 18 reach
     `bgm_freespin`. Still not done; the numbers and the plan are in the 2026-11-12 entry.
+  - 2026-11-12, later: done, as banks loaded by reach rather than by "music of its own".
 - 2026-09-15 — **The music a game comes BACK to is authored now, and a cue can carry its own level.**
   Three owner questions off one uploaded soundtrack: _"it starts correct, but it doesn't loop, and I
   do not see any option to make it loop"_ · _"when I get out of the big win, there is no more music

@@ -163,6 +163,8 @@ const MIME = {
 	'.wasm': 'application/wasm',
 	'.mp3': 'audio/mpeg',
 	'.ogg': 'audio/ogg',
+	'.m4a': 'audio/mp4',
+	'.ac3': 'audio/ac3',
 	'.wav': 'audio/wav',
 	'.atlas': 'text/plain; charset=utf-8',
 };

@@ -40,7 +40,13 @@
  * no walk of the data can resolve.
  */
 import { SOUND_NAMES } from 'engine-flow-v2';
-import { collectComponentPins, cueSoundOf, type SoundBindings } from 'engine-layout';
+import {
+	STOCK_SOUND_REACH_VERSION,
+	collectComponentPins,
+	cueSoundOf,
+	type SoundBindings,
+	type StockSoundReach,
+} from 'engine-layout';
 import { SOUND_SLOTS } from 'game-config';
 import { flowSoundCues } from '../flowSoundCues';
 import { loadAuthoredCinematics, type AuthoredCinematics } from './cinematicExport';
@@ -108,12 +114,35 @@ export interface SoundSources {
 	cinematics?: readonly unknown[];
 }
 
-/** The names the game can play, or `null` when a flow builds one at run time (ship everything). */
-export function playedSoundNames(sources: SoundSources): Set<string> | null {
+/** The names the game's DATA can play, or `null` when a flow builds one at run time. */
+export function namedSoundNames(sources: SoundSources): Set<string> | null {
 	if (namesSoundAtRunTime(sources.flow) || namesSoundAtRunTime(sources.flowLibrary)) return null;
-	const names = new Set(ENGINE_SOUND_NAMES);
+	const names = new Set<string>();
 	collectSoundNames(Object.values(sources), names);
 	return names;
+}
+
+/** The names the game can play: what its data names, and every engine name. `null` as above. */
+export function playedSoundNames(sources: SoundSources): Set<string> | null {
+	const named = namedSoundNames(sources);
+	return named && withEngineNames(named);
+}
+
+/** `named` plus every name the engine's own code may play. */
+export const withEngineNames = (named: ReadonlySet<string>): Set<string> =>
+	new Set([...ENGINE_SOUND_NAMES, ...named]);
+
+/**
+ * The engine's stock sounds the game's data names, for the catalog (`SoundCatalog.stock`): the
+ * runtime loads a stock bank only when this list, its own code or a slot default reaches it.
+ * `null` in, nothing out: the runtime then loads every bank.
+ */
+export function stockSoundReach(named: ReadonlySet<string> | null): StockSoundReach | undefined {
+	if (!named) return undefined;
+	return {
+		version: STOCK_SOUND_REACH_VERSION,
+		names: SOUND_NAMES.filter((name) => named.has(name)).sort(),
+	};
 }
 
 /** The entries to ship: those the game can play, or all of them when that is unknown. */
@@ -125,14 +154,14 @@ export function shippedSoundEntries<T extends { name: string }>(
 }
 
 /**
- * Load every source and answer {@link playedSoundNames}, or `null` when any source cannot be read
+ * Load every source and answer {@link namedSoundNames}, or `null` when any source cannot be read
  * (a throw, or a cinematic the listing could not load) — the caller then ships every sound.
  *
  * `bindings` is the export's own resolution, passed in so the legacy fallback is read once.
  * `cinematics` is the runtime assemble's shared load (`ExportPass.cinematics`); a route call, which
  * has no pass, loads its own.
  */
-export async function collectPlayedSoundNames(
+export async function collectNamedSoundNames(
 	clientKey: string,
 	projectKey: string,
 	preloaded: { bindings?: SoundBindings; cinematics?: Promise<AuthoredCinematics> } = {},
@@ -157,7 +186,7 @@ export async function collectPlayedSoundNames(
 		const pinnedDefs = await mapWithConcurrency(pins, PIN_CONCURRENCY, (pin) =>
 			loadComponentForGame(pin.id, projectKey, pin.version),
 		);
-		return playedSoundNames({
+		return namedSoundNames({
 			bindings: preloaded.bindings,
 			config,
 			symbols,
@@ -172,4 +201,14 @@ export async function collectPlayedSoundNames(
 		console.log(`[sounds] reachability undetermined (${e}) — shipping every sound.`);
 		return null;
 	}
+}
+
+/** {@link collectNamedSoundNames} plus every engine name: what the export ships, or `null`. */
+export async function collectPlayedSoundNames(
+	clientKey: string,
+	projectKey: string,
+	preloaded: { bindings?: SoundBindings; cinematics?: Promise<AuthoredCinematics> } = {},
+): Promise<Set<string> | null> {
+	const named = await collectNamedSoundNames(clientKey, projectKey, preloaded);
+	return named && withEngineNames(named);
 }

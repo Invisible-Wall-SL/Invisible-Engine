@@ -2,7 +2,7 @@ import type { SoundCatalog, SoundCatalogEntry } from 'engine-layout';
 import { soundCatalogEntries } from 'engine-layout';
 import { capAudioBitrate, isTranscodableAudio } from './audioTranscode';
 import { ENV } from './env';
-import { SUB, soundFileKey } from './projectPaths';
+import { SUB, editorDocKey, soundFileKey } from './projectPaths';
 import { DeployMirror } from './deployMirror';
 import {
 	copyObject,
@@ -16,9 +16,10 @@ import {
 import type { AuthoredCinematics } from './cinematicExport';
 import { resolveSoundBindings } from './soundLegacy';
 import {
-	ENGINE_SOUND_NAMES,
-	collectPlayedSoundNames,
+	collectNamedSoundNames,
 	shippedSoundEntries,
+	stockSoundReach,
+	withEngineNames,
 } from './soundReachability';
 import { loadSoundsDoc } from './soundsStorage';
 
@@ -55,6 +56,9 @@ import { loadSoundsDoc } from './soundsStorage';
  * each, so a library entry nothing names — an unused take, a sound whose cue was deleted — cost
  * every player its download and its decoded memory. An entry is kept when the engine's own code
  * may play it or any game data names it; when that cannot be told, everything ships.
+ *
+ * The same walk lists the engine's STOCK sounds the data names (`catalog.stock`), so the runtime
+ * loads only the stock banks this game can play; no list, and it loads them all.
  *
  * ⚠️ **Draft sounds are exported.** The approval gate belongs at PUBLISH (design §6), not here — a
  * test build has to be able to hear what it is reviewing, and an exporter that silently dropped
@@ -96,15 +100,13 @@ export async function exportProjectSounds(
 	const bindings = await resolveSoundBindings(clientKey, projectKey, doc);
 
 	const entries = soundCatalogEntries(doc);
-	// A library of engine-named sounds only is shipped whole without reading anything else: each
-	// one replaces a shipped region the engine's own code may play.
-	const played = entries.some((entry) => !ENGINE_SOUND_NAMES.has(entry.name))
-		? await collectPlayedSoundNames(clientKey, projectKey, {
-				bindings,
-				cinematics: preloaded.cinematics,
-			})
-		: null;
-	const shipped = shippedSoundEntries(entries, played);
+	// Read for every project, library or not: the same walk decides which STOCK banks the game
+	// loads (`stock` below), and every game loads some.
+	const named = await collectNamedSoundNames(clientKey, projectKey, {
+		bindings,
+		cinematics: preloaded.cinematics,
+	});
+	const shipped = shippedSoundEntries(entries, named && withEngineNames(named));
 	if (shipped.length < entries.length) {
 		const kept = new Set(shipped);
 		const dropped = entries.filter((entry) => !kept.has(entry)).map((entry) => entry.name);
@@ -128,10 +130,17 @@ export async function exportProjectSounds(
 	}
 	await saveTranscodeCache(clientKey, projectKey, cache);
 
+	// Only for a game with a layout of its own. A project that never saved one boots the engine's
+	// seeded game, and its bundle stays as it always was (the exporters' parity rule): no list,
+	// every bank.
+	const stock = (await objectExists(editorDocKey(clientKey, projectKey)))
+		? stockSoundReach(named)
+		: undefined;
 	const catalog: SoundCatalog = {
 		prefix: EXPORT_SUBTREE,
 		sounds: exported,
 		...(bindings ? { bindings } : {}),
+		...(stock ? { stock } : {}),
 	};
 	await mirror.put(`${outPrefix}index.json`, JSON.stringify(catalog, null, '\t'));
 	await mirror.commit();

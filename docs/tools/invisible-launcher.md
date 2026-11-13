@@ -280,6 +280,8 @@ machine. Use it to check that the right packages went out.
     placement picks its own (change or clear that default in the Component Editor);
   - export records no game reads (KTX2 encode records, the loading splash's KTX2 twin);
   - removed from `static/assets` (leftovers of an earlier build or a renamed asset);
+  - stock sample art and stock sound banks the game can never draw or play, left out by the game
+    build;
   - image twins and extra audio formats dropped by 🗜 Optimize;
   - PNG twins and non-mp3 audio dropped by the launcher;
   - images re-encoded, with the size before and after.

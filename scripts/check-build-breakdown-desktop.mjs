@@ -199,6 +199,11 @@ try {
 		},
 	});
 	note('stock.json', {
+		sounds: {
+			skipped: ['bgm_main'],
+			keptAllBecause: null,
+			removed: [{ rel: 'assets/audio/stock/bgm_main.mp3', bytes: 300 }],
+		},
 		skipped: ['bigwin'],
 		keptAllBecause: null,
 		removed: [
@@ -314,6 +319,12 @@ try {
 	check('left out: pruned', removed('pruned')?.bytes, 700);
 	check('left out: image twins', removed('imageTwins')?.bytes, 2000);
 	check('left out: audio formats', removed('audioFormats')?.bytes, 250);
+	check('left out: stock sounds', removed('stockSounds')?.bytes, 300);
+	check(
+		'left out: stock sounds names its banks',
+		removed('stockSounds')?.detail.includes('(bgm_main)'),
+		true,
+	);
 	check('left out: stock sample art', removed('stockArt')?.bytes, 1000);
 	check(
 		'left out: stock sample art names its keys',
@@ -327,7 +338,7 @@ try {
 		true,
 	);
 	check('left out: export by-products', removed('byproducts')?.bytes, 90);
-	check('left out: total', b.totals.removedBytes, 13340);
+	check('left out: total', b.totals.removedBytes, 13640);
 	check('re-encoded: saving', b.totals.reencodedBytes, 3000);
 
 	check(

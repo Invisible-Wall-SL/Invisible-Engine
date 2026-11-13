@@ -1,118 +1,1069 @@
 {
-	"sprite": {
-		"bgm_freespin": [0, 69120, true],
-		"bgm_main": [71000, 132452.83446712018, true],
-		"bgm_winlevel_big": [205000, 8000, true],
-		"bgm_winlevel_epic": [214000, 8000, true],
-		"bgm_winlevel_max": [223000, 8000, true],
-		"bgm_winlevel_mega": [232000, 8000, true],
-		"bgm_winlevel_superwin": [241000, 8000, true],
-		"jng_intro_fs": [250000, 2002.585034013606],
-		"sfx_anticipation": [254000, 7680.5442176871],
-		"sfx_anticipation_start": [263000, 1000],
-		"sfx_bigwin_coinloop": [265000, 17125.0113378685, true],
-		"sfx_btn_general": [284000, 58.66213151927013],
-		"sfx_btn_spin": [286000, 1005.5782312925317],
-		"sfx_btn_stop": [407000, 300],
-		"sfx_fs_respins": [289000, 4062.49433106575],
-		"sfx_multiplier_combine_a": [295000, 1208.843537414964],
-		"sfx_multiplier_combine_b": [298000, 1045.8503401360417],
-		"sfx_multiplier_explosion_a": [301000, 769.2743764172292],
-		"sfx_multiplier_explosion_b": [303000, 2046.643990929681],
-		"sfx_multiplier_explosion_c": [307000, 1202.2675736961332],
-		"sfx_multiplier_landing": [310000, 999.4784580499072],
-		"sfx_multiplier_reset": [312000, 584.4217687075002],
-		"sfx_multiplier_up": [314000, 1499.2517006802473],
-		"sfx_multiplier_update": [317000, 1607.823129251699],
-		"sfx_multiplier_win": [320000, 3791.678004535129],
-		"sfx_reel_stop_1": [325000, 243.6281179138291],
-		"sfx_reel_stop_2": [327000, 246.6666666666697],
-		"sfx_reel_stop_3": [329000, 240.99773242630818],
-		"sfx_reel_stop_4": [331000, 241.972789115664],
-		"sfx_reel_stop_5": [333000, 239.88662131517913],
-		"sfx_royals_landing": [335000, 1199.2290249432926],
-		"sfx_scatter_reveal": [338000, 1487.3696145124882],
-		"sfx_scatter_stop_1": [341000, 994.8526077097313],
-		"sfx_scatter_stop_2": [343000, 1344.7845804988674],
-		"sfx_scatter_stop_3": [346000, 1060.521541950095],
-		"sfx_scatter_stop_4": [349000, 996.1451247165769],
-		"sfx_scatter_stop_5": [351000, 997.5283446711956],
-		"sfx_scatter_win": [353000, 1992.970521541963],
-		"sfx_scatter_win_v2": [356000, 3670.340136054449],
-		"sfx_superfreespin": [361000, 6000],
-		"sfx_symbols_landing": [368000, 1202.585034013623],
-		"sfx_wild_explode": [371000, 1401.2244897959363],
-		"sfx_winlevel_end": [374000, 1998.911564625871],
-		"sfx_winlevel_nice": [377000, 1474.2857142857133],
-		"sfx_winlevel_small": [380000, 1000.5668934240362],
-		"sfx_winlevel_standard": [383000, 1250],
-		"sfx_winlevel_substantial": [386000, 2490.317460317442],
-		"sfx_youwon_panel": [390000, 2996.689342403613],
-		"tumble_win_1": [394000, 996.2358276644068],
-		"tumble_win_2": [396000, 1134.671201814058],
-		"tumble_win_3": [399000, 1134.8299319727744],
-		"tumble_win_4": [402000, 998.8208616779843],
-		"tumble_win_5": [404000, 989.6145124716327]
-	},
-	"src": [
-		"./assets/audio/sounds.ogg",
-		"./assets/audio/sounds.m4a",
-		"./assets/audio/sounds.mp3",
-		"./assets/audio/sounds.ac3"
-	],
-	"config": {
-		"bgm_freespin": { "volume": 1 },
-		"bgm_main": { "volume": 1 },
-		"bgm_winlevel_big": { "volume": 1 },
-		"bgm_winlevel_epic": { "volume": 1 },
-		"bgm_winlevel_max": { "volume": 1 },
-		"bgm_winlevel_mega": { "volume": 1 },
-		"bgm_winlevel_superwin": { "volume": 1 },
-		"jng_intro_fs": { "volume": 1 },
-		"sfx_anticipation": { "volume": 1 },
-		"sfx_anticipation_start": { "volume": 1 },
-		"sfx_bigwin_coinloop": { "volume": 1 },
-		"sfx_btn_general": { "volume": 1 },
-		"sfx_btn_spin": { "volume": 1 },
-		"sfx_btn_stop": { "volume": 1 },
-		"sfx_fs_respins": { "volume": 1 },
-		"sfx_multiplier_combine_a": { "volume": 1 },
-		"sfx_multiplier_combine_b": { "volume": 1 },
-		"sfx_multiplier_explosion_a": { "volume": 1 },
-		"sfx_multiplier_explosion_b": { "volume": 1 },
-		"sfx_multiplier_explosion_c": { "volume": 1 },
-		"sfx_multiplier_landing": { "volume": 1 },
-		"sfx_multiplier_reset": { "volume": 1 },
-		"sfx_multiplier_up": { "volume": 1 },
-		"sfx_multiplier_update": { "volume": 1 },
-		"sfx_multiplier_win": { "volume": 1 },
-		"sfx_reel_stop_1": { "volume": 1 },
-		"sfx_reel_stop_2": { "volume": 1 },
-		"sfx_reel_stop_3": { "volume": 1 },
-		"sfx_reel_stop_4": { "volume": 1 },
-		"sfx_reel_stop_5": { "volume": 1 },
-		"sfx_royals_landing": { "volume": 1 },
-		"sfx_scatter_reveal": { "volume": 1 },
-		"sfx_scatter_stop_1": { "volume": 1 },
-		"sfx_scatter_stop_2": { "volume": 1 },
-		"sfx_scatter_stop_3": { "volume": 1 },
-		"sfx_scatter_stop_4": { "volume": 1 },
-		"sfx_scatter_stop_5": { "volume": 1 },
-		"sfx_scatter_win": { "volume": 1 },
-		"sfx_scatter_win_v2": { "volume": 1 },
-		"sfx_superfreespin": { "volume": 1 },
-		"sfx_symbols_landing": { "volume": 1 },
-		"sfx_wild_explode": { "volume": 1 },
-		"sfx_winlevel_end": { "volume": 1 },
-		"sfx_winlevel_nice": { "volume": 1 },
-		"sfx_winlevel_small": { "volume": 1 },
-		"sfx_winlevel_standard": { "volume": 1 },
-		"sfx_winlevel_substantial": { "volume": 1 },
-		"sfx_youwon_panel": { "volume": 1 },
-		"tumble_win_1": { "volume": 1 },
-		"tumble_win_2": { "volume": 1 },
-		"tumble_win_3": { "volume": 1 },
-		"tumble_win_4": { "volume": 1 },
-		"tumble_win_5": { "volume": 1 }
-	}
+	"version": 2,
+	"src": [],
+	"sprite": {},
+	"banks": [
+		{
+			"id": "bgm_freespin",
+			"files": {
+				"ogg": {
+					"src": "stock/bgm_freespin.ogg",
+					"lead": 0
+				},
+				"m4a": {
+					"src": "stock/bgm_freespin.m4a",
+					"lead": 0
+				},
+				"mp3": {
+					"src": "stock/bgm_freespin.mp3",
+					"lead": 25.057
+				},
+				"ac3": {
+					"src": "stock/bgm_freespin.ac3",
+					"lead": 0
+				}
+			},
+			"sprite": {
+				"bgm_freespin": [0, 69120, true]
+			},
+			"config": {
+				"bgm_freespin": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "bgm_main",
+			"files": {
+				"ogg": {
+					"src": "stock/bgm_main.ogg",
+					"lead": -34.58
+				},
+				"m4a": {
+					"src": "stock/bgm_main.m4a",
+					"lead": -1.202
+				},
+				"mp3": {
+					"src": "stock/bgm_main.mp3",
+					"lead": -16.78
+				},
+				"ac3": {
+					"src": "stock/bgm_main.ac3",
+					"lead": -24.422
+				}
+			},
+			"sprite": {
+				"bgm_main": [250, 132452.83446712018, true]
+			},
+			"config": {
+				"bgm_main": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "winlevel_beds",
+			"files": {
+				"ogg": {
+					"src": "stock/winlevel_beds.ogg",
+					"lead": -39.841
+				},
+				"m4a": {
+					"src": "stock/winlevel_beds.m4a",
+					"lead": -3.56
+				},
+				"mp3": {
+					"src": "stock/winlevel_beds.mp3",
+					"lead": -24.943
+				},
+				"ac3": {
+					"src": "stock/winlevel_beds.ac3",
+					"lead": -50
+				}
+			},
+			"sprite": {
+				"bgm_winlevel_big": [250, 8000, true],
+				"bgm_winlevel_epic": [9250, 8000, true],
+				"bgm_winlevel_max": [18250, 8000, true],
+				"bgm_winlevel_mega": [27250, 8000, true],
+				"bgm_winlevel_superwin": [36250, 8000, true]
+			},
+			"config": {
+				"bgm_winlevel_big": {
+					"volume": 1
+				},
+				"bgm_winlevel_epic": {
+					"volume": 1
+				},
+				"bgm_winlevel_max": {
+					"volume": 1
+				},
+				"bgm_winlevel_mega": {
+					"volume": 1
+				},
+				"bgm_winlevel_superwin": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "jng_intro_fs",
+			"files": {
+				"ogg": {
+					"src": "stock/jng_intro_fs.ogg",
+					"lead": -40.113
+				},
+				"m4a": {
+					"src": "stock/jng_intro_fs.m4a",
+					"lead": -3.832
+				},
+				"mp3": {
+					"src": "stock/jng_intro_fs.mp3",
+					"lead": -7.8
+				},
+				"ac3": {
+					"src": "stock/jng_intro_fs.ac3",
+					"lead": -85.102
+				}
+			},
+			"sprite": {
+				"jng_intro_fs": [250, 2002.585034013606]
+			},
+			"config": {
+				"jng_intro_fs": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "anticipation_coinloop",
+			"files": {
+				"ogg": {
+					"src": "stock/anticipation_coinloop.ogg",
+					"lead": -45.556
+				},
+				"m4a": {
+					"src": "stock/anticipation_coinloop.m4a",
+					"lead": -20.884
+				},
+				"mp3": {
+					"src": "stock/anticipation_coinloop.mp3",
+					"lead": -4.535
+				},
+				"ac3": {
+					"src": "stock/anticipation_coinloop.ac3",
+					"lead": -90.544
+				}
+			},
+			"sprite": {
+				"sfx_anticipation": [250, 7680.5442176871],
+				"sfx_anticipation_start": [9250, 1000],
+				"sfx_bigwin_coinloop": [11250, 17125.0113378685, true]
+			},
+			"config": {
+				"sfx_anticipation": {
+					"volume": 1
+				},
+				"sfx_anticipation_start": {
+					"volume": 1
+				},
+				"sfx_bigwin_coinloop": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "buttons",
+			"files": {
+				"ogg": {
+					"src": "stock/buttons.ogg",
+					"lead": -42.834
+				},
+				"m4a": {
+					"src": "stock/buttons.m4a",
+					"lead": -21.066
+				},
+				"mp3": {
+					"src": "stock/buttons.mp3",
+					"lead": -19.229
+				},
+				"ac3": {
+					"src": "stock/buttons.ac3",
+					"lead": -79.116
+				}
+			},
+			"sprite": {
+				"sfx_btn_general": [250, 58.66213151927013],
+				"sfx_btn_spin": [2250, 1005.5782312925317]
+			},
+			"config": {
+				"sfx_btn_general": {
+					"volume": 1
+				},
+				"sfx_btn_spin": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_fs_respins",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_fs_respins.ogg",
+					"lead": -23.515
+				},
+				"m4a": {
+					"src": "stock/sfx_fs_respins.m4a",
+					"lead": -13.356
+				},
+				"mp3": {
+					"src": "stock/sfx_fs_respins.mp3",
+					"lead": -8.617
+				},
+				"ac3": {
+					"src": "stock/sfx_fs_respins.ac3",
+					"lead": -94.626
+				}
+			},
+			"sprite": {
+				"sfx_fs_respins": [250, 4062.49433106575]
+			},
+			"config": {
+				"sfx_fs_respins": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_combine_a",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_combine_a.ogg",
+					"lead": -37.483
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_combine_a.m4a",
+					"lead": -4.104
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_combine_a.mp3",
+					"lead": -16.78
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_combine_a.ac3",
+					"lead": -85.374
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_combine_a": [250, 1208.843537414964]
+			},
+			"config": {
+				"sfx_multiplier_combine_a": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_combine_b",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_combine_b.ogg",
+					"lead": -35.76
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_combine_b.m4a",
+					"lead": -22.698
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_combine_b.mp3",
+					"lead": -20.862
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_combine_b.ac3",
+					"lead": -80.748
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_combine_b": [250, 1045.8503401360417]
+			},
+			"config": {
+				"sfx_multiplier_combine_b": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_explosion_a",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_explosion_a.ogg",
+					"lead": -36.939
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_explosion_a.m4a",
+					"lead": -18.073
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_explosion_a.mp3",
+					"lead": -24.943
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_explosion_a.ac3",
+					"lead": -76.122
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_explosion_a": [250, 769.2743764172292]
+			},
+			"config": {
+				"sfx_multiplier_explosion_a": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_explosion_b",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_explosion_b.ogg",
+					"lead": -33.855
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_explosion_b.m4a",
+					"lead": -14.989
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_explosion_b.mp3",
+					"lead": -10.249
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_explosion_b.ac3",
+					"lead": -96.259
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_explosion_b": [250, 2046.643990929681]
+			},
+			"config": {
+				"sfx_multiplier_explosion_b": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_explosion_c",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_explosion_c.ogg",
+					"lead": -27.687
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_explosion_c.m4a",
+					"lead": -8.821
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_explosion_c.mp3",
+					"lead": -6.984
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_explosion_c.ac3",
+					"lead": -101.701
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_explosion_c": [250, 1202.2675736961332]
+			},
+			"config": {
+				"sfx_multiplier_explosion_c": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_landing",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_landing.ogg",
+					"lead": -43.379
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_landing.m4a",
+					"lead": -4.195
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_landing.mp3",
+					"lead": -11.066
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_landing.ac3",
+					"lead": -97.075
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_landing": [250, 999.4784580499072]
+			},
+			"config": {
+				"sfx_multiplier_landing": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_reset",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_reset.ogg",
+					"lead": -34.49
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_reset.m4a",
+					"lead": -1.111
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_reset.mp3",
+					"lead": -22.494
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_reset.ac3",
+					"lead": -82.381
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_reset": [250, 584.4217687075002]
+			},
+			"config": {
+				"sfx_multiplier_reset": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_up",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_up.ogg",
+					"lead": -31.406
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_up.m4a",
+					"lead": -21.247
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_up.mp3",
+					"lead": -7.8
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_up.ac3",
+					"lead": -102.517
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_up": [250, 1499.2517006802473]
+			},
+			"config": {
+				"sfx_multiplier_up": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_update",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_update.ogg",
+					"lead": -38.39
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_update.m4a",
+					"lead": -16.621
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_update.mp3",
+					"lead": -11.882
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_update.ac3",
+					"lead": -97.891
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_update": [250, 1607.823129251699]
+			},
+			"config": {
+				"sfx_multiplier_update": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_multiplier_win",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_multiplier_win.ogg",
+					"lead": -36.667
+				},
+				"m4a": {
+					"src": "stock/sfx_multiplier_win.m4a",
+					"lead": -11.995
+				},
+				"mp3": {
+					"src": "stock/sfx_multiplier_win.mp3",
+					"lead": -15.964
+				},
+				"ac3": {
+					"src": "stock/sfx_multiplier_win.ac3",
+					"lead": -93.265
+				}
+			},
+			"sprite": {
+				"sfx_multiplier_win": [250, 3791.678004535129]
+			},
+			"config": {
+				"sfx_multiplier_win": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "reel_stops",
+			"files": {
+				"ogg": {
+					"src": "stock/reel_stops.ogg",
+					"lead": -34.762
+				},
+				"m4a": {
+					"src": "stock/reel_stops.m4a",
+					"lead": -4.286
+				},
+				"mp3": {
+					"src": "stock/reel_stops.mp3",
+					"lead": -5.351
+				},
+				"ac3": {
+					"src": "stock/reel_stops.ac3",
+					"lead": -73.946
+				}
+			},
+			"sprite": {
+				"sfx_reel_stop_1": [250, 243.6281179138291],
+				"sfx_reel_stop_2": [2250, 246.6666666666697],
+				"sfx_reel_stop_3": [4250, 240.99773242630818],
+				"sfx_reel_stop_4": [6250, 241.972789115664],
+				"sfx_reel_stop_5": [8250, 239.88662131517913]
+			},
+			"config": {
+				"sfx_reel_stop_1": {
+					"volume": 1
+				},
+				"sfx_reel_stop_2": {
+					"volume": 1
+				},
+				"sfx_reel_stop_3": {
+					"volume": 1
+				},
+				"sfx_reel_stop_4": {
+					"volume": 1
+				},
+				"sfx_reel_stop_5": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_royals_landing",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_royals_landing.ogg",
+					"lead": -39.66
+				},
+				"m4a": {
+					"src": "stock/sfx_royals_landing.m4a",
+					"lead": -12.086
+				},
+				"mp3": {
+					"src": "stock/sfx_royals_landing.mp3",
+					"lead": -10.249
+				},
+				"ac3": {
+					"src": "stock/sfx_royals_landing.ac3",
+					"lead": -104.966
+				}
+			},
+			"sprite": {
+				"sfx_royals_landing": [250, 1199.2290249432926]
+			},
+			"config": {
+				"sfx_royals_landing": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_scatter_reveal",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_scatter_reveal.ogg",
+					"lead": -29.229
+				},
+				"m4a": {
+					"src": "stock/sfx_scatter_reveal.m4a",
+					"lead": -7.46
+				},
+				"mp3": {
+					"src": "stock/sfx_scatter_reveal.mp3",
+					"lead": -14.331
+				},
+				"ac3": {
+					"src": "stock/sfx_scatter_reveal.ac3",
+					"lead": -100.34
+				}
+			},
+			"sprite": {
+				"sfx_scatter_reveal": [250, 1487.3696145124882]
+			},
+			"config": {
+				"sfx_scatter_reveal": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "scatter_stops",
+			"files": {
+				"ogg": {
+					"src": "stock/scatter_stops.ogg",
+					"lead": -30.408
+				},
+				"m4a": {
+					"src": "stock/scatter_stops.m4a",
+					"lead": -2.834
+				},
+				"mp3": {
+					"src": "stock/scatter_stops.mp3",
+					"lead": -18.413
+				},
+				"ac3": {
+					"src": "stock/scatter_stops.ac3",
+					"lead": -95.714
+				}
+			},
+			"sprite": {
+				"sfx_scatter_stop_1": [250, 994.8526077097313],
+				"sfx_scatter_stop_2": [2250, 1344.7845804988674],
+				"sfx_scatter_stop_3": [5250, 1060.521541950095],
+				"sfx_scatter_stop_4": [8250, 996.1451247165769],
+				"sfx_scatter_stop_5": [10250, 997.5283446711956]
+			},
+			"config": {
+				"sfx_scatter_stop_1": {
+					"volume": 1
+				},
+				"sfx_scatter_stop_2": {
+					"volume": 1
+				},
+				"sfx_scatter_stop_3": {
+					"volume": 1
+				},
+				"sfx_scatter_stop_4": {
+					"volume": 1
+				},
+				"sfx_scatter_stop_5": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_scatter_win",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_scatter_win.ogg",
+					"lead": -32.222
+				},
+				"m4a": {
+					"src": "stock/sfx_scatter_win.m4a",
+					"lead": -7.551
+				},
+				"mp3": {
+					"src": "stock/sfx_scatter_win.mp3",
+					"lead": -8.617
+				},
+				"ac3": {
+					"src": "stock/sfx_scatter_win.ac3",
+					"lead": -112.041
+				}
+			},
+			"sprite": {
+				"sfx_scatter_win": [250, 1992.970521541963]
+			},
+			"config": {
+				"sfx_scatter_win": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_scatter_win_v2",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_scatter_win_v2.ogg",
+					"lead": -24.694
+				},
+				"m4a": {
+					"src": "stock/sfx_scatter_win_v2.m4a",
+					"lead": -2.925
+				},
+				"mp3": {
+					"src": "stock/sfx_scatter_win_v2.mp3",
+					"lead": -12.698
+				},
+				"ac3": {
+					"src": "stock/sfx_scatter_win_v2.ac3",
+					"lead": -107.415
+				}
+			},
+			"sprite": {
+				"sfx_scatter_win_v2": [250, 3670.340136054449]
+			},
+			"config": {
+				"sfx_scatter_win_v2": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_superfreespin",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_superfreespin.ogg",
+					"lead": -31.497
+				},
+				"m4a": {
+					"src": "stock/sfx_superfreespin.m4a",
+					"lead": -18.435
+				},
+				"mp3": {
+					"src": "stock/sfx_superfreespin.mp3",
+					"lead": -2.086
+				},
+				"ac3": {
+					"src": "stock/sfx_superfreespin.ac3",
+					"lead": -88.095
+				}
+			},
+			"sprite": {
+				"sfx_superfreespin": [250, 6000]
+			},
+			"config": {
+				"sfx_superfreespin": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_symbols_landing",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_symbols_landing.ogg",
+					"lead": -23.605
+				},
+				"m4a": {
+					"src": "stock/sfx_symbols_landing.m4a",
+					"lead": -7.642
+				},
+				"mp3": {
+					"src": "stock/sfx_symbols_landing.mp3",
+					"lead": -2.902
+				},
+				"ac3": {
+					"src": "stock/sfx_symbols_landing.ac3",
+					"lead": -88.912
+				}
+			},
+			"sprite": {
+				"sfx_symbols_landing": [250, 1202.585034013623]
+			},
+			"config": {
+				"sfx_symbols_landing": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_wild_explode",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_wild_explode.ogg",
+					"lead": -39.297
+				},
+				"m4a": {
+					"src": "stock/sfx_wild_explode.m4a",
+					"lead": -3.016
+				},
+				"mp3": {
+					"src": "stock/sfx_wild_explode.mp3",
+					"lead": -6.984
+				},
+				"ac3": {
+					"src": "stock/sfx_wild_explode.ac3",
+					"lead": -84.286
+				}
+			},
+			"sprite": {
+				"sfx_wild_explode": [250, 1401.2244897959363]
+			},
+			"config": {
+				"sfx_wild_explode": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_winlevel_end",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_winlevel_end.ogg",
+					"lead": -37.574
+				},
+				"m4a": {
+					"src": "stock/sfx_winlevel_end.m4a",
+					"lead": -21.61
+				},
+				"mp3": {
+					"src": "stock/sfx_winlevel_end.mp3",
+					"lead": -11.066
+				},
+				"ac3": {
+					"src": "stock/sfx_winlevel_end.ac3",
+					"lead": -114.49
+				}
+			},
+			"sprite": {
+				"sfx_winlevel_end": [250, 1998.911564625871]
+			},
+			"config": {
+				"sfx_winlevel_end": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_winlevel_nice",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_winlevel_nice.ogg",
+					"lead": -30.045
+				},
+				"m4a": {
+					"src": "stock/sfx_winlevel_nice.m4a",
+					"lead": -16.984
+				},
+				"mp3": {
+					"src": "stock/sfx_winlevel_nice.mp3",
+					"lead": -15.147
+				},
+				"ac3": {
+					"src": "stock/sfx_winlevel_nice.ac3",
+					"lead": -109.864
+				}
+			},
+			"sprite": {
+				"sfx_winlevel_nice": [250, 1474.2857142857133]
+			},
+			"config": {
+				"sfx_winlevel_nice": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_winlevel_small",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_winlevel_small.ogg",
+					"lead": -28.322
+				},
+				"m4a": {
+					"src": "stock/sfx_winlevel_small.m4a",
+					"lead": -12.358
+				},
+				"mp3": {
+					"src": "stock/sfx_winlevel_small.mp3",
+					"lead": -19.229
+				},
+				"ac3": {
+					"src": "stock/sfx_winlevel_small.ac3",
+					"lead": -105.238
+				}
+			},
+			"sprite": {
+				"sfx_winlevel_small": [250, 1000.5668934240362]
+			},
+			"config": {
+				"sfx_winlevel_small": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_winlevel_standard",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_winlevel_standard.ogg",
+					"lead": -35.306
+				},
+				"m4a": {
+					"src": "stock/sfx_winlevel_standard.m4a",
+					"lead": -7.732
+				},
+				"mp3": {
+					"src": "stock/sfx_winlevel_standard.mp3",
+					"lead": -23.311
+				},
+				"ac3": {
+					"src": "stock/sfx_winlevel_standard.ac3",
+					"lead": -100.612
+				}
+			},
+			"sprite": {
+				"sfx_winlevel_standard": [250, 1250]
+			},
+			"config": {
+				"sfx_winlevel_standard": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_winlevel_substantial",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_winlevel_substantial.ogg",
+					"lead": -27.778
+				},
+				"m4a": {
+					"src": "stock/sfx_winlevel_substantial.m4a",
+					"lead": -3.107
+				},
+				"mp3": {
+					"src": "stock/sfx_winlevel_substantial.mp3",
+					"lead": -1.27
+				},
+				"ac3": {
+					"src": "stock/sfx_winlevel_substantial.ac3",
+					"lead": -95.986
+				}
+			},
+			"sprite": {
+				"sfx_winlevel_substantial": [250, 2490.317460317442]
+			},
+			"config": {
+				"sfx_winlevel_substantial": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_youwon_panel",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_youwon_panel.ogg",
+					"lead": -33.22
+				},
+				"m4a": {
+					"src": "stock/sfx_youwon_panel.m4a",
+					"lead": -20.159
+				},
+				"mp3": {
+					"src": "stock/sfx_youwon_panel.mp3",
+					"lead": -24.127
+				},
+				"ac3": {
+					"src": "stock/sfx_youwon_panel.ac3",
+					"lead": -101.429
+				}
+			},
+			"sprite": {
+				"sfx_youwon_panel": [250, 2996.689342403613]
+			},
+			"config": {
+				"sfx_youwon_panel": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "tumble_wins",
+			"files": {
+				"ogg": {
+					"src": "stock/tumble_wins.ogg",
+					"lead": -38.662
+				},
+				"m4a": {
+					"src": "stock/tumble_wins.m4a",
+					"lead": -13.991
+				},
+				"mp3": {
+					"src": "stock/tumble_wins.mp3",
+					"lead": -20.862
+				},
+				"ac3": {
+					"src": "stock/tumble_wins.ac3",
+					"lead": -106.871
+				}
+			},
+			"sprite": {
+				"tumble_win_1": [250, 996.2358276644068],
+				"tumble_win_2": [2250, 1134.671201814058],
+				"tumble_win_3": [5250, 1134.8299319727744],
+				"tumble_win_4": [8250, 998.8208616779843],
+				"tumble_win_5": [10250, 989.6145124716327]
+			},
+			"config": {
+				"tumble_win_1": {
+					"volume": 1
+				},
+				"tumble_win_2": {
+					"volume": 1
+				},
+				"tumble_win_3": {
+					"volume": 1
+				},
+				"tumble_win_4": {
+					"volume": 1
+				},
+				"tumble_win_5": {
+					"volume": 1
+				}
+			}
+		},
+		{
+			"id": "sfx_btn_stop",
+			"files": {
+				"ogg": {
+					"src": "stock/sfx_btn_stop.ogg",
+					"lead": -50.544
+				},
+				"m4a": {
+					"src": "stock/sfx_btn_stop.m4a",
+					"lead": -40.385
+				},
+				"mp3": {
+					"src": "stock/sfx_btn_stop.mp3",
+					"lead": -3.719
+				},
+				"ac3": {
+					"src": "stock/sfx_btn_stop.ac3",
+					"lead": -98.435
+				}
+			},
+			"sprite": {
+				"sfx_btn_stop": [250, 300]
+			},
+			"config": {
+				"sfx_btn_stop": {
+					"volume": 1
+				}
+			}
+		}
+	]
 }

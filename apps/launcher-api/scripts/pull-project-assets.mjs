@@ -46,6 +46,7 @@ import {
 	scanSources,
 } from './lib/assetReachability.mjs';
 import { artTierDrop, parseArtTierPin } from './lib/artTierPin.mjs';
+import { refreshStockAudio } from './lib/stockAudioRefresh.mjs';
 import { writeBuildReport } from './lib/buildReportDir.mjs';
 
 const args = process.argv.slice(2);
@@ -420,6 +421,26 @@ if (!noPrune && isStandaloneGame() && basename(dirname(dest)) === 'static') {
 				`${retired.join(', ')}. Delete them from the game repo to tidy it.`,
 		);
 }
+// The engine's stock audio, brought up to the engine's own in a standalone game's checkout (the
+// launcher hard-resets it first): see `lib/stockAudioRefresh.mjs`.
+let stockAudio = null;
+if (!noPrune && isStandaloneGame() && basename(dirname(dest)) === 'static') {
+	stockAudio = await refreshStockAudio(
+		join(ENGINE_ROOT, 'apps/lines/static/assets/audio'),
+		join(dest, 'audio'),
+		{ dryRun },
+	);
+	if (stockAudio.refreshed)
+		console.info(
+			`\n${dryRun ? 'Would refresh' : 'Refreshed'} static/assets/audio/ from the engine: ` +
+				`${stockAudio.banks} stock bank(s)` +
+				(stockAudio.removed.length
+					? `, replacing the old sprite (${stockAudio.removed.join(', ')})`
+					: ''),
+		);
+	else console.info(`\nstatic/assets/audio/ left as it is: ${stockAudio.why}`);
+}
+
 const pruned = removed.length;
 const byproducts = files.filter((f) => byproduct(f.rel));
 const skipped = files.filter(
@@ -502,6 +523,7 @@ const report = {
 	),
 	keptUnloaded: kept,
 	retiredSeedFiles: retired,
+	stockAudio,
 	optimize: null,
 };
 
