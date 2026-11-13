@@ -159,6 +159,7 @@
 		"check:character-clips": "tsx --tsconfig tsconfig.scripts.json scripts/check-character-clips.ts",
 		"check:salmons-export": "tsx --tsconfig tsconfig.scripts.json scripts/check-salmons-export.ts",
 		"check:online-publish": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-online-publish.ts",
+		"check:desktop-publish-checks": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-desktop-publish-checks.ts",
 		"check:book-of-migration": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-book-of-migration.ts",
 		"check:config-bonus-modes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-config-bonus-modes.ts",
 		"check:spins-modes-tools": "tsx --tsconfig tsconfig.scripts.json scripts/check-spins-modes-tools.ts",

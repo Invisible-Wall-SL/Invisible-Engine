@@ -1391,6 +1391,9 @@ console.log('8. a particle material ships');
 			res.writeHead(status, { 'content-type': 'application/json' });
 			res.end(body);
 		};
+		if (url.pathname === '/api/launcher/publish-check') {
+			return answer(200, JSON.stringify({ ok: true, checked: ['sounds'], failed: [] }));
+		}
 		if (!handler) return answer(200, '{}');
 		const request = new Request(url, { method: req.method });
 		Promise.resolve()
