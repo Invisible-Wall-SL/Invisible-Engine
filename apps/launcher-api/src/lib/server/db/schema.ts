@@ -235,6 +235,37 @@ export const loginAttempts = pgTable('login_attempts', {
 });
 
 /**
+ * No-login PARTNER SHARE LINKS: `/play/<token>` opens a project's published game on its partner RGS
+ * with a freshly minted session, for someone with no launcher account (`$lib/server/partnerShare.ts`).
+ * Only the token's SHA-256 is stored — the link itself is shown once, when it is made. A link is
+ * live while `revoked_at` is null and `expires_at` is ahead; `window_*` is its per-minute open
+ * budget, spent by one conditional UPDATE so parallel opens cannot overspend it.
+ */
+export const partnerShareLinks = pgTable(
+	'partner_share_links',
+	{
+		id: text('id').primaryKey(),
+		tokenHash: text('token_hash').notNull(),
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+		revokedAt: timestamp('revoked_at', { withTimezone: true }),
+		revokedBy: text('revoked_by').references(() => users.id, { onDelete: 'set null' }),
+		lastOpenedAt: timestamp('last_opened_at', { withTimezone: true }),
+		openCount: integer('open_count').notNull().default(0),
+		windowStartedAt: timestamp('window_started_at', { withTimezone: true }),
+		windowOpens: integer('window_opens').notNull().default(0),
+	},
+	(t) => [
+		uniqueIndex('partner_share_links_token_hash_idx').on(t.tokenHash),
+		index('partner_share_links_project_idx').on(t.projectKey),
+	],
+);
+
+/**
  * Append-only log of every mutating `/admin` action: who, when, which action, on what, and the
  * submitted fields with secrets redacted (`$lib/server/adminAudit.ts`). A refused attempt is logged
  * too. `actor_id` carries no foreign key on purpose — deleting a user must not erase or rewrite
@@ -1188,6 +1219,7 @@ export type Client = typeof clients.$inferSelect;
 export type UserClientAccess = typeof userClientAccess.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type PartnerShareLink = typeof partnerShareLinks.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
 export type SharedRig = typeof sharedRigs.$inferSelect;
 export type SharedAnimation = typeof sharedAnimations.$inferSelect;
