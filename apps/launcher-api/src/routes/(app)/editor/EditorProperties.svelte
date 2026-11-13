@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { resolve } from '$app/paths';
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
@@ -133,6 +134,12 @@
 		gameType?: string;
 		/** The project's add-ons (its Game Config blocks), which widen the kind's states and signals. */
 		addOns?: KindCapabilityConfig;
+		/** The rows the project's respin board grows to (Game Config → Board expansion), if it grows. */
+		expansionMaxRows?: number | null;
+		/** Those rows open above the base grid (Game Config `addRowsAt: 'above'`). */
+		expansionRowsAbove?: boolean;
+		/** The canvas draws the reel grid grown to {@link expansionMaxRows} (view only, never saved). */
+		previewGrownBoard?: boolean;
 		node: LayoutNode | null;
 		layoutType: LayoutType;
 		/** The BASE bucket id (the profile's fallback). A non-base `layoutType` is override
@@ -434,6 +441,9 @@
 		onShowInFlow,
 		gameType,
 		addOns,
+		expansionMaxRows = null,
+		expansionRowsAbove = false,
+		previewGrownBoard = $bindable(false),
 	}: Props = $props();
 
 	const offeredSymbolStates = $derived(symbolStatesForKind(gameType, addOns));
@@ -5101,6 +5111,40 @@
 						}}
 					/>
 				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span
+						>board nudge rows <InfoTip
+							>Moves the whole board up or down by whole rows (−1 = one row up), added to the px
+							nudge. A row is the cell height + gap as each layout draws it, so it lifts the board
+							by the same rows on every layout, whatever its scale. ⇕ Reserve rows sets it.</InfoTip
+						></span
+					>
+					<input
+						type="number"
+						step="0.5"
+						placeholder="0"
+						value={node.boardNudgeRows ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.boardNudgeRows = Number.isFinite(v) && v !== 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+				{#if expansionMaxRows}
+					<label class="field">
+						<span
+							>preview {expansionMaxRows} rows <InfoTip alignEnd
+								>Draws the respin board grown to its {expansionMaxRows} rows (Game Config → Board expansion):
+								the rows it opens are drawn {expansionRowsAbove ? 'above' : 'below'} the base rows, locked,
+								where the game adds them. View only — nothing is saved.</InfoTip
+							></span
+						>
+						<input type="checkbox" bind:checked={previewGrownBoard} />
+					</label>
+				{/if}
 			</div>
 			<p class="muted small">
 				<strong>Symbol overflow</strong> — extra px of room outside the reels, so art drawn bigger

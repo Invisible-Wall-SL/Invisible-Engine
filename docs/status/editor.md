@@ -171,6 +171,16 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-13 — **Reel grid: preview N rows grows only the selected grid; ⇕ Reserve rows reads the
+  canvas factor.** In a multi-grid scene the switch drew every reel grid grown; it now applies to the
+  selected one, in the edited screen. ⇕ Reserve rows passes every layout's canvas factor (not just
+  the open tab's), so an old px lift on a rescaled, drag-resized grid is swapped, not doubled. Detail: `docs/status/hold-and-win.md` Recent changes
+  2026-11-13 (#1659 review).
+- 2026-11-13 — **Reel grid: board nudge rows + a grown-board preview.** A new **board nudge rows**
+  field moves the board by whole row pitches as each layout draws them (`boardNudgeRows`, mirrored
+  from the game's resolver in `reelGridGeometry`), and **preview N rows** (shown when the Game Config
+  expands a respin board) draws the rows it opens below the base rows. ⇕ Reserve rows now writes the
+  row lift. Detail: `docs/status/hold-and-win.md` Recent changes 2026-11-13.
 - 2026-11-13 — **The reel grid previews where the game draws it.** The board nudge is in the node's
   x/y units, and the game adds it outside the grid's scale (`boardLayout()`). The editor drew it
   inside, so a scaled grid moved by the nudge × the scale. Getting Hot (nudge −79 at scale 2.59)

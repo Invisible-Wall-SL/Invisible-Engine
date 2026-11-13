@@ -108,6 +108,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	symbolAlignY: true,
 	boardNudgeX: true,
 	boardNudgeY: true,
+	boardNudgeRows: true,
 	overflowX: true,
 	overflowY: true,
 	spin: true,

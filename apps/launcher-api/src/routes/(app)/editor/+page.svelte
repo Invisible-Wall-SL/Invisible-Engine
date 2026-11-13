@@ -1937,6 +1937,7 @@
 	 *  mode that draws enhancements gets the Enhancements screen and its banners. */
 	const sceneSetOptions = $derived<SceneSetOptions>({
 		...(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {}),
+		...(data.expansionMaxRows && data.expansionRowsAbove ? { addRowsAt: 'above' as const } : {}),
 		...(data.noJackpotTiers ? { jackpotBar: false as const } : {}),
 		...(data.coinBoard ? { coinBoard: true as const } : {}),
 		...(data.enhancements ? { enhancements: true as const } : {}),
@@ -1951,21 +1952,52 @@
 		const ids = addOnSceneIds(projectGameType, sceneSetOptions);
 		return missingScreens.filter((scene) => ids.includes(scene.id));
 	});
+	/** The game-type reference's canonical canvas box (plain JSON from the server), or
+	 * `null` for a game type without a reference layout. */
+	const referenceMainSizes = data.referenceMainSizes;
+	/** How many times the game-type reference this canvas is, read off the current layout's width:
+	 * 1 for a game authored at the reference size, 2 for one rescaled to twice it (a 4K game). A
+	 * box at that multiple of the reference matches it — what a rescale is for. */
+	const canvasFactor = $derived.by(() => {
+		const ref = referenceMainSizes?.[currentLayoutType];
+		const cur = mainSizesMap[currentLayoutType];
+		return ref && cur && ref.width > 0 ? cur.width / ref.width : 1;
+	});
+	/** Every layout's {@link canvasFactor} (those with a reference box), so whether the reel grid is
+	 * reserved does not depend on the open layout tab. */
+	const canvasFactors = $derived(
+		Object.entries(mainSizesMap).flatMap(([lt, cur]) => {
+			const ref = referenceMainSizes?.[lt as LayoutType];
+			return ref && ref.width > 0 ? [cur.width / ref.width] : [];
+		}),
+	);
 	/**
 	 * Does the reel grid still lack room for the rows an expanding respin board grows into? (The
 	 * scaffold reserves them only for a config that expanded when the layout was seeded.)
 	 */
+	const expansionRowsAt = $derived(data.expansionRowsAbove ? 'above' : 'below');
 	const needsExpansionReserve = $derived(
 		Boolean(data.expansionMaxRows) &&
-			!expandingBoardReserved({ ...data.doc, scenes, mainSizesMap }, data.expansionMaxRows ?? 0),
+			!expandingBoardReserved(
+				{ ...data.doc, scenes, mainSizesMap },
+				data.expansionMaxRows ?? 0,
+				canvasFactors,
+				expansionRowsAt,
+			),
 	);
-	/** Shrink the reel grid's cells and lift the whole board (its board nudge) so the respin board's
-	 *  extra rows fit below the base grid — the node does not move; nothing else changes; undoable. */
+	/** The canvas draws the reel grid grown to the respin board's `maxRows` (the reel grid's
+	 *  Properties switch; view only, never saved). */
+	let previewGrownBoard = $state(false);
+	/** Shrink the reel grid's cells and lift the whole board by half its extra rows (its row nudge;
+	 *  lower it, when they open above) so the respin board's extra rows fit — the node does not move;
+	 *  undoable. */
 	function reserveExpansionRows(): void {
 		if (!data.expansionMaxRows) return;
 		scenes = reserveExpandingBoard(
 			{ ...data.doc, scenes, mainSizesMap },
 			data.expansionMaxRows,
+			canvasFactors,
+			expansionRowsAt,
 		).scenes;
 		markDirty();
 	}
@@ -2183,7 +2215,7 @@
 					? [
 							{
 								label: `⇕ Reserve rows for board expansion (${data.expansionMaxRows})`,
-								title: `This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board (its board nudge) so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`,
+								title: `This game's respin board grows to ${data.expansionMaxRows} rows ${data.expansionRowsAbove ? 'above' : 'below'} the base grid (Game Config → Board expansion; Respins → Rows added). Shrinks the reel grid's cells and ${data.expansionRowsAbove ? 'lowers' : 'lifts'} the board by half its extra rows (its board nudge rows, which follow each layout's scale) so the grown board fits where the base board was — the grid does not move; preview it with the reel grid's "preview rows" switch, and move the pieces ${data.expansionRowsAbove ? 'above' : 'below'} it if they still overlap.`,
 								onSelect: reserveExpansionRows,
 							},
 						]
@@ -2707,17 +2739,6 @@
 		markDirty();
 	}
 
-	/** The game-type reference's canonical canvas box (plain JSON from the server), or
-	 * `null` for a game type without a reference layout. */
-	const referenceMainSizes = data.referenceMainSizes;
-	/** How many times the game-type reference this canvas is, read off the current layout's width:
-	 * 1 for a game authored at the reference size, 2 for one rescaled to twice it (a 4K game). A
-	 * box at that multiple of the reference matches it — what a rescale is for. */
-	const canvasFactor = $derived.by(() => {
-		const ref = referenceMainSizes?.[currentLayoutType];
-		const cur = mainSizesMap[currentLayoutType];
-		return ref && cur && ref.width > 0 ? cur.width / ref.width : 1;
-	});
 	/** The reference box at this canvas's multiple. */
 	const referenceBoxAtFactor = (lt: LayoutType) => {
 		const ref = referenceMainSizes?.[lt];
@@ -3893,6 +3914,10 @@
 						symbolDefaults={data.symbolDefaults}
 						symbolsDoc={data.symbolsDoc}
 						gridDimensions={shownGridDimensions}
+						grownBoardRows={previewGrownBoard && selectedNode?.kind === 'reelGrid'
+							? data.expansionMaxRows
+							: null}
+						grownRowsAbove={data.expansionRowsAbove}
 						repeaterSources={data.repeaterSources}
 						{componentDefaults}
 						{componentMap}
@@ -4224,6 +4249,9 @@
 						node={selectedNode}
 						gameType={projectGameType}
 						addOns={data.addOns}
+						expansionMaxRows={data.expansionMaxRows}
+						expansionRowsAbove={data.expansionRowsAbove}
+						bind:previewGrownBoard
 						{componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}

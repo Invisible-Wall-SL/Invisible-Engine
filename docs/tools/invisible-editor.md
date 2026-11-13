@@ -2492,14 +2492,22 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   every cell of a row that has not opened yet (**lockedImage**, **lockedTint**). Without an image the
   game draws its own dark panel marked LOCKED. Like the tiles, where you drop it doesn't matter; the
   template puts one on the **Respin board** screen. **Select it** to preview one locked row under the
-  reel grid. The extra rows grow **below** the base grid, so an expanding game needs room there. A
+  reel grid. The extra rows grow **below** the base grid (or **above** it, when Game Config → Respins
+  → **Rows added** is *Above the board*, as Getting Hot's template sets), so an expanding game needs
+  room there. A
   project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
   with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
-  the whole board lifts (its **board nudge**), so the grown board sits where the base board was, and the pieces
-  above and below are pushed clear. A project that turns expansion on **later** shows a
+  the whole board lifts by half its extra rows (lowers, for rows added above; its **board nudge rows**), so the grown board sits where the base
+  board was, and the pieces above and below are pushed clear. A project that turns expansion on **later** (or was
+  reserved before 2026-11-13, when the lift was a px **board nudge** that fell short on a scaled grid) shows a
   **⇕ Reserve rows for board expansion (N)** entry in the Screens panel's **⋯** menu: it applies the same cell size
-  and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
-  grown board yourself.
+  and row lift to the reel grid without moving it (undoable), and swaps an old px lift for the row lift. Move any
+  piece that still sits under the grown board yourself.
+  To **see** the grown board, select the reel grid and tick **preview N rows** (next to **board nudge rows**): the
+  canvas draws the rows the respin board opens below the base rows (above, for rows added above), locked (the selected Locked Row's art, else
+  the coded LOCKED panel), with the whole grown block outlined. It is view only, and it shows on every layout
+  tab, so check each one. **board nudge rows** is also a plain field: it moves the whole board by whole rows (−1 =
+  one row up) as each layout draws them, on top of the px **board nudge**.
   **Enhancement Dial** is one of a collector bonus's four dials (the partner's collector game,
   Phase 14b): its **kind** names the enhancement it stands for (`extraRow` Expand, `boost`,
   `multiply`, `extraRespins` Respin). It shows only during a feature that drew enhancements

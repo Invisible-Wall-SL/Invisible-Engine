@@ -354,6 +354,12 @@
 		 * preview draws THIS many cells — the config is the single source of truth for the grid, the
 		 * same one the game sizes off. `null` ⇒ fall back to the reelGrid node's own reels/rows. */
 		gridDimensions?: { reels: number; rows: number } | null;
+		/** Draw the SELECTED reel grid (in the edited screen — every screen's grid is `reel-grid`) grown
+		 *  to this many rows: an expanding respin board's rows below the base ones, locked, where the game
+		 *  opens them (view only). Every other grid draws its base rows. `null` ⇒ the base rows alone. */
+		grownBoardRows?: number | null;
+		/** The grown rows open above the base rows (Game Config `addRowsAt: 'above'`), not below. */
+		grownRowsAbove?: boolean;
 		/** Per-source SAMPLE data for `repeater` placeholders, resolved from the project's game config
 		 * (currently `featureCards` → one card per non-default bet mode, with each card's per-item
 		 * values). Drives BOTH the placeholder count and the per-box component preview. `null` / an
@@ -493,6 +499,8 @@
 		symbolDefaults = null,
 		symbolsDoc = null,
 		gridDimensions = null,
+		grownBoardRows = null,
+		grownRowsAbove = false,
 		repeaterSources = null,
 		componentMap = new Map(),
 		rigPreview = null,
@@ -3337,7 +3345,7 @@
 				instanceParams ?? componentParams,
 			);
 		} else if (node.kind === 'reelGrid') {
-			drawReelGrid(ctx, node, t);
+			drawReelGrid(ctx, node, t, sceneCtx.id === scene.id && node.id === selectedId);
 		} else if (node.kind === 'effect') {
 			// A placed Invisible FX effect. The live `EditorEffectLayer` overlay plays the real
 			// emitters on a Pixi canvas above this one, positioned at the SAME transform — so once it
@@ -3655,6 +3663,7 @@
 		ctx: CanvasRenderingContext2D,
 		node: Extract<LayoutNode, { kind: 'reelGrid' }>,
 		t: ResolvedTransform,
+		selected: boolean,
 	): void {
 		// Board geometry (cell boxes + symbol seats) comes from the SHARED `reelGridGeometry`,
 		// the same resolver `EditorRigLayer` reads — so a sprite symbol drawn here and a rig
@@ -3825,7 +3834,12 @@
 		}
 
 		drawRespinCellTilesPreview(ctx, geo.seats);
-		drawLockedRowPreview(ctx, geo.seats);
+		drawLockedRowPreview(
+			ctx,
+			geo.seats,
+			geo.outline || !selected ? 0 : Math.max(0, (grownBoardRows ?? 0) - geo.rows),
+			geo.cellH + (Number.isFinite(node.gapY) ? (node.gapY as number) : 0),
+		);
 
 		ctx.lineWidth = 2;
 		ctx.strokeStyle = '#5db0ff';
@@ -3902,52 +3916,84 @@
 	}
 
 	/**
-	 * The `lockedRow` component's look, while one is SELECTED: an expanding respin board draws it over
-	 * every locked cell — the rows that grow BELOW the base grid, which no editor screen shows — so one
-	 * sample row is drawn under the reel grid, each cell as the game draws a locked cell: the authored
-	 * art (tinted), else the coded dark panel marked LOCKED. Nothing selected ⇒ nothing drawn.
+	 * The rows an expanding respin board opens, drawn below the base rows (above them, under
+	 * `grownRowsAbove`) at the game's row pitch: the
+	 * selected `lockedRow` component's look (one row, or every grown row while the grown board is
+	 * previewed), else the coded locked cell (dark, LOCKED) for each row the grown preview adds, with
+	 * the whole grown block outlined. Nothing selected and no preview ⇒ nothing drawn.
 	 */
 	function drawLockedRowPreview(
 		ctx: CanvasRenderingContext2D,
 		seats: readonly ReelGridSeat[],
+		grownRows: number,
+		/** The row pitch (cell height + gap) the game opens rows at, in the grid's local space. */
+		pitch: number,
 	): void {
 		const selected = selectedId ? findNodeById(selectedId) : null;
-		if (selected?.kind !== 'componentInstance' || selected.componentId !== 'lockedRow') return;
-		if (!seats.length) return;
-		const params: Record<string, unknown> = selected.params ?? {};
+		const lockedRow =
+			selected?.kind === 'componentInstance' && selected.componentId === 'lockedRow'
+				? selected
+				: null;
+		if ((!lockedRow && !grownRows) || !seats.length) return;
+		const rows = Math.max(1, grownRows);
+		const params: Record<string, unknown> = lockedRow?.params ?? {};
 		const image = typeof params.lockedImage === 'string' ? params.lockedImage : '';
 		const tintText = typeof params.lockedTint === 'string' ? params.lockedTint : '';
 		const tint = /^#[0-9a-f]{6}$/i.test(tintText) ? parseInt(tintText.slice(1), 16) : undefined;
 		const scoped = image ? parseScopedFrameRef(image) : null;
-		const bottom = Math.max(...seats.map((seat) => seat.y + seat.h));
-		const lastRow = seats.filter((seat) => seat.y + seat.h === bottom);
-		const pitch = Math.max(...seats.map((seat) => seat.h));
-		for (const seat of lastRow) {
-			const y = seat.y + pitch;
-			if (scoped) {
-				ctx.save();
-				ctx.translate(seat.x + seat.w / 2, y + seat.h / 2);
-				drawArtRegionSprite(
-					ctx,
-					scoped.assetKey ?? '',
-					scoped.region,
-					{ x: 0, y: 0, anchor: { x: 0.5, y: 0.5 }, width: seat.w, height: seat.h, visible: true },
-					undefined,
-					tint !== undefined && tint !== 0xffffff ? tint : undefined,
-				);
-				ctx.restore();
-				continue;
+		// Each column's edge seat the rows open from: its bottom one, or its top one when they open above.
+		const step = grownRowsAbove ? -pitch : pitch;
+		const edges = seats.filter(
+			(seat) =>
+				!seats.some(
+					(other) => other.i === seat.i && (grownRowsAbove ? other.j < seat.j : other.j > seat.j),
+				),
+		);
+		for (const seat of edges) {
+			for (let k = 1; k <= rows; k += 1) {
+				const y = seat.y + step * k;
+				if (scoped) {
+					ctx.save();
+					ctx.translate(seat.x + seat.w / 2, y + seat.h / 2);
+					drawArtRegionSprite(
+						ctx,
+						scoped.assetKey ?? '',
+						scoped.region,
+						{
+							x: 0,
+							y: 0,
+							anchor: { x: 0.5, y: 0.5 },
+							width: seat.w,
+							height: seat.h,
+							visible: true,
+						},
+						undefined,
+						tint !== undefined && tint !== 0xffffff ? tint : undefined,
+					);
+					ctx.restore();
+					continue;
+				}
+				ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+				ctx.fillRect(seat.x + seat.w * 0.03, y + seat.h * 0.03, seat.w * 0.94, seat.h * 0.94);
+				ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+				ctx.strokeRect(seat.x + seat.w * 0.03, y + seat.h * 0.03, seat.w * 0.94, seat.h * 0.94);
+				ctx.fillStyle = '#ffffff';
+				ctx.font = `bold ${Math.round(seat.h * 0.15)}px Arial`;
+				ctx.textAlign = 'center';
+				ctx.textBaseline = 'middle';
+				ctx.fillText('LOCKED', seat.x + seat.w / 2, y + seat.h / 2);
 			}
-			ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-			ctx.fillRect(seat.x + seat.w * 0.03, y + seat.h * 0.03, seat.w * 0.94, seat.h * 0.94);
-			ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-			ctx.strokeRect(seat.x + seat.w * 0.03, y + seat.h * 0.03, seat.w * 0.94, seat.h * 0.94);
-			ctx.fillStyle = '#ffffff';
-			ctx.font = `bold ${Math.round(seat.h * 0.15)}px Arial`;
-			ctx.textAlign = 'center';
-			ctx.textBaseline = 'middle';
-			ctx.fillText('LOCKED', seat.x + seat.w / 2, y + seat.h / 2);
 		}
+		if (!grownRows) return;
+		const left = Math.min(...seats.map((seat) => seat.x));
+		const right = Math.max(...seats.map((seat) => seat.x + seat.w));
+		const top = Math.min(...seats.map((seat) => seat.y + Math.min(0, step * rows)));
+		const bottom = Math.max(...seats.map((seat) => seat.y + seat.h + Math.max(0, step * rows)));
+		ctx.lineWidth = 2;
+		ctx.strokeStyle = 'rgba(255, 196, 93, 0.9)';
+		ctx.setLineDash([8 / zoom, 6 / zoom]);
+		ctx.strokeRect(left, top, right - left, bottom - top);
+		ctx.setLineDash([]);
 	}
 
 	/**
@@ -6209,6 +6255,9 @@
 		// The tilemap paint tool and brush (Properties picks them) change the selected tilemap's overlay.
 		void tilemapPaint.tool;
 		void tilemapPaint.brush;
+		// The grown-board preview switch (Properties, on a reel grid) redraws the board.
+		void grownBoardRows;
+		void grownRowsAbove;
 		schedule();
 	});
 
