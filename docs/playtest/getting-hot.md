@@ -48,7 +48,8 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - `enhancements:<bits>`: five bits in this order: expand, boost, powerFive, multiply, respin.
 - `boostHit` and `multiplyHit`: each needs its bit (or Force 5). They hit on the first respin.
 - `superBonus`: Force 5, which is `enhancements:00100`. The partner's bonus table lists Force 5
-  alone, never mixed with the other four bits.
+  alone, never mixed with the other four bits. As on their server, it arrives through a surprise
+  trigger (`surpriseTrigger {state: 4}`).
 - `twoCollectors`, `trigger`, `baseCollect`; `baseCollect,twoCollectors` is a base collect into two collectors.
 - `jackpot:<TIER>` (MINI, MINOR, MAJOR, GRAND): a jackpot coin of that tier in the trigger run, e.g.
   `trigger,jackpot:GRAND`.
@@ -139,6 +140,8 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
   - Then Expand opens its row as in S3.
 - **Expect, every respin:** a collector keeps its seat. A respin where nothing lands just counts
   down.
+- With `superBonus` instead: the same drop-in, then SUPER BONUS and a 5×5 board whose two new rows
+  open on top (with the template's **Rows added: Above the board**).
 
 ## Every round
 

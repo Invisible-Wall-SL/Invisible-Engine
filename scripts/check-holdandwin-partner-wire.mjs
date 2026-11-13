@@ -296,6 +296,11 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			JSON.stringify(ss.betOptionNames) === '["Base","Powerup","BuyCenterCoin","goldStrike"]',
 		`${where}: spinStart carries the bet options`,
 	);
+	check(
+		JSON.stringify(ss?.ranges) === '[118,124,5,115,109]' &&
+			ss.reels.every((strip, r) => strip.length === ss.ranges[r]),
+		`${where}: the base spinStart.reels are long strips, ranges [118, 124, 5, 115, 109]`,
+	);
 	const board = ctxs(spin, 'playWindow')[0];
 	check(boardOk(board, G.rows), `${where}: a whole 5×3 reel-major board`);
 	const played = ctxs(spin, 'playedSpin')[0];
@@ -345,9 +350,12 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 			collectorsOn(played).length > 0 && runOn(played) >= 3,
 			`${where}: the topped-up board triggers with a collector`,
 		);
+		const awarded = ctxs(spin, 'boostsAwarded')[0];
+		const bits = ENHANCEMENT_BITS.map((b) => String(awarded?.[b])).join('');
 		check(
-			ctxs(spin, 'spinTrigger')[0]?.trigger.from === '',
-			`${where}: a surprise trigger's spinTrigger.trigger.from is ""`,
+			surprise.state === parseInt(bits, 2),
+			`${where}: surpriseTrigger.state is the awarded bonus's bits read in binary`,
+			`${surprise.state} vs ${bits}`,
 		);
 	}
 	for (let reel = 0; reel < G.reels; reel++) {
@@ -450,9 +458,17 @@ const playRound = async (srv, sid, option, betPerLine, play = '', where = `round
 		const start = flags.powerFive ? 5 : flags.respin ? 4 : 3;
 		check(enter.left === start, `${where}: the counter starts at ${start}`, `left ${enter.left}`);
 		check(
-			trigger.spins[0].spins === start && trigger.trigger.occurs.join() === '3,4,5',
-			`${where}: spinTrigger {spins, occurs, bonus, trigger {occurs: [3,4,5], from}}`,
+			trigger.spins[0].spins === start &&
+				trigger.trigger.occurs.join() === '3,4,5' &&
+				trigger.trigger.from === '',
+			`${where}: spinTrigger {spins, occurs, bonus, trigger {occurs: [3,4,5], from: ""}}`,
 		);
+		if (flags.powerFive) {
+			check(
+				Boolean(surprise) && trigger.occurs === 5 && enter.spins[0].trigger.occurs.join() === '5',
+				`${where}: Force 5 comes through a surprise trigger, occurs 5`,
+			);
+		}
 		check(
 			collectorsOn(played).length > 0,
 			`${where}: every bonus opens with a collector (any run of 3 crosses reel 3)`,

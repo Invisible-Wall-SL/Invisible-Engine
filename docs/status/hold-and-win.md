@@ -1176,8 +1176,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
-- 2026-11-13 — **The partner-wire mock speaks the partner's real Getting Hot round.** Every rule
-  their server log shows ([capture, "One real round"](../reference/play4fun-collector-respin-capture.md))
+- 2026-11-13 — **The partner-wire mock speaks the partner's real Getting Hot rounds.** Every rule
+  their server logs show ([capture, "Real rounds"](../reference/play4fun-collector-respin-capture.md))
   is now dealt by `mock-rgs-server-holdandwin-partner.mjs`, and each has a check in
   `check:holdandwin-partner`:
   - `collect.pay` is the collector's NEW total, not what it gathered.
@@ -1191,9 +1191,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     down by the opened rows.
   - The bonus's `spinStart.reels` are filtered display strips (`ranges` [15, 15, 30, 15, 15]).
   - The old silent top-up is gone. In its place, a surprise trigger (rate 3%, pacing) tops up a
-    base spin that would not trigger: `surpriseTrigger {state: 16}` after `playWindow`, the added
-    coins' `bonusSymbol` after it, `spinTrigger.trigger.from: ""`. New force token `surprise`;
-    `surprise,enhancements:10000` is their round.
+    base spin that would not trigger: `surpriseTrigger {state}` after `playWindow`, `state` the
+    awarded bonus's bits read in binary (16 = Expand, 4 = Force 5), the added coins' `bonusSymbol`
+    after it. New force token `surprise`; `surprise,enhancements:10000` is their first round.
+  - Force 5 arrives only through a surprise trigger (8% of them, pacing), with `spinTrigger.occurs`
+    5; the old roll on a dealt collector is gone. `force:superBonus` deals it that way.
+  - `spinTrigger.trigger.from` is `""` in every round (it was `run` / `superBonus`).
+  - The base `spinStart.reels` are long display strips of their real lengths ([118, 124, 5, 115,
+    109]), laid out from the mock's tables.
+  - Boost before Multiply on one coin is now the partner's confirmed rule, not ours.
   - Mutants planted, one per new rule, all caught. Playbook `getting-hot.md` S9.
 - 2026-11-13 — **Getting Hot: a surprise trigger drops its coins and collector onto the board,
   and the partner's three real rounds replay as tests.** Their developer sent full rounds from their
