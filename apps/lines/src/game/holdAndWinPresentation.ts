@@ -48,6 +48,7 @@ import {
 	jackpotBannerText,
 	jackpotCoinText,
 	jackpotUpgradeText,
+	featureTopUpText,
 	luckySpinText,
 	meterFullText,
 	modifiersActiveText,
@@ -165,6 +166,9 @@ const TRIGGER_HOLD_MS = 500;
 const FEATURE_LINE_MS = 1_600;
 /** A random metre firing: its banner over the base board, the coins it added lit. */
 const RANDOM_METRE_MS = 1_600;
+/** A surprise trigger's top-up: the gap between two dropped cells, and how long its line holds. */
+const TOP_UP_STAGGER_MS = 140;
+const TOP_UP_HOLD_MS = 1_200;
 /** The pause between two respins that changed nothing, so the board reads between rolls. */
 const RESPIN_PAUSE_MS = 250;
 /** How long the counter holds on its reset pulse — the beat that tells the player "back to 3". */
@@ -685,6 +689,48 @@ export const presentRandomMetreTrigger = async (event: Beat<'randomMetreTrigger'
 	await (banner ? holdBanner(RANDOM_METRE_MS) : waitPresentation(RANDOM_METRE_MS));
 	hideHoldAndWinBanner(banner);
 	unlight.forEach((undo) => undo());
+};
+
+/**
+ * `featureTopUp` — base game: a SURPRISE TRIGGER (the partner's collector game). The reels stopped
+ * on the board the server dealt; it then ADDED coins and collectors to start the feature. Under the
+ * "SURPRISE!" line ({@link featureTopUpText}) each one drops onto its cell in board order and plays
+ * `coinTopUp` (unauthored: its `land`). It ends on the topped-up board whatever happens — slammed,
+ * every cell swaps at once — because the trigger that follows reads its coins off the base board
+ * (they are carried into the feature and collected at entry).
+ */
+export const presentFeatureTopUp = async (event: Beat<'featureTopUp'>) => {
+	eventEmitter.broadcast({
+		type: 'respinTopUp',
+		cells: event.cells.map(cellOf),
+		...(event.state !== undefined ? { state: event.state } : {}),
+	});
+	const banner = announceFeatureLine('featureTopUp', {
+		kind: 'featureTopUp',
+		title: featureTopUpText(),
+		size: 'small',
+	});
+	const landings: Promise<void>[] = [];
+	for (const cell of event.cells) {
+		const symbol = stateGame.board[cell.reel]?.reelState.symbols[cell.row + 1];
+		if (!symbol) continue;
+		symbol.rawSymbol = { ...cell.symbol };
+		symbol.symbolState = 'coinTopUp';
+		playSymbolLandSound(cell.symbol.name, 1);
+		landings.push(
+			roundSkip
+				.race(awaitSymbolBeat((resolve) => (symbol.oncomplete = resolve), TRANSIT_BEAT_CAP_MS))
+				.then(() => {
+					if (symbol.symbolState === 'coinTopUp') symbol.symbolState = 'static';
+				}),
+		);
+		await roundSkip.wait(TOP_UP_STAGGER_MS);
+	}
+	await Promise.all([
+		...landings,
+		banner ? holdBanner(TOP_UP_HOLD_MS) : waitPresentation(TOP_UP_HOLD_MS),
+	]);
+	hideHoldAndWinBanner(banner);
 };
 
 /** `respinReveal` — every free cell spins and lands on the symbol the server names for it. */

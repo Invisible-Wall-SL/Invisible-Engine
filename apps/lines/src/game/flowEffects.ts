@@ -102,6 +102,7 @@ import {
 	presentMeterUpdate,
 	presentMysteryReveal,
 	presentRandomMetreTrigger,
+	presentFeatureTopUp,
 	presentRespinReveal,
 	presentRespinsAdded,
 	presentRespinUpdate,
@@ -1387,6 +1388,8 @@ const effects: Record<string, FlowV2Effect> = {
 	 *   anticipate on every reel and to run unskippable.
 	 * - `fireRandomMetre` (`randomMetreTrigger`) — base game: the metre's banner over the coins it
 	 *   added, which play `coinStick`.
+	 * - `topUpFeature` (`featureTopUp`) — base game: a surprise trigger's coins and collectors drop
+	 *   onto the stopped reels under the "SURPRISE!" line, each playing `coinTopUp`.
 	 * - `lightLetter` (`columnComplete`) — the column's letter lights; a cleared column's coins fly
 	 *   into the Total Win bar, which counts up by its amount, and the cells leave.
 	 * - `instantCollect` (`coinInstantCollect`) — base game: the coins fly into the special, then
@@ -1418,6 +1421,7 @@ const effects: Record<string, FlowV2Effect> = {
 	fillMeter: beat('meterUpdate', presentMeterUpdate),
 	playLuckySpinIntro: () => presentLuckySpin(),
 	fireRandomMetre: beat('randomMetreTrigger', presentRandomMetreTrigger),
+	topUpFeature: beat('featureTopUp', presentFeatureTopUp),
 	lightLetter: beat('columnComplete', presentColumnComplete),
 	instantCollect: beat('coinInstantCollect', presentInstantCollect),
 	spinWheel: beat('holdAndWinWheel', presentWheel),

@@ -34,6 +34,7 @@ export const SYMBOL_STATES = [
 	'coinUpgrade',
 	'rowUnlock',
 	'coinEnhance',
+	'coinTopUp',
 	'jackpotReveal',
 	'mysteryReveal',
 	'flyToMeter',
@@ -112,6 +113,8 @@ export const SWAP_SYMBOL_STATES = ['intro'] as const;
  * - `rowUnlock` — an unlock symbol opening a row of an expanding board;
  * - `coinEnhance` — a cash coin a boost or multiply ENHANCEMENT hits as it lands (Phase 14b, the
  *   partner's collector bonus), while its value counts up;
+ * - `coinTopUp` — a coin or collector a SURPRISE TRIGGER drops onto the stopped base board (the
+ *   partner's collector game) before the feature opens;
  * - `jackpotReveal` — a jackpot coin, or a full board, lit for its jackpot;
  * - `mysteryReveal` — a mystery opening before it becomes what it revealed;
  * - `flyToMeter` — a base-board special lit while it flies into its pot.
@@ -132,6 +135,7 @@ export const HOLD_AND_WIN_SYMBOL_STATES = [
 	'coinUpgrade',
 	'rowUnlock',
 	'coinEnhance',
+	'coinTopUp',
 	'jackpotReveal',
 	'mysteryReveal',
 	'flyToMeter',
@@ -191,7 +195,9 @@ const ROLE_SYMBOL_STATES: Readonly<Record<string, readonly SymbolStateName[]>> =
 	upgrade: ['coinUpgrade'],
 	unlock: ['rowUnlock'],
 	mystery: ['mysteryReveal'],
-	coin: ['coinEnhance'],
+	coin: ['coinEnhance', 'coinTopUp'],
+	jackpot: ['coinTopUp'],
+	collector: ['coinTopUp'],
 };
 
 /**
@@ -336,6 +342,7 @@ export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	coinUpgrade: 'Coin upgrade',
 	rowUnlock: 'Row unlock',
 	coinEnhance: 'Coin enhance',
+	coinTopUp: 'Coin top-up',
 	jackpotReveal: 'Jackpot reveal',
 	mysteryReveal: 'Mystery reveal',
 	flyToMeter: 'Fly to meter',

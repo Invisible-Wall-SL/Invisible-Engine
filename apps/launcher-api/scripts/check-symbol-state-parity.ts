@@ -112,6 +112,7 @@ const FULL: Record<SymbolState, SymbolCell> = {
 	coinUpgrade: rig('x_coin_upgrade'),
 	rowUnlock: rig('x_row_unlock'),
 	coinEnhance: rig('x_coin_enhance'),
+	coinTopUp: rig('x_coin_top_up'),
 	select: rig('x_select'),
 	hint: rig('x_hint'),
 };

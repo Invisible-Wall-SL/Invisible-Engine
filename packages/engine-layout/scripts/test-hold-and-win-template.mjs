@@ -144,7 +144,12 @@ const sceneById = new Map(doc.scenes.map((scene) => [scene.id, scene]));
 // A collector bonus with enhancements (Phase 14b) adds its own screens on request only.
 const enhanced = mod.getFullSceneSet('holdAndWin', { enhancements: true });
 const enhancedById = new Map(enhanced.scenes.map((scene) => [scene.id, scene]));
-const ENHANCEMENT_SCREENS = ['enhancements', 'enhancementsBanner', 'superBonusBanner'];
+const ENHANCEMENT_SCREENS = [
+	'enhancements',
+	'enhancementsBanner',
+	'superBonusBanner',
+	'featureTopUpBanner',
+];
 const walk = (nodes, out = []) => {
 	for (const node of nodes) {
 		out.push(node);
@@ -210,6 +215,11 @@ assert(enhancedById.get('enhancements')?.role === undefined, 'enhancements is no
 for (const id of ['enhancementsBanner', 'superBonusBanner']) {
 	assert(enhancedById.get(id)?.modeId === 'holdAndWin', `${id} is not a holdAndWin mode screen`);
 }
+// A surprise trigger tops the board up in the base game, before the feature opens.
+assert(
+	enhancedById.get('featureTopUpBanner')?.role === undefined,
+	'featureTopUpBanner is a base-game screen',
+);
 assert(
 	enhanced.scenes.filter((s) => !ENHANCEMENT_SCREENS.includes(s.id)).length === doc.scenes.length,
 	'the enhancements option adds only its own screens',

@@ -229,6 +229,11 @@ assert(
 		r14b.featurePlacement.superBonus === 'banner',
 	'both entry lines default to the board banner',
 );
+assert(
+	mod.formatWinText(r14b.feature.featureTopUp) === 'SURPRISE!' &&
+		r14b.featurePlacement.featureTopUp === 'banner',
+	'a surprise trigger’s top-up reads "SURPRISE!" on the board banner',
+);
 
 // --- the Phase 11a lines: add-respins, upgrade -------------------------------------
 console.info('add-respins, upgrade');

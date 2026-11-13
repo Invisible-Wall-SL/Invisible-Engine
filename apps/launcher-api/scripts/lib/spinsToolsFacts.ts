@@ -150,8 +150,8 @@ export function symbolsFactAsMain(kind: string, doc: GameConfigDoc | null): stri
 /**
  * The collector bonus's Win Text (Hold and Win Phase 14b, 2026-11-09): four feature lines and the
  * enhancement names, the same defaults for every doc, pinned by engine-layout's
- * `test-win-text-hold-and-win.mjs`. Left out of the Win Text and Localization facts, which stay
- * main's.
+ * `test-win-text-hold-and-win.mjs`; and the partner's surprise trigger's "SURPRISE!" (2026-11-13).
+ * Left out of the Win Text and Localization facts, which stay main's.
  */
 const ENHANCEMENT_FEATURE_KEYS = [
 	'enhancementsActive',
@@ -159,6 +159,7 @@ const ENHANCEMENT_FEATURE_KEYS = [
 	'boostHit',
 	'multiplyHit',
 	'enhancementNames',
+	'featureTopUp',
 ] as const;
 const ENHANCEMENT_SOURCES = new Set([
 	'{enhancements} ACTIVE',
@@ -169,6 +170,7 @@ const ENHANCEMENT_SOURCES = new Set([
 	'BOOST',
 	'MULTIPLY',
 	'RESPIN',
+	'SURPRISE!',
 ]);
 const withoutEnhancementText = (feature: Record<string, unknown>) =>
 	Object.fromEntries(

@@ -364,16 +364,24 @@ const ENHANCEMENT_CUES = [
 	'superBonusEnter',
 ];
 const ENHANCEMENT_VALUE = 'enhancements';
+/** The partner's surprise trigger (after 14b): its event, beat action and cue. */
+const TOP_UP = { event: 'featureTopUp', action: 'topUpFeature', cue: 'respinTopUp' };
 /** An expanding board's per-row opening cues (expanding-board authoring item 4), added after 14b. */
 const ROW_OPEN_CUES = ['rowOpening', 'rowOpened'];
 /** `coinInstantCollect`'s optional `collectors` (every collector takes every coin), added after 14b. */
 const INSTANT_COLLECTORS = 'collectors';
 /** `vocab` as `main` had it: without the Element FX and screen transition additions, the award cue,
- *  the wild rewrites, the Phase 14a / 14b enhancements and the instant collect's `collectors`. */
+ *  the wild rewrites, the Phase 14a / 14b enhancements, the surprise top-up and the instant
+ *  collect's `collectors`. */
 const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	...vocab,
 	events: vocab.events
-		.filter((e) => !WILD_REWRITES.includes(e.name) && !ENHANCEMENT_EVENTS.includes(e.name))
+		.filter(
+			(e) =>
+				!WILD_REWRITES.includes(e.name) &&
+				!ENHANCEMENT_EVENTS.includes(e.name) &&
+				e.name !== TOP_UP.event,
+		)
 		.map((e) =>
 			e.name === 'coinInstantCollect'
 				? { ...e, payload: e.payload.filter((p) => p.name !== INSTANT_COLLECTORS) }
@@ -383,7 +391,8 @@ const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 		(a) =>
 			!ADDED_ACTIONS.includes(a.name) &&
 			!WILD_REWRITES.includes(a.name) &&
-			!ENHANCEMENT_ACTIONS.includes(a.name),
+			!ENHANCEMENT_ACTIONS.includes(a.name) &&
+			a.name !== TOP_UP.action,
 	),
 	enums: vocab.enums
 		.filter((e) => !ADDED_ENUMS.includes(e.name) && e.name !== ENHANCEMENT_ENUM)
@@ -397,7 +406,10 @@ const asOnMain = (vocab: TemplateVocabulary): TemplateVocabulary => ({
 	),
 	cues: vocab.cues.filter(
 		(c) =>
-			c.name !== AWARD_CUE && !ENHANCEMENT_CUES.includes(c.name) && !ROW_OPEN_CUES.includes(c.name),
+			c.name !== AWARD_CUE &&
+			!ENHANCEMENT_CUES.includes(c.name) &&
+			!ROW_OPEN_CUES.includes(c.name) &&
+			c.name !== TOP_UP.cue,
 	),
 	values: vocab.values.filter((v) => v.name !== ENHANCEMENT_VALUE),
 });

@@ -203,6 +203,8 @@ export type WinTextFeature = {
 	enhancementsActive?: string;
 	/** The super bonus opening — "SUPER BONUS". */
 	superBonus?: string;
+	/** A surprise trigger topping the board up with coins and collectors — "SURPRISE!". */
+	featureTopUp?: string;
 	/** A boost enhancement's hit, on its dial — "+{amount}". */
 	boostHit?: string;
 	/** A multiply enhancement's hit, on its dial — "×{count}". */
@@ -331,6 +333,7 @@ export const WIN_TEXT_PLACED_FEATURE_FIELDS = [
 	'rowUnlocked',
 	'enhancementsActive',
 	'superBonus',
+	'featureTopUp',
 ] as const satisfies readonly WinTextFeatureField[];
 export type WinTextPlacedFeatureField = (typeof WIN_TEXT_PLACED_FEATURE_FIELDS)[number];
 
@@ -348,6 +351,7 @@ export const WIN_TEXT_PLACEMENT_DEFAULTS: Record<WinTextPlacedFeatureField, WinT
 	rowUnlocked: 'banner',
 	enhancementsActive: 'banner',
 	superBonus: 'banner',
+	featureTopUp: 'banner',
 };
 
 export const WIN_TEXT_PLACEMENT_LABELS: Record<WinTextPlacement, string> = {
@@ -435,6 +439,7 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		rows: '{rows} ROWS',
 		enhancementsActive: '{enhancements} ACTIVE',
 		superBonus: 'SUPER BONUS',
+		featureTopUp: 'SURPRISE!',
 		boostHit: '+{amount}',
 		multiplyHit: '×{count}',
 		specialNames: {
@@ -496,6 +501,7 @@ export const WIN_TEXT_FEATURE_FIELDS = [
 	'rows',
 	'enhancementsActive',
 	'superBonus',
+	'featureTopUp',
 	'boostHit',
 	'multiplyHit',
 ] as const;
@@ -562,6 +568,7 @@ export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
 	rows: 'Rows open',
 	enhancementsActive: 'Enhancements active',
 	superBonus: 'Super bonus',
+	featureTopUp: 'Surprise top-up',
 	boostHit: 'Boost hit (dial)',
 	multiplyHit: 'Multiply hit (dial)',
 };

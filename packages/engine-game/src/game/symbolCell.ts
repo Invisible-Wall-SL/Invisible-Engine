@@ -35,6 +35,7 @@ const INHERITS: Readonly<Record<string, string>> = {
 	coinUpgrade: 'win',
 	rowUnlock: 'win',
 	coinEnhance: 'win',
+	coinTopUp: 'land',
 	jackpotReveal: 'win',
 	mysteryReveal: 'explosion',
 	flyToMeter: 'win',
@@ -62,7 +63,7 @@ export const symbolStateDonor = (state: string): string | undefined => INHERITS[
  *   nearest thing the symbol already says about arriving, and `static` is what it says about not
  *   arriving at all;
  * - the Hold and Win states inherit what the coded presentation played for that beat before they
- *   had names of their own: `coinStick` → `land`; `coinCollect`, `coinBoost`, `respinsAdd`,
+ *   had names of their own: `coinStick` and `coinTopUp` → `land`; `coinCollect`, `coinBoost`, `respinsAdd`,
  *   `coinUpgrade`, `rowUnlock`, `coinEnhance`, `jackpotReveal` and `flyToMeter` → `win`; `mysteryReveal` → `explosion`.
  *   `coinIdle` and `coinLand` were `static`, so they take the last resort below;
  * - ANY unauthored state now inherits `static` as a last resort, because a symbol sitting in its
