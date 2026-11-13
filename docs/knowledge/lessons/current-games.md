@@ -6,27 +6,29 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
-### The game froze as it first appeared, at the start screen's tap
-- **Symptom:** an Android `?perf=1` boot logged a 183 ms frame at the tap on the start screen;
-  0.5–0.9 s at the tap in WebKitGTK on `overlay-buffaloduel`.
-- **Cause:** the tap's `pointerup` handler mounted every screen the flow shows from start-up on in
-  one task (`pots`, `jackpotBar`, `hudBar`, `hudCorners`, …): ~62% `LayoutNodeView` /
-  `ComponentInstance`. Not a GPU first use.
-- **Fix:** those screens mount under the loading bar, hidden and dormant (`<FlowV2Mount ahead>`,
-  `<LayoutScene dormant>`), and their first show restarts them in place.
-- **Guard:** `startupAhead.fixture.ts`; compare every 3rd frame after the tap, sha-256.
-- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+### The tap and the first spin still built the board and its views
+- **Symptom:** after #1637 an S25 still froze 200 ms at the tap, and the first round's `bet` frame
+  built 177 objects, 7 rigs and ~2,190 DOM nodes.
+- **Cause:** the game mounted its base game and board at the tap; a reel filler view is built when
+  first handed a cell, so on the first roll. On the way, a restart key `<LayoutScene>` composed
+  with its dormancy also reached #1637's screens (given `dormant` themselves): each restarted at
+  its show, and `test6` changed 1 s after the tap. It was blamed on perspective, camera and clocks.
+- **Fix:** the base game mounts ahead in `<Dormant>`, not when the tap turns anticipation on (the
+  camera's branch builds the reels again); its filler pool is seeded; only `<Dormant>`'s scope
+  changes a scene's own key.
+- **Guard:** `basegameAhead.fixture.ts`; every 3rd frame through tap and two spins, sha-256; bisect
+  with builds that differ from `main` by ONE change, not by everything but one.
+- **PR:** not recorded (2026-11-13) · source: `docs/status/engine.md`
 
-### A screen mounted ahead moved every seeded draw after the tap
-- **Symptom:** mounting the start-up screens dormant under the bar changed the frames after the
-  tap from 2 s on (the pots' tops) in determinism mode, though nothing ahead was shown or ran.
-- **Cause:** a component state machine draws each layer's random start as it is made, so the
-  mount ahead drew 3 numbers the tap's mount used to draw; its default `random` was also the
-  `Math.random` of the moment it was made.
-- **Fix:** mount ahead with `Math.random` answering 0 (`mountWithoutRandomDraws`); the machine
-  reads `Math.random` at each draw. 61 of 61 frames after the tap byte-identical on both games.
-- **Guard:** `startupAhead.fixture.ts`; a mount moved in time must leave the seeded sequence alone.
-- **PR:** not recorded (2026-11-12) · source: `docs/status/engine.md`
+### The game froze as it first appeared, at the start screen's tap
+- **Symptom:** a 183 ms frame at the tap (Android `?perf=1`); 0.5–0.9 s in WebKitGTK.
+- **Cause:** the tap's `pointerup` mounted every screen the start-up chains show in one task.
+  Moved ahead, a component state machine's layer random starts, drawn as it is made, then ran 3
+  draws early and moved every seeded frame after the tap.
+- **Fix:** those screens mount under the bar, dormant (`<FlowV2Mount ahead>`,
+  `<LayoutScene dormant>`), with `Math.random` answering 0; the machine reads it at each draw.
+- **Guard:** `startupAhead.fixture.ts`; every 3rd frame after the tap, sha-256.
+- **PR:** #1637 · source: `docs/status/engine.md`
 
 ### Phones held most of their textures uncompressed on the compressed tier
 - **Symptom:** an iPhone's `?perf=1` on `overlay-buffaloduel`: 63 BGRA8 (238 MB), 7 ASTC (14 MB).

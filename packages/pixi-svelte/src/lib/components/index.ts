@@ -17,6 +17,7 @@ import RigEventEmitterProvider, {
 } from './RigEventEmitterProvider.svelte';
 import RigTrack, { type Props as RigTrackProps } from './RigTrack.svelte';
 import Restartable, { type Props as RestartableProps } from './Restartable.svelte';
+import Dormant, { type Props as DormantProps } from './Dormant.svelte';
 import RigBone, { type Props as RigBoneProps } from './RigBone.svelte';
 import RigBoneAttach, { type Props as RigBoneAttachProps } from './RigBoneAttach.svelte';
 import RigPose, {
@@ -53,6 +54,7 @@ export {
 	RigEventEmitterProvider,
 	RigTrack,
 	Restartable,
+	Dormant,
 	RigBone,
 	RigBoneAttach,
 	RigPose,
@@ -84,6 +86,7 @@ export type {
 	RigEventEmitterProviderProps,
 	RigTrackProps,
 	RestartableProps,
+	DormantProps,
 	RigBoneProps,
 	RigBoneAttachProps,
 	RigPoseProps,

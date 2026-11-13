@@ -28,6 +28,7 @@
 		Anchor,
 		Container,
 		getContextParent,
+		getContextDormantScope,
 		registerAnchor,
 		setContextDormant,
 		setContextRestart,
@@ -62,9 +63,17 @@
 	setSceneIdContext(untrack(() => scene.id));
 	const driver = untrack(() => nodeDriver);
 	if (driver) setCinematicNodeDriver(driver);
-	const restartOf = untrack(() => restart);
+	// Inside content mounted ahead (`<Dormant>`), the screen is dormant with it, and a restart key of
+	// its own changes at that content's show too. A screen given `dormant` keeps its own key as is.
+	const ownDormant = untrack(() => dormant);
+	const scope = ownDormant ? undefined : getContextDormantScope();
+	const dormantOf = ownDormant ?? scope;
+	const ownRestart = untrack(() => restart);
+	const restartOf =
+		ownRestart && scope
+			? () => `${scope() ? 'ahead' : 'shown'}:${String(ownRestart())}`
+			: ownRestart;
 	if (restartOf) setContextRestart(restartOf);
-	const dormantOf = untrack(() => dormant);
 	if (dormantOf) setContextDormant(dormantOf);
 	const asleep = (): boolean => dormantOf?.() ?? false;
 

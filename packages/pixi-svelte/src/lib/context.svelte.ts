@@ -122,6 +122,17 @@ export function setContextDormant(value: () => boolean) {
 export function getContextDormant(): (() => boolean) | undefined {
 	return getContext(DORMANT_NS) as (() => boolean) | undefined;
 }
+// Content mounted ahead as a whole (`<Dormant>`): dormant like a screen, and a `<LayoutScene>` inside
+// it is dormant with it. A screen's own dormancy is not handed to the scenes nested in it.
+const DORMANT_SCOPE_NS = '@@pixi_dormant_scope';
+export function setContextDormantScope(value: () => boolean) {
+	setContext(DORMANT_NS, value);
+	setContext(DORMANT_SCOPE_NS, value);
+}
+/** The `<Dormant>` content above, as a getter; `undefined` outside one. */
+export function getContextDormantScope(): (() => boolean) | undefined {
+	return getContext(DORMANT_SCOPE_NS) as (() => boolean) | undefined;
+}
 
 /** Whether the rig above is put away: kept and parked, or on a screen that has not shown yet. */
 export function getContextRigAway(): (() => boolean) | undefined {
