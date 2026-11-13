@@ -27,8 +27,9 @@ Three processes, each on its own free port:
    switch, and the coin and collector on placeholder art. Or by hand:
    - `config`: a 5×3 Hold and Win Game Config. COIN (`coin` + `jackpot`) goes on reels 0, 1, 3
      and 4, COLLECT (`collector`, `instantCollectInBaseGame`) on reel 2, plus BLANK.
-     `stickiness: 'collectorsOnly'` and `expansion {startRows: 3, maxRows: 5}`. Line symbols are
-     the facade's names for PIC1–PIC9 (`H1`–`H5`, `L1`–`L3`, `L5`).
+     `stickiness: 'collectorsOnly'` and `enhancements: true`, with no `expansion`: Game Maker's
+     template authors none, and an `expansion` hides a board built too short (2026-11-13). Line
+     symbols are the facade's names for PIC1–PIC9 (`H1`–`H5`, `L1`–`L3`, `L5`).
    - `doc`: `holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { maxRows: 5, potIds: [], enhancements: true })`.
      The option adds the Enhancements screen (four Enhancement Dials, the collectors' total) and
      the two banner screens. Leave it out to see the coded dials.
@@ -88,12 +89,14 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 
 - **Expect:** "EXPAND ACTIVE", then "ROW UNLOCKED · 4 ROWS" while the 4th row's locked cells fade
   open. Respins land in 4 rows. The 5th row is never drawn.
+- **Expect, on every respin:** the 4th row's cells roll with the other rows, then land. A coin that
+  appears there only as it sticks, with no roll, is a board built to the grid's 3 rows.
 
 ### S4 — Force 5 (`enhancements:00100,superBonus`)
 
 - **Expect:**
   - "SUPER BONUS" (large), then all four dials light.
-  - "ROW UNLOCKED · 5 ROWS": the board opens 5×5.
+  - "ROW UNLOCKED · 5 ROWS": the board opens 5×5, and all 25 cells roll on each respin.
   - The counter starts at 5.
   - Expect a long feature: up to five collectors, each collecting every coin.
 
