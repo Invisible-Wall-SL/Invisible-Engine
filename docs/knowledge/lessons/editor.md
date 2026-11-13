@@ -13,7 +13,7 @@ and win text as the game draws it ([win-text](../../status/win-text.md)). Compon
   nudge INSIDE the node's scale (−79 × 2.59); the game adds it to x/y unscaled, as its type says.
 - **Fix:** the box is `reelGridBox`, read off `reelGridGeometry`, which divides the nudge by scale.
 - **Guard:** `check:reel-grid-box` (pins the centre to the game's `resolveReelGridFromNode`).
-- **PR:** #1642 (2026-11-12), pending (2026-11-13) · source: `docs/status/editor.md`
+- **PR:** #1642 (2026-11-12), #1657 (2026-11-13) · source: `docs/status/editor.md`
 
 ### An added layout bucket drew a Stake-sized box and no coded HUD
 
