@@ -250,12 +250,14 @@ const CENTER_DEALT = [
 	[B, B, B],
 	[B, B, 'COIN_MINI'],
 ];
+// The partner's rule (2026-11-13): the collected coins stay on the board beside COLLECT_<total>,
+// and playedSpin is that board, the one after everything the spin did.
 const CENTER_AFTER = [
-	[B, B, B],
+	['COIN_2', B, B],
 	[B, B, B],
 	['COLLECT_1080', B, B],
 	[B, B, B],
-	[B, B, B],
+	[B, B, 'COIN_MINI'],
 ];
 const CENTER: ScriptedRound = {
 	option: 2,
@@ -269,9 +271,9 @@ const CENTER: ScriptedRound = {
 			cellPay(0, 0, 2, 80),
 			cellPay(4, 2, 'MINI', 1000),
 			ev('collect', { reel: 2, row: 0, pay: 1080 }),
-			ev('bonusWin', { bonus: 'initialspin', pay: 1080, isSpinWin: false }),
+			ev('bonusWin', { bonus: 'winWithoutTrigger', pay: 1080, isSpinWin: false }),
 			ev('collectWindow', CENTER_AFTER),
-			ev('playedSpin', CENTER_DEALT),
+			ev('playedSpin', CENTER_AFTER),
 			ev('gameEnd', { win: 1080 }),
 		],
 	],
@@ -300,7 +302,7 @@ const respin = (
 	...inner,
 	ev('collectWindow', after),
 	...(counter.retrigger ? [ev('retrigger', { games: 1 })] : []),
-	ev('playedSpin', dealt),
+	ev('playedSpin', after),
 	ev('playedBonusSpin', { played: counter.played, left: counter.left, bonus: '11011' }),
 	...(last
 		? [
@@ -317,8 +319,8 @@ const TRIGGER_DEALT = [
 	[B, B, B],
 ];
 const TRIGGER_AFTER = [
-	[B, B, B],
-	[B, B, B],
+	['COIN_5', B, B],
+	['COIN_1', B, B],
 	[B, 'COLLECT_240', B],
 	[B, B, B],
 	[B, B, B],
@@ -349,7 +351,7 @@ const BUY: ScriptedRound = {
 				bonus: '11011',
 				trigger: { occurs: [1, 2, 3], from: 'run' },
 			}),
-			ev('playedSpin', TRIGGER_DEALT),
+			ev('playedSpin', TRIGGER_AFTER),
 			ev('enterBonus', {
 				left: 4,
 				triggers: 1,

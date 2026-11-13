@@ -103,6 +103,27 @@ These are the partner's numbers, recorded to read their wire. Our game's math is
   **whole** each spin. A coin is `COIN_<n>`; a collector carries its running total as
   `COLLECT_<cents>` once it has collected (bare `COLLECT` before).
 
+## Confirmed by the partner (2026-11-13)
+
+Their developer walked through a base-game collect (`COLLECT` on reel 3, `COIN_4` and `COIN_1` on
+reel 5, at 0.40) and showed their server's bonus table:
+
+- **`playWindow`** is the board before anything happens in the spin; **`playedSpin`** is the board
+  after all of it. With nothing happening the two are equal; their ordinary games send only
+  `playedSpin`. A client must read `playWindow` too.
+- **`collectWindow`** is the board right after the `collect`. The collected coins **stay** on it
+  beside the collector's total (`COIN_4`, `COIN_1`, `COLLECT_200`), and with nothing after it
+  `playedSpin` equals it. So the end board must never be summed: it would pay 4.00 for a 2.00
+  collect. The round pays `bonusWin.pay` and `gameEnd.win` (200).
+- **`cellPayAmount`** says where each coin is and what it is worth: `value` × the base total,
+  `pay` in cents, `original` the standard value, which a Boost or Multiply can change in the bonus
+  before the collect. **`collect.pay`** is what the collector is worth after it (160 + 40).
+- **`bonusWin.bonus`** is `"winWithoutTrigger"` for a collect in a spin that triggers nothing, and
+  `"initialspin"` for one in the spin that triggers the bonus.
+- **The bonus table** lists 16 ids: the 15 mixes of expand, boost, multiply and respin, and Force 5
+  alone as `00100` (the `powerFive` bit is never mixed with the others). `freespins` is commented
+  out: the game has none.
+
 ## Event shapes seen
 
 Base spin of the buy round, in order:
@@ -112,7 +133,7 @@ bet {total, betPerLine, paylines[5]}         gameStart {totalBet, betPerLine}
 jackpots {MINI, MINOR, MAJOR, GRAND}         spinStart {symbols, betOptions, …}
 bonusSymbol {reel, row, symbol, win} × coins playWindow [[…]]
 cellPayAmount {reel, row, original, value, pay} × coins
-collect {reel, row, pay}                     bonusWin {bonus: "initialspin", pay, isSpinWin: false}
+collect {reel, row, pay}                     bonusWin {bonus: "initialspin" | "winWithoutTrigger", pay, isSpinWin: false}
 collectWindow [[…]]                          boostsAwarded {expand, boost, powerFive, multiply, respin}
 spinTrigger {spins: [{prob, spins}], occurs, bonus, trigger: {occurs: [3,4,5], from}}
 playedSpin [[…]]                             enterBonus {left, triggers, bonusTriggers, spins, triggering, …}

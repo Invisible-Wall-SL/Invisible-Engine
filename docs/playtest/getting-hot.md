@@ -45,8 +45,9 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 `play.context = "force:<tokens>"`. The tokens are 14d's:
 
 - `enhancements:<bits>`: five bits in this order: expand, boost, powerFive, multiply, respin.
-- `boostHit` and `multiplyHit`: each needs its bit. They hit on the first respin.
-- `superBonus`: Force 5, which is `enhancements:11111`.
+- `boostHit` and `multiplyHit`: each needs its bit (or Force 5). They hit on the first respin.
+- `superBonus`: Force 5, which is `enhancements:00100`. The partner's bonus table lists Force 5
+  alone, never mixed with the other four bits.
 - `twoCollectors`, `trigger`, `baseCollect`; `baseCollect,twoCollectors` is a base collect into two collectors.
 - `jackpot:<TIER>` (MINI, MINOR, MAJOR, GRAND): a jackpot coin of that tier in the trigger run, e.g.
   `trigger,jackpot:GRAND`.
@@ -88,7 +89,7 @@ Add `&ie_determinism=7` to step frames from a harness (the `__IE_DETERMINISM__` 
 - **Expect:** "EXPAND ACTIVE", then "ROW UNLOCKED · 4 ROWS" while the 4th row's locked cells fade
   open. Respins land in 4 rows. The 5th row is never drawn.
 
-### S4 — Force 5 (`enhancements:11111,superBonus`)
+### S4 — Force 5 (`enhancements:00100,superBonus`)
 
 - **Expect:**
   - "SUPER BONUS" (large), then all four dials light.
