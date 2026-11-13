@@ -36,8 +36,10 @@ import {
 	isStandaloneGame,
 } from '../../../packages/config-svelte/appSrc.js';
 import {
+	bootSplashFiles,
 	foundGameRefs,
 	followDescriptors,
+	isEncoderRecord,
 	isGenerated,
 	isReachable,
 	pruneDecision,
@@ -250,7 +252,22 @@ const generatedRels = files.map((f) => f.rel).filter(isGenerated);
 const tierSkip = new Set(
 	artTier ? (await artTierDrop(generatedRels, artTier, async () => '')).drop : [],
 );
-const wanted = (rel) => !tierSkip.has(rel) && (refs === null || isReachable(rel, refs));
+// What the exports write for their own use and no game reads: a KTX2 twin's encode-cache record,
+// and the splash's files its index does not name (the rig export's KTX2 twin atlas and page, which
+// the splash never selects). Never mirrored; a local copy goes with the stale generated files.
+const listedRels = new Set(files.map((f) => f.rel));
+const bootKeep = noPrune
+	? null
+	: await bootSplashFiles(async (rel) => {
+			if (!listedRels.has(rel)) return null;
+			const res = await fetch(deployUrl(rel)).catch(() => null);
+			return res?.ok ? res.text() : null;
+		});
+const byproduct = (rel) =>
+	!noPrune &&
+	(isEncoderRecord(rel) || (bootKeep !== null && rel.startsWith('_boot/') && !bootKeep.has(rel)));
+const wanted = (rel) =>
+	!tierSkip.has(rel) && !byproduct(rel) && (refs === null || isReachable(rel, refs));
 
 // 3. Mirror what the game loads, verbatim, under dest. A kept file can name another (an atlas its
 // page, a data file a folder), so mirror → follow those names → mirror again until nothing grows.
@@ -327,7 +344,9 @@ function trackedFiles() {
 }
 
 async function prune() {
-	const listed = new Set(files.map((f) => f.rel).filter((rel) => !tierSkip.has(rel)));
+	const listed = new Set(
+		files.map((f) => f.rel).filter((rel) => !tierSkip.has(rel) && !byproduct(rel)),
+	);
 	const standalone = isStandaloneGame();
 	const tracked = refs === null || standalone ? null : trackedFiles();
 	const removed = [];
@@ -402,7 +421,18 @@ if (!noPrune && isStandaloneGame() && basename(dirname(dest)) === 'static') {
 		);
 }
 const pruned = removed.length;
-const skipped = files.filter((f) => !mirrored.has(f.rel) && !tierSkip.has(f.rel));
+const byproducts = files.filter((f) => byproduct(f.rel));
+const skipped = files.filter(
+	(f) => !mirrored.has(f.rel) && !tierSkip.has(f.rel) && !byproduct(f.rel),
+);
+if (byproducts.length) {
+	const bytesOf = byproducts.reduce((n, f) => n + (f.size ?? 0), 0);
+	console.info(
+		`\nNot pulled — written by the exports for their own use, read by no game: ` +
+			`${byproducts.length} file(s), ${(bytesOf / 1024).toFixed(1)} KB (KTX2 encode records, ` +
+			`the splash's unused twin atlas and page).`,
+	);
+}
 if (tierSkip.size) {
 	const size = new Map(files.map((f) => [f.rel, f.size ?? 0]));
 	const total = [...tierSkip].reduce((n, rel) => n + (size.get(rel) ?? 0), 0);
@@ -466,6 +496,10 @@ const report = {
 		tier: artTier,
 		notPulled: withSize([...tierSkip].sort(), (rel) => listedSize.get(rel) ?? 0),
 	},
+	byproducts: withSize(
+		byproducts.map((f) => f.rel),
+		(rel) => listedSize.get(rel) ?? 0,
+	),
 	keptUnloaded: kept,
 	retiredSeedFiles: retired,
 	optimize: null,

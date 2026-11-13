@@ -23,6 +23,9 @@
 //      files, stale unloaded copies AND committed unloaded files are deleted (and named in the
 //      log), a retired seed file in `static/` (`loader.gif`) is removed, and `--no-prune` still
 //      mirrors everything.
+//   5. Export by-products no game reads are not pulled: a KTX2 twin's encode record
+//      (`*.ktx2.meta.json`), and the `_boot/` files the splash index does not name (the rig
+//      export's KTX2 twin atlas and page); an unreadable index keeps all of `_boot/`.
 
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -39,6 +42,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+	bootSplashFiles,
 	collectRefs,
 	emptyRefs,
 	foundGameRefs,
@@ -165,6 +169,21 @@ console.log('4. end to end');
 		'sprites/S_Background/S_Background.webp': 'x'.repeat(4096),
 		'editor-art/a/a.json': '{}',
 		'_pages/p.webp': 'p',
+		'_pages/p.pm.ktx2': 'k',
+		'_pages/p.pm.ktx2.meta.json': '{"etag":"x","enc":3}',
+		'_pages/p.meta.json': '{"ktx2File":"p.pm.ktx2","enc":3}',
+		'editor-fonts/F/F.xml': '<page id="0" file="F.png"/>',
+		'editor-fonts/F/F.png': 'f',
+		'editor-fonts/F/F.meta.json': '{"twin":"F.pm.ktx2","enc":3}',
+		'_boot/boot.json': JSON.stringify({
+			engine: { atlas: '_boot/engine/R.atlas', skeleton: '_boot/engine/R.json', scale: 1 },
+		}),
+		'_boot/engine/R.atlas': 'S.png\nsize:4,4\nregion\nbounds:0,0,4,4\n',
+		'_boot/engine/R.json': '{}',
+		'_boot/engine/S.png': 'png',
+		'_boot/engine/R.ktx2.atlas': 'S.pm.ktx2\nsize:4,4\n',
+		'_boot/engine/S.pm.ktx2': 'k'.repeat(140),
+		'_boot/engine/S.pm.ktx2.meta.json': '{}',
 	};
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, 'http://x');
@@ -197,6 +216,7 @@ console.log('4. end to end');
 	git('-c', 'user.email=f@x', '-c', 'user.name=f', 'commit', '-qm', 'seed');
 	put('sprites/OldPull/old.webp');
 	put('_pages/stale.webp');
+	put('_boot/engine/R.ktx2.atlas', 'from an earlier pull');
 	// The upstream SDK's loader gif, seeded into every repo scaffolded before the engine deleted it.
 	writeFileSync(join(game, 'static', 'loader.gif'), 'g'.repeat(64));
 
@@ -267,6 +287,41 @@ console.log('4. end to end');
 			JSON.stringify(report.removed),
 		);
 		ok('  and no optimize section without 🗜', report.optimize === null);
+		ok(
+			'the splash index, its atlas, skeleton and page are pulled',
+			[
+				'_boot/boot.json',
+				'_boot/engine/R.atlas',
+				'_boot/engine/R.json',
+				'_boot/engine/S.png',
+			].every(has),
+		);
+		ok(
+			"the splash's KTX2 twin atlas and page are not (a stale local copy goes), nor any encode record",
+			![
+				'_boot/engine/R.ktx2.atlas',
+				'_boot/engine/S.pm.ktx2',
+				'_boot/engine/S.pm.ktx2.meta.json',
+				'_pages/p.pm.ktx2.meta.json',
+				'_pages/p.meta.json',
+				'editor-fonts/F/F.meta.json',
+			].some(has) &&
+				has('_pages/p.pm.ktx2') &&
+				has('editor-fonts/F/F.xml'),
+		);
+		ok(
+			'  and the report lists them as export by-products, not as unloaded project files',
+			JSON.stringify(report.byproducts.map((f) => f.rel).sort()) ===
+				JSON.stringify([
+					'_boot/engine/R.ktx2.atlas',
+					'_boot/engine/S.pm.ktx2',
+					'_boot/engine/S.pm.ktx2.meta.json',
+					'_pages/p.meta.json',
+					'_pages/p.pm.ktx2.meta.json',
+					'editor-fonts/F/F.meta.json',
+				]) && !report.notPulled.some((f) => f.rel.startsWith('_boot/')),
+			JSON.stringify(report),
+		);
 		ok('  and the retired seed file', JSON.stringify(report.retiredSeedFiles) === '["loader.gif"]');
 
 		put('sprites/symbolsStatic/symbolsStatic.png', 'z'.repeat(777));
@@ -282,13 +337,60 @@ console.log('4. end to end');
 		const all = await run('--no-prune');
 		ok(
 			'--no-prune mirrors everything',
-			all.code === 0 && has('sprites/S_Background/S_Background.webp'),
+			all.code === 0 &&
+				has('sprites/S_Background/S_Background.webp') &&
+				has('_boot/engine/S.pm.ktx2') &&
+				has('_pages/p.pm.ktx2.meta.json'),
 		);
 	} finally {
 		server.close();
 		rmSync(game, { recursive: true, force: true });
 		rmSync(reportDir, { recursive: true, force: true });
 	}
+}
+
+console.log('5. the splash files');
+{
+	const reader = (files) => async (rel) => (rel in files ? files[rel] : null);
+	const index = JSON.stringify({
+		engine: { atlas: '_boot/e/R.atlas', skeleton: '_boot/e/R.json' },
+	});
+	const kept = await bootSplashFiles(
+		reader({ '_boot/boot.json': index, '_boot/e/R.atlas': 'S.png\nsize:1,1\n' }),
+	);
+	ok(
+		'the index, what it names and the pages its atlas lists',
+		JSON.stringify([...(kept ?? [])].sort()) ===
+			JSON.stringify(['_boot/boot.json', '_boot/e/R.atlas', '_boot/e/R.json', '_boot/e/S.png']),
+		JSON.stringify(kept && [...kept]),
+	);
+	ok('no index: keep all', (await bootSplashFiles(reader({}))) === null);
+	ok(
+		'an unreadable index keeps all',
+		(await bootSplashFiles(reader({ '_boot/boot.json': '{ not json' }))) === null,
+	);
+	ok(
+		'an atlas the index names that cannot be read keeps all',
+		(await bootSplashFiles(reader({ '_boot/boot.json': index }))) === null,
+	);
+	const twinIndex = JSON.stringify({
+		engine: {
+			atlas: '_boot/e/R.atlas',
+			skeleton: '_boot/e/R.json',
+			ktx2Atlas: '_boot/e/R.ktx2.atlas',
+		},
+	});
+	const withTwin = await bootSplashFiles(
+		reader({
+			'_boot/boot.json': twinIndex,
+			'_boot/e/R.atlas': 'S.png\n',
+			'_boot/e/R.ktx2.atlas': 'S.pm.ktx2\n',
+		}),
+	);
+	ok(
+		'a twin the index comes to name is kept, with its page',
+		!!withTwin?.has('_boot/e/R.ktx2.atlas') && withTwin.has('_boot/e/S.pm.ktx2'),
+	);
 }
 
 console.log(`\nPASS — ${checks} checks.`);

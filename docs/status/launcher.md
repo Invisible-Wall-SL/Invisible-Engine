@@ -81,6 +81,28 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-12 — **A desktop build no longer pulls the exports' own records, and the build breakdown
+  says what is never loaded.** Engine side and measurements: [status/engine.md](engine.md)
+  (2026-11-12, "A desktop build and a delivery ship only what the game loads").
+  - **The pull** (`pull-project-assets.mjs`, rules in `lib/assetReachability.mjs`) skips what the
+    exports write for themselves: KTX2 encode records (`isEncoderRecord`: `_pages/<hash>.meta.json`,
+    `editor-fonts/<font>/<font>.meta.json`, `*.ktx2.meta.json`) and the `_boot/` files the splash
+    index does not name (`bootSplashFiles`: the rig export's KTX2 twin atlas and page, which
+    `LoaderRig` never selects). An unreadable `boot.json` or atlas keeps all of `_boot/`. A local
+    copy is pruned with the other stale generated files; `pull.json` lists them as `byproducts`.
+    `overlay_buffaloduel`: 39 files, 141 KB.
+  - **The breakdown** (`scripts/lib/build-breakdown.mjs`): "Shipped but never loaded" follows loads
+    from the bundle, the boot and the code (a page only a never-loaded descriptor names is never
+    loaded; each file row carries `loaded`, and the Files filter is **Never loaded only**). Uses
+    credit a sheet's frames and `<sheet>::<frame>` refs and a sound inside a `sfx:`/`music:` cue
+    (it listed 7 drawn sheets and a played sound as never named). Atlas, sheet and index texts under
+    4 KB that match another are "Identical small descriptors", not "Same bytes shipped twice" (22 of
+    the 23). Clips are Game data and a root `favicon.svg` Other, not Coded game art. Two new
+    left-out steps: "Exported art the game never loads" (`stock.json` `art`) and "Export records no
+    game reads". Art the build left out on purpose is not "Referenced but not shipped". A font's
+    `ktx2DescriptorFile` counts as its file.
+  - Gates: `check-pull-reachability.mjs` 52, `check-build-breakdown-desktop.mjs` 46, each new rule
+    with a planted mutant. Guide: [tools/invisible-launcher.md](../tools/invisible-launcher.md).
 - 2026-11-12 — **Saving a partner launch for a project that is gone answers 404.**
   `setPartnerLaunch` now `.returning()`s and reports whether a row changed, so a project deleted or
   renamed between `POST /api/game-maker/partner`'s access check and its UPDATE is refused (404,
