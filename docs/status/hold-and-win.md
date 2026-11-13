@@ -1202,6 +1202,18 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     6-row board, reads as reserved only for above, flips a below reserve; the scaffold and a
     respin mode's own `addRowsAt` place the Locked rows handle above). Measured locally: with `above`, row 3 draws at y −60 (row 0 at 60) and the
     top seat moves to −1; with the default, row 3 stays at 420.
+- 2026-11-13 — **A feature with a banked part ends again.** Since #1443 (2026-10-28) the feature
+  end's banked step (`presentHoldAndWinEnd`, `step(order.length, …)`) played the coin collect sound
+  of `order[order.length]`, which does not exist: `TypeError: Cannot read properties of undefined
+  (reading 'symbol')`. The beat stopped there: the Total Win bar stayed on the coins' sum, and the
+  rest of the beat (Feature Total, outro, `winPresentationForget`, the respin board coming down)
+  never ran. Every feature whose `holdAndWinEnd.payload.banked` exceeds what the feature already counted
+  into the bar reached it: a letters, full-board, wheel or expansion-row jackpot (seen ending a
+  `pots-expansion-fullrow` feature, `unlock:2`), or any partner `banked`. Swept columns alone did
+  not (their own beat counts them in). The coin landing (`land`) now owns the sound; the banked step
+  is no coin and plays none. Amounts unchanged. Gate: `check:holdandwin-end`
+  (`scripts/check-holdandwin-end-tally.mts`, in `check:holdandwin`) slices the shipped beat and runs
+  it with the real `coinBoardTallyPlan` / `tallyCountUp`; the old source fails 9 of its 17 checks.
 - 2026-11-13 — **⇕ Reserve rows recognises the old px lift at any grid scale (#1659 review).** The
   swap of the old px lift (`-(extra × cellSize) / 2`) for the row lift only matched a grid whose
   scale was 1 when a canvas rescale ran: `canvasRescale` multiplies the node's scale and its px nudge
