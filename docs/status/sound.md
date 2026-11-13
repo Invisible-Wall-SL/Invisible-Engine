@@ -318,7 +318,9 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
     salmons and test-card do not play under the harness on either side (the same stall at the
     same step, a refusal without a game server, a card game under the slot script), so only their
     boots compare, and those match. Five games republished during the run were measured on their
-    new snapshots. Fixtures, each with planted mutants:
+    new snapshots. On the final build (merged with main at `ab927f1c`, the container order read
+    off each bank), overlay-buffaloduel and the remake ran again, every scenario: the same 475
+    plays, 0 changed screens. Fixtures, each with planted mutants:
     `stockSounds.fixture.ts` (claims 1–6 on the real rule and the shipped manifest, 11 mutants),
     `check:sound-reachability` (stock list, 3 more mutants), `check-stock-audio-build.mjs`
     (refresh, optimize and its order, 8 mutants), `check-stock-sound-prune.mts` (the build keeps
