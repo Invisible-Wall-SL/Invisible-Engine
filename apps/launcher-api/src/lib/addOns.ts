@@ -1,8 +1,8 @@
 import type { SceneSetOptions } from 'engine-layout';
 import {
-	ENHANCEMENTS_MAX_ROWS,
 	bonusCapabilityInputs,
 	flowAddOnsOf,
+	holdAndWinMaxRows,
 	resolveExpandingSymbol,
 	resolveFamily,
 	resolveMeters,
@@ -66,8 +66,7 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
 	return respinModeDecls(doc).map((mode) => {
 		const enhancements = mode.holdAndWin.enhancements === true;
-		const grows = mode.holdAndWin.expansion?.maxRows ?? 0;
-		const maxRows = enhancements ? Math.max(grows, ENHANCEMENTS_MAX_ROWS) : grows;
+		const maxRows = holdAndWinMaxRows(mode.holdAndWin);
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,

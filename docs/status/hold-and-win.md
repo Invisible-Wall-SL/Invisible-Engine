@@ -1240,6 +1240,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   and checks, through the game's resolver, that the grown block is centred where the base board was
   on every layout (a mutant that drops the scale fails all four), plus the legacy-lift swap and a kept
   author nudge; `check:reel-grid-box` §6 proves the editor and game agree on a row-nudged board.
+- 2026-11-13 — **Getting Hot: the rows Expand and Force 5 open roll like the rest.** In a collector
+  bonus with Expand (4 rows) or Force 5 (5×5), the opened rows' cells showed no roll during a
+  respin; their coins only appeared as they stuck. Game Maker's collector + enhancements template
+  (`HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE`) authors no `expansion` (the server's enhancements open the
+  rows), and the runtime built the respin board from `expansion.maxRows` alone
+  (`respinBoardShape`), so the board had only the grid's 3 rows: no reel existed in the opened rows,
+  `openRespinRowsTo` clamped to 3, and the held layer drew their coins. One rule now gives a board's
+  reach, `holdAndWinMaxRows` (game-config): `expansion.maxRows`, and at least
+  `ENHANCEMENTS_MAX_ROWS` (5) under `enhancements`; the runtime's `respinBoardShape`,
+  `respinBoardMaxRows` and the launcher's `respinModesOf` read it. Only configs with
+  `enhancements: true` change; every other board builds the rows it did. Measured with a real clock
+  against the partner-wire mock: the board now builds 5 rows; Expand opens 4 and the 4th row's five
+  cells spin with the rest; Force 5 spins all 25. The playbook's hand config carried
+  `expansion {startRows: 3, maxRows: 5}`, which is why the 14b playtests never saw it. Our own
+  expanding presets (`pots-expansion-*`) were never affected: rows unlocked mid-feature mount and
+  roll. Gate: `check:respin-modes` §5b (mutant: the old `respinBoardShape` builds 3 rows, fails).
 - 2026-11-12 — **A switch between the partner's wire and ours no longer carries a tab's config
   (#1602 review).** When a running project gained or lost `holdAndWin.enhancements`, the test
   server's rebuild (`swapMock` on a contract change, `carryPins` on a `/refresh`) carried each
