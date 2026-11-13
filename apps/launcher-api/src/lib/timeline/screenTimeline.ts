@@ -930,6 +930,99 @@ export function elementFxCueSuggestions(scene: Scene): { cue: string; label: str
 	return [...byCue].map(([cue, labels]) => ({ cue, label: labels.join(', ') }));
 }
 
+/** What the cue inspector's "add an effect" offers an effect ON: the screen, then every node
+ *  (indented by depth). `key` is `screen` or `node:<id>`. */
+export function cueFxTargets(scene: Scene): { key: string; label: string }[] {
+	const out = [{ key: 'screen', label: 'Whole screen' }];
+	const walk = (nodes: LayoutNode[], depth: number): void => {
+		for (const node of nodes) {
+			out.push({ key: `node:${node.id}`, label: `${'  '.repeat(depth)}${node.label || node.id}` });
+			const children = (node as { children?: LayoutNode[] }).children;
+			if (Array.isArray(children)) walk(children, depth + 1);
+		}
+	};
+	walk(scene.nodes, 1);
+	return out;
+}
+
+/** The Element FX list a cue-inspector target key names on `scene`: read it, or write it back. */
+function cueFxHolder(
+	scene: Scene,
+	key: string,
+): { entries: ElementFxEntry[] | undefined; set(next: ElementFxEntry[]): void } | null {
+	if (key === 'screen')
+		return {
+			entries: scene.elementFx,
+			set: (next) => {
+				if (next.length) scene.elementFx = next;
+				else delete scene.elementFx;
+			},
+		};
+	const id = key.startsWith('node:') ? key.slice(5) : '';
+	const find = (nodes: LayoutNode[]): LayoutNode | undefined => {
+		for (const node of nodes) {
+			if (node.id === id) return node;
+			const children = (node as { children?: LayoutNode[] }).children;
+			const hit = Array.isArray(children) ? find(children) : undefined;
+			if (hit) return hit;
+		}
+		return undefined;
+	};
+	const node = id ? find(scene.nodes) : undefined;
+	if (!node) return null;
+	return {
+		entries: node.elementFx,
+		set: (next) => {
+			if (next.length) node.elementFx = next;
+			else delete node.elementFx;
+		},
+	};
+}
+
+/** The effects a screen timeline's `cue` plays, each with the `ref` that removes it. */
+export function cueFxPlayed(scene: Scene, cue: string): { ref: string; label: string }[] {
+	return screenCueFx(scene, cue).map((fx) => ({
+		ref: `${fx.target.kind === 'screen' ? 'screen' : `node:${fx.target.id}`}#${fx.entry.id}`,
+		label: `${findElementFxSpec(fx.entry.kind)?.label ?? fx.entry.kind} on ${fx.where === 'screen' ? 'the whole screen' : fx.where}`,
+	}));
+}
+
+/**
+ * Make `cue` play `kind` on `target` (a {@link cueFxTargets} key): an _On cue_ Element FX entry,
+ * played once, on that node or the screen. A cue that is not a `signal:` cue yet becomes one, named
+ * apart from every _On cue_ name on the screen. Returns the cue to store, or null when the target
+ * is gone.
+ */
+export function addCueFx(scene: Scene, cue: string, target: string, kind: string): string | null {
+	const holder = cueFxHolder(scene, target);
+	if (!holder) return null;
+	let signal = screenCueSignal(cue);
+	if (!signal) {
+		const taken = new Set(screenOnCueFx(scene).map((fx) => fx.entry.cue));
+		let n = 1;
+		while (taken.has(`cue${n}`)) n++;
+		signal = `cue${n}`;
+	}
+	const list = holder.entries ?? [];
+	const ids = new Set(list.map((e) => e.id));
+	let n = 1;
+	while (ids.has(`efx${n}`)) n++;
+	holder.set([...list, { id: `efx${n}`, kind, trigger: 'cue', cue: signal } as ElementFxEntry]);
+	return `signal:${signal}`;
+}
+
+/** Take the effect `ref` ({@link cueFxPlayed}) off its node or the screen. */
+export function removeCueFx(scene: Scene, ref: string): boolean {
+	const at = ref.lastIndexOf('#');
+	const holder = at > 0 ? cueFxHolder(scene, ref.slice(0, at)) : null;
+	if (!holder?.entries) return false;
+	const id = ref.slice(at + 1);
+	const next = holder.entries.filter((e) => e.id !== id);
+	if (next.length === holder.entries.length) return false;
+	holder.set(next);
+	return true;
+}
+
 /**
  * The cue keys an editor playback crosses as its clock moves from `fromElapsed` to `toElapsed`
  * seconds since ▶, stepped as the game's `<Cinematic>` steps: a ping-pong on its lap clock
