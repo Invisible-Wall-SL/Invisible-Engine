@@ -100,6 +100,9 @@ export function resolveReelGridFromNode(
 	const ch = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
 	const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
 	const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
+	// The row nudge is in row pitches as this layout draws them, so it folds the scale with the cells.
+	const nudgeRows = Number.isFinite(node.boardNudgeRows) ? (node.boardNudgeRows as number) : 0;
+	const boardNudgeY = nudgeRows ? nudgeY + nudgeRows * (ch + gapY) * cellScale : nudgeY;
 	// Symbol overflow folds the same scale for the same reason the gaps do: it is a px distance on
 	// the board, so an editor resize has to zoom it or a resized board's art would spill by the
 	// pre-resize amount. Absent ⇒ 0 ⇒ multiplying by the scale is still 0 (parity).
@@ -107,9 +110,6 @@ export function resolveReelGridFromNode(
 	// Positive only, matching the editor input's own `v > 0` gate: this grows a clip, and a negative
 	// would SHRINK the board window instead — cutting art that fits its cell today, on every game
 	// running the shared bundle, from a number nothing in the UI can produce. Unusable ⇒ 0 ⇒ off.
-	// The row nudge is in row pitches as this layout draws them, so it folds the scale with the cells.
-	const nudgeRows = Number.isFinite(node.boardNudgeRows) ? (node.boardNudgeRows as number) : 0;
-	const boardNudgeY = nudgeRows ? nudgeY + nudgeRows * (ch + gapY) * cellScale : nudgeY;
 	const overflowX =
 		Number.isFinite(node.overflowX) && (node.overflowX as number) > 0
 			? (node.overflowX as number)

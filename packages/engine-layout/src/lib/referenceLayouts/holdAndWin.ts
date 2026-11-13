@@ -97,24 +97,22 @@ export type ExpandingBoardReserve = Pick<
 >;
 
 /**
- * Is `nudge` the px lift the first reserve wrote — `-(extra × cellSize) / 2` — at one of the grid's
- * own scales? A canvas rescale (`canvasRescale`) scales the node's scale and its px nudge by the same
- * factor, so a rescaled lift is that lift × the node's scale.
+ * Is `nudge` the px lift the first reserve wrote — `-(extra × cellSize) / 2` — then or after a
+ * canvas rescale? `canvasRescale` multiplies a reel grid's px nudge (and its scale) by the factor
+ * and leaves its cells alone, so a lift written before a rescale is that lift × `canvasFactor`
+ * (how many times the game-type reference the canvas now is), whatever scale the grid had — a
+ * drag-resized grid's scale says nothing about the rescale, so the scale is not consulted.
  */
 const isLegacyLift = (
-	grid: Pick<ReelGridNode, 'cellSize' | 'scale' | 'overrides'>,
+	cellSize: number,
 	extra: number,
 	nudge: number | undefined,
+	canvasFactor: number,
 ): boolean => {
 	if (nudge === undefined || !(nudge < 0)) return false;
-	const scales = [
-		1,
-		grid.scale?.x,
-		...Object.values(grid.overrides ?? {}).map((override) => override?.scale?.x),
-	];
-	const lift = (extra * grid.cellSize) / 2;
-	return scales.some(
-		(k) => k !== undefined && k > 0 && Math.abs(nudge + lift * k) <= 1e-6 * Math.max(1, lift * k),
+	const lift = (extra * cellSize) / 2;
+	return [1, canvasFactor].some(
+		(k) => k > 0 && Math.abs(nudge + lift * k) <= 1e-6 * Math.max(1, lift * k),
 	);
 };
 
@@ -122,15 +120,14 @@ const isLegacyLift = (
  * The cell size and row nudge that reserve `maxRows` for a grid of `rows` rows at `cellSize`. A px
  * nudge that is the lift an earlier reserve wrote ({@link isLegacyLift}) is that lift, not the
  * author's, so it is cleared in favour of the row nudge; any other px nudge is kept. A board that no
- * longer grows (`maxRows` ≤ its rows) keeps its cells and loses any row nudge.
+ * longer grows (`maxRows` ≤ its rows) keeps its cells and loses any row nudge. `canvasFactor` is how
+ * many times the game-type reference the doc's canvas is (1 unless it was rescaled).
  */
 export const expandingBoardReserve = (
-	grid: Pick<
-		ReelGridNode,
-		'rows' | 'cellSize' | 'boardNudgeY' | 'boardNudgeRows' | 'scale' | 'overrides'
-	>,
+	grid: Pick<ReelGridNode, 'rows' | 'cellSize' | 'boardNudgeY' | 'boardNudgeRows'>,
 	maxRows: number,
 	mainSizes: LayoutDoc['mainSizesMap'],
+	canvasFactor = 1,
 ): ExpandingBoardReserve => {
 	const extra = Math.max(0, maxRows - grid.rows);
 	if (!extra) return { cellSize: grid.cellSize, boardNudgeY: grid.boardNudgeY };
@@ -139,14 +136,20 @@ export const expandingBoardReserve = (
 		grid.cellSize,
 		Math.floor((shortest * EXPANDING_BLOCK_SHARE) / maxRows),
 	);
-	const boardNudgeY = isLegacyLift(grid, extra, grid.boardNudgeY) ? undefined : grid.boardNudgeY;
+	const boardNudgeY = isLegacyLift(grid.cellSize, extra, grid.boardNudgeY, canvasFactor)
+		? undefined
+		: grid.boardNudgeY;
 	return { cellSize, boardNudgeRows: -extra / 2, boardNudgeY };
 };
 
 /** Does every reel grid of `doc` already reserve `maxRows`? */
-export const expandingBoardReserved = (doc: LayoutDoc, maxRows: number): boolean =>
+export const expandingBoardReserved = (
+	doc: LayoutDoc,
+	maxRows: number,
+	canvasFactor = 1,
+): boolean =>
 	reelGridsOf(doc).every((grid) => {
-		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap);
+		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap, canvasFactor);
 		return (
 			grid.cellSize === want.cellSize &&
 			grid.boardNudgeRows === want.boardNudgeRows &&
@@ -155,13 +158,17 @@ export const expandingBoardReserved = (doc: LayoutDoc, maxRows: number): boolean
 	});
 
 /** `doc` with every reel grid reserving `maxRows` (cell size + row nudge; nothing else moves). */
-export const reserveExpandingBoard = (doc: LayoutDoc, maxRows: number): LayoutDoc => ({
+export const reserveExpandingBoard = (
+	doc: LayoutDoc,
+	maxRows: number,
+	canvasFactor = 1,
+): LayoutDoc => ({
 	...doc,
 	scenes: doc.scenes.map((scene) => ({
 		...scene,
 		nodes: scene.nodes.map((node) => {
 			if (node.kind !== 'reelGrid') return node;
-			const want = expandingBoardReserve(node, maxRows, doc.mainSizesMap);
+			const want = expandingBoardReserve(node, maxRows, doc.mainSizesMap, canvasFactor);
 			const { boardNudgeY: _px, boardNudgeRows: _rows, ...rest } = node;
 			return {
 				...rest,

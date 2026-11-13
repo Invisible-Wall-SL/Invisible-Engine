@@ -1172,6 +1172,25 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **⇕ Reserve rows recognises the old px lift at any grid scale (#1659 review).** The
+  swap of the old px lift (`-(extra × cellSize) / 2`) for the row lift only matched a grid whose
+  scale was 1 when a canvas rescale ran: `canvasRescale` multiplies the node's scale and its px nudge
+  by the same k, so a drag-resized grid (scale s0 ≠ 1) rescaled later stored the lift × k at scale
+  s0 × k, matched neither, and Reserve kept the px lift AND added the row lift (lifted about twice as
+  far, reading as reserved). `isLegacyLift` now checks the lift at ×1 and at the doc's **canvas
+  factor** (how many times the game-type reference the canvas is; the editor's `canvasFactor`,
+  passed to `expandingBoardReserved` / `reserveExpandingBoard`) and no longer guesses from the grid's
+  scale, which also stops it clearing a hand-set nudge that happened to equal lift × scale. Not
+  covered: a lift written between two rescales (it carries only the later factor); it is kept, as
+  an author nudge would be. Loading still writes nothing; only the button does. Editor: the **preview
+  N rows** switch grows only the selected reel grid, not every grid in a multi-grid scene. Guard:
+  `test-hold-and-win-template.mjs` swaps the lift at scale 1, canvas-rescaled, drag-resized, and
+  drag-resized then rescaled (×1.5, ×2), and keeps hand-set nudges (mutants: dropping the factor
+  fails 3 cases; the old scale guess clears a hand-set nudge). **Getting Hot:** its status here gives
+  cells 79 px, a −79 px lift and scale 2.59 with no canvas rescale (factor 1), which the guard already
+  matched; this change asks nothing new of the owner. The step owed since #1659 stands: press ⇕
+  Reserve rows on it, then publish. If the board then sits about twice as high as it should, the
+  stored nudge was not the old lift and was kept: clear its board nudge Y and press it again.
 - 2026-11-13 — **The partner-wire mock answers a collect and Force 5 as the partner's server
   does.** Their developer confirmed the shapes
   ([capture, "Confirmed by the partner"](../reference/play4fun-collector-respin-capture.md)):

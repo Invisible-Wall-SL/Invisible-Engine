@@ -354,8 +354,9 @@
 		 * preview draws THIS many cells — the config is the single source of truth for the grid, the
 		 * same one the game sizes off. `null` ⇒ fall back to the reelGrid node's own reels/rows. */
 		gridDimensions?: { reels: number; rows: number } | null;
-		/** Draw the reel grid grown to this many rows — an expanding respin board's rows below the base
-		 *  ones, locked, where the game opens them (view only). `null` ⇒ the base rows alone. */
+		/** Draw the SELECTED reel grid grown to this many rows — an expanding respin board's rows below
+		 *  the base ones, locked, where the game opens them (view only); every other grid draws its base
+		 *  rows. `null` ⇒ the base rows alone. */
 		grownBoardRows?: number | null;
 		/** Per-source SAMPLE data for `repeater` placeholders, resolved from the project's game config
 		 * (currently `featureCards` → one card per non-default bet mode, with each card's per-item
@@ -3832,7 +3833,7 @@
 		drawLockedRowPreview(
 			ctx,
 			geo.seats,
-			geo.outline ? 0 : Math.max(0, (grownBoardRows ?? 0) - geo.rows),
+			geo.outline || node.id !== selectedId ? 0 : Math.max(0, (grownBoardRows ?? 0) - geo.rows),
 			geo.cellH + (Number.isFinite(node.gapY) ? (node.gapY as number) : 0),
 		);
 
