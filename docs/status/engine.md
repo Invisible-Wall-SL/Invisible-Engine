@@ -641,6 +641,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     mode, the real test server and mock, a logging proxy, a probe on `renderer.texture.bind` and on
     every rig view's render): 17 of 17 screens byte-identical, the same 139 requests and no failed
     one, the same console warnings; `?quality=low` (KTX2 tier) 8 of 8 identical, no failed request.
+    `bookofborutremake` (`bookOf` script): 15 of 15 identical (its `pots` scenario cannot run: its
+    contract has no pots overlay, on both sides). `overlay_wishworld` (`lines` script): 17 of 17
+    identical. Both: no failed request, the same warnings. Measured on the owner's engine
+    (`248b7157`); the branch was then rebased on `e6ffe7fb` (#1640, #1647) and its gates re-run.
   - Gates: `check-stock-asset-prune.mts` (sections 4 and 6), `check-pull-reachability.mjs`,
     `check-build-breakdown-desktop.mjs`; 20 planted mutants, each caught.
 

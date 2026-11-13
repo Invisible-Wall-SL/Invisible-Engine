@@ -269,8 +269,8 @@ machine. Use it to check that the right packages went out.
     4096 px, 🐞 Debug left on;
   - info: identical files shipped twice (a player who loads both downloads the bytes twice),
     identical small descriptors (two assets over the same atlas pages, each needing its own, or two
-    empty indexes: not waste), images no atlas names, and assets the game data never names (by key, by a
-    frame of the sheet, or, for a sound, inside a timeline cue such as `sfx:<name>`).
+    empty indexes: not waste), images no atlas names, and assets the game data never names (by
+    key, by a frame of the sheet, or, for a sound, inside a timeline cue such as `sfx:<name>`).
 - **What the build left out**, step by step, with every file and its size:
   - not pulled from the project (in `deploy/` but loaded by nothing; tidy them in the Invisible FTP
     Browser);
