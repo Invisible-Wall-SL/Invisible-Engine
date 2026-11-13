@@ -143,7 +143,8 @@ export type HoldAndWinTemplateOptions = {
 	coinBoard?: true;
 	/** A collector bonus with enhancements (Phase 14b, the partner's Fortune Vault Force 5): the
 	 *  Enhancements screen — four Enhancement Dials above the board and the collectors' running total
-	 *  — the "ACTIVE" / "SUPER BONUS" banner screens, and the HUD's ante switch. Absent ⇒ none of them. */
+	 *  — the "ACTIVE" / "SUPER BONUS" banner screens, the surprise trigger's "SURPRISE!" banner screen
+	 *  and the HUD's ante switch. Absent ⇒ none of them. */
 	enhancements?: true;
 };
 
@@ -268,6 +269,13 @@ const ENHANCEMENT_BANNERS: BannerScreen[] = [
 	{ id: 'enhancementsBanner', name: 'Enhancements banner', title: 'BOOST · MULTIPLY ACTIVE' },
 	{ id: 'superBonusBanner', name: 'Super bonus banner', title: 'SUPER BONUS', large: true },
 ];
+
+/** A surprise trigger's banner, over the base game, with the `enhancements` option only. */
+const TOP_UP_BANNER: BannerScreen = {
+	id: 'featureTopUpBanner',
+	name: 'Surprise top-up banner',
+	title: 'SURPRISE!',
+};
 
 /** The four dials, Expand to Respin, as the Enhancements screen places them. */
 const DIALS = [
@@ -413,9 +421,10 @@ export function holdAndWinReferenceLayout(
 		};
 	};
 	// The pot banners only where pots fill.
-	const baseBanners = BASE_BANNERS.filter(
-		({ id }) => !POT_BANNER_SCREENS.includes(id) || potIds.length,
-	).map(bannerScene);
+	const baseBanners = [
+		...BASE_BANNERS.filter(({ id }) => !POT_BANNER_SCREENS.includes(id) || potIds.length),
+		...(enhancements ? [TOP_UP_BANNER] : []),
+	].map(bannerScene);
 	const featureBanners = [...FEATURE_BANNERS, ...(enhancements ? ENHANCEMENT_BANNERS : [])].map(
 		(banner) => modeScene(bannerScene(banner)),
 	);

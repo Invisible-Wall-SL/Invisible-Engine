@@ -591,6 +591,12 @@ export const translateHoldAndWinEvent = (
 			};
 		case 'randomMetreTrigger':
 			return { type: 'randomMetreTrigger', name: ctx.name, cells: cellsOf(ctx.cells) };
+		case 'featureTopUp':
+			return {
+				type: 'featureTopUp',
+				cells: cellsOf(ctx.cells),
+				...(typeof ctx.state === 'number' ? { state: ctx.state } : {}),
+			};
 		case 'holdAndWinTrigger':
 			return {
 				type: 'holdAndWinTrigger',

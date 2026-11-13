@@ -124,6 +124,42 @@ reel 5, at 0.40) and showed their server's bonus table:
   alone as `00100` (the `powerFive` bit is never mixed with the others). `freespins` is commented
   out: the game has none.
 
+## One real round (2026-11-13)
+
+Their developer also sent **one full round from their server log** for Getting Hot: a base bet at
+betPerLine 1 (base total 10 cents), a surprise trigger, then the Expand bonus `10000` with 13
+respins and `gameEnd {win: 1060}`. It is replayed event for event by
+`collectorRespin.fixture.ts` (data: `packages/rgs-translator-eagaming/collectorRespinRealRound.ts`;
+the few contexts their log abbreviated are filled in like their full neighbours). What it shows:
+
+- **The surprise trigger.** `surpriseTrigger {state: 16}` follows a `playWindow` with no coin and
+  no collector. The server then adds them: a `bonusSymbol` + `cellPayAmount` per added coin, and
+  the added collector only through its `collect`. `collectWindow` and `playedSpin` show the
+  topped-up board, then the trigger runs as usual (`bonusWin {bonus: "initialspin"}`,
+  `boostsAwarded`, `spinTrigger`, `enterBonus`). What `state` means is not known yet (asked).
+- **`collect.pay` is the collector's NEW total** (80, then 80 + 40 = 120), the same number as its
+  `COLLECT_<cents>` on `collectWindow`. `bonusWin.pay` is what the spin paid (coins × collectors).
+- **A respin's collected coins stay on its `collectWindow` and `playedSpin`** and are gone from the
+  next respin's `playWindow`.
+- **A respin where nothing lands** sends only `playWindow`, `playedSpin` and `playedBonusSpin`: no
+  `collectWindow`, no `bonusWin`, no `retrigger`.
+- **A collector that lands has no `bonusSymbol`** (respin 5: bare `COLLECT` on `playWindow`, then
+  its own `collect`).
+- **`enterBonus` / `playedBonusSpin` shapes:** `prob`, `additionalPrice`, `triggers`, `played`,
+  `left`, `multiplier: {}`, `bonusTriggers: {"10000": 1}` (an object), `bonusPlayed: {"10000":
+  {count, base: {count, multiplierCount}, states: {}}}`, `spins: [{spins, bonus, trigger: {occurs,
+  from}, state: "main"}]` (`spins` = what is left; empty after the last), `playing`, `state:
+  "main"`, `trigger`; `enterBonus` also has a `triggering` OBJECT `{bonus, trigger}`.
+- **`spinStart.reels` in the bonus are FILTERED display strips**: all `BLANK` but one `COIN` (a
+  `COLLECT` on reel 3), `ranges` [15, 15, 30, 15, 15]. They are not the real strips.
+- **`retrigger {games}`** is the number of respins added back (1, or 2 when `left` was 1).
+- **The rows.** The trigger's collector is at reel 2, row 0 of the 3-row board and at reel 2, row 1
+  of the 4-row Expand board from the first respin on. So the wire numbers the row Expand opened
+  FIRST. Nothing in the round says whether row 0 is the top or the bottom of their screen (the
+  paylines are symmetric), so this alone does not say whether their client adds the row above or
+  below (asked). Our reader maps it either way: the base rows keep their index and the opened row
+  follows them, so it draws below the base rows.
+
 ## Event shapes seen
 
 Base spin of the buy round, in order:

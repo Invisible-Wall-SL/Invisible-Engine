@@ -160,6 +160,12 @@ export type HoldAndWinEventFields = {
 		collectors?: HoldAndWinCellAmount[];
 	};
 	randomMetreTrigger: { name: string; cells: HoldAndWinCell[] };
+	/**
+	 * Base game: the server TOPPED UP the board it dealt (the partner's surprise trigger): `cells`
+	 * are the coins and collectors it added after the reels stopped, which the trigger then plays
+	 * with. `state` is the server's own, passed through (its meaning is not known yet).
+	 */
+	featureTopUp: { cells: HoldAndWinCell[]; state?: number };
 	/** `mode` — the respin mode it enters: `holdAndWin`, or another declared respin mode
 	 *  (`holdAndWin_2`). */
 	holdAndWinTrigger: { mode: string; cause: HoldAndWinCause; payload: HoldAndWinEntry };
@@ -253,6 +259,7 @@ const HOLD_AND_WIN_EVENT_TYPES: Record<HoldAndWinEventType, true> = {
 	jackpotLevels: true,
 	coinInstantCollect: true,
 	randomMetreTrigger: true,
+	featureTopUp: true,
 	holdAndWinTrigger: true,
 	holdAndWinWheel: true,
 	respinReveal: true,
@@ -502,6 +509,7 @@ export const applyHoldAndWinEvent = (
 			};
 		case 'coinInstantCollect':
 		case 'randomMetreTrigger':
+		case 'featureTopUp':
 		case 'respinReveal':
 		case 'enhancementMiss':
 			return state;

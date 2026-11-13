@@ -26,6 +26,8 @@ import {
 	type HoldAndWinState,
 } from '../engine-game/src/game/holdAndWin.ts';
 
+import { REAL_ROUND_BET, REAL_ROUND_RESPINS } from './collectorRespinRealRound.ts';
+
 type Facade = typeof import('./src/engineFacade.ts');
 type BookEvent = { type: string; index?: number; [key: string]: unknown };
 type WireEvent = { event: string; context?: unknown };
@@ -125,8 +127,9 @@ const cellPay = (reel: number, row: number, original: number | string, pay: numb
 		pay,
 	});
 
-/** A round as the partner answers it: the bet's answer, then one per respin. */
-type ScriptedRound = { option: number; answers: WireEvent[][]; win: number };
+/** A round as the partner answers it: the bet's answer, then one per respin. `stake` in cents,
+ *  when the round is not played at betPerLine 4. */
+type ScriptedRound = { option: number; answers: WireEvent[][]; win: number; stake?: number };
 
 const BASE_BOARD = [
 	['PIC1', 'PIC5', 'PIC9'],
@@ -479,7 +482,7 @@ const startPartner = async () => {
 			if (!round || round.option !== option || seq !== 0) return refusal(101, 'unscripted bet');
 			rounds += 1;
 			open = { round, id: `R${rounds}`, answered: 1, ended: false };
-			balance -= OPTIONS[option] * 4;
+			balance -= round.stake ?? OPTIONS[option] * 4;
 			const events = round.answers[0];
 			const closed = events.some((e) => e.event === 'gameRoundOver');
 			const out = { events, platform: platform(closed) };
@@ -570,9 +573,9 @@ check(
 	],
 );
 
-const bet = async (mode: string) =>
+const bet = async (mode: string, amount = 0.4) =>
 	(await hush(() =>
-		facade.requestBet({ sessionID: sid, currency: 'EUR', amount: 0.4, mode, rgsUrl }),
+		facade.requestBet({ sessionID: sid, currency: 'EUR', amount, mode, rgsUrl }),
 	)) as Answer;
 const endRound = () => hush(() => facade.requestEndRound({ sessionID: sid, rgsUrl }));
 
@@ -590,6 +593,46 @@ const commonChecks = (label: string, book: BookEvent[]) => {
 	);
 	check(`${label}: the base board is revealed once`, types.filter((t) => t === 'reveal').length, 1);
 	return types;
+};
+
+/**
+ * The engine's own reducer folds every Hold and Win event of a book; after each `holdAndWinState`
+ * its picture must equal the facade's snapshot (board, counter, open rows, enhancements).
+ */
+const replayThroughReducer = (label: string, book: BookEvent[]) => {
+	const canon = (state: HoldAndWinState) =>
+		JSON.stringify(
+			[...state.cells]
+				.sort((a, b) => a.reel - b.reel || a.row - b.row)
+				.map((c) => [c.reel, c.row, c.symbol]),
+		);
+	let state = emptyHoldAndWinState();
+	let snapshots = 0;
+	for (const event of book) {
+		if (!isHoldAndWinEvent(event)) continue;
+		if (event.type === 'holdAndWinState') {
+			snapshots += 1;
+			const server = event.snapshot;
+			check(
+				`${label}: snapshot ${snapshots} — the events rebuild the board`,
+				canon(state),
+				canon({ ...emptyHoldAndWinState(), ...server }),
+			);
+			check(
+				`${label}: snapshot ${snapshots} — counter`,
+				[state.left, state.start],
+				[server.left, server.start],
+			);
+			check(`${label}: snapshot ${snapshots} — open rows`, state.rows, server.rows);
+			check(
+				`${label}: snapshot ${snapshots} — enhancements`,
+				state.enhancements,
+				server.enhancements,
+			);
+		}
+		state = applyHoldAndWinEvent(state, event as HoldAndWinEvent);
+	}
+	return { state, snapshots };
 };
 
 // 1. A base spin with nothing on it.
@@ -834,35 +877,7 @@ partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, ANY_LINE_WIN, CENTER, BUY]);
 		],
 	);
 
-	// The engine's own reducer rebuilds the facade's snapshot after every respin.
-	const canon = (state: HoldAndWinState) =>
-		JSON.stringify(
-			[...state.cells]
-				.sort((a, b) => a.reel - b.reel || a.row - b.row)
-				.map((c) => [c.reel, c.row, c.symbol]),
-		);
-	let state = emptyHoldAndWinState();
-	let snapshots = 0;
-	for (const event of book) {
-		if (!isHoldAndWinEvent(event)) continue;
-		if (event.type === 'holdAndWinState') {
-			snapshots += 1;
-			const server = event.snapshot;
-			check(
-				`bonus: snapshot ${snapshots} — the events rebuild the board`,
-				canon(state),
-				canon({ ...emptyHoldAndWinState(), ...server }),
-			);
-			check(
-				`bonus: snapshot ${snapshots} — counter`,
-				[state.left, state.start],
-				[server.left, server.start],
-			);
-			check(`bonus: snapshot ${snapshots} — open rows`, state.rows, server.rows);
-			check(`bonus: snapshot ${snapshots} — enhancements`, state.enhancements, server.enhancements);
-		}
-		state = applyHoldAndWinEvent(state, event as HoldAndWinEvent);
-	}
+	const { state, snapshots } = replayThroughReducer('bonus', book);
 	check('bonus: one snapshot at entry and one per respin', snapshots, 8);
 	check('bonus: one respin board per respin', types.filter((t) => t === 'respinReveal').length, 7);
 	const end = book.find((e) => e.type === 'holdAndWinEnd') as {
@@ -889,6 +904,197 @@ partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, ANY_LINE_WIN, CENTER, BUY]);
 		true,
 	);
 	await endRound();
+}
+
+// 3b. ONE REAL ROUND of the partner's (their server log, 2026-11-13, `collectorRespinRealRound.ts`):
+// a surprise trigger tops up a board with no coin and no collector, then 13 Expand respins with two
+// collectors, a MINI coin and `gameEnd 1060`. Base total 10 cents (betPerLine 1), so a book amount
+// is 10 × the cents.
+{
+	type Cell = { reel: number; row: number; symbol: { name: string; value?: number } };
+	partner.script([
+		{ option: 0, stake: 10, win: 1060, answers: [REAL_ROUND_BET, ...REAL_ROUND_RESPINS] },
+	]);
+	const before = partner.log.length;
+	const balanceBefore = partner.balance();
+	const answer = await bet('BASE', 0.1);
+	const book = answer.round?.state ?? [];
+	const types = commonChecks('real round', book);
+	const walk = partner.log.slice(before);
+	check('real round: bet context [0, 1]', walk[0]?.context, [0, 1]);
+	check(
+		'real round: bet+play at 0, 13 respins at the next positions, then collect',
+		walk.map((l) => `${l.actions.join('+')}@${l.seq}`),
+		['bet+play@0', ...Array.from({ length: 13 }, (_, i) => `play@${i + 2}`), 'collect@15'],
+	);
+
+	// The surprise trigger: the reels stop on `playWindow`, then the server's coins and collector drop in.
+	const reveal = book.find((e) => e.type === 'reveal') as {
+		board: { name: string; value?: number }[][];
+	};
+	check(
+		'real round: the reels stop on playWindow — no coin, no collector',
+		reveal.board.flat().filter((s) => s.name === 'COIN' || s.name === 'COLLECT'),
+		[],
+	);
+	const topUp = book.find((e) => e.type === 'featureTopUp') as
+		{ cells: Cell[]; state?: number } | undefined;
+	check(
+		'real round: the top-up drops the added coins and the collector, board order',
+		topUp?.cells.map((c) => [c.reel, c.row, c.symbol.name, c.symbol.value]),
+		[
+			[0, 2, 'COIN', 3],
+			[2, 0, 'COLLECT', undefined],
+			[3, 0, 'COIN', 3],
+			[4, 1, 'COIN', 1],
+			[4, 2, 'COIN', 1],
+		],
+	);
+	check('real round: the server’s `state` is passed through', topUp?.state, 16);
+	check(
+		'real round: reveal → top-up → trigger',
+		types.indexOf('reveal') < types.indexOf('featureTopUp') &&
+			types.indexOf('featureTopUp') < types.indexOf('holdAndWinTrigger'),
+		true,
+	);
+
+	const trigger = book.find((e) => e.type === 'holdAndWinTrigger') as {
+		payload: Record<string, unknown>;
+	};
+	check('real round: the bonus opens with the dropped collector', trigger?.payload.cells, [
+		{ reel: 2, row: 0, symbol: { name: 'COLLECT' } },
+	]);
+	check(
+		'real round: Expand, a 4-row board, 3 respins',
+		[trigger?.payload.enhancements, trigger?.payload.expansion, trigger?.payload.respins],
+		[['extraRow'], { rows: 4, maxRows: 4 }, 3],
+	);
+	const collects = book.filter((e) => e.type === 'coinCollect') as {
+		collector: Cell;
+		value: number;
+		cells: { reel: number; row: number; amount: number }[];
+	}[];
+	check(
+		'real round: the entry collect gathers the four dropped coins into 0.80',
+		[collects[0]?.value, collects[0]?.cells.map((c) => [c.reel, c.row, c.amount])],
+		[
+			8,
+			[
+				[0, 2, 300],
+				[3, 0, 300],
+				[4, 1, 100],
+				[4, 2, 100],
+			],
+		],
+	);
+
+	// Each respin: the collector's new total is its `collect.pay` (a new total, not a gain).
+	check(
+		'real round: each collector’s total, respin by respin (rows on our board)',
+		collects.slice(1).map((c) => [c.collector.row, c.value]),
+		[
+			[0, 12],
+			[0, 13],
+			[0, 15],
+			[0, 20],
+			[0, 24],
+			[2, 4],
+			[0, 28],
+			[2, 8],
+			[0, 34],
+			[2, 14],
+			[0, 38],
+			[2, 18],
+			[0, 63],
+			[2, 43],
+		],
+	);
+	// The wire's bonus board numbers Expand's new row first (its row 0): the entry collector at row 0
+	// of the 3-row board is at row 1 of the 4-row one. Our board keeps the base rows where they were
+	// and numbers the opened row after them.
+	const reveals = book.filter((e) => e.type === 'respinReveal') as { cells: Cell[] }[];
+	const special = (cells: Cell[]) =>
+		cells
+			.filter((c) => c.symbol.name !== 'BLANK')
+			.map((c) => [c.reel, c.row, c.symbol.name, c.symbol.value]);
+	check(
+		'real round: respin 1 — the collector holds its seat, the coins land on our rows',
+		special(reveals[0]?.cells ?? []),
+		[
+			[0, 0, 'COIN', 1],
+			[0, 3, 'COIN', 3],
+			[2, 0, 'COLLECT', 8],
+		],
+	);
+	check(
+		'real round: respin 5 — the second collector lands under the first',
+		special(reveals[4]?.cells ?? []).filter((c) => c[2] === 'COLLECT'),
+		[
+			[2, 0, 'COLLECT', 20],
+			[2, 2, 'COLLECT', undefined],
+		],
+	);
+	check(
+		'real round: every respin board is 4 rows',
+		reveals.length === 13 &&
+			reveals.every((r) => Math.max(...r.cells.map((c) => c.row)) === 3 && r.cells.length === 20),
+		true,
+	);
+	check(
+		'real round: the counter — reset on a retrigger, down on a quiet respin',
+		book.filter((e) => e.type === 'respinUpdate').map((e) => [e.left, e.reset]),
+		[
+			...Array.from({ length: 8 }, () => [3, true]),
+			[2, false],
+			[3, true],
+			[2, false],
+			[1, false],
+			[0, false],
+		],
+	);
+	check(
+		'real round: a quiet respin lands nothing (9 respins land, 4 do not)',
+		book.filter((e) => e.type === 'coinsLand').length,
+		9,
+	);
+	check(
+		'real round: the MINI coin is presented once, collected, not banked',
+		book.filter((e) => e.type === 'jackpotWin').map((e) => [e.tier, e.amount, e.source, e.banked]),
+		[['MINI', 2500, 'collect', false]],
+	);
+
+	const { state, snapshots } = replayThroughReducer('real round', book);
+	check('real round: one snapshot at entry and one per respin', snapshots, 14);
+	const end = book.find((e) => e.type === 'holdAndWinEnd') as {
+		total: number;
+		payload: { cells: { row: number; amount: number }[] };
+	};
+	check(
+		'real round: the feature pays the two collectors, 6.30 + 4.30',
+		[end?.total, end?.payload.cells.map((c) => [c.row, c.amount])],
+		[
+			10600,
+			[
+				[0, 6300],
+				[2, 4300],
+			],
+		],
+	);
+	check('real round: the end closes the picture', state.active, false);
+	check(
+		'real round: the money — the round closes on gameEnd 1060, the entry 0.80 not paid twice',
+		[
+			book.filter((e) => e.type === 'setTotalWin').pop()?.amount,
+			book.find((e) => e.type === 'finalWin')?.amount,
+		],
+		[10600, 10600],
+	);
+	await endRound();
+	check(
+		'real round: the stake 0.10 out, the collect credited 10.60',
+		partner.balance() - balanceBefore,
+		1050,
+	);
 }
 
 // 4. An option the server refuses (operator dependent): a clean refusal, nothing stored.

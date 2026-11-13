@@ -24,6 +24,7 @@ export const HOLD_AND_WIN_BANNER_SCREENS = {
 	rowUnlocked: ['rowUnlockedBanner'],
 	enhancementsActive: ['enhancementsBanner'],
 	superBonus: ['superBonusBanner'],
+	featureTopUp: ['featureTopUpBanner'],
 	featureIntro: ['featureIntro'],
 	featureTotal: ['featureTotalBanner'],
 	featureOutro: ['featureOutro'],
@@ -53,6 +54,7 @@ export const HOLD_AND_WIN_BANNER_SHOW_SOURCES = {
 	rowUnlockedBanner: 'rowUnlockedBannerShow',
 	enhancementsBanner: 'enhancementsBannerShow',
 	superBonusBanner: 'superBonusBannerShow',
+	featureTopUpBanner: 'featureTopUpBannerShow',
 	featureTotalBanner: 'featureTotalBannerShow',
 } as const satisfies Record<string, string>;
 
@@ -78,6 +80,7 @@ export const SELF_MOUNTED_BANNER_SCREENS: readonly string[] = [
 	'rowUnlockedBanner',
 	'enhancementsBanner',
 	'superBonusBanner',
+	'featureTopUpBanner',
 	'featureTotalBanner',
 ];
 

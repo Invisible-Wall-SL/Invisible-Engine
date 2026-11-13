@@ -912,6 +912,7 @@ an error to the browser console.
 | `coinsLand` | `stickCoins` | Hold and Win tab |
 | `mysteryReveal` | `revealMystery` | Hold and Win tab |
 | `coinPay` / `coinBoost` | `payCoins` / `boostCoins` | Hold and Win tab |
+| `featureTopUp` | `topUpFeature` (base game, a surprise trigger: after the reels stop, the coins and collectors the server added drop onto their cells one by one under the "SURPRISE!" line, each playing Coin top-up; cue `respinTopUp` carries the cells and the server's `state`) | Not in the starter flow: the game presents it itself unless a chain wires it |
 | `enhancementHit` / `enhancementMiss` | `hitEnhancement` (a collector bonus's boost or multiply: its dial lights with what it adds, a beam flies to each landing coin, which plays Coin enhance while its value counts up; cue `respinEnhancementHit`) / `missEnhancement` (the dial shows its X; cue `respinEnhancementMiss`) | Not in the starter flow: the game presents them itself unless a chain wires them |
 | `respinsAdded` / `coinUpgrade` | `addRespins` (the "+N" flies to the counter) / `upgradeCoins` (a beam to each coin it raises) | Hold and Win tab |
 | `specialBecomesCoin` | `turnSpecialIntoCoin` | Hold and Win tab |

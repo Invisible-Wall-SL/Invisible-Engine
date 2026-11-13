@@ -777,6 +777,11 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 			label: 'Super bonus — enter',
 			note: 'The super bonus opened: every enhancement is on.',
 		},
+		{
+			key: 'featureTopUp',
+			label: 'Surprise top-up',
+			note: 'A surprise trigger: the coins and collectors the server added drop onto the base board.',
+		},
 	]),
 	...featureFamily('holdAndWin', 'Feature', [
 		{ key: 'featureEnter', label: 'Feature — enter', note: 'The respin board appears.' },

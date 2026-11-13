@@ -65,6 +65,7 @@ export const featureComponentSignals = (
 		enhancementHit: on('respinEnhancementHit'),
 		enhancementMiss: on('respinEnhancementMiss'),
 		superBonusEnter: on('superBonusEnter'),
+		featureTopUp: on('respinTopUp'),
 		jackpotWin: on('respinJackpotWin'),
 		letterLit: on('respinColumnComplete', (event) => event.newlyLit),
 		wheelSpin: on('wheelSpin'),

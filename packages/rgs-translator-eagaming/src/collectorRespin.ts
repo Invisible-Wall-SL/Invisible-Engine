@@ -3,27 +3,32 @@
  * OUR Hold and Win wire (`docs/reference/hold-and-win-wire.md`), which `holdAndWin.ts` and the
  * facade's switch then translate into book events as for any Hold and Win server.
  *
- * Read off the 2026-11-09 capture (`docs/reference/play4fun-collector-respin-capture.md`). The
+ * Read off the 2026-11-09 capture and the partner's real round of 2026-11-13
+ * (`docs/reference/play4fun-collector-respin-capture.md`). The
  * partner's server owns every outcome; this only renames what it sent:
  *
  * - cells: `COIN_<n>` (n × the base total bet) → `COIN:<n>`; `COIN_<TIER>` → `COIN:<TIER>`;
  *   `COLLECT_<cents>` → `COLLECT:<cents ÷ base>`; `BLANK` and the line symbols pass through.
  * - a base-game collect (no trigger) → `coinInstantCollect`, one `times` per collector, since each
  *   collector takes every coin's full value, and `collectors`: what each gathered and its total.
+ * - a surprise trigger (`surpriseTrigger`): the coins and collectors on the board after the spin
+ *   that `playWindow` does not have → `featureTopUp {cells, state}`, after the dealt board and
+ *   before the trigger, so the client drops them onto the stopped reels.
  * - a trigger → `holdAndWinTrigger {cause: 'run'}` holding only the collectors, then the trigger
  *   spin's collect as an entry `coinCollect` (the collectors carry it into the bonus), then
  *   `enterBonus` with its snapshot. `boostsAwarded` → `enhancements`; Expand opens its rows at entry.
  * - each respin: its dealt board, `coinsLand`, the `boost` / `multiplier` hits (`enhancementHit`) or
  *   X misses (`enhancementMiss`) in the wire's order, a `coinCollect` per collector, the coins
  *   cleared, `respinUpdate` from `playedBonusSpin` (`retrigger` resets), and the snapshot.
+ * - the bonus board's rows: the wire numbers the rows an Expand opened first; ours keep the base
+ *   rows' index and number the opened ones after them (see `seatRowShift`).
  * - the last respin → `holdAndWinEnd` (the feature pays the sum of the collectors), then the
  *   partner's `playedBonusSpins` / `gameEnd`.
  *
  * Never seen in a capture, handled defensively: a board growing during the bonus (the snapshot's
  * `rows` follows it), Force 5 (`powerFive`, its 5-row board read off the first respin), a boost and
  * a multiply on the same coin (each hit's own `startingPay` is its `from`, so either order reads
- * right), coins landing with no collector in view (left for the snapshot to settle) and a top-up
- * event (none is known, so nothing is mapped).
+ * right) and coins landing with no collector in view (left for the snapshot to settle).
  */
 
 import { HOLD_AND_WIN_WIRE, type HoldAndWinWireConfig } from './holdAndWin';
@@ -167,6 +172,19 @@ export const normalizeCollectorRespin = (
 		);
 	const at = (board: string[][] | undefined, p: Position) => board?.[p.reel]?.[p.row];
 	const cents = (value: number) => Math.round(value * base);
+	const isSpecial = (text: string | undefined) => !!text && (isCoin(text) || isCollector(text));
+	/**
+	 * The coins and collectors the server ADDED after the deal (a surprise trigger): on the board
+	 * after the spin but not on `playWindow`. A collector is bare, as it is before its first collect.
+	 */
+	const toppedUp = (dealt: string[][], after: string[][]): WireCell[] =>
+		after.flatMap((reel, r) =>
+			reel.flatMap((text, row) =>
+				isSpecial(text) && !isSpecial(dealt[r]?.[row])
+					? [wireCell(isCollector(text) ? COLLECT : text, r, row)]
+					: [],
+			),
+		);
 
 	// The bonus, as the facade must restate it after every respin.
 	let inBonus = false;
@@ -188,18 +206,50 @@ export const normalizeCollectorRespin = (
 		...(enhancements ? { enhancements } : {}),
 	});
 
-	// The first bonus board's height: the rows an Expand (or Force 5) opened at entry.
-	const firstBonusRows = (() => {
+	// The first bonus board, and its height: the rows an Expand (or Force 5) opened at entry.
+	const firstBonusBoard = (() => {
 		const entry = events.findIndex((e) => e.event === 'enterBonus');
 		if (entry === -1) return undefined;
 		const board = events
 			.slice(entry + 1)
 			.find((e) => (e.event === 'playWindow' || e.event === 'playedSpin') && isBoard(e.context));
-		const height = board
-			? Math.max(...(board.context as string[][]).map((reel) => reel.length))
-			: 0;
+		return board?.context as string[][] | undefined;
+	})();
+	const firstBonusRows = (() => {
+		const height = firstBonusBoard ? Math.max(...firstBonusBoard.map((reel) => reel.length)) : 0;
 		return height > 0 ? height : undefined;
 	})();
+
+	/*
+	 * Where the wire numbers the rows an Expand (or Force 5) opened. Our board keeps the base rows
+	 * where they were and numbers the opened ones after them (the reducer's "a held cell's row never
+	 * changes"). The partner's wire numbers
+	 * the opened rows FIRST: in the 2026-11-13 round the entry collector at row 0 of the 3-row board is
+	 * at row 1 of the 4-row one. Read off the round where it can be — the shift that seats the entry's
+	 * collectors on a collector of the first bonus board — else that measured convention.
+	 */
+	let rowShift = 0;
+	const seatRowShift = (entryCollectors: readonly Position[], height: number) => {
+		const opened = height - config.rows;
+		if (opened <= 0 || !firstBonusBoard) return 0;
+		const seated = (shift: number) =>
+			entryCollectors.filter((c) =>
+				isCollector(at(firstBonusBoard, { ...c, row: c.row + shift }) ?? ''),
+			).length;
+		return seated(0) > seated(opened) ? 0 : opened;
+	};
+	const ourRow = (row: number) => {
+		if (!inBonus || rowShift === 0 || rows === undefined) return row;
+		return (row - rowShift + rows) % rows;
+	};
+	const ourBoard = (board: string[][]) => {
+		if (!inBonus || rowShift === 0 || rows === undefined) return board;
+		return board.map((reel) => {
+			const seated = [...reel];
+			reel.forEach((text, row) => (seated[ourRow(row)] = text));
+			return seated;
+		});
+	};
 
 	type Segment = {
 		head: WireEvent[];
@@ -216,6 +266,8 @@ export const normalizeCollectorRespin = (
 		bonusSpin?: Ctx;
 		spinsOver: boolean;
 		bonusWin?: number;
+		/** `surpriseTrigger`: the server topped the dealt board up to a trigger. */
+		surprise?: Ctx;
 		tail: WireEvent[];
 	};
 	const fresh = (): Segment => ({
@@ -268,7 +320,6 @@ export const normalizeCollectorRespin = (
 	const collectsOf = (seg: Segment, before: WireCell[], after: string[][] | undefined) => {
 		const board = seg.dealt ?? seg.final ?? [];
 		const coins = coinsCollected(seg, board);
-		const gathered = coins.reduce((sum, c) => sum + c.amount, 0);
 		return {
 			coins,
 			events: seg.collects.flatMap((c) => {
@@ -277,7 +328,9 @@ export const normalizeCollectorRespin = (
 					row: c.row,
 					symbol: COLLECT,
 				};
-				const afterCents = totalCents(at(after, c)) ?? cents(was.value ?? 0) + gathered;
+				// `collect.pay` is the collector's NEW total (the partner, 2026-11-13), as its
+				// `COLLECT_<cents>` on the board after the collect reads.
+				const afterCents = totalCents(at(after, c)) ?? c.pay;
 				return [
 					{
 						event: 'coinCollect',
@@ -301,7 +354,19 @@ export const normalizeCollectorRespin = (
 
 		if (!inBonus) {
 			const entering = seg.enter !== undefined || seg.trigger !== undefined;
-			const dealtCollectors = board ? cellsWhere(board, isCollector) : [];
+			const added = board && after && after !== board ? toppedUp(board, after) : [];
+			if (added.length)
+				out.push({
+					event: 'featureTopUp',
+					context: {
+						cells: added,
+						...(typeof seg.surprise?.state === 'number' ? { state: seg.surprise.state } : {}),
+					},
+				});
+			const dealtCollectors = [
+				...(board ? cellsWhere(board, isCollector) : []),
+				...added.filter((c) => c.symbol === COLLECT),
+			].sort((a, b) => a.reel - b.reel || a.row - b.row);
 			if (!entering && seg.collects.length) {
 				const coins = coinsCollected(seg, board ?? []);
 				const sum = seg.collects.reduce((s, c) => s + c.pay, 0);
@@ -364,6 +429,7 @@ export const normalizeCollectorRespin = (
 						context: { reason: 'collected', cells: coins.map(({ reel, row }) => ({ reel, row })) },
 					});
 				collectors = after ? cellsWhere(after, isCollector) : dealtCollectors;
+				rowShift = rows === undefined ? 0 : seatRowShift(collectors, rows);
 				out.push({ event: 'enterBonus', context: { holdAndWin: snapshot() } });
 				inBonus = true;
 			}
@@ -417,6 +483,7 @@ export const normalizeCollectorRespin = (
 			inBonus = false;
 			collectors = [];
 			rows = undefined;
+			rowShift = 0;
 		}
 		out.push(...seg.tail);
 	};
@@ -445,19 +512,22 @@ export const normalizeCollectorRespin = (
 				break;
 			}
 			case 'playWindow':
-				if (isBoard(e.context)) seg.dealt = e.context;
+				if (isBoard(e.context)) seg.dealt = ourBoard(e.context);
 				break;
 			case 'playedSpin':
-				if (isBoard(e.context)) seg.final = e.context;
+				if (isBoard(e.context)) seg.final = ourBoard(e.context);
 				break;
 			case 'collectWindow':
-				if (isBoard(e.context)) seg.collected = e.context;
+				if (isBoard(e.context)) seg.collected = ourBoard(e.context);
+				break;
+			case 'surpriseTrigger':
+				seg.surprise = ctx;
 				break;
 			case 'cellPayAmount':
 				if (typeof ctx.reel === 'number' && typeof ctx.row === 'number')
 					seg.pays.push({
 						reel: ctx.reel,
-						row: ctx.row,
+						row: ourRow(ctx.row),
 						pay: typeof ctx.pay === 'number' ? ctx.pay : 0,
 						value: ctx.value,
 					});
@@ -466,7 +536,7 @@ export const normalizeCollectorRespin = (
 				if (typeof ctx.reel === 'number' && typeof ctx.row === 'number')
 					seg.collects.push({
 						reel: ctx.reel,
-						row: ctx.row,
+						row: ourRow(ctx.row),
 						pay: typeof ctx.pay === 'number' ? ctx.pay : 0,
 					});
 				break;
@@ -490,7 +560,7 @@ export const normalizeCollectorRespin = (
 							cells: [
 								{
 									reel: hit.reel,
-									row: hit.row,
+									row: typeof hit.row === 'number' ? ourRow(hit.row) : hit.row,
 									from: round6(from / base),
 									to: round6(to / base),
 								},

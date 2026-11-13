@@ -38,6 +38,7 @@
 	 * - `potsConsume` as a `meter` trigger drains the meters it consumed, with what they activate;
 	 * - `luckySpinIntro` as the Lucky Spin banner goes up;
 	 * - `randomMetreFire` as the random metre's banner goes up, with the coins it added;
+	 * - `respinTopUp` as a surprise trigger's added coins and collectors drop onto the base board;
 	 * - `jackpotCelebration` for a banked jackpot (full board, letters, the wheel);
 	 * - `respinTallyStep` each time the Total Win bar steps in the feature end's tally — `total` is
 	 *   what the bar now reads; the last step (`index` = the coin count) adds the banked part.
@@ -137,6 +138,7 @@
 		  }
 		| { type: 'luckySpinIntro' }
 		| { type: 'randomMetreFire'; name: string; cells: HoldAndWinCell[] }
+		| { type: 'respinTopUp'; cells: HoldAndWinCell[]; state?: number }
 		| {
 				type: 'jackpotCelebration';
 				tier: string;

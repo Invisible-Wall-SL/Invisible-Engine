@@ -1398,10 +1398,10 @@ it — never `Win`, `Post-win` or a book state. On top
 of that, a symbol the respin board holds offers Coin idle, Coin land, Coin stick, Coin collect and
 Jackpot reveal; only a payer or a multiplier offers Coin boost, only an add-respins special Respins
 add, an upgrade Coin upgrade, an unlock Row unlock, a mystery Mystery reveal, a cash coin Coin
-enhance, and a meter's filling symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
+enhance, a coin or collector Coin top-up, and a meter's filling symbol Fly to meter. The blank only rolls and stops (`Static`, `Spin`, Coin land). The other symbols
 offer none of these.
 
-**Twelve Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
+**Thirteen Hold and Win states** — the respin feature's beats. Each one, left empty, plays what the
 game played for that moment before the state existed, so a project that binds none of them looks
 exactly as it did:
 
@@ -1419,6 +1419,7 @@ exactly as it did:
 | **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
 | **Row unlock**     | an unlock symbol applying — opening a locked row of an expanding board before it leaves              | Win       |
 | **Coin enhance**   | a cash coin a boost or multiply enhancement hits as it lands (a collector bonus), while it counts up | Win       |
+| **Coin top-up**    | a coin or collector a surprise trigger drops onto the stopped reels, before the feature opens        | Land      |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
 inheritance, so those two read `unset` when empty (the tooltip says what plays). With

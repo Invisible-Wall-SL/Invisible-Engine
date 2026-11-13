@@ -970,6 +970,22 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'respinTopUp',
+			group: 'Hold and Win',
+			fields: [
+				{
+					key: 'cells',
+					kind: 'list',
+					required: true,
+				},
+				{
+					key: 'state',
+					kind: 'number',
+					required: false,
+				},
+			],
+		},
+		{
 			type: 'jackpotCelebration',
 			group: 'Hold and Win',
 			fields: [
@@ -1370,6 +1386,10 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'topUpFeature',
+			group: 'Effect',
+		},
+		{
 			name: 'lightLetter',
 			group: 'Effect',
 		},
@@ -1613,6 +1633,9 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			type: 'randomMetreTrigger',
+		},
+		{
+			type: 'featureTopUp',
 		},
 		{
 			type: 'holdAndWinTrigger',
