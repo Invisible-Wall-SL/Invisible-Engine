@@ -1,5 +1,10 @@
 import type { Scene } from 'engine-layout';
-import type { HoldAndWinJackpot, RespinModeRules, RespinPlay } from 'game-config';
+import {
+	holdAndWinMaxRows,
+	type HoldAndWinJackpot,
+	type RespinModeRules,
+	type RespinPlay,
+} from 'game-config';
 
 /**
  * WHICH RESPIN MODE PLAYS, AND ON WHAT (`docs/design/bonus-games.md` §2.3) — the decisions the
@@ -28,18 +33,19 @@ export const respinModeOnStack = <T extends { mode: string }>(
 export type RespinBoardShape = { mode?: string; gameType: string; rows: number };
 
 /**
- * `mode`'s board on a grid of `gridRows`: an expanding board builds every row up to its `maxRows`,
- * any other keeps the grid's. No mode ⇒ the default `respin` strip on the grid.
+ * `mode`'s board on a grid of `gridRows`: a board that grows builds every row it can reach
+ * (`holdAndWinMaxRows`: its expansion's `maxRows`, or the rows a collector bonus's enhancements
+ * open), any other keeps the grid's. No mode ⇒ the default `respin` strip on the grid.
  */
 export const respinBoardShape = (
 	mode: RespinModeRules | undefined,
 	gridRows: number,
 ): RespinBoardShape => {
-	const expansion = mode?.block.expansion;
+	const maxRows = mode ? holdAndWinMaxRows(mode.block) : undefined;
 	return {
 		mode: mode?.mode,
 		gameType: mode?.gameType ?? 'respin',
-		rows: expansion ? Math.max(gridRows, expansion.maxRows) : gridRows,
+		rows: maxRows === undefined ? gridRows : Math.max(gridRows, maxRows),
 	};
 };
 

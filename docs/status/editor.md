@@ -171,6 +171,16 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-11-13 — **A timeline cue picks the element and the effect it plays.** The Animate-mode cue
+  inspector on a screen timeline has a **✨ Effects** block: what the cue plays (🗑 each), an **on**
+  picker (the whole screen or any node) and an **effect** picker (the Element FX catalog and the
+  project's `/shaders` effects). Adding one writes an _On cue_ Element FX entry, played once, on that
+  element (`addCueFx` / `removeCueFx` / `cueFxPlayed` / `cueFxTargets` in `screenTimeline.ts`); an
+  empty cue becomes a fresh `signal:cueN`. Only an empty or `signal:` cue shows the block; a
+  component's timelines and `/rigger` do not. A node's own section is titled **Element FX · <name>**.
+  Gate: `check:screen-cue-fx` §4. ⏳ Not yet browser-verified. Open: the owner reported a screen
+  effect "playing continuously" — not reproduced; the runtime and the editor's ▶ both play an _On
+  cue_ entry once per fire, and only **Always** loops.
 - 2026-11-13 — **Reel grid: preview N rows grows only the selected grid; ⇕ Reserve rows reads the
   canvas factor.** In a multi-grid scene the switch drew every reel grid grown; it now applies to the
   selected one, in the edited screen. ⇕ Reserve rows passes every layout's canvas factor (not just

@@ -1863,6 +1863,12 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
     the game. It needs access to Invisible Sound. An engine sound's ▶ is greyed out (it lives in
     the shipped audio sprite, which the launcher can't play a piece of; hear it in the game), and
     a stop cue has none.
+  - **✨ Effects (screen timelines).** An empty or `signal:` cue gets an **Effects** block: each
+    effect the cue plays (🗑 removes it from its element), then **on** (the whole screen or any
+    node) and **effect** (the Element FX list, the project's own Shader Graph effects included).
+    Picking an effect adds it to that element's Element FX as an _On cue_ entry that plays once
+    each time the playhead passes the cue; an empty cue is named `signal:cue1` (then `cue2`, …).
+    Tune it afterwards in the element's **Element FX** section in Properties.
   - **Sound options.** A sound cue gets a **🔊 Sound** (or **🎵 Music**) section under the fields.
     **do** picks **▶ play** or **⏹ stop**. An empty field shows its default and stores nothing, so
     a cue with no options plays exactly as a plain cue always did.

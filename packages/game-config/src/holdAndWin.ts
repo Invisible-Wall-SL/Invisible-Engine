@@ -359,6 +359,18 @@ export type HoldAndWin = {
 /** The rows Expand and the super bonus can open a feature's board to (the partner's 5×5). */
 export const ENHANCEMENTS_MAX_ROWS = 5;
 
+/**
+ * The rows a feature's board can grow to: its expansion's `maxRows`, and at least
+ * {@link ENHANCEMENTS_MAX_ROWS} when the server draws enhancements, whose Expand and super bonus open
+ * rows with no `expansion` authored. `undefined` ⇒ the board never grows.
+ */
+export const holdAndWinMaxRows = (
+	block: Pick<HoldAndWin, 'expansion' | 'enhancements'>,
+): number | undefined => {
+	const grows = block.expansion?.maxRows;
+	return block.enhancements ? Math.max(grows ?? 0, ENHANCEMENTS_MAX_ROWS) : grows;
+};
+
 // ─── normalize ────────────────────────────────────────────────────────────────────────────────
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -841,9 +853,12 @@ export const coinEntryLabel = (entry: CoinValueEntry): string =>
 export const jackpotLadder = (block: Pick<HoldAndWin, 'jackpots'>): string[] =>
 	[...block.jackpots].sort((a, b) => a.multiplier - b.multiplier).map((j) => j.name);
 
-/** The rows the primary respin board can reach: `maxRows` when it expands, else the grid's. */
-export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'modes'>): number =>
-	primaryRespinMode(doc.modes)?.holdAndWin.expansion?.maxRows ?? doc.numRows[0] ?? 0;
+/** The rows the primary respin board can reach: {@link holdAndWinMaxRows} when it grows, else the
+ *  grid's. */
+export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'modes'>): number => {
+	const block = primaryRespinMode(doc.modes)?.holdAndWin;
+	return (block && holdAndWinMaxRows(block)) ?? doc.numRows[0] ?? 0;
+};
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
 export const configuredSpecials = (block: {

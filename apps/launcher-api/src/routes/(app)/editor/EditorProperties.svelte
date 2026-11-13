@@ -6356,6 +6356,7 @@
 	<!-- Keyed by node: which rows are open is per element (entry ids repeat across nodes). -->
 	{#key node.id}
 		<EditorElementFx
+			title={`Element FX · ${node.label || node.id}`}
 			entries={node.elementFx}
 			disabled={componentReadOnly}
 			keyable={node.kind !== 'reelGrid'}

@@ -50,6 +50,8 @@
  */
 
 import {
+	ENHANCEMENTS_MAX_ROWS,
+	HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_TEST_FIXTURES,
 	addPotsOverlay,
@@ -768,6 +770,38 @@ check(
 	"two modes: mode 2's meters start mode 2, the primary's the primary",
 	[...new Set(resolveMeters(HOST).map((m) => m.bonus.mode))].sort(),
 	[MODE_A, MODE_B].sort(),
+);
+
+// ---------- 5b. a collector bonus's board holds the rows its enhancements open ----------
+
+// Game Maker's collector + enhancements template authors no `expansion`: the server's Expand and
+// super bonus open the rows. A board built to the grid had no cell to roll in them — the opened
+// rows' coins only appeared as they stuck.
+const enhanced = normalized(structuredClone(HOLD_AND_WIN_ENHANCEMENTS_TEMPLATE));
+const enhancedMode = respinModeOnStack(respinModeRules(enhanced), []);
+check(
+	'enhancements: the template opens rows with no expansion authored',
+	[enhancedMode?.block.enhancements, enhancedMode?.block.expansion],
+	[true, undefined],
+);
+check(
+	'enhancements: the respin board builds the 5 rows Expand and Force 5 open',
+	[respinBoardShape(enhancedMode, GRID_ROWS).rows, respinBoardMaxRows(enhanced)],
+	[ENHANCEMENTS_MAX_ROWS, ENHANCEMENTS_MAX_ROWS],
+);
+check(
+	'enhancements: an authored expansion past 5 rows still builds all of them',
+	respinBoardShape(
+		enhancedMode && {
+			...enhancedMode,
+			block: {
+				...enhancedMode.block,
+				expansion: { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: false },
+			},
+		},
+		GRID_ROWS,
+	).rows,
+	6,
 );
 
 // ---------- 6. the REAL play seam ----------
