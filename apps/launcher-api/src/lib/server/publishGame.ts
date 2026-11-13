@@ -4,7 +4,8 @@
  * Server — with NO desktop launcher, NO per-game repo, and NO build:
  *
  *   1. resolve the project's client + game type, refuse a game with its own desktop build,
- *      then the sound (1a) + flow (1b) gates,
+ *      then the flow (1a), family (1b) and paytable (1c) gates, then list the draft sounds it
+ *      ships (a warning, never a refusal),
  *   2. assemble the runtime bundle ONCE (the same `buildRuntimeBundle` the live
  *      `/api/editor/runtime` runs), re-check the flow it actually ships, and freeze it +
  *      its `deploy/` files as an immutable published snapshot (`publishedRuntime.ts`),
@@ -44,7 +45,7 @@ import {
 } from './publishedRuntime';
 import { buildRuntimeBundle } from './runtimeBundle';
 import { unshippedCustomKinds } from './shaderExport';
-import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishCheck';
+import { checkSoundsForPublish } from './soundPublishCheck';
 import { unplayableFamilyMessage } from './familyGate';
 import { roomsAddressRefusal, withRoomsUrl } from './onlineLaunch';
 import { loadGameConfigDoc } from './gameConfigStorage';
@@ -63,6 +64,9 @@ export interface PublishResult {
 	/** What this publish shipped, licence-wise — surfaced ONCE, here, because the moment a build
 	 *  goes out is when "who owns this audio" stops being paperwork. Never blocking. */
 	sounds: SoundLicenceSummary;
+	/** Sounds this publish shipped still marked draft in Invisible Sound (`checkSoundsForPublish`).
+	 *  Never blocking: the owner ships drafts (2026-11-13), so the page shows them as a notice. */
+	draftSounds: string[];
 	/** What this publish shipped, flow-wise. `absent` = no stored flow, so the game runs without
 	 *  the flow's screens (free-spin intro/outro); `overridden` = shipped despite validation errors. */
 	flow: FlowPublishCheck['status'] | 'overridden';
@@ -99,8 +103,8 @@ export class PublishBlockedError extends Error {
 		 *  or `flow-wrong-kind` (a flow left from a kind change), a game
 		 *  the runtime cannot play, nor `no-game-server` (an online game while the launcher has no
 		 *  game server address to write into its launch URL);
-		 *  `unapproved-sounds`, `invalid-flow` and `paytable-drift` are deliberate-override cases (the
-		 *  last two for the owner role only; see the publish endpoint). */
+		 *  `invalid-flow` and `paytable-drift` are deliberate-override cases for the owner role only
+		 *  (see the publish endpoint). */
 		readonly reason:
 			| 'own-bundle'
 			| 'unplayable-family'
@@ -108,7 +112,6 @@ export class PublishBlockedError extends Error {
 			| 'runtime-unreleased'
 			| 'no-game-server'
 			| 'flow-wrong-kind'
-			| 'unapproved-sounds'
 			| 'invalid-flow'
 			| 'paytable-drift' = 'own-bundle',
 		/** The names behind the refusal, so the UI lists them instead of saying "something". */
@@ -141,7 +144,6 @@ const flowRefusal = (
 };
 
 type GateOptions = {
-	allowUnapproved?: boolean;
 	allowInvalidFlow?: boolean;
 	allowPaytableDrift?: boolean;
 	/** Stands in for the stored Game Config — the config a caller is about to save. */
@@ -150,7 +152,7 @@ type GateOptions = {
 
 /**
  * Step 1 of {@link publishGame}: every gate it runs before the ~20 s assemble, in order, as a
- * verdict rather than a throw — the own-bundle guard, then sounds, the stored flow, the family and the paytable.
+ * verdict rather than a throw: the own-bundle guard, then the stored flow, the family, the paytable.
  */
 async function runPublishGates(
 	clientKey: string,
@@ -158,7 +160,7 @@ async function runPublishGates(
 	name: string,
 	gameType: string,
 	options: GateOptions,
-): Promise<{ refusal: PublishBlockedError } | { refusal: null; soundCheck: SoundPublishCheck }> {
+): Promise<PublishBlockedError | null> {
 	// GUARD: never clobber a game that has its OWN built bundle. Desktop-launcher
 	// games (Book of Borut, Hot Fruits) live at test_server/<key>/ and are served
 	// from there with their real protocol + NO runtime field. Stamping
@@ -167,32 +169,14 @@ async function runPublishGates(
 	// Game Maker only publishes games authored ENTIRELY online (no per-key bundle).
 	// Checked first: it is final and costs one listing, where the assemble costs ~20s.
 	if (await hasOwnBuiltBundle(projectKey)) {
-		return {
-			refusal: new PublishBlockedError(
-				`"${name}" already has its own published build (a desktop-launcher game), so the ` +
-					`online Game Maker won't republish it — that would overwrite the real game with the ` +
-					`generic runtime. Re-publish it from the desktop launcher instead.`,
-			),
-		};
+		return new PublishBlockedError(
+			`"${name}" already has its own published build (a desktop-launcher game), so the ` +
+				`online Game Maker won't republish it — that would overwrite the real game with the ` +
+				`generic runtime. Re-publish it from the desktop launcher instead.`,
+		);
 	}
 
-	// 1a. THE SOUND GATE. Before anything is written: a sound the game plays that nobody has
-	// approved must not reach players unnoticed. Deliberately refused here rather than dropped from
-	// the export — a missing sound is SILENT, and silence is the one defect QA cannot see.
-	const soundCheck = await checkSoundsForPublish(clientKey, projectKey);
-	if (soundCheck.unapproved.length && !options.allowUnapproved) {
-		return {
-			refusal: new PublishBlockedError(
-				`${soundCheck.unapproved.length} sound${soundCheck.unapproved.length === 1 ? '' : 's'} ` +
-					`the game plays ${soundCheck.unapproved.length === 1 ? 'is' : 'are'} still marked draft: ` +
-					`${soundCheck.unapproved.join(', ')}. Approve them in Invisible Sound, or publish anyway.`,
-				'unapproved-sounds',
-				soundCheck.unapproved,
-			),
-		};
-	}
-
-	// 1b. THE FLOW GATE. The v2 flow drives the game's screens, and the editor's Validation panel is
+	// 1a. THE FLOW GATE. The v2 flow drives the game's screens, and the editor's Validation panel is
 	// advisory — so an error there (a hold nothing releases, a dead second wire, an unresolved ref)
 	// would otherwise reach players as a hung or silently skipped round. Checked here on the STORED
 	// flow so a refusal is instant, and again on the flow the snapshot actually freezes — an
@@ -204,33 +188,31 @@ async function runPublishGates(
 		gameType,
 		options.allowInvalidFlow,
 	);
-	if (flow) return { refusal: flow };
+	if (flow) return flow;
 
 	const config =
 		options.config === undefined ? await loadGameConfigDoc(clientKey, projectKey) : options.config;
-	// 1c. THE FAMILY GATE. A config the runtime cannot play yet (`mechanicFor().unplayable`: an
+	// 1b. THE FAMILY GATE. A config the runtime cannot play yet (`mechanicFor().unplayable`: an
 	// RGS-decided arcade game, until P10.10). No override: there is nothing a player could be
 	// shown. A playable non-slot game publishes to our test server only; a rules one is dealt the
 	// refusing `freePlay` mock.
 	const unplayable = unplayableFamilyMessage(config);
-	if (unplayable) return { refusal: new PublishBlockedError(unplayable, 'unplayable-family') };
+	if (unplayable) return new PublishBlockedError(unplayable, 'unplayable-family');
 	// The config's family picks the runtime (`runtimeFor`), so it must be the kind's family too.
 	const kindFamily = kindFamilyRefusal(gameType, config);
-	if (kindFamily) return { refusal: new PublishBlockedError(kindFamily, 'kind-family') };
+	if (kindFamily) return new PublishBlockedError(kindFamily, 'kind-family');
 	// An online game boots only with its game server's address in the launch URL (`rooms_url`).
 	const noServer = roomsAddressRefusal(config, ENV.GAME_SERVER_URL);
-	if (noServer) return { refusal: new PublishBlockedError(noServer, 'no-game-server') };
+	if (noServer) return new PublishBlockedError(noServer, 'no-game-server');
 
-	// 1d. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
+	// 1c. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
 	// quoting other prices unnoticed — the info page is built from the authored config, the partner
 	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
 	const drift = paytableDriftDetails(config);
 	if (drift.length && !options.allowPaytableDrift) {
-		return {
-			refusal: new PublishBlockedError(paytableDriftMessage(drift), 'paytable-drift', drift),
-		};
+		return new PublishBlockedError(paytableDriftMessage(drift), 'paytable-drift', drift);
 	}
-	return { refusal: null, soundCheck };
+	return null;
 }
 
 /**
@@ -245,7 +227,7 @@ export async function publishGateRefusal(
 	const clientKey = await clientKeyOf(projectKey);
 	const name = (await projectName(projectKey)) ?? projectKey;
 	const gameType = await projectGameType(projectKey);
-	return (await runPublishGates(clientKey, projectKey, name, gameType, options)).refusal;
+	return runPublishGates(clientKey, projectKey, name, gameType, options);
 }
 
 /**
@@ -256,7 +238,6 @@ export async function publishGame(
 	projectKey: string,
 	launcherOrigin: string,
 	options: {
-		allowUnapproved?: boolean;
 		allowInvalidFlow?: boolean;
 		allowPaytableDrift?: boolean;
 		by?: string;
@@ -267,9 +248,11 @@ export async function publishGame(
 	const name = (await projectName(projectKey)) ?? projectKey;
 	const key = projectKey;
 
-	const gates = await runPublishGates(clientKey, projectKey, name, gameType, options);
-	if (gates.refusal) throw gates.refusal;
-	const { soundCheck } = gates;
+	const blocked = await runPublishGates(clientKey, projectKey, name, gameType, options);
+	if (blocked) throw blocked;
+	// The draft sounds it ships are reported, never refused: the owner ships drafts (2026-11-13), and
+	// a missing sound would be SILENT, so they ship and the result names them.
+	const soundCheck = await checkSoundsForPublish(clientKey, projectKey);
 	const refuseFlow = (check: FlowPublishCheck) => {
 		const refusal = flowRefusal(check, gameType, options.allowInvalidFlow);
 		if (refusal) throw refusal;
@@ -362,6 +345,12 @@ export async function publishGame(
 		console.warn(
 			`[publish] ${projectKey}: a Hold and Win project with no Hold and Win mode in its Game ` +
 				'Config — the mock deals it plain lines. Save the config once in /config and re-publish.',
+		);
+	}
+	if (soundCheck.unapproved.length > 0) {
+		console.warn(
+			`[publish] ${projectKey}: shipped ${soundCheck.unapproved.length} sound(s) still marked ` +
+				`draft: ${soundCheck.unapproved.join(', ')}.`,
 		);
 	}
 	// An authoring boot's cached assemble predates this publish's exports. Drop it.
@@ -469,6 +458,7 @@ export async function publishGame(
 		url,
 		playUrl: url,
 		sounds: soundCheck.licences,
+		draftSounds: soundCheck.unapproved,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
 		spinesMissing: rigsMissing,
 		shaderEffectsMissing,

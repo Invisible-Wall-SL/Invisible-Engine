@@ -12,6 +12,8 @@ export interface PublishAllItem {
 	status: PublishAllItemStatus;
 	/** Failure reason, or the reason a game was skipped (e.g. it has its own desktop build). */
 	message?: string;
+	/** Sounds still marked draft that a published game shipped with: a warning, never a skip. */
+	draftSounds?: string[];
 	/** Wall-clock ms the publish took (finished items only). */
 	ms?: number;
 }
@@ -49,7 +51,7 @@ function isBlocked(e: unknown): boolean {
  */
 export async function runPublishAll(
 	job: PublishAllJob,
-	publish: (key: string) => Promise<unknown>,
+	publish: (key: string) => Promise<{ draftSounds: string[] }>,
 	now: () => number = Date.now,
 ): Promise<PublishAllJob> {
 	for (const item of job.items) {
@@ -57,8 +59,9 @@ export async function runPublishAll(
 		item.status = 'running';
 		const started = now();
 		try {
-			await publish(item.key);
+			const { draftSounds } = await publish(item.key);
 			item.status = 'ok';
+			if (draftSounds.length) item.draftSounds = draftSounds;
 		} catch (e) {
 			if (isBlocked(e)) {
 				item.status = 'skipped';

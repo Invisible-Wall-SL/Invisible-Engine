@@ -16,9 +16,9 @@ import { flowSoundCueLabel, projectFlowSoundCues } from './flowSoundCues';
  *  - **Missing** — a binding naming a sound that neither the library nor the shipped audiosprite
  *    declares. Howler declines an unknown sprite key SILENTLY, so this is the only way a typo
  *    becomes visible before a player hears the gap.
- *  - **Unapproved but shipped** — a draft the build ships. The publish gate refuses exactly these
- *    (`soundPublishCheck.ts`); showing them here means the author is not first told at the moment
- *    they ship.
+ *  - **Unapproved but shipped** — a draft the build ships. Publish names exactly these
+ *    (`soundPublishCheck.ts`) and ships them; showing them here means the author is not first told
+ *    after they ship.
  *
  * READ-ONLY, deliberately. The bindings stay in the tool that owns the moment
  * (`docs/design/invisible-sound.md` §2.3), so each row links out rather than editing in place: a
@@ -86,8 +86,8 @@ export interface SoundChecks {
 	unbound: string[];
 	/** Bound names that neither the library nor the audiosprite declares — an inaudible typo. */
 	missing: string[];
-	/** Library sounds that are played but still drafts (with `ships`: shipped drafts, the list the
-	 *  publish gate refuses). */
+	/** Library sounds that are played but still drafts (with `ships`: shipped drafts, the list
+	 *  Publish names). */
 	unapprovedBound: string[];
 	/**
 	 * Library sounds whose name matches a shipped audiosprite region. These are NOT unbound even
@@ -118,8 +118,8 @@ export interface SoundChecks {
  * `Record` across the wire without rebuilding a `Map` (`devalue` does not carry one).
  *
  * `ships`, when known, is the export's own answer for a library sound (`soundReachability.ts`);
- * `unbound` and `unapprovedBound` then follow it alone, so this page and the publish gate list the
- * same drafts. Until it is known they fall back to the bindings and the built-in overrides.
+ * `unbound` and `unapprovedBound` then follow it alone, so this page and Publish list the same
+ * drafts. Until it is known they fall back to the bindings and the built-in overrides.
  */
 export function checkSoundLibrary(
 	library: SoundsDoc | null | undefined,

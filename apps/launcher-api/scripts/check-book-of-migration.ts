@@ -9,7 +9,8 @@
  * miniature plus the edge cases. What it pins:
  *  - the census and the dry run write nothing;
  *  - a refusing publish gate, a held lease, an unstamped desktop build, free spins switched off and
- *    no scatter each BLOCK a project before anything of it is written;
+ *    no scatter each BLOCK a project before anything of it is written; a draft sound does not (it
+ *    ships with a warning, 2026-11-13);
  *  - apply migrates config, layout and kind, each save under its ETag with a backup, republishes
  *    only the project's own test-server card (never a desktop build, never the partner game), and
  *    the republished manifest entry deals the Book of Thermopylae grid on the lines mock;
@@ -243,8 +244,11 @@ mockAll('lib/server/runtimeBundle.ts', {
 		},
 	},
 });
-/** Projects with a sound still marked draft — the publish's sound gate refuses them. */
-const DRAFT_SOUNDS: Record<string, string[]> = { bookofpots: ['pot_win'] };
+/** Projects with a sound still marked draft — they ship it; the publish only names it. */
+const DRAFT_SOUNDS: Record<string, string[]> = { bookofborutremake: ['sfx_book_open'] };
+/** Projects whose stored flow fails validation — the publish's flow gate refuses them. */
+const FLOW_ERROR = 'The hold "pots-intro" is never released.';
+const INVALID_FLOWS = new Set(['bookofpots']);
 mockAll('lib/server/soundPublishCheck.ts', {
 	namedExports: {
 		checkSoundsForPublish: async (_client: string, project: string) => ({
@@ -255,10 +259,15 @@ mockAll('lib/server/soundPublishCheck.ts', {
 });
 mockAll('lib/server/flowV2Validation.ts', {
 	namedExports: {
-		checkFlowV2ForPublish: async () => ({ status: 'absent' }),
+		checkFlowV2ForPublish: async (_client: string, project: string) => ({
+			status: INVALID_FLOWS.has(project) ? 'invalid' : 'absent',
+		}),
 		checkShippedFlowV2: async () => ({ status: 'absent' }),
 		describeFlowErrors: () => [],
-		flowGateRefusal: () => null,
+		flowGateRefusal: (check: { status: string }) =>
+			check.status === 'invalid'
+				? { reason: 'invalid-flow', message: `The game's flow has 1 error: ${FLOW_ERROR}`, details: [FLOW_ERROR] } // prettier-ignore
+				: null,
 		flowScreensMissing: () => [],
 	},
 });
@@ -524,7 +533,7 @@ await check('the census: every bookOf row and nothing else, with its facts', () 
 });
 
 await check('the plan: what each project would change, and what blocks it', () => {
-	same(plan('bookofborutremake').blockers, [], 'remake not blocked');
+	same(plan('bookofborutremake').blockers, [], 'remake not blocked (its draft sound only warns)');
 	same(plan('bookofborutremake').config.changes.length, 6, 'remake: six config changes');
 	same(plan('bookofborutremake').republish, { games: ['bookofborutremake'], skipped: [{ key: 'bookofborutremakebuild', why: 'a desktop build (its own bundle): rebuilt, not republished' }] }, 'remake republish'); // prettier-ignore
 	same(plan('bookoffresh').config.changes, ['un-authored: the Book of Thermopylae preset is stored as its config'], 'fresh'); // prettier-ignore
@@ -537,7 +546,7 @@ await check('the plan: what each project would change, and what blocks it', () =
 	); // prettier-ignore
 	same(plan('bookofborut').republish.games, [], 'a desktop card under the project key is not a republish target'); // prettier-ignore
 	assert(
-		plan('bookofpots').blockers.some((b) => b.startsWith('its republish of "bookofpots" would be refused — unapproved-sounds: 1 sound the game plays is still marked draft: pot_win.')),
+		plan('bookofpots').blockers.some((b) => b.startsWith(`its republish of "bookofpots" would be refused — invalid-flow: The game's flow has 1 error: ${FLOW_ERROR}`)),
 		`the pots gate blocks before anything is written: ${plan('bookofpots').blockers.join('; ')}`,
 	); // prettier-ignore
 	assert(plan('bookoffreeoff').blockers[0]?.startsWith('free spins are off'), 'free spins off blocks'); // prettier-ignore
@@ -626,6 +635,10 @@ await check('layout and kind move after the docs; publishes only test-server car
 	}
 	same(KIND_WRITES, ['bookofborutremake=lines', 'bookofthermopylae=lines', 'bookofkept=lines', 'bookofflaky=lines'], 'kinds'); // prettier-ignore
 	same(PUBLISHES, ['bookofborutremake'], 'only the remake republished (flaky failed)');
+	assert(
+		result(first, 'bookofborutremake').steps.includes('republish bookofborutremake: published'),
+		'the remake republished with its draft sound',
+	);
 	assert(
 		result(first, 'bookofthermopylae').steps.some((s) => s.startsWith('republish bookofthermopylae: skipped — not a test-server card')),
 		'the partner game is skipped',

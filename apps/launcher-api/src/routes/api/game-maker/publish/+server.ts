@@ -19,15 +19,15 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * whole admin panel. Body: `{ project: string }`. On success returns the playable game URL.
  *
  *   POST /api/game-maker/publish
- *     { "project": "<key>", "confirmRepairRun"?: true, "allowUnapproved"?: true, "allowInvalidFlow"?: true,
+ *     { "project": "<key>", "confirmRepairRun"?: true, "allowInvalidFlow"?: true,
  *       "allowPaytableDrift"?: true }
- *   → 200 { ok, key, url, playUrl, sounds, flow }
+ *   → 200 { ok, key, url, playUrl, sounds, draftSounds, flow } — `draftSounds` names the shipped
+ *     sounds still marked draft, a warning and never a refusal (owner, 2026-11-13)
  *   → 409 { error, reason: 'repair-run-live', details: { runId, bugNumber }, canOverride: true } — a
  *     Director game repair run is changing the project (ADR-0012): publishing would ship its
  *     half-done edits. Any publisher may confirm with `confirmRepairRun: true`; it only warns.
- *   → 409 { error, reason, details, canOverride }   — blocked; `unapproved-sounds` is overridable by
- *     any publisher, `invalid-flow` and `paytable-drift` by the owner role only (`canOverride` says
- *     which applies here)
+ *   → 409 { error, reason, details, canOverride }   — blocked; `invalid-flow` and `paytable-drift` are
+ *     overridable by the owner role only (`canOverride` says which applies here)
  */
 export const POST: RequestHandler = async ({ request, locals, url, cookies }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
@@ -37,7 +37,6 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 
 	let body: {
 		project?: unknown;
-		allowUnapproved?: unknown;
 		allowInvalidFlow?: unknown;
 		allowPaytableDrift?: unknown;
 		confirmRepairRun?: unknown;
@@ -73,9 +72,6 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		);
 	}
 
-	// The explicit "ship it anyway" for a sound the game plays that nobody has approved. Only ever
-	// set by an author answering the refusal below — never a default, or the gate would be decorative.
-	const allowUnapproved = body.allowUnapproved === true;
 	// Shipping a flow the validator rejects can hang a round for every player, so pushing past it
 	// is kept to the owner role, not every holder of the publish capability.
 	const isOwner = locals.user.role === OWNER_ROLE;
@@ -99,7 +95,6 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 	try {
 		// The runtime fetches its authoring data back from THIS launcher's origin.
 		const result = await publishGame(project, url.origin, {
-			allowUnapproved,
 			allowInvalidFlow,
 			allowPaytableDrift,
 			by: locals.user.email,
@@ -119,12 +114,10 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		// A blocked publish (e.g. a game with its own desktop build) is a 409 with the
 		// explanation, so the UI tells the user WHY instead of a generic failure.
 		if (e instanceof PublishBlockedError) {
-			// `reason` + `details` so the UI can tell an overridable refusal (unapproved sounds) from a
-			// final one (a game with its own desktop build, which overwriting would destroy) — and can
-			// list the sounds instead of saying "something".
-			const canOverride =
-				e.reason === 'unapproved-sounds' ||
-				((e.reason === 'invalid-flow' || e.reason === 'paytable-drift') && isOwner);
+			// `reason` + `details` so the UI can tell an overridable refusal (a flow error, for the owner)
+			// from a final one (a game with its own desktop build, which overwriting would destroy) — and
+			// can list the errors instead of saying "something".
+			const canOverride = (e.reason === 'invalid-flow' || e.reason === 'paytable-drift') && isOwner;
 			return json(
 				{ error: e.message, reason: e.reason, details: e.details, canOverride },
 				{ status: 409, headers: NO_STORE },

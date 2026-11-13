@@ -4,38 +4,39 @@ import { collectPlayedSoundNames, shippedSoundEntries } from './soundReachabilit
 import { loadSoundsDoc } from './soundsStorage';
 
 /**
- * THE PUBLISH GATE for sound — the one place approval means anything.
+ * THE PUBLISH CHECK for sound — which drafts a release ships.
  *
- * A draft plays everywhere: in the game, in a test build, in the tool. Approval gates the RELEASE,
- * not the playback, and that is inverted from Invisible Localization on purpose. An unreviewed
+ * A draft plays everywhere: in the game, in a test build, in the tool, and it ships. Approval is
+ * never a filter, and that is inverted from Invisible Localization on purpose. An unreviewed
  * string falls back to visible English; an unapproved sound would fall back to SILENCE, which
- * howler produces without an error and nobody notices in QA. So the check happens loudly at the
- * moment of shipping instead of quietly removing audio (`docs/design/invisible-sound.md` §6).
+ * howler produces without an error and nobody notices in QA. So every publish path names the
+ * drafts it ships, as a warning that never refuses (the owner's call, 2026-11-13;
+ * `docs/design/invisible-sound.md` §6).
  *
- * A draft blocks exactly when the build SHIPS it: the gate asks `soundReachability.ts` the question
- * `exportProjectSounds` asks, with the same resolved choices. So every place the export finds a
- * name counts — the `/sound` choices, a cinematic cue and its `pick` alternates, a timeline, a
- * component, the flow — and so does a draft named after an engine sound, which the export ships
- * because it replaces one the engine's own code plays. An unapproved file nothing names ships
- * nothing and stops nothing — that is what a library is for.
+ * A draft is listed exactly when the build SHIPS it: the check asks `soundReachability.ts` the
+ * question `exportProjectSounds` asks, with the same resolved choices. So every place the export
+ * finds a name counts — the `/sound` choices, a cinematic cue and its `pick` alternates, a
+ * timeline, a component, the flow — and so does a draft named after an engine sound, which the
+ * export ships because it replaces one the engine's own code plays. An unapproved file nothing names ships
+ * nothing and is not listed — that is what a library is for.
  */
 
 export interface SoundPublishCheck {
-	/** Shipped sounds still marked draft. Non-empty ⇒ the publish is refused unless overridden. */
+	/** Shipped sounds still marked draft. Reported with the publish, never refusing it. */
 	unapproved: string[];
 	/** What this publish is about to ship, licence-wise. Informational, never blocking. */
 	licences: SoundLicenceSummary;
 }
 
 /**
- * Report what would block a publish: the drafts among the library sounds the export would ship.
+ * Report the drafts among the library sounds the export would ship.
  *
- * When unsure, the gate answers what the export would do, so the two never disagree:
- *  - the sounds doc cannot be read ⇒ the export ships no library sound, so nothing blocks;
+ * When unsure, the check answers what the export would do, so the two never disagree:
+ *  - the sounds doc cannot be read ⇒ the export ships no library sound, so none is listed;
  *  - any other source cannot be read, or a flow cue builds its sound's name at run time ⇒ the
- *    export ships every sound, so every draft blocks. A name built at run time can be any of them,
- *    and an unreadable document may name any of them; a transient read failure costs a retry or a
- *    "publish anyway", where staying quiet would let an unreviewed sound out unnoticed.
+ *    export ships every sound, so every draft is listed. A name built at run time can be any of
+ *    them, and an unreadable document may name any of them; a transient read failure costs a
+ *    longer warning, where staying quiet would let an unreviewed sound out unnoticed.
  */
 export async function checkSoundsForPublish(
 	clientKey: string,
@@ -53,7 +54,7 @@ export async function checkSoundsForPublish(
 		return empty;
 	}
 
-	// A project with no library of its own can neither block nor owe anyone: every sound it plays is
+	// A project with no library of its own ships no draft and owes no one: every sound it plays is
 	// the engine's. Short-circuit so the common case costs nothing.
 	const entries = library?.entries ?? [];
 	if (!entries.length) return empty;

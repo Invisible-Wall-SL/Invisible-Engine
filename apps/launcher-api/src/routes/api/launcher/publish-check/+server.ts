@@ -7,9 +7,10 @@ import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
 
-// GET ?project=<bare project key> — the publish checks the online Publish runs (draft sounds, flow
-// errors, a family the runtime cannot play), as `{ project, ok, checked, failed[], publishAnyway }`
-// (`$lib/server/publishChecks.ts`). Read-only: it runs the gates and writes nothing.
+// GET ?project=<bare project key> — the publish checks the online Publish runs (flow errors and a
+// family the runtime cannot play fail, draft sounds warn), as
+// `{ project, ok, checked, failed[], warnings[], publishAnyway }` (`$lib/server/publishChecks.ts`).
+// Read-only: it runs the checks and writes nothing.
 //
 // A route of its own rather than a field on `GET /api/launcher/game-upload`: that route takes the
 // GAME key (often `<project>build`, never the project), writes R2 through its PUT/POST, and answers

@@ -3,9 +3,10 @@
 //   node scripts/check-build-breakdown-desktop.mjs
 //
 // Lays out a small finished build plus the notes its steps leave (pull.json, bake.json, the
-// launcher's images.json), runs the REAL `scripts/build-breakdown.mjs` on it, and pins what a
-// publisher relies on: categories and sizes, reference counts from the bundle, the code and other
-// files, asset uses, the left-out ledger, the checks, and a page that opens with no network.
+// launcher's images.json, the bake's publish-check.json), runs the REAL `scripts/build-breakdown.mjs`
+// on it, and pins what a publisher relies on: categories and sizes, reference counts from the
+// bundle, the code and other files, asset uses, the left-out ledger, the checks (a build that
+// shipped draft sounds says so), and a page that opens with no network.
 
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -225,6 +226,25 @@ try {
 		recompressed: [],
 		audioDropped: [],
 	});
+	// The bake's publish checks passed with a warning: draft sounds ship (owner, 2026-11-13).
+	note('publish-check.json', {
+		project: 'demo',
+		status: 'passed',
+		checked: ['sounds', 'flow', 'family'],
+		failed: [],
+		warnings: [
+			{
+				id: 'unapproved-sounds',
+				reason: 'The game ships 2 sounds still marked draft.',
+				items: ['sfx_coin', 'sfx_win'],
+				fixIn: 'Invisible Sound',
+				overridable: false,
+			},
+		],
+		overridden: [],
+		blocking: [],
+		override: null,
+	});
 
 	const resultPath = join(tmp, 'result.json');
 	const run = spawnSync(
@@ -381,6 +401,26 @@ try {
 		undefined,
 	);
 	check('check: assets the data never names', issue('Assets the game data never names'), []);
+	check(
+		'check: a build that shipped draft sounds says how many, naming each',
+		[
+			b.issues.find((i) => i.title === 'Shipped with publish-check warnings')?.level,
+			issue('Shipped with publish-check warnings'),
+		],
+		[
+			'warn',
+			[
+				'The game ships 2 sounds still marked draft. Fix it in Invisible Sound.',
+				'  sfx_coin',
+				'  sfx_win',
+			],
+		],
+	);
+	check(
+		'check: a warning is not a build shipped past the checks',
+		issue('Shipped past the publish checks'),
+		[],
+	);
 
 	const html = readFileSync(join(report, 'build-breakdown.html'), 'utf8');
 	check(
