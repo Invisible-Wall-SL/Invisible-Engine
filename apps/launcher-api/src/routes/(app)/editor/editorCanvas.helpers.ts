@@ -908,7 +908,7 @@ function ownBox(
 		const h = t.height ?? node.height;
 		return { w, h, ax, ay };
 	}
-	if (node.kind === 'reelGrid') return reelGridBox(node, t.anchor, undefined);
+	if (node.kind === 'reelGrid') return reelGridBox(node, t.anchor, undefined, t.scale);
 	return { w: 160, h: 100, ax, ay };
 }
 
@@ -920,8 +920,9 @@ export function reelGridBox(
 	node: Extract<LayoutNode, { kind: 'reelGrid' }>,
 	anchor: { x: number; y: number } | undefined,
 	dims: Parameters<typeof reelGridGeometry>[2],
+	scale: Parameters<typeof reelGridGeometry>[3],
 ): NodeBox {
-	const geo = reelGridGeometry(node, anchor, dims);
+	const geo = reelGridGeometry(node, anchor, dims, scale);
 	return { w: geo.width, h: geo.height, ax: -geo.left / geo.width, ay: -geo.top / geo.height };
 }
 
@@ -1464,6 +1465,9 @@ export function reelGridGeometry(
 		| { reels: number; rows: number; rowsPerReel?: number[]; rowOffsets?: number[] }
 		| null
 		| undefined,
+	/** The node's own resolved scale. The board nudge is in the node's x/y units, added OUTSIDE
+	 *  that scale (as `boardLayout()` adds it), so in this local space it is the nudge ÷ the scale. */
+	scale?: { x: number; y: number },
 ): ReelGridGeometry {
 	const reels = Math.max(1, Math.round(dims?.reels ?? node.reels));
 	const rows = Math.max(1, Math.round(dims?.rows ?? node.rows));
@@ -1475,8 +1479,11 @@ export function reelGridGeometry(
 	const pitchY = cellH + gapY;
 	const width = reels * cellW + (reels - 1) * gapX;
 	const height = rows * cellH + (rows - 1) * gapY;
-	const nudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
-	const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
+	const unscale = (v: number | undefined) => (v !== undefined && v > 0 ? v : 1);
+	const nudgeX =
+		(Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0) / unscale(scale?.x);
+	const nudgeY =
+		(Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0) / unscale(scale?.y);
 	// Clip-only, so it is read here and never enters `left`/`top`/`width`/`height` or a seat. Read
 	// through the SAME "finite and positive" gate the engine's resolver uses — a negative would
 	// shrink the window rather than grow it, and the preview must reject exactly what the game does.

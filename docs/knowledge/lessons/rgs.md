@@ -7,6 +7,19 @@ traps. It covers the translator (`packages/rgs-translator-eagaming`), the mock R
 (`services/test-server`, `scripts/mock-rgs-server*.mjs`), money, `seq`/`gid`, resume and delivery
 builds. Slot-type traps live in the family files, e.g. [lines](../families/lines.md).
 
+### A line paid in the middle lit the left end of the line
+
+- **Symptom:** on the partner's Getting Hot, after the right-read fix below shipped, a 3-of-a-kind
+  line win still lit reels 0–2 while the three paying symbols sat on reels 1–3.
+- **Cause:** the right-read fix was built from a screenshot, not the wire. The wire says
+  `direction: 'any'` (`lineAlign: 'any'`): a run pays wherever it sits on the line, so neither end
+  is the right guess. The facade handed over the whole payline and the engine lit its leftmost cells.
+- **Fix:** for `direction: 'any'`, `winPositions` finds the run of `occurs` reels along the payline
+  that holds the paying symbol (or a wild) on the board it paid on.
+- **Guard:** `collectorRespin.fixture.ts` "any line win" replays the captured round; the
+  partner-wire mock now deals `any` wins. Capture the wire before fixing a wire-shaped bug.
+- **PR:** this one (2026-11-13) · source: `docs/status/hold-and-win.md`
+
 ### A line paid from the right lit the left end of the line
 
 - **Symptom:** on the partner's Getting Hot, a 3-of-a-kind line win paid the right amount, but the

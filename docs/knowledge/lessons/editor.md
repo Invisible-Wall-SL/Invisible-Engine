@@ -6,14 +6,14 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
-### The reel grid's selection box sat a row below the board
+### The reel grid was framed, then drawn, off the game's board
 
-- **Symptom:** in Getting Hot the reel grid's box and handles framed one row below the cells.
-- **Cause:** the box re-derived the board size from the node (`reels`/`rows`, anchor only); the
-  draw uses `reelGridGeometry` (Game Config count + board nudge). Nudge Y −79 = one cell.
-- **Fix:** the box is `reelGridBox`, read off `reelGridGeometry` — one definition for both.
-- **Guard:** `check:reel-grid-box`.
-- **PR:** #1642 (2026-11-12) · source: `docs/status/editor.md`
+- **Symptom:** Getting Hot: the box sat a row below the cells; then the game drew the board lower.
+- **Cause:** the box re-derived the board from the node (anchor only). The preview applied the board
+  nudge INSIDE the node's scale (−79 × 2.59); the game adds it to x/y unscaled, as its type says.
+- **Fix:** the box is `reelGridBox`, read off `reelGridGeometry`, which divides the nudge by scale.
+- **Guard:** `check:reel-grid-box` (pins the centre to the game's `resolveReelGridFromNode`).
+- **PR:** #1642 (2026-11-12), #1657 (2026-11-13) · source: `docs/status/editor.md`
 
 ### An added layout bucket drew a Stake-sized box and no coded HUD
 

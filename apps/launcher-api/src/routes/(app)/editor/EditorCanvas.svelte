@@ -3432,7 +3432,8 @@
 			const projection = tilemapProjection(node);
 			if (projection) return tilemapBox(node, projection, t);
 		}
-		if (node.kind === 'reelGrid') return reelGridBox(node, t.anchor, gridDimensions);
+		if (node.kind === 'reelGrid')
+			return reelGridBox(node, t.anchor, gridDimensions, resolveTransform(node, layoutType).scale);
 		return nodeBox(
 			node,
 			t,
@@ -3658,7 +3659,12 @@
 		// Board geometry (cell boxes + symbol seats) comes from the SHARED `reelGridGeometry`,
 		// the same resolver `EditorRigLayer` reads — so a sprite symbol drawn here and a rig
 		// symbol drawn by the WebGL layer land on the SAME seat.
-		const geo = reelGridGeometry(node, t.anchor, gridDimensions);
+		const geo = reelGridGeometry(
+			node,
+			t.anchor,
+			gridDimensions,
+			resolveTransform(node, layoutType).scale,
+		);
 		const { left, top } = geo;
 		const w = geo.width;
 		const h = geo.height;
