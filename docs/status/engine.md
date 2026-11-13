@@ -610,6 +610,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-13 — **The stock-folder sweep keeps a folder whole when it cannot read a kept file's
+  pages.** Follow-up to #1651's review: the sweep deleted every stock-folder file no kept descriptor
+  named *as `namedFiles` parsed it*, so a kept key whose descriptor named its pages in another form
+  drew blank in a desktop or standalone build. `stockAssetPrune.js` now (1) reads Pixi's
+  multi-texture sheet (`textures[].image`), a font quoting `file='…'`, and matches pages without
+  case (a Windows exe loads `Page.png` from `page.png`); (2) skips the sweep of a stock folder whose
+  kept atlas, sheet or font named no page, and of every folder when that descriptor sits outside
+  them or a kept file outside them cannot be read (`artKeptAllBecause` now also stops the sweep);
+  the skipped-key prune still runs. A font naming fewer pages than its `common pages=` declares
+  counts as unread, and an unread descriptor reaching `../` out of its folder stops every folder;
+  (3) `namedBy` also matches through `%XX`, backslashes and any case. `stock.json` gains
+  `sweepKeptBecause`. The shared runtime is not pruned, so online games are untouched. Gate:
+  `check-stock-asset-prune.mts` §8 (10 checks, each failing on the code before it).
 - 2026-11-13 — **current-games: 10 render shards, 60-minute limit, and a fresh `costs.json`.**
   Run 43370261063 lost `render (1)` at 45 minutes on a runner twice as slow (every unit 2x: test6/base
   309 s against 156 s) and the report failed with no screen changed. The balancing was already

@@ -20,7 +20,9 @@
  * Only a standalone game build (the cwd is outside the engine) is pruned: the engine's own apps,
  * the shared runtime online games boot included, ship exactly as before. `IE_STOCK_PRUNE=0` turns
  * it off. Every doubt keeps every file: the plan keeping all, a plan that cannot run, a kept file
- * that cannot be read, a stock-folder file the bundle or the built code names.
+ * that cannot be read, a stock-folder file the bundle or the built code names, and every file of a
+ * stock folder holding a kept atlas, sheet or font whose pages this parser cannot read (all of them
+ * when that descriptor is outside the stock folders).
  *
  * The plan is loaded through a throwaway Vite server (`ssrLoadModule`), because it imports the
  * game's TypeScript sources the way the game build resolves them.
@@ -81,38 +83,70 @@ const sibling = (from, name) => {
 	return joined.startsWith('../') || posix.isAbsolute(joined) ? null : joined;
 };
 
-/** The files `rel` names in turn: an atlas's pages, a sheet's image and related packs, a font's pages. */
+const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * The files `rel` names in turn (an atlas's pages, a sheet's images and related packs, a font's
+ * pages), and whether it is a page descriptor: an atlas, a font, or a sheet JSON. A page descriptor
+ * that names no page, or a font naming fewer than it declares, is in a form this parser does not
+ * read (`partial`).
+ */
 function namedFiles(assetsDir, rel) {
-	const text = readFileSync(join(assetsDir, rel), 'utf8');
-	if (rel.endsWith('.atlas')) {
-		return text
+	const text = readFileSync(join(assetsDir, rel), 'utf8').replace(/^\uFEFF/, '');
+	if (/\.atlas$/i.test(rel)) {
+		const names = text
 			.split(/\r?\n/)
 			.map((line) => line.trim())
 			.filter((line) => line && !line.includes(':') && PAGE_EXT.test(line));
+		return { names, pageDescriptor: true };
 	}
-	if (rel.endsWith('.xml') || rel.endsWith('.fnt')) {
-		// `<page id="0" file="…"/>` in an XML font, `page id=0 file="…"` in a text `.fnt`.
-		return [...text.matchAll(/\bpage\b[^>\n]*\bfile="([^"]+)"/g)].map((m) => m[1]);
+	if (/\.(xml|fnt)$/i.test(rel)) {
+		// `<page id="0" file="…"/>` in an XML font, `page id=0 file="…"` in a text `.fnt`, either quote.
+		const names = [...text.matchAll(/\bpage\b[^>]*?\bfile=(?:"([^"]+)"|'([^']+)')/g)].map(
+			(m) => m[1] ?? m[2],
+		);
+		const declared = Number(/\bcommon\b[^>\n]*\bpages=["']?(\d+)/.exec(text)?.[1] ?? 0);
+		return {
+			names,
+			pageDescriptor: /<font\b|^\s*(info|common)\s/m.test(text),
+			partial: names.length < declared,
+		};
 	}
-	if (rel.endsWith('.json')) {
-		const meta = JSON.parse(text)?.meta;
-		return [
-			...(typeof meta?.image === 'string' ? [meta.image] : []),
-			...(Array.isArray(meta?.related_multi_packs) ? meta.related_multi_packs : []),
+	if (/\.json$/i.test(rel)) {
+		const doc = JSON.parse(text);
+		if (!isRecord(doc)) return { names: [], pageDescriptor: false };
+		const meta = isRecord(doc.meta) ? doc.meta : {};
+		// Pixi's multi-texture form: `textures: [{ image, frames }]`.
+		const textures = Array.isArray(doc.textures) ? doc.textures.filter(isRecord) : [];
+		const names = [
+			...(typeof meta.image === 'string' ? [meta.image] : []),
+			...textures.map((texture) => texture.image).filter((image) => typeof image === 'string'),
+			...(Array.isArray(meta.related_multi_packs)
+				? meta.related_multi_packs.filter((pack) => typeof pack === 'string')
+				: []),
 		];
+		return {
+			names,
+			pageDescriptor: 'frames' in doc || 'textures' in doc || 'image' in meta,
+		};
 	}
-	return [];
+	return { names: [], pageDescriptor: false };
 }
 
-/** Every file `roots` load, followed through what each names; throws when one cannot be read. */
-function closure(assetsDir, roots) {
+/**
+ * Every file `roots` load, followed through what each names; throws when one cannot be read. A page
+ * descriptor whose pages are not all read is pushed onto `unread`: what it draws from is unknown.
+ */
+function closure(assetsDir, roots, unread = []) {
 	const seen = new Set();
 	const queue = [...roots];
 	while (queue.length) {
 		const rel = queue.pop();
 		if (seen.has(rel)) continue;
 		seen.add(rel);
-		for (const name of namedFiles(assetsDir, rel)) {
+		const { names, pageDescriptor, partial } = namedFiles(assetsDir, rel);
+		if (partial || (pageDescriptor && !names.some((name) => PAGE_EXT.test(name)))) unread.push(rel);
+		for (const name of names) {
 			const next = sibling(rel, name);
 			if (next === null) throw new Error(`${rel} names ${name}, outside the assets folder`);
 			if (PAGE_EXT.test(next)) seen.add(next);
@@ -122,15 +156,15 @@ function closure(assetsDir, roots) {
 	return seen;
 }
 
-/** A page's other encodings beside it (the 🗜 Optimize WebP twin, a KTX2 copy, the engine's
- *  premultiplied KTX2 twin of a stock page). */
-const withTwins = (assetsDir, rels) => {
+/** `rels` with each page's other encodings beside it (the 🗜 Optimize WebP twin, a KTX2 copy, the
+ *  engine's premultiplied KTX2 twin of a stock page), whether or not they exist. */
+const withTwins = (rels) => {
 	const out = new Set(rels);
 	for (const rel of rels) {
 		if (!PAGE_EXT.test(rel)) continue;
 		const stem = rel.replace(PAGE_EXT, '');
 		for (const ext of ['.png', '.webp', '.jpg', '.jpeg', '.avif', '.ktx2', '.pm.ktx2', '.basis']) {
-			if (existsSync(join(assetsDir, stem + ext))) out.add(stem + ext);
+			out.add(stem + ext);
 		}
 	}
 	return out;
@@ -157,7 +191,8 @@ const DESCRIPTOR_EXT = /\.(atlas|json|xml|fnt)$/i;
  * also names.
  * `isNamed(rel)` protects a stock-folder file nothing in the table loads but the bundle or the code
  * names. Returns what was removed (`rel` relative to `assetsDir`; `art` the exported art's share)
- * or, when a doubt stopped it, `keptAllBecause` with nothing removed.
+ * or, when a doubt stopped it, `keptAllBecause` with nothing removed; `artKeptAllBecause` and
+ * `sweepKeptBecause` when a doubt stopped only the art prune or (some of) the folder sweep.
  *
  * @param {string} assetsDir
  * @param {{ skipped: string[], files: Record<string, string[]>, keptAllBecause?: string,
@@ -184,7 +219,15 @@ export function pruneStockFiles(assetsDir, plan, { isNamed = () => false } = {})
 	}
 	// A kept key whose own file is absent loads nothing from this folder, so it protects nothing.
 	const exists = (rel) => existsSync(join(assetsDir, rel));
-	const inStockFolder = (rel) => folders.some((folder) => rel.startsWith(`${folder}/`));
+	// The outermost stock folder holding `rel`, so a nested folder is swept with its parent.
+	const folderOf = (rel) =>
+		folders
+			.filter((folder) => rel.startsWith(`${folder}/`))
+			.reduce(
+				(outer, folder) => (outer && outer.length <= folder.length ? outer : folder),
+				undefined,
+			);
+	const inStockFolder = (rel) => folderOf(rel) !== undefined;
 	const leavingRoots = new Set([...stockLeaving, ...artLeaving]);
 	const all = filesUnder(assetsDir);
 	// Every other descriptor outside the stock folders may name a page a left-out one also names
@@ -192,9 +235,10 @@ export function pruneStockFiles(assetsDir, plan, { isNamed = () => false } = {})
 	const otherRoots = all.filter(
 		(rel) => DESCRIPTOR_EXT.test(rel) && !leavingRoots.has(rel) && !inStockFolder(rel),
 	);
+	const unread = [];
 	let reached;
 	try {
-		reached = closure(assetsDir, keptRoots.filter(exists));
+		reached = closure(assetsDir, keptRoots.filter(exists), unread);
 	} catch (error) {
 		return {
 			removed: [],
@@ -207,31 +251,44 @@ export function pruneStockFiles(assetsDir, plan, { isNamed = () => false } = {})
 	let artKeptAllBecause;
 	for (const root of [...keptArt.filter(exists), ...otherRoots]) {
 		try {
-			for (const rel of closure(assetsDir, [root])) reached.add(rel);
+			for (const rel of closure(assetsDir, [root], unread)) reached.add(rel);
 		} catch (error) {
 			artKeptAllBecause ??= `a kept file could not be read: ${error.message}`;
 		}
 	}
-	const kept = withTwins(assetsDir, reached);
+	// Pages are matched without case (a Windows build loads `Page.png` from `page.png`).
+	const kept = new Set([...withTwins(reached)].map((rel) => rel.toLowerCase()));
+	const isKept = (rel) => kept.has(rel.toLowerCase());
+	// The sweep deletes what no kept file names, so it runs only where every kept file was read: a
+	// descriptor whose pages are unknown keeps its folder whole, or every folder when it sits outside
+	// them (its pages may be anywhere), and so does a kept file that could not be read.
+	const unswept = new Set(unread.map(folderOf));
+	// An unread descriptor that reaches out of its folder may draw from any other.
+	const reachesOut = (rel) => /\.\.[\\/]/.test(readFileSync(join(assetsDir, rel), 'utf8'));
+	const sweepsNone = !!artKeptAllBecause || unswept.has(undefined) || unread.some(reachesOut);
+	const sweepKeptBecause =
+		artKeptAllBecause ??
+		(unread.length ? `no page read from ${[...new Set(unread)].sort().join(', ')}` : undefined);
+	const sweeps = (rel) => !sweepsNone && inStockFolder(rel) && !unswept.has(folderOf(rel));
 	const leaving = (roots) => {
 		const present = roots.filter(exists);
 		try {
-			return withTwins(assetsDir, closure(assetsDir, present));
+			return withTwins(closure(assetsDir, present));
 		} catch {
 			// What an unreadable left-out file names stays; the file itself still goes.
-			return withTwins(assetsDir, new Set(present));
+			return withTwins(new Set(present));
 		}
 	};
 	const stockGoing = leaving(stockLeaving);
 	for (const rel of all) {
-		if (inStockFolder(rel) && !kept.has(rel) && !isNamed(rel)) stockGoing.add(rel);
+		if (sweeps(rel) && !isKept(rel) && !isNamed(rel)) stockGoing.add(rel);
 	}
 	const artGoing = artKeptAllBecause ? new Set() : leaving(artLeaving);
 	const remove = (going) => {
 		const removed = [];
 		for (const rel of [...going].sort()) {
 			const abs = join(assetsDir, rel);
-			if (kept.has(rel) || !existsSync(abs)) continue;
+			if (isKept(rel) || !existsSync(abs)) continue;
 			const bytes = statSync(abs).size;
 			rmSync(abs);
 			removed.push({ rel, bytes });
@@ -244,7 +301,12 @@ export function pruneStockFiles(assetsDir, plan, { isNamed = () => false } = {})
 		const abs = join(assetsDir, dir);
 		if (existsSync(abs) && readdirSync(abs).length === 0) rmSync(abs, { recursive: true });
 	}
-	return { removed, art: artRemoved, ...(artKeptAllBecause ? { artKeptAllBecause } : {}) };
+	return {
+		removed,
+		art: artRemoved,
+		...(artKeptAllBecause ? { artKeptAllBecause } : {}),
+		...(sweepKeptBecause ? { sweepKeptBecause } : {}),
+	};
 }
 
 /** Run the build-time plan (`stockAssetBuild.ts`) on the bundle at `bundlePath`; any failure keeps
@@ -372,6 +434,26 @@ function writeReport(report) {
 
 const fmt = (bytes) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 
+/** `text` with URL escapes decoded, backslashes (escaped or not) as `/`, and no case. */
+const normalisedPathText = (text) =>
+	text
+		.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+			try {
+				return decodeURIComponent(run);
+			} catch {
+				return run;
+			}
+		})
+		.replace(/\\+/g, '/')
+		.toLowerCase();
+
+/** Whether `text` names `rel`: as written, or through URL escapes, backslashes and any case. */
+export const namesIn = (text) => {
+	const named = normalisedPathText(text);
+	const raw = text.toLowerCase();
+	return (rel) => named.includes(rel.toLowerCase()) || raw.includes(rel.toLowerCase());
+};
+
 /** Whether the baked bundle or the built client code names `rel`: what keeps a stock-folder file
  *  the stock table does not load. Code that cannot be read names everything. */
 function namedBy(codeDir) {
@@ -383,7 +465,7 @@ function namedBy(codeDir) {
 	} catch {
 		return () => true;
 	}
-	return (rel) => text.includes(rel);
+	return namesIn(text);
 }
 
 /** The Vite plugin: prunes after SvelteKit's server pass wrote the client output, before the adapter. */
@@ -419,6 +501,7 @@ export const stockAssetPrune = () => {
 					art = [],
 					keptAllBecause,
 					artKeptAllBecause,
+					sweepKeptBecause,
 				} = pruneStockFiles(assetsDir, plan, {
 					isNamed: namedBy(resolve(config.root, '.svelte-kit/output/client/_app')),
 				});
@@ -430,6 +513,11 @@ export const stockAssetPrune = () => {
 						: `[config-vite] stock assets: left out ${plan.skipped.length} key(s) this project never ` +
 								`draws — ${removed.length} file(s), ${sum(removed)}: ${plan.skipped.join(', ')}`,
 				);
+				if (sweepKeptBecause) {
+					console.info(
+						`[config-vite] stock assets: kept stock-folder files no kept key loads (${sweepKeptBecause})`,
+					);
+				}
 				if (artKeptAllBecause) {
 					console.info(`[config-vite] exported art: kept every file (${artKeptAllBecause})`);
 				} else if (artSkipped.length) {
@@ -452,6 +540,7 @@ export const stockAssetPrune = () => {
 					},
 					skipped: keptAllBecause ? [] : plan.skipped,
 					keptAllBecause: keptAllBecause ?? null,
+					sweepKeptBecause: sweepKeptBecause ?? null,
 					removed: asBuilt(removed),
 					art: {
 						skipped: artSkipped,
