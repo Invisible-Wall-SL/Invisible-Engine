@@ -10,10 +10,6 @@
  * skipped keys' files from SvelteKit's client output before the adapter copies it to `build/`.
  * `static/` itself is never touched, so the repo stays clean and every build decides afresh.
  *
- * The stock SOUND banks go the same way (`apps/lines/src/game/stockSoundBuild.ts`, the boot's own
- * decision in `stockSounds.ts`): a bank the game can never play leaves the build's
- * `audio/sounds.json` and its files leave the build.
- *
  * Only a standalone game build (the cwd is outside the engine) is pruned: the engine's own apps,
  * the shared runtime online games boot included, ship exactly as before. `IE_STOCK_PRUNE=0` turns
  * it off. Every doubt keeps every file: the plan keeping all, a plan that cannot run, a kept key
@@ -21,6 +17,10 @@
  *
  * The plan is loaded through a throwaway Vite server (`ssrLoadModule`), because it imports the
  * game's TypeScript sources the way the game build resolves them.
+ *
+ * The stock SOUND banks go the same way (`apps/lines/src/game/stockSoundBuild.ts`, the boot's own
+ * decision in `stockSounds.ts`): a bank the game can never play leaves the build's
+ * `audio/sounds.json` and its files leave the build.
  */
 
 import {
@@ -324,15 +324,6 @@ export const stockAssetPrune = () => {
 				if (!prunesThisBuild()) return;
 				const assetsDir = resolve(config.root, '.svelte-kit/output/client/assets');
 				if (!existsSync(assetsDir)) return;
-				const plan = await stockAssetPlan();
-				const { removed, keptAllBecause } = pruneStockFiles(assetsDir, plan);
-				const bytes = removed.reduce((sum, file) => sum + file.bytes, 0);
-				console.info(
-					keptAllBecause
-						? `[config-vite] stock assets: kept every file (${keptAllBecause})`
-						: `[config-vite] stock assets: left out ${plan.skipped.length} key(s) this project never ` +
-								`draws — ${removed.length} file(s), ${fmt(bytes)}: ${plan.skipped.join(', ')}`,
-				);
 				const soundPlan = await stockSoundPlan(assetsDir);
 				const sounds = pruneStockSoundBanks(assetsDir, soundPlan);
 				const soundBytes = sounds.removed.reduce((sum, file) => sum + file.bytes, 0);
@@ -342,10 +333,17 @@ export const stockAssetPrune = () => {
 						: `[config-vite] stock sounds: left out ${soundPlan.skipped.length} bank(s) this project ` +
 								`never plays — ${sounds.removed.length} file(s), ${fmt(soundBytes)}`,
 				);
+
+				const plan = await stockAssetPlan();
+				const { removed, keptAllBecause } = pruneStockFiles(assetsDir, plan);
+				const bytes = removed.reduce((sum, file) => sum + file.bytes, 0);
+				console.info(
+					keptAllBecause
+						? `[config-vite] stock assets: kept every file (${keptAllBecause})`
+						: `[config-vite] stock assets: left out ${plan.skipped.length} key(s) this project never ` +
+								`draws — ${removed.length} file(s), ${fmt(bytes)}: ${plan.skipped.join(', ')}`,
+				);
 				writeReport({
-					skipped: keptAllBecause ? [] : plan.skipped,
-					keptAllBecause: keptAllBecause ?? null,
-					removed: removed.map((file) => ({ rel: `assets/${file.rel}`, bytes: file.bytes })),
 					sounds: {
 						skipped: sounds.keptAllBecause ? [] : soundPlan.skipped,
 						keptAllBecause: sounds.keptAllBecause ?? null,
@@ -354,6 +352,9 @@ export const stockAssetPrune = () => {
 							bytes: file.bytes,
 						})),
 					},
+					skipped: keptAllBecause ? [] : plan.skipped,
+					keptAllBecause: keptAllBecause ?? null,
+					removed: removed.map((file) => ({ rel: `assets/${file.rel}`, bytes: file.bytes })),
 				});
 			},
 		},

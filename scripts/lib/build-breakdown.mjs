@@ -465,15 +465,6 @@ export function analyzeDesktopBuild(input) {
 		pull?.notPulled,
 	);
 	step(
-		'stockArt',
-		'Stock sample art the game never draws',
-		'The engine’s coded sample art (big win, coins, sample symbols, …) that nothing in this ' +
-			'project can reach: the boot would never load it, so the game build left it out' +
-			(stock?.skipped?.length ? ` (${stock.skipped.join(', ')})` : '') +
-			'.',
-		stock?.removed,
-	);
-	step(
 		'stockSounds',
 		'Stock sounds the game never plays',
 		'The engine’s stock sound banks (music beds, effects) that nothing in this project can play: ' +
@@ -481,6 +472,15 @@ export function analyzeDesktopBuild(input) {
 			(stock?.sounds?.skipped?.length ? ` (${stock.sounds.skipped.join(', ')})` : '') +
 			'.',
 		stock?.sounds?.removed,
+	);
+	step(
+		'stockArt',
+		'Stock sample art the game never draws',
+		'The engine’s coded sample art (big win, coins, sample symbols, …) that nothing in this ' +
+			'project can reach: the boot would never load it, so the game build left it out' +
+			(stock?.skipped?.length ? ` (${stock.skipped.join(', ')})` : '') +
+			'.',
+		stock?.removed,
 	);
 	step(
 		'pruned',
