@@ -25,8 +25,9 @@ window). About 140 respins, enhancement sets `10000`, `11000`, `01000`, `01001`,
 `00001`.
 
 **Third session (2026-11-09):** the boot `config` read directly, then 3 bought rounds. One bonus
-had Expand + Boost + Multiply (`11010`); in its 7 respins Boost and Multiply never both hit, so
-whether they can hit the same coin is still unknown. The session then refused every bet option but
+had Expand + Boost + Multiply (`11010`); in its 7 respins Boost and Multiply never both hit. (The
+partner has since confirmed they can hit the same coin, Boost first, then Multiply: see "Real
+rounds".) The session then refused every bet option but
 the base bet (see Transport).
 
 Not seen in any session: a line win, a natural (unbought) trigger, Force 5, and a respin where Boost
@@ -123,6 +124,71 @@ reel 5, at 0.40) and showed their server's bonus table:
 - **The bonus table** lists 16 ids: the 15 mixes of expand, boost, multiply and respin, and Force 5
   alone as `00100` (the `powerFive` bit is never mixed with the others). `freespins` is commented
   out: the game has none.
+
+## Real rounds (2026-11-13)
+
+Their developer sent **three full rounds from their server log** for Getting Hot, each at a base
+bet (betPerLine 1, base total 10 cents). `collectorRespin.fixture.ts` replays each one event for
+event (data: `packages/rgs-translator-eagaming/collectorRespinRealRound.ts`). The few contexts their
+log abbreviated are filled in like their full neighbours.
+
+- **Surprise trigger into Expand** (`10000`): 13 respins, two collectors, a MINI, `gameEnd 1060`.
+- **Natural trigger into Expand + Boost + Multiply** (`11010`): 6 respins, one collector,
+  `gameEnd 330`.
+- **Force 5** (`00100`) through a surprise trigger: 5×5, 11 respins, one collector, a MINOR,
+  `gameEnd 890`. Its head (bet, gameStart, the base `spinStart`) was not in their paste.
+
+What they show, and what the partner confirmed alongside them:
+
+- **The surprise trigger.** `surpriseTrigger {state}` follows a `playWindow` that would not
+  trigger (nothing on it in the Expand round; two coins and no collector in the Force 5 one). The
+  server then adds coins and a collector. Each added coin gets a `bonusSymbol` after
+  `surpriseTrigger`; the added collector shows only through its `collect`. `cellPayAmount` then
+  covers every coin, `collectWindow` and `playedSpin` show the topped-up board, and the trigger runs
+  as usual (`bonusWin {bonus: "initialspin"}`, `boostsAwarded`, `spinTrigger`, `enterBonus`).
+- **`state` is the bonus the surprise awards**, its five flags read as one binary number (expand 16,
+  boost 8, powerFive 4, multiply 2, respin 1): 16 = `0b10000` Expand, 4 = `0b00100` Force 5, each
+  matching that spin's `boostsAwarded`. The partner's table of the values it can take:
+  `0b00000`, `00001`, `00010`, `00011`, `00100`, `01000`, `01001`, `01010`, `01011`, `10000`,
+  `10001`, `10010`, `10011`, `11000`, `11001`, `11010`, `11011`. Force 5 reaches the bonus through a
+  surprise trigger. The facade passes `state` through and reads nothing more into it.
+- **A natural trigger** sends the same events as a bought one, with no `surpriseTrigger`; its coins'
+  `bonusSymbol` events come before `playWindow`.
+- **`spinTrigger.trigger.from` is `""`** in all three rounds. Force 5's `spinTrigger` has `spins: 5,
+  occurs: 5`, and its `enterBonus` / `playedBonusSpin` `trigger.occurs` is `[5]`.
+- **`collect.pay` is the collector's NEW total** (80, then 80 + 40 = 120), the same number as its
+  `COLLECT_<cents>` on `collectWindow`. `bonusWin.pay` is what the spin paid (coins × collectors).
+  Only the collectors carry into the bonus, with what they took from the coins of the trigger spin.
+- **A respin's collected coins stay on its `collectWindow` and `playedSpin`** and are gone from the
+  next respin's `playWindow`.
+- **A respin where nothing lands** sends only `playWindow`, `playedSpin` and `playedBonusSpin`, plus
+  the Boost and Multiply misses (`boost {"boost": "X"}`, `multiplier {"multiplier": "X"}`) when the
+  bonus rolls them: no `collectWindow`, no `bonusWin`, no `retrigger`.
+- **Boost and Multiply.** They hit two different coins in one respin of the natural round. They can
+  also hit the same coin (the partner): Boost first, then Multiply. `cellPayAmount` comes before
+  the `boost` / `multiplier` events and already carries the modified value (`original` "2", `value`
+  4 after +20; `value` 8 after ×4), and `collectWindow` shows the modified coins (`COIN_4`,
+  `COIN_8`). Force 5 rolls both every respin while `boostsEnabled` stays `{powerFive: 1}`; its Boost
+  hits were +50 (5× base).
+- **A collector that lands has no `bonusSymbol`** (bare `COLLECT` on `playWindow`, then its own
+  `collect`).
+- **`enterBonus` / `playedBonusSpin` shapes:** `prob`, `additionalPrice`, `triggers`, `played`,
+  `left`, `multiplier: {}`, `bonusTriggers: {"<bits>": 1}` (an object), `bonusPlayed: {"<bits>":
+  {count, base: {count, multiplierCount}, states: {}}}`, `spins: [{spins, bonus, trigger: {occurs,
+  from}, state: "main"}]` (`spins` = what is left; empty after the last), `playing`, `state:
+  "main"`, `trigger`; `enterBonus` also has a `triggering` OBJECT `{bonus, trigger}`.
+- **`spinStart.reels`** in the bonus are FILTERED display strips: all `BLANK` but one `COIN` (a
+  `COLLECT` on reel 3), `ranges` [15, 15, 30, 15, 15]. In the base game they are long strips,
+  `ranges` [118, 124, 5, 115, 109].
+- **`retrigger {games}`** is the number of respins added back (Force 5: 3 when `left` was 2).
+- **Jackpot coins** pay their tier × the base: MINI 250, MINOR 500.
+- **The rows.** Rows count top-down, row 0 the top row (the partner; their own client draws the
+  base collect's `COLLECT` at row 2 on the bottom row). Expand's row and both of Force 5's go on TOP
+  (the partner and the owner): the board grows upward and nothing on it moves on screen, but every
+  base row's index moves down by the rows opened. The trigger's collector at row 0 is at row 1 of
+  Expand's 4-row board and at row 2 of Force 5's 5-row one. Our reader keeps the base rows' index
+  and numbers the opened rows after them, outward from the base rows; Game Config `addRowsAt:
+  'above'` draws them on top.
 
 ## Event shapes seen
 

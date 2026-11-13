@@ -260,6 +260,10 @@ type BookEventHwRandomMetreTrigger = {
 	index: number;
 	type: 'randomMetreTrigger';
 } & HoldAndWinEventFields['randomMetreTrigger'];
+type BookEventHwFeatureTopUp = {
+	index: number;
+	type: 'featureTopUp';
+} & HoldAndWinEventFields['featureTopUp'];
 type BookEventHwHoldAndWinTrigger = {
 	index: number;
 	type: 'holdAndWinTrigger';
@@ -400,6 +404,7 @@ export type BookEvent =
 	| BookEventPlatformJackpotWin
 	| BookEventHwCoinInstantCollect
 	| BookEventHwRandomMetreTrigger
+	| BookEventHwFeatureTopUp
 	| BookEventHwHoldAndWinTrigger
 	| BookEventHwHoldAndWinWheel
 	| BookEventHwRespinReveal

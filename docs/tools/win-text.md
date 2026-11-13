@@ -220,8 +220,9 @@ banner screen in the Invisible Editor: see [Banner screens](invisible-editor.md#
   - an expanding board opening a row: the banner title (`ROW UNLOCKED`) and the line under
     it (`{rows} ROWS`);
   - a collector bonus with enhancements: the enhancements it opens with
-    (`{enhancements} ACTIVE`), the super bonus (`SUPER BONUS`), and what a dial shows on a hit
-    (`+{amount}` for a boost, `×{count}` for a multiply);
+    (`{enhancements} ACTIVE`), the super bonus (`SUPER BONUS`), what a dial shows on a hit
+    (`+{amount}` for a boost, `×{count}` for a multiply), and a surprise trigger topping the
+    board up before the feature opens (`SURPRISE!`);
   - the names: the specials that `{meter}` and `{modifiers}` use (COLLECTOR, MULTIPLIER,
     PAYER, MYSTERY, ADD RESPINS, UPGRADE), the collector levels (DOUBLE, TRIPLE; an
     unnamed level reads ×4), one box per pot in the config (an unnamed pot reads its id
@@ -239,7 +240,7 @@ listed in Localization for translation.
 
 Each line the game announces in the **Hold and Win feature**
 section (the total, intro, outro, instant collect, Lucky Spin, pot full, modifiers active, modifiers
-unlocked, upgrade, row unlocked, enhancements active and super bonus) has a picker beside its box (on a pots overlay game, so does
+unlocked, upgrade, row unlocked, enhancements active, super bonus and surprise top-up) has a picker beside its box (on a pots overlay game, so does
 **Pot full** in the Pots section):
 
 | Choice           | The line shows                                                                                                         |

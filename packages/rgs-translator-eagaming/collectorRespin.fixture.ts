@@ -26,6 +26,13 @@ import {
 	type HoldAndWinState,
 } from '../engine-game/src/game/holdAndWin.ts';
 
+import {
+	FORCE5_ROUND,
+	NATURAL_ROUND,
+	SURPRISE_ROUND,
+	type RealRound,
+} from './collectorRespinRealRound.ts';
+
 type Facade = typeof import('./src/engineFacade.ts');
 type BookEvent = { type: string; index?: number; [key: string]: unknown };
 type WireEvent = { event: string; context?: unknown };
@@ -125,8 +132,9 @@ const cellPay = (reel: number, row: number, original: number | string, pay: numb
 		pay,
 	});
 
-/** A round as the partner answers it: the bet's answer, then one per respin. */
-type ScriptedRound = { option: number; answers: WireEvent[][]; win: number };
+/** A round as the partner answers it: the bet's answer, then one per respin. `stake` in cents,
+ *  when the round is not played at betPerLine 4. */
+type ScriptedRound = { option: number; answers: WireEvent[][]; win: number; stake?: number };
 
 const BASE_BOARD = [
 	['PIC1', 'PIC5', 'PIC9'],
@@ -479,7 +487,7 @@ const startPartner = async () => {
 			if (!round || round.option !== option || seq !== 0) return refusal(101, 'unscripted bet');
 			rounds += 1;
 			open = { round, id: `R${rounds}`, answered: 1, ended: false };
-			balance -= OPTIONS[option] * 4;
+			balance -= round.stake ?? OPTIONS[option] * 4;
 			const events = round.answers[0];
 			const closed = events.some((e) => e.event === 'gameRoundOver');
 			const out = { events, platform: platform(closed) };
@@ -570,9 +578,9 @@ check(
 	],
 );
 
-const bet = async (mode: string) =>
+const bet = async (mode: string, amount = 0.4) =>
 	(await hush(() =>
-		facade.requestBet({ sessionID: sid, currency: 'EUR', amount: 0.4, mode, rgsUrl }),
+		facade.requestBet({ sessionID: sid, currency: 'EUR', amount, mode, rgsUrl }),
 	)) as Answer;
 const endRound = () => hush(() => facade.requestEndRound({ sessionID: sid, rgsUrl }));
 
@@ -590,6 +598,46 @@ const commonChecks = (label: string, book: BookEvent[]) => {
 	);
 	check(`${label}: the base board is revealed once`, types.filter((t) => t === 'reveal').length, 1);
 	return types;
+};
+
+/**
+ * The engine's own reducer folds every Hold and Win event of a book; after each `holdAndWinState`
+ * its picture must equal the facade's snapshot (board, counter, open rows, enhancements).
+ */
+const replayThroughReducer = (label: string, book: BookEvent[]) => {
+	const canon = (state: HoldAndWinState) =>
+		JSON.stringify(
+			[...state.cells]
+				.sort((a, b) => a.reel - b.reel || a.row - b.row)
+				.map((c) => [c.reel, c.row, c.symbol]),
+		);
+	let state = emptyHoldAndWinState();
+	let snapshots = 0;
+	for (const event of book) {
+		if (!isHoldAndWinEvent(event)) continue;
+		if (event.type === 'holdAndWinState') {
+			snapshots += 1;
+			const server = event.snapshot;
+			check(
+				`${label}: snapshot ${snapshots} — the events rebuild the board`,
+				canon(state),
+				canon({ ...emptyHoldAndWinState(), ...server }),
+			);
+			check(
+				`${label}: snapshot ${snapshots} — counter`,
+				[state.left, state.start],
+				[server.left, server.start],
+			);
+			check(`${label}: snapshot ${snapshots} — open rows`, state.rows, server.rows);
+			check(
+				`${label}: snapshot ${snapshots} — enhancements`,
+				state.enhancements,
+				server.enhancements,
+			);
+		}
+		state = applyHoldAndWinEvent(state, event as HoldAndWinEvent);
+	}
+	return { state, snapshots };
 };
 
 // 1. A base spin with nothing on it.
@@ -834,35 +882,7 @@ partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, ANY_LINE_WIN, CENTER, BUY]);
 		],
 	);
 
-	// The engine's own reducer rebuilds the facade's snapshot after every respin.
-	const canon = (state: HoldAndWinState) =>
-		JSON.stringify(
-			[...state.cells]
-				.sort((a, b) => a.reel - b.reel || a.row - b.row)
-				.map((c) => [c.reel, c.row, c.symbol]),
-		);
-	let state = emptyHoldAndWinState();
-	let snapshots = 0;
-	for (const event of book) {
-		if (!isHoldAndWinEvent(event)) continue;
-		if (event.type === 'holdAndWinState') {
-			snapshots += 1;
-			const server = event.snapshot;
-			check(
-				`bonus: snapshot ${snapshots} — the events rebuild the board`,
-				canon(state),
-				canon({ ...emptyHoldAndWinState(), ...server }),
-			);
-			check(
-				`bonus: snapshot ${snapshots} — counter`,
-				[state.left, state.start],
-				[server.left, server.start],
-			);
-			check(`bonus: snapshot ${snapshots} — open rows`, state.rows, server.rows);
-			check(`bonus: snapshot ${snapshots} — enhancements`, state.enhancements, server.enhancements);
-		}
-		state = applyHoldAndWinEvent(state, event as HoldAndWinEvent);
-	}
+	const { state, snapshots } = replayThroughReducer('bonus', book);
 	check('bonus: one snapshot at entry and one per respin', snapshots, 8);
 	check('bonus: one respin board per respin', types.filter((t) => t === 'respinReveal').length, 7);
 	const end = book.find((e) => e.type === 'holdAndWinEnd') as {
@@ -890,6 +910,330 @@ partner.script([LOSING, LINE_WIN, RIGHT_LINE_WIN, ANY_LINE_WIN, CENTER, BUY]);
 	);
 	await endRound();
 }
+
+// 3b. THE PARTNER'S REAL ROUNDS (their server log, 2026-11-13, `collectorRespinRealRound.ts`), each
+// at a base total of 10 cents (betPerLine 1), so a book amount is 10 × the cents.
+type RealCell = { reel: number; row: number; symbol: { name: string; value?: number } };
+type RealCollect = {
+	collector: RealCell;
+	value: number;
+	cells: { reel: number; row: number; amount: number }[];
+};
+type RealExpect = {
+	topUp?: { cells: [number, number, string, number | undefined][]; state: number };
+	trigger: { enhancements: string[]; rows: number; respins: number };
+	entry: { value: number; coins: [number, number, number][] };
+	/** Each respin collect after the entry one: `[our row, the collector's value]`. */
+	collects: [number, number][];
+	/** The first respin's coins and collectors, on OUR rows. */
+	firstRespin: [number, number, string, number | undefined][];
+	hits: [string, number, { reel: number; row: number; from: number; to: number }[]][];
+	counter: [number, boolean][];
+	landed: number;
+	jackpots: [string, number][];
+	end: { total: number; cells: [number, number][] };
+};
+const special = (cells: RealCell[]) =>
+	cells
+		.filter((c) => c.symbol.name !== 'BLANK')
+		.map((c) => [c.reel, c.row, c.symbol.name, c.symbol.value]);
+const playReal = async (label: string, round: RealRound, expect: RealExpect) => {
+	partner.script([{ option: 0, stake: round.stake, win: round.win, answers: round.answers }]);
+	const before = partner.log.length;
+	const balanceBefore = partner.balance();
+	const answer = await bet('BASE', 0.1);
+	const book = answer.round?.state ?? [];
+	const types = commonChecks(label, book);
+	const respins = round.answers.length - 1;
+	check(
+		`${label}: bet+play at 0, each respin at the next position, then collect`,
+		partner.log.slice(before).map((l) => `${l.actions.join('+')}@${l.seq}`),
+		[
+			'bet+play@0',
+			...Array.from({ length: respins }, (_, i) => `play@${i + 2}`),
+			`collect@${respins + 2}`,
+		],
+	);
+	const topUp = book.find((e) => e.type === 'featureTopUp') as
+		{ cells: RealCell[]; state?: number } | undefined;
+	check(
+		`${label}: the top-up — the cells the server added after playWindow, and its state`,
+		topUp && {
+			cells: topUp.cells.map((c) => [c.reel, c.row, c.symbol.name, c.symbol.value]),
+			state: topUp.state,
+		},
+		expect.topUp,
+	);
+	if (expect.topUp) {
+		const reveal = book.find((e) => e.type === 'reveal') as { board: { name: string }[][] };
+		const added = expect.topUp.cells.map(([reel, row]) => reveal.board[reel][row + 1].name);
+		check(
+			`${label}: the reels stop on playWindow, without the added cells`,
+			added.includes('COIN') || added.includes('COLLECT'),
+			false,
+		);
+		check(
+			`${label}: reveal → top-up → trigger`,
+			types.indexOf('reveal') < types.indexOf('featureTopUp') &&
+				types.indexOf('featureTopUp') < types.indexOf('holdAndWinTrigger'),
+			true,
+		);
+	}
+	const trigger = book.find((e) => e.type === 'holdAndWinTrigger') as {
+		payload: Record<string, unknown>;
+	};
+	check(`${label}: the bonus opens with its collector`, trigger?.payload.cells, [
+		{ reel: 2, row: 0, symbol: { name: 'COLLECT' } },
+	]);
+	check(
+		`${label}: the enhancements, the opened board, the respins`,
+		[trigger?.payload.enhancements, trigger?.payload.expansion, trigger?.payload.respins],
+		[
+			expect.trigger.enhancements,
+			{ rows: expect.trigger.rows, maxRows: expect.trigger.rows },
+			expect.trigger.respins,
+		],
+	);
+	const collects = book.filter((e) => e.type === 'coinCollect') as RealCollect[];
+	check(
+		`${label}: the entry collect gathers the trigger spin's coins into the collector`,
+		[collects[0]?.value, collects[0]?.cells.map((c) => [c.reel, c.row, c.amount])],
+		[expect.entry.value, expect.entry.coins],
+	);
+	check(
+		`${label}: each collector's total, respin by respin, on our rows (collect.pay is a new total)`,
+		collects.slice(1).map((c) => [c.collector.row, c.value]),
+		expect.collects,
+	);
+	const reveals = book.filter((e) => e.type === 'respinReveal') as { cells: RealCell[] }[];
+	check(
+		`${label}: respin 1 — the collector holds its seat, the opened rows follow the base rows`,
+		special(reveals[0]?.cells ?? []),
+		expect.firstRespin,
+	);
+	check(
+		`${label}: every respin board has the opened rows`,
+		reveals.length === respins &&
+			reveals.every(
+				(r) =>
+					Math.max(...r.cells.map((c) => c.row)) === expect.trigger.rows - 1 &&
+					r.cells.length === 5 * expect.trigger.rows,
+			),
+		true,
+	);
+	check(
+		`${label}: the Boost and Multiply hits, on our rows (cellPayAmount already carries the value)`,
+		book.filter((e) => e.type === 'enhancementHit').map((e) => [e.kind, e.by, e.cells]),
+		expect.hits,
+	);
+	check(
+		`${label}: the counter — reset on a retrigger, down on a quiet respin`,
+		book.filter((e) => e.type === 'respinUpdate').map((e) => [e.left, e.reset]),
+		expect.counter,
+	);
+	check(
+		`${label}: a quiet respin lands nothing`,
+		book.filter((e) => e.type === 'coinsLand').length,
+		expect.landed,
+	);
+	check(
+		`${label}: a jackpot coin is presented once, collected, not banked`,
+		book.filter((e) => e.type === 'jackpotWin').map((e) => [e.tier, e.amount, e.source, e.banked]),
+		expect.jackpots.map(([tier, amount]) => [tier, amount, 'collect', false]),
+	);
+	const { state, snapshots } = replayThroughReducer(label, book);
+	check(`${label}: one snapshot at entry and one per respin`, snapshots, respins + 1);
+	const end = book.find((e) => e.type === 'holdAndWinEnd') as {
+		total: number;
+		payload: { cells: { row: number; amount: number }[] };
+	};
+	check(
+		`${label}: the feature pays its collectors`,
+		[end?.total, end?.payload.cells.map((c) => [c.row, c.amount])],
+		[expect.end.total, expect.end.cells],
+	);
+	check(`${label}: the end closes the picture`, state.active, false);
+	check(
+		`${label}: the money — the round closes on gameEnd, the entry collect not paid twice`,
+		[
+			book.filter((e) => e.type === 'setTotalWin').pop()?.amount,
+			book.find((e) => e.type === 'finalWin')?.amount,
+		],
+		[round.win * 10, round.win * 10],
+	);
+	await endRound();
+	check(
+		`${label}: the balance — stake out, gameEnd in`,
+		partner.balance() - balanceBefore,
+		round.win - round.stake,
+	);
+};
+
+// A surprise trigger tops up a board with no coin and no collector, then 13 Expand respins with two
+// collectors, a MINI coin and gameEnd 1060.
+await playReal('surprise round', SURPRISE_ROUND, {
+	topUp: {
+		cells: [
+			[0, 2, 'COIN', 3],
+			[2, 0, 'COLLECT', undefined],
+			[3, 0, 'COIN', 3],
+			[4, 1, 'COIN', 1],
+			[4, 2, 'COIN', 1],
+		],
+		state: 16,
+	},
+	trigger: { enhancements: ['extraRow'], rows: 4, respins: 3 },
+	entry: {
+		value: 8,
+		coins: [
+			[0, 2, 300],
+			[3, 0, 300],
+			[4, 1, 100],
+			[4, 2, 100],
+		],
+	},
+	collects: [
+		[0, 12],
+		[0, 13],
+		[0, 15],
+		[0, 20],
+		[0, 24],
+		[2, 4],
+		[0, 28],
+		[2, 8],
+		[0, 34],
+		[2, 14],
+		[0, 38],
+		[2, 18],
+		[0, 63],
+		[2, 43],
+	],
+	// The wire's rows 0 and 1 of reel 0 are its opened row and its base row 0.
+	firstRespin: [
+		[0, 0, 'COIN', 1],
+		[0, 3, 'COIN', 3],
+		[2, 0, 'COLLECT', 8],
+	],
+	hits: [],
+	counter: [
+		...Array.from({ length: 8 }, (): [number, boolean] => [3, true]),
+		[2, false],
+		[3, true],
+		[2, false],
+		[1, false],
+		[0, false],
+	],
+	landed: 9,
+	jackpots: [['MINI', 2500]],
+	end: {
+		total: 10600,
+		cells: [
+			[0, 6300],
+			[2, 4300],
+		],
+	},
+});
+
+// A natural trigger into Expand + Boost + Multiply: 6 respins, Boost and Multiply hitting two
+// different coins in one respin, the misses sent on a quiet respin too, gameEnd 330.
+await playReal('natural round', NATURAL_ROUND, {
+	trigger: { enhancements: ['extraRow', 'boost', 'multiply'], rows: 4, respins: 3 },
+	entry: {
+		value: 13,
+		coins: [
+			[1, 2, 100],
+			[3, 0, 300],
+			[3, 1, 200],
+			[4, 1, 300],
+			[4, 2, 400],
+		],
+	},
+	collects: [
+		[0, 31],
+		[0, 33],
+	],
+	firstRespin: [
+		[0, 2, 'COIN', 2],
+		[1, 1, 'COIN', 2],
+		[2, 0, 'COLLECT', 13],
+		[3, 0, 'COIN', 4],
+		[3, 2, 'COIN', 2],
+	],
+	hits: [
+		['boost', 2, [{ reel: 0, row: 2, from: 2, to: 4 }]],
+		['multiply', 4, [{ reel: 3, row: 2, from: 2, to: 8 }]],
+	],
+	counter: [
+		[3, true],
+		[2, false],
+		[3, true],
+		[2, false],
+		[1, false],
+		[0, false],
+	],
+	landed: 2,
+	jackpots: [],
+	end: { total: 3300, cells: [[0, 3300]] },
+});
+
+// Force 5 through a surprise trigger (state 4 = 0b00100): a 5×5 board with BOTH opened rows on top
+// (the collector at row 0 of the trigger board is at row 2), 11 respins, Boost hits of +50, a MINOR
+// coin, gameEnd 890.
+await playReal('Force 5 round', FORCE5_ROUND, {
+	topUp: {
+		cells: [
+			[0, 1, 'COIN', 2],
+			[0, 2, 'COIN', 3],
+			[2, 0, 'COLLECT', undefined],
+			[3, 0, 'COIN', 2],
+		],
+		state: 4,
+	},
+	trigger: { enhancements: ['superBonus'], rows: 5, respins: 5 },
+	entry: {
+		value: 10,
+		coins: [
+			[0, 1, 200],
+			[0, 2, 300],
+			[1, 0, 100],
+			[1, 2, 200],
+			[3, 0, 200],
+		],
+	},
+	collects: [
+		[0, 18],
+		[0, 76],
+		[0, 84],
+		[0, 89],
+	],
+	// The wire's rows 0 and 1 are its two opened rows, top first: ours 4 and 3.
+	firstRespin: [
+		[2, 0, 'COLLECT', 10],
+		[3, 3, 'COIN', 4],
+		[3, 4, 'COIN', 2],
+		[4, 0, 'COIN', 2],
+	],
+	hits: [
+		['boost', 5, [{ reel: 3, row: 0, from: 3, to: 8 }]],
+		['boost', 5, [{ reel: 0, row: 2, from: 1, to: 6 }]],
+	],
+	counter: [
+		[5, true],
+		[5, true],
+		[4, false],
+		[3, false],
+		[5, true],
+		[5, true],
+		[4, false],
+		[3, false],
+		[2, false],
+		[1, false],
+		[0, false],
+	],
+	landed: 4,
+	jackpots: [['MINOR', 5000]],
+	end: { total: 8900, cells: [[0, 8900]] },
+});
 
 // 4. An option the server refuses (operator dependent): a clean refusal, nothing stored.
 {

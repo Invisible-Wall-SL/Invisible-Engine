@@ -345,6 +345,21 @@ const BASE_EVENTS: TemplateVocabulary['events'] = [
 		category: 'book',
 		description: 'A random metre fired on a base spin and dropped coins to start the feature.',
 	},
+	{
+		name: 'featureTopUp',
+		payload: [
+			cells('The coins and collectors the server added after the reels stopped.'),
+			{
+				name: 'state',
+				type: INT,
+				optional: true,
+				description: 'The server’s own value for the top-up, passed through.',
+			},
+		],
+		category: 'book',
+		description:
+			'A surprise trigger: after the reels stopped the server added coins and collectors to start the feature.',
+	},
 ];
 
 /** The feature's own events, in the order a round plays them. */
@@ -690,6 +705,7 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('instantCollect', 'coinInstantCollect'),
 	beat('spinWheel', 'holdAndWinWheel'),
 	beat('fireRandomMetre', 'randomMetreTrigger'),
+	beat('topUpFeature', 'featureTopUp'),
 	{ name: 'playLuckySpinIntro', params: [], category: 'command' },
 	{
 		name: 'flyTo',
@@ -908,6 +924,13 @@ const CUES: TemplateVocabulary['cues'] = [
 		payload: [
 			{ name: 'name', type: STRING },
 			{ name: 'cells', type: list(CELL) },
+		],
+	},
+	{
+		name: 'respinTopUp',
+		payload: [
+			{ name: 'cells', type: list(CELL) },
+			{ name: 'state', type: INT, optional: true },
 		],
 	},
 	{

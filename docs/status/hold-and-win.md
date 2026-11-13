@@ -1176,6 +1176,40 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+- 2026-11-13 — **Getting Hot: a surprise trigger drops its coins and collector onto the board,
+  and the partner's three real rounds replay as tests.** Their developer sent full rounds from their
+  server log ([capture, "Real rounds"](../reference/play4fun-collector-respin-capture.md)): a
+  `surpriseTrigger {state: 16}` after a `playWindow` with no coin and no collector, the server's
+  added coins and collector on `collectWindow` / `playedSpin`, then 13 Expand respins with two
+  collectors, a MINI coin and `gameEnd 1060`.
+  - **Reader:** the coins and collectors on the board after the spin that `playWindow` does not
+    have become a new book event, `featureTopUp {cells, state}`, after the dealt board and before
+    the trigger. The trigger then opens with the dropped collector (it opened with none, and the
+    entry collect gathered into a collector that was not on the board). `state` is passed through.
+  - **Rows:** the wire numbers the row Expand opens FIRST (the collector at row 0 of the 3-row
+    board is at row 1 of the 4-row one). The reader now maps bonus rows onto ours: the base rows
+    keep their index, the opened rows follow. Before, the collector was read as a second one
+    landing at row 1 and the snapshot dropped it each respin. The shift is read off the round
+    where it can be (the one that seats the entry's collectors), else that measured convention.
+  - **Presentation:** `presentFeatureTopUp` drops each cell onto the stopped reels in board order
+    under the "SURPRISE!" line and plays the new **Coin top-up** symbol state (unauthored: Land);
+    slammed, every cell swaps at once. The trigger then carries the coins into the bonus as usual.
+    Authoring surface: Flow action `topUpFeature` (not in the starter flow), cue `respinTopUp`,
+    Component signal **Surprise top-up** (`featureTopUp`), Win Text `featureTopUp` (placeable,
+    board banner by default), Symbols state `coinTopUp` (coins, jackpot coins and collectors).
+  - **Money** already read right: totals off the boards, wins off `bonusWin` / `gameEnd`. A
+    `collect.pay` with no board after it now reads as the collector's new total (the partner's
+    meaning).
+  - **Two more rounds** followed: a natural trigger into `11010` (Boost and Multiply hitting two
+    coins in one respin, `cellPayAmount` already carrying the modified value, the misses sent on a
+    quiet respin too) and a Force 5 through a surprise trigger (`state` 4). `state` is the awarded
+    bonus as a binary number (16 = Expand). The partner confirmed rows count top-down and that
+    Expand's row and both of Force 5's go on top; the reader numbers the opened rows outward from the
+    base rows, so the wire's top row is our last.
+  - Gate: `collectorRespin.fixture.ts` plays all three rounds end to end through the facade (every
+    respin's board on our rows, each collector's total, the hits, the counter, the jackpot coins,
+    the reducer against every snapshot, gameEnd and the balance). Before the fix 11 of the first
+    round's checks failed; the Force 5 board catches an opened-row order mapped the wrong way.
 - 2026-11-13 — **Where a growing respin board draws its added rows is a Game Config setting, and
   Getting Hot adds them on top.** New field on the Hold and Win block, `addRowsAt: 'below' |
   'above'` (absent ⇒ `below`, so every existing game draws as before). It covers an `expansion`

@@ -117,6 +117,8 @@ export const modifiersUnlockedText = (kinds: readonly string[]) =>
 
 export const luckySpinText = () => formatWinText(bakedWinText().feature.luckySpin);
 
+export const featureTopUpText = () => formatWinText(bakedWinText().feature.featureTopUp);
+
 export const instantCollectText = () => formatWinText(bakedWinText().feature.instantCollect);
 
 /** A banked jackpot's banner: its title and the amount (or full-board) line under it. */

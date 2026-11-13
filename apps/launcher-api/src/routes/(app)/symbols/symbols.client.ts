@@ -154,6 +154,8 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'An unlock symbol APPLYING — opening a locked row of an expanding board before it leaves. Leave a cell empty to reuse this symbol’s Win binding.',
 	coinEnhance:
 		'A cash coin a BOOST or MULTIPLY enhancement hits as it lands (a collector bonus) — its beam arriving while the value counts up. Leave a cell empty to reuse this symbol’s Win binding.',
+	coinTopUp:
+		'A coin or collector a SURPRISE TRIGGER drops onto the stopped reels before the feature opens. Leave a cell empty to reuse this symbol’s Land binding.',
 };
 
 /** The token's reading of its three states, for a pots overlay host without the respin feature —
@@ -789,7 +791,7 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	if (state === 'hint') return 'land';
 	// The Hold and Win beats borrow what the coded presentation played before they had names. The two
 	// that borrowed `static` (`coinIdle`, `coinLand`) are the engine's last resort, so they read unset.
-	if (state === 'coinStick') return 'land';
+	if (state === 'coinStick' || state === 'coinTopUp') return 'land';
 	if (state === 'mysteryReveal') return 'explosion';
 	if (
 		state === 'coinCollect' ||

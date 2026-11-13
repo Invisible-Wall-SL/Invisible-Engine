@@ -62,8 +62,8 @@ const ids = (doc: FlowDoc, scenes: Scene[]) => decide(doc, scenes).map(({ scene 
 const bannersIn = (scenes: Scene[]) =>
 	scenes.filter((s) => SELF_MOUNTED_BANNER_SCREENS.includes(modeSceneBaseId(s))).map((s) => s.id);
 
-// The collector bonus's two banner screens come with the reference layout's `enhancements` option.
-const OPT_IN_BANNERS = ['enhancementsBanner', 'superBonusBanner'];
+// The collector bonus's banner screens come with the reference layout's `enhancements` option.
+const OPT_IN_BANNERS = ['enhancementsBanner', 'superBonusBanner', 'featureTopUpBanner'];
 const HW_SCENES = scenesOf('holdAndWin', { enhancements: true });
 const HW_SEED = freshDrivenSeedDoc('holdAndWin');
 
