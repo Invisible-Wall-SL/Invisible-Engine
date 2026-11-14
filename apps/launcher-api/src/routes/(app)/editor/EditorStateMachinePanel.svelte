@@ -34,6 +34,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
+		BUILTIN_TIMELINES,
 		ComponentEventDispatcher,
 		ComponentStateMachineRunner,
 		type ComponentTimelinePlayer,
@@ -172,7 +173,17 @@
 		null,
 	);
 
-	const timelines = $derived(componentTimelinesOf(rows, def?.id));
+	/** The project's timelines of the component, after the built-in ones it does not shadow — a
+	 *  built-in component's machine plays engine timelines no listing returns. */
+	const builtinTimelines = $derived(componentTimelinesOf([...BUILTIN_TIMELINES], def?.id));
+	const timelines = $derived.by((): Row[] => {
+		const own = componentTimelinesOf(rows, def?.id);
+		const ids = new Set(own.map((t) => t.id));
+		const builtin = builtinTimelines
+			.filter((d) => !ids.has(d.id))
+			.map((d) => ({ id: d.id, name: d.name, duration: d.duration, host: d.host }));
+		return [...builtin, ...own];
+	});
 	const timelineNames = $derived(new Map(timelines.map((t) => [t.id, t.name || t.id])));
 	const layers = $derived.by(() => {
 		void graphVersion;
@@ -688,6 +699,8 @@
 			),
 			...timelines.map((t) => t.id),
 		];
+		const listed = new Set(componentTimelinesOf(rows, def.id).map((t) => t.id));
+		for (const doc of builtinTimelines) if (!listed.has(doc.id)) docs.set(doc.id, doc);
 		await Promise.all(
 			wanted
 				.filter((id, i) => id && !docs.has(id) && wanted.indexOf(id) === i)

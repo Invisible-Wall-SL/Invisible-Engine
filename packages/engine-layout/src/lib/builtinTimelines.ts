@@ -1,4 +1,7 @@
 import {
+	ENHANCEMENT_DIAL_COMPONENT,
+	ENHANCEMENT_DIAL_STATES,
+	enhancementDialTimelineId,
 	SEGMENTED_COUNTER_LIT_TIMELINE_ID,
 	SEGMENTED_COUNTER_SEGMENT_ID,
 	SEGMENTED_COUNTER_SEGMENT_NODES,
@@ -49,4 +52,26 @@ export const SEGMENTED_COUNTER_TIMELINES: readonly CinematicDoc[] = [
 	segmentPose(SEGMENTED_COUNTER_UNLIT_TIMELINE_ID, 'Segment: unlit', false),
 ];
 
-export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [...SEGMENTED_COUNTER_TIMELINES];
+// ---------------------------------------------------------------------------------------------
+// THE ENHANCEMENT DIAL: one timeline per state its machine enters. They key nothing, so the coded
+// dial and the bound pulse draw as before; a ⧉ copy gets them as its own to key its art in.
+// ---------------------------------------------------------------------------------------------
+
+export const ENHANCEMENT_DIAL_TIMELINES: readonly CinematicDoc[] = ENHANCEMENT_DIAL_STATES.map(
+	(state) => ({
+		schemaVersion: 1,
+		id: enhancementDialTimelineId(state),
+		name: `Dial: ${state.toLowerCase()}`,
+		duration: 1,
+		fps: 60,
+		markers: [],
+		host: { kind: 'component', componentId: ENHANCEMENT_DIAL_COMPONENT },
+		stage: { sceneId: null, cast: [] },
+		tracks: [],
+	}),
+);
+
+export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
+	...SEGMENTED_COUNTER_TIMELINES,
+	...ENHANCEMENT_DIAL_TIMELINES,
+];
