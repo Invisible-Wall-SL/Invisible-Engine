@@ -830,6 +830,13 @@ the coin spike, is built and waits for the owner's look on a phone.
 9. **Step 8f, 3D particles — proposed 2026-11-16; step 1, the coin spike, built**
    ([design](../design/shader-graph-3d-particles.md) §9 "Step 1 results"). Gaussian splatting was
    considered and set aside (§2).
+   - **In the studio-shared library as `coin3d` ("3D coin")** since 2026-11-16: the `calCoin` doc
+     renamed, otherwise unchanged, saved into a project, published to `_shared/shaders/` and the
+     project copy deleted. Every project's `/fx` Material list offers `custom:coin3d`; artists use
+     and tune it but cannot edit it (it holds Custom GLSL). Updating the library copy needs
+     `shaderPublish` + `shaderCustomGlsl` and a publish with `replace: true`. Step 2's nodes
+     replace it with a node-built template, then `coin3d` is unpublished. **Not yet verified:** a
+     published game baking and playing a library material that a layer names.
    - **Next: the owner's look** on a phone (`docs/playtest/particle-material.md`, `cal-coin`,
      item 7). Step 2 (Solid and Matcap nodes, templates) does not start before it.
    - **The meter over-reads a traced solid:** 2,747 M load (86× the layer budget) for a shower
@@ -857,7 +864,9 @@ the coin spike, is built and waits for the owner's look on a phone.
 ## Recent changes
 - 2026-11-16 — **Step 8f.1: the coin spike** (3D particles, [design](../design/shader-graph-3d-particles.md)
   §4, §7 step 1, §9 results). A particle material that ray-traces a solid coin in each particle's
-  quad, from Custom GLSL only: no engine or runtime code changed.
+  quad, from Custom GLSL only: no engine or runtime code changed. Published the same day to the
+  studio-shared library as `coin3d` ("3D coin"), so every project's `/fx` offers it (Open items
+  #9).
   - **The graph.** `calCoin` (`engine-shadergraph/src/coinSpike.ts`), five Custom GLSL nodes (Ray,
     two Marches of 12 rounds sharing their state, Normal, Shade): a sphere trace of a rounded
     cylinder less two sunk discs, so thickness, the bevel's silhouette, the raised rim and the

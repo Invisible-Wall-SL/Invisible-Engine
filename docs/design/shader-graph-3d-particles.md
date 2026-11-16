@@ -170,5 +170,13 @@ attribute. The coin's distance is written out three times (Custom GLSL declares 
 becomes a library function. Early art drew both faces mirrored (hidden by symmetric test art),
 fixed before the numbers above were read.
 
+**In the studio library.** The same graph, renamed `coin3d` ("3D coin") and otherwise unchanged,
+is published to the studio-shared Shader Graph library (2026-11-16), so every project's `/fx`
+Material list offers `custom:coin3d` with no per-project step. Artists can use and tune it, not edit
+it (it holds Custom GLSL); updating it needs `shaderPublish` + `shaderCustomGlsl` and a publish with
+`replace: true`. Step 2's nodes replace it with a node-built template, and `coin3d` is then
+unpublished. Not yet verified: that a published game bakes and plays a library material named by a
+layer.
+
 **Not done in step 1** (as agreed): no Solid or Matcap node, no templates, nothing on coded
 emitters, no parallax. Step 2 waits for the owner's look.
