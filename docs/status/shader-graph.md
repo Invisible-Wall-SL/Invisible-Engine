@@ -825,6 +825,10 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
      the verdict is the same; an enum-membership check would need them there too.
 8. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
+9. **Step 8f, 3D particles — proposed 2026-11-16, not decided**
+   ([design](../design/shader-graph-3d-particles.md)). First step when picked up: a coin
+   ray-traced with Custom GLSL inside a particle material, checked on a phone. Gaussian splatting
+   was considered and set aside (§2).
 
 ## Blocked (owner / external)
 - **The particle-materials phone check** (`docs/playtest/particle-material.md`): its readouts set
