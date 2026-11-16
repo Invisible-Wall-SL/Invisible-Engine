@@ -221,6 +221,12 @@ device in the project's matrix, opens the published game with `&perf=1&perfsessi
 the lab script, and the probe posts its report like any phone, tagged `source: cloud` and the
 service's device name. The game is public on `games.invisiblewall.org`, so no tunnel is needed.
 
+**The data is ours by construction.** The numbers never pass through the service: the probe on the
+cloud phone posts straight to our launcher, so every reading lands in our R2 and Postgres whatever
+the service exports. The service's REST API is used only to start and end sessions and to read a
+session's metadata (device, OS and browser version, status, the links to its logs), which is
+stored on the report. Changing or dropping the service loses no history.
+
 **What to trust.** A cloud phone is real hardware, but it is driven remotely and may be recording
 video, which costs it frames. So:
 
