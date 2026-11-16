@@ -77,6 +77,7 @@
 		"check:canvas-window-scale": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-canvas-window-scale.mjs",
 		"check:engine-game": "node scripts/check-engine-game-fixtures.mjs",
 		"check:fx-forces": "pnpm --filter fx-spike run forces",
+		"check:fx-path": "pnpm --filter fx-spike run path",
 		"check:fx-sprite": "pnpm --filter fx-spike run sprite",
 		"check:fx-params": "pnpm --filter fx-spike run exposed-params",
 		"check:fx-particle-clock": "pnpm --filter fx-spike run particle-clock",
