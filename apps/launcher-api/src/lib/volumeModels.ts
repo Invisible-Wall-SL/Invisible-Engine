@@ -60,6 +60,8 @@ export interface MirrorEntry {
 export interface ModelRow extends VolumeFile {
 	usedBy: BlueprintUse[];
 	keep: KeepEntry | null;
+	/** Delete / Keep accept it (`actionTarget`); a name outside the safe rule cannot be acted on. */
+	actionable: boolean;
 	/** The file's manifest entry in the R2 mirror, or null when it is only on the volume. */
 	mirror: MirrorEntry | null;
 }
@@ -211,4 +213,135 @@ export function deleteRefusal(
 	}
 	if (row.keep && !confirmed.keep) return `Marked Keep (${row.keep.note}) — confirm to delete.`;
 	return null;
+}
+
+/**
+ * The volume file a delete or Keep names, or null. Stricter than `toVolumeFile` (which reads a
+ * listing): every segment must pass the same rule as an upload target, so a `..` segment cannot
+ * point outside the models tree — nor dodge the used-by-blueprint check by matching no blueprint.
+ */
+export function actionTarget(key: string): VolumeFile | null {
+	const file = toVolumeFile({ key, size: 0, modified: null });
+	return file && uploadTargetError(file.folder, file.path) === null ? file : null;
+}
+
+/** A refusal for a volume action: the HTTP status and what to show. */
+export interface Refusal {
+	status: number;
+	message: string;
+}
+
+/**
+ * Whether the fleet's pods allow a delete. Fails CLOSED: no API key, or any pod whose state could
+ * not be read, is a 503 — a pod we cannot see may be loading the file.
+ */
+export function podGuardRefusal(
+	pods: { label: string; status: string }[],
+	hasApiKey: boolean,
+): Refusal | null {
+	if (!hasApiKey) {
+		return {
+			status: 503,
+			message:
+				'RUNPOD_API_KEY is not set on the launcher, so it cannot tell whether a pod is using ' +
+				'the volume.',
+		};
+	}
+	const unknown = pods.filter(
+		(p) => p.status !== 'running' && p.status !== 'starting' && p.status !== 'stopped',
+	);
+	if (unknown.length) {
+		return {
+			status: 503,
+			message: `Could not read whether ${unknown.map((p) => p.label).join(', ')} is running — try again.`,
+		};
+	}
+	const up = pods.filter((p) => p.status === 'running' || p.status === 'starting');
+	if (up.length) {
+		return {
+			status: 409,
+			message:
+				`${up.map((p) => p.label).join(', ')} ${up.length > 1 ? 'are' : 'is'} running on this ` +
+				'volume — stop it first, so nothing loads the file while it goes.',
+		};
+	}
+	return null;
+}
+
+/** Queued + running jobs from a serverless `/health` body; null when it does not say. */
+export function healthJobs(body: unknown): number | null {
+	const jobs = (body as { jobs?: unknown } | null)?.jobs;
+	if (!jobs || typeof jobs !== 'object') return null;
+	const { inQueue, inProgress } = jobs as { inQueue?: unknown; inProgress?: unknown };
+	const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+	const queued = count(inQueue);
+	const running = count(inProgress);
+	if (queued === null && running === null) return null;
+	return (queued ?? 0) + (running ?? 0);
+}
+
+/**
+ * Why the stored pod fleet (`runpodPods`) cannot be trusted for a delete, or null. The fleet
+ * reader shows an unreadable value as "no pods", which a delete must not take at its word.
+ */
+export function fleetSettingError(raw: string | undefined): string | null {
+	if (raw === undefined || !raw.trim()) return null;
+	try {
+		if (Array.isArray(JSON.parse(raw))) return null;
+	} catch {
+		// Falls through to the refusal.
+	}
+	return 'The pod fleet setting is unreadable, so the launcher cannot tell whether a pod is running.';
+}
+
+/**
+ * Whether renders in flight allow a delete. With no endpoint configured nothing can be checked,
+ * so the delete runs only when the admin confirmed past that warning (`confirmNoRenderCheck`).
+ */
+export function renderGuardRefusal(input: {
+	endpointConfigured: boolean;
+	jobs: number | null;
+	confirmNoRenderCheck: boolean;
+}): Refusal | null {
+	if (!input.endpointConfigured) {
+		return input.confirmNoRenderCheck
+			? null
+			: {
+					status: 409,
+					message:
+						'RUNPOD_ENDPOINT_ID is not set, so renders in flight cannot be checked — confirm ' +
+						'that none is running to delete anyway.',
+				};
+	}
+	if (input.jobs === null) {
+		return {
+			status: 503,
+			message: 'Could not ask the serverless endpoint whether a render is running — try again.',
+		};
+	}
+	if (input.jobs > 0) {
+		return {
+			status: 409,
+			message:
+				`${input.jobs} render job(s) are queued or running on the serverless endpoint — a worker ` +
+				'may be loading this file. Try again when they finish.',
+		};
+	}
+	return null;
+}
+
+/** The hard ceiling on one transfer, whatever the volume has free. */
+export const MAX_TRANSFER_BYTES = 80e9;
+
+/** The most a transfer may write: the volume's free space when known, never above the ceiling. */
+export function transferCeiling(freeBytes: number | null): number {
+	if (freeBytes === null || !Number.isFinite(freeBytes)) return MAX_TRANSFER_BYTES;
+	return Math.max(0, Math.min(MAX_TRANSFER_BYTES, freeBytes));
+}
+
+/** Why `bytes` may not be written under `ceiling`, or null. */
+export function transferSizeError(bytes: number, ceiling: number): string | null {
+	return bytes > ceiling
+		? `The file is over ${formatBytes(ceiling)}, the most this transfer may write (the volume's free space, at most ${formatBytes(MAX_TRANSFER_BYTES)}).`
+		: null;
 }

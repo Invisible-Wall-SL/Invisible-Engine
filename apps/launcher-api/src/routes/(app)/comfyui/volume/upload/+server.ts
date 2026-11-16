@@ -29,7 +29,7 @@ function partSizeFor(size: number): number {
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
-	await requireComfyAdmin(locals);
+	const user = await requireComfyAdmin(locals);
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	const str = (k: string) => (typeof body?.[k] === 'string' ? (body[k] as string).trim() : '');
 	const folder = str('folder');
@@ -79,10 +79,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 					);
 				}
 				await completeMultipartUpload(key, uploadId);
-				const job = await startTransfer(
-					{ source: key, folder, path, mirror: true },
-					locals.user?.email ?? 'admin',
-				);
+				const job = await startTransfer({ source: key, folder, path, mirror: true }, user.email);
 				return json({ job });
 			}
 			case 'abort': {

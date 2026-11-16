@@ -165,16 +165,23 @@ def plan_uploads(files, *, prefix: str, prior: dict, in_r2, max_bytes: int,
 
 
 def merge_manifest(prior_manifest: dict | None, entries: list[dict], prefix: str) -> dict:
-	"""MERGE `entries` into the prior manifest — add/update by key, preserve
-	everything else (order included) plus the existing version/base_prefix."""
+	"""MERGE `entries` into the prior manifest — add/update by key (an update keeps
+	the prior entry's other fields), preserve everything else (order included)
+	plus the existing version/base_prefix."""
 	base = prior_manifest if isinstance(prior_manifest, dict) else {}
 	models = [m for m in base.get("models", []) if isinstance(m, dict) and m.get("key")]
 	by_key = {m["key"]: m for m in models}
 	order = [m["key"] for m in models]
 	for e in entries:
-		if e["key"] not in by_key:
+		prev = by_key.get(e["key"])
+		if prev is None:
 			order.append(e["key"])
-		by_key[e["key"]] = e
+		# Fields this script does not write survive — above all the launcher's
+		# `"volume": false`, which pull-models.py reads as "deleted on purpose".
+		merged = {**(prev or {}), **e}
+		if prev and prev.get("volume") is False:
+			merged["volume"] = False
+		by_key[e["key"]] = merged
 	return {
 		"version": base.get("version", 1),
 		"base_prefix": base.get("base_prefix") or prefix,

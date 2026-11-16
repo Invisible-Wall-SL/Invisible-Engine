@@ -1,14 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lookup } from 'node:dns/promises';
 import {
 	MIRROR_PREFIX,
 	VOLUME_MODELS_ROOT,
+	actionTarget,
 	blueprintModelNames,
+	healthJobs,
 	isModelFile,
 	deleteRefusal,
+	fleetSettingError,
 	groupByFolder,
 	mirrorKey,
+	podGuardRefusal,
+	renderGuardRefusal,
 	toVolumeFile,
+	transferCeiling,
+	transferSizeError,
 	usesOf,
 	type BlueprintUse,
 	type FolderGroup,
@@ -17,8 +23,7 @@ import {
 	type VolumeFile,
 	type VolumeObject,
 } from '$lib/volumeModels';
-import { compareAndSetAppSetting, getAppSetting } from './appSettings';
-import { isPrivateComfyHost } from './comfyRegister';
+import { RUNPOD_PODS_KEY, compareAndSetAppSetting, getAppSetting } from './appSettings';
 import { ENV } from './env';
 import {
 	entryFor,
@@ -42,7 +47,8 @@ import {
 	putObjectText,
 	uploadPart,
 } from './r2';
-import { gql, getEffectiveFleet, podStatus } from './runpod';
+import { openPublicDownload, publicUrlError } from './publicDownload';
+import { gql, getEffectiveFleet, podStatus, type PodStatus } from './runpod';
 import { volumeStore, type VolumeUpload } from './volumeStore';
 
 /**
@@ -259,10 +265,32 @@ export interface RenderActivity {
 	runningPods: string[];
 }
 
-async function runningPods(): Promise<string[]> {
+async function podStates(): Promise<{ label: string; status: PodStatus }[]> {
 	const fleet = await getEffectiveFleet();
-	const states = await Promise.all(fleet.map(async (p) => ({ p, s: await podStatus(p.id) })));
-	return states.filter((x) => x.s === 'running' || x.s === 'starting').map((x) => x.p.label);
+	return Promise.all(fleet.map(async (p) => ({ label: p.label, status: await podStatus(p.id) })));
+}
+
+/**
+ * The fleet's states for a delete, refusing (503) when the fleet itself could not be read — the
+ * shared reader turns a DB or JSON error into an empty fleet, which would read as "no pod up".
+ */
+async function podStatesForDelete(): Promise<{ label: string; status: PodStatus }[]> {
+	let raw: string | undefined;
+	try {
+		raw = await getAppSetting(RUNPOD_PODS_KEY);
+	} catch (e) {
+		console.error('[volume-models] could not read the pod fleet:', e);
+		throw new VolumeActionError(503, 'Could not read the pod fleet — try again.');
+	}
+	const bad = fleetSettingError(raw);
+	if (bad) throw new VolumeActionError(503, bad);
+	return podStates();
+}
+
+async function runningPods(): Promise<string[]> {
+	return (await podStates())
+		.filter((p) => p.status === 'running' || p.status === 'starting')
+		.map((p) => p.label);
 }
 
 /** Jobs queued or running on the serverless endpoint; null = not configured or no answer. */
@@ -277,8 +305,7 @@ async function endpointJobs(): Promise<number | null> {
 			},
 		);
 		if (!res.ok) return null;
-		const body = (await res.json()) as { jobs?: { inQueue?: number; inProgress?: number } };
-		return Number(body.jobs?.inQueue ?? 0) + Number(body.jobs?.inProgress ?? 0);
+		return healthJobs(await res.json());
 	} catch (e) {
 		console.error('[volume-models] endpoint health unreachable:', e);
 		return null;
@@ -349,6 +376,7 @@ async function buildRows(
 			...f,
 			usedBy: usesOf(f, blueprints),
 			keep: keepByKey.get(f.key) ?? null,
+			actionable: actionTarget(f.key) !== null,
 			mirror: m ? { size: Number(m.size ?? 0), volume: m.volume !== false } : null,
 		};
 	});
@@ -438,6 +466,8 @@ export interface DeleteRequest {
 	confirmKeep: boolean;
 	/** Also delete the R2 mirror copy and its manifest entry — desktops stop syncing it. */
 	alsoMirror: boolean;
+	/** The admin was warned that, with no endpoint configured, renders cannot be checked. */
+	confirmNoRenderCheck: boolean;
 }
 
 /**
@@ -450,7 +480,7 @@ export interface DeleteRequest {
 export async function deleteFromVolume(req: DeleteRequest, by: string): Promise<void> {
 	const store = volumeStore();
 	if (store.missing().length) throw new VolumeActionError(503, 'The volume is not configured.');
-	const file = toVolumeFile({ key: req.key, size: 0, modified: null });
+	const file = actionTarget(req.key);
 	if (!file) throw new VolumeActionError(400, 'That is not a model file on the volume.');
 	if (jobs.some((j) => j.state === 'running' && j.target === req.key)) {
 		throw new VolumeActionError(409, 'A transfer is writing this file right now.');
@@ -465,27 +495,25 @@ export async function deleteFromVolume(req: DeleteRequest, by: string): Promise<
 	});
 	if (refusal) throw new VolumeActionError(409, refusal);
 
-	const pods = await runningPods();
-	if (pods.length) {
-		throw new VolumeActionError(
-			409,
-			`${pods.join(', ')} ${pods.length > 1 ? 'are' : 'is'} running on this volume — stop ` +
-				'it first, so nothing loads the file while it goes.',
-		);
-	}
+	const podRefusal = podGuardRefusal(await podStatesForDelete(), !!ENV.RUNPOD_API_KEY);
+	if (podRefusal) throw new VolumeActionError(podRefusal.status, podRefusal.message);
 	// Last, so the answer is as fresh as it can be when the file goes.
-	const queued = await endpointJobs();
-	if (ENV.RUNPOD_ENDPOINT_ID && queued === null) {
+	const renderRefusal = renderGuardRefusal({
+		endpointConfigured: !!ENV.RUNPOD_ENDPOINT_ID,
+		jobs: ENV.RUNPOD_ENDPOINT_ID ? await endpointJobs() : null,
+		confirmNoRenderCheck: req.confirmNoRenderCheck,
+	});
+	if (renderRefusal) throw new VolumeActionError(renderRefusal.status, renderRefusal.message);
+
+	// Read the manifest here, not through `buildRows` (which shows an unreadable one as empty):
+	// the mark below and the mirror delete both depend on it.
+	try {
+		await readManifest();
+	} catch (e) {
+		console.error('[volume-models] manifest unreadable at delete:', e);
 		throw new VolumeActionError(
 			503,
-			'Could not ask the serverless endpoint whether a render is running — try again.',
-		);
-	}
-	if (queued) {
-		throw new VolumeActionError(
-			409,
-			`${queued} render job(s) are queued or running on the serverless endpoint — a worker may be ` +
-				'loading this file. Try again when they finish.',
+			'The R2 models manifest could not be read — nothing was deleted.',
 		);
 	}
 
@@ -497,8 +525,9 @@ export async function deleteFromVolume(req: DeleteRequest, by: string): Promise<
 	console.log(`[volume-models] ${by} deleted ${req.key} (${head.size} bytes)`);
 	patchSnapshot((objects) => objects.filter((o) => o.key !== req.key));
 
-	if (req.alsoMirror && rows[0].mirror) {
-		// Entry first, object second: an orphaned object is harmless, a dangling entry 404s.
+	if (req.alsoMirror) {
+		// Entry first (a no-op when there is none), object second — deleted either way, so an
+		// unindexed upload goes too. An orphaned object is harmless; a dangling entry 404s.
 		await updateManifest(removeEntry(r2Key));
 		await deleteObject(r2Key);
 		console.log(`[volume-models] ${by} removed ${r2Key} from the R2 mirror`);
@@ -528,6 +557,8 @@ export interface TransferJob {
 	mirror: boolean;
 	bytes: number;
 	total: number | null;
+	/** The most this job may write (the volume's free space, under a fixed ceiling). */
+	maxBytes: number;
 	state: 'running' | 'done' | 'failed' | 'cancelled';
 	error: string | null;
 	startedAt: string;
@@ -550,43 +581,12 @@ export function cancelTransfer(id: string): boolean {
 	return true;
 }
 
-const MAX_REDIRECTS = 5;
-
-/**
- * Open a public https download, refusing any hop — the first URL or a redirect — that names or
- * resolves to a private address, so this can never be pointed at Railway's internal network.
- */
-async function openPublicUrl(raw: string): Promise<Response> {
-	let url = raw;
-	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-		const parsed = new URL(url);
-		if (parsed.protocol !== 'https:') throw new VolumeActionError(400, 'Only https:// URLs.');
-		if (parsed.username || parsed.password) {
-			throw new VolumeActionError(400, 'A URL cannot carry a user name or password.');
-		}
-		if (isPrivateComfyHost(parsed.hostname)) {
-			throw new VolumeActionError(400, `${parsed.hostname} is a private address.`);
-		}
-		const addrs = await lookup(parsed.hostname, { all: true });
-		if (addrs.some((a) => isPrivateComfyHost(a.address))) {
-			throw new VolumeActionError(400, `${parsed.hostname} resolves to a private address.`);
-		}
-		const res = await fetch(url, {
-			redirect: 'manual',
-			headers: { 'user-agent': 'InvisibleLauncher/1.0' },
-			signal: AbortSignal.timeout(60_000),
-		});
-		const location = res.headers.get('location');
-		if (res.status >= 300 && res.status < 400 && location) {
-			url = new URL(location, url).toString();
-			continue;
-		}
-		if (!res.ok || !res.body) {
-			throw new VolumeActionError(502, `The download answered HTTP ${res.status}.`);
-		}
-		return res;
-	}
-	throw new VolumeActionError(502, 'The download redirected too many times.');
+/** The volume's provisioned size minus what the last listing holds; null when unknown. */
+async function freeBytes(): Promise<number | null> {
+	const info = await readVolumeInfo().catch(() => null);
+	if (!info || !snapshot) return null;
+	const used = snapshot.objects.reduce((n, o) => n + o.size, 0);
+	return info.sizeGb * 1e9 - used;
 }
 
 export interface TransferRequest {
@@ -610,8 +610,9 @@ export async function startTransfer(req: TransferRequest, by: string): Promise<T
 	if (fromR2 && req.source !== mirrorKey(req)) {
 		throw new VolumeActionError(400, 'A mirror file is copied to its own folder and name.');
 	}
-	if (!fromR2 && !/^https:\/\//i.test(req.source)) {
-		throw new VolumeActionError(400, 'The source must be an R2 mirror key or an https:// URL.');
+	if (!fromR2) {
+		const bad = publicUrlError(req.source);
+		if (bad) throw new VolumeActionError(400, bad);
 	}
 	// Reserve the slot before any await, so two starts in the same instant cannot both pass.
 	if (transferRunning()) {
@@ -624,6 +625,7 @@ export async function startTransfer(req: TransferRequest, by: string): Promise<T
 		mirror: fromR2 || req.mirror,
 		bytes: 0,
 		total: null,
+		maxBytes: transferCeiling(null),
 		state: 'running',
 		error: null,
 		startedAt: new Date().toISOString(),
@@ -636,6 +638,7 @@ export async function startTransfer(req: TransferRequest, by: string): Promise<T
 		if (await store.head(target)) {
 			throw new VolumeActionError(409, 'That file is already on the volume. Delete it first.');
 		}
+		job.maxBytes = transferCeiling(await freeBytes());
 	} catch (e) {
 		jobs.splice(jobs.indexOf(job), 1);
 		throw e;
@@ -681,10 +684,14 @@ async function runTransfer(job: TransferJob, fromR2: boolean): Promise<void> {
 		if (job.mirror && (await headObject(r2Key))) {
 			throw new Error(`${r2Key} is already in the R2 mirror — use Copy to volume instead.`);
 		}
-		const res = await openPublicUrl(job.source);
-		const len = Number(res.headers.get('content-length'));
-		job.total = Number.isFinite(len) && len > 0 ? len : null;
-		body = res.body as ReadableStream<Uint8Array>;
+		const download = await openPublicDownload(job.source);
+		job.total = download.contentLength;
+		body = download.body;
+	}
+	const declaredTooBig = job.total === null ? null : transferSizeError(job.total, job.maxBytes);
+	if (declaredTooBig) {
+		await body.cancel().catch(() => {});
+		throw new Error(declaredTooBig);
 	}
 
 	const sinks: Sink[] = [volumeSink(await store.createUpload(job.target))];
@@ -709,8 +716,10 @@ async function runTransfer(job: TransferJob, fromR2: boolean): Promise<void> {
 			if (cancelled.has(job.id)) throw new Error('Cancelled.');
 			const { done, value } = await reader.read();
 			if (done) break;
-			hash.update(value);
 			job.bytes += value.byteLength;
+			const tooBig = transferSizeError(job.bytes, job.maxBytes);
+			if (tooBig) throw new Error(tooBig);
+			hash.update(value);
 			let offset = 0;
 			while (offset < value.byteLength) {
 				const n = Math.min(PART_BYTES - filled, value.byteLength - offset);

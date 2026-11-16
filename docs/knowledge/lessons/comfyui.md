@@ -6,6 +6,17 @@ Covers the generation path (Atlas Maker → RunPod Serverless worker, `services/
 the R&D pod fleet (`/comfyui`, `services/atlas-comfy-pod`), the `nodes.json` node list and a
 person's own ComfyUI over the tunnel. Runbooks and env vars: `docs/INFRA.md` "ComfyUI".
 
+### The volume delete guards failed open
+- **Symptom:** review of #1680 (merged early): a delete could run with a pod we could not see,
+  with no render check, or on a `..` key the used-by check never matched; URL downloads died at 60 s.
+- **Cause:** each guard treated "could not tell" as "safe" (`unknown` pod = stopped, no endpoint =
+  no renders, `/health` without `jobs` = 0), the key check was prefix + extension only, and
+  `AbortSignal.timeout` on `fetch` also aborts the body stream.
+- **Fix:** pure refusals in `$lib/volumeModels.ts` that 503 on "unknown"; delete/Keep keys pass the
+  upload's `SAFE_SEGMENT` rule; URL fetch via `publicDownload.ts` (headers deadline + per-read idle).
+- **Guard:** `pnpm --filter launcher-api check:volume-models`.
+- **PR:** not recorded (2026-11-16) · source: `docs/status/comfyui.md`
+
 ### Every background cutout failed for hours
 - **Symptom:** every serverless cutout failed for ~14 h (video renders too), any BiRefNet model.
 - **Cause:** the worker linked the volume's shared `models/RMBG/`, a folder the node itself
