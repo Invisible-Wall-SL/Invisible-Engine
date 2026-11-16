@@ -238,6 +238,9 @@ glint flashing as a facet lines up with the light. With the default ruby the dar
 nearly black; lifting the art's floor (both tiles) lifted most of
 them, and the rest is an art choice.
 
+**In the studio library.** Published as `gem3d` ("3D gem") the same day, the way `coin3d`
+was, so every project's `/fx` Material list offers `custom:gem3d`; step 2's Solid: gem replaces it.
+
 **Found, for step 2.** The light turns with the particle's 2D spin, as on the coin. A glint is a
 whole facet (flat facets have one normal); a star-shaped flare would need a sprite beside the gem,
 not more shader. The rings are fixed at eight steps: a heart or emerald cut needs another plane

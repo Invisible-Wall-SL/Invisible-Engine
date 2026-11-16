@@ -836,8 +836,12 @@ the coin and gem spikes, is built and waits for the owner's look on a phone.
      glints. 2,943 units / 4 reads in eight Custom GLSL nodes; 1.1–5.2 ms a frame for 76 gems on
      the desktop iGPU (the coin: 1.2–1.3 ms in the same run). Its owner look is the playbook's
      item 8.
-   - **Gem library publish:** to be published as `gem3d` ("3D gem") the way `coin3d` was, once the
-     owner says go; not done yet.
+   - **In the studio-shared library as `gem3d` ("3D gem")** since 2026-11-16, the way `coin3d`
+     went: the `calGem` doc renamed, otherwise unchanged, saved into the owner's active project,
+     published, the project copy deleted; `/api/shaders/effects` compiles `custom:gem3d` at
+     2,943 / 4, shared. Updating it needs `shaderPublish` + `shaderCustomGlsl` and `replace: true`.
+     The artist guide ("3D Coin Particles: Artist Guide") has a gem section: tiles, params,
+     pitfalls.
    - **Setup by hand, the gem too:** `cal-gem` needs its atlas from `gem3d.png` (one region
      `gem3d`).
    - **A gem's glint is a whole facet** (a flat facet has one normal); a star flare would be a
@@ -878,6 +882,7 @@ the coin and gem spikes, is built and waits for the owner's look on a phone.
 - 2026-11-16 — **Step 8f.1: the gem spike** (3D particles, [design](../design/shader-graph-3d-particles.md)
   §4 "Gem", §9 "Step 1 results: the gem"). The gem half of step 1, built as the coin was: Custom
   GLSL only, no engine or runtime code changed (a runtime release with no game changing).
+  Published the same day to the studio-shared library as `gem3d` ("3D gem") (Open items #9).
   - **The graph.** `calGem` (`engine-shadergraph/src/gemSpike.ts`), eight Custom GLSL nodes (Ray,
     Enter ×2, Facet, Exit ×2, Back, Shade). A ray enters the cut at the last plane it crosses
     inward and leaves at the first it crosses outward; the planes are seven rings of eight plus
