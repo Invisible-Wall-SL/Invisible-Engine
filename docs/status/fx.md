@@ -74,6 +74,9 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Particles on paths** (2026-11-16, being built) — spawn along a line / spline / Bézier,
   move the emitter along it, or have particles follow it; one `fxPath` behaviour in the layer
   config, off by default. Plan and its three PRs: [design/fx-paths](../design/fx-paths.md).
+  Open for step 3: the path clock lives on the emitter, so two `fxPath` entries on one layer
+  would each advance it (the pass runs 2× fast) — keep authoring to one path per layer, or key the
+  clock per entry.
 - **Re-bake Overlay Buffalo Duel's mixed effects** (2026-11-02) — `s_sparks_small` and
   `s_sparks_big` mix Normal and Add, so their stored bakes now read **Stale** and play live (in a
   game, once this runtime ships, even before a re-publish). In `/fx`: open each, **Bake again**,
@@ -174,6 +177,20 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-16 — **Particles on paths: hardening before authoring** (branch `fx/path-hardening`,
+  the review follow-ups of the runtime PR). `engine-fx/src/path.ts`: `readFxPath` keeps at most
+  `FX_PATH_MAX_POINTS` (256) anchors — `init` rebuilds the arc-length table on every re-fire, and
+  200k points took ~1 s each time; a non-finite or negative `dt` no longer advances the path clock
+  (one `Infinity` used to leave `spawnPos` NaN for good) nor moves a follower; an `autoUpdate`
+  emitter (called by the shared Ticker with the Ticker itself, whose `deltaTime` is in frames) now
+  ticks the clock by `elapsedMS / 1000` as the library's own update does — it travelled ~60× too
+  fast; and an `fxPath` taken out of the behaviour arrays without `init` hands back its travel
+  offset (the tick hook releases the clock when no path behaviour ran — matched by the class's
+  `type`, so a second copy of the module still counts, and skipped on a destroyed emitter). No
+  layer carries `fxPath`, so no effect or game changes. Gate: `check:fx-path` gained a hardening
+  section (cap + build time, Infinity / NaN dt on the clock and a follower, `autoUpdate` on the
+  library's own `Ticker.shared`, removal without `init` under a turn, a module-copy path class, a
+  destroyed emitter); every case fails against the code it guards.
 - 2026-11-16 — **Particles on paths: the runtime** (branch `claude/fx-paths-runtime`, design
   [fx-paths](../design/fx-paths.md) step 2). `engine-fx/src/path.ts`: a polyline / Catmull-Rom /
   cubic Bézier curve flattened to an arc-length table, and the `fxPath` behaviour (order 1, after
@@ -188,9 +205,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   rebuild keeps the pass), by the renderer's dt (so Turbo speeds it up) and restarts it when
   emission switches back on or the emitter is re-initialised (an event layer re-firing); a looping
   travel's wrap from the end to the start resets the spawn lerp so no streak crosses the gap, and
-  `rewindFxPath` lets a Replay restart the pass. No layer carries `fxPath` yet, so no effect changes. Gate:
-  `check:fx-path` (fx-spike `path.ts`, in `check:all`), with mutants planted for the travel
-  rotation, the even stream and the behaviour order. Not yet authorable in `/fx` (step 3).
+  `rewindFxPath` lets a Replay restart the pass. No layer carries `fxPath` yet, so no effect
+  changes. Gate: `check:fx-path` (fx-spike `path.ts`, in `check:all`), with mutants planted for
+  the travel rotation, the even stream and the behaviour order. Not yet authorable in `/fx`
+  (step 3).
 - 2026-11-03 — **One-shot effects loop in the `/fx` preview; ⟲ Replay** (branch
   `claude/fx-stage-playback-fix`). Owner report: a burst effect played once on load and then never
   again; editing a layer re-fired only that layer, so the whole effect could not be seen. Not a

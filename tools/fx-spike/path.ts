@@ -13,15 +13,19 @@
  *  4. Travel: the origin moves along the curve, keeps the authored `pos`, survives an emitter
  *     rotation and a parameter rebuild, restarts with emission and runs faster under Turbo.
  *  5. Follow: by speed (true px/s, orient, die at the end), by life, and with forces stacking on it.
- *  6. No path = no change, and the doc survives the ship chain verbatim.
+ *  6. Hardening: the point cap, a non-finite dt, an `autoUpdate` emitter on the shared Ticker, and
+ *     a path taken out without `init`.
+ *  7. No path = no change, and the doc survives the ship chain verbatim.
  */
 
+import { createRequire } from 'node:module';
 import { Container } from 'pixi.js';
 import { Emitter, type EmitterConfigV3 } from '@barvynkoa/particle-emitter';
 import {
 	FX_BEHAVIOR_TYPES,
 	FX_FORCES_BEHAVIOR_TYPE,
 	FX_PATH_BEHAVIOR_TYPE,
+	FX_PATH_MAX_POINTS,
 	FxPathBehavior,
 	FxPathTable,
 	fxPathTravelProgress,
@@ -591,6 +595,144 @@ assert(
 	!!lf && near(lf.x, 40, 1e-6) && near(lf.y, 40, 1e-6),
 	'…whatever the order of the spawn shape in the config (fxPath runs after placement)',
 );
+
+// ---------------------------------------------------------------------------
+console.log('');
+console.log('fx path — hardening');
+// The cap: `init` rebuilds the table on every re-fire, so an absurd doc must not stall the game.
+const huge = Array.from({ length: 200000 }, (_, i) => ({ x: i % 1000, y: Math.floor(i / 1000) }));
+const capped = readFxPath({ curve: { kind: 'catmullRom', points: huge } }).curve.points;
+assert(
+	capped.length === FX_PATH_MAX_POINTS &&
+		capped[FX_PATH_MAX_POINTS - 1].x === FX_PATH_MAX_POINTS - 1,
+	`200k points keep the first ${FX_PATH_MAX_POINTS} (${capped.length})`,
+);
+const buildStart = performance.now();
+new FxPathBehavior({ curve: { kind: 'catmullRom', points: huge }, emit: 'along' });
+const buildMs = performance.now() - buildStart;
+assert(
+	buildMs < 200,
+	`…and the behavior builds in ${buildMs.toFixed(1)} ms (< 200; ~1 s uncapped)`,
+);
+
+// A non-finite dt neither advances the clock nor leaves `spawnPos` NaN.
+const poisoned = make(travelCfg());
+poisoned.update(0.1);
+const pb = poisoned.getBehavior(FX_PATH_BEHAVIOR_TYPE) as FxPathBehavior;
+const pem = poisoned as unknown as FxPathEmitter;
+for (const bad of [Infinity, Number.NaN, -Infinity, -1]) pb.tickEmitter(pem, bad);
+assert(
+	Number.isFinite(poisoned.spawnPos.x) && Number.isFinite(poisoned.spawnPos.y),
+	`Infinity / NaN dt leaves spawnPos finite (${poisoned.spawnPos.x}, ${poisoned.spawnPos.y})`,
+);
+poisoned.update(0.1);
+assert(
+	near(clock(poisoned).t, 0.2, 1e-9) && near(poisoned.spawnPos.x, 25, 1e-6),
+	`…the clock skips them and the travel carries on (${poisoned.spawnPos.x.toFixed(2)})`,
+);
+const followEm = make(
+	cfg([
+		pathEntry({
+			curve: { kind: 'polyline', points: sweepPath },
+			emit: 'along',
+			along: { distribution: 'sweep' },
+			follow: { enabled: true, by: 'speed', speed: 50, end: 'loop' },
+		}),
+	]),
+);
+followEm.update(0.1);
+const fb = followEm.getBehavior(FX_PATH_BEHAVIOR_TYPE) as FxPathBehavior;
+const poisonedP = (
+	followEm as unknown as { _activeParticlesFirst: Parameters<FxPathBehavior['updateParticle']>[0] }
+)._activeParticlesFirst;
+for (const bad of [Infinity, Number.NaN]) fb.updateParticle(poisonedP, bad);
+assert(
+	Number.isFinite(poisonedP.x) && Number.isFinite(Number(poisonedP.config.fxPathS)),
+	'a non-finite dt does not move a particle following by speed off the curve',
+);
+
+// autoUpdate: the shared Ticker calls `update(ticker)`, whose `deltaTime` is in frames; the clock
+// must advance by the Ticker's elapsed seconds, as the library's own update does.
+const g = globalThis as unknown as Record<string, unknown>;
+g.requestAnimationFrame ??= () => 1;
+g.cancelAnimationFrame ??= () => undefined;
+// The library's own `Ticker.shared`: under tsx it loads pixi's CommonJS build, not this file's ESM.
+const { Ticker } = createRequire(import.meta.url)('pixi.js') as typeof import('pixi.js');
+const shared = Ticker.shared;
+shared.stop();
+const auto = make(travelCfg());
+auto.autoUpdate = true;
+let now = 1000;
+shared.lastTime = now;
+for (let i = 0; i < 6; i++) shared.update((now += 50));
+auto.autoUpdate = false;
+assert(
+	(auto as unknown as FxPathEmitter).fxPathClock !== undefined &&
+		near(clock(auto).t, 0.3, 1e-6) &&
+		near(auto.spawnPos.x, 35, 1e-4),
+	`an autoUpdate emitter travels at the Ticker's seconds, not frames (t ${clock(auto).t.toFixed(3)}, x ${auto.spawnPos.x.toFixed(2)})`,
+);
+
+// A path taken out in place (no `init`): the travel offset goes with it.
+const dropped = make(travelCfg());
+for (let i = 0; i < 3; i++) dropped.update(0.1);
+const ds = dropped as unknown as { initBehaviors: unknown[]; updateBehaviors: unknown[] };
+// Turned since the last tick (a bone): the offset to take back has turned with `spawnPos`.
+dropped.rotate(Math.PI / 2);
+const dpb = ds.initBehaviors.find((b) => b instanceof FxPathBehavior);
+ds.initBehaviors.splice(ds.initBehaviors.indexOf(dpb), 1);
+if (ds.updateBehaviors.includes(dpb)) ds.updateBehaviors.splice(ds.updateBehaviors.indexOf(dpb), 1);
+dropped.update(0.1);
+assert(
+	near(dropped.spawnPos.x, -7, 1e-6) &&
+		near(dropped.spawnPos.y, 5, 1e-6) &&
+		(dropped as unknown as FxPathEmitter).fxPathClock === undefined,
+	`removing fxPath without init returns a turned origin to the turned authored pos (${dropped.spawnPos.x.toFixed(2)}, ${dropped.spawnPos.y.toFixed(2)})`,
+);
+
+// A second copy of engine-fx (an HMR re-run, a bundle duplicate) registers its own class: the hook
+// installed by the first copy must still treat it as the path, not release its clock every tick.
+class CopiedPath {
+	static type = FX_PATH_BEHAVIOR_TYPE;
+	order = 1;
+	private inner: FxPathBehavior;
+	constructor(config: FxPathConfig) {
+		this.inner = new FxPathBehavior(config);
+	}
+	tickEmitter(em: FxPathEmitter, dt: number): void {
+		this.inner.tickEmitter(em, dt);
+	}
+	initParticles(first: Parameters<FxPathBehavior['initParticles']>[0]): void {
+		this.inner.initParticles(first);
+	}
+	updateParticle(p: Parameters<FxPathBehavior['updateParticle']>[0], dt: number): boolean {
+		return this.inner.updateParticle(p, dt);
+	}
+}
+const copied = make(travelCfg());
+const cs = copied as unknown as { initBehaviors: unknown[]; updateBehaviors: unknown[] };
+const cAt = cs.initBehaviors.findIndex((b) => b instanceof FxPathBehavior);
+const cOld = cs.initBehaviors[cAt];
+const cNew = new CopiedPath(travelCfg().behaviors[0].config as FxPathConfig);
+cs.initBehaviors[cAt] = cNew;
+cs.updateBehaviors[cs.updateBehaviors.indexOf(cOld)] = cNew;
+for (let i = 0; i < 3; i++) copied.update(0.1);
+assert(
+	near(copied.spawnPos.x, 35, 1e-6),
+	`a path class from another module copy still travels (${copied.spawnPos.x.toFixed(2)})`,
+);
+
+// `destroy` empties the arrays in place and nulls `spawnPos`: a late update stays a quiet no-op.
+const destroyed = make(travelCfg());
+destroyed.update(0.1);
+destroyed.destroy();
+let threw = false;
+try {
+	destroyed.update(0.1);
+} catch {
+	threw = true;
+}
+assert(!threw, 'updating a destroyed travelled emitter does not throw (the library returns)');
 
 // ---------------------------------------------------------------------------
 console.log('');
