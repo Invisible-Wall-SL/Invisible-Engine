@@ -86,7 +86,74 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 3. **＋ Blueprint does not flag an unexposed NUMERIC knob** (only boolean switch gates) — "this
    int matters" has no clean signal. Deliberate.
 
+4. **Evaluate Wan2.2-Animate-2 for character clips — desk half done, renders owed** (see the
+   section below). Blocked on a pod session and the inputs (owner list).
+
+## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
+
+Idea: animate a game character from a **driving motion video** (reference image + driving video +
+prompt → the character doing that motion), as a complement to the current Wan 2.2 I2V blueprint,
+which stays for symbol/FX loops. R&D only: nothing ships and the worker image is untouched.
+
+**Settled from source (no GPU needed):**
+- **ComfyUI core supports it at our pin.** `WanAnimate2ToVideo` + `WanAnimate2Cache`
+  (`comfy_extras/nodes_wan.py`) and the `animate2` model type (`comfy/ldm/wan/model_animate2.py`,
+  landed 2026-08-07) are in **v0.33.1**, so the pod AND the serverless worker can already run it.
+  **No custom node.** The cutout reuses `BiRefNetRMBG`, which is already on both images.
+- **No pose extractor.** The node VAE-encodes the raw driving frames (`pose_video`), so the v1
+  Animate stack (controlnet_aux pose and face crops, KJNodes) is not needed.
+- **Weights** are the `Comfy-Org/Wan-Animate-2` repack (Apache-2.0):
+  `wan_animate_2{,_distill}_int8_convrot` (16.65 GB each; bf16 is 32.79 GB) and
+  `clip_vision_h` (1.26 GB). The Base template also uses `lightx2v_I2V_14B_480p_cfg_step_distill_rank64`
+  (0.74 GB). `umt5_xxl_fp8_e4m3fn_scaled` is byte-identical to the file the `wan22-i2v` set already
+  put on the volume (same LFS oid), and `wan_2.1_vae` serves as the VAE. That is **~35 GB new**
+  for both checkpoints, or ~18 GB for Distilled alone.
+- **The official templates are not runnable as-is at v0.33.1.** The Distilled template is all core
+  nodes present at the pin. The Base template's long-video loop (`StartLoop`/`EndLoop`/
+  `GetItemFromList`) landed in core on 2026-09-14, after v0.33.1. That only matters past one
+  81-frame segment, and a Flipbook clip is one segment, so the spike graph is a single pass.
+- **"Base" in ComfyUI is not the card's Base.** The Base template runs the Base int8 weights with
+  the lightx2v LoRA at 6 steps (lcm, CFG 1). Distilled runs 10 steps (lcm, CFG 1). The model
+  card's Base is 40 steps with CFG. The spike compares all three.
+- **VRAM (estimate, unmeasured):** 16.65 GB of int8 DiT, with the fp8 umT5 loaded before it rather
+  than beside it. This fits a 24 GB RTX 4090 with the pose cache on CPU
+  (`WanAnimate2Cache device=cpu` costs ~12.5 GB of system RAM at 480×832×81). It fits a 32 GB RTX
+  PRO 4500 with the cache on GPU. The official README quotes only 8×A800 for 720p, so 640² is
+  our default, as for Wan 2.2.
+
+**Judged from the design (verify on the renders):**
+- **Canvas stability is driven by the motion clip, not the model.** The output copies the driving
+  body's translation, so a walk or run must be filmed **in place** with a static camera (the camera
+  is text-steerable: "static camera"). Otherwise the clip walks off its canvas. The pack keeps
+  each frame's trim offset, so in-place motion cannot drift after packing.
+- **Looping is not built in.** The node has no end-frame input, unlike our I2V path's first-frame
+  anchor. A loop is only as good as the driving clip's own loop, and `continue_motion` only extends
+  forward.
+- **Background comes from the prompt**, not the reference, so prompt a plain flat background to give
+  the matte an easy job.
+- **Identity on 2D art is the open risk.** The model is trained on human motion. A humanoid cartoon
+  should transfer; a fruit, a coin or a creature with no limbs likely will not. That case stays on
+  Wan 2.2 I2V.
+
+**What a "go" would cost (its own pipeline-change branch):** a second input role in Video mode,
+because today the only image binding is `style_ref`. The new role is a driving-video upload,
+uploaded to ComfyUI by `video_runner.py`. It also needs a `kind: video` blueprint and card, plus
+the ~18 GB Distilled set on the volume (a `fetch-models.py` set). There is no worker-image change.
+
+**Still owed (needs the owner):** the renders. That means 3–4 cases (idle, walk in place,
+attack/win) of one existing character, run as Distilled vs Base+LoRA vs Base, and compared with that
+character's Wan 2.2 clip. For each case, judge identity, `loop_seam`, `drift_px` after cutout, and
+seconds and $ per clip. The ready-to-run kit is `animate2_graph.py` / `run_spike.py` /
+`measure.py`, in the session notes folder (not in the repo). **Recommendation until then:
+conditional go for humanoid characters only.** It is cheap to adopt because there is no new node
+and no image change. Decide after the renders.
+
 ## Blocked (owner / external)
+
+- **Animate-2 renders (open item 4).** Needs an On-Demand R&D pod (≈1.5 h on a 4090, ~$1–2), a
+  one-time ~35 GB weight fetch onto `Invisible_RunPod_Storage`, the reference PNG and Wan 2.2
+  baseline session of one character, and three in-place driving clips (ours: phone footage or a
+  Wan 2.2 T2V mannequin render).
 
 - **Roll out the checksummed cutout weights** (2026-09-30). The new worker is safe in any order
   (an unfetched volume only means each cold worker downloads its cutout model privately), but it
@@ -105,6 +172,11 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-11-16 — **Wan2.2-Animate-2 evaluation, desk half.** Confirmed that ComfyUI v0.33.1 core runs
+  it with no custom node and that the weights are Apache-2.0. Added licence entries
+  (`wan-animate-2`, `wan-clip-vision-h`, `lightx2v-wan2.1-i2v-distill-lora`, plus the bf16 VAE
+  spelling) to `model_licences.json` + `model-licences.md`. Renders owed (open item 4).
 
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
   `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's clips

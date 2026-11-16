@@ -321,6 +321,12 @@ EXPECTED_IDS = {
     "RealESRGAN_x4plus.pth": "real-esrgan",
     "PLUS (high strength)": "ipadapter-plus-sdxl",
     "CLIP-ViT-H-14-laion2B-s32B-b79K": "clip-vit-h-14-laion2b",
+    "wan_animate_2_distill_int8_convrot.safetensors": "wan-animate-2",
+    "wan_animate_2_bf16.safetensors": "wan-animate-2",
+    "clip_vision_h.safetensors": "wan-clip-vision-h",
+    "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors":
+        "lightx2v-wan2.1-i2v-distill-lora",
+    "Wan2_1_VAE_bf16.safetensors": "wan2.2",
     "gpt-image-1": "gpt-image",
     "antelopev2": "insightface-antelopev2",
     "EVA02-CLIP-L-14-336": "eva02-clip-l-336",
