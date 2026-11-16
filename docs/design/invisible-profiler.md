@@ -1,6 +1,6 @@
 # Invisible Profiler — how a published game performs, on which devices, and what to cut
 
-**Status:** design registered 2026-11-16. Not yet built. Build plan below (P1–P6).
+**Status:** design registered 2026-11-16; owner decisions recorded the same day. Not yet built. Build plan below (P1–P7).
 **Owner ask:** "a tool to control and optimize games, to see what is going on and how it performs
 on different devices, understand problems so a plan to solve them can be created. It should work
 on final builds, to monitor if the build is efficient, and say where things can be saved to reach
@@ -152,7 +152,7 @@ a forced feature where the mock supports it), reads `__IE_PERF__('take')` and po
 `lab` report. Lab reports are compared on **counts** — draws, passes, uploads, GL calls, texture MB,
 JS ms per frame — not fps: fps on a shared runner swings about 2× run to run. It runs where the
 current-games harness already runs headless Chrome (`.github/workflows/current-games.yml`,
-`scripts/playtest/online-play.mjs`). A real-device cloud for phones nobody owns is an open decision.
+`scripts/playtest/online-play.mjs`). Real phones from an online service are "Cloud phones" below (P7).
 
 ## The page
 
@@ -189,14 +189,53 @@ Each step is one PR, usable on its own.
 - **P5 — File as bug.** Prefilled Bug Reports from a finding, with the evidence links.
 - **P6 — Lab runs.** The scripted headless run per Publish, compared on counts; the Builds tab shows
   its counts beside the phones' fps.
+- **P7 — Cloud phones.** The same script on the real-device service's phones ("Cloud phones" below): calibration
+  against an owned phone first, then the device matrix on demand and nightly per live game.
 
-## Open decisions
+## Decisions (owner, 2026-11-16)
 
-1. **Name.** "Invisible Profiler" (`/profiler`) is the working name.
-2. **Who sees it.** Every role that publishes, or developers and admins only.
-3. **Retention.** Reports per project kept forever, or the last N per device class and build.
-4. **Studio default budgets.** Proposed: phone 60 fps idle and ≥ 50 spinning (p95 ≤ 25 ms),
-   desktop 60 / 60; shipped ≤ 25 MB; GPU ≤ 150 MB on phones. To be set from the first month of
-   readings rather than guessed.
-5. **Lab runner.** GitHub Actions beside the current-games harness, or a Railway worker; and whether
-   to add a real-device cloud for phones nobody on the team owns.
+1. **Name:** Invisible Profiler, `/profiler`.
+2. **Who sees it:** every role, for now. Budgets and Keep are editable by every role too; narrow it
+   later with a capability if needed.
+3. **Retention:** readings and build records are deleted after **15 days** unless marked **Keep**
+   (a pin on a reading or a build). A daily purge removes the R2 file and the row together. The
+   newest build of each project is never purged, so a new build always has one to compare with.
+   Budgets are settings, not readings, and are kept.
+4. **Studio default budgets:** phone 60 fps idle and ≥ 50 spinning (p95 ≤ 25 ms), desktop 60 / 60;
+   shipped ≤ 25 MB; GPU ≤ 150 MB on phones. A project can override any of them.
+5. **Phones from an online service** — see "Cloud phones" below.
+
+## Cloud phones — real devices from an online service (P7)
+
+The owner wants to test on phones nobody on the team owns, from an online real-device service,
+driven by the same script as the lab run.
+
+**Proposed service: BrowserStack Automate.** It runs Playwright on real Android phones (Chrome)
+and real iPhones and iPads (Safari), which is what the lab script is written against. LambdaTest
+(now TestMu AI) offers the same on iOS and is the fallback if pricing or the device list decides it.
+Either way the service is a seam: one adapter (`profiler/devices/<service>.ts`) that opens a
+session on a named device, so swapping provider touches one file.
+
+**How a cloud run works.** The Profiler (or the nightly job) asks the adapter for a session on each
+device in the project's matrix, opens the published game with `&perf=1&perfsession=<token>`, plays
+the lab script, and the probe posts its report like any phone, tagged `source: cloud` and the
+service's device name. The game is public on `games.invisiblewall.org`, so no tunnel is needed.
+
+**What to trust.** A cloud phone is real hardware, but it is driven remotely and may be recording
+video, which costs it frames. So:
+
+- **Calibrate first.** Before any cloud number is used against a budget, the same build runs on the
+  service's iPhone 13 Pro and Galaxy S25 and on the owner's own two phones. If fps differs by more
+  than ~10 %, cloud readings are compared to each other (build to build), never to the budget, and
+  the page says so.
+- Video recording is turned off for perf runs; logs only.
+- The counts (draws, uploads, texture MB, JS ms) are trusted as on any device.
+
+**When it runs.** On demand from **New capture → Cloud phones** (pick devices), and nightly on
+each live game's newest build over a small default matrix (one low, one mid and one high Android;
+two iPhones), kept to the plan's monthly minutes. Not on every Publish: device minutes cost money.
+
+**Owner steps (not code):** open the account and choose the plan; the username and access key go
+into the runner's env vars only (`BROWSERSTACK_USERNAME`, `BROWSERSTACK_ACCESS_KEY`), never into
+the repo (hard rule 1).
+
