@@ -117,6 +117,14 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-11-16 — **A paused RunPod endpoint is said in words, with the fix.** Owner report from the
+  Flipbook: every slot showed RunPod's raw `HTTP 409 … "code":"ENDPOINT_PAUSED"` JSON. The production
+  serverless endpoint's **Max workers** had been set to 0, and RunPod now refuses `/run` on a paused
+  endpoint instead of queueing. That is a console setting, not a fault, so `batch_atlas._runpod_http_error`
+  (used by `_runpod_post` and `_runpod_get`, so stills AND Flipbook video) now answers with what it is
+  and where to change it (RunPod → endpoint → Manage → Edit endpoint → Max workers > 0). Every other
+  RunPod error keeps its raw answer and `.code`. Who set it to 0 is not known; no code in this repo
+  writes it. Guard: `test_runpod_paused.py`.
 - 2026-11-10 — **The legacy `?k=` / `bp=` tool handoff is gone; a signed launch token is the only
   way in.** The 2026-10-13 cut-over had passed and both tools already logged `legacy ?k= refused`
   (both signing secrets checked on Railway: set on the launcher and on each tool, values matching).

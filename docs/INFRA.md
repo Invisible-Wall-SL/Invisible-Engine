@@ -1077,7 +1077,7 @@ port, so it must not move). Nothing else: no R2 key, no `DATABASE_URL`. The imag
 > On `atlas-tool`, `VIDEO_PARALLEL_JOBS` (default 1) caps how many of ONE video session's
 > variations are in flight at once. RunPod wakes a second worker only when a second job is
 > waiting, so at 1 an endpoint with three workers uses one. **Set it to the endpoint's max
-> workers (the owner's is 3), never above** — the surplus just sits IN_QUEUE, and each extra
+> workers (the owner's is 4 since 2026-11-16), never above** — the surplus just sits IN_QUEUE, and each extra
 > worker is its own cold start and its own share of the burn rate.
 >
 > Also `VIDEO_SLOT_SWEEP_MINUTES` (default 60, 0 disables) — how often one project's `video/_out/`
