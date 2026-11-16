@@ -21,13 +21,15 @@
  *  8. reopen an effect whose material's graph is gone: named, badged and drawn plain;
  *  9. reload on an effect with a material while the compiled set answers late: the stage's first
  *     build is plain (not registered), and the material mounts once the set registers.
+ * 10. open the step-8f coin spike (`?coin=1`): the `calCoin` material mounts on its own four-tile
+ *     atlas, its coins draw and tumble.
  *
  * The page's "Open in Shader Graph" is checked to be a plain same-tab link, with no iframe.
  *
  *   pnpm --filter fx-spike fx-page [--keep <dir>]
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -485,6 +487,54 @@ try {
 			sinceReload().at(-1)?.includes(': on (custom:noiseDissolve') &&
 			reload.notes.length === 0,
 		`${sinceReload().join(' → ')}; load ${reload.load}`,
+	);
+	console.log('10. the coin spike (Shader Graph 8f.1): a solid coin traced in each particle');
+	const loggedBeforeCoin = browser.pageLog.length;
+	await browser.send('Page.navigate', { url: `${pathToFileURL(html).href}?fxdebug=1&coin=1` });
+	const coinMounts = () =>
+		browser.pageLog
+			.slice(loggedBeforeCoin)
+			.filter((l) => /material layer fx\/main: (on \(|plain)/.test(l));
+	await waitFor(`!!document.querySelector('.stage canvas')`, 'the stage');
+	await waitFor(
+		`!!document.querySelector('.loadval') && !document.querySelector('.loadval').textContent.startsWith('≈')`,
+		'the coin layer’s measured load',
+	);
+	await ev(`(() => {
+		window.coinPixels = () => {
+			const src = document.querySelector('.stage canvas');
+			const c = document.createElement('canvas');
+			c.width = src.width; c.height = src.height;
+			const g = c.getContext('2d');
+			g.drawImage(src, 0, 0);
+			const d = g.getImageData(0, 0, c.width, c.height).data;
+			let gold = 0;
+			const sig = [];
+			for (let i = 0; i < d.length; i += 4) if (d[i] > 120 && d[i] > d[i + 2] * 1.6) gold++;
+			for (let i = 0; i < d.length; i += 4 * 97) sig.push(d[i], d[i + 1], d[i + 2]);
+			return { gold, sig };
+		};
+	})()`);
+	const coinA = await ev('coinPixels()');
+	await sleep(600);
+	const coinB = await ev('coinPixels()');
+	const coinLoad = await ev(`document.querySelector('.loadval').textContent`);
+	// Kept for a look, paused: a software renderer still drawing the next frame shows patches of two.
+	if (keepAt) {
+		await ev(
+			`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Pause')?.click()`,
+		);
+		await sleep(1000);
+		const { data } = await browser.send('Page.captureScreenshot', { format: 'png' });
+		writeFileSync(join(dir, 'coin.png'), Buffer.from(data, 'base64'));
+	}
+	check(
+		'the coin material mounts on the coin page (on, measured), and its coins draw gold and move',
+		coinMounts().at(-1)?.includes(': on (custom:calcoin') &&
+			coinA.gold > 2000 &&
+			coinB.gold > 2000 &&
+			differs(coinA, coinB) > 50,
+		`${coinMounts().join(' → ')}; ${coinA.gold} / ${coinB.gold} gold px; load ${coinLoad}`,
 	);
 	const errors = browser.pageLog.filter((l) => /^\[(error|uncaught)\]/.test(l));
 	check('no errors on the page', errors.length === 0, errors.slice(0, 3).join(' | '));

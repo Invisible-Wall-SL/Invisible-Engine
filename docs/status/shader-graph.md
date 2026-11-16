@@ -25,6 +25,8 @@ check sets its caps. 8e (screen transitions and post FX) is decided
 shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and the transition
 runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 (transitions in the game) is merged (#1461);
 8e.6 (authoring in the Scene Editor and the Flow) is merged (#1468); 8e.5, 8e.7 and 8e.8 are in progress.
+8f (3D particles) is proposed ([design](../design/shader-graph-3d-particles.md)); its step 1,
+the coin spike, is built and waits for the owner's look on a phone.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -825,16 +827,68 @@ runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 
      the verdict is the same; an enum-membership check would need them there too.
 8. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
-9. **Step 8f, 3D particles — proposed 2026-11-16, not decided**
-   ([design](../design/shader-graph-3d-particles.md)). First step when picked up: a coin
-   ray-traced with Custom GLSL inside a particle material, checked on a phone. Gaussian splatting
-   was considered and set aside (§2).
+9. **Step 8f, 3D particles — proposed 2026-11-16; step 1, the coin spike, built**
+   ([design](../design/shader-graph-3d-particles.md) §9 "Step 1 results"). Gaussian splatting was
+   considered and set aside (§2).
+   - **In the studio-shared library as `coin3d` ("3D coin")** since 2026-11-16: the `calCoin` doc
+     renamed, otherwise unchanged, saved into a project, published to `_shared/shaders/` and the
+     project copy deleted. Every project's `/fx` Material list offers `custom:coin3d`; artists use
+     and tune it but cannot edit it (it holds Custom GLSL). Updating the library copy needs
+     `shaderPublish` + `shaderCustomGlsl` and a publish with `replace: true`. Step 2's nodes
+     replace it with a node-built template, then `coin3d` is unpublished. **Not yet verified:** a
+     published game baking and playing a library material that a layer names.
+   - **Next: the owner's look** on a phone (`docs/playtest/particle-material.md`, `cal-coin`,
+     item 7). Step 2 (Solid and Matcap nodes, templates) does not start before it.
+   - **The meter over-reads a traced solid:** 2,747 M load (86× the layer budget) for a shower
+     that costs 0.5–2.6 ms a frame on a desktop iGPU. The load multiplies the Custom GLSL estimate
+     (every round, every branch) by the covered pixels; step 2's nodes need a cost measured from
+     frames.
+   - **SwiftShader draws square patches over the coins** (the `/fx` gate, CI; paused too); the
+     real GPU here never did. Cause not found.
+   - **Setup by hand:** `cal-coin` needs its atlas made in Atlas Maker from the generated
+     `coin3d.png` (one region `coin3d`), as the playbook's Setup says.
+   - The matcap is one grey sphere, so the highlight is modest; a warmer, higher-contrast matcap is
+     an art pass, not code.
+   - **The light turns with the particle's 2D rotation.** The trace runs in the quad's frame and the
+     shell passes no particle angle, so a spinning particle spins its highlight too. Step 2 needs
+     the angle as an attribute (one more float in the last varying row).
+   - **The coin's distance is written inline three times** (both marches and the normal), as Custom
+     GLSL cannot declare a function; step 2 makes it a `glslLibrary.ts` entry the nodes call.
+   - The padding's pixel-wide soft edge fits for coins of 56 device px or more; below that, an
+     edge-on coin at the largest thickness loses its fringe to the quad.
 
 ## Blocked (owner / external)
 - **The particle-materials phone check** (`docs/playtest/particle-material.md`): its readouts set
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-11-16 — **Step 8f.1: the coin spike** (3D particles, [design](../design/shader-graph-3d-particles.md)
+  §4, §7 step 1, §9 results). A particle material that ray-traces a solid coin in each particle's
+  quad, from Custom GLSL only: no engine or runtime code changed. Published the same day to the
+  studio-shared library as `coin3d` ("3D coin"), so every project's `/fx` offers it (Open items
+  #9).
+  - **The graph.** `calCoin` (`engine-shadergraph/src/coinSpike.ts`), five Custom GLSL nodes (Ray,
+    two Marches of 12 rounds sharing their state, Normal, Shade): a sphere trace of a rounded
+    cylinder less two sunk discs, so thickness, the bevel's silhouette, the raised rim and the
+    sunk field come from one distance. Tumble: an axis from a hash of Seed, an angle from Seconds
+    × Spin (varied per coin), under the particle's own 2D rotation. Shading: the tile (front,
+    back, or the edge strip by its angle round and across), a relief normal from two more reads,
+    the matcap tile. 1,586 units / 4 reads, within Custom GLSL's caps; padding 0.04 holds the
+    bounding sphere at the largest thickness. It joins `CALIBRATION_GRAPHS` (so `shader-compile`'s
+    particles sheet, the particle snapshot and the fixture hold it) as the phone check's `cal-coin`.
+  - **The art.** `scripts/playtest/coin-spike-art.mjs` draws the four-tile page (front | back over
+    edge | matcap) in code, so no binary is committed; `particle-calibration.mjs` writes it as
+    `coin3d.png` for the phone check.
+  - **Proof.** fx-spike `fx-page` 32/32 with a new step 10 (the real `/fx` page mounts the coin on
+    its own atlas: on, measured, the coins draw and tumble); `particle-material-play.mjs --coin
+    --calibrate` PASS on WebGL2 and WebGL1 against a release `apps/lines` build (S1–S4 unchanged;
+    `coin` on at every sample, load = covered px × 1,586; `coin-plain` plain with its sprites);
+    `shader-compile` 30 sheets on WebGL1 and WebGL2, no shader error (the coin links through the
+    particle shell); compile fixture: the coin's own checks pass (the ~12 snapshot failures on a
+    Windows CRLF checkout fail identically on the base).
+  - **Measured** (Intel Arc iGPU via ANGLE / D3D11, 1280 × 720, 76 coins ≈ 160 px): 5.1 / 3.8 ms
+    median frame on WebGL2 / WebGL1 against 2.5 / 2.4 ms for the same particles flat (an earlier
+    run: 3.9 / 4.0 against 3.4 / 2.8). The `?fxdebug=1` load reads 2,747 M, 86× the 32 M budget (Open items #9).
 - 2026-10-29 — **Step 8e.6: authoring in the Scene Editor and the Flow** (see "Current state").
   Merged (#1468): CI green; Current games 11 pass, 0 fail, 0 changed screens (after #1471 gave
   the render shards 45 minutes).

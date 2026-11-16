@@ -1,6 +1,7 @@
 # Invisible Shader Graph: 3D particles (step 8f)
 
-> **Proposed 2026-11-16, not decided, not scheduled.** Owner conversation of 2026-11-16 (Gaussian
+> **Proposed 2026-11-16. Step 1 (the coin spike) built the same day; steps 2–4 wait for the
+> owner's look at it on a phone (§9).** Owner conversation of 2026-11-16 (Gaussian
 > splatting → 3D meshes → a 3D coin). Builds on [shader-graph-particles.md](shader-graph-particles.md)
 > (8d, the particle material). Parent plan: [invisible-shader-graph.md](invisible-shader-graph.md)
 > §8. Current state: [status/shader-graph](../status/shader-graph.md). Owning agent:
@@ -108,7 +109,74 @@ then, complex 3D is rendered offline (Blender) to Flipbook frames.
 ## 9. Open questions
 
 1. Is a ray-traced coin cheap enough on a mid-range phone at shower density (fill × cost, device
-   pixels)? Step 1 answers it.
+   pixels)? Step 1 answers it. **Desktop half answered (below); the phone half waits for the
+   owner's check** (`docs/playtest/particle-material.md` item 7).
 2. Does a tumbling solid need depth between particles (a coin passing behind another)? v1 says no:
    draw order is spawn order, as now.
 3. Packed tiles vs. separate texture slots for face / back / edge / matcap.
+
+### Step 1 results (2026-11-16)
+
+**What was built.** `calCoin` (`engine-shadergraph/src/coinSpike.ts`), a graph made for particles
+from five Custom GLSL nodes (Ray, March ×2, Normal, Shade), joined to the phone check's
+`CALIBRATION_GRAPHS` as the `cal-coin` project. Its art is one 512 px frame of four tiles drawn by
+`scripts/playtest/coin-spike-art.mjs`. Params: Thickness (height ÷ radius, 0.04–0.6), Rim width,
+Rim height, Bevel, Spin (turns a second, varied ±40 % per coin) and Relief.
+
+**How it traces.** Not the analytic cylinder of §4: a sphere trace of one distance, a rounded
+cylinder less two shallow discs. That gives the bevel's real silhouette, the raised rim and the
+sunk face from one formula, and the normal from four more reads of it. The ray starts where it
+enters the bounding sphere; a pixel outside it is out at once, a hit ends the march, and a miss
+keeps its nearest approach for a soft silhouette a pixel wide. Orthographic, no depth between
+coins (§9.2). The padding is fixed at 0.04 of the side, enough for the bounding sphere at the
+largest Thickness.
+
+**The caps shaped it.** One node may hold 600 tokens and 1,024 units; one march of 24 rounds cost
+1,846. So the trace is two nodes of 12 rounds sharing their state through an input and output of
+one name. The effect totals **1,586 units, 4 reads**: inside Custom GLSL's 4,096 / 1,024, and 10.5×
+the 150 / 4 a particle material is warned at. Reads: the art, two for the relief, the matcap.
+
+**Where it played.**
+- `/fx`: the real page (fx-spike `fx-page`, step 10, in CI) mounts the material on the coin atlas,
+  its six params as sliders; the coins draw and tumble.
+- A release `apps/lines` build (`particle-material-play.mjs --coin`), WebGL2 and WebGL1: on at every
+  sample, load = covered px × 1,586, no errors, stalls or plain-while-playing.
+- `shader-compile` links it through the particle shell on WebGL1 and WebGL2.
+
+**What it cost** (Intel Arc iGPU through ANGLE / D3D11, 1280 × 720 at 1×, 76 coins about 160 px):
+
+| | WebGL2 frame | WebGL1 frame |
+|---|---|---|
+| Same particles, flat (`coin-plain`) | 2.5 ms median (3.4 in an earlier run) | 2.4 ms (2.8) |
+| The coin | 5.1 ms (3.9) | 3.8 ms (4.0) |
+
+About 0.5–2.6 ms a frame for the shower on a desktop iGPU (two runs; the iGPU's timings move by
+about a millisecond run to run). The `?fxdebug=1` load reads 2,747 M, 86× the 32 M layer budget: the meter multiplies the Custom GLSL estimate, which counts every round
+and every branch, by the covered pixels, while most pixels leave the march early. **For a traced
+solid the load figure is no guide; the frame times are.** Step 2's nodes need a hand-set cost
+measured from frames, as the library's nodes have.
+
+**How it looks.** Read off the real GPU (the game build and `/fx` in a GPU browser): a thick coin,
+a solid band of metal edge-on, the reeded edge, a rounded bevel at the silhouette, a raised rim and
+a sunk field with the motif in relief; every coin on its own axis and speed. The matcap is a
+single grey sphere, so the gold is the art's and the highlight is modest; a warmer, higher-contrast
+matcap is an art choice. **SwiftShader** (the `/fx` gate, CI) draws screen-aligned patches of a
+different shading over the coins, with the stage paused too; no real GPU here drew them. It is not
+used to judge the look, and a phone may still differ: the owner's check is the answer.
+
+**Found in review, for step 2.** The trace runs in the quad's frame and the shell has no particle
+angle, so a particle's 2D spin turns the matcap's light with it; a solid needs the angle as an
+attribute. The coin's distance is written out three times (Custom GLSL declares no functions); it
+becomes a library function. Early art drew both faces mirrored (hidden by symmetric test art),
+fixed before the numbers above were read.
+
+**In the studio library.** The same graph, renamed `coin3d` ("3D coin") and otherwise unchanged,
+is published to the studio-shared Shader Graph library (2026-11-16), so every project's `/fx`
+Material list offers `custom:coin3d` with no per-project step. Artists can use and tune it, not edit
+it (it holds Custom GLSL); updating it needs `shaderPublish` + `shaderCustomGlsl` and a publish with
+`replace: true`. Step 2's nodes replace it with a node-built template, and `coin3d` is then
+unpublished. Not yet verified: that a published game bakes and plays a library material named by a
+layer.
+
+**Not done in step 1** (as agreed): no Solid or Matcap node, no templates, nothing on coded
+emitters, no parallax. Step 2 waits for the owner's look.
