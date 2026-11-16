@@ -91,6 +91,11 @@ export const ENV = {
 		// Trimmed on both ends (the tools strip too): a stray pasted newline would fail every signature.
 		return (env.ATLAS_TOOL_SIGNING_SECRET ?? '').trim();
 	},
+	/** Signs Invisible Profiler capture-session tokens (`profiler/captureToken.ts`). Optional: unset ⇒
+	 *  a key derived from `R2_SECRET_ACCESS_KEY` under a label of its own. Secret; trimmed. */
+	get PROFILER_SIGNING_SECRET() {
+		return (env.PROFILER_SIGNING_SECRET ?? '').trim();
+	},
 	// ComfyUI R&D pod (RunPod) — the INTERACTIVE ComfyUI web UI an artist opens to
 	// build/test generation networks, then exports as blueprints for the Atlas Maker.
 	// This is the artist-facing pod at `https://<podId>-8188.proxy.runpod.net`, DISTINCT

@@ -38,6 +38,7 @@
 	import { stateApp } from '../game/stateApp';
 	import { stateGame } from '../game/stateGame.svelte';
 	import { stateXstate } from '../game/stateXstate';
+	import type { PerfSender } from '../game/perfSend';
 
 	/**
 	 * The `?perf=1` frame-time readout: what the frames on THIS device look like while the game
@@ -52,7 +53,10 @@
 	 * is recorded with what its frames did and a likely cause (`perfSpikes.ts`); `?particles=off`
 	 * turns every particle off for an A/B read. Frames are read in three phases: idle, spinning,
 	 * and a round's frames with the reels at rest (`round`: wins, features, banners); each reports
-	 * what it built and threw away (`pixi-svelte` `churnProbe.ts`).
+	 * what it built and threw away (`pixi-svelte` `churnProbe.ts`). With `&perfsession=<token>` (a
+	 * capture session from the Invisible Profiler) a Send button posts the reading to the launcher,
+	 * and it is also sent on its own before a Reset discards it and when the page is hidden
+	 * (`perfSend.ts`, loaded only then).
 	 */
 
 	const query = new URLSearchParams(location.search);
@@ -67,6 +71,11 @@
 	let open = $state(false);
 	let copied = $state<'yes' | 'no'>();
 	let copyText = $state('');
+	let sender: PerfSender | undefined;
+	let canSend = $state(false);
+	let sent = $state<{ ok: boolean; text: string }>();
+	/** Frames in the last reading sent, so leaving twice with nothing new sends once. */
+	let sentFrames = 0;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let probe: RendererProbe | undefined;
 
@@ -90,7 +99,9 @@
 			?.usedJSHeapSize === 'number';
 	let observer: PerformanceObserver | undefined;
 	const onVisibility = () => {
-		if (document.visibilityState === 'hidden') stats.pause();
+		if (document.visibilityState !== 'hidden') return;
+		void send('leaving');
+		stats.pause();
 	};
 
 	/** The renderer exists once `<App>` has initialised it, which can be after this mounts. */
@@ -109,6 +120,12 @@
 	};
 
 	onMount(() => {
+		if (query.get('perfsession')) {
+			void import('../game/perfSend').then(({ createPerfSender }) => {
+				sender = createPerfSender(query);
+				canSend = !!sender;
+			});
+		}
 		setFrameProbe((time, moving) => stats.frame(time, spinning(), moving, gameState()));
 		document.addEventListener('visibilitychange', onVisibility);
 		if (longTasks) {
@@ -123,9 +140,10 @@
 		// from a moment of its own; `'take'` reads, then resets, so a script can read a moment in
 		// slices without losing a frame between them.
 		window.__IE_PERF__ = (action?: 'reset' | 'take') => {
-			if (action === 'reset') reset();
+			// A script measures in slices it reads itself: its resets send nothing.
+			if (action === 'reset') reset(false);
 			const text = JSON.stringify(report(stats.snapshot()));
-			if (action === 'take') reset();
+			if (action === 'take') reset(false);
 			return text;
 		};
 	});
@@ -138,11 +156,41 @@
 		window.__IE_PERF__ = undefined;
 	});
 
-	const reset = () => {
+	const reset = (autoSend = true) => {
+		if (autoSend) void send('reset');
 		stats.reset();
 		snapshot = stats.snapshot();
+		sentFrames = 0;
 		copied = undefined;
 		copyText = '';
+	};
+
+	const framesOf = (s: PerfSnapshot) => s.idle.frames + s.spinning.frames + s.round.frames;
+
+	/**
+	 * Posts the reading as it stands. A Reset or the page being hidden sends on its own, and only a
+	 * reading with frames it has not sent yet, so a tester who only plays still leaves one each time.
+	 * Leaving sends it without the per-texture list and the spike records, so it fits a `keepalive`
+	 * request that outlives the page; the summary the Profiler lists reads neither.
+	 */
+	const send = async (why: 'tap' | 'reset' | 'leaving' = 'tap') => {
+		if (!sender) return;
+		const auto = why !== 'tap';
+		const s = stats.snapshot();
+		const frames = framesOf(s);
+		if (auto && (!frames || frames === sentFrames)) return;
+		const full = report(s);
+		const text = JSON.stringify(
+			why === 'leaving'
+				? { ...full, textureList: undefined, spikes: undefined, trimmed: true }
+				: full,
+		);
+		sentFrames = frames;
+		const outcome = await sender.send(text, { leaving: why === 'leaving' });
+		sent = outcome.ok
+			? { ok: true, text: auto ? 'sent (auto)' : 'sent' }
+			: { ok: false, text: `not sent: ${outcome.error}` };
+		if (!outcome.ok) sentFrames = 0;
 	};
 
 	const bucket = (b: PerfBucketSnapshot) => ({
@@ -432,9 +480,11 @@
 				{/if}
 				<div class="ie-perf-actions">
 					<button type="button" onclick={copy}>Copy</button>
-					<button type="button" onclick={reset}>Reset</button>
+					{#if canSend}<button type="button" onclick={() => send()}>Send</button>{/if}
+					<button type="button" onclick={() => reset()}>Reset</button>
 					{#if copied === 'yes'}<span>copied</span>{/if}
 				</div>
+				{#if sent}<div class:warn={!sent.ok}>{sent.text}</div>{/if}
 				{#if copied === 'no'}
 					<textarea readonly rows="4" onfocus={(e) => e.currentTarget.select()}>{copyText}</textarea
 					>

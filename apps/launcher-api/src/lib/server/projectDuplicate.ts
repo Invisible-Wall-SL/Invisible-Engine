@@ -152,7 +152,8 @@ export async function planDuplicate(
 	// describe the SOURCE. Carrying the backups would re-base and write every one of them (20 per
 	// doc); carrying `published/` would hand the copy the source's live version (see the header).
 	// Director's `director/` subtree (mockups, their ownership check, a run's crops) describes the
-	// source's own Director runs and is not an asset the game ships (ADR-0005).
+	// source's own Director runs and is not an asset the game ships (ADR-0005). Profiler readings
+	// (`perf/`) were measured on the source's builds.
 	const excluded = [
 		editorDocBackupTarget,
 		flowV2DocBackupTarget,
@@ -165,6 +166,7 @@ export async function planDuplicate(
 			shaderBackupsPrefix(source.clientKey, source.projectKey),
 			`${SUB.published(source.clientKey, source.projectKey)}/`,
 			`${SUB.director(source.clientKey, source.projectKey)}/`,
+			`${SUB.perf(source.clientKey, source.projectKey)}/`,
 		);
 
 	const entries: DuplicatePlanEntry[] = [];

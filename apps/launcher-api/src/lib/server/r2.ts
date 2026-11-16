@@ -60,6 +60,38 @@ export async function getObjectBytes(
 }
 
 /**
+ * An object's text read through a `Range` of `maxBytes + 1` and, given `ifMatch`, only while its
+ * ETag is still that one — for an object a browser wrote by presigned PUT, whose size the server
+ * never chose: what is read is bounded whatever was PUT after a HEAD. `null` when absent; `'large'`
+ * when it holds more than `maxBytes`; `'changed'` when the ETag no longer matches.
+ */
+export async function getObjectTextBounded(
+	key: string,
+	maxBytes: number,
+	ifMatch?: string,
+): Promise<string | 'large' | 'changed' | null> {
+	try {
+		const res = await s3().send(
+			new GetObjectCommand({
+				Bucket: ENV.R2_BUCKET,
+				Key: key,
+				Range: `bytes=0-${maxBytes}`,
+				IfMatch: ifMatch,
+			}),
+		);
+		const bytes = await res.Body!.transformToByteArray();
+		if (bytes.byteLength > maxBytes) return 'large';
+		return new TextDecoder().decode(bytes);
+	} catch (e) {
+		if (isNotFound(e)) return null;
+		if ((e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 412) {
+			return 'changed';
+		}
+		throw e;
+	}
+}
+
+/**
  * Stream one object's body without buffering it in the Node heap — for serving large immutable
  * files (atlas pages) straight through. Null when the object is absent.
  */

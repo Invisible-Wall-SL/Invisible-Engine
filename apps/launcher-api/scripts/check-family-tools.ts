@@ -193,6 +193,7 @@ const BEFORE_CHARACTERS = new Set([
 	'pipelineChanges',
 	'pipelineBugs',
 	'gameBugs',
+	'profiler',
 ]);
 check(
 	'2. the registry is the pre-P10.11 list plus Invisible Characters and Card Library',
