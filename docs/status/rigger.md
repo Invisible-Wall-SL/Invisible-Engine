@@ -1,6 +1,6 @@
 # Invisible Rigger — status
 
-> Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: [`.claude/agents/invisible-rigger.md`](../../.claude/agents/invisible-rigger.md) · Detail: [rigger-history.md](rigger-history.md)
+> Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Templates: [rig-templates.md](../design/rig-templates.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: [`.claude/agents/invisible-rigger.md`](../../.claude/agents/invisible-rigger.md) · Detail: [rigger-history.md](rigger-history.md)
 
 **One-line state:** Built and shipping — bones, meshes, weights, animation (incl. image sequences
 and a dopesheet stretch), localized text art and FX/flipbook event bindings are on `main`, and
@@ -89,6 +89,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     irig v1 (246, each backed up). Left: the `.json` rename on export; Phase 6 (retire the 4.2
     assumptions); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
+19. **Rig templates** — designed in [rig-templates](../design/rig-templates.md): fixed skeletons
+    with a parts contract so new art attaches itself and clips play on every character of a
+    template. Bust with face first (owner, 2026-11-16), then full body. Nothing built; next is T1
+    (contract + template rig + auto-attach on **Use in new rig**).
+
 ## Blocked (owner / external)
 
 - **Whole-tool live-verify** is owner-driven — the browser has surfaced bugs the headless spikes missed before. Since Phase 6 also owed: a live look at the Rigger, `/rig-viewer`, the editor, `/fx` and a published game on `engine-rig` (the parity gates compare pixels in headless Chromium, not on the live pages).
@@ -96,6 +101,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-16 — **Rig templates designed** ([rig-templates](../design/rig-templates.md)): a template
+  = a library rig + a versioned parts/channels contract + a `template` field on the rig. The
+  bust-with-face skeleton, part and mouth-shape set, face channels (written as ordinary timelines,
+  so no runtime change), the three motion sources (Face panel, audio lip-sync, DWPose face
+  tracking) and build plan T1–T7. Docs only.
 - 2026-11-12 — **A 3.8 export imports too (upgraded to 4.2 on the way in).** `spine38Upgrade.ts`
   rewrites a 3.8 skeleton into the 4.2 format before the import's irig conversion: bone `transform`
   → `inherit`, constraint mixes (`rotateMix` → `mixRotate`, `translateMix` → `mixX`, …), linked-mesh
