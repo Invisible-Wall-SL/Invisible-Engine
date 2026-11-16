@@ -79,6 +79,17 @@ assert(near(L1.length, 150, 1e-9), `polyline length is its segments' (${L1.lengt
 const mid = L1.pointAt(125, { x: 0, y: 0 });
 assert(near(mid.x, 100, 1e-9) && near(mid.y, 25, 1e-9), 'pointAt walks true distance');
 assert(near(L1.angleAt(125), Math.PI / 2, 1e-9), 'the tangent on a downward segment is +90°');
+assert(
+	JSON.stringify(L1.segmentStarts) === '[0,100]' &&
+		L1.segmentAt(99) === 0 &&
+		L1.segmentAt(101) === 1,
+	'segment starts are the distances of the anchors (the stage inserts a point by them)',
+);
+const pick = L1.nearest(104, 30);
+assert(
+	near(pick.s, 130, 1e-9) && near(pick.distance, 4, 1e-9),
+	'nearest finds the closest point on the curve',
+);
 const closed = new FxPathTable(
 	line(
 		[

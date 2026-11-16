@@ -287,6 +287,8 @@ function cubicAt(c: Cubic, t: number, out: FxVec2): void {
 export class FxPathTable {
 	readonly length: number;
 	readonly closed: boolean;
+	/** The distance at which each curve segment starts (segment i runs from anchor i to i + 1). */
+	readonly segmentStarts: number[];
 	private xs: Float64Array;
 	private ys: Float64Array;
 	private cum: Float64Array;
@@ -299,7 +301,9 @@ export class FxPathTable {
 		const tmp = { x: 0, y: 0 };
 		xs.push(curve.points[0].x);
 		ys.push(curve.points[0].y);
+		const starts: number[] = [];
 		for (const c of cubics) {
+			starts.push(xs.length - 1);
 			const steps = c.straight ? 1 : SAMPLES_PER_CURVE;
 			for (let k = 1; k <= steps; k++) {
 				cubicAt(c, k / steps, tmp);
@@ -315,6 +319,36 @@ export class FxPathTable {
 		this.ys = Float64Array.from(ys);
 		this.cum = cum;
 		this.length = cum[cum.length - 1];
+		this.segmentStarts = starts.map((i) => cum[i]);
+	}
+
+	/** The curve segment (anchor `i` → `i + 1`) that holds distance `s`. */
+	segmentAt(s: number): number {
+		const starts = this.segmentStarts;
+		let i = 0;
+		while (i + 1 < starts.length && starts[i + 1] <= s) i++;
+		return i;
+	}
+
+	/** The distance along the curve of the sample nearest a point (for picking on a stage). */
+	nearest(x: number, y: number): { s: number; distance: number } {
+		const { xs, ys, cum } = this;
+		let best = 0;
+		let bestD = Infinity;
+		for (let i = 0; i + 1 < xs.length; i++) {
+			const ax = xs[i];
+			const ay = ys[i];
+			const dx = xs[i + 1] - ax;
+			const dy = ys[i + 1] - ay;
+			const len2 = dx * dx + dy * dy;
+			const t = len2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
+			const d = Math.hypot(ax + dx * t - x, ay + dy * t - y);
+			if (d < bestD) {
+				bestD = d;
+				best = cum[i] + (cum[i + 1] - cum[i]) * t;
+			}
+		}
+		return { s: best, distance: bestD };
 	}
 
 	/** The sample segment holding distance `s` (clamped to the curve). */
