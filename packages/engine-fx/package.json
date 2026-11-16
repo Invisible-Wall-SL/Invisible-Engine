@@ -16,12 +16,12 @@
 		"constants-shared": "workspace:*"
 	},
 	"peerDependencies": {
-		"pixi.js": "8.22.0"
+		"pixi.js": "8.23.0"
 	},
 	"devDependencies": {
 		"eslint": "10.14.0",
 		"eslint-config-custom": "workspace:*",
-		"pixi.js": "8.22.0",
+		"pixi.js": "8.23.0",
 		"typescript": "6.0.3"
 	}
 }

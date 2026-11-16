@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"svelte": "5.57.3",
-		"@sveltejs/kit": "2.70.3",
+		"@sveltejs/kit": "2.70.4",
 		"rgs-requests": "workspace:*",
 		"constants-shared": "workspace:*",
 		"delivery-profile": "workspace:*",

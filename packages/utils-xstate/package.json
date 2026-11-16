@@ -13,7 +13,7 @@
 		"eslint-config-custom": "workspace:*"
 	},
 	"dependencies": {
-		"xstate": "5.33.3",
+		"xstate": "5.33.4",
 		"svelte": "5.57.3",
 		"utils-shared": "workspace:*",
 		"state-shared": "workspace:*",
