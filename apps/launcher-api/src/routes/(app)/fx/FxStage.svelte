@@ -36,12 +36,18 @@
 		bindEffectParams,
 		createEffectLevelApplier,
 		emitterDeltaSeconds,
+		FX_PATH_BEHAVIOR_TYPE,
+		FxPathBehavior,
+		FxPathTable,
+		readFxPath,
 		stepCollapsedValueLists,
 		type EffectLevelApplier,
 		type EffectParam,
 		type EffectParamApplier,
 		type EffectParamValues,
 		type EmitterLayer,
+		type FxPath,
+		type FxPathPoint,
 	} from 'engine-fx';
 	import {
 		boneRotationInParent,
@@ -166,6 +172,13 @@
 		 * screens of pixels they cover, measured every frame, now and at peak. Read-only.
 		 */
 		onCost?: (cost: FxStageCost) => void;
+		/**
+		 * The layer whose path is drawn over the stage for editing (`null` = none): its points and
+		 * Bézier handles drag, a double-click on the curve adds a point, Alt-click removes one, Shift
+		 * snaps to 15°. A drag previews live and is handed to {@link onPathPoints} on release.
+		 */
+		pathLayer?: string | null;
+		onPathPoints?: (points: FxPathPoint[]) => void;
 	}
 
 	export interface FxStageMaterialStat {
@@ -199,6 +212,8 @@
 		paramValues,
 		onMaterialStats,
 		onCost,
+		pathLayer = null,
+		onPathPoints,
 	}: Props = $props();
 
 	const emitOn = $derived(playing && emitting);
@@ -516,6 +531,7 @@
 				}
 				costTick(ticker.lastTime);
 			});
+			app.ticker.add(updatePathTransform);
 			await requestRebuild();
 		})();
 
@@ -1088,6 +1104,182 @@
 		if (ready && loadedRig) applyFxSkin(loadedRig.view, skin);
 	});
 
+	// --- path editing ---------------------------------------------------------
+	const pathEntry = $derived(pathLayer ? layers.find((l) => l.key === pathLayer) : undefined);
+	const editPath = $derived.by((): FxPath | undefined => {
+		const b = pathEntry
+			? behaviorsOf(pathEntry.config).find((x) => x.type === FX_PATH_BEHAVIOR_TYPE)
+			: undefined;
+		return b ? readFxPath(b.config) : undefined;
+	});
+	/** The points while a drag is in flight (the doc is written on release). */
+	let dragPoints = $state<FxPathPoint[] | null>(null);
+	const shownPoints = $derived(dragPoints ?? editPath?.curve.points ?? []);
+	/** Emitter-local (the path's space) → stage px, for the edited layer; `null` = not drawn. */
+	let pathXf = $state<Affine | null>(null);
+
+	function updatePathTransform(): void {
+		const entry = pathLayer ? live.get(pathLayer) : undefined;
+		if (!entry || !editPath) {
+			if (pathXf) pathXf = null;
+			return;
+		}
+		const wt = entry.container.worldTransform;
+		const pos = entry.layer.config.pos ?? { x: 0, y: 0 };
+		// `ownerPos` is protected in the library's type, public at run time (the forces read it too).
+		const owner = (entry.emitter as unknown as { ownerPos: { x: number; y: number } }).ownerPos;
+		const ox = owner.x + pos.x;
+		const oy = owner.y + pos.y;
+		const next: Affine = {
+			a: wt.a,
+			b: wt.b,
+			c: wt.c,
+			d: wt.d,
+			tx: wt.a * ox + wt.c * oy + wt.tx,
+			ty: wt.b * ox + wt.d * oy + wt.ty,
+		};
+		const cur = pathXf;
+		const same =
+			!!cur &&
+			(['a', 'b', 'c', 'd', 'tx', 'ty'] as const).every((k) => Math.abs(cur[k] - next[k]) < 0.01);
+		if (!same) pathXf = next;
+	}
+
+	const toScreen = (xf: Affine, x: number, y: number): { x: number; y: number } => ({
+		x: xf.a * x + xf.c * y + xf.tx,
+		y: xf.b * x + xf.d * y + xf.ty,
+	});
+
+	function toLocal(xf: Affine, sx: number, sy: number): { x: number; y: number } {
+		const det = xf.a * xf.d - xf.b * xf.c || 1;
+		const dx = sx - xf.tx;
+		const dy = sy - xf.ty;
+		return { x: (xf.d * dx - xf.c * dy) / det, y: (xf.a * dy - xf.b * dx) / det };
+	}
+
+	function curveOf(points: FxPathPoint[]): FxPath['curve'] | undefined {
+		return editPath ? { ...editPath.curve, points } : undefined;
+	}
+
+	const pathDraw = $derived.by(() => {
+		const xf = pathXf;
+		const curve = curveOf(shownPoints);
+		if (!xf || !curve || shownPoints.length < 2) return undefined;
+		const table = new FxPathTable(curve);
+		const step = Math.max(table.length / 240, 1);
+		const pt = { x: 0, y: 0 };
+		let d = '';
+		for (let s = 0; ; s = Math.min(table.length, s + step)) {
+			table.pointAt(s, pt);
+			const q = toScreen(xf, pt.x, pt.y);
+			d += `${d ? 'L' : 'M'}${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
+			if (s >= table.length) break;
+		}
+		const bezier = curve.kind === 'bezier';
+		const anchors = shownPoints.map((p, i) => {
+			const at = toScreen(xf, p.x, p.y);
+			const hin = bezier && p.in ? toScreen(xf, p.x + p.in.x, p.y + p.in.y) : undefined;
+			const hout = bezier && p.out ? toScreen(xf, p.x + p.out.x, p.y + p.out.y) : undefined;
+			return { i, at, hin, hout };
+		});
+		return { d, anchors };
+	});
+
+	type PathPart = 'p' | 'in' | 'out';
+	let pathDrag: { index: number; part: PathPart; pointerId: number } | null = null;
+
+	function stagePoint(e: PointerEvent | MouseEvent): { x: number; y: number } {
+		const r = host?.getBoundingClientRect();
+		return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
+	}
+
+	/** Snap `p` to the nearest 15° from `from`, keeping its distance. */
+	function snap15(from: { x: number; y: number }, p: { x: number; y: number }) {
+		const dx = p.x - from.x;
+		const dy = p.y - from.y;
+		const len = Math.hypot(dx, dy);
+		const step = Math.PI / 12;
+		const a = Math.round(Math.atan2(dy, dx) / step) * step;
+		return { x: from.x + Math.cos(a) * len, y: from.y + Math.sin(a) * len };
+	}
+
+	/** Preview a dragged curve on the live emitter without re-initialising it. */
+	function previewPath(points: FxPathPoint[]): void {
+		const entry = pathLayer ? live.get(pathLayer) : undefined;
+		if (!entry || !editPath) return;
+		const arrays = entry.emitter as unknown as {
+			initBehaviors: unknown[];
+			updateBehaviors: unknown[];
+		};
+		const at = arrays.initBehaviors.findIndex((b) => b instanceof FxPathBehavior);
+		if (at === -1) return;
+		const old = arrays.initBehaviors[at];
+		const fresh = new FxPathBehavior({ ...editPath, curve: { ...editPath.curve, points } });
+		arrays.initBehaviors[at] = fresh;
+		const u = arrays.updateBehaviors.indexOf(old);
+		if (u !== -1) arrays.updateBehaviors[u] = fresh;
+	}
+
+	function onHandleDown(e: PointerEvent, index: number, part: PathPart): void {
+		e.stopPropagation();
+		e.preventDefault();
+		if (part === 'p' && e.altKey) {
+			if (shownPoints.length > 2) onPathPoints?.(shownPoints.filter((_, i) => i !== index));
+			return;
+		}
+		pathDrag = { index, part, pointerId: e.pointerId };
+		dragPoints = shownPoints.map((p) => JSON.parse(JSON.stringify(p)) as FxPathPoint);
+		(e.currentTarget as Element).setPointerCapture(e.pointerId);
+	}
+
+	function onHandleMove(e: PointerEvent): void {
+		const drag = pathDrag;
+		if (!drag || drag.pointerId !== e.pointerId || !dragPoints || !pathXf) return;
+		e.stopPropagation();
+		const sp = stagePoint(e);
+		let local = toLocal(pathXf, sp.x, sp.y);
+		const points = dragPoints.map((p) => ({ ...p }));
+		const anchor = points[drag.index];
+		if (drag.part === 'p') {
+			const prev = points[drag.index - 1] ?? points[drag.index + 1];
+			if (e.shiftKey && prev) local = snap15(prev, local);
+			points[drag.index] = { ...anchor, x: local.x, y: local.y };
+		} else {
+			if (e.shiftKey) local = snap15(anchor, local);
+			points[drag.index] = {
+				...anchor,
+				[drag.part]: { x: local.x - anchor.x, y: local.y - anchor.y },
+			};
+		}
+		dragPoints = points;
+		previewPath(points);
+	}
+
+	function onHandleUp(e: PointerEvent): void {
+		const drag = pathDrag;
+		if (!drag || drag.pointerId !== e.pointerId) return;
+		e.stopPropagation();
+		(e.currentTarget as Element).releasePointerCapture(e.pointerId);
+		const points = dragPoints;
+		pathDrag = null;
+		dragPoints = null;
+		if (points) onPathPoints?.(points);
+	}
+
+	function onCurveDblClick(e: MouseEvent): void {
+		e.stopPropagation();
+		const curve = curveOf(shownPoints);
+		if (!pathXf || !curve) return;
+		const sp = stagePoint(e);
+		const local = toLocal(pathXf, sp.x, sp.y);
+		const table = new FxPathTable(curve);
+		const hit = table.nearest(local.x, local.y);
+		const on = table.pointAt(hit.s, { x: 0, y: 0 });
+		const points = [...shownPoints];
+		points.splice(table.segmentAt(hit.s) + 1, 0, { x: on.x, y: on.y });
+		onPathPoints?.(points);
+	}
+
 	// --- pan / zoom -----------------------------------------------------------
 	let dragging = false;
 	let lastX = 0;
@@ -1130,7 +1322,50 @@
 	onpointermove={onPointerMove}
 	onpointerup={onPointerUp}
 	onwheel={onWheel}
-></div>
+>
+	{#if pathDraw}
+		<svg class="pathsvg" aria-label="Path editor">
+			<path
+				class="curvehit"
+				d={pathDraw.d}
+				role="presentation"
+				onpointerdown={(e) => e.stopPropagation()}
+				ondblclick={onCurveDblClick}
+			/>
+			<path class="curve" d={pathDraw.d} />
+			{#each pathDraw.anchors as anchor (anchor.i)}
+				{#each [['in', anchor.hin], ['out', anchor.hout]] as const as [part, h] (part)}
+					{#if h}
+						<line class="arm" x1={anchor.at.x} y1={anchor.at.y} x2={h.x} y2={h.y} />
+						<circle
+							class="handle"
+							cx={h.x}
+							cy={h.y}
+							r="4"
+							role="presentation"
+							onpointerdown={(e) => onHandleDown(e, anchor.i, part)}
+							onpointermove={onHandleMove}
+							onpointerup={onHandleUp}
+						/>
+					{/if}
+				{/each}
+				<circle
+					class="anchor"
+					class:first={anchor.i === 0}
+					cx={anchor.at.x}
+					cy={anchor.at.y}
+					r="6"
+					role="presentation"
+					onpointerdown={(e) => onHandleDown(e, anchor.i, 'p')}
+					onpointermove={onHandleMove}
+					onpointerup={onHandleUp}
+				>
+					<title>Point {anchor.i + 1} — drag to move, Alt-click to remove</title>
+				</circle>
+			{/each}
+		</svg>
+	{/if}
+</div>
 
 <style>
 	.stage {
@@ -1142,5 +1377,49 @@
 	}
 	.stage:active {
 		cursor: grabbing;
+	}
+	.stage {
+		position: relative;
+	}
+	.pathsvg {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		pointer-events: none;
+		overflow: visible;
+	}
+	.pathsvg .curve {
+		fill: none;
+		stroke: #38bdf8;
+		stroke-width: 1.5;
+		stroke-dasharray: 6 4;
+	}
+	.pathsvg .curvehit {
+		fill: none;
+		stroke: transparent;
+		stroke-width: 12;
+		pointer-events: stroke;
+		cursor: copy;
+	}
+	.pathsvg .arm {
+		stroke: #94a3b8;
+		stroke-width: 1;
+	}
+	.pathsvg .anchor,
+	.pathsvg .handle {
+		pointer-events: all;
+		cursor: move;
+		stroke: #0b0e13;
+		stroke-width: 1.5;
+	}
+	.pathsvg .anchor {
+		fill: #38bdf8;
+	}
+	.pathsvg .anchor.first {
+		fill: #f59e0b;
+	}
+	.pathsvg .handle {
+		fill: #e2e8f0;
 	}
 </style>
