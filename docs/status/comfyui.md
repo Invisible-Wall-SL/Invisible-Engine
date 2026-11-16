@@ -41,8 +41,151 @@
 14. **Nothing SURFACES a missing pack — "fix this machine" on `/comfyui` (owner asked 2026-09-15).** The panel already reads a backend's loaded packs live and already knows the expected list, so it can say which are missing; today it says nothing, and you find out from a failed render or a canvas of red `UNKNOWN` stubs. Note what the fix cannot be: a **vendored** pack has no URL, so Manager's "install missing nodes" and any clone-a-URL button are structurally incapable of installing it — the only mechanism is putting files there. And [comfyui-node-manager §Phase 5](../design/comfyui-node-manager.md) deliberately did NOT ship an install button, because a pod-side route that clones and pip-installs is remote code execution reachable by anyone who can reach the pod; pointing that at an artist's personal Windows box is strictly worse. So the shape: **per-pack verdict + the remedy, not the execution** — a copy-ready pinned `sync-local-nodes.py` line for cloneable packs, a **Download .zip** for vendored ones, and the backend's own reported `custom_nodes` path so nobody guesses it wrong (guessing it wrong is its own failure mode). Zero new execution surface.
 15. **DONE, owed a real render (2026-09-16).** `taxonomy_yaml` takes the YAML itself on both nodes and the Router inherits Analyze's when its own are empty; on top of that the Atlas Maker stores ONE taxonomy at `_shared/semantic/taxonomy.yaml`, edits it in **🏷 Taxonomy**, and injects it into every render — so no blueprint param is needed at all and a vocabulary fix reaches every machine with no re-publish (see [status/atlas-maker](atlas-maker.md) for the tool half). What has NOT happened: no render has consumed an injected taxonomy. The worker image carrying the node change was built on 2026-09-16; whether the prod endpoint runs that build is not recorded (see the 2026-09-14 entry). Original statement of the problem:
    **The taxonomy was only editable where there is a filesystem (owner asked 2026-09-16).** `taxonomy_path` on `SemanticLayerAnalyze` / `SemanticLayerRouter` takes a PATH, and the loader deliberately REFUSES pasted file contents (falling back to the built-in fallback, which has far fewer keywords — a silent downgrade). That works on a desktop and on a pod under `/workspace`, and not at all on the serverless worker, whose container is ephemeral — so the Atlas Maker's production path cannot use a custom taxonomy today. The taxonomy is the whole quality knob on the CLIP analyzer (its keywords ARE the candidate labels), so "you can edit it, just not where you render" is the wrong end of the trade. Shape: an inline-YAML input alongside `taxonomy_path`, exposed as a multiline blueprint param, so a project's taxonomy travels in the graph and needs no filesystem anywhere.
+16. **Global Volume trial — waiting on the owner's go-ahead to spend ~$5–8.** Audit, pricing and the measurement plan are in [Global Volume evaluation](#global-volume-evaluation-2026-11-16) below. Verdict so far: **no migration yet**; the measurement is cheap and worth running. Nothing has been created on RunPod.
+17. **Live-verify the volume model manager (2026-11-16).** Owed by the owner: create a RunPod S3 API key, set `RUNPOD_S3_ACCESS_KEY_ID` / `RUNPOD_S3_SECRET_ACCESS_KEY` (and `RUNPOD_ENDPOINT_ID`) on the launcher, then open What's installed and check that the listing finishes on a ~400 GB volume. Check three things the docs leave open: the GraphQL `networkVolumes { size }` field (no provisioned size or bill shows if it's wrong); that `.s3compat_uploads/` is hidden; and that a round trip works on a small LoRA — Add, then Delete with the mirror kept, then copy to volume. Nothing has been deleted for real: the owner picks the files, the bin asks twice for anything in use, and the first real delete should be a file the owner names.
 
-16. **Live-verify the volume model manager (2026-11-16).** Owed by the owner: create a RunPod S3 API key, set `RUNPOD_S3_ACCESS_KEY_ID` / `RUNPOD_S3_SECRET_ACCESS_KEY` (and `RUNPOD_ENDPOINT_ID`) on the launcher, then open What's installed and check that the listing finishes on a ~400 GB volume. Check three things the docs leave open: the GraphQL `networkVolumes { size }` field (no provisioned size or bill shows if it's wrong); that `.s3compat_uploads/` is hidden; and that a round trip works on a small LoRA — Add, then Delete with the mirror kept, then copy to volume. Nothing has been deleted for real: the owner picks the files, the bin asks twice for anything in use, and the first real delete should be a file the owner names.
+## Global Volume evaluation (2026-11-16)
+
+**Question:** should the model weights move from the EU-RO-1 Network Volume
+(`Invisible_RunPod_Storage`) to a RunPod Global Volume (beta) to get GPUs outside EU-RO-1?
+
+**Verdict: no-go on migrating today, go on a ~$5–8 measurement.** The availability case is real. Speed
+is unmeasured, and RunPod publishes no throughput figure. Nothing in production changes until the
+numbers below are in.
+
+### What we pay now, and what a Global Volume would cost (RunPod console, 2026-11-16)
+| | Network volume (now) | Global volume (beta) |
+|---|---|---|
+| Price | **$0.07/GB-month, provisioned** | **$0.09/GB-month, stored**, plus request charges |
+| Ours | 400 GB provisioned, EU-RO-1 → **$28.00/mo** (the `~$12–18/mo` in INFRA is stale) | billed on bytes actually stored; no size to pick |
+| Requests | none | Class A (write/create/list) $0.005 per 1k; Class B (read/metadata) $0.0005 per 1k |
+| Break-even | — | ~311 GB stored = $28/mo |
+
+How full the 400 GB is was not visible in the console (it shows only the provisioned size). `du -sh
+/workspace/ComfyUI/models` on a pod gives the answer and decides the cost line. Request charges should
+be cents: a 25 GB load is at most ~25k reads even at a 1 MB request size, about $0.01. RunPod does not
+state the request size, so the trial bills settle this. During any migration both volumes are paid at
+once.
+
+### GPU availability snapshot (console "Create volume" stock table, 2026-11-16, one reading)
+- **EU-RO-1:** RTX 5090 Low · RTX PRO 6000 Low · B200 Low · **RTX 4090, RTX PRO 4000, RTX PRO 4500,
+  A100, L4, RTX A4500/A6000/2000/4000 Ada all N/A.** All three cards in our pod fleet had no stock.
+- **EU-CZ-1:** RTX PRO 6000 WK Low · RTX 5090 Low · the rest N/A. **US-IL-1:** 4090 / A5000 / 6000 Ada
+  / L40S all N/A.
+- **No region selected (all of RunPod):** every listed type from H100 down to L40S read Low, not N/A.
+
+This single reading supports the thesis: stock exists somewhere for nearly every card, but rarely
+inside any one data centre. It is one snapshot, so the trial samples it twice a day for a week.
+
+### What would break: audit of every path that assumes the volume
+RunPod's documented caveats: object-backed and not fully POSIX; **no permission bits, no file locks, no
+atomic rename, no hard links**; last write wins; **eventually consistent** (a file written after a
+worker or pod starts may not be visible inside it); no S3 API; directory listings cached for a minute.
+Symlinks, mmap, maximum file size and throughput are not documented.
+
+**Serverless worker (`services/atlas-serverless`) — the read-only path, mostly safe:**
+- `extra_model_paths.yaml` (`/runpod-volume/ComfyUI/`) and `start.sh` (`VOLUME_MODELS`): **unchanged**.
+  A global volume mounts at the same `/runpod-volume`. The per-entry symlinks live in the container,
+  which RunPod's missing hard links do not affect.
+- `start.sh` → `fetch-models.py --verify --stage` **hashes the RMBG and BiRefNet weights (~2 GB) at
+  every boot.** Today that is a local NVMe read. On an object store it is a cold read on every new
+  worker, so it adds directly to cold start. Measure it, and if it is slow, verify against a stamp file
+  instead.
+- **Nodes that download into a linked models folder at runtime** (anything other than `models/RMBG`,
+  e.g. an InsightFace or a node's first-use fetch) would write to the shared global volume from several
+  workers at once. Last write wins, and there is no atomic rename: this is the torn-file failure of
+  2026-09-04 (the `birefnet.py` incident) in a worse form. **Rule if we switch: the worker treats the
+  volume as read-only.** Any first-use download must land in the container, like `models/RMBG` does
+  today.
+- **Eventual consistency changes "drop a model on the volume, no rebuild".** A model added while warm
+  workers are up may not show up in them, and ComfyUI also caches its folder listing. The step becomes:
+  add the model, then wait or recycle the workers before the first render that needs it.
+- Outputs, input and temp are container-local (`/ComfyUI/{output,input,temp}`), and HF/torch caches
+  are not redirected to the volume. **Unaffected.**
+- **An endpoint takes ONE global volume OR network volumes, never both**, so switching is a swap with
+  no dual-read fallback. Changing it triggers a new release.
+
+**R&D pods (`services/atlas-comfy-pod`) — the read-write path, where it breaks:**
+- A pod with both volumes mounts the network volume at `/workspace` and the global one at
+  `/workspace-global`. A pod with only the global volume mounts it at `/workspace`, so the paths in the
+  image would resolve, but the write lanes would not survive:
+  - **`/workspace/pysite`** (`pip install --target`): no exec bits, which breaks console scripts and
+    possibly native `.so` loading. **Breaks.**
+  - **`/workspace/ComfyUI/custom_nodes`**, the volume test lane and Node Manager step (g): `git clone`
+    and `git pull` need lock files and atomic rename for `index.lock`, refs and packs. **Breaks, or
+    corrupts quietly.**
+  - **`fetch-models.py`**: writes a `.part` file, resumes it with Range requests, then renames it into
+    place, which relies on atomic rename. **Unsafe on a global volume.** Fetch onto the network volume
+    and rsync across.
+  - `comfyui.log` and `port-forward.log` (append through write-back cache): probably fine, but slower.
+- **The launcher fleet model (`apps/launcher-api/src/lib/server/runpod.ts`) does not get the benefit
+  for free.** A stopped pod resumes on its own machine because of its container disk, so a global
+  volume alone does not move the existing fleet out of EU-RO-1. The gain arrives only if the fleet
+  deploys a fresh pod wherever stock exists. That is a launcher change, and so is the
+  availability badge, which is scoped to each pod's data centre today.
+- **The S3 API goes away.** No code uses it (the only `s3api-eu-ro-1` references are a
+  `COMFY_CATALOG_URL` misconfiguration guard and its test), but with the network volume we can manage
+  files without starting compute. With a global volume every file operation needs a running pod.
+- `pull-models.py` / `push-models.py` default to `/workspace/ComfyUI/models` and take `--dest` /
+  `--src`, so they work. Only the write side (`pull-models.py`) carries the `.part`/rename concern.
+
+**So the shape, if it is ever a go, is split storage:** the serverless endpoint reads models from a
+global volume, while the pods keep the EU-RO-1 network volume as their read-write lane (pysite,
+custom_nodes, fetches). Models are published one way, from network to global, by rsync from a pod that
+mounts both.
+
+### The measurement (production untouched: no change to the prod endpoint, `RUNPOD_ENDPOINT_ID` or `Invisible_RunPod_Storage`)
+1. **Create** a global volume `iw-global-trial`.
+2. **Fill it from a pod** in EU-RO-1 that mounts both volumes. Copy one blueprint's set, the Qwen-Image
+   character set (~25–30 GB, including a ~20 GB diffusion checkpoint):
+   `rsync -rv --inplace --no-perms --no-owner --no-group /workspace/ComfyUI/models/<set> /workspace-global/ComfyUI/models/<set>`.
+   RunPod's own `rsync --archive` would try to set permission bits, and rsync's default temp-plus-rename
+   is exactly what the volume lacks. Time the copy.
+3. **Run a read A/B on that same pod:** `sync; echo 3 > /proc/sys/vm/drop_caches; time cat <checkpoint> > /dev/null`
+   against `/workspace` and against `/workspace-global`, three times each. Same machine, so only the
+   storage differs. Then time ComfyUI's own model load for the same blueprint from each path.
+4. **Create a SECOND, throwaway serverless endpoint** on the same worker image digest as prod, with
+   max workers 1, idle timeout short, the global volume attached and **no GPU or data-centre pin beyond
+   what prod uses**. Submit the blueprint directly to that endpoint id (curl with `RUNPOD_API_KEY`;
+   never through atlas-tool, which reads `RUNPOD_ENDPOINT_ID`). Record:
+   - **cold start** = RunPod `delayTime`, plus the worker log from boot to `ComfyUI ready`, plus time to
+     the first image, ×5 after the worker scales to zero;
+   - **warm render** = `executionTime` ×5 back to back;
+   - **which data centre** each worker landed in.
+   Compare against the same blueprint on prod's recent jobs (`delayTime`/`executionTime`, read only).
+5. **Run a pod in another region** (whatever has stock: EU-CZ-1 or a US data centre) mounting only the
+   global volume. Repeat the cold `cat` and the ComfyUI model load to get the far-region read cost.
+6. **Sample availability** twice a day for 7 days. This is free: console reads, or the launcher's
+   existing `gpuAvailability` GraphQL query. Record, per card in the fleet plus the endpoint's GPU, how
+   often EU-RO-1 has stock against all regions.
+7. **Delete** the trial endpoint, the pods and `iw-global-trial`.
+
+**Cost estimate:** global volume 30 GB × $0.09 ≈ $2.70/mo, about $0.70 for a week. Fill pod ~1 h,
+≤ $1. Trial endpoint ~1 GPU-hour across the cold and warm runs, ≤ $2. Far-region pod ~1 h, ≤ $1.
+Requests: cents. **≈ $5–8 in total; stop at $15.** Owner steps: approve the spend, then either start
+the pods and endpoint (I give exact settings) or give this session console/API access for those four
+resources only.
+
+**Go criteria:**
+- the cold read of the ~20 GB checkpoint from the global volume is within **1.5×** the network volume's;
+- serverless cold start p50 grows by no more than **+60 s**;
+- warm render is unchanged (within 5%);
+- the week's availability shows EU-RO-1 dry for our GPU materially more often than the global pool.
+
+Miss any one of these and it is a no-go, recorded here.
+
+**Migration steps, if go:**
+1. Create the production global volume.
+2. Rsync the full models tree from a both-volumes pod (flags as in step 2 above).
+3. Make the worker treat the volume as read-only: every first-use download goes container-local, and
+   the boot-time hash is checked against a stamp.
+4. Clone the prod endpoint config into a new endpoint on the global volume and soak it with real
+   renders.
+5. Only then point `RUNPOD_ENDPOINT_ID` at it, keeping the old endpoint as a rollback for a week.
+6. Add a "publish models network→global" step to the model-mirror runbook in INFRA.
+7. Decide separately whether the pod fleet moves to deploy-anywhere (launcher work).
+8. Shrink the network volume only if pods stop needing it. It can't be shrunk in place, so that means
+   a new, smaller volume.
 
 ## Recent changes
 - 2026-11-16 — **Volume models: manage the Network Volume's models from the launcher, without a pod.** Built inside the existing "What's installed" panel, not as a new tool; non-admins, and admins without the S3 key, still get the pod-read list.
@@ -61,7 +204,12 @@
     - The Keep list is a compare-and-set on its `app_settings` row (`compareAndSetAppSetting`).
     - Deletes and copies made during a background re-read are replayed onto its result.
     - Still owed: a live two-admin test.
-  - Gates: `check:volume-models` (32 checks); `test_push_models.py` gained the pull-skip test (56 pass).
+  - Gates: `check:volume-models` (32 checks); `test_push_models.py` gained the pull-skip and mid-run manifest tests (59 pass).
+- 2026-11-16 — **Global Volume evaluated on paper; the trial is waiting on the owner's go-ahead.**
+  The audit, prices ($0.09/GB stored plus requests, against our $28/mo for 400 GB provisioned), a
+  one-off availability snapshot (all three fleet cards N/A in EU-RO-1) and the measurement plan are in
+  [Global Volume evaluation](#global-volume-evaluation-2026-11-16). No RunPod resource was created and
+  no code changed.
 - 2026-11-09 — **The worker's execution-error summary is the Atlas Maker's shared parser.**
   `handler.py` imports `describe_execution_error` from `iw_common/comfy.py` (same output, same
   tests). `atlas-comfy-worker.yml` copies that module + the package `__init__.py` into the build
