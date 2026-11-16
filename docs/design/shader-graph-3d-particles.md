@@ -1,7 +1,8 @@
 # Invisible Shader Graph: 3D particles (step 8f)
 
-> **Proposed 2026-11-16. Step 1 (the coin spike, then the gem spike) built the same day; steps
-> 2–4 wait for the owner's look at them on a phone (§9).** Owner conversation of 2026-11-16 (Gaussian
+> **Proposed 2026-11-16. Step 1 (the coin spike, then the gem spike) built the same day, and a
+> traced banknote as the interim for §5; steps 2–4 wait for the owner's look at them on a phone
+> (§9).** Owner conversation of 2026-11-16 (Gaussian
 > splatting → 3D meshes → a 3D coin). Builds on [shader-graph-particles.md](shader-graph-particles.md)
 > (8d, the particle material). Parent plan: [invisible-shader-graph.md](invisible-shader-graph.md)
 > §8. Current state: [status/shader-graph](../status/shader-graph.md). Owning agent:
@@ -79,6 +80,12 @@ v1 ("anything that deforms a particle's quad", §14). What it takes:
 
 The same material makes the existing Confetti preset far better, and covers cards, leaves and petals.
 
+**Interim, built 2026-11-16: a traced banknote** (§9 "the banknote"). Until the vertex stage, a
+pixel-traced sheet on today's seam gives artists a bending note: a curl (an exact ray against a
+cylinder) and a gentle wave (a height bracketed along the ray), front and back by the facing side.
+It cannot fold sharply or crumple, and its quad grows to hold the bent sheet's bounding sphere, so
+the vertex stage stays the path for folds, crumples and dense confetti.
+
 ## 6. Where they play
 
 - **`/fx` emitter layers** — as every material today.
@@ -110,7 +117,8 @@ then, complex 3D is rendered offline (Blender) to Flipbook frames.
 
 1. Is a ray-traced coin cheap enough on a mid-range phone at shower density (fill × cost, device
    pixels)? Step 1 answers it. **Desktop half answered (below); the phone half waits for the
-   owner's check** (`docs/playtest/particle-material.md` items 7 and 8, the coin and the gem).
+   owner's check** (`docs/playtest/particle-material.md` items 7, 8 and 9: the coin, the gem and
+   the banknote).
 2. Does a tumbling solid need depth between particles (a coin passing behind another)? v1 says no:
    draw order is spawn order, as now.
 3. Packed tiles vs. separate texture slots for face / back / edge / matcap.
@@ -246,3 +254,75 @@ whole facet (flat facets have one normal); a star-shaped flare would need a spri
 not more shader. The rings are fixed at eight steps: a heart or emerald cut needs another plane
 list, which in step 2 is a node setting rather than more Custom GLSL. Depth between overlapping
 gems is still spawn order (§9.2).
+
+### The banknote, traced: §5's interim (2026-11-16)
+
+**What was built.** `calNote` (`engine-shadergraph/src/noteSpike.ts`), a graph made for particles
+from five Custom GLSL nodes (Ray, Curl, Sheet ×2, Shade), joined to `CALIBRATION_GRAPHS` as the
+`cal-note` project, by the coin's route and with no engine change. It stands in for §5's vertex
+stage until that is built. Its art is one 512 px frame drawn by `scripts/playtest/note-spike-art.mjs`:
+the front in rows 0–223 and the back in rows 224–447 (each 512 × 224, the note's 16 : 7 ≈ 2.29 : 1),
+a 64 px matcap at the bottom left; a placeholder note of our own (violet on cream, a rosette, a
+"100" made of a bar and two rings), no real currency. The art's alpha cuts the outline (rounded
+corners). Params: Curl along (Length, Width), Curl, Wave amplitude, Wave speed, Flutter, Spin.
+
+**How it traces.** The note is x along its length (−1…1), y across, flat at z = 0.
+- **Curl:** the sheet rolled onto part of a cylinder that touches its middle, round the short axis
+  (Length) or the long one (Width). A roll keeps lengths, so the arc from the middle is the art's
+  coordinate and the edges clip there exactly. The ray meets the cylinder in closed form, written
+  as k t²|d|² + 2t(k o·d − d.z) + k|o|² − 2o.z = 0 with k the curvature, so a flat note is a
+  plane rather than a huge radius (no R², nothing lost on a phone's floats). The curvature breathes
+  per note at Flutter between 0.3 and 1 of Curl.
+- **Wave:** a height h(x, y, t) along the bent sheet's normal, a wave running down the length at
+  Wave speed plus a ripple across it at Flutter. It is not marched from the sphere: near each of
+  the cylinder's two crossings, eight steps across the window the wave can move it in bracket where
+  the distance to the cylinder meets h, and the step that changes sign is cut by its two ends.
+- Two crossings in order, each kept only inside the note's edges (to half a pixel, the soft edge),
+  so a ray past a curled edge finds the sheet behind it. The normal is the cylinder's tilted by
+  the wave's slope; the side facing the viewer picks the front or back tile, the back mirrored as
+  a note turned over end to end; the matcap lights it, so a curl's inside darkens and the print
+  shades with the wave. Orientation and tumble are the coin's.
+- **Padding** 0.13 of the side: the bounding sphere is the flat corner, √(1 + 0.4375²) = 1.09 of
+  the half length (a roll only brings points closer), plus 1.35 × the largest Wave amplitude (0.1).
+
+**The caps.** **1,646 units, 2 reads** in five nodes, each under 1,024 units and 600 tokens; the
+two Sheet nodes are the coin's split, one crossing each. Reads: the tile and the matcap.
+
+**Where it played.** fx-spike `fx-page` step 12 (the real `/fx` page mounts it on its own page:
+on, measured, the notes draw and move; 34/34); `particle-material-play.mjs --note` on WebGL2 and
+WebGL1 against a release `apps/lines` build (`note` on at every sample, `note-plain` plain);
+`shader-compile` links it through the particle shell on both.
+
+**What it cost** (the coin's GPU and setup, 76 notes about 160 px long, `--coin` in the same run):
+
+| | WebGL2 frame | WebGL1 frame |
+|---|---|---|
+| Same particles, flat (`note-plain`) | 2.9 ms median | 3.1 ms |
+| The banknote | 4.6 ms | 4.1 ms |
+| The coin, same run (flat) | 4.4 ms (2.9) | 4.1 ms (2.5) |
+
+About 1.0–1.7 ms a frame for the shower, the coin's price (1.5–1.6 ms in the same run), though it
+covers more pixels (2.36 M against 1.73 M): two reads against four, and a closed-form crossing plus
+a short bracket against 24 march rounds. The meter reads 3,881 M, 121× the layer budget, no guide.
+
+**How it looks** (real GPU, `/fx` and the game build): paper rolled along its length, curling and
+uncurling, the inside of a curl darker than the outside, a wave running down it; Curl along Width
+makes a gutter, Curl 0 with a full wave an S-bending sheet; front and back as it turns.
+SwiftShader (the `/fx` gate) draws white shards over the notes, as it draws patches over the coins;
+the real GPU does not.
+
+**In the studio library.** Published as `note3d` ("3D banknote") the same day, the way `coin3d`
+was, so every project's `/fx` Material list offers `custom:note3d`; the vertex stage's Banknote
+template replaces it.
+
+**Limits, against §5's vertex stage.**
+- **No sharp fold, crease or crumple:** one cylinder and a smooth wave is all one trace holds.
+  Folds are a piecewise surface; crumple is a noise height too steep to bracket.
+- **Grazing views:** where the wave meets the ray at a glancing angle the bracket can miss and the
+  plain curl is drawn; a curl turned edge-on shows as a thin pale sliver, the paper having no
+  thickness.
+- **Dense confetti:** each particle pays for its whole padded quad (1.26² of the frame) and two
+  crossings; hundreds of small sheets are cheaper as bent geometry. The vertex stage (§5, step 4)
+  stays the path for folds, crumples and confetti; this spike is retired when it lands.
+- As the coin and gem: the light turns with the particle's 2D spin, and overlapping notes have no
+  depth between them (§9.2).

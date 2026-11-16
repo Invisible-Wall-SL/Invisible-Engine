@@ -26,7 +26,8 @@ shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and 
 runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 (transitions in the game) is merged (#1461);
 8e.6 (authoring in the Scene Editor and the Flow) is merged (#1468); 8e.5, 8e.7 and 8e.8 are in progress.
 8f (3D particles) is proposed ([design](../design/shader-graph-3d-particles.md)); its step 1,
-the coin and gem spikes, is built and waits for the owner's look on a phone.
+the coin and gem spikes, and a traced banknote (the interim for §5's vertex stage) are built and
+wait for the owner's look on a phone.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -827,9 +828,26 @@ the coin and gem spikes, is built and waits for the owner's look on a phone.
      the verdict is the same; an enum-membership check would need them there too.
 8. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
-9. **Step 8f, 3D particles — proposed 2026-11-16; step 1, the coin and gem spikes, built**
-   ([design](../design/shader-graph-3d-particles.md) §9 "Step 1 results" and "the gem"). Gaussian
-   splatting was considered and set aside (§2).
+9. **Step 8f, 3D particles — proposed 2026-11-16; step 1, the coin and gem spikes, built; a
+   traced banknote built as §5's interim**
+   ([design](../design/shader-graph-3d-particles.md) §9 "Step 1 results", "the gem" and "the
+   banknote"). Gaussian splatting was considered and set aside (§2).
+   - **The banknote spike** `calNote` (`src/noteSpike.ts`): a paper sheet traced per pixel, curled
+     onto a cylinder (an exact crossing, round the short or long axis, breathing per note) and
+     waved (a height bracketed near each crossing), front and back tiles by the facing side, lit
+     by a matcap at the bent normal. 1,646 units / 2 reads in five Custom GLSL nodes; 1.0–1.7 ms a
+     frame for 76 notes on the desktop iGPU, the coin's price in the same run (1.5–1.6 ms). Its
+     owner look is the playbook's item 9. **Limits:** no sharp fold, crease or crumple; a grazing
+     wave can fall back to the plain curl; an edge-on curl is a thin pale sliver; the padded quad
+     (0.13) and two crossings make dense confetti dear. **§5's vertex stage (step 4) is still the
+     path for folds, crumples and dense confetti**; the spike is retired when it lands.
+   - **In the studio-shared library as `note3d` ("3D banknote")** since 2026-11-16, the way
+     `coin3d` went: the `calNote` doc renamed, otherwise unchanged, saved into the owner's active
+     project, published, the project copy deleted; `/api/shaders/effects` compiles
+     `custom:note3d` at 1,646 / 2, shared. Updating it needs `shaderPublish` + `shaderCustomGlsl`
+     and `replace: true`. The artist guide ("3D Coin Particles: Artist Guide") has a banknote
+     section: tiles, atlas, params, pitfalls. Setup by hand, as the others: `cal-note` needs its
+     atlas from `note3d.png` (one region `note3d`; in Sheet Maker 512 × 512, padding 0, border 0).
    - **The gem spike** `calGem` (`src/gemSpike.ts`): a convex cut traced as 57 planes (Brilliant)
      or 25 (Cartoon, the slot octagon), one reflection and one refraction with per-channel fire,
      a Tint that deepens with the path inside (one graph for ruby, emerald, sapphire, diamond),
@@ -879,6 +897,32 @@ the coin and gem spikes, is built and waits for the owner's look on a phone.
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-11-16 — **Step 8f: the traced banknote, §5's interim** (3D particles,
+  [design](../design/shader-graph-3d-particles.md) §5, §9 "The banknote, traced"). A bending paper
+  note on today's seam, built as the coin was: Custom GLSL only, no engine or runtime code changed
+  (a runtime release with no game changing). Published the same day to the studio-shared library
+  as `note3d` ("3D banknote") (Open items #9).
+  - **The graph.** `calNote` (`engine-shadergraph/src/noteSpike.ts`), five Custom GLSL nodes (Ray,
+    Curl, Sheet ×2, Shade). Curl: the ray against the cylinder the note is rolled on, in closed
+    form with the curvature as the coefficient (flat is a plane, no R²), clipped by the arc from
+    the middle. Wave: a height along the normal, bracketed in eight steps near each crossing and
+    cut where it changes sign. Nearer crossing first, each kept inside the edges to half a pixel.
+    Params: Curl along, Curl, Wave amplitude, Wave speed, Flutter, Spin. 1,646 units / 2 reads.
+    It joins `CALIBRATION_GRAPHS` as `cal-note` (snapshot `snapshots/particle/calNote.frag`).
+  - **The art.** `scripts/playtest/note-spike-art.mjs`: a placeholder note of our own (front,
+    back, matcap; rounded corners in the alpha); `particle-calibration.mjs` writes `note3d.png`
+    (and its usage line lost a stray literal `\n`).
+  - **Harnesses.** `particle-material-play.mjs --note` (`note`, `note-plain`); fx-spike `fx-page`
+    step 12; `?note=1` (and `&params=<json>`) on the fx page.
+  - **Proof.** `fx-page` 34/34; `particle-material-play.mjs --coin --note` PASS on WebGL2 and
+    WebGL1 against a release `apps/lines` build; `shader-compile` 30 sheets on WebGL1 and WebGL2,
+    no shader error; compile fixture: the calibration costs check and the `calNote` snapshot pass
+    (the other snapshot failures are this CRLF checkout's, as before).
+  - **Measured** (Intel Arc iGPU via ANGLE / D3D11, 1280 × 720, 76 notes ≈ 160 px): 4.6 / 4.1 ms
+    median on WebGL2 / WebGL1 against 2.9 / 3.1 flat; the coin 4.4 / 4.1 against 2.9 / 2.5 in the
+    same run. Load 3,881 M (121× the budget), no guide.
+  - **Looked at** on the real GPU in `/fx` and the game build: curled along the length, a Width
+    gutter, a wave-only S-bend, both faces.
 - 2026-11-16 — **Step 8f.1: the gem spike** (3D particles, [design](../design/shader-graph-3d-particles.md)
   §4 "Gem", §9 "Step 1 results: the gem"). The gem half of step 1, built as the coin was: Custom
   GLSL only, no engine or runtime code changed (a runtime release with no game changing).
