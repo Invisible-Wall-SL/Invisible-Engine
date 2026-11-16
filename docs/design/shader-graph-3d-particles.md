@@ -311,6 +311,10 @@ makes a gutter, Curl 0 with a full wave an S-bending sheet; front and back as it
 SwiftShader (the `/fx` gate) draws white shards over the notes, as it draws patches over the coins;
 the real GPU does not.
 
+**In the studio library.** Published as `note3d` ("3D banknote") the same day, the way `coin3d`
+was, so every project's `/fx` Material list offers `custom:note3d`; the vertex stage's Banknote
+template replaces it.
+
 **Limits, against §5's vertex stage.**
 - **No sharp fold, crease or crumple:** one cylinder and a smooth wave is all one trace holds.
   Folds are a piecewise surface; crumple is a noise height too steep to bracket.

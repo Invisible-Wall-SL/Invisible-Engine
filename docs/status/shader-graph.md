@@ -841,9 +841,12 @@ wait for the owner's look on a phone.
      wave can fall back to the plain curl; an edge-on curl is a thin pale sliver; the padded quad
      (0.13) and two crossings make dense confetti dear. **§5's vertex stage (step 4) is still the
      path for folds, crumples and dense confetti**; the spike is retired when it lands.
-   - **Not yet in the studio library:** `note3d` ("3D banknote") waits for the owner's go, then the
-     route `coin3d` took (save → publish → delete the project copy, `/api/shaders/*`) and a
-     banknote section in the artist guide. Setup by hand, as the others: `cal-note` needs its
+   - **In the studio-shared library as `note3d` ("3D banknote")** since 2026-11-16, the way
+     `coin3d` went: the `calNote` doc renamed, otherwise unchanged, saved into the owner's active
+     project, published, the project copy deleted; `/api/shaders/effects` compiles
+     `custom:note3d` at 1,646 / 2, shared. Updating it needs `shaderPublish` + `shaderCustomGlsl`
+     and `replace: true`. The artist guide ("3D Coin Particles: Artist Guide") has a banknote
+     section: tiles, atlas, params, pitfalls. Setup by hand, as the others: `cal-note` needs its
      atlas from `note3d.png` (one region `note3d`; in Sheet Maker 512 × 512, padding 0, border 0).
    - **The gem spike** `calGem` (`src/gemSpike.ts`): a convex cut traced as 57 planes (Brilliant)
      or 25 (Cartoon, the slot octagon), one reflection and one refraction with per-channel fire,
@@ -897,7 +900,8 @@ wait for the owner's look on a phone.
 - 2026-11-16 — **Step 8f: the traced banknote, §5's interim** (3D particles,
   [design](../design/shader-graph-3d-particles.md) §5, §9 "The banknote, traced"). A bending paper
   note on today's seam, built as the coin was: Custom GLSL only, no engine or runtime code changed
-  (a runtime release with no game changing). Open items #9.
+  (a runtime release with no game changing). Published the same day to the studio-shared library
+  as `note3d` ("3D banknote") (Open items #9).
   - **The graph.** `calNote` (`engine-shadergraph/src/noteSpike.ts`), five Custom GLSL nodes (Ray,
     Curl, Sheet ×2, Shade). Curl: the ray against the cylinder the note is rolled on, in closed
     form with the curvature as the coefficient (flat is a plane, no R²), clipped by the arc from
