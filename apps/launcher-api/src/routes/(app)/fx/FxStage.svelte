@@ -40,6 +40,7 @@
 		FxPathBehavior,
 		FxPathTable,
 		readFxPath,
+		rewindFxPath,
 		stepCollapsedValueLists,
 		type EffectLevelApplier,
 		type EffectParam,
@@ -47,6 +48,7 @@
 		type EffectParamValues,
 		type EmitterLayer,
 		type FxPath,
+		type FxPathEmitter,
 		type FxPathPoint,
 	} from 'engine-fx';
 	import {
@@ -310,6 +312,7 @@
 	function restartLayer(entry: LiveLayer): void {
 		entry.emitter.cleanup();
 		entry.emitter.resetPositionTracking();
+		rewindFxPath(entry.emitter as unknown as FxPathEmitter);
 		entry.emitter.emit = emitOn && entry.hasArt;
 		entry.peakArea = 0;
 		syncMaterial(entry);
@@ -1128,13 +1131,17 @@
 		const pos = entry.layer.config.pos ?? { x: 0, y: 0 };
 		// `ownerPos` is protected in the library's type, public at run time (the forces read it too).
 		const owner = (entry.emitter as unknown as { ownerPos: { x: number; y: number } }).ownerPos;
-		const ox = owner.x + pos.x;
-		const oy = owner.y + pos.y;
+		// The runtime turns the path, and the authored pos, by the emitter's rotation (a moving owner's).
+		const rot = Number((entry.emitter as unknown as { rotation: number }).rotation) || 0;
+		const cs = Math.cos(rot);
+		const sn = Math.sin(rot);
+		const ox = owner.x + pos.x * cs - pos.y * sn;
+		const oy = owner.y + pos.x * sn + pos.y * cs;
 		const next: Affine = {
-			a: wt.a,
-			b: wt.b,
-			c: wt.c,
-			d: wt.d,
+			a: wt.a * cs + wt.c * sn,
+			b: wt.b * cs + wt.d * sn,
+			c: wt.c * cs - wt.a * sn,
+			d: wt.d * cs - wt.b * sn,
 			tx: wt.a * ox + wt.c * oy + wt.tx,
 			ty: wt.b * ox + wt.d * oy + wt.ty,
 		};
