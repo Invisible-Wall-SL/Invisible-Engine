@@ -319,6 +319,12 @@ Each step has its own branch, gates and status entry.
      once and the new one live; an exit effect plays on the still, any other graph plays on the
      live stage in a screen shell and reads both through a Screens node; post FX are Element FX on
      the stage; one owner for the stage's filters. Built as 8e.1–8e.8, one PR each (its §15).
+   - **8f. 3D particles** (proposed 2026-11-16, not decided). Coins, gems, banknotes and confetti
+     that tumble in 3D, each one different, without a frame atlas or a 3D engine. Designed in
+     [shader-graph-3d-particles.md](shader-graph-3d-particles.md): solids ray-traced inside the 8d
+     particle quad (Solid and Matcap nodes, after a Custom GLSL coin spike), materials on coded
+     emitters, then a vertex stage for bending sheets. Real meshes (three.js) stay a separate,
+     later question.
 
 Rough size: steps 1–3 are engine work, roughly one PR each. Steps 4 and 5 are the large ones (the
 editor UI and the ship chain). Steps 6–7 build on top of them.
