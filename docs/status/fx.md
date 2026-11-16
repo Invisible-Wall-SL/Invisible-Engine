@@ -183,7 +183,9 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   on top). `registerFxBehaviors` registers it and installs a tick hook around
   `Emitter.prototype.update` that advances the path clock, stored on the emitter (a parameter
   rebuild keeps the pass), by the renderer's dt (so Turbo speeds it up) and restarts it when
-  emission switches back on. No layer carries `fxPath` yet, so no effect changes. Gate:
+  emission switches back on or the emitter is re-initialised (an event layer re-firing); a looping
+  travel's wrap from the end to the start resets the spawn lerp so no streak crosses the gap, and
+  `rewindFxPath` lets a Replay restart the pass. No layer carries `fxPath` yet, so no effect changes. Gate:
   `check:fx-path` (fx-spike `path.ts`, in `check:all`), with mutants planted for the travel
   rotation, the even stream and the behaviour order. Not yet authorable in `/fx` (step 3).
 - 2026-11-03 — **One-shot effects loop in the `/fx` preview; ⟲ Replay** (branch

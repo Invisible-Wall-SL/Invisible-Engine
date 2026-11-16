@@ -28,6 +28,7 @@ import {
 	normalizeEffectDoc,
 	readFxPath,
 	registerFxBehaviors,
+	rewindFxPath,
 	type EffectDoc,
 	type FxPathConfig,
 	type FxPathEmitter,
@@ -425,6 +426,44 @@ travel.update(0.1);
 assert(
 	near(travel.spawnPos.x, 5, 1e-6) && near(travel.spawnPos.y, 7, 1e-6),
 	'switching travel off returns the origin to the authored pos',
+);
+// A re-fired event layer is re-initialised: `init` resets pos and rotation, and the pass restarts
+// from the authored pos, not shifted by the offset the old pass had left in `spawnPos`.
+const refired = make(travelCfg({ travel: { duration: 1, repeat: 'once', ease: 'in' } }));
+for (let i = 0; i < 3; i++) refired.update(0.1);
+refired.init(travelCfg({ travel: { duration: 1, repeat: 'once', ease: 'in' } }));
+refired.emit = true;
+refired.update(0.1);
+assert(
+	near(refired.spawnPos.x, 5 + 1, 1e-6) && near(refired.spawnPos.y, 7, 1e-6),
+	`re-initialising restarts the pass at the authored pos (${refired.spawnPos.x.toFixed(2)}, ${refired.spawnPos.y.toFixed(2)})`,
+);
+rewindFxPath(refired as unknown as FxPathEmitter);
+refired.update(0.5);
+assert(near(refired.spawnPos.x, 5 + 25, 1e-6), 'rewindFxPath starts the pass again (Replay)');
+// The loop wraps from the end back to the start: no particle is born on the line between them.
+const wrap = make(
+	cfg(
+		[
+			pathEntry({
+				curve: { kind: 'polyline', points: sweepPath },
+				emit: 'travel',
+				travel: { duration: 1, repeat: 'loop', ease: 'linear' },
+			}),
+		],
+		{ frequency: 0.01 },
+	),
+);
+for (let i = 0; i < 14; i++) wrap.update(0.075);
+const xs = live(wrap).map((p) => p.x);
+const between = xs.filter((x) => x > 6 && x < 60).length;
+const atEnd = xs.filter((x) => x >= 60).length;
+const spawnedAfterWrap = live(wrap)
+	.filter((p) => p.age < 0.04)
+	.map((p) => p.x);
+assert(
+	atEnd > 0 && spawnedAfterWrap.every((x) => x < 6),
+	`the wrap back to the start is a jump, not a streak (born since the wrap: ${spawnedAfterWrap.map((x) => x.toFixed(1)).join(', ')}; ${between} in the middle from the pass)`,
 );
 // Turbo: the particle clock multiplies dt, so the pass runs faster.
 const normal = make(travelCfg());

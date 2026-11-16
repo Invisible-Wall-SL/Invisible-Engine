@@ -449,6 +449,10 @@ export interface FxPathEmitter {
 	emit: boolean;
 	spawnPos: FxVec2;
 	updateSpawnPos(x: number, y: number): void;
+	/** Forget the last position, so the next spawns are not spread along a jump. */
+	resetPositionTracking?(): void;
+	/** Replaced by every `init` (which also resets `spawnPos` and `rotation`). */
+	initBehaviors?: unknown[];
 	/** ≤ 0 inside a frame's spawn loop: how long before the frame's end this wave was due. */
 	_spawnTimer?: number;
 	particlesPerWave?: number;
@@ -467,6 +471,10 @@ export interface FxPathClock {
 	appliedRotation: number;
 	/** A running count for an even stream of single-particle waves. */
 	evenIndex: number;
+	/** The completed passes of a looping travel, to spot the wrap back to the start. */
+	pass: number;
+	/** The `initBehaviors` the clock was started for: a new array means the emitter re-initialised. */
+	behaviors: unknown[] | undefined;
 }
 
 /** The particle slice the path touches (structural — no PixiJS import). */
@@ -486,10 +494,41 @@ const GOLDEN = 0.6180339887498949;
 function clockOf(em: FxPathEmitter): FxPathClock {
 	let c = em.fxPathClock;
 	if (!c) {
-		c = { t: 0, emitting: false, appliedX: 0, appliedY: 0, appliedRotation: 0, evenIndex: 0 };
+		c = {
+			t: 0,
+			emitting: false,
+			appliedX: 0,
+			appliedY: 0,
+			appliedRotation: 0,
+			evenIndex: 0,
+			pass: 0,
+			behaviors: em.initBehaviors,
+		};
 		em.fxPathClock = c;
 	}
+	if (c.behaviors !== em.initBehaviors) {
+		// `init` put `spawnPos` back to the config's `pos` at rotation 0: nothing of ours is in it, and
+		// the effect starts over (a re-fired event layer is re-initialised).
+		c.behaviors = em.initBehaviors;
+		c.t = 0;
+		c.evenIndex = 0;
+		c.pass = 0;
+		c.appliedX = 0;
+		c.appliedY = 0;
+		c.appliedRotation = Number(em.rotation) || 0;
+		c.emitting = false;
+	}
 	return c;
+}
+
+/** Start the path's pass again (a Replay that restarts the emitter without re-initialising it). */
+export function rewindFxPath(em: FxPathEmitter): void {
+	const c = em.fxPathClock;
+	if (!c) return;
+	c.t = 0;
+	c.evenIndex = 0;
+	c.pass = 0;
+	em.resetPositionTracking?.();
 }
 
 /** See the module header. */
@@ -514,9 +553,12 @@ export class FxPathBehavior {
 	tickEmitter(em: FxPathEmitter, dt: number): void {
 		const c = clockOf(em);
 		const emitting = !!em.emit;
+		let jumped = false;
 		if (emitting && !c.emitting) {
 			c.t = 0;
 			c.evenIndex = 0;
+			c.pass = 0;
+			jumped = true;
 		}
 		c.emitting = emitting;
 		if (emitting && dt > 0) c.t += dt;
@@ -534,10 +576,13 @@ export class FxPathBehavior {
 			c.appliedY = c.appliedX * sn + c.appliedY * cs;
 			c.appliedX = ax;
 		}
-		const p = this.table.pointAt(
-			fxPathTravelProgress(this.path.travel, c.t) * this.table.length,
-			this.tmp,
-		);
+		const travel = this.path.travel;
+		if (travel.repeat === 'loop') {
+			const pass = Math.floor(c.t / travel.duration);
+			if (pass !== c.pass) jumped = !this.table.closed || jumped;
+			c.pass = pass;
+		}
+		const p = this.table.pointAt(fxPathTravelProgress(travel, c.t) * this.table.length, this.tmp);
 		const cs = Math.cos(rot);
 		const sn = Math.sin(rot);
 		const ox = p.x * cs - p.y * sn;
@@ -550,6 +595,9 @@ export class FxPathBehavior {
 		const nx = baseX + ox;
 		const ny = baseY + oy;
 		if (nx !== em.spawnPos.x || ny !== em.spawnPos.y) em.updateSpawnPos(nx, ny);
+		// A wrap from the end back to the start (or a restart) is a jump, not a move: without this the
+		// library spreads the frame's spawns along the straight line between the two.
+		if (jumped) em.resetPositionTracking?.();
 	}
 
 	/** Take back a travel offset a previous instance (an edit that switched travel off) left behind. */
@@ -624,7 +672,9 @@ export class FxPathBehavior {
 			} else if (path.emit === 'travel') {
 				s = travelS;
 			}
-			if (path.follow.enabled) {
+			if (!path.follow.enabled) {
+				if (p.config.fxPathS !== undefined) p.config.fxPathS = undefined;
+			} else {
 				if (path.emit === 'shape') {
 					// Born off the curve: start at its first point so it traces the drawn shape.
 					const p0 = table.pointAt(0, this.tmp);
