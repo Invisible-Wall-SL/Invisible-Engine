@@ -94,10 +94,21 @@ class FakeS3:
 
 	def get_object(self, Bucket, Key):
 		if Key == pm.MANIFEST_KEY and self.manifest is not None:
-			return {"Body": io.BytesIO(json.dumps(self.manifest).encode("utf-8"))}
+			return {"Body": io.BytesIO(json.dumps(self.manifest).encode("utf-8")),
+			        "ETag": self._etag()}
 		raise KeyError(f"NoSuchKey {Key}")
 
-	def put_object(self, Bucket, Key, Body, ContentType=None):
+	def _etag(self) -> str | None:
+		return None if self.manifest is None else str(hash(json.dumps(self.manifest, sort_keys=True)))
+
+	def put_object(self, Bucket, Key, Body, ContentType=None, IfMatch=None, IfNoneMatch=None):
+		if Key == pm.MANIFEST_KEY and (IfMatch is not None or IfNoneMatch is not None):
+			stale = (IfMatch is not None and IfMatch != self._etag()) or (
+				IfNoneMatch == "*" and self.manifest is not None)
+			if stale:
+				err = Exception("PreconditionFailed")
+				err.response = {"Error": {"Code": "PreconditionFailed"}}
+				raise err
 		self.puts.append(Key)
 		if Key == pm.MANIFEST_KEY:
 			self.manifest = json.loads(Body)
@@ -348,7 +359,56 @@ def test_round_trip_to_pull_models():
 	check("every file came back at its original size", landed, files)
 
 
-def _run_pull(fake: FakeS3, dest: Path) -> None:
+def test_pull_skips_entries_removed_from_the_volume():
+	"""The launcher's Delete (mirror kept) marks an entry `"volume": false`; pulling it
+	back would silently undo the delete and its storage saving."""
+	files = {"loras/keep.safetensors": 64, "loras/gone.safetensors": 32}
+	fake = FakeS3()
+	with tempfile.TemporaryDirectory() as tmp:
+		src = Path(tmp)
+		_tree(src, files)
+		_run(fake, src, apply=True)
+	for m in fake.manifest["models"]:
+		if m["name"] == "gone.safetensors":
+			m["volume"] = False
+	with tempfile.TemporaryDirectory() as tmp:
+		dest = Path(tmp)
+		_run_pull(fake, dest)
+		landed = sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file())
+	check("a removed entry is not pulled", landed, ["loras/keep.safetensors"])
+	with tempfile.TemporaryDirectory() as tmp:
+		dest = Path(tmp)
+		_run_pull(fake, dest, ["--include-removed"])
+		landed = sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file())
+	check("--include-removed pulls it", landed, sorted(files))
+
+
+def test_manifest_write_merges_what_changed_during_the_run():
+	"""A launcher edit made WHILE this script uploads (a delete marking an entry
+	`"volume": false`, a new upload's entry) survives its manifest write."""
+	fake = FakeS3(manifest={"version": 1, "base_prefix": "comfyui-models", "models": [
+		{"key": "comfyui-models/loras/old.safetensors", "dir": "loras",
+		 "name": "old.safetensors", "size": 8, "sha256": "x"}]})
+	real_upload = fake.upload_file
+
+	def upload_and_race(Filename, Bucket, Key, ExtraArgs=None):
+		real_upload(Filename, Bucket, Key, ExtraArgs)
+		fake.manifest["models"][0]["volume"] = False
+		fake.manifest["models"].append({"key": "comfyui-models/vae/new.safetensors",
+		                                "dir": "vae", "name": "new.safetensors",
+		                                "size": 4, "sha256": "y"})
+	fake.upload_file = upload_and_race
+	with tempfile.TemporaryDirectory() as tmp:
+		src = Path(tmp)
+		_tree(src, {"loras/mine.safetensors": 16})
+		_run(fake, src, apply=True)
+	keys = [m["key"] for m in fake.manifest["models"]]
+	check("the launcher's new entry survives", "comfyui-models/vae/new.safetensors" in keys, True)
+	check("this run's entry landed", "comfyui-models/loras/mine.safetensors" in keys, True)
+	check("the volume:false mark survives", fake.manifest["models"][0].get("volume"), False)
+
+
+def _run_pull(fake: FakeS3, dest: Path, extra: list[str] | None = None) -> None:
 	"""Run pull-models.py's real main() against the stub client."""
 	stub = types.ModuleType("boto3")
 	stub.client = lambda *a, **k: fake
@@ -359,7 +419,7 @@ def _run_pull(fake: FakeS3, dest: Path) -> None:
 		sys.modules["boto3"] = stub
 		for k in R2_ENVS:
 			os.environ[k] = "test"
-		sys.argv = ["pull-models.py", "--dest", str(dest)]
+		sys.argv = ["pull-models.py", "--dest", str(dest), *(extra or [])]
 		with redirect_stdout(io.StringIO()):
 			pull.main()
 	finally:
@@ -384,7 +444,9 @@ if __name__ == "__main__":
 	           test_dry_run_writes_nothing,
 	           test_dir_scoping,
 	           test_prefix_must_match_the_manifest_base_prefix,
-	           test_round_trip_to_pull_models):
+	           test_round_trip_to_pull_models,
+	           test_pull_skips_entries_removed_from_the_volume,
+	           test_manifest_write_merges_what_changed_during_the_run):
 		print(f"\n-- {fn.__name__}")
 		fn()
 	print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

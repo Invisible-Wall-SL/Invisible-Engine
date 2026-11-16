@@ -138,6 +138,46 @@ deliberate: it *could* keep answering via an always-on **volume pod** (a cheap C
 the same Network Volume), but that is a fixed monthly cost for this one convenience, so
 we don't run one. See *Managing the fleet* below.
 
+#### Volume models (admins)
+
+For an admin, once the launcher has a RunPod **S3 API key** (`RUNPOD_S3_*`, see
+`docs/INFRA.md`), the **Models** half of the panel reads the Network Volume directly
+through RunPod's S3 API — **no pod needs to be running** — and replaces the pod-read list:
+
+- Each folder shows its file count and size, biggest first. The header shows the used
+  total, the volume's provisioned size and what RunPod bills for it each month. The ⓘ
+  explains the catch: a Network Volume is billed on its **provisioned** size and can
+  never be shrunk. Deleting frees room, so the volume doesn't need to grow for new
+  models, but the bill only drops once the weights move to a new, smaller volume (the
+  tooltip says what one sized to the current models would cost).
+- Each file shows its size and badges:
+  - **used by N** — the Atlas Maker / Flipbook blueprints that name it; hover for the
+    list.
+  - **keep** — someone marked it to stay, with a note. The Wan Animate-2 trial's
+    weights start out kept.
+  - **R2** — also in the shared model mirror, so desktops can Sync it.
+  - **volume only** — not in the mirror, so deleting it loses it.
+- **Delete** (the bin) asks once and offers *Also delete the R2 mirror copy*. Leave that
+  unticked and the file stays in R2: it is marked as removed from the volume (so
+  `pull-models.py` does not put it back) and you can copy it back later.
+- A file a blueprint uses, or one marked **keep**, gets a **second** confirmation. It
+  names those blueprints, and you type the file name to go ahead. The server re-checks
+  both, and it refuses a delete while the serverless endpoint has renders queued or
+  running.
+- **In the R2 mirror, not on the volume** lists mirror files the volume lacks, each
+  with **copy to volume**.
+- **Add a model** — pick a folder and a file name, then either:
+  - **From this computer**: the file uploads in parts into the R2 mirror, then the
+    launcher copies it onto the volume;
+  - **From a URL**: a public `https://` link, e.g. Hugging Face `…/resolve/main/…`, is
+    copied straight onto the volume, with an optional mirror copy.
+
+  **Transfers** shows progress, and each transfer can be cancelled. One transfer runs at
+  a time.
+- **Re-read the volume** reads it again. A big volume takes a while, because RunPod
+  works out a checksum for each file it hasn't seen; the last reading stays on screen
+  meanwhile.
+
 ### Managing the fleet (admins)
 
 The fleet is managed in the launcher's admin panel, not on this page: **Admin panel →
@@ -221,10 +261,11 @@ fails with a missing-node/model error rather than producing art.
   in; the pod's container start command has to launch ComfyUI itself. If that's not set
   up, Start boots the GPU but the row stays "starting" forever because ComfyUI never
   answers. See the pod setup in `docs/INFRA.md` ("ComfyUI R&D pod").
-- **Models can be seen here, not installed.** *What's installed* lists them; putting a
-  checkpoint/LoRA on the Network Volume still happens on the pod itself (web terminal /
-  SSH / ComfyUI-Manager). Custom nodes are the exception: admins add them to the image
-  from **Custom nodes**.
+- **Only admins manage models, and only with the S3 key set.** Without `RUNPOD_S3_*`
+  (or for non-admins) *What's installed* falls back to the read-only list from a running
+  pod. A gated Hugging Face model can't be added by URL: download it, then add it from
+  your computer. A launcher redeploy kills a running transfer; its parts are left as an
+  *unfinished upload*, which you can clear from the panel.
 - **"Which packs are permanent?" is only answered when the pod can tell us.** Without a
   reporting route on the pod, *What's installed* lists the packs ComfyUI loaded but
   cannot mark which are container-only, so no **container** badge appears.

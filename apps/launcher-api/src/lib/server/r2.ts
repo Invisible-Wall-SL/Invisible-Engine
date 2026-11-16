@@ -1,12 +1,17 @@
 import {
+	AbortMultipartUploadCommand,
+	CompleteMultipartUploadCommand,
 	CopyObjectCommand,
+	CreateMultipartUploadCommand,
 	DeleteObjectCommand,
 	DeleteObjectsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
+	ListPartsCommand,
 	PutObjectCommand,
 	S3Client,
+	UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ENV } from './env';
@@ -99,6 +104,95 @@ export async function presignPut(
 		s3(),
 		new PutObjectCommand({ Bucket: ENV.R2_BUCKET, Key: key, ContentType: contentType }),
 		{ expiresIn: ttlSeconds },
+	);
+}
+
+/**
+ * Browser multipart upload to R2, for files past a single PUT's 5 GB ceiling (model weights).
+ * The server opens the upload and signs one URL per part; the browser PUTs each part straight to
+ * R2 (never through the launcher's body cap); the server completes it from `ListParts`, so the
+ * browser never has to read a part's ETag header — which a CORS rule would have to expose.
+ * Callers MUST validate the key against an allowed prefix first; these sign whatever they get.
+ */
+export async function createMultipartUpload(key: string, contentType: string): Promise<string> {
+	const res = await s3().send(
+		new CreateMultipartUploadCommand({ Bucket: ENV.R2_BUCKET, Key: key, ContentType: contentType }),
+	);
+	if (!res.UploadId) throw new Error(`R2 did not open a multipart upload for ${key}`);
+	return res.UploadId;
+}
+
+export async function presignUploadPart(
+	key: string,
+	uploadId: string,
+	partNumber: number,
+	ttlSeconds: number,
+): Promise<string> {
+	return getSignedUrl(
+		s3(),
+		new UploadPartCommand({
+			Bucket: ENV.R2_BUCKET,
+			Key: key,
+			UploadId: uploadId,
+			PartNumber: partNumber,
+		}),
+		{ expiresIn: ttlSeconds },
+	);
+}
+
+/** One part, written by the server itself (a URL download teed into the mirror). */
+export async function uploadPart(
+	key: string,
+	uploadId: string,
+	partNumber: number,
+	body: Uint8Array,
+): Promise<void> {
+	await s3().send(
+		new UploadPartCommand({
+			Bucket: ENV.R2_BUCKET,
+			Key: key,
+			UploadId: uploadId,
+			PartNumber: partNumber,
+			Body: body,
+			ContentLength: body.byteLength,
+		}),
+	);
+}
+
+/** Complete from what R2 actually holds. Returns the part count it stitched. */
+export async function completeMultipartUpload(key: string, uploadId: string): Promise<number> {
+	const parts: { PartNumber: number; ETag: string }[] = [];
+	let marker: string | undefined;
+	do {
+		const res = await s3().send(
+			new ListPartsCommand({
+				Bucket: ENV.R2_BUCKET,
+				Key: key,
+				UploadId: uploadId,
+				PartNumberMarker: marker,
+			}),
+		);
+		for (const p of res.Parts ?? []) {
+			if (p.PartNumber && p.ETag) parts.push({ PartNumber: p.PartNumber, ETag: p.ETag });
+		}
+		marker = res.IsTruncated ? res.NextPartNumberMarker : undefined;
+	} while (marker);
+	if (parts.length === 0) throw new Error('No parts were uploaded.');
+	parts.sort((a, b) => a.PartNumber - b.PartNumber);
+	await s3().send(
+		new CompleteMultipartUploadCommand({
+			Bucket: ENV.R2_BUCKET,
+			Key: key,
+			UploadId: uploadId,
+			MultipartUpload: { Parts: parts },
+		}),
+	);
+	return parts.length;
+}
+
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+	await s3().send(
+		new AbortMultipartUploadCommand({ Bucket: ENV.R2_BUCKET, Key: key, UploadId: uploadId }),
 	);
 }
 
