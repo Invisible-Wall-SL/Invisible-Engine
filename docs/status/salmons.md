@@ -332,11 +332,25 @@ the runbook follows them.
 
 ## Blocked (owner / external)
 
+- **Seeded levels with an authored overlay** ([design/salmons-levels](../design/salmons-levels.md),
+  planned 2026-11-16): the engine's `salmonsRiver` is not the original game's generator
+  (`generateMap` / `buildMeanderTable`, never ported), `/editor` shows one baked river
+  (`salmons-1`) that no room plays, and the generator replaces any authored zones. Building waits
+  on the original generator's source from `GuiltyForever/Salmon-` (not readable from a cloud
+  session of this repository) and on the owner's choice of how a room picks its level (§3 b).
+
 - **The generation runs in the launcher's tools** (ComfyUI on RunPod, through the Atlas Maker,
   Flipbook and FX). They are pages behind the launcher's sign-in, and a cloud session has no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-16 — **Seeded levels planned** ([design/salmons-levels](../design/salmons-levels.md); branch
+  `arcade/salmons-seeded-levels`): why the editor's river differs from a room's (another
+  generator than the original's, one baked seed, placeholder vs original art, generated zones
+  replacing authored ones) and the plan: the original generator ported as one pure seeded function,
+  a seed picker in `/editor`, a per-seed authored overlay that survives a reseed, shipped by the
+  export → bake → pull → register chain. Nothing built yet (Blocked above).
 
 - 2026-11-09 — **Salmons draws the original game's art, animated in code** (branch
   `arcade/salmons-original-art`; in review). Detail in "Original art" above. Engine seams, all

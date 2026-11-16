@@ -78,6 +78,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
 - [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js`, the `build-delivery.mjs` handover and the upload to the partner's CDN. Phases 1, 3, 4 and 5 built; Phase 2 (protocol deltas) partly.
+- [salmons-levels](design/salmons-levels.md) — **planned 2026-11-16, blocked on the original generator's source and an owner choice:** Salmons' levels from the original game's seeded generator, the same function in the room, the device and `/editor` (a seed picker), with a per-seed authored overlay that survives a reseed.
 - [arcade-4k-builds](design/arcade-4k-builds.md) — **one 4K master, smaller tiers** (planned 2026-11-09): a game authored on a 3840×2160 canvas, published at full resolution for a cabinet and as lower-resolution tiers for desktop and mobile that lay out identically (Pixi texture resolution). Phases 1–4 built (KTX2 twin sheets keep their logical size; the editor's Rescale canvas…; opt-in half-resolution art at publish; the game loads the tier its screen needs); Phase 5 (video, FX) closed — they ride the sheet tiers; a one-screen build ships one tier (`IE_ART_TIER`).
 - [invisible-profiler](design/invisible-profiler.md) — **how a published game performs, per device, and what to cut** (planned 2026-11-16; P1 built — [status/profiler](status/profiler.md)): keeps every `?perf=1` reading (phones send by a capture-session QR) and every build breakdown, budgets per project and device class, ranked findings filed as bugs, lab runs per publish, cloud phones (BrowserStack proposed); readings kept 15 days unless marked Keep. Build plan P1–P7.
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
@@ -195,6 +196,10 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/infra](status/infra.md))
 - **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
   done. ([status/infra](status/infra.md))
+- **Salmons levels** — send the original generator's source (`generateMap`, `buildMeanderTable`
+  from `GuiltyForever/Salmon-`) or allow this repository's sessions to read that repository, and
+  choose how a room picks its level ([design/salmons-levels](design/salmons-levels.md) §3).
+  ([status/salmons](status/salmons.md))
 - **Grant `gamePublish`** to `developer` and `pipelineTester` in /admin → Roles.
   ([status/launcher](status/launcher.md))
 - **Game Maker → Republish all** so the games published before snapshots stop booting live data.
