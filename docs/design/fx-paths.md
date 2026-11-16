@@ -79,8 +79,10 @@ interface FxPathConfig {
 - **Off by default, byte-identical:** a layer without a path carries no `fxPath` entry, so every
   existing effect, bake key and cost estimate is unchanged. Removing the last use of the path
   removes the behaviour.
-- `readFxPath(config)` is the **one clamp** (finite numbers, ≥ 2 points, known enums, duration
-  > 0), read by the behaviour and the inspector alike, as `readFxForces` is.
+- `readFxPath(config)` is the **one clamp** (finite numbers, 2 to 256 points — `FX_PATH_MAX_POINTS`,
+  the rest dropped, since `init` rebuilds the table on every re-fire — known enums, duration > 0),
+  read by the behaviour and the inspector alike, as `readFxForces` is. Step 3's points table stops
+  adding at the cap.
 
 ### 3.2 The curve math (`engine-fx/src/path.ts`, pure)
 

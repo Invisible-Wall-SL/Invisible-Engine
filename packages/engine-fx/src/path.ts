@@ -116,6 +116,14 @@ export const FX_PATH_DEFAULT_POINTS: FxPathPoint[] = [
 	{ x: 150, y: 0, in: { x: -60, y: -90 } },
 ];
 
+/**
+ * The most anchors a path keeps; the rest are dropped. `init` (re-run each time an event layer
+ * re-fires) rebuilds the arc-length table, so an absurd doc would stall the game on every fire. A
+ * hand-drawn path has a handful of points; 256 anchors of a spline are ~6k samples, built in well
+ * under a millisecond.
+ */
+export const FX_PATH_MAX_POINTS = 256;
+
 const LIMITS = {
 	coord: 100000,
 	tension: [0, 1],
@@ -150,6 +158,7 @@ function readPoints(v: unknown): FxPathPoint[] {
 	const out: FxPathPoint[] = [];
 	if (Array.isArray(v)) {
 		for (const raw of v) {
+			if (out.length >= FX_PATH_MAX_POINTS) break;
 			if (!isRecord(raw)) continue;
 			const p: FxPathPoint = {
 				x: clampNum(raw.x, -LIMITS.coord, LIMITS.coord, 0),
@@ -173,7 +182,10 @@ function structuredCopy(p: FxPathPoint): FxPathPoint {
 	return c;
 }
 
-/** The ONE clamp: the behavior and the `/fx` inspector both read through it. */
+/**
+ * The ONE clamp: the behavior and the `/fx` inspector both read through it. Keeps at most
+ * {@link FX_PATH_MAX_POINTS} anchors.
+ */
 export function readFxPath(config: unknown): FxPath {
 	const c = isRecord(config) ? config : {};
 	const curve = isRecord(c.curve) ? c.curve : {};
@@ -521,6 +533,31 @@ function clockOf(em: FxPathEmitter): FxPathClock {
 	return c;
 }
 
+/** Take back a travel offset a previous instance (an edit that switched travel off) left behind. */
+function dropTravel(em: FxPathEmitter, c: FxPathClock): void {
+	if (c.appliedX === 0 && c.appliedY === 0) return;
+	const turn = (Number(em.rotation) || 0) - c.appliedRotation;
+	const cs = Math.cos(turn);
+	const sn = Math.sin(turn);
+	const ax = c.appliedX * cs - c.appliedY * sn;
+	const ay = c.appliedX * sn + c.appliedY * cs;
+	em.updateSpawnPos(em.spawnPos.x - ax, em.spawnPos.y - ay);
+	c.appliedX = 0;
+	c.appliedY = 0;
+}
+
+/**
+ * The emitter has a clock but no `fxPath` any more, and `init` did not run (it would have reset
+ * `spawnPos` and the behavior arrays): the behavior was taken out in place, so take its travel
+ * offset out too, then forget the clock.
+ */
+function releaseFxPath(em: FxPathEmitter): void {
+	const c = em.fxPathClock;
+	if (!c) return;
+	if (c.behaviors === em.initBehaviors) dropTravel(em, c);
+	em.fxPathClock = undefined;
+}
+
 /** Start the path's pass again (a Replay that restarts the emitter without re-initialising it). */
 export function rewindFxPath(em: FxPathEmitter): void {
 	const c = em.fxPathClock;
@@ -561,9 +598,11 @@ export class FxPathBehavior {
 			jumped = true;
 		}
 		c.emitting = emitting;
-		if (emitting && dt > 0) c.t += dt;
+		// One non-finite dt would make the clock Infinity / NaN, and through the base the travel is
+		// computed from, leave `spawnPos` NaN for good.
+		if (emitting && Number.isFinite(dt) && dt > 0) c.t += dt;
 		if (this.path.emit !== 'travel') {
-			this.dropTravel(em, c);
+			dropTravel(em, c);
 			return;
 		}
 		const rot = Number(em.rotation) || 0;
@@ -600,19 +639,6 @@ export class FxPathBehavior {
 		if (jumped) em.resetPositionTracking?.();
 	}
 
-	/** Take back a travel offset a previous instance (an edit that switched travel off) left behind. */
-	private dropTravel(em: FxPathEmitter, c: FxPathClock): void {
-		if (c.appliedX === 0 && c.appliedY === 0) return;
-		const turn = (Number(em.rotation) || 0) - c.appliedRotation;
-		const cs = Math.cos(turn);
-		const sn = Math.sin(turn);
-		const ax = c.appliedX * cs - c.appliedY * sn;
-		const ay = c.appliedX * sn + c.appliedY * cs;
-		em.updateSpawnPos(em.spawnPos.x - ax, em.spawnPos.y - ay);
-		c.appliedX = 0;
-		c.appliedY = 0;
-	}
-
 	/** Seconds into the pass at which the current wave was due. */
 	private emitTime(em: FxPathEmitter): number {
 		const c = clockOf(em);
@@ -628,6 +654,7 @@ export class FxPathBehavior {
 		const rot = Number(em.rotation) || 0;
 		const cs = Math.cos(rot);
 		const sn = Math.sin(rot);
+		const clock = clockOf(em);
 		let waveSize = 0;
 		for (let p: FxPathParticle | null = first; p; p = p.next) waveSize++;
 		const sweepS =
@@ -645,8 +672,7 @@ export class FxPathBehavior {
 						if (waveSize > 1) {
 							s = table.closed ? (i / waveSize) * L : (i / (waveSize - 1)) * L;
 						} else {
-							const c = clockOf(em);
-							s = ((c.evenIndex++ * GOLDEN) % 1) * L;
+							s = ((clock.evenIndex++ * GOLDEN) % 1) * L;
 						}
 						break;
 					}
@@ -708,7 +734,8 @@ export class FxPathBehavior {
 			s1 = start + span * Math.min(1, Math.max(0, p.agePercent));
 			if (table.closed && L > 0) s1 %= L;
 		} else {
-			s1 = s0 + f.speed * Number(p.config.fxPathMult ?? 1) * Math.max(0, deltaSec);
+			const dt = Number.isFinite(deltaSec) && deltaSec > 0 ? deltaSec : 0;
+			s1 = s0 + f.speed * Number(p.config.fxPathMult ?? 1) * dt;
 			if (s1 > L) {
 				if (f.end === 'die') die = true;
 				else if (f.end === 'loop' && L > 0) s1 %= L;
@@ -737,14 +764,16 @@ export class FxPathBehavior {
 
 const TICK_HOOK = Symbol.for('engine-fx.emitterTick');
 
-interface TickTarget {
-	initBehaviors?: unknown[];
+interface TickTarget extends FxPathEmitter {
+	_autoUpdate?: boolean;
 }
 
 /**
  * Wrap `Emitter.prototype.update` so behaviors with a `tickEmitter(emitter, dt)` run before each
- * update (idempotent). `dt` is the seconds the renderer passed; the library's own `autoUpdate`
- * (unused by every renderer here) is not covered.
+ * update (idempotent), with the seconds the original update is about to use. A renderer passes them;
+ * an `autoUpdate` emitter is called by the shared Ticker with the Ticker itself, whose `deltaTime`
+ * is in FRAMES — the library swaps in `Ticker.shared.elapsedMS * 0.001` inside the original update,
+ * so the hook reads the same `elapsedMS` from the Ticker it was handed (`Ticker.shared`).
  */
 export function installFxEmitterTick(emitterClass: unknown): void {
 	const proto = (emitterClass as { prototype?: Record<PropertyKey, unknown> } | null)?.prototype;
@@ -753,16 +782,22 @@ export function installFxEmitterTick(emitterClass: unknown): void {
 	proto.update = function (this: TickTarget, delta: unknown): unknown {
 		const behaviors = this.initBehaviors;
 		if (behaviors) {
-			const dt =
-				typeof delta === 'number'
-					? delta
-					: Number((delta as { deltaTime?: unknown } | null)?.deltaTime) || 0;
+			const dt = tickSeconds(delta, this._autoUpdate === true);
+			let pathTicked = false;
 			for (const b of behaviors) {
+				if (b instanceof FxPathBehavior) pathTicked = true;
 				const tick = (b as { tickEmitter?: unknown } | null)?.tickEmitter;
 				if (typeof tick === 'function') tick.call(b, this, dt);
 			}
+			if (!pathTicked && this.fxPathClock) releaseFxPath(this);
 		}
 		return original.call(this, delta);
 	};
 	proto[TICK_HOOK] = true;
+}
+
+function tickSeconds(delta: unknown, autoUpdate: boolean): number {
+	if (typeof delta === 'number') return delta;
+	const ticker = delta as { deltaTime?: unknown; elapsedMS?: unknown } | null;
+	return autoUpdate ? Number(ticker?.elapsedMS) * 0.001 || 0 : Number(ticker?.deltaTime) || 0;
 }

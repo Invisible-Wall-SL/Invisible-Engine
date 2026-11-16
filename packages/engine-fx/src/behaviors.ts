@@ -12,10 +12,10 @@
  *
  * Both are plain classes matching the library's `IEmitterBehavior` duck type (`order` +
  * `initParticles`, optional `updateParticle`) — the same pluggable seam Tier C's `spineParticle`
- * behavior stands on. They import nothing but `./forces`, `./sprite`, `./path` and `./material` (the
- * `fxForces`, `fxSprite`, `fxPath` and `fxMaterial` behaviors, registered here beside them; `./material`
- * reads `./bindArt` and a particle-emitter TYPE, nothing at run time): no PixiJS and no
- * particle-emitter code, so this module stays pure and headlessly unit-coverable like the rest of
+ * behavior stands on. They import nothing but `./forces`, `./sprite`, `./path` and `./material`
+ * (the `fxForces`, `fxSprite`, `fxPath` and `fxMaterial` behaviors, registered here beside them;
+ * `./material` reads `./bindArt` and a particle-emitter TYPE, nothing at run time): no PixiJS and
+ * no particle-emitter code, so this module stays pure and headlessly unit-coverable like the rest of
  * `engine-fx`. Registration therefore takes the `Emitter` class as an ARGUMENT
  * ({@link registerFxBehaviors}) rather than importing it.
  *
@@ -409,8 +409,9 @@ export const FX_BEHAVIOR_TYPES = [
 
 /**
  * Teach an `Emitter` class the FX behaviors, and `fxMaterial`, which no authored config carries
- * (the material renderer injects it), and install the tick hook `fxPath` keeps its clock with. Idempotent (the library's registry is a plain map keyed by
- * `type`), so every renderer can call it unconditionally at module load.
+ * (the material renderer injects it), and install the tick hook `fxPath` keeps its clock with.
+ * Idempotent (the library's registry is a plain map keyed by `type`), so every renderer can call it
+ * unconditionally at module load.
  */
 export function registerFxBehaviors(emitter: FxBehaviorRegistrar): void {
 	emitter.registerBehavior(FxAlphaBehavior as never);
