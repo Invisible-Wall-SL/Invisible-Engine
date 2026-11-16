@@ -9,3 +9,4 @@ export * from './src/doc';
 export * from './src/twins';
 export * from './src/calibration';
 export * from './src/coinSpike';
+export * from './src/gemSpike';

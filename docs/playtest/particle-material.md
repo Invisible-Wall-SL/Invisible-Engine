@@ -13,9 +13,10 @@ sets them from real phones. This playbook has two parts:
   `?fxdebug=1`, whose numbers are read off the screen and sent back. This is the step's Owner
   pass; nobody else can do it.
 
-It also carries the **3D coin** of step 8f.1 ([design](../design/shader-graph-3d-particles.md)):
-a solid coin ray-traced inside each particle (`cal-coin`, S5), which the owner looks at on a phone
-before the trace becomes regular nodes.
+It also carries the **3D coin** and the **3D gem** of step 8f.1
+([design](../design/shader-graph-3d-particles.md)): a solid coin ray-traced inside each particle
+(`cal-coin`, S5) and a cut gem traced as a set of planes (`cal-gem`, S6), which the owner looks at
+on a phone before the traces become regular nodes.
 
 Status: [status/shader-graph](../status/shader-graph.md) (8d.8, open items).
 
@@ -33,7 +34,7 @@ pnpm --filter 'lines^...' build
 PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
 node --experimental-strip-types --import ./scripts/ts-loader.mjs \
   scripts/playtest/particle-material-play.mjs --runtime apps/lines/build --out .cache/material-play \
-  [--gl 1|2|both] [--calibrate] [--coin] [--frames 120]
+  [--gl 1|2|both] [--calibrate] [--coin] [--gem] [--frames 120]
 ```
 
 It takes the `cg-lines` current-games stand-in, adds the phone check's calibration effects
@@ -77,6 +78,16 @@ it needs a release build of the runtime first. The behaviours it plays are also 
   `plain, not registered` with its sprites drawing. Each coin tumbles on its own axis: faces,
   rims and the reeded edge as it turns, a solid band of metal edge-on. Both are timed.
 
+### S6 — the 3D gem (`--gem`)
+- **Do:** `cal-gem`'s effect, `embers/main`: 120 gems about 160 px across, `material:
+  custom:calgem` (the gem spike, cost 2,943 by the Custom GLSL estimate, 4 reads; the default ruby
+  Tint, the Brilliant cut), on its page (`scripts/playtest/gem-spike-art.mjs`: what the facets
+  reflect, what they refract), shipped as the coin's is. `gem-plain` is the same snapshot without
+  its `shaderEffects`.
+- **Expect:** `gem` on and drawing at every sample, its load the covered px × 2,943; `gem-plain`
+  `plain, not registered` with its sprites drawing. Each gem tumbles on its own axis, its facets
+  changing as it turns. Both are timed.
+
 ### All runs
 - **Expect:** the page drew on the WebGL version asked for (WebGL1: the page is refused a `webgl2`
   context, as a WebGL1-only phone refuses it); no error, stall, console error (but Typekit's) or
@@ -109,6 +120,19 @@ an Intel Arc iGPU, D3D11, not SwiftShader), 1280 × 720 at 1×, 120 frames each:
 | S2 plain, 83 sprites (for scale) | — | 4.2 / 5.7 ms | 2.9 / 4.1 ms |
 | `budget`, 76 quads (for scale) | 1,252 M (cost 144) | 5.2 / 6.9 ms | 4.2 / 4.4 ms |
 
+**`--gem`, read on 2026-11-16** on the same GPU and setup, two runs (the second with `--coin` too,
+for the coin's price in the same run):
+
+| Run | Load | WebGL2 frame (median / p95) | WebGL1 frame (median / p95) |
+|---|---|---|---|
+| `gem-plain`, 83 sprites | — | 3.6 / 4.5 ms (3.9 / 5.2) | 3.1 / 3.7 ms (4.1 / 4.9) |
+| `gem`, 76 quads | 4,727 M (14,773 % of 32 M), 1.61 M px covered | 8.8 / 9.9 ms (7.7 / 9.6) | 7.4 / 8.6 ms (5.2 / 7.0) |
+| `coin` / `coin-plain`, the second run | — | 5.1 / 3.8 ms | 4.0 / 2.8 ms |
+
+The gem costs about 1.1–5.2 ms a frame over the same particles flat: in the run that timed both,
+about the coin's price on WebGL1 and three times it on WebGL2. As for the coin, its meter (148×
+the layer budget) is no guide.
+
 On this GPU the coin costs about 1.4 ms (WebGL1) to 2.6 ms (WebGL2) a frame over the same
 particles drawn flat (an earlier run read 0.5 and 1.2 ms: the iGPU's timings move about a
 millisecond run to run), while its meter reads 86× the layer budget. The meter's cost is the Custom GLSL
@@ -140,6 +164,7 @@ cost by `compile.fixture.ts` and compiled on WebGL1 and WebGL2 by `shader-compil
 | `cal-seed` | `embers` | `calseed`, Seed → Random number → Hue shift (21 / 1) | the seeds |
 | `cal-parity` | `embers` | `calparity`, the Output alone (1 / 1) | how close a material is to plain sprites |
 | `cal-coin` | `embers` on the coin page, coins about 160 px | `calcoin`, the step-8f 3D coin (1,586 / 4) | how a ray-traced solid looks and costs |
+| `cal-gem` | `embers` on the gem page, gems about 160 px | `calgem`, the step-8f 3D gem (2,943 / 4) | how a traced cut gem looks and costs |
 
 1. Write the files, naming an art key every project has (the same for all; the play uses `coins`):
    ```
@@ -147,13 +172,15 @@ cost by `compile.fixture.ts` and compiled on WebGL1 and WebGL2 by `shader-compil
      scripts/playtest/particle-calibration.mjs --out .cache/calibration --art <assetKey>
    ```
    Each `.cache/calibration/<project>/` holds `shaders/<graph>.json` and `<effect>.fx.json`, as
-   `/shaders` and `/fx` store them; `cal-coin/` also holds `coin3d.png`, the coin's page.
-2. In Game Maker, duplicate one small lines game eight times, as the projects above, with nothing
+   `/shaders` and `/fx` store them; `cal-coin/` also holds `coin3d.png`, the coin's page, and
+   `cal-gem/` `gem3d.png`, the gem's.
+2. In Game Maker, duplicate one small lines game nine times, as the projects above, with nothing
    else animated on the base game.
 3. **The coin's atlas.** In `cal-coin`, make an atlas from `coin3d.png` in
    [Invisible Atlas Maker](../tools/atlas-maker.md) with one region, `coin3d`, covering the whole
    page (no trim, no padding), and deploy it. Run step 1 again with
-   `--coin-art <that atlas's manifest key>`, so `cal-coin`'s effect names it.
+   `--coin-art <that atlas's manifest key>`, so `cal-coin`'s effect names it. Do the same in
+   `cal-gem` from `gem3d.png` (one region, `gem3d`) and pass `--gem-art <its manifest key>`.
 4. Upload each folder's files into its project's root (`<client>/<project>/`, keeping `shaders/`)
    with [Invisible FTP Browser](../tools/ftp-browser.md), in an admin's full view.
 5. In each project's Scene Editor, place its effect (Library → **Effects**) on the base game, in the
@@ -214,6 +241,18 @@ line on each of these, as seen (human-eyes):
    - **Smooth?** Its fps and frames of 50 ms or more against `cal-plain`'s. Its coins are smaller
      (about 160 px against 340 px), so the load printed (cost × covered px) is no guide; the
      frames are.
+8. **The 3D gem** (`cal-gem`, step 8f.1). Watch it for 30 seconds, then say:
+   - **Cut?** Does each gem read as a cut stone, a flat table on top, slanted crown facets round
+     it and a pointed pavilion below, rather than a flat sticker or a blob?
+   - **Sparkle?** Do the facets change, bright to dark, as a gem turns, and does one flash white
+     now and then (a glint) as a facet lines up with the light?
+   - **Fire?** On a white Tint (a diamond: in `/fx`, Tint white, Refraction 2.4), are there small
+     patches of rainbow colour, and are they pleasant rather than noisy?
+   - **Colour?** Does the ruby read as a red stone, deeper where it is thicker, without its dark
+     facets going flat black?
+   - **Clean?** Any speckles, holes, flickering facet edges or stair-stepped silhouettes, or a gem
+     cut off at its edge?
+   - **Smooth?** Its fps and frames of 50 ms or more against `cal-plain`'s and `cal-coin`'s.
 
 ### How the numbers set the caps (a developer)
 
@@ -231,5 +270,6 @@ rate: `cal-budget`, `cal-512` or `cal-swarm` push it there.
 | `cal-swarm`'s lines and frames | **8** layers a game | Eight `on`, one `over the game cap`, never a change mid-play. If the eight drop the phone below its refresh rate at loads under the layer budget, lower 8. |
 | The load beside line 1's size | the meter's pixels | The load counts the layer's own pixels; a phone draws device pixels (the game's scale × the pixel ratio²). If two phones of one GPU print one load and differ in frames, the meter needs the device's scale. |
 | `cal-coin`'s fps and long frames against `cal-plain`'s, and item 7 | whether 8f step 2 builds the coin as regular nodes (design 8f §7), and how a traced solid is budgeted | If it holds the refresh rate on the weakest phone kept and item 7 reads well, step 2 goes ahead. Its printed load stays no guide until the solid nodes carry a cost measured from frames rather than the Custom GLSL estimate. |
+| `cal-gem`'s fps and long frames against `cal-plain`'s and `cal-coin`'s, and item 8 | whether step 2 builds Solid: gem, and how many planes a cut may have | If it holds the rate where the coin does and item 8 reads well, the gem node keeps the 57-plane brilliant. If only the coin holds, the gem node's default is the Cartoon cut (25 planes) and the brilliant is marked heavy. |
 
 Write what is decided in the design's §10 and §16.6, and the as-built in the status file.

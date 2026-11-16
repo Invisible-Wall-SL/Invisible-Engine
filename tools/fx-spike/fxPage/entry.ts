@@ -19,7 +19,9 @@
  * two blend groups. `?bursts=1` opens one of three one-shot layers over a continuous one.
  * `?coin=1` opens the step-8f coin spike: coins whose material is the `calCoin` graph (a solid coin
  * ray-traced in each particle) on its four-tile page (`scripts/playtest/coin-spike-art.mjs`), an
- * atlas of its own.
+ * atlas of its own. `?gem=1` opens the gem spike likewise: the `calGem` graph (a cut gem traced as a
+ * set of planes) on its page (`scripts/playtest/gem-spike-art.mjs`). With either, `&params=<json>` sets
+ * the material's params, for a look at another setting.
  *
  * `fxPage.apps` holds every Pixi `Application` the page made, and `fxPage.emitters` every particle
  * `Emitter`, so a driver can read the stage.
@@ -36,6 +38,7 @@ import {
 } from 'engine-fx';
 import {
 	COIN_SPIKE_GRAPH,
+	GEM_SPIKE_GRAPH,
 	REFERENCE_GRAPHS,
 	analyzeShaderGraph,
 	compileShaderEffect,
@@ -46,6 +49,12 @@ import {
 	coinSpikePixels,
 	coinSpikeSheet,
 } from '@fxroot/scripts/playtest/coin-spike-art.mjs';
+import {
+	GEM_SPIKE_FRAME,
+	GEM_SPIKE_SIZE,
+	gemSpikePixels,
+	gemSpikeSheet,
+} from '@fxroot/scripts/playtest/gem-spike-art.mjs';
 import { TOOLS } from '@fxroot/apps/launcher-api/src/lib/roles';
 import DialogHost from '@fxroot/apps/launcher-api/src/lib/DialogHost.svelte';
 import Page from '@fxroot/apps/launcher-api/src/routes/(app)/fx/+page.svelte';
@@ -93,12 +102,38 @@ async function pageImage(): Promise<Blob> {
 	return canvas.convertToBlob({ type: 'image/png' });
 }
 
-const coining = new URLSearchParams(location.search).has('coin');
-const COIN_ATLAS = 'client/project/manifests/atlas_manifest_coin3d.json';
-const COIN_GRAPH = { ...COIN_SPIKE_GRAPH, id: COIN_SPIKE_GRAPH.id.toLowerCase() };
+const query = new URLSearchParams(location.search);
+/** The step-8f solids: a graph traced in each particle on a page of tiles, an atlas of its own. */
+const SOLIDS = [
+	{
+		on: query.has('coin'),
+		graph: COIN_SPIKE_GRAPH,
+		frame: COIN_SPIKE_FRAME,
+		size: COIN_SPIKE_SIZE,
+		pixels: coinSpikePixels,
+		sheet: coinSpikeSheet,
+	},
+	{
+		on: query.has('gem'),
+		graph: GEM_SPIKE_GRAPH,
+		frame: GEM_SPIKE_FRAME,
+		size: GEM_SPIKE_SIZE,
+		pixels: gemSpikePixels,
+		sheet: gemSpikeSheet,
+	},
+].map((solid) => {
+	const atlas = `client/project/manifests/atlas_manifest_${solid.frame}.json`;
+	return {
+		...solid,
+		graph: { ...solid.graph, id: solid.graph.id.toLowerCase() },
+		atlas,
+		page: atlas.replace(/\.json$/, '.png'),
+	};
+});
+const solid = SOLIDS.find((x) => x.on);
 
-/** Ripple is made for particles: the Material picker lists it first (with `?coin=1`, the coin). */
-const compiled = [...REFERENCE_GRAPHS, ...(coining ? [COIN_GRAPH] : [])].map((doc) => ({
+/** Ripple is made for particles: the Material picker lists it first (with a solid, the solid). */
+const compiled = [...REFERENCE_GRAPHS, ...(solid ? [solid.graph] : [])].map((doc) => ({
 	doc,
 	result: compileShaderEffect(doc.id === 'ripple' ? { ...doc, madeFor: 'particles' } : doc),
 }));
@@ -272,50 +307,53 @@ const r2 = new Map<string, Blob>();
 const sheets = new Map<string, unknown>();
 const uploads: { key: string; bytes: number }[] = [];
 
-/** About 160 px coins tumbling in a shower, as `cal-coin`'s effect (`particle-calibration.mjs`). */
-const coins = normalizeEffectDoc(
-	{
-		version: 1,
-		id: 'coins',
-		name: 'Coins',
-		layers: [
-			{
-				key: 'main',
-				particleKind: 'sprite',
-				art: { assetKey: COIN_ATLAS, frames: [COIN_SPIKE_FRAME] },
-				placement: { space: 'free' },
-				config: {
-					lifetime: { min: 1.2, max: 2 },
-					frequency: 0.05,
-					emitterLifetime: -1,
-					maxParticles: 40,
-					pos: { x: 0, y: 0 },
-					addAtBack: false,
-					behaviors: [
-						{
-							type: 'spawnShape',
-							config: { type: 'rect', data: { x: -200, y: -120, w: 400, h: 240 } },
-						},
-						{ type: 'scaleStatic', config: { min: 0.28, max: 0.34 } },
-						{
-							type: 'rotation',
-							config: { minStart: 0, maxStart: 360, minSpeed: -90, maxSpeed: 90, accel: 0 },
-						},
-					],
+/** About 160 px solids tumbling in a shower, as `cal-coin`'s effect (`particle-calibration.mjs`). */
+const shower =
+	solid &&
+	normalizeEffectDoc(
+		{
+			version: 1,
+			id: 'solids',
+			name: 'Solids',
+			layers: [
+				{
+					key: 'main',
+					particleKind: 'sprite',
+					art: { assetKey: solid.atlas, frames: [solid.frame] },
+					placement: { space: 'free' },
+					config: {
+						lifetime: { min: 1.2, max: 2 },
+						frequency: 0.05,
+						emitterLifetime: -1,
+						maxParticles: 40,
+						pos: { x: 0, y: 0 },
+						addAtBack: false,
+						behaviors: [
+							{
+								type: 'spawnShape',
+								config: { type: 'rect', data: { x: -200, y: -120, w: 400, h: 240 } },
+							},
+							{ type: 'scaleStatic', config: { min: 0.28, max: 0.34 } },
+							{
+								type: 'rotation',
+								config: { minStart: 0, maxStart: 360, minSpeed: -90, maxSpeed: 90, accel: 0 },
+							},
+						],
+					},
+					material: {
+						kind: `custom:${solid.graph.id}`,
+						...(query.has('params') ? { params: JSON.parse(query.get('params') ?? '{}') } : {}),
+					},
 				},
-				material: { kind: `custom:${COIN_GRAPH.id}` },
-			},
-		],
-	},
-	'coins',
-);
-const COIN_PAGE = COIN_ATLAS.replace(/\.json$/, '.png');
-if (coining) sheets.set(COIN_ATLAS, coinSpikeSheet({ image: COIN_PAGE }));
-function coinPage(): Promise<Blob> {
-	const page = new OffscreenCanvas(COIN_SPIKE_SIZE, COIN_SPIKE_SIZE);
-	page
-		.getContext('2d')!
-		.putImageData(new ImageData(coinSpikePixels(), COIN_SPIKE_SIZE, COIN_SPIKE_SIZE), 0, 0);
+			],
+		},
+		'solids',
+	);
+if (solid) sheets.set(solid.atlas, solid.sheet({ image: solid.page }));
+function solidPage(): Promise<Blob> | undefined {
+	if (!solid) return undefined;
+	const page = new OffscreenCanvas(solid.size, solid.size);
+	page.getContext('2d')!.putImageData(new ImageData(solid.pixels(), solid.size, solid.size), 0, 0);
 	return page.convertToBlob({ type: 'image/png' });
 }
 
@@ -382,7 +420,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 		}
 		case '/api/editor/asset': {
 			const key = url.searchParams.get('key') ?? '';
-			const baked = r2.get(key) ?? (coining && key === COIN_PAGE ? await coinPage() : undefined);
+			const baked = r2.get(key) ?? (key === solid?.page ? await solidPage() : undefined);
 			return new Response(baked ?? (await pageImage()), {
 				headers: { 'content-type': 'image/png' },
 			});
@@ -448,15 +486,15 @@ mount(Page, {
 			tools: [TOOLS.fx, TOOLS.shaders],
 			atlases: [
 				{ manifestKey: ATLAS, label: 'sparks', regions: REGIONS.map((r) => r.name) },
-				...(coining
-					? [{ manifestKey: COIN_ATLAS, label: 'coin3d', regions: [COIN_SPIKE_FRAME] }]
+				...(solid
+					? [{ manifestKey: solid.atlas, label: solid.frame, regions: [solid.frame] }]
 					: []),
 			],
 			effects: [
 				{ id: 'ghost', name: 'Ghost' },
 				...(baking ? [{ id: 'sparks', name: 'Sparks' }] : []),
 			],
-			openedDoc: coining ? coins : bursting ? bursts : baking ? sparks : opening ? opened : null,
+			openedDoc: shower ? shower : bursting ? bursts : baking ? sparks : opening ? opened : null,
 			openedMeta: null,
 			openedEtag: null,
 			eventTypes: [],
