@@ -61,6 +61,7 @@ export const PIPELINE_AREAS = [
 	'localization',
 	'pipelineBugs',
 	'pipelineChanges',
+	'profiler',
 	'spineViewer',
 	'rigger',
 	'editor',
