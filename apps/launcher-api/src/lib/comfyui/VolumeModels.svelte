@@ -399,14 +399,22 @@
 								<button
 									class="link"
 									onclick={() => toggleKeep(row)}
-									title={row.keep ? 'Stop keeping' : 'Keep — ask again before deleting'}
+									disabled={!row.actionable}
+									title={!row.actionable
+										? 'Its name uses characters the launcher will not act on — rename or remove it on a pod'
+										: row.keep
+											? 'Stop keeping'
+											: 'Keep — ask again before deleting'}
 								>
 									{row.keep ? 'unkeep' : 'keep'}
 								</button>
 								<IconButton
 									icon="trash"
 									danger
-									label="Delete from the volume"
+									label={row.actionable
+										? 'Delete from the volume'
+										: 'Its name uses characters the launcher will not act on — remove it on a pod'}
+									disabled={!row.actionable}
 									onclick={() => askDelete(row)}
 								/>
 							</li>

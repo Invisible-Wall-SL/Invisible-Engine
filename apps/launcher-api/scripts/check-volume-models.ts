@@ -18,6 +18,7 @@ import {
 	actionTarget,
 	blueprintModelNames,
 	deleteRefusal,
+	fleetSettingError,
 	healthJobs,
 	podGuardRefusal,
 	renderGuardRefusal,
@@ -39,7 +40,12 @@ import {
 	type ManifestEntry,
 } from '../src/lib/server/modelManifest';
 import { isPrivateComfyHost } from '../src/lib/server/comfyRegister';
-import { pinnedLookup, publicUrlError, withIdleTimeout } from '../src/lib/server/publicDownload';
+import {
+	openPublicDownload,
+	pinnedLookup,
+	publicUrlError,
+	withIdleTimeout,
+} from '../src/lib/server/publicDownload';
 import type { LookupAddress } from 'node:dns';
 
 let checks = 0;
@@ -152,6 +158,7 @@ const row = (folder: string, path: string, size: number): ModelRow => ({
 	path,
 	usedBy: [],
 	keep: null,
+	actionable: true,
 	mirror: null,
 });
 const groups = groupByFolder([
@@ -194,6 +201,14 @@ check('upsert replaces in place', [models.length, models[0].sha256], [1, 'y']);
 check('remove', removeEntry(models[0].key)(models) && models.length, 0);
 
 // --- Delete / Keep targets: no traversal -------------------------------------------------
+check(
+	'a real but unsafe name is listed, not actionable',
+	[
+		!!toVolumeFile(obj('ComfyUI/models/loras/[fp8] x.safetensors')),
+		actionTarget('ComfyUI/models/loras/[fp8] x.safetensors'),
+	],
+	[true, null],
+);
 check(
 	'a plain file is an action target',
 	actionTarget('ComfyUI/models/loras/a.safetensors')?.path,
@@ -247,6 +262,15 @@ check('a non-object /health could not tell', healthJobs(null), null);
 check('jobs are summed', healthJobs({ jobs: { inQueue: 2, inProgress: 1 } }), 3);
 check('an idle endpoint reads 0', healthJobs({ jobs: { inQueue: 0, inProgress: 0 } }), 0);
 check('a garbled count could not tell', healthJobs({ jobs: { inQueue: 'x' } }), null);
+check('an empty jobs object could not tell', healthJobs({ jobs: {} }), null);
+check('renamed fields could not tell', healthJobs({ jobs: { in_queue: 3 } }), null);
+check('one known field is enough', healthJobs({ jobs: { inProgress: 2 } }), 2);
+
+check('no fleet setting is fine (legacy / none)', fleetSettingError(undefined), null);
+check('an empty fleet list is fine', fleetSettingError('[]'), null);
+check('a fleet list is fine', fleetSettingError('[{"id":"p1"}]'), null);
+check('a garbled fleet setting refuses', fleetSettingError('{oops') !== null, true);
+check('a non-array fleet setting refuses', fleetSettingError('{"id":"p1"}') !== null, true);
 check(
 	'unconfigured endpoint refuses without confirmation',
 	renderGuardRefusal({ endpointConfigured: false, jobs: null, confirmNoRenderCheck: false })
@@ -334,6 +358,18 @@ async function asyncChecks(): Promise<void> {
 		(await runLookup([{ address: '2002:a00:1::', family: 6 }], false)).err !== null,
 		true,
 	);
+
+	// The pin is the request's own lookup: a host that resolves private never gets a socket.
+	let pinned = '';
+	try {
+		await openPublicDownload('https://models.example/x.safetensors', {
+			lookup: pinnedLookup(fakeDns([priv])),
+			headersMs: 2_000,
+		});
+	} catch (e) {
+		pinned = e instanceof Error ? e.message : String(e);
+	}
+	check('a real request refuses a host resolving private', pinned.includes('private'), true);
 
 	const chunk = new Uint8Array(4);
 	const steady = (n: number, everyMs: number) =>

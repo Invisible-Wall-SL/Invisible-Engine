@@ -9,7 +9,7 @@ import type { RequestHandler } from './$types';
  * key (restore / a finished browser upload) or a public https URL (e.g. Hugging Face).
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
-	await requireComfyAdmin(locals);
+	const user = await requireComfyAdmin(locals);
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	const source = typeof body?.source === 'string' ? body.source.trim() : '';
 	const folder = typeof body?.folder === 'string' ? body.folder.trim() : '';
@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	try {
 		const job = await startTransfer(
 			{ source, folder, path, mirror: body?.mirror === true },
-			locals.user?.email ?? 'admin',
+			user.email,
 		);
 		return json({ job });
 	} catch (e) {

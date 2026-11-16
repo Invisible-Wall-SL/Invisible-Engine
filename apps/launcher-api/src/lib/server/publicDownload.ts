@@ -1,5 +1,5 @@
 import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
-import { request } from 'node:https';
+import { Agent, request } from 'node:https';
 import type { IncomingMessage } from 'node:http';
 import type { LookupFunction } from 'node:net';
 import { Readable } from 'node:stream';
@@ -10,15 +10,6 @@ import { isPrivateComfyHost } from './comfyRegister';
  * network included — even under DNS rebinding: the address is checked inside the socket's own
  * `lookup`, so the address checked IS the address connected to, on every redirect hop.
  */
-
-export class PublicUrlError extends Error {
-	constructor(
-		readonly status: number,
-		message: string,
-	) {
-		super(message);
-	}
-}
 
 type Resolve = (
 	hostname: string,
@@ -42,11 +33,7 @@ export function pinnedLookup(resolve: Resolve = systemResolve): LookupFunction {
 				);
 			}
 			if (addresses.some((a) => isPrivateComfyHost(a.address))) {
-				return callback(
-					new PublicUrlError(400, `${hostname} resolves to a private address.`),
-					'',
-					0,
-				);
+				return callback(new Error(`${hostname} resolves to a private address.`), '', 0);
 			}
 			if (options.all)
 				return (callback as unknown as (e: null, a: LookupAddress[]) => void)(null, usable);
@@ -89,11 +76,13 @@ function get(url: string, opts: Required<DownloadOptions>): Promise<IncomingMess
 		const req = request(url, {
 			method: 'GET',
 			lookup: opts.lookup,
+			// Its own agent: a pooled socket from the global one would skip this lookup.
+			agent: new Agent({ lookup: opts.lookup, keepAlive: false }),
 			headers: { 'user-agent': 'InvisibleLauncher/1.0' },
 		});
 		// Headers only: a deadline cleared once they arrive, so a multi-GB body is not cut off.
 		const deadline = setTimeout(
-			() => req.destroy(new PublicUrlError(504, 'The download did not answer in time.')),
+			() => req.destroy(new Error('The download did not answer in time.')),
 			opts.headersMs,
 		);
 		req.once('response', (res) => {
@@ -122,7 +111,7 @@ export function withIdleTimeout(
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const stalled = new Promise<never>((_, reject) => {
 				timer = setTimeout(
-					() => reject(new PublicUrlError(504, 'The download stalled — no data for too long.')),
+					() => reject(new Error('The download stalled — no data for too long.')),
 					idleMs,
 				);
 			});
@@ -155,18 +144,18 @@ export async function openPublicDownload(
 	let url = raw;
 	for (let hop = 0; hop <= opts.maxRedirects; hop++) {
 		const bad = publicUrlError(url);
-		if (bad) throw new PublicUrlError(400, bad);
+		if (bad) throw new Error(bad);
 		const res = await get(url, opts);
 		const status = res.statusCode ?? 0;
 		const location = res.headers.location;
 		if (status >= 300 && status < 400 && location) {
-			res.resume();
+			res.destroy();
 			url = new URL(location, url).toString();
 			continue;
 		}
 		if (status < 200 || status >= 300) {
-			res.resume();
-			throw new PublicUrlError(502, `The download answered HTTP ${status}.`);
+			res.destroy();
+			throw new Error(`The download answered HTTP ${status}.`);
 		}
 		const len = Number(res.headers['content-length']);
 		return {
@@ -174,5 +163,5 @@ export async function openPublicDownload(
 			contentLength: Number.isFinite(len) && len > 0 ? len : null,
 		};
 	}
-	throw new PublicUrlError(502, 'The download redirected too many times.');
+	throw new Error('The download redirected too many times.');
 }

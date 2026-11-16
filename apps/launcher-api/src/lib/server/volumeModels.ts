@@ -7,6 +7,7 @@ import {
 	healthJobs,
 	isModelFile,
 	deleteRefusal,
+	fleetSettingError,
 	groupByFolder,
 	mirrorKey,
 	podGuardRefusal,
@@ -22,7 +23,7 @@ import {
 	type VolumeFile,
 	type VolumeObject,
 } from '$lib/volumeModels';
-import { compareAndSetAppSetting, getAppSetting } from './appSettings';
+import { RUNPOD_PODS_KEY, compareAndSetAppSetting, getAppSetting } from './appSettings';
 import { ENV } from './env';
 import {
 	entryFor,
@@ -46,7 +47,7 @@ import {
 	putObjectText,
 	uploadPart,
 } from './r2';
-import { openPublicDownload } from './publicDownload';
+import { openPublicDownload, publicUrlError } from './publicDownload';
 import { gql, getEffectiveFleet, podStatus, type PodStatus } from './runpod';
 import { volumeStore, type VolumeUpload } from './volumeStore';
 
@@ -269,6 +270,23 @@ async function podStates(): Promise<{ label: string; status: PodStatus }[]> {
 	return Promise.all(fleet.map(async (p) => ({ label: p.label, status: await podStatus(p.id) })));
 }
 
+/**
+ * The fleet's states for a delete, refusing (503) when the fleet itself could not be read — the
+ * shared reader turns a DB or JSON error into an empty fleet, which would read as "no pod up".
+ */
+async function podStatesForDelete(): Promise<{ label: string; status: PodStatus }[]> {
+	let raw: string | undefined;
+	try {
+		raw = await getAppSetting(RUNPOD_PODS_KEY);
+	} catch (e) {
+		console.error('[volume-models] could not read the pod fleet:', e);
+		throw new VolumeActionError(503, 'Could not read the pod fleet — try again.');
+	}
+	const bad = fleetSettingError(raw);
+	if (bad) throw new VolumeActionError(503, bad);
+	return podStates();
+}
+
 async function runningPods(): Promise<string[]> {
 	return (await podStates())
 		.filter((p) => p.status === 'running' || p.status === 'starting')
@@ -358,6 +376,7 @@ async function buildRows(
 			...f,
 			usedBy: usesOf(f, blueprints),
 			keep: keepByKey.get(f.key) ?? null,
+			actionable: actionTarget(f.key) !== null,
 			mirror: m ? { size: Number(m.size ?? 0), volume: m.volume !== false } : null,
 		};
 	});
@@ -476,7 +495,7 @@ export async function deleteFromVolume(req: DeleteRequest, by: string): Promise<
 	});
 	if (refusal) throw new VolumeActionError(409, refusal);
 
-	const podRefusal = podGuardRefusal(await podStates(), !!ENV.RUNPOD_API_KEY);
+	const podRefusal = podGuardRefusal(await podStatesForDelete(), !!ENV.RUNPOD_API_KEY);
 	if (podRefusal) throw new VolumeActionError(podRefusal.status, podRefusal.message);
 	// Last, so the answer is as fresh as it can be when the file goes.
 	const renderRefusal = renderGuardRefusal({
@@ -591,8 +610,9 @@ export async function startTransfer(req: TransferRequest, by: string): Promise<T
 	if (fromR2 && req.source !== mirrorKey(req)) {
 		throw new VolumeActionError(400, 'A mirror file is copied to its own folder and name.');
 	}
-	if (!fromR2 && !/^https:\/\//i.test(req.source)) {
-		throw new VolumeActionError(400, 'The source must be an R2 mirror key or an https:// URL.');
+	if (!fromR2) {
+		const bad = publicUrlError(req.source);
+		if (bad) throw new VolumeActionError(400, bad);
 	}
 	// Reserve the slot before any await, so two starts in the same instant cannot both pass.
 	if (transferRunning()) {

@@ -60,6 +60,8 @@ export interface MirrorEntry {
 export interface ModelRow extends VolumeFile {
 	usedBy: BlueprintUse[];
 	keep: KeepEntry | null;
+	/** Delete / Keep accept it (`actionTarget`); a name outside the safe rule cannot be acted on. */
+	actionable: boolean;
 	/** The file's manifest entry in the R2 mirror, or null when it is only on the volume. */
 	mirror: MirrorEntry | null;
 }
@@ -271,8 +273,25 @@ export function healthJobs(body: unknown): number | null {
 	const jobs = (body as { jobs?: unknown } | null)?.jobs;
 	if (!jobs || typeof jobs !== 'object') return null;
 	const { inQueue, inProgress } = jobs as { inQueue?: unknown; inProgress?: unknown };
-	const n = Number(inQueue ?? 0) + Number(inProgress ?? 0);
-	return Number.isFinite(n) ? n : null;
+	const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+	const queued = count(inQueue);
+	const running = count(inProgress);
+	if (queued === null && running === null) return null;
+	return (queued ?? 0) + (running ?? 0);
+}
+
+/**
+ * Why the stored pod fleet (`runpodPods`) cannot be trusted for a delete, or null. The fleet
+ * reader shows an unreadable value as "no pods", which a delete must not take at its word.
+ */
+export function fleetSettingError(raw: string | undefined): string | null {
+	if (raw === undefined || !raw.trim()) return null;
+	try {
+		if (Array.isArray(JSON.parse(raw))) return null;
+	} catch {
+		// Falls through to the refusal.
+	}
+	return 'The pod fleet setting is unreadable, so the launcher cannot tell whether a pod is running.';
 }
 
 /**
