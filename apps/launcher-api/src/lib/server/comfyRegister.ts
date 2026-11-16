@@ -33,6 +33,9 @@ for (const [net, prefix] of [
 	// IPv4-mapped and NAT64: both can carry a private IPv4 address.
 	['::ffff:0:0', 96],
 	['64:ff9b::', 96],
+	// 6to4 and Teredo both embed an IPv4 address too.
+	['2002::', 16],
+	['2001::', 32],
 	['fc00::', 7],
 	['fe80::', 10],
 	['ff00::', 8],

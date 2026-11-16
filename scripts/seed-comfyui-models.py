@@ -132,19 +132,6 @@ def main() -> None:
         models.append(entry)
         seen_keys.add(key)
 
-    # MERGE, don't replace: keep every model from the PRIOR manifest that this
-    # machine doesn't have locally, so seeding from a second box (e.g. the
-    # artist's models) ADDS to the shared mirror instead of wiping the owner's.
-    # Those files already live in R2 (uploads are additive), so their manifest
-    # entries stay valid; the pod's pull-models.py then fetches everyone's set.
-    kept = 0
-    for k, m in prior.items():
-        if k not in seen_keys:
-            models.append(m)
-            kept += 1
-    if kept:
-        print(f"  (kept {kept} model(s) from other machines' seeds)")
-
     # Written as a compare-and-swap against the manifest as it is NOW, not as it was
     # read before hashing/uploading (which can take hours): the launcher's /comfyui
     # volume manager edits it meanwhile — a delete's `"volume": false`, an upload's

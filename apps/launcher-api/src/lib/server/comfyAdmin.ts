@@ -9,8 +9,10 @@ import { requireAdminPanel } from './admin';
  * session on it down with them. Same capability the admin panel uses, so there is one
  * answer to "who administers this", not two.
  */
-export async function requireComfyAdmin(locals: App.Locals): Promise<void> {
-	await requireAdminPanel(
+export async function requireComfyAdmin(
+	locals: App.Locals,
+): Promise<NonNullable<App.Locals['user']>> {
+	return requireAdminPanel(
 		locals,
 		'api',
 		'Admins only — rebuilding the image and changing a pod affect everyone.',

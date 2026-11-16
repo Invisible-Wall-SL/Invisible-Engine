@@ -163,14 +163,18 @@ through RunPod's S3 API — **no pod needs to be running** — and replaces the 
 - A file a blueprint uses, or one marked **keep**, gets a **second** confirmation. It
   names those blueprints, and you type the file name to go ahead. The server re-checks
   both, and it refuses a delete while the serverless endpoint has renders queued or
-  running.
+  running, while a pod is running — or when it can't tell either one.
+- If the launcher has no `RUNPOD_ENDPOINT_ID`, it can't see renders at all: the delete
+  dialog warns you and asks you to tick that no render is running before it deletes.
 - **In the R2 mirror, not on the volume** lists mirror files the volume lacks, each
   with **copy to volume**.
 - **Add a model** — pick a folder and a file name, then either:
   - **From this computer**: the file uploads in parts into the R2 mirror, then the
     launcher copies it onto the volume;
   - **From a URL**: a public `https://` link, e.g. Hugging Face `…/resolve/main/…`, is
-    copied straight onto the volume, with an optional mirror copy.
+    copied straight onto the volume, with an optional mirror copy. Private and
+    internal addresses are refused, and a transfer stops if it would outgrow the
+    volume's free space (80 GB at most) or the source goes quiet for two minutes.
 
   **Transfers** shows progress, and each transfer can be cancelled. One transfer runs at
   a time.
