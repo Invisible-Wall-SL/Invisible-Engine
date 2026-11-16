@@ -148,8 +148,8 @@ through RunPod's S3 API — **no pod needs to be running** — and replaces the 
   total, the volume's provisioned size and what RunPod bills for it each month. The ⓘ
   explains the catch: a Network Volume is billed on its **provisioned** size and can
   never be shrunk. Deleting frees room, so the volume doesn't need to grow for new
-  models, but the bill only drops once the weights move to a smaller volume or a Global
-  Volume.
+  models, but the bill only drops once the weights move to a new, smaller volume (the
+  tooltip says what one sized to the current models would cost).
 - Each file shows its size and badges:
   - **used by N** — the Atlas Maker / Flipbook blueprints that name it; hover for the
     list.

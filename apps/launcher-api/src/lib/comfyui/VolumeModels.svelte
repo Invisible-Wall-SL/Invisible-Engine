@@ -25,9 +25,6 @@
 	}
 	const { onmanaged }: Props = $props();
 
-	/** RunPod's Global Volume rate (beta) — what the same bytes would cost billed as stored. */
-	const GLOBAL_VOLUME_USD_PER_GB_MONTH = 0.09;
-
 	interface TransferJob {
 		id: string;
 		source: string;
@@ -334,11 +331,9 @@
 			RunPod bills a Network Volume on its <strong>provisioned</strong> size (${NETWORK_VOLUME_USD_PER_GB_MONTH}/GB/month
 			under 1 TB), and a volume can be grown but
 			<strong>never shrunk</strong>. Deleting frees room for new models without growing the volume;
-			it lowers the bill only once the weights move to a smaller volume, or to a Global Volume
-			billed on what is stored — these {formatBytes(view.usedBytes)} would be about ${monthlyUsd(
-				view.usedBytes,
-				GLOBAL_VOLUME_USD_PER_GB_MONTH,
-			).toFixed(2)}/mo there.
+			it lowers the bill only once the weights move to a new, smaller volume — one sized to these
+			{formatBytes(view.usedBytes)} would cost about ${monthlyUsd(view.usedBytes).toFixed(2)}/mo. (A
+			Global Volume was measured and is no cheaper, and 4–7× slower to load from.)
 			{#if freeBytes !== null}Free now: {formatBytes(freeBytes)}.{/if}
 		</InfoTip>
 	</h3>
