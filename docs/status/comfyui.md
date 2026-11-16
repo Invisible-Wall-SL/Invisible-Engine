@@ -40,16 +40,83 @@
 14. **Nothing SURFACES a missing pack — "fix this machine" on `/comfyui` (owner asked 2026-09-15).** The panel already reads a backend's loaded packs live and already knows the expected list, so it can say which are missing; today it says nothing, and you find out from a failed render or a canvas of red `UNKNOWN` stubs. Note what the fix cannot be: a **vendored** pack has no URL, so Manager's "install missing nodes" and any clone-a-URL button are structurally incapable of installing it — the only mechanism is putting files there. And [comfyui-node-manager §Phase 5](../design/comfyui-node-manager.md) deliberately did NOT ship an install button, because a pod-side route that clones and pip-installs is remote code execution reachable by anyone who can reach the pod; pointing that at an artist's personal Windows box is strictly worse. So the shape: **per-pack verdict + the remedy, not the execution** — a copy-ready pinned `sync-local-nodes.py` line for cloneable packs, a **Download .zip** for vendored ones, and the backend's own reported `custom_nodes` path so nobody guesses it wrong (guessing it wrong is its own failure mode). Zero new execution surface.
 15. **DONE, owed a real render (2026-09-16).** `taxonomy_yaml` takes the YAML itself on both nodes and the Router inherits Analyze's when its own are empty; on top of that the Atlas Maker stores ONE taxonomy at `_shared/semantic/taxonomy.yaml`, edits it in **🏷 Taxonomy**, and injects it into every render — so no blueprint param is needed at all and a vocabulary fix reaches every machine with no re-publish (see [status/atlas-maker](atlas-maker.md) for the tool half). What has NOT happened: no render has consumed an injected taxonomy. The worker image carrying the node change was built on 2026-09-16; whether the prod endpoint runs that build is not recorded (see the 2026-09-14 entry). Original statement of the problem:
    **The taxonomy was only editable where there is a filesystem (owner asked 2026-09-16).** `taxonomy_path` on `SemanticLayerAnalyze` / `SemanticLayerRouter` takes a PATH, and the loader deliberately REFUSES pasted file contents (falling back to the built-in fallback, which has far fewer keywords — a silent downgrade). That works on a desktop and on a pod under `/workspace`, and not at all on the serverless worker, whose container is ephemeral — so the Atlas Maker's production path cannot use a custom taxonomy today. The taxonomy is the whole quality knob on the CLIP analyzer (its keywords ARE the candidate labels), so "you can edit it, just not where you render" is the wrong end of the trade. Shape: an inline-YAML input alongside `taxonomy_path`, exposed as a multiline blueprint param, so a project's taxonomy travels in the graph and needs no filesystem anywhere.
-16. **Global Volume trial — waiting on the owner's go-ahead to spend ~$5–8.** Audit, pricing and the measurement plan are in [Global Volume evaluation](#global-volume-evaluation-2026-11-16) below. Verdict so far: **no migration yet**; the measurement is cheap and worth running. Nothing has been created on RunPod.
+16. **CLOSED — Global Volume: NO-GO, measured (2026-11-16).** The same Qwen-Image job took **754 s cold on a global volume, against 177 s on the network volume**. After an idle restart it took 889 s, against 130–200 s. Warm renders were identical (~15 s). See [Global Volume evaluation](#global-volume-evaluation-2026-11-16). The one design that could reverse this, staging models onto container disk with parallel reads, is written down there but not built. Nothing is left running on RunPod.
 
 ## Global Volume evaluation (2026-11-16)
 
 **Question:** should the model weights move from the EU-RO-1 Network Volume
 (`Invisible_RunPod_Storage`) to a RunPod Global Volume (beta) to get GPUs outside EU-RO-1?
 
-**Verdict: no-go on migrating today, go on a ~$5–8 measurement.** The availability case is real. Speed
-is unmeasured, and RunPod publishes no throughput figure. Nothing in production changes until the
-numbers below are in.
+**Verdict, measured 2026-11-16: NO-GO.** The availability case is real: a global-volume worker landed
+in US-PA-1 on the first try. But **every model load costs 4–7× more**, and our worker reloads models
+after every restart. On the same job, cold or after idle is 754–889 s on a global volume against
+130–200 s on the network volume. A cold start four times slower than now is worse for the artist than
+waiting for EU-RO-1 stock. The measured numbers are below. The plan and audit that follow are kept
+because they also cover what would have to change.
+
+### Measured (2026-11-16, ~$2–3 in total; every trial resource deleted the same day)
+Job: Qwen-Image fp8 at 1024², 20 steps. It loads a 20.4 GB diffusion model, a 9.4 GB text encoder and
+a 0.25 GB VAE. Both arms ran the prod template's image (`atlas-comfy-worker:cbdc0946…`) on the same
+GPU pools, with at most 1 worker and FlashBoot on. The network arm landed in EU-RO-1, and the global
+arm in **US-PA-1**. Both workers were RTX PRO 6000 Blackwell SE.
+
+| Serverless job | Network volume (EU-RO-1) | Global volume (US-PA-1) |
+|---|---|---|
+| First cold job (delay + execution) | **177 s** (61 + 114) | **754 s** (91 + 661) |
+| Warm, back to back ×2 | 14 s, 16 s | 15 s, 15 s |
+| After 90 s idle (same worker, ComfyUI restarted) | **130 s** (19 + 111) | **889 s** (83 + 803) |
+| After 300 s idle | 199 s (84 + 112; a new worker) | not run: the result was already decided |
+
+**Where the time goes.** The worker log shows the text-encoder pass taking 2.5 min, from "prepared for
+dynamic VRAM loading" (12:05:16) to the next step (12:07:46). The diffusion model then took about
+another 9 min. This ComfyUI build maps the weights from disk and pages them in as layers need them. On
+`geesefs` each page fault becomes a small read from the object store, in scattered order. The
+network volume (MooseFS) absorbs that pattern, and the global volume does not.
+
+**Raw reads with `cat` (CPU pods, a single stream unless noted):**
+
+| | 20.4 GB file | 9.4 GB file |
+|---|---|---|
+| Network volume, cold (EU-RO-1) | **31 s (~650 MB/s)** | 15 s |
+| Global volume, the pod that wrote it (EU-RO-1) | 93 s (~220 MB/s) | 52 s |
+| Global volume, cold, EU-CZ-1 | 124 s (~165 MB/s) | 43 s |
+| Global volume, cold, US-NC-1 | 220 s (~93 MB/s) | 59 s |
+| Global volume, **8 parallel readers** | 34 s (EU-RO-1) | 19 s (EU-CZ-1), 24 s (US-NC-1) |
+
+Writing is acceptable: rsync of the 30 GB set took ~1.5 min, plus 8 s for `sync`.
+
+**Confirmed semantics.**
+- `chmod 755` is silently ignored: files stay 666.
+- **Scripts can't be executed:** `./x.sh` returns `Permission denied`.
+- Hard links fail with "Operation not supported".
+- Symlinks work, and rename-over-existing works.
+- `flock` succeeds, but locally only.
+- git init and commit worked on one pod.
+- Small files cost **~60 ms each**: 500 writes took 30 s.
+
+Together these settle the audit below: `pysite` cannot be executed, the `custom_nodes` lane is slow and
+unsafe across pods, and `.part` + rename is unsafe across pods.
+
+**Cost.** The models tree is **322 GB** (`du`), so a full global copy would cost ~$29/mo plus requests,
+against $28/mo for the network volume now. **Storage cost is not the deciding factor either way.**
+
+**GPU stock, from the GraphQL `dataCenters.gpuAvailability` query the launcher uses (one reading,
+12:00 UTC):**
+- RTX 4090, PRO 4000, PRO 6000 WK, 6000 Ada and A40 read **none, in every data centre**.
+- PRO 4500 and 5090 read Low, in EU-RO-1 only.
+- H100 read Low in 8 data centres, though none of them is EU-RO-1.
+
+The serverless catalog (`/v2/catalog/gpus?product=SERVERLESS`) said 4090 High and 5090 Medium at the
+same moment. **Pod stock and serverless stock are different pools**, so a pod-stock reading does not
+predict serverless placement.
+
+**What could reverse the verdict (not built):** stop reading weights in place. At job start, the
+handler would copy the models the blueprint declares onto the container disk (250 GB) with parallel
+reads, which measured ~500–600 MB/s, so ~60 s for this 30 GB set. Then it would load them locally,
+and later restarts on that worker would cost nothing. That touches the handler and changes how the
+worker reaches the models. The models are already declared, via `derive_models_from_graph`. Worth
+reconsidering only if EU-RO-1 serverless delays become a real complaint. Today the network arm's cold
+delay was 61–84 s.
 
 ### What we pay now, and what a Global Volume would cost (RunPod console, 2026-11-16)
 | | Network volume (now) | Global volume (beta) |
@@ -59,8 +126,8 @@ numbers below are in.
 | Requests | none | Class A (write/create/list) $0.005 per 1k; Class B (read/metadata) $0.0005 per 1k |
 | Break-even | — | ~311 GB stored = $28/mo |
 
-How full the 400 GB is was not visible in the console (it shows only the provisioned size). `du -sh
-/workspace/ComfyUI/models` on a pod gives the answer and decides the cost line. Request charges should
+The console shows only the provisioned size. `du` on the trial pod measured the models tree at
+**322 GB**, which is about $29/mo on a global volume. Request charges should
 be cents: a 25 GB load is at most ~25k reads even at a 1 MB request size, about $0.01. RunPod does not
 state the request size, so the trial bills settle this. During any migration both volumes are paid at
 once.
@@ -186,11 +253,17 @@ Miss any one of these and it is a no-go, recorded here.
    a new, smaller volume.
 
 ## Recent changes
-- 2026-11-16 — **Global Volume evaluated on paper; the trial is waiting on the owner's go-ahead.**
-  The audit, prices ($0.09/GB stored plus requests, against our $28/mo for 400 GB provisioned), a
-  one-off availability snapshot (all three fleet cards N/A in EU-RO-1) and the measurement plan are in
-  [Global Volume evaluation](#global-volume-evaluation-2026-11-16). No RunPod resource was created and
-  no code changed.
+- 2026-11-16 — **Global Volume evaluated and measured: NO-GO.**
+  - Two throwaway endpoints ran the prod image side by side. The same Qwen-Image job took 754 s cold
+    on a global volume (US-PA-1), against 177 s on the network volume (EU-RO-1). After an idle restart
+    it took 889 s, against 130 s. Warm renders were equal (~15 s).
+  - Cause: ComfyUI pages weights in from the mapped file, which turns into slow scattered reads on
+    the object-backed volume.
+  - Prices: $0.09/GB stored, against $0.07/GB provisioned. For our 322 GB that is ~$29/mo, against
+    $28/mo now.
+  - Cost of the trial: ~$2–3. The trial endpoints, three CPU pods and the global volume are all
+    deleted. The production endpoint and `Invisible_RunPod_Storage` were never changed.
+  - Full numbers: [Global Volume evaluation](#global-volume-evaluation-2026-11-16).
 - 2026-11-09 — **The worker's execution-error summary is the Atlas Maker's shared parser.**
   `handler.py` imports `describe_execution_error` from `iw_common/comfy.py` (same output, same
   tests). `atlas-comfy-worker.yml` copies that module + the package `__init__.py` into the build
