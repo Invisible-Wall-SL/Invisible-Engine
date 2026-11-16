@@ -4,7 +4,7 @@
 > [docs/design/invisible-profiler.md](../design/invisible-profiler.md) · Agent:
 > `.claude/agents/launcher-studio.md` (the probe side: `engine-pixi-svelte`)
 
-**One-line state:** step **P1 "Capture and keep" built 2026-11-16, not yet merged or deployed** — a
+**One-line state:** step **P1 "Capture and keep" built 2026-11-16** (PR open; live once merged) — a
 launcher tool (`/profiler`, every role, Create section) that opens a 24-hour capture session for a
 project's published games, keeps every `?perf=1` reading the game sends (or that is pasted) in R2
 and Postgres, and lists them per project; readings go after 15 days unless kept. P2–P7 are planned.

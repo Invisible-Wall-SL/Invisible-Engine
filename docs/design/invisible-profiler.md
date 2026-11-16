@@ -1,6 +1,7 @@
 # Invisible Profiler — how a published game performs, on which devices, and what to cut
 
-**Status:** design registered 2026-11-16; owner decisions recorded the same day. Not yet built. Build plan below (P1–P7).
+**Status:** design registered 2026-11-16; owner decisions recorded the same day. P1 built 2026-11-16; current
+state in [status/profiler](../status/profiler.md). Build plan below (P1–P7).
 **Owner ask:** "a tool to control and optimize games, to see what is going on and how it performs
 on different devices, understand problems so a plan to solve them can be created. It should work
 on final builds, to monitor if the build is efficient, and say where things can be saved to reach
