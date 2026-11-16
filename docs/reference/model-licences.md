@@ -123,6 +123,7 @@ All the files except the matting model come from the `Comfy-Org/Wan_2.x_ComfyUI_
 | `qwen-image` (2512, Qwen2.5-VL-7B, VAE) | clear |
 | `qwen-toon` | clear |
 | Wan T2V / TI2V-5B | clear |
+| Wan2.2-Animate-2 (Base + Distilled int8, `clip_vision_h`, lightx2v I2V distill LoRA) — Flipbook evaluation 2026-11-16, not fetched by a set yet | clear |
 
 The Qwen character guide (`docs/guides/qwen-cartoon-character-blueprint.md`) names
 `qwen_image_fp8_e4m3fn` and the Qwen-Image-Lightning 8-step LoRA. Both are Apache-2.0.
@@ -189,6 +190,9 @@ Key to the columns:
 | [Toon-Tacular Qwen LoRA](https://huggingface.co/renderartist/Toon-Tacular-Qwen-LoRA), [Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning) | Apache-2.0 | yes | yes | Apache notice | S |
 | [Wan 2.2](https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B) (I2V/T2V-A14B, TI2V-5B, VAE) | Apache-2.0 | yes | yes | Apache notice; the card's prohibited-use list | V |
 | [Wan2.2-Lightning LoRAs](https://huggingface.co/lightx2v/Wan2.2-Lightning) | Apache-2.0 | yes | yes | Apache notice | V |
+| [Wan2.2-Animate-2-14B](https://huggingface.co/Wan-AI/Wan2.2-Animate-2-14B) (Base, Distilled; Comfy-Org repack) | Apache-2.0 | yes | yes | Apache notice | V |
+| `clip_vision_h` ([as shipped by Wan 2.1 I2V](https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P)) | Apache-2.0 in the Wan repos; upstream OpenCLIP weights MIT | yes | yes | Apache notice | S |
+| [lightx2v Wan2.1 I2V 14B StepDistill-CfgDistill LoRA](https://huggingface.co/lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v) | Apache-2.0 | yes | yes | Apache notice | V |
 | Comfy-Org `*_repackaged` | inherit the upstream licence (repackaging changes nothing) | upstream | upstream | upstream | V/S |
 | [gpt-image-1/1.5/2](https://openai.com/policies/services-agreement/) (API) | OpenAI Services Agreement | yes: output is assigned to the customer (§4.1) | yes (API) | usage policies; no training competing models (§3.3(e)); comfy.org terms too | V |
 | SAM 3 (`sam3.1_multiplex`) | not checked | ? | ? | — | U |
