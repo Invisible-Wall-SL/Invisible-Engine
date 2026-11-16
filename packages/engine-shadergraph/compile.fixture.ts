@@ -5065,14 +5065,17 @@ console.log('shader graph — the screen shell and the Screens node');
 				calSeed: costs.calSeed,
 				calParity: [1, 1],
 				calCoin: costs.calCoin,
+				calGem: costs.calGem,
 			}) &&
 			budgetCost >= 0.9 * PARTICLE_COST_BUDGET &&
 			budgetCost <= PARTICLE_COST_BUDGET &&
 			budgetReads === PARTICLE_SAMPLE_BUDGET &&
 			costs.calSeed?.[1] === 1 &&
 			costs.calCoin?.[1] === 4 &&
-			(costs.calCoin?.[0] ?? Infinity) <= CUSTOM_GLSL_EFFECT_COST_MAX,
-		`the calibration graphs compile made for particles: light 12 / 1, the budget graph within 90 % of ${PARTICLE_COST_BUDGET} / ${PARTICLE_SAMPLE_BUDGET}, the coin within the Custom GLSL effect cap of ${CUSTOM_GLSL_EFFECT_COST_MAX} at 4 reads (${JSON.stringify(costs)})`,
+			(costs.calCoin?.[0] ?? Infinity) <= CUSTOM_GLSL_EFFECT_COST_MAX &&
+			costs.calGem?.[1] === 4 &&
+			(costs.calGem?.[0] ?? Infinity) <= CUSTOM_GLSL_EFFECT_COST_MAX,
+		`the calibration graphs compile made for particles: light 12 / 1, the budget graph within 90 % of ${PARTICLE_COST_BUDGET} / ${PARTICLE_SAMPLE_BUDGET}, the coin and the gem each within the Custom GLSL effect cap of ${CUSTOM_GLSL_EFFECT_COST_MAX} at 4 reads (${JSON.stringify(costs)})`,
 	);
 }
 

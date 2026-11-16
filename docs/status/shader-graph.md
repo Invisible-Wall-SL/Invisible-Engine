@@ -26,7 +26,7 @@ shell and the Screens node) is merged (#1440); 8e.2 (the stage filter owner and 
 runtime) is merged (#1454); 8e.3 (post FX on the stage) is merged (#1459); 8e.4 (transitions in the game) is merged (#1461);
 8e.6 (authoring in the Scene Editor and the Flow) is merged (#1468); 8e.5, 8e.7 and 8e.8 are in progress.
 8f (3D particles) is proposed ([design](../design/shader-graph-3d-particles.md)); its step 1,
-the coin spike, is built and waits for the owner's look on a phone.
+the coin and gem spikes, is built and waits for the owner's look on a phone.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
@@ -827,9 +827,26 @@ the coin spike, is built and waits for the owner's look on a phone.
      the verdict is the same; an enum-membership check would need them there too.
 8. **Nodes the design lists that v1 does not have yet:** rim (a library entry now, `efxRim`, with
    no node) and the pixel input. Add them when an artist needs one.
-9. **Step 8f, 3D particles — proposed 2026-11-16; step 1, the coin spike, built**
-   ([design](../design/shader-graph-3d-particles.md) §9 "Step 1 results"). Gaussian splatting was
-   considered and set aside (§2).
+9. **Step 8f, 3D particles — proposed 2026-11-16; step 1, the coin and gem spikes, built**
+   ([design](../design/shader-graph-3d-particles.md) §9 "Step 1 results" and "the gem"). Gaussian
+   splatting was considered and set aside (§2).
+   - **The gem spike** `calGem` (`src/gemSpike.ts`): a convex cut traced as 57 planes (Brilliant)
+     or 25 (Cartoon, the slot octagon), one reflection and one refraction with per-channel fire,
+     a Tint that deepens with the path inside (one graph for ruby, emerald, sapphire, diamond),
+     glints. 2,943 units / 4 reads in eight Custom GLSL nodes; 1.1–5.2 ms a frame for 76 gems on
+     the desktop iGPU (the coin: 1.2–1.3 ms in the same run). Its owner look is the playbook's
+     item 8.
+   - **In the studio-shared library as `gem3d` ("3D gem")** since 2026-11-16, the way `coin3d`
+     went: the `calGem` doc renamed, otherwise unchanged, saved into the owner's active project,
+     published, the project copy deleted; `/api/shaders/effects` compiles `custom:gem3d` at
+     2,943 / 4, shared. Updating it needs `shaderPublish` + `shaderCustomGlsl` and `replace: true`.
+     The artist guide ("3D Coin Particles: Artist Guide") has a gem section: tiles, params,
+     pitfalls.
+   - **Setup by hand, the gem too:** `cal-gem` needs its atlas from `gem3d.png` (one region
+     `gem3d`).
+   - **A gem's glint is a whole facet** (a flat facet has one normal); a star flare would be a
+     sprite beside it. The rings are fixed at eight steps: other cuts (heart, emerald) are other
+     plane lists, a step-2 node setting.
    - **In the studio-shared library as `coin3d` ("3D coin")** since 2026-11-16: the `calCoin` doc
      renamed, otherwise unchanged, saved into a project, published to `_shared/shaders/` and the
      project copy deleted. Every project's `/fx` Material list offers `custom:coin3d`; artists use
@@ -862,6 +879,36 @@ the coin spike, is built and waits for the owner's look on a phone.
   the §10 caps (Open items #1).
 
 ## Recent changes
+- 2026-11-16 — **Step 8f.1: the gem spike** (3D particles, [design](../design/shader-graph-3d-particles.md)
+  §4 "Gem", §9 "Step 1 results: the gem"). The gem half of step 1, built as the coin was: Custom
+  GLSL only, no engine or runtime code changed (a runtime release with no game changing).
+  Published the same day to the studio-shared library as `gem3d` ("3D gem") (Open items #9).
+  - **The graph.** `calGem` (`engine-shadergraph/src/gemSpike.ts`), eight Custom GLSL nodes (Ray,
+    Enter ×2, Facet, Exit ×2, Back, Shade). A ray enters the cut at the last plane it crosses
+    inward and leaves at the first it crosses outward; the planes are seven rings of eight plus
+    the table, placed from the Table, Crown, Pavilion and Girdle params. Each ring is traced as a
+    vector of planes against one projection of the ray, which took the first build's 4,162 units
+    (over the 4,096 effect cap) to 2,943 / 4 reads. Cut: Brilliant (57 planes) or Cartoon (the
+    π/8 rings dropped: an octagon). Shading: Fresnel reflection of the outside tile; refraction
+    in, a second trace to the exit facet, out with the index split by Fire per channel (total
+    internal reflection reflects once instead), each channel read off the inside tile; Tint
+    raised by the path inside (Depth); a per-facet glint toward the light. It joins
+    `CALIBRATION_GRAPHS` as the phone check's `cal-gem` (snapshot `snapshots/particle/calGem.frag`).
+  - **The art.** `scripts/playtest/gem-spike-art.mjs`: a studio to reflect (the soft box where
+    the glint light is) and wedges and rings to refract, as sphere maps in the frame's top half;
+    `particle-calibration.mjs` writes `gem3d.png`.
+  - **Harnesses.** `particle-material-play.mjs --gem` (`gem`, `gem-plain`; the coin's and the
+    gem's pages from one table); fx-spike `fx-page` step 11 (the coin's step 10 and it share one
+    check), and the fx page takes `&params=<json>` with `?coin=1` / `?gem=1` to look at another
+    setting.
+  - **Proof.** `fx-page` 33/33; `particle-material-play.mjs --gem` and `--coin --gem` PASS on
+    WebGL2 and WebGL1 against a release `apps/lines` build; `shader-compile` 30 sheets on WebGL1
+    and WebGL2, no shader error; compile fixture 231/231 (on an LF checkout).
+  - **Measured** (Intel Arc iGPU via ANGLE / D3D11, 1280 × 720, 76 gems ≈ 160 px): 8.8 / 7.4 ms
+    median on WebGL2 / WebGL1 against 3.6 / 3.1 flat; a second run 7.7 / 5.2 against 3.9 / 4.1,
+    the coin 5.1 / 4.0 against 3.8 / 2.8 in it. Load 4,727 M (148× the budget), no guide.
+  - **Looked at** on the real GPU in `/fx`: the ruby brilliant, a white diamond (Refraction 2.42,
+    Fire 0.12) with coloured fire, and a Cartoon emerald with a glint.
 - 2026-11-16 — **Step 8f.1: the coin spike** (3D particles, [design](../design/shader-graph-3d-particles.md)
   §4, §7 step 1, §9 results). A particle material that ray-traces a solid coin in each particle's
   quad, from Custom GLSL only: no engine or runtime code changed. Published the same day to the

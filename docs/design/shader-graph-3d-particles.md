@@ -1,7 +1,7 @@
 # Invisible Shader Graph: 3D particles (step 8f)
 
-> **Proposed 2026-11-16. Step 1 (the coin spike) built the same day; steps 2–4 wait for the
-> owner's look at it on a phone (§9).** Owner conversation of 2026-11-16 (Gaussian
+> **Proposed 2026-11-16. Step 1 (the coin spike, then the gem spike) built the same day; steps
+> 2–4 wait for the owner's look at them on a phone (§9).** Owner conversation of 2026-11-16 (Gaussian
 > splatting → 3D meshes → a 3D coin). Builds on [shader-graph-particles.md](shader-graph-particles.md)
 > (8d, the particle material). Parent plan: [invisible-shader-graph.md](invisible-shader-graph.md)
 > §8. Current state: [status/shader-graph](../status/shader-graph.md). Owning agent:
@@ -110,7 +110,7 @@ then, complex 3D is rendered offline (Blender) to Flipbook frames.
 
 1. Is a ray-traced coin cheap enough on a mid-range phone at shower density (fill × cost, device
    pixels)? Step 1 answers it. **Desktop half answered (below); the phone half waits for the
-   owner's check** (`docs/playtest/particle-material.md` item 7).
+   owner's check** (`docs/playtest/particle-material.md` items 7 and 8, the coin and the gem).
 2. Does a tumbling solid need depth between particles (a coin passing behind another)? v1 says no:
    draw order is spawn order, as now.
 3. Packed tiles vs. separate texture slots for face / back / edge / matcap.
@@ -180,3 +180,69 @@ layer.
 
 **Not done in step 1** (as agreed): no Solid or Matcap node, no templates, nothing on coded
 emitters, no parallax. Step 2 waits for the owner's look.
+
+### Step 1 results: the gem (2026-11-16)
+
+**What was built.** `calGem` (`engine-shadergraph/src/gemSpike.ts`), the gem half of §4 by the
+same route as the coin: a graph made for particles from Custom GLSL nodes, joined to
+`CALIBRATION_GRAPHS` as the `cal-gem` project, interim until step 2's Solid: gem node. Its art is
+one 512 px frame drawn by `scripts/playtest/gem-spike-art.mjs`: two tiles in the top half, what the
+facets reflect (a studio, its soft box where the glint light is) and what they refract (bright and
+dark wedges and rings, for sparkle), each a sphere map of directions; the bottom row is spare.
+Params: Cut (Brilliant, Cartoon), Tint, Table, Crown, Pavilion, Girdle, Refraction (index), Fire,
+Depth, Glint, Glint size, Spin.
+
+**How it traces.** As §4 said: a convex cut is the space inside a set of planes, so a ray enters
+by the last plane it crosses inward and leaves by the first it crosses outward. No march. The
+brilliant is 57 planes: the table and seven rings of eight round the axis (bezel, star, upper
+girdle, the girdle's 16 sides, pavilion main, lower girdle), each placed from the shape params
+through the girdle edge, the table edge or the culet. The **Cartoon** cut moves the four rings
+offset by π/8 out of reach: an octagon of 8 bezels and 8 pavilion facets under a table, the
+slot-game gem, from the same graph. Shading is one reflection (the outside tile by the entry
+facet, by Schlick's Fresnel), one refraction (in at the entry facet, a second trace of the planes
+from inside to the exit facet, out with the index split per channel by Fire, each channel read off
+the inside tile; a ray held in by total internal reflection reflects once instead), the Tint
+raised to a power that grows with the path inside (Depth), and a glint where the entry facet's
+reflection meets the light, twinkling per facet. Orientation, tumble and the soft edge are the
+coin's.
+
+**The caps shaped it.** The first build traced each plane alone: 4,162 units, over the 4,096 an
+effect's Custom GLSL may do. Planes on one ring share their angle, so each ring is now traced as a
+vector of planes (the φ ring a vec3, the φ + π/8 ring a vec4) against one projection of the ray a
+round: **2,943 units, 4 reads** in eight nodes (Ray 151, Enter 584 + 768, Facet 61, Exit 433 + 564,
+Back 130, Shade 251), each under 1,024 and 600 tokens. Arrays and functions are refused, so a facet
+is named by an index (8 × ring family + step) and its normal rebuilt from it where needed.
+
+**Where it played.** fx-spike `fx-page` step 11 (the real `/fx` page mounts it on its own page:
+on, measured, the gems draw and tumble); `particle-material-play.mjs --gem` on WebGL2 and WebGL1
+against a release `apps/lines` build (`gem` on at every sample, `gem-plain` plain); `shader-compile`
+links it through the particle shell on both.
+
+**What it cost** (the coin's GPU and setup, 76 gems about 160 px, two runs):
+
+| | WebGL2 frame | WebGL1 frame |
+|---|---|---|
+| Same particles, flat (`gem-plain`) | 3.6 ms median (3.9) | 3.1 ms (4.1) |
+| The gem | 8.8 ms (7.7) | 7.4 ms (5.2) |
+| The coin, same run as the second figures | (5.1, flat 3.8) | (4.0, flat 2.8) |
+
+About 1.1–5.2 ms a frame for the shower on a desktop iGPU: in the run that timed both, from about
+the coin's price (WebGL1, +1.1 against +1.2 ms) to three times it (WebGL2, +3.8 against +1.3). The meter reads 4,727 M, 148× the layer budget, and is no guide for the same reason as
+the coin's.
+
+**How it looks** (real GPU, the `/fx` page): the brilliant reads as a cut stone, crown, table and
+pavilion facets each lit differently and changing as it turns; a white Tint with Refraction 2.42
+and Fire 0.12 is a diamond, white and grey facets with coloured fire where the inside tile's
+bright and dark meet; the Cartoon cut in green is a slot emerald, its facets flat and bold, a white
+glint flashing as a facet lines up with the light. With the default ruby the darkest facets go
+nearly black; lifting the art's floor (both tiles) lifted most of
+them, and the rest is an art choice.
+
+**In the studio library.** Published as `gem3d` ("3D gem") the same day, the way `coin3d`
+was, so every project's `/fx` Material list offers `custom:gem3d`; step 2's Solid: gem replaces it.
+
+**Found, for step 2.** The light turns with the particle's 2D spin, as on the coin. A glint is a
+whole facet (flat facets have one normal); a star-shaped flare would need a sprite beside the gem,
+not more shader. The rings are fixed at eight steps: a heart or emerald cut needs another plane
+list, which in step 2 is a node setting rather than more Custom GLSL. Depth between overlapping
+gems is still spawn order (§9.2).

@@ -21,7 +21,8 @@
 // solid coin ray-traced in each particle, Shader Graph 3D particles §4), its four-tile page
 // (`coin-spike-art.mjs`) shipped as editor art from a copy of the runtime, and `coin-plain`, the
 // same particles without the graph (the coin page drawn flat), and times the runs as `--calibrate`
-// does. Each run records the material meshes on the stage (sampled at five moments, a second
+// does. `--gem` does the same for the gem spike (`cal-gem`, a cut gem traced as a set of planes, its
+// page from `gem-spike-art.mjs`): `gem` and `gem-plain`. Each run records the material meshes on the stage (sampled at five moments, a second
 // apart), the particle sprites drawing, the `?fxdebug=1` lines read into each layer's state, peak
 // covered pixels and load, the on-page readout, a screenshot, console errors, failed requests (a
 // fetch that is refused or answered with an error status) and stalls.
@@ -36,8 +37,9 @@
 //    invisible);
 //  - cap: eight `on` lines and one `plain, over the game cap`; eight meshes drawing at every sample,
 //    their sprites hidden, and the ninth layer's sprites drawing (no pop either way);
-//  - budget and full (with `--calibrate`), coin (with `--coin`): on, drawing at every sample, the
-//    load × their cost; coin-plain: plain, not registered, its sprites drawing;
+//  - budget and full (with `--calibrate`), coin (with `--coin`), gem (with `--gem`): on, drawing at
+//    every sample, the load × their cost; coin-plain and gem-plain: plain, not registered, their
+//    sprites drawing;
 //  - the on-page readout shows the app's GPU, the frame times and each layer, and only with a
 //    material;
 //  - no layer turns plain while playing; no run has an error, a stall, a console error or a failed
@@ -55,7 +57,7 @@
 //   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/particle-material-play.mjs --runtime apps/lines/build --out <dir> \
-//     [--gl 1|2|both] [--calibrate] [--coin] [--frames 120] [--chrome <exe>]
+//     [--gl 1|2|both] [--calibrate] [--coin] [--gem] [--frames 120] [--chrome <exe>]
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -90,11 +92,14 @@ import { openPage } from '../current-games/lib/browser.mjs';
 import { serveSnapshot, startTestServer, testServerTree } from '../current-games/lib/serve.mjs';
 import { headlessShell } from './headless-shell.mjs';
 import { COIN_SPIKE_FRAME, coinSpikeSheet } from './coin-spike-art.mjs';
+import { GEM_SPIKE_FRAME, gemSpikeSheet } from './gem-spike-art.mjs';
 import {
 	COIN_SPIKE_ART,
+	GEM_SPIKE_ART,
 	SWARM_LAYERS,
 	calibrationProjects,
 	coinSpikePng,
+	gemSpikePng,
 } from './particle-calibration.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -107,6 +112,7 @@ const { values: opt } = parseArgs({
 		gl: { type: 'string', default: 'both' },
 		calibrate: { type: 'boolean', default: false },
 		coin: { type: 'boolean', default: false },
+		gem: { type: 'boolean', default: false },
 		frames: { type: 'string', default: '120' },
 	},
 });
@@ -124,15 +130,34 @@ mkdirSync(out, { recursive: true });
 const work = mkdtempSync(join(tmpdir(), 'material-play-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 
-// The coin's page ships as editor art from the game's own origin, so `--coin` plays a copy of the
-// runtime with the page beside it (the build itself is left alone).
-const COIN_SHEET = 'coin-spike/coin3d.json';
-const runtime = opt.coin ? join(work, 'runtime') : resolve(opt.runtime);
-if (opt.coin) {
+// A solid's page ships as editor art from the game's own origin, so `--coin` and `--gem` play a copy
+// of the runtime with the pages beside it (the build itself is left alone).
+const SOLIDS = {
+	'cal-coin': {
+		on: opt.coin,
+		key: COIN_SPIKE_ART,
+		frame: COIN_SPIKE_FRAME,
+		png: coinSpikePng,
+		sheet: coinSpikeSheet,
+	},
+	'cal-gem': {
+		on: opt.gem,
+		key: GEM_SPIKE_ART,
+		frame: GEM_SPIKE_FRAME,
+		png: gemSpikePng,
+		sheet: gemSpikeSheet,
+	},
+};
+const sheetOf = (solid) => `solid-spike/${solid.frame}.json`;
+const solids = Object.values(SOLIDS).filter((s) => s.on);
+const runtime = solids.length ? join(work, 'runtime') : resolve(opt.runtime);
+if (solids.length) {
 	cpSync(resolve(opt.runtime), runtime, { recursive: true });
-	mkdirSync(join(runtime, 'coin-spike'), { recursive: true });
-	writeFileSync(join(runtime, 'coin-spike', `${COIN_SPIKE_FRAME}.png`), coinSpikePng());
-	writeFileSync(join(runtime, COIN_SHEET), JSON.stringify(coinSpikeSheet()));
+	mkdirSync(join(runtime, 'solid-spike'), { recursive: true });
+	for (const solid of solids) {
+		writeFileSync(join(runtime, 'solid-spike', `${solid.frame}.png`), solid.png());
+		writeFileSync(join(runtime, sheetOf(solid)), JSON.stringify(solid.sheet()));
+	}
 }
 
 // 1. The stand-in published snapshot.
@@ -172,11 +197,12 @@ const bundle = JSON.parse(readFileSync(join(game.local.snapshot, 'runtime.json')
 /** The stand-in with `project`'s effect placed on its base game, its graphs shipped or not. */
 const placed = (project, shipped = true) => {
 	const next = structuredClone(bundle);
-	if (project.key === 'cal-coin') {
+	const solid = SOLIDS[project.key];
+	if (solid) {
 		next.editorArt ??= { sheets: [], images: [] };
 		next.editorArt.sheets = [
 			...(next.editorArt.sheets ?? []),
-			{ key: COIN_SPIKE_ART, json: COIN_SHEET, names: [COIN_SPIKE_FRAME] },
+			{ key: solid.key, json: sheetOf(solid), names: [solid.frame] },
 		];
 	}
 	const basegame = next.doc.scenes.find((s) => s.id === 'basegame');
@@ -204,9 +230,14 @@ const variants = {
 	full: { bundle: placed(projects['cal-512']), timed: true, calibrateOnly: true },
 	coin: { bundle: placed(projects['cal-coin']), timed: true, coinOnly: true },
 	'coin-plain': { bundle: placed(projects['cal-coin'], false), timed: true, coinOnly: true },
+	gem: { bundle: placed(projects['cal-gem']), timed: true, gemOnly: true },
+	'gem-plain': { bundle: placed(projects['cal-gem'], false), timed: true, gemOnly: true },
 };
 const runsVariant = (variant) =>
-	(opt.calibrate || !variant.calibrateOnly) && (opt.coin || !variant.coinOnly);
+	(opt.calibrate || !variant.calibrateOnly) &&
+	(opt.coin || !variant.coinOnly) &&
+	(opt.gem || !variant.gemOnly);
+const timedRuns = opt.calibrate || opt.coin || opt.gem;
 /** Each graph's cost and reads, by kind, for the load check and the summary. */
 const MATERIALS = Object.fromEntries(
 	Object.values(projects)
@@ -403,8 +434,7 @@ async function play(name, variant, gl) {
 		await new Promise((r) => setTimeout(r, 200));
 		run.shot = `${tag}.png`;
 		writeFileSync(join(out, run.shot), await page.screenshot());
-		if ((opt.calibrate || opt.coin) && variant.timed)
-			run.frameTime = stats(await page.evaluate(timing(FRAMES)));
+		if (timedRuns && variant.timed) run.frameTime = stats(await page.evaluate(timing(FRAMES)));
 		run.state = await api('state()');
 		run.fxdebug = await page.evaluate('window.__fxdebug');
 		run.failedRequests = await page.evaluate('window.__failedRequests');
@@ -436,7 +466,7 @@ const report = {
 		effectLoad: FX_MATERIAL_EFFECT_LOAD_BUDGET,
 		layers: FX_MATERIAL_LAYER_CAP,
 	},
-	calibrate: opt.calibrate || opt.coin ? { frames: FRAMES, warmUp: WARM_UP } : false,
+	calibrate: timedRuns ? { frames: FRAMES, warmUp: WARM_UP } : false,
 	gl: {},
 };
 const diff = (a, b) => {
@@ -518,7 +548,7 @@ for (const [gl, { runs, pixels }] of Object.entries(report.gl)) {
 			none.panel === null,
 		'the on-page readout does not show the GPU, the frame times and each layer (and only with a material)',
 	);
-	for (const name of ['budget', 'full', 'coin']) {
+	for (const name of ['budget', 'full', 'coin', 'gem']) {
 		const run = runs[name];
 		if (!run) continue;
 		const layer = run.layers['embers/main'];
@@ -529,13 +559,14 @@ for (const [gl, { runs, pixels }] of Object.entries(report.gl)) {
 			`${name}: the material is not on, drawing, with its load at every sample`,
 		);
 	}
-	const coinPlain = runs['coin-plain'];
-	if (coinPlain)
-		expect(
-			coinPlain.layers['embers/main']?.mount === 'plain, not registered' &&
-				coinPlain.stage?.plainSprites > 0,
-			'coin-plain: the coin particles do not draw as plain sprites',
-		);
+	for (const name of ['coin-plain', 'gem-plain']) {
+		const run = runs[name];
+		if (run)
+			expect(
+				run.layers['embers/main']?.mount === 'plain, not registered' && run.stage?.plainSprites > 0,
+				`${name}: the particles do not draw as plain sprites`,
+			);
+	}
 	expect(unregistered.stage?.meshes === 0, 'unregistered: a material mesh is on the stage');
 	expect(unregistered.stage?.plainSprites > 0, 'unregistered: no particle sprite draws');
 	expect(
@@ -604,14 +635,15 @@ for (const [gl, { runs, effectLoad }] of Object.entries(report.gl)) {
 		layerLine('published', published),
 		`  unregistered  ${unregistered.layers['embers/main']?.mount ?? '?'}; ${unregistered.stage?.plainSprites ?? '?'} sprites${timed(unregistered)}`,
 		`  cap           ${CAP_LAYERS - plain.length} on, ${plain.map(([label, l]) => `${label} ${l.mount}`).join(', ') || 'none plain'}; ${cap.samples.map((s) => s.meshesDrawing).join('/')} meshes drawing over ${SAMPLES} samples; largest layer load ${short(largest)} (${pct(largest, FX_MATERIAL_LAYER_LOAD_BUDGET)}), effect load ${short(effectLoad.swarm)} (${pct(effectLoad.swarm, FX_MATERIAL_EFFECT_LOAD_BUDGET)} of ${short(FX_MATERIAL_EFFECT_LOAD_BUDGET)})${timed(cap)}`,
-		...['budget', 'full', 'coin']
+		...['budget', 'full', 'coin', 'gem']
 			.filter((name) => runs[name])
 			.map((name) => layerLine(name, runs[name])),
-		...(runs['coin-plain']
-			? [
-					`  coin-plain    ${runs['coin-plain'].layers['embers/main']?.mount ?? '?'}; ${runs['coin-plain'].stage?.plainSprites ?? '?'} sprites${timed(runs['coin-plain'])}`,
-				]
-			: []),
+		...['coin-plain', 'gem-plain']
+			.filter((name) => runs[name])
+			.map(
+				(name) =>
+					`  ${name.padEnd(13)} ${runs[name].layers['embers/main']?.mount ?? '?'}; ${runs[name].stage?.plainSprites ?? '?'} sprites${timed(runs[name])}`,
+			),
 	);
 }
 for (const failure of report.verdict.failures ?? []) lines.push(`  FAIL ${failure}`);
