@@ -79,6 +79,18 @@ class RunpodS3Volume implements VolumeStore {
 				requestHandler: { requestTimeout: 2 * 60 * 60 * 1000, connectionTimeout: 15_000 },
 				maxAttempts: 3,
 			});
+			// The SDK addresses a bucket-level call (ListObjectsV2, ListMultipartUploads) as `/<bucket>/`;
+			// RunPod reads that trailing slash as an empty object key and answers 400 "Invalid object
+			// path" — only `/<bucket>` (what the AWS CLI sends) lists.
+			const bucketPath = `/${this.bucket}/`;
+			this.client.middlewareStack.add(
+				(next) => (args) => {
+					const request = args.request as { path?: string };
+					if (request.path === bucketPath) request.path = bucketPath.slice(0, -1);
+					return next(args);
+				},
+				{ step: 'build', name: 'runpodBucketPath', priority: 'low' },
+			);
 		}
 		return this.client;
 	}

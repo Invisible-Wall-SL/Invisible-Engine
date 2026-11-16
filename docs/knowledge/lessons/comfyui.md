@@ -6,6 +6,18 @@ Covers the generation path (Atlas Maker → RunPod Serverless worker, `services/
 the R&D pod fleet (`/comfyui`, `services/atlas-comfy-pod`), the `nodes.json` node list and a
 person's own ComfyUI over the tunnel. Runbooks and env vars: `docs/INFRA.md` "ComfyUI".
 
+### The volume listing failed with "Invalid object path"
+- **Symptom:** What's installed → Models: "0 B on the volume", "read never", "The last read
+  failed: Invalid object path" (400 `InvalidArgument`), even with no prefix at all.
+- **Cause:** the AWS SDK v3 sends a path-style bucket-level call (ListObjects, ListMultipartUploads)
+  as `/<volume-id>/`; RunPod's S3 API reads the trailing slash as an empty object key. HeadBucket
+  and the AWS CLI (`/<volume-id>`) work, so the docs' CLI examples never show it.
+- **Fix:** a build-step middleware in `volumeStore.ts` rewrites exactly `/<volume-id>/` to
+  `/<volume-id>`. Probe a RunPod S3 change under the launcher's env with `railway run` and log
+  `args.request.path`.
+- **Guard:** none; the first live listing after an SDK bump is the check.
+- **PR:** not recorded (2026-11-16) · source: `docs/status/comfyui.md`
+
 ### The volume delete guards failed open
 - **Symptom:** review of #1680 (merged early): a delete could run with a pod we could not see,
   with no render check, or on a `..` key the used-by check never matched; URL downloads died at 60 s.
