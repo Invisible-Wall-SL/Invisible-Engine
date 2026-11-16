@@ -22,7 +22,8 @@
 // (`coin-spike-art.mjs`) shipped as editor art from a copy of the runtime, and `coin-plain`, the
 // same particles without the graph (the coin page drawn flat), and times the runs as `--calibrate`
 // does. `--gem` does the same for the gem spike (`cal-gem`, a cut gem traced as a set of planes, its
-// page from `gem-spike-art.mjs`): `gem` and `gem-plain`. Each run records the material meshes on the stage (sampled at five moments, a second
+// page from `gem-spike-art.mjs`): `gem` and `gem-plain`; `--note` for the banknote spike (`cal-note`, a
+// curled, waving sheet traced per pixel, its page from `note-spike-art.mjs`): `note` and `note-plain`. Each run records the material meshes on the stage (sampled at five moments, a second
 // apart), the particle sprites drawing, the `?fxdebug=1` lines read into each layer's state, peak
 // covered pixels and load, the on-page readout, a screenshot, console errors, failed requests (a
 // fetch that is refused or answered with an error status) and stalls.
@@ -37,9 +38,9 @@
 //    invisible);
 //  - cap: eight `on` lines and one `plain, over the game cap`; eight meshes drawing at every sample,
 //    their sprites hidden, and the ninth layer's sprites drawing (no pop either way);
-//  - budget and full (with `--calibrate`), coin (with `--coin`), gem (with `--gem`): on, drawing at
-//    every sample, the load × their cost; coin-plain and gem-plain: plain, not registered, their
-//    sprites drawing;
+//  - budget and full (with `--calibrate`), coin (with `--coin`), gem (with `--gem`), note (with
+//    `--note`): on, drawing at every sample, the load × their cost; coin-plain, gem-plain and
+//    note-plain: plain, not registered, their sprites drawing;
 //  - the on-page readout shows the app's GPU, the frame times and each layer, and only with a
 //    material;
 //  - no layer turns plain while playing; no run has an error, a stall, a console error or a failed
@@ -57,7 +58,7 @@
 //   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/particle-material-play.mjs --runtime apps/lines/build --out <dir> \
-//     [--gl 1|2|both] [--calibrate] [--coin] [--gem] [--frames 120] [--chrome <exe>]
+//     [--gl 1|2|both] [--calibrate] [--coin] [--gem] [--note] [--frames 120] [--chrome <exe>]
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -93,13 +94,16 @@ import { serveSnapshot, startTestServer, testServerTree } from '../current-games
 import { headlessShell } from './headless-shell.mjs';
 import { COIN_SPIKE_FRAME, coinSpikeSheet } from './coin-spike-art.mjs';
 import { GEM_SPIKE_FRAME, gemSpikeSheet } from './gem-spike-art.mjs';
+import { NOTE_SPIKE_FRAME, noteSpikeSheet } from './note-spike-art.mjs';
 import {
 	COIN_SPIKE_ART,
 	GEM_SPIKE_ART,
+	NOTE_SPIKE_ART,
 	SWARM_LAYERS,
 	calibrationProjects,
 	coinSpikePng,
 	gemSpikePng,
+	noteSpikePng,
 } from './particle-calibration.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -113,6 +117,7 @@ const { values: opt } = parseArgs({
 		calibrate: { type: 'boolean', default: false },
 		coin: { type: 'boolean', default: false },
 		gem: { type: 'boolean', default: false },
+		note: { type: 'boolean', default: false },
 		frames: { type: 'string', default: '120' },
 	},
 });
@@ -130,7 +135,7 @@ mkdirSync(out, { recursive: true });
 const work = mkdtempSync(join(tmpdir(), 'material-play-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 
-// A solid's page ships as editor art from the game's own origin, so `--coin` and `--gem` play a copy
+// A solid's page ships as editor art from the game's own origin, so `--coin`, `--gem` and `--note` play a copy
 // of the runtime with the pages beside it (the build itself is left alone).
 const SOLIDS = {
 	'cal-coin': {
@@ -146,6 +151,13 @@ const SOLIDS = {
 		frame: GEM_SPIKE_FRAME,
 		png: gemSpikePng,
 		sheet: gemSpikeSheet,
+	},
+	'cal-note': {
+		on: opt.note,
+		key: NOTE_SPIKE_ART,
+		frame: NOTE_SPIKE_FRAME,
+		png: noteSpikePng,
+		sheet: noteSpikeSheet,
 	},
 };
 const sheetOf = (solid) => `solid-spike/${solid.frame}.json`;
@@ -232,12 +244,15 @@ const variants = {
 	'coin-plain': { bundle: placed(projects['cal-coin'], false), timed: true, coinOnly: true },
 	gem: { bundle: placed(projects['cal-gem']), timed: true, gemOnly: true },
 	'gem-plain': { bundle: placed(projects['cal-gem'], false), timed: true, gemOnly: true },
+	note: { bundle: placed(projects['cal-note']), timed: true, noteOnly: true },
+	'note-plain': { bundle: placed(projects['cal-note'], false), timed: true, noteOnly: true },
 };
 const runsVariant = (variant) =>
 	(opt.calibrate || !variant.calibrateOnly) &&
 	(opt.coin || !variant.coinOnly) &&
-	(opt.gem || !variant.gemOnly);
-const timedRuns = opt.calibrate || opt.coin || opt.gem;
+	(opt.gem || !variant.gemOnly) &&
+	(opt.note || !variant.noteOnly);
+const timedRuns = opt.calibrate || opt.coin || opt.gem || opt.note;
 /** Each graph's cost and reads, by kind, for the load check and the summary. */
 const MATERIALS = Object.fromEntries(
 	Object.values(projects)
@@ -548,7 +563,7 @@ for (const [gl, { runs, pixels }] of Object.entries(report.gl)) {
 			none.panel === null,
 		'the on-page readout does not show the GPU, the frame times and each layer (and only with a material)',
 	);
-	for (const name of ['budget', 'full', 'coin', 'gem']) {
+	for (const name of ['budget', 'full', 'coin', 'gem', 'note']) {
 		const run = runs[name];
 		if (!run) continue;
 		const layer = run.layers['embers/main'];
@@ -559,7 +574,7 @@ for (const [gl, { runs, pixels }] of Object.entries(report.gl)) {
 			`${name}: the material is not on, drawing, with its load at every sample`,
 		);
 	}
-	for (const name of ['coin-plain', 'gem-plain']) {
+	for (const name of ['coin-plain', 'gem-plain', 'note-plain']) {
 		const run = runs[name];
 		if (run)
 			expect(
@@ -635,10 +650,10 @@ for (const [gl, { runs, effectLoad }] of Object.entries(report.gl)) {
 		layerLine('published', published),
 		`  unregistered  ${unregistered.layers['embers/main']?.mount ?? '?'}; ${unregistered.stage?.plainSprites ?? '?'} sprites${timed(unregistered)}`,
 		`  cap           ${CAP_LAYERS - plain.length} on, ${plain.map(([label, l]) => `${label} ${l.mount}`).join(', ') || 'none plain'}; ${cap.samples.map((s) => s.meshesDrawing).join('/')} meshes drawing over ${SAMPLES} samples; largest layer load ${short(largest)} (${pct(largest, FX_MATERIAL_LAYER_LOAD_BUDGET)}), effect load ${short(effectLoad.swarm)} (${pct(effectLoad.swarm, FX_MATERIAL_EFFECT_LOAD_BUDGET)} of ${short(FX_MATERIAL_EFFECT_LOAD_BUDGET)})${timed(cap)}`,
-		...['budget', 'full', 'coin', 'gem']
+		...['budget', 'full', 'coin', 'gem', 'note']
 			.filter((name) => runs[name])
 			.map((name) => layerLine(name, runs[name])),
-		...['coin-plain', 'gem-plain']
+		...['coin-plain', 'gem-plain', 'note-plain']
 			.filter((name) => runs[name])
 			.map(
 				(name) =>

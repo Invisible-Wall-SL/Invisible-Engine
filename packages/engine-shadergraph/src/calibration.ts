@@ -10,13 +10,15 @@
  *    seeds can be seen (many hues, or few and banded);
  *  - `calParity`: the Output alone, which must look like the plain sprites;
  *  - `calCoin`: the step-8f coin spike (`coinSpike.ts`), a solid coin ray-traced in each particle;
- *  - `calGem`: the step-8f gem spike (`gemSpike.ts`), a cut gem traced as a set of planes.
+ *  - `calGem`: the step-8f gem spike (`gemSpike.ts`), a cut gem traced as a set of planes;
+ *  - `calNote`: the step-8f banknote spike (`noteSpike.ts`), a curled, waving sheet traced per pixel.
  *
  * `compile.fixture.ts` holds each to its cost and reads.
  */
 
 import { COIN_SPIKE_GRAPH } from './coinSpike';
 import { GEM_SPIKE_GRAPH } from './gemSpike';
+import { NOTE_SPIKE_GRAPH } from './noteSpike';
 import { REFERENCE_GRAPHS, graphBuilder } from './reference';
 import { SHADER_MADE_FOR_PARTICLES, type ShaderGraphDoc } from './types';
 
@@ -119,4 +121,5 @@ export const CALIBRATION_GRAPHS: readonly ShaderGraphDoc[] = [
 	calParity(),
 	COIN_SPIKE_GRAPH,
 	GEM_SPIKE_GRAPH,
+	NOTE_SPIKE_GRAPH,
 ];

@@ -10,9 +10,11 @@
 //   <out>/<project>/<effect>.fx.json       the effect, as `/fx` saves it
 //   <out>/cal-coin/coin3d.png              the coin spike's page, to make into an atlas
 //   <out>/cal-gem/gem3d.png                the gem spike's page, likewise
+//   <out>/cal-note/note3d.png              the banknote spike's page, likewise
 //
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
-//     scripts/playtest/particle-calibration.mjs --out <dir> [--art coins] [--coin-art <manifest>] \n//     [--gem-art <manifest>]
+//     scripts/playtest/particle-calibration.mjs --out <dir> [--art coins] [--coin-art <manifest>] \
+//     [--gem-art <manifest>] [--note-art <manifest>]
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -23,6 +25,7 @@ import { PNG } from 'pngjs';
 import { normalizeEffectDoc } from '../../packages/engine-fx/src/normalize.ts';
 import { COIN_SPIKE_FRAME, COIN_SPIKE_SIZE, coinSpikePixels } from './coin-spike-art.mjs';
 import { GEM_SPIKE_FRAME, GEM_SPIKE_SIZE, gemSpikePixels } from './gem-spike-art.mjs';
+import { NOTE_SPIKE_FRAME, NOTE_SPIKE_SIZE, noteSpikePixels } from './note-spike-art.mjs';
 import {
 	CALIBRATION_GRAPHS,
 	normalizeShaderGraphDoc,
@@ -98,6 +101,8 @@ const FIELD = { x: -300, y: -160, w: 600, h: 320 };
 export const COIN_SPIKE_ART = 'calibration/cal-coin/manifests/atlas_manifest_coin3d.json';
 /** The gem spike's atlas (`gem-spike-art.mjs`), named likewise. */
 export const GEM_SPIKE_ART = 'calibration/cal-gem/manifests/atlas_manifest_gem3d.json';
+/** The banknote spike's atlas (`note-spike-art.mjs`), named likewise. */
+export const NOTE_SPIKE_ART = 'calibration/cal-note/manifests/atlas_manifest_note3d.json';
 /** The layers of the cap's effect: one more than a game draws. */
 export const SWARM_LAYERS = 9;
 
@@ -111,6 +116,8 @@ function pngOf(pixels, size) {
 export const coinSpikePng = (size = COIN_SPIKE_SIZE) => pngOf(coinSpikePixels(size), size);
 /** The gem spike's page (`gem-spike-art.mjs`) as a PNG. */
 export const gemSpikePng = (size = GEM_SPIKE_SIZE) => pngOf(gemSpikePixels(size), size);
+/** The banknote spike's page (`note-spike-art.mjs`) as a PNG. */
+export const noteSpikePng = (size = NOTE_SPIKE_SIZE) => pngOf(noteSpikePixels(size), size);
 
 /**
  * Each calibration project: its key, the graphs it ships and its one effect. `cal-plain`'s
@@ -121,10 +128,12 @@ export function calibrationProjects({
 	art = 'coins',
 	coinArt = COIN_SPIKE_ART,
 	gemArt = GEM_SPIKE_ART,
+	noteArt = NOTE_SPIKE_ART,
 } = {}) {
 	const light = graph('calLight');
 	const coin = graph('calCoin');
 	const gem = graph('calGem');
+	const note = graph('calNote');
 	const budget = graph('calBudget');
 	const seed = graph('calSeed');
 	const parity = graph('calParity');
@@ -202,6 +211,16 @@ export function calibrationProjects({
 				scale: [0.28, 0.34],
 			}),
 		),
+		// The step-8f banknote spike: a curled, waving sheet traced in each particle.
+		project(
+			'cal-note',
+			[note],
+			embers('embers', kindOf(note), {
+				art: noteArt,
+				frames: [NOTE_SPIKE_FRAME],
+				scale: [0.28, 0.34],
+			}),
+		),
 	];
 }
 
@@ -212,6 +231,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 			art: { type: 'string', default: 'coins' },
 			'coin-art': { type: 'string', default: COIN_SPIKE_ART },
 			'gem-art': { type: 'string', default: GEM_SPIKE_ART },
+			'note-art': { type: 'string', default: NOTE_SPIKE_ART },
 		},
 	});
 	if (!opt.out) throw new Error('--out <dir> is required');
@@ -219,6 +239,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 		art: opt.art,
 		coinArt: opt['coin-art'],
 		gemArt: opt['gem-art'],
+		noteArt: opt['note-art'],
 	})) {
 		const dir = resolve(opt.out, key);
 		mkdirSync(join(dir, 'shaders'), { recursive: true });
@@ -228,6 +249,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 		const page = {
 			'cal-coin': [COIN_SPIKE_FRAME, coinSpikePng],
 			'cal-gem': [GEM_SPIKE_FRAME, gemSpikePng],
+			'cal-note': [NOTE_SPIKE_FRAME, noteSpikePng],
 		}[key];
 		const art = page ? [`${page[0]}.png`] : [];
 		if (page) writeFileSync(join(dir, art[0]), page[1]());

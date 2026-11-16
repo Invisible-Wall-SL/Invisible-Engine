@@ -24,7 +24,9 @@
  * 10. open the step-8f coin spike (`?coin=1`): the `calCoin` material mounts on its own four-tile
  *     atlas, its coins draw and tumble;
  * 11. open the gem spike (`?gem=1`): the `calGem` material mounts on its own page, its gems draw
- *     (red: the default Tint is a ruby) and tumble.
+ *     (red: the default Tint is a ruby) and tumble;
+ * 12. open the banknote spike (`?note=1`): the `calNote` material mounts on its own page, its notes
+ *     draw (cream paper) and curl, wave and tumble.
  *
  * The page's "Open in Shader Graph" is checked to be a plain same-tab link, with no iframe.
  *
@@ -550,6 +552,15 @@ try {
 	await solidStep('coin', 'calcoin', 'gold', '(r, g, b) => r > 120 && r > b * 1.6');
 	console.log('11. the gem spike (Shader Graph 8f.1): a cut gem traced in each particle');
 	await solidStep('gem', 'calgem', 'red', '(r, g, b) => r > 90 && r > g * 1.6 && r > b * 1.3');
+	console.log(
+		'12. the banknote spike (Shader Graph 8f §5, interim): a bent sheet traced in each particle',
+	);
+	await solidStep(
+		'note',
+		'calnote',
+		'paper',
+		'(r, g, b) => r > 150 && g > 140 && b > 120 && r - b < 70 && b - r < 40',
+	);
 	const errors = browser.pageLog.filter((l) => /^\[(error|uncaught)\]/.test(l));
 	check('no errors on the page', errors.length === 0, errors.slice(0, 3).join(' | '));
 } catch (error) {

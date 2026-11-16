@@ -20,7 +20,9 @@
  * `?coin=1` opens the step-8f coin spike: coins whose material is the `calCoin` graph (a solid coin
  * ray-traced in each particle) on its four-tile page (`scripts/playtest/coin-spike-art.mjs`), an
  * atlas of its own. `?gem=1` opens the gem spike likewise: the `calGem` graph (a cut gem traced as a
- * set of planes) on its page (`scripts/playtest/gem-spike-art.mjs`). With either, `&params=<json>` sets
+ * set of planes) on its page (`scripts/playtest/gem-spike-art.mjs`), and `?note=1` the banknote spike:
+ * the `calNote` graph (a curled, waving sheet) on its page (`scripts/playtest/note-spike-art.mjs`).
+ * With any of them, `&params=<json>` sets
  * the material's params, for a look at another setting.
  *
  * `fxPage.apps` holds every Pixi `Application` the page made, and `fxPage.emitters` every particle
@@ -39,6 +41,7 @@ import {
 import {
 	COIN_SPIKE_GRAPH,
 	GEM_SPIKE_GRAPH,
+	NOTE_SPIKE_GRAPH,
 	REFERENCE_GRAPHS,
 	analyzeShaderGraph,
 	compileShaderEffect,
@@ -55,6 +58,12 @@ import {
 	gemSpikePixels,
 	gemSpikeSheet,
 } from '@fxroot/scripts/playtest/gem-spike-art.mjs';
+import {
+	NOTE_SPIKE_FRAME,
+	NOTE_SPIKE_SIZE,
+	noteSpikePixels,
+	noteSpikeSheet,
+} from '@fxroot/scripts/playtest/note-spike-art.mjs';
 import { TOOLS } from '@fxroot/apps/launcher-api/src/lib/roles';
 import DialogHost from '@fxroot/apps/launcher-api/src/lib/DialogHost.svelte';
 import Page from '@fxroot/apps/launcher-api/src/routes/(app)/fx/+page.svelte';
@@ -120,6 +129,14 @@ const SOLIDS = [
 		size: GEM_SPIKE_SIZE,
 		pixels: gemSpikePixels,
 		sheet: gemSpikeSheet,
+	},
+	{
+		on: query.has('note'),
+		graph: NOTE_SPIKE_GRAPH,
+		frame: NOTE_SPIKE_FRAME,
+		size: NOTE_SPIKE_SIZE,
+		pixels: noteSpikePixels,
+		sheet: noteSpikeSheet,
 	},
 ].map((solid) => {
 	const atlas = `client/project/manifests/atlas_manifest_${solid.frame}.json`;

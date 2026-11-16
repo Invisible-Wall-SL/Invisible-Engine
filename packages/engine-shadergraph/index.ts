@@ -10,3 +10,4 @@ export * from './src/twins';
 export * from './src/calibration';
 export * from './src/coinSpike';
 export * from './src/gemSpike';
+export * from './src/noteSpike';

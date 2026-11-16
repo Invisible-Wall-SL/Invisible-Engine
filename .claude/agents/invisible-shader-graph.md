@@ -84,7 +84,10 @@ You are the developer for **Invisible Shader Graph**.
     (`scripts/playtest/coin-spike-art.mjs`), played by `particle-material-play.mjs --coin` and
     fx-spike `fx-page` step 10; the gem spike `calGem` (`src/gemSpike.ts`, a convex cut traced as
     57 planes, one reflection and one refraction with fire) and its page
-    (`scripts/playtest/gem-spike-art.mjs`), played by `--gem` and `fx-page` step 11. In the launcher, every preview mounts a
+    (`scripts/playtest/gem-spike-art.mjs`), played by `--gem` and `fx-page` step 11; the banknote
+    spike `calNote` (`src/noteSpike.ts`, §5's interim: a sheet curled on a cylinder and waved,
+    traced per pixel) and its page (`scripts/playtest/note-spike-art.mjs`), played by `--note` and
+    `fx-page` step 12. In the launcher, every preview mounts a
     material through `apps/launcher-api/src/lib/fx/layerMaterial.client.ts` (the game's mount, its
     remount key, the uniform retune): `/fx`'s `FxStage` and Material section
     (`fxMaterial.client.ts`, 8d.5, played headless by `fx-spike fx-page`), the Scene Editor's
