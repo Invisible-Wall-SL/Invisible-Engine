@@ -91,7 +91,28 @@ export const SUB = {
 	// bake, pull and the duplicate path all leave it alone.
 	director: (c: string, p: string) => `${projectPrefix(c, p)}/director`,
 	shaders: (c: string, p: string) => `${projectPrefix(c, p)}/shaders`,
+	// Invisible Profiler readings and build records (`docs/design/invisible-profiler.md` §3). Kept 15
+	// days unless pinned; not an asset a game ships, and a duplicated project starts without them.
+	perf: (c: string, p: string) => `${projectPrefix(c, p)}/perf`,
 } as const;
+
+/**
+ * Where a presigned report upload lands before it is registered: `<client>/<project>/perf/uploads/`.
+ * Registering copies it to {@link perfReportKey} and deletes it, so no presigned URL ever names a
+ * key a reading points at; anything left here a day later was never registered and is swept.
+ */
+export function perfUploadsPrefix(client: string, project: string): string {
+	return `${SUB.perf(client, project)}/uploads/`;
+}
+
+export function perfUploadKey(client: string, project: string, id: string): string {
+	return `${perfUploadsPrefix(client, project)}${id}.json`;
+}
+
+/** One Invisible Profiler reading's full JSON: `<client>/<project>/perf/reports/<id>.json`. */
+export function perfReportKey(client: string, project: string, id: string): string {
+	return `${SUB.perf(client, project)}/reports/${id}.json`;
+}
 
 /** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */
 export function publishedPointerKey(client: string, project: string): string {

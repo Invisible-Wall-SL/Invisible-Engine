@@ -111,6 +111,7 @@ check('create stage order', stage('create')?.tools, [
 	'gameConfig',
 	'director',
 	'gameBugs',
+	'profiler',
 ]);
 check('pipeline stage', stage('pipeline'), {
 	id: 'pipeline',

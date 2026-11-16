@@ -730,6 +730,8 @@ code default, so the dashboard need not set it):
   `/refresh` pokes); `ATLAS_TOOL_SIGNING_SECRET` + `SHEET_TOOL_SIGNING_SECRET` (sign the tool
   launch tokens — see "Tool launch tokens"); `EDITOR_DOC_SECRET`
   (fallback for the deploy token, which normally lives in Admin → Settings).
+- **Invisible Profiler:** `PROFILER_SIGNING_SECRET` (optional — signs the 24-hour capture links;
+  unset, a key derived from `R2_SECRET_ACCESS_KEY` is used; changing either ends open captures).
 - **Export / bake:** `KTX2_ENCODE` (default OFF — encode GPU-compressed KTX2 page twins; CPU- and
   memory-heavy, see [design/gpu-compressed-textures](design/gpu-compressed-textures.md)),
   `PAGE_WEBP` (default ON — near-lossless WebP pages), `SOUND_TRANSCODE` (default ON) +

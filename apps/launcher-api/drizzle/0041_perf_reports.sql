@@ -1,0 +1,50 @@
+CREATE TABLE "perf_reports" (
+	"id" text PRIMARY KEY NOT NULL,
+	"project_key" text NOT NULL,
+	"client_key" text NOT NULL,
+	"r2_key" text NOT NULL,
+	"bytes" integer NOT NULL,
+	"source" text NOT NULL,
+	"session" text,
+	"label" text,
+	"created_by" text,
+	"captured_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"perf_version" integer NOT NULL,
+	"build_version" text,
+	"build_sha" text,
+	"runtime_release" text,
+	"device_class" text,
+	"device_reason" text,
+	"gpu" text,
+	"ua_family" text,
+	"dpr" double precision,
+	"canvas" text,
+	"flags" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"idle_fps" double precision,
+	"idle_p50" double precision,
+	"idle_p95" double precision,
+	"idle_hitches" integer,
+	"spin_fps" double precision,
+	"spin_p50" double precision,
+	"spin_p95" double precision,
+	"spin_hitches" integer,
+	"round_fps" double precision,
+	"round_p50" double precision,
+	"round_p95" double precision,
+	"round_hitches" integer,
+	"idle_frames" integer DEFAULT 0 NOT NULL,
+	"spin_frames" integer DEFAULT 0 NOT NULL,
+	"round_frames" integer DEFAULT 0 NOT NULL,
+	"draws_mean" double precision,
+	"js_ms" double precision,
+	"texture_mb" double precision,
+	"keep" boolean DEFAULT false NOT NULL,
+	"purging_at" timestamp with time zone,
+	CONSTRAINT "perf_reports_source_check" CHECK ("perf_reports"."source" in ('capture', 'paste'))
+);
+--> statement-breakpoint
+ALTER TABLE "perf_reports" ADD CONSTRAINT "perf_reports_project_key_projects_key_fk" FOREIGN KEY ("project_key") REFERENCES "public"."projects"("key") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "perf_reports" ADD CONSTRAINT "perf_reports_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "perf_reports_project_idx" ON "perf_reports" USING btree ("project_key","captured_at");--> statement-breakpoint
+CREATE INDEX "perf_reports_purge_idx" ON "perf_reports" USING btree ("keep","captured_at");--> statement-breakpoint
+CREATE INDEX "perf_reports_session_idx" ON "perf_reports" USING btree ("session");

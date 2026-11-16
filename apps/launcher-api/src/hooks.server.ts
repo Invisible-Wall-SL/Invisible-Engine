@@ -8,6 +8,8 @@ import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
 import { resumeAtlasJobWatches } from '$lib/server/director/atlasJobs';
 import { resumeDraftJobWatches } from '$lib/server/director/draftJobs';
 import { captureServerError, initServerErrorTracking } from '$lib/server/errorTracking';
+import { PROFILER_CORS_HEADERS, isProfilerCorsPath } from '$lib/server/profiler/cors';
+import { startPerfPurge } from '$lib/server/profiler/purgeJob';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 
@@ -16,7 +18,8 @@ import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
  * migrations so schema-dependent routes never serve against an old schema, start
  * the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control / idle
  * auto-stop isn't configured), and start the Admin → Costs monthly recorder so a
- * month's figure doesn't depend on someone happening to open the page. The Director's render
+ * month's figure doesn't depend on someone happening to open the page, and the Invisible Profiler's
+ * daily purge of readings past their 15 days. The Director's render
  * watches are armed again for every render still queued. */
 export const init: ServerInit = async () => {
 	await initServerErrorTracking();
@@ -25,6 +28,7 @@ export const init: ServerInit = async () => {
 	resumeDraftJobWatches().catch((e) => console.error('director draft jobs: not re-armed:', e));
 	startRunpodIdleWatchdog();
 	startCostRecorder();
+	startPerfPurge();
 };
 
 /** An unexpected error (a thrown non-`error()`) — `error(4xx/5xx)` never reaches here. */
@@ -145,6 +149,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 		event.url.pathname === '/api/editor/doc'
 	) {
 		for (const [key, value] of Object.entries(DEPLOY_CORS_HEADERS)) {
+			response.headers.set(key, value);
+		}
+	}
+	// The `?perf=1` probe posts readings from the games origin with a capture token, never a
+	// cookie. Same reason as above: a refused token must read as its 401, not as a CORS error.
+	if (isProfilerCorsPath(event.url.pathname)) {
+		for (const [key, value] of Object.entries(PROFILER_CORS_HEADERS)) {
 			response.headers.set(key, value);
 		}
 	}

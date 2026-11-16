@@ -227,6 +227,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<rect x="10" y="8" width="4" height="6" rx="2"/><path d="M8 10h2"/><path d="M14 10h2"/>' +
 			'<path d="M8 12.5h2"/><path d="M14 12.5h2"/>',
 	),
+	// a gauge needle over a dial (frame rate)
+	profiler: I(
+		'<path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.4"/>' +
+			'<path d="M6.5 11.5l1 .8"/><path d="M12 7.5v1.2"/><path d="M17.5 11.5l-1 .8"/>',
+	),
 };
 
 /** Registry of every tool the platform knows about. */
@@ -498,6 +503,17 @@ export const TOOLS: Record<string, ToolDef> = {
 		icon: TOOL_ICONS.gameBugs,
 		isNew: true,
 	},
+	profiler: {
+		id: 'profiler',
+		name: 'Invisible Profiler',
+		barName: 'Profiler',
+		description:
+			'See how a published game performs on real devices — open it on a phone from a QR code, and every reading it sends is kept per project to compare.',
+		kind: 'online',
+		url: '/profiler',
+		icon: TOOL_ICONS.profiler,
+		isNew: true,
+	},
 };
 
 /**
@@ -563,7 +579,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'create',
 		label: 'Create',
 		accent: '#7ee787',
-		tools: ['gameMaker', 'gameConfig', 'director', 'gameBugs'],
+		tools: ['gameMaker', 'gameConfig', 'director', 'gameBugs', 'profiler'],
 	},
 	{
 		id: 'assets',
@@ -670,6 +686,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'storybook',
 		'pipelineBugs',
 		'gameBugs',
+		'profiler',
 	],
 	artist: [
 		'atlasTool',
@@ -692,8 +709,9 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'sound',
 		'pipelineBugs',
 		'gameBugs',
+		'profiler',
 	],
-	animator: ['spineViewer', 'rigger', 'pipelineBugs', 'gameBugs'],
+	animator: ['spineViewer', 'rigger', 'pipelineBugs', 'gameBugs', 'profiler'],
 	pipelineTester: [
 		'gameMaker',
 		'gameConfig',
@@ -719,9 +737,18 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'pipelineChanges',
 		'pipelineBugs',
 		'gameBugs',
+		'profiler',
 	],
-	localizationReviewer: ['localization', 'winText', 'pipelineBugs', 'gameBugs'],
-	audio: ['sound', 'ftpBrowser', 'storybook', 'invisibleLauncher', 'pipelineBugs', 'gameBugs'],
+	localizationReviewer: ['localization', 'winText', 'pipelineBugs', 'gameBugs', 'profiler'],
+	audio: [
+		'sound',
+		'ftpBrowser',
+		'storybook',
+		'invisibleLauncher',
+		'pipelineBugs',
+		'gameBugs',
+		'profiler',
+	],
 };
 
 /**
@@ -974,6 +1001,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	pipelineChanges: 'pipeline-changes',
 	pipelineBugs: 'pipeline-bugs',
 	gameBugs: 'game-bugs',
+	profiler: 'profiler',
 };
 
 /**

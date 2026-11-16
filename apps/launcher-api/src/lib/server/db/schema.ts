@@ -1272,3 +1272,74 @@ export type BugReportScreenshot = typeof bugReportScreenshots.$inferSelect;
 export type BugReportEvent = typeof bugReportEvents.$inferSelect;
 export type BugReportLink = typeof bugReportLinks.$inferSelect;
 export type BugFixRun = typeof bugFixRuns.$inferSelect;
+
+/**
+ * Invisible Profiler readings (`docs/design/invisible-profiler.md` §3): one row per `?perf=1`
+ * report, its summary for listing and comparing; the full JSON lives in R2 at `r2_key`
+ * (`<client>/<project>/perf/reports/<id>.json`). `source` is `capture` (a phone sent it with a
+ * capture session's token) or `paste` (a signed-in user pasted a delivery's Copy).
+ *
+ * Retention (owner, 2026-11-16): the daily purge (`profiler/purge.ts`) deletes a reading older than
+ * 15 days unless `keep`. It claims a row first (`purging_at`), then deletes the R2 file, then the
+ * row, so a row is never gone while its file stays, a claimed row is retried until both are, and
+ * Keep cannot be set on a row the purge has claimed (the toggle's update requires
+ * `purging_at IS NULL`). Listing hides claimed rows.
+ */
+export const perfReports = pgTable(
+	'perf_reports',
+	{
+		id: text('id').primaryKey(),
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		clientKey: text('client_key').notNull(),
+		r2Key: text('r2_key').notNull(),
+		bytes: integer('bytes').notNull(),
+		source: text('source').notNull(),
+		session: text('session'),
+		label: text('label'),
+		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+		capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
+		perfVersion: integer('perf_version').notNull(),
+		buildVersion: text('build_version'),
+		buildSha: text('build_sha'),
+		/** Filled once build records exist (P2); the probe does not report it yet. */
+		runtimeRelease: text('runtime_release'),
+		deviceClass: text('device_class'),
+		deviceReason: text('device_reason'),
+		gpu: text('gpu'),
+		uaFamily: text('ua_family'),
+		dpr: doublePrecision('dpr'),
+		canvas: text('canvas'),
+		flags: jsonb('flags').$type<Record<string, string>>().notNull().default({}),
+		idleFps: doublePrecision('idle_fps'),
+		idleP50: doublePrecision('idle_p50'),
+		idleP95: doublePrecision('idle_p95'),
+		idleHitches: integer('idle_hitches'),
+		spinFps: doublePrecision('spin_fps'),
+		spinP50: doublePrecision('spin_p50'),
+		spinP95: doublePrecision('spin_p95'),
+		spinHitches: integer('spin_hitches'),
+		roundFps: doublePrecision('round_fps'),
+		roundP50: doublePrecision('round_p50'),
+		roundP95: doublePrecision('round_p95'),
+		roundHitches: integer('round_hitches'),
+		/** Frame counts per phase, so an empty phase reads as "no frames", not as 0 fps. */
+		idleFrames: integer('idle_frames').notNull().default(0),
+		spinFrames: integer('spin_frames').notNull().default(0),
+		roundFrames: integer('round_frames').notNull().default(0),
+		drawsMean: doublePrecision('draws_mean'),
+		jsMs: doublePrecision('js_ms'),
+		textureMb: doublePrecision('texture_mb'),
+		keep: boolean('keep').notNull().default(false),
+		purgingAt: timestamp('purging_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('perf_reports_project_idx').on(table.projectKey, table.capturedAt),
+		index('perf_reports_purge_idx').on(table.keep, table.capturedAt),
+		index('perf_reports_session_idx').on(table.session),
+		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste')`),
+	],
+);
+
+export type PerfReport = typeof perfReports.$inferSelect;

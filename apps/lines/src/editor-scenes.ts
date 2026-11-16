@@ -1759,7 +1759,7 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
  * (`GET /api/editor/doc?project=`). Overridable per-load with the
  * `?editorDocBase=` query param (e.g. a local launcher on :3010).
  */
-const DEFAULT_DOC_BASE = 'https://app.invisiblewall.org';
+export const DEFAULT_DOC_BASE = 'https://app.invisiblewall.org';
 
 /**
  * The asset-URL prefix the baked-font helpers ({@link bakedFontAssets} /
