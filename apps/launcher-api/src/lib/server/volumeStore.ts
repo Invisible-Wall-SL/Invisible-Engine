@@ -47,6 +47,11 @@ export interface VolumeUpload {
  * retry". A page is retried with a growing pause rather than failing the whole listing.
  */
 const LIST_PAGE_ATTEMPTS = 6;
+/**
+ * RunPod hashes each unhashed file in a page before answering (~3 s per GB, kept afterwards), and
+ * its edge cuts a request at 100 s with a 524: a 1000-key page over model weights never answered.
+ */
+const LIST_PAGE_KEYS = 50;
 const LIST_RETRY_BASE_MS = 2_000;
 
 class RunpodS3Volume implements VolumeStore {
@@ -79,6 +84,18 @@ class RunpodS3Volume implements VolumeStore {
 				requestHandler: { requestTimeout: 2 * 60 * 60 * 1000, connectionTimeout: 15_000 },
 				maxAttempts: 3,
 			});
+			// The SDK addresses a bucket-level call (ListObjectsV2, ListMultipartUploads) as `/<bucket>/`;
+			// RunPod reads that trailing slash as an empty object key and answers 400 "Invalid object
+			// path" — only `/<bucket>` (what the AWS CLI sends) lists.
+			const bucketPath = `/${this.bucket}/`;
+			this.client.middlewareStack.add(
+				(next) => (args) => {
+					const request = args.request as { path?: string };
+					if (request.path === bucketPath) request.path = bucketPath.slice(0, -1);
+					return next(args);
+				},
+				{ step: 'build', name: 'runpodBucketPath', priority: 'low' },
+			);
 		}
 		return this.client;
 	}
@@ -114,7 +131,7 @@ class RunpodS3Volume implements VolumeStore {
 						Bucket: this.bucket,
 						Prefix: prefix,
 						ContinuationToken: token,
-						MaxKeys: 1000,
+						MaxKeys: LIST_PAGE_KEYS,
 					}),
 				);
 			} catch (e) {
