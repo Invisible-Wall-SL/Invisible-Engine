@@ -43,6 +43,8 @@ the matching `refs/…` ref in one place so the two cannot drift) and the tool r
 through its normal INPUT_DIR routing. The rule to carry forward: **do not add a fourth browser —
 add a source that ends in a ref the tool already resolves.**
 
+**Nor is `/comfyui`'s volume model list (2026-11-16).** `$lib/comfyui/VolumeModels.svelte` lists the RunPod Network Volume's model files inside "What's installed", grouped by folder. It reuses that panel's folder `<details>` shape, `ConfirmDialog` for the two-step delete, `askText`, `IconButton` and `InfoTip`. It isn't a browser: there's no navigation, the store is not R2, and nothing is project-scoped. Its upload is a source that ends in the R2 mirror, the same rule as the Flipbook picker's.
+
 ### 2. Table / data-grid view
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|

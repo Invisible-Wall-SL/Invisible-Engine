@@ -138,6 +138,30 @@ export const ENV = {
 	get COMFY_VOLUME_URL() {
 		return env.COMFY_VOLUME_URL ?? '';
 	},
+	// The /comfyui "Volume models" section reaches the Network Volume through RunPod's
+	// S3-compatible API — no pod, no GPU. The id doubles as the S3 bucket; the data centre picks
+	// the endpoint (`https://s3api-<dc>.runpod.io`). Both are public facts with code defaults.
+	// The key pair is an S3 API key (RunPod → Settings → S3 API Keys: the access key is the
+	// `user_…` id, the secret `rps_…`), NOT `RUNPOD_API_KEY`; unset = the section says so and
+	// reads nothing.
+	get RUNPOD_VOLUME_ID() {
+		return env.RUNPOD_VOLUME_ID || 'wvi855bwh8';
+	},
+	get RUNPOD_VOLUME_DATA_CENTER() {
+		return env.RUNPOD_VOLUME_DATA_CENTER || env.RUNPOD_DATA_CENTER_ID || 'EU-RO-1';
+	},
+	get RUNPOD_S3_ACCESS_KEY_ID() {
+		return env.RUNPOD_S3_ACCESS_KEY_ID ?? '';
+	},
+	get RUNPOD_S3_SECRET_ACCESS_KEY() {
+		return env.RUNPOD_S3_SECRET_ACCESS_KEY ?? '';
+	},
+	// OPTIONAL: the serverless endpoint the Atlas Maker / Flipbook render on (the same id
+	// atlas-tool reads). Set, a volume delete is refused while that endpoint has a job queued or
+	// running; unset, the section warns that it cannot tell.
+	get RUNPOD_ENDPOINT_ID() {
+		return env.RUNPOD_ENDPOINT_ID ?? '';
+	},
 	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
 	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
 	// Code default to the current Railway service; env overrides.

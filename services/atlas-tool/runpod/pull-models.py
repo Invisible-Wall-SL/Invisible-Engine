@@ -6,6 +6,11 @@ Reads the manifest that `scripts/seed-comfyui-models.py` writes
 layout. Idempotent: a file already on disk at the manifest's size is skipped, so
 re-running only fetches what's new or changed.
 
+An entry marked `"volume": false` was deleted from the volume on purpose (the
+launcher's /comfyui "What's installed" → Delete, mirror copy kept), so it is
+skipped unless `--include-removed` is passed — otherwise every run of this
+script would quietly undo that delete and bring its storage cost back.
+
 Env (same R2 creds the other services use):
     R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 
@@ -26,6 +31,8 @@ def main() -> None:
 	ap = argparse.ArgumentParser(description="Pull ComfyUI models from R2")
 	ap.add_argument("--dest", required=True, help="ComfyUI/models dir on the volume")
 	ap.add_argument("--force", action="store_true", help="re-download even if size matches")
+	ap.add_argument("--include-removed", action="store_true",
+	                help='also pull entries marked "volume": false (deleted from the volume on purpose)')
 	args = ap.parse_args()
 
 	missing = [v for v in ("R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID",
@@ -50,6 +57,13 @@ def main() -> None:
 	body = s3.get_object(Bucket=bucket, Key=MANIFEST_KEY)["Body"].read()
 	models = json.loads(body).get("models", [])
 	dest_root = Path(args.dest)
+
+	if not args.include_removed:
+		removed = [m for m in models if m.get("volume") is False]
+		if removed:
+			print(f"  ({len(removed)} model(s) removed from the volume on purpose — skipped; "
+			      "--include-removed to pull them)")
+		models = [m for m in models if m.get("volume") is not False]
 
 	total = len(models)
 	pulled = 0

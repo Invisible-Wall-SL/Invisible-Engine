@@ -3,6 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import VolumeModels from '$lib/comfyui/VolumeModels.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
@@ -148,6 +149,8 @@
 	let moved = $state<Record<string, MoveResult>>({});
 
 	let inventory = $state<Inventory | null>(null);
+	/** The admin volume manager is listing the models itself (S3 key set) — hide the pod-read list. */
+	let volumeManaged = $state(false);
 	let invBusy = $state(false);
 	let invError = $state('');
 	let invOpen = $state(false);
@@ -1197,7 +1200,11 @@
 									{#if invError}<p class="err">{invError}</p>{/if}
 									{#if inventory?.note}<p class="hint">{inventory.note}</p>{/if}
 
-									{#if inventory && inventory.models.length > 0}
+									{#if data.canAdmin}
+										<VolumeModels onmanaged={(m) => (volumeManaged = m)} />
+									{/if}
+
+									{#if !volumeManaged && inventory && inventory.models.length > 0}
 										<h3>
 											Models <span class="sub"
 												>Network Volume — shared by every pod, survives a stop</span

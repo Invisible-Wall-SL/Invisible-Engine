@@ -123,8 +123,13 @@ def main() -> None:
             s3.upload_file(str(path), bucket, key,
                            ExtraArgs={"ContentType": "application/octet-stream"})
 
-        models.append({"key": key, "dir": rel_dir, "name": path.name,
-                       "size": size, "sha256": sha})
+        entry = {"key": key, "dir": rel_dir, "name": path.name,
+                 "size": size, "sha256": sha}
+        # A desktop holding the file says nothing about the RunPod volume, so a
+        # "removed from the volume on purpose" mark set by the launcher survives.
+        if prev and prev.get("volume") is False:
+            entry["volume"] = False
+        models.append(entry)
         seen_keys.add(key)
 
     # MERGE, don't replace: keep every model from the PRIOR manifest that this
@@ -140,14 +145,43 @@ def main() -> None:
     if kept:
         print(f"  (kept {kept} model(s) from other machines' seeds)")
 
-    manifest = {"version": 1, "base_prefix": args.prefix, "models": models}
-    total = sum(m["size"] for m in models)
-    print(f"\n== Writing manifest ({bucket}/{MANIFEST_KEY}) — "
-          f"{len(models)} files, {total / 1e9:.1f} GB ==")
-    s3.put_object(Bucket=bucket, Key=MANIFEST_KEY,
-                  Body=json.dumps(manifest, indent=2).encode("utf-8"),
-                  ContentType="application/json")
-    print("== Done ==")
+    # Written as a compare-and-swap against the manifest as it is NOW, not as it was
+    # read before hashing/uploading (which can take hours): the launcher's /comfyui
+    # volume manager edits it meanwhile — a delete's `"volume": false`, an upload's
+    # new entry, a mirror delete's removed entry — and writing the stale copy back
+    # would undo each one. This run's files are re-merged into the fresh copy.
+    this_run = {m["key"]: m for m in models if m["key"] in seen_keys}
+    for _ in range(5):
+        fresh, etag = {}, None
+        try:
+            res = s3.get_object(Bucket=bucket, Key=MANIFEST_KEY)
+            fresh, etag = json.loads(res["Body"].read()), res.get("ETag")
+        except s3.exceptions.NoSuchKey:
+            pass
+        fresh_models = [m for m in fresh.get("models", []) if isinstance(m, dict) and m.get("key")]
+        fresh_by_key = {m["key"]: m for m in fresh_models}
+        merged = []
+        for key, entry in this_run.items():
+            if fresh_by_key.get(key, {}).get("volume") is False:
+                entry = {**entry, "volume": False}
+            merged.append(entry)
+        merged += [m for m in fresh_models if m["key"] not in this_run]
+        manifest = {"version": 1, "base_prefix": args.prefix, "models": merged}
+        total = sum(m["size"] for m in merged)
+        print(f"\n== Writing manifest ({bucket}/{MANIFEST_KEY}) — "
+              f"{len(merged)} files, {total / 1e9:.1f} GB ==")
+        cond = {"IfMatch": etag} if etag else {"IfNoneMatch": "*"}
+        try:
+            s3.put_object(Bucket=bucket, Key=MANIFEST_KEY,
+                          Body=json.dumps(manifest, indent=2).encode("utf-8"),
+                          ContentType="application/json", **cond)
+            print("== Done ==")
+            return
+        except s3.exceptions.ClientError as e:
+            if e.response.get("Error", {}).get("Code") not in ("PreconditionFailed", "412"):
+                raise
+            print("  the manifest changed meanwhile — re-merging")
+    raise SystemExit("The manifest kept changing underneath this write — run again.")
 
 
 if __name__ == "__main__":

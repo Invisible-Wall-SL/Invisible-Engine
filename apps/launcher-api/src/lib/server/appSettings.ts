@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
 	budgetFromSetting,
 	DIRECTOR_REPAIR_BUDGET_DEFAULT_USD,
@@ -93,6 +93,33 @@ export async function setAppSetting(key: string, value: string, userId: string):
 			target: appSettings.key,
 			set: { value, updatedAt: new Date(), updatedBy: userId },
 		});
+}
+
+/**
+ * Write `value` only if the setting still holds `expected` (`undefined` = still absent). Returns
+ * false when someone else changed it first, so a read-modify-write caller re-reads and retries
+ * instead of dropping that change.
+ */
+export async function compareAndSetAppSetting(
+	key: string,
+	expected: string | undefined,
+	value: string,
+	userId: string,
+): Promise<boolean> {
+	if (expected === undefined) {
+		const inserted = await getDb()
+			.insert(appSettings)
+			.values({ key, value, updatedBy: userId })
+			.onConflictDoNothing()
+			.returning({ key: appSettings.key });
+		return inserted.length > 0;
+	}
+	const updated = await getDb()
+		.update(appSettings)
+		.set({ value, updatedAt: new Date(), updatedBy: userId })
+		.where(and(eq(appSettings.key, key), eq(appSettings.value, expected)))
+		.returning({ key: appSettings.key });
+	return updated.length > 0;
 }
 
 /** Remove an app setting, so its reader falls back to the default. */

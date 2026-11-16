@@ -182,6 +182,53 @@ def merge_manifest(prior_manifest: dict | None, entries: list[dict], prefix: str
 	}
 
 
+def read_manifest_with_etag(s3, bucket: str) -> tuple[dict, str | None]:
+	"""The manifest and its ETag; an absent one is `({}, None)`. Anything else
+	unreadable raises, because writing over it would wipe every desktop's index."""
+	try:
+		res = s3.get_object(Bucket=bucket, Key=MANIFEST_KEY)
+	except Exception as e:  # noqa: BLE001 — boto3 + the test double both land here
+		if _is_missing(e):
+			return {}, None
+		raise
+	data = json.loads(res["Body"].read())
+	return (data if isinstance(data, dict) else {}), res.get("ETag")
+
+
+def _is_missing(e: Exception) -> bool:
+	code = str((getattr(e, "response", None) or {}).get("Error", {}).get("Code", ""))
+	return code in ("NoSuchKey", "404") or isinstance(e, KeyError)
+
+
+def _precondition_failed(e: Exception) -> bool:
+	resp = getattr(e, "response", None) or {}
+	code = str(resp.get("Error", {}).get("Code", ""))
+	status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode")
+	return code in ("PreconditionFailed", "412") or status == 412
+
+
+def write_manifest_cas(s3, bucket: str, build, attempts: int = 5) -> dict:
+	"""Re-read the manifest at WRITE time and put `build(fresh)` back only if it is
+	still that version (`IfMatch`, or `IfNoneMatch: *` when absent), retrying on a
+	lost race. The launcher's /comfyui volume manager edits this file too — it marks
+	an entry `"volume": false` on a delete and adds one after an upload — and a run
+	of this script can take hours, so writing back what was read at the start would
+	silently undo every one of those edits."""
+	for _ in range(attempts):
+		fresh, etag = read_manifest_with_etag(s3, bucket)
+		manifest = build(fresh)
+		cond = {"IfMatch": etag} if etag else {"IfNoneMatch": "*"}
+		try:
+			s3.put_object(Bucket=bucket, Key=MANIFEST_KEY,
+			              Body=json.dumps(manifest, indent=2).encode("utf-8"),
+			              ContentType="application/json", **cond)
+			return manifest
+		except Exception as e:  # noqa: BLE001
+			if not _precondition_failed(e):
+				raise
+	raise SystemExit("The manifest kept changing underneath this write — run again.")
+
+
 def read_manifest(s3, bucket: str) -> dict:
 	"""The manifest as it stands in R2; an absent/unreadable one starts empty."""
 	try:
@@ -271,9 +318,8 @@ def run(s3, bucket: str, *, src: str, prefix: str = DEFAULT_PREFIX,
 	if apply and entries:
 		print(f"\n== Writing manifest ({bucket}/{MANIFEST_KEY}) — "
 		      f"{len(manifest['models'])} files total ==")
-		s3.put_object(Bucket=bucket, Key=MANIFEST_KEY,
-		              Body=json.dumps(manifest, indent=2).encode("utf-8"),
-		              ContentType="application/json")
+		manifest = write_manifest_cas(
+			s3, bucket, lambda fresh: merge_manifest(fresh, entries, prefix))
 		wrote_manifest = True
 	elif apply:
 		print("\n== Nothing new — manifest left exactly as it was. ==")
