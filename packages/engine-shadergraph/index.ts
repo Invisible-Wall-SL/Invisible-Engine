@@ -8,3 +8,4 @@ export * from './src/reference';
 export * from './src/doc';
 export * from './src/twins';
 export * from './src/calibration';
+export * from './src/coinSpike';

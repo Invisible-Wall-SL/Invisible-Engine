@@ -13,6 +13,10 @@ sets them from real phones. This playbook has two parts:
   `?fxdebug=1`, whose numbers are read off the screen and sent back. This is the step's Owner
   pass; nobody else can do it.
 
+It also carries the **3D coin** of step 8f.1 ([design](../design/shader-graph-3d-particles.md)):
+a solid coin ray-traced inside each particle (`cal-coin`, S5), which the owner looks at on a phone
+before the trace becomes regular nodes.
+
 Status: [status/shader-graph](../status/shader-graph.md) (8d.8, open items).
 
 ## The headless play
@@ -29,7 +33,7 @@ pnpm --filter 'lines^...' build
 PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
 node --experimental-strip-types --import ./scripts/ts-loader.mjs \
   scripts/playtest/particle-material-play.mjs --runtime apps/lines/build --out .cache/material-play \
-  [--gl 1|2|both] [--calibrate] [--frames 120]
+  [--gl 1|2|both] [--calibrate] [--coin] [--frames 120]
 ```
 
 It takes the `cg-lines` current-games stand-in, adds the phone check's calibration effects
@@ -63,6 +67,16 @@ it needs a release build of the runtime first. The behaviours it plays are also 
 - **Expect:** eight `on`, then `swarm/m9: plain, over the game cap`; at all five moments eight
   meshes draw and the ninth layer's sprites draw (no pop either way).
 
+### S5 — the 3D coin (`--coin`)
+- **Do:** `cal-coin`'s effect, `embers/main`: 120 coins about 160 px across, `material:
+  custom:calcoin` (the coin spike, cost 1,586 by the Custom GLSL estimate, 4 reads), on its
+  four-tile page (`scripts/playtest/coin-spike-art.mjs`: front, back, edge strip, matcap), shipped
+  as editor art from a copy of the runtime. `coin-plain` is the same snapshot without its
+  `shaderEffects`: the same particles drawing the page flat.
+- **Expect:** `coin` on and drawing at every sample, its load the covered px × 1,586; `coin-plain`
+  `plain, not registered` with its sprites drawing. Each coin tumbles on its own axis: faces,
+  rims and the reeded edge as it turns, a solid band of metal edge-on. Both are timed.
+
 ### All runs
 - **Expect:** the page drew on the WebGL version asked for (WebGL1: the page is refused a `webgl2`
   context, as a WebGL1-only phone refuses it); no error, stall, console error (but Typekit's) or
@@ -84,6 +98,24 @@ in software (SwiftShader), so these numbers only compare the runs with each othe
 | `budget`, 76 quads | 1,252 M (cost 144) | 559 / 659 ms | 428 / 503 ms |
 | `full`, 510 quads | 629 M | 1,023 / 1,222 ms | 893 / 1,301 ms |
 | S4 cap, 8 layers on | 252 M effect (394 % of 64 M), largest layer 33 M | 521 / 623 ms | 331 / 379 ms |
+
+**`--coin`, read on 2026-11-16** on this desktop's real GPU (the headless shell drew through ANGLE on
+an Intel Arc iGPU, D3D11, not SwiftShader), 1280 × 720 at 1×, 120 frames each:
+
+| Run | Load | WebGL2 frame (median / p95) | WebGL1 frame (median / p95) |
+|---|---|---|---|
+| `coin-plain`, 83 sprites | — | 2.5 / 3.4 ms | 2.4 / 3.1 ms |
+| `coin`, 76 quads | 2,747 M (8,585 % of 32 M), 1.73 M px covered | 5.1 / 7.0 ms | 3.8 / 4.5 ms |
+| S2 plain, 83 sprites (for scale) | — | 4.2 / 5.7 ms | 2.9 / 4.1 ms |
+| `budget`, 76 quads (for scale) | 1,252 M (cost 144) | 5.2 / 6.9 ms | 4.2 / 4.4 ms |
+
+On this GPU the coin costs about 1.4 ms (WebGL1) to 2.6 ms (WebGL2) a frame over the same
+particles drawn flat (an earlier run read 0.5 and 1.2 ms: the iGPU's timings move about a
+millisecond run to run), while its meter reads 86× the layer budget. The meter's cost is the Custom GLSL
+estimate, which counts all 24 march rounds and every branch; most pixels leave early (outside the
+bounding sphere at once, and a hit ends the march). On SwiftShader (the `/fx` page gate) the coin
+shows screen-aligned patches of a different shading that the real GPU never draws; they are not
+used to judge the look.
 
 The coin frames are large (about 340 px across at their scale), so 76 of them already cover
 8.7 M layer pixels: a cost-12 graph on them is three times over the 32 M layer budget. On the
@@ -107,6 +139,7 @@ cost by `compile.fixture.ts` and compiled on WebGL1 and WebGL2 by `shader-compil
 | `cal-swarm` | `swarm`: nine layers of 24 coins | `callight` | the cap of 8 |
 | `cal-seed` | `embers` | `calseed`, Seed → Random number → Hue shift (21 / 1) | the seeds |
 | `cal-parity` | `embers` | `calparity`, the Output alone (1 / 1) | how close a material is to plain sprites |
+| `cal-coin` | `embers` on the coin page, coins about 160 px | `calcoin`, the step-8f 3D coin (1,586 / 4) | how a ray-traced solid looks and costs |
 
 1. Write the files, naming an art key every project has (the same for all; the play uses `coins`):
    ```
@@ -114,15 +147,19 @@ cost by `compile.fixture.ts` and compiled on WebGL1 and WebGL2 by `shader-compil
      scripts/playtest/particle-calibration.mjs --out .cache/calibration --art <assetKey>
    ```
    Each `.cache/calibration/<project>/` holds `shaders/<graph>.json` and `<effect>.fx.json`, as
-   `/shaders` and `/fx` store them.
-2. In Game Maker, duplicate one small lines game seven times, as the projects above, with nothing
+   `/shaders` and `/fx` store them; `cal-coin/` also holds `coin3d.png`, the coin's page.
+2. In Game Maker, duplicate one small lines game eight times, as the projects above, with nothing
    else animated on the base game.
-3. Upload each folder's files into its project's root (`<client>/<project>/`, keeping `shaders/`)
+3. **The coin's atlas.** In `cal-coin`, make an atlas from `coin3d.png` in
+   [Invisible Atlas Maker](../tools/atlas-maker.md) with one region, `coin3d`, covering the whole
+   page (no trim, no padding), and deploy it. Run step 1 again with
+   `--coin-art <that atlas's manifest key>`, so `cal-coin`'s effect names it.
+4. Upload each folder's files into its project's root (`<client>/<project>/`, keeping `shaders/`)
    with [Invisible FTP Browser](../tools/ftp-browser.md), in an admin's full view.
-4. In each project's Scene Editor, place its effect (Library → **Effects**) on the base game, in the
+5. In each project's Scene Editor, place its effect (Library → **Effects**) on the base game, in the
    middle of the board. Publish. `cal-plain`'s Publish names `custom:calmissing` as missing: that is
    its point.
-5. Send the owner each project's **Copy URL** (Game Maker) with `&fxdebug=1` added at the end.
+6. Send the owner each project's **Copy URL** (Game Maker) with `&fxdebug=1` added at the end.
 
 ### On each phone
 
@@ -164,6 +201,19 @@ line on each of these, as seen (human-eyes):
 6. **Anything that pops**: a layer switching between material and plain while you watch, a flash
    after switching apps, particles vanishing. Any `plain while playing` line, with its reason
    (`program does not link` means this phone's driver refused the graph).
+7. **The 3D coin** (`cal-coin`, step 8f.1). Watch it for 30 seconds, then say:
+   - **Solid?** Does each coin read as a thick disc: a band of metal when edge-on, a raised rim
+     round each face, a rounded (bevelled) edge rather than a sharp one, the reeding across the
+     edge?
+   - **Lit?** Does the highlight move across a coin as it turns, and do the faces read as gold
+     metal rather than flat yellow?
+   - **Different?** Does every coin tumble on its own axis and at its own speed, or do some move
+     together?
+   - **Clean?** Any speckles, holes, stair-stepped or flickering silhouettes, square patches, or a
+     coin cut off at its edge?
+   - **Smooth?** Its fps and frames of 50 ms or more against `cal-plain`'s. Its coins are smaller
+     (about 160 px against 340 px), so the load printed (cost × covered px) is no guide; the
+     frames are.
 
 ### How the numbers set the caps (a developer)
 
@@ -180,5 +230,6 @@ rate: `cal-budget`, `cal-512` or `cal-swarm` push it there.
 | `cal-512`'s p95 and long frames, WebGL1 against WebGL2 | **512** particles a layer; the WebGL1 upload | Long frames only on WebGL1 point at the whole-buffer upload: upload only the live part there (a second buffer) before raising anything. Long frames on both: lower 512. |
 | `cal-swarm`'s lines and frames | **8** layers a game | Eight `on`, one `over the game cap`, never a change mid-play. If the eight drop the phone below its refresh rate at loads under the layer budget, lower 8. |
 | The load beside line 1's size | the meter's pixels | The load counts the layer's own pixels; a phone draws device pixels (the game's scale × the pixel ratio²). If two phones of one GPU print one load and differ in frames, the meter needs the device's scale. |
+| `cal-coin`'s fps and long frames against `cal-plain`'s, and item 7 | whether 8f step 2 builds the coin as regular nodes (design 8f §7), and how a traced solid is budgeted | If it holds the refresh rate on the weakest phone kept and item 7 reads well, step 2 goes ahead. Its printed load stays no guide until the solid nodes carry a cost measured from frames rather than the Custom GLSL estimate. |
 
 Write what is decided in the design's §10 and §16.6, and the as-built in the status file.

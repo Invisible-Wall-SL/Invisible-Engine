@@ -17,10 +17,14 @@
 //  - cap: `cal-swarm`, one effect with NINE material layers (`swarm/m1`…`m9`): the game's cap of 8
 //    draws eight, the ninth plain, decided at mount and kept.
 // `--calibrate` adds `budget` (`cal-budget`, the graph at the particle budget) and `full`
-// (`cal-512`, a layer at the 512 cap). Each run records the material meshes on the stage (sampled at
-// five moments, a second apart), the particle sprites drawing, the `?fxdebug=1` lines read into each
-// layer's state, peak covered pixels and load, the on-page readout, a screenshot, console errors,
-// failed requests (a fetch that is refused or answered with an error status) and stalls.
+// (`cal-512`, a layer at the 512 cap). `--coin` adds `coin` (`cal-coin`, the step-8f coin spike: a
+// solid coin ray-traced in each particle, Shader Graph 3D particles §4), its four-tile page
+// (`coin-spike-art.mjs`) shipped as editor art from a copy of the runtime, and `coin-plain`, the
+// same particles without the graph (the coin page drawn flat), and times the runs as `--calibrate`
+// does. Each run records the material meshes on the stage (sampled at five moments, a second
+// apart), the particle sprites drawing, the `?fxdebug=1` lines read into each layer's state, peak
+// covered pixels and load, the on-page readout, a screenshot, console errors, failed requests (a
+// fetch that is refused or answered with an error status) and stalls.
 //
 // It PASSES (exit 0) when, on each WebGL version:
 //  - the page drew on that version;
@@ -32,7 +36,8 @@
 //    invisible);
 //  - cap: eight `on` lines and one `plain, over the game cap`; eight meshes drawing at every sample,
 //    their sprites hidden, and the ninth layer's sprites drawing (no pop either way);
-//  - budget and full (with `--calibrate`): on, drawing at every sample, the load × their cost;
+//  - budget and full (with `--calibrate`), coin (with `--coin`): on, drawing at every sample, the
+//    load × their cost; coin-plain: plain, not registered, its sprites drawing;
 //  - the on-page readout shows the app's GPU, the frame times and each layer, and only with a
 //    material;
 //  - no layer turns plain while playing; no run has an error, a stall, a console error or a failed
@@ -50,7 +55,7 @@
 //   PUBLIC_RGS_TRANSPORT=play4fun PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/particle-material-play.mjs --runtime apps/lines/build --out <dir> \
-//     [--gl 1|2|both] [--calibrate] [--frames 120] [--chrome <exe>]
+//     [--gl 1|2|both] [--calibrate] [--coin] [--frames 120] [--chrome <exe>]
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -84,7 +89,13 @@ import { FX_DEBUG_PANEL_ID } from '../../packages/pixi-svelte/src/lib/particleMa
 import { openPage } from '../current-games/lib/browser.mjs';
 import { serveSnapshot, startTestServer, testServerTree } from '../current-games/lib/serve.mjs';
 import { headlessShell } from './headless-shell.mjs';
-import { SWARM_LAYERS, calibrationProjects } from './particle-calibration.mjs';
+import { COIN_SPIKE_FRAME, coinSpikeSheet } from './coin-spike-art.mjs';
+import {
+	COIN_SPIKE_ART,
+	SWARM_LAYERS,
+	calibrationProjects,
+	coinSpikePng,
+} from './particle-calibration.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const { values: opt } = parseArgs({
@@ -95,6 +106,7 @@ const { values: opt } = parseArgs({
 		seed: { type: 'string', default: '7' },
 		gl: { type: 'string', default: 'both' },
 		calibrate: { type: 'boolean', default: false },
+		coin: { type: 'boolean', default: false },
 		frames: { type: 'string', default: '120' },
 	},
 });
@@ -111,6 +123,17 @@ const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const work = mkdtempSync(join(tmpdir(), 'material-play-'));
 process.on('exit', () => rmSync(work, { recursive: true, force: true }));
+
+// The coin's page ships as editor art from the game's own origin, so `--coin` plays a copy of the
+// runtime with the page beside it (the build itself is left alone).
+const COIN_SHEET = 'coin-spike/coin3d.json';
+const runtime = opt.coin ? join(work, 'runtime') : resolve(opt.runtime);
+if (opt.coin) {
+	cpSync(resolve(opt.runtime), runtime, { recursive: true });
+	mkdirSync(join(runtime, 'coin-spike'), { recursive: true });
+	writeFileSync(join(runtime, 'coin-spike', `${COIN_SPIKE_FRAME}.png`), coinSpikePng());
+	writeFileSync(join(runtime, COIN_SHEET), JSON.stringify(coinSpikeSheet()));
+}
 
 // 1. The stand-in published snapshot.
 const fixtures = join(work, 'fixtures');
@@ -149,6 +172,13 @@ const bundle = JSON.parse(readFileSync(join(game.local.snapshot, 'runtime.json')
 /** The stand-in with `project`'s effect placed on its base game, its graphs shipped or not. */
 const placed = (project, shipped = true) => {
 	const next = structuredClone(bundle);
+	if (project.key === 'cal-coin') {
+		next.editorArt ??= { sheets: [], images: [] };
+		next.editorArt.sheets = [
+			...(next.editorArt.sheets ?? []),
+			{ key: COIN_SPIKE_ART, json: COIN_SHEET, names: [COIN_SPIKE_FRAME] },
+		];
+	}
 	const basegame = next.doc.scenes.find((s) => s.id === 'basegame');
 	if (!basegame) throw new Error('the stand-in has no basegame scene');
 	const { effect } = project;
@@ -172,7 +202,11 @@ const variants = {
 	cap: { bundle: placed(projects['cal-swarm']), timed: true },
 	budget: { bundle: placed(projects['cal-budget']), timed: true, calibrateOnly: true },
 	full: { bundle: placed(projects['cal-512']), timed: true, calibrateOnly: true },
+	coin: { bundle: placed(projects['cal-coin']), timed: true, coinOnly: true },
+	'coin-plain': { bundle: placed(projects['cal-coin'], false), timed: true, coinOnly: true },
 };
+const runsVariant = (variant) =>
+	(opt.calibrate || !variant.calibrateOnly) && (opt.coin || !variant.coinOnly);
 /** Each graph's cost and reads, by kind, for the load check and the summary. */
 const MATERIALS = Object.fromEntries(
 	Object.values(projects)
@@ -314,7 +348,7 @@ async function play(name, variant, gl) {
 		writeFileSync(join(dir, 'runtime.json'), JSON.stringify(variant.bundle));
 		const tree = testServerTree(
 			join(work, `tree-${tag}`),
-			opt.runtime,
+			runtime,
 			game.key,
 			game.local.manifestEntry,
 		);
@@ -369,7 +403,8 @@ async function play(name, variant, gl) {
 		await new Promise((r) => setTimeout(r, 200));
 		run.shot = `${tag}.png`;
 		writeFileSync(join(out, run.shot), await page.screenshot());
-		if (opt.calibrate && variant.timed) run.frameTime = stats(await page.evaluate(timing(FRAMES)));
+		if ((opt.calibrate || opt.coin) && variant.timed)
+			run.frameTime = stats(await page.evaluate(timing(FRAMES)));
 		run.state = await api('state()');
 		run.fxdebug = await page.evaluate('window.__fxdebug');
 		run.failedRequests = await page.evaluate('window.__failedRequests');
@@ -401,7 +436,7 @@ const report = {
 		effectLoad: FX_MATERIAL_EFFECT_LOAD_BUDGET,
 		layers: FX_MATERIAL_LAYER_CAP,
 	},
-	calibrate: opt.calibrate ? { frames: FRAMES, warmUp: WARM_UP } : false,
+	calibrate: opt.calibrate || opt.coin ? { frames: FRAMES, warmUp: WARM_UP } : false,
 	gl: {},
 };
 const diff = (a, b) => {
@@ -411,7 +446,7 @@ const diff = (a, b) => {
 for (const gl of GL_VERSIONS) {
 	const runs = {};
 	for (const [name, variant] of Object.entries(variants))
-		if (opt.calibrate || !variant.calibrateOnly) runs[name] = await play(name, variant, gl);
+		if (runsVariant(variant)) runs[name] = await play(name, variant, gl);
 	const { published, unregistered, none, cap } = runs;
 	const pixels =
 		published.error || unregistered.error || none.error
@@ -483,7 +518,7 @@ for (const [gl, { runs, pixels }] of Object.entries(report.gl)) {
 			none.panel === null,
 		'the on-page readout does not show the GPU, the frame times and each layer (and only with a material)',
 	);
-	for (const name of ['budget', 'full']) {
+	for (const name of ['budget', 'full', 'coin']) {
 		const run = runs[name];
 		if (!run) continue;
 		const layer = run.layers['embers/main'];
@@ -494,6 +529,13 @@ for (const [gl, { runs, pixels }] of Object.entries(report.gl)) {
 			`${name}: the material is not on, drawing, with its load at every sample`,
 		);
 	}
+	const coinPlain = runs['coin-plain'];
+	if (coinPlain)
+		expect(
+			coinPlain.layers['embers/main']?.mount === 'plain, not registered' &&
+				coinPlain.stage?.plainSprites > 0,
+			'coin-plain: the coin particles do not draw as plain sprites',
+		);
 	expect(unregistered.stage?.meshes === 0, 'unregistered: a material mesh is on the stage');
 	expect(unregistered.stage?.plainSprites > 0, 'unregistered: no particle sprite draws');
 	expect(
@@ -562,7 +604,14 @@ for (const [gl, { runs, effectLoad }] of Object.entries(report.gl)) {
 		layerLine('published', published),
 		`  unregistered  ${unregistered.layers['embers/main']?.mount ?? '?'}; ${unregistered.stage?.plainSprites ?? '?'} sprites${timed(unregistered)}`,
 		`  cap           ${CAP_LAYERS - plain.length} on, ${plain.map(([label, l]) => `${label} ${l.mount}`).join(', ') || 'none plain'}; ${cap.samples.map((s) => s.meshesDrawing).join('/')} meshes drawing over ${SAMPLES} samples; largest layer load ${short(largest)} (${pct(largest, FX_MATERIAL_LAYER_LOAD_BUDGET)}), effect load ${short(effectLoad.swarm)} (${pct(effectLoad.swarm, FX_MATERIAL_EFFECT_LOAD_BUDGET)} of ${short(FX_MATERIAL_EFFECT_LOAD_BUDGET)})${timed(cap)}`,
-		...['budget', 'full'].filter((name) => runs[name]).map((name) => layerLine(name, runs[name])),
+		...['budget', 'full', 'coin']
+			.filter((name) => runs[name])
+			.map((name) => layerLine(name, runs[name])),
+		...(runs['coin-plain']
+			? [
+					`  coin-plain    ${runs['coin-plain'].layers['embers/main']?.mount ?? '?'}; ${runs['coin-plain'].stage?.plainSprites ?? '?'} sprites${timed(runs['coin-plain'])}`,
+				]
+			: []),
 	);
 }
 for (const failure of report.verdict.failures ?? []) lines.push(`  FAIL ${failure}`);

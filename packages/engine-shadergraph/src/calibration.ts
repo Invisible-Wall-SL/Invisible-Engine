@@ -8,11 +8,13 @@
  *    over three offset reads of the particle's art, blended into it;
  *  - `calSeed`: each particle's art turned round the colour wheel by a hash of its seed, so the
  *    seeds can be seen (many hues, or few and banded);
- *  - `calParity`: the Output alone, which must look like the plain sprites.
+ *  - `calParity`: the Output alone, which must look like the plain sprites;
+ *  - `calCoin`: the step-8f coin spike (`coinSpike.ts`), a solid coin ray-traced in each particle.
  *
  * `compile.fixture.ts` holds each to its cost and reads.
  */
 
+import { COIN_SPIKE_GRAPH } from './coinSpike';
 import { REFERENCE_GRAPHS, graphBuilder } from './reference';
 import { SHADER_MADE_FOR_PARTICLES, type ShaderGraphDoc } from './types';
 
@@ -113,4 +115,5 @@ export const CALIBRATION_GRAPHS: readonly ShaderGraphDoc[] = [
 	calBudget(),
 	calSeed(),
 	calParity(),
+	COIN_SPIKE_GRAPH,
 ];

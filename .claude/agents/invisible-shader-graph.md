@@ -78,7 +78,11 @@ You are the developer for **Invisible Shader Graph**.
     and `--calibrate` frame times, by `scripts/playtest/particle-material-play.mjs`, whose
     playbook `docs/playtest/particle-material.md` is also the owner's phone check that sets the
     §10 budgets; both play the `cal-*` projects of `scripts/playtest/particle-calibration.mjs`
-    (graphs: `CALIBRATION_GRAPHS`, `engine-shadergraph/src/calibration.ts`). In the launcher, every preview mounts a
+    (graphs: `CALIBRATION_GRAPHS`, `engine-shadergraph/src/calibration.ts`). 3D particles (step 8f,
+    `docs/design/shader-graph-3d-particles.md`): the step-1 coin spike `calCoin`
+    (`src/coinSpike.ts`, Custom GLSL only, one of the calibration graphs) and its four-tile page
+    (`scripts/playtest/coin-spike-art.mjs`), played by `particle-material-play.mjs --coin` and
+    fx-spike `fx-page` step 10. In the launcher, every preview mounts a
     material through `apps/launcher-api/src/lib/fx/layerMaterial.client.ts` (the game's mount, its
     remount key, the uniform retune): `/fx`'s `FxStage` and Material section
     (`fxMaterial.client.ts`, 8d.5, played headless by `fx-spike fx-page`), the Scene Editor's
