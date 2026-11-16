@@ -27,6 +27,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
+- **SvelteKit 3: deferred until a trigger (owner decision, 2026-11-16).** `@sveltejs/adapter-node` 6
+  (Dependabot #1486, closed) needs SvelteKit 3, which needs Vite 8 and `@sveltejs/vite-plugin-svelte`
+  7 across the whole workspace (Vite is in ~44 packages, the plugin in ~36), so it is one
+  migration, not a bump. Do it when the first of these is true: SvelteKit 2 stops getting patches
+  (the `version-2` npm tag; 2.70.4 shipped 2026-11-05), build time starts to hurt, or we want
+  production sourcemaps for `error-tracking`. Known work: `$lib` → `#lib` (~471 files, explicit
+  extensions), `$app/paths` loses `base`/`assets`/`resolveRoute` (30 files), adapter-node drops the
+  `ORIGIN` env var for `kit.paths.origin` (`src/lib/server/env.ts` reads it; Railway env changes),
+  cookie `path` defaults to `/`, every error goes through `handleError`, and every game must show 0
+  changed screens. First step then: check whether Kit 2 accepts Vite 8 alone and time a build.
+  Dependabot ignores these majors meanwhile (`.github/dependabot.yml`).
 - **Ask the AI: first live answers + the Rig Viewer.** Verified against a mock Messages API only
   (streaming, drag, minimize, close, new chat, stop; Atlas and Sheet Maker through their relay; the
   Rigger direct). Check real answers on the live key, and spend in Admin › Costs (it bills under
