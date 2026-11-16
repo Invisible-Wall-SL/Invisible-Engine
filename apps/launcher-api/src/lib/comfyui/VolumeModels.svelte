@@ -107,6 +107,7 @@
 	let target = $state<ModelRow | null>(null);
 	let step = $state<1 | 2>(1);
 	let alsoMirror = $state(false);
+	let noRenderRunning = $state(false);
 	let deleting = $state(false);
 	let deleteError = $state('');
 	const needsSecond = $derived(!!target && (target.usedBy.length > 0 || !!target.keep));
@@ -115,6 +116,7 @@
 		target = row;
 		step = 1;
 		alsoMirror = false;
+		noRenderRunning = false;
 		deleteError = '';
 	}
 
@@ -129,6 +131,10 @@
 			step = 2;
 			return;
 		}
+		if (!view?.canCheckRenders && !noRenderRunning) {
+			deleteError = 'Tick that no render is running first — the launcher cannot check.';
+			return;
+		}
 		deleting = true;
 		deleteError = '';
 		try {
@@ -137,6 +143,7 @@
 				confirmBlueprints: target.usedBy.map((b) => b.id),
 				confirmKeep: !!target.keep,
 				alsoMirror,
+				confirmNoRenderCheck: !view?.canCheckRenders && noRenderRunning,
 			});
 			target = null;
 			await load();
@@ -545,6 +552,16 @@
 					<input type="checkbox" bind:checked={alsoMirror} />
 					Also delete the R2 mirror copy and its manifest entry (desktops stop syncing it). Left unticked,
 					it stays in R2 and can be copied back.
+				</label>
+			{/if}
+			{#if !view?.canCheckRenders}
+				<p class="warn">
+					<code>RUNPOD_ENDPOINT_ID</code> is not set, so the launcher cannot see renders in flight. A
+					worker loading this file while it goes fails its render.
+				</p>
+				<label class="check">
+					<input type="checkbox" bind:checked={noRenderRunning} />
+					I have checked that no render is running on the serverless endpoint.
 				</label>
 			{/if}
 		{:else if target}

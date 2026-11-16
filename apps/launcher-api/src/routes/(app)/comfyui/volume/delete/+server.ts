@@ -4,11 +4,12 @@ import { VolumeActionError, deleteFromVolume } from '$lib/server/volumeModels';
 import type { RequestHandler } from './$types';
 
 /**
- * Delete one model file from the volume — `{ key, confirmBlueprints, confirmKeep, alsoMirror }`.
- * The server re-checks who uses the file and refuses unless `confirmBlueprints` names every one.
+ * Delete one model file from the volume —
+ * `{ key, confirmBlueprints, confirmKeep, alsoMirror, confirmNoRenderCheck }`. The server re-checks
+ * who uses the file and refuses unless `confirmBlueprints` names every one.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
-	await requireComfyAdmin(locals);
+	const user = await requireComfyAdmin(locals);
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	const key = typeof body?.key === 'string' ? body.key : '';
 	const confirmBlueprints = Array.isArray(body?.confirmBlueprints)
@@ -21,8 +22,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				confirmBlueprints,
 				confirmKeep: body?.confirmKeep === true,
 				alsoMirror: body?.alsoMirror === true,
+				confirmNoRenderCheck: body?.confirmNoRenderCheck === true,
 			},
-			locals.user?.email ?? 'admin',
+			user.email,
 		);
 		return json({ ok: true });
 	} catch (e) {

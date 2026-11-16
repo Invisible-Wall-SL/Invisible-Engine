@@ -408,6 +408,23 @@ def test_manifest_write_merges_what_changed_during_the_run():
 	check("the volume:false mark survives", fake.manifest["models"][0].get("volume"), False)
 
 
+def test_merge_keeps_the_volume_false_mark():
+	"""Re-pushing a file the launcher deleted from the volume must not drop its
+	`"volume": false` (or any field this script does not write) — else the next
+	pull-models.py quietly puts the deleted file back."""
+	marked = {"key": "comfyui-models/loras/gone.safetensors", "dir": "loras",
+	          "name": "gone.safetensors", "size": 8, "sha256": "x",
+	          "volume": False, "note": "from the launcher"}
+	merged = pm.merge_manifest({"version": 1, "base_prefix": "comfyui-models",
+	                            "models": [marked]},
+	                           [{**{k: marked[k] for k in ("key", "dir", "name")},
+	                             "size": 9, "sha256": "y"}], "comfyui-models")
+	entry = merged["models"][0]
+	check("the volume:false mark survives a re-push", entry.get("volume"), False)
+	check("an unknown field survives", entry.get("note"), "from the launcher")
+	check("this run's fields still win", [entry["size"], entry["sha256"]], [9, "y"])
+
+
 def _run_pull(fake: FakeS3, dest: Path, extra: list[str] | None = None) -> None:
 	"""Run pull-models.py's real main() against the stub client."""
 	stub = types.ModuleType("boto3")
@@ -446,7 +463,8 @@ if __name__ == "__main__":
 	           test_prefix_must_match_the_manifest_base_prefix,
 	           test_round_trip_to_pull_models,
 	           test_pull_skips_entries_removed_from_the_volume,
-	           test_manifest_write_merges_what_changed_during_the_run):
+	           test_manifest_write_merges_what_changed_during_the_run,
+	           test_merge_keeps_the_volume_false_mark):
 		print(f"\n-- {fn.__name__}")
 		fn()
 	print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
