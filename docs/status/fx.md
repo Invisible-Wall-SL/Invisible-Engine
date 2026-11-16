@@ -71,6 +71,9 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Particles on paths** (2026-11-16, being built) — spawn along a line / spline / Bézier,
+  move the emitter along it, or have particles follow it; one `fxPath` behaviour in the layer
+  config, off by default. Plan and its three PRs: [design/fx-paths](../design/fx-paths.md).
 - **Re-bake Overlay Buffalo Duel's mixed effects** (2026-11-02) — `s_sparks_small` and
   `s_sparks_big` mix Normal and Add, so their stored bakes now read **Stale** and play live (in a
   game, once this runtime ships, even before a re-publish). In `/fx`: open each, **Bake again**,
