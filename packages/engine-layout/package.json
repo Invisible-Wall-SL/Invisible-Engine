@@ -43,7 +43,7 @@
 		"config-vite": "workspace:*",
 		"eslint": "10.14.0",
 		"eslint-config-custom": "workspace:*",
-		"prettier": "3.9.10",
+		"prettier": "3.10.1",
 		"prettier-plugin-svelte": "3.3.3",
 		"svelte-check": "4.7.8"
 	},
@@ -55,7 +55,7 @@
 		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
 		"pixi-svelte": "workspace:*",
-		"pixi.js": "8.22.0",
+		"pixi.js": "8.23.0",
 		"svelte": "5.57.3",
 		"utils-event-emitter": "workspace:*",
 		"utils-layout": "workspace:*",

@@ -11,7 +11,7 @@
 	"devDependencies": {
 		"eslint": "10.14.0",
 		"eslint-config-custom": "workspace:*",
-		"sass": "1.108.1"
+		"sass": "1.108.2"
 	},
 	"dependencies": {
 		"svelte": "5.57.3",
