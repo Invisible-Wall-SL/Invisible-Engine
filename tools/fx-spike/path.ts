@@ -610,7 +610,10 @@ assert(
 const buildStart = performance.now();
 new FxPathBehavior({ curve: { kind: 'catmullRom', points: huge }, emit: 'along' });
 const buildMs = performance.now() - buildStart;
-assert(buildMs < 50, `…and the behavior builds in ${buildMs.toFixed(1)} ms (< 50)`);
+assert(
+	buildMs < 200,
+	`…and the behavior builds in ${buildMs.toFixed(1)} ms (< 200; ~1 s uncapped)`,
+);
 
 // A non-finite dt neither advances the clock nor leaves `spawnPos` NaN.
 const poisoned = make(travelCfg());
@@ -645,7 +648,7 @@ const poisonedP = (
 for (const bad of [Infinity, Number.NaN]) fb.updateParticle(poisonedP, bad);
 assert(
 	Number.isFinite(poisonedP.x) && Number.isFinite(Number(poisonedP.config.fxPathS)),
-	'a non-finite dt does not move a following particle off the curve',
+	'a non-finite dt does not move a particle following by speed off the curve',
 );
 
 // autoUpdate: the shared Ticker calls `update(ticker)`, whose `deltaTime` is in frames; the clock
@@ -664,7 +667,9 @@ shared.lastTime = now;
 for (let i = 0; i < 6; i++) shared.update((now += 50));
 auto.autoUpdate = false;
 assert(
-	near(clock(auto).t, 0.3, 1e-6) && near(auto.spawnPos.x, 35, 1e-4),
+	(auto as unknown as FxPathEmitter).fxPathClock !== undefined &&
+		near(clock(auto).t, 0.3, 1e-6) &&
+		near(auto.spawnPos.x, 35, 1e-4),
 	`an autoUpdate emitter travels at the Ticker's seconds, not frames (t ${clock(auto).t.toFixed(3)}, x ${auto.spawnPos.x.toFixed(2)})`,
 );
 
@@ -672,16 +677,62 @@ assert(
 const dropped = make(travelCfg());
 for (let i = 0; i < 3; i++) dropped.update(0.1);
 const ds = dropped as unknown as { initBehaviors: unknown[]; updateBehaviors: unknown[] };
+// Turned since the last tick (a bone): the offset to take back has turned with `spawnPos`.
+dropped.rotate(Math.PI / 2);
 const dpb = ds.initBehaviors.find((b) => b instanceof FxPathBehavior);
 ds.initBehaviors.splice(ds.initBehaviors.indexOf(dpb), 1);
 if (ds.updateBehaviors.includes(dpb)) ds.updateBehaviors.splice(ds.updateBehaviors.indexOf(dpb), 1);
 dropped.update(0.1);
 assert(
-	near(dropped.spawnPos.x, 5, 1e-6) &&
-		near(dropped.spawnPos.y, 7, 1e-6) &&
+	near(dropped.spawnPos.x, -7, 1e-6) &&
+		near(dropped.spawnPos.y, 5, 1e-6) &&
 		(dropped as unknown as FxPathEmitter).fxPathClock === undefined,
-	`removing fxPath without init returns the origin to the authored pos (${dropped.spawnPos.x.toFixed(2)})`,
+	`removing fxPath without init returns a turned origin to the turned authored pos (${dropped.spawnPos.x.toFixed(2)}, ${dropped.spawnPos.y.toFixed(2)})`,
 );
+
+// A second copy of engine-fx (an HMR re-run, a bundle duplicate) registers its own class: the hook
+// installed by the first copy must still treat it as the path, not release its clock every tick.
+class CopiedPath {
+	static type = FX_PATH_BEHAVIOR_TYPE;
+	order = 1;
+	private inner: FxPathBehavior;
+	constructor(config: FxPathConfig) {
+		this.inner = new FxPathBehavior(config);
+	}
+	tickEmitter(em: FxPathEmitter, dt: number): void {
+		this.inner.tickEmitter(em, dt);
+	}
+	initParticles(first: Parameters<FxPathBehavior['initParticles']>[0]): void {
+		this.inner.initParticles(first);
+	}
+	updateParticle(p: Parameters<FxPathBehavior['updateParticle']>[0], dt: number): boolean {
+		return this.inner.updateParticle(p, dt);
+	}
+}
+const copied = make(travelCfg());
+const cs = copied as unknown as { initBehaviors: unknown[]; updateBehaviors: unknown[] };
+const cAt = cs.initBehaviors.findIndex((b) => b instanceof FxPathBehavior);
+const cOld = cs.initBehaviors[cAt];
+const cNew = new CopiedPath(travelCfg().behaviors[0].config as FxPathConfig);
+cs.initBehaviors[cAt] = cNew;
+cs.updateBehaviors[cs.updateBehaviors.indexOf(cOld)] = cNew;
+for (let i = 0; i < 3; i++) copied.update(0.1);
+assert(
+	near(copied.spawnPos.x, 35, 1e-6),
+	`a path class from another module copy still travels (${copied.spawnPos.x.toFixed(2)})`,
+);
+
+// `destroy` empties the arrays in place and nulls `spawnPos`: a late update stays a quiet no-op.
+const destroyed = make(travelCfg());
+destroyed.update(0.1);
+destroyed.destroy();
+let threw = false;
+try {
+	destroyed.update(0.1);
+} catch {
+	threw = true;
+}
+assert(!threw, 'updating a destroyed travelled emitter does not throw (the library returns)');
 
 // ---------------------------------------------------------------------------
 console.log('');

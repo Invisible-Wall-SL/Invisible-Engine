@@ -119,8 +119,8 @@ export const FX_PATH_DEFAULT_POINTS: FxPathPoint[] = [
 /**
  * The most anchors a path keeps; the rest are dropped. `init` (re-run each time an event layer
  * re-fires) rebuilds the arc-length table, so an absurd doc would stall the game on every fire. A
- * hand-drawn path has a handful of points; 256 anchors of a spline are ~6k samples, built in well
- * under a millisecond.
+ * hand-drawn path has a handful of points; 256 anchors of a spline are ~6k samples, built in a few
+ * milliseconds.
  */
 export const FX_PATH_MAX_POINTS = 256;
 
@@ -548,13 +548,14 @@ function dropTravel(em: FxPathEmitter, c: FxPathClock): void {
 
 /**
  * The emitter has a clock but no `fxPath` any more, and `init` did not run (it would have reset
- * `spawnPos` and the behavior arrays): the behavior was taken out in place, so take its travel
- * offset out too, then forget the clock.
+ * `spawnPos` and the behavior arrays): the behavior was taken out in place — as step 3's `/fx`
+ * live edit of a layer may do — so take its travel offset out too, then forget the clock.
  */
 function releaseFxPath(em: FxPathEmitter): void {
 	const c = em.fxPathClock;
 	if (!c) return;
-	if (c.behaviors === em.initBehaviors) dropTravel(em, c);
+	// `destroy` empties the arrays in place and nulls `spawnPos`: nothing is left to hand back.
+	if (c.behaviors === em.initBehaviors && em.spawnPos) dropTravel(em, c);
 	em.fxPathClock = undefined;
 }
 
@@ -765,8 +766,16 @@ export class FxPathBehavior {
 const TICK_HOOK = Symbol.for('engine-fx.emitterTick');
 
 interface TickTarget extends FxPathEmitter {
-	_autoUpdate?: boolean;
+	autoUpdate?: boolean;
 }
+
+interface TickerLike {
+	deltaTime?: unknown;
+	elapsedMS?: unknown;
+}
+
+/** The Ticker an `autoUpdate` emitter was last called by (the library's `Ticker.shared`). */
+let autoTicker: TickerLike | undefined;
 
 /**
  * Wrap `Emitter.prototype.update` so behaviors with a `tickEmitter(emitter, dt)` run before each
@@ -782,10 +791,13 @@ export function installFxEmitterTick(emitterClass: unknown): void {
 	proto.update = function (this: TickTarget, delta: unknown): unknown {
 		const behaviors = this.initBehaviors;
 		if (behaviors) {
-			const dt = tickSeconds(delta, this._autoUpdate === true);
+			const dt = tickSeconds(delta, this.autoUpdate === true);
 			let pathTicked = false;
 			for (const b of behaviors) {
-				if (b instanceof FxPathBehavior) pathTicked = true;
+				// By type, not `instanceof`: a second copy of this module (an HMR re-run, a duplicate in
+				// a bundle) registers its own class, and the hook installed first must still see it.
+				const ctor = (b as { constructor?: { type?: unknown } } | null)?.constructor;
+				if (ctor?.type === FX_PATH_BEHAVIOR_TYPE) pathTicked = true;
 				const tick = (b as { tickEmitter?: unknown } | null)?.tickEmitter;
 				if (typeof tick === 'function') tick.call(b, this, dt);
 			}
@@ -796,8 +808,18 @@ export function installFxEmitterTick(emitterClass: unknown): void {
 	proto[TICK_HOOK] = true;
 }
 
+/**
+ * The seconds the original update will use. Under `autoUpdate` the library replaces ANY delta, a
+ * number included, with `Ticker.shared.elapsedMS * 0.001`; the hook reads the Ticker it was handed
+ * (or, for a hand-called update, the one it was last handed) rather than import pixi.
+ */
 function tickSeconds(delta: unknown, autoUpdate: boolean): number {
+	const ticker = typeof delta === 'object' && delta !== null ? (delta as TickerLike) : undefined;
+	if (autoUpdate) {
+		if (ticker) autoTicker = ticker;
+		const ms = Number((ticker ?? autoTicker)?.elapsedMS);
+		if (Number.isFinite(ms)) return ms * 0.001;
+	}
 	if (typeof delta === 'number') return delta;
-	const ticker = delta as { deltaTime?: unknown; elapsedMS?: unknown } | null;
-	return autoUpdate ? Number(ticker?.elapsedMS) * 0.001 || 0 : Number(ticker?.deltaTime) || 0;
+	return Number(ticker?.deltaTime) || 0;
 }
