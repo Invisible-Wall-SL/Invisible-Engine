@@ -47,6 +47,11 @@ export interface VolumeUpload {
  * retry". A page is retried with a growing pause rather than failing the whole listing.
  */
 const LIST_PAGE_ATTEMPTS = 6;
+/**
+ * RunPod hashes each unhashed file in a page before answering (~3 s per GB, kept afterwards), and
+ * its edge cuts a request at 100 s with a 524: a 1000-key page over model weights never answered.
+ */
+const LIST_PAGE_KEYS = 50;
 const LIST_RETRY_BASE_MS = 2_000;
 
 class RunpodS3Volume implements VolumeStore {
@@ -126,7 +131,7 @@ class RunpodS3Volume implements VolumeStore {
 						Bucket: this.bucket,
 						Prefix: prefix,
 						ContinuationToken: token,
-						MaxKeys: 1000,
+						MaxKeys: LIST_PAGE_KEYS,
 					}),
 				);
 			} catch (e) {
