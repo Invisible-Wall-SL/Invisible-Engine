@@ -19,6 +19,7 @@
 		"variation": "tsx variation.ts",
 		"rig-bound": "tsx rigBound.ts",
 		"forces": "tsx forces.ts",
+		"path": "tsx path.ts",
 		"sprite": "tsx sprite.ts",
 		"material-behavior": "tsx materialBehavior.ts",
 		"exposed-params": "tsx exposedParams.ts",

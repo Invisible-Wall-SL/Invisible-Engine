@@ -174,6 +174,23 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-16 — **Particles on paths: the runtime** (branch `claude/fx-paths-runtime`, design
+  [fx-paths](../design/fx-paths.md) step 2). `engine-fx/src/path.ts`: a polyline / Catmull-Rom /
+  cubic Bézier curve flattened to an arc-length table, and the `fxPath` behaviour (order 1, after
+  placement) that uses it three ways — **along** (born on the curve: even waves at equal arc
+  lengths, an even single-particle stream by a golden-ratio step, random, or a sweep over the
+  travel time; normal jitter; Direction relative to the tangent / normal), **travel** (the
+  emitter's `spawnPos` moves along the curve, keeping the authored `pos` and turning with the
+  emitter) and **follow** (each particle moves by the difference of two curve points — by life or
+  at a px/s speed, stop / loop / die at the end, optional orient to the tangent — so forces stack
+  on top). `registerFxBehaviors` registers it and installs a tick hook around
+  `Emitter.prototype.update` that advances the path clock, stored on the emitter (a parameter
+  rebuild keeps the pass), by the renderer's dt (so Turbo speeds it up) and restarts it when
+  emission switches back on or the emitter is re-initialised (an event layer re-firing); a looping
+  travel's wrap from the end to the start resets the spawn lerp so no streak crosses the gap, and
+  `rewindFxPath` lets a Replay restart the pass. No layer carries `fxPath` yet, so no effect changes. Gate:
+  `check:fx-path` (fx-spike `path.ts`, in `check:all`), with mutants planted for the travel
+  rotation, the even stream and the behaviour order. Not yet authorable in `/fx` (step 3).
 - 2026-11-03 — **One-shot effects loop in the `/fx` preview; ⟲ Replay** (branch
   `claude/fx-stage-playback-fix`). Owner report: a burst effect played once on load and then never
   again; editing a layer re-fired only that layer, so the whole effect could not be seen. Not a
