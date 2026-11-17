@@ -610,6 +610,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-17 — **The `arcade3d` play field plays in 3D** (3D Phase 1a; detail in
+  [3d](3d.md)). Only the `arcade3d` runtime changes: its seam reserves the world canvas before the
+  Pixi context (auto-opaque stays transparent over the world), hides the coded background band while
+  the 3D field is mounted, and drives a `motion3d` player on a placeholder arena with a camera rig,
+  picking and a 3D pixel ratio below the HUD's. `lines`, `match3`, `arcade` and `card` compile
+  none of it (`check:runtime-bytes`).
 - 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
   released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins
   what made two builds of one commit differ — `__IE_BUILD__`'s `builtAt`, `sha`, `engineSha`,

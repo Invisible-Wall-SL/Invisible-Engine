@@ -1314,6 +1314,9 @@ importers:
 
   packages/engine-3d:
     dependencies:
+      engine-mechanics:
+        specifier: workspace:*
+        version: link:../engine-mechanics
       three:
         specifier: 0.181.2
         version: 0.181.2
