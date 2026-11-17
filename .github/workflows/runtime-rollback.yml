@@ -40,7 +40,7 @@ on:
       runtime:
         description: 'Runtime id (the family the game plays: lines = every slot kind)'
         type: choice
-        options: [lines, match3, arcade, card]
+        options: [lines, match3, arcade, card, arcade3d]
         default: lines
         required: true
 
