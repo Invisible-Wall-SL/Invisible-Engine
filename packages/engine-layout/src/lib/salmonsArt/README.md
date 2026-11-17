@@ -14,9 +14,9 @@ snapshot ships it, from this copy otherwise (`load.ts`, `regions.ts` `pickSalmon
 built-in page is fetched only when a region still needs it. Region names never change: the drawing
 code (`looks.ts`, `river.ts`, `regions.ts`) looks them up by name. Keep an edited region the size it
 is here: the drawing code sizes some art from its texture (the waterfall face's tile scale). The
-project sheets were put there once by `scripts/salmons/upload-art.py` (from
-`scripts/salmons/project-art.mjs`); re-running it after a rebuild here does not overwrite an edited
-project sheet, it stops and reports it.
+project sheets were imported once through the Sheet Maker from `scripts/salmons/plist-export.py`'s
+`.plist` + `.webp` pairs (both it and the R2 script `upload-art.py` read the plan in
+`scripts/salmons/project-art.mjs`). A rebuild here does not touch an edited project sheet.
 
 **Source.** `GuiltyForever/Salmon-` at `41811c2`, `art/source/legacy/` (the untouched originals):
 `grass.png`, `sand.png`, `rocks.jpg`, `whirlpool.jpg`, `trees.png`, `waterfall_splash.png`,
