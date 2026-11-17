@@ -358,7 +358,7 @@ the runbook follows them.
   `arcade.online.levels` in Game Config (normalised, a warning on another generator), the room's
   pinned-or-random seed, the locked `generated` river node and `/editor`'s Generated level card, the
   export on level 1, the gate `check:salmons-levels`. Left: bridges, waterfall heights in the climb,
-  the art on the editor stage, clicking a cell (design §3). Taking it live is an owner re-upload of
+  the art on the editor stage, clicking a cell, and the owner's authored lobby screen (its own PR; design §3). Taking it live is an owner re-upload of
   the export (owner steps).
 
 - 2026-11-16 — **Seeded levels planned** ([design/salmons-levels](../design/salmons-levels.md); branch

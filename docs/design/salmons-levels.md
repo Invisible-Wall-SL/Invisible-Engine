@@ -76,6 +76,12 @@ cycle; Game Config keeps only valid level entries; a salmon swims a whole origin
 
 ## 3. Left open
 
+- **The room as an authored lobby screen** (owner, 2026-11-17: "each room should have a random
+  level. the room should also be a screen we can author, so people can wait there before starting
+  a session"): a Scene Editor screen players wait on in a room before its session starts, built
+  with the existing screen and Flow patterns. Its own PR, after this one. Salmons pins no seed:
+  every room is random, as the owner asked; the pinned list stays an option for other games.
+
 - Bridges: generated, not drawn (no bridge art is built) and not in the rules (a bear blocked, a
   fisherman on the deck).
 - Waterfall `height` is carried, but the climb still takes the engine's 4 taps.
