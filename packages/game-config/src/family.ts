@@ -171,6 +171,18 @@ export type ArcadeOnlineRound = {
 	goalScore?: number;
 };
 
+/**
+ * A room's LOBBY (`docs/design/salmons-levels.md` §4): players wait on the game's lobby screen
+ * until `minPlayers` people (not bots) are in, or `maxWaitSeconds` after the first one joined,
+ * whichever is first; the first round starts `countdownSeconds` after that. Absent ⇒ no lobby: the
+ * first join starts the first round. Rounds after the first follow on as before.
+ */
+export type ArcadeOnlineLobby = {
+	minPlayers?: number;
+	maxWaitSeconds?: number;
+	countdownSeconds?: number;
+};
+
 /** The named rules modules a room can run: the ids of `engine-mechanics` `ONLINE_RULES_MODULES`
  *  (this package depends on nothing, so `check:online-rules` holds the two lists equal). */
 export const ONLINE_RULES_MODULE_IDS: readonly string[] = Object.freeze([
@@ -228,6 +240,8 @@ export type ArcadeOnlineRules = {
 	zones?: ArcadeOnlineZoneRule[];
 	abilities?: ArcadeOnlineAbility[];
 	round?: ArcadeOnlineRound;
+	/** Wait for players before the first round. Absent ⇒ the first join starts it. */
+	lobby?: ArcadeOnlineLobby;
 	/** A named rules module the room also runs. */
 	module?: string;
 };
@@ -333,6 +347,9 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	force: { min: -5000, max: 5000 },
 	roundSeconds: { min: 5, max: 3600 },
 	nextRoundSeconds: { min: 0, max: 300 },
+	lobbyMinPlayers: { min: 1, max: 100 },
+	lobbyMaxWaitSeconds: { min: 0, max: 600 },
+	lobbyCountdownSeconds: { min: 0, max: 60 },
 	abilities: { max: 16 },
 	zoneRules: { max: 256 },
 	fillTo: { min: 0, max: 100 },
@@ -346,6 +363,9 @@ export const ARCADE_ONLINE_RULE_DEFAULTS = Object.freeze({
 	cooldownMs: 1000,
 	nextRoundSeconds: 15,
 	goalScore: 1,
+	lobbyMinPlayers: 4,
+	lobbyMaxWaitSeconds: 60,
+	lobbyCountdownSeconds: 10,
 });
 
 /**
@@ -444,6 +464,8 @@ export type ResolvedArcadeOnlineRules = {
 	zones: ArcadeOnlineZoneRule[];
 	abilities: ResolvedArcadeAbility[];
 	round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
+	/** Absent ⇒ no lobby. */
+	lobby?: { minPlayers: number; maxWaitSeconds: number; countdownSeconds: number };
 	module?: string;
 };
 
@@ -503,6 +525,23 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 			),
 			goalScore: Math.round(within(rules?.round?.goalScore ?? d.goalScore, L.score)),
 		},
+		...(rules?.lobby
+			? {
+					lobby: {
+						minPlayers: Math.round(
+							within(rules.lobby.minPlayers ?? d.lobbyMinPlayers, L.lobbyMinPlayers),
+						),
+						maxWaitSeconds: within(
+							rules.lobby.maxWaitSeconds ?? d.lobbyMaxWaitSeconds,
+							L.lobbyMaxWaitSeconds,
+						),
+						countdownSeconds: within(
+							rules.lobby.countdownSeconds ?? d.lobbyCountdownSeconds,
+							L.lobbyCountdownSeconds,
+						),
+					},
+				}
+			: {}),
 		...(rules?.module ? { module: rules.module } : {}),
 	};
 };
@@ -933,6 +972,16 @@ export function normalizeOnlineRules(raw: unknown): ArcadeOnlineRules | undefine
 		const goalScore = num(raw.round.goalScore);
 		if (goalScore !== undefined) round.goalScore = goalScore;
 		if (Object.keys(round).length) rules.round = round;
+	}
+	if (isObject(raw.lobby)) {
+		const lobby: ArcadeOnlineLobby = {};
+		const min = posInt(raw.lobby.minPlayers);
+		if (min !== undefined) lobby.minPlayers = min;
+		const wait = num(raw.lobby.maxWaitSeconds);
+		if (wait !== undefined && wait >= 0) lobby.maxWaitSeconds = wait;
+		const countdown = num(raw.lobby.countdownSeconds);
+		if (countdown !== undefined && countdown >= 0) lobby.countdownSeconds = countdown;
+		rules.lobby = lobby;
 	}
 	const module = tagOf(raw.module);
 	if (module) rules.module = module;

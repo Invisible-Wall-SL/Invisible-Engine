@@ -52,4 +52,12 @@ export type SalmonsGeometry = {
 };
 export function salmonsGeometry(river: SalmonsRiver): SalmonsGeometry;
 /** A `GameConfigDoc` (as plain JSON: this package depends on nothing). */
-export function salmonsConfig(river?: SalmonsRiver): Record<string, unknown>;
+export const SALMONS_LOBBY: Readonly<{
+	minPlayers: number;
+	maxWaitSeconds: number;
+	countdownSeconds: number;
+}>;
+export function salmonsConfig(
+	river?: SalmonsRiver,
+	options?: { lobby?: { minPlayers?: number; maxWaitSeconds?: number; countdownSeconds?: number } },
+): Record<string, unknown>;

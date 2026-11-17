@@ -616,6 +616,31 @@ function validateOnlineRules(doc: GameConfigDoc): GameConfigIssue[] {
 			message: `The pause between rounds is at most ${L.nextRoundSeconds.max} seconds.`,
 		});
 	}
+	const lobby = rules.lobby;
+	const outside = (v: number | undefined, r: { min: number; max: number }) =>
+		v !== undefined && (v < r.min || v > r.max);
+	if (
+		lobby &&
+		(outside(lobby.minPlayers, L.lobbyMinPlayers) ||
+			outside(lobby.maxWaitSeconds, L.lobbyMaxWaitSeconds) ||
+			outside(lobby.countdownSeconds, L.lobbyCountdownSeconds))
+	) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.rules.lobby',
+			message: `A lobby waits for ${L.lobbyMinPlayers.min}–${L.lobbyMinPlayers.max} players or ${L.lobbyMaxWaitSeconds.min}–${L.lobbyMaxWaitSeconds.max} seconds, then counts down ${L.lobbyCountdownSeconds.min}–${L.lobbyCountdownSeconds.max} seconds.`,
+		});
+	}
+	if (
+		lobby?.minPlayers !== undefined &&
+		lobby.minPlayers > (doc.arcade?.online?.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers)
+	) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.rules.lobby.minPlayers',
+			message: 'The lobby waits for more players than a room holds: it starts on its timer.',
+		});
+	}
 	if (rules.module && !ONLINE_RULES_MODULE_IDS.includes(rules.module)) {
 		issues.push({
 			severity: 'error',

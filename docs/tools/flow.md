@@ -1085,6 +1085,8 @@ shows them. `ability`, `hit` and `caught` also fire offline, above). A player is
 | `caught` | `by`, `target`, `effect`, `mine`, `me` | An ability caught a player. It is out, and not drawn, until it respawns. |
 | `roundStart` | `round` | A round started: everyone is back at the spawn with no score. |
 | `roundEnd` | `round`, `winner`, `won` | A round ended, at the goal or on its clock; the next one starts by itself. |
+| `lobby` | `player`, `me` | A game with a lobby (Game Config's Online rules): a person joined while the room waits for its first round. Show the lobby screen on `me`. A device still loading misses it, so also check the `phase` room value (`waiting`) once the game shows, as Salmons' flow does. |
+| `countdown` | `seconds` | The lobby has its players, or has waited long enough: round 1 starts when `secondsLeft` reaches 0. |
 | `ability` | `player`, `character`, `button`, `x`, `y`, `mine`, `predicted` | A player used an ability (a swipe, a cast) at `x`, `y`. This device's own fires on the key press (`predicted`), before the room answers, so draw it here; everyone else's when the room tells. |
 | `climbed` / `grounded` | `player`, `zone`, `x`, `y`, `me` | A rules module (Salmons): a player climbed a waterfall, or is held on a sandbank (`zone` is its id) until it jumps. |
 | `jumped` | `player`, `x`, `y`, `me` | A grounded player jumped off its sandbank. |
@@ -1092,7 +1094,7 @@ shows them. `ability`, `hit` and `caught` also fire offline, above). A player is
 | `golden` | `player`, `x`, `y`, `me` | A player became the room's marked one (Salmons' golden salmon). The runtime draws it gold itself. |
 
 **Room values.** A variable can mirror a value the room owns: give it `server` — `score` or `status`
-(this device's player), `round`, `phase`, `secondsLeft` (in the round, or until the next), `winner`
+(this device's player), `round`, `phase` (`waiting` in a lobby), `secondsLeft` (in the round, until the next, or in a lobby's countdown), `winner`
 or `won`. The game writes it from every room state, so a HUD Text Box bound to `var:<id>` shows it.
 Flow only reads it: a Set or Change of it is refused (`variable-server-owned`). `server` is set in the
 flow's file (the Salmons export writes it), not in the Variables panel, which keeps it when you

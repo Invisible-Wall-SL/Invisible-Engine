@@ -350,6 +350,14 @@ the runbook follows them.
 
 ## Recent changes
 
+- 2026-11-17 — **The lobby** (branch `arcade/salmons-lobby`; in review;
+  [design/salmons-levels](../design/salmons-levels.md) §4). Owner: the room is an authored screen
+  people wait on before a session; it starts on 4 people or 60 s after the first, after a 10 s
+  countdown; later rounds follow on as before. Built: `rules.lobby` in the room rules and Game
+  Config (with `/config` fields), the `lobby` and `countdown` Flow events, Salmons' Lobby and Lobby
+  countdown screens and their flow, the export's lobby. Proof: `check:room-lobby`, the playtest's
+  lobby pages. Taking it live is the same owner re-upload as the levels.
+
 - 2026-11-17 — **Salmons plays the original game's levels, by seed, with authored overlays**
   (#1699, branch `arcade/salmons-seeded-levels`; in review). The owner gave the original source and chose
   random-by-default plus a pinned list. Built: the line-for-line port and its PRNG (checked against

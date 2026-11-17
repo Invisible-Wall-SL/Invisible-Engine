@@ -8,6 +8,9 @@
  *     runtime writes them from each state, and nothing here may set them (`variable-server-owned`).
  *   - `roundEnd` shows the round-over screen, counting down to the next round on `secondsLeft`;
  *     `roundStart` hides it.
+ *   - A game with a lobby (`rules.lobby`): while the room's `phase` is `waiting` the lobby screen
+ *     is up (checked as the game shows, and on the device's own `lobby`), with its countdown once
+ *     `countdown` starts the clock; `roundStart` hides both.
  *   - `ability` draws a bear's swipe or a fisherman's cast where it is used, for 300 ms. The
  *     device's own is raised on the press (`predicted`), so it is drawn before the room answers.
  *   - The rules' events (after P11.3): a splash where a salmon `climbed` a waterfall or was
@@ -36,6 +39,8 @@ export const SALMONS_FLOW_SCREENS = {
 	hud: 'salmonsHud',
 	over: 'salmonsRoundOver',
 	golden: 'salmonsGolden',
+	lobby: 'salmonsLobby',
+	countdown: 'salmonsCountdown',
 } as const;
 
 /** The ability looks (`engine-layout` `SALMONS_CHARACTER_COMPONENTS`), by the character using one. */
@@ -54,6 +59,8 @@ const CONTAINERS: ContainerRef[] = [
 	{ id: SALMONS_FLOW_SCREENS.hud, sceneId: SALMONS_FLOW_SCREENS.hud, z: 60 },
 	{ id: SALMONS_FLOW_SCREENS.golden, sceneId: SALMONS_FLOW_SCREENS.golden, z: 70 },
 	{ id: SALMONS_FLOW_SCREENS.over, sceneId: SALMONS_FLOW_SCREENS.over, z: 80 },
+	{ id: SALMONS_FLOW_SCREENS.lobby, sceneId: SALMONS_FLOW_SCREENS.lobby, z: 85 },
+	{ id: SALMONS_FLOW_SCREENS.countdown, sceneId: SALMONS_FLOW_SCREENS.countdown, z: 86 },
 	{ id: ARCADE_SCREENS.loading, sceneId: ARCADE_SCREENS.loading, z: 100 },
 ];
 
@@ -61,6 +68,8 @@ const trigger = (member: string): DataSource => ({
 	kind: 'accessor',
 	path: { on: 'trigger', member },
 });
+const variable = (id: string): DataSource => ({ kind: 'accessor', path: { on: 'var', id } });
+const int = (value: number): DataSource => ({ kind: 'literal', type: { t: 'int' }, value });
 const text = (value: string): DataSource => ({ kind: 'literal', type: { t: 'string' }, value });
 const bool = (value: boolean): DataSource => ({ kind: 'literal', type: { t: 'bool' }, value });
 const ms = (value: number): DataSource => ({ kind: 'literal', type: { t: 'ms' }, value });
@@ -103,10 +112,48 @@ const buildGraph = (): FlowDoc['graph'] => {
 		kind: 'event',
 		ref: `complete:${ARCADE_SCREENS.loading}`,
 	});
-	chain({ node: completeLoading, pin: 'exec' }, showGame('sm_loaded'));
-	chain(pin('tapToStart'), showGame('sm_tapped'));
+	// The lobby (a game with `rules.lobby`): shown while the room waits for its first round, its
+	// countdown once the clock runs; checked from the room's `phase` once the game shows (a signal
+	// raised while the device still loads reaches no flow) and on the device's own `lobby`.
+	const lobbyCheck = (prefix: string) => {
+		const waiting = add({
+			id: `${prefix}_waiting`,
+			kind: 'branch',
+			guard: { all: [{ left: variable('phase'), op: 'eq', right: text('waiting') }] },
+		});
+		const counting = add({
+			id: `${prefix}_counting`,
+			kind: 'branch',
+			guard: { all: [{ left: variable('secondsLeft'), op: 'gt', right: int(0) }] },
+		});
+		chain({ node: waiting, pin: 'then' }, [
+			show(`${prefix}_show_lobby`, SALMONS_FLOW_SCREENS.lobby),
+			counting,
+		]);
+		chain({ node: counting, pin: 'then' }, [
+			show(`${prefix}_show_countdown`, SALMONS_FLOW_SCREENS.countdown),
+		]);
+		return waiting;
+	};
+	chain({ node: completeLoading, pin: 'exec' }, [
+		...showGame('sm_loaded'),
+		lobbyCheck('sm_loaded'),
+	]);
+	chain(pin('tapToStart'), [...showGame('sm_tapped'), lobbyCheck('sm_tapped')]);
+	const myLobby = add({
+		id: 'sm_lobby_mine',
+		kind: 'branch',
+		guard: { all: [{ left: trigger('me'), op: 'eq', right: bool(true) }] },
+	});
+	exec.push({ from: pin('lobby'), to: { node: myLobby, pin: 'exec' } });
+	chain({ node: myLobby, pin: 'then' }, [lobbyCheck('sm_lobby')]);
+	chain(pin('countdown'), [show('sm_countdown_show', SALMONS_FLOW_SCREENS.countdown)]);
 	chain(pin('roundEnd'), [show('sm_over_show', SALMONS_FLOW_SCREENS.over)]);
-	chain(pin('roundStart'), [hide('sm_over_hide', SALMONS_FLOW_SCREENS.over)]);
+	chain(pin('roundStart'), [
+		hide('sm_over_hide', SALMONS_FLOW_SCREENS.over),
+		hide('sm_lobby_hide', SALMONS_FLOW_SCREENS.lobby),
+		hide('sm_countdown_hide', SALMONS_FLOW_SCREENS.countdown),
+	]);
 
 	// A swipe or a cast where it is used, gone again after a moment.
 	const looks = Object.entries(SALMONS_ABILITY_LOOKS);
@@ -189,5 +236,6 @@ export const SALMONS_SEED_DOC: FlowDoc = {
 		{ id: 'score', type: 'int', initial: 0, scope: 'game', server: 'score' },
 		{ id: 'round', type: 'int', initial: 0, scope: 'game', server: 'round' },
 		{ id: 'secondsLeft', type: 'int', initial: 0, scope: 'game', server: 'secondsLeft' },
+		{ id: 'phase', type: 'string', initial: '', scope: 'game', server: 'phase' },
 	],
 };
