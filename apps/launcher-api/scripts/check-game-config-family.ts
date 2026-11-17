@@ -411,6 +411,34 @@ step(
 	(d) => d.arcade?.online?.spawn?.y === 3000 && !('layer' in online()) && !('nearby' in online()),
 );
 step(
+	'mouse and touch on: every default; tuned; a default value, a bad tap and off clear',
+	(d) => {
+		onlineDoc.setPointerOn(d, true);
+		onlineDoc.setPointerField(d, 'mouse', 'hover');
+		onlineDoc.setPointerField(d, 'deadZone', '72');
+		onlineDoc.setPointerField(d, 'tapPx', '12');
+		onlineDoc.setPointerTap(d, 'salmon', 'jump');
+		onlineDoc.setPointerTap(d, 'bear', 'kick');
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.online?.pointer) ===
+		JSON.stringify({ mouse: 'hover', deadZone: 72, taps: { salmon: 'jump' } }),
+);
+step(
+	'mouse and touch: the default mouse, an emptied tap, then off',
+	(d) => {
+		onlineDoc.setPointerField(d, 'mouse', 'press');
+		onlineDoc.setPointerTap(d, 'salmon', '');
+		onlineDoc.setPointerField(d, 'deadZone', '');
+	},
+	(d) => JSON.stringify(d.arcade?.online?.pointer) === '{}',
+);
+step(
+	'mouse and touch off',
+	(d) => onlineDoc.setPointerOn(d, false),
+	() => !('pointer' in online()),
+);
+step(
 	'a character needs a body',
 	(d) => onlineDoc.addOnlineCharacter(d, ' '),
 	(d) => d.arcade?.online?.characters.length === 0,

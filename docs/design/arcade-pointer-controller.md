@@ -1,123 +1,122 @@
-# Arcade pointer controller — mouse and touch movement, offline and in online rooms
+# Arcade pointer controller — mouse and touch movement in online rooms
 
-> Status: **draft 2026-11-17, waiting on the owner** (§7). Nothing is built. State will live in
-> [status/salmons](../status/salmons.md) and [status/game-families](../status/game-families.md).
+> Status: **planned and built 2026-11-17 (in review)**. State:
+> [status/salmons](../status/salmons.md), [status/game-families](../status/game-families.md).
 > Agent: `arcade-games`.
 
-**Owner request (2026-11-17):** the original Salmons was a touch-screen game. The rebuild is
+**Owner request (2026-11-17):** the original Salmons was a touch-screen game, and the rebuild is
 missing its mouse click and touch-screen movement. Add it to the pipeline as an option an author
-switches on and tunes per game or character, next to the keyboard controllers, and turn it on for
-Salmons the way the original did it.
+switches on and tunes per game, next to the keyboard, and turn it on for Salmons the way the original
+did it.
 
-## 1. What exists today (investigated 2026-11-17)
+## 1. What existed (investigated 2026-11-17)
 
-- **Offline (the local loop), pointer input already exists** (P10.11). `apps/lines` `arcade.ts`
-  keeps one pressed point (`pointerdown` on the canvas, `pointermove` / `pointerup` on the window)
-  and maps it into the character layer's space with `engine-layout` `spawnLayerPoint`, which runs
-  Pixi's `toLocal` through the world camera's container and then `isoUnproject` on an isometric
-  screen. `engine-mechanics` `behaviours.js` `controllerVelocity` reads it:
-  - a `pointer` controller heads for the point on `x`, `y` or `xy` at `speed` and arrives;
-  - a `topDown` / `sideScroll` controller with none of its keys held follows a pressed point
-    ("touch steering"); a press above a side-view body jumps, any press flaps.
+- **Offline (the local loop)** already reads a pressed pointer (P10.11): `apps/lines` `arcade.ts`
+  maps it into the character layer with `engine-layout` `spawnLayerPoint`, and `engine-mechanics`
+  `behaviours.js` `controllerVelocity` uses it (a `pointer` controller; touch steering on a keyboard
+  controller with no key held). Unchanged here.
+- **Online rooms (Salmons) read the keyboard only.** `online.ts` `keyInput` sent
+  `{seq, moveX, moveY, buttons, aimX: 0, aimY: 0, view}`. The wire already carries `aim`
+  (`services/game-server` `schema.ts`, clamped by `online.js` `clampInput`); no rule reads it.
+- Match-3's cell hit-test (`getCellAt`) is a board lattice; an arcade field has none. The arcade
+  inverse is `spawnLayerPoint`.
 
-  This is **on by default** for every keyboard character, so "off by default" below means: a game
-  that does not name the new block keeps exactly this.
-- **Online rooms (what Salmons plays) read the keyboard only.** `apps/lines` `online.ts`
-  `keyInput` turns held keys into `{seq, moveX, moveY, buttons, aimX: 0, aimY: 0, view}`. The wire
-  already carries `aim` (`services/game-server` `schema.ts`; `engine-mechanics` `online.js`
-  `clampInput` clamps it onto the field) but no rule reads it. Online characters have no
-  `controller`: a room steps `moveX / moveY` at the character's speed (`stepPlayer`).
-- **Match-3's cell hit-test** (`getCellAt`, P10.4) is the board's inverse lattice; an arcade field
-  has no cells, so it is not reused. The arcade inverse is `spawnLayerPoint`.
+## 2. What the original did (`GuiltyForever/Salmon-` 41811c2, read 2026-11-17)
 
-So the gap is the online path, plus a way to author and tune what a press, a tap, a hold and a drag
-do instead of the one implicit behaviour.
+`client/input.js` and `client/game.js` `tick`, `_getMouseFollowVelocity`, `_pointerToGrid`;
+`server/index.js` `jump`, `cast`, `attack`:
 
-## 2. The controller: modes and parameters
+- **Movement, every class:** while a finger is down, or whenever the mouse has been used last
+  ("hover-to-move": no button needed), the player heads for the point under it as a unit vector,
+  and stops within **1.5 tiles** of it. Lifting the finger stops it. Keys are the fallback when
+  neither is active. Sent every 50 ms.
+- **A tap** is a touch lifted within **12 px** of where it went down; a mouse's left press is a
+  click at once. A tap or a click is the class's action: a salmon **jumps** (a climb tap at a
+  waterfall's foot), a bear **attacks**, a fisherman **casts**.
+- The salmon's jump and the cast went **towards the tapped point** (`jump {targetX, targetY}`,
+  `cast {targetX, targetY}`); Space jumped in the last direction moved; the bear's attack always went
+  in the last direction moved.
+- **Multi-touch:** one touch id is tracked; a new touch takes it over, so the newest finger steers
+  and lifting it stops steering even if an older finger stays down.
+- The pointer was mapped through the world container's scroll and zoom and the isometric grid,
+  lifted by the waterfall elevation at the pointer's column.
 
-**Pending the original (§7).** The original's client (`GuiltyForever/Salmon-` `client/game.js`)
-sent `move {vx, vy}` every 50 ms and `jump {targetX, targetY}` / `cast {targetX, targetY}` with a
-target point ([realtime-multiplayer §2](realtime-multiplayer.md#2-what-salmons-does-today)), which
-suggests a pressed or tapped point drives movement and a tap aims an action, but not exactly how.
-This session could not read that repository; the modes below are the candidates, and the build
-implements the ones the original uses.
+## 3. The controller
 
-| Mode | Hold / drag | Tap | Release |
-| --- | --- | --- | --- |
-| `follow` | head for the finger while it is down | — | stop |
-| `moveTo` | head for the finger while it is down | set a destination; keep going after release | arrive, stop |
-| `stick` | a virtual stick: direction and strength from the press point to the finger | — | stop |
+`engine-mechanics` `pointerControl.js` (plain ESM, with `.d.ts`), called by `online.ts`:
 
-Parameters (sparse; defaults dropped): `mode`; `deadZone` px (stop within it of the point, so a
-body does not jitter on it; `stick`: the drag below which it does not move); `stickRadius` px (full
-tilt); `tap` — what a short press does: `none`, `jump`, `ability1`, `ability2`, with
-`tapMs` / `tapPx` (how short and how still a press must be to be a tap) and `tapOn` (`anywhere` or
-`self`, a press on the own body); `aim` (send the pressed world point as the input's `aim`).
-Speed is always the character's own (`movement.maxSpeed` offline, its online speed online), so the
-pointer never moves a body faster than the keyboard.
+- `createPointerTracker({ mouse, tapPx })` takes pointer events in client px and keeps the
+  steering point and the taps, exactly as §2: `mouse: 'hover'` (the original) or `'press'` (a mouse
+  is a finger; the default for a new game, so a desktop player is not steered by an idle cursor);
+  the newest finger steers; a cancelled touch neither taps nor steers; a lost focus forgets presses.
+- `pointerMove(self, target, deadZone)` is the input's move: full tilt towards the point as whole
+  numbers no longer than `MOVE_SCALE`, nothing within `deadZone` field px.
 
-## 3. Screen to world
+Parameters, in Game Config `arcade.online.pointer` (sparse; any object turns it on):
 
-One function on the device, `spawnLayerPoint(layer, x, y)`: canvas px → the layer's container
-(`toLocal`, which carries the world camera's scroll, zoom and shake) → `isoUnproject` on an
-isometric screen. Online, the layer is the one the room's players are drawn in. The pressed
-**screen** point is kept and re-mapped every fixed step, so a held finger keeps steering as the
-camera follows the player. Gate: a camera at a known place, flat and isometric, maps known canvas
-points onto known world points and back (`isoProject` ∘ `isoUnproject` = identity).
+| Field      | Default | Meaning                                                                                 |
+| ---------- | ------- | --------------------------------------------------------------------------------------- |
+| `mouse`    | `press` | `hover`: the cursor steers with no button, a press is the tap; `press`: only while held |
+| `deadZone` | 24      | stop within this many field px of the point (0–1000)                                    |
+| `tapPx`    | 12      | a press lifted within this many client px is a tap (0–100)                              |
+| `taps`     | none    | the button a tap presses, by online character id: `jump`, `ability1`, `ability2`        |
 
-## 4. Multi-touch
+Salmons (`engine-mechanics` `salmons.js`): `mouse: 'hover'`, `deadZone: 72` (1.5 × the 48 px
+cell), `taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' }`.
 
-The first pointer down steers (tracked by `pointerId`; the others do not move it). A second
-finger while the first is down is a tap anywhere (the `tap` action), so a player can swim and jump
-at once. Lifting the steering finger hands steering to no one until the next press. A mouse is one
-pointer. `pointercancel` and `blur` release everything. **Pending §7** if the original did
-otherwise.
+## 4. Screen to world
+
+`online.ts` keeps the pointer in client px and maps it **every fixed step**: Pixi's
+`mapPositionToPoint` to the canvas's global px, then `spawnLayerPoint(online.layer, …)`, which runs
+`toLocal` through the world camera's container (scroll and shake) and `isoUnproject` on an
+isometric screen. Re-mapping each step keeps a held finger steering while the camera follows, as the
+original's did. The engine's river is flat on its ground plane (no waterfall lift), so the
+original's elevation correction has nothing to correct.
 
 ## 5. With the keyboard
 
-The keyboard wins for movement: any movement key held, the pointer does not steer that step (as the
-offline touch steering does today). Buttons OR together (Space or a tap both jump). Both work at
-once on a laptop with a touch screen.
+Held movement keys win: while one is held the pointer does not steer that step (the original
+ignored the keys while a pointer was active; ours lets a keyboard player keep the keys with the
+mouse resting on the page). Buttons OR together, so ArrowUp held with taps on the screen climbs a
+waterfall. A tap is a one-step press: a step whose last input already pressed that button waits a
+step, so two quick taps are two presses.
 
-## 6. Authoring, data and transport
+## 6. Online: server-authoritative and deterministic
 
-- **Config:** a sparse `pointer` block on a character in Game Config
-  (`packages/game-config` `arcadeCharacters.ts`; normalizer drops defaults, keeps unknown keys out,
-  validator range-checks). Absent ⇒ today's behaviour, offline and online, byte for byte. An online
-  game reads the own player's character's block (Salmons: salmon, bear and fisherman may differ).
-- **Tool:** `/characters`, a foldable **Touch and mouse** card under Controller (rule 10: what it is
-  in the header's tooltip): a toggle, the mode, its parameters with `InfoTip`s. Saved through
-  `PUT /api/game-config` like every character field.
+The pointer becomes the input the keys already make: `moveX / moveY` (a direction), a button bit
+for one step, and the tapped field point as `aim`. `clampInput` clamps all three on both sides, the
+room steps them exactly as keys, and the predictor replays them, so `check:room-sim`,
+`check:online-rules` and the recorded traces do not move. The server and its schema are untouched.
+
+**Not matched (reported, not changed):** no rule reads `aim` yet, so a tap jumps a salmon and
+casts a line the way Space and J do today (the engine's jump frees a sandbank or climbs; its cast
+hooks the nearest salmon in reach), not towards the tapped point. Aiming them is a rules change in
+`salmonsRules.js` / `abilities.js` with re-recorded `fixtures/salmons-traces.json`, an owner call;
+`aim` is already on the wire for it.
+
+## 7. Authoring and transport
+
+- **Tool:** `/config`, the online game's **Mouse and touch** card (rule 10: its description is the
+  header's tooltip): a toggle, the mouse mode, the two distances, and a tap button per online
+  character. Setters in `config/onlineDoc.ts` write only what the normalizer stores.
 - **Rule 8:** no new asset class. The block is part of the Game Config, which already travels
-  export → `deploy/` → bake (`bakedGameConfig`) → runtime.
-- **Online, server-authoritative and deterministic:** the device turns the pointer into the same
-  input it already sends — `moveX / moveY` quantized to `MOVE_SCALE` (a direction, never a
-  position), button bits for a tap, and the world point as `aim` when `aim` is on. `clampInput`
-  already clamps all three, the server steps them exactly as keys, and the predictor replays the
-  same input, so `check:room-sim` and the recorded traces do not move. If the original aimed its
-  jump or cast at the tapped point, a rule must read `aim`: that is a rules change in
-  `salmonsRules.js` / `abilities.js` with re-recorded `fixtures/salmons-traces.json`, and is only
-  done if §7 says so.
-- **Pure core:** the mode logic (press, tap or hold, the move vector) is plain ESM in
-  `engine-mechanics` (`pointerControl.js` + `.d.ts`), called by both `arcade.ts` and `online.ts`, so
-  one gate covers both.
+  export → `deploy/` → bake (`bakedGameConfig`) → the runtime.
+- **Default off:** a config without the block normalizes and resolves without it, and the device
+  attaches no pointer listener (`listenOnline` gets the canvas but listens only for a block). The
+  offline loop is not touched.
 
-## 7. Open — for the owner
+## 8. Gates and playtest
 
-The original's behaviour is the spec, and this session could not read `GuiltyForever/Salmon-`
-(attaching it was refused). Either grant read access to it, or answer:
+- `pnpm check:arcade-pointer`: the tracker against §2 (hold, lift, tap within 12 px, drag, cancel,
+  newest finger, hover, press, a touch taking over from the mouse, a lost focus); the move (dead
+  zone, every direction within `MOVE_SCALE`, the room's clamp taking it as sent); screen → world
+  through a scrolled, shaking camera, flat and isometric; the config (absent ⇒ off, empty ⇒
+  defaults, limits, warnings, Salmons as §3).
+- `check:game-config-family`: the `/config` setters. `check:room-sim`: the stage hands the canvas to
+  `listenOnline` only for an online game.
+- `scripts/playtest/salmons-play.mjs` page T, in both netcodes: a held finger swims the salmon to a
+  waterfall's foot; lifted after a drag it stops steering; screen taps with ArrowUp held climb the
+  waterfall; a hovering mouse steers it upstream.
 
-1. What did holding a finger or the mouse do: swim towards the finger while held (`follow`), swim
-   to the tapped point and stop there (`moveTo`), or a virtual stick (`stick`)?
-2. What did a tap do: nothing, jump / climb (Space), or the character's action (swipe, cast) — and
-   aimed at the tapped point or not?
-3. Did a second finger do anything?
-
-## 8. Build and gates (after §7)
-
-Default off; on for Salmons in its config. Gates: `check:arcade-pointer` (screen → world through
-the camera, flat and iso; each mode's movement; tap vs hold; multi-touch hand-off; the keyboard
-winning; an absent block leaves offline and online inputs unchanged), plus the existing
-`check:room-sim`, `check:online-rules`, `check:arcade-characters` unchanged and the current-games
-check at 0 changed screens. Playtest: [playtest/salmons.md](../playtest/salmons.md) gains a touch
-section. This is an engine change: it reaches every online game with the runtime release on merge.
+This is an engine change: it reaches every online game with the runtime release on merge, and does
+nothing in a game whose config has no `arcade.online.pointer`.

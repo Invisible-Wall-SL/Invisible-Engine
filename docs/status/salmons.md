@@ -19,6 +19,18 @@ upload.
 
 ## Current state
 
+- **Mouse and touch, as the original (2026-11-17; in review;
+  [design/arcade-pointer-controller](../design/arcade-pointer-controller.md))**: an online game's
+  Game Config `arcade.online.pointer` (off unless named) lets a player steer with the mouse or a
+  finger: the player heads for the point under it at full speed and stops within a dead zone; a tap
+  (lifted within 12 px) or a click presses the character's tap button. Salmons ships it as the
+  original's client did it (read from `GuiltyForever/Salmon-` `client/input.js` / `game.js`): the
+  cursor steers with no button (hover-to-move), 72 px (1.5 tiles), a tap jumps a salmon, swipes a
+  bear and casts a fisherman's line, the newest finger steers. The device turns it into the inputs
+  the keys make, so the room is untouched. **Not matched:** the original aimed the jump and the
+  cast at the tapped point; no rule reads the input's `aim` yet (owner call; it is on the wire).
+  Authored in `/config` (Mouse and touch). Proof: `check:arcade-pointer`, `salmons-play.mjs` page
+  P (both netcodes).
 - **Salmons on the engine (P10.16)** — the authored config and layout are made from one seed,
   `SALMONS_SEED`; each room plays a river of its own (P11.2 e, below):
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
@@ -130,6 +142,13 @@ upload.
 ## Owner steps (P10.16) — not done by the build
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
+
+**Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
+runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
+**Follows the cursor (no button)**, Stop within **72**, and tap buttons salmon **Jump**, bear and
+fisherman **Ability 1**; save and publish. (Or re-run the export and upload
+`invisible_wall/salmons/config/config.json`, which now carries the block.) Until then the live game
+reads the keyboard only.
 
 **Re-upload for the 2026-11-08 visual fixes** (after the branch merges, so the launcher knows the
 new Flow events and the runtime draws them). The gold and the line need no upload: they arrive
@@ -268,6 +287,7 @@ Salmons now plays on the engine, so the art goes into the `salmons` project and 
 client's `characterLook.js` rules. The three character components carry `characterClips`
 (`referenceLayouts/salmons.ts`), resolved by `engine-layout` `characterClips.ts` and drawn by
 `SpawnLayer` (detail in Recent changes):
+
 - Each player plays `<character>_<state>_<facing>` once that clip is published, and keeps its
   placeholder while it has none. The character prefixes are `salmon_pink`, `bear` and
   `fisherman`. The golden salmon (the player's `mark`) plays `salmon_golden_*` if there is one,
@@ -278,7 +298,7 @@ client's `characterLook.js` rules. The three character components carry `charact
   - bear: `walk` while `moving`, otherwise `idle`, and `swipe` once on its ability;
   - fisherman: `walk` / `idle`, `cast` once on its ability, and `reel` while its line holds a
     salmon.
-  A one-shot plays to its end before a loop takes over.
+    A one-shot plays to its end before a loop takes over.
 - A missing clip is stood in for:
   1. first by a near facing: the mirror twin, then the vertical twin, then that twin's mirror;
   2. then by a near state: `hop` → `swim`, `swipe` → `idle`, `cast` → `reel` → `idle`,
@@ -296,42 +316,42 @@ client's `characterLook.js` rules. The three character components carry `charact
 the runbook follows them.
 
 1. **The clip count.** The plan says 22 clips, but its own table lists 13 states × 2 facings = 26.
-   *(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
+   _(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
    `salmon_golden_*` clips are made; generated golden clips replace the tint if they exist. The
-   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)*
+   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)_
 2. **States the engine has that the plan lacks** (P11.3). A salmon can be **grounded** on a
    sandbank (held still until it taps), **hooked** on a line (reeled in), and it **climbs** a
-   waterfall by tapping. *(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
+   waterfall by tapping. _(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
    hooked play `swim`. Optional: add `salmon_pink_hooked`
    (loop, thrashing on a line) and `salmon_pink_grounded` (loop, flapping on sand), 4 more
-   clips.)*
+   clips.)_
 3. **Facing from velocity or from the stick.** The river's current is part of the velocity, so a
    salmon swimming upstream more slowly than the current is carried downstream and faces
-   downstream. The room also sends each player's input direction (`facing`). *(Default: velocity,
-   as briefed. Alternative: the input's direction while the player steers.)*
+   downstream. The room also sends each player's input direction (`facing`). _(Default: velocity,
+   as briefed. Alternative: the input's direction while the player steers.)_
 4. **Sizes.** The engine's bodies are bigger than the old client's sizes: salmon 90 × 44 (old: about
    50 long), bear 92 × 92 (old: 80 wide), fisherman 56 × 88. The clips are drawn at the body's
    width. The blueprint writes 320 × 320 frames, and Max px only shrinks, so 320 changes nothing.
-   *(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
-   the blueprint's Output frame width / height towards its 512 maximum.)*
+   _(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
+   the blueprint's Output frame width / height towards its 512 maximum.)_
 5. **Loops that end where they start.** `wan22_i2v_flipbook` doesn't loop, so a loop needs a
    hand-picked From / To. The library also holds `wanloopingvideo__3_`, which loops but took about
-   17 min a render in its one measured run. *(Default: `wan22_i2v_flipbook` for every clip; try the
-   looping blueprint on `swim` if the seams show.)*
+   17 min a render in its one measured run. _(Default: `wan22_i2v_flipbook` for every clip; try the
+   looping blueprint on `swim` if the seams show.)_
 6. **The fisherman has no source art** (the old client draws him in code), and `gpt_image` needs a
-   reference image, which it *edits* rather than only borrowing its style. *(Default: the locked
+   reference image, which it _edits_ rather than only borrowing its style. _(Default: the locked
    `bear_se` still is redrawn as the fisherman. Alternative: upload any drawing of a fisherman in
-   the house style.)*
-7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. *(Default: 3 s for loops,
-   2 s for one-shots.)*
+   the house style.)_
+7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. _(Default: 3 s for loops,
+   2 s for one-shots.)_
 8. **The cutout models.** The plan names a BiRefNet cutout for the stills. The `gpt_image` builder
    uses the `RMBG` node, whose clean choice is **BEN2**
    ([model-licences](../reference/model-licences.md) recommendation 1: first confirm the re-host is
    the MIT base). BiRefNet needs a builder change. The video's default matting, `BiRefNet_toonout`,
-   has no recorded licence, against the owner's licence-clean-only rule. *(Default: BEN2 for the
+   has no recorded licence, against the owner's licence-clean-only rule. _(Default: BEN2 for the
    stills and `BiRefNet-general` (MIT) for the videos, to keep the licence-clean rule.
    Alternative: allow `BiRefNet_toonout`, the plan's choice, which may cut toon edges better, once
-   its licence is confirmed.)*
+   its licence is confirmed.)_
 
 ## Decided (owner, 2026-10-26)
 
@@ -349,6 +369,17 @@ the runbook follows them.
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-17 — **Mouse and touch** (branch `arcade-pointer-controller`; in review;
+  [design/arcade-pointer-controller](../design/arcade-pointer-controller.md)). Owner: the original
+  was a touch-screen game and the rebuild had no mouse or touch movement. Read the original's input
+  (hover-to-move, a held finger steers, a 12 px tap is the class's action, the newest finger
+  steers, 1.5 tiles dead zone) and built it as a pipeline option: `engine-mechanics`
+  `pointerControl.js`, `arcade.online.pointer` in Game Config with its `/config` card, the device's
+  online input (`online.ts`), on for Salmons in `salmons.js`. Default off: a config without the
+  block sends the same inputs as before. Proof: `check:arcade-pointer` (18),
+  `check:game-config-family`, `check:room-sim`, `salmons-play.mjs` 73 / 73 in each netcode. Taking
+  it live is the owner step above.
 
 - 2026-11-17 — **The lobby** (branch `arcade/salmons-lobby`; in review;
   [design/salmons-levels](../design/salmons-levels.md) §4). Owner: the room is an authored screen

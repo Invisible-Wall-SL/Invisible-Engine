@@ -29,6 +29,7 @@
  */
 
 import { createRng } from './board.js';
+import { CELL } from './salmonsMap.js';
 
 /** The river the authored config and layout are made from (a room plays its own). */
 export const SALMONS_SEED = 'salmons-1';
@@ -345,6 +346,14 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
 				nearby: { w: 2400, h: 1800 },
+				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
+				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
+				// jumps a salmon, swipes a bear and casts a fisherman's line.
+				pointer: {
+					mouse: 'hover',
+					deadZone: 1.5 * CELL,
+					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
+				},
 				rules: {
 					zones: geometry.zoneRules,
 					abilities: [
