@@ -53,7 +53,7 @@ on:
         # check:runtime-choice fails otherwise.
         description: 'Runtime id to publish (the family it plays: lines = every slot kind)'
         type: choice
-        options: [lines, match3, arcade, card]
+        options: [lines, match3, arcade, card, arcade3d]
         default: lines
         required: true
       refresh:
@@ -96,8 +96,8 @@ jobs:
       - name: 'Gate: rgs win models agree on money'
         run: pnpm check:rgs
 
-      # The ids to release, read from the one list: all of them on a push, the chosen one on a
-      # dispatch.
+      # The ids to release, read from the one list: on a push every id but those released by dispatch
+      # only (`arcade3d`, until a game plays it), the chosen one on a dispatch.
       - name: List the runtimes to release
         id: runtimes
         env:
@@ -106,7 +106,7 @@ jobs:
           node -e "import('./packages/constants-shared/runtimes.ts').then((m) => {
             const only = process.env.ONLY;
             if (only && !m.RUNTIME_IDS.includes(only)) throw new Error('unknown runtime ' + only);
-            console.log('runtimes=' + JSON.stringify(only ? [only] : m.RUNTIME_IDS));
+            console.log('runtimes=' + JSON.stringify(only ? [only] : m.PUSH_RELEASED_IDS));
           })" >> "$GITHUB_OUTPUT"
 
       # A gate failure releases nothing, for any id. Named apart from the per-id alert so its issue
@@ -169,8 +169,10 @@ jobs:
       - name: Read the ${{ matrix.runtime }} runtime's families
         id: families
         run: |
-          node -e "import('./packages/constants-shared/runtimes.ts').then((m) =>
-            console.log('families=' + m.releaseFamiliesOf(process.argv[1])))" "$RUNTIME" >> "$GITHUB_OUTPUT"
+          node -e "import('./packages/constants-shared/runtimes.ts').then((m) => {
+            console.log('families=' + m.releaseFamiliesOf(process.argv[1]));
+            console.log('view3d=' + m.release3dOf(process.argv[1]));
+          })" "$RUNTIME" >> "$GITHUB_OUTPUT"
 
       # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
       # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
@@ -189,6 +191,7 @@ jobs:
         id: twin
         env:
           PUBLIC_IE_FAMILIES: ${{ steps.families.outputs.families }}
+          PUBLIC_IE_3D: ${{ steps.families.outputs.view3d }}
           PUBLIC_RGS_TRANSPORT: play4fun
           PUBLIC_DELIVERY_PROFILES: '*'
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
@@ -253,6 +256,7 @@ jobs:
         if: ${{ steps.twin.outputs.skip != 'true' }}
         env:
           PUBLIC_IE_FAMILIES: ${{ steps.families.outputs.families }}
+          PUBLIC_IE_3D: ${{ steps.families.outputs.view3d }}
           PUBLIC_RGS_TRANSPORT: play4fun
           PUBLIC_DELIVERY_PROFILES: '*'
           PUBLIC_BUILD_SHA: ${{ github.sha }}

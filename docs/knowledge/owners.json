@@ -37,7 +37,7 @@
 		"bookOf": ["lines-games"],
 		"holdAndWin": ["hold-and-win-games"],
 		"match3": ["match3-games"],
-		"arcade": ["arcade-games"],
+		"arcade": ["arcade-games", "games-3d"],
 		"card": ["card-games"]
 	},
 	"gaps": {

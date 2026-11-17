@@ -1,0 +1,29 @@
+{
+	"name": "engine-3d",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"exports": {
+		".": {
+			"types": "./index.ts",
+			"default": "./index.ts"
+		}
+	},
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\""
+	},
+	"dependencies": {
+		"three": "0.181.2"
+	},
+	"devDependencies": {
+		"@types/three": "0.181.0",
+		"eslint": "10.14.0",
+		"eslint-config-custom": "workspace:*",
+		"typescript": "6.0.3"
+	}
+}

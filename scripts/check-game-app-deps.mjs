@@ -57,7 +57,14 @@ const SCAFFOLD_EXTERNALS = new Set([
 const FAMILY_ONLY = {
 	'engine-rooms': {
 		seam: 'families/arcade.ts',
-		behind: ['game/online.ts', 'components/ArcadeStage.svelte'],
+		// The 3D view (`arcade3d`, `PUBLIC_IE_3D`) is the arcade seam too: `config-vite` resolves
+		// `families/arcade` to `families/arcade3d.ts`, whose stage renders the stock one.
+		behind: [
+			'game/online.ts',
+			'components/ArcadeStage.svelte',
+			'components/ArcadeStage3D.svelte',
+			'families/arcade3d.ts',
+		],
 	},
 };
 

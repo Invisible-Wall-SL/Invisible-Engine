@@ -22,6 +22,7 @@ import { pathToFileURL } from 'node:url';
 import { familyOfKind } from '../../../packages/constants-shared/gameKinds.ts';
 import {
 	FALLBACK_RUNTIME_ID,
+	PUSH_RELEASED_IDS,
 	RUNTIME_IDS,
 	runtimeIdOfFamily,
 } from '../../../packages/constants-shared/runtimes.ts';
@@ -98,7 +99,11 @@ const complete = (out, ids) => {
 	return ids.every((id) => folders[id]);
 };
 
-/** Build `checkout`'s runtimes for `ids` into `out` (replacing it). */
+/**
+ * Build `checkout`'s runtimes for `ids` into `out` (replacing it). The callers' default ids are the
+ * push-released runtimes: a dispatch-only one (`arcade3d`) has no published game to render, and a
+ * base from before it would not know it.
+ */
 function buildInto(checkout, out, ids) {
 	const folders = runtimeFolders(checkout, ids);
 	const listed = existsSync(runtimeList(checkout));
@@ -122,7 +127,7 @@ function buildInto(checkout, out, ids) {
 /**
  * The working tree's runtimes for `ids` (the branch side). Always rebuilt: the tree may be dirty.
  */
-export function buildWorkingTree(repo, cache, ids = RUNTIME_IDS) {
+export function buildWorkingTree(repo, cache, ids = PUSH_RELEASED_IDS) {
 	const out = join(cache, 'runtimes', 'working-tree');
 	buildInto(repo, out, ids);
 	return out;
@@ -132,7 +137,7 @@ export function buildWorkingTree(repo, cache, ids = RUNTIME_IDS) {
  * `ref`'s runtimes for `ids`, from the cache or built in a throwaway worktree. Returns
  * `{ sha, dir, cached }`.
  */
-export function runtimeForRef(repo, cache, ref, ids = RUNTIME_IDS) {
+export function runtimeForRef(repo, cache, ref, ids = PUSH_RELEASED_IDS) {
 	const sha = gitSha(repo, ref);
 	const out = join(cache, 'runtimes', sha);
 	if (complete(out, ids)) return { sha, dir: out, cached: true };

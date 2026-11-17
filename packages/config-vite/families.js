@@ -93,6 +93,18 @@ export const buildFamilies = ({
 const SEAM = /(?:^|\/)families\/(match3|arcade|card)(?:\.ts)?$/;
 
 /**
+ * `PUBLIC_IE_3D=1`: the arcade play field is drawn in 3D (`docs/design/3d-games.md`), the build of
+ * the `arcade3d` runtime. It is a view of the arcade family, not a family, so it needs arcade in the
+ * build; anything else is a mistake that would ship an arcade runtime without its 3D view.
+ */
+export const compiled3d = (families, value = process.env.PUBLIC_IE_3D) => {
+	if (value !== '1') return false;
+	if (!families.includes('arcade'))
+		throw new Error(`PUBLIC_IE_3D=1 needs the arcade family (compiling ${families.join(', ')}).`);
+	return true;
+};
+
+/**
  * Resolve each left-out family's seam module (`apps/lines/src/families/<family>.ts`) to its inert
  * stub beside it (`families/off/<family>.ts`), so the bundler never sees the family's code.
  *
@@ -100,17 +112,29 @@ const SEAM = /(?:^|\/)families\/(match3|arcade|card)(?:\.ts)?$/;
  * standalone game repo compiles `engine/apps/lines/src`, and both import the seams by relative
  * path. A seam is only swapped when its stub exists beside it, so a module that merely shares the
  * name is left alone.
+ *
+ * With `view3d` (`compiled3d`), the arcade seam resolves to `families/arcade3d.ts` instead, except
+ * from that module itself, which re-exports the stock seam.
  */
-export const familySeams = (families) => {
+export const familySeams = (families, { view3d = false } = {}) => {
 	const off = new Set(OPTIONAL_FAMILIES.filter((f) => !families.includes(f)));
 	return {
 		name: 'ie-family-seams',
 		enforce: 'pre',
 		resolveId(source, importer) {
-			if (!off.size || !importer || !source.startsWith('.')) return null;
+			if ((!off.size && !view3d) || !importer || !source.startsWith('.')) return null;
 			const match = SEAM.exec(source);
-			if (!match || !off.has(match[1])) return null;
-			const seam = resolve(dirname(importer.split('?')[0]), source).replace(/\.ts$/, '');
+			if (!match) return null;
+			const from = importer.split('?')[0];
+			const seam = resolve(dirname(from), source).replace(/\.ts$/, '');
+			if (view3d && match[1] === 'arcade') {
+				const view = `${seam}3d.ts`;
+				const self = resolve(from) === resolve(view);
+				return !self && existsSync(`${seam}.ts`) && existsSync(view)
+					? view.replace(/\\/g, '/')
+					: null;
+			}
+			if (!off.has(match[1])) return null;
 			const stub = join(dirname(seam), 'off', `${match[1]}.ts`);
 			return existsSync(`${seam}.ts`) && existsSync(stub) ? stub.replace(/\\/g, '/') : null;
 		},

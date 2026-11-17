@@ -10,7 +10,7 @@ import { defineConfig } from 'vite';
 import { artTierDefine } from './artTierPin.js';
 import { deliveryProfileProblems } from './deliveryProfile.js';
 import { sentryDebugIds } from './debugIds.js';
-import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
+import { OPTIONAL_FAMILIES, buildFamilies, compiled3d, familySeams } from './families.js';
 import { lazyChunks } from './lazyChunks.js';
 import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
 import { PINNED, buildProvenance, reproducibleBuild } from './provenance.js';
@@ -185,14 +185,20 @@ const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? '
  * The family set (`families.js`, `docs/design/phase-11.md` §2.2, §2.4): `PUBLIC_IE_FAMILIES`, else
  * the baked config's family, picks which of match-3, arcade and card this build carries, and
  * `__IE_FAMILIES__` tells the boot, which refuses a config of a family the bundle lacks. Here, not
- * in `apps/lines`, so a game repo gets the same.
+ * in `apps/lines`, so a game repo gets the same. `PUBLIC_IE_3D=1` (the `arcade3d` runtime) swaps
+ * the arcade seam for its 3D view; it adds no define, so the other runtimes' bytes never see it.
  */
 const families = () => {
 	const { list, warning } = buildFamilies({ dev });
 	if (warning) console.warn(`[config-vite] ${warning}`);
 	if (list.length <= OPTIONAL_FAMILIES.length)
 		console.info(`[config-vite] compiling families: ${list.join(', ')}`);
-	return { plugin: familySeams(list), define: { __IE_FAMILIES__: JSON.stringify(list) } };
+	const view3d = compiled3d(list);
+	if (view3d) console.info('[config-vite] compiling the arcade play field in 3D (PUBLIC_IE_3D=1)');
+	return {
+		plugin: familySeams(list, { view3d }),
+		define: { __IE_FAMILIES__: JSON.stringify(list) },
+	};
 };
 
 /**

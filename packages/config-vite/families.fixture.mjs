@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compiledFamilies, familySeams } from './families.js';
+import { compiled3d, compiledFamilies, familySeams } from './families.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -67,6 +67,40 @@ same(
 	null,
 );
 same('a bare package name is left alone', resolveIn(['slot'], 'families/match3', game), null);
+
+const resolve3d = (source, importer) =>
+	familySeams(['slot', 'arcade'], { view3d: true }).resolveId(source, importer);
+const arcade3d = join(LINES_SRC, 'families/arcade3d.ts').replace(/\\/g, '/');
+same('3D: the arcade seam ⇒ its 3D view', resolve3d('../families/arcade', game), arcade3d);
+same('3D: from the layout too', resolve3d('../families/arcade.ts', layout), arcade3d);
+same(
+	'3D: the 3D view reaches the stock seam',
+	resolve3d('./arcade', join(LINES_SRC, 'families/arcade3d.ts')),
+	null,
+);
+same(
+	'3D: a left-out family still resolves to its stub',
+	resolve3d('../families/card', game),
+	join(LINES_SRC, 'families/off/card.ts').replace(/\\/g, '/'),
+);
+same(
+	'without 3D the arcade seam is left alone',
+	resolveIn(['slot', 'arcade'], '../families/arcade', game),
+	null,
+);
+check(
+	'PUBLIC_IE_3D=1 without arcade throws',
+	(() => {
+		try {
+			compiled3d(['slot'], '1');
+			return false;
+		} catch {
+			return true;
+		}
+	})(),
+);
+check('PUBLIC_IE_3D unset is off', compiled3d(['slot', 'arcade'], undefined) === false);
+check('PUBLIC_IE_3D=1 with arcade is on', compiled3d(['slot', 'arcade'], '1') === true);
 
 const repo = mkdtempSync(join(tmpdir(), 'ie-families-'));
 try {
