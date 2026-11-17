@@ -1,0 +1,91 @@
+{
+	"runtime": "arcade3d",
+	"PUBLIC_IE_FAMILIES": "arcade",
+	"PUBLIC_IE_3D": "1",
+	"files": {
+		"index.html": {
+			"sha256": "aab69b34e6e6ea5640b3313ccec2b54deff94883cae98b1b0ddeaf385529bbd7",
+			"gzip": 3949
+		},
+		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
+			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
+			"gzip": 519
+		},
+		"_app/immutable/assets/bundle.ChF7KFH4.css": {
+			"sha256": "48c35f8b8d97477f4af075cb46df1c74d6adfb95763b7bad26d3cd8949ab88af",
+			"gzip": 2817
+		},
+		"_app/immutable/assets/characters.Cj7Rxzsq.webp": {
+			"sha256": "57b2022780cbd0e7e46e097bbfd9f712d386164a30de452aae3cb20715882fbd",
+			"gzip": 31670
+		},
+		"_app/immutable/assets/libktx.BCvgV3xP.wasm": {
+			"sha256": "f75f866eb60d67ca95ab836690ccfe53ad851d329b135a489e438da207baa44a",
+			"gzip": 320974
+		},
+		"_app/immutable/assets/libktx.CRuLf3bZ.js": {
+			"sha256": "9640022d3dac1f8e958d516b08548062d6f4e16ea23be2f2c8ba613ced4b3716",
+			"gzip": 48529
+		},
+		"_app/immutable/assets/props.8AzjnSQ0.webp": {
+			"sha256": "d60b8b9952d9647f324a241f6bb543c9a40e77322f229d94339d85d4bd07688c",
+			"gzip": 617085
+		},
+		"_app/immutable/assets/terrain._QkDB9PM.webp": {
+			"sha256": "1422ce3f27eae4e31472e01ca1cf112def23ecb85693d286cec0c969b86a4a93",
+			"gzip": 139584
+		},
+		"_app/immutable/assets/waterfall_face.CJUWMLt-.webp": {
+			"sha256": "460b6dd0ab3a55b090766062bd365fc653080b5c94dc89e4d41e20c5af55472a",
+			"gzip": 2715
+		},
+		"_app/immutable/bundle.CvcdmtVq.js": {
+			"sha256": "c36586bf47d6b2a3292066afa48af1d1f0f32144f7069459862593c63c887b17",
+			"gzip": 756998
+		},
+		"_app/immutable/chunks/B2caXNOu.js": {
+			"sha256": "ed3b773e21a0f5775b344773e6270272b01df2d93fd667d7bd64641ecbbd0b75",
+			"gzip": 117
+		},
+		"_app/immutable/chunks/B5aYq5qv.js": {
+			"sha256": "6cb72fc8d4dea7e9b1f9da5a187cbb5408523d84ce99e11ab898f07aa6751102",
+			"gzip": 31321
+		},
+		"_app/immutable/chunks/BROdhULX.js": {
+			"sha256": "958c546f278cc7efef3d2ecd6704c897344fb6fed54d0189d5ebef45b8f8e737",
+			"gzip": 123147
+		},
+		"_app/immutable/chunks/B_8WG4VJ.js": {
+			"sha256": "d93cda6778e37fa6b2efd687795cf2aafb72a8df97aaafaf1307273305fe2fc0",
+			"gzip": 10729
+		},
+		"_app/immutable/chunks/BoAHs73W.js": {
+			"sha256": "89bc05b86ee8df709aefb8f919df6fd121e5f001ac27438a70c986bece7dad5f",
+			"gzip": 9109
+		},
+		"_app/immutable/chunks/C2svAp-c.js": {
+			"sha256": "01c95ad0a6632dcbe0ebae5b3e77fcf5730e298db8763c526faa038c1bed828e",
+			"gzip": 5920
+		},
+		"_app/immutable/chunks/C30-WTZT.js": {
+			"sha256": "546633753d832356c6ce1f5e1fbd586f362c75d3c072ca6843f0760b9450c817",
+			"gzip": 33999
+		},
+		"_app/immutable/chunks/CXCfVyyy.js": {
+			"sha256": "022262e20652a071d23f8a309754aaaa9af0ab117e775280191fd292a18ae5b1",
+			"gzip": 591
+		},
+		"_app/immutable/chunks/pVUxQ7R3.js": {
+			"sha256": "6df7b08db75c539a17c75800fccee6c3621e0e57e7ffbb206fc55d53b5bbb67b",
+			"gzip": 23198
+		},
+		"_app/immutable/chunks/qWnto0Od.js": {
+			"sha256": "d24f87e66f0cf7604a0483147fc4bb12fa01ba184c6051d25f12a2792d161ef7",
+			"gzip": 13882
+		}
+	},
+	"total": {
+		"files": 20,
+		"gzip": 2176853
+	}
+}
