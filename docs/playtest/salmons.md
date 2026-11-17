@@ -23,7 +23,7 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   `bearBot` / `fishermanBot` brains and cannot win; each device is sent only the players within
   2400 × 1800 of its own.
 - **Its rules module** (P11.3) — `engine-mechanics` `src/salmonsRules.js`, `rules.module:
-'salmons'`, on the server only: tap Space at the foot of a waterfall to climb it; a sandbank
+  'salmons'`, on the server only: tap Space at the foot of a waterfall to climb it; a sandbank
   grounds a salmon until it taps Space; the fisherman's line hooks the nearest salmon, reels it in
   and lands it (5 taps of Space shake the hook); one salmon per round is golden and worth 3×.
 - **The layout** — `engine-layout` `referenceLayouts/salmons.ts`: the loading and background
