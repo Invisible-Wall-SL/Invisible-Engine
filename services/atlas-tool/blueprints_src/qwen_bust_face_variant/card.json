@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "id": "qwen_bust_face_variant",
+  "status": "draft",
+  "rev": 1,
+  "purpose": "One feature change (mouth shape, eyes, brows) of a neutral bust, for cutting into Rigger template parts.",
+  "whenToUse": [
+    "after qwen_bust_face: twelve passes, prompts from `rig_parts.py --prompts`",
+    "a re-roll of one variant whose edit drifted"
+  ],
+  "whenNotToUse": [
+    "expressions as finished art (it changes one feature only)",
+    "a neutral that is not 1024x1024 on a plain background"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "required",
+    "shape": "none",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": false,
+    "count": 1
+  },
+  "settings": [
+    {
+      "key": "steps",
+      "default": 20,
+      "min": 8,
+      "max": 50
+    },
+    {
+      "key": "cfg",
+      "default": 2.5,
+      "min": 1,
+      "max": 6
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [
+      "qwen_bust_face"
+    ],
+    "precedes": [
+      "rig-parts-cut"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 45
+    },
+    "coldStart": 180,
+    "minVramGb": 24,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 1,
+    "final": 1,
+    "max": 2
+  },
+  "billing": "gpu",
+  "licence": "ok",
+  "gotchas": [
+    "one seed for every variant",
+    "rembg off",
+    "the reference is the neutral bust, never another variant"
+  ]
+}

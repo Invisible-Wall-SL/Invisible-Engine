@@ -1,0 +1,263 @@
+{
+	"template": "bust-face",
+	"version": 1,
+	"generatedBy": "tools/rigger-spike/template-art.mjs --write",
+	"bones": {
+		"root": [
+			0,
+			0
+		],
+		"chest": [
+			0,
+			120
+		],
+		"shoulder_l": [
+			-110,
+			160
+		],
+		"shoulder_r": [
+			110,
+			160
+		],
+		"neck": [
+			0,
+			230
+		],
+		"head": [
+			0,
+			270
+		],
+		"hair_back": [
+			0,
+			390
+		],
+		"face": [
+			0,
+			360
+		],
+		"brow_l": [
+			-45,
+			415
+		],
+		"eye_l": [
+			-45,
+			380
+		],
+		"pupil_l": [
+			-45,
+			380
+		],
+		"brow_r": [
+			45,
+			415
+		],
+		"eye_r": [
+			45,
+			380
+		],
+		"pupil_r": [
+			45,
+			380
+		],
+		"nose": [
+			0,
+			350
+		],
+		"jaw": [
+			0,
+			310
+		],
+		"hair_front": [
+			0,
+			420
+		]
+	},
+	"parts": [
+		{
+			"name": "hair_back",
+			"slot": "hair_back",
+			"bone": "hair_back",
+			"required": false
+		},
+		{
+			"name": "body",
+			"slot": "body",
+			"bone": "chest",
+			"required": true
+		},
+		{
+			"name": "neck",
+			"slot": "neck",
+			"bone": "neck",
+			"required": false
+		},
+		{
+			"name": "head",
+			"slot": "head",
+			"bone": "head",
+			"required": true
+		},
+		{
+			"name": "ear_l",
+			"slot": "ear_l",
+			"bone": "head",
+			"required": false
+		},
+		{
+			"name": "ear_r",
+			"slot": "ear_r",
+			"bone": "head",
+			"required": false
+		},
+		{
+			"name": "eye_white_l",
+			"slot": "eye_white_l",
+			"bone": "eye_l",
+			"required": false
+		},
+		{
+			"name": "eye_white_r",
+			"slot": "eye_white_r",
+			"bone": "eye_r",
+			"required": false
+		},
+		{
+			"name": "pupil_l",
+			"slot": "pupil_l",
+			"bone": "pupil_l",
+			"required": false
+		},
+		{
+			"name": "pupil_r",
+			"slot": "pupil_r",
+			"bone": "pupil_r",
+			"required": false
+		},
+		{
+			"name": "eyelid_l_half",
+			"slot": "eyelid_l",
+			"bone": "eye_l",
+			"required": false
+		},
+		{
+			"name": "eyelid_l_closed",
+			"slot": "eyelid_l",
+			"bone": "eye_l",
+			"required": true
+		},
+		{
+			"name": "eyelid_r_half",
+			"slot": "eyelid_r",
+			"bone": "eye_r",
+			"required": false
+		},
+		{
+			"name": "eyelid_r_closed",
+			"slot": "eyelid_r",
+			"bone": "eye_r",
+			"required": true
+		},
+		{
+			"name": "brow_l_neutral",
+			"slot": "brow_l",
+			"bone": "brow_l",
+			"required": true
+		},
+		{
+			"name": "brow_l_up",
+			"slot": "brow_l",
+			"bone": "brow_l",
+			"required": false
+		},
+		{
+			"name": "brow_l_angry",
+			"slot": "brow_l",
+			"bone": "brow_l",
+			"required": false
+		},
+		{
+			"name": "brow_r_neutral",
+			"slot": "brow_r",
+			"bone": "brow_r",
+			"required": true
+		},
+		{
+			"name": "brow_r_up",
+			"slot": "brow_r",
+			"bone": "brow_r",
+			"required": false
+		},
+		{
+			"name": "brow_r_angry",
+			"slot": "brow_r",
+			"bone": "brow_r",
+			"required": false
+		},
+		{
+			"name": "nose",
+			"slot": "nose",
+			"bone": "nose",
+			"required": false
+		},
+		{
+			"name": "mouth_rest",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": true
+		},
+		{
+			"name": "mouth_A",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": true
+		},
+		{
+			"name": "mouth_E",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "mouth_O",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": true
+		},
+		{
+			"name": "mouth_U",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "mouth_MBP",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "mouth_FV",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "mouth_smile",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "mouth_wide",
+			"slot": "mouth",
+			"bone": "jaw",
+			"required": false
+		},
+		{
+			"name": "hair_front",
+			"slot": "hair_front",
+			"bone": "hair_front",
+			"required": false
+		}
+	]
+}
