@@ -277,7 +277,10 @@ export function salmonsGeometry(river) {
 	};
 }
 
-/** The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room. */
+/**
+ * The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room from the
+ * generator that made it (`salmonsMap`'s rivers name theirs; P10.16's band river is `salmonsRiver`).
+ */
 export function salmonsConfig(river = salmonsRiver()) {
 	const C = SALMONS_COMPONENTS;
 	const geometry = salmonsGeometry(river);
@@ -332,7 +335,7 @@ export function salmonsConfig(river = salmonsRiver()) {
 					},
 				],
 				spawn: geometry.spawn,
-				generator: 'salmonsRiver',
+				generator: river.generator ?? 'salmonsRiver',
 				nearby: { w: 2400, h: 1800 },
 				rules: {
 					zones: geometry.zoneRules,

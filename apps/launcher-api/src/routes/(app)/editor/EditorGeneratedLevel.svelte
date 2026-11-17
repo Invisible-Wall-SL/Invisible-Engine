@@ -1,0 +1,297 @@
+<script lang="ts">
+	import type { Scene } from 'engine-layout';
+	import { LEVEL_OVERLAY_KINDS, type ArcadeOnlineLevels, type LevelOverlayKind } from 'game-config';
+	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import {
+		MAX_SEED,
+		addPiece,
+		canGenerate,
+		dropEntry,
+		loadLevels,
+		regenerate,
+		removeGenerated,
+		saveLevels,
+		togglePinned,
+		validSeed,
+		type GeneratedNode,
+		type LevelOrphan,
+		type OverlayScope,
+	} from '$lib/editor/generatedLevel';
+
+	/**
+	 * A screen's GENERATED LEVEL (`docs/design/salmons-levels.md` §2 c–d): pick a seed and the stage
+	 * shows the level a room plays for it, made by the room's own generator with the config's
+	 * overlays on top. The level itself is read-only; additions and removals are stored in the
+	 * project's Game Config (`arcade.online.levels`), apart from it, and a new seed never clears them.
+	 */
+	type Props = {
+		scene: Scene;
+		node: GeneratedNode;
+		projectKey: string;
+		/** The node was redrawn. A preview, so the screen is not marked changed. */
+		onRedraw: () => void;
+	};
+	const { scene, node, projectKey, onRedraw }: Props = $props();
+
+	let levels = $state<ArcadeOnlineLevels | undefined>(undefined);
+	let loaded = $state(false);
+	let status = $state('');
+	let error = $state('');
+	let dirty = $state(false);
+	let orphans = $state<LevelOrphan[]>([]);
+	let seedText = $state<number>(node.generated.seed);
+	let scope = $state<OverlayScope>(String(node.generated.seed));
+	let kind = $state<LevelOverlayKind>('rock');
+	let gx = $state(0);
+	let gy = $state(0);
+	let height = $state(1);
+
+	const usable = $derived(canGenerate(node));
+	const seed = $derived(node.generated.seed);
+	const pinned = $derived(levels?.seeds ?? []);
+	const overlay = $derived(levels?.overlays?.[scope]);
+
+	function show(next: number): void {
+		if (!validSeed(next) || !usable) return;
+		orphans = regenerate(scene, node, next, levels);
+		seedText = next;
+		if (scope !== '*') scope = String(next);
+		onRedraw();
+	}
+
+	async function load(): Promise<void> {
+		error = '';
+		try {
+			levels = (await loadLevels(projectKey)).levels;
+			loaded = true;
+			show(seed);
+		} catch (e) {
+			error = `Could not read the config's levels: ${e instanceof Error ? e.message : String(e)}`;
+		}
+	}
+	$effect(() => {
+		if (projectKey && usable && !loaded) void load();
+	});
+
+	function step(by: number): void {
+		const list = pinned;
+		if (!list.length) return;
+		const at = list.indexOf(seed);
+		show(list[(at + by + list.length) % list.length]);
+	}
+
+	function edit(next: ArcadeOnlineLevels): void {
+		levels = next;
+		dirty = true;
+		status = '';
+		show(seed);
+	}
+
+	async function save(): Promise<void> {
+		if (!levels) levels = {};
+		error = '';
+		status = 'Saving…';
+		try {
+			await saveLevels(projectKey, levels);
+			dirty = false;
+			status = 'Saved to the Game Config';
+		} catch (e) {
+			status = '';
+			error = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	const scopeLabel = (s: string) => (s === '*' ? 'every level' : `seed ${s}`);
+	const cellText = (c: [number, number]) => `${c[0]}, ${c[1]}`;
+</script>
+
+<SectionCard scope="editor" id="generated-level" title="Generated level">
+	{#snippet info()}
+		This screen's {node.generated.generator} level is made from a seed by the same generator a room runs,
+		so the stage shows exactly the level a room with that seed plays. It is read-only: what you add or
+		remove goes in the Game Config's level overlays, laid on top of the generated level in every room
+		and here, and kept when you pick another seed. Cells are the generator's grid: gx down the river from
+		the source, gy across it.
+	{/snippet}
+	{#if !usable}
+		<p class="warn">No generator called "{node.generated.generator}" is known to the editor.</p>
+	{:else}
+		<div class="row">
+			<label>
+				Seed
+				<input
+					type="number"
+					min="0"
+					max={MAX_SEED}
+					step="1"
+					bind:value={seedText}
+					onchange={() => show(Number(seedText))}
+				/>
+			</label>
+			<button
+				type="button"
+				title="A new random seed"
+				onclick={() => show(Math.floor(Math.random() * 0x7fffffff))}>⟳</button
+			>
+			<button
+				type="button"
+				title="Previous pinned seed"
+				disabled={!pinned.length}
+				onclick={() => step(-1)}>◀</button
+			>
+			<button
+				type="button"
+				title="Next pinned seed"
+				disabled={!pinned.length}
+				onclick={() => step(1)}>▶</button
+			>
+			<label class="check">
+				<input
+					type="checkbox"
+					checked={pinned.includes(seed)}
+					disabled={!loaded}
+					onchange={() => edit(togglePinned(levels, seed))}
+				/>
+				Pinned
+				<InfoTip>
+					Pinned seeds are the levels rooms play, each new room taking the next. With none pinned,
+					every room gets a new random level, as the original game did.
+				</InfoTip>
+			</label>
+		</div>
+		<p class="note">
+			{pinned.length
+				? `${pinned.length} pinned: ${pinned.join(', ')}`
+				: 'No seed pinned: a random level per room'}
+		</p>
+
+		<div class="row">
+			<label>
+				Overlay
+				<select bind:value={scope}>
+					<option value={String(seed)}>this seed ({seed})</option>
+					<option value="*">every level</option>
+				</select>
+			</label>
+		</div>
+		{#if overlay}
+			<ul class="entries">
+				{#each overlay.add ?? [] as a, i (i)}
+					<li>
+						<span>+ {a.kind} at {cellText(a.cell)}{a.height ? ` (height ${a.height})` : ''}</span>
+						<IconButton
+							icon="trash"
+							label="Drop this addition"
+							danger
+							onclick={() => edit(dropEntry(levels, scope, 'add', i))}
+						/>
+					</li>
+				{/each}
+				{#each overlay.remove ?? [] as c, i (i)}
+					<li>
+						<span>− generated piece at {cellText(c)}</span>
+						<IconButton
+							icon="trash"
+							label="Drop this removal"
+							danger
+							onclick={() => edit(dropEntry(levels, scope, 'remove', i))}
+						/>
+					</li>
+				{/each}
+				{#each overlay.set ?? [] as s, i (i)}
+					<li>
+						<span>waterfall at {cellText(s.cell)} height {s.height}</span>
+						<IconButton
+							icon="trash"
+							label="Drop this change"
+							danger
+							onclick={() => edit(dropEntry(levels, scope, 'set', i))}
+						/>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="note">Nothing authored for {scopeLabel(scope)}.</p>
+		{/if}
+		<div class="row">
+			<label>gx <input type="number" step="1" bind:value={gx} /></label>
+			<label>gy <input type="number" step="1" bind:value={gy} /></label>
+			<select bind:value={kind} aria-label="Piece">
+				{#each LEVEL_OVERLAY_KINDS as k (k)}<option value={k}>{k}</option>{/each}
+			</select>
+			{#if kind === 'waterfall'}
+				<label>height <input type="number" min="1" step="1" bind:value={height} /></label>
+			{/if}
+		</div>
+		<div class="row">
+			<button
+				type="button"
+				disabled={!loaded}
+				onclick={() => edit(addPiece(levels, scope, kind, [gx, gy], height))}>Add piece</button
+			>
+			<button
+				type="button"
+				disabled={!loaded}
+				onclick={() => edit(removeGenerated(levels, scope, [gx, gy]))}
+				>Remove generated piece</button
+			>
+			<button type="button" class="primary" disabled={!loaded || !dirty} onclick={save}
+				>Save overlays</button
+			>
+		</div>
+		{#if orphans.length}
+			<p class="warn">
+				{orphans.length} authored {orphans.length === 1 ? 'entry has' : 'entries have'} no place in this
+				level (kept, not applied): {orphans
+					.map((o) => `${o.op} ${o.kind ?? ''} ${cellText(o.cell)}`.replace(/\s+/g, ' '))
+					.join('; ')}
+			</p>
+		{/if}
+		{#if status}<p class="note">{status}</p>{/if}
+		{#if error}<p class="warn">{error}</p>{/if}
+	{/if}
+</SectionCard>
+
+<style>
+	.row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		align-items: center;
+		margin: 4px 0;
+	}
+	input[type='number'] {
+		width: 7em;
+	}
+	.check {
+		display: inline-flex;
+		gap: 4px;
+		align-items: center;
+	}
+	.entries {
+		list-style: none;
+		margin: 4px 0;
+		padding: 0;
+	}
+	.entries li {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 6px;
+	}
+	.note {
+		margin: 2px 0;
+		opacity: 0.75;
+		font-size: 0.9em;
+	}
+	.warn {
+		margin: 2px 0;
+		color: #f0c878;
+		font-size: 0.9em;
+	}
+	.primary {
+		font-weight: 600;
+	}
+</style>

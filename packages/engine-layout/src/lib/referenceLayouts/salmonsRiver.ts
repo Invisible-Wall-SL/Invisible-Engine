@@ -10,6 +10,11 @@ import type { LayoutNode } from '../types';
 type Rect = { x: number; y: number; w: number; h: number };
 export type SalmonsRiverDrawing = {
 	world: { w: number; h: number };
+	/** The seed and generator that made it, when a generator did (`engine-mechanics`). */
+	seed?: string | number;
+	generator?: string;
+	/** Present when its pieces sit on a cell grid (`salmonsMap`): sand runs then join into islands. */
+	grid?: { cell: number };
 	bands: readonly { y: number; h: number; left: number; right: number; current: number }[];
 	/** `spin`: the way it turns, 1 or −1. */
 	whirlpools: readonly { x: number; y: number; r: number; spin?: number }[];
@@ -78,12 +83,18 @@ export function salmonsRiverNode(river: SalmonsRiverDrawing): LayoutNode {
 		),
 	);
 	river.sandbanks?.forEach((r, i) =>
-		children.push(rect(`river-sandbank-${i}`, r, COLOR.sandbank, true)),
+		children.push(rect(`river-sandbank-${i}`, r, COLOR.sandbank, !river.grid)),
 	);
 	river.rocks?.forEach((r, i) => children.push(rect(`river-rock-${i}`, r, COLOR.rock, true)));
 	river.waterfalls?.forEach((r, i) =>
 		children.push(rect(`river-waterfall-${i}`, r, COLOR.waterfall)),
 	);
+	const generated =
+		river.generator && typeof river.seed === 'number'
+			? { generator: river.generator, seed: river.seed }
+			: undefined;
+	// A generated river is read-only in `/editor`: its pieces come from the seed, not from hand edits.
+	if (generated) for (const child of children) child.locked = true;
 	return {
 		id: 'river',
 		label: 'River',
@@ -92,6 +103,7 @@ export function salmonsRiverNode(river: SalmonsRiverDrawing): LayoutNode {
 		y: 0,
 		zIndex: -1,
 		children,
+		...(generated ? { generated, locked: true } : {}),
 	};
 }
 
@@ -100,4 +112,5 @@ export function salmonsRiverNode(river: SalmonsRiverDrawing): LayoutNode {
  *  that id. */
 export const FIELD_DRAWINGS: Readonly<Record<string, (made: SalmonsRiverDrawing) => LayoutNode>> = {
 	salmonsRiver: salmonsRiverNode,
+	salmonsMap: salmonsRiverNode,
 };

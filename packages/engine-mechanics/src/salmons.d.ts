@@ -6,6 +6,8 @@ export type SalmonsRect = { x: number; y: number; w: number; h: number };
 
 export type SalmonsRiver = {
 	seed: string | number;
+	/** The generator that made it, when not P10.16's `salmonsRiver` (`salmonsMap.js`). */
+	generator?: string;
 	world: { w: number; h: number };
 	bands: SalmonsBand[];
 	whirlpools: SalmonsWhirlpool[];

@@ -144,6 +144,8 @@ const FIELD_ART: Readonly<
 > = {
 	salmonsRiver: async (made, seed) =>
 		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
+	salmonsMap: async (made, seed) =>
+		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
 };
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */

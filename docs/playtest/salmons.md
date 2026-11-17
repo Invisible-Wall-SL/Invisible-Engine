@@ -52,10 +52,19 @@ project (owner steps in [status/salmons](../status/salmons.md)).
 ## Launch
 
 ```
-pnpm --filter lines build
+PUBLIC_IE_FAMILIES=arcade pnpm --filter lines build
 node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-play
 ```
+
+A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
+games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
+pages start at. **The original game's levels** (`salmonsMap`, what the project plays since
+2026-11-17) have their own run, `scripts/playtest/salmons-levels-play.mjs` (same arguments): one
+page in a random-level room makes the room's seed's level as the server does, draws it in the
+original art, swims upstream with no page error, and a config pinning one seed plays it. It prints
+how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
+about 4 s, 133 MB, 24 fps).
 
 Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
 (`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with

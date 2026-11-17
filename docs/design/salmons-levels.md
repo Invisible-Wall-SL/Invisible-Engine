@@ -1,7 +1,7 @@
 # Salmons levels — the original generator, by seed, with an authored overlay
 
-> Status: **planned 2026-11-16, blocked** on reading the original generator (§1) and on one owner
-> choice (§3 b). State: [status/salmons](../status/salmons.md). Agent: `arcade-games`.
+> Status: **planned 2026-11-16; built 2026-11-17 (in review)** after the owner gave the original
+> source and chose §3 b option 3. State: [status/salmons](../status/salmons.md). Agent: `arcade-games`.
 
 **Owner report (2026-11-16):** the original game generated each level from an algorithm; the
 Scene Editor shows something else, only one level, and the original function seems gone. The
@@ -30,59 +30,56 @@ editor should show the level a seed generates, and authors should be able to add
 So the game does generate a river per room; what is missing is the original algorithm, an editor
 that shows a seed's level, and a way to keep additions.
 
-## 2. Plan
+## 2. Plan (as built)
 
-**(a) One pure generator.** Port `generateMap` and `buildMeanderTable` into `engine-mechanics`
-(`salmonsMap.js`) as a pure function of `(seed, params)`: the existing `createRng` (no
-`Math.random`), no I/O, plain ESM. It returns the tile grid (water, bank, sandbank, rock,
-waterfall, whirlpool, bridge, source, sea) and the derived river; `salmonsGeometry` turns it into
-zones as today. It replaces `salmonsRiver` behind the same generator id, so the server, every device
-and the editor run one function. The old band generator stays as `salmonsBands` for the recorded
-traces (`check:online-rules`, `check:room-bots`) until they are re-recorded. The art's riverbed and
-trees take their seed from the same level seed.
+**(a) One pure generator.** `engine-mechanics` `salmonsMap.js` ports `generateMap`,
+`buildMeanderTable` and the constants they read line for line; `seedrandom.js` ports `seedrandom`
+3.0.5's ARC4 stream, so a seed makes the original's level exactly (a number seed is its decimal
+string). No `Math.random`, no I/O. `salmonsMapRiver(seed, overlay)` turns the map into the engine's
+river (one grid cell = 48 world px, the source at the top): a band per run of equal-width columns, a
+band starting at every waterfall, rocks 1.5 cells, a sandbank rect per run of sand across a column,
+whirlpools at their cells. `salmonsGeometry`, both drawings and the rules read it unchanged. It is
+the generator `salmonsMap`; the server, every device and `/editor` call it. P10.16's band generator
+stays as `salmonsRiver` (its recorded traces still use it). Bridges are generated and carried, not
+yet drawn or played.
 
-**(b) Choosing a level at runtime.** The original's behaviour: a new random seed per room, the
-river kept for the room's life. Kept as the default. A config field
-`arcade.online.levels: { seeds?: (string | number)[] }` lets an owner pin a list instead; a room
-then takes the next seed in the list. **Owner choice before build (§3 b).**
+**(b) Choosing a level** (owner, 2026-11-17: both). With no pinned seeds a room takes a new random
+seed, as the original did; `arcade.online.levels.seeds` pins a list, each new room taking the next
+(`onlineGenerators.js` `roomLevelSeed`, `services/game-server` `arcadeRoom.ts`).
 
-**(c) The Scene Editor.** A generated field node (`fieldGenerator: { id, seed }` on the play field's
-world node) replaces the baked river in `scenes.json`. `/editor` draws it live from the generator
-with the same drawing a room uses (original art), with a seed picker (text field, ⟳ random, ◀ ▶
-through the pinned list). The generated part is read-only: selecting it shows the seed, not node
-fields. A `SectionCard` with the help as its `info` tooltip (rule 10).
+**(c) The Scene Editor.** The river node carries `generated: { generator, seed }` and is locked.
+`/editor`'s **Generated level** card (`EditorGeneratedLevel.svelte`, `$lib/editor/generatedLevel.ts`)
+picks a seed (field, ⟳, ◀ ▶ through the pinned list) and redraws the node with the room's own
+generator and drawing (`generatedLevelCore.ts`), with the config's overlays on. The editor stage
+draws it as placeholder shapes; the original art draws only in a room (the stage is not `IsoWorld`).
 
-**(d) The authored overlay.** Stored apart from the base, in the project's
-`editor/levels/<seed>.json` (and `editor/levels/_all.json` for additions every level gets):
-`{ version: 1, seed, add: [{ cell: [col,row], kind, ...params }], remove: [[col,row]], set: [...] }`,
-keyed by the generator's tile cell. Applied after generation by one pure function
-`applyLevelOverlay(map, overlay)` in `engine-mechanics`, on the server and the device and in the
-editor alike. A cell the overlay names that the new base no longer has is reported in the editor
-(an "orphaned" list) and kept, never dropped. Changing the seed changes which overlay file is
-shown; it never writes or clears one. Saves go through the launcher's conditional-write helpers
-(`pipeline-concurrency`).
+**(d) The authored overlay.** In the Game Config, `arcade.online.levels.overlays`, by seed or `'*'`
+(every level): `{ add: [{ cell: [gx, gy], kind, height? }], remove: [[gx, gy]], set: [{ cell, height }] }`,
+in the original's grid. `applySalmonsOverlay` lays it on the base (remove, then set, then add); an
+entry the level has no place for is returned in `orphans` and listed in amber, never dropped, and
+the overlay is never changed by a reseed. The card's **Save overlays** reads the config fresh and
+writes only `levels`, conditional on its ETag.
 
-**(e) Shipping (rule 8).** Overlays are a new project asset class: export them to `deploy/`, bake
-the index into the bundle, pull into `static/assets/`, and register them in the runtime (the
-`fontExport.ts` pattern); the game server reads the same baked index with the config. The generator
-is code and ships in the runtime.
+**(e) Shipping (rule 8).** The overlay is part of the Game Config, which already travels export →
+deploy → bake → pull → register and is what the game server loads, so it adds no asset class.
 
-**(f) The current single level.** `salmons-1` is kept: it becomes pinned level 0, and the current
-baked river in the project's `scenes.json` is converted once into its overlay's `set` entries only
-where an author changed it (none known today), so nothing authored is lost. Not deleted.
+**(f) The current single level.** Kept: the export now writes the original generator's level 1
+(`SALMONS_MAP_SEED`) as the scene's river; the old `salmons-1` band river is still what
+`salmonsRiver('salmons-1')` makes, and that generator still plays it.
 
-**Proof.** A gate `check:salmons-levels`: for fixed seeds the generator's output equals a recorded
-fixture (the original's own output for those seeds, captured from the old client), the server's
-`generatedOnlineGame` and the editor's preview produce byte-equal maps for the same seed, an overlay
-survives a reseed (applied, orphans listed, file unchanged), and no `Math.random` in the module.
-Current games: 0 changed screens for every non-Salmons game (only Salmons names the generator).
+**Proof.** `pnpm check:salmons-levels`: the PRNG and seven seeds' maps and meanders match streams
+and hashes recorded from the original repository with the real `seedrandom`; the generator holds no
+`Math.random`; the exported config names `salmonsMap` and validates; the river's water is the
+original's water; a room, a device and `/editor` make the same level for a seed; an overlay adds,
+removes and re-heights; a reseed reports orphans and leaves the overlay unchanged; pinned seeds
+cycle; Game Config keeps only valid level entries; a salmon swims a whole original level and wins.
 
-## 3. Open before building
+## 3. Left open
 
-- **a. The original source.** `generateMap`, `buildMeanderTable` and the constants they read, from
-  `GuiltyForever/Salmon-`. This session could not attach that repository. A port without it would
-  be a third guess, not the original.
-- **b. Owner: how a room picks its level.** (1) a new random seed per room, as the original
-  (overlays then only apply as `_all` additions, or when that seed is reused); (2) a fixed list of
-  seeds, each with its overlay, cycled per room or per round; (3) both: random by default, a pinned
-  list when the config names one. Recommended: 3.
+- Bridges: generated, not drawn (no bridge art is built) and not in the rules (a bear blocked, a
+  fisherman on the deck).
+- Waterfall `height` is carried, but the climb still takes the engine's 4 taps.
+- The editor stage shows placeholders, not the original art; picking a cell is by typed gx / gy,
+  not by clicking the stage.
+- The original's speeds and current (6 and 1.5 tiles/s) are not taken: the config keeps the
+  engine's (240 px/s salmon, 72 px/s current from the generator).

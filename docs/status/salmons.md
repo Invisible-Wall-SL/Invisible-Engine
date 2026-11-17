@@ -51,7 +51,19 @@ upload.
     on it (the river's field, zones, currents, banks and spawns; characters, rules and bots stay as
     the config says), and the device draws that river (`engine-layout` `salmonsRiverNode`) in
     place of the authored one. A room replays from its seed (the bots' brains and the river). The
-    authored `salmons-1` river is what `/editor` and `/config` show;
+    river is the **original game's own level** since 2026-11-17 (in review; below);
+  - **the original's levels, by seed (2026-11-17; in review;
+    [design/salmons-levels](../design/salmons-levels.md))**: `engine-mechanics` `salmonsMap.js`
+    ports `generateMap` / `buildMeanderTable` and `seedrandom.js` its PRNG, so a seed makes the
+    original's level piece for piece (a meandering 400-column river, waterfalls every 40 columns,
+    rocks, whirlpools, delta sand islands; bridges carried, not yet drawn or played). Salmons'
+    config names the generator `salmonsMap`. No pinned seeds: a new random level per room, as the
+    original; `arcade.online.levels.seeds` pins a list taken in turn. Authored overlays
+    (`levels.overlays`, by seed or `'*'`) add, remove and re-height pieces by grid cell on top, in
+    the room, on the device and in `/editor`; a reseed lists what it cannot place and never drops
+    it. `/editor`'s **Generated level** card previews any seed (placeholder shapes) and saves the
+    overlays into the Game Config. P10.16's band generator stays as `salmonsRiver` for the
+    recorded traces. Proof: `check:salmons-levels`;
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
     (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`) standing on their places (their bottom
@@ -256,6 +268,7 @@ Salmons now plays on the engine, so the art goes into the `salmons` project and 
 client's `characterLook.js` rules. The three character components carry `characterClips`
 (`referenceLayouts/salmons.ts`), resolved by `engine-layout` `characterClips.ts` and drawn by
 `SpawnLayer` (detail in Recent changes):
+
 - Each player plays `<character>_<state>_<facing>` once that clip is published, and keeps its
   placeholder while it has none. The character prefixes are `salmon_pink`, `bear` and
   `fisherman`. The golden salmon (the player's `mark`) plays `salmon_golden_*` if there is one,
@@ -266,7 +279,7 @@ client's `characterLook.js` rules. The three character components carry `charact
   - bear: `walk` while `moving`, otherwise `idle`, and `swipe` once on its ability;
   - fisherman: `walk` / `idle`, `cast` once on its ability, and `reel` while its line holds a
     salmon.
-  A one-shot plays to its end before a loop takes over.
+    A one-shot plays to its end before a loop takes over.
 - A missing clip is stood in for:
   1. first by a near facing: the mirror twin, then the vertical twin, then that twin's mirror;
   2. then by a near state: `hop` → `swim`, `swipe` → `idle`, `cast` → `reel` → `idle`,
@@ -284,42 +297,42 @@ client's `characterLook.js` rules. The three character components carry `charact
 the runbook follows them.
 
 1. **The clip count.** The plan says 22 clips, but its own table lists 13 states × 2 facings = 26.
-   *(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
+   _(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
    `salmon_golden_*` clips are made; generated golden clips replace the tint if they exist. The
-   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)*
+   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)_
 2. **States the engine has that the plan lacks** (P11.3). A salmon can be **grounded** on a
    sandbank (held still until it taps), **hooked** on a line (reeled in), and it **climbs** a
-   waterfall by tapping. *(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
+   waterfall by tapping. _(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
    hooked play `swim`. Optional: add `salmon_pink_hooked`
    (loop, thrashing on a line) and `salmon_pink_grounded` (loop, flapping on sand), 4 more
-   clips.)*
+   clips.)_
 3. **Facing from velocity or from the stick.** The river's current is part of the velocity, so a
    salmon swimming upstream more slowly than the current is carried downstream and faces
-   downstream. The room also sends each player's input direction (`facing`). *(Default: velocity,
-   as briefed. Alternative: the input's direction while the player steers.)*
+   downstream. The room also sends each player's input direction (`facing`). _(Default: velocity,
+   as briefed. Alternative: the input's direction while the player steers.)_
 4. **Sizes.** The engine's bodies are bigger than the old client's sizes: salmon 90 × 44 (old: about
    50 long), bear 92 × 92 (old: 80 wide), fisherman 56 × 88. The clips are drawn at the body's
    width. The blueprint writes 320 × 320 frames, and Max px only shrinks, so 320 changes nothing.
-   *(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
-   the blueprint's Output frame width / height towards its 512 maximum.)*
+   _(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
+   the blueprint's Output frame width / height towards its 512 maximum.)_
 5. **Loops that end where they start.** `wan22_i2v_flipbook` doesn't loop, so a loop needs a
    hand-picked From / To. The library also holds `wanloopingvideo__3_`, which loops but took about
-   17 min a render in its one measured run. *(Default: `wan22_i2v_flipbook` for every clip; try the
-   looping blueprint on `swim` if the seams show.)*
+   17 min a render in its one measured run. _(Default: `wan22_i2v_flipbook` for every clip; try the
+   looping blueprint on `swim` if the seams show.)_
 6. **The fisherman has no source art** (the old client draws him in code), and `gpt_image` needs a
-   reference image, which it *edits* rather than only borrowing its style. *(Default: the locked
+   reference image, which it _edits_ rather than only borrowing its style. _(Default: the locked
    `bear_se` still is redrawn as the fisherman. Alternative: upload any drawing of a fisherman in
-   the house style.)*
-7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. *(Default: 3 s for loops,
-   2 s for one-shots.)*
+   the house style.)_
+7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. _(Default: 3 s for loops,
+   2 s for one-shots.)_
 8. **The cutout models.** The plan names a BiRefNet cutout for the stills. The `gpt_image` builder
    uses the `RMBG` node, whose clean choice is **BEN2**
    ([model-licences](../reference/model-licences.md) recommendation 1: first confirm the re-host is
    the MIT base). BiRefNet needs a builder change. The video's default matting, `BiRefNet_toonout`,
-   has no recorded licence, against the owner's licence-clean-only rule. *(Default: BEN2 for the
+   has no recorded licence, against the owner's licence-clean-only rule. _(Default: BEN2 for the
    stills and `BiRefNet-general` (MIT) for the videos, to keep the licence-clean rule.
    Alternative: allow `BiRefNet_toonout`, the plan's choice, which may cut toon edges better, once
-   its licence is confirmed.)*
+   its licence is confirmed.)_
 
 ## Decided (owner, 2026-10-26)
 
@@ -332,18 +345,21 @@ the runbook follows them.
 
 ## Blocked (owner / external)
 
-- **Seeded levels with an authored overlay** ([design/salmons-levels](../design/salmons-levels.md),
-  planned 2026-11-16): the engine's `salmonsRiver` is not the original game's generator
-  (`generateMap` / `buildMeanderTable`, never ported), `/editor` shows one baked river
-  (`salmons-1`) that no room plays, and the generator replaces any authored zones. Building waits
-  on the original generator's source from `GuiltyForever/Salmon-` (not readable from a cloud
-  session of this repository) and on the owner's choice of how a room picks its level (§3 b).
-
 - **The generation runs in the launcher's tools** (ComfyUI on RunPod, through the Atlas Maker,
   Flipbook and FX). They are pages behind the launcher's sign-in, and a cloud session has no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-17 — **Salmons plays the original game's levels, by seed, with authored overlays**
+  (branch `arcade/salmons-seeded-levels`; in review). The owner gave the original source and chose
+  random-by-default plus a pinned list. Built: the line-for-line port and its PRNG (checked against
+  seven seeds of the original), the `salmonsMap` generator and its conversion to the engine's river,
+  `arcade.online.levels` in Game Config (normalised, a warning on another generator), the room's
+  pinned-or-random seed, the locked `generated` river node and `/editor`'s Generated level card, the
+  export on level 1, the gate `check:salmons-levels`. Left: bridges, waterfall heights in the climb,
+  the art on the editor stage, clicking a cell (design §3). Taking it live is an owner re-upload of
+  the export (owner steps).
 
 - 2026-11-16 — **Seeded levels planned** ([design/salmons-levels](../design/salmons-levels.md); branch
   `arcade/salmons-seeded-levels`): why the editor's river differs from a room's (another

@@ -1,6 +1,12 @@
 import { CloseCode, Room, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
-import { ONLINE_EVENT, sanitizeInput, type OnlineEvent, type OnlineInput } from 'engine-mechanics';
+import {
+	ONLINE_EVENT,
+	roomLevelSeed,
+	sanitizeInput,
+	type OnlineEvent,
+	type OnlineInput,
+} from 'engine-mechanics';
 
 import type { LoadGame } from './configSource.ts';
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
@@ -72,6 +78,8 @@ type CreateOptions = { game?: unknown };
 type JoinOptions = { name?: unknown; character?: unknown };
 
 export function arcadeRoomClass(deps: ArcadeRoomDeps) {
+	/** Rooms made per game, so each new room takes the next of its pinned levels. */
+	const levelTurns = new Map<string, number>();
 	return class ArcadeRoom extends Room<{ state: RoomStateData; input: InputFrame }> {
 		state = new RoomState();
 		sim: RoomSim | undefined;
@@ -98,8 +106,13 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
 			deps.rooms.count += 1;
 			this.counted = true;
-			// The seed is logged, so a room's bots and generated field can be replayed from the log.
-			const seed = Math.floor(Math.random() * 0x7fffffff);
+			// The seed is logged, so a room's bots and generated field can be replayed from the log. A
+			// config's pinned levels are taken in turn; with none, each room gets a new random one.
+			const turn = levelTurns.get(game) ?? 0;
+			levelTurns.set(game, turn + 1);
+			const seed = roomLevelSeed(loaded.online.levels, turn, () =>
+				Math.floor(Math.random() * 0x7fffffff),
+			);
 			const sim = createRoomSim(loaded, { seed });
 			if (loaded.online.bots.fillTo > 0 || loaded.online.generator)
 				console.log(`[game-server] room ${this.roomId} of "${game}": seed ${seed}`);

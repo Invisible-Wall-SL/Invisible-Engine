@@ -352,7 +352,28 @@ export function mountSalmonsRiver(
 			else if (c >= -FOREST_DEPTH && c < cols + FOREST_DEPTH) tree(c, r, biomeTree(Math.max(0, r)));
 		}
 
+	// Sand on the cell grid (the original's islands, one rect per run of a row) is tiled against its
+	// neighbouring cells, so an island reads as one; any other sandbank is tiled as its own patch.
+	const onGrid = (r: { x: number; y: number; w: number; h: number }) =>
+		[r.x, r.y, r.w, r.h].every((v) => v % CELL === 0);
+	const sandCells = new Set<string>();
+	for (const bank of river.sandbanks ?? [])
+		if (onGrid(bank))
+			for (let y = bank.y; y < bank.y + bank.h; y += CELL)
+				for (let x = bank.x; x < bank.x + bank.w; x += CELL) sandCells.add(`${x},${y}`);
+	const sandAt = (x: number, y: number) => sandCells.has(`${x},${y}`);
+	for (const cell of sandCells) {
+		const [x, y] = cell.split(',').map(Number);
+		const name = `sand_${compassTile(sandAt(x, y - CELL), sandAt(x + CELL, y), sandAt(x, y + CELL), sandAt(x - CELL, y))}`;
+		onGround(sand, groundTile(region(name), x, y, CELL, CELL), {
+			x0: x,
+			y0: y,
+			x1: x + CELL,
+			y1: y + CELL,
+		});
+	}
 	for (const bank of river.sandbanks ?? []) {
+		if (onGrid(bank)) continue;
 		const across = Math.max(1, Math.round(bank.w / CELL));
 		const down = Math.max(1, Math.round(bank.h / CELL));
 		const w = bank.w / across;
