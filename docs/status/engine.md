@@ -610,6 +610,16 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-17 — **Runtime builds no longer depend on the checkout's folder** (branch
+  `runtime-bytes-path-independent`). One commit built at two paths on Linux gave different bytes in
+  every runtime (all 25 scoped-CSS classes, so the CSS, the bundle and 3–5 chunks): Svelte names a
+  component from `rootDir`, by default the build's cwd (`apps/lines`), so components under
+  `packages/*` kept their absolute path and their `svelte-<hash>` class hashed it.
+  `config-svelte` now sets `compilerOptions.rootDir` to the engine's root. Proof: every runtime
+  built in two checkouts (`/home/user/rbA`, `/home/user/rb-second-checkout`) gives identical
+  manifests; guard `pnpm check:build-paths`. Every runtime's bytes moved once (new class names),
+  manifests re-recorded. `--update` on any Linux checkout now records CI's bytes (Windows still
+  differs, `autocrlf`).
 - 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
   released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins
   what made two builds of one commit differ — `__IE_BUILD__`'s `builtAt`, `sha`, `engineSha`,

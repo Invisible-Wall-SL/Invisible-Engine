@@ -6,6 +6,15 @@ Covers Railway deploys, Cloudflare (DNS, tunnel), R2, CI workflows, GHCR, git wo
 launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/INFRA.md` and the
 `/deploy` skill. ComfyUI and RunPod traps live in [comfyui.md](comfyui.md).
 
+### runtime-bytes went red on manifests recorded on Linux
+- **Symptom:** `check:runtime-bytes` passed locally after `--update`, then failed in CI on the same
+  tree: `bundle.css` +3 B, the bundle and three chunks renamed, in every runtime.
+- **Cause:** Svelte names components from `rootDir` (default: the cwd, `apps/lines`); a component
+  under `packages/*` kept its absolute path, which its scoped-CSS class hashes.
+- **Fix:** `config-svelte` sets `compilerOptions.rootDir` to the engine's root.
+- **Guard:** `pnpm check:build-paths` (the class depends on the engine-relative path only).
+- **PR:** not recorded (2026-11-17) · source: `docs/status/engine.md`
+
 ### Sentry got no source maps and nothing went red
 - **Symptom:** every runtime release printed "No bundle source map in the build — nothing to
   upload" (a notice); game stack traces in Sentry stayed minified.

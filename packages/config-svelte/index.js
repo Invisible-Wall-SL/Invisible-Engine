@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { ENGINE_APP_SRC, isStandaloneGame } from './appSrc.js';
@@ -30,6 +31,16 @@ const warnAboutDeadSrc = () => {
 			`src/ is a scaffold-time copy and can be deleted (git rm -r src).`,
 	);
 };
+
+/**
+ * The engine's root (the workspace this package lives in; a game repo's `engine/` submodule), the
+ * folder Svelte names components from. Its default is the build's cwd (`apps/lines`), so a component
+ * under `packages/*` kept its ABSOLUTE path, and the scoped-CSS class hashed from it
+ * (`svelte-<hash>`) changed with the checkout's folder: one commit built at /home/user/… and at CI's
+ * /home/runner/work/… gave a different CSS file, bundle and chunk hashes, and `check:runtime-bytes`
+ * could only be recorded at CI's own path (`check:build-paths`).
+ */
+const ENGINE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
  * Shared SvelteKit config.
@@ -102,6 +113,7 @@ export default () => {
 		// Consult https://kit.svelte.dev/docs/integrations#preprocessors
 		// for more information about preprocessors
 		preprocess: vitePreprocess(),
+		compilerOptions: { rootDir: ENGINE_ROOT },
 		kit: game
 			? {
 					...kit,

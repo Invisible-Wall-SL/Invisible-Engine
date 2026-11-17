@@ -11,7 +11,8 @@
 #
 #   gh run download <run id> -n runtime-bytes -D scripts/runtime-bytes
 #
-# rather than four local builds on another OS (a Windows checkout builds other bytes). A change on a
+# rather than four local builds on another OS (a Windows checkout builds other bytes). On Linux,
+# `pnpm check:runtime-bytes --update` in any checkout folder records the same bytes. A change on a
 # path that cannot legitimately reach a 2D runtime (packages/engine-3d, the family seams, the build
 # config, the lockfile) failing here is a leak.
 #
