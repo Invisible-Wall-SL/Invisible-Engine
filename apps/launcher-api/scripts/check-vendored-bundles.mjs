@@ -15,22 +15,24 @@ import { fileURLToPath } from 'node:url';
 
 const LAUNCHER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/**
- * Every `vite.<name>.config.ts` that writes a committed bundle, and where that bundle lives.
- * `noUrls`: the bundle may name no `http(s)://` address — `rigger-motion` runs MediaPipe, whose usage
- * logger its build removes (`vite.rigger-motion.config.ts`), and nothing in it may reach off-site.
- */
+/** Every `vite.<name>.config.ts` that writes a committed bundle, and where that bundle lives. */
 const BUNDLES = [
 	{ name: 'rigger-fx', committed: 'static/rigger/vendor/rigger-fx.js' },
 	{ name: 'rigger-text', committed: 'static/rigger/vendor/rigger-text.js' },
-	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js', noUrls: true },
+	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js' },
 	{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },
 ];
 
+/**
+ * Bundles that may name no `http(s)://` address: `rigger-motion` runs MediaPipe, whose usage logger
+ * its build removes (`vite.rigger-motion.config.ts`), and nothing in it may reach off-site.
+ */
+const NO_URLS = new Set(['static/rigger/vendor/rigger-motion.js']);
+
 const stale = [];
 const offSite = [];
-for (const { name, committed, noUrls } of BUNDLES) {
-	if (noUrls) {
+for (const { name, committed } of BUNDLES) {
+	if (NO_URLS.has(committed)) {
 		const urls = readFileSync(join(LAUNCHER, committed), 'utf8').match(/https?:\/\/[^\s"'`)]+/g);
 		if (urls) offSite.push(`  ✗ ${committed} names ${[...new Set(urls)].join(', ')}`);
 	}
