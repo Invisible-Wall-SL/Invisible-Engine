@@ -844,6 +844,12 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
 - **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
   open at the clip's end so it loops.
 - **💬 Talk 2 s** — 2 s of mouth shapes from the playhead, jaw following, ending on the rest shape.
+- **🎬 Starter animations** — adds the template's ready-made clips: `idle` (4 s: breathing, a
+  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`,
+  `win_small` and `win_big`. Every clip starts and ends with the face at rest, so it loops or hands
+  over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
+  already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
+  becomes the nearest one it has (by how far it opens the jaw).
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
 

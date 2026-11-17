@@ -237,7 +237,31 @@ const refused: [string, RigTemplate, RegExp][] = [
 		/moves nothing/,
 	],
 	['rest outside the range', withChannel('breath', (c) => ({ ...c, rest: 2 })), /rest between/],
+	...(
+		[
+			['a clip keying a missing channel', [0.5, 'wink', 1], /missing channel "wink"/],
+			['a clip key out of range', [0.5, 'breath', 3], /not one of its values/],
+			['a clip shape from another slot', [0.5, 'mouth', 'nose'], /not one of its values/],
+			['a clip key past its end', [9, 'breath', 1], /outside 0/],
+		] as const
+	).map(([label, key, want]): [string, RigTemplate, RegExp] => [
+		label,
+		{
+			...base,
+			clips: base.clips.map((c, i) => (i === 0 ? { ...c, keys: [...c.keys, [...key]] } : c)),
+		},
+		want,
+	]),
+	[
+		'two clips with one name',
+		{ ...base, clips: [...base.clips, base.clips[0]] },
+		/clip "idle" is listed twice/,
+	],
 ];
+check(
+	'bust-face has the seven starter clips',
+	base.clips.map((c) => c.name).join() === 'idle,blink,talk,happy,surprised,win_small,win_big',
+);
 for (const [label, t, want] of refused) {
 	const problem = rigTemplateProblem(t);
 	check(`a template with ${label} is refused`, !!problem && want.test(problem), String(problem));

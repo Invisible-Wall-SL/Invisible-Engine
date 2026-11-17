@@ -90,10 +90,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     assumptions); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
 19. **Rig templates** — [rig-templates](../design/rig-templates.md): fixed skeletons with a parts
-    contract so new art attaches itself and clips play on every character of a template. T1 and T2
-    are built (2026-11-17): the **Bust with face** template in ＋ New rig and the **Face** section
-    that keys it. ⏳ Neither tried in the authed Rigger against real art; next is T3 (starter
-    animations).
+    contract so new art attaches itself and clips play on every character of a template. T1–T3
+    are built (2026-11-17): the **Bust with face** template in ＋ New rig, the **Face** section that
+    keys it, and its seven starter animations. ⏳ None tried in the authed Rigger against real art;
+    next is T4 (lip-sync from audio) or T6 (the art blueprint), the owner's pick.
 
 ## Blocked (owner / external)
 
@@ -102,6 +102,19 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T3: starter animations.** A template carries `clips`: channel keys
+  (`[time, channel, value]`), built in `rigTemplates.ts` so every channel a clip touches starts and
+  ends at rest. `bust-face` has `idle` (4 s), `blink`, `talk` (2 s, opens on rest), `happy`,
+  `surprised`, `win_small`, `win_big`; `rigTemplateProblem` refuses a clip keying a missing
+  channel, a value out of range, a shape from another slot, a time past its end or a duplicate name.
+  The Face section's **🎬 Starter animations** writes them through the same `face*` channel code
+  (`faceAddStarterClips`), keeping any animation of the same name. A mouth shape the rig lacks now
+  falls back to the one it has with the nearest jaw opening (`faceKeyShape`), so a clip never
+  names a missing image. Gates: `face-channels.mjs` 188 (+78: every clip on full and required-only
+  art lasts its length and starts/ends at rest under engine-rig; the fallback; no overwrite),
+  `check:rig-templates` 34 (+6). Mutation-checked (no fallback → 3 red; no end keys → 31 red).
+  Found on the way: engine-rig stores key times as float32, so a check sampling a finished clip at
+  exactly its length reads the key before the last; the game clamps to the stored end and is right.
 - 2026-11-17 — **Rig templates T2: the Face section.** A template now carries face `channels`
   (`rigTemplates.ts`): drives (a bone's x / y / rotate / scaleY as `value × per` from setup) and
   swaps (a slot's image by value step), or `shapes` for the mouth (part → jaw opening, the talk
