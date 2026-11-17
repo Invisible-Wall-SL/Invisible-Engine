@@ -80,3 +80,52 @@ export type RoomStateData = SchemaType<typeof RoomState>;
 /** The state of a room that sends each device only the players near its own (`online.nearby`,
  *  P10.16): a player reaches the devices whose `StateView` holds it (`arcadeRoom.ts`). */
 export const NearbyRoomState = schema({ ...roomFields, players: t.map(NearbyPlayer).view() });
+
+/**
+ * THE 3D WIRE (`docs/design/3d/gameplay-evaluation.md` §3), used only by the 3D room
+ * (`arcadeRoom3d.ts`); the classes above are untouched by it.
+ *
+ * {@link Input3D} is what a 3D device sends: int8 WORLD-space move axes (the device turned its
+ * camera into a direction before quantising), the buttons, a uint16 yaw that is only copied, an
+ * int16 pitch and the room step it was drawing at. `engine-mechanics` `sanitizeInput3d` clamps it as
+ * it is decoded.
+ *
+ * {@link Player3D} is a 3D player as devices draw it: the place (`x y z`, metres, y up, `y` the
+ * feet) and yaw, `status` and `team` (the rules'), `anim` (`ANIM3D` bits: grounded, sprinting,
+ * carrying, aiming, double-jumped) and `ack`. One-shots (a jump, a landing, a bounce, a zone, a fall
+ * and its respawn) arrive as `ONLINE_EVENT` messages, not state.
+ */
+export const Input3D = schema({
+	seq: t.uint32(),
+	moveX: t.int8(),
+	moveZ: t.int8(),
+	buttons: t.uint8(),
+	yaw: t.uint16(),
+	pitch: t.int16(),
+	view: t.uint32(),
+});
+export type Input3DFrame = SchemaType<typeof Input3D>;
+
+export const Player3D = schema({
+	name: t.string(),
+	character: t.string(),
+	x: t.float32(),
+	y: t.float32(),
+	z: t.float32(),
+	yaw: t.uint16(),
+	status: t.uint8(),
+	team: t.uint8(),
+	anim: t.uint8(),
+	connected: t.boolean(),
+	bot: t.boolean(),
+	ack: t.uint32(),
+});
+
+export const RoomState3D = schema({
+	/** `waiting` until the first person joins, then `running`. */
+	phase: t.string(),
+	step: t.uint32(),
+	seed: t.uint32(),
+	players: t.map(Player3D),
+});
+export type RoomState3DData = SchemaType<typeof RoomState3D>;

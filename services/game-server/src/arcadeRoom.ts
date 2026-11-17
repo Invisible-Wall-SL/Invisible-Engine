@@ -103,6 +103,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 				console.warn(`[game-server] no room for "${game.slice(0, 64)}": ${String(error)}`);
 				throw new RoomRefusal(UNAVAILABLE);
 			});
+			// A 3D game plays in the 3D room (`arcadeRoom3d.ts`): this room's step is the plane's.
+			if (loaded.world3d) throw new RoomRefusal(UNAVAILABLE);
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
 			deps.rooms.count += 1;
 			this.counted = true;

@@ -12,18 +12,22 @@ import {
 import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
+import { arcadeRoom3dClass } from './arcadeRoom3d.ts';
 import { addressKey, hold, heldBy, noteRequest, reclaims, release } from './addresses.ts';
 import { guardSockets } from './socketGuard.ts';
 import type { LoadGame } from './configSource.ts';
 
 /**
  * THE INVISIBLE GAME SERVER (`docs/design/realtime-multiplayer.md` §9): one process, many rooms,
- * one replica. A device joins `arcade` with `{ game, name, character }`; `GET /healthz` reports
+ * one replica. A device joins `arcade` (a 3D game: `arcade3d`) with `{ game, name, character }`; `GET /healthz` reports
  * the commit it runs and its rooms.
  */
 
 /** The room type every online arcade game is played in. */
 export const ROOM_NAME = 'arcade';
+
+/** The room type every online 3D arcade game (an `arcade.world3d` block) is played in. */
+export const ROOM_NAME_3D = 'arcade3d';
 
 /** The largest WebSocket message the server reads: an input is a few bytes. */
 const MAX_PAYLOAD_BYTES = 1024;
@@ -270,6 +274,13 @@ export type GameServer = {
 
 export function createGameServer(options: GameServerOptions): GameServer {
 	const rooms = { count: 0 };
+	const roomDeps = {
+		loadGame: options.loadGame,
+		maxRooms: options.maxRooms,
+		seatSeconds: SEAT_SECONDS,
+		rooms,
+		onStep: options.onStep,
+	};
 	const healthz = createEndpoint('/healthz', { method: 'GET' }, async () =>
 		Response.json({ ok: true, commit: options.commit, rooms: rooms.count }),
 	);
@@ -290,15 +301,8 @@ export function createGameServer(options: GameServerOptions): GameServer {
 		gracefullyShutdown: options.gracefullyShutdown ?? true,
 		greet: false,
 		rooms: {
-			[ROOM_NAME]: defineRoom(
-				arcadeRoomClass({
-					loadGame: options.loadGame,
-					maxRooms: options.maxRooms,
-					seatSeconds: SEAT_SECONDS,
-					rooms,
-					onStep: options.onStep,
-				}),
-			).filterBy(['game']),
+			[ROOM_NAME]: defineRoom(arcadeRoomClass(roomDeps)).filterBy(['game']),
+			[ROOM_NAME_3D]: defineRoom(arcadeRoom3dClass(roomDeps)).filterBy(['game']),
 		},
 		routes: createRouter({ healthz }),
 	});

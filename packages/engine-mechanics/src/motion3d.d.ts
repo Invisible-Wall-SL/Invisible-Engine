@@ -149,4 +149,32 @@ export declare function stepBody3d(
 	dt?: number,
 ): Step3dResult;
 
+export declare function zonesAt3d(body: Body3d, level: Level3d, spec?: Motion3dSpec): number[];
+
+export declare const SIGNALS3D: Readonly<{
+	jumped: 'jumped';
+	doubleJumped: 'doubleJumped';
+	landed: 'landed';
+	bounced: 'bounced';
+	leaveZone: 'leaveZone';
+	enterZone: 'enterZone';
+	fell: 'fell';
+}>;
+
+export type Signal3d =
+	| { type: 'jumped' | 'doubleJumped' | 'landed' | 'bounced' | 'fell' }
+	| { type: 'enterZone' | 'leaveZone'; zone: number; kind: string };
+
+export type Tracker3d = { zones: number[]; fell: boolean };
+
+export declare function createTracker3d(): Tracker3d;
+
+export declare function trackStep3d(
+	tracker: Tracker3d,
+	body: Body3d,
+	result: Step3dResult,
+	level: Level3d,
+	spec?: Motion3dSpec,
+): Signal3d[];
+
 export declare function hashBodies3d(bodies: readonly Body3d[], h?: number): number;
