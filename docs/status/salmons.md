@@ -396,8 +396,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   built-in copy covers them.
 - **(e) Gates.** `check:salmons-art` keeps its checks, and adds: the project-sheet plan names every
   region the drawing code draws, inside its page, with the built-in frame's size; the resolver takes
-  a project region and falls back for a missing one, for every name; the exporter's seed list is the
-  plan's.
+  a project region and falls back for a missing one, for every name; the exporter and the runtime
+  are wired to the plan's sheet names (read off their source). `check:art-scope` case 11 runs the
+  real exporter over them.
+- **Cost after the republish.** A shipped sheet is preloaded at boot like all editor art, so once
+  Salmons is republished its four sheets (about 0.8 MB of WebP, or their KTX2 twins) load behind
+  the loading screen instead of after the room's join, and stay resident. Until the republish
+  nothing changes.
 - **(f) The built-in copy stays** as the fallback, for now: it is what every published snapshot
   draws until the owner republishes, and what a room falls back to if the project's art fails to
   load. Retire it once Salmons has been republished with the project art and played.

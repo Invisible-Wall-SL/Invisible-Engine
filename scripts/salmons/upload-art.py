@@ -35,13 +35,10 @@ sys.path[:0] = [str(ROOT / 'services' / '_shared'), str(ROOT / 'services' / 'she
 import atlas_writers  # noqa: E402
 import plist_import  # noqa: E402
 from iw_common import docsave, storage  # noqa: E402
+from iw_common.context import r2_slug  # noqa: E402
 
 SHEET_RE = re.compile(r'^salmons_[a-z_]+$')
 ME = SimpleNamespace(uid='', sub='scripts/salmons/upload-art.py', name='Salmons art upload')
-
-
-def r2_slug(name: str) -> str:
-    return re.sub(r'[^a-z0-9]', '_', name.lower())[:60] or 'default'
 
 
 def load_plan() -> list[dict]:
@@ -76,13 +73,17 @@ def objects(entry: dict, prefix: str) -> list[tuple[str, bytes, str]]:
     manifest['import'] = {'kind': 'salmons-builtin', 'verbatim': True,
                           'source': f"engine-layout salmonsArt/sheets/{Path(entry['page']).name}"}
     manifest['sequences'] = []
-    docsave.stamp(manifest, ME, 'sheet')
+    docsave.stamp(manifest, ME, 'script')
     return [
-        (f'{prefix}/manifests/atlas_manifest_{sheet}.json',
+        (objects_manifest_key(entry, prefix),
          json.dumps(manifest, indent=2).encode(), 'manifest'),
         (page_key, page, 'page'),
         (json_key, json.dumps(tp, indent=2).encode(), 'json'),
     ]
+
+
+def objects_manifest_key(entry: dict, prefix: str) -> str:
+    return f"{prefix}/manifests/atlas_manifest_{entry['sheet']}.json"
 
 
 def same(kind: str, there: bytes, ours: bytes) -> bool:
@@ -113,32 +114,45 @@ def main() -> int:
 
     todo, conflicts = [], []
     for entry in load_plan():
+        sheet = []
         for key, body, kind in objects(entry, prefix):
             if not allowed.match(key):
                 raise SystemExit(f'refused: {key} is outside the Salmons art prefixes')
             found = storage.get_with_etag(key)
             if found is None:
-                todo.append((key, body))
+                sheet.append((key, body))
                 print(f'  write   {key} ({len(body)} B)')
             elif same(kind, found[0], body):
                 print(f'  same    {key}')
             else:
                 conflicts.append(key)
                 print(f'  OTHER   {key} holds other content ({len(found[0])} B)')
+        manifest_key = objects_manifest_key(entry, prefix)
+        todo.append((manifest_key, sheet))
     if conflicts:
         print(f'\nStopped: {len(conflicts)} key(s) already hold other content. Nothing was written.')
         return 1
+    count = sum(len(sheet) for _, sheet in todo)
     if not args.apply:
-        print(f'\nDry run: {len(todo)} object(s) to write. Re-run with --apply to write them.')
+        print(f'\nDry run: {count} object(s) to write. Re-run with --apply to write them.')
         return 0
-    for key, body in todo:
-        try:
-            storage.put(key, body, if_none_match='*')
-        except storage.Conflict:
-            print(f'Stopped: {key} was created by someone else meanwhile. Re-run to compare.')
-            return 1
-        print(f'  wrote   {key}')
-    print(f'\nDone: {len(todo)} object(s) written.')
+    for manifest_key, sheet in todo:
+        for key, body in sheet:
+            try:
+                storage.put(key, body, if_none_match='*')
+            except storage.Conflict:
+                print(f'Stopped: {key} was created by someone else meanwhile. Re-run to compare.')
+                return 1
+            except Exception as error:  # noqa: BLE001 - reported, then the run stops
+                print(f'Stopped: {key} did not write ({error}). Partially written: re-run to finish.')
+                return 1
+            print(f'  wrote   {key}')
+        # A sheet deleted or renamed in the tools while its page was written would leave the page
+        # without a manifest: say so (an unconditional delete could take someone's file).
+        if sheet and storage.head(manifest_key) is None:
+            print(f'Warning: {manifest_key} is gone after its sheet was written (deleted or renamed '
+                  'meanwhile?). Its page and JSON may be left without a manifest.')
+    print(f'\nDone: {count} object(s) written.')
     return 0
 
 

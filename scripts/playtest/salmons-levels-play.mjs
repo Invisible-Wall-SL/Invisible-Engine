@@ -8,8 +8,8 @@
 // how long the art took and the page's JS heap, since the original's river is about 2.7× longer and
 // 3.8× wider than P10.16's. A second config pins one seed, and its room must play it.
 // Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
-// whose editor art ships the project sheet `salmons_terrain` (every ground tile painted magenta, at
-// the built-in frames): its banks are drawn from it, and the other pages, with no such sheet, draw
+// whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
+// the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
 // the built-in tiles.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
@@ -156,6 +156,30 @@ writeFileSync(
 	join(snapshot, 'deploy', 'editor-art', 'salmons_terrain.json'),
 	JSON.stringify({ ...terrain, meta: { ...terrain.meta, image: 'salmons_terrain.png' } }),
 );
+// And `salmons_waterfall_face`, the tile a TilingSprite scrolls, as its own one-region sheet.
+const FACE = { w: 256, h: 64 };
+const facePage = new PNG({ width: FACE.w, height: FACE.h });
+for (let i = 0; i < facePage.data.length; i += 4) facePage.data.set([...MAGENTA, 255], i);
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'salmons_waterfall_face.png'),
+	PNG.sync.write(facePage),
+);
+const faceFrame = { x: 0, y: 0, ...FACE };
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'salmons_waterfall_face.json'),
+	JSON.stringify({
+		frames: {
+			waterfall_face: {
+				frame: faceFrame,
+				rotated: false,
+				trimmed: false,
+				spriteSourceSize: faceFrame,
+				sourceSize: FACE,
+			},
+		},
+		meta: { image: 'salmons_waterfall_face.png', format: 'RGBA8888', size: FACE, scale: '1' },
+	}),
+);
 const withProjectArt = join(work, 'runtime-project-art.json');
 writeFileSync(
 	withProjectArt,
@@ -170,6 +194,10 @@ writeFileSync(
 				{
 					key: `invisible_wall/${KEY}/manifests/atlas_manifest_salmons_terrain.json`,
 					json: 'editor-art/salmons_terrain.json',
+				},
+				{
+					key: `invisible_wall/${KEY}/manifests/atlas_manifest_salmons_waterfall_face.json`,
+					json: 'editor-art/salmons_waterfall_face.json',
 				},
 			],
 			images: [],
@@ -341,6 +369,14 @@ try {
 	verdict('without it the built-in tiles are drawn (no magenta)', builtinMagenta < 0.001, {
 		share: builtinMagenta,
 	});
+	const paRegions = (await pa.state()).arcade?.online?.art?.regions ?? {};
+	verdict(
+		'with the project’s face tile the waterfalls still draw (the TilingSprite path)',
+		(paRegions.waterfall_face ?? 0) > 0,
+		{
+			faces: paRegions.waterfall_face,
+		},
+	);
 	const paErrors = await pa.page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error with the project art', paErrors.length === 0, paErrors);
 	await pa.page.close();

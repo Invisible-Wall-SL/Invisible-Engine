@@ -139,6 +139,11 @@ check('only a Salmons room reaches the art: one lazy import, under its generator
 	);
 	assert.match(
 		online,
+		/editorArtSheetsWhere\(\(key\) => salmonsProjectSheetOf\(key\) !== undefined\)/,
+		'the runtime hands the art only the Salmons project sheets',
+	);
+	assert.match(
+		online,
 		/const salmonsArt = async \(made: SalmonsRiverDrawing, seed: number\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.loadSalmonsArt\(/,
 	);
 	const fieldArt = /const FIELD_ART[\s\S]*?> = \{([^}]*)\}/.exec(online)?.[1] ?? '';
@@ -244,8 +249,10 @@ check('the exporter ships the project sheets for a Salmons generator, by manifes
 	);
 	assert.match(
 		exporter,
-		/if \(usesSalmonsArt\(gameConfig\)\) \{[\s\S]{0,400}salmonsProjectSheetOf\(atlas\.key\)\)\s*refs\.manifestKeys\.add\(atlas\.key\)/,
+		/if \(usesSalmonsArt\(gameConfig\)\) \{[\s\S]{0,500}salmonsProjectSheetOf\(atlas\.key\)\)\s*salmonsSheetKeys\.push\(atlas\.key\)/,
 	);
+	assert.match(exporter, /if \(salmonsSheetKeys\.includes\(atlas\.key\)\) continue;/);
+	assert.match(exporter, /for \(const key of salmonsSheetKeys\) await exportManifest\(key\);/);
 });
 
 console.log(`check:salmons-art: ${passed} passed`);

@@ -656,14 +656,22 @@ export async function exportEditorArt(
 	// Salmons' original art, stored as project sheets (`SALMONS_PROJECT_SHEETS`): a room of a
 	// Salmons generator draws them in code (`apps/lines` `online.ts`), so no scene names them. Seeded
 	// by manifest key, never by bare region name (`bear`, `rock_0` may be packed by another sheet),
-	// and only those the project holds; their regions stay out of `usedRegions`, since one the
-	// project lacks is drawn from the runtime's built-in copy and is not missing.
+	// and only those the project holds; exported after the bare-name pass below, so they never
+	// stand in for another sheet a param names a region of. Their regions stay out of
+	// `usedRegions`: one the project lacks is drawn from the runtime's built-in copy, not missing.
+	// Best-effort like the effects walk: a failed listing ships none, and the room draws the
+	// built-in copy, as before the project held them.
+	const salmonsSheetKeys: string[] = [];
 	if (usesSalmonsArt(gameConfig)) {
 		await phase('salmons', async () => {
-			const { atlases } = await listProjectAssets(clientKey, projectKey);
-			for (const atlas of atlases)
-				if (atlas.kind === 'atlas-manifest' && salmonsProjectSheetOf(atlas.key))
-					refs.manifestKeys.add(atlas.key);
+			try {
+				const { atlases } = await listProjectAssets(clientKey, projectKey);
+				for (const atlas of atlases)
+					if (atlas.kind === 'atlas-manifest' && salmonsProjectSheetOf(atlas.key))
+						salmonsSheetKeys.push(atlas.key);
+			} catch (error) {
+				console.warn('[editor-art] could not list the Salmons project sheets', error);
+			}
 		});
 	}
 
@@ -936,6 +944,7 @@ export async function exportEditorArt(
 		for (const atlas of atlases) {
 			if (missing.size === 0) break;
 			if (atlas.kind !== 'atlas-manifest' || exported.has(atlas.key)) continue;
+			if (salmonsSheetKeys.includes(atlas.key)) continue;
 			const set = await loadRegionSet(atlas.key);
 			if (set.regions.some((r) => missing.has(r.name))) {
 				await exportManifest(set.assetKey, set);
@@ -945,6 +954,8 @@ export async function exportEditorArt(
 			}
 		}
 	}
+
+	for (const key of salmonsSheetKeys) await exportManifest(key);
 
 	// Standalone images (dropped atlas PAGES): dedup into the shared `_pages/` store, so an image
 	// used as both a rig page AND a dropped page (or by several nodes) loads as ONE texture. The

@@ -38,7 +38,8 @@
  *  11. SALMONS' ART as project sheets (`game-config` `SALMONS_PROJECT_SHEETS`): for a config whose
  *      generator draws in it, the sheets the project holds ship by manifest key, though nothing
  *      places them; one it lacks is not reported missing (the runtime's built-in copy draws it); a
- *      sheet in another project, or an un-named sheet packing the same region, does not ship; the
+ *      sheet in another project, or an un-named sheet packing the same region, does not ship, but
+ *      does when a look names that region bare (the Salmons sheet never stands in for it); the
  *      same config with another generator ships none.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
@@ -749,6 +750,25 @@ check(
 check(
 	'another project’s Salmons sheet does not ship',
 	!salmonsIndex.sheets.some((s) => s.key === ELSEWHERE_SHEET),
+);
+// A character's look names `bear` bare (an image param), meaning the look-alike sheet: the Salmons sheet that also
+// packs `bear` must not stand in for it.
+put(projectComponentKey(SALMONS_PROJECT, 'bareBear'), {
+	...spriteDef('bareBear', ''),
+	params: [{ key: 'art', kind: 'image', default: 'bear' }],
+});
+put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), {
+	...SALMONS_CONFIG('salmonsMap'),
+	arcade: {
+		online: { generator: 'salmonsMap' },
+		characters: [{ id: 'bear', component: 'bareBear' }],
+	},
+});
+const bareIndex2 = await exportEditorArt(CLIENT, SALMONS_PROJECT);
+check(
+	'a bare region a look names ships the sheet the bare-name search finds, not a Salmons sheet',
+	bareIndex2.sheets.some((s) => s.key === LOOKALIKE_SHEET) &&
+		bareIndex2.sheets.some((s) => s.key === CHARS_SHEET),
 );
 put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), SALMONS_CONFIG('otherGenerator'));
 const notSalmons = await exportEditorArt(CLIENT, SALMONS_PROJECT);
