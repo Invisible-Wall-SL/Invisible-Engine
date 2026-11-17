@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { SALMONS_PROJECT_SHEETS } from '../../packages/game-config/src/salmonsProjectArt.ts';
 import {
 	SALMONS_REGIONS,
-	SALMONS_TILES,
+	SALMONS_DRAWN_TILES,
 } from '../../packages/engine-layout/src/lib/salmonsArt/regions.ts';
 import { SALMONS_SHEETS } from '../../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 
@@ -54,7 +54,7 @@ export function salmonsProjectArtPlan() {
 			frames: Object.entries(doc.frames).map(([name, f]) => ({ name, ...f.frame })),
 		};
 	});
-	for (const tile of SALMONS_TILES) {
+	for (const tile of SALMONS_DRAWN_TILES) {
 		const page = join(SALMONS_SHEETS_DIR, `${tile}.webp`);
 		const { w, h } = webpSize(readFileSync(page));
 		const sheet = SALMONS_PROJECT_SHEETS[tile];
