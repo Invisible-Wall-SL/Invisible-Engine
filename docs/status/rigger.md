@@ -1,6 +1,6 @@
 # Invisible Rigger — status
 
-> Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: [`.claude/agents/invisible-rigger.md`](../../.claude/agents/invisible-rigger.md) · Detail: [rigger-history.md](rigger-history.md)
+> Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Templates: [rig-templates.md](../design/rig-templates.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: [`.claude/agents/invisible-rigger.md`](../../.claude/agents/invisible-rigger.md) · Detail: [rigger-history.md](rigger-history.md)
 
 **One-line state:** Built and shipping — bones, meshes, weights, animation (incl. image sequences
 and a dopesheet stretch), localized text art and FX/flipbook event bindings are on `main`, and
@@ -89,6 +89,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     irig v1 (246, each backed up). Left: the `.json` rename on export; Phase 6 (retire the 4.2
     assumptions); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
+19. **Rig templates** — [rig-templates](../design/rig-templates.md): fixed skeletons with a parts
+    contract so new art attaches itself and clips play on every character of a template. T1–T3
+    are built (2026-11-17): the **Bust with face** template in ＋ New rig, the **Face** section that
+    keys it, and its seven starter animations. ⏳ None tried in the authed Rigger against real art;
+    next is T4 (lip-sync from audio) or T6 (the art blueprint), the owner's pick.
+
 ## Blocked (owner / external)
 
 - **Whole-tool live-verify** is owner-driven — the browser has surfaced bugs the headless spikes missed before. Since Phase 6 also owed: a live look at the Rigger, `/rig-viewer`, the editor, `/fx` and a published game on `engine-rig` (the parity gates compare pixels in headless Chromium, not on the live pages).
@@ -96,6 +102,52 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T3: starter animations.** A template carries `clips`: channel keys
+  (`[time, channel, value]`), built in `rigTemplates.ts` so every channel a clip touches starts and
+  ends at rest. `bust-face` has `idle` (4 s), `blink`, `talk` (2 s, opens on rest), `happy`,
+  `surprised`, `win_small`, `win_big`; `rigTemplateProblem` refuses a clip keying a missing
+  channel, a value out of range, a shape from another slot, a time past its end or a duplicate name.
+  The Face section's **🎬 Starter animations** writes them through the same `face*` channel code
+  (`faceAddStarterClips`), keeping any animation of the same name. A mouth shape the rig lacks now
+  falls back to the one it has with the nearest jaw opening (`faceKeyShape`), so a clip never
+  names a missing image. Gates: `face-channels.mjs` 188 (+78: every clip on full and required-only
+  art lasts its length and starts/ends at rest under engine-rig; the fallback; no overwrite),
+  `check:rig-templates` 34 (+6). Mutation-checked (no fallback → 3 red; no end keys → 31 red).
+  Found on the way: engine-rig stores key times as float32, so a check sampling a finished clip at
+  exactly its length reads the key before the last; the game clamps to the stored end and is right.
+- 2026-11-17 — **Rig templates T2: the Face section.** A template now carries face `channels`
+  (`rigTemplates.ts`): drives (a bone's x / y / rotate / scaleY as `value × per` from setup) and
+  swaps (a slot's image by value step), or `shapes` for the mouth (part → jaw opening, the talk
+  order, the rest shape). `rigTemplateProblem` checks them; `GET /api/rigger/template?dir=` returns
+  the open rig's template from its `template.json`. In `view.html` the `face*` helpers write ordinary
+  keys into the current animation (a translate / scale key keeps its other axis; a swap step whose
+  image the rig lacks is skipped, never keyed) through one funnel (`faceEdit`: Animate mode,
+  `ensureCurAnim`, `markDirty` → undo); the panel is sliders + mouth buttons + Blink / Idle blinks /
+  Talk 2 s, synced to the playhead each frame. Gates: `tools/rigger-spike/face-channels.mjs` (110:
+  the shipped helpers on a real `bust-face` rig, every result posed through engine-rig's loader and
+  AnimationState), `check:rig-templates` (+9: bad channels refused, the sidecar reader). Both
+  mutation-checked. The panel was driven in the browser pane over the shipped code with a real
+  template rig (Talk, Blink with a missing half eyelid, the Animate-off refusal); not yet in the
+  authed Rigger.
+- 2026-11-17 — **Rig templates T1: Bust with face in ＋ New rig.** `src/lib/server/rigTemplates.ts`
+  holds the template (bones, draw order, parts with needed/optional) and makes the rig over the
+  art's regions: a part whose image exists attaches at its untrimmed size, a missing one is left
+  out and reported, since the runtime throws on an attachment its atlas lacks. `new` and `upload`
+  take `templateId`, write `template.json` beside the `.irig` and answer the missing parts;
+  `GET /api/rigger/templates` lists them for the Apply dropdown, and a popup names what the art
+  lacked. The template link is a bundle sidecar, not an irig field: `readIrig` refuses unknown
+  fields, so a published runtime would refuse every template rig. Also fixed: the delete counted
+  `source.json` / `text.json` as skeletons, so a rig made from an atlas never had its folder
+  purged. Gates: `check:rig-templates` (template well-formed; full, required-only and no art each
+  pass `irigDocProblem` and load, pose and measure under `engine-rig` with only that art's
+  regions), `check:rigger-writes` (+6: real routes), `tools/rigger-spike/new-rig-template.mjs`
+  (every inline script of `view.html` parses; the Apply choice and the popup). Each guard was
+  mutation-checked.
+- 2026-11-16 — **Rig templates designed** ([rig-templates](../design/rig-templates.md)): a template
+  = a library rig + a versioned parts/channels contract + a `template` field on the rig. The
+  bust-with-face skeleton, part and mouth-shape set, face channels (written as ordinary timelines,
+  so no runtime change), the three motion sources (Face panel, audio lip-sync, DWPose face
+  tracking) and build plan T1–T7. Docs only.
 - 2026-11-12 — **A 3.8 export imports too (upgraded to 4.2 on the way in).** `spine38Upgrade.ts`
   rewrites a 3.8 skeleton into the 4.2 format before the import's irig conversion: bone `transform`
   → `inherit`, constraint mixes (`rotateMix` → `mixRotate`, `translateMix` → `mixX`, …), linked-mesh

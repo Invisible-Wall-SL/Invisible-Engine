@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
+import { resolveNewRigBody } from '$lib/server/riggerNewRig';
+import { RIG_TEMPLATE_SIDECAR, templateReport } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToRigAtlas, type SynthRegion } from '$lib/server/rig';
@@ -22,7 +23,7 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
  * So a rig can be built from brand-new art with no Atlas Maker step. `rigger`-gated.
  *
  * Body: `{ name, page (data URL or bare base64 PNG), pageWidth, pageHeight,
- *          regions: [{ name, x, y, w, h }], rigId? }`.
+ *          regions: [{ name, x, y, w, h }], rigId?, templateId? }` — `templateId` as in `new`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -77,7 +78,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const pageName = `${name}.png`;
 	const atlasText = regionsToRigAtlas(pageName, pageWidth, pageHeight, regions);
 	const rigId = typeof body.rigId === 'string' ? body.rigId : '';
-	const skeleton = await resolveRigSkeletonBody(rigId);
+	const templateId = typeof body.templateId === 'string' ? body.templateId : '';
+	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions);
 
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
@@ -90,6 +92,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		throw error(409, `a rig named like "${name}" was just created (names are case-insensitive)`);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBytes, 'image/png');
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
+	if (template)
+		await putObjectText(
+			`${bundle}/${RIG_TEMPLATE_SIDECAR}`,
+			JSON.stringify(template.ref),
+			'application/json',
+		);
 
 	await writeSkeletonsIndex(
 		rigsPrefix,
@@ -102,5 +110,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		stem: name,
 		atlas_file: `${name}.atlas`,
 		regions: regions.length,
+		...(template ? { template: templateReport(template) } : {}),
 	});
 };

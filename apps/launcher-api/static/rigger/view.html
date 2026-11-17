@@ -528,7 +528,7 @@
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
-        <label>Apply saved rig (optional)</label>
+        <label title="A template is a fixed skeleton that expects images by name (mouth_A, eyelid_l_closed…): art named that way attaches itself, and any missing part is listed after Create.">Apply saved rig or template (optional)</label>
         <select id="newRigApply"></select>
         <label style="margin-top:6px;">Atlas (images)</label>
         <select id="newRigAtlas"></select>
@@ -572,6 +572,12 @@
       <details class="sec" id="secAnims">
         <summary>Animations <span class="pill" id="cAnims"></span></summary>
         <div class="body" id="animList"></div>
+      </details>
+      <!-- Face = the rig's template channels (docs/design/rig-templates.md §4); shown only for a rig
+           made from a template that has them. -->
+      <details class="sec" id="secFace" style="display:none;">
+        <summary title="Key the face at the playhead in Animate mode: each control writes ordinary keys (bone moves and image swaps) you can edit in the dopesheet afterwards.">Face <span class="pill" id="cFace"></span></summary>
+        <div class="body" id="faceList"></div>
       </details>
       <details class="sec" id="secConstraints">
         <summary>Constraints <span class="pill" id="cCons"></span></summary>
@@ -913,6 +919,7 @@ let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
+let rigTemplate = null; // the open rig's template + face channels (GET /api/rigger/template), or null
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate" | "cinematic".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let cineMode = false; // cinematic mode owns the whole stage (see /rigger/cinematic.js)
@@ -1916,6 +1923,7 @@ function closeRig(note){
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
   historyReset();
   rigText = { elements: [], etag: null, loaded: false };
+  rigTemplate = null; renderFacePanel();
   saveToR2.confirmedFor = false;
   missingArt = [];
   curAnim = null; animTime = 0;
@@ -1984,6 +1992,7 @@ async function selectSkeleton(entry){
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
     // absent — which is every rig today) document never delays the rig appearing.
     loadRigText();
+    loadRigTemplate();
     return true;
   } catch (e){
     if (gen !== rigGen) return false;
@@ -3012,6 +3021,25 @@ async function deleteRigFromLibrary(a){
   } catch (e){ alert("Delete failed: " + (e && e.message ? e.message : e)); }
 }
 
+// The New-rig "Apply" choice as request fields: a saved rig's id, or a template's.
+function newRigApplyChoice(){
+  const v = ($("#newRigApply") && $("#newRigApply").value) || "";
+  if (v.startsWith("template:")) return { templateId: v.slice("template:".length) };
+  return v ? { rigId: v } : {};
+}
+
+// After a create from a template: name the parts the art lacked (the rig leaves them out).
+function reportTemplateParts(t){
+  if (!t || !t.missing || !t.missing.length) return;
+  const need = t.missingRequired || [];
+  const rest = t.missing.filter((n) => !need.includes(n));
+  showAlert(
+    (need.length ? "Needed for this template, not in the art yet:\n  " + need.join(", ") + "\n\n" : "") +
+    (rest.length ? "Optional parts not in the art (left out):\n  " + rest.join(", ") + "\n\n" : "") +
+    "Add images with these names to the art, then ⟳ Re-sync atlas and pick each one in its slot's image list.",
+    "Template parts missing");
+}
+
 // D3 — "Use in new rig": open the New-rig panel with this rig pre-selected.
 async function useRigInNew(a){
   closeRigLibrary();
@@ -3021,10 +3049,24 @@ async function useRigInNew(a){
   const nameInp = $("#newRigName"); if (nameInp) nameInp.focus();
 }
 
-// Populate the New-rig "Apply saved rig" dropdown from the library.
+// Populate the New-rig "Apply saved rig" dropdown: rig templates first ("template:<id>"), then
+// the library.
 async function loadNewRigApplyOptions(){
   const sel = $("#newRigApply"); if (!sel) return;
   sel.innerHTML = '<option value="">— none (blank skeleton) —</option>';
+  try {
+    const t = await (await fetch("/api/rigger/templates")).json();
+    if ((t.templates || []).length){
+      const g = document.createElement("optgroup"); g.label = "Templates";
+      t.templates.forEach((tp) => {
+        const o = document.createElement("option");
+        o.value = "template:" + tp.id; o.textContent = tp.label + " (template)";
+        o.title = "Name your images: " + tp.parts.map((p) => p.name + (p.required ? "*" : "")).join(", ") + "  (* = needed)";
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+  } catch (e){ /* no templates offered */ }
   try {
     const r = await (await fetch("/api/rigger/rigs/list")).json();
     (r.rigs || []).forEach((a) => {
@@ -3152,6 +3194,275 @@ async function loadRigText(){
   if (gen !== rigGen) return;
   renderTextList();
   autoSyncRigText();
+}
+
+// ---- Face panel (rig templates T2, docs/design/rig-templates.md §4) ---------------------------
+// A face channel is one number written as ORDINARY keys: each drive as a bone offset from setup
+// (scaleY as a multiplier), each swap as a slot attachment key. The `face*` helpers take the
+// animation object and a `has(slot, part)` test, never the page, so
+// tools/rigger-spike/face-channels.mjs runs them on plain data against engine-rig.
+
+const FACE_TIMELINE = { x: "translate", y: "translate", rotate: "rotate", scaleY: "scale" };
+const FACE_BLINK = [[0, 0], [0.04, 0.5], [0.08, 1], [0.14, 0.5], [0.2, 0]];
+const FACE_IDLE_GAPS = [2.6, 3.4, 2.9, 4.1];
+const FACE_TALK_STEP = 0.12;
+
+const faceClamp = (ch, v) => Math.min(ch.max, Math.max(ch.min, Number(v) || 0));
+
+// The part a swap channel shows at `value`: the last step at or below it that the rig has.
+function faceSwapPart(ch, value, has){
+  let out = null;
+  for (const w of ch.swaps) if (value >= w.at - 1e-9 && (w.part === null || has(ch.slot, w.part))) out = w.part;
+  return out;
+}
+
+// The slot's attachment at t: its last key at or before t, the setup attachment before the first.
+function faceAttachmentAt(anim, slot, t, setup){
+  const keys = anim && anim.slots && anim.slots[slot] && anim.slots[slot].attachment;
+  if (!keys || !keys.length || t < keys[0].time - 1e-9) return setup;
+  let k = keys[0];
+  for (const x of keys) if (x.time <= t + 1e-9) k = x;
+  return k.name || null;
+}
+
+function faceKeyAttachment(anim, slot, part, t){
+  const cs = ((anim.slots = anim.slots || {})[slot] = anim.slots[slot] || {});
+  upsertKey((cs.attachment = cs.attachment || []), t, part ? { name: part } : {});
+}
+
+// The channel's value at t, read back from the keys it writes (its first drive, else its swap).
+function faceChannelValue(anim, ch, t, setupOf){
+  if (ch.drives && ch.drives.length){
+    const d = ch.drives[0];
+    const tl = anim && anim.bones && anim.bones[d.bone] && anim.bones[d.bone][FACE_TIMELINE[d.prop]];
+    if (!tl || !tl.length) return faceClamp(ch, 0);
+    const field = d.prop === "rotate" ? "value" : d.prop === "scaleY" ? "y" : d.prop;
+    const k = sampleChannel(tl, t, [field]);
+    const raw = k[field] ?? (d.prop === "scaleY" ? 1 : 0);
+    return faceClamp(ch, (d.prop === "scaleY" ? raw - 1 : raw) / d.per);
+  }
+  if (ch.swaps){
+    const cur = faceAttachmentAt(anim, ch.slot, t, setupOf(ch.slot));
+    let v = ch.min;
+    for (const w of ch.swaps) if (w.part === cur) v = w.at;
+    return v;
+  }
+  return ch.rest;
+}
+
+// Key the channel at `value`, time t. A translate / scale key keeps its other axis as it was at t.
+function faceKeyChannel(anim, ch, value, t, has){
+  value = faceClamp(ch, value);
+  for (const d of ch.drives || []){
+    const cb = ((anim.bones = anim.bones || {})[d.bone] = anim.bones[d.bone] || {});
+    const name = FACE_TIMELINE[d.prop];
+    const tl = (cb[name] = cb[name] || []);
+    const off = value * d.per;
+    if (d.prop === "rotate"){ upsertKey(tl, t, { value: roundN(off, 3) }); continue; }
+    const cur = sampleChannel(tl, t, ["x", "y"]) || {};
+    const keep = name === "scale" ? 1 : 0;
+    upsertKey(tl, t, {
+      x: d.prop === "x" ? roundN(off, 2) : (cur.x ?? keep),
+      y: d.prop === "y" ? roundN(off, 2) : d.prop === "scaleY" ? roundN(1 + off, 4) : (cur.y ?? keep),
+    });
+  }
+  if (ch.swaps) faceKeyAttachment(anim, ch.slot, faceSwapPart(ch, value, has), t);
+}
+
+// A mouth shape, plus the jaw opened by that shape's amount. A shape the rig lacks becomes the one it
+// has that opens the jaw nearest the same amount (no images at all: the slot is left empty).
+function faceKeyShape(anim, ch, part, t, channels, has){
+  if (part && !has(ch.shapes.slot, part)){
+    const want = ch.shapes.open[part] || 0;
+    let best = null;
+    for (const p of [ch.shapes.rest, ...Object.keys(ch.shapes.open)])
+      if (has(ch.shapes.slot, p) && (best === null || Math.abs((ch.shapes.open[p] || 0) - want) < Math.abs((ch.shapes.open[best] || 0) - want))) best = p;
+    part = best;
+  }
+  faceKeyAttachment(anim, ch.shapes.slot, part, t);
+  const jaw = channels.find((c) => c.id === ch.shapes.jaw);
+  if (jaw) faceKeyChannel(anim, jaw, (part && ch.shapes.open[part]) || 0, t, has);
+}
+
+// One blink starting at t, on every blink channel.
+function faceKeyBlink(anim, t, channels, has){
+  for (const c of channels) if (/^blink_/.test(c.id))
+    for (const [dt, v] of FACE_BLINK) faceKeyChannel(anim, c, v, roundN(t + dt, 4), has);
+}
+
+// Idle blinks over `dur` seconds (an irregular, fixed rhythm), ending open AT dur so the clip loops.
+function faceKeyIdleBlinks(anim, dur, channels, has){
+  const starts = [];
+  for (let t = 0.7, i = 0; t + 0.2 <= dur + 1e-9; t += FACE_IDLE_GAPS[i++ % FACE_IDLE_GAPS.length]) starts.push(roundN(t, 3));
+  for (const s of starts) faceKeyBlink(anim, s, channels, has);
+  for (const c of channels) if (/^blink_/.test(c.id)) faceKeyChannel(anim, c, 0, roundN(dur, 4), has);
+  return starts;
+}
+
+// Talk for `secs` from t: the template's talk order (shapes the rig has), then the rest shape.
+function faceKeyTalk(anim, ch, t, secs, channels, has){
+  const shapes = ch.shapes.talk.filter((p) => has(ch.shapes.slot, p));
+  if (!shapes.length) return 0;
+  let n = 0;
+  for (let x = 0; x + FACE_TALK_STEP <= secs + 1e-9; x += FACE_TALK_STEP)
+    faceKeyShape(anim, ch, shapes[n++ % shapes.length], roundN(t + x, 4), channels, has);
+  faceKeyShape(anim, ch, has(ch.shapes.slot, ch.shapes.rest) ? ch.shapes.rest : null, roundN(t + secs, 4), channels, has);
+  return n;
+}
+
+// The template's starter clips (rig templates T3) written as animations through the channel code
+// above. A clip whose name the rig already uses is kept as it is, never overwritten.
+function faceAddStarterClips(animations, tpl, has){
+  const added = [], kept = [];
+  for (const c of tpl.clips || []){
+    if (Object.prototype.hasOwnProperty.call(animations, c.name)){ kept.push(c.name); continue; }
+    const anim = {};
+    for (const [t, id, v] of [...c.keys].sort((a, b) => a[0] - b[0])){
+      const ch = tpl.channels.find((x) => x.id === id);
+      if (!ch) continue;
+      if (ch.shapes) faceKeyShape(anim, ch, v, t, tpl.channels, has);
+      else faceKeyChannel(anim, ch, v, t, has);
+    }
+    animations[c.name] = anim;
+    added.push(c.name);
+  }
+  return { added, kept };
+}
+
+function faceHas(slot, part){
+  const skins = !rawDoc ? [] : Array.isArray(rawDoc.skins) ? rawDoc.skins
+    : Object.values(rawDoc.skins || {}).map((attachments) => ({ attachments }));
+  return skins.some((s) => s && s.attachments && s.attachments[slot]
+    && Object.prototype.hasOwnProperty.call(s.attachments[slot], part));
+}
+function faceSetup(slot){
+  const s = rawDoc && (rawDoc.slots || []).find((x) => x.name === slot);
+  return (s && s.attachment) || null;
+}
+
+async function loadRigTemplate(){
+  rigTemplate = null; renderFacePanel();
+  if (!selected) return;
+  const gen = rigGen;
+  try {
+    const r = await fetch("/api/rigger/template?dir=" + encodeURIComponent(selected.dir_b64 || ""));
+    if (!r.ok) return;
+    const j = await r.json();
+    if (gen !== rigGen) return;
+    rigTemplate = j.template || null;
+  } catch (e){ console.warn("[Face] could not read the rig's template", e); }
+  if (gen === rigGen) renderFacePanel();
+}
+
+// The one keying path: Animate mode, a clip to key into, then the undo/dirty funnel.
+function faceEdit(fn){
+  if (!rawDoc) return false;
+  if (!animMode){ $("#hint").textContent = "Switch to Animate to key the face."; return false; }
+  if (!ensureCurAnim()) return false;
+  fn((rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {}));
+  markDirty(); animsDirty = true;
+  return true;
+}
+function faceDone(note){
+  refreshAnimCounts(); syncFacePanel();
+  if (note) $("#hint").textContent = note;
+}
+
+function renderFacePanel(){
+  const sec = $("#secFace"), list = $("#faceList");
+  if (!sec || !list) return;
+  clearChildren(list);
+  const channels = (rigTemplate && rigTemplate.channels) || [];
+  sec.style.display = rawDoc && channels.length ? "" : "none";
+  $("#cFace").textContent = channels.length ? rigTemplate.label : "";
+  if (!rawDoc || !channels.length) return;
+  const tools = document.createElement("div");
+  tools.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin:6px 14px 6px;";
+  const tool = (label, tip, run) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.title = tip; b.onclick = run; tools.appendChild(b);
+  };
+  const mouth = channels.find((c) => c.shapes);
+  if ((rigTemplate.clips || []).length) tool("🎬 Starter animations", "Add the template's ready-made animations (" + rigTemplate.clips.map((c) => c.name).join(", ") + "). Ones this rig already has are kept as they are.", () => {
+    if (!rawDoc) return;
+    const r = faceAddStarterClips((rawDoc.animations = rawDoc.animations || {}), rigTemplate, faceHas);
+    if (r.added.length){ markDirty(); animsDirty = true; refreshAnimSelect(); }
+    faceDone(r.added.length
+      ? "🎬 Added " + r.added.join(", ") + (r.kept.length ? " · kept your " + r.kept.join(", ") : "")
+      : "This rig already has every starter animation.");
+  });
+  tool("👁 Blink", "Key one blink starting at the playhead (both eyes).", () => {
+    if (faceEdit((a) => faceKeyBlink(a, animTime, channels, faceHas))) faceDone("◆ Blink keyed @ " + animTime.toFixed(2) + "s");
+  });
+  tool("👁 Idle blinks", "Key a natural blink rhythm across the whole clip (6 s for an empty one), ending open so it loops.", () => {
+    let n = 0;
+    const dur = curAnim && animDuration(curAnim) >= 1 ? animDuration(curAnim) : 6;
+    if (faceEdit((a) => { n = faceKeyIdleBlinks(a, dur, channels, faceHas).length; })) faceDone("◆ " + n + " blinks keyed over " + dur.toFixed(1) + "s");
+  });
+  if (mouth) tool("💬 Talk 2 s", "Key 2 s of talking from the playhead (mouth shapes and jaw), ending on the rest shape.", () => {
+    let n = 0;
+    if (faceEdit((a) => { n = faceKeyTalk(a, mouth, animTime, 2, channels, faceHas); })) faceDone(n ? "◆ Talk keyed: " + n + " shapes" : "This rig has none of the talk mouth shapes yet.");
+  });
+  list.appendChild(tools);
+  for (const ch of channels){
+    const row = document.createElement("div");
+    row.className = "faceRow"; row.dataset.ch = ch.id;
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 14px;font-size:11px;";
+    const lab = document.createElement("span");
+    lab.textContent = ch.label; lab.title = ch.tip;
+    lab.style.cssText = "flex:0 0 96px;color:var(--dim);";
+    row.appendChild(lab);
+    if (ch.shapes){
+      const box = document.createElement("span");
+      box.style.cssText = "display:flex;flex-wrap:wrap;gap:3px;";
+      const prefix = ch.shapes.slot + "_";
+      for (const part of [ch.shapes.rest, ...Object.keys(ch.shapes.open).filter((p) => p !== ch.shapes.rest)]){
+        if (!faceHas(ch.shapes.slot, part)) continue;
+        const b = document.createElement("button");
+        b.textContent = part.startsWith(prefix) ? part.slice(prefix.length) : part;
+        b.dataset.part = part; b.style.cssText = "font-size:10px;padding:1px 5px;";
+        b.onclick = () => { if (faceEdit((a) => faceKeyShape(a, ch, part, animTime, channels, faceHas))) faceDone(); };
+        box.appendChild(b);
+      }
+      if (!box.children.length){ box.textContent = "no mouth images yet"; box.style.color = "var(--dim)"; }
+      box.className = "faceShapes";
+      row.appendChild(box);
+    } else {
+      const inp = document.createElement("input");
+      inp.type = "range"; inp.min = ch.min; inp.max = ch.max; inp.step = (ch.max - ch.min) / 100;
+      inp.style.cssText = "flex:1;min-width:0;";
+      const out = document.createElement("span");
+      out.style.cssText = "flex:0 0 34px;text-align:right;";
+      inp.oninput = () => {
+        out.textContent = roundN(Number(inp.value), 2);
+        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas));
+      };
+      inp.onchange = () => faceDone();
+      row.appendChild(inp); row.appendChild(out);
+    }
+    list.appendChild(row);
+  }
+  syncFacePanel();
+}
+
+// Show each control's value at the playhead; a control being dragged keeps the author's value.
+function syncFacePanel(){
+  const list = $("#faceList");
+  if (!list || !rigTemplate || !rawDoc || $("#secFace").style.display === "none") return;
+  const anim = animMode && curAnim ? animOf(curAnim) : null;
+  for (const row of list.querySelectorAll(".faceRow")){
+    const ch = rigTemplate.channels.find((c) => c.id === row.dataset.ch);
+    if (!ch) continue;
+    if (ch.shapes){
+      const cur = faceAttachmentAt(anim, ch.shapes.slot, animTime, faceSetup(ch.shapes.slot));
+      for (const b of row.querySelectorAll("button")) b.classList.toggle("active", b.dataset.part === cur);
+      continue;
+    }
+    const inp = row.querySelector("input");
+    if (!inp || document.activeElement === inp) continue;
+    const v = faceChannelValue(anim, ch, animTime, faceSetup);
+    if (Number(inp.value) !== v){ inp.value = v; row.querySelector("span:last-child").textContent = roundN(v, 2); }
+  }
 }
 
 function textElement(id){ return rigText.elements.find((e) => e.id === id) || null; }
@@ -6065,7 +6376,7 @@ async function respErr(r){
 async function createNewRig(){
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
   const manifestKey = $("#newRigAtlas").value;
-  const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
+  const apply = newRigApplyChoice();
   const note = $("#newRigNote");
   if (!name){ note.textContent = "enter a name"; return; }
   if (!confirmLeaveRig("Creating “" + name + "” opens it, which")) return;
@@ -6075,8 +6386,7 @@ async function createNewRig(){
     // Server assembles a rig bundle (synth .atlas + page copy + blank .irig). With an
     // atlas → its regions are attachable; with no atlas → a 1×1 placeholder page so the
     // rig still loads (attach images later via "source…" / a slot's image dropdown).
-    const payload = manifestKey ? { manifestKey, name } : { name, noAtlas: true };
-    if (rigId) payload.rigId = rigId;
+    const payload = Object.assign(manifestKey ? { manifestKey, name } : { name, noAtlas: true }, apply);
     const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (!r.ok) throw new Error(await respErr(r));
     const j = await r.json();
@@ -6084,6 +6394,7 @@ async function createNewRig(){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
+    reportTemplateParts(j.template);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
@@ -6118,7 +6429,7 @@ function loadImageFile(file){
 async function createRigFromImages(files){
   const note = $("#newRigNote");
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
-  const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
+  const apply = newRigApplyChoice();
   if (!name){ note.textContent = "enter a rig name first"; return; }
   if (!files || !files.length) return;
   if (!confirmLeaveRig("Creating “" + name + "” opens it, which")){ $("#newRigFiles").value = ""; return; }
@@ -6151,7 +6462,7 @@ async function createRigFromImages(files){
     note.textContent = "uploading…";
     const resp = await fetch("/api/rigger/upload", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(Object.assign({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }, rigId ? { rigId } : {})),
+      body: JSON.stringify(Object.assign({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }, apply)),
     });
     if (!resp.ok) throw new Error(await respErr(resp));
     const j = await resp.json();
@@ -6159,6 +6470,7 @@ async function createRigFromImages(files){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
+    reportTemplateParts(j.template);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
@@ -13721,6 +14033,7 @@ function frame(now){
         }
       }
       syncPlayhead();
+      syncFacePanel();
     } else if (!editMode){
       // preview: full animation-state playback (honours curves/mixing)
       if (playing) animState.update(delta);

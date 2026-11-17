@@ -798,20 +798,20 @@ Press **Shift+/** (or **Keyboard shortcuts** in the canvas bar's **View ▾** me
 while you type in a field. **Enter** and **Tab** belong to the stage only when nothing else has
 focus (click the stage first); on a focused button, tile or tab they press it or move focus on.
 
-| Keys                         | Does                                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------ |
-| `Esc`                        | Select the parent; on a top-level node, deselect                                           |
-| `Enter`                      | Select the first child                                                                     |
-| `X`                          | Reveal the selection in the Outline (opens its containers, scrolls to the row)             |
-| `F`                          | Fit the frame                                                                              |
-| `Ctrl/⌘+0`                   | Zoom to 100%                                                                               |
-| `+` / `-`                    | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%)        |
-| Arrows                       | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only)                     |
-| `Tab`                        | Toggle Design / Animate                                                                    |
-| `Shift+/`                    | The shortcut sheet                                                                         |
-| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design)                                                               |
-| `Ctrl/⌘+C / X / V / D`       | Copy, cut, paste, duplicate (Screens, Design)                                              |
-| `Delete`                     | Delete the selection (locked nodes stay)                                                   |
+| Keys                         | Does                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `Esc`                        | Select the parent; on a top-level node, deselect                                    |
+| `Enter`                      | Select the first child                                                              |
+| `X`                          | Reveal the selection in the Outline (opens its containers, scrolls to the row)      |
+| `F`                          | Fit the frame                                                                       |
+| `Ctrl/⌘+0`                   | Zoom to 100%                                                                        |
+| `+` / `-`                    | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
+| Arrows                       | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only)              |
+| `Tab`                        | Toggle Design / Animate                                                             |
+| `Shift+/`                    | The shortcut sheet                                                                  |
+| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design)                                                        |
+| `Ctrl/⌘+C / X / V / D`       | Copy, cut, paste, duplicate (Screens, Design)                                       |
+| `Delete`                     | Delete the selection (locked nodes stay)                                            |
 | `V` `B` `E` `G` `I`          | With a tilemap selected: Move, Brush, Erase, Fill, Pick ([Tilemap](#tilemap-arcade-level)) |
 
 The stage is tinted blue with a blue edge in **Animate**, so the two modes never look alike.
@@ -1288,22 +1288,22 @@ land-based cabinet footage, so leave them blank unless a game needs its own feel
 Speeds are **px per ms on a 120 px row**: 2.4 is 20 symbols a second. If your grid has a
 row gap, the same number rolls a little slower in symbols per second. Times are ms.
 
-| Field               | What it does                                                                                                     | Normal | Turbo |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------- | ------ | ----- |
-| spin speed          | full rolling speed                                                                                               | 2.4    | 2.4   |
-| pre-spin speed      | the first lap, before the result is known                                                                        | 2.4    | 2.4   |
-| spin-up (ms)        | time from rest to full speed                                                                                     | 60     | 30    |
-| wind-up             | on: the reel pulls back before it takes off (the old feel)                                                       | off    | —     |
-| speed before bounce | the last ~5 rows before a reel stops                                                                             | 2.4    | —     |
-| overshoot bounce    | on: the reel runs past its seat and eases back. Off: it snaps past the seat and returns at **bounce-back speed** | on     | on    |
-| bounce size         | how far past the seat, × row height                                                                              | 0.05   | 0.05  |
-| bounce time (ms)    | the whole overshoot, out and back                                                                                | 130    | 130   |
-| bounce-back speed   | the return speed when overshoot is off                                                                           | 0.06   | 0.06  |
-| reel stagger (ms)   | delay before each next reel starts                                                                               | 0      | —     |
-| first reel length   | how far reel 1 rolls before it stops, × reel length                                                              | 0      | —     |
-| spin length         | the gap between one reel's stop and the next, × reel length                                                      | 1.26   | —     |
-| anticipation length | how long an anticipated reel holds, × reel length                                                                | 10     | —     |
-| min roll (ms)       | how long the reels roll at least; on Turbo every reel then lands together                                        | 0      | 170   |
+| Field | What it does | Normal | Turbo |
+|---|---|---|---|
+| spin speed | full rolling speed | 2.4 | 2.4 |
+| pre-spin speed | the first lap, before the result is known | 2.4 | 2.4 |
+| spin-up (ms) | time from rest to full speed | 60 | 30 |
+| wind-up | on: the reel pulls back before it takes off (the old feel) | off | — |
+| speed before bounce | the last ~5 rows before a reel stops | 2.4 | — |
+| overshoot bounce | on: the reel runs past its seat and eases back. Off: it snaps past the seat and returns at **bounce-back speed** | on | on |
+| bounce size | how far past the seat, × row height | 0.05 | 0.05 |
+| bounce time (ms) | the whole overshoot, out and back | 130 | 130 |
+| bounce-back speed | the return speed when overshoot is off | 0.06 | 0.06 |
+| reel stagger (ms) | delay before each next reel starts | 0 | — |
+| first reel length | how far reel 1 rolls before it stops, × reel length | 0 | — |
+| spin length | the gap between one reel's stop and the next, × reel length | 1.26 | — |
+| anticipation length | how long an anticipated reel holds, × reel length | 10 | — |
+| min roll (ms) | how long the reels roll at least; on Turbo every reel then lands together | 0 | 170 |
 
 **Reel length** is the rows plus two, so 5 on a 3-row board. The gap between reel stops
 is `reel length × spin length` rows at the spin speed: 5 × 1.26 = 6.3 rows at 20 rows/s
@@ -1469,7 +1469,6 @@ Its Properties block, top to bottom:
   With a paint tool on, a press on the grid paints instead of moving or resizing the tilemap, its
   transform handles are hidden, and the cell under the pointer is outlined (red for Erase). A press
   off the grid selects and drags as usual. One drag is one undo step.
-
 - **grid** — **tile w** / **tile h** (px, before scale) and **columns** / **rows**, up to 1024 a
   side and 262,144 tiles. Resizing keeps the top-left of the painting; the cells cut off are lost.
   The size in px is shown under it.
@@ -1596,11 +1595,11 @@ out, Burn to ashes, Melt, Shatter (glass), …) or **Custom (Shader Graph)** (th
 the transition over whatever the flow shows next, with no Flow edit.
 
 - **Duration ms** (50 to 5000; blank = the effect's own length) and **Strength** (0 to 4; blank =
-  1. appear once a transition is picked.
-- **The status line** says what the game makes of the row: _Every transition cue plays the wipe_
-  (the row off, or a kind that is no transition); _Every transition cue plays this instead of the
-  wipe_ — the flow then goes on about 1.6 s sooner than after the wipe, and the coded
-  Transition stands down; or, in amber, _Its effect does not ship_ (its graph was
+  1) appear once a transition is picked.
+- **The status line** says what the game makes of the row: *Every transition cue plays the wipe*
+  (the row off, or a kind that is no transition); *Every transition cue plays this instead of the
+  wipe* — the flow then goes on about 1.6 s sooner than after the wipe, and the coded
+  Transition stands down; or, in amber, *Its effect does not ship* (its graph was
   deleted or does not compile), so the wipe plays. It also warns when the project's saved flow
   never fires `transition` (so the row never plays); a project with no saved flow runs the coded
   one, which does.
@@ -1610,7 +1609,7 @@ the transition over whatever the flow shows next, with no Flow edit.
   shows no load, nor does a Shader Graph effect compiled without its cost.
 - **Preview into** and **▶** play the row on the stage, through the game's own transition runtime:
   the stage as it shows now freezes, and the transition plays into **The screens shown now** or
-  into a screen the stage does not show (say _Free-spin intro_), which is shown for that play only.
+  into a screen the stage does not show (say *Free-spin intro*), which is shown for that play only.
   Esc, a click or a scroll on the stage stops it. With no stage showing, it says there is nothing
   on the stage to play it on.
 - The cue carries nothing, so the same transition plays into the free spins and out of them; on
@@ -1622,23 +1621,23 @@ effect does not ship or the flow never fires `transition`.
 **Post FX.** The **Element FX** list, held to the whole stage: a grade, a vignette, a wave or a
 shine over the whole game, HUD included.
 
-- **Triggers:** _Always (loops while shown)_ or _On cue_, with an optional **Stop cue**. A post FX
+- **Triggers:** *Always (loops while shown)* or *On cue*, with an optional **Stop cue**. A post FX
   cue is offered in [Invisible Flow](flow.md)'s **Cues** list, so a Fire Cue can start and stop it.
 - **At most 2 post FX, drawing 4 filters in all** (a Shader Graph effect is one filter, plus one per
-  built-in pass it adds). **+ Add effect…** is off at two, with _At most 2 here_.
+  built-in pass it adds). **+ Add effect…** is off at two, with *At most 2 here*.
 - **Greyed kinds.** The pickers grey, with the reason, every kind the stage refuses (exit and enter
   kinds would hide the whole game; a motion-only kind and a break move or cut it, and the stage's
   transform is the camera's) and every kind that would pass a cap.
 - **Each row** has its load line (the cost × the reference phone's pixels against the post FX
   budget, cost 60, 4 reads a pixel, amber when over; a built-in is costed as its Shader Graph twin:
-  Wave (X) 18, Shine 22, Ripple 27, Poison 186 — over; _No compiled cost for this kind_ for a Glow
+  Wave (X) 18, Shine 22, Ripple 27, Poison 186 — over; *No compiled cost for this kind* for a Glow
   or Blur, a built-in pass the graph cost does not count, and for a graph compiled without its
-  cost), or, in amber, _Does not play in the game:_ and the game's own reason (a
+  cost), or, in amber, *Does not play in the game:* and the game's own reason (a
   kind the project no longer compiles, a refused kind, a trigger other than Always or On cue, or
   one past a cap). The rows that play are exactly the ones the game plays.
 - **▶** plays the entry over the whole stage through the game's runtime, as a post FX: on a still
   of every screen shown, copied from the stage every frame so what plays there keeps moving under
-  it. An _Always_ entry loops twice; Esc, a click or a scroll on the stage stops it.
+  it. An *Always* entry loops twice; Esc, a click or a scroll on the stage stops it.
 
 **Anti-aliasing under stage effects.** Off by default. On, transitions, post FX and the camera
 effects keep the canvas's anti-aliasing, at about four times a stage pass's memory. WebGL2 only:
@@ -1830,7 +1829,6 @@ keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
 or another colour) has a **📈** button by its name. It opens a **graph row** under the field (click
 it again to close it): the field's value over time, on the same time axis and zoom as the
 timeline, with its keys as dots, and the highest and lowest value in the gutter.
-
 - **Click a dot** to select that key, as you would its diamond; the Interpolation panel shows it.
   Shift- or Ctrl-click adds or removes it.
 - **Shape a Cubic.** When the selected key's interpolation is **Cubic**, its curve to the next key
@@ -1913,7 +1911,6 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
     (volume, looping, two alternates), `⏹ coin` or `🎵 bgm_main`. The options play the same on a
     screen timeline, a component timeline and a Rigger cinematic. The editor's ▶ in Animate does
     not play sound cues; hear them with the cue's ▶ or in the game.
-
   - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
     [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
     cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and
@@ -2531,8 +2528,8 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   `open` timeline it has, never more than 4 s. The preview still shows the **lockedImage**. Like the
   tiles, where you drop it doesn't matter; the template puts one on the **Respin board** screen.
   **Select it** to preview one locked row next to the reel grid. The extra rows grow **below** the
-  base grid (or **above** it, when Game Config → Respins → **Rows added** is _Above the board_, as
-  Getting Hot's template sets, or alternately below and above for _Alternating_), so an expanding
+  base grid (or **above** it, when Game Config → Respins → **Rows added** is *Above the board*, as
+  Getting Hot's template sets, or alternately below and above for *Alternating*), so an expanding
   game needs room there. A
   project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
   with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and

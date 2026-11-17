@@ -1,5 +1,5 @@
 /**
- * Invisible Profiler P1 contracts, run over the REAL modules:
+ * Invisible Profiler contracts (P1 readings, P2 builds), run over the REAL modules:
  *   pnpm --filter launcher-api check:profiler
  *
  * 1. A probe report (`perf: 7`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is read
@@ -11,6 +11,12 @@
  *    land on a claimed row, and a Keep that wins the race is never purged. Presigned uploads never
  *    registered are swept after a day.
  * 5. CORS answers on exactly the probe's two routes.
+ * 6. A build breakdown made by the REAL engine analyser (`scripts/lib/build-breakdown.mjs`) is read
+ *    into its `perf_builds` summary; a non-breakdown, or one with no build number, is refused.
+ * 7. The Builds tab's diff is against the previous build of the same game key and kind.
+ * 8. A reading joins its build by the stamp: same build number, and the same commit when both name one.
+ * 9. Build retention: an old unkept build goes, but never the newest of its game key and kind — not
+ *    even a lone build past 15 days — and once a newer one lands the old newest goes too.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -24,13 +30,23 @@ import {
 import { mintCaptureToken, verifyCaptureToken } from '../src/lib/server/profiler/captureToken.ts';
 import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
 import {
-	purgeExpiredPerfReports,
+	purgeExpired,
 	STALE_UPLOAD_MS,
 	sweepStaleUploads,
-	type ClaimedReport,
+	type ClaimedRow,
 	type PurgeStore,
 } from '../src/lib/server/profiler/purge.ts';
 import { mintToolLaunchToken } from '../src/lib/server/toolLaunch.ts';
+import {
+	buildDiff,
+	buildPurgeable,
+	deltaMb,
+	previousBuild,
+	readingOnBuild,
+	summarizeBuildBreakdown,
+	type PerfBuildListItem,
+} from '../src/lib/profilerBuilds.ts';
+import { analyzeDesktopBuild, BREAKDOWN_VERSION } from '../../../scripts/lib/build-breakdown.mjs';
 
 const bucket = (frames: number, fps: number) => ({
 	frames,
@@ -192,7 +208,7 @@ function memoryStore(rows: Row[]): PurgeStore & {
 	const store = {
 		rows,
 		beforeClaim: undefined as (() => void) | undefined,
-		async claim(cutoff: Date, now: Date, limit: number): Promise<ClaimedReport[]> {
+		async claim(cutoff: Date, now: Date, limit: number): Promise<ClaimedRow[]> {
 			const candidates = rows
 				.filter((r) => claimable(r, cutoff))
 				.sort((a, b) => +a.capturedAt - +b.capturedAt)
@@ -237,7 +253,7 @@ test('4. the purge deletes an old unkept reading and leaves a kept one', async (
 		row('young', 3),
 		row('edge', 14.9),
 	]);
-	const result = await purgeExpiredPerfReports({
+	const result = await purgeExpired({
 		store,
 		deleteObject: async (key) => void files.delete(key),
 		now: PURGE_NOW,
@@ -255,13 +271,13 @@ test('4. a file that will not delete keeps its row claimed, and the next run fin
 	const deleteObject = async (key: string) => {
 		if (failing && key.includes('stuck')) throw new Error('R2 down');
 	};
-	const first = await purgeExpiredPerfReports({ store, deleteObject, now: PURGE_NOW });
+	const first = await purgeExpired({ store, deleteObject, now: PURGE_NOW });
 	assert.deepEqual(first, { deleted: 1, failed: 1 });
 	const stuck = store.rows.find((r) => r.id === 'stuck');
 	assert.ok(stuck?.purgingAt, 'still claimed: hidden from the page, not keepable');
 	assert.equal(store.setKeep('stuck', true), false, 'Keep cannot land on a claimed row');
 	failing = false;
-	const second = await purgeExpiredPerfReports({ store, deleteObject, now: PURGE_NOW });
+	const second = await purgeExpired({ store, deleteObject, now: PURGE_NOW });
 	assert.deepEqual(second, { deleted: 1, failed: 0 });
 	assert.equal(store.rows.length, 0);
 });
@@ -270,7 +286,7 @@ test('4. a Keep that commits between pick and claim wins', async () => {
 	const store = memoryStore([row('racy', 30)]);
 	store.beforeClaim = () => store.setKeep('racy', true);
 	const deleted: string[] = [];
-	const result = await purgeExpiredPerfReports({
+	const result = await purgeExpired({
 		store,
 		deleteObject: async (key) => void deleted.push(key),
 		now: PURGE_NOW,
@@ -283,7 +299,7 @@ test('4. a Keep that commits between pick and claim wins', async () => {
 test('4. a purge larger than one batch empties every expired reading', async () => {
 	const rows = Array.from({ length: 450 }, (_, i) => row(`r${i}`, 16 + (i % 5)));
 	const store = memoryStore(rows);
-	const result = await purgeExpiredPerfReports({
+	const result = await purgeExpired({
 		store,
 		deleteObject: async () => undefined,
 		now: PURGE_NOW,
@@ -320,4 +336,236 @@ test('5. CORS on the probe’s two routes only', () => {
 	assert.ok(isProfilerCorsPath('/api/profiler/uploads'));
 	assert.ok(!isProfilerCorsPath('/api/profiler/sessions'));
 	assert.ok(!isProfilerCorsPath('/api/profiler/reports/abc'));
+});
+
+// ── P2: builds ──
+
+const breakdownOf = (buildInfo: Record<string, unknown> | null, build: Record<string, unknown>) =>
+	analyzeDesktopBuild({
+		files: [
+			{ rel: '_app/immutable/app.js', bytes: 2_000_000 },
+			{ rel: 'assets/ui/frame.png', bytes: 3_000_000 },
+			{ rel: 'assets/sounds/spin.mp3', bytes: 500_000 },
+			{ rel: 'assets/ui/unused.png', bytes: 100_000 },
+		],
+		texts: new Map([['_app/immutable/app.js', '"assets/ui/frame.png" "assets/sounds/spin.mp3"']]),
+		bundle: null,
+		assetsPrefix: 'assets/',
+		pull: null,
+		images: null,
+		buildInfo,
+		build,
+	});
+
+const PROVENANCE = {
+	version: '12',
+	builtAt: '2026-11-16T10:00:00Z',
+	engineSha: 'abcdef1234567890',
+};
+
+test('6. a breakdown from the real analyser is read into its build summary', () => {
+	const json = JSON.parse(
+		JSON.stringify(
+			breakdownOf(PROVENANCE, { kind: 'delivery', profile: 'operator-embed', optimize: true }),
+		),
+	);
+	const result = summarizeBuildBreakdown(json);
+	assert.ok(result.ok, result.ok ? '' : result.error);
+	const s = result.summary;
+	assert.equal(s.build, '12');
+	assert.equal(s.kind, 'delivery');
+	assert.equal(s.profile, 'operator-embed');
+	assert.equal(s.optimize, true);
+	assert.equal(s.debug, false);
+	assert.equal(s.engineSha, 'abcdef1234567890');
+	assert.equal(s.builtAt, '2026-11-16T10:00:00Z');
+	assert.equal(s.files, 4);
+	assert.equal(s.shippedBytes, 5_600_000);
+	assert.equal(s.codeBytes, 2_000_000);
+	assert.equal(
+		s.categories.reduce((n, c) => n + c.bytes, 0),
+		s.shippedBytes,
+		'categories add up to what shipped',
+	);
+	assert.ok(s.categories.every((c) => c.label && c.id));
+	const issues = json.issues as { level: string }[];
+	assert.equal(s.issues.warn, issues.filter((i) => i.level === 'warn').length);
+	assert.equal(s.breakdownVersion, BREAKDOWN_VERSION);
+});
+
+test('6. a non-breakdown, or one with no build number, is refused with a sentence', () => {
+	for (const bad of [null, [], { perf: 7 }, { version: 2, totals: {} }]) {
+		const r = summarizeBuildBreakdown(bad);
+		assert.equal(r.ok, false);
+	}
+	const noInfo = summarizeBuildBreakdown(JSON.parse(JSON.stringify(breakdownOf(null, {}))));
+	assert.equal(noInfo.ok, false);
+	assert.match(noInfo.ok ? '' : noInfo.error, /build number/);
+	const hostile = JSON.parse(JSON.stringify(breakdownOf({ ...PROVENANCE, version: '../x' }, {})));
+	assert.equal(summarizeBuildBreakdown(hostile).ok, false, 'a build number is a path segment');
+});
+
+test('6. repeated or missing category ids merge into one row (the page keys rows on them)', () => {
+	const json = JSON.parse(JSON.stringify(breakdownOf(PROVENANCE, {})));
+	json.categories = [
+		{ id: 'code', label: 'Code', files: 1, bytes: 10 },
+		{ id: 'code', label: 'Code', files: 2, bytes: 5 },
+		{ label: 'No id', files: 1, bytes: 1 },
+		{ id: '', files: 1, bytes: 2 },
+	];
+	const r = summarizeBuildBreakdown(json);
+	assert.ok(r.ok);
+	assert.deepEqual(
+		r.summary.categories.map((c) => [c.id, c.files, c.bytes]),
+		[
+			['code', 3, 15],
+			['other', 2, 3],
+		],
+	);
+});
+
+const item = (
+	id: string,
+	over: Partial<PerfBuildListItem> & { daysAgo?: number } = {},
+): PerfBuildListItem => {
+	const { daysAgo = 0, ...rest } = over;
+	const base = summarizeBuildBreakdown(
+		JSON.parse(JSON.stringify(breakdownOf(PROVENANCE, { kind: 'publish' }))),
+	);
+	assert.ok(base.ok);
+	return {
+		...base.summary,
+		id,
+		gameKey: 'slotsbuild',
+		registeredAt: ago(daysAgo).toISOString(),
+		keep: false,
+		expiresAt: null,
+		...rest,
+	};
+};
+
+test('7. the diff is against the previous build of the same game key and kind', () => {
+	const v10 = item('a', { build: '10', daysAgo: 3 });
+	const d11 = item('b', { build: '11', daysAgo: 2, kind: 'delivery' });
+	const other = item('c', { build: '11', daysAgo: 1.5, gameKey: 'slots' });
+	const v12 = item('d', {
+		build: '12',
+		daysAgo: 1,
+		shippedBytes: v10.shippedBytes + 2 * 1048576,
+		categories: [
+			...v10.categories.map((c) => (c.id === 'code' ? { ...c, bytes: c.bytes + 2 * 1048576 } : c)),
+			{ id: 'fonts', label: 'Fonts', files: 1, bytes: 1000 },
+		].filter((c) => c.id !== 'sounds'),
+	});
+	const all = [v12, other, d11, v10];
+	assert.equal(previousBuild(v12, all)?.id, 'a', 'skips the delivery and the other game key');
+	assert.equal(previousBuild(v10, all), null);
+	assert.equal(previousBuild(d11, all), null);
+	const diff = buildDiff(v12, v10);
+	assert.equal(diff.against, '10');
+	assert.equal(diff.shipped, 2 * 1048576);
+	assert.equal(diff.categories[0]?.id, 'code', 'the largest change first');
+	assert.equal(diff.categories.find((c) => c.id === 'fonts')?.delta, 1000, 'a new category');
+	const sounds = diff.categories.find((c) => c.id === 'sounds');
+	assert.ok(sounds && sounds.bytes === 0 && sounds.delta < 0, 'a category that went away');
+	assert.equal(deltaMb(2 * 1048576), '+2.0');
+	assert.equal(deltaMb(-0.5 * 1048576), '−0.5');
+	assert.equal(deltaMb(1000), '±0');
+});
+
+test('8. a reading joins its build by the stamp', () => {
+	const build = { build: '12', engineSha: 'abcdef1234567890' };
+	assert.ok(readingOnBuild({ buildVersion: '12', buildSha: 'abcdef1' }, build), 'a short sha');
+	assert.ok(readingOnBuild({ buildVersion: '12', buildSha: null }, build), 'no sha on the reading');
+	assert.ok(
+		readingOnBuild({ buildVersion: '12', buildSha: 'x' }, { build: '12', engineSha: null }),
+	);
+	assert.ok(!readingOnBuild({ buildVersion: '12', buildSha: '9999999' }, build), 'another engine');
+	assert.ok(!readingOnBuild({ buildVersion: '13', buildSha: 'abcdef1' }, build));
+	assert.ok(!readingOnBuild({ buildVersion: null, buildSha: null }, build));
+});
+
+interface BuildRow {
+	id: string;
+	gameKey: string;
+	kind: 'publish' | 'delivery';
+	registeredAt: string;
+	keep: boolean;
+	purgingAt: Date | null;
+	r2Key: string;
+}
+
+/** `perf_builds` in memory, claiming exactly what `buildPurgeable` allows (`purgeJob.ts` in SQL). */
+function memoryBuildStore(rows: BuildRow[]): PurgeStore & { rows: BuildRow[] } {
+	return {
+		rows,
+		async claim(_cutoff: Date, now: Date, limit: number): Promise<ClaimedRow[]> {
+			return rows
+				.filter((r) => r.purgingAt !== null || buildPurgeable(r, rows, now))
+				.slice(0, limit)
+				.map((r) => {
+					r.purgingAt ??= now;
+					return { id: r.id, r2Key: r.r2Key };
+				});
+		},
+		async deleteClaimed(id: string) {
+			const i = rows.findIndex((r) => r.id === id && r.purgingAt !== null);
+			if (i >= 0) rows.splice(i, 1);
+		},
+	};
+}
+
+const buildRow = (id: string, daysAgo: number, over: Partial<BuildRow> = {}): BuildRow => ({
+	id,
+	gameKey: 'slotsbuild',
+	kind: 'publish',
+	registeredAt: ago(daysAgo).toISOString(),
+	keep: false,
+	purgingAt: null,
+	r2Key: `acme/slots/perf/builds/slotsbuild/v1-${id}.json`,
+	...over,
+});
+
+test('9. the purge never takes the newest build of a game key and kind', async () => {
+	const store = memoryBuildStore([
+		buildRow('lone-old', 40, { gameKey: 'other' }),
+		buildRow('old', 30),
+		buildRow('old-kept', 29, { keep: true }),
+		buildRow('newest-publish', 20),
+		buildRow('newest-delivery', 25, { kind: 'delivery' }),
+		buildRow('older-delivery', 26, { kind: 'delivery' }),
+		buildRow('young', 3, { gameKey: 'third' }),
+		buildRow('young-older', 4, { gameKey: 'third' }),
+	]);
+	const deleted: string[] = [];
+	const result = await purgeExpired({
+		store,
+		deleteObject: async (key) => void deleted.push(key),
+		now: PURGE_NOW,
+		what: 'build',
+	});
+	assert.deepEqual(result, { deleted: 2, failed: 0 });
+	assert.deepEqual(store.rows.map((r) => r.id).sort(), [
+		'lone-old',
+		'newest-delivery',
+		'newest-publish',
+		'old-kept',
+		'young',
+		'young-older',
+	]);
+	assert.equal(deleted.length, 2);
+
+	store.rows.push(buildRow('next', 0));
+	const later = await purgeExpired({ store, deleteObject: async () => undefined, now: PURGE_NOW });
+	assert.deepEqual(later, { deleted: 1, failed: 0 }, 'a newer build frees the old newest');
+	assert.ok(!store.rows.some((r) => r.id === 'newest-publish'));
+	assert.ok(store.rows.some((r) => r.id === 'next'));
+});
+
+test('9. a tie on the time keeps the higher id, like the SQL', () => {
+	const at = ago(30).toISOString();
+	const a = { id: 'a', gameKey: 'g', kind: 'publish' as const, registeredAt: at, keep: false };
+	const b = { ...a, id: 'b' };
+	assert.equal(buildPurgeable(a, [a, b], PURGE_NOW), true);
+	assert.equal(buildPurgeable(b, [a, b], PURGE_NOW), false);
 });

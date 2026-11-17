@@ -44,7 +44,7 @@ interface FxPathConfig {
 		kind: 'polyline' | 'catmullRom' | 'bezier';
 		points: { x: number; y: number; in?: { x: number; y: number }; out?: { x: number; y: number } }[];
 		closed?: boolean;      // the last point joins the first
-		tension?: number;      // Catmull-Rom only, 0..1 (0.5 = centripetal-looking default)
+		tension?: number;      // Catmull-Rom only, 0..1 (0 = the classic spline, 1 = straight)
 	};
 	emit: 'shape' | 'along' | 'travel';   // 'shape' = the path does not decide where particles are born
 	along?: {
@@ -153,10 +153,10 @@ exposed parameter that rebuilds `fxPath` mid-flight does not restart the pass.
 - **On the preview stage**, with the layer selected and the Path card open: the curve is drawn
   over the particles; points are dots, Bézier handles are smaller dots on lines; drag to move,
   double-click the curve to insert a point, Alt-click (or the bin in the table) to delete; Shift
-  snaps to 15° from the previous point. Pan / zoom stay on the background. Drags write the doc,
-  so Undo and Save see them as any other edit.
-- Presets: *Ribbon* (spawn along, even, a spline), *Comet* (travel + trail-like settings), *River*
-  (spawn along, random, follow).
+  snaps to 15° from the previous point. Pan / zoom stay on the background. A drag previews live (the
+  behaviour is swapped, no reset) and writes the doc on release, so Save sees it as any other edit.
+- Presets (*Ribbon*, *Comet*, *River*) were left out of the first build: the existing presets plus
+  a path cover them in two clicks. Add them if authors ask.
 
 ## 5. How the shipped game plays it
 

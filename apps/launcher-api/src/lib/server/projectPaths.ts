@@ -114,6 +114,21 @@ export function perfReportKey(client: string, project: string, id: string): stri
 	return `${SUB.perf(client, project)}/reports/${id}.json`;
 }
 
+/**
+ * One desktop build's breakdown: `<client>/<project>/perf/builds/<game>/v<build>-<id>.json`. The id is
+ * the registration's: build numbers are counted per game key on each launcher machine, so two
+ * machines can each cut a v12 of one game.
+ */
+export function perfBuildKey(
+	client: string,
+	project: string,
+	gameKey: string,
+	build: string,
+	id: string,
+): string {
+	return `${SUB.perf(client, project)}/builds/${gameKey}/v${build}-${id}.json`;
+}
+
 /** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */
 export function publishedPointerKey(client: string, project: string): string {
 	return `${SUB.published(client, project)}/pointer.json`;

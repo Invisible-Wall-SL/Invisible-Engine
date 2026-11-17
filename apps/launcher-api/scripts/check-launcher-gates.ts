@@ -269,6 +269,9 @@ const PROJECT_CHECKS = [
 	'requireDeployToken(',
 	// The game server's secret reads every project's PUBLISHED config, like the deploy token.
 	'gameServerAuthorized(',
+	// The desktop launcher's Profiler build record: bearer + gamePublish + `canAccessProject`
+	// (asserted on its source just below).
+	'buildOrigin(',
 ];
 const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'admin/project-footprint': 'gated on adminPanel, which spans every project',
@@ -463,6 +466,16 @@ check(
 );
 for (const file of Object.keys(RAW_SESSION_PROJECT_ALLOWED)) {
 	check(`the scan sees ${file} read the session project`, rawReaders.includes(file), true);
+}
+{
+	// `buildOrigin(` is an accepted project check above only because of this.
+	const origin = codeOf(readFileSync(`${srcRoot}lib/server/profiler/origin.ts`, 'utf8'));
+	const body = /export async function buildOrigin\([^]*?\n\}/.exec(origin)?.[0] ?? '';
+	check(
+		'buildOrigin checks the caller may reach the project it is handed',
+		body.includes('canAccessProject(auth.user.id, auth.user.role, projectKey)'),
+		true,
+	);
 }
 
 /** A save writes the project its page named, so a refused `?project=` must 403, not fall back. */

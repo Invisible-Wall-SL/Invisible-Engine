@@ -809,6 +809,50 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
    weights, and animate. (If you applied a saved rig, the bones + animations are
    already present — re-attach this object's art and weight it to those bones.)
 
+### Create a character from a template
+
+A **template** is a fixed skeleton that expects its images by name. Pick it in **＋ New rig →
+Apply saved rig or template** (the **Templates** group), then choose the art: a project atlas or
+**upload images**. Every image whose name matches a part attaches itself to its slot at its real
+size; hover the template in the list to see every part name (`*` = needed). Uploaded files are
+named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
+
+- **Bust with face** (`bust-face`): `body`*, `head`*, `neck`, `hair_back`, `hair_front`,
+  `ear_l` / `ear_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `eyelid_l_half` / `_closed`*
+  (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`), `nose`, `mouth_rest`*,
+  `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`,
+  `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+- **A missing part is left out, never named.** The game cannot load a rig naming an image its
+  atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
+  have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
+- A template can't be combined with a saved rig: both are a whole skeleton.
+- The rig remembers its template in a `template.json` beside it in the bundle.
+
+#### Animate a face (Face section)
+
+A rig made from **Bust with face** gets a **Face** section in the outline. In **Animate** mode each
+control keys the current animation at the playhead (it starts one if there is none); outside
+Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
+so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes them.
+
+- **Mouth** — one button per mouth image the rig has; it keys that shape and opens the jaw to
+  match (A wide, MBP shut…). The lit button is the shape at the playhead.
+- **Sliders** — jaw, blink left / right (open → half → closed), brows (angry ↔ raised, with the
+  brow image swapped at the ends), look left/right and up/down (both pupils), head tilt, nod and
+  turn, breath. Hover a name for what it moves. A slider shows the value at the playhead.
+- **👁 Blink** — one blink (both eyes, 0.2 s) from the playhead.
+- **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
+  open at the clip's end so it loops.
+- **💬 Talk 2 s** — 2 s of mouth shapes from the playhead, jaw following, ending on the rest shape.
+- **🎬 Starter animations** — adds the template's ready-made clips: `idle` (4 s: breathing, a
+  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`,
+  `win_small` and `win_big`. Every clip starts and ends with the face at rest, so it loops or hands
+  over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
+  already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
+  becomes the nearest one it has (by how far it opens the jaw).
+- A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
+  it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
+
 ### Save / export
 
 - **💾 Save** writes the current rig to the project in R2 as a re-openable
