@@ -862,12 +862,28 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
   already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
   becomes the nearest one it has (by how far it opens the jaw).
-- **Full body** controls: lean, hop, per side raise arm (below 0 swings it back), bend elbow,
-  hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee, then head
-  tilt, nod and breath. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms up,
-  fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and `walk`
-  (a 1 s loop). There are no blink, talk or lip-sync buttons, and no IK: a constraint you add over the legs
-  overrides the leg keys.
+- **🎥 Motion** — opens a row to key the face (Bust with face) or the body (Full body) from a
+  performance. Pick a **Flipbook clip** of the project (read at its own frame rate) or
+  **＋ Video file…** from your computer (read at 12, 24 or 30 fps, up to 30 s). The video is read in
+  this browser and never uploaded. For a face, pick the **strength**: **1× filmed** for a real
+  person, **2× drawn** for a cartoon, whose drawn blinks and mouths read about half as strongly.
+  Then **🎥 Key at playhead**: the frames are tracked (a few seconds for a short clip), and the
+  controls the template maps are keyed from the playhead, replacing their keys under the
+  performance, as one undo step. Keys are thinned so the dopesheet stays editable. Underneath, a
+  list says what did not carry over: frames with no face or body in them (the controls hold
+  through them), controls that went past their range (held at the edge), and what the template
+  can't take at all. The face drives mouth shape and jaw, blinks, brows (against the performer's
+  own resting brows), gaze, head tilt and turn; not nods or breathing. The body drives lean, head
+  tilt, arms, elbows, legs, knees, and the whole character's hop and sideways move (**Move
+  sideways** control); not hand poses, nods, breathing or depth. Everything is read flat in the
+  picture, so a limb pointing at the camera reads short, and a knee or elbow bending the way the
+  template's control can't is held straight. A face side-on (in profile) is not found.
+- **Full body** controls: lean, hop, move sideways, per side raise arm (below 0 swings it back),
+  bend elbow, hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee,
+  then head tilt, nod and breath. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms
+  up, fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and
+  `walk` (a 1 s loop). There are no blink, talk or lip-sync buttons, and no IK: a constraint you
+  add over the legs overrides the leg keys.
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
 

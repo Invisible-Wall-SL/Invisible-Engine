@@ -257,6 +257,9 @@ importers:
         specifier: 3.23.8
         version: 3.23.8
     devDependencies:
+      '@mediapipe/tasks-vision':
+        specifier: 1.2.0
+        version: 1.2.0
       '@sveltejs/adapter-node':
         specifier: 5.5.7
         version: 5.5.7(@sveltejs/kit@2.70.3(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.3(@typescript-eslint/types@8.72.1))(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.108.1)(terser@5.51.2)(tsx@4.23.15)))(svelte@5.57.3(@typescript-eslint/types@8.72.1))(typescript@6.0.3)(vite@6.2.0(@types/node@26.2.0)(jiti@2.7.0)(sass-embedded@1.89.2)(sass@1.108.1)(terser@5.51.2)(tsx@4.23.15)))
@@ -3454,6 +3457,9 @@ packages:
     peerDependencies:
       '@types/react': '>=16'
       react: '>=16'
+
+  '@mediapipe/tasks-vision@1.2.0':
+    resolution: {integrity: sha512-7+dr9GbGyTtcuLh11wE5TOn4dNFRncIT9oAWs72620WX99KW5FfzF6rFJ/ChTgXG9vJ6dCiE9FrEEY4CnwPWKQ==}
 
   '@messageformat/date-skeleton@1.1.0':
     resolution: {integrity: sha512-rmGAfB1tIPER+gh3p/RgA+PVeRE/gxuQ2w4snFWPF5xtb5mbWR7Cbw7wCOftcUypbD6HVoxrVdyyghPm3WzP5A==}
@@ -8007,6 +8013,8 @@ snapshots:
       '@types/mdx': 2.0.13
       '@types/react': 19.1.8
       react: 19.1.0
+
+  '@mediapipe/tasks-vision@1.2.0': {}
 
   '@messageformat/date-skeleton@1.1.0': {}
 
