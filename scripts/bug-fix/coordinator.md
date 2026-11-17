@@ -126,13 +126,15 @@ one; the rest are this run's own rules. The money is spent either way, so a fix 
 - Commit a vendored bundle: the committed builds the static Rigger and Rig Viewer pages load
   (`apps/launcher-api/CLAUDE.md`, "Vendored bundles"),
   `apps/launcher-api/static/rigger/vendor/rigger-fx.js`,
+  `apps/launcher-api/static/rigger/vendor/rigger-motion.js`,
   `apps/launcher-api/static/rigger/vendor/rigger-text.js` and
-  `apps/launcher-api/static/rig-viewer/vendor/invisible-rig.js`. A run never ships one, and the
-  Rigger's two are each over the 400 KB cap on their own. A fix to code compiled into one
-  (`apps/launcher-api/src/rigger-fx/`, `apps/launcher-api/src/rigger-text/`, `packages/engine-fx/`,
+  `apps/launcher-api/static/rig-viewer/vendor/invisible-rig.js`. A run never ships one, and
+  `rigger-fx.js` and `rigger-text.js` are each over the 400 KB cap on their own. A fix to code
+  compiled into one (`apps/launcher-api/src/rigger-fx/`, `apps/launcher-api/src/rigger-motion/`,
+  `apps/launcher-api/src/rigger-text/`, `packages/engine-fx/`,
   `packages/engine-rig/`, or what they import) is still a fix: leave the bundle as the base has
   it (`git checkout -- <bundle>` after a build), and say in the summary that a person must run
-  `pnpm --filter launcher-api build:<name>` (`rigger-fx`, `rigger-text` or `invisible-rig`) and
+  `pnpm --filter launcher-api build:<name>` (`rigger-fx`, `rigger-motion`, `rigger-text` or `invisible-rig`) and
   commit the bundle. Until then `pnpm --filter launcher-api check:vendored-bundles` fails and
   names the bundle; if you ran it, record it as a gate that failed.
 - Leave anything but plain UTF-8 text files: at most 40 files and 400 KB in all (a changed file
