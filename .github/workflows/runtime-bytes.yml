@@ -11,8 +11,9 @@
 #
 #   gh run download <run id> -n runtime-bytes -D scripts/runtime-bytes
 #
-# rather than four local builds on another OS (a Windows checkout builds other bytes). A change on a path that cannot legitimately reach a 2D
-# runtime (packages/engine-3d, the family seams, the build config, the lockfile) failing here is a leak.
+# rather than four local builds on another OS (a Windows checkout builds other bytes). A change on a
+# path that cannot legitimately reach a 2D runtime (packages/engine-3d, the family seams, the build
+# config, the lockfile) failing here is a leak.
 #
 # It runs only when the change set touches the engine, the lockfile or this gate; otherwise it passes in
 # seconds, so it can be a required check (it always reports). Required or not is the owner's ruleset
