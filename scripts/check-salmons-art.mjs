@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { SALMONS_SHEETS } from '../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 import {
 	SALMONS_DRAWN,
+	SALMONS_DRAWN_TILES,
 	SALMONS_REGIONS,
 	SALMONS_TILES,
 	builtinSheetsNeeded,
@@ -254,5 +255,23 @@ check('the exporter ships the project sheets for a Salmons generator, by manifes
 	assert.match(exporter, /if \(salmonsSheetKeys\.includes\(atlas\.key\)\) continue;/);
 	assert.match(exporter, /for \(const key of salmonsSheetKeys\) await exportManifest\(key\);/);
 });
+
+check(
+	'every name drawn resolves from the built-in copy load.ts loads (a built tile not drawn is not)',
+	() => {
+		const load = readFileSync(join(ART, 'load.ts'), 'utf8');
+		const builtin = {};
+		for (const doc of Object.values(SALMONS_SHEETS))
+			for (const name of Object.keys(doc.frames)) builtin[name] = name;
+		for (const tile of SALMONS_TILES)
+			if (load.includes(`'./sheets/${tile}.webp'`)) builtin[tile] = tile;
+		for (const tile of SALMONS_DRAWN_TILES)
+			assert.ok(
+				builtin[tile],
+				`"${tile}" is drawn but load.ts does not load ./sheets/${tile}.webp`,
+			);
+		assert.doesNotThrow(() => pickSalmonsRegions({}, builtin));
+	},
+);
 
 console.log(`check:salmons-art: ${passed} passed`);

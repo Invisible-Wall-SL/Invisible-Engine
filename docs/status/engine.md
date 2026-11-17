@@ -619,7 +619,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   built in two checkouts (`/home/user/rbA`, `/home/user/rb-second-checkout`) gives identical
   manifests; guard `pnpm check:build-paths`. Every runtime's bytes moved once (new class names),
   manifests re-recorded. `--update` on any Linux checkout now records CI's bytes (Windows still
-  differs, `autocrlf`).
+  differs, `autocrlf`). This fixes the cause of the entry below, whose "never `--update`
+  elsewhere" no longer applies.
+
+- 2026-11-17 — **`runtime-bytes` manifests depend on the checkout path, not only the OS** (found
+  on #1710, a launcher-only PR that `main`'s stale manifests failed; #1712 then re-recorded them).
+  Svelte's scoped-class hashes (`svelte-xxxx`) come from each component's file path, so one tree
+  built in two directories differs in the CSS, the bundle and every chunk that imports them; with
+  those hashes normalised the two builds are identical. Built at CI's path
+  (`/home/runner/work/Invisible-Engine/Invisible-Engine`), a Linux container reproduces CI's file
+  names exactly and a second build checks `runtime bytes ok`, so the gate is deterministic on CI.
+  Re-record from CI's artifact or from a checkout at that path, never with `--update` elsewhere.
+
 - 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
   released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins
   what made two builds of one commit differ — `__IE_BUILD__`'s `builtAt`, `sha`, `engineSha`,
