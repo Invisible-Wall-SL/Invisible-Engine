@@ -1,5 +1,5 @@
 /**
- * Contract check for rig templates (docs/design/rig-templates.md, T1 + T2 face channels):
+ * Contract check for rig templates (docs/design/rig-templates.md, T1–T3 + T7 full body):
  *   pnpm --filter launcher-api check:rig-templates
  *
  * Every template is well-formed, and a rig made from it — with all of its art, and with only the
@@ -256,6 +256,11 @@ const refused: [string, RigTemplate, RegExp][] = [
 		/missing jaw channel "jaw"/,
 	],
 	[
+		'two channels driving one bone property',
+		withChannel('head_turn', (c) => ({ ...c, drives: [{ bone: 'head', prop: 'rotate', per: 1 }] })),
+		/channels "head_tilt" and "head_turn" both drive head.rotate/,
+	],
+	[
 		'a channel that moves nothing',
 		withChannel('breath', (c) => ({ ...c, drives: [] })),
 		/moves nothing/,
@@ -285,6 +290,31 @@ const refused: [string, RigTemplate, RegExp][] = [
 check(
 	'bust-face has the seven starter clips',
 	base.clips.map((c) => c.name).join() === 'idle,blink,talk,happy,surprised,win_small,win_big',
+);
+const full = RIG_TEMPLATES.find((t) => t.id === 'full-body');
+check('full-body is offered in New rig', !!full);
+check(
+	'full-body has the five starter clips',
+	full?.clips.map((c) => c.name).join() === 'idle,celebrate,win_small,win_big,walk',
+);
+check(
+	'full-body: every hand pose is a part of its hand slot, the open one needed',
+	['l', 'r'].every((s) =>
+		['open', 'fist', 'point'].every((h) =>
+			full?.parts.some(
+				(p) =>
+					p.name === `hand_${s}_${h}` && p.slot === `hand_${s}` && p.required === (h === 'open'),
+			),
+		),
+	),
+);
+check(
+	'full-body: the legs carry no IK (the channels key their rotations)',
+	!('ik' in (templateRig(full ?? base, []).skeleton as object)),
+);
+check(
+	'template.json names full-body',
+	rigTemplateFromSidecar('{"id":"full-body","version":1}')?.label === 'Full body',
 );
 for (const [label, t, want] of refused) {
 	const problem = rigTemplateProblem(t);
