@@ -27,6 +27,44 @@ export interface RigTemplatePart {
 	size: [number, number];
 }
 
+/** A channel moving a bone: the key is `value × per` from setup (scaleY: `1 + value × per`). */
+export interface RigTemplateDrive {
+	bone: string;
+	prop: 'x' | 'y' | 'rotate' | 'scaleY';
+	per: number;
+}
+
+/** From `at` upward the slot shows `part` (none = empty); a part the rig lacks is skipped. */
+export interface RigTemplateSwap {
+	at: number;
+	part: string | null;
+}
+
+/**
+ * A face control (docs/design/rig-templates.md §4): one number the artist sets, written as the
+ * ordinary keys of its drives and swaps. A `shapes` channel picks one of a slot's parts instead and
+ * opens the jaw channel by that shape's amount.
+ */
+export interface RigTemplateChannel {
+	id: string;
+	label: string;
+	tip: string;
+	min: number;
+	max: number;
+	rest: number;
+	drives?: RigTemplateDrive[];
+	slot?: string;
+	swaps?: RigTemplateSwap[];
+	/** `open`: how far each shape opens the jaw; `talk`: the order the talk helper cycles. */
+	shapes?: {
+		slot: string;
+		jaw: string;
+		rest: string;
+		open: Record<string, number>;
+		talk: string[];
+	};
+}
+
 export interface RigTemplate {
 	id: string;
 	version: number;
@@ -35,6 +73,7 @@ export interface RigTemplate {
 	/** Draw order, back to front. */
 	slots: RigTemplateSlot[];
 	parts: RigTemplatePart[];
+	channels: RigTemplateChannel[];
 }
 
 /** What a rig created from a template remembers, in its bundle's `template.json`. */
@@ -113,6 +152,131 @@ export const BUST_FACE: RigTemplate = {
 		...MOUTH_SHAPES.map((m) => part(`mouth_${m}`, 'mouth', [90, 60], m === 'A' || m === 'O')),
 		part('hair_front', 'hair_front', [300, 200]),
 	],
+	channels: [
+		{
+			id: 'mouth',
+			label: 'Mouth',
+			tip: 'Swap the mouth shape; the jaw opens to match it.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			shapes: {
+				slot: 'mouth',
+				jaw: 'jaw',
+				rest: 'mouth_rest',
+				talk: ['A', 'E', 'O', 'MBP', 'U', 'A', 'FV', 'E', 'wide', 'O', 'MBP', 'A'].map(
+					(m) => `mouth_${m}`,
+				),
+				open: {
+					mouth_rest: 0,
+					mouth_A: 1,
+					mouth_E: 0.5,
+					mouth_O: 0.9,
+					mouth_U: 0.5,
+					mouth_MBP: 0,
+					mouth_FV: 0.3,
+					mouth_smile: 0.2,
+					mouth_wide: 0.6,
+				},
+			},
+		},
+		{
+			id: 'jaw',
+			label: 'Jaw open',
+			tip: 'Drop the jaw (and the mouth on it).',
+			min: 0,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'jaw', prop: 'y', per: -14 }],
+		},
+		...sides<RigTemplateChannel>((s) => [
+			{
+				id: `blink_${s}`,
+				label: `Blink ${s === 'l' ? 'left' : 'right'}`,
+				tip: '0 open, ½ half-closed, 1 closed (needs the eyelid images).',
+				min: 0,
+				max: 1,
+				rest: 0,
+				slot: `eyelid_${s}`,
+				swaps: [
+					{ at: 0, part: null },
+					{ at: 0.34, part: `eyelid_${s}_half` },
+					{ at: 0.67, part: `eyelid_${s}_closed` },
+				],
+			},
+		]),
+		...sides<RigTemplateChannel>((s) => [
+			{
+				id: `brow_${s}`,
+				label: `Brow ${s === 'l' ? 'left' : 'right'}`,
+				tip: 'Down to angry, up to raised; swaps the brow image at the ends.',
+				min: -1,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `brow_${s}`, prop: 'y', per: 8 }],
+				slot: `brow_${s}`,
+				swaps: [
+					{ at: -1, part: `brow_${s}_angry` },
+					{ at: -0.6, part: `brow_${s}_neutral` },
+					{ at: 0.6, part: `brow_${s}_up` },
+				],
+			},
+		]),
+		{
+			id: 'gaze_x',
+			label: 'Look left / right',
+			tip: 'Move both pupils sideways.',
+			min: -1,
+			max: 1,
+			rest: 0,
+			drives: sides<RigTemplateDrive>((s) => [{ bone: `pupil_${s}`, prop: 'x', per: 10 }]),
+		},
+		{
+			id: 'gaze_y',
+			label: 'Look down / up',
+			tip: 'Move both pupils up or down.',
+			min: -1,
+			max: 1,
+			rest: 0,
+			drives: sides<RigTemplateDrive>((s) => [{ bone: `pupil_${s}`, prop: 'y', per: 6 }]),
+		},
+		{
+			id: 'head_tilt',
+			label: 'Head tilt',
+			tip: 'Degrees; positive tilts counter-clockwise.',
+			min: -15,
+			max: 15,
+			rest: 0,
+			drives: [{ bone: 'head', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'head_nod',
+			label: 'Head nod',
+			tip: 'Degrees, turned at the neck.',
+			min: -10,
+			max: 10,
+			rest: 0,
+			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'head_turn',
+			label: 'Head turn',
+			tip: 'Slide the face inside the head for a small turn; reads best once the head is a mesh.',
+			min: -1,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'face', prop: 'x', per: 14 }],
+		},
+		{
+			id: 'breath',
+			label: 'Breath',
+			tip: 'Swell the chest a little.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
+		},
+	],
 };
 
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE];
@@ -145,6 +309,35 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 	for (const s of t.slots)
 		if (s.setup !== undefined && parts.get(s.setup) !== s.name)
 			return `slot "${s.name}" starts on "${s.setup}", which is not one of its parts`;
+	const channels = new Set<string>();
+	for (const c of t.channels) {
+		if (channels.has(c.id)) return `channel "${c.id}" is listed twice`;
+		channels.add(c.id);
+		if (!(c.min < c.max) || c.rest < c.min || c.rest > c.max)
+			return `channel "${c.id}" needs min < max with rest between them`;
+		for (const d of c.drives ?? [])
+			if (!bones.has(d.bone)) return `channel "${c.id}" drives a missing bone "${d.bone}"`;
+		if (c.swaps) {
+			if (!c.slot || !slots.has(c.slot)) return `channel "${c.id}" swaps a missing slot`;
+			for (const [i, w] of c.swaps.entries()) {
+				if (i > 0 && !(w.at > c.swaps[i - 1].at))
+					return `channel "${c.id}" swaps must rise in order`;
+				if (w.part !== null && parts.get(w.part) !== c.slot)
+					return `channel "${c.id}" swaps to "${w.part}", not a part of "${c.slot}"`;
+			}
+			if (c.swaps[0]?.at !== c.min) return `channel "${c.id}" must swap from its min`;
+		}
+		if (c.shapes) {
+			if (!slots.has(c.shapes.slot)) return `channel "${c.id}" picks a missing slot`;
+			for (const p of [c.shapes.rest, ...Object.keys(c.shapes.open), ...c.shapes.talk])
+				if (parts.get(p) !== c.shapes.slot)
+					return `channel "${c.id}" names "${p}", not a part of "${c.shapes.slot}"`;
+		}
+		if (!c.drives?.length && !c.swaps && !c.shapes) return `channel "${c.id}" moves nothing`;
+	}
+	for (const c of t.channels)
+		if (c.shapes && !t.channels.some((j) => j.id === c.shapes?.jaw && j.drives?.length))
+			return `channel "${c.id}" opens a missing jaw channel "${c.shapes.jaw}"`;
 	return null;
 }
 
@@ -218,15 +411,40 @@ export function templateReport(fit: TemplateRig): RigTemplateRef & {
 	return { ...fit.ref, missing: fit.missing, missingRequired: fit.missingRequired };
 }
 
-/** The templates the New-rig panel offers. */
-export function rigTemplateList(): {
+/** What the Rigger page is told about a template. */
+export interface RigTemplateSummary {
 	id: string;
+	version: number;
 	label: string;
 	parts: { name: string; required: boolean }[];
-}[] {
-	return RIG_TEMPLATES.map((t) => ({
+	channels: RigTemplateChannel[];
+}
+
+function summary(t: RigTemplate): RigTemplateSummary {
+	return {
 		id: t.id,
+		version: t.version,
 		label: t.label,
 		parts: t.parts.map((p) => ({ name: p.name, required: p.required })),
-	}));
+		channels: t.channels,
+	};
+}
+
+/** The templates the New-rig panel offers. */
+export function rigTemplateList(): RigTemplateSummary[] {
+	return RIG_TEMPLATES.map(summary);
+}
+
+/** The template a bundle's `template.json` names, or null for none or one we no longer have. */
+export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+	if (!text) return null;
+	let ref: unknown;
+	try {
+		ref = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	const id = ref && typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
+	const t = typeof id === 'string' ? rigTemplateById(id) : undefined;
+	return t ? summary(t) : null;
 }

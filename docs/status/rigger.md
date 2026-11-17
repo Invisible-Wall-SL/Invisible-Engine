@@ -90,9 +90,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     assumptions); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
 19. **Rig templates** — [rig-templates](../design/rig-templates.md): fixed skeletons with a parts
-    contract so new art attaches itself and clips play on every character of a template. T1 is
-    built (2026-11-17): the **Bust with face** template in ＋ New rig. ⏳ Not yet tried in the
-    browser against real art; next is T2 (the Face panel).
+    contract so new art attaches itself and clips play on every character of a template. T1 and T2
+    are built (2026-11-17): the **Bust with face** template in ＋ New rig and the **Face** section
+    that keys it. ⏳ Neither tried in the authed Rigger against real art; next is T3 (starter
+    animations).
 
 ## Blocked (owner / external)
 
@@ -101,6 +102,20 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T2: the Face section.** A template now carries face `channels`
+  (`rigTemplates.ts`): drives (a bone's x / y / rotate / scaleY as `value × per` from setup) and
+  swaps (a slot's image by value step), or `shapes` for the mouth (part → jaw opening, the talk
+  order, the rest shape). `rigTemplateProblem` checks them; `GET /api/rigger/template?dir=` returns
+  the open rig's template from its `template.json`. In `view.html` the `face*` helpers write ordinary
+  keys into the current animation (a translate / scale key keeps its other axis; a swap step whose
+  image the rig lacks is skipped, never keyed) through one funnel (`faceEdit`: Animate mode,
+  `ensureCurAnim`, `markDirty` → undo); the panel is sliders + mouth buttons + Blink / Idle blinks /
+  Talk 2 s, synced to the playhead each frame. Gates: `tools/rigger-spike/face-channels.mjs` (110:
+  the shipped helpers on a real `bust-face` rig, every result posed through engine-rig's loader and
+  AnimationState), `check:rig-templates` (+9: bad channels refused, the sidecar reader). Both
+  mutation-checked. The panel was driven in the browser pane over the shipped code with a real
+  template rig (Talk, Blink with a missing half eyelid, the Animate-off refusal); not yet in the
+  authed Rigger.
 - 2026-11-17 — **Rig templates T1: Bust with face in ＋ New rig.** `src/lib/server/rigTemplates.ts`
   holds the template (bones, draw order, parts with needed/optional) and makes the rig over the
   art's regions: a part whose image exists attaches at its untrimmed size, a missing one is left

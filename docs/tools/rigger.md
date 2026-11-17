@@ -828,6 +828,25 @@ named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
+#### Animate a face (Face section)
+
+A rig made from **Bust with face** gets a **Face** section in the outline. In **Animate** mode each
+control keys the current animation at the playhead (it starts one if there is none); outside
+Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
+so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes them.
+
+- **Mouth** — one button per mouth image the rig has; it keys that shape and opens the jaw to
+  match (A wide, MBP shut…). The lit button is the shape at the playhead.
+- **Sliders** — jaw, blink left / right (open → half → closed), brows (angry ↔ raised, with the
+  brow image swapped at the ends), look left/right and up/down (both pupils), head tilt, nod and
+  turn, breath. Hover a name for what it moves. A slider shows the value at the playhead.
+- **👁 Blink** — one blink (both eyes, 0.2 s) from the playhead.
+- **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
+  open at the clip's end so it loops.
+- **💬 Talk 2 s** — 2 s of mouth shapes from the playhead, jaw following, ending on the rest shape.
+- A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
+  it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
+
 ### Save / export
 
 - **💾 Save** writes the current rig to the project in R2 as a re-openable

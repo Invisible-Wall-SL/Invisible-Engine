@@ -1,5 +1,5 @@
 /**
- * Contract check for rig templates (docs/design/rig-templates.md, T1):
+ * Contract check for rig templates (docs/design/rig-templates.md, T1 + T2 face channels):
  *   pnpm --filter launcher-api check:rig-templates
  *
  * Every template is well-formed, and a rig made from it — with all of its art, and with only the
@@ -12,9 +12,11 @@ import * as rig from 'engine-rig';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import {
 	RIG_TEMPLATES,
+	rigTemplateFromSidecar,
 	rigTemplateProblem,
 	templateRig,
 	type RigTemplate,
+	type RigTemplateChannel,
 	type TemplateRegion,
 } from '../src/lib/server/rigTemplates.ts';
 
@@ -186,6 +188,71 @@ check(
 		...RIG_TEMPLATES[0],
 		slots: RIG_TEMPLATES[0].slots.map((s) => (s.name === 'mouth' ? { ...s, setup: 'nose' } : s)),
 	}) !== null,
+);
+
+// Face channels (T2): each kind of bad channel is refused by name.
+const base = RIG_TEMPLATES[0];
+const withChannel = (
+	id: string,
+	f: (c: RigTemplateChannel) => RigTemplateChannel,
+): RigTemplate => ({
+	...base,
+	channels: base.channels.map((c) => (c.id === id ? f(c) : c)),
+});
+const refused: [string, RigTemplate, RegExp][] = [
+	[
+		'a drive on a missing bone',
+		withChannel('jaw', (c) => ({ ...c, drives: [{ bone: 'chin', prop: 'y', per: 1 }] })),
+		/drives a missing bone "chin"/,
+	],
+	[
+		'swaps out of order',
+		withChannel('blink_l', (c) => ({ ...c, swaps: [...(c.swaps ?? [])].reverse() })),
+		/rise in order|swap from its min/,
+	],
+	[
+		'a swap to another slot’s part',
+		withChannel('blink_l', (c) => ({
+			...c,
+			swaps: (c.swaps ?? []).map((w, i) => (i === 2 ? { ...w, part: 'eyelid_r_closed' } : w)),
+		})),
+		/not a part of "eyelid_l"/,
+	],
+	[
+		'a talk shape from another slot',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, talk: [...c.shapes.talk, 'nose'] },
+		})),
+		/names "nose"/,
+	],
+	[
+		'a mouth whose jaw channel is gone',
+		{ ...base, channels: base.channels.filter((c) => c.id !== 'jaw') },
+		/missing jaw channel "jaw"/,
+	],
+	[
+		'a channel that moves nothing',
+		withChannel('breath', (c) => ({ ...c, drives: [] })),
+		/moves nothing/,
+	],
+	['rest outside the range', withChannel('breath', (c) => ({ ...c, rest: 2 })), /rest between/],
+];
+for (const [label, t, want] of refused) {
+	const problem = rigTemplateProblem(t);
+	check(`a template with ${label} is refused`, !!problem && want.test(problem), String(problem));
+}
+
+check(
+	'template.json names a template we have',
+	rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.channels.length ===
+		base.channels.length,
+);
+check(
+	'template.json that is missing, broken or unknown reads as no template',
+	[null, '{', '"x"', '{"id":"gone","version":1}', '{"id":3}'].every(
+		(t) => rigTemplateFromSidecar(t) === null,
+	),
 );
 
 if (failures) {
