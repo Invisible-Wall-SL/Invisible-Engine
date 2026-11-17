@@ -327,10 +327,13 @@ stale.
 | --------------------------------- | -------------- | ---------------------------------------- | -------------------------------------------------------------- |
 | Node 24.13.0 (Windows x64)        | V8 13.6        | `d3eac484`                               | `62af8943 bad45794 7ab95cb7 …  080e9717 d6f465b9`, the fixture |
 | Chrome 148 headless (Windows x64) | V8             | `d3eac484`                               | all 24 equal, in all 3 runs                                    |
-| iOS Safari (iPhone, arm64)        | JavaScriptCore | _pending: the owner opens the URL above_ |                                                                |
+| WebKit 27.2 (Playwright, Windows x64) | JavaScriptCore | `d3eac484`                               | all 24 equal, in all 3 runs (MATCH)                            |
+| iOS Safari (iPhone, arm64)        | JavaScriptCore | _pending: no iPhone yet; pre-launch_     |                                                                |
 
-**Result so far:** Node and Chrome are bit-identical, so nothing diverged and nothing needed
-fixing. iOS is the open row. The coordinator records the owner's read-back (MATCH or DIFFERS, and
+**Result so far:** Node, Chrome and WebKit (Safari's engine, JavaScriptCore, run 2026-11-17 through
+Playwright on Windows) are bit-identical, so nothing diverged and nothing needed fixing. That clears
+the engine question for Phase 1; a real iPhone (arm64 hardware) stays a pre-launch check, since the
+owner has none yet. The coordinator records the owner's read-back (MATCH or DIFFERS, and
 the code) in `docs/status/3d.md`. If iOS says DIFFERS, the first wrong checkpoint bounds the step
 range in which to bisect.
 
