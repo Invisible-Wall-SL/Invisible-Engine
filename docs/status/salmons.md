@@ -171,20 +171,22 @@ looks still draw up and left of it.
 
 **Put the original art into the project (2026-11-17; after the `salmons-art-project` branch
 merges).** Needs an R2 key that may write the Salmons project (the session that built this had
-read-only R2 only; its dry run on 2026-11-17 found all 12 keys free):
+read-only R2 only; its dry run on 2026-11-17 found the first 12 keys free; the cliff's 3 came
+with #1725 and the cliff sheet fix):
 
 1. From the repo root, with `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
    `R2_BUCKET` set and `boto3` installed, run `python3 scripts/salmons/upload-art.py`: a dry run
-   that lists the 12 keys it would write (4 manifests, 4 pages, 4 JSONs) and any key already holding
+   that lists the 15 keys it would write (5 manifests, 5 pages, 5 JSONs) and any key already holding
    other content. Then run it again with `--apply`. A second `--apply` writes nothing (all "same").
 2. **See it in the tools:** open the Sheet Maker on the `salmons` project: the rail lists
-   `salmons_terrain`, `salmons_props`, `salmons_characters` and `salmons_waterfall_face` (🔒 locked,
+   `salmons_terrain`, `salmons_props`, `salmons_characters`, `salmons_waterfall_face` and
+   `salmons_cliff` (🔒 locked,
    like a verbatim import). In the Atlas Maker, **↻ Refresh from R2**, then pick one in the atlas
    list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
    To re-pack a sheet in the Sheet Maker, unlock it first (its frames may move; the game reads them
    by name, so that is safe).
-4. **Republish** `salmons` from Game Maker. The art export ships the four sheets, and the room
+4. **Republish** `salmons` from Game Maker. The art export ships the five sheets, and the room
    draws them. Until then the game draws the built-in copy, and looks exactly as today.
 
 ## Open items / next (S0)
@@ -384,12 +386,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   first, then the page and JSON, the order an import uses. It is idempotent: an object already there
   with the same bytes is skipped. One with different bytes stops the run and is reported, never
   overwritten. A dry run (the default) lists what it would do; `--apply` writes.
-- **(c) The runtime prefers project art.** The online runtime looks for the four project sheets
+- **(c) The runtime prefers project art.** The online runtime looks for the project sheets
   among the project's shipped editor art (by manifest key, never a bare name another sheet might
   pack). Each region the drawing code names comes from the project sheet when it ships there, and
   from the built-in copy otherwise. A built-in page is fetched only when a region still needs it.
   A snapshot published before this has no such sheets and draws exactly as today.
-- **(d) The full chain.** The `art` exporter (`editorArtExport.ts`) seeds the four manifests when
+- **(d) The full chain.** The `art` exporter (`editorArtExport.ts`) seeds the project manifests when
   the Game Config's `arcade.online.generator` is `salmonsRiver` or `salmonsMap`, so they reach
   `deploy/editor-art/` + `_pages/`, the bake, the pull and `bakedEditorArtAssets()` with no new
   asset class. Seeds the project does not hold are skipped and never reported missing, since the
@@ -408,6 +410,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-17 — **The cliff is a project sheet too** (branch `arcade/salmons-cliff-sheet`). #1725 built
+  the original `cliff.png` as a built-in tile but was branched before #1718 made every built-in page a
+  project sheet, so `main` had a page with no project sheet (`check:salmons-art` red). `cliff` →
+  `salmons_cliff` joins `SALMONS_PROJECT_SHEETS`: `project-art.mjs` plans it as a one-region sheet
+  like the waterfall face, `upload-art.py` writes it with the others, and the art export ships it.
+  Nothing draws it yet; the waterfall-elevation work will.
 
 - 2026-11-17 — **The original art becomes project art** (branch `salmons-art-project`; in review;
   plan in "Original art as project art" above). Built: the conversion (`scripts/salmons/project-art.mjs`)
