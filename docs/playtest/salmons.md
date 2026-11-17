@@ -62,7 +62,11 @@ games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose re
 pages start at. **The original game's levels** (`salmonsMap`, what the project plays since
 2026-11-17) have their own run, `scripts/playtest/salmons-levels-play.mjs` (same arguments): one
 page in a random-level room makes the room's seed's level as the server does, draws it in the
-original art, swims upstream with no page error, and a config pinning one seed plays it. It prints
+original art, swims upstream with no page error, and a config pinning one seed plays it. A
+page booted from a snapshot whose editor art ships the project sheet `salmons_terrain` (every
+ground tile magenta) draws its banks from that sheet (`project-art.png`, over 5 % magenta), while
+page A, with no such sheet, draws the built-in tiles (no magenta): the project-art path and its
+fallback. It prints
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
 about 4 s, 133 MB, 24 fps).
 
