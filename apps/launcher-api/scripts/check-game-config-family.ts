@@ -516,6 +516,30 @@ step(
 		online().rules!.module === 'tag',
 );
 step(
+	'a lobby: ticked it is stored empty (its defaults), its numbers parse, unticked it goes',
+	(d) => {
+		onlineDoc.setLobbyField(d, 'minPlayers', '6');
+		onlineDoc.setLobbyOn(d, true);
+		onlineDoc.setLobbyField(d, 'minPlayers', '0');
+		onlineDoc.setLobbyField(d, 'maxWaitSeconds', '45');
+		onlineDoc.setLobbyField(d, 'countdownSeconds', '-1');
+	},
+	(d) => {
+		const lobby = d.arcade?.online?.rules?.lobby;
+		return (
+			!!lobby &&
+			!('minPlayers' in lobby) &&
+			lobby.maxWaitSeconds === 45 &&
+			!('countdownSeconds' in lobby)
+		);
+	},
+);
+step(
+	'…and unticking it removes it',
+	(d) => onlineDoc.setLobbyOn(d, false),
+	(d) => !('lobby' in (d.arcade?.online?.rules ?? {})),
+);
+step(
 	'removing every rule removes the rules',
 	(d) => {
 		onlineDoc.removeZoneRule(d, 0);

@@ -18,7 +18,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
+import { SALMONS_LOBBY, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
@@ -50,7 +50,7 @@ const write = (key, doc) => {
 
 // The original game's generator (`salmonsMap`): the scene holds one level, each room plays its own.
 const river = salmonsMapRiver(SALMONS_MAP_SEED);
-const config = normalizeGameConfigDoc(salmonsConfig(river));
+const config = normalizeGameConfigDoc(salmonsConfig(river, { lobby: SALMONS_LOBBY }));
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');
 if (errors.length)
 	throw new Error(`the Salmons config does not validate: ${JSON.stringify(errors)}`);

@@ -79,11 +79,8 @@ level is about 730 zones (P10.16's river: 71); a room step with 80 players takes
 
 ## 3. Left open
 
-- **The room as an authored lobby screen** (owner, 2026-11-17: "each room should have a random
-  level. the room should also be a screen we can author, so people can wait there before starting
-  a session"): a Scene Editor screen players wait on in a room before its session starts, built
-  with the existing screen and Flow patterns. Its own PR, after this one. Salmons pins no seed:
-  every room is random, as the owner asked; the pinned list stays an option for other games.
+- Salmons pins no seed: every room is random, as the owner asked; the pinned list stays an option
+  for other games.
 
 - A device makes its level from the config baked in its bundle; the server from the published one.
   After a republish that changes `levels`, a device on the old bundle can draw a level the server
@@ -96,3 +93,28 @@ level is about 730 zones (P10.16's river: 71); a room step with 80 players takes
   not by clicking the stage.
 - The original's speeds and current (6 and 1.5 tiles/s) are not taken: the config keeps the
   engine's (240 px/s salmon, 72 px/s current from the generator).
+
+## 4. The lobby (built 2026-11-17, its own PR)
+
+Owner (2026-11-17): "the room should also be a screen we can author, so people can wait there
+before starting a session"; the start rule chosen: **players or timer**, with a countdown; between
+rounds, **straight to the next round** (the lobby is only before the first).
+
+- **Rules** (`engine-mechanics` `onlineRules.js`): with `arcade.online.rules.lobby`
+  (`minPlayers`, `maxWaitSeconds`, `countdownSeconds`; defaults 4 / 60 / 10) a room stays
+  `waiting` after joins. Each person who joins raises `lobby`; once `minPlayers` people (never
+  bots) are in, or `maxWaitSeconds` after the first, `countdown` raises and `endsAt` is its end
+  (so `secondsLeft` counts it); round 1 starts when it ends. A lobby every person left starts over.
+  No `lobby`: the first join starts round 1, as before, so no other game changes.
+- **Game Config**: the block, normalised, resolved with its defaults, held to its limits (1–100
+  people, 0–600 s, 0–60 s; a warning outside, and when it waits for more people than a room holds);
+  `/config`'s Online rules has a Lobby tick and its three numbers.
+- **Screens and flow**: Salmons' layout carries two authored canvas screens, **Lobby** and **Lobby
+  countdown** (`salmonsLobby`, `salmonsCountdown`), edited in `/editor` like any screen. Salmons'
+  flow shows the lobby when the room's `phase` is `waiting` as the game shows (a signal raised while
+  a device still loads reaches no flow) and on the device's own `lobby`, the countdown when the
+  clock runs or on `countdown`, and hides both at `roundStart`. The export ships Salmons' lobby
+  (`SALMONS_LOBBY`, 4 people / 60 s / 10 s).
+- **Proof**: `pnpm check:room-lobby` (10 checks) and the lobby pages of
+  `scripts/playtest/salmons-levels-play.mjs` (two browsers: the lobby screen, then its countdown on
+  both, then round 1 with both gone).

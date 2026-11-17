@@ -1,5 +1,6 @@
 <script lang="ts">
 	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import {
 		ARCADE_NETCODES,
 		ARCADE_ONLINE_BOT_DEFAULTS,
@@ -32,6 +33,8 @@
 		setRoomInt,
 		setRoomLayer,
 		setRoomSpawn,
+		setLobbyField,
+		setLobbyOn,
 		setRoundField,
 		setRulesModule,
 		setZoneRuleField,
@@ -315,6 +318,50 @@
 				</select></label
 			>
 		</div>
+		<div class="row">
+			<label class="check"
+				><input
+					type="checkbox"
+					checked={!!rules?.lobby}
+					onchange={(e) => setLobbyOn(doc, e.currentTarget.checked)}
+				/>Lobby<InfoTip
+					>Players wait on the lobby screen before the first round, until the lobby has its players
+					or has waited long enough, then a countdown runs. Unticked, the first player to join
+					starts the round.</InfoTip
+				></label
+			>
+			{#if rules?.lobby}
+				<label
+					>Players to start<input
+						type="number"
+						min="1"
+						value={rules.lobby.minPlayers ?? ''}
+						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyMinPlayers)}
+						onchange={(e) => setLobbyField(doc, 'minPlayers', e.currentTarget.value)}
+					/></label
+				>
+				<label
+					>Longest wait (s)<input
+						type="number"
+						min="0"
+						value={rules.lobby.maxWaitSeconds ?? ''}
+						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyMaxWaitSeconds)}
+						onchange={(e) => setLobbyField(doc, 'maxWaitSeconds', e.currentTarget.value)}
+					/></label
+				>
+				<label
+					>Countdown (s)<input
+						type="number"
+						min="0"
+						value={rules.lobby.countdownSeconds ?? ''}
+						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyCountdownSeconds)}
+						onchange={(e) => setLobbyField(doc, 'countdownSeconds', e.currentTarget.value)}
+					/></label
+				>
+			{/if}
+		</div>
+		{@render issueList('arcade.online.rules.lobby')}
+		{@render issueList('arcade.online.rules.lobby.minPlayers')}
 		<span class="legend">Zone rules</span>
 		{@render generated('the zone rules')}
 		{#if rules?.zones?.length}

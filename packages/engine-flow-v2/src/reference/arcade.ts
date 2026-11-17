@@ -223,6 +223,20 @@ const ONLINE_EVENTS: EventDecl[] = [
 		description: 'Online: a round ended, at the goal or on its clock. The next starts on its own.',
 	},
 	{
+		name: 'lobby',
+		payload: [PLAYER('The person who joined.'), ME('It is this device’s player.')],
+		category: 'book',
+		description:
+			'Online, a game with a lobby: a person joined while the room waits for its first round. Show the lobby screen on `me`.',
+	},
+	{
+		name: 'countdown',
+		payload: [{ name: 'seconds', type: FLOAT, description: 'Seconds until round 1 starts.' }],
+		category: 'book',
+		description:
+			'Online: the lobby has its players (or waited long enough); round 1 starts when `secondsLeft` reaches 0.',
+	},
+	{
 		name: 'ability',
 		payload: [
 			PLAYER('The player who used it.'),
