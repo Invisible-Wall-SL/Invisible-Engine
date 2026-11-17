@@ -623,6 +623,10 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   (`releases.json` `reproducible`), so a merge that does not reach a runtime costs its players no
   re-download. **What an engine PR now owes:** if it changes a runtime's bytes, commit the new
   manifests (download the failing run's `runtime-bytes` artifact into `scripts/runtime-bytes/`).
+  The manifests are Linux's: a Windows checkout (`autocrlf`) builds other bytes (CSS +264 B, bundle
+  ~+450 B, `libktx.js` −12 B gz vs Linux), so `--update` on Windows records the wrong thing. Proven:
+  two Windows builds of one tree identical file for file (4 runtimes, 316 s); a planted one-byte
+  mutant fails (`bundle` +1 B and three renamed lazy chunks).
 
 - 2026-11-13 — **The stock-folder sweep keeps a folder whole when it cannot read a kept file's
   pages.** Follow-up to #1651's review: the sweep deleted every stock-folder file no kept descriptor

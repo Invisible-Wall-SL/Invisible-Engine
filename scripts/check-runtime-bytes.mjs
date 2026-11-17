@@ -23,6 +23,11 @@
 // build has no source maps (the release's carry per-chunk debug IDs), and its Sentry DSN is the probe
 // stand-in, so the SDK chunk a released runtime carries is in the manifest too.
 //
+// THE MANIFESTS ARE LINUX'S, the bytes CI and the release build. A Windows checkout
+// (`core.autocrlf=true`) builds different ones (measured: the CSS, the bundle and `libktx.js` all
+// differ), so there `--update` records the wrong thing; take a failing CI run's `runtime-bytes`
+// artifact instead. A Windows run still compares two of its own builds with each other (`--out`).
+//
 // Why strict: 3D ships as a fifth runtime, and the owner's constraint is that the four 2D runtimes stay
 // the same bytes while it is built. A change on a path that cannot legitimately touch 2D bytes (the 3D
 // package, the family seams, the build config, the lockfile) that fails here is a leak.
