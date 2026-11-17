@@ -87,8 +87,9 @@ const F = new Function(
 			'faceKeyBlink',
 			'faceKeyIdleBlinks',
 			'faceKeyTalk',
+			'faceAddStarterClips',
 		].map(grabFn),
-		'return { faceChannelValue, faceKeyChannel, faceKeyShape, faceKeyBlink, faceKeyIdleBlinks, faceKeyTalk };',
+		'return { faceChannelValue, faceKeyChannel, faceKeyShape, faceKeyBlink, faceKeyIdleBlinks, faceKeyTalk, faceAddStarterClips };',
 	].join('\n'),
 )();
 
@@ -321,6 +322,125 @@ const shown = (p, slot) => p.skel.findSlot(slot).getAttachment()?.name ?? null;
 	ok(
 		'a shape shows its image and opens its jaw (runtime)',
 		shown(p, 'mouth') === 'mouth_wide' && near(boneOff(p, 'jaw', 'y'), -14 * 0.6),
+	);
+}
+
+// 8. Starter clips (T3): each plays under the runtime, lasts its length, and starts and ends with
+// every face bone at setup, the mouth at rest and the eyes open — on full art and on the required
+// parts only, where no attachment key may name an image the rig lacks.
+const REST_BONES = [
+	['jaw', 'y'],
+	['brow_l', 'y'],
+	['brow_r', 'y'],
+	['pupil_l', 'x'],
+	['pupil_l', 'y'],
+	['pupil_r', 'x'],
+	['pupil_r', 'y'],
+	['head', 'rotate'],
+	['neck', 'rotate'],
+	['face', 'x'],
+];
+const required = BUST_FACE.parts.filter((p) => !p.required).map((p) => p.name);
+for (const [label, skip] of [
+	['full art', []],
+	['required parts only', required],
+]) {
+	const rig = rigWith(skip);
+	const animations = {};
+	const r = F.faceAddStarterClips(animations, BUST_FACE, rig.has);
+	ok(
+		`${label}: every starter clip is added`,
+		r.added.join() === BUST_FACE.clips.map((c) => c.name).join() && !r.kept.length,
+		r.added.join(),
+	);
+	const named = new Set(
+		Object.values(animations).flatMap((a) =>
+			Object.values(a.slots ?? {}).flatMap((s) =>
+				(s.attachment ?? []).map((k) => k.name).filter(Boolean),
+			),
+		),
+	);
+	ok(
+		`${label}: clips swap only to images the rig has`,
+		[...named].every((n) => !skip.includes(n)),
+		[...named].filter((n) => skip.includes(n)).join(),
+	);
+	for (const c of BUST_FACE.clips) {
+		const run = (t) => {
+			const atlas = new TextureAtlas(rig.atlas);
+			for (const pg of atlas.pages)
+				pg.setTexture({
+					getImage: () => ({ width: 1, height: 1 }),
+					setFilters() {},
+					setWraps() {},
+					dispose() {},
+				});
+			const data = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(
+				JSON.parse(JSON.stringify({ ...rig.skeleton, animations })),
+			);
+			const skel = new Skeleton(data);
+			const state = new AnimationState(new AnimationStateData(data));
+			state.setAnimation(0, c.name, false);
+			state.update(t);
+			state.apply(skel);
+			skel.updateWorldTransform(Physics.update);
+			return { skel, data };
+		};
+		const start = run(0);
+		ok(
+			`${label} ${c.name}: lasts ${c.length} s (runtime)`,
+			near(start.data.findAnimation(c.name).duration, c.length),
+			String(start.data.findAnimation(c.name).duration),
+		);
+		// The runtime stores key times as float32 (0.2 → 0.2000000029) and clamps a finished clip to that
+		// end, so the held end pose is read just past the length, as the game reaches it.
+		for (const [when, p] of [
+			['start', start],
+			['end', run(c.length + EDGE)],
+		]) {
+			const off = REST_BONES.filter(([b, prop]) => !near(boneOff(p, b, prop), 0, 0.01)).map(
+				([b, prop]) => `${b}.${prop}=${boneOff(p, b, prop).toFixed(2)}`,
+			);
+			ok(
+				`${label} ${c.name}: every face bone at setup at the ${when} (runtime)`,
+				!off.length && near(boneOff(p, 'chest', 'scaleY'), 1, 1e-3),
+				off.join(' '),
+			);
+			ok(
+				`${label} ${c.name}: mouth at rest, eyes open at the ${when} (runtime)`,
+				shown(p, 'mouth') === 'mouth_rest' &&
+					shown(p, 'eyelid_l') === null &&
+					shown(p, 'eyelid_r') === null,
+				`${shown(p, 'mouth')} ${shown(p, 'eyelid_l')}`,
+			);
+		}
+	}
+	if (label === 'full art') {
+		const p = play(rig, animations.win_big, 0.3);
+		ok(
+			'win_big tilts the head 5° at 0.3 s (runtime)',
+			near(boneOff(p, 'head', 'rotate'), 5, 0.01),
+			String(boneOff(p, 'head', 'rotate')),
+		);
+	} else {
+		ok(
+			'a missing smile falls back to the rest shape (nearest jaw opening)',
+			shown(play(rig, animations.happy, 0.5), 'mouth') === 'mouth_rest',
+		);
+		ok(
+			'a missing wide mouth falls back to O (nearest jaw opening)',
+			shown(play(rig, animations.win_big, 0.1 + EDGE), 'mouth') === 'mouth_O',
+		);
+	}
+}
+{
+	const rig = rigWith();
+	const mine = { idle: { bones: { head: { rotate: [{ time: 0, value: 9 }] } } } };
+	const before = JSON.stringify(mine.idle);
+	const r = F.faceAddStarterClips(mine, BUST_FACE, rig.has);
+	ok(
+		'an animation the rig already has is kept, not overwritten',
+		r.kept.join() === 'idle' && JSON.stringify(mine.idle) === before && !r.added.includes('idle'),
 	);
 }
 

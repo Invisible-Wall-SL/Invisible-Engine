@@ -3269,8 +3269,16 @@ function faceKeyChannel(anim, ch, value, t, has){
   if (ch.swaps) faceKeyAttachment(anim, ch.slot, faceSwapPart(ch, value, has), t);
 }
 
-// A mouth shape, plus the jaw opened by that shape's amount.
+// A mouth shape, plus the jaw opened by that shape's amount. A shape the rig lacks becomes the one it
+// has that opens the jaw nearest the same amount (no images at all: the slot is left empty).
 function faceKeyShape(anim, ch, part, t, channels, has){
+  if (part && !has(ch.shapes.slot, part)){
+    const want = ch.shapes.open[part] || 0;
+    let best = null;
+    for (const p of [ch.shapes.rest, ...Object.keys(ch.shapes.open)])
+      if (has(ch.shapes.slot, p) && (best === null || Math.abs((ch.shapes.open[p] || 0) - want) < Math.abs((ch.shapes.open[best] || 0) - want))) best = p;
+    part = best;
+  }
   faceKeyAttachment(anim, ch.shapes.slot, part, t);
   const jaw = channels.find((c) => c.id === ch.shapes.jaw);
   if (jaw) faceKeyChannel(anim, jaw, (part && ch.shapes.open[part]) || 0, t, has);
@@ -3300,6 +3308,25 @@ function faceKeyTalk(anim, ch, t, secs, channels, has){
     faceKeyShape(anim, ch, shapes[n++ % shapes.length], roundN(t + x, 4), channels, has);
   faceKeyShape(anim, ch, has(ch.shapes.slot, ch.shapes.rest) ? ch.shapes.rest : null, roundN(t + secs, 4), channels, has);
   return n;
+}
+
+// The template's starter clips (rig templates T3) written as animations through the channel code
+// above. A clip whose name the rig already uses is kept as it is, never overwritten.
+function faceAddStarterClips(animations, tpl, has){
+  const added = [], kept = [];
+  for (const c of tpl.clips || []){
+    if (Object.prototype.hasOwnProperty.call(animations, c.name)){ kept.push(c.name); continue; }
+    const anim = {};
+    for (const [t, id, v] of [...c.keys].sort((a, b) => a[0] - b[0])){
+      const ch = tpl.channels.find((x) => x.id === id);
+      if (!ch) continue;
+      if (ch.shapes) faceKeyShape(anim, ch, v, t, tpl.channels, has);
+      else faceKeyChannel(anim, ch, v, t, has);
+    }
+    animations[c.name] = anim;
+    added.push(c.name);
+  }
+  return { added, kept };
 }
 
 function faceHas(slot, part){
@@ -3356,6 +3383,14 @@ function renderFacePanel(){
     b.textContent = label; b.title = tip; b.onclick = run; tools.appendChild(b);
   };
   const mouth = channels.find((c) => c.shapes);
+  if ((rigTemplate.clips || []).length) tool("🎬 Starter animations", "Add the template's ready-made animations (" + rigTemplate.clips.map((c) => c.name).join(", ") + "). Ones this rig already has are kept as they are.", () => {
+    if (!rawDoc) return;
+    const r = faceAddStarterClips((rawDoc.animations = rawDoc.animations || {}), rigTemplate, faceHas);
+    if (r.added.length){ markDirty(); animsDirty = true; refreshAnimSelect(); }
+    faceDone(r.added.length
+      ? "🎬 Added " + r.added.join(", ") + (r.kept.length ? " · kept your " + r.kept.join(", ") : "")
+      : "This rig already has every starter animation.");
+  });
   tool("👁 Blink", "Key one blink starting at the playhead (both eyes).", () => {
     if (faceEdit((a) => faceKeyBlink(a, animTime, channels, faceHas))) faceDone("◆ Blink keyed @ " + animTime.toFixed(2) + "s");
   });

@@ -74,6 +74,21 @@ export interface RigTemplate {
 	slots: RigTemplateSlot[];
 	parts: RigTemplatePart[];
 	channels: RigTemplateChannel[];
+	clips: RigTemplateClip[];
+}
+
+/** One channel key of a starter clip: time, channel id, value (a part name for a shapes channel). */
+export type RigTemplateClipKey = [number, string, number | string];
+
+/**
+ * A starter animation, as face-channel keys: the Rigger writes it through the same channel code the
+ * Face section uses, so it plays on every rig of the template. Every channel it touches starts and
+ * ends at rest, so a clip loops or hands over cleanly.
+ */
+export interface RigTemplateClip {
+	name: string;
+	length: number;
+	keys: RigTemplateClipKey[];
 }
 
 /** What a rig created from a template remembers, in its bundle's `template.json`. */
@@ -277,7 +292,130 @@ export const BUST_FACE: RigTemplate = {
 			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
 		},
 	],
+	clips: [],
 };
+
+/** The same value on both sides' channel (`brow` → `brow_l`, `brow_r`). */
+const both = (t: number, ch: string, v: number | string): RigTemplateClipKey[] => [
+	[t, `${ch}_l`, v],
+	[t, `${ch}_r`, v],
+];
+const blinkAt = (t: number): RigTemplateClipKey[] =>
+	(
+		[
+			[0, 0],
+			[0.04, 0.5],
+			[0.08, 1],
+			[0.14, 0.5],
+			[0.2, 0],
+		] as const
+	).flatMap(([dt, v]) => both(Math.round((t + dt) * 1000) / 1000, 'blink', v));
+const TALK_STEP = 0.12;
+
+/**
+ * A clip whose every channel starts at rest at 0 and ends at rest at `length` (the rest shape for
+ * a shapes channel), unless its own keys already say what happens there.
+ */
+function clip(
+	t: RigTemplate,
+	name: string,
+	length: number,
+	keys: RigTemplateClipKey[],
+): RigTemplateClip {
+	const restOf = (id: string): number | string => {
+		const c = t.channels.find((x) => x.id === id);
+		return c?.shapes ? c.shapes.rest : (c?.rest ?? 0);
+	};
+	const used = [...new Set(keys.map((k) => k[1]))];
+	const at = (time: number, id: string) =>
+		keys.some((k) => k[1] === id && Math.abs(k[0] - time) < 1e-6);
+	const ends: RigTemplateClipKey[] = used.flatMap((id) => [
+		...(at(0, id) ? [] : [[0, id, restOf(id)] as RigTemplateClipKey]),
+		...(at(length, id) ? [] : [[length, id, restOf(id)] as RigTemplateClipKey]),
+	]);
+	return { name, length, keys: [...keys, ...ends].sort((a, b) => a[0] - b[0]) };
+}
+
+function talkKeys(t: RigTemplate, from: number, secs: number): RigTemplateClipKey[] {
+	const order = t.channels.find((c) => c.shapes)?.shapes?.talk ?? [];
+	const out: RigTemplateClipKey[] = [];
+	for (let i = 0; (i + 1) * TALK_STEP <= secs + 1e-9; i++)
+		out.push([Math.round((from + i * TALK_STEP) * 1000) / 1000, 'mouth', order[i % order.length]]);
+	return out;
+}
+
+BUST_FACE.clips = [
+	clip(BUST_FACE, 'idle', 4, [
+		[2, 'breath', 1],
+		[1.2, 'head_tilt', 1.5],
+		[3.2, 'head_tilt', -1],
+		[1.5, 'gaze_x', 0.3],
+		[1.9, 'gaze_x', 0.3],
+		[2.3, 'gaze_x', 0],
+		...blinkAt(0.9),
+		...blinkAt(3),
+	]),
+	clip(BUST_FACE, 'blink', 0.2, blinkAt(0)),
+	clip(BUST_FACE, 'talk', 2, [
+		...talkKeys(BUST_FACE, TALK_STEP, 2 - TALK_STEP),
+		[0.5, 'head_nod', 1.5],
+		[1, 'head_nod', 0],
+		[1.5, 'head_nod', 1],
+	]),
+	clip(BUST_FACE, 'happy', 1.2, [
+		[0.1, 'mouth', 'mouth_smile'],
+		[1, 'mouth', 'mouth_smile'],
+		...both(0.15, 'brow', 0.7),
+		...both(0.9, 'brow', 0.7),
+		...both(0.15, 'blink', 0.4),
+		...both(0.9, 'blink', 0.4),
+		[0.3, 'head_tilt', 4],
+		[0.9, 'head_tilt', 3],
+	]),
+	clip(BUST_FACE, 'surprised', 1, [
+		[0.08, 'mouth', 'mouth_O'],
+		[0.8, 'mouth', 'mouth_O'],
+		...both(0.08, 'brow', 1),
+		...both(0.8, 'brow', 1),
+		[0.08, 'gaze_y', 0.4],
+		[0.8, 'gaze_y', 0.4],
+		[0.1, 'head_nod', -3],
+		[0.8, 'head_nod', -2],
+	]),
+	clip(BUST_FACE, 'win_small', 1.5, [
+		[0.1, 'mouth', 'mouth_smile'],
+		[1.3, 'mouth', 'mouth_smile'],
+		...both(0.15, 'brow', 0.6),
+		...both(1.2, 'brow', 0.6),
+		[0.2, 'head_nod', -4],
+		[0.4, 'head_nod', 2],
+		[0.6, 'head_nod', -3],
+		[0.8, 'head_nod', 0],
+		[0.3, 'breath', 1],
+		[1.2, 'breath', 0.3],
+	]),
+	clip(BUST_FACE, 'win_big', 2.5, [
+		[0.1, 'mouth', 'mouth_wide'],
+		[0.6, 'mouth', 'mouth_A'],
+		[1.1, 'mouth', 'mouth_wide'],
+		[1.8, 'mouth', 'mouth_smile'],
+		[2.3, 'mouth', 'mouth_smile'],
+		...both(0.1, 'brow', 1),
+		...both(2.2, 'brow', 1),
+		[0.3, 'head_tilt', 5],
+		[0.7, 'head_tilt', -5],
+		[1.1, 'head_tilt', 5],
+		[1.5, 'head_tilt', -3],
+		[2, 'head_tilt', 0],
+		[0.2, 'head_nod', -4],
+		[0.5, 'head_nod', 2],
+		[0.8, 'head_nod', -4],
+		[1.1, 'head_nod', 2],
+		[0.3, 'breath', 1],
+		[2, 'breath', 1],
+		...blinkAt(1.9),
+	]),
+];
 
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE];
 
@@ -338,6 +476,23 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 	for (const c of t.channels)
 		if (c.shapes && !t.channels.some((j) => j.id === c.shapes?.jaw && j.drives?.length))
 			return `channel "${c.id}" opens a missing jaw channel "${c.shapes.jaw}"`;
+	const clips = new Set<string>();
+	for (const k of t.clips) {
+		if (clips.has(k.name)) return `clip "${k.name}" is listed twice`;
+		clips.add(k.name);
+		if (!(k.length > 0)) return `clip "${k.name}" needs a length`;
+		for (const [time, id, v] of k.keys) {
+			const c = t.channels.find((x) => x.id === id);
+			if (!c) return `clip "${k.name}" keys a missing channel "${id}"`;
+			if (!(time >= 0 && time <= k.length + 1e-9))
+				return `clip "${k.name}" keys "${id}" at ${time}, outside 0…${k.length}`;
+			const fits = c.shapes
+				? typeof v === 'string' && parts.get(v) === c.shapes.slot
+				: typeof v === 'number' && v >= c.min && v <= c.max;
+			if (!fits)
+				return `clip "${k.name}" keys "${id}" to ${JSON.stringify(v)}, not one of its values`;
+		}
+	}
 	return null;
 }
 
@@ -418,6 +573,7 @@ export interface RigTemplateSummary {
 	label: string;
 	parts: { name: string; required: boolean }[];
 	channels: RigTemplateChannel[];
+	clips: RigTemplateClip[];
 }
 
 function summary(t: RigTemplate): RigTemplateSummary {
@@ -427,6 +583,7 @@ function summary(t: RigTemplate): RigTemplateSummary {
 		label: t.label,
 		parts: t.parts.map((p) => ({ name: p.name, required: p.required })),
 		channels: t.channels,
+		clips: t.clips,
 	};
 }
 

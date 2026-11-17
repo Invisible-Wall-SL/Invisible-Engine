@@ -31,8 +31,10 @@ current game looks. No video-model animation of the art: the art is rigged, moti
    - `parts[]` — every image the template expects, by name, with its slot and whether it is
      needed (§3.2);
    - `channels[]` — the face controls (§4) and the timelines each one writes (T2);
-   - the starter animations (T3). Until then the skeleton is built from the template; T3 may move
-     the authored clips into a rig-library entry the template names.
+   - `clips[]` — the starter animations (T3), as channel keys `[time, channel, value]`, written by
+     the Face section's channel code, so one clip plays on every rig of the template. Data, not a
+     library rig: a clip can't name a bone or image the template doesn't own, and the validator
+     checks every key.
 2. **The rig made from it** — ＋ New rig builds it over the art's regions: a part whose image
    exists attaches at its untrimmed size; a missing one is **left out and reported**, because the
    runtime's loader throws on an attachment its atlas lacks.
@@ -152,7 +154,7 @@ Step 3 is the uncertain one and gets its own spike (T6).
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | **T1 — Contract + template rig + auto-attach** ✅ 2026-11-17 | the template type and validator; `bust-face` in ＋ New rig (atlas or uploaded images); parts attach by name, missing ones are left out and listed; `template.json` in the bundle | two different arts made into rigs from one template, same pose  |
 | **T2 — Face panel** ✅ 2026-11-17                            | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                          | an idle with blinks and a talk loop authored in minutes         |
-| **T3 — Starter animations**                                  | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
+| **T3 — Starter animations** ✅ 2026-11-17                    | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
 | **T4 — Lip-sync from audio**                                 | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
 | **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
 | **T6 — Art blueprint**                                       | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
