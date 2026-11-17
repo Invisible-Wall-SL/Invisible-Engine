@@ -10,23 +10,22 @@ import type { GameConfigDoc } from './types';
  */
 
 /** The field generators whose rooms are drawn in Salmons' art (`apps/lines` `online.ts` `FIELD_ART`). */
-export const SALMONS_ART_GENERATORS: readonly string[] = Object.freeze([
-	'salmonsRiver',
-	'salmonsMap',
-]);
+export const SALMONS_ART_GENERATORS: readonly string[] = ['salmonsRiver', 'salmonsMap'];
 
-/** Each built-in sheet's project sheet; `waterfall_face` is the one-region sheet of the tile. */
-export const SALMONS_PROJECT_SHEETS = Object.freeze({
+/**
+ * Each built-in sheet's project sheet; `waterfall_face` is the one-region sheet of the tile. Plain
+ * literals, no top-level calls: a runtime that never draws Salmons must tree-shake this module away
+ * (`check:runtime-bytes`).
+ */
+export const SALMONS_PROJECT_SHEETS = {
 	terrain: 'salmons_terrain',
 	props: 'salmons_props',
 	characters: 'salmons_characters',
 	waterfall_face: 'salmons_waterfall_face',
-} as const);
+} as const;
 
 export type SalmonsProjectSheet =
 	(typeof SALMONS_PROJECT_SHEETS)[keyof typeof SALMONS_PROJECT_SHEETS];
-
-const SHEET_NAMES: ReadonlySet<string> = new Set(Object.values(SALMONS_PROJECT_SHEETS));
 
 /** A project sheet's manifest file, as the Sheet Maker names it under `manifests/`. */
 export function salmonsProjectManifestName(sheet: SalmonsProjectSheet): string {
@@ -39,7 +38,8 @@ export function salmonsProjectManifestName(sheet: SalmonsProjectSheet): string {
  */
 export function salmonsProjectSheetOf(manifestKey: string): SalmonsProjectSheet | undefined {
 	const match = /\/manifests\/atlas_manifest_([a-z_]+)\.json$/.exec(manifestKey);
-	return match && SHEET_NAMES.has(match[1]) ? (match[1] as SalmonsProjectSheet) : undefined;
+	const sheets: readonly string[] = Object.values(SALMONS_PROJECT_SHEETS);
+	return match && sheets.includes(match[1]) ? (match[1] as SalmonsProjectSheet) : undefined;
 }
 
 /** Whether a config's rooms are drawn in Salmons' art (its `arcade.online.generator`). */
