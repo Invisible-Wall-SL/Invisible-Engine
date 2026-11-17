@@ -14,11 +14,23 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SALMONS_SHEETS } from '../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 import {
+	SALMONS_DRAWN,
 	SALMONS_REGIONS,
 	SALMONS_TILES,
+	builtinSheetsNeeded,
+	pickSalmonsRegions,
 } from '../packages/engine-layout/src/lib/salmonsArt/regions.ts';
-import { SALMONS_SHEETS } from '../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
+import {
+	SALMONS_ART_GENERATORS,
+	SALMONS_PROJECT_SHEETS,
+	salmonsProjectManifestName,
+	salmonsProjectSheetOf,
+	usesSalmonsArt,
+} from '../packages/game-config/src/salmonsProjectArt.ts';
+import { ONLINE_GENERATOR_IDS } from '../packages/game-config/src/family.ts';
+import { salmonsProjectArtPlan } from './salmons/project-art.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
@@ -125,17 +137,115 @@ check('only a Salmons room reaches the art: one lazy import, under its generator
 		),
 		`a value import of the art: ${imports.join(' | ')}`,
 	);
-	for (const id of ['salmonsRiver', 'salmonsMap'])
-		assert.match(
-			online,
-			new RegExp(
-				`${id}: async \\(made, seed\\) =>\\s*\\(await import\\('engine-layout\\/salmons-art'\\)\\)`,
-			),
-		);
+	assert.match(
+		online,
+		/const salmonsArt = async \(made: SalmonsRiverDrawing, seed: number\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.loadSalmonsArt\(/,
+	);
+	const fieldArt = /const FIELD_ART[\s\S]*?> = \{([^}]*)\}/.exec(online)?.[1] ?? '';
+	const ids = [...fieldArt.matchAll(/(\w+): salmonsArt,/g)].map((m) => m[1]);
+	assert.deepEqual(ids.sort(), [...SALMONS_ART_GENERATORS].sort());
+	assert.equal(
+		fieldArt.replace(/\s*\w+: salmonsArt,/g, '').trim(),
+		'',
+		'FIELD_ART has another entry',
+	);
 	for (const entry of ['index.ts', 'svelte.ts']) {
 		const code = readFileSync(join(ROOT, 'packages/engine-layout/src/lib', entry), 'utf8');
 		assert.doesNotMatch(code, /salmonsArt/, `engine-layout ${entry} exports the art`);
 	}
+});
+
+// The project art (docs/status/salmons.md "Original art as project art"): the sheets
+// `scripts/salmons/upload-art.py` writes, the runtime's choice between them and the built-in copy,
+// and the art exporter's seed.
+const plan = salmonsProjectArtPlan();
+const builtinFrame = (name) => {
+	for (const doc of Object.values(SALMONS_SHEETS))
+		if (doc.frames[name]) return doc.frames[name].frame;
+	return undefined;
+};
+
+check('the project sheets are the plan, one per built-in page, named for upload-art.py', () => {
+	assert.deepEqual(plan.map((e) => e.sheet).sort(), Object.values(SALMONS_PROJECT_SHEETS).sort());
+	for (const e of plan) {
+		assert.match(e.sheet, /^salmons_[a-z_]+$/);
+		assert.equal(e.image, `${e.sheet}.webp`);
+		assert.deepEqual(webpSize(e.page), { w: e.width, h: e.height }, `${e.sheet}: its page`);
+	}
+});
+
+check(
+	'the project sheets hold every region drawn, once, inside its page, at its built-in size',
+	() => {
+		const seen = new Map();
+		for (const e of plan)
+			for (const f of e.frames) {
+				assert.ok(!seen.has(f.name), `"${f.name}" is in ${seen.get(f.name)} and ${e.sheet}`);
+				seen.set(f.name, e.sheet);
+				assert.ok(
+					f.x >= 0 && f.y >= 0 && f.x + f.w <= e.width && f.y + f.h <= e.height,
+					`${e.sheet}: "${f.name}" lies outside its page`,
+				);
+				const built = builtinFrame(f.name);
+				if (built) assert.deepEqual(f, { name: f.name, ...built }, `"${f.name}" moved or resized`);
+			}
+		for (const name of SALMONS_DRAWN) assert.ok(seen.has(name), `no project sheet holds "${name}"`);
+	},
+);
+
+check(
+	'each region drawn resolves from the project art, and from the built-in copy without it',
+	() => {
+		const tag = (prefix) => Object.fromEntries(SALMONS_DRAWN.map((n) => [n, `${prefix}:${n}`]));
+		const project = tag('project');
+		const builtin = tag('builtin');
+		assert.deepEqual(pickSalmonsRegions(project, builtin), project);
+		assert.deepEqual(pickSalmonsRegions({}, builtin), builtin);
+		assert.deepEqual(builtinSheetsNeeded(project), []);
+		assert.deepEqual(builtinSheetsNeeded({}).sort(), Object.keys(SALMONS_REGIONS).sort());
+		for (const name of SALMONS_DRAWN) {
+			const partial = { ...project };
+			delete partial[name];
+			const picked = pickSalmonsRegions(partial, builtin);
+			assert.equal(picked[name], builtin[name], `"${name}" did not fall back`);
+			assert.equal(Object.values(picked).filter((v) => v.startsWith('builtin:')).length, 1);
+			const sheet = Object.keys(SALMONS_REGIONS).find((s) => SALMONS_REGIONS[s].includes(name));
+			assert.deepEqual(builtinSheetsNeeded(partial), sheet ? [sheet] : []);
+		}
+		assert.throws(() => pickSalmonsRegions({}, {}), /no art for the region/);
+	},
+);
+
+check('the exporter ships the project sheets for a Salmons generator, by manifest key only', () => {
+	for (const sheet of Object.values(SALMONS_PROJECT_SHEETS))
+		assert.equal(
+			salmonsProjectSheetOf(
+				`invisible_wall/salmons/manifests/${salmonsProjectManifestName(sheet)}`,
+			),
+			sheet,
+		);
+	assert.equal(
+		salmonsProjectSheetOf('invisible_wall/salmons/manifests/atlas_manifest_props.json'),
+		undefined,
+	);
+	assert.equal(
+		salmonsProjectSheetOf('invisible_wall/salmons/sheets/salmons_props/salmons_props.json'),
+		undefined,
+	);
+	for (const id of SALMONS_ART_GENERATORS) {
+		assert.ok(ONLINE_GENERATOR_IDS.includes(id), `${id} is not a generator`);
+		assert.ok(usesSalmonsArt({ arcade: { online: { generator: id } } }));
+	}
+	assert.ok(!usesSalmonsArt(null));
+	assert.ok(!usesSalmonsArt({ arcade: { online: {} } }));
+	const exporter = readFileSync(
+		join(ROOT, 'apps/launcher-api/src/lib/server/editorArtExport.ts'),
+		'utf8',
+	);
+	assert.match(
+		exporter,
+		/if \(usesSalmonsArt\(gameConfig\)\) \{[\s\S]{0,400}salmonsProjectSheetOf\(atlas\.key\)\)\s*refs\.manifestKeys\.add\(atlas\.key\)/,
+	);
 });
 
 console.log(`check:salmons-art: ${passed} passed`);

@@ -54,6 +54,8 @@ import {
 	cardGameComponentIds,
 	cardGameParamRefs,
 	characterComponentIds,
+	salmonsProjectSheetOf,
+	usesSalmonsArt,
 } from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
@@ -650,6 +652,20 @@ export async function exportEditorArt(
 			// Effects are additive art — never let them break the sprite/rig export.
 		}
 	});
+
+	// Salmons' original art, stored as project sheets (`SALMONS_PROJECT_SHEETS`): a room of a
+	// Salmons generator draws them in code (`apps/lines` `online.ts`), so no scene names them. Seeded
+	// by manifest key, never by bare region name (`bear`, `rock_0` may be packed by another sheet),
+	// and only those the project holds; their regions stay out of `usedRegions`, since one the
+	// project lacks is drawn from the runtime's built-in copy and is not missing.
+	if (usesSalmonsArt(gameConfig)) {
+		await phase('salmons', async () => {
+			const { atlases } = await listProjectAssets(clientKey, projectKey);
+			for (const atlas of atlases)
+				if (atlas.kind === 'atlas-manifest' && salmonsProjectSheetOf(atlas.key))
+					refs.manifestKeys.add(atlas.key);
+		});
+	}
 
 	// Same idea for Invisible Flipbook CLIPS: an ordered run of frames, each either a bare region
 	// name (resolved against the clip's primary `assetKey`) or an atlas-scoped `<assetKey>::<region>`
