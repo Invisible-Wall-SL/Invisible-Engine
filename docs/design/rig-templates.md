@@ -90,7 +90,7 @@ directly.
 moving further than the mesh edge gives a small head turn (parallax) without new drawings. Larger
 turns are not a goal of this template. The mesh follows each character's own drawing, so the
 template ships `head` as a region and the artist converts it per character with the existing
-region→mesh and auto-weight tools; a one-click "face mesh" helper can follow in T2.
+region→mesh and auto-weight tools; a one-click "face mesh" helper is not built (not in T2).
 
 ## 4. Face channels
 
@@ -151,7 +151,7 @@ Step 3 is the uncertain one and gets its own spike (T6).
 | Step                                                         | Delivers                                                                                                                                                                         | Proves                                                          |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | **T1 — Contract + template rig + auto-attach** ✅ 2026-11-17 | the template type and validator; `bust-face` in ＋ New rig (atlas or uploaded images); parts attach by name, missing ones are left out and listed; `template.json` in the bundle | two different arts made into rigs from one template, same pose  |
-| **T2 — Face panel**                                          | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                          | an idle with blinks and a talk loop authored in minutes         |
+| **T2 — Face panel** ✅ 2026-11-17                            | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                          | an idle with blinks and a talk loop authored in minutes         |
 | **T3 — Starter animations**                                  | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
 | **T4 — Lip-sync from audio**                                 | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
 | **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
