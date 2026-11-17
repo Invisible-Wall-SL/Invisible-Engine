@@ -179,6 +179,8 @@ type PlayerState = {
 	status: number;
 	score: number;
 	mark: boolean;
+	/** How high a rules module has lifted it, px (a salmon's leap); unset until the room writes it. */
+	z?: number;
 };
 type RoomState = {
 	step: number;
@@ -763,6 +765,7 @@ function drawCodeLooks(
 			y: at.y,
 			status: player.status,
 			marked: player.mark,
+			z: player.z ?? 0,
 		});
 		mounts.set(instance, look.mount);
 	}

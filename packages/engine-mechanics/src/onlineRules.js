@@ -196,6 +196,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
+			if (player.z) player.z = 0;
 			free(player, stamp);
 			respawn(player);
 		}
@@ -242,6 +243,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
+			if (player.z) player.z = 0;
 			free(player, stamp);
 			if (phase === 'waiting' && !lobby) startRound([...every], stamp);
 			emit({ type: 'joined', id: player.id });
@@ -306,6 +308,8 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				}
 				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
+				// A module's lift (a leap) only moves while a round runs: back on the ground as it ends.
+				if (phase !== 'running') for (const player of players) if (player.z) player.z = 0;
 			} else if (phase === 'ended' && stamp >= endsAt) startRound(players, stamp);
 			else if (phase === 'waiting' && lobby && lobbyOpen) {
 				if (!anyone(players)) {

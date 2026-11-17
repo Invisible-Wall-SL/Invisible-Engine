@@ -852,6 +852,7 @@ function playTrace(trace, each = () => {}) {
 					thousandths(p.body.x),
 					thousandths(p.body.y),
 					p.status,
+					thousandths(p.z ?? 0),
 				]),
 			]);
 	}

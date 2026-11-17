@@ -2,6 +2,7 @@ import { Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { airborne, archAt, cellsOf, curlTarget, envelope, jumpFactor, LEAP, liftOf } from './leap';
 import type { SalmonsTextures } from './load';
 
 /**
@@ -9,9 +10,9 @@ import type { SalmonsTextures } from './load';
  * (`GuiltyForever/Salmon-` `client/game.js`) animated them, each at its body's width and standing
  * on its place (the bottom of its look at its feet):
  * - the salmon: a 12-point rope through its texture, facing and tilting with its projected
- *   velocity, breathing (squash), arching on a hop, nose up at a waterfall's foot with a pulse
- *   each tap, a white glint flashing along its spine in open water; the golden one drawn with its
- *   own texture;
+ *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up at a
+ *   waterfall's foot with a pulse each tap, a white glint flashing along its spine in open water;
+ *   the golden one drawn with its own texture;
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
  */
@@ -23,6 +24,8 @@ export type LookFrame = {
 	y: number;
 	/** `engine-mechanics` `STATUS`: 0 free, 3 grounded, 4 hooked. */
 	status: number;
+	/** How high the room has lifted it off the ground, world px (a salmon's leap). */
+	z: number;
 	marked: boolean;
 };
 
@@ -37,8 +40,9 @@ export type CodeLook = {
 	hand: { dx: number; lift: number } | undefined;
 	/** How far up from its place a line on it ends (its middle). */
 	middle: number;
-	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows. */
-	drawn: () => { kind: string; region: string; swiping?: boolean };
+	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows, and
+	 *  a leaping salmon's lift (screen px) and curl (0..1). */
+	drawn: () => { kind: string; region: string; swiping?: boolean; lift?: number; curl?: number };
 	destroy: () => void;
 };
 
@@ -108,8 +112,10 @@ const ROPE_POINTS = 12;
 const GLINT_POINTS = 7;
 const GLINT_HALF = 12;
 const GLINT_FROM = 3;
-const HOP_MS = 600;
 const PULSE_MS = 180;
+/** How fast the drawn height follows the room's, per second: the room's steps come at its tick
+ *  rate, the frames at the screen's. */
+const LIFT_FOLLOW = 30;
 /** How near below a waterfall's foot a salmon is climbing it, px, and how still it holds. */
 const FOOT_PX = 40;
 const STILL_PX_S = 40;
@@ -154,7 +160,8 @@ function salmonLook(
 	let rotation = 0;
 	let size = 1;
 	let curl = 0;
-	let hopAt = -Infinity;
+	let cells = 0;
+	let lastMs: number | undefined;
 	let pulseAt = -Infinity;
 	let flash = { at: -Infinity, ms: 200, next: Math.random() * 1200 };
 	let marked = false;
@@ -169,10 +176,14 @@ function salmonLook(
 		mount: mountOf(view),
 		hand: undefined,
 		middle: drawnH / 2,
-		drawn: () => ({ kind: 'rope', region: marked ? 'salmon_golden' : 'salmon_pink' }),
+		drawn: () => ({
+			kind: 'rope',
+			region: marked ? 'salmon_golden' : 'salmon_pink',
+			lift: liftOf(cells),
+			curl,
+		}),
 		event: (event, atMs) => {
-			if (event === 'jumped') hopAt = atMs;
-			else if (event === 'climbed' || event === 'tap') pulseAt = atMs;
+			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
 		},
 		frame: (f) => {
 			const now = f.atMs;
@@ -181,11 +192,15 @@ function salmonLook(
 				marked = f.marked;
 				rope.texture = marked ? golden : pink;
 			}
-			const hopK = (now - hopAt) / HOP_MS;
-			const hopping = hopK >= 0 && hopK < 1;
-			const jf = hopping ? Math.sin(hopK * Math.PI) : 0;
+			const target = cellsOf(f.z);
+			const dt = lastMs === undefined ? 0 : Math.max(0, now - lastMs) / 1000;
+			lastMs = now;
+			cells = target <= 0 ? 0 : cells + (target - cells) * Math.min(1, dt * LIFT_FOLLOW);
+			const leaping = airborne(cells);
+			const jf = jumpFactor(cells);
+			body.y = -drawnH / 2 - liftOf(cells);
 			const free = f.status === STATUS_FREE;
-			const atFoot = free && !hopping && Math.abs(v.vy) < STILL_PX_S && climbing(f.x, f.y);
+			const atFoot = free && !leaping && Math.abs(v.vy) < STILL_PX_S && climbing(f.x, f.y);
 			if (atFoot) {
 				rotation = lerpAngle(rotation, -facing * (Math.PI / 2), 0.3);
 				const k = (now - pulseAt) / PULSE_MS;
@@ -202,20 +217,21 @@ function salmonLook(
 					const tilt = facing > 0 ? Math.atan2(v.sy, v.sx) : Math.atan2(-v.sy, -v.sx);
 					rotation = lerpAngle(rotation, tilt, 0.2);
 				}
-				if (hopping) rotation = lerpAngle(rotation, rotation - facing * jf * 0.4, 0.15);
-				curl += (Math.min(1, jf) - curl) * 0.15;
-				const arch = -curl * Math.sin((now * 2 * Math.PI * 2) / 1000) * 36 * (texW / OLD_SALMON);
+				if (leaping)
+					rotation = lerpAngle(rotation, rotation - facing * jf * LEAP.tilt, LEAP.tiltEase);
+				curl += (curlTarget(cells) - curl) * LEAP.curlEase;
+				const arch = archAt(curl, now) * (texW / OLD_SALMON);
 				points.forEach((p, i) => {
-					p.y = arch * Math.pow(1 - i / (ROPE_POINTS - 1), 2.5);
+					p.y = arch * envelope(i, ROPE_POINTS);
 				});
-				size = lerp(size, 1 + jf * 0.12, 0.1);
+				size = lerp(size, 1 + jf * LEAP.swell, 0.1);
 				const period = v.moving ? 400 : 1500;
 				const amp = v.moving ? 0.02 : 0.008;
 				const squash = Math.sin((now * 2 * Math.PI) / period) * amp;
 				body.rotation = rotation;
 				body.scale.set(facing * size * (1 + squash), size * (1 - squash));
 			}
-			const open = free && !hopping && !atFoot;
+			const open = free && !leaping && !atFoot;
 			highlight.visible = open;
 			if (open) {
 				glintPoints.forEach((p, i) => {

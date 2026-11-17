@@ -15,6 +15,7 @@ import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
 import { seededRandom } from './random';
+import { CELL, K } from './scale';
 
 /**
  * SALMONS' RIVER IN ITS ORIGINAL ART: the river a room's seed made (`engine-mechanics`
@@ -29,10 +30,6 @@ import { seededRandom } from './random';
  * their projected places. Animated parts tick on the app's ticker. Only what the view holds is
  * drawn (each piece is culled by its box).
  */
-
-export const CELL = 48;
-/** The old client's sizes to the engine's: a 64 × 32 tile is a 96 × 48 one. */
-export const K = CELL / 32;
 
 const FOREST_FLOOR = 0x28591e;
 const WATER_TINT = 0x0ea5e9;

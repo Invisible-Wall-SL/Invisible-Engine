@@ -266,7 +266,7 @@ ported); the golden salmon is the original golden painting, with #1528's glow; n
 - **The characters** (`salmonsArt/looks.ts`, a code look per instance in `SpawnLayer`; a published
   clip still wins, then the code look, then the placeholder):
   - the salmon is a 12-point rope through its painting, with facing flip, tilt, a breathing squash,
-    the hop's tilt, swell and tail flick on `jumped`, the nose-up pose and tap pulse at a waterfall's
+    the leap's lift, tilt, swell and curl from the room's `z` (2026-11-17, below), the nose-up pose and tap pulse at a waterfall's
     foot, and the spine glint in open water;
   - the bear turns to its heading and draws the claw streak on its swipe;
   - the fisherman is the tan circle.
@@ -418,6 +418,49 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   like the waterfall face, `upload-art.py` writes it with the others, and the art export ships it.
   Nothing draws it yet; the waterfall-elevation work will.
 
+- 2026-11-17 — **The salmon's leap and curl** (branch `arcade/salmons-jump-curl`; in review;
+  runtime change). Owner: "I am also missing the jump of the salmon completely. It used to look like
+  he jumped, and also curl when doing so." Cause: the leap was never ported. The room had no
+  height, the only `jumped` came off a sandbank, and the look played a 600 ms tilt and wiggle on it
+  with no lift. Source: the original at 41811c2 (`server/index.js` `onMessage('jump')` and
+  `update`, `client/game.js` salmon pose), read by the waterfall-heights session and relayed as
+  excerpts. This session had no access to that repo.
+  - **Room** (`salmonsRules` `salmonJump`, inside the `salmons` module): a tap of jump
+    by a free salmon with `z` 0 leaps at 11 cells/s under 20 cells/s². That is the old server's
+    stepping exactly: about 1.1 s up, the top about 3 cells (145 px). There is no second leap in the
+    air. A tap that climbs a waterfall does not leap. A tap off a sandbank does (one `jumped`). A
+    catch or hook puts it back on the water. The height goes to devices as the player's `z`
+    (world px, a new `float32` in the room state).
+  - **Look** (`salmonsArt/leap.ts`, `looks.ts`): the old client's pose, driven by `z`. Jump factor
+    `min(1.5, z/2)`, tilt `factor·0.4`, swell `1 + factor·0.12`. The curl eases to
+    `min(1, factor)`; arch `−curl·sin(2π·2 Hz·t)·36` with the tail envelope `(1 − i/11)^2.5`. Lift
+    16 old px a cell × K (24 px a cell, 72 px at the top). The drawn height follows the room's
+    smoothly between steps. The excerpts name no shadow or splash, so none is drawn.
+  - **In the air** (the original's answers): a leaping salmon is not grounded on a sandbank (above
+    0.05 cells) nor hooked (above 0.1 cells); both are in this PR. A bear still catches it, as the
+    old bear did.
+  - **Not yet ported**, for the waterfall-heights PR, because they touch the shared movement and its
+    prediction:
+    - a leap carries the jump's direction (`dir · 1.0`, `dir · 0.9` × speed) until the stick moves;
+    - a leap of 0.5 cells clears a rock;
+    - a whirlpool pulls only below 0.5 cells;
+    - the leaping salmon is drawn above the water (`entityLayer`) and swimming under its tint. The
+      engine draws it above the tint always (Original art, known limits).
+    The tap target (`targetX/Y`) belongs in the tap/touch controller (#1722): a tap there sends jump
+    with the aim in the input's `aimX/aimY`.
+  - **Known limits:**
+    - Other salmon's height comes from the newest room state while their place is interpolated
+      (the shared `Interpolator` carries x / y only), so their lift leads their drawn motion by the
+      interpolation delay. The own leap starts a round trip after the press: the device does not
+      predict `z`.
+    - A hook takes the nearest salmon in reach (`abilities.js`). If that salmon is in the air, the
+      hook misses, the cast's cooldown is spent and no farther salmon is tried.
+    - A round's end puts every leaping salmon back on the water at once.
+  - Proof: `check:salmons-jump` (the height step for step against the old formula at 30 and 60 Hz,
+    the one-leap, held, climb, sandbank and catch cases, and every pose number and curve).
+    `salmons-traces.json` re-recorded: it only gains `jumped` events, and no position changes.
+  - Next (second PR): waterfall heights, the height-aware climb (step 2.4, slide 0.8 cells/s, no
+    teleport) and the river and banks raised by each waterfall, with `cliff.png`.
 - 2026-11-17 — **The original art becomes project art** (branch `salmons-art-project`; in review;
   plan in "Original art as project art" above). Built: the conversion (`scripts/salmons/project-art.mjs`)
   and its upload (`scripts/salmons/upload-art.py`, dry run by default, create-only writes, stops on

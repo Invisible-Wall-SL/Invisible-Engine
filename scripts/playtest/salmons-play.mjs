@@ -663,6 +663,25 @@ try {
 		artA?.looks?.[me]?.kind === 'rope' && artA.looks[me].region === 'salmon_golden',
 		artA?.looks?.[me],
 	);
+	// The leap (the original's, 2026-11-17): Space in open water lifts the salmon off the river,
+	// curling, about 1.1 s, and it lands again.
+	await a.key('Space', 'down');
+	let leapTop = { lift: 0, curl: 0 };
+	for (let i = 0; i < 12; i++) {
+		await a.play([{ op: 'step', frames: 6 }]);
+		await wait(50);
+		const look = (await a.state()).arcade?.online?.art?.looks?.[me];
+		if ((look?.lift ?? 0) > leapTop.lift) leapTop = { lift: look.lift, curl: look.curl };
+	}
+	await a.key('Space', 'up');
+	await settle(a, 1500);
+	const landedA = (await a.state()).arcade?.online?.art?.looks?.[me];
+	verdict(
+		'Space in open water: page A’s salmon leaps off the river and curls',
+		leapTop.lift > 30 && leapTop.curl > 0.3,
+		leapTop,
+	);
+	verdict('…and lands on the water again', landedA?.lift === 0, landedA);
 	const lookB = (await b.state()).arcade?.online?.art?.looks?.[meB];
 	verdict(
 		'page B draws its bear as the bear sprite',
