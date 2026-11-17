@@ -19,6 +19,7 @@ const LAUNCHER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BUNDLES = [
 	{ name: 'rigger-fx', committed: 'static/rigger/vendor/rigger-fx.js' },
 	{ name: 'rigger-text', committed: 'static/rigger/vendor/rigger-text.js' },
+	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js' },
 	{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },
 ];
 

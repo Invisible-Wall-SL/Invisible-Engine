@@ -3269,16 +3269,20 @@ function faceKeyChannel(anim, ch, value, t, has){
   if (ch.swaps) faceKeyAttachment(anim, ch.slot, faceSwapPart(ch, value, has), t);
 }
 
-// A mouth shape, plus the jaw opened by that shape's amount. A shape the rig lacks becomes the one it
-// has that opens the jaw nearest the same amount (no images at all: the slot is left empty).
+// The image a mouth shape shows on this rig: the shape itself, else the one it has that opens the jaw
+// nearest the same amount (no images at all: none).
+function faceShapePart(ch, part, has){
+  if (!part || has(ch.shapes.slot, part)) return part;
+  const want = ch.shapes.open[part] || 0;
+  let best = null;
+  for (const p of [ch.shapes.rest, ...Object.keys(ch.shapes.open)])
+    if (has(ch.shapes.slot, p) && (best === null || Math.abs((ch.shapes.open[p] || 0) - want) < Math.abs((ch.shapes.open[best] || 0) - want))) best = p;
+  return best;
+}
+
+// A mouth shape, plus the jaw opened by that shape's amount.
 function faceKeyShape(anim, ch, part, t, channels, has){
-  if (part && !has(ch.shapes.slot, part)){
-    const want = ch.shapes.open[part] || 0;
-    let best = null;
-    for (const p of [ch.shapes.rest, ...Object.keys(ch.shapes.open)])
-      if (has(ch.shapes.slot, p) && (best === null || Math.abs((ch.shapes.open[p] || 0) - want) < Math.abs((ch.shapes.open[best] || 0) - want))) best = p;
-    part = best;
-  }
+  part = faceShapePart(ch, part, has);
   faceKeyAttachment(anim, ch.shapes.slot, part, t);
   const jaw = channels.find((c) => c.id === ch.shapes.jaw);
   if (jaw) faceKeyChannel(anim, jaw, (part && ch.shapes.open[part]) || 0, t, has);
@@ -3333,6 +3337,39 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
     prev = part; n++;
   }
   if (prev !== ch.shapes.rest) faceKeyShape(anim, ch, has(ch.shapes.slot, ch.shapes.rest) ? ch.shapes.rest : null, end, channels, has);
+  return n;
+}
+
+// Motion keys (rig templates T5 / T7b): the solve's channel keys, written from t. The keys the
+// imported channels already had under the import are replaced. A mouth shape keys only its image
+// when the import carries the jaw too, so the jaw follows the video rather than the shape's amount.
+function faceKeyMotion(anim, keys, t, channels, has){
+  if (!keys.length) return 0;
+  const end = roundN(t + keys[keys.length - 1][0], 4);
+  const keep = (k) => k.time < t - 1e-4 || k.time > end + 1e-4;
+  const ids = new Set(keys.map((k) => k[1]));
+  for (const id of ids){
+    const ch = channels.find((c) => c.id === id);
+    if (!ch) continue;
+    for (const d of ch.drives || []){
+      const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
+      if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+    }
+    const slot = ch.shapes ? ch.shapes.slot : ch.swaps ? ch.slot : null;
+    const cs = slot && anim.slots && anim.slots[slot];
+    if (cs && cs.attachment) cs.attachment = cs.attachment.filter(keep);
+  }
+  let n = 0;
+  for (const [dt, id, v] of keys){
+    const ch = channels.find((c) => c.id === id);
+    if (!ch) continue;
+    const at = roundN(t + dt, 4);
+    if (ch.shapes){
+      if (ids.has(ch.shapes.jaw)) faceKeyAttachment(anim, ch.shapes.slot, faceShapePart(ch, v, has), at);
+      else faceKeyShape(anim, ch, v, at, channels, has);
+    } else faceKeyChannel(anim, ch, v, at, has);
+    n++;
+  }
   return n;
 }
 
@@ -3433,8 +3470,13 @@ function renderFacePanel(){
   if (mouth && mouth.shapes.lipsync) tool("🎤 Lip-sync", "Key the mouth and jaw from a voice line, starting at the playhead.", () => {
     faceLipOpen = !faceLipOpen; renderFacePanel();
   });
+  const motion = rigTemplate.motion;
+  if (motion && (motion.face || motion.body)) tool("🎥 Motion", "Key the " + (motion.face ? "face" : "body") + " from a Flipbook clip or a video of a performer, starting at the playhead. Tracked in this browser; a video is never uploaded.", () => {
+    faceMotionOpen = !faceMotionOpen; renderFacePanel();
+  });
   list.appendChild(tools);
   if (mouth && mouth.shapes.lipsync && faceLipOpen) list.appendChild(faceLipSyncPanel(mouth, channels));
+  if (motion && (motion.face || motion.body) && faceMotionOpen) list.appendChild(faceMotionPanel(motion, channels));
   for (const ch of channels){
     const row = document.createElement("div");
     row.className = "faceRow"; row.dataset.ch = ch.id;
@@ -3605,6 +3647,120 @@ function faceLipSyncPanel(mouth, channels){
     faceAudio.play().catch((e) => console.warn("[Face] could not play the voice line", e));
   };
   for (const el of [pick, file, words, lang, go, hear, note]) box.appendChild(el);
+  return box;
+}
+
+// ---- Motion import (rig templates T5 / T7b, docs/design/rig-templates.md §5.3) ---------------------
+// A Flipbook clip's frames or a local video are tracked in this browser by vendor/rigger-motion.js
+// (MediaPipe Face / Pose Landmarker, models served from /rigger/vendor/mediapipe/), solved into the
+// template's channel keys by its motion map, and keyed at the playhead as one undo step.
+let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null, faceMotionStrength = "1";
+let riggerMotionLoading = null;
+
+function ensureRiggerMotion(){
+  if (window.RiggerMotion) return Promise.resolve(true);
+  if (riggerMotionLoading) return riggerMotionLoading;
+  riggerMotionLoading = new Promise((resolve) => {
+    const s = document.createElement("script");
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/vendor/rigger-motion.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = () => resolve(!!window.RiggerMotion);
+    s.onerror = () => { riggerMotionLoading = null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return riggerMotionLoading;
+}
+
+// What the author is told after an import: what was keyed, then everything that did not carry over.
+function faceMotionSummary(r, motion, channels){
+  const label = (id) => { const c = channels.find((x) => x.id === id); return c ? c.label : id; };
+  const lines = [];
+  if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + (motion.face ? "face" : "body") + " in them; the controls hold through them.");
+  for (const c of r.clipped) if (c.share >= 0.02)
+    lines.push(label(c.channel) + ": " + Math.round(c.share * 100) + "% of frames went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
+  if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
+  for (const x of motion.cannot || []) lines.push("Not carried: " + x);
+  return lines;
+}
+
+function faceMotionPanel(motion, channels){
+  const kind = motion.face ? "face" : "body";
+  const box = document.createElement("div");
+  box.className = "faceMotion";
+  box.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 14px 8px;font-size:11px;";
+  const pick = document.createElement("select");
+  pick.title = "A Flipbook clip of this project, or a video file from this computer (read here, never uploaded; up to 30 s).";
+  pick.style.cssText = "flex:1 1 160px;min-width:0;";
+  const opt = (value, label) => { const o = document.createElement("option"); o.value = value; o.textContent = label; pick.appendChild(o); };
+  opt("", projectClips === null ? "loading Flipbook clips…" : "pick a Flipbook clip or a video…");
+  for (const c of projectClips || []) opt("clip:" + c.id, "▦ " + c.name + " (" + (c.frames ? c.frames.length : 0) + "f)");
+  if (faceMotionFile) opt("video", "🎞 " + faceMotionFile.name);
+  opt("+video", "＋ Video file…");
+  pick.value = faceMotionSrc;
+  const file = document.createElement("input");
+  file.type = "file"; file.accept = "video/*"; file.style.display = "none";
+  const rate = document.createElement("select");
+  rate.title = "Frames read per second of video (a Flipbook clip uses its own rate).";
+  for (const f of [12, 24, 30]){ const o = document.createElement("option"); o.value = f; o.textContent = f + " fps"; rate.appendChild(o); }
+  rate.value = "24";
+  const strength = document.createElement("select");
+  strength.title = "How strongly expressions read. A drawn face scores blinks and mouth shapes about half as strongly as a filmed one, so a cartoon wants 2×.";
+  for (const [v, l] of [["1", "1× filmed"], ["1.5", "1.5×"], ["2", "2× drawn"]]){ const o = document.createElement("option"); o.value = v; o.textContent = l; strength.appendChild(o); }
+  strength.value = faceMotionStrength;
+  strength.onchange = () => { faceMotionStrength = strength.value; };
+  const go = document.createElement("button");
+  go.textContent = "🎥 Key at playhead";
+  go.title = "Track the " + kind + ", then replace the keys of the controls it drives under the clip with ones from the performance, starting at the playhead (one undo step).";
+  const note = document.createElement("span");
+  note.className = "faceMotionNote";
+  note.style.cssText = "flex:1 1 100%;color:var(--dim);";
+  const report = document.createElement("ul");
+  report.className = "faceMotionReport";
+  report.style.cssText = "flex:1 1 100%;margin:2px 0 0;padding-left:16px;color:var(--dim);";
+  for (const line of faceMotionReport || []){ const li = document.createElement("li"); li.textContent = line; report.appendChild(li); }
+  if (projectClips === null) loadProjectClips().then(() => { if (faceMotionOpen) renderFacePanel(); });
+  pick.onchange = () => {
+    if (pick.value === "+video"){ pick.value = faceMotionSrc; file.click(); return; }
+    faceMotionSrc = pick.value;
+  };
+  file.onchange = () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    faceMotionFile = f; faceMotionSrc = "video"; renderFacePanel();
+  };
+  go.onclick = async () => {
+    if (!faceMotionSrc){ note.textContent = "Pick a Flipbook clip or a video first."; return; }
+    if (!animMode){ $("#hint").textContent = "Switch to Animate to key the controls."; return; }
+    const at = animTime, gen = rigGen, anim = curAnim, tpl = rigTemplate;
+    go.disabled = true; note.textContent = "loading the tracker…";
+    try {
+      if (!(await ensureRiggerMotion())) throw new Error("The motion tracker could not load (vendor/rigger-motion.js).");
+      const M = window.RiggerMotion;
+      let src;
+      if (faceMotionSrc === "video"){
+        if (!faceMotionFile) throw new Error("Pick the video again.");
+        src = await M.videoFrames(faceMotionFile, Number(rate.value));
+      } else {
+        const clip = (projectClips || []).find((c) => "clip:" + c.id === faceMotionSrc);
+        if (!clip) throw new Error("That Flipbook clip is gone.");
+        src = await M.clipFrames(clip);
+      }
+      const track = await M.track(kind, src, (n) => { note.textContent = "tracking the " + kind + ": frame " + n + " of " + src.count + "…"; });
+      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, { face: kind === "face", body: kind === "body", strength: Number(faceMotionStrength) });
+      if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
+      if (!solved.keys.length){ note.textContent = "No " + kind + " was found in it, so nothing was keyed."; return; }
+      let n = 0;
+      const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas); }));
+      if (!keyed) return;
+      faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), motion, channels);
+      faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
+      renderFacePanel();
+    } catch (e){
+      note.textContent = "";
+      showAlert(String((e && e.message) || e), "Motion import failed");
+    } finally { go.disabled = false; }
+  };
+  for (const el of [pick, file, rate, ...(kind === "face" ? [strength] : []), go, note, report]) box.appendChild(el);
   return box;
 }
 
