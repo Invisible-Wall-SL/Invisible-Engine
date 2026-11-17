@@ -739,7 +739,8 @@ function withPointer(current: Session, input: ReturnType<typeof keyInput>) {
 	}
 	pendingTap ??= pointerIo.tracker.takeTap();
 	const me = stateOf(current.room).players?.get(current.room.sessionId);
-	const name = me ? pointer.taps[me.character] : undefined;
+	const name =
+		me && Object.hasOwn(pointer.taps, me.character) ? pointer.taps[me.character] : undefined;
 	if (!pendingTap) return input;
 	if (!name) {
 		pendingTap = undefined;

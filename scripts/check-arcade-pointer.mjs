@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+	MAX_TAPS,
 	POINTER_DEFAULTS,
 	createPointerTracker,
 	pointerMove,
@@ -150,6 +151,25 @@ check('a lost focus forgets the press and its taps', () => {
 	t.release();
 	assert.equal(t.target(), undefined);
 	assert.equal(t.takeTap(), undefined);
+	const h = createPointerTracker({ mouse: 'hover' });
+	h.event(mouse('move', 40, 30));
+	h.release();
+	assert.equal(h.target(), undefined, 'a hovering mouse stops steering too');
+	h.event(mouse('move', 41, 30));
+	assert.deepEqual(h.target(), { x: 41, y: 30 }, 'until it moves again');
+});
+
+check('a burst of clicks keeps at most MAX_TAPS waiting', () => {
+	const t = createPointerTracker({ mouse: 'hover' });
+	for (let i = 0; i < 10; i++) t.event(mouse('down', i, 0));
+	const taken = [];
+	for (let tap = t.takeTap(); tap; tap = t.takeTap()) taken.push(tap.x);
+	assert.equal(MAX_TAPS, 2);
+	assert.deepEqual(taken, [0, 1]);
+});
+
+check('the tracker and Game Config share their defaults', () => {
+	assert.deepEqual({ ...POINTER_DEFAULTS }, { ...ARCADE_POINTER_DEFAULTS });
 });
 
 console.log('the move: a direction the room clamps to itself');
@@ -283,7 +303,7 @@ check(
 		assert.match(online, /if \(!pointerIo \|\| !pointer\) return input;/);
 		assert.match(
 			online,
-			/const unpoint = canvas && toGlobal && pointer \? listenPointer\(canvas, toGlobal, pointer\) : undefined;/,
+			/const unpoint =\s+canvas && toGlobal && pointer \? listenPointer\(canvas, toGlobal, pointer\) : undefined;/,
 		);
 	},
 );

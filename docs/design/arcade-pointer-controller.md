@@ -48,7 +48,8 @@ did it.
 - `createPointerTracker({ mouse, tapPx })` takes pointer events in client px and keeps the
   steering point and the taps, exactly as §2: `mouse: 'hover'` (the original) or `'press'` (a mouse
   is a finger; the default for a new game, so a desktop player is not steered by an idle cursor);
-  the newest finger steers; a cancelled touch neither taps nor steers; a lost focus forgets presses.
+  the newest finger steers; a cancelled touch neither taps nor steers; a lost focus forgets presses
+  and the hovering mouse; at most two taps wait, so a burst of clicks is not played out late.
 - `pointerMove(self, target, deadZone)` is the input's move: full tilt towards the point as whole
   numbers no longer than `MOVE_SCALE`, nothing within `deadZone` field px.
 
@@ -93,6 +94,10 @@ casts a line the way Space and J do today (the engine's jump frees a sandbank or
 hooks the nearest salmon in reach), not towards the tapped point. Aiming them is a rules change in
 `salmonsRules.js` / `abilities.js` with re-recorded `fixtures/salmons-traces.json`, an owner call;
 `aim` is already on the wire for it.
+
+**Known gap:** the device listens on the whole canvas, as the offline loop does, so a press on a
+Pixi button drawn on the canvas (an authored HUD) is also a tap. Salmons' HUD has no buttons; the
+original's UI was HTML. A game that puts buttons over its play field needs a hit test first.
 
 ## 7. Authoring and transport
 

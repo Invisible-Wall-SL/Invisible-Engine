@@ -153,18 +153,18 @@ has no family control at all. Three more families exist
 - **Only the family's sections are shown.** The rest are not rendered at all, and nothing they
   hold is checked, so a hidden section never blocks Save:
 
-  | Section                                                                                                          | Slot | Match-3, RGS                  | Match-3, rules                       | Arcade                  | Card |
-  | ---------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------- | ------------------------------------ | ----------------------- | ---- |
-  | Return to player, Bet modes, Big win tiers                                                                       | ✓    | ✓                             | —                                    | —                       | —    |
-  | Grid                                                                                                             | ✓    | ✓ (the board: columns × rows) | ✓ (the board)                        | —                       | —    |
-  | Symbols                                                                                                          | ✓    | ✓ (gems, with pays)           | ✓ (gems, no pays, no import buttons) | —                       | —    |
-  | How wins are decided                                                                                             | ✓    | ✓ (a read-only Match-3 line)  | —                                    | —                       | —    |
-  | Sounds                                                                                                           | ✓    | ✓                             | ✓                                    | —                       | —    |
-  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —                       | —    |
-  | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —                       | —    |
-  | Arcade                                                                                                           | —    | —                             | —                                    | ✓                       | —    |
-  | Online room, Mouse and touch, Online rules, Bots                                                                 | —    | —                             | —                                    | ✓ (an online game only) | —    |
-  | Card game                                                                                                        | —    | —                             | —                                    | —                       | ✓    |
+  | Section                                                                                                          | Slot | Match-3, RGS                  | Match-3, rules                       | Arcade | Card |
+  | ---------------------------------------------------------------------------------------------------------------- | ---- | ----------------------------- | ------------------------------------ | ------ | ---- |
+  | Return to player, Bet modes, Big win tiers                                                                       | ✓    | ✓                             | —                                    | —      | —    |
+  | Grid                                                                                                             | ✓    | ✓ (the board: columns × rows) | ✓ (the board)                        | —      | —    |
+  | Symbols                                                                                                          | ✓    | ✓ (gems, with pays)           | ✓ (gems, no pays, no import buttons) | —      | —    |
+  | How wins are decided                                                                                             | ✓    | ✓ (a read-only Match-3 line)  | —                                    | —      | —    |
+  | Sounds                                                                                                           | ✓    | ✓                             | ✓                                    | —      | —    |
+  | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —      | —    |
+  | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —      | —    |
+  | Arcade                                                                                                           | —    | —                             | —                                    | ✓      | —    |
+  | Online room, Mouse and touch, Online rules, Bots                                                                                  | —    | —                             | —                                    | ✓ (an online game only) | —    |
+  | Card game                                                                                                        | —    | —                             | —                                    | —      | ✓    |
 
 - **Match-3** — the board's rules. The board itself is the **Grid**: its reels are the columns,
   and every column must be the same height (a stepped match-3 board is refused).

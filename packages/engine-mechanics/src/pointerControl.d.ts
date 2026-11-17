@@ -2,6 +2,8 @@ export type PointerMouseMode = 'hover' | 'press';
 
 export declare const POINTER_MOUSE_MODES: readonly PointerMouseMode[];
 
+export declare const MAX_TAPS: number;
+
 export declare const POINTER_DEFAULTS: Readonly<{
 	mouse: PointerMouseMode;
 	deadZone: number;

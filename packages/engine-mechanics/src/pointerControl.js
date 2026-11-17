@@ -36,11 +36,15 @@ export const POINTER_DEFAULTS = Object.freeze({
 
 const isTouchLike = (kind) => kind !== 'mouse';
 
+/** The most taps that wait to be taken: more are dropped. */
+export const MAX_TAPS = 2;
+
 /**
  * A pointer tracker for one canvas. `event(e)` takes `{ type: 'down' | 'move' | 'up' | 'cancel',
  * id, kind: 'mouse' | 'touch' | 'pen', x, y, button? }` in canvas px; `target()` is the point
  * steering now (or `undefined`); `takeTap()` hands over the oldest tap not yet taken (or
- * `undefined`); `release()` forgets every press (a lost focus).
+ * `undefined`; at most {@link MAX_TAPS} wait, so a burst of clicks is not played out long after);
+ * `release()` forgets every press, the hovering mouse and the waiting taps (a lost focus).
  */
 export function createPointerTracker(options = {}) {
 	const mouse = POINTER_MOUSE_MODES.includes(options.mouse)
@@ -53,6 +57,9 @@ export function createPointerTracker(options = {}) {
 	let hover;
 	let usingMouse = false;
 	const taps = [];
+	const tap = (at) => {
+		if (taps.length < MAX_TAPS) taps.push(at);
+	};
 
 	const point = (e) => ({ x: e.x, y: e.y });
 	const begin = (e) => {
@@ -61,7 +68,7 @@ export function createPointerTracker(options = {}) {
 	const end = (e, tapping) => {
 		if (!press || press.id !== e.id) return;
 		press.at = point(e);
-		if (tapping && !press.moved) taps.push(press.at);
+		if (tapping && !press.moved) tap(press.at);
 		press = undefined;
 	};
 	const moveTo = (e) => {
@@ -93,7 +100,7 @@ export function createPointerTracker(options = {}) {
 			if (e.type === 'down') {
 				usingMouse = true;
 				hover = point(e);
-				if (mouse === 'hover') taps.push(point(e));
+				if (mouse === 'hover') tap(point(e));
 				else begin(e);
 			} else end(e, e.type === 'up');
 		},
@@ -106,6 +113,7 @@ export function createPointerTracker(options = {}) {
 		},
 		release() {
 			press = undefined;
+			usingMouse = false;
 			taps.length = 0;
 		},
 	};
