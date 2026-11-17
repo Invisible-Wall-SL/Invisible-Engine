@@ -810,6 +810,22 @@ function warnMissingAssets(source: BakedBundle): void {
 	}
 }
 
+/**
+ * The shipped editor-art sheets whose manifest key `match` accepts, as the loader would load them
+ * (the tier's src, a KTX2 page's fallback), without the boot's missing-art warnings. For a caller
+ * that draws a project sheet's frames itself (Salmons' art, `game/online.ts`).
+ */
+export function editorArtSheetsWhere(
+	match: (manifestKey: string) => boolean,
+): { src: string; fallback?: string }[] {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	const base = srcBase();
+	const useKtx2 = preferCompressedTextures();
+	return (source?.editorArt?.sheets ?? [])
+		.filter((sheet) => match(sheet.key))
+		.map((sheet) => sheetSrc(base, sheet, useKtx2));
+}
+
 export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	const out: Record<string, EditorArtAssetEntry> = {};
 	// In runtime mode the live bundle supplies the same `editorArt` index; the only
