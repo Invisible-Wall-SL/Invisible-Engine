@@ -15,7 +15,7 @@
  *     match-3 game decided each way and an arcade game: a non-slot family shows exactly its
  *     sections, and a slot project shows no family picker and no section outside the slot's. Only
  *     an arcade page shows the Characters line (its count and the link to Invisible Characters),
- *     and only an online arcade page its Online room, Online rules and Bots sections.
+ *     and only an online arcade page its Online room, Mouse and touch, Online rules and Bots sections.
  *  4. THE FAMILY GATE. Publish and the bake refuse a non-slot config, never a slot one.
  */
 
@@ -658,6 +658,7 @@ const HEADINGS: Record<string, ConfigSection> = {
 	'Match-3': 'match3',
 	Arcade: 'arcade',
 	'Online room': 'arcade',
+	'Mouse and touch': 'arcade',
 	'Online rules': 'arcade',
 	Bots: 'arcade',
 	'Card game': 'card',
@@ -797,7 +798,7 @@ try {
 		...arcade,
 		arcade: { online: { characters: [], netcode: 'colyseus' } },
 	})!;
-	const ONLINE_HEADINGS = ['Online room', 'Online rules', 'Bots'];
+	const ONLINE_HEADINGS = ['Online room', 'Mouse and touch', 'Online rules', 'Bots'];
 	const headingsOf = (body: string) =>
 		[...body.matchAll(/<h2[^>]*>(?:<button[^>]*>)?([^<]*)<\/(?:button|h2)>/g)].map((m) =>
 			m[1].trim(),
