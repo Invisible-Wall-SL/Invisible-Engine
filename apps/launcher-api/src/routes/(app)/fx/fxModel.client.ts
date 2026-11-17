@@ -15,11 +15,14 @@ import {
 	FX_ALPHA_BEHAVIOR_TYPE,
 	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
 	FX_FORCES_BEHAVIOR_TYPE,
+	FX_PATH_BEHAVIOR_TYPE,
 	FX_SCALE_BEHAVIOR_TYPE,
 	FX_SPEED_BEHAVIOR_TYPE,
 	FX_SPRITE_BEHAVIOR_TYPE,
 	behaviorsOf,
 	defaultFxForce,
+	fxPathInUse,
+	readFxPath,
 	readFxForce,
 	readFxForces,
 	readFxSprite,
@@ -31,6 +34,8 @@ import {
 	type EmitterLayer,
 	type FxForce,
 	type FxForceKind,
+	type FxPath,
+	type FxPathPoint,
 	type FxSpriteTransform,
 	type RigParticleConfig,
 } from 'engine-fx';
@@ -947,8 +952,8 @@ export function setParticleSpin(
 // direction again. `setSpawnKind` is the single switch that keeps this invariant.
 // ---------------------------------------------------------------------------
 
-/** Every authoring spawn kind: the four shapes plus the burst emitter. */
-export type SpawnKind = SpawnShapeKind | 'burst';
+/** Every authoring spawn kind: the four shapes, the burst emitter and a path (`fxPath` along). */
+export type SpawnKind = SpawnShapeKind | 'burst' | 'path';
 
 /** Default burst params for a fresh burst — a fine, even ring fan from the origin. */
 function defaultBurst(): Record<string, unknown> {
@@ -973,6 +978,7 @@ export function burst(
  * `spawnShape` kind (point/circle/ring/rectangle), or `undefined` for a config with neither.
  */
 export function spawnKind(config: EmitterConfigV3): SpawnKind | undefined {
+	if (pathOf(config)?.emit === 'along') return 'path';
 	if (behaviorsOf(config).some((b) => b.type === 'spawnBurst')) return 'burst';
 	return spawnShape(config)?.kind;
 }
@@ -986,6 +992,21 @@ export function spawnKind(config: EmitterConfigV3): SpawnKind | undefined {
  *   write the shape via `setSpawnShape` (params preserved / defaulted exactly as before).
  */
 export function setSpawnKind(config: EmitterConfigV3, kind: SpawnKind): EmitterConfigV3 {
+	if (kind === 'path') {
+		let next = removeBehaviors(config, 'spawnShape', 'spawnBurst');
+		if (!rotationBehavior(next)) {
+			next = cloneConfig(next);
+			behaviorsOf(next).push({ type: 'rotationStatic', config: { min: 0, max: 360 } });
+		}
+		return setPath(next, (p) => {
+			p.emit = 'along';
+		});
+	}
+	if (pathOf(config)?.emit === 'along') {
+		config = setPath(config, (p) => {
+			p.emit = 'shape';
+		});
+	}
 	if (kind === 'burst') {
 		const prior = burst(config);
 		const stripped = removeBehaviors(config, 'spawnShape', 'rotation', 'rotationStatic');
@@ -1031,10 +1052,14 @@ export function setBurst(
 // behavior for the other, carrying a sensible start speed across.
 // ---------------------------------------------------------------------------
 
-export type MovementModel = 'speed' | 'gravity';
+export type MovementModel = 'speed' | 'gravity' | 'follow';
 
-/** Which movement behavior the config carries (`moveAcceleration` ⇒ gravity, else eased speed). */
+/**
+ * Which movement the layer has: a path it follows (`fxPath` follow on), `moveAcceleration` ⇒
+ * gravity, else eased speed.
+ */
 export function movementModel(config: EmitterConfigV3): MovementModel {
+	if (pathOf(config)?.follow.enabled) return 'follow';
 	return behaviorsOf(config).some((b) => b.type === 'moveAcceleration') ? 'gravity' : 'speed';
 }
 
@@ -1092,7 +1117,37 @@ function defaultSpeed(startSpeed: number): Record<string, unknown> {
  * is roughly volume-preserving. A no-op when already in the requested model.
  */
 export function setMovementModel(config: EmitterConfigV3, model: MovementModel): EmitterConfigV3 {
-	if (movementModel(config) === model) return config;
+	const current = movementModel(config);
+	if (current === model) return config;
+	if (model === 'follow') {
+		const speed = curveRange(config, 'speed');
+		const g = gravity(config);
+		const startSpeed = speed ? speed.startMax : g ? g.minStart || 300 : 300;
+		const stripped = removeBehaviors(
+			config,
+			'moveSpeed',
+			'moveSpeedStatic',
+			FX_SPEED_BEHAVIOR_TYPE,
+			'moveAcceleration',
+		);
+		return setPath(stripped, (p) => {
+			p.follow.enabled = true;
+			p.follow.speed = startSpeed;
+		});
+	}
+	if (current === 'follow') {
+		const followSpeed = pathOf(config)?.follow.speed ?? 300;
+		const off = setPath(config, (p) => {
+			p.follow.enabled = false;
+		});
+		const next = cloneConfig(off);
+		behaviorsOf(next).push(
+			model === 'gravity'
+				? { type: 'moveAcceleration', config: defaultGravity(followSpeed) }
+				: { type: 'moveSpeed', config: defaultSpeed(followSpeed) },
+		);
+		return next;
+	}
 	if (model === 'gravity') {
 		// `curveRange`, not `listEndpoints`: the latter matches the stock `moveSpeed` type only and
 		// would miss a speed curve that variation has swapped to `fxSpeed`, silently carrying 300.
@@ -2052,6 +2107,124 @@ export function setForceField(
 	return writeForces(
 		config,
 		forces.map((f, i) => (i === index ? next : f)),
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Paths (`docs/design/fx-paths.md`) — ONE `fxPath` behavior holds the curve and the three
+// ways the layer uses it: spawn along (a spawn kind), travel (the origin moves along it) and
+// follow (a movement model). Every write goes back through `readFxPath`, the clamp the behavior
+// reads; a path nothing uses is removed, so a layer without one stays stock.
+// ---------------------------------------------------------------------------
+
+/** The layer's path, clamped, or `undefined` when it has no `fxPath` behavior. */
+export function pathOf(config: EmitterConfigV3): FxPath | undefined {
+	const b = behaviorsOf(config).find((x) => x.type === FX_PATH_BEHAVIOR_TYPE);
+	return b ? readFxPath(b.config) : undefined;
+}
+
+/**
+ * Edit the path immutably: `edit` mutates a clamped copy (the default curve when the layer has
+ * none), which is re-clamped and written back — or the behavior is dropped when nothing uses it.
+ */
+export function setPath(config: EmitterConfigV3, edit: (path: FxPath) => void): EmitterConfigV3 {
+	const draft = JSON.parse(JSON.stringify(pathOf(config) ?? readFxPath({}))) as FxPath;
+	edit(draft);
+	const next = readFxPath(draft);
+	if (!fxPathInUse(next)) return removeBehaviors(config, FX_PATH_BEHAVIOR_TYPE);
+	const stored = JSON.parse(JSON.stringify(next)) as Record<string, unknown>;
+	return upsertBehavior(
+		config,
+		FX_PATH_BEHAVIOR_TYPE,
+		() => ({ ...stored }),
+		(b) => {
+			b.config = { ...stored };
+		},
+	);
+}
+
+/** Move the emitter along the path (`travel`), or stop. Not offered while particles spawn along it. */
+export function setPathTravel(config: EmitterConfigV3, on: boolean): EmitterConfigV3 {
+	const current = pathOf(config);
+	if (current?.emit === 'along') return config;
+	if (!on && current?.emit !== 'travel') return config;
+	return setPath(config, (p) => {
+		p.emit = on ? 'travel' : 'shape';
+	});
+}
+
+/** Replace the path's anchors (at least two; the stage's drags and the points table write here). */
+export function setPathPoints(config: EmitterConfigV3, points: FxPathPoint[]): EmitterConfigV3 {
+	if (points.length < 2 || !pathOf(config)) return config;
+	return setPath(config, (p) => {
+		p.curve.points = points;
+	});
+}
+
+/** One coordinate of anchor `index`: `x`/`y`, or a Bézier handle `inX`/`inY`/`outX`/`outY`. */
+export function setPathPointField(
+	config: EmitterConfigV3,
+	index: number,
+	field: 'x' | 'y' | 'inX' | 'inY' | 'outX' | 'outY',
+	value: number,
+): EmitterConfigV3 {
+	const path = pathOf(config);
+	const point = path?.curve.points[index];
+	if (!path || !point || !Number.isFinite(value)) return config;
+	const next: FxPathPoint = JSON.parse(JSON.stringify(point));
+	if (field === 'x' || field === 'y') next[field] = value;
+	else {
+		const key = field.startsWith('in') ? 'in' : 'out';
+		const axis = field.endsWith('X') ? 'x' : 'y';
+		next[key] = { ...(next[key] ?? { x: 0, y: 0 }), [axis]: value };
+	}
+	return setPathPoints(
+		config,
+		path.curve.points.map((p, i) => (i === index ? next : p)),
+	);
+}
+
+/**
+ * Insert an anchor after `index`: halfway to the next one (a closed curve wraps), or — after the
+ * last anchor of an open curve — the last segment's length again past it.
+ */
+export function insertPathPoint(config: EmitterConfigV3, index: number): EmitterConfigV3 {
+	const path = pathOf(config);
+	if (!path) return config;
+	const pts = path.curve.points;
+	const i = Math.max(0, Math.min(index, pts.length - 1));
+	const a = pts[i];
+	let point: FxPathPoint;
+	if (i + 1 < pts.length || path.curve.closed) {
+		const b = pts[(i + 1) % pts.length];
+		point = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+	} else {
+		const prev = pts[pts.length - 2];
+		point = { x: a.x + (a.x - prev.x), y: a.y + (a.y - prev.y) };
+	}
+	return insertPathPointAt(config, i + 1, point);
+}
+
+/** Insert `point` as anchor `at` (the stage's double-click on the curve). */
+export function insertPathPointAt(
+	config: EmitterConfigV3,
+	at: number,
+	point: FxPathPoint,
+): EmitterConfigV3 {
+	const path = pathOf(config);
+	if (!path) return config;
+	const pts = [...path.curve.points];
+	pts.splice(Math.max(0, Math.min(at, pts.length)), 0, point);
+	return setPathPoints(config, pts);
+}
+
+/** Remove anchor `index` (a curve keeps at least two). */
+export function removePathPoint(config: EmitterConfigV3, index: number): EmitterConfigV3 {
+	const path = pathOf(config);
+	if (!path || path.curve.points.length <= 2) return config;
+	return setPathPoints(
+		config,
+		path.curve.points.filter((_, i) => i !== index),
 	);
 }
 

@@ -71,12 +71,15 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
-- **Particles on paths** (2026-11-16, being built) — spawn along a line / spline / Bézier,
-  move the emitter along it, or have particles follow it; one `fxPath` behaviour in the layer
-  config, off by default. Plan and its three PRs: [design/fx-paths](../design/fx-paths.md).
-  Open for step 3: the path clock lives on the emitter, so two `fxPath` entries on one layer
-  would each advance it (the pass runs 2× fast) — keep authoring to one path per layer, or key the
-  clock per entry.
+- **Owner pass over particles on paths** (2026-11-16) — in `/fx`: Spawn → Path on a layer, drag
+  its points and handles on the stage, try Even / Random / Sweep; Movement → Follow path with
+  Orient; a Circle spawn with *Move the emitter along a path*; a material layer (a 3D coin) on a
+  path. Save → reopen, then place it in a game and watch it with Turbo. Gated headlessly (the
+  runtime and the real page); not yet clicked in an authed `/fx` or watched in a published game.
+  Next (design §6, not built): a path made of rig bones, a Flow-supplied end point, editing the
+  path per placement in the Scene Editor.
+  One path per layer: `/fx` only ever writes one `fxPath` entry (`setPath` edits the first), so
+  the shared clock never advances twice; a hand-edited doc with two still runs its pass 2× fast.
 - **Re-bake Overlay Buffalo Duel's mixed effects** (2026-11-02) — `s_sparks_small` and
   `s_sparks_big` mix Normal and Add, so their stored bakes now read **Stale** and play live (in a
   game, once this runtime ships, even before a re-publish). In `/fx`: open each, **Bake again**,
@@ -177,6 +180,18 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-16 — **Particles on paths: authoring in `/fx`** (branch `claude/fx-paths-authoring`,
+  design [fx-paths](../design/fx-paths.md) step 3). Spawn kind **Path** (distribution, jitter,
+  direction relative to the path), **Move the emitter along a path** for every other kind, a
+  **Path** section (curve kind, closed, tension, travel time / repeat / easing, a points table)
+  and Movement **Follow path** (pace, speed, slowest, end, orient). `fxModel.client.ts`: `pathOf`,
+  `setPath` (re-clamped through `readFxPath`; a path nothing uses is removed), `setPathTravel`,
+  the point helpers, and `setSpawnKind('path')` / `setMovementModel('follow')` keeping one spawn
+  and one movement behaviour. `FxStage` draws the selected layer's path as an SVG over the canvas
+  (points, Bézier handles), drags them with a live preview (the behaviour swapped, no reset) and
+  writes the doc on release; double-click adds a point, Alt-click removes, Shift snaps 15°.
+  Gate: `fx-spike` `fx-path-page` (in `check:all`) — the real page with real pointer input,
+  14/14. Guide: [tools/fx](../tools/fx.md).
 - 2026-11-16 — **Particles on paths: hardening before authoring** (branch `fx/path-hardening`,
   the review follow-ups of the runtime PR). `engine-fx/src/path.ts`: `readFxPath` keeps at most
   `FX_PATH_MAX_POINTS` (256) anchors — `init` rebuilds the arc-length table on every re-fire, and

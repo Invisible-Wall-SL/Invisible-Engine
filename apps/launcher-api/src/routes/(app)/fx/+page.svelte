@@ -101,6 +101,13 @@
 		setForceField,
 		setGravity,
 		setMovementModel,
+		setPath,
+		setPathPointField,
+		setPathPoints,
+		setPathTravel,
+		insertPathPoint,
+		removePathPoint,
+		pathOf,
 		setParticleColor,
 		setParticleKind,
 		setPlacementBone,
@@ -1005,6 +1012,11 @@
 	const emission = $derived(config ? emissionArc(config) : undefined);
 	const spin = $derived(config ? particleSpin(config) : undefined);
 	const moveModel = $derived<MovementModel>(config ? movementModel(config) : 'speed');
+	const path = $derived(config ? pathOf(config) : undefined);
+	const pathTimed = $derived(
+		!!path &&
+			(path.emit === 'travel' || (path.emit === 'along' && path.along.distribution === 'sweep')),
+	);
 	const grav = $derived(config ? gravity(config) : undefined);
 	const forces = $derived(config ? forcesOf(config) : []);
 	const tint = $derived(config ? particleColor(config) : undefined);
@@ -1392,6 +1404,45 @@
 {/snippet}
 
 <!-- An on/off switch that writes a value (not one that adds or removes a behaviour), with ⚡. -->
+{#snippet pathNum(index: number, field: 'x' | 'y', value: number)}
+	<td>
+		<input
+			type="number"
+			step="1"
+			value={Math.round(value * 100) / 100}
+			onchange={(e) =>
+				config &&
+				patchConfig(
+					setPathPointField(
+						config,
+						index,
+						field,
+						Number((e.currentTarget as HTMLInputElement).value),
+					),
+				)}
+		/>
+	</td>
+{/snippet}
+
+{#snippet pathHandle(index: number, field: 'inX' | 'inY' | 'outX' | 'outY', value: number)}
+	<input
+		type="number"
+		step="1"
+		title={field}
+		value={Math.round(value * 100) / 100}
+		onchange={(e) =>
+			config &&
+			patchConfig(
+				setPathPointField(
+					config,
+					index,
+					field,
+					Number((e.currentTarget as HTMLInputElement).value),
+				),
+			)}
+	/>
+{/snippet}
+
 {#snippet toggle(
 	label: string,
 	text: string,
@@ -1906,6 +1957,8 @@
 					paramValues={previewValues}
 					onMaterialStats={(stats) => (materialStats = stats)}
 					onCost={(cost) => (stageCost = cost)}
+					pathLayer={path ? selectedKey : null}
+					onPathPoints={(points) => config && patchConfig(setPathPoints(config, points))}
 				/>
 			</div>
 			<FxCostPanel
@@ -2556,9 +2609,58 @@
 							<option value="ring">Ring</option>
 							<option value="rectangle">Rectangle</option>
 							<option value="burst">Burst (ring)</option>
+							<option value="path">Path</option>
 						</select>
 					</label>
-					{#if spawnSel === 'burst' && brst}
+					{#if spawnSel === 'path' && path}
+						<label class="row">
+							<span>Distribution</span>
+							<select
+								value={path.along.distribution}
+								onchange={(e) =>
+									patchConfig(
+										setPath(config, (p) => {
+											p.along.distribution = (e.currentTarget as HTMLSelectElement)
+												.value as typeof p.along.distribution;
+										}),
+									)}
+							>
+								<option value="even">Even</option>
+								<option value="random">Random</option>
+								<option value="sweep">Sweep start → end</option>
+							</select>
+						</label>
+						{@render slider('Jitter (px)', path.along.jitter, 0, 200, 1, (v) =>
+							patchConfig(
+								setPath(config, (p) => {
+									p.along.jitter = v;
+								}),
+							),
+						)}
+						<label class="row">
+							<span>Direction</span>
+							<select
+								value={path.along.direction}
+								onchange={(e) =>
+									patchConfig(
+										setPath(config, (p) => {
+											p.along.direction = (e.currentTarget as HTMLSelectElement)
+												.value as typeof p.along.direction;
+										}),
+									)}
+							>
+								<option value="free">As set below</option>
+								<option value="tangent">Along the path</option>
+								<option value="normal">Out of the path</option>
+							</select>
+						</label>
+						<InfoTip label="Path spawn" alignEnd>
+							Particles are born on the path (drawn in the Path section and on the stage). Even
+							spaces a wave equally along it, Random picks anywhere, Sweep walks from start to end
+							over the Travel time. Jitter scatters them off the line. Along / Out of the path make
+							the Direction below relative to the path where each one is born.
+						</InfoTip>
+					{:else if spawnSel === 'burst' && brst}
 						{@render slider('Spacing (°)', brst.spacing, 0, 180, 1, (v) =>
 							patchConfig(setBurst(config, 'spacing', v)),
 						)}
@@ -2599,7 +2701,157 @@
 					{:else}
 						<p class="hint">This config has no spawn shape — pick one to add it.</p>
 					{/if}
+					{#if spawnSel !== 'path'}
+						{@render toggle(
+							'Move along a path',
+							'Move the emitter along a path',
+							path?.emit === 'travel',
+							(on) => patchConfig(setPathTravel(config, on)),
+							true,
+						)}
+					{/if}
 				</section>
+
+				{#if path}
+					<section>
+						<div class="grouphead">
+							<h3>Path</h3>
+							<InfoTip label="Path">
+								The curve this layer's particles spawn along, travel along or follow, in px from the
+								emitter origin. Drag its points (and Bézier handles) on the stage; double-click the
+								curve to add a point, Alt-click a point to remove it, hold Shift to snap to 15°.
+							</InfoTip>
+						</div>
+						<label class="row">
+							<span>Curve</span>
+							<select
+								value={path.curve.kind}
+								onchange={(e) =>
+									patchConfig(
+										setPath(config, (p) => {
+											p.curve.kind = (e.currentTarget as HTMLSelectElement)
+												.value as typeof p.curve.kind;
+										}),
+									)}
+							>
+								<option value="polyline">Line</option>
+								<option value="catmullRom">Spline</option>
+								<option value="bezier">Bézier</option>
+							</select>
+						</label>
+						{@render toggle(
+							'Closed',
+							'Closed (the end joins the start)',
+							path.curve.closed,
+							(on) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.curve.closed = on;
+									}),
+								),
+							true,
+						)}
+						{#if path.curve.kind === 'catmullRom'}
+							{@render slider('Tension', path.curve.tension, 0, 1, 0.05, (v) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.curve.tension = v;
+									}),
+								),
+							)}
+						{/if}
+						{#if pathTimed}
+							{@render slider('Travel time (s)', path.travel.duration, 0.05, 20, 0.05, (v) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.travel.duration = v;
+									}),
+								),
+							)}
+							<label class="row">
+								<span>Repeat</span>
+								<select
+									value={path.travel.repeat}
+									onchange={(e) =>
+										patchConfig(
+											setPath(config, (p) => {
+												p.travel.repeat = (e.currentTarget as HTMLSelectElement)
+													.value as typeof p.travel.repeat;
+											}),
+										)}
+								>
+									<option value="loop">Loop</option>
+									<option value="pingpong">Ping-pong</option>
+									<option value="once">Once</option>
+								</select>
+							</label>
+							<label class="row">
+								<span>Easing</span>
+								<select
+									value={path.travel.ease}
+									onchange={(e) =>
+										patchConfig(
+											setPath(config, (p) => {
+												p.travel.ease = (e.currentTarget as HTMLSelectElement)
+													.value as typeof p.travel.ease;
+											}),
+										)}
+								>
+									<option value="linear">Linear</option>
+									<option value="in">Ease in</option>
+									<option value="out">Ease out</option>
+									<option value="inOut">Ease in-out</option>
+								</select>
+							</label>
+						{/if}
+						<table class="pathpoints">
+							<thead>
+								<tr>
+									<th>#</th>
+									<th>X</th>
+									<th>Y</th>
+									{#if path.curve.kind === 'bezier'}
+										<th title="Incoming handle, relative to the point">In</th>
+										<th title="Outgoing handle, relative to the point">Out</th>
+									{/if}
+									<th></th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each path.curve.points as point, pi (pi)}
+									<tr>
+										<td>{pi + 1}</td>
+										{@render pathNum(pi, 'x', point.x)}
+										{@render pathNum(pi, 'y', point.y)}
+										{#if path.curve.kind === 'bezier'}
+											<td class="pair">
+												{@render pathHandle(pi, 'inX', point.in?.x ?? 0)}
+												{@render pathHandle(pi, 'inY', point.in?.y ?? 0)}
+											</td>
+											<td class="pair">
+												{@render pathHandle(pi, 'outX', point.out?.x ?? 0)}
+												{@render pathHandle(pi, 'outY', point.out?.y ?? 0)}
+											</td>
+										{/if}
+										<td class="acts">
+											<button
+												class="ico"
+												title="Add a point after this one"
+												onclick={() => patchConfig(insertPathPoint(config, pi))}>+</button
+											>
+											<button
+												class="ico del"
+												title="Remove this point"
+												disabled={path.curve.points.length <= 2}
+												onclick={() => patchConfig(removePathPoint(config, pi))}>✕</button
+											>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</section>
+				{/if}
 
 				<section>
 					<div class="grouphead">
@@ -2715,6 +2967,7 @@
 						>
 							<option value="speed">Eased speed</option>
 							<option value="gravity">Acceleration (launch + constant pull)</option>
+							<option value="follow">Follow path</option>
 						</select>
 					</label>
 					{#if moveModel === 'speed' && speedRange}
@@ -2788,6 +3041,74 @@
 							Particles launch along the Emission direction at the start speed, then accelerate by
 							this constant pull (positive Y pulls down). Up-direction + downward pull = a fountain.
 							For a gravity you can angle and use in either model, add one under Forces.
+						</InfoTip>
+					{:else if moveModel === 'follow' && path}
+						<label class="row">
+							<span>Pace</span>
+							<select
+								value={path.follow.by}
+								onchange={(e) =>
+									patchConfig(
+										setPath(config, (p) => {
+											p.follow.by = (e.currentTarget as HTMLSelectElement)
+												.value as typeof p.follow.by;
+										}),
+									)}
+							>
+								<option value="life">Reach the end at death</option>
+								<option value="speed">Speed</option>
+							</select>
+						</label>
+						{#if path.follow.by === 'speed'}
+							{@render slider('Speed (px/s)', path.follow.speed, 0, 3000, 5, (v) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.follow.speed = v;
+									}),
+								),
+							)}
+							{@render slider('Slowest (× speed)', path.follow.speedMin, 0, 1, 0.05, (v) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.follow.speedMin = v;
+									}),
+								),
+							)}
+							<label class="row">
+								<span>At the end</span>
+								<select
+									value={path.follow.end}
+									onchange={(e) =>
+										patchConfig(
+											setPath(config, (p) => {
+												p.follow.end = (e.currentTarget as HTMLSelectElement)
+													.value as typeof p.follow.end;
+											}),
+										)}
+								>
+									<option value="stop">Stop there</option>
+									<option value="loop">Start again</option>
+									<option value="die">Die</option>
+								</select>
+							</label>
+						{/if}
+						{@render toggle(
+							'Orient to path',
+							'Turn each particle to the path',
+							path.follow.orient,
+							(on) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.follow.orient = on;
+									}),
+								),
+							true,
+						)}
+						<InfoTip label="Follow path" alignEnd>
+							Each particle flies along the path (edit it in the Path section) instead of a launch
+							direction: from where it was born when that is on the path, else from the path's first
+							point. Forces still push it off the line. Orient turns it to the path every frame (a
+							Spin then only nudges it).
 						</InfoTip>
 					{/if}
 				</section>
@@ -3602,6 +3923,34 @@
 	}
 	.force.off {
 		opacity: 0.55;
+	}
+	.pathpoints {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 11px;
+		color: #cbd5e1;
+		margin-top: 6px;
+	}
+	.pathpoints th {
+		font-weight: 500;
+		color: #64748b;
+		text-align: left;
+		padding: 2px;
+	}
+	.pathpoints td {
+		padding: 2px;
+	}
+	.pathpoints input {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+	}
+	.pathpoints .pair {
+		display: flex;
+		gap: 2px;
+	}
+	.pathpoints .acts {
+		white-space: nowrap;
 	}
 	.force .grouphead strong {
 		flex: 1;

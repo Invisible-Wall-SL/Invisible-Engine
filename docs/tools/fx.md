@@ -323,6 +323,23 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
   (outer + inner radius), **Rectangle** (width/height), or **Burst (ring)** — an even fan,
   one particle every *Spacing°* from a *Start angle*, spawned *Distance* px out. Burst
   owns the launch direction, so the Direction controls step aside while it's selected.
+  **Path** — particles are born on the layer's path (see **Path** below): **Distribution**
+  *Even* (a wave spaced equally along it; one particle at a time is spread evenly over the
+  path), *Random*, or *Sweep start → end* (walks the path over the Travel time); **Jitter (px)**
+  scatters them off the line; **Direction** *Along the path* / *Out of the path* makes the
+  Direction below relative to the path where each particle is born (0° = along it).
+  With any other kind, **Move the emitter along a path** moves the whole emitter — its spawn
+  shape included — along the path, so a trail or a burst follows the curve.
+- **Path** (shown when the layer uses a path) — **Curve** *Line*, *Spline* (passes through every
+  point; **Tension** 1 = straight) or *Bézier* (each point has an In and an Out handle),
+  **Closed** (the end joins the start), and, when the path is swept or travelled, **Travel time
+  (s)**, **Repeat** (*Loop*, *Ping-pong*, *Once*) and **Easing**. The points table edits each
+  point (X, Y in px from the emitter origin; the Bézier handles relative to their point), **+**
+  adds one after it, **✕** removes one (a path keeps two). **On the stage** the selected layer's
+  path is drawn dashed: drag a point (the first is amber) or a handle; double-click the curve to
+  add a point there; Alt-click a point to remove it; hold Shift while dragging to snap to 15°.
+  Turbo plays a path's travel faster in the game, like everything else; a *Once* travel starts
+  again each time the layer's trigger fires.
 - **Direction & rotation** — **Direction (°)** and **Spread (±°)** set the launch arc
   (0° = right, 90° = down, 180° = left, 270° = up — screen y grows downward; spread 180° =
   every direction, and each particle picks an angle inside Direction ± Spread). **Spin
@@ -338,7 +355,12 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
   direction) or **Acceleration (launch + constant pull)** (**Start speed min/max**,
   **Acceleration X/Y** — positive Y pulls down — a **Max speed** cap, and *Rotate particle to
   its travel direction*). Up-direction (270°) + a downward pull = a fountain. Effects saved
-  before this label change are unchanged: it is the same setting.
+  before this label change are unchanged: it is the same setting. Or **Follow path**: each
+  particle flies along the path instead of a launch direction — **Pace** *Reach the end at
+  death* or *Speed* (**Speed (px/s)**, **Slowest (× speed)** for per-particle variety, and **At
+  the end** *Stop there* / *Start again* / *Die*) — and **Turn each particle to the path**
+  (a Spin then only nudges it). A particle born on the path follows it from there; one born
+  elsewhere follows a copy of the path starting from where it was born. Forces still push it.
 - **Forces** — a stack of forces that act on the particles **on top of** the Movement above,
   in either model. Pick one from **Add a force…**; each entry has an **On** switch (off keeps
   its numbers but stops it pushing) and **✕** to remove it. Add as many as you like, of any
@@ -632,7 +654,7 @@ mere save.
   the LayoutDoc `gameType` via `resolveEmitterVocabulary`, the same source `/flow` uses, so
   the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
   is the authoring shell (sub-bar, Layers panel with the stack ops, Inspector with Layer /
-  Particle / Art / Material / Sprite / Placement / Trigger / Emitter / Spawn / Direction &amp;
+  Particle / Art / Material / Sprite / Placement / Trigger / Emitter / Spawn / Path / Direction &amp;
   rotation / Alpha / Scale / Movement / Forces / Colour / Blend sections, and the Backdrop bar
   above the canvas).
   `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
@@ -683,6 +705,13 @@ mere save.
   it from `$lib/fx/effectEmitter.client.ts`, which every one of them imports. A config only
   carries these types while the author has that toggle on, so an effect that doesn't use them
   stays 100% stock library config.
+- **Paths:** `packages/engine-fx/src/path.ts` — the `fxPath` behavior (design
+  [fx-paths](../design/fx-paths.md)): one curve per layer used to spawn along, travel or follow.
+  `readFxPath` is the clamp the behavior and the inspector (`pathOf` / `setPath` and the point
+  helpers in `fxModel.client.ts`) read; `registerFxBehaviors` also installs the tick hook that
+  keeps its clock. `FxStage`'s `pathLayer` / `onPathPoints` draw and edit it (an SVG over the
+  canvas; a drag previews by swapping the live behavior and writes the doc on release). Gates:
+  `pnpm check:fx-path` (runtime) and `fx-spike` `fx-path-page` (the real page).
 - **Forces:** `packages/engine-fx/src/forces.ts` — one more custom behavior, `fxForces`, whose
   config is the force stack (`{ forces: FxForce[] }`). `readFxForces` is the single clamp the
   behavior and the inspector (`forcesOf` / `addForce` / `removeForce` / `setForceField` in
