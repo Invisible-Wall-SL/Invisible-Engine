@@ -3,7 +3,8 @@
 // the room picks a random level and the page makes it from the seed the room's state carries. It
 // checks: the page made the level the room's seed makes in Node (`generatedOnlineGame`, the server's
 // own function), drew it in the original art (one rock and whirlpool per generated one, a waterfall
-// face per waterfall, sand), the own salmon swims upstream on ArrowUp, and no page error. It prints
+// face per waterfall, sand), the own salmon swims upstream on ArrowUp (tapping Space off the delta's
+// sand), and no page error. It prints
 // how long the art took and the page's JS heap, since the original's river is about 2.7× longer and
 // 3.8× wider than P10.16's. A second config pins one seed, and its room must play it.
 //
@@ -168,9 +169,9 @@ async function boot(profile, extra) {
 	const key = (name, type) =>
 		page.page('Input.dispatchKeyEvent', {
 			type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-			key: name,
+			key: { Space: ' ' }[name] ?? name,
 			code: name,
-			windowsVirtualKeyCode: { ArrowUp: 38 }[name],
+			windowsVirtualKeyCode: { ArrowUp: 38, Space: 32 }[name],
 		});
 	return { page, state, settle, key, artMs };
 }
@@ -225,11 +226,20 @@ try {
 	await a.key('ArrowUp', 'down');
 	const t0 = Date.now();
 	const f0 = (await a.state()).frame;
-	await a.settle(6000);
+	// Tapping Space as it swims: a delta sand island grounds a salmon until it jumps.
+	for (let i = 0; i < 12; i++) {
+		await a.key('Space', 'down');
+		await a.settle(250);
+		await a.key('Space', 'up');
+		await a.settle(250);
+	}
 	result.measures.fps = Math.round((((await a.state()).frame - f0) * 1000) / (Date.now() - t0));
 	await a.key('ArrowUp', 'up');
 	const after = await yOf();
-	verdict('ArrowUp swims the salmon upstream', after < before - 100, { before, after });
+	verdict('ArrowUp (and Space off the sand) swims the salmon upstream', after < before - 100, {
+		before,
+		after,
+	});
 	writeFileSync(join(out, 'level.png'), await a.page.screenshot());
 	const errors = await a.page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error', errors.length === 0, errors);

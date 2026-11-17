@@ -4,12 +4,13 @@
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import { untrack } from 'svelte';
 	import {
 		MAX_SEED,
 		addPiece,
 		canGenerate,
 		dropEntry,
-		loadLevels,
+		loadConfig,
 		regenerate,
 		removeGenerated,
 		saveLevels,
@@ -17,6 +18,7 @@
 		validSeed,
 		type GeneratedNode,
 		type LevelOrphan,
+		type LoadedConfig,
 		type OverlayScope,
 	} from '$lib/editor/generatedLevel';
 
@@ -30,19 +32,19 @@
 		scene: Scene;
 		node: GeneratedNode;
 		projectKey: string;
-		/** The node was redrawn. A preview, so the screen is not marked changed. */
-		onRedraw: () => void;
+		/** The node was redrawn: an edit of the screen (its seed and drawing are saved with it). */
+		onChange: () => void;
 	};
-	const { scene, node, projectKey, onRedraw }: Props = $props();
+	const { scene, node, projectKey, onChange }: Props = $props();
 
+	let config = $state<LoadedConfig | undefined>(undefined);
 	let levels = $state<ArcadeOnlineLevels | undefined>(undefined);
-	let loaded = $state(false);
 	let status = $state('');
 	let error = $state('');
 	let dirty = $state(false);
 	let orphans = $state<LevelOrphan[]>([]);
-	let seedText = $state<number>(node.generated.seed);
-	let scope = $state<OverlayScope>(String(node.generated.seed));
+	let seedText = $state<number | null>(null);
+	let scope = $state<OverlayScope>('');
 	let kind = $state<LevelOverlayKind>('rock');
 	let gx = $state(0);
 	let gy = $state(0);
@@ -50,36 +52,46 @@
 
 	const usable = $derived(canGenerate(node));
 	const seed = $derived(node.generated.seed);
+	const loaded = $derived(config !== undefined);
 	const pinned = $derived(levels?.seeds ?? []);
 	const overlay = $derived(levels?.overlays?.[scope]);
 
+	// Follow the node's seed (an undo, another screen's node): the field and the overlay shown.
+	$effect.pre(() => {
+		const current = seed;
+		untrack(() => {
+			seedText = current;
+			if (scope !== '*') scope = String(current);
+		});
+	});
+
+	/** Redraw the node as `next` makes it; an edit only when the drawing changed. */
 	function show(next: number): void {
 		if (!validSeed(next) || !usable) return;
+		const before = JSON.stringify([node.generated, node.children]);
 		orphans = regenerate(scene, node, next, levels);
-		seedText = next;
-		if (scope !== '*') scope = String(next);
-		onRedraw();
+		if (JSON.stringify([node.generated, node.children]) !== before) onChange();
 	}
 
 	async function load(): Promise<void> {
 		error = '';
 		try {
-			levels = (await loadLevels(projectKey)).levels;
-			loaded = true;
+			config = await loadConfig(projectKey);
+			levels = config.levels;
 			show(seed);
 		} catch (e) {
 			error = `Could not read the config's levels: ${e instanceof Error ? e.message : String(e)}`;
 		}
 	}
 	$effect(() => {
-		if (projectKey && usable && !loaded) void load();
+		if (projectKey && usable && !untrack(() => loaded)) void load();
 	});
 
 	function step(by: number): void {
 		const list = pinned;
 		if (!list.length) return;
 		const at = list.indexOf(seed);
-		show(list[(at + by + list.length) % list.length]);
+		show(at < 0 ? list[by > 0 ? 0 : list.length - 1] : list[(at + by + list.length) % list.length]);
 	}
 
 	function edit(next: ArcadeOnlineLevels): void {
@@ -90,11 +102,12 @@
 	}
 
 	async function save(): Promise<void> {
-		if (!levels) levels = {};
+		if (!config) return;
 		error = '';
 		status = 'Saving…';
 		try {
-			await saveLevels(projectKey, levels);
+			config = await saveLevels(projectKey, config, levels ?? {});
+			levels = config.levels;
 			dirty = false;
 			status = 'Saved to the Game Config';
 		} catch (e) {
@@ -113,7 +126,8 @@
 		so the stage shows exactly the level a room with that seed plays. It is read-only: what you add or
 		remove goes in the Game Config's level overlays, laid on top of the generated level in every room
 		and here, and kept when you pick another seed. Cells are the generator's grid: gx down the river from
-		the source, gy across it.
+		the source, gy across it. A waterfall is a whole column: removing, re-heighting or adding one acts
+		on the column of its cell. A seed's own removals cannot take away an every-level addition.
 	{/snippet}
 	{#if !usable}
 		<p class="warn">No generator called "{node.generated.generator}" is known to the editor.</p>
@@ -127,7 +141,9 @@
 					max={MAX_SEED}
 					step="1"
 					bind:value={seedText}
-					onchange={() => show(Number(seedText))}
+					onchange={() => {
+						if (seedText !== null) show(seedText);
+					}}
 				/>
 			</label>
 			<button

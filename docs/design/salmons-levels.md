@@ -73,6 +73,9 @@ and hashes recorded from the original repository with the real `seedrandom`; the
 original's water; a room, a device and `/editor` make the same level for a seed; an overlay adds,
 removes and re-heights; a reseed reports orphans and leaves the overlay unchanged; pinned seeds
 cycle; Game Config keeps only valid level entries; a salmon swims a whole original level and wins.
+`scripts/playtest/salmons-levels-play.mjs` plays it in a browser. Cost (2026-11-17, container): a
+level is about 730 zones (P10.16's river: 71); a room step with 80 players takes 0.37 ms (0.04), about
+1% of a core at 30 Hz; a device's art loads in about 4 s at about 135 MB of JS heap.
 
 ## 3. Left open
 
@@ -82,6 +85,10 @@ cycle; Game Config keeps only valid level entries; a salmon swims a whole origin
   with the existing screen and Flow patterns. Its own PR, after this one. Salmons pins no seed:
   every room is random, as the owner asked; the pinned list stays an option for other games.
 
+- A device makes its level from the config baked in its bundle; the server from the published one.
+  After a republish that changes `levels`, a device on the old bundle can draw a level the server
+  does not play until it reloads (the same drift as any config field, but levels are meant to change
+  often). A levels hash in the room state, refused or reloaded on a mismatch, would close it.
 - Bridges: generated, not drawn (no bridge art is built) and not in the rules (a bear blocked, a
   fisherman on the deck).
 - Waterfall `height` is carried, but the climb still takes the engine's 4 taps.

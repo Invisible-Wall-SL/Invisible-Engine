@@ -4199,8 +4199,9 @@
 											scene={activeScene}
 											node={generatedNode}
 											projectKey={loadedProjectKey}
-											onRedraw={() => {
+											onChange={() => {
 												scenes = [...scenes];
+												markDirty();
 											}}
 										/>
 									{/key}

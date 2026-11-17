@@ -90,7 +90,8 @@ export function meanderAt(table, u) {
 /**
  * The original's `generateMap(seed)`: `obstacles` (`{ x: gx, y: gy, z: 0, type, height? }`, type
  * `waterfall` | `rock` | `whirlpool` | `sandbank`) and `bridges` (`{ gx, gyStart, gyEnd, height }`),
- * in the original's order. A number seed is used as its decimal string.
+ * in the original's order. A number seed is used as its decimal string, so `7` is the original's
+ * `'7'` (the original's own rooms used base-36 strings, which a uint32 room seed cannot name).
  */
 export function generateSalmonsMap(seed) {
 	const key = String(seed);
@@ -203,32 +204,36 @@ export function inRiver(meander, gx, gy) {
 }
 
 /**
- * `map` with an authored overlay on top: `remove` first (every piece on each named cell), then `set`
- * (a waterfall cell's `height`), then `add` (a piece on a cell of the water). A cell the base no
- * longer has (nothing there to remove or re-height, or an addition outside this seed's water) is
- * not applied and comes back in `orphans`, so a reseed never drops an authored piece silently. The
- * overlay itself is never changed.
+ * `map` with an authored overlay on top: `remove` first, then `set`, then `add`. A waterfall is a
+ * whole column, as the original generates it and the engine draws and plays it, so a waterfall
+ * entry acts on the column of its cell: `remove` on a waterfall cell takes the column's waterfall
+ * away, `set` re-heights the column's, and `add` of a waterfall lays one across the river at that
+ * column. Any other entry acts on its one cell. An entry the level has no place for (nothing to
+ * remove or re-height, an addition outside this seed's water) is not applied and comes back in
+ * `orphans`, so a reseed never drops an authored piece silently. The overlay is never changed.
  */
 export function applySalmonsOverlay(map, overlay, seed) {
 	const orphans = [];
 	if (!overlay) return { map, orphans };
-	const meander = buildMeanderTable(String(seed));
-	const at = (o) => `${o.x},${o.y}`;
-	const removed = new Set((overlay.remove ?? []).map(([gx, gy]) => `${gx},${gy}`));
-	const present = new Set(map.obstacles.map(at));
-	for (const [gx, gy] of overlay.remove ?? [])
-		if (!present.has(`${gx},${gy}`)) orphans.push({ op: 'remove', cell: [gx, gy] });
-	let obstacles = map.obstacles.filter((o) => !removed.has(at(o)));
-	for (const s of overlay.set ?? []) {
-		const [gx, gy] = s.cell;
-		const hit = obstacles.some((o) => o.x === gx && o.y === gy && o.type === 'waterfall');
-		if (!hit) {
+	const key = String(seed);
+	const meander = buildMeanderTable(key);
+	const isFallAt = (gx, gy) => (o) => o.type === 'waterfall' && o.x === gx && o.y === gy;
+	let obstacles = map.obstacles;
+	for (const [gx, gy] of overlay.remove ?? []) {
+		const fall = obstacles.some(isFallAt(gx, gy));
+		const next = obstacles.filter((o) =>
+			fall && o.type === 'waterfall' ? o.x !== gx : !(o.x === gx && o.y === gy),
+		);
+		if (next.length === obstacles.length) orphans.push({ op: 'remove', cell: [gx, gy] });
+		obstacles = next;
+	}
+	for (const { cell, height } of overlay.set ?? []) {
+		const [gx, gy] = cell;
+		if (!obstacles.some(isFallAt(gx, gy))) {
 			orphans.push({ op: 'set', cell: [gx, gy] });
 			continue;
 		}
-		obstacles = obstacles.map((o) =>
-			o.x === gx && o.y === gy && o.type === 'waterfall' ? { ...o, height: s.height } : o,
-		);
+		obstacles = obstacles.map((o) => (o.type === 'waterfall' && o.x === gx ? { ...o, height } : o));
 	}
 	for (const a of overlay.add ?? []) {
 		const [gx, gy] = a.cell;
@@ -236,9 +241,20 @@ export function applySalmonsOverlay(map, overlay, seed) {
 			orphans.push({ op: 'add', cell: [gx, gy], kind: a.kind });
 			continue;
 		}
-		const piece = { x: gx, y: gy, z: 0, type: a.kind };
-		if (a.kind === 'waterfall') piece.height = a.height ?? C.WATERFALL_HEIGHT_MIN;
-		obstacles = obstacles.filter((o) => !(o.x === gx && o.y === gy)).concat(piece);
+		if (a.kind === 'waterfall') {
+			const halfW = riverHalfWidth(gx);
+			const centre = Math.round(meanderAt(meander, gx));
+			const height = a.height ?? C.WATERFALL_HEIGHT_MIN;
+			obstacles = obstacles.filter((o) => !(o.x === gx && (o.type === 'waterfall' || o.y === gy)));
+			const fall = [];
+			for (let i = 0; i <= 2 * halfW; i++)
+				fall.push({ x: gx, y: centre + halfW - i, z: 0, type: 'waterfall', height });
+			obstacles = obstacles.concat(fall);
+			continue;
+		}
+		obstacles = obstacles
+			.filter((o) => !(o.x === gx && o.y === gy))
+			.concat({ x: gx, y: gy, z: 0, type: a.kind });
 	}
 	return { map: { obstacles, bridges: map.bridges }, orphans };
 }

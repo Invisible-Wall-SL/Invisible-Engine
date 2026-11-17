@@ -23,6 +23,7 @@ import {
 	generateSalmonsMap,
 	inRiver,
 	levelOverlay,
+	riverHalfWidth,
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
@@ -185,6 +186,39 @@ check('an overlay adds, removes and re-heights on top of the generated level', (
 	assert.equal(over.whirlpools.length, plain.whirlpools.length + 1);
 });
 
+check('a waterfall is a whole column: remove, re-height and add act on its column', () => {
+	const base = generateSalmonsMap('5');
+	const fall = base.obstacles.find((o) => o.type === 'waterfall');
+	const column = (map) => map.obstacles.filter((o) => o.type === 'waterfall' && o.x === fall.x);
+	const plain = salmonsMapRiver(5);
+	const gone = applySalmonsOverlay(base, { remove: [[fall.x, fall.y]] }, '5');
+	assert.deepEqual(gone.orphans, []);
+	assert.equal(column(gone.map).length, 0, 'one cell removes the column');
+	assert.equal(
+		salmonsMapRiver(5, { remove: [[fall.x, fall.y]] }).waterfalls.length,
+		plain.waterfalls.length - 1,
+	);
+	const low = applySalmonsOverlay(base, { set: [{ cell: [fall.x, fall.y], height: 1 }] }, '5');
+	assert.ok(
+		column(low.map).every((o) => o.height === 1),
+		'one cell re-heights the column',
+	);
+	const gx = 150;
+	const added = applySalmonsOverlay(
+		base,
+		{ add: [{ cell: [gx, water(gx)], kind: 'waterfall', height: 3 }] },
+		'5',
+	);
+	const across = added.map.obstacles.filter((o) => o.type === 'waterfall' && o.x === gx);
+	assert.equal(across.length, 2 * riverHalfWidth(gx) + 1, 'an added waterfall crosses the river');
+	assert.ok(across.every((o) => o.height === 3));
+	const river = salmonsMapRiver(5, {
+		add: [{ cell: [gx, water(gx)], kind: 'waterfall', height: 3 }],
+	});
+	assert.equal(river.waterfalls.length, plain.waterfalls.length + 1);
+	assert.ok(river.waterfalls.every((f) => river.bands.some((b) => b.y === f.y + f.h / 2)));
+});
+
 check('a reseed keeps the overlay: its misses come back as orphans, the overlay unchanged', () => {
 	const overlay = deepFreeze({
 		add: [
@@ -254,6 +288,8 @@ check("Game Config keeps a level's valid entries and drops the rest", () => {
 					],
 				},
 				bad: { add: [{ cell: [1, 2], kind: 'rock' }] },
+				'007': { add: [{ cell: [1, 2], kind: 'rock' }] },
+				4294967296: { add: [{ cell: [1, 2], kind: 'rock' }] },
 				8: {},
 			},
 		}),

@@ -354,11 +354,10 @@ export function mountSalmonsRiver(
 
 	// Sand on the cell grid (the original's islands, one rect per run of a row) is tiled against its
 	// neighbouring cells, so an island reads as one; any other sandbank is tiled as its own patch.
-	const onGrid = (r: { x: number; y: number; w: number; h: number }) =>
-		[r.x, r.y, r.w, r.h].every((v) => v % CELL === 0);
+	const onGrid = !!river.grid;
 	const sandCells = new Set<string>();
 	for (const bank of river.sandbanks ?? [])
-		if (onGrid(bank))
+		if (onGrid)
 			for (let y = bank.y; y < bank.y + bank.h; y += CELL)
 				for (let x = bank.x; x < bank.x + bank.w; x += CELL) sandCells.add(`${x},${y}`);
 	const sandAt = (x: number, y: number) => sandCells.has(`${x},${y}`);
@@ -373,7 +372,7 @@ export function mountSalmonsRiver(
 		});
 	}
 	for (const bank of river.sandbanks ?? []) {
-		if (onGrid(bank)) continue;
+		if (onGrid) continue;
 		const across = Math.max(1, Math.round(bank.w / CELL));
 		const down = Math.max(1, Math.round(bank.h / CELL));
 		const w = bank.w / across;

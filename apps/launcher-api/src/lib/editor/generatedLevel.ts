@@ -138,48 +138,58 @@ export function togglePinned(
 	return normalizeLevels({ ...levels, seeds: next }) ?? {};
 }
 
-type ConfigDoc = { arcade?: { online?: { levels?: unknown } } } & Record<string, unknown>;
+export type ConfigDoc = { arcade?: { online?: { levels?: unknown } } } & Record<string, unknown>;
 
-/** The project's config's `arcade.online.levels`, and the ETag a save is conditional on. */
-export async function loadLevels(
-	projectKey: string,
-): Promise<{ levels: ArcadeOnlineLevels | undefined; etag: string | null }> {
+/** The project's config as loaded: the doc, the ETag a save is conditional on, and its levels. */
+export type LoadedConfig = {
+	doc: ConfigDoc;
+	etag: string | null;
+	levels: ArcadeOnlineLevels | undefined;
+};
+
+const NO_CONFIG = 'This project has no Game Config with an online arcade block to hold levels yet.';
+
+/** The project's config, or an error a person can act on (a project with no config has none). */
+export async function loadConfig(projectKey: string): Promise<LoadedConfig> {
 	const res = await fetch(`/api/game-config?project=${encodeURIComponent(projectKey)}`);
 	if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
-	const body = (await res.json()) as { doc: ConfigDoc; etag: string | null };
-	return { levels: normalizeLevels(body.doc.arcade?.online?.levels), etag: body.etag };
+	const body = (await res.json()) as { doc: ConfigDoc | null; etag: string | null };
+	if (!body.doc?.arcade?.online) throw new Error(NO_CONFIG);
+	return { doc: body.doc, etag: body.etag, levels: normalizeLevels(body.doc.arcade.online.levels) };
 }
 
 /**
- * Write `levels` into the project's config, conditional on the config being unchanged since it was
- * read (a fresh read, so only this one field is ours): a concurrent save answers 409, never a lost
- * update (`docs/design/multi-user-concurrency.md`). Returns the new ETag.
+ * Write `levels` into the config as it was LOADED, conditional on the ETag it was loaded with: if
+ * anyone saved the config since (another author's overlays, a `/config` edit), the write answers
+ * 409 and nothing is lost (`docs/design/multi-user-concurrency.md`). Returns the config as saved,
+ * to carry on from.
  */
 export async function saveLevels(
 	projectKey: string,
+	loaded: LoadedConfig,
 	levels: ArcadeOnlineLevels,
-): Promise<string | null> {
-	const q = `project=${encodeURIComponent(projectKey)}`;
-	const read = await fetch(`/api/game-config?${q}`);
-	if (!read.ok) throw new Error((await read.text()) || `HTTP ${read.status}`);
-	const { doc, etag } = (await read.json()) as { doc: ConfigDoc; etag: string | null };
-	const online = doc.arcade?.online;
-	if (!online) throw new Error('This project’s config has no online arcade block to hold levels.');
+): Promise<LoadedConfig> {
+	const online = loaded.doc.arcade?.online;
+	if (!online) throw new Error(NO_CONFIG);
 	const empty = !levels.seeds?.length && !Object.keys(levels.overlays ?? {}).length;
 	const nextOnline: Record<string, unknown> = { ...online };
 	if (empty) delete nextOnline.levels;
 	else nextOnline.levels = levels;
-	const next = { ...doc, arcade: { ...doc.arcade, online: nextOnline } };
-	const res = await fetch(`/api/game-config?${q}`, {
+	const doc = { ...loaded.doc, arcade: { ...loaded.doc.arcade, online: nextOnline } };
+	const res = await fetch(`/api/game-config?project=${encodeURIComponent(projectKey)}`, {
 		method: 'PUT',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ doc: next, baseEtag: etag }),
+		body: JSON.stringify({ doc, baseEtag: loaded.etag }),
 	});
 	if (res.status === 409)
-		throw new Error('Someone saved this config meanwhile — reload and retry.');
-	if (!res.ok) {
-		const text = await res.text();
-		throw new Error(text || `HTTP ${res.status}`);
-	}
-	return ((await res.json()) as { etag: string | null }).etag;
+		throw new Error(
+			'Someone saved this config since it was loaded. Reload the card to see theirs.',
+		);
+	if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+	const saved = (await res.json()) as { doc: ConfigDoc; etag: string | null };
+	return {
+		doc: saved.doc,
+		etag: saved.etag,
+		levels: normalizeLevels(saved.doc.arcade?.online?.levels),
+	};
 }
