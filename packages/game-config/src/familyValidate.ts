@@ -5,6 +5,7 @@ import {
 	ARCADE_ONLINE_BOT_DEFAULTS,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
+	ARCADE_POINTER_LIMITS,
 	ONLINE_GENERATOR_IDS,
 	ONLINE_LINE_MODULE_IDS,
 	ONLINE_RULES_MODULE_IDS,
@@ -480,6 +481,47 @@ function validateArcadeOnline(
 	}
 	issues.push(...validateOnlineRules(doc));
 	issues.push(...validateOnlineBots(doc));
+	issues.push(...validateOnlinePointer(doc));
+	return issues;
+}
+
+/** An online game's mouse and touch control: each tap names a character, and a button it uses. */
+function validateOnlinePointer(doc: GameConfigDoc): GameConfigIssue[] {
+	const online = doc.arcade?.online;
+	const pointer = online?.pointer;
+	if (!online || !pointer) return [];
+	const issues: GameConfigIssue[] = [];
+	for (const key of ['deadZone', 'tapPx'] as const) {
+		const value = pointer[key];
+		const { min, max } = ARCADE_POINTER_LIMITS[key];
+		if (value !== undefined && (value < min || value > max)) {
+			issues.push({
+				severity: 'warning',
+				path: `arcade.online.pointer.${key}`,
+				message: `${key} is ${value}; it is held to ${min}–${max}.`,
+			});
+		}
+	}
+	const abilities = online.rules?.abilities ?? [];
+	for (const [id, button] of Object.entries(pointer.taps ?? {})) {
+		const path = `arcade.online.pointer.taps.${id}`;
+		if (!online.characters.some((c) => c.id === id)) {
+			issues.push({
+				severity: 'warning',
+				path,
+				message: `No online character is "${id}", so its tap does nothing.`,
+			});
+		} else if (
+			button !== 'jump' &&
+			!abilities.some((a) => a.character === id && a.button === button)
+		) {
+			issues.push({
+				severity: 'warning',
+				path,
+				message: `"${id}" has no ability on ${button}, so its tap only steers.`,
+			});
+		}
+	}
 	return issues;
 }
 

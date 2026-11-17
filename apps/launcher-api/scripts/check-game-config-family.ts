@@ -15,7 +15,7 @@
  *     match-3 game decided each way and an arcade game: a non-slot family shows exactly its
  *     sections, and a slot project shows no family picker and no section outside the slot's. Only
  *     an arcade page shows the Characters line (its count and the link to Invisible Characters),
- *     and only an online arcade page its Online room, Online rules and Bots sections.
+ *     and only an online arcade page its Online room, Mouse and touch, Online rules and Bots sections.
  *  4. THE FAMILY GATE. Publish and the bake refuse a non-slot config, never a slot one.
  */
 
@@ -411,6 +411,34 @@ step(
 	(d) => d.arcade?.online?.spawn?.y === 3000 && !('layer' in online()) && !('nearby' in online()),
 );
 step(
+	'mouse and touch on: every default; tuned; a default value, a bad tap and off clear',
+	(d) => {
+		onlineDoc.setPointerOn(d, true);
+		onlineDoc.setPointerField(d, 'mouse', 'hover');
+		onlineDoc.setPointerField(d, 'deadZone', '72');
+		onlineDoc.setPointerField(d, 'tapPx', '12');
+		onlineDoc.setPointerTap(d, 'salmon', 'jump');
+		onlineDoc.setPointerTap(d, 'bear', 'kick');
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.online?.pointer) ===
+		JSON.stringify({ mouse: 'hover', deadZone: 72, taps: { salmon: 'jump' } }),
+);
+step(
+	'mouse and touch: the default mouse, an emptied tap, then off',
+	(d) => {
+		onlineDoc.setPointerField(d, 'mouse', 'press');
+		onlineDoc.setPointerTap(d, 'salmon', '');
+		onlineDoc.setPointerField(d, 'deadZone', '');
+	},
+	(d) => JSON.stringify(d.arcade?.online?.pointer) === '{}',
+);
+step(
+	'mouse and touch off',
+	(d) => onlineDoc.setPointerOn(d, false),
+	() => !('pointer' in online()),
+);
+step(
 	'a character needs a body',
 	(d) => onlineDoc.addOnlineCharacter(d, ' '),
 	(d) => d.arcade?.online?.characters.length === 0,
@@ -630,6 +658,7 @@ const HEADINGS: Record<string, ConfigSection> = {
 	'Match-3': 'match3',
 	Arcade: 'arcade',
 	'Online room': 'arcade',
+	'Mouse and touch': 'arcade',
 	'Online rules': 'arcade',
 	Bots: 'arcade',
 	'Card game': 'card',
@@ -769,7 +798,7 @@ try {
 		...arcade,
 		arcade: { online: { characters: [], netcode: 'colyseus' } },
 	})!;
-	const ONLINE_HEADINGS = ['Online room', 'Online rules', 'Bots'];
+	const ONLINE_HEADINGS = ['Online room', 'Mouse and touch', 'Online rules', 'Bots'];
 	const headingsOf = (body: string) =>
 		[...body.matchAll(/<h2[^>]*>(?:<button[^>]*>)?([^<]*)<\/(?:button|h2)>/g)].map((m) =>
 			m[1].trim(),

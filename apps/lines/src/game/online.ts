@@ -18,11 +18,13 @@ import {
 	type AbilityPredictor,
 	type OnlineFlowSignal,
 	createInterpolator,
+	createPointerTracker,
 	createPredictor,
 	createRng,
 	createSnapshotClock,
 	generatedOnlineGame,
 	onlineLevel,
+	pointerMove,
 	reconcilerOptions,
 	snapFor,
 	stepCamera,
@@ -34,6 +36,7 @@ import {
 	type HookLines,
 	type Interpolator,
 	type OnlineEvent,
+	type PointerTracker,
 	type Predictor,
 	type SnapshotClock,
 } from 'engine-mechanics';
@@ -69,6 +72,7 @@ import {
 	setMarks,
 	startMarks,
 	setWorldCameraView,
+	spawnLayerPoint,
 	spawnStore,
 	type ArtMount,
 	type InstanceClip,
@@ -654,17 +658,121 @@ function received(current: Session, nowMs: number) {
 	});
 }
 
-/** Start reading the keyboard; returns the stop. */
-export function listenOnline(): () => void {
+type Point = { x: number; y: number };
+
+/** The mouse and touch control (`arcade.online.pointer`), while the play field is mounted: its
+ *  tracker, in client px, and how a client point becomes the canvas's global one. */
+let pointerIo: { tracker: PointerTracker; toGlobal: (x: number, y: number) => Point } | undefined;
+
+/** A tap waiting for a step whose last input did not press its button already. */
+let pendingTap: Point | undefined;
+
+/** Follow the mouse and the fingers on the canvas; returns the detach. */
+function listenPointer(
+	canvas: HTMLElement,
+	toGlobal: (x: number, y: number) => Point,
+	options: { mouse: 'hover' | 'press'; tapPx: number },
+): () => void {
+	const tracker = createPointerTracker(options);
+	pointerIo = { tracker, toGlobal };
+	const forward = (type: 'down' | 'move' | 'up' | 'cancel') => (e: PointerEvent) => {
+		// A mouse hovers only over the canvas; a press and a finger are followed off it.
+		if (type === 'move' && e.pointerType === 'mouse' && e.target !== canvas && !e.buttons) return;
+		tracker.event({
+			type,
+			id: e.pointerId,
+			kind: e.pointerType,
+			x: e.clientX,
+			y: e.clientY,
+			button: e.button,
+		});
+	};
+	const down = forward('down');
+	const move = forward('move');
+	const up = forward('up');
+	const cancel = forward('cancel');
+	const release = () => tracker.release();
+	canvas.addEventListener('pointerdown', down);
+	window.addEventListener('pointermove', move);
+	window.addEventListener('pointerup', up);
+	window.addEventListener('pointercancel', cancel);
+	window.addEventListener('blur', release);
+	return () => {
+		canvas.removeEventListener('pointerdown', down);
+		window.removeEventListener('pointermove', move);
+		window.removeEventListener('pointerup', up);
+		window.removeEventListener('pointercancel', cancel);
+		window.removeEventListener('blur', release);
+		pointerIo = undefined;
+		pendingTap = undefined;
+	};
+}
+
+/**
+ * Start reading the keyboard, and, for a game with `arcade.online.pointer`, the mouse and the
+ * fingers on `canvas`; returns the stop.
+ */
+export function listenOnline(
+	canvas?: HTMLElement,
+	toGlobal?: (x: number, y: number) => Point,
+): () => void {
 	window.addEventListener('keydown', onKey);
 	window.addEventListener('keyup', onKey);
 	window.addEventListener('blur', releaseAll);
+	const game = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+	const pointer = game && 'online' in game ? game.online.pointer : undefined;
+	const unpoint =
+		canvas && toGlobal && pointer ? listenPointer(canvas, toGlobal, pointer) : undefined;
 	return () => {
 		window.removeEventListener('keydown', onKey);
 		window.removeEventListener('keyup', onKey);
 		window.removeEventListener('blur', releaseAll);
 		releaseAll();
+		unpoint?.();
 	};
+}
+
+/** A client point on the field, through the camera and the projection of the players' layer. */
+const fieldPoint = (current: Session, at: Point | undefined): Point | undefined => {
+	if (!at || !pointerIo) return undefined;
+	const global = pointerIo.toGlobal(at.x, at.y);
+	return spawnLayerPoint(current.game.online.layer, global.x, global.y);
+};
+
+/**
+ * The input with the pointer's part (`docs/design/arcade-pointer-controller.md`): with no movement
+ * key held, the move heads for the pointer; a tap presses the own character's tap button for one
+ * step, aimed at the tapped point. No pointer control, the input as it was.
+ */
+function withPointer(current: Session, input: ReturnType<typeof keyInput>) {
+	const pointer = current.game.online.pointer;
+	if (!pointerIo || !pointer) return input;
+	const keysMove = [...held].some((code) => code in MOVE_KEYS);
+	const own = ownPlace(current);
+	if (!keysMove) {
+		const target = fieldPoint(current, pointerIo.tracker.target());
+		Object.assign(input, pointerMove(own, target, pointer.deadZone));
+	}
+	pendingTap ??= pointerIo.tracker.takeTap();
+	const me = stateOf(current.room).players?.get(current.room.sessionId);
+	const name =
+		me && Object.hasOwn(pointer.taps, me.character) ? pointer.taps[me.character] : undefined;
+	if (!pendingTap) return input;
+	if (!name) {
+		pendingTap = undefined;
+		return input;
+	}
+	const bit = BUTTONS[name];
+	// A tap is a press: a step that already pressed the button waits a step for its release.
+	if (current.buttons & bit) return input;
+	const aim = fieldPoint(current, pendingTap);
+	pendingTap = undefined;
+	input.buttons |= bit;
+	if (aim) {
+		input.aimX = aim.x;
+		input.aimY = aim.y;
+	}
+	return input;
 }
 
 /** The room's synced state, in the shape `services/game-server/src/schema.ts` declares. */
@@ -987,7 +1095,10 @@ export function tickOnline(dtMs: number) {
 	current.sdk?.predict.tick(now);
 	current.clock.advance(dtMs, () => {
 		current.seq += 1;
-		const raw = keyInput(current.seq, Math.max(0, Math.floor(current.viewStep)));
+		const raw = withPointer(
+			current,
+			keyInput(current.seq, Math.max(0, Math.floor(current.viewStep))),
+		);
 		const input = clampInput(raw, current.game.field);
 		const handle = current.room.input();
 		Object.assign(handle.data, input);

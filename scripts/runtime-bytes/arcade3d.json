@@ -4,16 +4,16 @@
 	"PUBLIC_IE_3D": "1",
 	"files": {
 		"index.html": {
-			"sha256": "84f99eec54d5f9073e76fb014876e9efcf69145467fe57fbfa43d84fe61ab7f2",
+			"sha256": "7eccefe684c383a5413df5417ebdee67a88491fbc7d006cd83dcb6bf0550cd1d",
 			"gzip": 3949
 		},
 		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
 			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
 			"gzip": 519
 		},
-		"_app/immutable/assets/bundle.CteWMkei.css": {
-			"sha256": "0ad9b7cde0ceda1194cc43aebb05468727f855ee9c812e1d673ab6f6c242c3d8",
-			"gzip": 2554
+		"_app/immutable/assets/bundle.ChF7KFH4.css": {
+			"sha256": "48c35f8b8d97477f4af075cb46df1c74d6adfb95763b7bad26d3cd8949ab88af",
+			"gzip": 2817
 		},
 		"_app/immutable/assets/characters.Cj7Rxzsq.webp": {
 			"sha256": "57b2022780cbd0e7e46e097bbfd9f712d386164a30de452aae3cb20715882fbd",
@@ -39,53 +39,53 @@
 			"sha256": "460b6dd0ab3a55b090766062bd365fc653080b5c94dc89e4d41e20c5af55472a",
 			"gzip": 2715
 		},
-		"_app/immutable/bundle.6UFrdeqG.js": {
-			"sha256": "062c0fc1ed507af42d533eab98e7e92331094c1dfa0af1e848d8e6451ba7a6aa",
-			"gzip": 760903
-		},
-		"_app/immutable/chunks/B2Y5y8xP.js": {
-			"sha256": "e76941fc703a02ed496ce4da38ef56d7e15d5641599bb0327c0a1e9c6d8e5343",
-			"gzip": 13882
+		"_app/immutable/bundle.CWrpX-C2.js": {
+			"sha256": "b503c5da691378d04e82c3937f25f978fb6924cbd82c48b810b9aaf978e68849",
+			"gzip": 759228
 		},
 		"_app/immutable/chunks/B2caXNOu.js": {
 			"sha256": "ed3b773e21a0f5775b344773e6270272b01df2d93fd667d7bd64641ecbbd0b75",
 			"gzip": 117
 		},
-		"_app/immutable/chunks/Bg6b8xiC.js": {
-			"sha256": "60580b05e98fbeb815036363b07557b103117c30794c1f44e6a75daaa3d7b94a",
-			"gzip": 9330
+		"_app/immutable/chunks/B5aYq5qv.js": {
+			"sha256": "6cb72fc8d4dea7e9b1f9da5a187cbb5408523d84ce99e11ab898f07aa6751102",
+			"gzip": 31321
 		},
-		"_app/immutable/chunks/C-6FHlig.js": {
-			"sha256": "210e8549887e093675f807e50c3f280960d197ae0d2487587a6c50830731403e",
-			"gzip": 30836
+		"_app/immutable/chunks/B7E_nD2w.js": {
+			"sha256": "d81a726707aaf32f464a79e60023743c8ec99ebd0a2b994be6fe1721d915d0cc",
+			"gzip": 10729
 		},
-		"_app/immutable/chunks/C6GN_fL0.js": {
-			"sha256": "f096acad8910b0d604e7038759b856651a0a13fe3e847b94f0907d49c9ff371b",
-			"gzip": 34149
+		"_app/immutable/chunks/BROdhULX.js": {
+			"sha256": "958c546f278cc7efef3d2ecd6704c897344fb6fed54d0189d5ebef45b8f8e737",
+			"gzip": 123147
 		},
-		"_app/immutable/chunks/D4AjXUYJ.js": {
-			"sha256": "3df71f4edc13c48b1b64f0c26fd0dffabb200fc39e9b010d0b5876479c170d1d",
-			"gzip": 10727
+		"_app/immutable/chunks/BZ7cQWg4.js": {
+			"sha256": "0cf76d555d6df4cd9d6b3708450b7fd6413c189540c16550d85062df06e15244",
+			"gzip": 590
 		},
-		"_app/immutable/chunks/D81ojs7b.js": {
-			"sha256": "f7b9f20cb59a8ee4bbac9ff9440a3f3cf46b6d3af6ba4ea61a17272737079eba",
-			"gzip": 5939
+		"_app/immutable/chunks/C30-WTZT.js": {
+			"sha256": "546633753d832356c6ce1f5e1fbd586f362c75d3c072ca6843f0760b9450c817",
+			"gzip": 33999
 		},
-		"_app/immutable/chunks/DM5SCClQ.js": {
-			"sha256": "51b96c8174c2901d559315514741bc2f18ad33bc53f6e87033604f45d8ba7395",
-			"gzip": 591
+		"_app/immutable/chunks/C564MSTO.js": {
+			"sha256": "2f29aab1035ac792f9755445d16005d7257fe1dbd8d696b8089e22f1d4e84559",
+			"gzip": 23199
 		},
-		"_app/immutable/chunks/DhLTZw5n.js": {
-			"sha256": "dba20d7b6bc46783aaec20628e0f06a665efb9fe61983ebe3e704926fc4b31e6",
-			"gzip": 23280
+		"_app/immutable/chunks/DOYPlrwG.js": {
+			"sha256": "75111b9a459f6b3bfd4c4d17ef4ce391faafdca1a0eb7328e91fdd0f1b9a0ae9",
+			"gzip": 9331
 		},
-		"_app/immutable/chunks/moZ8Upd1.js": {
-			"sha256": "0831ced438d4aa9429330f312bc7133683574648505c282e54b535e392e5700e",
-			"gzip": 127008
+		"_app/immutable/chunks/Dlae2m2q.js": {
+			"sha256": "03fb66705b0f947a8a3cc41da48ef25729d6b4f3411daa812cd1af656de76dd2",
+			"gzip": 5920
+		},
+		"_app/immutable/chunks/qWnto0Od.js": {
+			"sha256": "d24f87e66f0cf7604a0483147fc4bb12fa01ba184c6051d25f12a2792d161ef7",
+			"gzip": 13882
 		}
 	},
 	"total": {
 		"files": 20,
-		"gzip": 2184341
+		"gzip": 2179305
 	}
 }

@@ -573,10 +573,14 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	assert.match(stage, /const online = gameMechanic\(\)\.room;/);
 	assert.match(stage, /online \? undefined : startArcade\(/);
 	// The characters (P10.11) belong to the local loop: an online game attaches none, nor their
-	// key and pointer listener. Its world camera (P10.12) follows the own player instead (P10.16).
+	// key and pointer listener; the room reads its own (`listenOnline`, the pointer control). Its
+	// world camera (P10.12) follows the own player instead (P10.16).
 	assert.match(stage, /online\s+\? useOnlineCamera\(scenes,[\s\S]*?: useWorldCamera\(scenes\)/);
 	assert.match(stage, /online \? undefined : useArcadePaths\(/);
-	assert.match(stage, /if \(online \|\| !pixi\) return;\s+return useArcadeInput\(/);
+	assert.match(
+		stage,
+		/return online \? listenOnline\(pixi\.canvas, toGlobal\) : useArcadeInput\(pixi\.canvas, toGlobal\);/,
+	);
 	// A field per room (P11.2 (e)): only a game that names a generator waits for the room's seed,
 	// makes the room's field with the server's own function and has the loaded doc draw it; every
 	// other game's doc loads as it always did.
