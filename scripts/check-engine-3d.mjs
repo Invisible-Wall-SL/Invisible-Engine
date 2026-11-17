@@ -96,10 +96,26 @@ for (const yaw of [0, 37, 90, 180, 271])
 	}
 
 // --- Facing.
-check('facing +z is 0', yawToward(0, 1) === 0);
-check('facing +x is a quarter turn', yawToward(1, 0) === 16384);
-check('facing −x is three quarters', yawToward(-1, 0) === 49152);
-check('facing −z is half', yawToward(0, -1) === 32768);
+// The room's convention (`online3d.js`): 0 looks down −z, anticlockwise seen from above.
+check('facing −z is 0', yawToward(0, -1) === 0);
+check('facing −x is a quarter turn', yawToward(-1, 0) === 16384);
+check('facing +z is half', yawToward(0, 1) === 32768);
+check('facing +x is three quarters', yawToward(1, 0) === 49152);
+{
+	// rotation.y by the yaw turns the model's −z front onto the direction faced.
+	for (const [dx, dz] of [
+		[1, 0],
+		[0, 1],
+		[-3, -3],
+		[2, -5],
+	]) {
+		const t = yawRadians(yawToward(dx, dz));
+		const fx = -Math.sin(t);
+		const fz = -Math.cos(t);
+		const len = Math.sqrt(dx * dx + dz * dz);
+		check(`rotation.y faces (${dx}, ${dz})`, near(fx, dx / len, 1e-3) && near(fz, dz / len, 1e-3));
+	}
+}
 check('yaw → radians', near(yawRadians(16384), Math.PI / 2));
 
 // --- The offline loop on the placeholder arena.

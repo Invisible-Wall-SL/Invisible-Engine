@@ -110,9 +110,13 @@ export function moveAxes(
 	return { mx: Math.round(x * MOVE_SCALE), mz: Math.round(z * MOVE_SCALE) };
 }
 
-/** The uint16 yaw that faces the direction (`dx`, `dz`): 0 faces +z, a quarter turn faces +x. */
+/**
+ * The uint16 yaw that faces the direction (`dx`, `dz`). The room's convention (`engine-mechanics`
+ * `online3d.js` `yawFromRadians`): 0 looks down −z, the three.js camera's forward, and the yaw grows
+ * anticlockwise seen from above, as `rotation.y` does — a quarter turn faces −x.
+ */
 export function yawToward(dx: number, dz: number): number {
-	const turns = Math.atan2(dx, dz) / (2 * Math.PI);
+	const turns = Math.atan2(-dx, -dz) / (2 * Math.PI);
 	return Math.round((turns < 0 ? turns + 1 : turns) * YAW_UNITS) % YAW_UNITS;
 }
 

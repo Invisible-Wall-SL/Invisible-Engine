@@ -217,7 +217,8 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		shape.position.y = body.height / 2;
 		shape.castShadow = true;
 		const tip = new Mesh(nose, material(PALETTE.wall));
-		tip.position.set(0, body.height * 0.72, body.radius);
+		// The front is −z, where yaw 0 looks (`pure/rig.ts` `yawToward`).
+		tip.position.set(0, body.height * 0.72, -body.radius);
 		const group = new Group();
 		group.add(shape, tip);
 		return group;
