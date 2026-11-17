@@ -528,7 +528,7 @@
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
         <input type="text" id="newRigName" placeholder="rig name…" style="margin-bottom:5px;">
-        <label>Apply saved rig (optional)</label>
+        <label title="A template is a fixed skeleton that expects images by name (mouth_A, eyelid_l_closed…): art named that way attaches itself, and any missing part is listed after Create.">Apply saved rig or template (optional)</label>
         <select id="newRigApply"></select>
         <label style="margin-top:6px;">Atlas (images)</label>
         <select id="newRigAtlas"></select>
@@ -3012,6 +3012,25 @@ async function deleteRigFromLibrary(a){
   } catch (e){ alert("Delete failed: " + (e && e.message ? e.message : e)); }
 }
 
+// The New-rig "Apply" choice as request fields: a saved rig's id, or a template's.
+function newRigApplyChoice(){
+  const v = ($("#newRigApply") && $("#newRigApply").value) || "";
+  if (v.startsWith("template:")) return { templateId: v.slice("template:".length) };
+  return v ? { rigId: v } : {};
+}
+
+// After a create from a template: name the parts the art lacked (the rig leaves them out).
+function reportTemplateParts(t){
+  if (!t || !t.missing || !t.missing.length) return;
+  const need = t.missingRequired || [];
+  const rest = t.missing.filter((n) => !need.includes(n));
+  showAlert(
+    (need.length ? "Needed for this template, not in the art yet:\n  " + need.join(", ") + "\n\n" : "") +
+    (rest.length ? "Optional parts not in the art (left out):\n  " + rest.join(", ") + "\n\n" : "") +
+    "Add images with these names to the art, then ⟳ Re-sync atlas and pick each one in its slot's image list.",
+    "Template parts missing");
+}
+
 // D3 — "Use in new rig": open the New-rig panel with this rig pre-selected.
 async function useRigInNew(a){
   closeRigLibrary();
@@ -3021,10 +3040,24 @@ async function useRigInNew(a){
   const nameInp = $("#newRigName"); if (nameInp) nameInp.focus();
 }
 
-// Populate the New-rig "Apply saved rig" dropdown from the library.
+// Populate the New-rig "Apply saved rig" dropdown: rig templates first ("template:<id>"), then
+// the library.
 async function loadNewRigApplyOptions(){
   const sel = $("#newRigApply"); if (!sel) return;
   sel.innerHTML = '<option value="">— none (blank skeleton) —</option>';
+  try {
+    const t = await (await fetch("/api/rigger/templates")).json();
+    if ((t.templates || []).length){
+      const g = document.createElement("optgroup"); g.label = "Templates";
+      t.templates.forEach((tp) => {
+        const o = document.createElement("option");
+        o.value = "template:" + tp.id; o.textContent = tp.label + " (template)";
+        o.title = "Name your images: " + tp.parts.map((p) => p.name + (p.required ? "*" : "")).join(", ") + "  (* = needed)";
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+  } catch (e){ /* no templates offered */ }
   try {
     const r = await (await fetch("/api/rigger/rigs/list")).json();
     (r.rigs || []).forEach((a) => {
@@ -6065,7 +6098,7 @@ async function respErr(r){
 async function createNewRig(){
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
   const manifestKey = $("#newRigAtlas").value;
-  const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
+  const apply = newRigApplyChoice();
   const note = $("#newRigNote");
   if (!name){ note.textContent = "enter a name"; return; }
   if (!confirmLeaveRig("Creating “" + name + "” opens it, which")) return;
@@ -6075,8 +6108,7 @@ async function createNewRig(){
     // Server assembles a rig bundle (synth .atlas + page copy + blank .irig). With an
     // atlas → its regions are attachable; with no atlas → a 1×1 placeholder page so the
     // rig still loads (attach images later via "source…" / a slot's image dropdown).
-    const payload = manifestKey ? { manifestKey, name } : { name, noAtlas: true };
-    if (rigId) payload.rigId = rigId;
+    const payload = Object.assign(manifestKey ? { manifestKey, name } : { name, noAtlas: true }, apply);
     const r = await fetch("/api/rigger/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (!r.ok) throw new Error(await respErr(r));
     const j = await r.json();
@@ -6084,6 +6116,7 @@ async function createNewRig(){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
+    reportTemplateParts(j.template);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }
@@ -6118,7 +6151,7 @@ function loadImageFile(file){
 async function createRigFromImages(files){
   const note = $("#newRigNote");
   const name = ($("#newRigName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
-  const rigId = ($("#newRigApply") && $("#newRigApply").value) || "";
+  const apply = newRigApplyChoice();
   if (!name){ note.textContent = "enter a rig name first"; return; }
   if (!files || !files.length) return;
   if (!confirmLeaveRig("Creating “" + name + "” opens it, which")){ $("#newRigFiles").value = ""; return; }
@@ -6151,7 +6184,7 @@ async function createRigFromImages(files){
     note.textContent = "uploading…";
     const resp = await fetch("/api/rigger/upload", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(Object.assign({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }, rigId ? { rigId } : {})),
+      body: JSON.stringify(Object.assign({ name, page, pageWidth: pageW, pageHeight: pageH, regions: regions.map((r) => ({ name: r.name, x: r.x, y: r.y, w: r.w, h: r.h })) }, apply)),
     });
     if (!resp.ok) throw new Error(await respErr(resp));
     const j = await resp.json();
@@ -6159,6 +6192,7 @@ async function createRigFromImages(files){
     await loadSkeletons(true);
     const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
     if (target && await selectSkeleton(target)) setEditMode(true);
+    reportTemplateParts(j.template);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
 }

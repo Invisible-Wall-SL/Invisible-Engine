@@ -89,10 +89,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     irig v1 (246, each backed up). Left: the `.json` rename on export; Phase 6 (retire the 4.2
     assumptions); 4b (panels onto `IrigDoc`, which closes item 16) is incremental.
 
-19. **Rig templates** — designed in [rig-templates](../design/rig-templates.md): fixed skeletons
-    with a parts contract so new art attaches itself and clips play on every character of a
-    template. Bust with face first (owner, 2026-11-16), then full body. Nothing built; next is T1
-    (contract + template rig + auto-attach on **Use in new rig**).
+19. **Rig templates** — [rig-templates](../design/rig-templates.md): fixed skeletons with a parts
+    contract so new art attaches itself and clips play on every character of a template. T1 is
+    built (2026-11-17): the **Bust with face** template in ＋ New rig. ⏳ Not yet tried in the
+    browser against real art; next is T2 (the Face panel).
 
 ## Blocked (owner / external)
 
@@ -101,6 +101,20 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T1: Bust with face in ＋ New rig.** `src/lib/server/rigTemplates.ts`
+  holds the template (bones, draw order, parts with needed/optional) and makes the rig over the
+  art's regions: a part whose image exists attaches at its untrimmed size, a missing one is left
+  out and reported, since the runtime throws on an attachment its atlas lacks. `new` and `upload`
+  take `templateId`, write `template.json` beside the `.irig` and answer the missing parts;
+  `GET /api/rigger/templates` lists them for the Apply dropdown, and a popup names what the art
+  lacked. The template link is a bundle sidecar, not an irig field: `readIrig` refuses unknown
+  fields, so a published runtime would refuse every template rig. Also fixed: the delete counted
+  `source.json` / `text.json` as skeletons, so a rig made from an atlas never had its folder
+  purged. Gates: `check:rig-templates` (template well-formed; full, required-only and no art each
+  pass `irigDocProblem` and load, pose and measure under `engine-rig` with only that art's
+  regions), `check:rigger-writes` (+6: real routes), `tools/rigger-spike/new-rig-template.mjs`
+  (every inline script of `view.html` parses; the Apply choice and the popup). Each guard was
+  mutation-checked.
 - 2026-11-16 — **Rig templates designed** ([rig-templates](../design/rig-templates.md)): a template
   = a library rig + a versioned parts/channels contract + a `template` field on the rig. The
   bust-with-face skeleton, part and mouth-shape set, face channels (written as ordinary timelines,

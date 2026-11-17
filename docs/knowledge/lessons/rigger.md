@@ -9,6 +9,15 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### A deleted rig's folder never went away
+- **Symptom:** deleting a rig made from an atlas, or with baked text, left its page, `.atlas` and
+  sidecars in R2 for good; found when a template rig's `template.json` outlived its delete.
+- **Cause:** the delete purges a bundle only when no skeleton is left, and counted every `.json`
+  as a skeleton, so the bundle's own `source.json` / `text.json` / `template.json` kept it alive.
+- **Fix:** those sidecars are named in the delete route and do not count as skeletons.
+- **Guard:** `check:rigger-writes` "deleting the rig takes its template.json with it".
+- **PR:** rig templates T1 (2026-11-17)
+
 ### The preview played a different pose from the game
 - **Symptom:** a clip previewed at scaleY 0 while the game played 1; ◆ Animate crashed on imports.
 - **Cause:** rig JSON omits key values and `time` at their defaults (scale 1, mixes 1, time 0);

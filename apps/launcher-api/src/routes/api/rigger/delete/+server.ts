@@ -3,6 +3,7 @@ import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
 import { deleteObject, deleteObjects, listAllKeys } from '$lib/server/r2';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
+import { RIG_TEMPLATE_SIDECAR } from '$lib/server/rigTemplates';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -11,7 +12,12 @@ import type { RequestHandler } from './$types';
 // source). Anything else (`.atlas`, `.png`, …) is a support file we may purge once the
 // last skeleton in a dedicated bundle dir is gone.
 const SKELETON_EXT = ['.irig', '.skel', '.json'];
-const isSkeleton = (key: string) => SKELETON_EXT.some((e) => key.toLowerCase().endsWith(e));
+// The bundle's own JSON sidecars end in `.json` but are not skeletons; counted as one, they kept a
+// deleted rig's folder (page, atlas and all) alive for good.
+const BUNDLE_SIDECARS = new Set(['source.json', 'text.json', RIG_TEMPLATE_SIDECAR]);
+const isSkeleton = (key: string) =>
+	!BUNDLE_SIDECARS.has(key.slice(key.lastIndexOf('/') + 1).toLowerCase()) &&
+	SKELETON_EXT.some((e) => key.toLowerCase().endsWith(e));
 
 /**
  * Delete a Rigger skeleton from R2 and rebuild the project's `skeletons.json` (preserving, so an
