@@ -15,8 +15,8 @@ import type { PageServerLoad } from './$types';
  * Invisible Profiler (`/profiler`, `docs/design/invisible-profiler.md`): one project's `?perf=1`
  * readings, a New capture for its published games, Paste for a delivery's Copy, the readings per
  * device judged by the project's budgets (Devices), the desktop builds' breakdowns with the readings
- * taken on each and their verdicts (Builds), and the budgets themselves (Budgets). Every role has it (owner decision
- * 2026-11-16). The project is the page's scope like any project tool's.
+ * taken on each and their verdicts (Builds), and the budgets themselves (Budgets). Every role has
+ * it (owner decision 2026-11-16). The project is the page's scope like any project tool's.
  */
 export const load: PageServerLoad = async ({ locals, parent, url, cookies, depends }) => {
 	depends(PROFILER_READINGS, PROFILER_BUILDS, PROFILER_BUDGETS);

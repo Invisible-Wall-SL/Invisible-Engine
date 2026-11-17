@@ -43,7 +43,7 @@
 		const lines = [`warn ${lineText(m.metric, m.warn)}`, `fail ${lineText(m.metric, m.fail)}`];
 		const head =
 			m.verdict === 'nodata' && m.frames !== null
-				? `not enough data (${m.frames} frames; a phase needs ${MIN_PHASE_FRAMES} in one reading)`
+				? `not enough data — no reading has ${MIN_PHASE_FRAMES} frames in this phase`
 				: VERDICT_TEXT[m.verdict];
 		return m.warn === null && m.fail === null ? head : `${head} — ${lines.join(', ')}`;
 	}

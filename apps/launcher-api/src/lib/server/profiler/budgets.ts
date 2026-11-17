@@ -16,7 +16,13 @@ import { perfBudgets, type PerfBudget } from '../db/schema';
  * after a reset would let an edit made against the OLD row's 1 land on a NEW override (reset, then
  * re-override, between someone's read and their save).
  */
-const newRev = (): number => randomInt(1, 2 ** 31 - 1);
+export const REV_LIMIT = 2 ** 31;
+/** Never the one it replaces, so a stale tab holding it cannot match the new row. */
+const newRev = (old: number | null = null): number => {
+	let rev = randomInt(1, REV_LIMIT);
+	while (rev === old) rev = randomInt(1, REV_LIMIT);
+	return rev;
+};
 
 export function toOverride(r: PerfBudget): BudgetOverride {
 	return {
@@ -67,8 +73,8 @@ export type BudgetWriteResult =
 /**
  * Sets one line's override, only while it is still what the editor saw: a first override inserts
  * only if no row exists (two people overriding the default at once — one wins, one is told); an
- * edit updates only the revision it was made against and gives it a new one. Never a read-modify-write: the
- * condition is in the one statement that writes.
+ * edit updates only the revision it was made against and gives it a new one. Never a
+ * read-modify-write: the condition is in the one statement that writes.
  */
 export async function setBudget(
 	projectKey: string,
@@ -97,7 +103,7 @@ export async function setBudget(
 					.set({
 						warn: t.warn,
 						fail: t.fail,
-						rev: newRev(),
+						rev: newRev(expected),
 						updatedBy: userId,
 						updatedAt: new Date(),
 					})

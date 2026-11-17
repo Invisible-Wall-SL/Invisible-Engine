@@ -6,7 +6,12 @@ import {
 	type BudgetThresholds,
 } from '$lib/profilerBudgets';
 import { jsonBody, requireTool } from '$lib/server/http';
-import { resetBudget, setBudget, type BudgetExpected } from '$lib/server/profiler/budgets';
+import {
+	resetBudget,
+	REV_LIMIT,
+	setBudget,
+	type BudgetExpected,
+} from '$lib/server/profiler/budgets';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -32,7 +37,9 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 	if (!isBudgetKey(key)) throw error(400, 'No such budget line.');
 	const budgetKey: BudgetKey = key;
 	const expected = body.expected;
-	if (expected !== null && !(typeof expected === 'number' && Number.isInteger(expected))) {
+	const isRev = (v: unknown) =>
+		typeof v === 'number' && Number.isInteger(v) && v >= 1 && v < REV_LIMIT;
+	if (expected !== null && !isRev(expected)) {
 		throw error(400, 'Expected "expected": the line\'s rev, or null for the studio default.');
 	}
 	const { projectKey } = await requireProjectScope(
@@ -51,6 +58,7 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
 	if (!result.ok) {
 		return json(
 			{
+				error: 'conflict',
 				message: 'Someone else changed this budget line first — it now shows their value.',
 				current: result.current,
 			},

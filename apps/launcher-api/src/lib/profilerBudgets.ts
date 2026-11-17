@@ -270,7 +270,7 @@ export const MIN_PHASE_FRAMES = 120;
 
 export interface MetricVerdict extends BudgetKey {
 	value: number | null;
-	/** Frames behind a per-phase value (summed over readings for a group). */
+	/** Frames behind a per-phase value: summed over the readings that counted (enough frames). */
 	frames: number | null;
 	warn: number | null;
 	fail: number | null;
@@ -335,7 +335,7 @@ export function evaluateReadings(
 			out.push({
 				...key,
 				value,
-				frames: readings.reduce((n, r) => n + (r[phase]?.frames ?? 0), 0),
+				frames: enough.reduce((n, p) => n + p.frames, 0),
 				warn: b?.warn ?? null,
 				fail: b?.fail ?? null,
 				verdict: judge(metric, value, b),
@@ -370,14 +370,16 @@ export function evaluateBuildSize(
 	const line = lookup(budgets);
 	const MB = 1048576;
 	const shipped = { deviceClass: 'all' as const, metric: 'shippedMb' as const, phase: '' as const };
+	// A breakdown that names no size reads 0: no data, never a 0 MB pass.
+	const shippedMb = build.shippedBytes > 0 ? build.shippedBytes / MB : null;
 	const out: MetricVerdict[] = [
 		{
 			...shipped,
-			value: build.shippedBytes / MB,
+			value: shippedMb,
 			frames: null,
 			warn: line(shipped)?.warn ?? null,
 			fail: line(shipped)?.fail ?? null,
-			verdict: judge('shippedMb', build.shippedBytes / MB, line(shipped)),
+			verdict: judge('shippedMb', shippedMb, line(shipped)),
 		},
 	];
 	for (const deviceClass of BUDGET_DEVICE_CLASSES) {
@@ -412,7 +414,7 @@ export interface BuildVerdicts {
 /** The Builds tab's verdict columns for one build. */
 export function evaluateBuild(
 	build: PerfBuildListItem,
-	readings: readonly (PerfReportListItem & { gameKey?: string | null })[],
+	readings: readonly PerfReportListItem[],
 	budgets: readonly EffectiveBudget[],
 ): BuildVerdicts {
 	// Judged per device (class and GPU), the class taking its worst: a weak phone failing is the

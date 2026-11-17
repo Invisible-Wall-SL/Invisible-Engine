@@ -10,7 +10,10 @@ published games, keeps every `?perf=1` reading the game sends (or that is pasted
 Postgres, and lists them per project; readings go after 15 days unless kept. Step **P2 "Builds"
 built 2026-11-17** (merged, #1697): every desktop ☁ Publish / 📦 Deliver (launcher v1.0.68+) registers its
 build breakdown, listed on a **Builds** tab with the previous-build diff and the readings taken on
-each build. P3–P7 are planned.
+each build. Step **P3 "Devices and budgets" built 2026-11-17** (PR to be opened): per-project
+budget overrides on top of the studio defaults in code, a **Devices** tab judging readings per
+device class and GPU, a **Budgets** tab to edit the lines, and pass / warn / fail on every build.
+P4–P7 are planned.
 
 ## Current state
 
@@ -18,8 +21,8 @@ each build. P3–P7 are planned.
   `profiler`, `kind: 'online'`, in `ROLE_TOOLS` of every role and in the **Create** stage
   (`apps/launcher-api/src/lib/roles.ts`); `check-family-tools.ts` lists it.
 - **Page.** `src/routes/(app)/profiler/+page.svelte` + `+page.server.ts`: project picker
-  (`resolveToolScope`, `?project=`), two tabs (**Readings**, **Builds** = `?tab=builds`; the tab
-  bar is copied from Pipeline Changes). Readings has three `SectionCard`s — **New capture** (device
+  (`resolveToolScope`, `?project=`), four tabs (**Readings**, **Devices**, **Builds**, **Budgets**;
+  `?tab=devices|builds|budgets`; the tab bar is copied from Pipeline Changes). Readings has three `SectionCard`s — **New capture** (device
   label, Open capture → per published game four QR codes: As shipped, Particles off, Element FX
   off, Antialias off), **Paste a reading** (textarea + device label + **Game** picker → Keep
   reading) and **Readings** (newest 500; the game under the device, per-phase fps / p95 / >33 ms,
@@ -121,11 +124,50 @@ each build. P3–P7 are planned.
   (`perfSendCore.ts`, fixture `apps/lines/src/game/perfSend.fixture.ts`). Today it never can from
   a phone: R2's CORS allows PUT only from `app.invisiblewall.org` (probed 2026-11-17), so a phone's
   large reading arrives trimmed — open item 4.
+- **Budgets.** `perf_budgets` (migration `drizzle/0044_perf_budgets.sql`, schema `perfBudgets`,
+  FK to `projects` on delete cascade) holds **per-project overrides only**. The studio defaults
+  are `STUDIO_BUDGETS` in `src/lib/profilerBudgets.ts` — code, reviewed, not an editable studio
+  row, so no role can change every project's budget at once. Key = project, device class
+  (`phone` / `tablet` / `desktop`, or `all` for shipped size), metric (`fps`, `p95`, `draws`,
+  `gpuMb`, `shippedMb`), phase (`idle` / `spinning` / `round`, `''` when not per phase); columns
+  `warn`, `fail` (either may be null, not both — a CHECK), `rev`, `updated_by`, `updated_at`.
+  Studio defaults (owner decision 2026-11-16, warn bands inside each fail line): phone and tablet
+  fps idle fail < 55 warn < 58 ("60 fps" = locked to a 60 Hz display, which reads 59.x), fps
+  spinning and round fail < 50 warn < 55, p95 every phase fail > 25 ms warn > 20 ms, GPU memory
+  fail > 150 MB warn > 120 MB; desktop fps every phase fail < 55 warn < 58, p95 fail > 25 warn >
+  20, no GPU line; shipped size (all devices) fail > 25 MB warn > 20 MB. Draws a frame has no
+  default (no owner number). Tablet gets phone's lines; the probe
+  (`packages/pixi-svelte/src/lib/deviceClass.ts`) reports only phone / desktop, so no reading is
+  judged as tablet yet.
+- **Evaluation** (pure, `profilerBudgets.ts`; the page and the gate call the same functions):
+  pass / warn / fail per metric (`judge`); "not enough data" when a phase has fewer than 120 frames
+  (`MIN_PHASE_FRAMES`) in every reading — never a pass; "no budget" when unset. Device groups =
+  class + GPU, each number the median over the group's readings (`deviceGroups`,
+  `evaluateReadings`); test-switch readings (`flags`) and unknown classes are left out. A build
+  (`evaluateBuild`): shipped size and GPU estimate from its breakdown (a figure of 0 = no data,
+  never a 0 MB pass); each device class = the worst of its GPU groups among the as-shipped readings on the build.
+- **Devices tab** (`DevicesTab.svelte`): one row per device group, worst first — Readings count,
+  a `VerdictBadge`, per-phase fps / p95 / >33, draws, GPU MB, cells coloured by verdict with the
+  lines on hover; a footnote counts the left-out readings. Clicking a device opens its readings
+  build by build (`readingsByBuild`: the build record they join, else the stamped number). The
+  **Builds** tab gains a **Devices** column (a badge per class) and coloured Shipped / GPU MB cells.
+- **Budgets tab** (`BudgetsTab.svelte`): a `SectionCard` per scope (Phone, Tablet, Desktop, Every
+  device), one row per key — warn / fail inputs pre-filled with the effective line, the studio
+  default beside them with a `project` tag when overridden, a reset `IconButton` (new `reset`
+  icon). Enter or blur saves; `budgetRefusal` checks range and warn-vs-fail order on both sides.
+- **Budget save path.** `PUT /api/profiler/budgets` — every role with the Profiler and the project
+  (`requireTool` + `requireProjectScope`). Conditional writes on `rev` (`profiler/budgets.ts`): a
+  first override inserts only if absent, an edit or reset updates / deletes only where `rev`
+  matches, each write takes a new random `rev` (a counter restarting after a reset could let an old
+  edit land on a new override). A stale save gets 409 with the current line; the page re-reads and
+  shows theirs with a note.
 - **Gate.** `pnpm --filter launcher-api check:profiler` (`scripts/check-profiler.ts`): report
   summary, token, capture links, purge and Keep races, CORS paths (1–5); P2 adds a summary from the
   REAL engine analyser, the diff, the reading ↔ build join and the purge never taking the newest
   build (6–9); the follow-up adds the game claim, the game-key rule, the join by game and the
-  orphan sweep. `check:launcher-gates` accepts `buildOrigin(` as a project check only because it
+  orphan sweep; P3 adds 10–12 (studio defaults, override / reset, refusals; judge on both sides,
+  not enough data, the median, device groups, `readingsByBuild`; build verdicts incl. the worst
+  GPU). `check:launcher-gates` accepts `buildOrigin(` as a project check only because it
   asserts `buildOrigin` calls `canAccessProject`.
 
 ## Open items / next
@@ -144,8 +186,12 @@ each build. P3–P7 are planned.
    but the per-texture list and spike records of a reading over 480 KB. To keep them, add
    `https://games.invisiblewall.org` (PUT, header `content-type`) to the bucket's CORS rule in the
    Cloudflare dashboard.
-5. **P3 — Devices and budgets:** `perf_budgets` with the studio default; Devices tab; pass / warn /
-   fail per build and device class.
+5. **P3 is unverified on production** (PR to be opened). Verified locally only (PGlite + a seeded
+   project: 3 builds, 10 readings): all three tabs, edit + reset in the UI, the PUT race cases.
+   Left open: a duplicated project does not copy its budget overrides (`projectDuplicate.ts`); no
+   reading is judged as a tablet until the probe tells one apart. The Devices headline takes the
+   median over every kept reading of a device, across builds, so an old slow build can colour it
+   after a fix ships (open the row for the build-by-build view).
 6. **P4 — Findings:** the rules as pure functions with fixtures in `check:profiler`; Findings tab;
    Compare.
 7. **P5 — File as bug:** prefilled Bug Reports from a finding, with the evidence links.
@@ -153,6 +199,15 @@ each build. P3–P7 are planned.
 9. **P7 — Cloud phones:** the lab script on an online real-device service, calibrated first.
 
 ## Recent changes
+
+- 2026-11-17 — **P3 "Devices and budgets" built** (PR to be opened): `perf_budgets` + migration
+  0044 (per-project overrides; studio defaults `STUDIO_BUDGETS` in code), the pure evaluation in
+  `profilerBudgets.ts` (pass / warn / fail, not enough data under 120 frames, median per device
+  group, build verdicts), `PUT /api/profiler/budgets` with conditional writes on `rev` (409 on a
+  stale save), the **Devices** and **Budgets** tabs, the Builds tab's Devices column and coloured
+  Shipped / GPU MB, `VerdictBadge`, IconButton `reset` icon, `check:profiler` tests 10–12. Verified
+  locally (PGlite, seeded project), not on production. Docs: guide, `ui-inventory.md` §2 / §21,
+  STATUS row.
 
 - 2026-11-17 — **P2 follow-up — the open items**: a capture token per game and `perf_reports.game_key`
   (migration 0043) so a reading joins only its game's builds, Paste's Game picker; the build's game

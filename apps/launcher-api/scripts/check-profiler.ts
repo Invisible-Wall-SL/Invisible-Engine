@@ -897,6 +897,8 @@ test('12. a build: size and GPU from its breakdown, each device class from its r
 	const none = evaluateBuild({ ...build, gpuBytes: 0, shippedBytes: 3 * MB }, [], eff);
 	assert.equal(none.gpu, 'nodata', 'no estimate is no data, not a 0 MB pass');
 	assert.equal(none.shipped, 'pass');
+	const unsized = evaluateBuild({ ...build, shippedBytes: 0 }, [], eff);
+	assert.equal(unsized.shipped, 'nodata', 'a breakdown with no size is no data, not a 0 MB pass');
 	const relaxed = effectiveBudgets([
 		{
 			deviceClass: 'all',

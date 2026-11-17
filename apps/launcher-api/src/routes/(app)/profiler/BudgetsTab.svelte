@@ -26,18 +26,13 @@
 		desktop: 'Desktop',
 		all: 'Every device',
 	};
-	const PHASE_LABEL: Record<string, string> = {
-		idle: 'idle',
-		spinning: 'spinning',
-		round: 'round',
-		'': '',
-	};
 
 	const WHICH = ['warn', 'fail'] as const;
 
 	/** What the editor has typed but not saved, per line; cleared when the line saves. */
 	let drafts = $state<Record<string, { warn: string; fail: string }>>({});
-	let busy = $state<string | null>(null);
+	/** Lines with a save in flight — per line, so saving one never re-enables another. */
+	let busy = $state<Record<string, true>>({});
 	let notes = $state<Record<string, { error: boolean; text: string }>>({});
 
 	const shown = (b: EffectiveBudget, which: 'warn' | 'fail') =>
@@ -52,7 +47,8 @@
 
 	async function send(b: EffectiveBudget, body: Record<string, unknown>): Promise<void> {
 		const id = budgetKeyId(b);
-		busy = id;
+		const sent = drafts[id];
+		busy[id] = true;
 		delete notes[id];
 		try {
 			const res = await fetch(resolve('/api/profiler/budgets'), {
@@ -68,19 +64,24 @@
 				}),
 			});
 			const out = (await res.json().catch(() => ({}))) as { message?: string };
-			if (res.ok) {
-				delete drafts[id];
-			} else if (res.status === 409) {
-				delete drafts[id];
-				notes[id] = { error: true, text: out.message ?? 'Changed by someone else first.' };
-			} else {
+			if (res.status === 409) {
+				const yours = sent
+					? ` Yours was warn ${sent.warn || '—'} / fail ${sent.fail || '—'}; type it again to save it over theirs.`
+					: '';
+				notes[id] = {
+					error: true,
+					text: `${out.message ?? 'Changed by someone else first.'}${yours}`,
+				};
+			} else if (!res.ok) {
 				notes[id] = { error: true, text: out.message ?? `Not saved (${res.status}).` };
 			}
 			await invalidate(PROFILER_BUDGETS);
+			// After the reload (no flash of the old value), and only the draft that was sent.
+			if ((res.ok || res.status === 409) && drafts[id] === sent) delete drafts[id];
 		} catch {
 			notes[id] = { error: true, text: 'Not saved — the launcher did not answer.' };
 		} finally {
-			busy = null;
+			delete busy[id];
 		}
 	}
 
@@ -88,7 +89,7 @@
 		const id = budgetKeyId(b);
 		const d = drafts[id];
 		// Enter saves, then the field blurs: one PUT, or the second would meet its own new rev.
-		if (!d || busy === id) return;
+		if (!d || busy[id]) return;
 		const t = { warn: num(d.warn), fail: num(d.fail) };
 		if (t.warn === b.warn && t.fail === b.fail) {
 			delete drafts[id];
@@ -152,7 +153,7 @@
 						{@const def = BUDGET_METRIC_DEFS[b.metric]}
 						<tr class:overridden={!!b.override} class:dirty={!!drafts[id]}>
 							<td>
-								{def.label}{#if b.phase}<span class="sub phase">{PHASE_LABEL[b.phase]}</span>{/if}
+								{def.label}{#if b.phase}<span class="sub phase">{b.phase}</span>{/if}
 								<div class="sub">
 									{def.better === 'higher' ? 'below' : 'above'} the line is bad · from {def.from}
 								</div>
@@ -170,7 +171,7 @@
 											aria-label="{SCOPE_TITLE[scope]} {def.label} {b.phase} {which} line"
 											placeholder="—"
 											value={shown(b, which)}
-											disabled={busy === id}
+											disabled={!!busy[id]}
 											oninput={(e) => edit(b, which, e.currentTarget.value)}
 											onkeydown={(e) => onKey(e, b)}
 											onblur={() => save(b)}
@@ -191,7 +192,7 @@
 									<IconButton
 										icon="reset"
 										label="Reset to the studio default"
-										disabled={busy === id}
+										disabled={!!busy[id]}
 										onclick={() => send(b, { reset: true })}
 									/>
 								{/if}
