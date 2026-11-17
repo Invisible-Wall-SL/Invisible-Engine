@@ -20,6 +20,7 @@ import {
 	EFFECT_DOC_VERSION,
 	FX_MATERIAL_LAYER_CAP,
 	FX_MATERIAL_LAYER_LOAD_BUDGET,
+	FX_PATH_MAX_POINTS,
 	fxMaterialLoadEstimate,
 	fxMaterialLoadLevel,
 	normalizeEffectDoc,
@@ -54,10 +55,15 @@ import {
 	bindArt,
 	defaultEmitterConfig,
 	emptyEffectDoc,
+	insertPathPoint,
+	insertPathPointAt,
 	listEndpoints,
 	newLayer,
 	nextLayerKey,
+	pathOf,
 	setCoreParam,
+	setPathPoints,
+	setSpawnKind,
 	setListEndpoint,
 	setSpawnRadius,
 	setSpawnRect,
@@ -788,6 +794,24 @@ assert(
 	) && !strength.missing,
 	'⚡ on Strength drives material.intensity as is',
 );
+
+// A path at its point cap: adding writes nothing (the clamp would drop the last anchor instead).
+{
+	const onPath = setSpawnKind(defaultEmitterConfig(), 'path');
+	const full = Array.from({ length: FX_PATH_MAX_POINTS }, (_, i) => ({ x: i, y: -i }));
+	const capped = setPathPoints(onPath, full);
+	assert(pathOf(capped)?.curve.points.length === FX_PATH_MAX_POINTS, 'a path takes the full cap');
+	assert(
+		setPathPoints(capped, [...full, { x: 9999, y: 9999 }]) === capped &&
+			insertPathPointAt(capped, 3, { x: 1, y: 1 }) === capped &&
+			insertPathPoint(capped, 3) === capped,
+		'past the cap, setPathPoints / insertPathPointAt / insertPathPoint return the config unchanged',
+	);
+	assert(
+		pathOf(insertPathPoint(onPath, 0))?.curve.points.length === 4,
+		'…under it, a point is still inserted',
+	);
+}
 
 console.log('');
 if (failures > 0) {

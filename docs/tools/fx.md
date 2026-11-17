@@ -335,9 +335,12 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
   **Closed** (the end joins the start), and, when the path is swept or travelled, **Travel time
   (s)**, **Repeat** (*Loop*, *Ping-pong*, *Once*) and **Easing**. The points table edits each
   point (X, Y in px from the emitter origin; the Bézier handles relative to their point), **+**
-  adds one after it, **✕** removes one (a path keeps two). **On the stage** the selected layer's
+  adds one after it, **✕** removes one (a path keeps two, and holds at most 256 — at the cap
+  **+** and double-click add nothing). A slider whose saved value is past its usual range widens to
+  show it. **On the stage** the selected layer's
   path is drawn dashed: drag a point (the first is amber) or a handle; double-click the curve to
   add a point there; Alt-click a point to remove it; hold Shift while dragging to snap to 15°.
+  A drag that is cancelled (a touch interrupted) or outlived by a layer switch writes nothing.
   Turbo plays a path's travel faster in the game, like everything else; a *Once* travel starts
   again each time the layer's trigger fires.
 - **Direction & rotation** — **Direction (°)** and **Spread (±°)** set the launch arc

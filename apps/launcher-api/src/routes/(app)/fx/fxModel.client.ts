@@ -16,6 +16,7 @@ import {
 	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
 	FX_FORCES_BEHAVIOR_TYPE,
 	FX_PATH_BEHAVIOR_TYPE,
+	FX_PATH_MAX_POINTS,
 	FX_SCALE_BEHAVIOR_TYPE,
 	FX_SPEED_BEHAVIOR_TYPE,
 	FX_SPRITE_BEHAVIOR_TYPE,
@@ -2153,9 +2154,12 @@ export function setPathTravel(config: EmitterConfigV3, on: boolean): EmitterConf
 	});
 }
 
-/** Replace the path's anchors (at least two; the stage's drags and the points table write here). */
+/**
+ * Replace the path's anchors (two to {@link FX_PATH_MAX_POINTS}; the stage's drags and the points
+ * table write here). Out of range is a no-op — the clamp would silently drop the last anchors.
+ */
 export function setPathPoints(config: EmitterConfigV3, points: FxPathPoint[]): EmitterConfigV3 {
-	if (points.length < 2 || !pathOf(config)) return config;
+	if (points.length < 2 || points.length > FX_PATH_MAX_POINTS || !pathOf(config)) return config;
 	return setPath(config, (p) => {
 		p.curve.points = points;
 	});
@@ -2205,14 +2209,14 @@ export function insertPathPoint(config: EmitterConfigV3, index: number): Emitter
 	return insertPathPointAt(config, i + 1, point);
 }
 
-/** Insert `point` as anchor `at` (the stage's double-click on the curve). */
+/** Insert `point` as anchor `at` (the stage's double-click on the curve); a full path is kept. */
 export function insertPathPointAt(
 	config: EmitterConfigV3,
 	at: number,
 	point: FxPathPoint,
 ): EmitterConfigV3 {
 	const path = pathOf(config);
-	if (!path) return config;
+	if (!path || path.curve.points.length >= FX_PATH_MAX_POINTS) return config;
 	const pts = [...path.curve.points];
 	pts.splice(Math.max(0, Math.min(at, pts.length)), 0, point);
 	return setPathPoints(config, pts);

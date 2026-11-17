@@ -10,7 +10,13 @@
  *  4. a points-table number edits the point;
  *  5. Movement → Follow path: the emitter follows; back to a Circle spawn the path stays (Follow
  *     still uses it); "Move the emitter along a path" turns on travel;
- *  6. Movement → Eased speed and spawn Circle: the path is gone from the config and the stage.
+ *  6. Movement → Eased speed and spawn Circle: the path is gone from the config and the stage;
+ *  7. a saved travel time past the slider's range is shown and kept when the slider is touched;
+ *     a blank points-table cell writes nothing;
+ *  8. a drag cancelled mid-way (a touch `pointercancel`) writes nothing and puts the live emitter's
+ *     own path back; switching layer mid-drag ends it — the other layer shows its own points and
+ *     neither layer gets the dragged curve, and the next drag edits only the layer it is on;
+ *  9. at the point cap (256) the + buttons are disabled and a double-click adds nothing.
  *
  *   pnpm --filter fx-spike fx-path-page [--keep <dir>]
  */
@@ -74,6 +80,50 @@ const DRIVER = `(() => {
 		rows() {
 			return [...document.querySelectorAll('table.pathpoints tbody tr')].map((tr) =>
 				[...tr.querySelectorAll('input')].map((i) => Number(i.value)));
+		},
+		/** Every live path emitter's first point, rounded. */
+		livePoints() {
+			return fxPage.emitters.filter((e) => e.parent && e.getBehavior('fxPath')).map((e) => {
+				const p = e.getBehavior('fxPath').path.curve.points[0];
+				return [Math.round(p.x), Math.round(p.y)];
+			});
+		},
+		pickLayer(key) {
+			const b = [...document.querySelectorAll('.layers button.pick')].find(
+				(x) => x.firstChild.textContent.trim() === key);
+			if (!b) throw new Error('no layer ' + key);
+			b.click();
+		},
+		selectedLayer() {
+			return document.querySelector('.layers li.active button.pick').firstChild.textContent.trim();
+		},
+		duplicate() { document.querySelector('.layers li.active button[title="Duplicate layer"]').click(); },
+		copyLayer() {
+			document.querySelector('.layers .clip button').click();
+		},
+		/** Paste the copied layer as a new one, its path given \`n\` points. */
+		pasteWithPoints(n) {
+			const key = 'invisible-fx.layer-clipboard';
+			const layer = JSON.parse(localStorage.getItem(key));
+			const b = layer.config.behaviors.find((x) => x.type === 'fxPath');
+			b.config.curve.points = Array.from({ length: n }, (_, i) => ({ x: -300 + (600 * i) / (n - 1), y: (i % 2) * 20 }));
+			localStorage.setItem(key, JSON.stringify(layer));
+			[...document.querySelectorAll('.layers .clip button')].find((x) => x.textContent.includes('Paste')).click();
+		},
+		plusDisabled() {
+			return [...document.querySelectorAll('table.pathpoints td.acts button:first-child')].map((x) => x.disabled);
+		},
+		sliderRow(label) {
+			const r = row(label);
+			const [range, box] = r.querySelectorAll('input');
+			return { range: Number(range.value), max: Number(range.max), box: Number(box.value) };
+		},
+		setSlider(label, kind, value) {
+			const el = row(label).querySelectorAll('input')[kind === 'range' ? 0 : 1];
+			el.value = String(value); fire(el, kind === 'range' ? 'input' : 'change');
+		},
+		cellText(row, col) {
+			return document.querySelectorAll('table.pathpoints tbody tr')[row].querySelectorAll('input')[col].value;
 		},
 		setCell(row, col, value) {
 			const tr = document.querySelectorAll('table.pathpoints tbody tr')[row];
@@ -216,12 +266,152 @@ try {
 		JSON.stringify(live),
 	);
 
+	await ev(`pathDrive.setSlider('Travel time (s)', 'box', 50)`);
+	await sleep(400);
+	let travel = await ev(`pathDrive.sliderRow('Travel time (s)')`);
+	check(
+		'a travel time past the slider (50 s) is shown on it, not pinned to its end',
+		travel.box === 50 && travel.range === 50 && travel.max >= 50,
+		JSON.stringify(travel),
+	);
+	await ev(`pathDrive.setSlider('Travel time (s)', 'range', 50)`);
+	await sleep(400);
+	travel = await ev(`pathDrive.sliderRow('Travel time (s)')`);
+	check('…and touching the slider keeps it', travel.box === 50, JSON.stringify(travel));
+
 	await ev(`pathDrive.check('Move the emitter along a path', false)`);
 	await ev(`pathDrive.choose('Model', 'speed')`);
 	await sleep(600);
 	check(
 		'with nothing using it, the path leaves the config and the stage',
 		!(await ev(`pathDrive.hasPathEmitter()`)) && (await ev(`pathDrive.anchors().length`)) === 0,
+	);
+
+	// --- 7–9: edits that must write nothing, cancelled and cross-layer drags, the point cap -------
+	const touch = (type, x, y) =>
+		browser.send('Input.dispatchTouchEvent', {
+			type,
+			touchPoints: type === 'touchCancel' ? [] : [{ x, y, id: 7 }],
+		});
+	const near = (a, b) => Math.abs(a.x - b.x) < 1.5 && Math.abs(a.y - b.y) < 1.5;
+	const sameRows = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+	await ev(`pathDrive.choose('Kind', 'path')`);
+	await sleep(800);
+	const layerA = await ev(`pathDrive.selectedLayer()`);
+	const rowsA = await ev(`pathDrive.rows()`);
+	await ev(`pathDrive.setCell(1, 0, '')`);
+	await sleep(400);
+	check(
+		'a blank points-table cell writes nothing (not 0) and shows the value again',
+		sameRows(await ev(`pathDrive.rows()`), rowsA) &&
+			(await ev(`pathDrive.cellText(1, 0)`)) === String(rowsA[1][0]),
+		JSON.stringify(await ev(`pathDrive.rows()[1]`)),
+	);
+
+	anchors = await ev(`pathDrive.anchors()`);
+	const p0 = anchors[0];
+	await touch('touchStart', p0.x, p0.y);
+	for (let i = 1; i <= 5; i++) await touch('touchMove', p0.x + i * 10, p0.y + i * 8);
+	await sleep(300);
+	const midLive = await ev(`pathDrive.livePoints()`);
+	const midAnchor = (await ev(`pathDrive.anchors()`))[0];
+	await touch('touchCancel');
+	await sleep(500);
+	const afterLive = await ev(`pathDrive.livePoints()`);
+	check(
+		'mid-drag, the live emitter previews the dragged point',
+		midLive[0][0] === rowsA[0][0] + 50 && midLive[0][1] === rowsA[0][1] + 40,
+		`${JSON.stringify(midLive)} (doc ${rowsA[0].slice(0, 2)}), anchor ${midAnchor.x.toFixed(0)},${midAnchor.y.toFixed(0)}`,
+	);
+	check(
+		'a cancelled drag (pointercancel) writes nothing and draws the doc again',
+		sameRows(await ev(`pathDrive.rows()`), rowsA) && near((await ev(`pathDrive.anchors()`))[0], p0),
+	);
+	check(
+		'…and the live emitter has its own path back, not the preview',
+		afterLive[0][0] === Math.round(rowsA[0][0]) && afterLive[0][1] === Math.round(rowsA[0][1]),
+		JSON.stringify(afterLive),
+	);
+
+	await ev(`pathDrive.duplicate()`);
+	await sleep(600);
+	const layerB = await ev(`pathDrive.selectedLayer()`);
+	await ev(`pathDrive.setCell(0, 1, 120)`);
+	await sleep(500);
+	const rowsB = await ev(`pathDrive.rows()`);
+	const anchorsB = await ev(`pathDrive.anchors()`);
+	await ev(`pathDrive.pickLayer(${JSON.stringify(layerA)})`);
+	await sleep(500);
+	const a0A = (await ev(`pathDrive.anchors()`))[0];
+	await mouse('mouseMoved', a0A.x, a0A.y, { buttons: 0 });
+	await mouse('mousePressed', a0A.x, a0A.y);
+	for (let i = 1; i <= 5; i++) await mouse('mouseMoved', a0A.x + i * 8, a0A.y + i * 6);
+	await ev(`pathDrive.pickLayer(${JSON.stringify(layerB)})`);
+	await sleep(500);
+	const shownB = await ev(`pathDrive.anchors()`);
+	check(
+		'switching layer mid-drag: the other layer shows its own points',
+		layerB !== layerA &&
+			shownB.length === anchorsB.length &&
+			shownB.every((a, i) => near(a, anchorsB[i])),
+		`${layerA} → ${layerB}`,
+	);
+	await mouse('mouseMoved', a0A.x + 60, a0A.y + 50);
+	await mouse('mouseReleased', a0A.x + 60, a0A.y + 50);
+	await sleep(500);
+	check(
+		'…and the release writes nothing into it',
+		sameRows(await ev(`pathDrive.rows()`), rowsB),
+		JSON.stringify(await ev(`pathDrive.rows()[0]`)),
+	);
+	const liveAfterSwitch = (await ev(`pathDrive.livePoints()`)).map(String).sort();
+	const docFirsts = [rowsA[0], rowsB[0]]
+		.map((r) => String([Math.round(r[0]), Math.round(r[1])]))
+		.sort();
+	check(
+		'…and no live emitter keeps the dragged preview',
+		JSON.stringify(liveAfterSwitch) === JSON.stringify(docFirsts),
+		JSON.stringify(liveAfterSwitch),
+	);
+	const b0 = shownB[0];
+	await mouse('mouseMoved', b0.x, b0.y, { buttons: 0 });
+	await mouse('mousePressed', b0.x, b0.y);
+	for (let i = 1; i <= 4; i++) await mouse('mouseMoved', b0.x + i * 5, b0.y + i * 5);
+	await mouse('mouseReleased', b0.x + 20, b0.y + 20);
+	await sleep(500);
+	const rowsB2 = await ev(`pathDrive.rows()`);
+	await ev(`pathDrive.pickLayer(${JSON.stringify(layerA)})`);
+	await sleep(400);
+	check(
+		'the next drag moves only the layer it is on',
+		Math.round(rowsB2[0][0] - rowsB[0][0]) === 20 &&
+			Math.round(rowsB2[0][1] - rowsB[0][1]) === 20 &&
+			sameRows(await ev(`pathDrive.rows()`), rowsA),
+		`${rowsB[0].slice(0, 2)} → ${rowsB2[0].slice(0, 2)}`,
+	);
+
+	await ev(`pathDrive.copyLayer()`);
+	await sleep(200);
+	await ev(`pathDrive.pasteWithPoints(256)`);
+	await sleep(800);
+	const full = await ev(`pathDrive.rows()`);
+	const plus = await ev(`pathDrive.plusDisabled()`);
+	check(
+		'at the cap (256 points) every + is disabled',
+		full.length === 256 && plus.length === 256 && plus.every(Boolean),
+		`${full.length} rows`,
+	);
+	const onFull = await ev(`pathDrive.curvePoint(0.5)`);
+	await mouse('mouseMoved', onFull.x, onFull.y, { buttons: 0 });
+	await mouse('mousePressed', onFull.x, onFull.y);
+	await mouse('mouseReleased', onFull.x, onFull.y);
+	await mouse('mousePressed', onFull.x, onFull.y, { clickCount: 2 });
+	await mouse('mouseReleased', onFull.x, onFull.y, { clickCount: 2 });
+	await sleep(600);
+	check(
+		'…and a double-click on the curve adds nothing (the last point is not dropped)',
+		sameRows(await ev(`pathDrive.rows()`), full),
 	);
 
 	const errors = browser.pageLog.filter((l) => /^\[(error|uncaught)\]/.test(l));

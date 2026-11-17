@@ -11,6 +11,18 @@ a torn BiRefNet file: [comfyui.md](comfyui.md#every-background-cutout-failed-for
 
 ## Invisible FX, Element FX and particles
 
+### A path drag that never saw pointerup wrote one layer's points into another
+- **Symptom:** in `/fx`, a path-point drag interrupted mid-way (touch cancel, a layer switch, an
+  undo) left the stage drawing the old curve on another layer, the live emitter on the preview,
+  and the next drag saved the old layer's points into the new one.
+- **Cause:** only `pointerup` cleared the drag state; `shownPoints = dragPoints ?? doc` then
+  stopped following the doc, and the drag did not remember which layer it started on.
+- **Fix:** one `endPathDrag` for up / cancel / lost capture / layer switch / path gone / unmount;
+  the drag carries its layer; a cancel swaps the emitter's own behaviour back.
+- **Guard:** `fx-spike` `fx-path-page` (touch `pointercancel` mid-drag, layer switch mid-drag);
+  red on the old code.
+- **PR:** not recorded (2026-11-17) · branch `fix/fx-path-editor`
+
 ### A burst effect played once in /fx and could not be seen whole again
 - **Symptom:** in `/fx` a one-shot effect (Buffalo Duel's `explosion`: every layer
   `emitterLifetime` 0.12 s) fired once on load, then the stage stayed empty; editing a layer

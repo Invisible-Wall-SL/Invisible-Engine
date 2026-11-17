@@ -20,6 +20,7 @@
 		FX_FORCE_LIMITS,
 		FX_MATERIAL_EFFECT_LOAD_BUDGET,
 		FX_MATERIAL_INTENSITY_MAX,
+		FX_PATH_MAX_POINTS,
 		applyEffectParamDefaults,
 		fxMaterialLoadLevel,
 		listEffectLayerLeaves,
@@ -1257,6 +1258,18 @@
 		const raw = (e.currentTarget as HTMLInputElement).value.trim();
 		return raw === '' ? Number.NaN : Number(raw);
 	}
+
+	/** A points-table cell: a blank entry writes nothing (not `Number('')` = 0) and is put back. */
+	function editPathCell(
+		e: Event,
+		index: number,
+		field: 'x' | 'y' | 'inX' | 'inY' | 'outX' | 'outY',
+		shown: number,
+	): void {
+		const v = numOrBlank(e);
+		if (!Number.isFinite(v)) (e.currentTarget as HTMLInputElement).value = String(shown);
+		else if (config) patchConfig(setPathPointField(config, index, field, v));
+	}
 </script>
 
 <!--
@@ -1403,46 +1416,31 @@
 	{@render drivenBy(driven)}
 {/snippet}
 
-<!-- An on/off switch that writes a value (not one that adds or removes a behaviour), with ⚡. -->
+<!-- A points-table cell: one coordinate of a path anchor, or of a Bézier handle. -->
 {#snippet pathNum(index: number, field: 'x' | 'y', value: number)}
+	{@const shown = Math.round(value * 100) / 100}
 	<td>
 		<input
 			type="number"
 			step="1"
-			value={Math.round(value * 100) / 100}
-			onchange={(e) =>
-				config &&
-				patchConfig(
-					setPathPointField(
-						config,
-						index,
-						field,
-						Number((e.currentTarget as HTMLInputElement).value),
-					),
-				)}
+			value={shown}
+			onchange={(e) => editPathCell(e, index, field, shown)}
 		/>
 	</td>
 {/snippet}
 
 {#snippet pathHandle(index: number, field: 'inX' | 'inY' | 'outX' | 'outY', value: number)}
+	{@const shown = Math.round(value * 100) / 100}
 	<input
 		type="number"
 		step="1"
 		title={field}
-		value={Math.round(value * 100) / 100}
-		onchange={(e) =>
-			config &&
-			patchConfig(
-				setPathPointField(
-					config,
-					index,
-					field,
-					Number((e.currentTarget as HTMLInputElement).value),
-				),
-			)}
+		value={shown}
+		onchange={(e) => editPathCell(e, index, field, shown)}
 	/>
 {/snippet}
 
+<!-- An on/off switch that writes a value (not one that adds or removes a behaviour), with ⚡. -->
 {#snippet toggle(
 	label: string,
 	text: string,
@@ -2630,12 +2628,19 @@
 								<option value="sweep">Sweep start → end</option>
 							</select>
 						</label>
-						{@render slider('Jitter (px)', path.along.jitter, 0, 200, 1, (v) =>
-							patchConfig(
-								setPath(config, (p) => {
-									p.along.jitter = v;
-								}),
-							),
+						{@render slider(
+							'Jitter (px)',
+							path.along.jitter,
+							0,
+							Math.max(200, path.along.jitter),
+							1,
+							(v) =>
+								patchConfig(
+									setPath(config, (p) => {
+										p.along.jitter = v;
+									}),
+								),
+							'pathJitter',
 						)}
 						<label class="row">
 							<span>Direction</span>
@@ -2761,12 +2766,19 @@
 							)}
 						{/if}
 						{#if pathTimed}
-							{@render slider('Travel time (s)', path.travel.duration, 0.05, 20, 0.05, (v) =>
-								patchConfig(
-									setPath(config, (p) => {
-										p.travel.duration = v;
-									}),
-								),
+							{@render slider(
+								'Travel time (s)',
+								path.travel.duration,
+								Math.min(0.05, path.travel.duration),
+								Math.max(20, path.travel.duration),
+								0.05,
+								(v) =>
+									patchConfig(
+										setPath(config, (p) => {
+											p.travel.duration = v;
+										}),
+									),
+								'pathTravel',
 							)}
 							<label class="row">
 								<span>Repeat</span>
@@ -2836,7 +2848,10 @@
 										<td class="acts">
 											<button
 												class="ico"
-												title="Add a point after this one"
+												title={path.curve.points.length >= FX_PATH_MAX_POINTS
+													? `A path holds at most ${FX_PATH_MAX_POINTS} points`
+													: 'Add a point after this one'}
+												disabled={path.curve.points.length >= FX_PATH_MAX_POINTS}
 												onclick={() => patchConfig(insertPathPoint(config, pi))}>+</button
 											>
 											<button
@@ -3060,12 +3075,19 @@
 							</select>
 						</label>
 						{#if path.follow.by === 'speed'}
-							{@render slider('Speed (px/s)', path.follow.speed, 0, 3000, 5, (v) =>
-								patchConfig(
-									setPath(config, (p) => {
-										p.follow.speed = v;
-									}),
-								),
+							{@render slider(
+								'Speed (px/s)',
+								path.follow.speed,
+								0,
+								Math.max(3000, path.follow.speed),
+								5,
+								(v) =>
+									patchConfig(
+										setPath(config, (p) => {
+											p.follow.speed = v;
+										}),
+									),
+								'pathSpeed',
 							)}
 							{@render slider('Slowest (× speed)', path.follow.speedMin, 0, 1, 0.05, (v) =>
 								patchConfig(
