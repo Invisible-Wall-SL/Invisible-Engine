@@ -1,7 +1,7 @@
 // check:family-runtimes — each runtime carries only its families (`docs/design/phase-11.md` §3.1),
 // and what a first visit to it downloads stays within its budget.
 //
-//   node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card> --families <value> <buildDir>
+//   node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card|arcade3d> --families <value> <buildDir>
 //       checks ONE build, as the release workflow does per id: its `__IE_FAMILIES__` is the set
 //       `<value>` (a `PUBLIC_IE_FAMILIES` value) compiles, every left-out family's markers are absent
 //       from every file of the build (the shell and every chunk, lazy ones included) and every
@@ -71,13 +71,23 @@ const FAMILY_MARKERS = {
  */
 const ONLINE_MARKERS = { arcade: ['joinOrCreate'] };
 
+/**
+ * Strings only the 3D view carries (`docs/design/3d-games.md`): one of three.js's, one of
+ * `engine-3d`'s. In the `arcade3d` runtime (as its lazy chunk) and in no other file of any other.
+ */
+const VIEW_3D_MARKERS = ['isMeshToonMaterial', 'ieWorld3d'];
+
 /** The runtimes the release builds (`id`, its `PUBLIC_IE_FAMILIES`). */
 const RUNTIMES = [
 	{ id: 'lines', families: 'slot' },
 	{ id: 'match3', families: 'match3' },
 	{ id: 'arcade', families: 'arcade' },
 	{ id: 'card', families: 'card' },
+	{ id: 'arcade3d', families: 'arcade', view3d: true },
 ];
+
+/** The runtimes that draw a view of a family, by the family they play. */
+const VIEW_OF = { arcade3d: 'arcade' };
 
 const keyOf = (list) => list.join(',');
 
@@ -92,10 +102,11 @@ const SHELL_BUDGET_FLOOR = 5000;
 const idProblem = (id, list) => {
 	if (id === 'lines')
 		return list.length === 1 ? null : `'lines' is built slot-only, not ${keyOf(list)}`;
-	if (!OPTIONAL_FAMILIES.includes(id)) return `unknown runtime id '${id}'`;
-	return keyOf(list) === keyOf(['slot', id])
+	const family = VIEW_OF[id] ?? id;
+	if (!OPTIONAL_FAMILIES.includes(family)) return `unknown runtime id '${id}'`;
+	return keyOf(list) === keyOf(['slot', family])
 		? null
-		: `'${id}' is built slot + ${id}, not ${keyOf(list)}`;
+		: `'${id}' is built slot + ${family}, not ${keyOf(list)}`;
 };
 
 const FAMILY_LIST = /\["slot"(?:,"(?:match3|arcade|card)")*\]/g;
@@ -142,6 +153,15 @@ function checkBundle({ id, families, buildDir, budgets }) {
 						: `${family} is left out but its marker '${marker}' is in the build`,
 				);
 		}
+	}
+	const view3d = id in VIEW_OF;
+	for (const marker of VIEW_3D_MARKERS) {
+		if (code.includes(marker) !== view3d)
+			problems.push(
+				view3d
+					? `the 3D view's marker '${marker}' is missing`
+					: `the 3D view's marker '${marker}' is in a runtime without it`,
+			);
 	}
 	const size = onlineMarkers.length ? visit.gz.onlineVisit : visit.gz.firstVisit;
 	const shell = visit.gz.shell;
@@ -199,9 +219,13 @@ function buildAll(measure) {
 	try {
 		run(['--filter', 'lines^...', 'build']);
 		const results = [];
-		for (const { id, families } of RUNTIMES) {
+		for (const { id, families, view3d } of RUNTIMES) {
 			rmSync(join(ROOT, 'apps/lines/build'), { recursive: true, force: true });
-			run(['--filter', 'lines', 'build'], { ...RELEASE_ENV, PUBLIC_IE_FAMILIES: families });
+			run(['--filter', 'lines', 'build'], {
+				...RELEASE_ENV,
+				PUBLIC_IE_FAMILIES: families,
+				...(view3d ? { PUBLIC_IE_3D: '1' } : {}),
+			});
 			const dir = join(out, `${id}-${families}`);
 			cpSync(join(ROOT, 'apps/lines/build'), dir, { recursive: true });
 			results.push({ id, families, result: checkBundle({ id, families, buildDir: dir, budgets }) });
@@ -249,7 +273,7 @@ function main(argv) {
 	const buildDir = argv.filter((a, i) => !a.startsWith('--') && !argv[i - 1]?.startsWith('--'))[0];
 	if (!id || families === undefined || !buildDir) {
 		console.error(
-			'usage: node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card> ' +
+			'usage: node scripts/check-family-runtime.mjs --id <lines|match3|arcade|card|arcade3d> ' +
 				'--families <PUBLIC_IE_FAMILIES value> <buildDir>',
 		);
 		process.exit(2);

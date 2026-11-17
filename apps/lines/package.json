@@ -58,6 +58,7 @@
 		"utils-layout": "workspace:*",
 		"utils-sound": "workspace:*",
 		"engine-mechanics": "workspace:*",
-		"engine-rooms": "workspace:*"
+		"engine-rooms": "workspace:*",
+		"engine-3d": "workspace:*"
 	}
 }
