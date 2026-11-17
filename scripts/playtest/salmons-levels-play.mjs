@@ -7,6 +7,10 @@
 // sand), and no page error. It prints
 // how long the art took and the page's JS heap, since the original's river is about 2.7× longer and
 // 3.8× wider than P10.16's. A second config pins one seed, and its room must play it.
+// Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
+// whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
+// the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
+// the built-in tiles.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-levels-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
@@ -19,12 +23,15 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { PNG } from 'pngjs';
+
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
+import { SALMONS_SHEETS } from '../../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
@@ -134,6 +141,84 @@ const snap = await serveSnapshot({
 	snapshotId: 'salmons',
 	assetBase: `${server.origin}/${KEY}/`,
 });
+// The project's `salmons_terrain` sheet as a publish ships it (`deploy/editor-art/`, listed in
+// `editorArt` by its manifest key): the built-in frames, every pixel magenta.
+const MAGENTA = [255, 0, 255];
+const terrain = SALMONS_SHEETS.terrain;
+const terrainPage = new PNG({ width: terrain.meta.size.w, height: terrain.meta.size.h });
+for (let i = 0; i < terrainPage.data.length; i += 4) terrainPage.data.set([...MAGENTA, 255], i);
+mkdirSync(join(snapshot, 'deploy', 'editor-art'), { recursive: true });
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'salmons_terrain.png'),
+	PNG.sync.write(terrainPage),
+);
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'salmons_terrain.json'),
+	JSON.stringify({ ...terrain, meta: { ...terrain.meta, image: 'salmons_terrain.png' } }),
+);
+// And `salmons_waterfall_face`, the tile a TilingSprite scrolls, as its own one-region sheet.
+const FACE = { w: 256, h: 64 };
+const facePage = new PNG({ width: FACE.w, height: FACE.h });
+for (let i = 0; i < facePage.data.length; i += 4) facePage.data.set([...MAGENTA, 255], i);
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'salmons_waterfall_face.png'),
+	PNG.sync.write(facePage),
+);
+const faceFrame = { x: 0, y: 0, ...FACE };
+writeFileSync(
+	join(snapshot, 'deploy', 'editor-art', 'salmons_waterfall_face.json'),
+	JSON.stringify({
+		frames: {
+			waterfall_face: {
+				frame: faceFrame,
+				rotated: false,
+				trimmed: false,
+				spriteSourceSize: faceFrame,
+				sourceSize: FACE,
+			},
+		},
+		meta: { image: 'salmons_waterfall_face.png', format: 'RGBA8888', size: FACE, scale: '1' },
+	}),
+);
+const withProjectArt = join(work, 'runtime-project-art.json');
+writeFileSync(
+	withProjectArt,
+	JSON.stringify({
+		doc,
+		componentDefs,
+		componentDefaults: {},
+		config,
+		flowV2: SALMONS_SEED_DOC,
+		editorArt: {
+			sheets: [
+				{
+					key: `invisible_wall/${KEY}/manifests/atlas_manifest_salmons_terrain.json`,
+					json: 'editor-art/salmons_terrain.json',
+				},
+				{
+					key: `invisible_wall/${KEY}/manifests/atlas_manifest_salmons_waterfall_face.json`,
+					json: 'editor-art/salmons_waterfall_face.json',
+				},
+			],
+			images: [],
+		},
+	}),
+);
+const snapProjectArt = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withProjectArt,
+	name: 'Salmons',
+	snapshotId: 'salmons-project-art',
+});
+/** The share of a screenshot's pixels that are the project sheet's magenta. */
+const magentaShare = (shot) => {
+	const { data } = PNG.sync.read(shot);
+	let hits = 0;
+	for (let i = 0; i < data.length; i += 4)
+		if (data[i] > 200 && data[i + 1] < 60 && data[i + 2] > 200) hits += 1;
+	return hits / (data.length / 4);
+};
+
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
@@ -262,10 +347,39 @@ try {
 		before,
 		after,
 	});
-	writeFileSync(join(out, 'level.png'), await a.page.screenshot());
+	const levelShot = await a.page.screenshot();
+	writeFileSync(join(out, 'level.png'), levelShot);
+	const builtinMagenta = magentaShare(levelShot);
 	const errors = await a.page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error', errors.length === 0, errors);
 	await a.page.close();
+
+	const pa = await boot('pa', { rooms_name: 'Pat', editorDocBase: snapProjectArt.origin });
+	const paArt = (await pa.state()).arcade?.online?.art;
+	await pa.settle(1000);
+	const projectShot = await pa.page.screenshot();
+	writeFileSync(join(out, 'project-art.png'), projectShot);
+	const projectMagenta = magentaShare(projectShot);
+	result.measures.magenta = { builtin: builtinMagenta, project: projectMagenta };
+	verdict(
+		"a snapshot shipping the project's salmons_terrain draws the banks from it",
+		!!paArt && projectMagenta > 0.05,
+		{ share: projectMagenta },
+	);
+	verdict('without it the built-in tiles are drawn (no magenta)', builtinMagenta < 0.001, {
+		share: builtinMagenta,
+	});
+	const paRegions = (await pa.state()).arcade?.online?.art?.regions ?? {};
+	verdict(
+		'with the project’s face tile the waterfalls still draw (the TilingSprite path)',
+		(paRegions.waterfall_face ?? 0) > 0,
+		{
+			faces: paRegions.waterfall_face,
+		},
+	);
+	const paErrors = await pa.page.evaluate('window.__AR_ERRORS__');
+	verdict('no page error with the project art', paErrors.length === 0, paErrors);
+	await pa.page.close();
 
 	const p = await boot('p', { rooms_name: 'Pia', rooms_game: 'salmons-pinned' });
 	const pSeed = (await p.state()).arcade?.online?.seed;
