@@ -18,6 +18,7 @@ import { sql } from 'drizzle-orm';
 import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRuns';
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
+import type { PerfBuildCategory } from '$lib/profilerBuilds';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -1343,3 +1344,67 @@ export const perfReports = pgTable(
 );
 
 export type PerfReport = typeof perfReports.$inferSelect;
+
+/**
+ * Invisible Profiler build records (`docs/design/invisible-profiler.md` §2, step P2): one row per
+ * desktop ☁ Publish or 📦 Deliver, the summary of the `build-breakdown.json` the desktop launcher
+ * uploads after it; the full JSON lives in R2 at `r2_key` (`perfBuildKey`). The id is the presigned
+ * upload's, so a registration sent twice lands once. `build` is the launcher's build number for
+ * `game_key` — counted per machine, so it is not unique on its own. Readings join on it and on
+ * `engine_sha` (`readingOnBuild`): a desktop build's stamp names the engine commit it compiled,
+ * which stands in for a runtime release (a desktop build boots no shared runtime).
+ *
+ * Retention as `perf_reports` (claim, file, row; `profiler/purgeJob.ts`), from `registered_at`,
+ * except that the newest build of each game key and kind is never claimed (`buildPurgeable`).
+ */
+export const perfBuilds = pgTable(
+	'perf_builds',
+	{
+		id: text('id').primaryKey(),
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		clientKey: text('client_key').notNull(),
+		gameKey: text('game_key').notNull(),
+		build: text('build').notNull(),
+		kind: text('kind').notNull(),
+		profile: text('profile'),
+		debug: boolean('debug').notNull().default(false),
+		optimize: boolean('optimize').notNull().default(false),
+		builtAt: text('built_at'),
+		engineSha: text('engine_sha'),
+		gameSha: text('game_sha'),
+		launcherVersion: text('launcher_version'),
+		breakdownVersion: integer('breakdown_version').notNull(),
+		files: integer('files').notNull(),
+		shippedBytes: bigint('shipped_bytes', { mode: 'number' }).notNull(),
+		codeBytes: bigint('code_bytes', { mode: 'number' }).notNull(),
+		gpuBytes: bigint('gpu_bytes', { mode: 'number' }).notNull(),
+		removedBytes: bigint('removed_bytes', { mode: 'number' }).notNull(),
+		unreferencedBytes: bigint('unreferenced_bytes', { mode: 'number' }).notNull(),
+		duplicateBytes: bigint('duplicate_bytes', { mode: 'number' }).notNull(),
+		categories: jsonb('categories').$type<PerfBuildCategory[]>().notNull().default([]),
+		issuesError: integer('issues_error').notNull().default(0),
+		issuesWarn: integer('issues_warn').notNull().default(0),
+		issuesInfo: integer('issues_info').notNull().default(0),
+		r2Key: text('r2_key').notNull(),
+		bytes: integer('bytes').notNull(),
+		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+		registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
+		keep: boolean('keep').notNull().default(false),
+		purgingAt: timestamp('purging_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('perf_builds_project_idx').on(table.projectKey, table.registeredAt),
+		index('perf_builds_line_idx').on(
+			table.projectKey,
+			table.gameKey,
+			table.kind,
+			table.registeredAt,
+		),
+		index('perf_builds_purge_idx').on(table.keep, table.registeredAt),
+		check('perf_builds_kind_check', sql`${table.kind} in ('publish', 'delivery')`),
+	],
+);
+
+export type PerfBuild = typeof perfBuilds.$inferSelect;

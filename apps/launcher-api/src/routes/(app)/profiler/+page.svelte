@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, invalidate } from '$app/navigation';
+	import { goto, invalidate, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import {
@@ -9,11 +9,52 @@
 		type PerfPhaseSummary,
 		type PerfReportListItem,
 	} from '$lib/profiler';
+	import {
+		buildDiff,
+		deltaMb,
+		mb,
+		previousBuild,
+		PROFILER_BUILDS,
+		readingOnBuild,
+		type PerfBuildListItem,
+	} from '$lib/profilerBuilds';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// ── Tabs ──
+	const TABS = [
+		{ id: 'readings', label: 'Readings' },
+		{ id: 'builds', label: 'Builds' },
+	] as const;
+	type TabId = (typeof TABS)[number]['id'];
+	let tab = $state<TabId>(untrack(() => data.tab));
+
+	function showTab(id: TabId): void {
+		tab = id;
+		const url = new URL(page.url);
+		if (id === 'readings') url.searchParams.delete('tab');
+		else url.searchParams.set('tab', id);
+		// The same route with a query: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		replaceState(url, {});
+	}
+
+	function onTabKeydown(e: KeyboardEvent): void {
+		const i = TABS.findIndex((t) => t.id === tab);
+		let next: number;
+		if (e.key === 'ArrowRight') next = (i + 1) % TABS.length;
+		else if (e.key === 'ArrowLeft') next = (i - 1 + TABS.length) % TABS.length;
+		else if (e.key === 'Home') next = 0;
+		else if (e.key === 'End') next = TABS.length - 1;
+		else return;
+		e.preventDefault();
+		showTab(TABS[next].id);
+		document.getElementById(`tab-${TABS[next].id}`)?.focus();
+	}
 
 	interface CaptureLinkView {
 		id: string;
@@ -34,9 +75,10 @@
 	/** Another project's readings: the page loads it as that project (and makes it the active one). */
 	function openProject(key: string): void {
 		if (!key || key === data.projectKey) return;
+		const tabQuery = tab === 'readings' ? '' : `&tab=${tab}`;
 		// A query on this same route: `resolve()` cannot carry one.
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		void goto(`${page.url.pathname}?project=${encodeURIComponent(key)}`);
+		void goto(`${page.url.pathname}?project=${encodeURIComponent(key)}${tabQuery}`);
 	}
 
 	async function failure(res: Response): Promise<string> {
@@ -183,6 +225,72 @@
 			.join(' ');
 	const daysLeft = (iso: string | null) =>
 		iso ? Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)) : null;
+
+	// ── Builds ──
+	let selectedBuildId = $state<string | null>(null);
+	let buildKeepError = $state('');
+	let buildKeeping = $state<string | null>(null);
+
+	const selectedBuild = $derived(
+		data.builds.find((b) => b.id === selectedBuildId) ?? data.builds[0] ?? null,
+	);
+	const selectedPrevious = $derived(
+		selectedBuild ? previousBuild(selectedBuild, data.builds) : null,
+	);
+	const selectedDiff = $derived(
+		selectedBuild && selectedPrevious ? buildDiff(selectedBuild, selectedPrevious) : null,
+	);
+	const selectedReadings = $derived(
+		selectedBuild ? data.readings.filter((r) => readingOnBuild(r, selectedBuild)) : [],
+	);
+	const readingsOn = (b: PerfBuildListItem) =>
+		data.readings.filter((r) => readingOnBuild(r, b)).length;
+	const shippedDelta = (b: PerfBuildListItem) => {
+		const prev = previousBuild(b, data.builds);
+		return prev ? deltaMb(b.shippedBytes - prev.shippedBytes) : '–';
+	};
+
+	/** One colour per category id, so a category reads the same in every row's bar. */
+	const CATEGORY_COLORS: Record<string, string> = {
+		code: '#4c6ef5',
+		art: '#20c997',
+		symbols: '#fab005',
+		pages: '#e64980',
+		coded: '#be4bdb',
+		fonts: '#15aabf',
+		sounds: '#fd7e14',
+		boot: '#82c91e',
+		data: '#868e96',
+		other: '#495057',
+	};
+	const categoryColor = (id: string) => CATEGORY_COLORS[id] ?? '#495057';
+
+	async function toggleBuildKeep(b: PerfBuildListItem): Promise<void> {
+		buildKeeping = b.id;
+		buildKeepError = '';
+		try {
+			const res = await fetch(`/api/profiler/builds/${encodeURIComponent(b.id)}`, {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ keep: !b.keep }),
+			});
+			if (!res.ok) throw new Error(await failure(res));
+			await invalidate(PROFILER_BUILDS);
+		} catch (e) {
+			buildKeepError = e instanceof Error ? e.message : String(e);
+		} finally {
+			buildKeeping = null;
+		}
+	}
+
+	const buildKeepTitle = (b: PerfBuildListItem) =>
+		b.keep
+			? 'Kept — never purged'
+			: b.expiresAt
+				? `Deleted in ${daysLeft(b.expiresAt)} day(s) unless kept`
+				: 'The newest build of its game and kind — never purged while it is';
+	const buildKeepText = (b: PerfBuildListItem) =>
+		b.keep ? 'kept' : b.expiresAt ? `${daysLeft(b.expiresAt)} d` : 'newest';
 </script>
 
 <svelte:head><title>Invisible Profiler — Invisible Wall</title></svelte:head>
@@ -212,190 +320,471 @@
 			</label>
 		</div>
 
-		<SectionCard scope="profiler" id="capture" title="New capture">
-			{#snippet info()}
-				<p>
-					Opens the project's published game with the <code>?perf=1</code> probe and a capture session
-					for 24 hours. Scan the QR code on a phone (or open the link): every time the tester taps Send
-					or Reset, or leaves the page, the reading is sent here. The variants each turn one cost off,
-					so a reading beside the plain one shows what that feature costs on the device.
-				</p>
-			{/snippet}
-			{#if !data.games.length}
-				<p class="warn">
-					This project has no published game yet — publish it from Game Maker first.
-				</p>
-			{:else}
-				<div class="row">
-					<label class="field">
-						<span>Device label</span>
-						<input
-							type="text"
-							maxlength="80"
-							placeholder="e.g. Galaxy A14"
-							bind:value={deviceLabel}
-						/>
-					</label>
-					<button type="button" class="primary" disabled={opening} onclick={openSession}>
-						{opening ? 'Opening…' : openSessionHere ? 'New session' : 'Open capture'}
-					</button>
-				</div>
-				{#if captureError}<p class="error">{captureError}</p>{/if}
-				{#if openSessionHere}
-					<p class="muted">
-						Session open until {when(openSessionHere.expiresAt)}. New readings appear below as they
-						arrive.
-					</p>
-					{#each openSessionHere.games as game (game.key)}
-						<div class="game">
-							<h3>{game.name}</h3>
-							<div class="links">
-								{#each game.links as link (link.id)}
-									<figure class="link" class:main={link.id === 'plain'}>
-										<!-- Server-rendered by `qrcode` from our own capture URL. -->
-										<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-										<div class="qr">{@html link.qr}</div>
-										<figcaption>
-											<strong>{link.label}</strong>
-											<span class="actions">
-												<!-- The game, on its own origin: not a route of this app. -->
-												<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-												<a href={link.url} target="_blank" rel="noopener">Open</a>
-												<button type="button" class="linkish" onclick={() => copyLink(link.url)}>
-													{copiedUrl === link.url ? 'Copied' : 'Copy link'}
-												</button>
-											</span>
-										</figcaption>
-									</figure>
-								{/each}
-							</div>
-						</div>
-					{/each}
-				{/if}
-			{/if}
-		</SectionCard>
-
-		<SectionCard scope="profiler" id="paste" title="Paste a reading">
-			{#snippet info()}
-				<p>
-					For a build that cannot send — a delivery on a partner's page: open it with
-					<code>?perf=1</code>, tap Copy, and paste the text here. It is kept like a sent reading.
-				</p>
-			{/snippet}
-			<textarea rows="4" placeholder={'{"perf":7, …}'} bind:value={pasteText}></textarea>
-			<div class="row">
-				<label class="field">
-					<span>Device label</span>
-					<input type="text" maxlength="80" bind:value={pasteLabel} />
-				</label>
+		<div
+			class="tabs"
+			role="tablist"
+			aria-label="Invisible Profiler"
+			tabindex="-1"
+			onkeydown={onTabKeydown}
+		>
+			{#each TABS as t (t.id)}
 				<button
+					id={`tab-${t.id}`}
+					class="tab"
+					class:active={tab === t.id}
+					role="tab"
 					type="button"
-					class="primary"
-					disabled={pasting || !pasteText.trim()}
-					onclick={sendPaste}
+					aria-selected={tab === t.id}
+					aria-controls={`panel-${t.id}`}
+					tabindex={tab === t.id ? 0 : -1}
+					onclick={() => showTab(t.id)}
 				>
-					{pasting ? 'Sending…' : 'Keep reading'}
+					{t.label} ({t.id === 'builds' ? data.builds.length : data.readings.length})
 				</button>
-				{#if pasteNote}<span class="ok">{pasteNote}</span>{/if}
-			</div>
-			{#if pasteError}<p class="error">{pasteError}</p>{/if}
-		</SectionCard>
+			{/each}
+		</div>
 
-		<SectionCard scope="profiler" id="readings" title="Readings ({data.readings.length})">
-			{#snippet info()}
-				<p>
-					Every reading of this project, newest first: frames per second, the 95th-percentile frame
-					time and frames over 33 ms, for the game idling, the reels spinning and a round's
-					presentation. A reading is deleted {PERF_RETENTION_DAYS} days after capture unless Keep is ticked.
-				</p>
-			{/snippet}
-			{#if keepError}<p class="error">{keepError}</p>{/if}
-			{#if !data.readings.length}
-				<p class="muted">No readings yet.</p>
-			{:else}
-				<div class="table-wrap">
-					<table>
-						<thead>
-							<tr>
-								<th rowspan="2">Captured</th>
-								<th rowspan="2">Device</th>
-								<th rowspan="2">GPU</th>
-								<th rowspan="2">Build</th>
-								<th colspan="3">Idle</th>
-								<th colspan="3">Spinning</th>
-								<th colspan="3">Round</th>
-								<th rowspan="2">Draws</th>
-								<th rowspan="2">Tex MB</th>
-								<th rowspan="2">Keep</th>
-								<th rowspan="2"></th>
-							</tr>
-							<tr>
-								<th>fps</th><th>p95</th><th>&gt;33</th>
-								<th>fps</th><th>p95</th><th>&gt;33</th>
-								<th>fps</th><th>p95</th><th>&gt;33</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each data.readings as r (r.id)}
-								<tr>
-									<td class="nowrap" title={r.capturedAt}>
-										{when(r.capturedAt)}
-										<span class="tag">{r.source === 'paste' ? 'paste' : 'sent'}</span>
-									</td>
-									<td>
-										<strong>{r.deviceClass ?? '?'}</strong>
-										{#if r.label}· {r.label}{/if}
-										<div class="sub">
-											{r.uaFamily ?? ''}{r.dpr ? ` · ${r.dpr}x` : ''}{r.canvas
-												? ` · ${r.canvas}`
-												: ''}
-										</div>
-										{#if Object.keys(r.flags).length}
-											<div class="sub switch">{switches(r.flags)}</div>
-										{/if}
-									</td>
-									<td class="gpu" title={r.gpu ?? ''}>{r.gpu ?? '–'}</td>
-									<td class="nowrap">{r.buildVersion ?? '–'}</td>
-									<td class="num">{fps(r.idle)}</td>
-									<td class="num">{p95(r.idle)}</td>
-									<td class="num">{hitches(r.idle)}</td>
-									<td class="num">{fps(r.spinning)}</td>
-									<td class="num">{p95(r.spinning)}</td>
-									<td class="num">{hitches(r.spinning)}</td>
-									<td class="num">{fps(r.round)}</td>
-									<td class="num">{p95(r.round)}</td>
-									<td class="num">{hitches(r.round)}</td>
-									<td class="num">{r.drawsMean ?? '–'}</td>
-									<td class="num">{r.textureMb ?? '–'}</td>
-									<td class="nowrap">
-										<label
-											class="keep"
-											title={r.keep
-												? 'Kept — never purged'
-												: `Deleted in ${daysLeft(r.expiresAt)} day(s) unless kept`}
-										>
-											<input
-												type="checkbox"
-												checked={r.keep}
-												disabled={keeping === r.id}
-												onchange={() => toggleKeep(r)}
-											/>
-											{r.keep ? 'kept' : `${daysLeft(r.expiresAt)} d`}
-										</label>
-									</td>
-									<td>
-										<a
-											href={resolve('/api/profiler/reports/[id]', { id: r.id })}
-											title="The full report JSON">JSON</a
-										>
-									</td>
-								</tr>
+		{#if tab === 'readings'}
+			<div id="panel-readings" role="tabpanel" aria-labelledby="tab-readings">
+				<SectionCard scope="profiler" id="capture" title="New capture">
+					{#snippet info()}
+						<p>
+							Opens the project's published game with the <code>?perf=1</code> probe and a capture session
+							for 24 hours. Scan the QR code on a phone (or open the link): every time the tester taps
+							Send or Reset, or leaves the page, the reading is sent here. The variants each turn one
+							cost off, so a reading beside the plain one shows what that feature costs on the device.
+						</p>
+					{/snippet}
+					{#if !data.games.length}
+						<p class="warn">
+							This project has no published game yet — publish it from Game Maker first.
+						</p>
+					{:else}
+						<div class="row">
+							<label class="field">
+								<span>Device label</span>
+								<input
+									type="text"
+									maxlength="80"
+									placeholder="e.g. Galaxy A14"
+									bind:value={deviceLabel}
+								/>
+							</label>
+							<button type="button" class="primary" disabled={opening} onclick={openSession}>
+								{opening ? 'Opening…' : openSessionHere ? 'New session' : 'Open capture'}
+							</button>
+						</div>
+						{#if captureError}<p class="error">{captureError}</p>{/if}
+						{#if openSessionHere}
+							<p class="muted">
+								Session open until {when(openSessionHere.expiresAt)}. New readings appear below as
+								they arrive.
+							</p>
+							{#each openSessionHere.games as game (game.key)}
+								<div class="game">
+									<h3>{game.name}</h3>
+									<div class="links">
+										{#each game.links as link (link.id)}
+											<figure class="link" class:main={link.id === 'plain'}>
+												<!-- Server-rendered by `qrcode` from our own capture URL. -->
+												<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+												<div class="qr">{@html link.qr}</div>
+												<figcaption>
+													<strong>{link.label}</strong>
+													<span class="actions">
+														<!-- The game, on its own origin: not a route of this app. -->
+														<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+														<a href={link.url} target="_blank" rel="noopener">Open</a>
+														<button
+															type="button"
+															class="linkish"
+															onclick={() => copyLink(link.url)}
+														>
+															{copiedUrl === link.url ? 'Copied' : 'Copy link'}
+														</button>
+													</span>
+												</figcaption>
+											</figure>
+										{/each}
+									</div>
+								</div>
 							{/each}
-						</tbody>
-					</table>
-				</div>
-			{/if}
-		</SectionCard>
+						{/if}
+					{/if}
+				</SectionCard>
+
+				<SectionCard scope="profiler" id="paste" title="Paste a reading">
+					{#snippet info()}
+						<p>
+							For a build that cannot send — a delivery on a partner's page: open it with
+							<code>?perf=1</code>, tap Copy, and paste the text here. It is kept like a sent
+							reading.
+						</p>
+					{/snippet}
+					<textarea rows="4" placeholder={'{"perf":7, …}'} bind:value={pasteText}></textarea>
+					<div class="row">
+						<label class="field">
+							<span>Device label</span>
+							<input type="text" maxlength="80" bind:value={pasteLabel} />
+						</label>
+						<button
+							type="button"
+							class="primary"
+							disabled={pasting || !pasteText.trim()}
+							onclick={sendPaste}
+						>
+							{pasting ? 'Sending…' : 'Keep reading'}
+						</button>
+						{#if pasteNote}<span class="ok">{pasteNote}</span>{/if}
+					</div>
+					{#if pasteError}<p class="error">{pasteError}</p>{/if}
+				</SectionCard>
+
+				<SectionCard scope="profiler" id="readings" title="Readings ({data.readings.length})">
+					{#snippet info()}
+						<p>
+							Every reading of this project, newest first: frames per second, the 95th-percentile
+							frame time and frames over 33 ms, for the game idling, the reels spinning and a
+							round's presentation. A reading is deleted {PERF_RETENTION_DAYS} days after capture unless
+							Keep is ticked.
+						</p>
+					{/snippet}
+					{#if keepError}<p class="error">{keepError}</p>{/if}
+					{#if !data.readings.length}
+						<p class="muted">No readings yet.</p>
+					{:else}
+						<div class="table-wrap">
+							<table>
+								<thead>
+									<tr>
+										<th rowspan="2">Captured</th>
+										<th rowspan="2">Device</th>
+										<th rowspan="2">GPU</th>
+										<th rowspan="2">Build</th>
+										<th colspan="3">Idle</th>
+										<th colspan="3">Spinning</th>
+										<th colspan="3">Round</th>
+										<th rowspan="2">Draws</th>
+										<th rowspan="2">Tex MB</th>
+										<th rowspan="2">Keep</th>
+										<th rowspan="2"></th>
+									</tr>
+									<tr>
+										<th>fps</th><th>p95</th><th>&gt;33</th>
+										<th>fps</th><th>p95</th><th>&gt;33</th>
+										<th>fps</th><th>p95</th><th>&gt;33</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each data.readings as r (r.id)}
+										<tr>
+											<td class="nowrap" title={r.capturedAt}>
+												{when(r.capturedAt)}
+												<span class="tag">{r.source === 'paste' ? 'paste' : 'sent'}</span>
+											</td>
+											<td>
+												<strong>{r.deviceClass ?? '?'}</strong>
+												{#if r.label}· {r.label}{/if}
+												<div class="sub">
+													{r.uaFamily ?? ''}{r.dpr ? ` · ${r.dpr}x` : ''}{r.canvas
+														? ` · ${r.canvas}`
+														: ''}
+												</div>
+												{#if Object.keys(r.flags).length}
+													<div class="sub switch">{switches(r.flags)}</div>
+												{/if}
+											</td>
+											<td class="gpu" title={r.gpu ?? ''}>{r.gpu ?? '–'}</td>
+											<td class="nowrap">{r.buildVersion ?? '–'}</td>
+											<td class="num">{fps(r.idle)}</td>
+											<td class="num">{p95(r.idle)}</td>
+											<td class="num">{hitches(r.idle)}</td>
+											<td class="num">{fps(r.spinning)}</td>
+											<td class="num">{p95(r.spinning)}</td>
+											<td class="num">{hitches(r.spinning)}</td>
+											<td class="num">{fps(r.round)}</td>
+											<td class="num">{p95(r.round)}</td>
+											<td class="num">{hitches(r.round)}</td>
+											<td class="num">{r.drawsMean ?? '–'}</td>
+											<td class="num">{r.textureMb ?? '–'}</td>
+											<td class="nowrap">
+												<label
+													class="keep"
+													title={r.keep
+														? 'Kept — never purged'
+														: `Deleted in ${daysLeft(r.expiresAt)} day(s) unless kept`}
+												>
+													<input
+														type="checkbox"
+														checked={r.keep}
+														disabled={keeping === r.id}
+														onchange={() => toggleKeep(r)}
+													/>
+													{r.keep ? 'kept' : `${daysLeft(r.expiresAt)} d`}
+												</label>
+											</td>
+											<td>
+												<a
+													href={resolve('/api/profiler/reports/[id]', { id: r.id })}
+													title="The full report JSON">JSON</a
+												>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</SectionCard>
+			</div>
+		{:else}
+			<div id="panel-builds" role="tabpanel" aria-labelledby="tab-builds">
+				<SectionCard scope="profiler" id="builds" title="Builds ({data.builds.length})">
+					{#snippet info()}
+						<p>
+							Every desktop ☁ Publish and 📦 Deliver of this project, newest first: what it shipped
+							by category, the estimated GPU memory of its images, the issues its build breakdown
+							found, and the change in shipped size from the build before it of the same game and
+							kind. The desktop launcher sends each one after the build. Click a build number for
+							its detail and the readings taken on it. A build record is deleted {PERF_RETENTION_DAYS}
+							days after it was made unless Keep is ticked — except the newest of each game and kind,
+							which always stays.
+						</p>
+					{/snippet}
+					{#if buildKeepError}<p class="error">{buildKeepError}</p>{/if}
+					{#if !data.builds.length}
+						<p class="muted">
+							No builds yet — the desktop launcher sends one after each ☁ Publish or 📦 Deliver.
+						</p>
+					{:else}
+						<div class="table-wrap">
+							<table>
+								<thead>
+									<tr>
+										<th>Built</th>
+										<th>Build</th>
+										<th>By category</th>
+										<th class="num">Shipped MB</th>
+										<th class="num">Δ MB</th>
+										<th class="num">GPU MB</th>
+										<th class="num">Issues</th>
+										<th class="num">Readings</th>
+										<th>Keep</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each data.builds as b (b.id)}
+										<tr class:selected={selectedBuild?.id === b.id}>
+											<td class="nowrap" title={b.builtAt ?? b.registeredAt}>
+												{when(b.builtAt ?? b.registeredAt)}
+											</td>
+											<td class="nowrap">
+												<button
+													type="button"
+													class="linkish"
+													title="Show this build's detail and readings"
+													onclick={() => (selectedBuildId = b.id)}
+													><strong>v{b.build}</strong></button
+												>
+												<span class="tag">{b.kind}{b.profile ? ` · ${b.profile}` : ''}</span>
+												{#if b.optimize}<span class="tag" title="Built with 🗜 Optimize">opt</span
+													>{/if}
+												{#if b.debug}<span class="tag warn" title="Debug tooling included"
+														>debug</span
+													>{/if}
+												<div class="sub">{b.gameKey}</div>
+											</td>
+											<td>
+												<div class="bar" aria-hidden="true">
+													{#each b.categories as c (c.id)}
+														<span
+															title={`${c.label}: ${mb(c.bytes)} MB`}
+															style:width={`${b.shippedBytes ? (c.bytes / b.shippedBytes) * 100 : 0}%`}
+															style:background={categoryColor(c.id)}
+														></span>
+													{/each}
+												</div>
+											</td>
+											<td class="num">{mb(b.shippedBytes)}</td>
+											<td class="num">{shippedDelta(b)}</td>
+											<td class="num">{mb(b.gpuBytes)}</td>
+											<td class="num">
+												{#if b.issues.error}<span class="error">{b.issues.error} err</span>{/if}
+												{#if b.issues.warn}<span class="warn">{b.issues.warn} warn</span>{/if}
+												{#if !b.issues.error && !b.issues.warn}<span class="ok">none</span>{/if}
+											</td>
+											<td class="num">{readingsOn(b)}</td>
+											<td class="nowrap">
+												<label class="keep" title={buildKeepTitle(b)}>
+													<input
+														type="checkbox"
+														checked={b.keep}
+														disabled={buildKeeping === b.id}
+														onchange={() => toggleBuildKeep(b)}
+													/>
+													{buildKeepText(b)}
+												</label>
+											</td>
+											<td class="nowrap">
+												<a
+													href={resolve('/api/profiler/builds/[id]/breakdown', { id: b.id })}
+													target="_blank"
+													rel="noopener"
+													title="The build breakdown page">Breakdown</a
+												>
+												·
+												<a
+													href={resolve('/api/profiler/builds/[id]', { id: b.id })}
+													title="The breakdown JSON">JSON</a
+												>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</SectionCard>
+
+				{#if selectedBuild}
+					<SectionCard
+						scope="profiler"
+						id="build-detail"
+						title={`v${selectedBuild.build} — ${selectedBuild.gameKey} (${selectedBuild.kind})`}
+					>
+						{#snippet info()}
+							<p>
+								The selected build against the build before it of the same game and kind: shipped
+								size, GPU memory and issues, and each category's size and change. Below, the
+								readings whose build stamp names this build — by build number and engine commit, not
+								by game, so two games of this project with the same number and commit share their
+								readings.
+							</p>
+						{/snippet}
+						<div class="facts">
+							<span
+								>Shipped <strong>{mb(selectedBuild.shippedBytes)} MB</strong> in {selectedBuild.files}
+								files</span
+							>
+							<span>Code <strong>{mb(selectedBuild.codeBytes)} MB</strong></span>
+							<span>GPU (est.) <strong>{mb(selectedBuild.gpuBytes)} MB</strong></span>
+							<span>Left out <strong>{mb(selectedBuild.removedBytes)} MB</strong></span>
+							<span>Never loaded <strong>{mb(selectedBuild.unreferencedBytes)} MB</strong></span>
+							{#if selectedBuild.engineSha}
+								<span>Engine <code>{selectedBuild.engineSha.slice(0, 10)}</code></span>
+							{/if}
+						</div>
+						{#if selectedDiff}
+							<p class="muted">
+								Against v{selectedDiff.against}: shipped {deltaMb(selectedDiff.shipped)} MB, GPU
+								{deltaMb(selectedDiff.gpu)} MB, {selectedDiff.files >= 0
+									? '+'
+									: ''}{selectedDiff.files}
+								files, errors {selectedDiff.issues.error >= 0 ? '+' : ''}{selectedDiff.issues
+									.error}, warnings {selectedDiff.issues.warn >= 0 ? '+' : ''}{selectedDiff.issues
+									.warn}.
+							</p>
+						{:else}
+							<p class="muted">
+								No earlier {selectedBuild.kind} of {selectedBuild.gameKey} to compare with.
+							</p>
+						{/if}
+						<div class="table-wrap">
+							<table class="narrow">
+								<thead>
+									<tr>
+										<th>Category</th>
+										<th class="num">Files</th>
+										<th class="num">MB</th>
+										{#if selectedPrevious}<th class="num">v{selectedPrevious.build} MB</th><th
+												class="num">Δ MB</th
+											>{/if}
+									</tr>
+								</thead>
+								<tbody>
+									{#each selectedBuild.categories as c (c.id)}
+										{@const before =
+											selectedPrevious?.categories.find((p) => p.id === c.id)?.bytes ?? 0}
+										<tr>
+											<td
+												><span class="dot" style:background={categoryColor(c.id)}
+												></span>{c.label}</td
+											>
+											<td class="num">{c.files}</td>
+											<td class="num">{mb(c.bytes)}</td>
+											{#if selectedPrevious}
+												<td class="num">{mb(before)}</td>
+												<td class="num">{deltaMb(c.bytes - before)}</td>
+											{/if}
+										</tr>
+									{/each}
+									{#each selectedDiff?.categories.filter((d) => !d.bytes) ?? [] as gone (gone.id)}
+										<tr class="dim">
+											<td
+												><span class="dot" style:background={categoryColor(gone.id)}
+												></span>{gone.label}</td
+											>
+											<td class="num">0</td>
+											<td class="num">0.0</td>
+											<td class="num">{mb(gone.before)}</td>
+											<td class="num">{deltaMb(gone.delta)}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<h3>Readings on this build ({selectedReadings.length})</h3>
+						{#if !selectedReadings.length}
+							<p class="muted">
+								None yet — open a capture on the Readings tab and play this build, or Paste a
+								delivery's reading.
+							</p>
+						{:else}
+							<div class="table-wrap">
+								<table>
+									<thead>
+										<tr>
+											<th>Captured</th>
+											<th>Device</th>
+											<th>GPU</th>
+											<th class="num">Idle fps</th>
+											<th class="num">Spin fps</th>
+											<th class="num">Spin p95</th>
+											<th class="num">Round fps</th>
+											<th class="num">Tex MB</th>
+											<th></th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each selectedReadings as r (r.id)}
+											<tr>
+												<td class="nowrap">{when(r.capturedAt)}</td>
+												<td>
+													<strong>{r.deviceClass ?? '?'}</strong>{#if r.label}&nbsp;· {r.label}{/if}
+													{#if Object.keys(r.flags).length}
+														<div class="sub switch">{switches(r.flags)}</div>
+													{/if}
+												</td>
+												<td class="gpu" title={r.gpu ?? ''}>{r.gpu ?? '–'}</td>
+												<td class="num">{fps(r.idle)}</td>
+												<td class="num">{fps(r.spinning)}</td>
+												<td class="num">{p95(r.spinning)}</td>
+												<td class="num">{fps(r.round)}</td>
+												<td class="num">{r.textureMb ?? '–'}</td>
+												<td>
+													<a href={resolve('/api/profiler/reports/[id]', { id: r.id })}>JSON</a>
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+					</SectionCard>
+				{/if}
+			</div>
+		{/if}
 	</main>
 </div>
 
@@ -573,6 +962,73 @@
 		border: 1px solid #2c2c38;
 		border-radius: 4px;
 		padding: 0 4px;
+	}
+	.tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-bottom: 16px;
+		padding: 4px;
+		background: #121218;
+		border: 1px solid #222;
+		border-radius: 12px;
+		width: fit-content;
+		max-width: 100%;
+	}
+	.tab {
+		background: transparent;
+		border: none;
+		color: #999;
+		padding: 8px 16px;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		letter-spacing: 0.03em;
+	}
+	.tab:hover {
+		color: #ddd;
+		background: #181820;
+	}
+	.tab.active {
+		color: #fff;
+		background: #23232e;
+	}
+	tr.selected td {
+		background: #181826;
+	}
+	tr.dim td {
+		color: #6a6a78;
+	}
+	.bar {
+		display: flex;
+		width: 180px;
+		height: 10px;
+		border-radius: 3px;
+		overflow: hidden;
+		background: #1d1d26;
+	}
+	.dot {
+		display: inline-block;
+		width: 8px;
+		height: 8px;
+		border-radius: 2px;
+		margin-right: 6px;
+	}
+	.facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px 18px;
+		font-size: 13px;
+		margin-bottom: 6px;
+	}
+	table.narrow {
+		width: auto;
+		min-width: 420px;
+	}
+	.tag.warn {
+		color: #ffb347;
+		border-color: #5a4320;
 	}
 	.keep {
 		display: inline-flex;

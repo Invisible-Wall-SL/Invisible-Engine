@@ -1,12 +1,14 @@
-import { error } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db';
 import { users } from '../db/schema';
 import { requireTool, userGrants } from '../http';
+import { requireLauncherPublisher } from '../launcherAuth';
 import { clientKeyOf } from '../projectLookup';
 import { canAccessProject, projectExists } from '../projects';
 import { requireProjectScope } from '../toolScope';
 import { captureSigningKey, PERF_SESSION_HEADER, verifyCaptureToken } from './captureToken';
+import type { BuildOrigin } from './builds';
 import type { ReportOrigin } from './store';
 
 export const PROFILER_TOOL = 'profiler';
@@ -72,3 +74,30 @@ export async function reportOrigin(
 	const label = url.searchParams.get('label')?.trim().slice(0, 80) || null;
 	return { clientKey, projectKey, source: 'paste', session: null, label, createdBy: user.id };
 }
+
+/**
+ * Who is sending a build breakdown (`/api/profiler/uploads` with a bearer, `/api/profiler/builds`):
+ * the desktop launcher, signed in with its portal token (`Authorization: Bearer`, as every publish
+ * step), holding Build & publish games (`gamePublish`) and access to the project it built. Returns
+ * the refusal to answer unchanged otherwise.
+ */
+export async function buildOrigin(
+	request: Request,
+	project: string | null,
+): Promise<BuildOrigin | Response> {
+	const auth = await requireLauncherPublisher(request);
+	if (!auth.ok) return auth.response;
+	const projectKey = project?.trim() ?? '';
+	if (!projectKey) return json({ error: 'Missing project' }, { status: 400 });
+	if (
+		!(await projectExists(projectKey)) ||
+		!(await canAccessProject(auth.user.id, auth.user.role, projectKey))
+	) {
+		return json({ error: 'Unknown project, or you do not have access to it.' }, { status: 403 });
+	}
+	return { clientKey: await clientKeyOf(projectKey), projectKey, createdBy: auth.user.id };
+}
+
+/** Whether a request carries the desktop launcher's bearer rather than a capture token or a cookie. */
+export const hasBearer = (request: Request): boolean =>
+	/^Bearer\s/i.test(request.headers.get('authorization')?.trim() ?? '');

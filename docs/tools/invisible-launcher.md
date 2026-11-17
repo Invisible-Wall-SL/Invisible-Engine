@@ -328,6 +328,15 @@ A **Uses** count of 0 doesn't prove an asset is unused: code can load an asset b
 scene or component spells out. If the engine is older than the breakdown, or the report fails, the
 progress log says so in one line and the build carries on.
 
+**The breakdown also goes to the Invisible Profiler** *(from v1.0.68)*. After the build, the
+launcher sends `build-breakdown.json` to the project's **Builds** tab in the
+[Invisible Profiler](profiler.md), signed in with your portal account (you need Build & publish
+games and the project). The ☁ Publish result message and the 📦 Deliver result dialog say how it
+went in one line: **📈 Profiler: build vN recorded**, or **⚠ Profiler: build record not sent
+(`<reason>`)**. A record that fails to send never fails the build; the next Publish or Deliver sends
+its own. A 📦 Deliver re-run that only packages (the override after a missing-art refusal) sends the
+record of the build it packages. An older launcher sends nothing.
+
 ### 🏗 Scaffold — give an online project a standalone build
 
 A project authored in the portal is **data-only** by design: Invisible Game Maker
