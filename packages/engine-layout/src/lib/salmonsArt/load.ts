@@ -4,7 +4,8 @@ import { SALMONS_SHEETS } from './sheets/frames';
 import { builtinSheetsNeeded, pickSalmonsRegions, type SalmonsSheet } from './regions';
 
 /**
- * Salmons' art, loaded: each region the drawing code names and the waterfall's face tile, from the
+ * Salmons' art, loaded: each region the drawing code names and the waterfall's face and cliff
+ * tiles, from the
  * project's own published sheets where they ship it (`ProjectSheet`s, found by the online runtime
  * among the project's editor art), else from the built-in copy. A built-in page is its
  * own hashed file of the build (`new URL(…, import.meta.url)`; `config-vite` never inlines them),
@@ -14,6 +15,7 @@ import { builtinSheetsNeeded, pickSalmonsRegions, type SalmonsSheet } from './re
 export type SalmonsTextures = {
 	region: (name: string) => Texture;
 	face: Texture;
+	cliff: Texture;
 };
 
 /** A project sheet as the runtime ships it: its spritesheet JSON, and the one to try if it fails. */
@@ -35,13 +37,21 @@ const PAGES: Record<SalmonsSheet, { url: string; data: SpritesheetData }> = {
 		data: SALMONS_SHEETS.characters,
 	},
 };
-const FACE_URL = new URL('./sheets/waterfall_face.webp', import.meta.url).href;
+const TILE_URLS = {
+	face: {
+		name: 'waterfall_face',
+		url: new URL('./sheets/waterfall_face.webp', import.meta.url).href,
+	},
+	cliff: { name: 'cliff', url: new URL('./sheets/cliff.webp', import.meta.url).href },
+} as const;
+type Tile = keyof typeof TILE_URLS;
+type Page = SalmonsSheet | Tile;
 
 /** Kept for the page: a rejoin (or the next room) draws from the same textures. */
-const loading = new Map<SalmonsSheet | 'face', Promise<Record<string, Texture>>>();
+const loading = new Map<Page, Promise<Record<string, Texture>>>();
 
 /** Load one built-in page once a page; a failed load is retried by the next call. */
-function builtin(page: SalmonsSheet | 'face'): Promise<Record<string, Texture>> {
+function builtin(page: Page): Promise<Record<string, Texture>> {
 	let pending = loading.get(page);
 	if (!pending) {
 		pending = loadPage(page).catch((error: unknown) => {
@@ -53,8 +63,11 @@ function builtin(page: SalmonsSheet | 'face'): Promise<Record<string, Texture>> 
 	return pending;
 }
 
-async function loadPage(page: SalmonsSheet | 'face'): Promise<Record<string, Texture>> {
-	if (page === 'face') return { waterfall_face: await Assets.load<Texture>(FACE_URL) };
+async function loadPage(page: Page): Promise<Record<string, Texture>> {
+	if (page === 'face' || page === 'cliff') {
+		const tile = TILE_URLS[page];
+		return { [tile.name]: await Assets.load<Texture>(tile.url) };
+	}
 	const texture = await Assets.load<Texture>(PAGES[page].url);
 	const parsed = new Spritesheet(texture, PAGES[page].data);
 	await parsed.parse();
@@ -80,12 +93,13 @@ export async function loadSalmonsTextures(
 		{},
 		...(await Promise.all(sheets.map(projectFrames))),
 	);
-	const pages: (SalmonsSheet | 'face')[] = builtinSheetsNeeded(project);
-	if (!project.waterfall_face) pages.push('face');
+	const pages: Page[] = builtinSheetsNeeded(project);
+	for (const tile of ['face', 'cliff'] as const)
+		if (!project[TILE_URLS[tile].name]) pages.push(tile);
 	const builtins: Record<string, Texture> = Object.assign(
 		{},
 		...(await Promise.all(pages.map(builtin))),
 	);
 	const all = pickSalmonsRegions(project, builtins);
-	return { region: (name) => all[name], face: all.waterfall_face };
+	return { region: (name) => all[name], face: all.waterfall_face, cliff: all.cliff };
 }

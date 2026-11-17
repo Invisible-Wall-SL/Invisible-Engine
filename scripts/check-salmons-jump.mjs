@@ -239,7 +239,7 @@ check('in the air it is neither grounded on sand nor hooked', () => {
 
 check('a tap at the foot of a waterfall climbs and does not leap', () => {
 	const top = aabbOf({ x: 100, y: 100, w: 90, h: 44 }).y0;
-	const fall = { id: 'fall', x: 0, y: top - 70, w: 400, h: 70 };
+	const fall = { id: 'fall', x: 0, y: top - 70, w: 400, h: 70, height: 3 };
 	const r = room(SALMONS_RULES.salmons, {
 		zones: [fall],
 		rules: [{ kind: 'waterfall', zone: 'fall' }],
@@ -247,8 +247,8 @@ check('a tap at the foot of a waterfall climbs and does not leap', () => {
 	r.press(true);
 	r.press(false);
 	r.step();
-	assert.equal(r.salmon.z ?? 0, 0);
-	assert.ok(r.salmon.memo.climb > 0, 'the tap climbed');
+	near(r.salmon.z / CELL, 2.4 - 0.8 / 30, 1e-9, 'one climb step, one step of slide');
+	assert.equal(r.salmon.memo.climbing, 1, 'the tap climbed');
 	assert.equal(r.events.filter((e) => e.type === 'jumped').length, 0);
 });
 

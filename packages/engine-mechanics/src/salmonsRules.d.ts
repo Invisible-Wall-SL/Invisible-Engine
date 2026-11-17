@@ -5,7 +5,9 @@
 
 import type { RulesModule } from './onlineRules';
 
-export const CLIMB: Readonly<{ tap: number; drainPerSecond: number; footPx: number }>;
+export const CLIMB: Readonly<{ radiusSq: number; step: number; slidePerSecond: number }>;
+/** A waterfall zone's height, cells (the original's lowest when it carries none). */
+export function fallHeight(zone: { height?: number }): number;
 export const JUMP: Readonly<{ launch: number; gravity: number }>;
 export const salmonJump: RulesModule;
 export const LINE: Readonly<{ reelPxPerSecond: number; landPx: number; escapeTaps: number }>;

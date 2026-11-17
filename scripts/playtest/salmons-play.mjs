@@ -373,7 +373,11 @@ function isometricAt(png, arcade, me) {
 		return { ok: false, cam, at, size: [png.width, png.height] };
 	const dx = at.x - (cam.x + cam.view.w / 2);
 	const dy = at.y - (cam.y + cam.view.h / 2);
-	const centre = { x: cam.view.w / 2 + cam.shakeX, y: cam.view.h / 2 + cam.shakeY };
+	// Raised with the ground under it, the camera raised with the own player's (the waterfalls).
+	const centre = {
+		x: cam.view.w / 2 + cam.shakeX,
+		y: cam.view.h / 2 + cam.shakeY + (cam.lift ?? 0) - (at.ground ?? 0),
+	};
 	// The placeholder look stands on its place, 44 px tall: its middle is where its colour is sure.
 	const screen = (x, y) => ({ x: Math.round(x * k), y: Math.round((y - 22) * k) });
 	const projected = screen(centre.x + dx - dy, centre.y + (dx + dy) / 2);
@@ -437,14 +441,15 @@ const rgbAt = (png, { x, y }) => {
 	return [...png.data.subarray(i, i + 3)];
 };
 /** Where a world point is drawn on a page's isometric screen (as `isometricAt`), in image px,
- *  raised by `lift` design px. */
+ *  raised by `lift` design px and by the ground under it (`at.ground`, the waterfalls'). */
 const isoScreen = (png, cam, at, lift = 0) => {
 	const k = png.width / cam.view.w;
 	const dx = at.x - (cam.x + cam.view.w / 2);
 	const dy = at.y - (cam.y + cam.view.h / 2);
+	const raised = lift + (at.ground ?? 0) - (cam.lift ?? 0);
 	return {
 		x: Math.round((cam.view.w / 2 + cam.shakeX + dx - dy) * k),
-		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - lift) * k),
+		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - raised) * k),
 	};
 };
 /** Whether a screenshot shows `id` drawn gold (`engine-layout` `SpawnLayer`'s gold ramp over the
@@ -826,11 +831,12 @@ try {
 		await tap(e);
 		climbed = (await eventsOf(e)).find((ev) => ev.type === 'climbed' && ev.id === meE);
 	}
-	await settle(e, 400);
+	// Let go at the top (no lift over it, since 2026-11-17), it swims on over the waterfall.
+	await settle(e, 1500);
 	const above = await ownOf(e);
 	await e.key('ArrowUp', 'up');
 	verdict(
-		'…tapping Space climbs it: the room tells of the climb and the salmon is above the waterfall',
+		'…tapping Space climbs it: the room tells of the climb, and the salmon swims on over it',
 		!!climbed && !!above && above.y < FALL.y,
 		{ climbed, above, fall: FALL },
 	);

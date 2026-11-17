@@ -99,10 +99,12 @@ const tag = {
  * The named rules modules (`arcade.online.rules.module`): code for what the data cannot say.
  * `game-config` lists the same ids. A module is either the hooks themselves (`tag`) or
  * `create(game, api)` returning them, for one room. Every hook is optional and runs only while a
- * round runs: `step(world)` once a step; `input(player, input, world)` (a world with no players) after each input the room
- * applies, also for a player it holds; `hook(user, target, ability, world)` for a `hook` ability's
- * nearest target (true: it took it); `worth(player, points)` what a catch of, or a goal by,
- * `player` scores; `reset(world)` at a round's start. `api` is {@link ModuleApi}.
+ * round runs: `step(world)` once a step; `input(player, input, world)` (a world with no players)
+ * after each input the room applies, also for a player it holds; `holds(player)` whether it holds
+ * a free player still; `level(player, level)` the level the room steps the player on (a solid it
+ * may pass); `hook(user, target, ability, world)` for a `hook` ability's nearest target (true: it
+ * took it); `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)`
+ * at a round's start. `api` is {@link ModuleApi}.
  */
 export const ONLINE_RULES_MODULES = Object.freeze({ tag, ...SALMONS_RULES });
 
@@ -259,8 +261,12 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			history.delete(id);
 			emit({ type: 'left', id });
 		},
-		/** Whether the room holds a player still (its inputs are taken but do not move it). */
-		holds: (player) => player.status !== STATUS.free,
+		/** Whether the room holds a player still (its inputs are taken but do not move it): its status,
+		 *  or a module's hold (a salmon climbing a waterfall). */
+		holds: (player) => player.status !== STATUS.free || module?.holds?.(player) === true,
+		/** The level the room steps `player` on: `level`, or what a module makes of it for the player
+		 *  (a salmon high enough passes over a waterfall). */
+		level: (player, level) => (module?.level ? module.level(player, level) : level),
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
 			if (phase !== 'running') return;

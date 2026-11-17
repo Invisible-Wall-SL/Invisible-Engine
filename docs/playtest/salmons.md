@@ -66,7 +66,11 @@ original art, swims upstream with no page error, and a config pinning one seed p
 page booted from a snapshot whose editor art ships the project sheet `salmons_terrain` (every
 ground tile magenta) draws its banks from that sheet (`project-art.png`, over 5 % magenta), while
 page A, with no such sheet, draws the built-in tiles (no magenta): the project-art path and its
-fallback. It prints
+fallback. A pinned level with a waterfall of height 8 added by an overlay four cells above where
+salmon start (`salmons-cliff`): one `cliff` per waterfall in the art's regions, ArrowUp held with
+Space tapped climbs it in place (the salmon never above the line before `climbed`) and, let go at
+the top, it swims over; past the line it is drawn raised by the step, 24 + 24 × 8 px (the probe's
+`drawn[].ground`); `cliff.png` at the foot and `over-the-cliff.png` after. It prints
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
 about 4 s, 133 MB, 24 fps).
 
@@ -109,7 +113,9 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     `arcade.online.generator`, and leaves the room (the server's room count is back where it was).
 12. Page E joins `salmons-falls` (the authored river, no generator, no bots, its salmon starting
     just below the river's first waterfall): ArrowUp held, the salmon stops at the waterfall's
-    foot; tapping Space climbs it (the room's `climbed` event) and it is above the waterfall.
+    foot; tapping Space climbs it (the room's `climbed` event: the band river's waterfalls have no
+    height, so they are the original's lowest and one tap tops them) and, let go at the top, it
+    swims on over the waterfall (no lift over it since 2026-11-17).
 13. Page F joins `salmons-sand` (its salmon starting just below the first sandbank): swimming up,
     it is grounded on the sand (`grounded`) and stays put with ArrowUp held; Space jumps it off
     (`jumped`) and it swims on upstream.
@@ -188,6 +194,10 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
 - A device that joins, or comes near, after a hook does not draw that line (it knows of a line
   only from the room's `hooked`).
 - A climb and a reel move a body on the server only: the own device sees them as a correction.
+  So does passing over a waterfall once the salmon is as high as it.
+- The climb's look on the device is the leap's pose (lifted and curling), not a climb of its own;
+  `salmons-play.mjs` checks only the band river's one-tap waterfalls. Next verdict idea for it: at
+  a waterfall of height 3 or more, `online.art.looks[me].lift` steps up by 2.4 × 24 px a tap.
 - A device that closed stays in the room for its reconnection window and is still drawn there
   (seen in `14-golden-passes-on.png`).
 - Salmon are kept off the banks by a push, not a wall.

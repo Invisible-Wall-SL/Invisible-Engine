@@ -326,7 +326,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 						rules.applied(player, input, players.values(), stamp);
 						continue;
 					}
-					const level = levels.get(player.character.id);
+					const level = rules.level(player, levels.get(player.character.id));
 					stepPlayer(player.body, input, player.character.speed, ctx, field, level);
 					player.facing = facingOf(input, player.facing);
 					player.moving = input.moveX !== 0 || input.moveY !== 0;

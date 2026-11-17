@@ -28,8 +28,11 @@ project sheet, it stops and reports it.
 engine's river has no bridges).
 
 `sheets/cliff.webp` is built (a tile, like `waterfall_face.webp`) and is the project sheet
-`salmons_cliff`, but nothing draws it yet: it is the rock face the waterfall elevation work will
-tile under each waterfall and across its banks.
+`salmons_cliff`: `river.ts` draws it under each waterfall's lip as the old client's
+`createCliffFace` did, one texture high (the cliff's `32 + 16·H` old px), tiled across the world
+and sheared to the waterfall's line, with the river upstream raised by the waterfall's step
+(`referenceLayouts/salmonsElevation.ts`). An edited cliff keeps its look at any size: it is scaled
+to the cliff's height.
 
 **Rebuild:** `python3 scripts/salmons/build-art.py --src <Salmon->/art/source/legacy` (Pillow with
 WebP, numpy). Sizes are about three times the drawn size: a 48 world-px cell is a 96 × 48 diamond,

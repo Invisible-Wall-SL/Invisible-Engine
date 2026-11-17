@@ -4,7 +4,7 @@
  */
 
 import type { Body } from './motion';
-import type { OnlineInput } from './online';
+import type { OnlineInput, OnlineLevel } from './online';
 
 import type { STATUS } from './abilities';
 
@@ -83,6 +83,10 @@ export type RulesHooks = {
 	hook?(user: RulesPlayer, target: RulesPlayer, ability: RulesAbility, world: RulesWorld): boolean;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
+	/** Whether it holds a free player still (stepped with no input, as a held status is). */
+	holds?(player: RulesPlayer): boolean;
+	/** The level the room steps `player` on, in place of its character's. */
+	level?(player: RulesPlayer, level: OnlineLevel): OnlineLevel;
 };
 
 export type RulesModule = RulesHooks | { create(game: RulesGame, api: ModuleApi): RulesHooks };
@@ -98,6 +102,7 @@ export type OnlineRules = {
 	joined(player: RulesPlayer, players: Iterable<RulesPlayer>, stamp: number): void;
 	left(id: string): void;
 	holds(player: RulesPlayer): boolean;
+	level(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
 	applied(
 		player: RulesPlayer,
 		input: OnlineInput,

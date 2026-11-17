@@ -54,6 +54,10 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 - **The salmon's leap is the original's** (`salmonsRules` `salmonJump` + `salmonsArt/leap.ts`, since
   2026-11-17): its heights and pose are the old game's numbers, pinned by `check:salmons-jump`.
   Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel.
+- **Waterfalls are as high as the original's, and so is the climb** (since 2026-11-17): the
+  climb (`salmonsRules` `waterfallClimb`: 2.4 cells a tap, 0.8 cells/s back, no teleport) and the
+  raised river (`engine-layout` `referenceLayouts/salmonsElevation.ts`, `salmonsArt/river.ts`,
+  `cliff.png`) are pinned by `check:salmons-heights`. Change them only against the original.
 
 - **S0 art pass approved 2026-10-26** ([salmons status](../../status/salmons.md)). Next: generate
   the 22 character clips in the launcher's tools (Atlas Maker, Flipbook, FX on ComfyUI); none yet.

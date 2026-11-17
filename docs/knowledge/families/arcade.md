@@ -55,8 +55,8 @@ A seed and the same keys replay the same game.
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents and solids
   (`solid: true`, or one-way `'below'` etc., per character) live in `onlineLevel` / `stepPlayer`,
   which the device runs too. A rules module (`ONLINE_RULES_MODULES`) runs on the server only; a body
-  it moves (a climb, a reel) reaches the device as a correction. Its choices hash the room's seed.
-  Change Salmons' rules or river, re-record `fixtures/salmons-traces.json` (`check:online-rules`).
+  it moves (a climb, a reel), holds (`holds`) or lets through (`level`) is a device's correction;
+  its choices hash the seed. A change to Salmons' rules re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
   (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
   `server` variables `online.ts` writes from each state (`variable-server-owned`). The own
