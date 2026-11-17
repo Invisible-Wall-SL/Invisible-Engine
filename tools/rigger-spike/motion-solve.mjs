@@ -553,6 +553,96 @@ const body = solveMotion(summary(FULL_BODY), bodyTrack);
 	ok('strength 2: a drawn closed eye reads closed', lid(2) === 'eyelid_l_closed', String(lid(2)));
 }
 
+// Only gaze x imported over a gaze y the author keyed: both write the pupils' translate timeline, so
+// the import keys x and leaves the authored y curve where it was, at every time it was keyed.
+{
+	const rig = rigWith(BUST_FACE);
+	const ch = (id) => BUST_FACE.channels.find((c) => c.id === id);
+	const anim = {};
+	for (const [at, v] of [
+		[0.2, 0.4],
+		[0.6, -0.4],
+		[1.2, 0],
+	])
+		F.faceKeyChannel(anim, ch('gaze_y'), v, at, rig.has);
+	const y = (a, t) => off(play(rig, a, t + EDGE), 'pupil_l', 'y');
+	const x = (a, t) => off(play(rig, a, t + EDGE), 'pupil_l', 'x');
+	const before = structuredClone(anim);
+	F.faceKeyMotion(
+		anim,
+		[
+			[0, 'gaze_x', 0.3],
+			[0.8, 'gaze_x', 0.3],
+		],
+		0,
+		BUST_FACE.channels,
+		rig.has,
+	);
+	const times = [0.2, 0.4, 0.6, 0.8, 1];
+	ok(
+		'gaze x alone: the authored gaze y keeps its curve under the import',
+		times.every((t) => near(y(anim, t), y(before, t), 0.01)),
+		times.map((t) => `${t}: ${y(before, t).toFixed(2)} → ${y(anim, t).toFixed(2)}`).join(', '),
+	);
+	const gx = 0.3 * ch('gaze_x').drives.find((d) => d.bone === 'pupil_l').per;
+	ok(
+		'gaze x alone: x is the imported value over the import',
+		times.every((t) => t >= 0.8 || near(x(anim, t), gx, 0.01)),
+		times.map((t) => x(anim, t).toFixed(2)).join(', '),
+	);
+}
+
+// Three channels chained through two timelines (a and b share one bone's translate, b and c another):
+// all three are keyed at the same times, though a and c share no timeline with each other.
+{
+	const drive = (bone, prop) => ({ bone, prop, per: 1 });
+	const chans = [
+		['a', [drive('p1', 'x')]],
+		['b', [drive('p1', 'y'), drive('p2', 'x')]],
+		['c', [drive('p2', 'y')]],
+	].map(([id, drives]) => ({ id, label: id, min: -100, max: 100, rest: 0, drives }));
+	const tpl = {
+		bones: [
+			{ name: 'root' },
+			...['p1', 'p2'].map((name) => ({ name, parent: 'root', x: 0, y: 0 })),
+		],
+		channels: chans,
+		motion: {
+			body: {
+				smooth: 0,
+				minVisibility: 0.5,
+				scale: { from: 23, to: 11, rig: 100 },
+				entries: [
+					{ kind: 'root', channel: 'a', point: 0, axis: 'x' },
+					{ kind: 'root', channel: 'b', point: 1, axis: 'y' },
+					{ kind: 'root', channel: 'c', point: 2, axis: 'y' },
+				],
+			},
+		},
+	};
+	const ramp = (i, from, to) => Math.min(1, Math.max(0, (i - from) / (to - from))) * 0.2;
+	const track = {
+		width: 1000,
+		height: 1000,
+		frames: Array.from({ length: 30 }, (_, i) => {
+			const lm = Array(33).fill(null);
+			lm[0] = [0.5 + ramp(i, 2, 8), 0.5, 0.99];
+			lm[1] = [0.5, 0.5 + ramp(i, 10, 16), 0.99];
+			lm[2] = [0.5, 0.5 + ramp(i, 18, 25), 0.99];
+			lm[11] = [0.5, 0.3, 0.99];
+			lm[23] = [0.5, 0.6, 0.99];
+			return { t: ft(i), pose: { landmarks: lm } };
+		}),
+	};
+	const r = solveMotion(tpl, track, { face: false });
+	const at = (id) => JSON.stringify(r.keys.filter((k) => k[1] === id).map((k) => k[0]));
+	ok(
+		'chained timelines: every channel is keyed at the same times',
+		r.keys.length > 0 && at('a') === at('b') && at('b') === at('c'),
+		`a ${at('a')} | b ${at('b')} | c ${at('c')}`,
+	);
+}
+
 // A track with no pose at all names every body channel unseen and keys nothing.
 {
 	const r = solveMotion(summary(FULL_BODY), {

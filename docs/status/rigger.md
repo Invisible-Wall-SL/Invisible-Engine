@@ -116,6 +116,16 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Motion import: the review's remaining nits.** One import at a time
+  (`faceMotionBusy` in `view.html`): a panel re-rendered mid-import keeps 🎥 Key at playhead off and
+  a second click starts nothing, where two `track()` loops used to interleave on one VIDEO-mode
+  tracker. Frame sources have `close()`, which `track()` always calls and which runs when a source
+  fails to build, so a video's object URL and a clip's sheet `ImageBitmap`s are freed whatever the
+  outcome. `faceKeyMotion` keeps the curve of an axis no imported channel writes on a shared
+  translate / scale timeline (gaze y under a gaze-x-only import), where it used to clear it. The solve
+  groups channels sharing key times through every timeline they reach, so three or more chained
+  channels key together (it was one pairwise pass). Gates: `motion-solve.mjs` 53/53 and
+  `face-motion-browser.mjs` 32/32, each new check red on the code before.
 - 2026-11-17 — **Body motion: a child is solved against its parent's held value.** `bodySeries`
   (`src/lib/rigMotion.ts`) solved frame by frame and carried only the parents solved on that frame,
   so where a parent was a gap (hips or a shoulder under `minVisibility`) the child was solved as if

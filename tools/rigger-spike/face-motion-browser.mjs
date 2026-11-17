@@ -9,6 +9,8 @@
 //  - 🎥 Key at playhead keys the solved track at the playhead, replacing the imported controls'
 //    keys under it, as ONE undo step, and lists what did not carry over (untracked frames, the
 //    template's "cannot" lines);
+//  - a source is closed (its object URL or sheet images freed) whatever the import's outcome;
+//  - one import at a time: a panel re-rendered mid-import keeps its button off;
 //  - a body template offers the same action for the body, and a rig without a template none.
 // The solve itself is gated headlessly by motion-solve.mjs; how MediaPipe copes with real footage
 // is in docs/status/rigger.md (needs footage, not a gate).
@@ -486,6 +488,58 @@ try {
 		q(vt && { count: vt.count, s: vt.seconds, w: vt.width, h: vt.height, t1: vt.got[1]?.t }),
 	);
 	ok('nothing was sent to the server', seen.other.length === 0, q(seen.other));
+
+	// 3b. Clean-up: a source is closed when tracking fails, and an unreadable video frees its URL.
+	const cleanup = await evaluate(`(async () => {
+		let closed = 0;
+		async function* broken(){ throw new Error("unreadable frame"); }
+		await window.__realTrack("face", { width: 8, height: 8, frames: broken(), close(){ closed++; } }).catch(() => {});
+		const made = [], freed = [];
+		const mk = URL.createObjectURL, rv = URL.revokeObjectURL;
+		URL.createObjectURL = (b) => { const u = mk.call(URL, b); made.push(u); return u; };
+		URL.revokeObjectURL = (u) => { freed.push(u); return rv.call(URL, u); };
+		const failed = await RiggerMotion.videoFrames(new Blob(["not a video"], { type: "video/webm" }), 12).then(() => false, () => true);
+		URL.createObjectURL = mk; URL.revokeObjectURL = rv;
+		return { closed, failed, made, freed };
+	})()`);
+	ok('a source is closed when tracking it fails', cleanup.closed === 1, q(cleanup));
+	ok(
+		'an unreadable video frees its object URL',
+		cleanup.failed && cleanup.made.length === 1 && q(cleanup.freed) === q(cleanup.made),
+		q(cleanup),
+	);
+
+	// 3c. One import at a time: a panel re-rendered mid-import keeps its button off, and a second
+	// click starts nothing.
+	await evaluate(`(() => {
+		window.__tracked = []; faceMotionReport = null;
+		const stub = RiggerMotion.track;
+		RiggerMotion.track = (kind, src, onProgress) => new Promise((done) => {
+			window.__release = () => { RiggerMotion.track = stub; done(stub(kind, src, onProgress)); };
+		});
+		${keyBtn}.click();
+		return true;
+	})()`);
+	await waitFor('typeof window.__release === "function"', 10000);
+	const busy = await evaluate(`(() => {
+		renderFacePanel();
+		const fresh = ${keyBtn};
+		const off = !!fresh && fresh.disabled;
+		fresh.disabled = false; fresh.click();
+		return { off, busy: faceMotionBusy };
+	})()`);
+	await evaluate('window.__release(); true');
+	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
+	ok('a panel re-rendered mid-import keeps its button off', busy.off && busy.busy, q(busy));
+	ok(
+		'a second click mid-import starts no second import',
+		(await evaluate('window.__tracked.length')) === 1,
+		String(await evaluate('window.__tracked.length')),
+	);
+	ok(
+		'the button is back on once the import ends',
+		await evaluate(`!faceMotionBusy && !${keyBtn}.disabled`),
+	);
 
 	// 4. Body template: the same action for the body; a rig with no template has none.
 	await openRig('body');

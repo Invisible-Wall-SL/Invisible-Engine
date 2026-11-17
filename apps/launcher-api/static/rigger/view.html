@@ -3343,21 +3343,41 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
 // Motion keys (rig templates T5 / T7b): the solve's channel keys, written from t. The keys the
 // imported channels already had under the import are replaced. A mouth shape keys only its image
 // when the import carries the jaw too, so the jaw follows the video rather than the shape's amount.
+// A translate / scale timeline holds two axes: an axis no imported channel writes (gaze y when only
+// gaze x is imported) keeps its own curve under the import, at every key time either side had.
 function faceKeyMotion(anim, keys, t, channels, has){
   if (!keys.length) return 0;
   const end = roundN(t + keys[keys.length - 1][0], 4);
-  const keep = (k) => k.time < t - 1e-4 || k.time > end + 1e-4;
+  const under = (k) => k.time >= t - 1e-4 && k.time <= end + 1e-4;
   const ids = new Set(keys.map((k) => k[1]));
+  const shared = new Map();
+  for (const id of ids){
+    const ch = channels.find((c) => c.id === id);
+    if (!ch) continue;
+    for (const d of ch.drives || []){
+      const name = FACE_TIMELINE[d.prop];
+      if (name === "rotate") continue;
+      const at = d.bone + "." + name;
+      const s = shared.get(at) || { bone: d.bone, name, writes: new Set() };
+      s.writes.add(d.prop === "scaleY" ? "y" : d.prop);
+      shared.set(at, s);
+    }
+  }
+  for (const s of shared.values()){
+    const cb = anim.bones && anim.bones[s.bone];
+    s.old = (cb && cb[s.name]) || [];
+    s.kept = ["x", "y"].filter((f) => !s.writes.has(f));
+  }
   for (const id of ids){
     const ch = channels.find((c) => c.id === id);
     if (!ch) continue;
     for (const d of ch.drives || []){
       const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
-      if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+      if (cb && cb[name]) cb[name] = cb[name].filter((k) => !under(k));
     }
     const slot = ch.shapes ? ch.shapes.slot : ch.swaps ? ch.slot : null;
     const cs = slot && anim.slots && anim.slots[slot];
-    if (cs && cs.attachment) cs.attachment = cs.attachment.filter(keep);
+    if (cs && cs.attachment) cs.attachment = cs.attachment.filter((k) => !under(k));
   }
   let n = 0;
   for (const [dt, id, v] of keys){
@@ -3369,6 +3389,20 @@ function faceKeyMotion(anim, keys, t, channels, has){
       else faceKeyShape(anim, ch, v, at, channels, has);
     } else faceKeyChannel(anim, ch, v, at, has);
     n++;
+  }
+  for (const s of shared.values()){
+    if (!s.kept.length || !s.old.some(under)) continue;
+    const tl = anim.bones[s.bone][s.name];
+    const places = s.name === "scale" ? 4 : 2;
+    const added = s.old.filter((k) => under(k) && !tl.some((x) => Math.abs(x.time - k.time) < 1e-4))
+      .map((k) => Object.assign({ time: k.time }, sampleChannel(tl, k.time, ["x", "y"])));
+    for (const k of added) for (const f of s.writes) k[f] = roundN(k[f], places);
+    for (const k of added) upsertKey(tl, k.time, { x: k.x, y: k.y });
+    for (const k of tl){
+      if (!under(k)) continue;
+      const was = sampleChannel(s.old, k.time, ["x", "y"]);
+      for (const f of s.kept) k[f] = was[f] ?? (s.name === "scale" ? 1 : 0);
+    }
   }
   return n;
 }
@@ -3655,6 +3689,9 @@ function faceLipSyncPanel(mouth, channels){
 // (MediaPipe Face / Pose Landmarker, models served from /rigger/vendor/mediapipe/), solved into the
 // template's channel keys by its motion map, and keyed at the playhead as one undo step.
 let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null, faceMotionStrength = "1";
+// One import at a time: a panel re-rendered mid-import (clips finishing loading, the panel toggled)
+// builds a fresh button, and two imports would interleave frames on the one VIDEO-mode tracker.
+let faceMotionBusy = false;
 let riggerMotionLoading = null;
 
 function ensureRiggerMotion(){
@@ -3710,6 +3747,8 @@ function faceMotionPanel(motion, channels){
   strength.onchange = () => { faceMotionStrength = strength.value; };
   const go = document.createElement("button");
   go.textContent = "🎥 Key at playhead";
+  go.className = "faceMotionGo";
+  go.disabled = faceMotionBusy;
   go.title = "Track the " + kind + ", then replace the keys of the controls it drives under the clip with ones from the performance, starting at the playhead (one undo step).";
   const note = document.createElement("span");
   note.className = "faceMotionNote";
@@ -3731,7 +3770,9 @@ function faceMotionPanel(motion, channels){
   go.onclick = async () => {
     if (!faceMotionSrc){ note.textContent = "Pick a Flipbook clip or a video first."; return; }
     if (!animMode){ $("#hint").textContent = "Switch to Animate to key the controls."; return; }
+    if (faceMotionBusy) return;
     const at = animTime, gen = rigGen, anim = curAnim, tpl = rigTemplate;
+    faceMotionBusy = true;
     go.disabled = true; note.textContent = "loading the tracker…";
     try {
       if (!(await ensureRiggerMotion())) throw new Error("The motion tracker could not load (vendor/rigger-motion.js).");
@@ -3758,7 +3799,10 @@ function faceMotionPanel(motion, channels){
     } catch (e){
       note.textContent = "";
       showAlert(String((e && e.message) || e), "Motion import failed");
-    } finally { go.disabled = false; }
+    } finally {
+      faceMotionBusy = false;
+      for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
+    }
   };
   for (const el of [pick, file, rate, ...(kind === "face" ? [strength] : []), go, note, report]) box.appendChild(el);
   return box;

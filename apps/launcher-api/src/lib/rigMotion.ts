@@ -619,16 +619,29 @@ export function solveMotion(
 		(ch.drives ?? [])
 			.filter((d) => d.prop !== 'rotate')
 			.map((d) => `${d.bone}.${d.prop === 'scaleY' ? 'scale' : 'translate'}`);
-	const ids = [...keyIdx.keys()];
-	for (const a of ids)
-		for (const b of ids) {
-			if (a >= b) continue;
-			const ta = timeline(chan.get(a)!);
-			if (!timeline(chan.get(b)!).some((x) => ta.includes(x))) continue;
-			const u = new Set([...keyIdx.get(a)!, ...keyIdx.get(b)!]);
-			keyIdx.set(a, u);
-			keyIdx.set(b, new Set(u));
+	// Grouped through every timeline they reach, so three or more channels chained by shared
+	// timelines all end on the same key times.
+	const left = new Set(keyIdx.keys());
+	while (left.size) {
+		const [start] = left;
+		left.delete(start);
+		const group = [start];
+		const reached = new Set(timeline(chan.get(start)!));
+		for (let grew = true; grew;) {
+			grew = false;
+			for (const id of left) {
+				const tl = timeline(chan.get(id)!);
+				if (!tl.some((x) => reached.has(x))) continue;
+				for (const x of tl) reached.add(x);
+				group.push(id);
+				left.delete(id);
+				grew = true;
+			}
 		}
+		if (group.length < 2) continue;
+		const u = new Set(group.flatMap((id) => [...keyIdx.get(id)!]));
+		for (const id of group) keyIdx.set(id, new Set(u));
+	}
 
 	const keys: RigTemplateClipKey[] = [];
 	for (const [id, idx] of keyIdx) {

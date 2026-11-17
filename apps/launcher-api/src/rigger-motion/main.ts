@@ -33,6 +33,8 @@ export interface MotionFrameSource {
 	height: number;
 	/** Frames in order, each with its time in seconds. */
 	frames: AsyncIterable<{ t: number; image: ImageSource }>;
+	/** Frees what the source holds (a video's object URL, a clip's sheet images); safe to repeat. */
+	close?(): void;
 }
 
 export interface ClipLike {
@@ -63,6 +65,18 @@ function landmarker(kind: MotionKind): Promise<FaceLandmarker | PoseLandmarker> 
 
 /** Track every frame; `onProgress(done)` after each. */
 async function track(
+	kind: MotionKind,
+	src: MotionFrameSource,
+	onProgress?: (done: number) => void,
+): Promise<MotionTrack> {
+	try {
+		return await trackFrames(kind, src, onProgress);
+	} finally {
+		src.close?.();
+	}
+}
+
+async function trackFrames(
 	kind: MotionKind,
 	src: MotionFrameSource,
 	onProgress?: (done: number) => void,
@@ -155,6 +169,26 @@ async function clipFrames(clip: ClipLike): Promise<MotionFrameSource & { count: 
 		}
 		return p;
 	};
+	const close = () => {
+		for (const p of sheets.values())
+			p.then(
+				(s) => s.page.close(),
+				() => undefined,
+			);
+	};
+	try {
+		return await clipSource(clip, sheet, close);
+	} catch (e) {
+		close();
+		throw e;
+	}
+}
+
+async function clipSource(
+	clip: ClipLike,
+	sheet: (key: string) => Promise<{ page: ImageBitmap; regions: Map<string, SheetRegion> }>,
+	close: () => void,
+): Promise<MotionFrameSource & { count: number }> {
 	const refs = clip.frames.map((f) => {
 		const at = f.indexOf('::');
 		return at > 0
@@ -193,7 +227,13 @@ async function clipFrames(clip: ClipLike): Promise<MotionFrameSource & { count: 
 			yield { t: i / fps, image: canvas };
 		}
 	}
-	return { width: canvas.width, height: canvas.height, frames: frames(), count: resolved.length };
+	return {
+		width: canvas.width,
+		height: canvas.height,
+		frames: frames(),
+		count: resolved.length,
+		close,
+	};
 }
 
 /** A local video file's frames at `fps`, up to {@link MAX_VIDEO_SECONDS}. Never uploaded. */
@@ -206,6 +246,21 @@ async function videoFrames(
 	video.playsInline = true;
 	video.preload = 'auto';
 	const url = URL.createObjectURL(file);
+	const close = () => URL.revokeObjectURL(url);
+	try {
+		return await videoSource(video, url, fps, close);
+	} catch (e) {
+		close();
+		throw e;
+	}
+}
+
+async function videoSource(
+	video: HTMLVideoElement,
+	url: string,
+	fps: number,
+	close: () => void,
+): Promise<MotionFrameSource & { count: number; seconds: number }> {
 	video.src = url;
 	await new Promise<void>((ok, fail) => {
 		video.onloadeddata = () => ok();
@@ -225,26 +280,19 @@ async function videoFrames(
 	if (!Number.isFinite(video.duration)) await seek(1e7).catch(() => undefined);
 	const length = Number.isFinite(video.duration) ? video.duration : 0;
 	const seconds = Math.min(length, MAX_VIDEO_SECONDS);
-	if (!(seconds > 0)) {
-		URL.revokeObjectURL(url);
-		throw new Error('the video has no length');
-	}
+	if (!(seconds > 0)) throw new Error('the video has no length');
 	const count = Math.min(MAX_FRAMES, Math.max(1, Math.floor(seconds * fps)));
 	const canvas = fitCanvas(video.videoWidth, video.videoHeight);
 	const g = canvas.getContext('2d')!;
 	async function* frames() {
-		try {
-			for (let i = 0; i < count; i++) {
-				const t = i / fps;
-				await seek(Math.min(t, Math.max(0, length - 1e-3)));
-				g.drawImage(video, 0, 0, canvas.width, canvas.height);
-				yield { t, image: canvas };
-			}
-		} finally {
-			URL.revokeObjectURL(url);
+		for (let i = 0; i < count; i++) {
+			const t = i / fps;
+			await seek(Math.min(t, Math.max(0, length - 1e-3)));
+			g.drawImage(video, 0, 0, canvas.width, canvas.height);
+			yield { t, image: canvas };
 		}
 	}
-	return { width: canvas.width, height: canvas.height, frames: frames(), count, seconds };
+	return { width: canvas.width, height: canvas.height, frames: frames(), count, seconds, close };
 }
 
 const api = { track, clipFrames, videoFrames, solve: solveMotion, MAX_VIDEO_SECONDS };
