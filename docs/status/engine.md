@@ -610,6 +610,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-17 — **`runtime-bytes` manifests re-recorded at `main` ec7f289** (carried by #1710, a
+  launcher-only PR the stale manifests failed). #1699, #1709 and #1711 merged after #1707 recorded
+  its manifests, so `main`'s own runs failed (44064034218, 44069973848). The new manifests are the
+  Linux bytes of `main` ec7f289 plus #1710, which changes no runtime byte: built from one directory,
+  `main` and the PR give four manifests identical file for file. **The manifests depend on the
+  checkout path**, not only the OS: Svelte's scoped-class hashes (`svelte-xxxx`) come from each
+  component's file path, so the same tree built in two directories differs in the CSS, the bundle
+  and every chunk that imports them. Built at CI's path (`/home/runner/work/Invisible-Engine/Invisible-Engine`),
+  a Linux container reproduces CI's file names exactly, and a second build checks `runtime bytes
+  ok`. So re-record from CI's artifact or from a checkout at that path, never with `--update`
+  elsewhere.
+
 - 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
   released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins
   what made two builds of one commit differ — `__IE_BUILD__`'s `builtAt`, `sha`, `engineSha`,
