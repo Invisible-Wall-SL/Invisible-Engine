@@ -196,6 +196,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
+			if (player.z) player.z = 0;
 			free(player, stamp);
 			respawn(player);
 		}
@@ -242,6 +243,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
+			if (player.z) player.z = 0;
 			free(player, stamp);
 			if (phase === 'waiting' && !lobby) startRound([...every], stamp);
 			emit({ type: 'joined', id: player.id });

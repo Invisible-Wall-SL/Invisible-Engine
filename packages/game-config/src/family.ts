@@ -189,6 +189,7 @@ export const ONLINE_RULES_MODULE_IDS: readonly string[] = Object.freeze([
 	'tag',
 	'waterfallClimb',
 	'sandbanks',
+	'salmonJump',
 	'fishingLine',
 	'goldenSalmon',
 	'salmons',

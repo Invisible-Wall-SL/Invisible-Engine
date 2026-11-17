@@ -28,6 +28,16 @@
 					"type": "climbed",
 					"id": "s",
 					"zone": "waterfall0"
+				},
+				{
+					"step": 52,
+					"type": "jumped",
+					"id": "s"
+				},
+				{
+					"step": 88,
+					"type": "jumped",
+					"id": "s"
 				}
 			],
 			"track": [
@@ -183,6 +193,11 @@
 					"type": "escaped",
 					"by": "f",
 					"target": "b"
+				},
+				{
+					"step": 152,
+					"type": "jumped",
+					"id": "b"
 				}
 			],
 			"track": [

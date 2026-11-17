@@ -46,6 +46,9 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   generator for Salmons; change `salmonsMap.js` only against the recorded original
   (`check:salmons-levels`). Authored additions go in Game Config `arcade.online.levels.overlays`,
   never in the scene's river node, which `/editor` regenerates.
+- **The salmon's leap is the original's** (`salmonsRules` `salmonJump` + `salmonsArt/leap.ts`, since
+  2026-11-17): its heights and pose are the old game's numbers, pinned by `check:salmons-jump`.
+  Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel.
 
 - **S0 art pass approved 2026-10-26** ([salmons status](../../status/salmons.md)). Next: generate
   the 22 character clips in the launcher's tools (Atlas Maker, Flipbook, FX on ComfyUI); none yet.

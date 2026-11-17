@@ -246,7 +246,7 @@ ported); the golden salmon is the original golden painting, with #1528's glow; n
 - **The characters** (`salmonsArt/looks.ts`, a code look per instance in `SpawnLayer`; a published
   clip still wins, then the code look, then the placeholder):
   - the salmon is a 12-point rope through its painting, with facing flip, tilt, a breathing squash,
-    the hop's tilt, swell and tail flick on `jumped`, the nose-up pose and tap pulse at a waterfall's
+    the leap's lift, tilt, swell and curl from the room's `z` (2026-11-17, below), the nose-up pose and tap pulse at a waterfall's
     foot, and the spine glint in open water;
   - the bear turns to its heading and draws the claw streak on its swipe;
   - the fisherman is the tan circle.
@@ -349,6 +349,37 @@ the runbook follows them.
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-17 — **The salmon's leap and curl** (branch `arcade/salmons-jump-curl`; in review;
+  runtime change). Owner: "I am also missing the jump of the salmon completely. It used to look like
+  he jumped, and also curl when doing so." Cause: the leap was never ported. The room had no
+  height, the only `jumped` came off a sandbank, and the look played a 600 ms tilt and wiggle on it
+  with no lift. Source: the original at 41811c2 (`server/index.js` `onMessage('jump')` and
+  `update`, `client/game.js` salmon pose), read by the waterfall-heights session and relayed as
+  excerpts. This session had no access to that repo.
+  - **Room** (`salmonsRules` `salmonJump`, in the `salmons` module and offered alone): a tap of jump
+    by a free salmon with `z` 0 leaps at 11 cells/s under 20 cells/s². That is the old server's
+    stepping exactly: about 1.1 s up, the top about 3 cells (145 px). There is no second leap in the
+    air. A tap that climbs a waterfall does not leap. A tap off a sandbank does (one `jumped`). A
+    catch or hook puts it back on the water. The height goes to devices as the player's `z`
+    (world px, a new `float32` in the room state).
+  - **Look** (`salmonsArt/leap.ts`, `looks.ts`): the old client's pose, driven by `z`. Jump factor
+    `min(1.5, z/2)`, tilt `factor·0.4`, swell `1 + factor·0.12`. The curl eases to
+    `min(1, factor)`; arch `−curl·sin(2π·2 Hz·t)·36` with the tail envelope `(1 − i/11)^2.5`. Lift
+    16 old px a cell × K (24 px a cell, 72 px at the top). The drawn height follows the room's
+    smoothly between steps. The excerpts name no shadow or splash, so none is drawn.
+  - **Assumptions to confirm against the original** (asked of the relaying session):
+    - the jump only lifts; horizontal motion stays the stick's, as the old `move` every 50 ms
+      overrides the jump's `dir`;
+    - the height changes nothing else (catches, rocks, whirlpools);
+    - the tap target (`targetX/Y`) is not ported. It only steered that first 50 ms, and it belongs
+      in the tap/touch controller (#1722): a tap there sends jump, with the aim in the input's
+      `aimX/aimY`.
+  - Proof: `check:salmons-jump` (the height step for step against the old formula at 30 and 60 Hz,
+    the one-leap, held, climb, sandbank and catch cases, and every pose number and curve).
+    `salmons-traces.json` re-recorded: it only gains `jumped` events, and no position changes.
+  - Next (second PR): waterfall heights, the height-aware climb (step 2.4, slide 0.8 cells/s, no
+    teleport) and the river and banks raised by each waterfall, with `cliff.png`.
 
 - 2026-11-17 — **The lobby** (branch `arcade/salmons-lobby`; in review;
   [design/salmons-levels](../design/salmons-levels.md) §4). Owner: the room is an authored screen

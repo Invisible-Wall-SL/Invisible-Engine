@@ -75,8 +75,8 @@ page A with `rooms_character=salmon`, page B with `rooms_character=bear`. The pa
 stepped by the determinism probe while real time passes, so the room's patches arrive between steps.
 
 **By hand:** the same snapshot boots in any runtime build; arrows / WASD swim or walk, J swipes or
-casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab with
-`rooms_character=bear` (or `fisherman`) to hunt.
+casts, Space leaps (in open water), climbs, jumps off a sandbank or shakes a hook. Open a second
+tab with `rooms_character=bear` (or `fisherman`) to hunt.
 
 ## Checks (`result.json` verdicts)
 
@@ -145,10 +145,14 @@ casts, Space climbs, jumps off a sandbank or shakes a hook. Open a second tab wi
     with a hand, and the line's colour 0xddddaa; page G2 its own salmon `salmon_pink` and G's
     `salmon_golden`. Last, the server shuts down: page A's river art is torn down (the probe's
     `fieldArt`: none drawn, and every container it made destroyed).
+22. The leap (the original's, checked on page A right after its art): Space in open water lifts
+    its salmon off the river and it curls (the probe's `online.art.looks[me]`: `lift` above 30 px,
+    `curl` above 0.3; the top of a leap is 72 px), then it lands again (`lift` 0). The heights and
+    the pose are pinned against the old game's numbers by `pnpm check:salmons-jump`.
 
 The bots are bears with a brain that stands still: each room places them on its own river's
 banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
-so it is golden and check 6 takes its colour as pink or gold. 69 verdicts.
+so it is golden and check 6 takes its colour as pink or gold. 71 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
 and the pages of the authored-river rooms (E, F, G, H, S, T) draw a river of the room's seed while

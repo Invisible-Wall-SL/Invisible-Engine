@@ -28,6 +28,8 @@ export type RulesPlayer = {
 	safeUntil: number;
 	/** A rules module's flag (`tag`: "it"). */
 	mark: boolean;
+	/** How high a rules module has lifted it off the ground, px (a salmon's leap); absent ⇒ 0. */
+	z?: number;
 	/** A rules module's own notes on the player. */
 	memo: Record<string, number>;
 	/** Button → the stamp it can be used again at. */

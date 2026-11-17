@@ -16,6 +16,7 @@
 		"check:arcade-3d": "node scripts/check-arcade-3d.mjs",
 		"check:character-clips": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-character-clips.mjs",
 		"check:salmons-art": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-art.mjs",
+		"check:salmons-jump": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-jump.mjs",
 		"check:salmons-levels": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-levels.mjs",
 		"check:netcode": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-netcode.mjs",
 		"check:online-rules": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-online-rules.mjs",

@@ -6,11 +6,13 @@
 import type { RulesModule } from './onlineRules';
 
 export const CLIMB: Readonly<{ tap: number; drainPerSecond: number; footPx: number }>;
+export const JUMP: Readonly<{ launch: number; gravity: number }>;
 export const LINE: Readonly<{ reelPxPerSecond: number; landPx: number; escapeTaps: number }>;
 export const GOLDEN_WORTH: number;
 export const SALMONS_RULES: Readonly<{
 	waterfallClimb: RulesModule;
 	sandbanks: RulesModule;
+	salmonJump: RulesModule;
 	fishingLine: RulesModule;
 	goldenSalmon: RulesModule;
 	salmons: RulesModule;

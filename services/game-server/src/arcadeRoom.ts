@@ -296,6 +296,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			to.score = from.score;
 			to.status = from.status;
 			to.mark = from.mark;
+			to.z = from.z ?? 0;
 		}
 
 		private writeRoom() {

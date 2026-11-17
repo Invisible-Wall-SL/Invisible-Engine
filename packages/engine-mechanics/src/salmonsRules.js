@@ -12,6 +12,12 @@
  * - `sandbanks`: a free salmon whose centre comes onto a sandbank (`kind: 'sandbank'`) is
  *   `grounded`, held still and still catchable, until it taps jump (`grounded`, `jumped`); it is not
  *   grounded again before its centre has left the sand.
+ * - `salmonJump`: the original's leap (`GuiltyForever/Salmon-` 41811c2 `server/index.js`
+ *   `onMessage('jump')` and `update`). A tap of jump by a free salmon on the water (its height `z`
+ *   0) launches it up at {@link JUMP}`.launch` cells/s, and it falls back under `JUMP.gravity`
+ *   cells/s²: about 1.1 s in the air, its top about 3 cells up (`jumped`). A tap that climbs a
+ *   waterfall does not leap; a tap that leaves a sandbank does, as the old server's did. The leap
+ *   only lifts: the body keeps moving on the river as the player steers.
  * - `fishingLine`: a `hook` ability hooks the nearest target in reach (`hooked`): the target is held
  *   and reeled towards its fisherman at {@link LINE}`.reelPxPerSecond`, and landed within
  *   `landPx` of it, which is the catch (`caught`, effect `hook`: out for the ability's `ms`, the
@@ -20,7 +26,7 @@
  * - `goldenSalmon`: one salmon of the room is golden (its `mark`), chosen from the room's seed and
  *   the round at each round's start, and again whenever no salmon in the room is golden (`golden`).
  *   A catch of it, and its goal, score {@link GOLDEN_WORTH} times as much.
- * - `salmons`: all four, the module Salmons' config names.
+ * - `salmons`: all five, the module Salmons' config names.
  *
  * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`; a choice is a hash of
  * the room's seed. It reaches the rules' status codes and helpers through the `api`
@@ -29,6 +35,7 @@
 
 import { BUTTONS } from './online.js';
 import { aabbOf } from './motion.js';
+import { CELL } from './salmonsMap.js';
 
 /** The character these rules are for. */
 const SALMON = 'salmon';
@@ -36,6 +43,14 @@ const SALMON = 'salmon';
 /** The climb: a tap's share of the height, how fast the height drains, and how close below a
  *  waterfall a salmon is at its foot, px. */
 export const CLIMB = Object.freeze({ tap: 0.25, drainPerSecond: 0.6, footPx: 8 });
+
+/** The leap, in the old server's grid cells ({@link CELL} px): the launch speed (`vz = 11`) and the
+ *  pull (`vz -= 20 * dt`), cells/s and cells/s². */
+export const JUMP = Object.freeze({ launch: 11, gravity: 20 });
+
+/** What a tap of jump already did this input, for `salmonJump`: a sandbank's release (it leaps,
+ *  already announced) or a climb (it does not leap). */
+const TAP = Object.freeze({ released: 1, climbed: -1 });
 
 /** The line: how fast it reels, px/s; how close to its fisherman a salmon is landed, px; the taps
  *  that shake the hook. */
@@ -103,6 +118,7 @@ const waterfallClimb = {
 					return;
 				}
 				if (!tap) return;
+				player.memo.leapTap = TAP.climbed;
 				const height = (player.memo.climb ?? 0) + CLIMB.tap;
 				if (height < 1) {
 					player.memo.climb = height;
@@ -131,6 +147,7 @@ const sandbanks = {
 				const tap = tapped(player, input, 'sandTap');
 				if (player.status !== api.STATUS.grounded || !tap) return;
 				api.release(player);
+				player.memo.leapTap = TAP.released;
 				world.emit({ type: 'jumped', id: player.id });
 			},
 			step(world) {
@@ -146,6 +163,43 @@ const sandbanks = {
 					p.status = api.STATUS.grounded;
 					p.until = 0;
 					world.emit({ type: 'grounded', id: p.id, zone: sand.id });
+				}
+			},
+		};
+	},
+};
+
+const salmonJump = {
+	create(game, api) {
+		const launch = JUMP.launch * CELL;
+		const pull = JUMP.gravity * CELL;
+		return {
+			input(player, input, world) {
+				const tap = tapped(player, input, 'leap');
+				const before = player.memo.leapTap;
+				player.memo.leapTap = 0;
+				if (!tap || before === TAP.climbed || player.character.id !== SALMON) return;
+				if (player.status !== api.STATUS.free || (player.z ?? 0) > 0) return;
+				player.memo.vz = launch;
+				if (before !== TAP.released) world.emit({ type: 'jumped', id: player.id });
+			},
+			step(world) {
+				const dt = 1 / world.tickHz;
+				for (const p of world.players) {
+					const vz = p.memo.vz ?? 0;
+					if (!vz && !p.z) continue;
+					if (p.status !== api.STATUS.free) {
+						p.z = 0;
+						p.memo.vz = 0;
+						continue;
+					}
+					const z = (p.z ?? 0) + vz * dt;
+					p.memo.vz = vz - pull * dt;
+					if (z > 0) p.z = z;
+					else {
+						p.z = 0;
+						p.memo.vz = 0;
+					}
 				}
 			},
 		};
@@ -272,9 +326,16 @@ const together = (game, api, parts) => {
 
 const salmons = {
 	create: (game, api) =>
-		together(game, api, [sandbanks, waterfallClimb, fishingLine, goldenSalmon]),
+		together(game, api, [sandbanks, waterfallClimb, salmonJump, fishingLine, goldenSalmon]),
 };
 
 /** Salmons' entries of `ONLINE_RULES_MODULES`. Object literals only, so a runtime that never runs a
  *  room (every one but `arcade`) drops them. */
-export const SALMONS_RULES = { waterfallClimb, sandbanks, fishingLine, goldenSalmon, salmons };
+export const SALMONS_RULES = {
+	waterfallClimb,
+	sandbanks,
+	salmonJump,
+	fishingLine,
+	goldenSalmon,
+	salmons,
+};
