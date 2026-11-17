@@ -17,7 +17,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   `/editor` regenerating any seed, authored overlays in the Game Config.
 - **Guard:** root `check:salmons-levels` (the original's recorded output for seven seeds; room,
   device and editor alike; an overlay survives a reseed).
-- **PR:** not recorded (2026-11-17, branch `arcade/salmons-seeded-levels`) · source: `docs/status/salmons.md`
+- **PR:** #1699 (2026-11-17) · source: `docs/status/salmons.md`
 
 ### A character's clip flicked between two facings every frame
 

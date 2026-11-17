@@ -352,7 +352,7 @@ the runbook follows them.
 ## Recent changes
 
 - 2026-11-17 — **Salmons plays the original game's levels, by seed, with authored overlays**
-  (branch `arcade/salmons-seeded-levels`; in review). The owner gave the original source and chose
+  (#1699, branch `arcade/salmons-seeded-levels`; in review). The owner gave the original source and chose
   random-by-default plus a pinned list. Built: the line-for-line port and its PRNG (checked against
   seven seeds of the original), the `salmonsMap` generator and its conversion to the engine's river,
   `arcade.online.levels` in Game Config (normalised, a warning on another generator), the room's
