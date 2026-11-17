@@ -180,6 +180,20 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-17 — **Path editor fixes after review** (branch `fix/fx-path-editor`, follow-up of
+  #1695). `FxStage`: a drag now ends through one `endPathDrag` on `pointerup`, `pointercancel`,
+  `lostpointercapture`, a layer switch, the path going away (an undo mid-drag) and unmount; it
+  carries the layer it started on, so a stale drag can no longer show one layer's points on
+  another or save them into it, and a cancel puts the live emitter's own `fxPath` back instead of
+  leaving the preview. The preview finds the behaviour by `constructor.type` (as the tick hook
+  does), not `instanceof`. A click on a point without a move writes nothing. The cap: at
+  `FX_PATH_MAX_POINTS` (256) **+** is disabled and double-click adds nothing, and
+  `setPathPoints` / `insertPathPointAt` return the config unchanged past it (before, `readFxPath`
+  silently dropped the last point). Jitter / Travel time / Speed sliders widen to a saved value
+  past their range (the runtime allows 10000 / 600 / 100000), so touching one no longer clamps
+  it. A blank points-table cell writes nothing (it was `Number('')` = 0). Gate: `fx-path-page`
+  26/26 (pointercancel mid-drag, layer switch mid-drag, the cap, the slider, a blank cell — 11 of
+  the new checks fail on the old code); `fx-spike model` gained the model's cap cases.
 - 2026-11-16 — **Particles on paths: authoring in `/fx`** (branch `claude/fx-paths-authoring`,
   design [fx-paths](../design/fx-paths.md) step 3). Spawn kind **Path** (distribution, jitter,
   direction relative to the path), **Move the emitter along a path** for every other kind, a
@@ -191,7 +205,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   (points, Bézier handles), drags them with a live preview (the behaviour swapped, no reset) and
   writes the doc on release; double-click adds a point, Alt-click removes, Shift snaps 15°.
   Gate: `fx-spike` `fx-path-page` (in `check:all`) — the real page with real pointer input,
-  14/14. Guide: [tools/fx](../tools/fx.md).
+  14/14 (26 after the 2026-11-17 fixes). Guide: [tools/fx](../tools/fx.md).
 - 2026-11-16 — **Particles on paths: hardening before authoring** (branch `fx/path-hardening`,
   the review follow-ups of the runtime PR). `engine-fx/src/path.ts`: `readFxPath` keeps at most
   `FX_PATH_MAX_POINTS` (256) anchors — `init` rebuilds the arc-length table on every re-fire, and

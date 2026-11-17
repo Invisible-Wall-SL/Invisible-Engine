@@ -37,6 +37,7 @@
 		createEffectLevelApplier,
 		emitterDeltaSeconds,
 		FX_PATH_BEHAVIOR_TYPE,
+		FX_PATH_MAX_POINTS,
 		FxPathBehavior,
 		FxPathTable,
 		readFxPath,
@@ -1193,7 +1194,56 @@
 	});
 
 	type PathPart = 'p' | 'in' | 'out';
-	let pathDrag: { index: number; part: PathPart; pointerId: number } | null = null;
+	/** The drag in flight, with the layer it started on — it never writes another layer's points. */
+	let pathDrag: {
+		layer: string;
+		index: number;
+		part: PathPart;
+		pointerId: number;
+		moved: boolean;
+	} | null = null;
+	type BehaviorArrays = { initBehaviors: unknown[]; updateBehaviors: unknown[] };
+	/** The preview standing in on the live emitter (`current`), and the behaviour it replaced. */
+	let pathPreview: { arrays: BehaviorArrays; original: unknown; current: unknown } | null = null;
+
+	// By type, not `instanceof`, as the runtime's tick hook does (an HMR re-run or a duplicate module
+	// registers a second class).
+	const isPathBehavior = (b: unknown): boolean =>
+		(b as { constructor?: { type?: unknown } } | null)?.constructor?.type === FX_PATH_BEHAVIOR_TYPE;
+
+	function swapBehavior(arrays: BehaviorArrays, from: unknown, to: unknown): void {
+		const at = arrays.initBehaviors.indexOf(from);
+		if (at !== -1) arrays.initBehaviors[at] = to;
+		const u = arrays.updateBehaviors.indexOf(from);
+		if (u !== -1) arrays.updateBehaviors[u] = to;
+	}
+
+	/**
+	 * End the drag. A commit writes the points to the doc and leaves the preview (it shows those
+	 * points) until the rebuild replaces it. A cancel, a layer switch or an unmount writes nothing
+	 * and puts the emitter's own behaviour back — unless a rebuild already replaced the preview.
+	 */
+	function endPathDrag(commit: boolean): void {
+		const drag = pathDrag;
+		const points = dragPoints;
+		const preview = pathPreview;
+		pathDrag = null;
+		dragPoints = null;
+		pathPreview = null;
+		const write =
+			commit && drag?.moved && points && drag.layer === pathLayer ? onPathPoints : undefined;
+		if (preview && !write && preview.arrays.initBehaviors.includes(preview.current))
+			swapBehavior(preview.arrays, preview.current, preview.original);
+		if (write && points) write(points);
+	}
+
+	// A layer switch, the path going away (an undo mid-drag) or the stage unmounting ends any drag.
+	const pathShown = $derived(!!editPath);
+	$effect(() => {
+		void pathLayer;
+		void pathShown;
+		return () => endPathDrag(false);
+	});
 
 	function stagePoint(e: PointerEvent | MouseEvent): { x: number; y: number } {
 		const r = host?.getBoundingClientRect();
@@ -1212,19 +1262,16 @@
 
 	/** Preview a dragged curve on the live emitter without re-initialising it. */
 	function previewPath(points: FxPathPoint[]): void {
-		const entry = pathLayer ? live.get(pathLayer) : undefined;
+		const entry = pathDrag ? live.get(pathDrag.layer) : undefined;
 		if (!entry || !editPath) return;
-		const arrays = entry.emitter as unknown as {
-			initBehaviors: unknown[];
-			updateBehaviors: unknown[];
-		};
-		const at = arrays.initBehaviors.findIndex((b) => b instanceof FxPathBehavior);
-		if (at === -1) return;
-		const old = arrays.initBehaviors[at];
+		const arrays = entry.emitter as unknown as BehaviorArrays;
+		const old = arrays.initBehaviors.find(isPathBehavior);
+		if (!old) return;
 		const fresh = new FxPathBehavior({ ...editPath, curve: { ...editPath.curve, points } });
-		arrays.initBehaviors[at] = fresh;
-		const u = arrays.updateBehaviors.indexOf(old);
-		if (u !== -1) arrays.updateBehaviors[u] = fresh;
+		// A rebuild mid-drag refills the same arrays: what it put there is the original now.
+		const original = pathPreview?.current === old ? pathPreview.original : old;
+		pathPreview = { arrays, original, current: fresh };
+		swapBehavior(arrays, old, fresh);
 	}
 
 	function onHandleDown(e: PointerEvent, index: number, part: PathPart): void {
@@ -1234,7 +1281,9 @@
 			if (shownPoints.length > 2) onPathPoints?.(shownPoints.filter((_, i) => i !== index));
 			return;
 		}
-		pathDrag = { index, part, pointerId: e.pointerId };
+		if (!pathLayer) return;
+		endPathDrag(false);
+		pathDrag = { layer: pathLayer, index, part, pointerId: e.pointerId, moved: false };
 		dragPoints = shownPoints.map((p) => JSON.parse(JSON.stringify(p)) as FxPathPoint);
 		(e.currentTarget as Element).setPointerCapture(e.pointerId);
 	}
@@ -1258,25 +1307,28 @@
 				[drag.part]: { x: local.x - anchor.x, y: local.y - anchor.y },
 			};
 		}
+		drag.moved = true;
 		dragPoints = points;
 		previewPath(points);
 	}
 
 	function onHandleUp(e: PointerEvent): void {
-		const drag = pathDrag;
-		if (!drag || drag.pointerId !== e.pointerId) return;
+		if (pathDrag?.pointerId !== e.pointerId) return;
 		e.stopPropagation();
-		(e.currentTarget as Element).releasePointerCapture(e.pointerId);
-		const points = dragPoints;
-		pathDrag = null;
-		dragPoints = null;
-		if (points) onPathPoints?.(points);
+		endPathDrag(true);
+		const el = e.currentTarget as Element;
+		if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+	}
+
+	/** `pointercancel` / `lostpointercapture`: the drag ends without writing the doc. */
+	function onHandleCancel(e: PointerEvent): void {
+		if (pathDrag?.pointerId === e.pointerId) endPathDrag(false);
 	}
 
 	function onCurveDblClick(e: MouseEvent): void {
 		e.stopPropagation();
 		const curve = curveOf(shownPoints);
-		if (!pathXf || !curve) return;
+		if (!pathXf || !curve || pathDrag || shownPoints.length >= FX_PATH_MAX_POINTS) return;
 		const sp = stagePoint(e);
 		const local = toLocal(pathXf, sp.x, sp.y);
 		const table = new FxPathTable(curve);
@@ -1353,6 +1405,8 @@
 							onpointerdown={(e) => onHandleDown(e, anchor.i, part)}
 							onpointermove={onHandleMove}
 							onpointerup={onHandleUp}
+							onpointercancel={onHandleCancel}
+							onlostpointercapture={onHandleCancel}
 						/>
 					{/if}
 				{/each}
@@ -1366,6 +1420,8 @@
 					onpointerdown={(e) => onHandleDown(e, anchor.i, 'p')}
 					onpointermove={onHandleMove}
 					onpointerup={onHandleUp}
+					onpointercancel={onHandleCancel}
+					onlostpointercapture={onHandleCancel}
 				>
 					<title>Point {anchor.i + 1} — drag to move, Alt-click to remove</title>
 				</circle>
@@ -1381,12 +1437,10 @@
 		touch-action: none;
 		cursor: grab;
 		overflow: hidden;
+		position: relative;
 	}
 	.stage:active {
 		cursor: grabbing;
-	}
-	.stage {
-		position: relative;
 	}
 	.pathsvg {
 		position: absolute;
