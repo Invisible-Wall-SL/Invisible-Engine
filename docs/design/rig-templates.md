@@ -159,9 +159,23 @@ random mouth shapes).
 
 ### 5.2 From audio — lip-sync
 
-A voice clip → a timed list of mouth shapes → `mouth` + `jaw` keys. Candidate: Rhubarb Lip Sync
-(MIT — confirm), run as a CPU job on atlas-tool. Slot games rarely carry dialogue, so this ranks
-after the panel and the starter set.
+A voice clip → a timed list of mouth shapes → `mouth` + `jaw` keys, with Rhubarb Lip Sync 1.14.0
+run as a CPU job on atlas-tool (`lipsync.py`). Licence checked 2026-11-17: Rhubarb is MIT; what it
+bundles is BSD / MIT / Boost-style, including the CMU Sphinx acoustic model (Alpha Cephei, 2-clause
+BSD variant) and the pronouncing dictionary and language models that come with PocketSphinx (CMU,
+BSD-style). All allow commercial use; the BSD notices must travel with the binary, so the image keeps
+its `LICENSE.md`. Nothing of it ships in a game.
+
+Rhubarb answers its own letters (A closed, B clenched, C open, D wide, E rounded, F puckered, G
+F/V, H L, X rest). Which template image each becomes is template data, `shapes.lipsync` on the mouth
+channel, so the page holds no mapping: `bust-face` uses Rhubarb's own Preston Blair table, with B and
+H taking `mouth_E`, the nearest in jaw opening. A letter whose image the art lacks falls back like any
+other mouth key (`faceKeyShape`).
+
+The voice line itself is **authoring-only**: uploaded to `<client>/<project>/voices/` (presigned PUT),
+played beside the clip in the Rigger, and not exported. The keys are what ship, in the rig. A game
+that plays the line adds the same audio to Invisible Sound, which has its own export chain, and cues
+it with the clip from Flow.
 
 ### 5.3 From video or a flipbook — face tracking
 
@@ -200,7 +214,7 @@ Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is
 | **T1 — Contract + template rig + auto-attach** ✅ 2026-11-17 | the template type and validator; `bust-face` in ＋ New rig (atlas or uploaded images); parts attach by name, missing ones are left out and listed; `template.json` in the bundle | two different arts made into rigs from one template, same pose  |
 | **T2 — Face panel** ✅ 2026-11-17                            | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                          | an idle with blinks and a talk loop authored in minutes         |
 | **T3 — Starter animations** ✅ 2026-11-17                    | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
-| **T4 — Lip-sync from audio**                                 | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
+| **T4 — Lip-sync from audio** ✅ 2026-11-17                   | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
 | **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
 | **T6 — Art blueprint** 🟡 tools 2026-11-17, real run owed    | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
 | **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
@@ -216,6 +230,7 @@ section it adds.
    faster art? The contract allows both; the starter clips need to pick.
 2. **Head turn depth** — is parallax on one mesh enough, or do some projects need a ¾ head
    drawing swapped in?
-3. **Licences** — DWPose node pack + weights, Rhubarb: confirm before T4/T5 ship anything.
+3. **Licences** — DWPose node pack + weights: confirm before T5 ships anything. (Rhubarb:
+   confirmed for T4, §5.2.)
 4. **Where the contract is edited** — JSON by an admin at first; a Rigger UI only if templates
    multiply.

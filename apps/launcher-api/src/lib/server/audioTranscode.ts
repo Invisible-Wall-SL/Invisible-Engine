@@ -104,3 +104,42 @@ export async function capAudioBitrate(
 		if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
 	}
 }
+
+/**
+ * Decode any audio file ffmpeg reads to a 16 kHz mono 16-bit WAV — what the lip-sync job takes
+ * (Rhubarb reads only WAV and Ogg, and works at 16 kHz). Null on any failure.
+ */
+export async function decodeToMonoWav(source: Uint8Array, ext: string): Promise<Buffer | null> {
+	if (!ffmpegPath || !/^[a-z0-9]{1,5}$/.test(ext)) return null;
+	let dir: string | undefined;
+	try {
+		dir = await mkdtemp(join(tmpdir(), 'ie-voice-'));
+		const inPath = join(dir, `in.${ext}`);
+		const outPath = join(dir, 'out.wav');
+		await writeFile(inPath, source);
+		const ok = await run([
+			'-y',
+			'-loglevel',
+			'error',
+			'-i',
+			inPath,
+			'-vn',
+			'-map_metadata',
+			'-1',
+			'-ac',
+			'1',
+			'-ar',
+			'16000',
+			'-c:a',
+			'pcm_s16le',
+			outPath,
+		]);
+		if (!ok) return null;
+		const out = await readFile(outPath);
+		return out.length > 44 ? out : null;
+	} catch {
+		return null;
+	} finally {
+		if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+	}
+}

@@ -848,6 +848,14 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
 - **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
   open at the clip's end so it loops.
 - **💬 Talk 2 s** — 2 s of mouth shapes from the playhead, jaw following, ending on the rest shape.
+- **🎤 Lip-sync** — opens a row to key the mouth from a voice line. Pick a line already in the
+  project, or **＋ Upload audio…** (mp3, ogg, m4a, wav or webm, up to 60 s). Optionally type the
+  words (English gets more accurate) and pick **English** or **Other language**, then
+  **🎤 Key at playhead**: after a few seconds the mouth shapes and jaw are keyed from the playhead to
+  the end of the line, replacing the mouth and jaw keys already under it, as one undo step.
+  **🔊 Play with voice** plays the clip from there with the audio, to check the sync. The audio
+  stays in the Rigger: to hear it in the game, add the same file in Invisible Sound and play it with
+  the clip.
 - **🎬 Starter animations** — adds the template's ready-made clips: `idle` (4 s: breathing, a
   small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`,
   `win_small` and `win_big`. Every clip starts and ends with the face at rest, so it loops or hands
@@ -858,7 +866,7 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee, then head
   tilt, nod and breath. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms up,
   fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and `walk`
-  (a 1 s loop). There are no blink or talk buttons, and no IK: a constraint you add over the legs
+  (a 1 s loop). There are no blink, talk or lip-sync buttons, and no IK: a constraint you add over the legs
   overrides the leg keys.
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.

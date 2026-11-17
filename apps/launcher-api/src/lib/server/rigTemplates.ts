@@ -55,13 +55,17 @@ export interface RigTemplateChannel {
 	drives?: RigTemplateDrive[];
 	slot?: string;
 	swaps?: RigTemplateSwap[];
-	/** `open`: how far each shape opens the jaw; `talk`: the order the talk helper cycles. */
+	/**
+	 * `open`: how far each shape opens the jaw; `talk`: the order the talk helper cycles;
+	 * `lipsync`: the part each lip-sync shape letter (A–H, X) becomes (§5.2).
+	 */
 	shapes?: {
 		slot: string;
 		jaw: string;
 		rest: string;
 		open: Record<string, number>;
 		talk: string[];
+		lipsync?: Record<string, string>;
 	};
 }
 
@@ -109,6 +113,13 @@ const part = (
 const sides = <T>(f: (s: 'l' | 'r', sign: number) => T[]): T[] => [...f('l', -1), ...f('r', 1)];
 
 const MOUTH_SHAPES = ['A', 'E', 'O', 'U', 'MBP', 'FV', 'smile', 'wide'];
+
+/**
+ * The mouth shapes Rhubarb Lip Sync answers with (docs/design/rig-templates.md §5.2): A closed
+ * (M B P), B clenched teeth (most consonants, EE), C open (EH AE), D wide open (AA), E rounded
+ * (AO ER), F puckered (UW OW W), G teeth on lip (F V), H tongue up (L), X at rest.
+ */
+export const LIPSYNC_SHAPES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'X'] as const;
 
 export const BUST_FACE: RigTemplate = {
 	id: 'bust-face',
@@ -192,6 +203,19 @@ export const BUST_FACE: RigTemplate = {
 					mouth_FV: 0.3,
 					mouth_smile: 0.2,
 					mouth_wide: 0.6,
+				},
+				// Rhubarb's own Preston Blair mapping; B (clenched teeth) and H (L) have no image of
+				// their own in this set, so they take E, the nearest in jaw opening.
+				lipsync: {
+					A: 'mouth_MBP',
+					B: 'mouth_E',
+					C: 'mouth_E',
+					D: 'mouth_A',
+					E: 'mouth_O',
+					F: 'mouth_U',
+					G: 'mouth_FV',
+					H: 'mouth_E',
+					X: 'mouth_rest',
 				},
 			},
 		},
@@ -725,9 +749,21 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 		}
 		if (c.shapes) {
 			if (!slots.has(c.shapes.slot)) return `channel "${c.id}" picks a missing slot`;
-			for (const p of [c.shapes.rest, ...Object.keys(c.shapes.open), ...c.shapes.talk])
+			const lipsync = c.shapes.lipsync ?? {};
+			for (const p of [
+				c.shapes.rest,
+				...Object.keys(c.shapes.open),
+				...c.shapes.talk,
+				...Object.values(lipsync),
+			])
 				if (parts.get(p) !== c.shapes.slot)
 					return `channel "${c.id}" names "${p}", not a part of "${c.shapes.slot}"`;
+			if (c.shapes.lipsync)
+				for (const k of LIPSYNC_SHAPES)
+					if (!lipsync[k]) return `channel "${c.id}" lip-sync has no part for shape "${k}"`;
+			for (const k of Object.keys(lipsync))
+				if (!(LIPSYNC_SHAPES as readonly string[]).includes(k))
+					return `channel "${c.id}" lip-sync names an unknown shape "${k}"`;
 		}
 		if (!c.drives?.length && !c.swaps && !c.shapes) return `channel "${c.id}" moves nothing`;
 	}
