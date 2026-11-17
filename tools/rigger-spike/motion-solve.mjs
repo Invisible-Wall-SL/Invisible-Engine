@@ -12,6 +12,8 @@
 //    20°; the hips moving across and up move and hop the root by the rig-scaled amount;
 //  - an arm crossing the body is beyond the template's range: held at its edge and reported;
 //  - a low-visibility point is a gap, held from the frame before (no NaN);
+//  - a child is solved against its parent's HELD value where the parent is a gap: hips out of sight
+//    under a lean, or a shoulder out of sight under a raised arm, do not jump the arm or forearm;
 //  - frames with nothing in them are counted, and a channel never seen is named, not keyed;
 //  - key reduction keeps far fewer keys than frames, within the tolerance on the plateaus;
 //  - keying replaces the imported channels' keys under the import only, at the playhead.
@@ -464,6 +466,62 @@ const body = solveMotion(summary(FULL_BODY), bodyTrack);
 	);
 	const last = r.keys.filter((k) => k[1] === 'arm_l').at(-1);
 	ok('crossing: held at the range edge', last && near(last[2], -0.3, 1e-6), JSON.stringify(last));
+}
+
+// A performer leaning 15° with one arm held out, whose hips drop below visibility for four frames:
+// the lean is a gap there and is held, so the arm must be solved against the held lean, not zero.
+{
+	const lean = (-15 * Math.PI) / 180;
+	const turn = ([x, y]) => [
+		0.5 + (x - 0.5) * Math.cos(lean) - (y - 0.6) * Math.sin(lean),
+		0.6 + (x - 0.5) * Math.sin(lean) + (y - 0.6) * Math.cos(lean),
+	];
+	const upper = { ...STAND, 14: [0.32, 0.35], 16: [0.2, 0.35] };
+	const leaned = Object.fromEntries([7, 8, 11, 12, 13, 14, 15, 16].map((k) => [k, turn(upper[k])]));
+	const track = {
+		width: 1000,
+		height: 1000,
+		frames: Array.from({ length: 24 }, (_, i) =>
+			poseFrame(i, leaned, [0, 0], i >= 10 && i <= 13 ? { 23: 0.1, 24: 0.1 } : {}),
+		),
+	};
+	const r = solveMotion(summary(FULL_BODY), track);
+	const rig = rigWith(FULL_BODY);
+	const anim = {};
+	F.faceKeyMotion(anim, r.keys, 0, FULL_BODY.channels, rig.has);
+	const arm = (i) => dirOf(play(rig, anim, ft(i) + EDGE), 'upper_arm_l', 'lower_arm_l');
+	ok(
+		'hips gap: the held arm keeps its world direction while the lean is held',
+		[11, 12].every((i) => angNear(arm(i), arm(6), 1)),
+		`${arm(6)} → ${arm(11)}, ${arm(12)}`,
+	);
+}
+
+// The arm held out straight, the shoulder below visibility for four frames while the elbow and wrist
+// stay seen: the upper arm is held, so the forearm must not take its whole turn on as its own.
+{
+	const track = {
+		width: 1000,
+		height: 1000,
+		frames: Array.from({ length: 24 }, (_, i) =>
+			poseFrame(
+				i,
+				{ 14: [0.32, 0.35], 16: [0.2, 0.35] },
+				[0, 0],
+				i >= 10 && i <= 13 ? { 12: 0.1 } : {},
+			),
+		),
+	};
+	const r = solveMotion(summary(FULL_BODY), track);
+	const rig = rigWith(FULL_BODY);
+	const anim = {};
+	F.faceKeyMotion(anim, r.keys, 0, FULL_BODY.channels, rig.has);
+	const fore = (i) => dirOf(play(rig, anim, ft(i) + EDGE), 'lower_arm_l', 'hand_l');
+	ok(
+		'shoulder gap: the forearm carries on straight while the upper arm is held',
+		[11, 12].every((i) => angNear(fore(i), 180, 2)),
+		`${fore(6)} → ${fore(11)}, ${fore(12)}`,
+	);
 }
 
 // A drawn face scores a closed eye about 0.4: half-closed as filmed, closed at strength 2.

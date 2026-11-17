@@ -481,20 +481,30 @@ function bodySeries(
 			e.channel,
 			frames.map(() => null),
 		);
-	const base = new Map<string, Pt>();
-	frames.forEach((f, i) => {
-		const solved = new Map<string, number>();
-		for (const e of body.entries) {
-			const ch = chan.get(e.channel);
-			if (!ch) continue;
+	// Entry by entry, parents first (`rigTemplateProblem` checks the order): a child is solved against
+	// each parent's gap-filled series, the value the parent is keyed at, so a frame where a parent is
+	// a gap does not solve the child as if the parent were at rest.
+	const filled = new Map<string, number[]>();
+	for (const e of body.entries) {
+		const ch = chan.get(e.channel);
+		if (!ch) continue;
+		const series = out.get(e.channel)!;
+		const parents =
+			e.kind === 'bone'
+				? [...filled]
+						.filter(([id]) => id !== e.channel)
+						.map(([id, vals]) => ({ vals, per: worldTurnPer(chan.get(id)!, e.bone, chain) }))
+						.filter((p) => p.per !== 0)
+				: [];
+		let base: Pt | undefined;
+		frames.forEach((f, i) => {
 			let v: number | null = null;
 			if (e.kind === 'root') {
 				const p = pt(f, e.point);
 				const per = ch.drives?.find((d) => d.prop === e.axis)?.per;
 				if (p && per && Number.isFinite(unit)) {
-					const b0 = base.get(e.channel) ?? p;
-					base.set(e.channel, b0);
-					v = ((e.axis === 'x' ? p[0] - b0[0] : p[1] - b0[1]) * unit) / per;
+					base ??= p;
+					v = ((e.axis === 'x' ? p[0] - base[0] : p[1] - base[1]) * unit) / per;
 				}
 			} else {
 				const a = pt(f, e.from);
@@ -503,21 +513,19 @@ function bodySeries(
 				const per = worldTurnPer(ch, e.bone, chain);
 				const span = a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
 				if (a && b && rest && per !== 0 && !(span * unit < (e.minSpan ?? 0) * body.scale.rig)) {
-					let carried = 0;
-					for (const [id, val] of solved)
-						if (id !== e.channel) carried += val * worldTurnPer(chan.get(id)!, e.bone, chain);
+					const carried = parents.reduce((sum, p) => sum + p.vals[i] * p.per, 0);
 					const want = angleDiff(angleOf(a, b), angleOf([0, 0], rest));
 					v = angleDiff(want, carried) / per;
 				}
 			}
-			if (v === null) continue;
+			if (v === null) return;
 			if (v < ch.min - 1e-6 || v > ch.max + 1e-6)
 				clipCount.set(e.channel, (clipCount.get(e.channel) ?? 0) + 1);
-			const kept = Math.min(ch.max, Math.max(ch.min, v));
-			solved.set(e.channel, kept);
-			out.get(e.channel)![i] = kept;
-		}
-	});
+			series[i] = Math.min(ch.max, Math.max(ch.min, v));
+		});
+		const held = fillGaps(series);
+		if (held) filled.set(e.channel, held);
+	}
 	return out;
 }
 

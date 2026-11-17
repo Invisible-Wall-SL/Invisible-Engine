@@ -116,6 +116,14 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Body motion: a child is solved against its parent's held value.** `bodySeries`
+  (`src/lib/rigMotion.ts`) solved frame by frame and carried only the parents solved on that frame,
+  so where a parent was a gap (hips or a shoulder under `minVisibility`) the child was solved as if
+  the parent were at rest, while `fillGaps` then held the parent: the posed arm jumped by the lean,
+  or the forearm by the whole upper-arm angle. It now solves entry by entry, parents first, against
+  each parent's gap-filled series. Guarded by two `motion-solve.mjs` checks (50/50), red before the
+  fix: a 15° lean with the hips out of sight for four frames (arm −164.7° → −152.0°), and a raised
+  arm with the shoulder out of sight (forearm 178.7° → 100.3°).
 - 2026-11-17 — **The motion import sends nothing off-site, and MediaPipe's licence ships with it.**
   `@mediapipe/tasks-vision` 1.2.0 builds a usage logger into every landmarker that POSTs usage stats
   to `odml.pa.googleapis.com` every 60 s, with no option to turn it off. `vite.rigger-motion.config.ts`
