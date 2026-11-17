@@ -74,6 +74,13 @@ A seed and the same keys replay the same game.
   (`packages/engine-mechanics/src/onlineBots.js`, `services/game-server/src/roomSim.ts`). A config
   with no `bots` makes none; with no `nearby` the room keeps the P10.14 state class
   (`check:room-bots`).
+- **A 3D room is a separate room on the same rules (3D Phase 1b).** A config with an
+  `arcade.world3d` block (read from the raw doc: `game-config` drops it) plays only in the
+  `arcade3d` room (`roomSim3d.ts`, `Input3D` / `Player3D`), never in the 2D one, and back. A 3D
+  player is stepped **only by an input** (momentum: no input = no step, mid-air included), and the
+  death plane's respawn (`respawnOnFall3d`) is in the fold, so the device's
+  `createPredictor3d` equals the room bit for bit at any latency (`check:room-sim-3d`). Trig only
+  before quantising (`moveFromStick`) or server-side (bots); `motion3d.js` is grep-gated.
 - **A generated field is one function on both sides (P11.2 e).** A config naming
   `arcade.online.generator` plays, per room, the field `generatedOnlineGame(game, seed)` makes from
   the room's `seed`: `createRoomSim` runs it on the server, `online.ts` on the device, and
@@ -115,7 +122,7 @@ A seed and the same keys replay the same game.
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
-| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs`                                                          |
+| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, 3D: `arcadeRoom3d.ts`, `roomSim3d.ts`; `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs` (`--3d`); 3D mechanics `packages/engine-mechanics/src/{motion3d,online3d}.js` |
 
 ## Known failure modes
 
@@ -170,7 +177,8 @@ A seed and the same keys replay the same game.
 
 - **Root gates:** `pnpm check:arcade-motion`, `pnpm check:arcade-characters`,
   `pnpm check:arcade-platformer`, `pnpm check:character-clips`, `pnpm check:room-sim` (starts a
-  real Colyseus server, ~30 s), `pnpm check:game-app-deps`. Each mechanics gate compares a
+  real Colyseus server, ~30 s), `pnpm check:arcade-3d`, `pnpm check:room-sim-3d` (3D room, two
+  live clients, ~15 s), `pnpm check:game-app-deps`. Each mechanics gate compares a
   committed replay (`--update` rewrites it; only when the change is meant to move it).
 - **Launcher gates** (`pnpm --filter launcher-api <name>`): `check:arcade-rules`,
   `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
