@@ -15,16 +15,25 @@ import { fileURLToPath } from 'node:url';
 
 const LAUNCHER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Every `vite.<name>.config.ts` that writes a committed bundle, and where that bundle lives. */
+/**
+ * Every `vite.<name>.config.ts` that writes a committed bundle, and where that bundle lives.
+ * `noUrls`: the bundle may name no `http(s)://` address — `rigger-motion` runs MediaPipe, whose usage
+ * logger its build removes (`vite.rigger-motion.config.ts`), and nothing in it may reach off-site.
+ */
 const BUNDLES = [
 	{ name: 'rigger-fx', committed: 'static/rigger/vendor/rigger-fx.js' },
 	{ name: 'rigger-text', committed: 'static/rigger/vendor/rigger-text.js' },
-	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js' },
+	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js', noUrls: true },
 	{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },
 ];
 
 const stale = [];
-for (const { name, committed } of BUNDLES) {
+const offSite = [];
+for (const { name, committed, noUrls } of BUNDLES) {
+	if (noUrls) {
+		const urls = readFileSync(join(LAUNCHER, committed), 'utf8').match(/https?:\/\/[^\s"'`)]+/g);
+		if (urls) offSite.push(`  ✗ ${committed} names ${[...new Set(urls)].join(', ')}`);
+	}
 	const out = mkdtempSync(join(tmpdir(), `${name}-`));
 	try {
 		const build = spawnSync(
@@ -54,6 +63,12 @@ for (const { name, committed } of BUNDLES) {
 	}
 }
 
+if (offSite.length > 0) {
+	console.error(
+		`vendored bundles: a bundle that must stay on-site names a URL\n${offSite.join('\n')}`,
+	);
+	process.exit(1);
+}
 if (stale.length > 0) {
 	for (const { name, committed } of stale)
 		console.error(

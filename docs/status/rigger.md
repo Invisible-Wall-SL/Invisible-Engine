@@ -116,6 +116,15 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **The motion import sends nothing off-site, and MediaPipe's licence ships with it.**
+  `@mediapipe/tasks-vision` 1.2.0 builds a usage logger into every landmarker that POSTs usage stats
+  to `odml.pa.googleapis.com` every 60 s, with no option to turn it off. `vite.rigger-motion.config.ts`
+  now swaps that class at build time for one that starts failed (its callers queue nothing; it has
+  no timer and no sender). The swap matches the pinned 1.2.0 source and fails the build if it stops
+  matching, so an upgrade cannot quietly bring the logger back. `check:vendored-bundles` also fails
+  if `rigger-motion.js` names any `http(s)://` address (red on the previous bundle, which named only
+  the logger's). Apache-2.0 §4: `static/rigger/vendor/mediapipe/LICENSE` (verbatim) and `NOTICE`
+  (what is redistributed, and that the bundle is modified), plus a banner in the bundle.
 - 2026-11-17 — **Rig templates T5 + T7b: motion from a Flipbook clip or a video.** The Controls
   section's **🎥 Motion** keys the face (bust-face) or the body (full-body) from a performance at the
   playhead, one undo step. Tracker: **MediaPipe** Face Landmarker + Pose Landmarker, in the browser
