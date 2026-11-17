@@ -101,6 +101,7 @@
 	import { getComponentFiredSignals } from './componentFiredSignalsContext';
 	import { getComponentSignalScope } from './componentSignalScopeContext';
 	import { handsOffToIdle, isNodeRevealed } from './signalGates';
+	import { needsHideSlot } from './hideSlot';
 	import { resolveBoundValue } from './componentParams';
 	import { groupSlotRiders, splitSlotRiders } from './rigSlotRiders';
 	import { attachedEffectDrives, createNodeFold } from './nodeFold.svelte';
@@ -435,6 +436,15 @@
 			: undefined,
 	);
 	const hostedSpace = $derived(hostedComponentSpace(hostedDef));
+	// A node something can hide keeps its place among its siblings in a slot that stays mounted
+	// (`needsHideSlot`). The listener and Element FX wrappers already stay mounted, so they are the
+	// slot. Read once: a node gaining or losing the slot would remount its art.
+	const hideSlot = untrack(
+		() =>
+			!listen &&
+			!elementFx.length &&
+			needsHideSlot(node, allBindings, !!firedSignals, hostedDef?.category === 'overlay'),
+	);
 	const gameFrameOverlay = $derived(
 		hostedSpace === 'game' && space !== 'game' && space !== 'background',
 	);
@@ -1958,7 +1968,8 @@
 	hit surface that hands its pointer events to the instance. The wrapper takes the node's `zIndex`
 	so it sorts among its siblings as the node did, and a press target inside it (a `pressAction`
 	container) still fires — events bubble to the wrapper too. No listeners, or no instance to
-	route them to, ⇒ the node renders bare, byte-identical (parity).
+	route them to, ⇒ the node renders bare, byte-identical (parity) — or, when something can hide it,
+	in its hide slot, so shown again it draws where it was authored (`hideSlot`).
 -->
 {#snippet listened()}
 	{#if listen}
@@ -1979,6 +1990,10 @@
 				? (e) => gesture!.release(e.pointerId, pointerLocal(e), e.global, false)
 				: undefined}
 		>
+			{@render nodeBody()}
+		</Container>
+	{:else if hideSlot}
+		<Container zIndex={transform.zIndex}>
 			{@render nodeBody()}
 		</Container>
 	{:else}
