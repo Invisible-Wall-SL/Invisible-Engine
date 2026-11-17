@@ -103,6 +103,7 @@ tool guides rather than restating them.
 | [Rotate a secret](guides/rotate-a-secret.md) | A key or token is due, leaked or lost |
 | [Incident first response](guides/incident-first-response.md) | A game is blank or stale, the launcher is down, generation fails, the RGS errors |
 | [Backups and restores](guides/backups.md) | Restoring the database or authored files, or running the restore drill |
+| [3D assets in Blender](conventions/blender-3d-assets.md) | Modelling, rigging or animating a 3D asset, or migrating an FBX (scripts: `tools/blender/`) |
 
 
 

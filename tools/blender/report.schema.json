@@ -1,0 +1,99 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "ie_validate report (version 1)",
+	"description": "What tools/blender/ie_validate.py writes. The Invisible Model Viewer reads it; codes are the stable contract, messages are for people.",
+	"type": "object",
+	"required": ["tool", "version", "blender", "file", "kind", "ok", "errors", "warnings", "assets", "armatures", "actions", "issues"],
+	"additionalProperties": false,
+	"properties": {
+		"tool": { "const": "ie_validate" },
+		"version": { "const": 1 },
+		"blender": { "type": "string" },
+		"file": { "type": ["string", "null"] },
+		"kind": { "enum": ["asset", "clips"] },
+		"ok": { "type": "boolean" },
+		"errors": { "type": "integer", "minimum": 0 },
+		"warnings": { "type": "integer", "minimum": 0 },
+		"assets": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["id", "class", "lods", "collision", "sockets", "textures"],
+				"additionalProperties": false,
+				"properties": {
+					"id": { "type": "string" },
+					"class": { "enum": ["hero", "weapon", "prop", "tile", "fx"] },
+					"lods": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["level", "object", "tris", "budget"],
+							"additionalProperties": false,
+							"properties": {
+								"level": { "enum": ["LODU", "LOD0", "LOD1", "LOD2", "LOD3"] },
+								"object": { "type": "string" },
+								"tris": { "type": "integer", "minimum": 0 },
+								"budget": { "type": "integer", "minimum": 1 }
+							}
+						}
+					},
+					"collision": { "type": "array", "items": { "type": "string" } },
+					"sockets": { "type": "array", "items": { "type": "string" } },
+					"textures": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["name", "w", "h"],
+							"additionalProperties": false,
+							"properties": {
+								"name": { "type": "string" },
+								"w": { "type": "integer", "minimum": 0 },
+								"h": { "type": "integer", "minimum": 0 }
+							}
+						}
+					}
+				}
+			}
+		},
+		"armatures": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["name", "skeleton", "bones", "deformBones"],
+				"additionalProperties": false,
+				"properties": {
+					"name": { "type": "string" },
+					"skeleton": { "type": "string" },
+					"bones": { "type": "integer", "minimum": 0 },
+					"deformBones": { "type": "integer", "minimum": 0 }
+				}
+			}
+		},
+		"actions": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["name", "frames"],
+				"additionalProperties": false,
+				"properties": {
+					"name": { "type": "string" },
+					"frames": { "type": "array", "items": { "type": "number" } }
+				}
+			}
+		},
+		"issues": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"required": ["severity", "code", "object", "message"],
+				"additionalProperties": false,
+				"properties": {
+					"severity": { "enum": ["error", "warning"] },
+					"code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+					"object": { "type": ["string", "null"] },
+					"message": { "type": "string" }
+				}
+			}
+		}
+	}
+}

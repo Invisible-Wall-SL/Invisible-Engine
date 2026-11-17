@@ -4,7 +4,7 @@
     python scripts/check-python.py --list     # what would run, and what is skipped and why
     python scripts/check-python.py --only atlas-tool
 
-The services' tests are plain scripts, not pytest modules: each documents
+The services' tests (and tools/blender's) are plain scripts, not pytest modules: each documents
 `Run: PYTHONPATH=".;../_shared" py test_x.py (from services/<svc>)` and exits
 non-zero on a failure. This runs each exactly that way, discovered rather than
 listed, so a new `test_*.py` is gated the moment it lands.
@@ -76,6 +76,10 @@ def discover() -> list[Check]:
     checks: list[Check] = []
     # Service test scripts, run from their own directory with the shared package on the path.
     for rel in tracked("services/*/test_*.py"):
+        path = ROOT / rel
+        checks.append(Check(rel, path.parent, [sys.executable, path.name], path))
+    # The Blender toolchain's rules, run with plain Python (the bpy half needs Blender: selftest.py).
+    for rel in tracked("tools/blender/test_*.py"):
         path = ROOT / rel
         checks.append(Check(rel, path.parent, [sys.executable, path.name], path))
     # unittest suites that ship a runner (the ComfyUI custom nodes).
