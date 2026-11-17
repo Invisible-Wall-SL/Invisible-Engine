@@ -171,7 +171,8 @@
 	 * Posts the reading as it stands. A Reset or the page being hidden sends on its own, and only a
 	 * reading with frames it has not sent yet, so a tester who only plays still leaves one each time.
 	 * Leaving sends it without the per-texture list and the spike records, so it fits a `keepalive`
-	 * request that outlives the page; the summary the Profiler lists reads neither.
+	 * request that outlives the page; the summary the Profiler lists reads neither. The same short
+	 * form is the fallback when a reading too large to post cannot be uploaded either.
 	 */
 	const send = async (why: 'tap' | 'reset' | 'leaving' = 'tap') => {
 		if (!sender) return;
@@ -180,15 +181,20 @@
 		const frames = framesOf(s);
 		if (auto && (!frames || frames === sentFrames)) return;
 		const full = report(s);
-		const text = JSON.stringify(
-			why === 'leaving'
-				? { ...full, textureList: undefined, spikes: undefined, trimmed: true }
-				: full,
-		);
+		const short = JSON.stringify({
+			...full,
+			textureList: undefined,
+			spikes: undefined,
+			trimmed: true,
+		});
+		const text = why === 'leaving' ? short : JSON.stringify(full);
 		sentFrames = frames;
-		const outcome = await sender.send(text, { leaving: why === 'leaving' });
+		const outcome = await sender.send(text, { leaving: why === 'leaving', fallback: short });
 		sent = outcome.ok
-			? { ok: true, text: auto ? 'sent (auto)' : 'sent' }
+			? {
+					ok: true,
+					text: `sent${auto ? ' (auto)' : ''}${outcome.trimmed ? ' — trimmed, the full one was too large' : ''}`,
+				}
 			: { ok: false, text: `not sent: ${outcome.error}` };
 		if (!outcome.ok) sentFrames = 0;
 	};
