@@ -39,6 +39,9 @@ export interface ReportOrigin {
 	createdBy: string | null;
 }
 
+/** The project a staged upload is for, and the capture session it counts against (none for a build). */
+export type UploadScope = Pick<ReportOrigin, 'clientKey' | 'projectKey' | 'session'>;
+
 export class ReportRefused extends Error {
 	constructor(
 		readonly status: number,
@@ -54,7 +57,7 @@ export class ReportRefused extends Error {
  */
 export const SESSION_READINGS_MAX = 200;
 
-async function refuseFullSession(origin: ReportOrigin): Promise<void> {
+async function refuseFullSession(origin: UploadScope): Promise<void> {
 	if (!origin.session) return;
 	const [row] = await getDb()
 		.select({ n: count() })
@@ -72,7 +75,7 @@ async function refuseFullSession(origin: ReportOrigin): Promise<void> {
  */
 export const PENDING_UPLOADS_MAX = 20;
 
-const UPLOAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const UPLOAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const UPLOAD_TTL_SECONDS = 10 * 60;
 
 function parseReport(text: string): PerfReportSummary {
@@ -190,19 +193,25 @@ export async function saveReport(origin: ReportOrigin, text: string): Promise<st
 }
 
 /**
- * A presigned PUT for a report too large for a request body. The id is minted here and the key is
+ * A presigned PUT for a report too large for a request body, or a build breakdown (always sent
+ * this way, `builds.ts`). The id is minted here and the key is
  * the caller's own project's STAGING key (`perfUploadKey`), never a reading's: registering copies
  * it out, so a URL still valid after registration can only rewrite a file nothing points at.
  */
-export async function presignReportUpload(
-	origin: ReportOrigin,
+export async function presignUpload(
+	origin: UploadScope,
+	/**
+	 * False for a build breakdown: its sender is a signed-in publisher, and a capture link filling the
+	 * project's slots must not cost a publish its build record (the launcher does not retry).
+	 */
+	capped = true,
 ): Promise<{ id: string; url: string; contentType: string }> {
 	await refuseFullSession(origin);
 	const pending = await listObjects(
 		perfUploadsPrefix(origin.clientKey, origin.projectKey),
 		PENDING_UPLOADS_MAX,
 	);
-	if (pending.keys.length >= PENDING_UPLOADS_MAX) {
+	if (capped && pending.keys.length >= PENDING_UPLOADS_MAX) {
 		throw new ReportRefused(429, 'Too many uploads are waiting — try again tomorrow.');
 	}
 	const id = randomUUID();
@@ -216,7 +225,7 @@ export async function presignReportUpload(
 }
 
 /**
- * Registers a report uploaded by {@link presignReportUpload}: reads the staged file (bounded, and
+ * Registers a report uploaded by {@link presignUpload}: reads the staged file (bounded, and
  * only while it is the file the HEAD saw), keeps it under the reading's own key, inserts the row,
  * then drops the staged copy (left behind, the purge sweeps it). Registering an id twice answers
  * the first registration's id, so a resend after a lost reply is not an error.
@@ -284,6 +293,7 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		dpr: r.dpr,
 		canvas: r.canvas,
 		buildVersion: r.buildVersion,
+		buildSha: r.buildSha,
 		flags: r.flags,
 		idle: phaseOf(r.idleFrames, r.idleFps, r.idleP50, r.idleP95, r.idleHitches),
 		spinning: phaseOf(r.spinFrames, r.spinFps, r.spinP50, r.spinP95, r.spinHitches),

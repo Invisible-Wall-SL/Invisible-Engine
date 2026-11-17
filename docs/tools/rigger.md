@@ -822,15 +822,19 @@ named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
   (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`), `nose`, `mouth_rest`*,
   `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`,
   `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+- **Full body** (`full-body`), drawn facing you or facing right: `torso`*, `head`*, `pelvis`,
+  `neck`, per side `upper_arm_l`* / `lower_arm_l`* / `hand_l_open`* / `hand_l_fist` /
+  `hand_l_point` and `thigh_l`* / `shin_l`* / `foot_l`* (and `_r`). The face is part of `head`.
 - **A missing part is left out, never named.** The game cannot load a rig naming an image its
   atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
   have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
-#### Animate a face (Face section)
+#### Animate with the Controls section
 
-A rig made from **Bust with face** gets a **Face** section in the outline. In **Animate** mode each
+A rig made from a template gets a **Controls** section in the outline (the face of **Bust with
+face**, the body of **Full body**). In **Animate** mode each
 control keys the current animation at the playhead (it starts one if there is none); outside
 Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
 so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes them.
@@ -850,6 +854,12 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
   already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
   becomes the nearest one it has (by how far it opens the jaw).
+- **Full body** controls: lean, hop, per side raise arm (below 0 swings it back), bend elbow,
+  hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee, then head
+  tilt, nod and breath. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms up,
+  fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and `walk`
+  (a 1 s loop). There are no blink or talk buttons, and no IK: a constraint you add over the legs
+  overrides the leg keys.
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
 

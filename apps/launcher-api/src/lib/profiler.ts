@@ -194,6 +194,7 @@ export interface PerfReportListItem {
 	dpr: number | null;
 	canvas: string | null;
 	buildVersion: string | null;
+	buildSha: string | null;
 	flags: Record<string, string>;
 	idle: PerfPhaseSummary | null;
 	spinning: PerfPhaseSummary | null;

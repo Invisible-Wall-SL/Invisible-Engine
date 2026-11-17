@@ -1,8 +1,10 @@
 import { PERF_REPORT_MAX_BYTES, PERF_RETENTION_MS } from '$lib/profiler';
 
 /**
- * Invisible Profiler retention (owner decision 2026-11-16): a reading older than 15 days is
- * deleted — its R2 file and its row together — unless it is marked Keep.
+ * Invisible Profiler retention (owner decision 2026-11-16): a reading or a build record older than
+ * 15 days is deleted — its R2 file and its row together — unless it is marked Keep. The newest build
+ * of each game key and kind is never claimed (`buildPurgeable`): that rule is the build store's
+ * claim, so this loop is the same for both tables.
  *
  * Three steps, each safe to repeat, so a purge cut short anywhere finishes on the next run:
  *
@@ -16,14 +18,14 @@ import { PERF_REPORT_MAX_BYTES, PERF_RETENTION_MS } from '$lib/profiler';
  *
  * The store is injected so `scripts/check-profiler.ts` runs this over an in-memory table.
  */
-export interface ClaimedReport {
+export interface ClaimedRow {
 	id: string;
 	r2Key: string;
 }
 
 export interface PurgeStore {
-	/** Step 1: claim unkept rows captured before `cutoff`, plus rows already claimed. */
-	claim(cutoff: Date, now: Date, limit: number): Promise<ClaimedReport[]>;
+	/** Step 1: claim unkept rows made before `cutoff`, plus rows already claimed. */
+	claim(cutoff: Date, now: Date, limit: number): Promise<ClaimedRow[]>;
 	/** Step 3: delete a claimed row (a row that is not claimed is left alone). */
 	deleteClaimed(id: string): Promise<void>;
 }
@@ -35,14 +37,17 @@ export interface PurgeResult {
 
 const BATCH = 200;
 
-export async function purgeExpiredPerfReports({
+export async function purgeExpired({
 	store,
 	deleteObject,
 	now = new Date(),
+	what = 'reading',
 }: {
 	store: PurgeStore;
 	deleteObject: (key: string) => Promise<void>;
 	now?: Date;
+	/** What a row is, for the log line. */
+	what?: 'reading' | 'build';
 }): Promise<PurgeResult> {
 	const cutoff = new Date(now.getTime() - PERF_RETENTION_MS);
 	const result: PurgeResult = { deleted: 0, failed: 0 };
@@ -56,7 +61,7 @@ export async function purgeExpiredPerfReports({
 			try {
 				await deleteObject(row.r2Key);
 			} catch (e) {
-				console.error(`profiler purge: file of reading ${row.id} not deleted; retried next run`, e);
+				console.error(`profiler purge: file of ${what} ${row.id} not deleted; retried next run`, e);
 				failed.add(row.id);
 				result.failed++;
 				continue;

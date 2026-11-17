@@ -94,6 +94,42 @@ turns are not a goal of this template. The mesh follows each character's own dra
 template ships `head` as a region and the artist converts it per character with the existing
 region→mesh and auto-weight tools; a one-click "face mesh" helper is not built (not in T2).
 
+### 3.4 The full-body template (`full-body`)
+
+Drawn facing the viewer or facing right (the game flips it for left). Forward kinematics only.
+
+```
+root                    (hop: translate Y)
+└─ hip                  (pelvis)
+   ├─ spine             (lean)
+   │  └─ chest          (torso; breath)
+   │     ├─ neck        (nod)
+   │     │  └─ head     (tilt)
+   │     └─ upper_arm_l / _r   (raise)
+   │        └─ lower_arm_*      (elbow)
+   │           └─ hand_*        (open / fist / point swap)
+   └─ thigh_l / _r      (step)
+      └─ shin_*         (knee)
+         └─ foot_*
+```
+
+Draw order back → front: legs (`thigh`, `shin`, `foot`, left then right), `pelvis`, `torso`, `neck`,
+`head`, then each arm (`upper_arm`, `lower_arm`, `hand`). Needed: `torso`, `head`, every limb
+segment and `hand_l_open` / `hand_r_open`; optional: `pelvis`, `neck`, the fist and point hands.
+The face is part of the `head` image; a talking full-body character is a later template.
+
+Channels: `lean` (spine, chest half as much), `hop` (root Y), per side `arm_*` (raise; below 0
+swings the other way), `elbow_*`, `hand_*` (swap), `step_*` (thigh swing), `knee_*` (shin fold),
+then `head_tilt`, `head_nod`, `breath`. Starter clips: `idle`, `celebrate`, `win_small`,
+`win_big`, `walk` (a 1 s loop whose 0, ½ and 1 s are the rest pose).
+
+**No IK in the template.** The irig format carries IK constraints, but a constraint at full mix
+replaces the rotations the channels key, so the starter clips would stop moving the legs. That also
+rules out a crouch that keeps the feet planted (hip down + knees out), which needs IK or a
+non-linear drive; it waits for body tracking (T7b), where foot targets are what the solve gives.
+**No two channels drive one bone property** (`rigTemplateProblem`): a channel keys its absolute
+value, so a second channel on the same bone property would overwrite the first.
+
 ## 4. Face channels
 
 The artist animates **channels**, not bones. Each channel is a number (or a shape name) that the
@@ -115,10 +151,10 @@ afterwards, and nothing downstream needs to know channels exist.
 
 ## 5. Where face motion comes from
 
-### 5.1 By hand — the Face panel
+### 5.1 By hand — the Controls panel
 
-A Rigger panel, shown when the rig's `template.json` names `bust-face`: a slider/picker per channel that
-keys at the playhead, plus one-click helpers (blink at time t, idle blink pattern, "talk" loop of
+A Rigger panel (**Controls**), shown when the rig's `template.json` names a template with
+channels: a slider/picker per channel that keys at the playhead, plus one-click helpers (blink at time t, idle blink pattern, "talk" loop of
 random mouth shapes).
 
 ### 5.2 From audio — lip-sync
@@ -132,7 +168,8 @@ after the panel and the starter set.
 DWPose (in `comfyui_controlnet_aux`, already on the pods) gives 68 face points per frame. From them:
 eye openness → blinks, mouth height/width → `jaw` + nearest shape, brow-to-eye distance → brows,
 eye line angle → tilt, nose offset → turn. A queued pod job (Director ground rule 8), the solve in
-TypeScript in the Rigger. Body points from the same pass feed the full-body template later. Licence
+TypeScript in the Rigger. Body points from the same pass feed the full-body template (T7b: shoulder
+→ elbow → wrist and hip → knee → ankle angles → the arm, elbow, step and knee channels). Licence
 check owed on the node pack and the DWPose weights before shipping anything made with it.
 
 ## 6. Art for a template
@@ -166,7 +203,8 @@ Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is
 | **T4 — Lip-sync from audio**                                 | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
 | **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
 | **T6 — Art blueprint** 🟡 tools 2026-11-17, real run owed    | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
-| **T7 — Full body**                                           | `full-body` template on the same contract; body points → bone rotations                                                                                                          | a walk from a filmed actor on a cartoon rig                     |
+| **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
+| **T7b — Body from video**                                    | DWPose body points → bone rotations → channel keys (the T5 pod job's body half)                                                                                                  | a walk from a filmed actor on a cartoon rig                     |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
