@@ -95,8 +95,15 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     (was Face) that keys it, and its seven starter animations. T7's template half is built too: the
     **Full body** template, 15 body controls and five starter clips (`idle`, `celebrate`,
     `win_small`, `win_big`, `walk`). ⏳ None tried in the authed Rigger against real art. Left:
-    T4 (lip-sync), T5 (face from video), T6 (art blueprint) and T7b (body motion from a filmed
-    actor: DWPose body points → bone rotations).
+    T4 (lip-sync), T5 (face from video), T6 (art blueprint, real run owed) and T7b (body motion
+    from a filmed actor: DWPose body points → bone rotations).
+    T6's tools are built (2026-11-17): two Qwen blueprints and the part cutter `rig_parts.py`.
+    ⏳ **No real run yet:** RunPod refused to start a pod ("account balance is too low") and refused
+    to store the Qwen-Image-Edit-2509 weights on the volume ("storage quota exceeded", after the
+    whole 20.4 GB had downloaded, with 345 of 400 GB in use). The owner tops up RunPod; then
+    `/comfyui` → What's installed → transfer the edit model again (the URL is in the variant
+    blueprint's `models`), run both blueprints and the cutter, and judge the cut by eye in
+    `sheet.png` (model output beside neutral + cut patches).
 
 ## Blocked (owner / external)
 
@@ -105,6 +112,38 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T6: art for a Bust-with-face character (tools built, real run
+  owed).** Two bundled Atlas Maker blueprints, both Apache-2.0 end to end: `qwen_bust_face`
+  (Qwen-Image + 8-step Lightning, square 1024, front view on plain white) and
+  `qwen_bust_face_variant` (Qwen-Image-Edit-2509 on the neutral as reference, ComfyUI's own 2509
+  wiring at 20 steps / CFG 2.5). Twelve edit passes: eight mouth shapes, both eyes half / closed,
+  both brows up / angry (one pass per pair, split per side by the cutter, because asking the model
+  for one side is unreliable); `py rig_parts.py --prompts` prints them. The cutter
+  (`services/atlas-tool/rig_parts.py`, Pillow only) aligns each variant to the neutral (a coarse
+  then full-size shift search), diffs them, keeps the connected change where the feature lives
+  (mouth below and between the eyes, brows above), and gives every variant of a feature ONE
+  footprint (the union of their changes, padded and feathered) so any shape covers any other when
+  the Rigger swaps them. A part is a **patch**: the feature plus the skin around it, cut from the
+  variant; the neutral through the same footprint is `mouth_rest` / `brow_*_neutral`. `head` is
+  everything above the neck's narrowest row, `body` everything below; ears, hair, nose, eye whites
+  and pupils stay painted into the head (all optional, so ＋ New rig lists them missing, and gaze
+  has no pupils to move). `_l` is the **picture's** left (the template's `eye_l` bone is at −x).
+  **Found on the way:** `templateRig` centres every image on its slot's bone with no offset, so a
+  plain crop would stack on the bones. The cutter writes each part on a canvas centred on its
+  bone's position mapped into the picture, at a scale that puts the eyes on the eye bones, so the
+  art lands where the neutral had it (a packer trim keeps it there: offsets carry the untrimmed
+  canvas). The bone positions come from `services/atlas-tool/rig_templates/bust-face.json`,
+  generated from the TypeScript template by `tools/rigger-spike/template-art.mjs --write`. The
+  eye fit costs resolution: a 1024 picture whose eyes are ~300 px apart comes out about 0.3×,
+  because the template's eyes are 90 units apart and a part's size is its pixel size. Gates:
+  `test_rig_parts.py` 32 (a drawn face, shifted variants, a drifted edit: names, sides,
+  footprints, neutral + patches rebuilds each variant, every part on its bone),
+  `template-art.mjs` 96 (the JSON in step with the template; every part drawn centred on its bone,
+  image-up = rig-up, trimmed or not; `--parts <dir>` checks a real cutter output through
+  engine-rig), `test_blueprint_cards.py` (both cards against their blueprints). **The uncertain
+  step is still unmeasured on real output:** every check is on drawn art. What will decide it:
+  how much Qwen-Image-Edit moves outside the feature (`parts.json` → `variants.*.outside_feature`;
+  above 5 % the cutter warns), and whether the threshold (36) separates a redrawn line from noise.
 - 2026-11-17 — **Rig templates T7: the Full body template.** `FULL_BODY` (`full-body`) in
   `rigTemplates.ts`, offered in ＋ New rig from `RIG_TEMPLATES`: root → hip → spine → chest → neck →
   head, upper arm / lower arm / hand and thigh / shin / foot per side. Parts per segment; the hands
@@ -188,8 +227,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   own conversion to 0.01 and all 1,679 comparable rotate key values match it exactly (the rest were
   re-edited in 4.x). Not tried on the owner's own 3.8 rig yet (`DarkAssassin.json`). Launcher
   deploy, not a runtime release.
-- 2026-11-12 — **Import an exported rig as a new `.irig`.** ＋ New rig → *or import an exported
-  rig* takes a skeleton (4.x `.json`, or an `.irig`), its `.atlas` and the atlas's page images.
+- 2026-11-12 — **Import an exported rig as a new `.irig`.** ＋ New rig → _or import an exported
+  rig_ takes a skeleton (4.x `.json`, or an `.irig`), its `.atlas` and the atlas's page images.
   The browser checks it first (binary `.skel`, 3.x exports, missing pages, pages outside the
   atlas's folder, and a parse through the Rigger's own tolerant loader). `/api/rigger/import`
   converts it (`importSkeleton` in `riggerImport.ts`: irig v1 through `asIrigOrSpine42`, the

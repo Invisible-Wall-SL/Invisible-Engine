@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "id": "qwen_bust_face",
+  "name": "Qwen-Image — Bust with face (neutral)",
+  "description": "Step 1 of the Rigger's Bust-with-face art (rig templates T6): the neutral character the edit passes and the part cutter work from. Qwen-Image + the 8-step Lightning LoRA, all Apache-2.0. Square 1024 on purpose: Qwen-Image-Edit keeps a square 1024 picture at its own size, so every variant lines up with this one pixel for pixel, which is why width/height are deliberately unbound. Front view, neutral face, mouth closed, eyes open, plain white background: the cutter finds the background from the border and each feature from what the edits change, so a busy background or a tilted head breaks it. Describe only the character in the region prompt; the graph's prompt carries the framing.",
+  "author": "iw-builtin",
+  "base": "qwen-image",
+  "kind": "image",
+  "bindings": {
+    "positive": {
+      "node": "6",
+      "field": "text"
+    },
+    "negative": {
+      "node": "7",
+      "field": "text"
+    },
+    "seed": {
+      "node": "9",
+      "field": "seed"
+    },
+    "output": {
+      "node": "11"
+    }
+  },
+  "params": [
+    {
+      "key": "steps",
+      "label": "Steps (8 with the Lightning LoRA)",
+      "type": "int",
+      "default": 8,
+      "min": 4,
+      "max": 50,
+      "step": 1,
+      "node": "9",
+      "field": "steps",
+      "group": "Sampler"
+    },
+    {
+      "key": "cfg",
+      "label": "CFG (1 with the Lightning LoRA)",
+      "type": "float",
+      "default": 1.0,
+      "min": 1,
+      "max": 8,
+      "step": 0.5,
+      "node": "9",
+      "field": "cfg",
+      "group": "Sampler"
+    }
+  ],
+  "models": [
+    {
+      "field": "unet_name",
+      "filename": "qwen_image_fp8_e4m3fn.safetensors",
+      "save_path": "diffusion_models",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_fp8_e4m3fn.safetensors",
+      "size": 20430000000
+    },
+    {
+      "field": "clip_name",
+      "filename": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "save_path": "text_encoders",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "size": 9380000000
+    },
+    {
+      "field": "vae_name",
+      "filename": "qwen_image_vae.safetensors",
+      "save_path": "vae",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "size": 250000000
+    },
+    {
+      "field": "lora_name",
+      "filename": "Qwen-Image-Lightning-8steps-V1.0.safetensors",
+      "save_path": "loras",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Lightning-8steps-V1.0.safetensors",
+      "size": 1700000000
+    }
+  ],
+  "custom_nodes": []
+}

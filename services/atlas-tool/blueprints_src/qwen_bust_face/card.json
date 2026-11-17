@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "id": "qwen_bust_face",
+  "status": "draft",
+  "rev": 1,
+  "purpose": "The neutral front-view bust a Rigger Bust-with-face character is cut from.",
+  "whenToUse": [
+    "a new talking/reacting character for the Bust with face rig template",
+    "step 1, before qwen_bust_face_variant"
+  ],
+  "whenNotToUse": [
+    "full-body characters",
+    "characters in a scene (the cutter needs a plain background)",
+    "art that will not be rigged"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "optional",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": false,
+    "count": 1
+  },
+  "settings": [
+    {
+      "key": "steps",
+      "default": 8,
+      "min": 4,
+      "max": 50
+    },
+    {
+      "key": "cfg",
+      "default": 1.0,
+      "min": 1,
+      "max": 8
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [],
+    "precedes": [
+      "qwen_bust_face_variant"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 15
+    },
+    "coldStart": 180,
+    "minVramGb": 24,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 4,
+    "final": 1,
+    "max": 8
+  },
+  "billing": "gpu",
+  "licence": "ok",
+  "gotchas": [
+    "keep rembg off: the cutter needs the plain background",
+    "no tilt, no profile, mouth closed, eyes open",
+    "1024x1024: the edit passes keep that size"
+  ]
+}
