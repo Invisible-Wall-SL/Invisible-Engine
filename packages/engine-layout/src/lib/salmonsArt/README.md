@@ -21,12 +21,14 @@ project sheet, it stops and reports it.
 **Source.** `GuiltyForever/Salmon-` at `41811c2`, `art/source/legacy/` (the untouched originals):
 `grass.png`, `sand.png`, `rocks.jpg`, `whirlpool.jpg`, `trees.png`, `waterfall_splash.png`,
 `waterfall_lip.png`, `waterfall_face.png`, `salmon_pink.png`, `salmon_golden.png`,
-`bear_sprite.png`. Cut and keyed as that repository's `scripts/build-sheets.py` and
+`bear_sprite.png`, `cliff.png`. Cut and keyed as that repository's `scripts/build-sheets.py` and
 `art/sheets.json` do (the same grids, region names, background keys and the salmon's flip).
 
 **Not built:** the bridge pieces (`bridge_*.png`, generated placeholders in the old game; the
-engine's river has no bridges) and `cliff.png` (the engine draws the waterfalls flat, with no
-elevation).
+engine's river has no bridges).
+
+`sheets/cliff.webp` is built (a tile, like `waterfall_face.webp`), but nothing draws it yet: it is
+the rock face the waterfall elevation work will tile under each waterfall and across its banks.
 
 **Rebuild:** `python3 scripts/salmons/build-art.py --src <Salmon->/art/source/legacy` (Pillow with
 WebP, numpy). Sizes are about three times the drawn size: a 48 world-px cell is a 96 × 48 diamond,

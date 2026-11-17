@@ -24,7 +24,7 @@ export const SALMONS_REGIONS = {
 export type SalmonsSheet = keyof typeof SALMONS_REGIONS;
 
 /** The tiles drawn by a TilingSprite, kept out of the sheets (`sheets/<name>.webp`). */
-export const SALMONS_TILES = ['waterfall_face'] as const;
+export const SALMONS_TILES = ['waterfall_face', 'cliff'] as const;
 
 /** Every name the drawing code draws: the sheets' regions and the tiles. */
 export const SALMONS_DRAWN: readonly string[] = [
