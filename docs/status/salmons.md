@@ -169,6 +169,24 @@ looks still draw up and left of it.
 5. **Moving the players over** from the Salmon repository's own server: when the art (and,
    if wanted, the isometric view, P11.4) is in and you are happy with a playtest on the live server.
 
+**Put the original art into the project (2026-11-17; after the `salmons-art-project` branch
+merges).** Needs an R2 key that may write the Salmons project (the session that built this had
+read-only R2 only; its dry run on 2026-11-17 found all 12 keys free):
+
+1. From the repo root, with `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
+   `R2_BUCKET` set and `boto3` installed, run `python3 scripts/salmons/upload-art.py`: a dry run
+   that lists the 12 keys it would write (4 manifests, 4 pages, 4 JSONs) and any key already holding
+   other content. Then run it again with `--apply`. A second `--apply` writes nothing (all "same").
+2. **See it in the tools:** open the Sheet Maker on the `salmons` project: the rail lists
+   `salmons_terrain`, `salmons_props`, `salmons_characters` and `salmons_waterfall_face` (🔒 locked,
+   like a verbatim import). In the Atlas Maker, **↻ Refresh from R2**, then pick one in the atlas
+   list.
+3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
+   To re-pack a sheet in the Sheet Maker, unlock it first (its frames may move; the game reads them
+   by name, so that is safe).
+4. **Republish** `salmons` from Game Maker. The art export ships the four sheets, and the room
+   draws them. Until then the game draws the built-in copy, and looks exactly as today.
+
 ## Open items / next (S0)
 
 The isometric view is built ([Phase 11](../design/phase-11.md) P11.4: the river drawn 2:1, the
@@ -348,7 +366,62 @@ the runbook follows them.
   Flipbook and FX). They are pages behind the launcher's sign-in, and a cloud session has no
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
+### Original art as project art (plan 2026-11-17; branch `salmons-art-project`)
+
+Owner request: the original art draws in the game but is invisible in the Sheet Maker and the Atlas
+Maker, because it is built into the engine and not stored in the project. Plan:
+
+- **(a) Convert, no renames.** Each built-in sheet becomes one project sheet in the format a
+  verbatim `.plist` import writes (the Sheet Maker's byte-for-byte path, `_import_plist`):
+  `salmons_terrain`, `salmons_props`, `salmons_characters` and `salmons_waterfall_face` (one region,
+  `waterfall_face`, the whole page, so the TilingSprite still tiles). The WebP page is written
+  byte-for-byte, a TexturePacker JSON beside it, and the manifest is built by the tools' own
+  `atlas_writers.build_manifest`. Every region keeps its bare name (`grass_c`, `rock_0`, `bear`, …:
+  `regions.ts`, `frames.ts`, `looks.ts`). The manifest is `locked`, `import.kind: "salmons-builtin"`.
+- **(b) Upload: an explicit script, run once.** `scripts/salmons/upload-art.py` writes only
+  `invisible_wall/salmons/sheets/salmons_*/…` and `…/manifests/atlas_manifest_salmons_*.json`,
+  through `iw_common.storage`. It refuses any other key. The manifest is put `If-None-Match: *`
+  first, then the page and JSON, the order an import uses. It is idempotent: an object already there
+  with the same bytes is skipped. One with different bytes stops the run and is reported, never
+  overwritten. A dry run (the default) lists what it would do; `--apply` writes.
+- **(c) The runtime prefers project art.** The online runtime looks for the four project sheets
+  among the project's shipped editor art (by manifest key, never a bare name another sheet might
+  pack). Each region the drawing code names comes from the project sheet when it ships there, and
+  from the built-in copy otherwise. A built-in page is fetched only when a region still needs it.
+  A snapshot published before this has no such sheets and draws exactly as today.
+- **(d) The full chain.** The `art` exporter (`editorArtExport.ts`) seeds the four manifests when
+  the Game Config's `arcade.online.generator` is `salmonsRiver` or `salmonsMap`, so they reach
+  `deploy/editor-art/` + `_pages/`, the bake, the pull and `bakedEditorArtAssets()` with no new
+  asset class. Seeds the project does not hold are skipped and never reported missing, since the
+  built-in copy covers them.
+- **(e) Gates.** `check:salmons-art` keeps its checks, and adds: the project-sheet plan names every
+  region the drawing code draws, inside its page, with the built-in frame's size; the resolver takes
+  a project region and falls back for a missing one, for every name; the exporter and the runtime
+  are wired to the plan's sheet names (read off their source). `check:art-scope` case 11 runs the
+  real exporter over them.
+- **Cost after the republish.** A shipped sheet is preloaded at boot like all editor art, so once
+  Salmons is republished its four sheets (about 0.8 MB of WebP, or their KTX2 twins) load behind
+  the loading screen instead of after the room's join, and stay resident. Until the republish
+  nothing changes.
+- **(f) The built-in copy stays** as the fallback, for now: it is what every published snapshot
+  draws until the owner republishes, and what a room falls back to if the project's art fails to
+  load. Retire it once Salmons has been republished with the project art and played.
+
 ## Recent changes
+
+- 2026-11-17 — **The original art becomes project art** (branch `salmons-art-project`; in review;
+  plan in "Original art as project art" above). Built: the conversion (`scripts/salmons/project-art.mjs`)
+  and its upload (`scripts/salmons/upload-art.py`, dry run by default, create-only writes, stops on
+  any key holding other content; not run with `--apply`, owner step above); `game-config`
+  `salmonsProjectArt.ts` (sheet names, generators, the manifest-key test); the `art` exporter's
+  Salmons seed; the online runtime drawing each region from the shipped project sheet, else the
+  built-in (`load.ts`, `regions.ts` `pickSalmonsRegions`; `editor-scenes.ts` `editorArtSheetsWhere`).
+  Proof: `check:salmons-art` (4 new checks: the plan covers every drawn region at its built-in place
+  and size, the project-first choice and its fallback for every name, the seed), `check:art-scope`
+  case 11 (the real exporter ships the held sheets by manifest key, not a look-alike sheet or
+  another project's, and none for another generator), `salmons-levels-play` (a snapshot shipping a
+  magenta `salmons_terrain` draws magenta banks; without it, none). Current games: no published
+  snapshot carries these sheets, so every game draws as before until Salmons is republished.
 
 - 2026-11-17 — **The lobby** (branch `arcade/salmons-lobby`; in review;
   [design/salmons-levels](../design/salmons-levels.md) §4). Owner: the room is an authored screen
