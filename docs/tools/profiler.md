@@ -2,7 +2,9 @@
 
 Invisible Profiler keeps the `?perf=1` readings of a project's published game, so you can see how
 it runs on real devices. Open a capture on a phone from a QR code, play, and every reading the game
-sends lands in the project's list, kept 15 days unless you keep it longer.
+sends lands in the project's list, kept 15 days unless you keep it longer. Every desktop ☁ Publish
+and 📦 Deliver also lands here as a build record, so you can see what each build shipped, how it
+changed from the one before, and the readings taken on it.
 
 ## What it is
 
@@ -29,8 +31,9 @@ the readout gets a **Send** button and the reading goes straight to the project'
 ## How to use it
 
 1. Sign in to the launcher (`app.invisiblewall.org`), open the **Invisible Profiler** card and pick
-   the project in the **Project** picker. The page has three foldable sections: **New capture**,
-   **Paste a reading** and **Readings**. Hover a section's title for what it does.
+   the project in the **Project** picker. The page has two tabs, each with its count: **Readings**
+   (three foldable sections: **New capture**, **Paste a reading** and **Readings**) and **Builds**
+   (a link with `?tab=builds` opens it). Hover a section's title for what it does.
 
 ### Capture on a phone
 
@@ -78,7 +81,8 @@ Players never load the readout at all.
      system (for example `Chrome 131 · Android`), the pixel ratio and the canvas size. A reading
      taken with a variant link shows its switch underneath in orange (for example `particles=off`).
    - **GPU**: the graphics chip the browser reports (hover for the full name).
-   - **Build**: the build version the game reports.
+   - **Build**: the build version the game reports (on the **Builds** tab, a reading is matched to
+     its build by this number).
    - **Idle**, **Spinning**, **Round**: for the game idling, the reels spinning, and a round's wins
      and features with the reels at rest, three figures each: **fps**, **p95** (95 % of frames
      took less than this many ms) and **>33** (frames that took over 33 ms, the hitches you see).
@@ -96,15 +100,45 @@ Players never load the readout at all.
    when it was captured, so an old reading you untick goes at the next daily clean-up. Anyone with
    the Profiler can keep or release a reading.
 
+### Builds
+
+10. Build records come from the desktop launcher (the Invisible Launcher, v1.0.68 or later): after
+    each ☁ Publish or 📦 Deliver it sends the build's breakdown here and says so in its result,
+    "📈 Profiler: build vN recorded" (see [the launcher guide](invisible-launcher.md)). There is
+    nothing to do on this page to add one. With none yet, the tab reads "No builds yet — the
+    desktop launcher sends one after each ☁ Publish or 📦 Deliver."
+11. **Builds (`<n>`)** lists them newest first. The columns:
+    - **Built**: when the build was made.
+    - **Build**: `v<n>` with tags for the kind (`publish` or `delivery`, plus the delivery profile),
+      `opt` (built with 🗜 Optimize) and `debug` (debug tooling included, in orange), and the game
+      key underneath. Build numbers count per game, so compare a row with the rows of its own game.
+    - **By category**: a bar split by what the build shipped (code, art, symbols, fonts, sounds…).
+      Hover a part for its name and size.
+    - **Shipped MB**, and **Δ MB**: the change from the previous build of the same game and kind
+      (`±0` when it is under 0.05 MB, `–` when there is none to compare with).
+    - **GPU MB**: an estimate of the memory its images take on the graphics chip.
+    - **Issues**: the errors and warnings its build breakdown found, or `none`.
+    - **Readings**: how many readings were taken on this build.
+    - **Keep**: as for readings (below).
+    - **Breakdown** opens the same build breakdown page the launcher writes, in a new tab;
+      **JSON** downloads it.
+12. Click a build number for its detail card, under the list (the newest build is shown until you
+    pick one). It shows what it shipped and in how many files, code, GPU (est.), what the build left
+    out, the bytes nothing loads and the engine commit; a line comparing it with the previous build
+    of the same game and kind (shipped, GPU, files, errors, warnings); a table of each category with
+    the previous build's size and the change; and **Readings on this build**, with their fps and
+    texture memory.
+13. A reading belongs to a build when it reports the same build number and, when both name one,
+    the same engine commit. So a reading pasted from a delivery joins its delivery build by itself.
+14. A build record is deleted **15 days** after it was sent unless you tick **Keep**, like a
+    reading, except the newest build of each game and kind (one publish and one delivery per game),
+    which always stays so there is something to compare with: its Keep column reads `newest`.
+
 ## Known limitations / TODOs
 
-This is the first step of the Profiler (P1, "Capture and keep"). Planned in
+The Profiler is built in steps; P1 ("Capture and keep") and P2 ("Builds") are done. Planned in
 [the design](../design/invisible-profiler.md), not built yet:
 
-- **Builds** (P2): build records with their size breakdown from the desktop launcher's Publish and
-  Deliver, the difference from the previous build, and readings joined to their build. Until then
-  a pasted delivery reading is not tied to its delivery build; only the build version it reports
-  is shown.
 - **Devices and budgets** (P3): readings grouped by device and GPU, fps and size targets per
   project, pass / warn / fail.
 - **Findings** (P4): a ranked list of what to cut, and **Compare** for two readings side by side.
@@ -121,4 +155,10 @@ Today:
   15 days.
 - Only readings from a game whose readout reports `perf: 7` are read. A reading from a newer or
   older readout is refused with its version.
-- Purging a project deletes its readings with it. A duplicated project starts with none.
+- Purging a project deletes its readings and build records with it. A duplicated project starts
+  with none.
+- Only desktop builds are recorded (Invisible Launcher v1.0.68 or later); an older launcher sends
+  nothing, and an online Publish from Game Maker makes no build record.
+- A reading does not say which game it came from, so two games of one project with the same build
+  number and engine commit both list it under **Readings on this build**.
+- The build list shows the newest 200 builds.
