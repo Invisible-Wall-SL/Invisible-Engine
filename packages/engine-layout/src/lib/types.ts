@@ -563,6 +563,13 @@ export interface ContainerNode extends BaseNode {
 	 */
 	width?: number;
 	height?: number;
+	/**
+	 * A GENERATED field (`docs/design/salmons-levels.md` §2 c): the children are what the online
+	 * generator `generator` (`engine-mechanics` `ONLINE_GENERATORS`) makes from `seed`, drawn as the
+	 * device draws a room's field. `/editor` previews another seed by regenerating them and never
+	 * edits them by hand; a room plays its own seed in place of this node.
+	 */
+	generated?: { generator: string; seed: number };
 }
 
 export interface SpriteNode extends BaseNode {

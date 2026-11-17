@@ -187,7 +187,37 @@ export const ONLINE_LINE_MODULE_IDS: readonly string[] = Object.freeze(['fishing
 
 /** The field generators a room can make its field with: the ids of `engine-mechanics`
  *  `ONLINE_GENERATORS` (`check:room-bots` holds the two lists equal). */
-export const ONLINE_GENERATOR_IDS: readonly string[] = Object.freeze(['salmonsRiver']);
+export const ONLINE_GENERATOR_IDS: readonly string[] = Object.freeze([
+	'salmonsRiver',
+	'salmonsMap',
+]);
+
+/** The pieces a level overlay can add (`engine-mechanics` `salmonsMap.js` `OVERLAY_KINDS`). */
+export const LEVEL_OVERLAY_KINDS = Object.freeze([
+	'rock',
+	'whirlpool',
+	'sandbank',
+	'waterfall',
+] as const);
+export type LevelOverlayKind = (typeof LEVEL_OVERLAY_KINDS)[number];
+
+/** A grid cell of a generated level: `[gx, gy]` (`docs/design/salmons-levels.md` §2 d). */
+export type LevelCell = [number, number];
+
+/** Authored pieces laid on top of a generated level, by grid cell; the base is never stored. */
+export type LevelOverlay = {
+	add?: { cell: LevelCell; kind: LevelOverlayKind; height?: number }[];
+	remove?: LevelCell[];
+	set?: { cell: LevelCell; height: number }[];
+};
+
+/** Which generated levels a room plays, and what is authored on top of them. */
+export type ArcadeOnlineLevels = {
+	/** Pinned seeds, taken in turn by each new room. Absent ⇒ a new random seed per room. */
+	seeds?: number[];
+	/** Overlays by seed (its decimal string); `'*'` is laid on every level, under the seed's own. */
+	overlays?: Record<string, LevelOverlay>;
+};
 
 /**
  * The rules an online room runs (§9 #18, P10.15): on the server, as data, with a named rules module
@@ -263,6 +293,9 @@ export type ArcadeOnline = {
 	 *  picks and sends its devices (P11.2 (e)), replacing the field's size, zones, zone rules and
 	 *  spawns. Absent ⇒ every room plays the field as authored. */
 	generator?: string;
+	/** The generator's levels: pinned seeds and authored overlays (`docs/design/salmons-levels.md`).
+	 *  Absent ⇒ a new random level per room, as generated. */
+	levels?: ArcadeOnlineLevels;
 };
 
 /** The netcodes an online arcade game can be played with. */
@@ -422,11 +455,13 @@ export type ResolvedArcadeOnlineBots = {
 };
 
 export type ResolvedArcadeOnline = Required<
-	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator'>
+	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels'>
 > & {
 	spawn: { x: number; y: number };
 	/** Absent ⇒ the field as authored. */
 	generator?: string;
+	/** Absent ⇒ a new random level per room, as generated. */
+	levels?: ArcadeOnlineLevels;
 	/** Absent ⇒ every device is sent every player. */
 	nearby?: { w: number; h: number };
 	rules: ResolvedArcadeOnlineRules;
@@ -510,6 +545,7 @@ export const resolveArcadeOnline = (
 		netcode: ARCADE_NETCODES.find((n) => n === online.netcode) ?? d.netcode,
 		bots: resolveBots(online.bots, maxPlayers),
 		...(online.generator ? { generator: online.generator } : {}),
+		...(online.levels ? { levels: online.levels } : {}),
 		...(online.nearby
 			? {
 					nearby: {
@@ -734,7 +770,66 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	}
 	const generator = tagOf(raw.generator);
 	if (generator) block.generator = generator;
+	const levels = normalizeLevels(raw.levels);
+	if (levels) block.levels = levels;
 	return block;
+}
+
+const cellOf = (raw: unknown): LevelCell | undefined =>
+	Array.isArray(raw) && raw.length === 2 && raw.every((v) => Number.isInteger(v))
+		? [raw[0] as number, raw[1] as number]
+		: undefined;
+
+/** Normalize one overlay: entries without a whole-number cell (or a known kind) are dropped. */
+export function normalizeLevelOverlay(raw: unknown): LevelOverlay | undefined {
+	if (!isObject(raw)) return undefined;
+	const overlay: LevelOverlay = {};
+	const add = (Array.isArray(raw.add) ? raw.add : []).flatMap((a) => {
+		if (!isObject(a)) return [];
+		const cell = cellOf(a.cell);
+		const kind = LEVEL_OVERLAY_KINDS.find((k) => k === a.kind);
+		if (!cell || !kind) return [];
+		const height = posInt(a.height);
+		return [{ cell, kind, ...(height !== undefined ? { height } : {}) }];
+	});
+	const remove = (Array.isArray(raw.remove) ? raw.remove : []).flatMap((c) => {
+		const cell = cellOf(c);
+		return cell ? [cell] : [];
+	});
+	const set = (Array.isArray(raw.set) ? raw.set : []).flatMap((e) => {
+		if (!isObject(e)) return [];
+		const cell = cellOf(e.cell);
+		const height = posInt(e.height);
+		return cell && height !== undefined ? [{ cell, height }] : [];
+	});
+	if (add.length) overlay.add = add;
+	if (remove.length) overlay.remove = remove;
+	if (set.length) overlay.set = set;
+	return add.length || remove.length || set.length ? overlay : undefined;
+}
+
+/** A seed as an overlay key: its canonical decimal (no sign or leading zero), within uint32, the
+ *  only spelling `String(seed)` of a room's seed can match. */
+const seedKey = (key: string): boolean =>
+	/^(0|[1-9]\d{0,9})$/.test(key) && Number(key) <= 0xffffffff;
+
+/** Normalize `arcade.online.levels`: whole uint32 seeds, overlays keyed by seed or `'*'`. */
+export function normalizeLevels(raw: unknown): ArcadeOnlineLevels | undefined {
+	if (!isObject(raw)) return undefined;
+	const levels: ArcadeOnlineLevels = {};
+	const seeds = (Array.isArray(raw.seeds) ? raw.seeds : []).filter(
+		(v): v is number => Number.isInteger(v) && v >= 0 && v <= 0xffffffff,
+	);
+	if (seeds.length) levels.seeds = seeds;
+	if (isObject(raw.overlays)) {
+		const overlays: Record<string, LevelOverlay> = {};
+		for (const [key, value] of Object.entries(raw.overlays)) {
+			const overlay = normalizeLevelOverlay(value);
+			if (overlay && (key === '*' || seedKey(key))) overlays[key] = overlay;
+		}
+		if (Object.keys(overlays).length) levels.overlays = overlays;
+	}
+	return levels.seeds || levels.overlays ? levels : undefined;
 }
 
 /** Normalize a bots block, or `undefined` when it plays nothing. An entry missing its character or

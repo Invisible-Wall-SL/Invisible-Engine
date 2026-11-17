@@ -125,10 +125,13 @@ check('only a Salmons room reaches the art: one lazy import, under its generator
 		),
 		`a value import of the art: ${imports.join(' | ')}`,
 	);
-	assert.match(
-		online,
-		/salmonsRiver: async \(made, seed\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)/,
-	);
+	for (const id of ['salmonsRiver', 'salmonsMap'])
+		assert.match(
+			online,
+			new RegExp(
+				`${id}: async \\(made, seed\\) =>\\s*\\(await import\\('engine-layout\\/salmons-art'\\)\\)`,
+			),
+		);
 	for (const entry of ['index.ts', 'svelte.ts']) {
 		const code = readFileSync(join(ROOT, 'packages/engine-layout/src/lib', entry), 'utf8');
 		assert.doesNotMatch(code, /salmonsArt/, `engine-layout ${entry} exports the art`);

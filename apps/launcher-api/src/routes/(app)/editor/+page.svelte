@@ -110,6 +110,8 @@
 	import EditorScreenFx from './EditorScreenFx.svelte';
 	import { screenFxSettings } from '$lib/screenFx';
 	import EditorWorldCamera from './EditorWorldCamera.svelte';
+	import EditorGeneratedLevel from './EditorGeneratedLevel.svelte';
+	import { generatedNodeOf } from '$lib/editor/generatedLevel';
 	import { setSceneWorldOn } from '$lib/editor/worldCameraEdit';
 	import {
 		playElementFxPreview,
@@ -4190,6 +4192,20 @@
 										markDirty();
 									}}
 								/>
+								{@const generatedNode = generatedNodeOf(activeScene)}
+								{#if generatedNode}
+									{#key `${activeScene.id}:${generatedNode.generated.generator}`}
+										<EditorGeneratedLevel
+											scene={activeScene}
+											node={generatedNode}
+											projectKey={loadedProjectKey}
+											onChange={() => {
+												scenes = [...scenes];
+												markDirty();
+											}}
+										/>
+									{/key}
+								{/if}
 							{/if}
 							{#if activeScene.space === 'canvas'}
 								<label

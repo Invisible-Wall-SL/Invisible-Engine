@@ -51,7 +51,19 @@ upload.
     on it (the river's field, zones, currents, banks and spawns; characters, rules and bots stay as
     the config says), and the device draws that river (`engine-layout` `salmonsRiverNode`) in
     place of the authored one. A room replays from its seed (the bots' brains and the river). The
-    authored `salmons-1` river is what `/editor` and `/config` show;
+    river is the **original game's own level** since 2026-11-17 (in review; below);
+  - **the original's levels, by seed (2026-11-17; in review;
+    [design/salmons-levels](../design/salmons-levels.md))**: `engine-mechanics` `salmonsMap.js`
+    ports `generateMap` / `buildMeanderTable` and `seedrandom.js` its PRNG, so a seed makes the
+    original's level piece for piece (a meandering 400-column river, waterfalls every 40 columns,
+    rocks, whirlpools, delta sand islands; bridges carried, not yet drawn or played). Salmons'
+    config names the generator `salmonsMap`. No pinned seeds: a new random level per room, as the
+    original; `arcade.online.levels.seeds` pins a list taken in turn. Authored overlays
+    (`levels.overlays`, by seed or `'*'`) add, remove and re-height pieces by grid cell on top, in
+    the room, on the device and in `/editor`; a reseed lists what it cannot place and never drops
+    it. `/editor`'s **Generated level** card previews any seed (placeholder shapes) and saves the
+    overlays into the Game Config. P10.16's band generator stays as `salmonsRiver` for the
+    recorded traces. Proof: `check:salmons-levels`;
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
     (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`) standing on their places (their bottom
@@ -337,6 +349,23 @@ the runbook follows them.
   launcher account, no R2 write and no ComfyUI. Items 1–3 need a person at those tools.
 
 ## Recent changes
+
+- 2026-11-17 — **Salmons plays the original game's levels, by seed, with authored overlays**
+  (#1699, branch `arcade/salmons-seeded-levels`; in review). The owner gave the original source and chose
+  random-by-default plus a pinned list. Built: the line-for-line port and its PRNG (checked against
+  seven seeds of the original), the `salmonsMap` generator and its conversion to the engine's river,
+  `arcade.online.levels` in Game Config (normalised, a warning on another generator), the room's
+  pinned-or-random seed, the locked `generated` river node and `/editor`'s Generated level card, the
+  export on level 1, the gate `check:salmons-levels`. Left: bridges, waterfall heights in the climb,
+  the art on the editor stage, clicking a cell, and the owner's authored lobby screen (its own PR; design §3). Taking it live is an owner re-upload of
+  the export (owner steps).
+
+- 2026-11-16 — **Seeded levels planned** ([design/salmons-levels](../design/salmons-levels.md); branch
+  `arcade/salmons-seeded-levels`): why the editor's river differs from a room's (another
+  generator than the original's, one baked seed, placeholder vs original art, generated zones
+  replacing authored ones) and the plan: the original generator ported as one pure seeded function,
+  a seed picker in `/editor`, a per-seed authored overlay that survives a reseed, shipped by the
+  export → bake → pull → register chain. Nothing built yet (Blocked above).
 
 - 2026-11-09 — **Salmons draws the original game's art, animated in code** (branch
   `arcade/salmons-original-art`; in review). Detail in "Original art" above. Engine seams, all

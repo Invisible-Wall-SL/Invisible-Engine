@@ -401,6 +401,29 @@ needs a **Show container** before the beat and a **Hide container** after it. Th
 jackpot uses its own banner screen when it has one, else the **Jackpot win** screen while the flow
 shows it.
 
+### Generated level (an online arcade field made from a seed)
+
+A screen whose field a generator makes (Salmons' river, from the original game's own generator) shows
+a **Generated level** card under World and camera. The level on the stage is what a room with the
+shown seed plays, piece for piece: the editor runs the room's generator with the project's Game
+Config overlays. It is drawn as placeholder shapes (a room draws it in the game's art) and is locked:
+nothing in it can be selected and moved by hand.
+
+- **Seed** — the level to show. **⟳** shows a new random one; **◀ / ▶** step through the pinned
+  seeds. Changing the seed is a preview: it does not mark the screen changed.
+- **Pinned** — pin the shown seed. With seeds pinned, each new room plays the next one in turn;
+  with none, every room plays a new random level, as the original game did.
+- **Overlay** — what you author on top: for **this seed** or for **every level**. The list shows each
+  entry (an added piece, a removed generated piece, a waterfall's new height), each with a bin.
+- **gx / gy**, the piece (**rock**, **whirlpool**, **sandbank**, **waterfall**, with a **height**) —
+  a cell of the generator's grid (gx down the river from the source, gy across it). **Add piece**
+  puts one there; **Remove generated piece** takes away what the generator put there.
+- **Save overlays** — writes the pinned seeds and overlays into the project's Game Config
+  (`arcade.online.levels`). It fails, keeping your edits, if someone saved the config meanwhile.
+
+An entry the shown level has no place for (an addition on the bank, a removal where nothing was
+generated) is listed in amber as kept, not applied: picking another seed never deletes an overlay.
+
 ### The bet menu and the auto spin screens
 
 The two menus the player opens from the HUD — tapping the **bet** readout to change the

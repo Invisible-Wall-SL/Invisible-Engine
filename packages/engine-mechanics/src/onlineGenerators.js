@@ -14,11 +14,31 @@
  */
 
 import { salmonsGeometry, salmonsRiver } from './salmons.js';
+import { levelOverlay, salmonsMapRiver } from './salmonsMap.js';
 
-/** The generators a config can name, by id (`game-config` `ONLINE_GENERATOR_IDS` lists them). */
+/**
+ * The generators a config can name, by id (`game-config` `ONLINE_GENERATOR_IDS` lists them).
+ * `make(seed, levels)` gets the config's `arcade.online.levels`, whose overlays it lays on top;
+ * `salmonsRiver` (P10.16's band river) takes none and is kept for the recorded traces.
+ */
 export const ONLINE_GENERATORS = {
-	salmonsRiver: { make: salmonsRiver, geometry: salmonsGeometry },
+	salmonsRiver: { make: (seed) => salmonsRiver(seed), geometry: salmonsGeometry },
+	salmonsMap: {
+		make: (seed, levels) => salmonsMapRiver(seed, levelOverlay(levels, seed)),
+		geometry: salmonsGeometry,
+	},
 };
+
+/**
+ * The seed a new room plays (`docs/design/salmons-levels.md` §2 b): the next of the config's pinned
+ * `levels.seeds`, by the room's count, or, with none pinned, `random` (the original's behaviour: a
+ * new level per room).
+ */
+export function roomLevelSeed(levels, roomCount, random) {
+	const seeds = levels?.seeds;
+	if (seeds?.length) return seeds[roomCount % seeds.length];
+	return random();
+}
 
 /**
  * `game` as a room seeded `seed` plays it, and what its generator made from the seed (for the
@@ -28,7 +48,7 @@ export function generatedOnlineGame(game, seed) {
 	const id = game.online.generator;
 	const generator = id ? ONLINE_GENERATORS[id] : undefined;
 	if (!generator) return { game, made: undefined };
-	const made = generator.make(seed);
+	const made = generator.make(seed, game.online.levels);
 	const g = generator.geometry(made);
 	const { online } = game;
 	return {

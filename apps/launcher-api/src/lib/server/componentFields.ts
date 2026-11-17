@@ -34,6 +34,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	children: true,
 	width: true,
 	height: true,
+	generated: true,
 	id: true,
 	label: true,
 	x: true,

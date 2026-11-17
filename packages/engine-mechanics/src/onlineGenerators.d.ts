@@ -4,6 +4,7 @@
  */
 
 import type { SalmonsGeometry, SalmonsRiver } from './salmons';
+import type { SalmonsLevels } from './salmonsMap';
 
 /** The part of a game (`game-config` `OnlineGame`) a generator reads and replaces. */
 export type GeneratedGame = {
@@ -11,6 +12,7 @@ export type GeneratedGame = {
 	zones: readonly { id: string; x: number; y: number; w: number; h: number }[];
 	online: {
 		generator?: string;
+		levels?: SalmonsLevels;
 		spawn: { x: number; y: number };
 		characters: readonly { id: string; spawns?: { x: number; y: number }[] }[];
 		rules: { zones: readonly unknown[] };
@@ -21,7 +23,10 @@ export type GeneratedGame = {
 export const ONLINE_GENERATORS: Readonly<
 	Record<
 		string,
-		{ make(seed: number | string): SalmonsRiver; geometry(made: SalmonsRiver): SalmonsGeometry }
+		{
+			make(seed: number | string, levels?: SalmonsLevels): SalmonsRiver;
+			geometry(made: SalmonsRiver): SalmonsGeometry;
+		}
 	>
 >;
 
@@ -29,3 +34,9 @@ export function generatedOnlineGame<G extends GeneratedGame>(
 	game: G,
 	seed: number,
 ): { game: G; made: SalmonsRiver | undefined };
+
+export function roomLevelSeed(
+	levels: SalmonsLevels | undefined,
+	roomCount: number,
+	random: () => number,
+): number;

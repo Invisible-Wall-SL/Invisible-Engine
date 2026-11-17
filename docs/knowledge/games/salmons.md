@@ -42,6 +42,11 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 
 ## State and quirks
 
+- **Levels are the original game's, by seed** (`salmonsMap`, since 2026-11-17): never write a new
+  generator for Salmons; change `salmonsMap.js` only against the recorded original
+  (`check:salmons-levels`). Authored additions go in Game Config `arcade.online.levels.overlays`,
+  never in the scene's river node, which `/editor` regenerates.
+
 - **S0 art pass approved 2026-10-26** ([salmons status](../../status/salmons.md)). Next: generate
   the 22 character clips in the launcher's tools (Atlas Maker, Flipbook, FX on ComfyUI); none yet.
   Needs a person at the tools: a cloud session has no launcher account or R2 write.

@@ -471,6 +471,13 @@ function validateArcadeOnline(
 			message: `No field generator is "${online.generator}" (${ONLINE_GENERATOR_IDS.join(', ')}).`,
 		});
 	}
+	if (online.levels && online.generator !== 'salmonsMap') {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.levels',
+			message: 'Levels (pinned seeds and overlays) are played only by the "salmonsMap" generator.',
+		});
+	}
 	issues.push(...validateOnlineRules(doc));
 	issues.push(...validateOnlineBots(doc));
 	return issues;
