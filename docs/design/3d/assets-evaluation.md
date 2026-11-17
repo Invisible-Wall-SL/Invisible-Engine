@@ -13,7 +13,7 @@ the runtime and bundle-size isolation, animation and camera, and gameplay and on
 | Optimiser | Pure Node in the launcher: glTF-Transform + `meshoptimizer` (wasm) + our own `ktx2Encode.ts` | gltfpack binary on Railway; a Blender service for every export |
 | FBX migration | A one-off headless-Blender script run locally (verified at 3–5 s per file) | A cloud Blender service; FBX2glTF (unmaintained) |
 | R2 class | A new `models` exporter through the existing registry: upload → `deploy/models/` → bake → pull → register. An empty project adds 0 bytes | Loading models straight from their R2 source prefix (breaks hard rule 8) |
-| Quality tiers | **One master upload, three derived tiers** on the existing 2D tier ids: `full` (desktop native), `half` (web desktop), `quarter` (web mobile). A tier = skip *k* LOD levels and *k* texture mip levels, plus a per-map keep/drop/encoding profile. Pinned by the existing `IE_ART_TIER`. No separate 4K asset tier (§5) | A parallel 3D tier scheme; hand-made per-tier assets; a 4K texture tier |
+| Quality tiers | **One master upload, four tiers** using the 2D naming and pin conventions: `ultra` (opt-in, packaged only, master-resolution maps), `full` (desktop native, unsuffixed fallback), `half` (web desktop), `quarter` (web mobile). A tier = a window on the LOD chain and a mip level of the master textures, plus a per-map keep/drop/encoding profile. The tier list lives in `modelTiers.ts`, **not** in the 2D `RESOLUTION_TIERS` (§5) | Adding tiers to `RESOLUTION_TIERS` (that would change every 2D runtime's tier choice); hand-made per-tier assets |
 | Unity third-party | Port nothing. Write our own toon shader and outline, and re-author the FX in our own tools | Shipping Cartoon FX Remaster textures or meshes without written publisher consent |
 
 ## What BattleOTtheYear actually has (measured 2026-11-17)
@@ -50,13 +50,14 @@ The file naming (`node_0`, `texture_pbr_20250901*`) is the signature of an image
 ### Budgets
 
 What the artist authors is the **master**: the full LOD chain plus power-of-two textures at the
-`full` tier's size. Every shipped tier is derived from it. The per-tier budgets are in **§5**.
+largest size any published tier needs (`ultra` where the project publishes it, otherwise `full`).
+Every shipped tier is derived from it. The per-tier budgets are in **§5**.
 
 | Class | Master LOD chain (tris) | Master texture (max, per map) | Notes |
 |---|---|---|---|
-| Hero (skinned) | LOD0 20k · LOD1 10k · LOD2 5k · LOD3 2.5k | 2048² (4096² base colour only with `closeup`) | One material; LOD1–3 may be generated (§5.4) |
+| Hero (skinned) | optional LODU ≤ 60k · LOD0 20k · LOD1 10k · LOD2 5k · LOD3 2.5k | 4096² (2048² if the project skips `ultra`) | One material; LOD1–3 may be generated, LODU is always authored (§5.4) |
 | Weapon | 3k · 1.5k · 0.5k | 1024² or palette | |
-| Prop | 6k · 3k · 1k · 0.3k | Shared 2048² trim or palette | |
+| Prop | optional LODU ≤ 15k · 6k · 3k · 1k · 0.3k | Shared 2048² trim or palette | |
 | Tile | 2k · 0.5k | Shared tileable 1024² | Instanced; cheap at every tier |
 | FX mesh | < 500 (one level) | Flipbook sheets go through the existing Flipbook class | Not tiered as a model |
 
@@ -156,28 +157,32 @@ Parity: a 2D project never authors a model, so `emptyResult` → no bundle secti
 
 **Owner requirement:** a 3D game ships both as a web game and as a higher-resolution desktop game, with explicit control over LODs and texture sizes and maps per target. Picking the tier at boot and packaging the desktop build belong to the runtime session. This section covers authoring, export and the asset chain.
 
-### 5.1 The tiers: reuse the 2D scheme, add one id
+### 5.1 The tiers: the 2D conventions, with a 3D-only tier list
 
-`arcade-4k-builds.md` already gives us everything we need:
-- one master, with smaller tiers derived from it at publish (`PageStore.ensureTier`);
-- tier files named by inserting `@<tier>`, with the full tier unsuffixed;
+From `arcade-4k-builds.md` we reuse the **conventions**, not its tier list:
+- one master, with the other tiers derived from it at publish (`PageStore.ensureTier`);
+- tier files named by inserting `@<tier>`, with `full` unsuffixed;
 - a missing tier copy falls back to the full file;
-- `chooseArtTier` picks the tier at boot;
 - `IE_ART_TIER` pins a build, and the pull leaves the other tiers out.
 
-The 3D tiers are **the same ids**, so a 3D game's 2D art (HUD, FX sheets) and its models always tier together and one pin covers both.
+**The 3D tier list does NOT go into engine-layout's `RESOLUTION_TIERS`** (revised 2026-11-17 with the runtime session).
+- That object is compiled into every 2D runtime, and `chooseArtTier` picks the smallest tier on it that still covers the screen. It never checks which tiers the project actually published.
+- So adding `quarter` there would make a 4K 2D game that publishes only `half` pick `quarter` in a small window (a 900×500 window at DPR 1, or a portrait phone with no portrait box: scale 0.20–0.23), find no copy, and fall back to the **full 4K art**. That is 4× today's bytes, and on a phone it breaks "phones must never load the full tier".
+- It would also change every 2D runtime's bytes.
 
-| Tier id | Target | Texture scale vs master | Note |
-|---|---|---|---|
-| `full` (no suffix) | **Desktop native** (packaged build, `IE_ART_TIER=full`), and 4K screens | 1 | The master as authored |
-| `half` (exists today) | **Web desktop** | ½ (one mip down) | Drops the top LOD level |
-| `quarter` (**new**) | **Web mobile** | ¼ (two mips down) | Drops two LOD levels and the normal and ORM maps |
+So the 3D list lives in **new `packages/constants-shared/src/modelTiers.ts`** (`MODEL_TIERS`), which engine-3d, `modelExport.ts` and the pull read. If 2D ever wants `quarter`, `chooseArtTier` must first learn to choose among the published tiers: that is its own 2D PR with a current-games pass.
 
-Adding `quarter` is one entry in `packages/engine-layout/src/lib/resolutionTiers.ts` (`RESOLUTION_TIERS = { half: 0.5, quarter: 0.25 }`). `check-art-tier-pin.mjs` already checks the pull's tier list against that object. A 2D project only gets `quarter` if it ticks it, so current games are unchanged.
+| Tier id | Target | Textures vs master | Geometry | How it is chosen (runtime session) |
+|---|---|---|---|---|
+| `ultra` (`@ultra`) | Latest-gen desktop GPUs, possibly consoles | **The master's own resolution** (hero maps up to 4096) | The master's top level (an optional authored `_LODU`, 5.2) | Pin only (`IE_ART_TIER=ultra`) or the player's "Ultra" setting on a desktop that passes capability checks. **Packaged only, never picked automatically on the web** |
+| `full` (no suffix) | **Desktop native** (packaged) and the fallback for everything | One mip below the master where the master exceeds full's caps (5.2), otherwise the master | LOD0–2 | Default desktop pin; what every missing copy falls back to |
+| `half` (`@half`) | **Web desktop** | Two mips below a 4096 master (full ÷ 2) | Drops the top level | Runtime choice |
+| `quarter` (`@quarter`) | **Web mobile** | full ÷ 4 | Drops two levels, plus the normal and ORM maps | Runtime choice |
 
-**A 4K tier is not worth it.** In an arena camera a hero covers roughly 400–550 px of a 2160 px screen, and a 2048² skin already exceeds that texel density. 4K is a **render-resolution** question (the runtime's pixel ratio), not an asset tier. The one exception is a model flagged `closeup` (character select, lobby): it may author a 4096² base colour, shipped on `full` only.
-
-**`?quality=high` does not apply to models.** In 2D it swaps KTX2 for the WebP originals. For 3D the masters are 16–18 MB PNGs (as BattleOTtheYear shows), so the tier itself carries the encoding (5.2).
+- `full` stays the unsuffixed file, so the 2D convention and every fallback are unchanged.
+- Each project opts into its tiers through the existing `LayoutDoc.resolutionTiers`, as 2D does. For a 3D project that list may name `ultra` and `quarter` too. The doc readers need to accept those ids for 3D projects; `check:doc-readers-unknown-fields` currently drops an unknown tier id.
+- **`ultra` reverses my earlier "no 4K asset tier" call, for this one tier.** For `full`, the reasoning stands: in an arena camera a hero covers about 400–550 px of a 2160 px screen, so 2048² is enough. `ultra` is for players who want the master's detail on hardware that can hold it. With it, the earlier `closeup` exception is dropped: character-select close-ups use `ultra`.
+- **`?quality=high` does not apply to models.** In 2D it swaps KTX2 for the WebP originals; for 3D those would be 16–18 MB PNG masters. The tier carries the encoding (5.2).
 
 ### 5.2 Per tier and per class
 
@@ -185,25 +190,29 @@ A tier is **a window on the master LOD chain and a mip level of the master textu
 
 **Geometry (LOD levels shipped; tris of the tier's top level):**
 
-| Class | `full` (desktop) | `half` (web desktop) | `quarter` (web mobile) |
-|---|---|---|---|
-| Hero | LOD0–2 (20k) | LOD1–3 (10k) | LOD2–3 (5k) |
-| Weapon | LOD0–1 (3k) | LOD1–2 (1.5k) | LOD2 (0.5k) |
-| Prop | LOD0–2 (6k) | LOD1–3 (3k) | LOD2–3 (1k) |
-| Tile | LOD0–1 (2k) | LOD0–1 (2k) | LOD1 (0.5k) |
-| FX mesh | 1 level | 1 level | 1 level |
-| **Scene on screen** | ≤ 1M tris, ≤ 300 draw calls, ≤ 1 GB GPU textures | ≤ 300k tris, ≤ 150 draws, ≤ 256 MB | **≤ 150k tris, ≤ 80 draws, ≤ 64 MB** (iOS ceiling) |
-| **First-load 3D payload** | Packaged (not capped; keep it ≤ 500 MB) | ≤ 40 MB | ≤ 15 MB |
+An optional **`_LODU`** mesh in the master is the ultra-only top level (hero ≤ 60k, prop ≤ 15k). It is authored, never generated, since simplifying cannot add detail. Without one, `ultra` ships full's geometry and differs only in its textures.
 
-**Textures (max size per map type, for a hero or prop master at 2048²; smaller masters scale down the same way):**
+| Class | `ultra` | `full` (desktop) | `half` (web desktop) | `quarter` (web mobile) |
+|---|---|---|---|---|
+| Hero | LODU, LOD0–2 (≤ 60k; else 20k) | LOD0–2 (20k) | LOD1–3 (10k) | LOD2–3 (5k) |
+| Weapon | LOD0–1 (3k) | LOD0–1 (3k) | LOD1–2 (1.5k) | LOD2 (0.5k) |
+| Prop | LODU, LOD0–2 (≤ 15k; else 6k) | LOD0–2 (6k) | LOD1–3 (3k) | LOD2–3 (1k) |
+| Tile | LOD0–1 (2k) | LOD0–1 (2k) | LOD0–1 (2k) | LOD1 (0.5k) |
+| FX mesh | 1 level | 1 level | 1 level | 1 level |
+| **Scene on screen** | ≤ 3M tris, ≤ 500 draws, ≤ 3 GB GPU textures | ≤ 1M tris, ≤ 300 draws, ≤ 1 GB | ≤ 300k tris, ≤ 150 draws, ≤ 256 MB | **≤ 150k tris, ≤ 80 draws, ≤ 64 MB** (iOS ceiling) |
+| **3D payload** | Packaged; ultra copies only | Packaged (keep it ≤ 500 MB) | First load ≤ 40 MB | First load ≤ 15 MB |
 
-| Map | `full` | `half` | `quarter` | Encoding (full / half / quarter) | Colour space |
-|---|---|---|---|---|---|
-| Base colour | 2048 | 1024 | 512 (hero 1024 via override) | UASTC / ETC1S / ETC1S | sRGB |
-| Normal | 2048 | 1024 | **dropped** | UASTC (normal-map mode) / UASTC / — | linear |
-| ORM (AO·rough·metal) | 2048 | 1024 | **dropped**: AO is multiplied into base colour at export; roughness and metal become material constants | UASTC / ETC1S / — | linear |
-| Emissive | 1024 | 512 | 256 | UASTC / ETC1S / ETC1S | sRGB |
-| Toon ramp / palette | 256×N, all tiers | same | same | **PNG, lossless**: never block-compressed, no mipmaps, nearest filter (compression smears the ramp's hard steps) | sRGB |
+**Textures (max size per map type, for a hero master at 4096²; a prop or weapon master at 2048² gives the ultra and full columns the same size, so no `@ultra` copy is written; smaller masters scale down the same way):**
+
+| Map | `ultra` | `full` | `half` | `quarter` | Encoding (ultra / full / half / quarter) | Colour space |
+|---|---|---|---|---|---|---|
+| Base colour | 4096 | 2048 | 1024 | 512 (hero 1024 via override) | UASTC / UASTC / ETC1S / ETC1S | sRGB |
+| Normal | 4096 | 2048 | 1024 | **dropped** | UASTC (normal-map mode) on all three | linear |
+| ORM (AO·rough·metal) | 4096 | 2048 | 1024 | **dropped**: AO is multiplied into base colour at export; roughness and metal become material constants | UASTC / UASTC / ETC1S / — | linear |
+| Emissive | 2048 | 1024 | 512 | 256 | UASTC / UASTC / ETC1S / ETC1S | sRGB |
+| Toon ramp / palette | 256×N, every tier unchanged | same | same | same | **PNG, lossless**: never block-compressed, no mipmaps, nearest filter (compression smears the ramp's hard steps) | sRGB |
+
+A tier whose derived map would be identical to `full`'s (because the master is no larger) writes **no copy**, so `ultra` adds bytes only where the master really is bigger.
 
 Rules:
 - Every tier texture **carries mipmaps.** 3D minification shimmers without them, while 2D pages ship none. `encodePageToKtx2` already has the `mipmaps` option (off for 2D).
@@ -215,29 +224,35 @@ Rules:
 | Level | Where | Holds |
 |---|---|---|
 | Code defaults | **new** `packages/constants-shared/src/modelTiers.ts` | The two tables above, per class (`hero / weapon / prop / tile / fx`) |
-| Per-project tier list | The **existing** `LayoutDoc.resolutionTiers` (Scene Editor, Canvas Size panel) | Which tiers publish. One list for 2D art and models, so they cannot disagree |
+| Tier ids | **new** `MODEL_TIERS` in `modelTiers.ts` (`ultra`, `full`, `half`, `quarter`). **Not** engine-layout `RESOLUTION_TIERS` (5.1) | What can exist for models |
+| Per-project tier list | The **existing** `LayoutDoc.resolutionTiers` (Scene Editor, Canvas Size panel), accepting the 3D ids on a 3D project | Which tiers publish. One list for 2D art and models, so they cannot disagree |
 | Per-project class profiles | **Game Config**, a new `models` block (`profiles[class][tier] = { lods: [from, to], maps: { baseColor, normal, orm, emissive: size \| 'drop' }, encoding: { map: 'uastc' \| 'etc1s' \| 'png' } }`, plus `lodScreenSize[class]`) | Overrides the code defaults for the whole game |
-| Per model | `models/<id>/model.json` → `{ class, closeup?, overrides: { [tier]: {…same shape…} }, lodScreenSize?, lodSource: 'authored' \| 'generated' }`, edited in the **Invisible Model Viewer** (a tier switcher shows tris, bytes and VRAM per tier, with side-by-side previews) | The final say |
+| Per model | `models/<id>/model.json` → `{ class, overrides: { [tier]: {…same shape…} }, lodScreenSize?, lodSource: 'authored' \| 'generated' }`, edited in the **Invisible Model Viewer** (a tier switcher shows tris, bytes and VRAM per tier, with side-by-side previews) | The final say |
 
-Precedence: **model.json → Game Config → code default.** The validator also checks the master against its class: textures must be at least the `full` size and power-of-two, and the LOD chain must be complete or set to `generated`.
+Precedence: **model.json → Game Config → code default.** The validator also checks the master against its class: textures must be at least the `full` size and power-of-two (the ultra size where the project publishes `ultra`), and the LOD chain must be complete or set to `generated`.
 
 **Chain (one master in, one set per tier out):**
 1. **Export** (`modelExport.ts`): for each reached model and each published tier, resolve the profile, then:
    - take the tier's LOD window (generating missing levels, 5.4);
    - resize each kept map from the master with sharp; on `quarter`, drop the normal and ORM maps and multiply AO into base colour;
    - encode with the tier's encoding and mipmaps, then meshopt the geometry;
-   - write `deploy/models/<id>@<tier>.glb` (the full tier unsuffixed), with textures at `_tex/<hash>@<tier>.ktx2`.
+   - write `deploy/models/<id>@<tier>.glb` (the full tier unsuffixed), with textures at `_tex/<hash>@<tier>.ktx2`. A tier whose GLB would match `full` byte-for-byte (for example `ultra` over a 2048² master with no `_LODU`) is not written, and the index omits it.
    
    Encoding is the expensive step, so it is cached per derived texture by a sidecar keyed on the master hash, tier, encoder revision and profile (the same pattern as `TierMeta` in `pageStore.ts`). A profile change re-derives only what it touches. A model with no copy for a tier (an FX mesh) ships only its full file and falls back to it, as 2D pages do.
 2. **Deploy:** written through the `DeployMirror`; `commit` prunes tiers that are no longer published.
 3. **Bake:** embeds the whole index, every tier included (as 2D does: the index is not a pulled file).
-4. **Pull:** **no new logic.** The existing name rule (`@<tier>` inserted into the full file's name) already handles models and their `_tex/` files once `quarter` is in `RESOLUTION_TIERS`. A pinned build keeps only its own tier: for `half`/`quarter`, each full file that has a copy for that tier is dropped. Textures are tier-suffixed (never shared across tiers), so the pull never has to read a GLB to know what it keeps; the cost is a few duplicate bytes in R2, never in a build.
+4. **Pull:** the name rule (`@<tier>` inserted into the full file's name) carries over, with **three small changes** in `apps/launcher-api/scripts/lib/artTierPin.mjs` and `packages/config-vite/artTierPin.js`:
+   - **Tier list.** `PINNABLE_TIERS` becomes the union of the 2D tiers and `MODEL_TIERS` (`full, half, quarter, ultra`). Its `TIER_MARK` regex derives from that list, so it recognises the new suffixes. `check-art-tier-pin.mjs` checks the list against both sources.
+   - **More than two tiers.** `artTierDrop` was written for exactly two. Today a pin to X only drops full files that have an X copy, which would leave `@quarter`/`@ultra` files in a `half` build. New rule: a pin to X drops **every copy of a tier other than X**, plus each full file that has an X copy. `full` keeps today's behaviour (it drops every copy). The 2D outcome is unchanged with `full`/`half`.
+   - **GLBs as descriptors.** `isDescriptor` counts `.glb`, and its `textOf` reads the GLB's JSON chunk. A kept GLB that names a texture keeps it, the same safety net a rig atlas has today.
+   
+   Textures are tier-suffixed (`_tex/<hash>@<tier>.ktx2`), so the pairs line up by name. The cost is a few duplicate bytes in R2, never in a build. A pinned `ultra` build keeps `full` files that have no `@ultra` copy, which is the intended fallback.
 5. **Register:** the runtime chooses a tier, then reads `tiers[chosen] ?? tiers.full`.
 
 **What the index records per model and tier** (so the runtime and the pull agree, and the Model Viewer can show it):
 
 ```
-tiers: { full | half | quarter: {
+tiers: { ultra | full | half | quarter: {      // a tier with no copy is absent → full
   glb, bytes, vramBytes,
   lods: [{ level, tris }],                    // the master levels this tier ships
   maps: { baseColor|normal|orm|emissive|ramp: { file, w, h, enc, mips } | 'dropped' },
@@ -256,10 +271,13 @@ The pull and the `IE_ART_TIER` pin record what they left out in `pull.json` (`ar
 | Skinned LODs | Every level binds the **same skeleton** (one skin, several meshes), so the animation runs once per character. The animation session must keep this | One skeleton per level |
 | Thresholds | **Screen size** (the projected bounding-sphere height ÷ viewport height) per master level, with ~10% hysteresis. Stored as data: code default per class → Game Config `lodScreenSize[class]` → `model.json`. A tier that drops the top levels shows its first level at every larger size | Distances in metres (they change with FOV and resolution); `MSFT_lod` (three.js does not read it). Levels ship as `_LOD<n>` nodes, and the runtime builds a `THREE.LOD` |
 
-`check:model-export` gains three fixtures:
-- one master gives three tier GLBs whose tris, map set and sizes match the profile;
-- an authored `_LOD1` beats the generated one;
-- a `quarter` pull has no `normal`/`orm` texture and no full-tier file.
+`check:model-export` gains four fixtures:
+- one 4096² master gives four tier GLBs whose tris, map set and sizes match the profile;
+- a 2048² master writes no `@ultra` copy;
+- an authored `_LOD1` beats the generated one, and `_LODU` appears only in `@ultra`;
+- a `quarter` pull has no `normal`/`orm` texture, no full-tier file with a quarter copy, and no `@half`/`@ultra` file.
+
+`check-art-tier-pin.mjs` also gains a 2D parity case: a `full`/`half` project pulls exactly what it does today.
 
 ## 6. Third-party Unity assets
 
@@ -275,7 +293,7 @@ The pull and the `IE_ART_TIER` pin record what they left out in `pull.json` (`ar
 | 2 | `fbx_to_glb.py` + triage of the BattleOTtheYear props and tiles (plus their provenance and licences) | S | Locally |
 | 3 | Node optimiser (glTF-Transform + meshopt + generated LODs + KTX2) as a CLI over a fixture; `ktx2Encode.ts` gains ETC1S, a linear/normal-map mode and mipmaps for 3D | M | Becomes the core of `modelExport.ts` |
 | 4 | The `models` class: upload, exporter, registry, bake, index, gates (full tier only) | M | Rule 8 complete; parity proven |
-| 4b | Quality tiers: `quarter` in `RESOLUTION_TIERS`, `modelTiers.ts` defaults, a per-tier derive + cache in `modelExport.ts`, the Game Config `models` block, `model.json` overrides, the pin/pull check extended to models | M | The pull needs no new logic (name rule); `check-art-tier-pin.mjs` + `check:model-export` fixtures |
+| 4b | Quality tiers: `MODEL_TIERS` + defaults in `modelTiers.ts` (never `RESOLUTION_TIERS`), a per-tier derive + cache in `modelExport.ts` (`ultra`/`full`/`half`/`quarter`, skipping identical copies), the Game Config `models` block, `model.json` overrides, the 3D tier ids accepted in `resolutionTiers`, and the pull and pin changes (tier union, the multi-tier drop rule, GLB as descriptor) | M | `check-art-tier-pin.mjs` (with 2D parity) + `check:model-export` fixtures. The pull/pin change touches the 2D build path, so it gets a current-games pass |
 | 5 | Invisible Model Viewer `/models` + docs (rule 9), with a tier switcher (tris, bytes, VRAM, preview per tier) and an override editor | M | Gives artists a feedback loop |
 | 6 | Palette and ramp texturing + the toon `extras` contract | S | The runtime material is built in the runtime session |
 | 7 | RunPod: Qwen tileable blueprint; TRELLIS.2 + StableGen against an R&D pod | M | Respect node/model parity before anything reaches serverless |

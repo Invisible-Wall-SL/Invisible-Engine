@@ -30,7 +30,9 @@ wins; on the web the tier is chosen at boot from device class and GPU capability
 with a player setting and `?tier=`. LOD switches by screen size through `THREE.LOD`, and the
 3D canvas scales its resolution dynamically while the HUD stays sharp. The desktop high-res game is
 the same web runtime pinned to `full`, with an optional Electron wrapper; nothing native renders.
-The 2D runtimes stay byte-identical, which rules out adding `quarter` to `RESOLUTION_TIERS`.
+An `ultra` tier sits above `full` for latest-gen GPUs: offered, never auto-picked, and it gives a
+console port its assets but not its runtime (§5.5). The 2D runtimes stay byte-identical, which
+rules out adding `quarter` to `RESOLUTION_TIERS`.
 
 ---
 
@@ -349,7 +351,9 @@ today; the play-field screen simply has no 2D world art.
 > (one master, derived tiers, what each tier carries) is the assets report's §5
 > (`docs/design/3d/assets-evaluation.md`); this section covers what the runtime does with them.
 > Tier ids are the assets report's: **`full`** (desktop native), **`half`** (web desktop),
-> **`quarter`** (web mobile).
+> **`quarter`** (web mobile), plus **`ultra`** (latest-gen desktop GPUs, and the asset set a console
+> port would start from; owner request, 2026-11-17, sent to the assets session to add on the export
+> side as `@ultra` copies of the master, with `full` staying the unsuffixed file).
 
 ### 5.1 How a build or a boot picks its tier
 
@@ -363,9 +367,9 @@ Order of precedence, the same as 2D's `chooseArtTier` today:
 
 | # | Source | Where it comes from | Notes |
 |---|---|---|---|
-| 1 | **Build pin** | `IE_ART_TIER=full\|half\|quarter`, compiled in as `__IE_ART_TIER__` (`config-vite` `artTierPin.js`); set by the desktop launcher's **Build for** picker for ☁ Publish, and by `build-delivery.mjs --art-tier` | Wins over everything: a pinned build's pull left the other tiers out, so nothing else can load. Already built for 2D; `PINNABLE_TIERS` gains `quarter` (build-time code) |
+| 1 | **Build pin** | `IE_ART_TIER=ultra\|full\|half\|quarter`, compiled in as `__IE_ART_TIER__` (`config-vite` `artTierPin.js`); set by the desktop launcher's **Build for** picker for ☁ Publish, and by `build-delivery.mjs --art-tier` | Wins over everything: a pinned build's pull left the other tiers out, so nothing else can load. Already built for 2D; `PINNABLE_TIERS` gains `quarter` and `ultra` (build-time code) |
 | 2 | **Debug override** | `?tier=` (exists for 2D), plus `?render3d=low\|medium\|high` for the render caps alone | Ignored by a pinned build, as `?tier=` is today |
-| 3 | **Player setting** | **Graphics: Auto / Low / Medium / High** (= auto / `quarter` / `half` / `full`) in the game's settings, kept in `localStorage` | An asset-tier change applies on the next load (say so in the UI); a caps-only change applies at once. `High` is offered only when the device class is `desktop` and the served build has `full` files |
+| 3 | **Player setting** | **Graphics: Auto / Low / Medium / High / Ultra** (= auto / `quarter` / `half` / `full` / `ultra`) in the game's settings, kept in `localStorage` | An asset-tier change applies on the next load (say so in the UI); a caps-only change applies at once. `High` is offered only when the device class is `desktop` and the served build has `full` files; `Ultra` only when it also has `ultra` files and passes the ultra gate below |
 | 4 | **Auto** | Device capability at boot, below | |
 
 **Auto, on the web (the unpinned `arcade3d` runtime, which serves every published tier):**
@@ -384,6 +388,10 @@ Order of precedence, the same as 2D's `chooseArtTier` today:
    what a player sees. Frame time decides instead (§5.3).
 5. **Screen pixels** cap downward only: a `half` desktop at 1080p stays `half`; a 1440p+ window does
    not raise auto to `full` (rule 1).
+6. **Ultra gate** (for the setting; auto never picks `ultra`): device class `desktop`, BC7 or ASTC
+   support, `MAX_TEXTURE_SIZE` ≥ 8192, not on the software-renderer blocklist, and a 10-second
+   frame-time probe at `full` caps with headroom. Failing it hides the option rather than letting a
+   laptop iGPU load ~3 GB of textures.
 
 The 3D chooser lives in **`engine-3d`**, not in `apps/lines/src/game/artTier.ts`, so the four 2D
 runtimes do not change (§3). It reads the same pin and `?tier=`; the 3D game's 2D art (HUD, FX
@@ -418,15 +426,15 @@ not enter, so a resize or a DPR change needs nothing. Details:
   *k* at every size above *k*'s threshold. `cullBelow` sets `visible = false`.
 - Every level binds **one skeleton** (assets report): the animation mixer runs once per character;
   only the visible level's mesh is skinned on the GPU.
-- **LOD bias** per tier and per live step (§5.3) multiplies every threshold (1.0 / 1.25 / 1.5 for
-  `full` / `half` / `quarter`), so a struggling device switches down earlier without new files.
+- **LOD bias** per tier and per live step (§5.3) multiplies every threshold (0.8 / 1.0 / 1.25 / 1.5
+  for `ultra` / `full` / `half` / `quarter`; below 1 keeps the top level on screen longer), so a struggling device switches down earlier without new files.
 - Shadow casters use the same level as the visible mesh (no separate shadow LOD to start).
 
 **Textures.** The tier's files are already sized and encoded at export (assets §5.2: base colour
 2048 / 1024 / 512; normal and ORM dropped on `quarter`, AO baked into base colour; toon ramp a
 lossless PNG at every tier). The runtime adds only:
 - a clamp to `renderer.capabilities.maxTextureSize` (skip mips on load, never resample);
-- **anisotropy** per tier: 8 / 4 / 1;
+- **anisotropy** per tier: 16 / 8 / 4 / 1 (`ultra` … `quarter`);
 - **material fallback** when a map is `'dropped'`: roughness / metal from the material constants
   the export wrote; no normal-map shader variant compiled (fewer shader programs on phones);
 - one KTX2 transcoder per page (three's Basis, not Pixi's libktx), started in a worker at boot so
@@ -434,15 +442,21 @@ lossless PNG at every tier). The runtime adds only:
 
 ### 5.3 Render caps per tier, and dynamic resolution
 
-| Cap | `full` (desktop native) | `half` (web desktop) | `quarter` (web mobile) |
-|---|---|---|---|
-| 3D canvas DPR cap | device DPR (4K at DPR 1 = native) | 1.5 | 1.0 (1.25 on headroom) |
-| Antialiasing | MSAA 4× on the 3D canvas, or SMAA under post | MSAA 4× | off |
-| Shadows | 2048² PCF soft, heroes + props cast | 1024² PCF, heroes cast | **blob shadows** (a decal under each character), no shadow map |
-| Post-processing | outline + bloom + SMAA (`EffectComposer`) — a **separate lazy chunk, 45.7 KB gz** measured, loaded only when the tier enables it | none (toon outline by inverted hull, in the material) | none; inverted-hull outline on heroes only |
-| LOD bias | 1.0 | 1.25 | 1.5 |
-| Fog / draw distance | full level | ×0.85 | ×0.7 |
-| Scene budget (assets §5.2) | ≤ 1M tris, ≤ 300 draws, ≤ 1 GB textures | ≤ 300k, ≤ 150, ≤ 256 MB | ≤ 150k, ≤ 80, ≤ 64 MB |
+| Cap | `ultra` (latest-gen desktop) | `full` (desktop native) | `half` (web desktop) | `quarter` (web mobile) |
+|---|---|---|---|---|
+| 3D canvas DPR cap | device DPR, render up to native 4K (dynamic resolution holds it) | device DPR (4K at DPR 1 = native) | 1.5 | 1.0 (1.25 on headroom) |
+| Antialiasing | MSAA 4× + SMAA | MSAA 4× on the 3D canvas, or SMAA under post | MSAA 4× | off |
+| Shadows | 4096², cascaded (three's `CSM` addon, lazy), heroes + props + tiles cast | 2048² PCF soft, heroes + props cast | 1024² PCF, heroes cast | **blob shadows** (a decal under each character), no shadow map |
+| Post-processing | `full`'s + ambient occlusion (`GTAOPass`) and depth of field for camera shots | outline + bloom + SMAA (`EffectComposer`) — a **separate lazy chunk, 45.7 KB gz** measured, loaded only when the tier enables it | none (toon outline by inverted hull, in the material) | none; inverted-hull outline on heroes only |
+| LOD bias | 0.8 | 1.0 | 1.25 | 1.5 |
+| Fog / draw distance | full level | full level | ×0.85 | ×0.7 |
+| Scene budget | ≤ 3M tris, ≤ 500 draws, ≤ 3 GB textures (proposed to the assets session) | ≤ 1M tris, ≤ 300 draws, ≤ 1 GB textures | ≤ 300k, ≤ 150, ≤ 256 MB | ≤ 150k, ≤ 80, ≤ 64 MB |
+
+**WebGPU is a candidate for `ultra` only.** Pixi is forced to WebGL (§1.3) because mobile WebGPU
+paints nothing; `ultra` is desktop-only by its gate. `three/webgpu` costs +12 KB gz over the WebGL
+core (§1.2) and moves the toon material to TSL, so it earns a measured A/B on a reference scene
+(frame time, draw-call ceiling) before it is adopted, behind `?gpu=webgpu`. The ultra post passes and
+`CSM` load as lazy chunks, like `full`'s post chunk.
 
 **Dynamic resolution.** The two canvases (§2.1) pay off here: the **3D canvas's DPR drops first and
 the Pixi HUD stays sharp**. A controller in `engine-3d` measures frame time the way
@@ -450,7 +464,7 @@ the Pixi HUD stays sharp**. A controller in `engine-3d` measures frame time the 
 decision with hysteresis, a trial that is undone when it brings `no gain`), and walks one ladder:
 
 1. 3D DPR × 0.85, × 0.7 (floor: 0.5 of the tier's cap; the canvas is CSS-scaled up);
-2. post-processing off (`full` only);
+2. post-processing off, AO first (`ultra`, `full`);
 3. shadow map halved, then blob shadows;
 4. LOD bias + 0.25 per step (two steps max).
 
@@ -485,23 +499,49 @@ renders with the OS web view (WebView2 on Windows, WKWebView on macOS), so its W
 third target to test. The wrapper is packaging around an unchanged build — no engine code — and
 needs its own small design (signing, updates).
 
-### 5.5 What tiers change in the size gate
+### 5.5 Consoles: what `ultra` does and does not buy
+
+`ultra` gives a console port **its assets and its quality bar**: master-resolution textures, the
+top LOD, console-grade shadows and post. It does **not** give a console **runtime**. Our engine is a
+web page (SvelteKit + Pixi + three.js on WebGL), and:
+
+- **PlayStation and Nintendo Switch** ship native titles built with their own SDKs; there is no
+  supported path for a WebGL game on them. A release there means a native port: a renderer that
+  reads the same glTF + KTX2 files and the same game data, plus the `engine-mechanics` simulation
+  ported or run in an embedded JS engine. That is a project of its own, behind platform-holder
+  developer access we do not have.
+- **Xbox** has a browser and has historically accepted web-technology apps (UWP / WebView2), so
+  the "same build, wrapped" route of §5.4 *may* exist there. Not verified: the certification rules
+  for web-tech games must be checked with ID@Xbox before anyone counts on it.
+
+What keeps a console port possible now, at no cost to the web path: keep every asset standard
+(glTF 2.0, KTX2/Basis, toon parameters in material `extras`); keep the simulation free of browser
+APIs (it already is: `engine-mechanics` is dependency-free ESM shared with the Node game server);
+keep input the abstract packet `{moveX, moveY, buttons, aimX, aimY}` (it already is); and add
+**gamepad input** to the 3D stage early (the browser Gamepad API), so the controls are designed for
+a pad from the start. Which consoles, and native port or wrapper, is the owner's decision and needs
+its own evaluation.
+
+### 5.6 What tiers change in the size gate
 
 - **The four 2D runtimes: nothing.** `check:runtime-bytes` (§3.5) keeps comparing them with their
-  manifests. The traps it now has to catch, all of them shared code: `RESOLUTION_TIERS` (5.1 ⚠), a
+  manifests. The traps it now has to catch, all of them shared code: `RESOLUTION_TIERS` (§5.1 ⚠), a
   graphics option added to the shared HUD settings component (the setting must come from the 3D
   seam: a control the `arcade3d` seam registers, or a Flow/HUD screen in the 3D game's layout), and
   `game-config` fields (§4).
 - **`arcade3d` code: one budget, not per tier.** A tier is a set of files, not code: every tier
   runs the same bundle (+119 B) and 3D chunk (182.7 KB gz). The post-processing chunk (45.7 KB gz) is
-  counted as a `full`-only lazy chunk, reported like the Sentry SDK.
+  counted as a `full`/`ultra`-only lazy chunk, reported like the Sentry SDK; so are `ultra`'s AO,
+  depth-of-field and `CSM` chunks.
 - **Assets: per-tier budgets** (new, `check:3d-tier-payload`). Built from a **reference 3D project**
   (BattleOTtheYear as data, once it exists) with the pull run per pin; it reads `pull.json` and the
   model index (`tiers[t].bytes`, `vramBytes`) and holds the assets report's numbers: first-load 3D
-  payload `quarter` ≤ 15 MB, `half` ≤ 40 MB, `full` ≤ 500 MB; on-screen VRAM 64 MB / 256 MB / 1 GB.
+  payload `quarter` ≤ 15 MB, `half` ≤ 40 MB, `full` ≤ 500 MB; on-screen VRAM 64 MB / 256 MB / 1 GB;
+  `ultra` once the assets session sets it (proposed: packaged ≤ ~1.5 GB, VRAM ≤ 3 GB).
   It runs on export changes (`modelExport.ts`, `ktx2Encode.ts`, `modelTiers.ts`), not on engine PRs.
 - **The 3D chooser** gets a Node fixture (`engine-3d/pure`), like `artTier.fixture.ts`: device
-  signals → tier, pin beats `?tier=` beats setting beats auto, and auto never returns `full`.
+  signals → tier, pin beats `?tier=` beats setting beats auto, auto never returns `full` or `ultra`, and the
+  ultra gate hides `Ultra` on a phone, an iGPU without BC7/ASTC, or a software renderer.
 
 ---
 
@@ -523,6 +563,9 @@ needs its own small design (signing, updates).
 | T4 | **Graphics setting** contributed by the 3D seam (not the shared HUD) | S | the 2D settings component is byte-identical |
 | T5 | **Desktop `full`**: pinned web build (no new code), `check:3d-tier-payload` on the reference project | S | the full pull ≤ 500 MB, half ≤ 40 MB, quarter ≤ 15 MB |
 | T6 | **Electron wrapper** for a store / offline desktop game — only on the owner's go (§5.4) | M | the same build in pinned Chromium, installed |
+| T7 | **`ultra`**: the ultra gate, its caps column, `CSM` + AO + depth-of-field lazy chunks, LOD bias 0.8; the WebGPU A/B on the reference scene. Needs the assets session's `@ultra` export | M | a latest-gen desktop holds 60 fps at native 4K on the reference scene; the gate hides `Ultra` on an iGPU |
+| T8 | **Gamepad input** in the 3D stage (Gamepad API → the existing input packet) | S | the arena is fully playable on a pad |
+| — | **Consoles**: a separate evaluation (§5.5), not sized here | — | owner decision first |
 
 Tier steps T1–T4 ride along with steps 2–3 rather than after them: the tier decides what a
 character loads, so building characters without it would be redone. T5 needs the reference project;

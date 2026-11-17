@@ -105,18 +105,27 @@ A 3D game is an **arcade game with a 3D view**, not a new engine:
 
 ## 5. Quality tiers: web and desktop from one master
 
-Tier ids reuse the 2D scheme so one pin (`IE_ART_TIER`) covers a game's HUD art and its models:
+Tiers reuse the 2D **conventions** (one master, `@<tier>` copies, `full` unsuffixed as the
+fallback, the `IE_ART_TIER` pin), but their id list is 3D-only (`MODEL_TIERS` in
+`constants-shared/modelTiers.ts`, never the 2D `RESOLUTION_TIERS`, §7):
 
-| | `full` — desktop game | `half` — web desktop | `quarter` — web mobile |
-|---|---|---|---|
-| Hero LODs shipped (top tris) | LOD0–2 (20k) | LOD1–3 (10k) | LOD2–3 (5k) |
-| Base colour / normal / ORM | 2048 / 2048 / 2048 | 1024 / 1024 / 1024 | 512 / dropped / dropped (AO baked in) |
-| Encoding | UASTC (→ BC7 on desktop) | ETC1S colour, UASTC normal | ETC1S |
-| Toon ramp / palette | lossless PNG, every tier | same | same |
-| Scene on screen | ≤ 1M tris, 300 draws, 1 GB VRAM | ≤ 300k, 150, 256 MB | ≤ 150k, 80, 64 MB (iOS ceiling) |
-| First-load 3D payload | ≤ 500 MB (packaged) | ≤ 40 MB | ≤ 15 MB |
-| Shadows / AA / post | 2048² soft, MSAA 4×, outline + bloom | 1024², MSAA 4×, none | blob shadows, off, none |
-| 3D canvas DPR cap | device | 1.5 | 1.0 |
+| | `ultra` — latest-gen desktop | `full` — desktop game | `half` — web desktop | `quarter` — web mobile |
+|---|---|---|---|---|
+| Hero LODs shipped (top tris) | authored `_LODU` (≤ 60k), LOD0–2 | LOD0–2 (20k) | LOD1–3 (10k) | LOD2–3 (5k) |
+| Base colour / normal / ORM | 4096 / 4096 / 4096 (the master) | 2048 / 2048 / 2048 | 1024 / 1024 / 1024 | 512 / dropped / dropped (AO baked in) |
+| Encoding | UASTC (→ BC7) | UASTC (→ BC7 on desktop) | ETC1S colour, UASTC normal | ETC1S |
+| Toon ramp / palette | lossless PNG, every tier | same | same | same |
+| Scene on screen | ≤ 3M tris, 500 draws, 3 GB VRAM | ≤ 1M tris, 300 draws, 1 GB | ≤ 300k, 150, 256 MB | ≤ 150k, 80, 64 MB (iOS ceiling) |
+| 3D payload | packaged, ≈ 1.5 GB (proposed) | packaged, ≤ 500 MB | first load ≤ 40 MB | first load ≤ 15 MB |
+| Shadows / AA / post | 4096² cascaded, MSAA + SMAA, outline + bloom + AO + depth of field | 2048² soft, MSAA 4×, outline + bloom | 1024², MSAA 4×, none | blob shadows, off, none |
+| 3D canvas DPR cap | native 4K, dynamic resolution | device | 1.5 | 1.0 |
+
+`ultra` is **opt-in per project and never picked automatically**: a build pin, or the player's
+"Ultra" setting, which only appears on a desktop GPU with BC7/ASTC, large textures and frame-time
+headroom (so an integrated-graphics laptop never loads ~3 GB of textures). Its extra passes (cascaded
+shadows, AO, depth of field) are lazy chunks no other tier downloads. A tier copy identical to
+`full` (a 2048² prop master with no `_LODU`) is not written, so `ultra` costs bytes only where the
+master really is bigger. WebGPU gets a measured A/B on `ultra` only.
 
 - **Controls, most specific wins:** code defaults (`constants-shared/modelTiers.ts`) → a Game Config
   `models` block per class → `model.json` overrides per model, edited in the Model Viewer. Which tiers
@@ -130,8 +139,17 @@ Tier ids reuse the 2D scheme so one pin (`IE_ART_TIER`) covers a game's HUD art 
   level binds one skeleton.
 - **Dynamic resolution** on the 3D canvas only: DPR → post → shadows → LOD bias, stepping back up on
   headroom; the HUD stays sharp. Never changes the asset tier mid-game.
-- No 4K asset tier: in an arena camera a 2048² skin already exceeds the pixels a hero covers. 4K is
-  render resolution; only `closeup` models (hero select) may author a 4096² base colour, `full` only.
+- For `full`, 2048² is enough (a hero covers ~400–550 px of a 2160 px screen); `ultra` exists for
+  players who want the master's detail on hardware that holds it, and covers hero-select close-ups.
+
+### Consoles
+
+`ultra` gives a console port its **assets and quality bar**, not a **runtime**: our engine is a web
+page. PlayStation and Switch accept only native titles built with their SDKs, so a release there is a
+native port (a renderer reading the same glTF + KTX2 and game data, the sim ported or embedded):
+its own project, behind developer access we do not have. Xbox *may* accept a wrapped web build;
+unverified, to be checked with ID@Xbox. What we do now at no cost to the web path: standard asset
+formats, a simulation free of browser APIs (it already is), and **gamepad input early**.
 
 ## 6. Build plan
 
@@ -148,7 +166,7 @@ with `docs/knowledge/families/3d.md` and `docs/status/3d.md`.
 | **2 — Characters & camera** | glTF clips + mixer adapter, state-machine extensions, gameplay → inputs, screen-size LOD [anim A1–A3, runtime 3, T2] · camera director + authored moves [A4–A5] · toon material + outline from the `extras` contract [assets 6] | M each | `games-3d` · xhigh |
 | **3 — The game (vertical slice)** | Crash rules, combat (melee first), bots with grid nav, seeded CrashArena generator, lobby phase [gameplay 3–7] — **one melee hero, one generated arena, carry to the pit, bots filling 16 seats, online** | M each, L total | `arcade-games` · xhigh, then `game-playtester` |
 | **4 — Tools** | Invisible Model Viewer `/models` + its doc (rule 9) [assets 5] · a **3D tab in Invisible Characters** (preview, graph, input scrubbers, cues, masks, camera rigs) [A6] · Blender tileset/level import + layered grid editor [gameplay 6] · dynamic resolution, graphics setting [T3–T4] | M–L | `launcher-studio` + `docs-keeper` · xhigh |
-| **5 — Content & ship** | 7 heroes (owner's art), aim poses [A7], remaining BOTY (heroes' abilities, chests, pickups, destructibles, biomes), FX re-authored in Invisible FX / Flipbook, RunPod texture blueprints [assets 7, 9], desktop `full` build + `check:3d-tier-payload` [T5]; Electron only on the owner's go [T6] | L | per piece |
+| **5 — Content & ship** | 7 heroes (owner's art), aim poses [A7], remaining BOTY (heroes' abilities, chests, pickups, destructibles, biomes), FX re-authored in Invisible FX / Flipbook, RunPod texture blueprints [assets 7, 9], desktop `full` build + `check:3d-tier-payload` [T5]; Electron only on the owner's go [T6]; `ultra` tier: `@ultra` export, the ultra gate, cascaded shadows / AO / depth of field chunks, WebGPU A/B [T7, M]; gamepad input [T8, S — can come forward to Phase 1] | L | per piece |
 
 Order: Phase 0 first and in parallel; nothing in Phase 1 starts until 0a shows unchanged manifests
 and 0b shows equal hashes on iOS. Phases 1's three tracks run in parallel. **Start one hero model as
@@ -159,6 +177,7 @@ soon as 0c lands**: the art is the longest pole, and it proves the asset chain e
 | Topic | Resolution |
 |---|---|
 | Add `quarter` to `RESOLUTION_TIERS` (assets) vs never (runtime) | **Never.** It is in every 2D runtime, and `chooseArtTier` would make a 4K 2D game fall back to full-size art on small windows. 3D tiers live in `constants-shared/modelTiers.ts`; the pull and `PINNABLE_TIERS` (build-time code) take the union. |
+| A 4K asset tier: not worth it (assets, first pass) vs the owner's `ultra` for latest-gen / consoles | **`ultra` added** as an opt-in `@ultra` tier above `full`, packaged only; `full` stays the unsuffixed fallback, and the `closeup` exception is dropped in its favour. The pull's tier-drop rule must learn a four-tier list (build-time code only). |
 | Sim: 2D on the ground plane with height as presentation (runtime) vs a real 3D body (gameplay) | **Real 3D body** in new `motion3d.js` exports; the 3D stage's `sync(bodies, view)` reads x/y/z directly. |
 | State-machine extensions in `engine-layout` (animation) vs bytes | Type-only optional fields may go in the shared types; the **evaluator extensions** (2D blends, phase sync, masks) live in `engine-3d`. Phase sync for the existing 1D blend is 3D-only, so 2D component timing does not change. |
 | Clip naming `<rig>@<clip>` (assets) vs `<set>.<clip>` in libraries (animation) | **`<set>.<clip>` clip libraries** on a shared skeleton (downloaded once per game). Sockets keep the asset report's `SK_<name>`. |
@@ -180,3 +199,5 @@ soon as 0c lands**: the art is the longest pole, and it proves the asset chain e
    with the MCP add-on during asset sessions.
 8. Later: an Electron desktop wrapper (store / offline), and outside artists sending FBX (the only case
    that would justify a cloud Blender service).
+9. **Consoles:** which ones, if any. PlayStation / Switch mean a native port and developer access;
+   Xbox needs a check with ID@Xbox. `ultra` keeps the assets ready either way.
