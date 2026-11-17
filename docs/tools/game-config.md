@@ -221,6 +221,11 @@ has no family control at all. Three more families exist
   - **Round seconds** (empty: until someone reaches the goal), **Pause between rounds** (15),
     **Goal score** (1) and a **Rules module** (a named module, e.g. `tag`, for what the data
     cannot say).
+  - **Lobby** — tick it and a room waits before its first round, on the game's lobby screen,
+    until **Players to start** (4) people are in or **Longest wait (s)** (60) has passed since the
+    first one joined, whichever is first; then a **Countdown (s)** (10) runs and round 1 starts.
+    Bots never count. Unticked, the first player to join starts the round. Rounds after the first
+    follow on after the pause as before.
   - **Zone rules** — a zone (from the Arcade section) that **pushes** players (px/s, x and y: a
     current) or is the round's **Goal**, for the listed characters (empty for every one). A rule
     must push or be the goal: an edit that would leave it doing neither is not taken.

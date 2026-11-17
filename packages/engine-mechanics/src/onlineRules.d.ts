@@ -42,6 +42,8 @@ export type OnlineEvent =
 	| { type: 'hit' | 'caught'; by: string; target: string; effect: string }
 	| { type: 'roundStart'; round: number }
 	| { type: 'roundEnd'; round: number; winner: string }
+	| { type: 'lobby'; id: string }
+	| { type: 'countdown'; seconds: number }
 	| { type: 'climbed' | 'grounded'; id: string; zone: string }
 	| { type: 'jumped' | 'golden'; id: string }
 	| { type: 'hooked' | 'escaped'; by: string; target: string };

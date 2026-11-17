@@ -120,6 +120,8 @@ export const SALMONS_SCREENS = {
 	hud: 'salmonsHud',
 	over: 'salmonsRoundOver',
 	golden: 'salmonsGolden',
+	lobby: 'salmonsLobby',
+	countdown: 'salmonsCountdown',
 } as const;
 
 /** One HUD readout: its caption, and its value bound to a variable the room owns. */
@@ -182,6 +184,52 @@ const roundOver = (): Scene => ({
 	],
 });
 
+/** A centred line of a full-screen message. */
+const centred = (
+	id: string,
+	label: string,
+	y: number,
+	text: string,
+	fontSize: number,
+	source?: string,
+): LayoutNode => ({
+	...textBox(id, label, 0, y, {
+		text,
+		fontSize,
+		boxWidth: 1000,
+		align: 'center',
+		...(source ? { source } : {}),
+	}),
+	screenAnchor: { x: 0.5, y: 0.5 },
+});
+
+/**
+ * Before the first round (a game with `rules.lobby`): the room is waiting for players. An authored
+ * screen like any other: edit it in `/editor`; the flow shows it while the room waits.
+ */
+const lobby = (): Scene => ({
+	id: SALMONS_SCREENS.lobby,
+	name: 'Lobby',
+	space: 'canvas',
+	alwaysOnTop: true,
+	nodes: [
+		centred('sm-lobby-title', 'Lobby title', -80, 'WAITING FOR PLAYERS', 64),
+		centred('sm-lobby-note', 'Lobby note', 10, 'THE RIVER OPENS WHEN THE ROOM IS READY', 28),
+	],
+});
+
+/** The lobby's countdown to round 1, under its title, on the room's clock. */
+const countdown = (): Scene => ({
+	id: SALMONS_SCREENS.countdown,
+	name: 'Lobby countdown',
+	space: 'canvas',
+	alwaysOnTop: true,
+	nodes: [
+		centred('sm-countdown-caption', 'Starting in', 70, 'STARTING IN', 32),
+		centred('sm-countdown-seconds', 'Seconds', 120, '0', 56, 'var:secondsLeft'),
+	],
+});
+
 /** The device's own salmon turned golden: a banner across the top for a moment. */
 const golden = (): Scene => ({
 	id: SALMONS_SCREENS.golden,
@@ -203,7 +251,8 @@ const golden = (): Scene => ({
 /**
  * Salmons' layout: the arcade scene set's loading and background screens, its play field as the
  * river's world with the players' spawn layer (which also holds the swipes and casts the flow
- * draws), the HUD, the golden salmon's banner and the round-over screen.
+ * draws), the HUD, the golden salmon's banner, the round-over screen, and the lobby with its
+ * countdown, shown before the first round when the config has a lobby.
  */
 export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 	const base = arcadeReferenceLayout();
@@ -237,6 +286,8 @@ export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 			hud(),
 			golden(),
 			roundOver(),
+			lobby(),
+			countdown(),
 		],
 	};
 }

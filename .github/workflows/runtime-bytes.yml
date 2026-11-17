@@ -1,0 +1,87 @@
+# runtime-bytes — the released runtimes are exactly the bytes `scripts/runtime-bytes/<id>.json` records.
+#
+# WHY THIS EXISTS: 3D ships as its own runtime (`docs/design/3d-games.md`), and the owner's constraint
+# is that the 2D runtimes stay byte-identical, file for file, while it is built. Code isolation alone
+# cannot show that; this builds every runtime reproducibly (`IE_REPRODUCIBLE=1`) and compares each file
+# with its committed manifest (`scripts/check-runtime-bytes.mjs`).
+#
+# A PR that MEANS to change a runtime (any ordinary engine change) commits the new manifests, and the
+# manifest diff is what review reads. They are Linux's bytes: on a failure this job uploads the
+# manifests it built as the `runtime-bytes` artifact, so re-recording is
+#
+#   gh run download <run id> -n runtime-bytes -D scripts/runtime-bytes
+#
+# rather than four local builds on another OS (a Windows checkout builds other bytes). A change on a
+# path that cannot legitimately reach a 2D runtime (packages/engine-3d, the family seams, the build
+# config, the lockfile) failing here is a leak.
+#
+# It runs only when the change set touches the engine, the lockfile or this gate; otherwise it passes in
+# seconds, so it can be a required check (it always reports). Required or not is the owner's ruleset
+# (docs/INFRA.md "Branch ruleset on main").
+
+name: runtime-bytes
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: runtime-bytes-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-bytes:
+    name: runtime-bytes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      # The paths that can change a runtime's bytes, as the release workflow's trigger names them, plus
+      # the lockfile and this gate. Anything the diff cannot decide counts as a change.
+      - name: Does the change reach a runtime?
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=''
+          if [ "$EVENT" = pull_request ]; then
+            base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ] && git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
+            base="$BEFORE"
+          fi
+          if [ -z "$base" ] || ! files="$(git diff --name-only "$base" HEAD)"; then
+            echo "::notice::change set unknown — building every runtime"
+            echo run=true >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          hit="$(printf '%s\n' "$files" | grep -E '^(apps/lines/|packages/|pnpm-lock\.yaml$|scripts/check-runtime-bytes\.mjs$|scripts/runtime-bytes/|scripts/lib/game-build-variants\.mjs$|\.github/workflows/runtime-bytes\.yml$)' | grep -Ev '\.md$' || true)"
+          if [ -n "$hit" ]; then
+            printf 'runtime paths changed:\n%s\n' "$hit" | sed -n '1,21p'
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::no runtime path changed — skipping the builds"
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.changes.outputs.run == 'true'
+        uses: ./.github/actions/setup
+
+      - name: Build every runtime reproducibly and compare with its manifest
+        if: steps.changes.outputs.run == 'true'
+        run: pnpm check:runtime-bytes --out runtime-bytes-built
+
+      - name: Upload the manifests this run built
+        if: ${{ failure() && steps.changes.outputs.run == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-bytes
+          path: runtime-bytes-built/*.json
+          if-no-files-found: ignore

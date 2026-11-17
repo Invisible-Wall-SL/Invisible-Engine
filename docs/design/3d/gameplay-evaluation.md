@@ -281,3 +281,65 @@ replay untouched).
   first version to grid levels.
 - **Owner decisions:** first person (as BOTY) or third person, which changes the input's pitch use
   and the hit-feel tuning, not the sim; and whether bots should carry, an improvement on BOTY.
+
+## Step 0 result (2026-11-17)
+
+Phase 0b of `docs/design/3d-games.md`: does the 3D step give the same bits in Node, Chrome and iOS
+Safari?
+
+**What was built.** The step landed as a real export, because Phase 1 builds on it:
+`packages/engine-mechanics/src/motion3d.js` with its `.d.ts` (`createLevel3d`, `stepBody3d`,
+`createBody3d`, `hashBodies3d`). It is a new file, not re-exported from the package's `index.ts`,
+so no 2D bundle gains a byte. The 3D path imports `engine-mechanics/src/motion3d.js` directly, and
+Phase 1 decides whether that import is dynamic. The step covers:
+
+- a body `{x, y, z, vx, vy, vz, yaw, grounded}` plus its jump clocks, in metres with y up;
+- a level of boxes and four-facing ramp wedges bucketed into 4 m columns;
+- int8 move axes (a diagonal clamped to the unit circle), a uint16 yaw that is only copied, and
+  button bits;
+- ground and air acceleration, gravity, jump with a 6-step coyote time and a 6-step buffer, and a
+  double jump only while |vy| < 5;
+- trampoline zones, and sub-steps of at most 0.1 m (64 at most) moved x, then z, then y;
+- 0.35 m step-up (the way a ramp is climbed) and 0.35 m snap-down (the way it is walked down);
+- ceilings and the death plane.
+
+The body is its upright bounding box against the level. A capsule's rounded edges add nothing on a
+grid level. The step uses only `+ − × ÷`, `Math.sqrt`, comparisons and
+`floor/ceil/min/max/abs`. `check:arcade-3d` greps the file for the implementation-defined `Math`
+functions and fails if it finds one.
+
+**The test.** `scripts/arcade-3d-scenario.mjs` runs six bodies for 12 000 steps (200 s at 60 Hz) on
+a level with a 3 m tier, four ramps, an overhead slab, a stair, pillars, a pit and three
+trampolines. A seeded integer PRNG drives walk-to-target (quantised with `Math.round`), wander,
+idle, sprint, jump and near-apex double jump. It hashes every body's exact float bits (FNV-1a over
+little-endian float64) every 500 steps, and the 24 checkpoint hashes fold into one code. The run
+covered 425 jumps, 360 double jumps, 21 trampoline bounces, 2 758 ramp steps, 42 step-ups,
+7 866 wall-blocked steps, 21 ceiling hits and 13 falls into the pit.
+
+`scripts/arcade-3d-page.mjs` builds one self-contained page that inlines the same two files and the
+committed replay. The page runs the scenario three times (so the later runs execute JIT-optimised
+code), shows every checkpoint, and says MATCH or DIFFERS. It is committed at
+`apps/launcher-api/static/spikes/arcade-3d.html` and served without sign-in at
+**https://app.invisiblewall.org/spikes/arcade-3d.html**. `check:arcade-3d` fails if that page is
+stale.
+
+| Platform                          | Engine         | Code                                     | Checkpoints 500 / 1000 / … / 12 000                            |
+| --------------------------------- | -------------- | ---------------------------------------- | -------------------------------------------------------------- |
+| Node 24.13.0 (Windows x64)        | V8 13.6        | `d3eac484`                               | `62af8943 bad45794 7ab95cb7 …  080e9717 d6f465b9`, the fixture |
+| Chrome 148 headless (Windows x64) | V8             | `d3eac484`                               | all 24 equal, in all 3 runs                                    |
+| WebKit 27.2 (Playwright, Windows x64) | JavaScriptCore | `d3eac484`                               | all 24 equal, in all 3 runs (MATCH)                            |
+| iOS Safari (iPhone, arm64)        | JavaScriptCore | _pending: no iPhone yet; pre-launch_     |                                                                |
+
+**Result so far:** Node, Chrome and WebKit (Safari's engine, JavaScriptCore, run 2026-11-17 through
+Playwright on Windows) are bit-identical, so nothing diverged and nothing needed fixing. That clears
+the engine question for Phase 1; a real iPhone (arm64 hardware) stays a pre-launch check, since the
+owner has none yet. The coordinator records the owner's read-back (MATCH or DIFFERS, and
+the code) in `docs/status/3d.md`. If iOS says DIFFERS, the first wrong checkpoint bounds the step
+range in which to bisect.
+
+**Committed:** the replay `packages/engine-mechanics/fixtures/arcade-3d-replay.json` and the gate
+`pnpm check:arcade-3d` (17 checks: the cross-engine rule, jumps, apex window, buffer, trampoline,
+ramps up and down, ramp side as a wall, step-up and block, wall slide, ceiling, no tunnelling at
+`maxFall`, diagonal speed, the death plane, hash sensitivity, the replay and the page's freshness).
+The 2D replays (`arcade-replay.json`, `arcade-characters-replay.json`,
+`arcade-platformer-replay.json`) are byte-unchanged, and their gates pass.

@@ -12,6 +12,8 @@ export const ONLINE_FLOW_EVENTS: Readonly<{
 	caught: 'caught';
 	roundStart: 'roundStart';
 	roundEnd: 'roundEnd';
+	lobby: 'lobby';
+	countdown: 'countdown';
 	ability: 'ability';
 	climbed: 'climbed';
 	grounded: 'grounded';

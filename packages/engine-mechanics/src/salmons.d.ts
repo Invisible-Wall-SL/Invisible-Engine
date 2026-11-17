@@ -51,5 +51,14 @@ export type SalmonsGeometry = {
 	botSpawns: { x: number; y: number }[];
 };
 export function salmonsGeometry(river: SalmonsRiver): SalmonsGeometry;
+/** Salmons' lobby: 4 people, or 60 s after the first, then a 10 s countdown. */
+export const SALMONS_LOBBY: Readonly<{
+	minPlayers: number;
+	maxWaitSeconds: number;
+	countdownSeconds: number;
+}>;
 /** A `GameConfigDoc` (as plain JSON: this package depends on nothing). */
-export function salmonsConfig(river?: SalmonsRiver): Record<string, unknown>;
+export function salmonsConfig(
+	river?: SalmonsRiver,
+	options?: { lobby?: { minPlayers?: number; maxWaitSeconds?: number; countdownSeconds?: number } },
+): Record<string, unknown>;

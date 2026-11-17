@@ -97,6 +97,24 @@ const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
 writeFileSync(join(configs, 'salmons-pinned.json'), JSON.stringify(pinned));
+// A room with a lobby that needs two people, so two pages start it (the lobby screen, then its
+// countdown, then round 1).
+const LOBBY = { minPlayers: 2, maxWaitSeconds: 120, countdownSeconds: 20 };
+writeFileSync(
+	join(configs, 'salmons-lobby.json'),
+	JSON.stringify(
+		normalizeGameConfigDoc({
+			...authored,
+			arcade: {
+				...authored.arcade,
+				online: {
+					...authored.arcade.online,
+					rules: { ...authored.arcade.online.rules, lobby: LOBBY },
+				},
+			},
+		}),
+	),
+);
 
 const HOOK = `(() => {
 	const errors = (window.__AR_ERRORS__ = []);
@@ -173,7 +191,11 @@ async function boot(profile, extra) {
 			code: name,
 			windowsVirtualKeyCode: { ArrowUp: 38, Space: 32 }[name],
 		});
-	return { page, state, settle, key, artMs };
+	const shown = () =>
+		page.evaluate(
+			'(() => { const f = window.__IE_FLOW_V2__; return f ? f.ordered().map((c) => c.id) : []; })()',
+		);
+	return { page, state, settle, key, artMs, shown };
 }
 
 const heapOf = async (page) => {
@@ -251,6 +273,44 @@ try {
 		seed: pSeed,
 	});
 	await p.page.close();
+
+	const l1 = await boot('l1', { rooms_name: 'Lia', rooms_game: 'salmons-lobby' });
+	await l1.settle(1500);
+	const waiting = await l1.shown();
+	const phase1 = (await l1.state()).arcade?.online?.phase;
+	verdict(
+		'a room with a lobby: the first person waits on the lobby screen, no countdown yet',
+		phase1 === 'waiting' &&
+			waiting.includes('salmonsLobby') &&
+			!waiting.includes('salmonsCountdown'),
+		{ phase: phase1, shown: waiting },
+	);
+	const l2 = await boot('l2', { rooms_name: 'Leo', rooms_game: 'salmons-lobby' });
+	await Promise.all([l1.settle(1500), l2.settle(1500)]);
+	const counting = [await l1.shown(), await l2.shown()];
+	verdict(
+		'the second person starts the countdown: both pages show the lobby and its countdown',
+		counting.every((ids) => ids.includes('salmonsLobby') && ids.includes('salmonsCountdown')),
+		{ shown: counting },
+	);
+	await Promise.all([
+		l1.settle(LOBBY.countdownSeconds * 1000 + 2500),
+		l2.settle(LOBBY.countdownSeconds * 1000 + 2500),
+	]);
+	const started = [await l1.shown(), await l2.shown()];
+	const phases = [
+		(await l1.state()).arcade?.online?.phase,
+		(await l2.state()).arcade?.online?.phase,
+	];
+	verdict(
+		'when it ends round 1 starts and both pages drop the lobby',
+		phases.every((p) => p === 'running') &&
+			started.every((ids) => !ids.includes('salmonsLobby') && !ids.includes('salmonsCountdown')),
+		{ phases, shown: started },
+	);
+	writeFileSync(join(out, 'lobby.png'), await l2.page.screenshot());
+	await l1.page.close();
+	await l2.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();

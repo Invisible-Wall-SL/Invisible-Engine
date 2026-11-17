@@ -610,6 +610,24 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
+  released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins
+  what made two builds of one commit differ — `__IE_BUILD__`'s `builtAt`, `sha`, `engineSha`,
+  `gameSha`, `lockfileSha256` (`config-vite` `provenance.js`) and SvelteKit's `kit.version.name`
+  (`config-svelte`); unset, a build is as before. `pnpm check:runtime-bytes` builds every runtime that
+  way and compares each file under `_app/immutable/` + `index.html` (sha256 + gzip -6) with
+  `scripts/runtime-bytes/<id>.json`; `--update` re-records, and the `runtime-bytes` workflow runs it
+  on any change under `apps/lines/`, `packages/` or the lockfile, uploading Linux's manifests on a
+  failure. The release job builds the same reproducible twin first and, on a push, ends green as
+  "unchanged" without moving the pointer when the live release recorded the same whole-build hash
+  (`releases.json` `reproducible`), so a merge that does not reach a runtime costs its players no
+  re-download. **What an engine PR now owes:** if it changes a runtime's bytes, commit the new
+  manifests (download the failing run's `runtime-bytes` artifact into `scripts/runtime-bytes/`).
+  The manifests are Linux's: a Windows checkout (`autocrlf`) builds other bytes (CSS +264 B, bundle
+  ~+450 B, `libktx.js` −12 B gz vs Linux), so `--update` on Windows records the wrong thing. Proven:
+  two Windows builds of one tree identical file for file (4 runtimes, 316 s); a planted one-byte
+  mutant fails (`bundle` +1 B and three renamed lazy chunks).
+
 - 2026-11-13 — **The stock-folder sweep keeps a folder whole when it cannot read a kept file's
   pages.** Follow-up to #1651's review: the sweep deleted every stock-folder file no kept descriptor
   named *as `namedFiles` parsed it*, so a kept key whose descriptor named its pages in another form

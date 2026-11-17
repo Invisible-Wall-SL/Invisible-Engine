@@ -19,6 +19,8 @@ export const ONLINE_FLOW_EVENTS = Object.freeze({
 	caught: 'caught',
 	roundStart: 'roundStart',
 	roundEnd: 'roundEnd',
+	lobby: 'lobby',
+	countdown: 'countdown',
 	ability: 'ability',
 	climbed: 'climbed',
 	grounded: 'grounded',
@@ -125,6 +127,12 @@ export function flowSignalsOf(events, me, at = () => undefined, predictor = unde
 						me: event.target === me,
 					},
 				});
+				break;
+			case 'lobby':
+				signals.push({ name, payload: { player: event.id, me: event.id === me } });
+				break;
+			case 'countdown':
+				signals.push({ name, payload: { seconds: event.seconds } });
 				break;
 			case 'roundStart':
 				predictor?.reset();

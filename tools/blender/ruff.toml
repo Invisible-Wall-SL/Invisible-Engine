@@ -1,0 +1,2 @@
+# Same narrow rules as the services (F, E9, BLE). Run locally: `ruff check tools/blender/` (CI lints services/ only).
+extend = "../../services/ruff.toml"

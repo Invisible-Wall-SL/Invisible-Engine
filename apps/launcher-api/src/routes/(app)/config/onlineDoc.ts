@@ -4,6 +4,7 @@ import {
 	ARCADE_ONLINE_LIMITS,
 	type ArcadeOnline,
 	type ArcadeOnlineHitEffect,
+	type ArcadeOnlineLobby,
 	type ArcadeOnlineRound,
 	type ArcadeOnlineRules,
 	type GameConfigDoc,
@@ -326,6 +327,29 @@ export function setRoundField(
 		if (rules.round) delete rules.round[field];
 	} else (rules.round ??= {})[field] = n;
 	pruneRules(online);
+}
+
+/** Give the room a lobby (Salmons' numbers as the defaults) or take it away. */
+export function setLobbyOn(doc: GameConfigDoc, on: boolean): void {
+	const online = onlineOf(doc);
+	if (!online) return;
+	if (on) rulesOf(online).lobby ??= {};
+	else if (online.rules) delete online.rules.lobby;
+	pruneRules(online);
+}
+
+/** One number of the lobby: `minPlayers` a whole number from 1, the seconds from 0. Empty or
+ *  unreadable clears it (its default). */
+export function setLobbyField(
+	doc: GameConfigDoc,
+	field: keyof ArcadeOnlineLobby,
+	value: string,
+): void {
+	const online = onlineOf(doc);
+	if (!online?.rules?.lobby) return;
+	const n = field === 'minPlayers' ? intAtLeast(value, 1) : atLeastZero(value);
+	if (n === undefined) delete online.rules.lobby[field];
+	else online.rules.lobby[field] = n;
 }
 
 /** The named rules module the room also runs; empty for none. */

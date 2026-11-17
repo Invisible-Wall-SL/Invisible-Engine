@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Invisible 3D Determinism</title>
+<style>
+:root { --bg: #f6f7f9; --fg: #15171c; --muted: #5d6470; --ok: #127a3a; --bad: #b3261e; --card: #fff; --line: #dde1e7; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111318; --fg: #e8eaee; --muted: #9aa1ad; --ok: #4cc27a; --bad: #ff7b72; --card: #1a1d24; --line: #2b2f38; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #111318; --fg: #e8eaee; --muted: #9aa1ad; --ok: #4cc27a; --bad: #ff7b72; --card: #1a1d24; --line: #2b2f38; color-scheme: dark; }
+body { margin: 0; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, sans-serif; }
+main { max-width: 640px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+p { color: var(--muted); margin: 0 0 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.verdict { font-size: 28px; font-weight: 700; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+.code { font: 700 32px/1.2 ui-monospace, Menlo, monospace; letter-spacing: 2px; }
+table { width: 100%; border-collapse: collapse; font: 13px ui-monospace, Menlo, monospace; }
+td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.small { font-size: 12px; color: var(--muted); word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+<h1>Invisible 3D Determinism</h1>
+<p>Six bodies, 12 000 steps of the 3D motion step. Every hash must equal Node's.</p>
+<div class="card"><div id="verdict" class="verdict">Running…</div><div>Code <span id="code" class="code">—</span></div><div id="runs" class="small"></div></div>
+<div class="card"><table id="table"></table></div>
+<div class="card small" id="ua"></div>
+</main>
+<script>
+/**
+ * Arcade 3D motion (`docs/design/3d-games.md`, `docs/design/3d/gameplay-evaluation.md` §2): a
+ * kinematic body on a level of axis-aligned boxes and ramp wedges, y up, in metres.
+ *
+ * Plain, dependency-free ESM for the reason `motion.js` is: the room on `services/game-server` and
+ * a device's own-player prediction step this very file, and the room's step must equal the
+ * device's bit for bit. Nothing here touches the 2D modules; a 3D game reaches it only on its own
+ * path, so the committed 2D replays cannot move.
+ *
+ * Determinism across engines (V8 in Node and Chrome, JavaScriptCore on iOS): the step uses only
+ * operations IEEE 754 rounds exactly — `+ − × ÷`, `Math.sqrt`, comparisons, `Math.floor` /
+ * `Math.ceil` / `Math.min` / `Math.max` / `Math.abs` — never `Math.sin/cos/atan2/hypot/pow/exp`,
+ * whose results are implementation-defined. The device turns its camera into a world-space move
+ * direction and quantises it to int8 before the step; yaw travels as a uint16 that is only copied.
+ * Pinned by `scripts/check-arcade-3d.mjs`, which also greps this file for those functions.
+ *
+ * The body is its upright bounding box against the level: `radius` out from the centre on x and z,
+ * `height` up from the feet. `x` / `z` is the centre on the plane and `y` the feet. A sub-step
+ * moves x, then z, then y; a horizontal move climbs anything no higher than `stepUp` (a ramp is
+ * climbed this way, a sliver at a time), and a grounded body that walks off a surface sticks to
+ * one up to `snapDown` below it.
+ */
+
+/** Steps per second the 3D sim is pinned at. */
+const MOTION3D_HZ = 60;
+
+/** Sub-steps one step may take: a fall at `maxFall` crosses no slab thinner than `subMove`. */
+const MAX_SUB_STEPS_3D = 64;
+
+/** An int8 move axis spans −127..127 (−128 reads as −127). */
+const MOVE_SCALE = 127;
+
+/** A uint16 yaw: 65536 units to the turn. */
+const YAW_UNITS = 65536;
+
+/** Input button bits. */
+const BUTTON_JUMP = 1;
+const BUTTON_SPRINT = 2;
+
+/** The direction a ramp's surface rises toward. */
+const RAMP_FACINGS = ['+x', '-x', '+z', '-z'];
+
+/** BOTY's numbers (gameplay evaluation §1): gravity −9.81, jump 1.5 m, double jump while |vy| < 5. */
+const MOTION3D_DEFAULTS = Object.freeze({
+	radius: 0.4,
+	height: 1.8,
+	speed: 5,
+	sprint: 1.6,
+	groundAccel: 60,
+	airAccel: 15,
+	gravity: -9.81,
+	maxFall: 30,
+	jumpHeight: 1.5,
+	doubleJumpHeight: 1.5,
+	apexWindow: 5,
+	coyoteSteps: 6,
+	bufferSteps: 6,
+	stepUp: 0.35,
+	snapDown: 0.35,
+	subMove: 0.1,
+});
+
+/**
+ * A level from its colliders and zones. A collider is `{ kind: 'box' | 'ramp', minX, minY, minZ,
+ * maxX, maxY, maxZ, facing? }`; a ramp's surface rises from `minY` on its low edge to `maxY` on the
+ * edge `facing` names. A zone is `{ kind, minX, minY, minZ, maxX, maxY, maxZ, height? }`; a
+ * `trampoline` launches a body standing in it to `height` m. Colliders are bucketed into square
+ * `cellSize` columns on the plane; `killY` is the death plane.
+ */
+function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 } = {}) {
+	if (!(cellSize > 0)) throw new Error(`motion3d: cellSize must be > 0 (${cellSize})`);
+	const list = colliders.map((c, id) => {
+		if (!(c.maxX > c.minX && c.maxY > c.minY && c.maxZ > c.minZ))
+			throw new Error(`motion3d: collider ${id} has no volume`);
+		const rise = c.kind === 'ramp' ? RAMP_FACINGS.indexOf(c.facing) : -1;
+		if (c.kind === 'ramp' && rise < 0)
+			throw new Error(`motion3d: ramp ${id} needs a facing (${RAMP_FACINGS.join(' ')})`);
+		if (c.kind !== 'ramp' && c.kind !== 'box')
+			throw new Error(`motion3d: collider ${id} is neither box nor ramp`);
+		const run = rise < 2 ? c.maxX - c.minX : c.maxZ - c.minZ;
+		return {
+			id,
+			kind: c.kind,
+			minX: c.minX,
+			minY: c.minY,
+			minZ: c.minZ,
+			maxX: c.maxX,
+			maxY: c.maxY,
+			maxZ: c.maxZ,
+			rise,
+			slope: rise < 0 ? 0 : (c.maxY - c.minY) / run,
+		};
+	});
+	const cells = new Map();
+	for (const c of list) {
+		const x0 = Math.floor(c.minX / cellSize);
+		const x1 = Math.floor(c.maxX / cellSize);
+		const z0 = Math.floor(c.minZ / cellSize);
+		const z1 = Math.floor(c.maxZ / cellSize);
+		for (let cx = x0; cx <= x1; cx++)
+			for (let cz = z0; cz <= z1; cz++) {
+				const key = `${cx},${cz}`;
+				const bucket = cells.get(key);
+				if (bucket) bucket.push(c.id);
+				else cells.set(key, [c.id]);
+			}
+	}
+	const zoneList = zones.map((z, id) => ({
+		id,
+		kind: z.kind,
+		minX: z.minX,
+		minY: z.minY,
+		minZ: z.minZ,
+		maxX: z.maxX,
+		maxY: z.maxY,
+		maxZ: z.maxZ,
+		height: z.height ?? 0,
+	}));
+	return {
+		colliders: list,
+		zones: zoneList,
+		cells,
+		cellSize,
+		killY,
+		seen: new Int32Array(list.length),
+		query: 0,
+	};
+}
+
+/** The colliders whose columns a plane box touches, in id order. */
+function collidersNear(level, x0, z0, x1, z1) {
+	const size = level.cellSize;
+	const cx0 = Math.floor(x0 / size);
+	const cx1 = Math.floor(x1 / size);
+	const cz0 = Math.floor(z0 / size);
+	const cz1 = Math.floor(z1 / size);
+	level.query += 1;
+	const stamp = level.query;
+	const ids = [];
+	for (let cx = cx0; cx <= cx1; cx++)
+		for (let cz = cz0; cz <= cz1; cz++) {
+			const bucket = level.cells.get(`${cx},${cz}`);
+			if (!bucket) continue;
+			for (const id of bucket) {
+				if (level.seen[id] === stamp) continue;
+				level.seen[id] = stamp;
+				ids.push(id);
+			}
+		}
+	ids.sort((a, b) => a - b);
+	return ids.map((id) => level.colliders[id]);
+}
+
+/** The top of a collider under a footprint: a box's lid, or a ramp's highest point under it. */
+function topUnder(c, x0, z0, x1, z1) {
+	switch (c.rise) {
+		case 0:
+			return c.minY + (Math.max(c.minX, Math.min(x1, c.maxX)) - c.minX) * c.slope;
+		case 1:
+			return c.minY + (c.maxX - Math.min(c.maxX, Math.max(x0, c.minX))) * c.slope;
+		case 2:
+			return c.minY + (Math.max(c.minZ, Math.min(z1, c.maxZ)) - c.minZ) * c.slope;
+		case 3:
+			return c.minY + (c.maxZ - Math.min(c.maxZ, Math.max(z0, c.minZ))) * c.slope;
+		default:
+			return c.maxY;
+	}
+}
+
+/** A body at rest at a place. Position in metres (feet), yaw as uint16. */
+function createBody3d({ x = 0, y = 0, z = 0, yaw = 0 } = {}) {
+	return {
+		x,
+		y,
+		z,
+		vx: 0,
+		vy: 0,
+		vz: 0,
+		yaw: yaw & 0xffff,
+		grounded: false,
+		held: false,
+		coyote: 0,
+		buffer: 0,
+		doubleUsed: false,
+	};
+}
+
+const int8 = (v) => {
+	const n = v | 0;
+	return n < -MOVE_SCALE ? -MOVE_SCALE : n > MOVE_SCALE ? MOVE_SCALE : n;
+};
+
+const toward = (v, target, maxDelta) => {
+	const d = target - v;
+	return d > maxDelta ? v + maxDelta : d < -maxDelta ? v - maxDelta : target;
+};
+
+/**
+ * One fixed step of one body. `input` is `{ mx, mz, yaw, buttons }` — int8 world-space move axes,
+ * a uint16 yaw, {@link BUTTON_JUMP} / {@link BUTTON_SPRINT} bits. Mutates `body`; returns what
+ * happened this step: `{ grounded, landed, jumped, doubleJumped, bounced, onWall, onRamp, steppedUp,
+ * hitCeiling, fell }`. `fell` is the death plane; the rules respawn, the step does not.
+ */
+function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 / MOTION3D_HZ) {
+	const out = {
+		grounded: false,
+		landed: false,
+		jumped: false,
+		doubleJumped: false,
+		bounced: false,
+		onWall: false,
+		onRamp: false,
+		steppedUp: false,
+		hitCeiling: false,
+		fell: false,
+	};
+	body.yaw = input.yaw & 0xffff;
+	const buttons = input.buttons | 0;
+	const wasGrounded = body.grounded;
+
+	const mx = int8(input.mx);
+	const mz = int8(input.mz);
+	const unit = (spec.speed * (buttons & BUTTON_SPRINT ? spec.sprint : 1)) / MOVE_SCALE;
+	let tx = mx * unit;
+	let tz = mz * unit;
+	const len2 = mx * mx + mz * mz;
+	if (len2 > MOVE_SCALE * MOVE_SCALE) {
+		const k = MOVE_SCALE / Math.sqrt(len2);
+		tx *= k;
+		tz *= k;
+	}
+	const dv = (wasGrounded ? spec.groundAccel : spec.airAccel) * dt;
+	body.vx = toward(body.vx, tx, dv);
+	body.vz = toward(body.vz, tz, dv);
+
+	const pressed = (buttons & BUTTON_JUMP) !== 0;
+	const edge = pressed && !body.held;
+	body.held = pressed;
+	if (edge) body.buffer = spec.bufferSteps;
+	else if (body.buffer > 0) body.buffer -= 1;
+	if (wasGrounded) {
+		body.coyote = spec.coyoteSteps;
+		body.doubleUsed = false;
+	} else if (body.coyote > 0) body.coyote -= 1;
+	const g = -spec.gravity;
+	if (body.buffer > 0 && (wasGrounded || body.coyote > 0)) {
+		body.vy = Math.sqrt(2 * g * spec.jumpHeight);
+		body.buffer = 0;
+		body.coyote = 0;
+		out.jumped = true;
+	} else if (edge && !wasGrounded && !body.doubleUsed && Math.abs(body.vy) < spec.apexWindow) {
+		body.vy = Math.sqrt(2 * g * spec.doubleJumpHeight);
+		body.doubleUsed = true;
+		body.buffer = 0;
+		out.doubleJumped = true;
+	}
+	body.vy += spec.gravity * dt;
+	if (body.vy < -spec.maxFall) body.vy = -spec.maxFall;
+	body.grounded = false;
+
+	const dx = body.vx * dt;
+	const dy = body.vy * dt;
+	const dz = body.vz * dt;
+	const reach = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+	const n = reach > 0 ? Math.min(MAX_SUB_STEPS_3D, Math.ceil(reach / spec.subMove)) : 1;
+	let sx = dx / n;
+	let sy = dy / n;
+	let sz = dz / n;
+	for (let i = 0; i < n; i++) {
+		if (sx !== 0 && !moveFlat(body, 0, sx, level, spec, out)) sx = 0;
+		if (sz !== 0 && !moveFlat(body, 1, sz, level, spec, out)) sz = 0;
+		if (sy !== 0 && !moveUp(body, sy, level, spec, out)) sy = 0;
+	}
+
+	if (!body.grounded && wasGrounded && !out.jumped && body.vy <= 0)
+		snapDown(body, level, spec, out);
+	if (body.grounded) {
+		out.landed = !wasGrounded;
+		const zone = trampolineAt(body, level);
+		if (zone) {
+			body.vy = Math.sqrt(2 * g * zone.height);
+			body.grounded = false;
+			body.doubleUsed = false;
+			out.bounced = true;
+		}
+	}
+	out.grounded = body.grounded;
+	out.fell = body.y < level.killY;
+	return out;
+}
+
+/** Move on x (`axis` 0) or z (1) by `d`, climbing up to `stepUp`; false when a wall stopped it. */
+function moveFlat(body, axis, d, level, spec, out) {
+	const r = spec.radius;
+	const h = spec.height;
+	const prev = axis === 0 ? body.x : body.z;
+	if (axis === 0) body.x = prev + d;
+	else body.z = prev + d;
+	const x0 = body.x - r;
+	const x1 = body.x + r;
+	const z0 = body.z - r;
+	const z1 = body.z + r;
+	const near = collidersNear(level, x0, z0, x1, z1);
+	const canStep = body.vy <= 0;
+	let floor = body.y;
+	let ramp = false;
+	let blocked = false;
+	for (const c of near) {
+		if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
+		const top = topUnder(c, x0, z0, x1, z1);
+		if (!(body.y < top && body.y + h > c.minY)) continue;
+		if (canStep && top - body.y <= spec.stepUp) {
+			if (top > floor) floor = top;
+			if (c.rise >= 0) ramp = true;
+		} else {
+			blocked = true;
+			break;
+		}
+	}
+	if (!blocked && floor > body.y) {
+		for (const c of near) {
+			if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
+			const top = topUnder(c, x0, z0, x1, z1);
+			if (floor < top && floor + h > c.minY) {
+				blocked = true;
+				break;
+			}
+		}
+		if (!blocked) {
+			body.y = floor;
+			if (body.vy < 0) body.vy = 0;
+			body.grounded = true;
+			if (ramp) out.onRamp = true;
+			else out.steppedUp = true;
+		}
+	}
+	if (blocked) {
+		if (axis === 0) {
+			body.x = prev;
+			body.vx = 0;
+		} else {
+			body.z = prev;
+			body.vz = 0;
+		}
+		out.onWall = true;
+		return false;
+	}
+	return true;
+}
+
+/** Move on y by `d`: land on the highest top crossed, or stop under a ceiling; false when stopped. */
+function moveUp(body, d, level, spec, out) {
+	const r = spec.radius;
+	const h = spec.height;
+	const prev = body.y;
+	const next = prev + d;
+	const x0 = body.x - r;
+	const x1 = body.x + r;
+	const z0 = body.z - r;
+	const z1 = body.z + r;
+	const near = collidersNear(level, x0, z0, x1, z1);
+	if (d < 0) {
+		let best = -Infinity;
+		let ramp = false;
+		for (const c of near) {
+			if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
+			const top = topUnder(c, x0, z0, x1, z1);
+			if (top <= prev && top >= next && top > best) {
+				best = top;
+				ramp = c.rise >= 0;
+			}
+		}
+		if (best !== -Infinity) {
+			body.y = best;
+			body.vy = 0;
+			body.grounded = true;
+			if (ramp) out.onRamp = true;
+			return false;
+		}
+	} else {
+		let low = Infinity;
+		for (const c of near) {
+			if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
+			if (c.minY >= prev + h && c.minY < next + h && c.minY < low) low = c.minY;
+		}
+		if (low !== Infinity) {
+			body.y = low - h;
+			body.vy = 0;
+			out.hitCeiling = true;
+			return false;
+		}
+	}
+	body.y = next;
+	return true;
+}
+
+/** Stick a body that walked off a surface onto one within `snapDown` below its feet. */
+function snapDown(body, level, spec, out) {
+	const r = spec.radius;
+	const x0 = body.x - r;
+	const x1 = body.x + r;
+	const z0 = body.z - r;
+	const z1 = body.z + r;
+	let best = -Infinity;
+	let ramp = false;
+	for (const c of collidersNear(level, x0, z0, x1, z1)) {
+		if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
+		const top = topUnder(c, x0, z0, x1, z1);
+		if (top <= body.y && top >= body.y - spec.snapDown && top > best) {
+			best = top;
+			ramp = c.rise >= 0;
+		}
+	}
+	if (best === -Infinity) return;
+	body.y = best;
+	body.vy = 0;
+	body.grounded = true;
+	if (ramp) out.onRamp = true;
+}
+
+/** The trampoline zone a standing body's centre is in, if any. */
+function trampolineAt(body, level) {
+	for (const z of level.zones) {
+		if (z.kind !== 'trampoline') continue;
+		if (
+			body.x >= z.minX &&
+			body.x <= z.maxX &&
+			body.z >= z.minZ &&
+			body.z <= z.maxZ &&
+			body.y >= z.minY &&
+			body.y <= z.maxY
+		)
+			return z;
+	}
+	return null;
+}
+
+const HASH_VIEW = new DataView(new ArrayBuffer(8));
+
+const mix = (h, byte) => Math.imul(h ^ byte, 0x01000193) >>> 0;
+
+const mixFloat = (h, v) => {
+	HASH_VIEW.setFloat64(0, v, true);
+	for (let i = 0; i < 8; i++) h = mix(h, HASH_VIEW.getUint8(i));
+	return h;
+};
+
+/** FNV-1a offset basis: the hash of nothing. */
+const HASH3D_SEED = 0x811c9dc5;
+
+/**
+ * A uint32 hash (FNV-1a) of the exact bits of every body's state, in order — what a room and a
+ * device compare to know they agree. `h` chains it onto an earlier hash.
+ */
+function hashBodies3d(bodies, h = HASH3D_SEED) {
+	for (const b of bodies) {
+		h = mixFloat(h, b.x);
+		h = mixFloat(h, b.y);
+		h = mixFloat(h, b.z);
+		h = mixFloat(h, b.vx);
+		h = mixFloat(h, b.vy);
+		h = mixFloat(h, b.vz);
+		h = mixFloat(h, b.yaw);
+		h = mixFloat(h, b.coyote);
+		h = mixFloat(h, b.buffer);
+		h = mix(h, (b.grounded ? 1 : 0) | (b.held ? 2 : 0) | (b.doubleUsed ? 4 : 0));
+	}
+	return h;
+}
+
+// The 3D determinism scenario (docs/design/3d-games.md Phase 0b): six bodies driven by a seeded
+// script for 12 000 steps over a level with a raised tier, four ramps, an overhead slab, steps, a
+// pit and two trampolines, hashed every 500 steps. The same file runs in Node (check:arcade-3d),
+// in Chrome and on iOS Safari (the page scripts/arcade-3d-page.mjs builds), so the script itself
+// may use only the IEEE-exact operations motion3d.js does — integer PRNG, + − × ÷, Math.sqrt,
+// Math.round. No trig, here either.
+
+
+const SCENARIO3D = { seed: 0x3d0b, bodies: 6, steps: 12000, every: 500 };
+
+const box = (minX, minY, minZ, maxX, maxY, maxZ) => ({
+	kind: 'box',
+	minX,
+	minY,
+	minZ,
+	maxX,
+	maxY,
+	maxZ,
+});
+const ramp = (facing, minX, minY, minZ, maxX, maxY, maxZ) => ({
+	kind: 'ramp',
+	facing,
+	minX,
+	minY,
+	minZ,
+	maxX,
+	maxY,
+	maxZ,
+});
+
+function scenarioLevel3d() {
+	return createLevel3d({
+		cellSize: 4,
+		killY: -10,
+		colliders: [
+			// The floor, around a 4 × 4 m pit at x 8..12, z −12..−8.
+			box(-20, -1, -20, 20, 0, -12),
+			box(-20, -1, -8, 20, 0, 20),
+			box(-20, -1, -12, 8, 0, -8),
+			box(12, -1, -12, 20, 0, -8),
+			// The border walls.
+			box(-21, -1, -21, 21, 3, -20),
+			box(-21, -1, 20, 21, 3, 21),
+			box(-21, -1, -20, -20, 3, 20),
+			box(20, -1, -20, 21, 3, 20),
+			// The tier, 3 m up, and a ramp up each side.
+			box(-6, 0, -6, 6, 3, 6),
+			ramp('+x', -14, 0, -2, -6, 3, 2),
+			ramp('-x', 6, 0, -2, 14, 3, 2),
+			ramp('+z', -2, 0, -14, 2, 3, -6),
+			ramp('-z', -2, 0, 6, 2, 3, 14),
+			// An overhead slab (a ceiling to jump into, a floor to bounce onto).
+			box(10, 2.2, 10, 18, 2.6, 18),
+			// A stair: 0.3 m steps climb, the 0.5 m block does not.
+			box(-18, 0, -18, -16, 0.3, -14),
+			box(-16, 0, -18, -14, 0.6, -14),
+			box(-14, 0, -18, -12, 0.9, -14),
+			box(-11, 0, -18, -10, 1.4, -14),
+			// Pillars.
+			box(13, 0, -4, 14, 4, -3),
+			box(-14, 0, 6, -13, 4, 7),
+		],
+		zones: [
+			{
+				kind: 'trampoline',
+				minX: -17,
+				minY: -0.1,
+				minZ: 13,
+				maxX: -13,
+				maxY: 0.1,
+				maxZ: 17,
+				height: 6,
+			},
+			{
+				kind: 'trampoline',
+				minX: 13,
+				minY: -0.1,
+				minZ: 11,
+				maxX: 15,
+				maxY: 0.1,
+				maxZ: 13,
+				height: 4.5,
+			},
+			{ kind: 'trampoline', minX: -1, minY: 2.9, minZ: -1, maxX: 1, maxY: 3.1, maxZ: 1, height: 3 },
+		],
+	});
+}
+
+/** Where the script sends bodies: ramp feet and heads, the tier, trampolines, the slab, the pit. */
+const TARGETS = [
+	[-15, -1],
+	[-6, 0],
+	[15, 1],
+	[6, 0],
+	[0, -15],
+	[0, -6],
+	[0, 15],
+	[0, 6],
+	[0, 0],
+	[-15, 15],
+	[14, 12],
+	[14, 14],
+	[-17, -16],
+	[-11, -16],
+	[10, -10],
+	[19, 0],
+	[-19, 5],
+	[3, -19],
+];
+
+const SPAWNS = [
+	[-10, 0, 10],
+	[10, 0, -16],
+	[-16, 0, -6],
+	[16, 0, 6],
+	[0, 3, 0],
+	[5, 0, 17],
+];
+
+/** mulberry32: integer-only, the same stream on every engine. */
+function rng(seed) {
+	let a = seed >>> 0;
+	return () => {
+		a = (a + 0x6d2b79f5) >>> 0;
+		let t = a;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return (t ^ (t >>> 14)) >>> 0;
+	};
+}
+
+const hex = (h) => (h >>> 0).toString(16).padStart(8, '0');
+
+/**
+ * Run the scenario. Returns the hash at every checkpoint, the final `code` (the checkpoints'
+ * hashes hashed together), the last body's state and how often each case happened.
+ */
+function runScenario3d({ steps = SCENARIO3D.steps, every = SCENARIO3D.every } = {}) {
+	const level = scenarioLevel3d();
+	const bodies = [];
+	const bots = [];
+	for (let i = 0; i < SCENARIO3D.bodies; i++) {
+		const [x, y, z] = SPAWNS[i];
+		bodies.push(createBody3d({ x, y, z }));
+		bots.push({
+			next: rng(SCENARIO3D.seed * 31 + i),
+			left: 0,
+			mode: 0,
+			mx: 0,
+			mz: 0,
+			tx: 0,
+			tz: 0,
+			yaw: 0,
+			sprint: 0,
+			hop: 0,
+			held: 0,
+		});
+	}
+	const coverage = {
+		jumps: 0,
+		doubleJumps: 0,
+		bounces: 0,
+		rampSteps: 0,
+		stepUps: 0,
+		wallSteps: 0,
+		ceilings: 0,
+		landings: 0,
+		falls: 0,
+		airSteps: 0,
+	};
+	const checkpoints = [];
+	const input = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
+	for (let s = 1; s <= steps; s++) {
+		for (let i = 0; i < bodies.length; i++) {
+			const body = bodies[i];
+			const bot = bots[i];
+			if (bot.left <= 0) {
+				const r = bot.next();
+				bot.left = 20 + (r % 140);
+				bot.mode = (r >>> 8) % 5;
+				const t = TARGETS[(r >>> 12) % TARGETS.length];
+				bot.tx = t[0];
+				bot.tz = t[1];
+				bot.mx = ((bot.next() % 255) | 0) - 127;
+				bot.mz = ((bot.next() % 255) | 0) - 127;
+				bot.yaw = bot.next() & 0xffff;
+				bot.sprint = (r >>> 20) % 3 === 0 ? BUTTON_SPRINT : 0;
+				bot.hop = (r >>> 4) % 3 === 0 ? 0 : 40 + ((r >>> 24) % 100);
+			}
+			bot.left -= 1;
+			if (bot.mode <= 1) {
+				// Walk to the target: the device's quantisation, a world direction to int8.
+				const dx = bot.tx - body.x;
+				const dz = bot.tz - body.z;
+				const len = Math.sqrt(dx * dx + dz * dz);
+				input.mx = len > 0.05 ? Math.round((dx / len) * MOVE_SCALE) : 0;
+				input.mz = len > 0.05 ? Math.round((dz / len) * MOVE_SCALE) : 0;
+			} else if (bot.mode === 4) {
+				input.mx = 0;
+				input.mz = 0;
+			} else {
+				input.mx = bot.mx;
+				input.mz = bot.mz;
+			}
+			input.yaw = (bot.yaw + s * 37) & 0xffff;
+			let jump = 0;
+			if (bot.held > 0) {
+				bot.held -= 1;
+				jump = BUTTON_JUMP;
+			} else if (bot.hop > 0 && bot.left % bot.hop === 0) {
+				bot.held = 1 + (bot.next() % 12);
+				jump = BUTTON_JUMP;
+			} else if (
+				bot.hop > 0 &&
+				!body.grounded &&
+				!body.doubleUsed &&
+				body.vy < 1 &&
+				body.vy > -1 &&
+				(bot.next() & 3) === 0
+			) {
+				bot.held = 2;
+				jump = BUTTON_JUMP;
+			}
+			input.buttons = jump | bot.sprint;
+			const r = stepBody3d(body, input, level);
+			if (r.jumped) coverage.jumps += 1;
+			if (r.doubleJumped) coverage.doubleJumps += 1;
+			if (r.bounced) coverage.bounces += 1;
+			if (r.onRamp) coverage.rampSteps += 1;
+			if (r.steppedUp) coverage.stepUps += 1;
+			if (r.onWall) coverage.wallSteps += 1;
+			if (r.hitCeiling) coverage.ceilings += 1;
+			if (r.landed) coverage.landings += 1;
+			if (!r.grounded) coverage.airSteps += 1;
+			if (r.fell) {
+				coverage.falls += 1;
+				const [x, y, z] = SPAWNS[i];
+				bodies[i] = createBody3d({ x, y, z, yaw: body.yaw });
+			}
+		}
+		if (s % every === 0) checkpoints.push(hex(hashBodies3d(bodies)));
+	}
+	let h = HASH3D_SEED;
+	for (const c of checkpoints) h = Math.imul(h ^ parseInt(c, 16), 0x01000193) >>> 0;
+	const last = bodies[bodies.length - 1];
+	return {
+		steps,
+		every,
+		checkpoints,
+		code: hex(h),
+		last: { x: last.x, y: last.y, z: last.z, vx: last.vx, vy: last.vy, vz: last.vz },
+		coverage,
+	};
+}
+
+const EXPECTED = {
+	"steps": 12000,
+	"every": 500,
+	"checkpoints": [
+		"62af8943",
+		"bad45794",
+		"7ab95cb7",
+		"0e8c986d",
+		"988413d9",
+		"ce21e7e8",
+		"36aab515",
+		"d11fcfc8",
+		"f7b9bb21",
+		"c111c31c",
+		"52bb7bbb",
+		"266fed40",
+		"597f0194",
+		"f4691e6f",
+		"8ed6497b",
+		"27cc63c2",
+		"5f3fc7b1",
+		"9e5fb69a",
+		"2d6b015a",
+		"27b3fb61",
+		"1e5d5cc1",
+		"e9379985",
+		"080e9717",
+		"d6f465b9"
+	],
+	"code": "d3eac484",
+	"last": {
+		"x": -1.6053871106215485,
+		"y": 0,
+		"z": 16.81035789224892,
+		"vx": -2.796785523622914,
+		"vy": 0,
+		"vz": 4.144633968742391
+	},
+	"coverage": {
+		"jumps": 425,
+		"doubleJumps": 360,
+		"bounces": 21,
+		"rampSteps": 2758,
+		"stepUps": 42,
+		"wallSteps": 7866,
+		"ceilings": 21,
+		"landings": 477,
+		"falls": 13,
+		"airSteps": 43697
+	}
+};
+const runs = [];
+let all = true;
+for (let i = 0; i < 3; i++) {
+	const t0 = performance.now();
+	const r = runScenario3d();
+	runs.push({ r, ms: performance.now() - t0 });
+	if (JSON.stringify(r) !== JSON.stringify(EXPECTED)) all = false;
+}
+const first = runs[0].r;
+const verdict = document.getElementById('verdict');
+verdict.textContent = all ? 'MATCH' : 'DIFFERS';
+verdict.className = 'verdict ' + (all ? 'ok' : 'bad');
+document.getElementById('code').textContent = first.code;
+document.getElementById('runs').textContent = 'runs: ' + runs.map((x) => x.r.code + ' in ' + x.ms.toFixed(0) + ' ms').join(' · ') + ' · expected ' + EXPECTED.code;
+const rows = first.checkpoints.map((h, i) => {
+	const want = EXPECTED.checkpoints[i];
+	return '<tr><td>' + (i + 1) * first.every + '</td><td class="' + (h === want ? 'ok' : 'bad') + '">' + h + '</td><td>' + (h === want ? '' : 'want ' + want) + '</td></tr>';
+});
+document.getElementById('table').innerHTML = rows.join('');
+document.getElementById('ua').textContent = navigator.userAgent;
+window.__ARCADE3D__ = { match: all, code: first.code, checkpoints: first.checkpoints, last: first.last, runs: runs.map((x) => x.r.code) };
+</script>
+</body>
+</html>

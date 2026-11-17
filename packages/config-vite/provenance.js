@@ -37,6 +37,22 @@ export const lockfileSha256 = (from) => {
 	}
 };
 
+/**
+ * `IE_REPRODUCIBLE=1`: every value a build compiles in that changes from one build of the same source
+ * to the next is pinned, so two builds of one tree are the same bytes, file for file. Without it the
+ * time, the commits and the lockfile hash make every build unique, so nothing could tell whether a
+ * change reached a runtime's bytes. `check:runtime-bytes` and the runtime release's
+ * skip-unchanged step build this way; nothing that ships to a player does (`docs/design/3d-games.md`).
+ */
+export const reproducibleBuild = () => process.env.IE_REPRODUCIBLE === '1';
+
+/** What a reproducible build compiles in place of the time and the commits. */
+export const PINNED = {
+	builtAt: '1970-01-01T00:00:00.000Z',
+	sha: 'reproducible',
+	lockfileSha256: 'reproducible',
+};
+
 let cached;
 
 /**
@@ -50,9 +66,19 @@ let cached;
  * advances the submodule past it on purpose. In the engine monorepo both commits are the same one.
  *
  * Memoised per process: the define and the packager must agree, and SvelteKit loads the config
- * more than once.
+ * more than once. `IE_REPRODUCIBLE=1` swaps the time, both commits and the lockfile hash for
+ * {@link PINNED}.
  */
 export const buildProvenance = (gameRoot = process.cwd()) => {
+	if (reproducibleBuild())
+		cached ??= {
+			version: process.env.PUBLIC_BUILD_VERSION ?? '',
+			builtAt: PINNED.builtAt,
+			engineSha: PINNED.sha,
+			gameSha: PINNED.sha,
+			lockfileSha256: PINNED.lockfileSha256,
+			launcherVersion: process.env.PUBLIC_BUILD_LAUNCHER_VERSION ?? '',
+		};
 	cached ??= {
 		version: process.env.PUBLIC_BUILD_VERSION ?? '',
 		builtAt: process.env.PUBLIC_BUILD_TIME || new Date().toISOString(),

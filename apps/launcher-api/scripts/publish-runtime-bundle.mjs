@@ -26,6 +26,12 @@
 //                       and record the failure (otherwise "Releasing engine…" sticks for 30 min)
 //   --no-promote        upload + record the release but leave the pointer alone (a canary: pin one
 //                       game to it with `runtime-pointer.mjs pin`, then `promote` it)
+//   --reproducible <h>  record `h` on the release: the hash of the same commit built with
+//                       `IE_REPRODUCIBLE=1` (`scripts/check-runtime-bytes.mjs --hash`)
+//   --unchanged <h>     upload nothing; print `unchanged=true` to $GITHUB_OUTPUT when the release the
+//                       pointer names recorded `h`, i.e. this commit would ship the very bytes players
+//                       already have. The release job then ends green without moving the pointer, so
+//                       a merge that does not reach a runtime costs its players no re-download.
 
 import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
@@ -56,11 +62,14 @@ function flagValue(name) {
 }
 const statusFlag = flagValue('--status') ?? process.env.RELEASE_STATUS;
 const promoteAfterUpload = !args.includes('--no-promote');
+const reproducible = flagValue('--reproducible');
+const unchangedCheck = flagValue('--unchanged');
+const VALUED = new Set(['--status', '--reproducible', '--unchanged']);
 
-// Positional args, skipping flags AND the value consumed by `--status`.
+// Positional args, skipping flags AND the values they consume.
 const positional = [];
 for (let i = 0; i < args.length; i++) {
-	if (args[i] === '--status') {
+	if (VALUED.has(args[i])) {
 		i++;
 		continue;
 	}
@@ -69,7 +78,7 @@ for (let i = 0; i < args.length; i++) {
 }
 const runtimeId = positional[0];
 const buildDir = positional[1];
-if (!runtimeId || (!statusFlag && !buildDir)) {
+if (!runtimeId || (!statusFlag && !unchangedCheck && !buildDir)) {
 	console.error(
 		'Usage: node publish-runtime-bundle.mjs <runtimeId> <buildDir>  (e.g. lines apps/lines/build)',
 	);
@@ -98,6 +107,23 @@ if (statusFlag === 'building') {
 		status: 'building',
 	});
 	console.info(`Stamped ${keys.status(runtimeId)} → status='building' commit=${shortCommit}`);
+	process.exit(0);
+}
+
+if (unchangedCheck) {
+	const pointer = await readPointer(r2, runtimeId);
+	const live = pointer
+		? (await readHistory(r2, runtimeId)).find((r) => r.version === pointer.version)
+		: undefined;
+	const unchanged = Boolean(live?.reproducible) && live.reproducible === unchangedCheck;
+	if (process.env.GITHUB_OUTPUT)
+		appendFileSync(process.env.GITHUB_OUTPUT, `unchanged=${unchanged}\n`);
+	console.info(
+		unchanged
+			? `${runtimeId}: unchanged — the live release ${pointer.version} is these bytes already.`
+			: `${runtimeId}: changed (live ${pointer?.version ?? 'none'} recorded ` +
+					`${live?.reproducible?.slice(0, 12) ?? 'no reproducible hash'}, this build ${unchangedCheck.slice(0, 12)}).`,
+	);
 	process.exit(0);
 }
 
@@ -241,6 +267,7 @@ const release = {
 	bytes,
 	runUrl,
 	rigReader: await rigReaderRevision(),
+	...(reproducible ? { reproducible } : {}),
 };
 const history = await readHistory(r2, runtimeId);
 await writeHistory(r2, runtimeId, [release, ...history.filter((r) => r.version !== version)]);

@@ -1,0 +1,152 @@
+/**
+ * Types for arcade 3D motion (`motion3d.js`, `docs/design/3d/gameplay-evaluation.md` §2). Metres,
+ * y up; pinned by `scripts/check-arcade-3d.mjs`.
+ */
+
+export declare const MOTION3D_HZ: number;
+export declare const MAX_SUB_STEPS_3D: number;
+export declare const MOVE_SCALE: number;
+export declare const YAW_UNITS: number;
+export declare const BUTTON_JUMP: number;
+export declare const BUTTON_SPRINT: number;
+export declare const HASH3D_SEED: number;
+
+export type RampFacing = '+x' | '-x' | '+z' | '-z';
+export declare const RAMP_FACINGS: readonly RampFacing[];
+
+export type Box3 = {
+	minX: number;
+	minY: number;
+	minZ: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
+};
+
+/** A ramp's surface rises from `minY` on its low edge to `maxY` on the edge `facing` names. */
+export type Collider3dSpec = Box3 & ({ kind: 'box' } | { kind: 'ramp'; facing: RampFacing });
+
+/** A `trampoline` launches a body standing in it to `height` m; other kinds are for the rules. */
+export type Zone3dSpec = Box3 & { kind: string; height?: number };
+
+export type Collider3d = Box3 & {
+	readonly id: number;
+	readonly kind: 'box' | 'ramp';
+	/** Index into {@link RAMP_FACINGS}; −1 for a box. */
+	readonly rise: number;
+	/** Rise per metre of run; 0 for a box. */
+	readonly slope: number;
+};
+
+export type Zone3d = Box3 & { readonly id: number; readonly kind: string; readonly height: number };
+
+/** Built once per level; its query scratch (`seen`, `query`) is mutated by every step. */
+export type Level3d = {
+	readonly colliders: readonly Collider3d[];
+	readonly zones: readonly Zone3d[];
+	readonly cells: ReadonlyMap<string, readonly number[]>;
+	readonly cellSize: number;
+	readonly killY: number;
+	seen: Int32Array;
+	query: number;
+};
+
+export type Motion3dSpec = {
+	radius: number;
+	height: number;
+	/** m/s at full stick. */
+	speed: number;
+	/** Speed multiplier while {@link BUTTON_SPRINT} is held. */
+	sprint: number;
+	/** m/s² toward the stick's velocity, on the ground and in the air. */
+	groundAccel: number;
+	airAccel: number;
+	/** m/s², negative (down). */
+	gravity: number;
+	maxFall: number;
+	jumpHeight: number;
+	doubleJumpHeight: number;
+	/** A double jump is allowed only while |vy| is under this. */
+	apexWindow: number;
+	coyoteSteps: number;
+	bufferSteps: number;
+	stepUp: number;
+	snapDown: number;
+	/** The longest sub-step move, m. */
+	subMove: number;
+};
+
+export declare const MOTION3D_DEFAULTS: Readonly<Motion3dSpec>;
+
+/** `x` / `z` is the centre on the plane, `y` the feet; `yaw` a uint16 copied from the input. */
+export type Body3d = {
+	x: number;
+	y: number;
+	z: number;
+	vx: number;
+	vy: number;
+	vz: number;
+	yaw: number;
+	grounded: boolean;
+	held: boolean;
+	coyote: number;
+	buffer: number;
+	doubleUsed: boolean;
+};
+
+/** int8 world-space move axes, a uint16 yaw and button bits. */
+export type Input3d = { mx: number; mz: number; yaw: number; buttons: number };
+
+export type Step3dResult = {
+	grounded: boolean;
+	landed: boolean;
+	jumped: boolean;
+	doubleJumped: boolean;
+	bounced: boolean;
+	onWall: boolean;
+	onRamp: boolean;
+	steppedUp: boolean;
+	hitCeiling: boolean;
+	/** Below the level's `killY`; the rules respawn. */
+	fell: boolean;
+};
+
+export declare function createLevel3d(level?: {
+	colliders?: readonly Collider3dSpec[];
+	zones?: readonly Zone3dSpec[];
+	cellSize?: number;
+	killY?: number;
+}): Level3d;
+
+export declare function collidersNear(
+	level: Level3d,
+	x0: number,
+	z0: number,
+	x1: number,
+	z1: number,
+): Collider3d[];
+
+export declare function topUnder(
+	c: Collider3d,
+	x0: number,
+	z0: number,
+	x1: number,
+	z1: number,
+): number;
+
+export declare function createBody3d(at?: {
+	x?: number;
+	y?: number;
+	z?: number;
+	yaw?: number;
+}): Body3d;
+
+export declare function stepBody3d(
+	body: Body3d,
+	input: Input3d,
+	level: Level3d,
+	spec?: Motion3dSpec,
+	dt?: number,
+): Step3dResult;
+
+export declare function hashBodies3d(bodies: readonly Body3d[], h?: number): number;

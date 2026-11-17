@@ -13,8 +13,9 @@
 #
 # AUTOMATIC on merge — a `push` to `main` that touches the engine (`apps/lines/**` or `packages/**`)
 # auto-builds + publishes all four runtimes, so a merged engine fix reaches the online games with
-# no extra step. Still `workflow_dispatch` too, for a manual release of ONE id. Note the blast
-# radius: a release re-points EVERY online game on that runtime at the new engine code, so an
+# no extra step — except a runtime the merge did not change by one byte, which ends green as
+# "unchanged" without moving its pointer (the skip-unchanged step in `publish`). Still
+# `workflow_dispatch` too, for a manual release of ONE id. Note the blast radius: a release re-points EVERY online game on that runtime at the new engine code, so an
 # unverified engine commit on `main` goes live to all of them.
 #
 # GATED, then VERIFIED. Nothing is uploaded until the gates that catch a shipped-game crash pass
@@ -171,12 +172,53 @@ jobs:
           node -e "import('./packages/constants-shared/runtimes.ts').then((m) =>
             console.log('families=' + m.releaseFamiliesOf(process.argv[1])))" "$RUNTIME" >> "$GITHUB_OUTPUT"
 
+      # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
+      # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
+      - name: Build workspace packages
+        run: pnpm --filter "lines^..." build
+
+      # SKIP-UNCHANGED (docs/design/3d-games.md, runtime-evaluation §3.5c). A shipped build is never
+      # the same bytes twice (its commit and time are compiled in), so first the same commit is built
+      # with `IE_REPRODUCIBLE=1` (those values pinned, no source maps) and hashed, every file. When
+      # the release the pointer names recorded that very hash, this commit would ship players nothing
+      # new: on a push the job ends here, green, and the pointer stays, so no player re-downloads the
+      # bundle for a merge that never reached this runtime (a docs-adjacent `packages/**` change, a
+      # 3D-only one, a lockfile entry only another runtime uses). A dispatch always releases. The hash
+      # is recorded on every release, so the first release after this lands has nothing to match.
+      - name: Build the ${{ matrix.runtime }} runtime reproducibly and compare with the live release
+        id: twin
+        env:
+          PUBLIC_IE_FAMILIES: ${{ steps.families.outputs.families }}
+          PUBLIC_RGS_TRANSPORT: play4fun
+          PUBLIC_DELIVERY_PROFILES: '*'
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_SENTRY_SAMPLE_RATE: ${{ vars.PUBLIC_SENTRY_SAMPLE_RATE }}
+          IE_REPRODUCIBLE: '1'
+          NODE_OPTIONS: --max-old-space-size=8192
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -o pipefail
+          pnpm --filter lines build
+          hash="$(node scripts/check-runtime-bytes.mjs --hash apps/lines/build)"
+          rm -rf apps/lines/build
+          echo "reproducible=$hash" >> "$GITHUB_OUTPUT"
+          node apps/launcher-api/scripts/publish-runtime-bundle.mjs "$RUNTIME" --unchanged "$hash" \
+            | tee twin.log
+          if [ "$EVENT" = push ] && grep -q ': unchanged' twin.log; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=${RUNTIME} unchanged::This commit builds the bytes ${RUNTIME}'s live release already serves; nothing was released and its pointer stays."
+          fi
+
       # Advisory: mark the runtime as "building" BEFORE the (multi-minute) build so the launcher can
       # show "Releasing engine…" while it runs. `continue-on-error` — the stamp must never fail a
       # release; the final `released` stamp (after upload) is the one that matters.
       - name: Stamp release as building
         # An unpromoted (canary) upload makes nothing live, so it must not show "Releasing engine…".
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.promote }}
+        if: ${{ steps.twin.outputs.skip != 'true' && (github.event_name != 'workflow_dispatch' || inputs.promote) }}
         continue-on-error: true
         env:
           GITHUB_SHA: ${{ github.sha }}
@@ -187,11 +229,6 @@ jobs:
         run: |
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
             "${{ env.RUNTIME }}" --status building
-
-      # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
-      # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
-      - name: Build workspace packages
-        run: pnpm --filter "lines^..." build
 
       # Every id is the `apps/lines` build; PUBLIC_IE_FAMILIES picks what it carries.
       #
@@ -213,6 +250,7 @@ jobs:
       # into the chunk, for the next step to upload to Sentry and delete. Always on, token or not, so
       # the strip + gate below run on every release rather than only once someone configures Sentry.
       - name: Build the ${{ matrix.runtime }} runtime
+        if: ${{ steps.twin.outputs.skip != 'true' }}
         env:
           PUBLIC_IE_FAMILIES: ${{ steps.families.outputs.families }}
           PUBLIC_RGS_TRANSPORT: play4fun
@@ -231,6 +269,7 @@ jobs:
       # bundle and its CSS; a repeat visit's code: the shell) is a warning only
       # (no PR check runs the budget).
       - name: 'Gate: the ${{ matrix.runtime }} bundle carries its families only'
+        if: ${{ steps.twin.outputs.skip != 'true' }}
         env:
           FAMILIES: ${{ steps.families.outputs.families }}
         run: |
@@ -246,6 +285,7 @@ jobs:
       # No SENTRY_AUTH_TOKEN (or org/project) → the upload is skipped with a notice; a failed upload
       # is a warning. Neither ever fails the release — only a map left in the build does.
       - name: Upload source maps to Sentry and strip them from the build
+        if: ${{ steps.twin.outputs.skip != 'true' }}
         env:
           PUBLIC_BUILD_SHA: ${{ github.sha }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -255,9 +295,11 @@ jobs:
         run: node scripts/sentry-sourcemaps.mjs runtime apps/lines/build
 
       - name: 'Gate: no source map or sourceMappingURL ships'
+        if: ${{ steps.twin.outputs.skip != 'true' }}
         run: node scripts/sentry-sourcemaps.mjs verify apps/lines/build
 
       - name: Publish to _runtime/${{ matrix.runtime }}@<version> and promote it
+        if: ${{ steps.twin.outputs.skip != 'true' }}
         id: publish
         env:
           GITHUB_SHA: ${{ github.sha }}
@@ -267,7 +309,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
-            "${{ env.RUNTIME }}" apps/lines/build \
+            "${{ env.RUNTIME }}" apps/lines/build --reproducible "${{ steps.twin.outputs.reproducible }}" \
             ${{ (github.event_name == 'workflow_dispatch' && !inputs.promote) && '--no-promote' || '' }}
 
       # The test server hydrates every bundle from R2 on boot and on POST /refresh — nowhere else,
@@ -285,7 +327,7 @@ jobs:
         # Auto push-releases always verify; a manual dispatch honours its refresh checkbox, and an
         # unpromoted release has nothing new to serve.
         # A release a newer one superseded was never promoted, so there is nothing of it to serve.
-        if: ${{ steps.publish.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote)) }}
+        if: ${{ steps.twin.outputs.skip != 'true' && steps.publish.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || (inputs.refresh && inputs.promote)) }}
         env:
           TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
