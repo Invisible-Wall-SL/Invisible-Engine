@@ -368,13 +368,18 @@ the runbook follows them.
     `min(1, factor)`; arch `−curl·sin(2π·2 Hz·t)·36` with the tail envelope `(1 − i/11)^2.5`. Lift
     16 old px a cell × K (24 px a cell, 72 px at the top). The drawn height follows the room's
     smoothly between steps. The excerpts name no shadow or splash, so none is drawn.
-  - **Assumptions to confirm against the original** (asked of the relaying session):
-    - the jump only lifts; horizontal motion stays the stick's, as the old `move` every 50 ms
-      overrides the jump's `dir`;
-    - the height changes nothing else (catches, rocks, whirlpools);
-    - the tap target (`targetX/Y`) is not ported. It only steered that first 50 ms, and it belongs
-      in the tap/touch controller (#1722): a tap there sends jump, with the aim in the input's
-      `aimX/aimY`.
+  - **In the air** (the original's answers): a leaping salmon is not grounded on a sandbank (above
+    0.05 cells) nor hooked (above 0.1 cells); both are in this PR. A bear still catches it, as the
+    old bear did.
+  - **Not yet ported**, for the waterfall-heights PR, because they touch the shared movement and its
+    prediction:
+    - a leap carries the jump's direction (`dir · 1.0`, `dir · 0.9` × speed) until the stick moves;
+    - a leap of 0.5 cells clears a rock;
+    - a whirlpool pulls only below 0.5 cells;
+    - the leaping salmon is drawn above the water (`entityLayer`) and swimming under its tint. The
+      engine draws it above the tint always (Original art, known limits).
+    The tap target (`targetX/Y`) belongs in the tap/touch controller (#1722): a tap there sends jump
+    with the aim in the input's `aimX/aimY`.
   - Proof: `check:salmons-jump` (the height step for step against the old formula at 30 and 60 Hz,
     the one-leap, held, climb, sandbank and catch cases, and every pose number and curve).
     `salmons-traces.json` re-recorded: it only gains `jumped` events, and no position changes.

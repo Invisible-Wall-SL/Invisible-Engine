@@ -16,8 +16,9 @@
  *   `onMessage('jump')` and `update`). A tap of jump by a free salmon on the water (its height `z`
  *   0) launches it up at {@link JUMP}`.launch` cells/s, and it falls back under `JUMP.gravity`
  *   cells/s²: about 1.1 s in the air, its top about 3 cells up (`jumped`). A tap that climbs a
- *   waterfall does not leap; a tap that leaves a sandbank does, as the old server's did. The leap
- *   only lifts: the body keeps moving on the river as the player steers.
+ *   waterfall does not leap; a tap that leaves a sandbank does, as the old server's did. In the air
+ *   it is not grounded on sand nor hooked. The leap only lifts: the body keeps moving on the river
+ *   as the player steers.
  * - `fishingLine`: a `hook` ability hooks the nearest target in reach (`hooked`): the target is held
  *   and reeled towards its fisherman at {@link LINE}`.reelPxPerSecond`, and landed within
  *   `landPx` of it, which is the catch (`caught`, effect `hook`: out for the ability's `ms`, the
@@ -47,6 +48,12 @@ export const CLIMB = Object.freeze({ tap: 0.25, drainPerSecond: 0.6, footPx: 8 }
 /** The leap, in the old server's grid cells ({@link CELL} px): the launch speed (`vz = 11`) and the
  *  pull (`vz -= 20 * dt`), cells/s and cells/s². */
 export const JUMP = Object.freeze({ launch: 11, gravity: 20 });
+
+/** Heights (cells) above which a leaping salmon is clear of the water's rules, as the old server's:
+ *  it is not grounded on a sandbank above `sand`, nor hooked above `hook`. */
+const CLEAR = Object.freeze({ sand: 0.05, hook: 0.1 });
+
+const above = (player, cells) => (player.z ?? 0) > cells * CELL;
 
 /** What a tap of jump already did this input, for `salmonJump`: a sandbank's release (it leaps,
  *  already announced) or a climb (it does not leap). */
@@ -158,7 +165,7 @@ const sandbanks = {
 						p.memo.onSand = 0;
 						continue;
 					}
-					if (p.status !== api.STATUS.free || p.memo.onSand) continue;
+					if (p.status !== api.STATUS.free || p.memo.onSand || above(p, CLEAR.sand)) continue;
 					p.memo.onSand = 1;
 					p.status = api.STATUS.grounded;
 					p.until = 0;
@@ -224,7 +231,8 @@ const fishingLine = {
 				hookedBy.clear();
 			},
 			hook(user, target, ability, world) {
-				if (lines.has(user.id) || hookedBy.has(target.id)) return false;
+				if (lines.has(user.id) || hookedBy.has(target.id) || above(target, CLEAR.hook))
+					return false;
 				target.status = api.STATUS.hooked;
 				target.until = 0;
 				target.memo.escape = 0;

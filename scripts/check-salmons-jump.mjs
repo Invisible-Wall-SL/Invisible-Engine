@@ -3,6 +3,7 @@
 //   water launches it at 11 cells/s and it falls back under 20 cells/s², step for step the old
 //   server's `z += vz·dt; vz -= 20·dt` (about 1.1 s up, its top about 3 cells); no second leap in
 //   the air, none on a tap that climbs, none while held; a tap off a sandbank leaps, announced once;
+//   in the air it is not grounded on sand (above 0.05 cells) nor hooked (above 0.1);
 // - the look (`engine-layout` `salmonsArt/leap.ts`): the old client's jump factor, tilt, swell, curl,
 //   arch and tail envelope, and the lift of 16 old px a cell, scaled by K.
 //
@@ -99,7 +100,8 @@ function room(module, { tickHz = 30, zones = [], rules = [] } = {}) {
 		stamp += 1;
 		made.step?.(world(stamp));
 	};
-	return { salmon, events, press, step };
+	const hook = (user, target, ability) => made.hook?.(user, target, ability, world(stamp));
+	return { salmon, events, press, step, hook };
 }
 
 /** Tap jump, then step until it lands; the heights (cells) after each step. */
@@ -205,6 +207,24 @@ check('a tap off a sandbank leaps, announced once', () => {
 		r.events.filter((e) => e.type === 'jumped'),
 		[{ type: 'jumped', id: 'a' }],
 	);
+});
+
+check('in the air it is neither grounded on sand nor hooked', () => {
+	const sand = { id: 'sand', x: 0, y: 0, w: 400, h: 400 };
+	const r = room(SALMONS_RULES.salmons, {
+		zones: [sand],
+		rules: [{ kind: 'sandbank', zone: 'sand' }],
+	});
+	r.salmon.z = 0.06 * CELL;
+	r.salmon.memo.vz = JUMP.launch * CELL;
+	r.step();
+	assert.equal(r.salmon.status, STATUS.free, 'above 0.05 cells: not grounded');
+	const line = room(SALMONS_RULES.fishingLine);
+	const fisher = { id: 'f', memo: {} };
+	line.salmon.z = 0.11 * CELL;
+	assert.equal(line.hook(fisher, line.salmon, { score: 1, hold: 1 }), false, 'above 0.1 cells');
+	line.salmon.z = 0;
+	assert.equal(line.hook(fisher, line.salmon, { score: 1, hold: 1 }), true, 'on the water');
 });
 
 check('a tap at the foot of a waterfall climbs and does not leap', () => {
