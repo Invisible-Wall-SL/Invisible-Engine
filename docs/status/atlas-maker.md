@@ -117,6 +117,13 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-11-17 — **`POST /lipsync` for the Rigger (rig templates T4).** atlas-tool now runs Rhubarb Lip
+  Sync 1.14.0 for the Rigger's lip-sync. The Dockerfile installs it as its own layer to
+  `/opt/rhubarb` (`rhubarb_install.py`: pinned SHA-256; keeps the binary, `res/` and `LICENSE.md`,
+  ~90 MB; adds `libstdc++6`). `lipsync.py` takes `{wav_b64, dialog?, recognizer?}` from the
+  launcher's `/api/rigger/lipsync` and answers `{duration, cues}`. It runs inline, like
+  `/video/toclip`, and refuses a line over 60 s. It touches no project files. Gate: `test_lipsync.py`.
+  Owed: the first Railway build with the layer, then one live line.
 - 2026-11-16 — **A paused RunPod endpoint is said in words, with the fix.** Owner report from the
   Flipbook: every slot showed RunPod's raw `HTTP 409 … "code":"ENDPOINT_PAUSED"` JSON. The production
   serverless endpoint's **Max workers** had been set to 0, and RunPod now refuses `/run` on a paused

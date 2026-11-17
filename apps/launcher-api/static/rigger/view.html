@@ -3310,6 +3310,32 @@ function faceKeyTalk(anim, ch, t, secs, channels, has){
   return n;
 }
 
+// Lip-sync cues (rig templates T4): Rhubarb's shape letters, each keyed at t + its start through the
+// template's `shapes.lipsync` map. The mouth and jaw keys already inside the line are replaced; a run
+// of cues on one image is one key; the line ends on the rest shape.
+function faceKeyLipSync(anim, ch, cues, t, channels, has){
+  if (!cues.length) return 0;
+  const map = ch.shapes.lipsync || {};
+  const end = roundN(t + cues[cues.length - 1].end, 4);
+  const keep = (k) => k.time < t - 1e-4 || k.time > end + 1e-4;
+  const slot = anim.slots && anim.slots[ch.shapes.slot];
+  if (slot && slot.attachment) slot.attachment = slot.attachment.filter(keep);
+  const jaw = channels.find((c) => c.id === ch.shapes.jaw);
+  for (const d of (jaw && jaw.drives) || []){
+    const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
+    if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+  }
+  let prev, n = 0;
+  for (const c of cues){
+    const part = map[c.value] || ch.shapes.rest;
+    if (part === prev) continue;
+    faceKeyShape(anim, ch, part, roundN(t + c.start, 4), channels, has);
+    prev = part; n++;
+  }
+  if (prev !== ch.shapes.rest) faceKeyShape(anim, ch, has(ch.shapes.slot, ch.shapes.rest) ? ch.shapes.rest : null, end, channels, has);
+  return n;
+}
+
 // The template's starter clips (rig templates T3) written as animations through the channel code
 // above. A clip whose name the rig already uses is kept as it is, never overwritten.
 function faceAddStarterClips(animations, tpl, has){
@@ -3403,7 +3429,11 @@ function renderFacePanel(){
     let n = 0;
     if (faceEdit((a) => { n = faceKeyTalk(a, mouth, animTime, 2, channels, faceHas); })) faceDone(n ? "◆ Talk keyed: " + n + " shapes" : "This rig has none of the talk mouth shapes yet.");
   });
+  if (mouth && mouth.shapes.lipsync) tool("🎤 Lip-sync", "Key the mouth and jaw from a voice line, starting at the playhead.", () => {
+    faceLipOpen = !faceLipOpen; renderFacePanel();
+  });
   list.appendChild(tools);
+  if (mouth && mouth.shapes.lipsync && faceLipOpen) list.appendChild(faceLipSyncPanel(mouth, channels));
   for (const ch of channels){
     const row = document.createElement("div");
     row.className = "faceRow"; row.dataset.ch = ch.id;
@@ -3463,6 +3493,118 @@ function syncFacePanel(){
     const v = faceChannelValue(anim, ch, animTime, faceSetup);
     if (Number(inp.value) !== v){ inp.value = v; row.querySelector("span:last-child").textContent = roundN(v, 2); }
   }
+}
+
+// ---- Lip-sync (rig templates T4, docs/design/rig-templates.md §5.2) --------------------------------
+// A voice line is uploaded to the project's R2 (presigned PUT: most lines are over the request-body
+// cap), Rhubarb runs on atlas-tool through /api/rigger/lipsync, and the cues are keyed at the playhead
+// as one undo step. The audio is authoring-only: it plays here beside the clip and is not shipped.
+let faceLipOpen = false, faceVoices = null, faceVoice = "", faceAudio = null, faceLine = null;
+const faceVoiceLabel = (file) => file.replace(/-[0-9a-f]{8}(\.[a-z0-9]+)$/, "$1");
+
+async function faceLoadVoices(){
+  try {
+    const r = await fetch("/api/rigger/voice");
+    if (!r.ok) throw new Error(await respErr(r));
+    faceVoices = (await r.json()).voices || [];
+  } catch (e){ faceVoices = []; console.warn("[Face] could not list voice lines", e); }
+}
+
+async function faceUploadVoice(f){
+  const r = await fetch("/api/rigger/voice", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: f.name, bytes: f.size }),
+  });
+  if (!r.ok) throw new Error(await respErr(r));
+  const j = await r.json();
+  const put = await fetch(j.url, { method: "PUT", headers: { "content-type": j.contentType }, body: f });
+  if (!put.ok) throw new Error("the upload failed (" + put.status + ")");
+  return j.file;
+}
+
+function faceLipSyncPanel(mouth, channels){
+  const box = document.createElement("div");
+  box.className = "faceLip";
+  box.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 14px 8px;font-size:11px;";
+  const pick = document.createElement("select");
+  pick.title = "The voice line to lip-sync: one already in this project, or upload a new one (mp3, ogg, m4a, wav, webm; up to 60 s).";
+  pick.style.cssText = "flex:1 1 140px;min-width:0;";
+  const opt = (value, label) => { const o = document.createElement("option"); o.value = value; o.textContent = label; pick.appendChild(o); };
+  opt("", faceVoices === null ? "loading voice lines…" : "pick a voice line…");
+  for (const v of faceVoices || []) opt(v.file, faceVoiceLabel(v.file));
+  opt("+upload", "＋ Upload audio…");
+  pick.value = faceVoice;
+  const file = document.createElement("input");
+  file.type = "file"; file.accept = "audio/*,.mp3,.ogg,.m4a,.wav,.webm"; file.style.display = "none";
+  const words = document.createElement("input");
+  words.type = "text"; words.placeholder = "words spoken (optional)";
+  words.title = "Type what the line says to make English lip-sync more accurate.";
+  words.style.cssText = "flex:1 1 140px;min-width:0;";
+  const lang = document.createElement("select");
+  lang.title = "English uses speech recognition; for any other language the shapes come from the sounds alone.";
+  for (const [v, l] of [["pocketSphinx", "English"], ["phonetic", "Other language"]]){
+    const o = document.createElement("option"); o.value = v; o.textContent = l; lang.appendChild(o);
+  }
+  const go = document.createElement("button");
+  go.textContent = "🎤 Key at playhead";
+  go.title = "Replace the mouth and jaw keys under the line with ones from the audio, starting at the playhead (one undo step).";
+  const hear = document.createElement("button");
+  hear.textContent = "🔊 Play with voice";
+  hear.title = "Play the clip from where the line was keyed, with the voice, to check the sync.";
+  hear.disabled = !(faceLine && faceLine.anim === curAnim);
+  const note = document.createElement("span");
+  note.style.cssText = "flex:1 1 100%;color:var(--dim);";
+  if (faceVoices === null) faceLoadVoices().then(() => { if (faceLipOpen) renderFacePanel(); });
+  pick.onchange = () => {
+    if (pick.value === "+upload"){ pick.value = faceVoice; file.click(); return; }
+    faceVoice = pick.value;
+  };
+  file.onchange = async () => {
+    const f = file.files && file.files[0];
+    if (!f) return;
+    note.textContent = "uploading " + f.name + "…";
+    try {
+      faceVoice = await faceUploadVoice(f);
+      await faceLoadVoices();
+      renderFacePanel();
+    } catch (e){ note.textContent = ""; showAlert(String((e && e.message) || e), "Upload failed"); }
+  };
+  go.onclick = async () => {
+    if (!faceVoice){ note.textContent = "Pick a voice line first."; return; }
+    if (!animMode){ $("#hint").textContent = "Switch to Animate to key the face."; return; }
+    const at = animTime, gen = rigGen, anim = curAnim, voice = faceVoice;
+    go.disabled = true; note.textContent = "listening to " + faceVoiceLabel(voice) + "…";
+    try {
+      const r = await fetch("/api/rigger/lipsync", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ file: voice, dialog: words.value, recognizer: lang.value }),
+      });
+      if (!r.ok) throw new Error(await respErr(r));
+      const j = await r.json();
+      if (gen !== rigGen || anim !== curAnim){ note.textContent = "The rig or animation changed while listening; nothing was keyed."; return; }
+      let n = 0;
+      const keyed = historyStep(() => faceEdit((a) => { n = faceKeyLipSync(a, mouth, j.cues, at, channels, faceHas); }));
+      if (!keyed) return;
+      faceLine = { file: voice, at, anim: curAnim };
+      faceDone("🎤 " + n + " mouth keys from " + faceVoiceLabel(voice) + " (" + j.duration.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
+      renderFacePanel();
+    } catch (e){
+      note.textContent = "";
+      showAlert(String((e && e.message) || e), "Lip-sync failed");
+    } finally { go.disabled = false; }
+  };
+  hear.onclick = () => {
+    if (!faceLine || faceLine.anim !== curAnim) return;
+    if (!faceAudio) faceAudio = new Audio();
+    const src = "/api/rigger/voice?file=" + encodeURIComponent(faceLine.file);
+    if (!faceAudio.src.endsWith(src)) faceAudio.src = src;
+    faceAudio.playbackRate = playSpeed;
+    faceAudio.currentTime = 0;
+    animTime = faceLine.at;
+    playing = true; $("#play").textContent = "❚❚ Pause";
+    faceAudio.play().catch((e) => console.warn("[Face] could not play the voice line", e));
+  };
+  for (const el of [pick, file, words, lang, go, hear, note]) box.appendChild(el);
+  return box;
 }
 
 function textElement(id){ return rigText.elements.find((e) => e.id === id) || null; }
@@ -14017,6 +14159,7 @@ function frame(now){
   if (skeleton && animState){
     if (animMode){
       // Author/preview ONE animation at the playhead, posed over the setup pose.
+      if (!playing && faceAudio && !faceAudio.paused) faceAudio.pause();
       skeleton.setToSetupPose();
       if (curAnim){
         if (playing){

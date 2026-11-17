@@ -9,6 +9,13 @@ RUN pip install --no-cache-dir --upgrade pip
 COPY services/atlas-tool/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Rhubarb Lip Sync for the Rigger's lip-sync (lipsync.py), pinned by version + SHA-256. Its own
+# layer before the app code, so a code change does not re-download it.
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+COPY services/atlas-tool/rhubarb_install.py /tmp/rhubarb_install.py
+RUN python /tmp/rhubarb_install.py /opt/rhubarb && rm /tmp/rhubarb_install.py
+
 # Shared package FIRST (different dir from the app code, so app code can't
 # clobber it). Importable as `iw_common.*` via PYTHONPATH=/app below.
 COPY services/_shared/iw_common ./iw_common

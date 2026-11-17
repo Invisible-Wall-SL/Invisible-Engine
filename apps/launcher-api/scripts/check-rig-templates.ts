@@ -227,6 +227,30 @@ const refused: [string, RigTemplate, RegExp][] = [
 		/names "nose"/,
 	],
 	[
+		'a lip-sync shape mapped to another slot’s part',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, lipsync: { ...c.shapes.lipsync, D: 'nose' } },
+		})),
+		/names "nose"/,
+	],
+	[
+		'a lip-sync map missing a shape',
+		withChannel('mouth', (c) => {
+			const { X: _x, ...rest } = c.shapes?.lipsync ?? {};
+			return { ...c, shapes: c.shapes && { ...c.shapes, lipsync: rest } };
+		}),
+		/no part for shape "X"/,
+	],
+	[
+		'a lip-sync map naming an unknown shape',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, lipsync: { ...c.shapes.lipsync, Q: 'mouth_A' } },
+		})),
+		/unknown shape "Q"/,
+	],
+	[
 		'a mouth whose jaw channel is gone',
 		{ ...base, channels: base.channels.filter((c) => c.id !== 'jaw') },
 		/missing jaw channel "jaw"/,

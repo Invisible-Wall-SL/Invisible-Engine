@@ -92,8 +92,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 19. **Rig templates** — [rig-templates](../design/rig-templates.md): fixed skeletons with a parts
     contract so new art attaches itself and clips play on every character of a template. T1–T3
     are built (2026-11-17): the **Bust with face** template in ＋ New rig, the **Face** section that
-    keys it, and its seven starter animations. ⏳ None tried in the authed Rigger against real art;
-    next is T4 (lip-sync from audio) or T6 (the art blueprint), the owner's pick.
+    keys it, and its seven starter animations. T4 (lip-sync from audio) is built too: atlas-tool runs
+    Rhubarb Lip Sync. ⏳ Nothing tried yet in the authed Rigger against real art. T4 also owes its
+    first atlas-tool deploy with the Rhubarb layer, and one real line keyed live. Next is T6 (the art
+    blueprint) or T5 (face from video), the owner's pick.
 
 ## Blocked (owner / external)
 
@@ -102,6 +104,24 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T4: lip-sync from audio.** The Face section's **🎤 Lip-sync** keys
+  the mouth and jaw from a voice line at the playhead. Voice lines are uploaded with a presigned PUT
+  to `<client>/<project>/voices/` (`SUB.voices`, `riggerVoice.ts`, `GET|POST /api/rigger/voice`).
+  They are authoring-only: no export, bake or pull touches them. `POST /api/rigger/lipsync`
+  decodes the line to 16 kHz mono WAV (`decodeToMonoWav`, ffmpeg-static) and forwards it with an
+  `api` launch token to atlas-tool `POST /lipsync` (`lipsync.py`). That runs Rhubarb Lip Sync
+  1.14.0, installed by `rhubarb_install.py` (pinned SHA-256; MIT, bundled models BSD-style, licence
+  notes in rig-templates §5.2). The cues come back as Rhubarb letters. The template maps each to an
+  image (`shapes.lipsync`; `rigTemplateProblem` requires all nine letters on the mouth slot). The page
+  keys them with `faceKeyLipSync` through `faceKeyShape`, inside one `historyStep`. Gates:
+  `test_lipsync.py` (17: refusals, the command built, cue checks, the real binary when
+  `RHUBARB_BIN` is set); `check:rig-templates` 37 (+3); `face-channels.mjs` 248 (+60: Rhubarb's real
+  answer for a spoken line, posed under engine-rig, replacing only mouth/jaw keys under the line,
+  ending on rest, the fallback on required-only art); `face-lipsync-browser.mjs` (new, 14: the real
+  page against a fake API — upload presign + PUT, the request, the keys, one undo step, playback).
+  Mutation-checked: 6/6 on the helper and the map, 5/5 on the page. Checked locally: an mp3 runs
+  through `decodeToMonoWav` and the real Rhubarb (Windows build) and gives 31 cues for a 6.7 s line
+  in about 4 s. Not yet run on Railway.
 - 2026-11-17 — **Rig templates T3: starter animations.** A template carries `clips`: channel keys
   (`[time, channel, value]`), built in `rigTemplates.ts` so every channel a clip touches starts and
   ends at rest. `bust-face` has `idle` (4 s), `blink`, `talk` (2 s, opens on rest), `happy`,

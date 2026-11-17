@@ -9,7 +9,9 @@
 //    shows each swap's image;
 //  - a swap step whose image the rig lacks is skipped, never keyed;
 //  - Blink, Idle blinks (loops: ends open at the clip's length) and Talk (the template's order,
-//    only shapes the rig has, jaw opened per shape, ending on rest) key what they say.
+//    only shapes the rig has, jaw opened per shape, ending on rest) key what they say;
+//  - lip-sync (T4): a fixed Rhubarb answer keyed at the playhead shows the template's image for each
+//    cue letter with its jaw, replaces only the mouth and jaw keys under the line, and ends on rest.
 //   node tools/rigger-spike/face-channels.mjs
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -87,9 +89,10 @@ const F = new Function(
 			'faceKeyBlink',
 			'faceKeyIdleBlinks',
 			'faceKeyTalk',
+			'faceKeyLipSync',
 			'faceAddStarterClips',
 		].map(grabFn),
-		'return { faceChannelValue, faceKeyChannel, faceKeyShape, faceKeyBlink, faceKeyIdleBlinks, faceKeyTalk, faceAddStarterClips };',
+		'return { faceChannelValue, faceKeyChannel, faceKeyShape, faceKeyBlink, faceKeyIdleBlinks, faceKeyTalk, faceKeyLipSync, faceAddStarterClips };',
 	].join('\n'),
 )();
 
@@ -444,8 +447,137 @@ for (const [label, skip] of [
 	);
 }
 
+// 9. Lip-sync (T4): Rhubarb's real answer for a spoken line ("Welcome back, hero. Spin the reels,
+// and may fortune favour you."; v1.14.0, English), keyed from the playhead at 0.5 s.
+{
+	const CUES = [
+		[0, 0.22, 'X'],
+		[0.22, 0.28, 'F'],
+		[0.28, 0.62, 'C'],
+		[0.62, 0.75, 'A'],
+		[0.75, 1.02, 'C'],
+		[1.02, 1.16, 'B'],
+		[1.16, 1.37, 'X'],
+		[1.37, 1.88, 'B'],
+		[1.88, 2.75, 'X'],
+		[2.75, 2.82, 'B'],
+		[2.82, 2.9, 'A'],
+		[2.9, 3.21, 'B'],
+		[3.21, 3.28, 'C'],
+		[3.28, 3.35, 'F'],
+		[3.35, 4.05, 'B'],
+		[4.05, 4.12, 'C'],
+		[4.12, 4.25, 'B'],
+		[4.25, 4.33, 'A'],
+		[4.33, 4.47, 'C'],
+		[4.47, 4.54, 'B'],
+		[4.54, 4.68, 'G'],
+		[4.68, 4.75, 'E'],
+		[4.75, 5.24, 'F'],
+		[5.24, 5.31, 'G'],
+		[5.31, 5.45, 'C'],
+		[5.45, 5.52, 'B'],
+		[5.52, 5.59, 'G'],
+		[5.59, 5.66, 'E'],
+		[5.66, 5.94, 'F'],
+		[5.94, 6.73, 'X'],
+	].map(([start, end, value]) => ({ start, end, value }));
+	const AT = 0.5;
+	const mouth = chan('mouth');
+	const map = mouth.shapes.lipsync;
+	ok(
+		'the template maps every Rhubarb shape',
+		[...'ABCDEFGHX'].every((k) => map[k]),
+		Object.keys(map ?? {}).join(),
+	);
+	const rig = rigWith();
+	const anim = {};
+	// Keys a line must keep (before and after it) and ones it must replace (under it).
+	F.faceKeyShape(anim, mouth, 'mouth_wide', 0.2, channels, rig.has);
+	F.faceKeyTalk(anim, mouth, 1, 2, channels, rig.has);
+	F.faceKeyShape(anim, mouth, 'mouth_smile', 8, channels, rig.has);
+	F.faceKeyChannel(anim, chan('head_tilt'), 3, 2, rig.has);
+	const n = F.faceKeyLipSync(anim, mouth, CUES, AT, channels, rig.has);
+	const keyed = anim.slots.mouth.attachment.filter((k) => k.time >= AT && k.time <= AT + 6.73);
+	ok(
+		'a run of cues on one image is one key',
+		n === keyed.length && keyed.every((k, i) => i === 0 || k.name !== keyed[i - 1].name),
+		`${n} / ${keyed.map((k) => k.name).join()}`,
+	);
+	ok(
+		'no talk key survives under the line',
+		keyed.every((k) =>
+			CUES.some((c) => Math.abs(AT + c.start - k.time) < 1e-3 && map[c.value] === k.name),
+		),
+		keyed.map((k) => `${k.time}:${k.name}`).join(' '),
+	);
+	ok('the line ends on the rest shape', keyed[keyed.length - 1].name === 'mouth_rest');
+	const jawKeys = anim.bones.jaw.translate.filter((k) => k.time >= AT && k.time <= AT + 6.73);
+	ok(
+		'no talk jaw key survives under the line',
+		jawKeys.length === keyed.length && jawKeys.every((k, i) => near(k.time, keyed[i].time, 1e-4)),
+		jawKeys.map((k) => k.time).join(),
+	);
+	const cut = {};
+	F.faceKeyLipSync(cut, mouth, CUES.slice(0, 5), 0, channels, rig.has);
+	ok(
+		'a line cut off mid-word still closes on rest at its end (runtime)',
+		shown(play(rig, cut, 1.02 + EDGE), 'mouth') === 'mouth_rest' &&
+			near(boneOff(play(rig, cut, 1.02 + EDGE), 'jaw', 'y'), 0),
+		String(shown(play(rig, cut, 1.02 + EDGE), 'mouth')),
+	);
+	ok(
+		'keys outside the line are kept',
+		shown(play(rig, anim, 0.2 + EDGE), 'mouth') === 'mouth_wide' &&
+			shown(play(rig, anim, 8 + EDGE), 'mouth') === 'mouth_smile',
+	);
+	ok(
+		'other channels under the line are kept',
+		near(boneOff(play(rig, anim, 2), 'head', 'rotate'), 3, 0.01),
+		String(boneOff(play(rig, anim, 2), 'head', 'rotate')),
+	);
+	let prev;
+	for (const c of CUES) {
+		const part = map[c.value];
+		if (part === prev) continue;
+		prev = part;
+		const t = AT + c.start;
+		const p = play(rig, anim, t + EDGE);
+		ok(
+			`lip-sync ${c.value} at ${t.toFixed(2)}s shows ${part} (runtime)`,
+			shown(p, 'mouth') === part,
+			String(shown(p, 'mouth')),
+		);
+		ok(
+			`lip-sync ${c.value} at ${t.toFixed(2)}s opens the jaw for ${part} (runtime)`,
+			near(boneOff(play(rig, anim, t), 'jaw', 'y'), -14 * mouth.shapes.open[part]),
+			String(boneOff(play(rig, anim, t), 'jaw', 'y')),
+		);
+	}
+	// On required parts only (rest, A, O), every letter still lands on an image the rig has, by
+	// nearest jaw opening: B/C/H (E, 0.5) → O, F (U, 0.5) → O, G (FV, 0.3) and A (MBP) → rest.
+	const lean = rigWith(BUST_FACE.parts.filter((p) => !p.required).map((p) => p.name));
+	const sparse = {};
+	F.faceKeyLipSync(sparse, mouth, CUES, 0, channels, lean.has);
+	const names = new Set(sparse.slots.mouth.attachment.map((k) => k.name));
+	ok(
+		'on required parts only, lip-sync keys only images the rig has',
+		[...names].every((x) => ['mouth_rest', 'mouth_A', 'mouth_O'].includes(x)),
+		[...names].join(),
+	);
+	ok(
+		'a missing E (from C) falls back to O (runtime)',
+		shown(play(lean, sparse, 0.28 + EDGE), 'mouth') === 'mouth_O',
+	);
+	ok(
+		'a missing MBP (from A) falls back to rest (runtime)',
+		shown(play(lean, sparse, 0.62 + EDGE), 'mouth') === 'mouth_rest',
+	);
+	ok('an empty answer keys nothing', F.faceKeyLipSync({}, mouth, [], 0, channels, rig.has) === 0);
+}
+
 if (fails) {
-	console.error(`face channels: ${fails} of ${checks} checks failed`);
+	console.error(`face channels:${fails} of ${checks} checks failed`);
 	process.exit(1);
 }
 console.log(`face channels: ${checks}/${checks} checks pass`);

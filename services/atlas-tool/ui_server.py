@@ -51,6 +51,7 @@ import video_runner  # noqa: E402  (Flipbook video sessions — blueprint -> ani
 import still_jobs  # noqa: E402  (resumable still renders: jobRef, lease, callback)
 import video_to_clip  # noqa: E402  (Flipbook video -> packed sheet -> clip frames)
 import video_to_refs  # noqa: E402  (Flipbook video -> Atlas Maker reference images)
+import lipsync  # noqa: E402  (Rigger lip-sync: voice clip -> Rhubarb mouth cues)
 import model_mirror  # noqa: E402  (R2 model mirror — where a declared model file lives)
 import model_provenance  # noqa: E402  (licence provenance of the models a render used)
 
@@ -9158,7 +9159,13 @@ class Handler(iw_http.ToolHandler):
         if post_path == "/card/save" and length > 256_000:
             self._send_json(413, {"ok": False, "error": "Card too large (max ~256 KB)."})
             return
+        if post_path == "/lipsync" and length > 24_000_000:
+            self._send_json(413, {"error": "The audio is too large."})
+            return
         raw = self.rfile.read(length).decode("utf-8")
+        if post_path == "/lipsync":
+            self._send_json(200, self._lipsync(raw))
+            return
         if post_path in _REF_MUTATING_ROUTES:
             self._answer_ref_change(
                 getattr(self, _REF_MUTATING_ROUTES[post_path])(json.loads(raw)))
@@ -9331,6 +9338,23 @@ class Handler(iw_http.ToolHandler):
                    {"X-IW-R2-Failed": str(len(failed))} if failed else None)
 
     # helpers ----------------------------------------------------------
+    def _lipsync(self, raw: str) -> dict:
+        """The Rigger's lip-sync (rig templates T4): a WAV in, Rhubarb's mouth cues out.
+
+        Called by the launcher's `/api/rigger/lipsync` with an `api` launch token; touches no
+        project files. Same answer contract as `_video`: an author-fixable problem is
+        `{"error": …}` with a 200."""
+        try:
+            payload = json.loads(raw or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Request body was not a JSON object.")
+            return lipsync.run(payload)
+        except ValueError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
+            print(f"[lipsync] failed: {e}", flush=True)
+            return {"error": f"Lip-sync failed: {e}"}
+
     def _video(self, route: str, raw: str) -> bytes:
         """POST side of the Flipbook video session API.
 

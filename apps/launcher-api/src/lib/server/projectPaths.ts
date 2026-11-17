@@ -91,6 +91,9 @@ export const SUB = {
 	// bake, pull and the duplicate path all leave it alone.
 	director: (c: string, p: string) => `${projectPrefix(c, p)}/director`,
 	shaders: (c: string, p: string) => `${projectPrefix(c, p)}/shaders`,
+	// The Rigger's lip-sync voice lines (rig templates T4). Authoring input only: the keys they
+	// make ship in the rig; deploy, bake and pull leave the audio alone.
+	voices: (c: string, p: string) => `${projectPrefix(c, p)}/voices`,
 	// Invisible Profiler readings and build records (`docs/design/invisible-profiler.md` §3). Kept 15
 	// days unless pinned; not an asset a game ships, and a duplicated project starts without them.
 	perf: (c: string, p: string) => `${projectPrefix(c, p)}/perf`,
