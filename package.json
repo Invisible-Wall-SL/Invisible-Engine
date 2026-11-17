@@ -63,6 +63,7 @@
 		"check:undefined-names": "node scripts/check-undefined-names.mjs",
 		"check:bug-fix-workflow": "node scripts/bug-fix/workflow.fixture.mjs",
 		"check:family-runtimes": "node scripts/check-family-runtime.mjs --all",
+		"check:runtime-bytes": "node scripts/check-runtime-bytes.mjs",
 		"check:svelte-init-order": "node scripts/check-svelte-init-order.mjs",
 		"check:ktx2-alignment": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-alignment.mjs",
 		"check:ktx2-premultiplied": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-premultiplied.mjs",

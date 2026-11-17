@@ -49,6 +49,8 @@ const SKIP = {
 	// Builds the whole runtime five times (minutes) — `pnpm check:family-runtimes` and, per id, the
 	// release workflow run it.
 	'scripts/check-family-runtime.mjs': 'five full runtime builds; run by check:family-runtimes',
+	// One reproducible build per runtime; its own workflow (runtime-bytes.yml) runs it.
+	'scripts/check-runtime-bytes.mjs': 'a full build per runtime; run by the runtime-bytes workflow',
 	// Four app builds and a real browser (minutes); run by hand before an engine change that touches
 	// how the KTX2 transcoder ships or loads.
 	'scripts/check-ktx2-transcoder.mjs': 'four builds + Chromium; run by check:ktx2-transcoder',

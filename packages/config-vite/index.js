@@ -13,7 +13,7 @@ import { sentryDebugIds } from './debugIds.js';
 import { OPTIONAL_FAMILIES, buildFamilies, familySeams } from './families.js';
 import { lazyChunks } from './lazyChunks.js';
 import { eagerPixiBoot, noWebGpuRenderer } from './pixiRenderers.js';
-import { buildProvenance } from './provenance.js';
+import { PINNED, buildProvenance, reproducibleBuild } from './provenance.js';
 import { stockAssetPrune, stockPrunedDefine } from './stockAssetPrune.js';
 import { stockTwinShip, stockTwinsDefine } from './stockTwins.js';
 import { assertSvelteVersions } from './svelteVersions.js';
@@ -138,8 +138,8 @@ const deliveryProfilesDefine = () => {
 const debugBuild = () => dev || process.env.PUBLIC_IE_DEBUG === '1';
 
 /** The commit a build was cut from — the identity an error report names as its `release`. The
- * runtime release passes it explicitly (`PUBLIC_BUILD_SHA: github.sha`). */
-const buildSha = () => process.env.PUBLIC_BUILD_SHA || '';
+ * runtime release passes it explicitly (`PUBLIC_BUILD_SHA: github.sha`); `IE_REPRODUCIBLE=1` pins it. */
+const buildSha = () => (reproducibleBuild() ? PINNED.sha : process.env.PUBLIC_BUILD_SHA || '');
 
 /**
  * The Invisible Debug switch + the build stamp (`docs/design/invisible-debug-framework.md`).
