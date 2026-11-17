@@ -91,9 +91,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 19. **Rig templates** — [rig-templates](../design/rig-templates.md): fixed skeletons with a parts
     contract so new art attaches itself and clips play on every character of a template. T1–T3
-    are built (2026-11-17): the **Bust with face** template in ＋ New rig, the **Face** section that
-    keys it, and its seven starter animations. ⏳ None tried in the authed Rigger against real art;
-    next is T4 (lip-sync from audio) or T6 (the art blueprint), the owner's pick.
+    are built (2026-11-17): the **Bust with face** template in ＋ New rig, the **Controls** section
+    (was Face) that keys it, and its seven starter animations. T7's template half is built too: the
+    **Full body** template, 15 body controls and five starter clips (`idle`, `celebrate`,
+    `win_small`, `win_big`, `walk`). ⏳ None tried in the authed Rigger against real art. Left:
+    T4 (lip-sync), T5 (face from video), T6 (art blueprint) and T7b (body motion from a filmed
+    actor: DWPose body points → bone rotations).
 
 ## Blocked (owner / external)
 
@@ -102,6 +105,24 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-17 — **Rig templates T7: the Full body template.** `FULL_BODY` (`full-body`) in
+  `rigTemplates.ts`, offered in ＋ New rig from `RIG_TEMPLATES`: root → hip → spine → chest → neck →
+  head, upper arm / lower arm / hand and thigh / shin / foot per side. Parts per segment; the hands
+  swap `hand_*_open` (needed) / `_fist` / `_point`; needed = torso, head, every limb segment and
+  the open hands. Channels: lean, hop, raise arm / bend elbow / hand pose / step leg / bend knee
+  per side, head tilt / nod, breath. Clips: `idle` (4 s), `celebrate` (2 s), `win_small`,
+  `win_big` (3 s), `walk` (1 s loop through the rest pose). **No IK**: a constraint at full mix
+  overrides the rotation keys the channels write, so the clips would not move the legs; a
+  planted-foot crouch needs it and waits for T7b. New validator rule: two channels may not drive
+  the same bone property (a key is the channel's absolute value, so the second would overwrite the
+  first). The outline section is now **Controls** (was Face); Blink / Idle blinks show only when the
+  template has blink channels. Gates: `face-channels.mjs` 295 (+107: every channel of both
+  templates round-trips and poses; every clip of both starts and ends at rest — every driven bone at
+  setup, every swap / shape slot on its rest image — on full and needed-only art; arms, hop, walk,
+  fist and the missing-fist fallback under engine-rig), `check:rig-templates` 55 (+6),
+  `check:rigger-writes` 101 (+1: a full-body upload). Mutation-checked: clips not closed at rest,
+  a walk ending on a bent knee, two channels on one bone, the fist needed instead of the open hand,
+  full body dropped from the list — each turns a gate red.
 - 2026-11-17 — **Rig templates T3: starter animations.** A template carries `clips`: channel keys
   (`[time, channel, value]`), built in `rigTemplates.ts` so every channel a clip touches starts and
   ends at rest. `bust-face` has `idle` (4 s), `blink`, `talk` (2 s, opens on rest), `happy`,

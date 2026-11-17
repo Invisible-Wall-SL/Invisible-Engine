@@ -573,10 +573,10 @@
         <summary>Animations <span class="pill" id="cAnims"></span></summary>
         <div class="body" id="animList"></div>
       </details>
-      <!-- Face = the rig's template channels (docs/design/rig-templates.md §4); shown only for a rig
-           made from a template that has them. -->
+      <!-- Controls = the rig's template channels (docs/design/rig-templates.md §4); shown only for a
+           rig made from a template that has them (the face of Bust with face, the body of Full body). -->
       <details class="sec" id="secFace" style="display:none;">
-        <summary title="Key the face at the playhead in Animate mode: each control writes ordinary keys (bone moves and image swaps) you can edit in the dopesheet afterwards.">Face <span class="pill" id="cFace"></span></summary>
+        <summary title="Key the character at the playhead in Animate mode: each control writes ordinary keys (bone moves and image swaps) you can edit in the dopesheet afterwards.">Controls <span class="pill" id="cFace"></span></summary>
         <div class="body" id="faceList"></div>
       </details>
       <details class="sec" id="secConstraints">
@@ -3196,7 +3196,7 @@ async function loadRigText(){
   autoSyncRigText();
 }
 
-// ---- Face panel (rig templates T2, docs/design/rig-templates.md §4) ---------------------------
+// ---- Controls panel (rig templates T2 + T7, docs/design/rig-templates.md §4) ------------------
 // A face channel is one number written as ORDINARY keys: each drive as a bone offset from setup
 // (scaleY as a multiplier), each swap as a slot attachment key. The `face*` helpers take the
 // animation object and a `has(slot, part)` test, never the page, so
@@ -3350,14 +3350,14 @@ async function loadRigTemplate(){
     const j = await r.json();
     if (gen !== rigGen) return;
     rigTemplate = j.template || null;
-  } catch (e){ console.warn("[Face] could not read the rig's template", e); }
+  } catch (e){ console.warn("[Controls] could not read the rig's template", e); }
   if (gen === rigGen) renderFacePanel();
 }
 
 // The one keying path: Animate mode, a clip to key into, then the undo/dirty funnel.
 function faceEdit(fn){
   if (!rawDoc) return false;
-  if (!animMode){ $("#hint").textContent = "Switch to Animate to key the face."; return false; }
+  if (!animMode){ $("#hint").textContent = "Switch to Animate to key the controls."; return false; }
   if (!ensureCurAnim()) return false;
   fn((rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {}));
   markDirty(); animsDirty = true;
@@ -3383,6 +3383,7 @@ function renderFacePanel(){
     b.textContent = label; b.title = tip; b.onclick = run; tools.appendChild(b);
   };
   const mouth = channels.find((c) => c.shapes);
+  const blinks = channels.some((c) => /^blink_/.test(c.id));
   if ((rigTemplate.clips || []).length) tool("🎬 Starter animations", "Add the template's ready-made animations (" + rigTemplate.clips.map((c) => c.name).join(", ") + "). Ones this rig already has are kept as they are.", () => {
     if (!rawDoc) return;
     const r = faceAddStarterClips((rawDoc.animations = rawDoc.animations || {}), rigTemplate, faceHas);
@@ -3391,10 +3392,10 @@ function renderFacePanel(){
       ? "🎬 Added " + r.added.join(", ") + (r.kept.length ? " · kept your " + r.kept.join(", ") : "")
       : "This rig already has every starter animation.");
   });
-  tool("👁 Blink", "Key one blink starting at the playhead (both eyes).", () => {
+  if (blinks) tool("👁 Blink", "Key one blink starting at the playhead (both eyes).", () => {
     if (faceEdit((a) => faceKeyBlink(a, animTime, channels, faceHas))) faceDone("◆ Blink keyed @ " + animTime.toFixed(2) + "s");
   });
-  tool("👁 Idle blinks", "Key a natural blink rhythm across the whole clip (6 s for an empty one), ending open so it loops.", () => {
+  if (blinks) tool("👁 Idle blinks", "Key a natural blink rhythm across the whole clip (6 s for an empty one), ending open so it loops.", () => {
     let n = 0;
     const dur = curAnim && animDuration(curAnim) >= 1 ? animDuration(curAnim) : 6;
     if (faceEdit((a) => { n = faceKeyIdleBlinks(a, dur, channels, faceHas).length; })) faceDone("◆ " + n + " blinks keyed over " + dur.toFixed(1) + "s");

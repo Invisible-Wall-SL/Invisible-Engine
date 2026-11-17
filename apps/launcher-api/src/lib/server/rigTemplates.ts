@@ -417,7 +417,258 @@ BUST_FACE.clips = [
 	]),
 ];
 
-export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE];
+const SIDE = { l: 'left', r: 'right' } as const;
+const HAND_POSES = ['open', 'fist', 'point'];
+
+/**
+ * A whole standing character, drawn facing the viewer or facing right (the game flips it). Every
+ * channel is a forward (FK) rotation or move: an IK constraint would override the rotation keys the
+ * channels write, so the legs carry none; a planted-foot crouch waits for body tracking (T7b).
+ */
+export const FULL_BODY: RigTemplate = {
+	id: 'full-body',
+	version: 1,
+	label: 'Full body',
+	bones: [
+		{ name: 'root', x: 0, y: 0 },
+		{ name: 'hip', parent: 'root', x: 0, y: 290 },
+		{ name: 'spine', parent: 'hip', x: 0, y: 30 },
+		{ name: 'chest', parent: 'spine', x: 0, y: 90 },
+		{ name: 'neck', parent: 'chest', x: 0, y: 90 },
+		{ name: 'head', parent: 'neck', x: 0, y: 30 },
+		...sides((s, k) => [
+			{ name: `upper_arm_${s}`, parent: 'chest', x: 70 * k, y: 70 },
+			{ name: `lower_arm_${s}`, parent: `upper_arm_${s}`, x: 0, y: -95 },
+			{ name: `hand_${s}`, parent: `lower_arm_${s}`, x: 0, y: -85 },
+		]),
+		...sides((s, k) => [
+			{ name: `thigh_${s}`, parent: 'hip', x: 35 * k, y: -10 },
+			{ name: `shin_${s}`, parent: `thigh_${s}`, x: 0, y: -130 },
+			{ name: `foot_${s}`, parent: `shin_${s}`, x: 0, y: -130 },
+		]),
+	],
+	slots: [
+		...sides((s) => [
+			{ name: `thigh_${s}`, bone: `thigh_${s}`, setup: `thigh_${s}` },
+			{ name: `shin_${s}`, bone: `shin_${s}`, setup: `shin_${s}` },
+			{ name: `foot_${s}`, bone: `foot_${s}`, setup: `foot_${s}` },
+		]),
+		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
+		{ name: 'torso', bone: 'chest', setup: 'torso' },
+		{ name: 'neck', bone: 'neck', setup: 'neck' },
+		{ name: 'head', bone: 'head', setup: 'head' },
+		...sides((s) => [
+			{ name: `upper_arm_${s}`, bone: `upper_arm_${s}`, setup: `upper_arm_${s}` },
+			{ name: `lower_arm_${s}`, bone: `lower_arm_${s}`, setup: `lower_arm_${s}` },
+			{ name: `hand_${s}`, bone: `hand_${s}`, setup: `hand_${s}_open` },
+		]),
+	],
+	parts: [
+		...sides((s) => [
+			part(`thigh_${s}`, `thigh_${s}`, [70, 150], true),
+			part(`shin_${s}`, `shin_${s}`, [60, 150], true),
+			part(`foot_${s}`, `foot_${s}`, [90, 40], true),
+		]),
+		part('pelvis', 'pelvis', [150, 80]),
+		part('torso', 'torso', [200, 240], true),
+		part('neck', 'neck', [60, 50]),
+		part('head', 'head', [180, 200], true),
+		...sides((s) => [
+			part(`upper_arm_${s}`, `upper_arm_${s}`, [50, 110], true),
+			part(`lower_arm_${s}`, `lower_arm_${s}`, [45, 100], true),
+			...HAND_POSES.map((h) => part(`hand_${s}_${h}`, `hand_${s}`, [55, 60], h === 'open')),
+		]),
+	],
+	channels: [
+		{
+			id: 'lean',
+			label: 'Lean',
+			tip: 'Degrees; bend the body at the spine (the chest follows a little further). Negative leans right.',
+			min: -15,
+			max: 15,
+			rest: 0,
+			drives: [
+				{ bone: 'spine', prop: 'rotate', per: 1 },
+				{ bone: 'chest', prop: 'rotate', per: 0.5 },
+			],
+		},
+		{
+			id: 'hop',
+			label: 'Hop',
+			tip: 'Lift the whole character off the ground.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'root', prop: 'y', per: 80 }],
+		},
+		...sides<RigTemplateChannel>((s, k) => [
+			{
+				id: `arm_${s}`,
+				label: `Raise ${SIDE[s]} arm`,
+				tip: '0 hangs down, 1 points up and out; below 0 swings it the other way.',
+				min: -0.3,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `upper_arm_${s}`, prop: 'rotate', per: 150 * k }],
+			},
+			{
+				id: `elbow_${s}`,
+				label: `Bend ${SIDE[s]} elbow`,
+				tip: 'Fold the forearm; with the arm raised to the side it lifts the hand (a flex).',
+				min: 0,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: 120 * k }],
+			},
+			{
+				id: `hand_${s}`,
+				label: `${SIDE[s] === 'left' ? 'Left' : 'Right'} hand`,
+				tip: '0 open, ½ fist, 1 pointing (needs those images).',
+				min: 0,
+				max: 1,
+				rest: 0,
+				slot: `hand_${s}`,
+				swaps: [
+					{ at: 0, part: `hand_${s}_open` },
+					{ at: 0.34, part: `hand_${s}_fist` },
+					{ at: 0.67, part: `hand_${s}_point` },
+				],
+			},
+		]),
+		...sides<RigTemplateChannel>((s) => [
+			{
+				id: `step_${s}`,
+				label: `Step ${SIDE[s]} leg`,
+				tip: 'Swing the leg at the hip: forward (+) or back (−) for a character facing right.',
+				min: -1,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `thigh_${s}`, prop: 'rotate', per: 25 }],
+			},
+			{
+				id: `knee_${s}`,
+				label: `Bend ${SIDE[s]} knee`,
+				tip: 'Fold the lower leg back (facing right).',
+				min: 0,
+				max: 1,
+				rest: 0,
+				drives: [{ bone: `shin_${s}`, prop: 'rotate', per: -60 }],
+			},
+		]),
+		{
+			id: 'head_tilt',
+			label: 'Head tilt',
+			tip: 'Degrees; positive tilts counter-clockwise.',
+			min: -15,
+			max: 15,
+			rest: 0,
+			drives: [{ bone: 'head', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'head_nod',
+			label: 'Head nod',
+			tip: 'Degrees, turned at the neck.',
+			min: -10,
+			max: 10,
+			rest: 0,
+			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'breath',
+			label: 'Breath',
+			tip: 'Swell the chest a little.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
+		},
+	],
+	clips: [],
+};
+
+FULL_BODY.clips = [
+	clip(FULL_BODY, 'idle', 4, [
+		[2, 'breath', 1],
+		[2, 'lean', 1.5],
+		...both(2, 'arm', 0.04),
+		[1.2, 'head_tilt', 1.5],
+		[3.2, 'head_tilt', -1],
+	]),
+	clip(FULL_BODY, 'celebrate', 2, [
+		...both(0.3, 'arm', 0.9),
+		...both(1.6, 'arm', 0.9),
+		...both(0.2, 'hand', 0.5),
+		...both(1.7, 'hand', 0.5),
+		[0.2, 'hop', 0],
+		[0.45, 'hop', 1],
+		[0.7, 'hop', 0],
+		[0.95, 'hop', 0.6],
+		[1.2, 'hop', 0],
+		[0.45, 'head_nod', -4],
+		[1.2, 'head_nod', 0],
+		[0.3, 'breath', 1],
+		[1.6, 'breath', 1],
+	]),
+	clip(FULL_BODY, 'win_small', 1.5, [
+		[0.15, 'hand_r', 0.5],
+		[1.2, 'hand_r', 0.5],
+		[0.25, 'arm_r', 0.6],
+		[0.5, 'arm_r', 0.7],
+		[0.75, 'arm_r', 0.6],
+		[1.1, 'arm_r', 0.6],
+		[0.25, 'elbow_r', 0.8],
+		[1.1, 'elbow_r', 0.8],
+		[0.3, 'lean', -3],
+		[1.1, 'lean', -3],
+		[0.3, 'head_nod', -3],
+		[0.6, 'head_nod', 1],
+		[0.9, 'head_nod', -2],
+	]),
+	clip(FULL_BODY, 'win_big', 3, [
+		...both(0.3, 'arm', 1),
+		...both(1.6, 'arm', 1),
+		...both(0.2, 'hand', 0.5),
+		...both(1.6, 'hand', 0.5),
+		[0.2, 'hop', 0],
+		[0.45, 'hop', 1],
+		[0.7, 'hop', 0],
+		[0.95, 'hop', 1],
+		[1.2, 'hop', 0],
+		[0.5, 'lean', 6],
+		[1, 'lean', -6],
+		[1.5, 'lean', 4],
+		[2, 'lean', 0],
+		[1.9, 'arm_r', 0.5],
+		[2.7, 'arm_r', 0.5],
+		[1.9, 'hand_r', 1],
+		[2.7, 'hand_r', 1],
+		[0.45, 'head_nod', -5],
+		[1.2, 'head_nod', 2],
+		[2.1, 'head_tilt', 5],
+		[2.7, 'head_tilt', 5],
+		[0.3, 'breath', 1],
+		[2.5, 'breath', 1],
+	]),
+	clip(FULL_BODY, 'walk', 1, [
+		[0.25, 'step_l', 1],
+		[0.5, 'step_l', 0],
+		[0.75, 'step_l', -1],
+		[0.25, 'step_r', -1],
+		[0.5, 'step_r', 0],
+		[0.75, 'step_r', 1],
+		[0.25, 'knee_r', 0.5],
+		[0.5, 'knee_r', 0],
+		[0.5, 'knee_l', 0],
+		[0.75, 'knee_l', 0.5],
+		...both(0.25, 'arm', 0.15),
+		...both(0.5, 'arm', 0),
+		...both(0.75, 'arm', -0.15),
+		[0.25, 'lean', -2],
+		[0.75, 'lean', -2],
+	]),
+];
+
+export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY];
 
 export function rigTemplateById(id: string): RigTemplate | undefined {
 	return RIG_TEMPLATES.find((t) => t.id === id);
@@ -448,13 +699,20 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 		if (s.setup !== undefined && parts.get(s.setup) !== s.name)
 			return `slot "${s.name}" starts on "${s.setup}", which is not one of its parts`;
 	const channels = new Set<string>();
+	const driven = new Map<string, string>();
 	for (const c of t.channels) {
 		if (channels.has(c.id)) return `channel "${c.id}" is listed twice`;
 		channels.add(c.id);
 		if (!(c.min < c.max) || c.rest < c.min || c.rest > c.max)
 			return `channel "${c.id}" needs min < max with rest between them`;
-		for (const d of c.drives ?? [])
+		for (const d of c.drives ?? []) {
 			if (!bones.has(d.bone)) return `channel "${c.id}" drives a missing bone "${d.bone}"`;
+			// A key is the channel's absolute value, so a second channel on it would overwrite the first.
+			const owner = driven.get(`${d.bone}.${d.prop}`);
+			if (owner !== undefined && owner !== c.id)
+				return `channels "${owner}" and "${c.id}" both drive ${d.bone}.${d.prop}`;
+			driven.set(`${d.bone}.${d.prop}`, c.id);
+		}
 		if (c.swaps) {
 			if (!c.slot || !slots.has(c.slot)) return `channel "${c.id}" swaps a missing slot`;
 			for (const [i, w] of c.swaps.entries()) {
