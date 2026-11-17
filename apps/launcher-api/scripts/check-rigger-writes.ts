@@ -1252,6 +1252,36 @@ for (const hold of ['before', 'after'] as const) {
 		[gone.status, text(`${RIGS}/Blank/template.json`)],
 		[200, null],
 	);
+
+	seedProject();
+	const body = await call(upload.POST, {
+		name: 'Hero',
+		page: PAGE,
+		pageWidth: 40,
+		pageHeight: 12,
+		regions: ['torso', 'head', 'hand_l_open', 'hand_l_fist'].map((name, i) => ({
+			name,
+			x: i * 10,
+			y: 0,
+			w: 10,
+			h: 12,
+		})),
+		templateId: 'full-body',
+	});
+	const bodyT = body.body.template as { missingRequired: string[] };
+	const heroDoc = JSON.parse(text(`${RIGS}/Hero/Hero.irig`) ?? '{}') as {
+		skins: { attachments: Record<string, Record<string, unknown>> }[];
+	};
+	check(
+		'full-body upload: remembered, hands attach by name, the needed limbs reported',
+		[
+			body.status,
+			JSON.parse(text(`${RIGS}/Hero/template.json`) ?? '{}'),
+			Object.keys(heroDoc.skins[0].attachments.hand_l),
+			bodyT.missingRequired.includes('hand_r_open') && bodyT.missingRequired.includes('foot_l'),
+		],
+		[200, { id: 'full-body', version: 1 }, ['hand_l_open', 'hand_l_fist'], true],
+	);
 }
 
 console.log();
