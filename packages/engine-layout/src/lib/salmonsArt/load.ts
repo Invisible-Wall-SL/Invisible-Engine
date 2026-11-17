@@ -5,12 +5,11 @@ import { builtinSheetsNeeded, pickSalmonsRegions, type SalmonsSheet } from './re
 
 /**
  * Salmons' art, loaded: each region the drawing code names and the waterfall's face and cliff
- * tiles, from the
- * project's own published sheets where they ship it (`ProjectSheet`s, found by the online runtime
- * among the project's editor art), else from the built-in copy. A built-in page is its
- * own hashed file of the build (`new URL(…, import.meta.url)`; `config-vite` never inlines them),
- * fetched only when a region still needs it, and this module is reached only through the lazy
- * `engine-layout/salmons-art` import of a room whose generator draws Salmons.
+ * tiles, from the project's own published sheets where they ship it (`ProjectSheet`s, found by the
+ * online runtime among the project's editor art), else from the built-in copy. A built-in page is
+ * its own hashed file of the build (`new URL(…, import.meta.url)`; `config-vite` never inlines
+ * them), fetched only when a region still needs it, and this module is reached only through the
+ * lazy `engine-layout/salmons-art` import of a room whose generator draws Salmons.
  */
 export type SalmonsTextures = {
 	region: (name: string) => Texture;

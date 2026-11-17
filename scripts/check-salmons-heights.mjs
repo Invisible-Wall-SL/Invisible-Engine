@@ -26,10 +26,20 @@ import {
 	riverHalfWidth,
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
-import { salmonsConfig, salmonsGeometry } from '../packages/engine-mechanics/src/salmons.js';
+import {
+	salmonsConfig,
+	salmonsGeometry,
+	salmonsRiver,
+} from '../packages/engine-mechanics/src/salmons.js';
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
 import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
-import { CLIMB, SALMONS_RULES, fallHeight } from '../packages/engine-mechanics/src/salmonsRules.js';
+import {
+	CLIMB,
+	SALMONS_RULES,
+	fallHeight,
+	fallReachSq,
+	waterfallsOf,
+} from '../packages/engine-mechanics/src/salmonsRules.js';
 import { ONLINE_GENERATORS } from '../packages/engine-mechanics/src/onlineGenerators.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
@@ -193,16 +203,24 @@ const api = {
 
 /** A salmon a cell below a waterfall of height `H` in a room of Salmons' rules, and its events. */
 function atFoot(H, tickHz) {
-	const fall = { id: 'fall', x: 0, y: 0, w: 2000, h: 40, height: H };
+	return atFalls([{ id: 'fall', line: 20, height: H }], tickHz);
+}
+
+/** The same, below waterfalls `{ id, line, height }` (in their order), the salmon a cell below
+ *  the first's line. */
+function atFalls(falls, tickHz = 30) {
 	const game = {
-		zones: [fall],
-		online: { tickHz, rules: { zones: [{ kind: 'waterfall', zone: 'fall', solid: 'below' }] } },
+		zones: falls.map((f) => ({ id: f.id, x: 0, y: f.line - 20, w: 2000, h: 40, height: f.height })),
+		online: {
+			tickHz,
+			rules: { zones: falls.map((f) => ({ kind: 'waterfall', zone: f.id, solid: 'below' })) },
+		},
 	};
 	const rules = SALMONS_RULES.salmons.create(game, api);
 	const salmon = {
 		id: 's',
 		character: { id: 'salmon' },
-		body: { x: 500, y: 20 + CELL, w: 90, h: 44 },
+		body: { x: 500, y: falls[0].line + CELL, w: 90, h: 44 },
 		connected: true,
 		status: STATUS.free,
 		until: 0,
@@ -487,13 +505,176 @@ check("/editor draws each waterfall's step, and an overlay `set` re-steps it", (
 });
 
 check(
-	'the river is wide enough to climb anywhere across it (the original measures to its cells)',
+	"the climb's cells are the waterfall's column: one per water cell, measured from centres",
 	() => {
-		const river = salmonsMapRiver(1);
-		const gx = [...originalHeights('1').keys()][0];
-		const band = river.bands.find((b) => b.y === yOf(river, gx));
-		assert.equal((band.right - band.left) / CELL, 2 * riverHalfWidth(gx) + 1);
+		for (const seed of [1, 42]) {
+			const game = salmonsRoom(seed).game;
+			const river = salmonsMapRiver(seed);
+			const falls = waterfallsOf(game);
+			assert.equal(falls.length, river.waterfalls.length);
+			for (const fall of falls) {
+				const band = river.bands.find((b) => b.y === fall.line);
+				const gx = fall.line / CELL - river.grid.sourceRows;
+				assert.deepEqual(fall.cells, { left: band.left, count: 2 * riverHalfWidth(gx) + 1 });
+				const y = fall.line + CELL;
+				const at = (x) => fallReachSq(fall, { x, y });
+				near(at(band.left + CELL / 2), 1, 1e-9, 'on the first cell centre');
+				near(at(band.left + 3.5 * CELL), 1, 1e-9, 'on another cell centre');
+				near(at(band.left + 3 * CELL), 1.25, 1e-9, 'between two centres');
+				near(at(band.left), 1.25, 1e-9, 'the left bank edge, half a cell out');
+				near(at(band.right), 1.25, 1e-9, 'the right bank edge, half a cell out');
+				near(at(band.left - CELL), 1 + 1.5 ** 2, 1e-9, 'a cell into the left bank: in reach');
+				assert.ok(
+					at(band.left - 2 * CELL) >= CLIMB.radiusSq,
+					'two cells into the bank: out of reach',
+				);
+				assert.ok(at(band.right + 2 * CELL) >= CLIMB.radiusSq, 'and on the right');
+				near(
+					fallReachSq(fall, { x: band.left + CELL / 2, y: fall.line + 2 * CELL }),
+					4,
+					1e-9,
+					'along',
+				);
+			}
+		}
 	},
 );
+
+check('a tap mid-leap within reach climbs from its height: z + 2.4', () => {
+	const r = atFoot(8, 30);
+	r.salmon.z = 1.3 * CELL;
+	r.salmon.memo.vz = 5 * CELL;
+	r.step(true);
+	near(r.salmon.z / CELL, 1.3 + 2.4 - 0.8 / 30, 1e-9, 'lifted from where it was, then one slide');
+	assert.equal(r.salmon.memo.vz, 0, 'the leap is over');
+	assert.equal(r.salmon.memo.climbing, 1);
+});
+
+check('two waterfalls in reach: the first listed below its top is climbed, then the next', () => {
+	const r = atFalls([
+		{ id: 'low', line: 20, height: 2 },
+		{ id: 'high', line: 44, height: 5 },
+	]);
+	r.salmon.body.y = 44 + CELL;
+	r.step(true);
+	assert.deepEqual(
+		r.events.filter((e) => e.type === 'climbed').map((e) => e.zone),
+		['low'],
+		'the low one (listed first) is topped at once',
+	);
+	r.step(false);
+	r.step(true);
+	near(r.salmon.z / CELL, 2 + 2.4 - 0.8 / 30, 1e-9, 'the next tap climbs the high one from 2');
+	assert.equal(r.salmon.memo.climbing, 1);
+});
+
+check('`level` drops the waterfalls a height clears and the one it topped, and no other', () => {
+	const r = atFalls([
+		{ id: 'a', line: 20, height: 3 },
+		{ id: 'b', line: 400, height: 1 },
+		{ id: 'c', line: 800, height: 5 },
+	]);
+	const shapes = ['a', 'b', 'c', 'rock'].map((id, i) => ({ id, x: 0, y: i * 400, w: 2000, h: 40 }));
+	const level = { currents: { shapes: [] }, solids: { shapes, cellSize: 128, cells: new Map() } };
+	const ids = () => r.rules.level(r.salmon, level).solids.shapes.map((x) => x.id);
+	r.step(true);
+	r.step(false);
+	r.step(true);
+	assert.ok(
+		r.events.some((e) => e.type === 'climbed' && e.zone === 'a'),
+		'topped a',
+	);
+	r.salmon.z = 1.5 * CELL;
+	assert.deepEqual(ids(), ['c', 'rock'], 'b by its height, a as topped');
+	r.salmon.z = 0.5 * CELL;
+	assert.deepEqual(ids(), ['b', 'c', 'rock'], 'below b: a only');
+	r.salmon.memo.vz = -CELL;
+	for (let i = 0; i < 30 && r.salmon.z > 0; i++) r.step(false);
+	assert.equal(r.salmon.z, 0);
+	assert.equal(r.salmon.memo.over, 0, 'landed: the topped one is cleared by the fall');
+	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock']);
+});
+
+check('a climb when the round ends: let go, on the water, free to swim in the break', () => {
+	const doc = salmonsConfig(salmonsMapRiver(2024));
+	doc.arcade.online.bots.fillTo = 0;
+	const game = onlineGameOf(normalizeGameConfigDoc(doc));
+	game.online.rules.round.seconds = 3;
+	const sim = createRoomSim(game, { seed: 2024 });
+	sim.join('s', { character: 'salmon' });
+	const fall = waterfallsOf(sim.game)[0];
+	const p = sim.players.get('s');
+	Object.assign(p.body, { x: fall.cells.left + 4.5 * CELL, y: fall.line + 120 });
+	let seq = 0;
+	const run = (n, buttons, moveX = 0, moveY = -MOVE_SCALE) => {
+		for (let i = 0; i < n; i++) {
+			seq += 1;
+			const input = { seq, view: sim.steps, moveX, moveY, buttons };
+			sim.step(() => [clampInput(input, sim.game.field)]);
+		}
+	};
+	run(30, 0);
+	run(1, BUTTONS.jump);
+	assert.equal(p.memo.climbing, 1, 'climbing');
+	while (sim.rules.phase === 'running' && sim.steps < 400) run(1, 0, 0, 0);
+	assert.equal(sim.rules.phase, 'ended');
+	assert.equal(p.memo.climbing ?? 0, 0, 'no longer climbing');
+	assert.equal(p.z ?? 0, 0, 'on the water');
+	assert.equal(sim.rules.holds(p), false, 'not held');
+	const x = p.body.x;
+	run(30, 0, MOVE_SCALE, 0);
+	assert.ok(p.body.x > x + 100, `it swims (moved ${p.body.x - x} px)`);
+});
+
+/** A room of `game`, the salmon at the foot of waterfall `i`: taps to its top and swims on. */
+function climbsOver(game, seed, i, river) {
+	const sim = createRoomSim(game, { seed });
+	sim.join('s', { character: 'salmon' });
+	const fall = waterfallsOf(sim.game)[i];
+	const band = river.bands.find((b) => b.y === fall.line);
+	const rocks = (river.rocks ?? []).filter((r) => r.y < fall.line + 300 && r.y + r.h > fall.line);
+	const clear = (x) => rocks.every((r) => x < r.x - 70 || x > r.x + r.w + 70);
+	let x = (band.left + band.right) / 2;
+	for (let k = 0; !clear(x) && k < 40; k++)
+		x = band.left + 60 + ((k * 37) % (band.right - band.left - 120));
+	const p = sim.players.get('s');
+	Object.assign(p.body, { x, y: fall.line + 120 });
+	let seq = 0;
+	let climbed = false;
+	for (let step = 0; step < 300 && p.body.y > fall.line - 60; step++) {
+		seq += 1;
+		const input = {
+			seq,
+			view: sim.steps,
+			moveX: 0,
+			moveY: -MOVE_SCALE,
+			buttons: step >= 40 && step % 2 ? BUTTONS.jump : 0,
+		};
+		const events = sim.step(() => [clampInput(input, sim.game.field)]);
+		climbed ||= events.some((e) => e.type === 'climbed' && e.zone === fall.id);
+	}
+	return { climbed, over: p.body.y <= fall.line - 60, y: p.body.y, line: fall.line };
+}
+
+check('every waterfall of the band river and of the original levels is passed once topped', () => {
+	for (const seed of ['salmons-1', 3, 11, 12]) {
+		const river = salmonsRiver(seed);
+		const doc = salmonsConfig(river);
+		doc.arcade.online.bots.fillTo = 0;
+		const game = onlineGameOf(normalizeGameConfigDoc(doc));
+		river.waterfalls.forEach((_, i) => {
+			const r = climbsOver(game, seed, i, river);
+			assert.ok(r.climbed && r.over, `salmonsRiver ${seed}, waterfall ${i}: ${JSON.stringify(r)}`);
+		});
+	}
+	for (const seed of [1, 7, 2024]) {
+		const river = salmonsMapRiver(seed);
+		const game = salmonsRoom(seed).game;
+		river.waterfalls.forEach((_, i) => {
+			const r = climbsOver(game, seed, i, river);
+			assert.ok(r.climbed && r.over, `salmonsMap ${seed}, waterfall ${i}: ${JSON.stringify(r)}`);
+		});
+	}
+});
 
 console.log(`check:salmons-heights — ${passed} checks passed`);

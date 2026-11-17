@@ -83,10 +83,11 @@ export type RulesHooks = {
 	hook?(user: RulesPlayer, target: RulesPlayer, ability: RulesAbility, world: RulesWorld): boolean;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
-	/** Whether it holds a free player still (stepped with no input, as a held status is). */
+	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
+	 *  like `level`, only while a round runs. */
 	holds?(player: RulesPlayer): boolean;
 	/** The level the room steps `player` on, in place of its character's. */
-	level?(player: RulesPlayer, level: OnlineLevel): OnlineLevel;
+	level?(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
 };
 
 export type RulesModule = RulesHooks | { create(game: RulesGame, api: ModuleApi): RulesHooks };

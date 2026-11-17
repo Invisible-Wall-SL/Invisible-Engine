@@ -1,8 +1,8 @@
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
+import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
-import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, type RiverArt } from './river';
 
@@ -46,7 +46,7 @@ export async function loadSalmonsArt(
 	sheets: readonly ProjectSheet[] = [],
 ): Promise<SalmonsArt> {
 	const textures = await loadSalmonsTextures(sheets);
-	const looks = createLookFactory(textures, river);
+	const looks = createLookFactory(textures);
 	const elevation = riverElevation(river.waterfalls);
 	let drawn: RiverArt | undefined;
 	let live = 0;

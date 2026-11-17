@@ -69,8 +69,9 @@ page A, with no such sheet, draws the built-in tiles (no magenta): the project-a
 fallback. A pinned level with a waterfall of height 8 added by an overlay four cells above where
 salmon start (`salmons-cliff`): one `cliff` per waterfall in the art's regions, ArrowUp held with
 Space tapped climbs it in place (the salmon never above the line before `climbed`) and, let go at
-the top, it swims over; past the line it is drawn raised by the step, 24 + 24 × 8 px (the probe's
-`drawn[].ground`); `cliff.png` at the foot and `over-the-cliff.png` after. It prints
+the top, it swims over, drawn nose up in the climb's pose while held
+(`online.art.looks[me].climbing`); past the line it is drawn raised by the step, 24 + 24 × 8 px
+(the probe's `drawn[].ground`); `cliff.png` at the foot and `over-the-cliff.png` after. It prints
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
 about 4 s, 133 MB, 24 fps).
 
@@ -195,9 +196,9 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
   only from the room's `hooked`).
 - A climb and a reel move a body on the server only: the own device sees them as a correction.
   So does passing over a waterfall once the salmon is as high as it.
-- The climb's look on the device is the leap's pose (lifted and curling), not a climb of its own;
-  `salmons-play.mjs` checks only the band river's one-tap waterfalls. Next verdict idea for it: at
-  a waterfall of height 3 or more, `online.art.looks[me].lift` steps up by 2.4 × 24 px a tap.
+- `salmons-play.mjs` checks only the band river's one-tap waterfalls; the height-8 climb and its
+  pose are in `salmons-levels-play.mjs`. Next verdict idea: at a waterfall of height 3 or more,
+  `online.art.looks[me].lift` steps up by 2.4 × 24 px a tap.
 - A device that closed stays in the room for its reconnection window and is still drawn there
   (seen in `14-golden-passes-on.png`).
 - Salmon are kept off the banks by a push, not a wall.

@@ -886,12 +886,12 @@ const clearX = (river, band) => {
 };
 
 /** The waterfall the climb trace climbs. */
-const CLIMB_FALL = 1;
+const CLIMB_FALL = 0;
 
 const TRACES = (() => {
 	const river = salmonsRiver(3);
-	// The second waterfall: calm water on both sides. A salmon straddling two bands of rapids (the
-	// first's) is pushed by both, 280 px/s against its 240, and cannot swim over the line.
+	// The first waterfall, between two bands of rapids: a band's current carries a salmon by its
+	// centre, so on the line it is pushed by one (140 px/s), not both (280, more than its 240).
 	const fall = river.waterfalls[CLIMB_FALL];
 	const below = river.bands.find((b) => b.y === fall.y + fall.h / 2);
 	const sand = river.sandbanks[0];

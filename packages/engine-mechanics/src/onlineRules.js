@@ -263,10 +263,12 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		},
 		/** Whether the room holds a player still (its inputs are taken but do not move it): its status,
 		 *  or a module's hold (a salmon climbing a waterfall). */
-		holds: (player) => player.status !== STATUS.free || module?.holds?.(player) === true,
+		holds: (player) =>
+			player.status !== STATUS.free || (phase === 'running' && module?.holds?.(player) === true),
 		/** The level the room steps `player` on: `level`, or what a module makes of it for the player
 		 *  (a salmon high enough passes over a waterfall). */
-		level: (player, level) => (module?.level ? module.level(player, level) : level),
+		level: (player, level) =>
+			phase === 'running' && module?.level ? module.level(player, level) : level,
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
 			if (phase !== 'running') return;
@@ -314,8 +316,13 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				}
 				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
-				// A module's lift (a leap) only moves while a round runs: back on the ground as it ends.
-				if (phase !== 'running') for (const player of players) if (player.z) player.z = 0;
+				// A module's lift (a leap, a climb) and its notes last only while a round runs: back on
+				// the ground, and its notes gone, as it ends.
+				if (phase !== 'running')
+					for (const player of players) {
+						if (player.z) player.z = 0;
+						player.memo = {};
+					}
 			} else if (phase === 'ended' && stamp >= endsAt) startRound(players, stamp);
 			else if (phase === 'waiting' && lobby && lobbyOpen) {
 				if (!anyone(players)) {

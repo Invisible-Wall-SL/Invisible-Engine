@@ -1,8 +1,3 @@
-/** One grid cell of Salmons' river, world px (`engine-mechanics` `salmonsMap` `CELL`). */
-export const CELL = 48;
-/** The old client's sizes to the engine's: a 64 × 32 tile is a 96 × 48 one. */
-export const K = CELL / 32;
-
 /**
  * THE RIVER RAISED BY ITS WATERFALLS (Salmons), as the old client (`GuiltyForever/Salmon-` 41811c2
  * `client/game.js`) raised it: a waterfall of height H (grid cells) is a cliff of
@@ -18,6 +13,11 @@ export const K = CELL / 32;
  * `gx`, `y = (gx + 5) · CELL`), so a point is raised by the steps of the waterfalls whose line is
  * below it (`line > y`), which is the original's `W > gx` for a row.
  */
+
+/** One grid cell of Salmons' river, world px (`engine-mechanics` `salmonsMap` `CELL`). */
+export const CELL = 48;
+/** The old client's sizes to the engine's: a 64 × 32 tile is a 96 × 48 one. */
+export const K = CELL / 32;
 
 /** The old client's height unit (px a cell) and its tile's height (64 × 32), old px. */
 export const HEIGHT_UNIT = 16;

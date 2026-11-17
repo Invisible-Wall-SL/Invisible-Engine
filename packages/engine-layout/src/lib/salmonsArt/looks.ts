@@ -1,7 +1,6 @@
 import { Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
-import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { airborne, archAt, cellsOf, curlTarget, envelope, jumpFactor, LEAP, liftOf } from './leap';
 import type { SalmonsTextures } from './load';
 
@@ -10,8 +9,8 @@ import type { SalmonsTextures } from './load';
  * (`GuiltyForever/Salmon-` `client/game.js`) animated them, each at its body's width and standing
  * on its place (the bottom of its look at its feet):
  * - the salmon: a 12-point rope through its texture, facing and tilting with its projected
- *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up at a
- *   waterfall's foot with a pulse each tap, a white glint flashing along its spine in open water;
+ *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up while it
+ *   climbs a waterfall (the room holds it) with a pulse each tap, a white glint flashing along its spine in open water;
  *   the golden one drawn with its own texture;
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
@@ -24,8 +23,10 @@ export type LookFrame = {
 	y: number;
 	/** `engine-mechanics` `STATUS`: 0 free, 3 grounded, 4 hooked. */
 	status: number;
-	/** How high the room has lifted it off the ground, world px (a salmon's leap). */
+	/** How high the room has lifted it off the ground, world px (a salmon's leap or climb). */
 	z: number;
+	/** Free but held still by the room's rules: a salmon climbing a waterfall. */
+	held: boolean;
 	marked: boolean;
 };
 
@@ -41,8 +42,15 @@ export type CodeLook = {
 	/** How far up from its place a line on it ends (its middle). */
 	middle: number;
 	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows, and
-	 *  a leaping salmon's lift (screen px) and curl (0..1). */
-	drawn: () => { kind: string; region: string; swiping?: boolean; lift?: number; curl?: number };
+	 *  a salmon's lift (screen px), curl (0..1) and whether it has the climb's pose. */
+	drawn: () => {
+		kind: string;
+		region: string;
+		swiping?: boolean;
+		lift?: number;
+		curl?: number;
+		climbing?: boolean;
+	};
 	destroy: () => void;
 };
 
@@ -116,16 +124,8 @@ const PULSE_MS = 180;
 /** How fast the drawn height follows the room's, per second: the room's steps come at its tick
  *  rate, the frames at the screen's. */
 const LIFT_FOLLOW = 30;
-/** How near below a waterfall's foot a salmon is climbing it, px, and how still it holds. */
-const FOOT_PX = 40;
-const STILL_PX_S = 40;
 
-function salmonLook(
-	art: SalmonsTextures,
-	glint: Texture,
-	river: SalmonsRiverDrawing,
-	bodyW: number,
-): CodeLook {
+function salmonLook(art: SalmonsTextures, glint: Texture, bodyW: number): CodeLook {
 	const pink = art.region('salmon_pink');
 	const golden = art.region('salmon_golden');
 	const texW = pink.width;
@@ -165,12 +165,7 @@ function salmonLook(
 	let pulseAt = -Infinity;
 	let flash = { at: -Infinity, ms: 200, next: Math.random() * 1200 };
 	let marked = false;
-	const falls = river.waterfalls ?? [];
-	const climbing = (x: number, y: number) =>
-		falls.some((f) => {
-			const foot = f.y + f.h;
-			return y >= foot && y <= foot + FOOT_PX + 22 && x >= f.x && x <= f.x + f.w;
-		});
+	let climbPose = false;
 
 	return {
 		mount: mountOf(view),
@@ -181,6 +176,7 @@ function salmonLook(
 			region: marked ? 'salmon_golden' : 'salmon_pink',
 			lift: liftOf(cells),
 			curl,
+			climbing: climbPose,
 		}),
 		event: (event, atMs) => {
 			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
@@ -200,8 +196,9 @@ function salmonLook(
 			const jf = jumpFactor(cells);
 			body.y = -drawnH / 2 - liftOf(cells);
 			const free = f.status === STATUS_FREE;
-			const atFoot = free && !leaping && Math.abs(v.vy) < STILL_PX_S && climbing(f.x, f.y);
-			if (atFoot) {
+			const climbing = free && f.held;
+			climbPose = climbing;
+			if (climbing) {
 				rotation = lerpAngle(rotation, -facing * (Math.PI / 2), 0.3);
 				const k = (now - pulseAt) / PULSE_MS;
 				const pulse = k >= 0 && k < 1 ? Math.sin(k * Math.PI) * 0.18 : 0;
@@ -231,7 +228,7 @@ function salmonLook(
 				body.rotation = rotation;
 				body.scale.set(facing * size * (1 + squash), size * (1 - squash));
 			}
-			const open = free && !leaping && !atFoot;
+			const open = free && !leaping && !climbing;
 			highlight.visible = open;
 			if (open) {
 				glintPoints.forEach((p, i) => {
@@ -317,12 +314,12 @@ function fishermanLook(bodyW: number): CodeLook {
 }
 
 /** The looks of Salmons' three characters (by character id), or none for another. */
-export function createLookFactory(art: SalmonsTextures, river: SalmonsRiverDrawing) {
+export function createLookFactory(art: SalmonsTextures) {
 	const glint = highlightTexture();
 	return {
 		look: (character: string, body: { w: number; h: number }): CodeLook | undefined =>
 			character === 'salmon'
-				? salmonLook(art, glint, river, body.w)
+				? salmonLook(art, glint, body.w)
 				: character === 'bear'
 					? bearLook(art, body.w)
 					: character === 'fisherman'

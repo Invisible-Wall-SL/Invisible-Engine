@@ -181,6 +181,8 @@ type PlayerState = {
 	mark: boolean;
 	/** How high a rules module has lifted it, px (a salmon's leap); unset until the room writes it. */
 	z?: number;
+	/** Free but held still by a rules module (a salmon climbing); unset from an older server. */
+	held?: boolean;
 };
 type RoomState = {
 	step: number;
@@ -250,9 +252,9 @@ type Session = {
 	casts: Map<string, number>;
 	/** The buttons of the last input sent (a tap is a press). */
 	buttons: number;
-	/** How far the camera is raised with the ground under the own player (the art's `ground`),
-	 *  screen px: eased, from where the art first drew it; `undefined` until then. */
-	cameraLift: number | undefined;
+	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
+	 *  screen px, eased, and where it was drawn. */
+	lifts: Map<string, { lift: number; x: number; y: number }>;
 };
 
 let session: Session | undefined;
@@ -445,7 +447,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		codeLooks: new Map(),
 		casts: new Map(),
 		buttons: 0,
-		cameraLift: undefined,
+		lifts: new Map(),
 	};
 	if (left) return;
 	session = current;
@@ -476,7 +478,10 @@ export async function joinOnlineRoom(): Promise<void> {
 				const player = players?.get(id);
 				return (
 					player && {
-						...raisedPlace(current, placeOf(current, id, player)),
+						...(() => {
+							const at = placeOf(current, id, player);
+							return raisedPlace(at, liftOf(current, id, at));
+						})(),
 						character: player.character,
 					}
 				);
@@ -659,7 +664,7 @@ function received(current: Session, nowMs: number) {
 			x: player.x,
 			y: player.y,
 			ack: player.ack,
-			still: player.status !== STATUS.free,
+			still: player.status !== STATUS.free || player.held === true,
 			step: state.step,
 		});
 	});
@@ -695,15 +700,36 @@ function placeOf(current: Session, id: string, player: PlayerState) {
 	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
 }
 
-/**
- * Where a world place is drawn: raised with the ground under it once the art that raises it is
- * loaded (Salmons' waterfalls). Drawn isometric, moving back by the lift on both axes is moving
- * straight up the screen by it, so the look, its glow and its line all follow.
- */
-function raisedPlace(current: Session, at: { x: number; y: number }) {
-	const lift = current.art?.ground(at.x, at.y) ?? 0;
-	return lift ? { x: at.x - lift, y: at.y - lift } : at;
+/** How fast a drawn player's lift follows the ground under it, per second: a waterfall's step
+ *  (up to 216 px) is climbed onto over a few frames, not in one. */
+const LIFT_FOLLOW = 10;
+/** A move this far in one frame is a respawn or a correction: the lift is taken at once. */
+const LIFT_SNAP_PX = 192;
+
+/** Player `id`'s lift this frame, drawn at `at`, eased towards the ground's under it. */
+function easeLift(current: Session, id: string, at: { x: number; y: number }, dtMs: number) {
+	const target = current.art?.ground(at.x, at.y) ?? 0;
+	const was = current.lifts.get(id);
+	let lift = target;
+	if (was && Math.hypot(at.x - was.x, at.y - was.y) <= LIFT_SNAP_PX) {
+		lift = was.lift + (target - was.lift) * Math.min(1, (dtMs / 1000) * LIFT_FOLLOW);
+		if (Math.abs(target - lift) < 0.01) lift = target;
+	}
+	current.lifts.set(id, { lift, x: at.x, y: at.y });
+	return lift;
 }
+
+/** Player `id`'s lift as last drawn, else the ground's under `at`. */
+const liftOf = (current: Session, id: string, at: { x: number; y: number }) =>
+	current.lifts.get(id)?.lift ?? current.art?.ground(at.x, at.y) ?? 0;
+
+/**
+ * Where a world place is drawn raised by `lift` (Salmons' waterfalls, once the art is loaded).
+ * Drawn isometric, moving back by the lift on both axes is moving straight up the screen by it, so
+ * the look, its glow and its line all follow.
+ */
+const raisedPlace = (at: { x: number; y: number }, lift: number) =>
+	lift ? { x: at.x - lift, y: at.y - lift } : at;
 
 /** Put every player of the room where it is drawn. */
 function draw(current: Session, dtMs: number) {
@@ -713,6 +739,7 @@ function draw(current: Session, dtMs: number) {
 	if (!players) return;
 	current.clipClock += dtMs;
 	for (const id of current.looks.keys()) if (!players.has(id)) current.looks.delete(id);
+	for (const id of current.lifts.keys()) if (!players.has(id)) current.lifts.delete(id);
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		if (player && (shownInRoom(player) || keptForCatch(current, id, player))) continue;
@@ -727,7 +754,7 @@ function draw(current: Session, dtMs: number) {
 		if (!shownInRoom(player)) return;
 		const at = placeOf(current, id, player);
 		places.set(id, at);
-		const shown = raisedPlace(current, at);
+		const shown = raisedPlace(at, easeLift(current, id, at, dtMs));
 		const instance = current.drawn.get(id);
 		if (instance) {
 			moves.push({ id: instance, x: shown.x, y: shown.y });
@@ -786,6 +813,7 @@ function drawCodeLooks(
 			status: player.status,
 			marked: player.mark,
 			z: player.z ?? 0,
+			held: player.held === true,
 		});
 		mounts.set(instance, look.mount);
 	}
@@ -964,13 +992,10 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
 	worldCamera = { camera, world: sceneWorld(scene), view };
 }
 
-/** How fast the camera's lift follows the ground under the own player, per second. */
-const CAMERA_LIFT_FOLLOW = 6;
-
 /**
  * Move the camera after a frame, towards the own player as drawn. On raised ground the whole
- * drawing is moved down by the ground's lift there (eased, so a waterfall's step is not a jump),
- * which keeps the camera's world place, and its hold inside the world, as it was.
+ * drawing is moved down by the own player's drawn lift, which keeps the camera's world place, and
+ * its hold inside the world, as it was.
  */
 function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
@@ -978,16 +1003,11 @@ function follow(current: Session, dtMs: number) {
 	const { camera, world, view } = worldCamera;
 	const size = view();
 	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
-	if (current.art) {
-		const lift = current.art.ground(at.x, at.y);
-		const from = current.cameraLift ?? lift;
-		current.cameraLift = from + (lift - from) * Math.min(1, (dtMs / 1000) * CAMERA_LIFT_FOLLOW);
-	}
 	setWorldCameraView({
 		x: camera.x,
 		y: camera.y,
 		shakeX: camera.offsetX,
-		shakeY: camera.offsetY + (current.cameraLift ?? 0),
+		shakeY: camera.offsetY + (current.lifts.get(current.room.sessionId)?.lift ?? 0),
 		view: size,
 	});
 }
@@ -999,7 +1019,7 @@ function predictAbilities(current: Session, buttons: number, seq: number) {
 	if (!current.abilities || !me) return;
 	const free = state.phase === 'running' && me.status === STATUS.free;
 	const own = ownPlace(current);
-	const at = own && raisedPlace(current, own);
+	const at = own && raisedPlace(own, liftOf(current, current.room.sessionId, own));
 	for (const button of current.abilities.step(buttons, free, seq))
 		raise(
 			current,
@@ -1052,7 +1072,7 @@ export function onlineProbe() {
 		if (!shownInRoom(p)) hidden.push(id);
 		else if (current) {
 			const at = placeOf(current, id, p);
-			const ground = current.art?.ground(at.x, at.y);
+			const ground = current.art ? liftOf(current, id, at) : 0;
 			drawn.push({ id, ...at, ...(ground ? { ground } : {}) });
 		}
 	});
@@ -1068,7 +1088,7 @@ export function onlineProbe() {
 						y: camera.y,
 						shakeX: camera.offsetX,
 						shakeY: camera.offsetY,
-						lift: current?.cameraLift ?? 0,
+						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
 						view: worldCamera.view(),
 					},
 				}

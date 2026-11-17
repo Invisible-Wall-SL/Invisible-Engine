@@ -454,6 +454,7 @@ try {
 	};
 	await c.key('ArrowUp', 'down');
 	let climbed;
+	let climbPose = false;
 	let below = true;
 	let taps = 0;
 	let atFoot;
@@ -463,6 +464,7 @@ try {
 		await c.key('Space', 'up');
 		await c.settle(350);
 		const now = await ownC();
+		climbPose ||= (await c.state()).arcade?.online?.art?.looks?.[meC]?.climbing === true;
 		climbed = now.events.find((e) => e.type === 'climbed');
 		if (!climbed && now.body) {
 			below &&= now.body.y > line;
@@ -483,9 +485,10 @@ try {
 	);
 	verdict(
 		'…and is drawn raised with the river past it (the waterfall’s step, 24 + 24 × 8 px)',
-		(over.drawn?.ground ?? 0) - (atFoot?.drawn?.ground ?? 0) === step,
+		Math.abs((over.drawn?.ground ?? 0) - (atFoot?.drawn?.ground ?? 0) - step) < 0.5,
 		{ before: atFoot?.drawn?.ground ?? 0, after: over.drawn?.ground ?? 0 },
 	);
+	verdict('…drawn nose up in the climb’s pose while it climbs (the room holds it)', climbPose);
 	const cErrors = await c.page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error on the raised river', cErrors.length === 0, cErrors);
 	await c.page.close();

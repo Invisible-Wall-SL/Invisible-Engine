@@ -115,10 +115,10 @@ export const fallHeight = (zone) => zone.height ?? SALMONS_MAP.WATERFALL_HEIGHT_
 /**
  * The waterfalls of a game, as the climb measures them: the line they stand on (the middle of the
  * zone), their height in cells (`top`) and px, and the original's obstacle cells across the river
- * (`cells`, from the water band that starts at the line: one at each `left + k·CELL`), or none when
- * no band does.
+ * (`cells`, from the water band that starts at the line: one centred at each
+ * `left + (k + ½)·CELL`, as `salmonsMap` places a cell's pieces), or none when no band does.
  */
-const fallsOf = (game) =>
+export const waterfallsOf = (game) =>
 	zonesOfKind(game, 'waterfall').map((zone) => {
 		const line = zone.y + zone.h / 2;
 		const water = game.zones.find((w) => /^band\d+Water$/.test(w.id) && w.y === line);
@@ -133,12 +133,13 @@ const fallsOf = (game) =>
 	});
 
 /** How far a body is from a waterfall's nearest obstacle cell, cells², as the original measures
- *  it: along the river from its line, across from the nearest cell of the column. */
-const reachSq = (fall, body) => {
+ *  it: along the river from its line, across from the centre of the column's nearest cell (the
+ *  zone's edges when it has no cells). */
+export const fallReachSq = (fall, body) => {
 	const along = (body.y - fall.line) / CELL;
 	let across;
 	if (fall.cells) {
-		const at = (body.x - fall.cells.left) / CELL;
+		const at = (body.x - fall.cells.left) / CELL - 0.5;
 		across = at - Math.min(fall.cells.count - 1, Math.max(0, Math.round(at)));
 	} else across = Math.max(0, fall.x - body.x, body.x - fall.x - fall.w) / CELL;
 	return along * along + across * across;
@@ -153,7 +154,7 @@ const climbTo = (player, cells) => {
 
 const waterfallClimbing = {
 	create(game, api) {
-		const falls = fallsOf(game);
+		const falls = waterfallsOf(game);
 		if (!falls.length) return {};
 		const heights = [...new Set(falls.map((f) => f.height))].sort((a, b) => a - b);
 		/** A level → the same level without the waterfalls a player passes, by how many heights it
@@ -163,7 +164,7 @@ const waterfallClimbing = {
 		// lets it pass only while it is still as high (the step it is let go and the next); here a
 		// step with no input rests and a device's inputs come in bursts, so that window is missed.
 		const inReach = (fall, player) =>
-			appliesTo(fall, player) && reachSq(fall, player.body) < CLIMB.radiusSq;
+			appliesTo(fall, player) && fallReachSq(fall, player.body) < CLIMB.radiusSq;
 		return {
 			holds: (player) => player.memo.climbing === 1,
 			input(player, input) {
@@ -174,6 +175,7 @@ const waterfallClimbing = {
 				const fall = falls.find((f) => player.body.y > f.line && z < f.top && inReach(f, player));
 				if (!fall) return;
 				climbTo(player, Math.min(fall.top, z + CLIMB.step));
+				player.memo.climbFall = falls.indexOf(fall);
 				player.memo.over = 0;
 				player.memo.vz = 0;
 				player.memo.climbing = 1;
@@ -183,7 +185,10 @@ const waterfallClimbing = {
 				const slide = CLIMB.slidePerSecond / world.tickHz;
 				for (const p of world.players) {
 					if (p.memo.climbing !== 1) continue;
-					const fall = p.status === api.STATUS.free && falls.find((f) => inReach(f, p));
+					// The waterfall its tap climbs (the original finds any in reach; two never are, 40
+					// columns apart, but an overlay could set them closer).
+					const climbed = falls[p.memo.climbFall];
+					const fall = p.status === api.STATUS.free && inReach(climbed, p) && climbed;
 					if (!fall) {
 						p.memo.climbing = 0;
 						continue;
@@ -205,7 +210,6 @@ const waterfallClimbing = {
 			},
 			level(player, level) {
 				const z = player.z ?? 0;
-				if (!(z > 0)) player.memo.over = 0;
 				if (!(z > 0) || !level?.solids) return level;
 				let n = 0;
 				while (n < heights.length && heights[n] <= z) n += 1;
@@ -300,6 +304,7 @@ const fall = {
 					if (p.status !== api.STATUS.free) {
 						p.z = 0;
 						p.memo.vz = 0;
+						p.memo.over = 0;
 						continue;
 					}
 					const z = (p.z ?? 0) + vz * dt;
@@ -308,6 +313,7 @@ const fall = {
 					else {
 						p.z = 0;
 						p.memo.vz = 0;
+						p.memo.over = 0;
 					}
 				}
 			},
