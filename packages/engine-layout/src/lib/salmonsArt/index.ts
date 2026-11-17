@@ -1,7 +1,7 @@
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
-import { loadSalmonsTextures } from './load';
+import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, type RiverArt } from './river';
 
@@ -12,7 +12,7 @@ import { mountSalmonsRiver, type RiverArt } from './river';
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
  */
 
-export type { CodeLook, LookEvent, LookFrame };
+export type { CodeLook, LookEvent, LookFrame, ProjectSheet };
 
 /** How long a cast's line wiggles, ms, and its look (the old client's fishing line). */
 const CAST_MS = 450;
@@ -32,12 +32,16 @@ export type SalmonsArt = {
 	destroy: () => void;
 };
 
-/** Load the art and make the kit that draws `river` (a room's own, from its `seed`). */
+/**
+ * Load the art and make the kit that draws `river` (a room's own, from its `seed`): each region
+ * from the project's published sheets (`sheets`) when they ship it, else the built-in copy.
+ */
 export async function loadSalmonsArt(
 	river: SalmonsRiverDrawing,
 	seed: number,
+	sheets: readonly ProjectSheet[] = [],
 ): Promise<SalmonsArt> {
-	const textures = await loadSalmonsTextures();
+	const textures = await loadSalmonsTextures(sheets);
 	const looks = createLookFactory(textures, river);
 	let drawn: RiverArt | undefined;
 	let live = 0;

@@ -80,11 +80,17 @@ import {
 	type InstanceMark,
 } from 'engine-layout/svelte';
 import type { CodeLook, SalmonsArt } from 'engine-layout/salmons-art';
-import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	salmonsProjectSheetOf,
+	type OnlineGame,
+} from 'game-config';
 
 import {
 	bakedFlowV2Doc,
 	bakedGameConfig,
+	editorArtSheetsWhere,
 	preparedEditorDoc,
 	refuseOnlineBoot,
 	setRoomDocChange,
@@ -142,14 +148,24 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * loads it.
  */
 
+/**
+ * Salmons' art, loaded only for its generators: each region from the project's own sheets when the
+ * published editor art ships them (`game-config` `SALMONS_PROJECT_SHEETS`, by manifest key), else
+ * from the built-in copy. A snapshot published before the project held them draws the built-in.
+ */
+const salmonsArt = async (made: SalmonsRiverDrawing, seed: number) =>
+	(await import('engine-layout/salmons-art')).loadSalmonsArt(
+		made,
+		seed,
+		editorArtSheetsWhere((key) => salmonsProjectSheetOf(key) !== undefined),
+	);
+
 /** The built-in art a generator's field and characters are drawn with, loaded only for it. */
 const FIELD_ART: Readonly<
 	Record<string, (made: SalmonsRiverDrawing, seed: number) => Promise<SalmonsArt>>
 > = {
-	salmonsRiver: async (made, seed) =>
-		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
-	salmonsMap: async (made, seed) =>
-		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
+	salmonsRiver: salmonsArt,
+	salmonsMap: salmonsArt,
 };
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */

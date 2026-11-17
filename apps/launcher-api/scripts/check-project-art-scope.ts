@@ -35,6 +35,12 @@
  *      library ships its own art, and a card's art named only in its `params` (an image param of the
  *      frame) ships too (`cardGameComponentIds` / `cardGameParamRefs` seed the export). The same
  *      config without cards ships neither.
+ *  11. SALMONS' ART as project sheets (`game-config` `SALMONS_PROJECT_SHEETS`): for a config whose
+ *      generator draws in it, the sheets the project holds ship by manifest key, though nothing
+ *      places them; one it lacks is not reported missing (the runtime's built-in copy draws it); a
+ *      sheet in another project, or an un-named sheet packing the same region, does not ship, but
+ *      does when a look names that region bare (the Salmons sheet never stands in for it); the
+ *      same config with another generator ships none.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -697,6 +703,78 @@ const noCards = await exportEditorArt(CLIENT, CARD_PROJECT);
 check(
 	'without cards neither ships',
 	!noCards.sheets.some((s) => s.key === FRAME_SHEET || s.key === ART_SHEET),
+);
+
+console.log('11. Salmons’ art ships as project sheets for a Salmons generator');
+const SALMONS_PROJECT = 'salmons_art';
+const salmonsSheet = (project: string, stem: string, frame: string) => {
+	const manifest = `${SUB.manifests(CLIENT, project)}/atlas_manifest_${stem}.json`;
+	const page = `${SUB.sheets(CLIENT, project)}/${stem}/${stem}.webp`;
+	put(page, 'x');
+	put(manifest, {
+		atlas: { source_image_path: page },
+		regions: [{ name: frame, x: 0, y: 0, w: 8, h: 8 }],
+	});
+	return manifest;
+};
+const PROPS_SHEET = salmonsSheet(SALMONS_PROJECT, 'salmons_props', 'rock_0');
+const CHARS_SHEET = salmonsSheet(SALMONS_PROJECT, 'salmons_characters', 'bear');
+const LOOKALIKE_SHEET = salmonsSheet(SALMONS_PROJECT, 'S_Lookalike', 'bear');
+const ELSEWHERE_SHEET = salmonsSheet('salmons_other', 'salmons_terrain', 'grass_c');
+put(editorDocKey(CLIENT, SALMONS_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
+const SALMONS_CONFIG = (generator: string) => ({
+	...ARCADE_CONFIG,
+	arcade: { online: { generator } },
+});
+put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), SALMONS_CONFIG('salmonsMap'));
+const salmonsIndex = await exportEditorArt(CLIENT, SALMONS_PROJECT);
+const salmonsDeploy = `${SUB.deploy(CLIENT, SALMONS_PROJECT)}/`;
+const shippedProps = salmonsIndex.sheets.find((s) => s.key === PROPS_SHEET);
+check('a Salmons project sheet ships though nothing places it', !!shippedProps);
+check(
+	'… its spritesheet written under deploy/editor-art/',
+	!!shippedProps && bucket.has(`${salmonsDeploy}${shippedProps.json}`),
+);
+check(
+	'every Salmons sheet the project holds ships',
+	salmonsIndex.sheets.some((s) => s.key === CHARS_SHEET),
+);
+check(
+	'a sheet it lacks is not reported missing',
+	!salmonsIndex.missing.some((n) => ['grass_c', 'waterfall_face'].includes(n)),
+);
+check(
+	'another sheet packing a Salmons region name does not ship',
+	!salmonsIndex.sheets.some((s) => s.key === LOOKALIKE_SHEET),
+);
+check(
+	'another project’s Salmons sheet does not ship',
+	!salmonsIndex.sheets.some((s) => s.key === ELSEWHERE_SHEET),
+);
+// A character's look names `bear` bare (an image param), meaning the look-alike sheet: the Salmons sheet that also
+// packs `bear` must not stand in for it.
+put(projectComponentKey(SALMONS_PROJECT, 'bareBear'), {
+	...spriteDef('bareBear', ''),
+	params: [{ key: 'art', kind: 'image', default: 'bear' }],
+});
+put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), {
+	...SALMONS_CONFIG('salmonsMap'),
+	arcade: {
+		online: { generator: 'salmonsMap' },
+		characters: [{ id: 'bear', component: 'bareBear' }],
+	},
+});
+const bareIndex2 = await exportEditorArt(CLIENT, SALMONS_PROJECT);
+check(
+	'a bare region a look names ships the sheet the bare-name search finds, not a Salmons sheet',
+	bareIndex2.sheets.some((s) => s.key === LOOKALIKE_SHEET) &&
+		bareIndex2.sheets.some((s) => s.key === CHARS_SHEET),
+);
+put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), SALMONS_CONFIG('otherGenerator'));
+const notSalmons = await exportEditorArt(CLIENT, SALMONS_PROJECT);
+check(
+	'another generator ships none',
+	!notSalmons.sheets.some((s) => s.key === PROPS_SHEET || s.key === CHARS_SHEET),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);
