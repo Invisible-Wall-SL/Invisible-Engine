@@ -357,7 +357,7 @@ the runbook follows them.
   with no lift. Source: the original at 41811c2 (`server/index.js` `onMessage('jump')` and
   `update`, `client/game.js` salmon pose), read by the waterfall-heights session and relayed as
   excerpts. This session had no access to that repo.
-  - **Room** (`salmonsRules` `salmonJump`, in the `salmons` module and offered alone): a tap of jump
+  - **Room** (`salmonsRules` `salmonJump`, inside the `salmons` module): a tap of jump
     by a free salmon with `z` 0 leaps at 11 cells/s under 20 cells/s². That is the old server's
     stepping exactly: about 1.1 s up, the top about 3 cells (145 px). There is no second leap in the
     air. A tap that climbs a waterfall does not leap. A tap off a sandbank does (one `jumped`). A

@@ -12,13 +12,13 @@
  * - `sandbanks`: a free salmon whose centre comes onto a sandbank (`kind: 'sandbank'`) is
  *   `grounded`, held still and still catchable, until it taps jump (`grounded`, `jumped`); it is not
  *   grounded again before its centre has left the sand.
- * - `salmonJump`: the original's leap (`GuiltyForever/Salmon-` 41811c2 `server/index.js`
- *   `onMessage('jump')` and `update`). A tap of jump by a free salmon on the water (its height `z`
- *   0) launches it up at {@link JUMP}`.launch` cells/s, and it falls back under `JUMP.gravity`
- *   cells/s²: about 1.1 s in the air, its top about 3 cells up (`jumped`). A tap that climbs a
- *   waterfall does not leap; a tap that leaves a sandbank does, as the old server's did. In the air
- *   it is not grounded on sand nor hooked. The leap only lifts: the body keeps moving on the river
- *   as the player steers.
+ * - `salmonJump` (in `salmons` only): the original's leap (`GuiltyForever/Salmon-` 41811c2
+ *   `server/index.js` `onMessage('jump')` and `update`). A tap of jump by a free salmon on the
+ *   water (its height `z` 0) launches it up at {@link JUMP}`.launch` cells/s, and it falls back
+ *   under `JUMP.gravity` cells/s²: about 1.1 s in the air, its top about 3 cells up (`jumped`). A
+ *   tap that climbs a waterfall does not leap; a tap that leaves a sandbank does, as the old
+ *   server's did. In the air it is not grounded on sand nor hooked. The leap only lifts: the body
+ *   keeps moving on the river as the player steers.
  * - `fishingLine`: a `hook` ability hooks the nearest target in reach (`hooked`): the target is held
  *   and reeled towards its fisherman at {@link LINE}`.reelPxPerSecond`, and landed within
  *   `landPx` of it, which is the catch (`caught`, effect `hook`: out for the ability's `ms`, the
@@ -176,7 +176,8 @@ const sandbanks = {
 	},
 };
 
-const salmonJump = {
+/** The leap, run inside `salmons` only: a rules id would reach every runtime's game-config. */
+export const salmonJump = {
 	create(game, api) {
 		const launch = JUMP.launch * CELL;
 		const pull = JUMP.gravity * CELL;
@@ -340,11 +341,4 @@ const salmons = {
 
 /** Salmons' entries of `ONLINE_RULES_MODULES`. Object literals only, so a runtime that never runs a
  *  room (every one but `arcade`) drops them. */
-export const SALMONS_RULES = {
-	waterfallClimb,
-	sandbanks,
-	salmonJump,
-	fishingLine,
-	goldenSalmon,
-	salmons,
-};
+export const SALMONS_RULES = { waterfallClimb, sandbanks, fishingLine, goldenSalmon, salmons };

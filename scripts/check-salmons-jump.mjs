@@ -15,7 +15,7 @@ import { aabbOf } from '../packages/engine-mechanics/src/motion.js';
 import { BUTTONS } from '../packages/engine-mechanics/src/online.js';
 import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
 import { CELL } from '../packages/engine-mechanics/src/salmonsMap.js';
-import { JUMP, SALMONS_RULES } from '../packages/engine-mechanics/src/salmonsRules.js';
+import { JUMP, SALMONS_RULES, salmonJump } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	LEAP,
 	airborne,
@@ -124,21 +124,21 @@ check("the leap's numbers are the old server's: 11 cells/s up, 20 cells/s² down
 
 for (const tickHz of [30, 60]) {
 	check(`at ${tickHz} Hz the height follows the old server's, step for step`, () => {
-		const ours = leap(room(SALMONS_RULES.salmonJump, { tickHz }));
+		const ours = leap(room(salmonJump, { tickHz }));
 		const theirs = original(tickHz);
 		assert.equal(ours.length, theirs.length, 'the steps in the air');
 		ours.forEach((z, i) => near(z, theirs[i], 1e-9, `step ${i + 1}`));
 	});
 	// The old server's own stepping overshoots the smooth arc by up to two steps at 30 Hz.
 	check(`at ${tickHz} Hz it is up about 1.1 s and tops out about 3 cells`, () => {
-		const heights = leap(room(SALMONS_RULES.salmonJump, { tickHz }));
+		const heights = leap(room(salmonJump, { tickHz }));
 		near(heights.length / tickHz, 1.1, 2 / tickHz, 'time in the air (s)');
 		near(Math.max(...heights), (11 * 11) / (2 * 20), 11 / tickHz, 'top (cells)');
 	});
 }
 
 check('one leap is announced and a tap in the air does not leap again', () => {
-	const r = room(SALMONS_RULES.salmonJump);
+	const r = room(salmonJump);
 	r.press(true);
 	r.press(false);
 	r.step();
@@ -152,7 +152,7 @@ check('one leap is announced and a tap in the air does not leap again', () => {
 });
 
 check('two taps in one step leap once', () => {
-	const r = room(SALMONS_RULES.salmonJump);
+	const r = room(salmonJump);
 	r.press(true);
 	r.press(false);
 	r.press(true);
@@ -162,7 +162,7 @@ check('two taps in one step leap once', () => {
 });
 
 check('a held press leaps once', () => {
-	const r = room(SALMONS_RULES.salmonJump);
+	const r = room(salmonJump);
 	r.press(true);
 	let steps = 0;
 	do {
@@ -178,20 +178,20 @@ check('a held press leaps once', () => {
 
 check('no leap while held (grounded, hooked, out) or for another character', () => {
 	for (const status of [STATUS.grounded, STATUS.hooked, STATUS.out, STATUS.stunned]) {
-		const r = room(SALMONS_RULES.salmonJump);
+		const r = room(salmonJump);
 		r.salmon.status = status;
 		leap(r);
 		assert.equal(r.salmon.z ?? 0, 0, `status ${status}`);
 		assert.equal(r.events.length, 0);
 	}
-	const r = room(SALMONS_RULES.salmonJump);
+	const r = room(salmonJump);
 	r.salmon.character = { id: 'bear' };
 	leap(r);
 	assert.equal(r.salmon.z ?? 0, 0);
 });
 
 check('a catch mid-leap puts it back on the water', () => {
-	const r = room(SALMONS_RULES.salmonJump);
+	const r = room(salmonJump);
 	r.press(true);
 	r.step();
 	r.step();
