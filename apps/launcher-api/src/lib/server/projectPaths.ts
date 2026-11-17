@@ -91,6 +91,9 @@ export const SUB = {
 	// bake, pull and the duplicate path all leave it alone.
 	director: (c: string, p: string) => `${projectPrefix(c, p)}/director`,
 	shaders: (c: string, p: string) => `${projectPrefix(c, p)}/shaders`,
+	// 3D model masters (`docs/design/3d/assets-evaluation.md` §4): `<id>/model.json` + its source
+	// GLB, and `_cache/` the derived-texture cache the export reads before encoding.
+	models: (c: string, p: string) => `${projectPrefix(c, p)}/models`,
 	// The Rigger's lip-sync voice lines (rig templates T4). Authoring input only: the keys they
 	// make ship in the rig; deploy, bake and pull leave the audio alone.
 	voices: (c: string, p: string) => `${projectPrefix(c, p)}/voices`,
@@ -139,6 +142,35 @@ export function perfBuildKey(
 	id: string,
 ): string {
 	return `${SUB.perf(client, project)}/builds/${gameKey}/v${build}-${id}.json`;
+}
+
+/** One model's record: class, overrides, its source GLB's name and validator report. */
+export function modelDocKey(client: string, project: string, id: string): string {
+	return `${SUB.models(client, project)}/${id}/model.json`;
+}
+
+/**
+ * A model's master GLB, content-addressed (`source.<sha12>.glb`): `model.json` names the one in use,
+ * so writing the bytes and committing them are separate steps and only the `model.json` CAS can
+ * lose a race. A presigned upload never names this key (it lands in {@link modelUploadKey}).
+ */
+export function modelSourceKey(client: string, project: string, id: string, file: string): string {
+	return `${SUB.models(client, project)}/${id}/${file}`;
+}
+
+/** Where a presigned model upload lands before it is registered; swept like the profiler's. */
+export function modelUploadKey(
+	client: string,
+	project: string,
+	id: string,
+	upload: string,
+): string {
+	return `${SUB.models(client, project)}/${id}/uploads/${upload}.glb`;
+}
+
+/** The derived-texture cache: one encoded texture per key (`modelOptimize.ts` `ModelTextureCache`). */
+export function modelTextureCacheKey(client: string, project: string, key: string): string {
+	return `${SUB.models(client, project)}/_cache/${key}`;
 }
 
 /** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */

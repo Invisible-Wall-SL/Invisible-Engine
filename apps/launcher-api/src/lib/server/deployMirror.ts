@@ -1,5 +1,5 @@
 import { mapWithConcurrency } from './concurrency';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import { copyObject, deleteObjects, listAllKeys, putObjectBytes, putObjectText } from './r2';
 
 /**
  * How many independent deploy writes one exporter keeps in flight. The writes are small JSON or
@@ -23,6 +23,12 @@ export class DeployMirror {
 	/** Write `text` to `key` and keep it. */
 	async put(key: string, text: string, contentType = 'application/json'): Promise<void> {
 		await putObjectText(key, text, contentType);
+		this.written.add(key);
+	}
+
+	/** Write binary `bytes` to `key` and keep it. */
+	async putBytes(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+		await putObjectBytes(key, bytes, contentType);
 		this.written.add(key);
 	}
 
