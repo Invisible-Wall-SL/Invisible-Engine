@@ -56,11 +56,12 @@ export const PATTERNS = [
 		'Database URL with password',
 		/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?):\/\/[^:\s/@]+:[^@\s/]+@/,
 	],
-	// A pip `--hash=sha256:<hex>` pin (hash-checked requirements) and a workflow's
-	// `uses: owner/repo@<sha>` action pin are public checksums, not secrets.
+	// A pip `--hash=sha256:<hex>` pin (hash-checked requirements), a workflow's
+	// `uses: owner/repo@<sha>` action pin and a JSON `"sha256": "<hex>"` file checksum (the runtime
+	// byte manifests, `scripts/runtime-bytes/`) are public checksums, not secrets.
 	[
 		'Generic 40+ hex secret',
-		/(?<!--hash=sha(?:256|384|512):|\buses:\s*[\w.-]+\/[\w./-]+@)\b[0-9a-f]{40,}\b/,
+		/(?<!--hash=sha(?:256|384|512):|\buses:\s*[\w.-]+\/[\w./-]+@|"sha256":\s*")\b[0-9a-f]{40,}\b/,
 	],
 ];
 

@@ -81,6 +81,16 @@ check(
 check('the launcher version is carried', told.a.launcherVersion === '1.0.56');
 check('the lockfile is ALWAYS measured, never taken on trust', told.a.lockfileSha256 === lock);
 
+const pinned = provenance({ IE_REPRODUCIBLE: '1', PUBLIC_BUILD_TIME: '2026-09-29T10:00:00.000Z' });
+check(
+	'IE_REPRODUCIBLE=1 pins the time, both commits and the lockfile hash',
+	pinned.a.builtAt === '1970-01-01T00:00:00.000Z' &&
+		pinned.a.engineSha === 'reproducible' &&
+		pinned.a.gameSha === 'reproducible' &&
+		pinned.a.lockfileSha256 === 'reproducible',
+	JSON.stringify(pinned.a),
+);
+
 // ── 2. bake gate refusals ────────────────────────────────────────────────────────────────────────
 const fakePortal = (refuse) =>
 	new Promise((ready) => {

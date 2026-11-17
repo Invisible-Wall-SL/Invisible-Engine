@@ -90,6 +90,9 @@ export default () => {
 		output: {
 			bundleStrategy: 'single',
 		},
+		// SvelteKit's default is `Date.now()`, compiled into the bundle and `_app/version.json`: the
+		// one value that made two builds of one commit differ besides `config-vite`'s stamp.
+		...(process.env.IE_REPRODUCIBLE === '1' ? { version: { name: 'reproducible' } } : {}),
 	};
 
 	const game = isStandaloneGame();

@@ -145,7 +145,7 @@ own `test_server/<key>/` bundle and have no `runtime` field.
 |---|---|---|
 | `lines@<version>/**` | one release: the whole `apps/lines/build` | never, once a pointer can name it |
 | `lines/current.json` | **the pointer**: `{ version, commit, marker, promotedAt, via, previous }` | one write per release/rollback |
-| `lines/releases.json` | history, newest first: `{ version, commit, builtAt, marker, files, bytes, runUrl }` | per release/prune |
+| `lines/releases.json` | history, newest first: `{ version, commit, builtAt, marker, files, bytes, runUrl, reproducible }` | per release/prune |
 | `lines/release.json` | the launcher's status stamp (`building` / `released`, `lastFailure`) | advisory |
 | `lines/**` (anything else) | the pre-pointer flat bundle — read only while no pointer exists | legacy |
 
@@ -163,6 +163,18 @@ Every runtime response carries `X-Runtime-Release: lines@<version>`, and `/healt
 version per runtime plus the pinned games. The release job then proves the new release is SERVED
 (`verify-runtime-live.mjs`: the served `bundle.<hash>.js` and the header, on a game that follows the
 pointer) and goes red otherwise.
+
+**An unchanged runtime is not released.** Before anything else, the release job builds the same
+commit with `IE_REPRODUCIBLE=1` (the build time, the commits and the lockfile hash pinned:
+`config-vite` `provenance.js`, `config-svelte`'s kit version) and hashes every file
+(`scripts/check-runtime-bytes.mjs --hash`). Each release records that hash as `reproducible` in
+`releases.json`; when the release the pointer names recorded the same one, a push ends green as
+"unchanged" and the pointer, the stamp and the players' cached bundle stay. A dispatch always
+releases. So a merge under `packages/**` that never reaches a runtime (a 3D-only change, a lockfile
+entry only another runtime uses) costs that runtime's players nothing. The same reproducible build,
+compared file by file with `scripts/runtime-bytes/<id>.json`, is the `runtime-bytes` PR check: an
+engine PR that means to change a runtime commits its new manifests
+([3d-games](3d-games.md), runtime evaluation §3.5).
 
 **Rollback** is a pointer flip, no rebuild: **Actions → Runtime rollback → Run workflow**
 (`.github/workflows/runtime-rollback.yml`), or
