@@ -2813,6 +2813,15 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-17 — **Mouse and touch in online arcade rooms** (branch `arcade-pointer-controller`; in
+  review; [design/arcade-pointer-controller](../design/arcade-pointer-controller.md)). An online
+  game's `arcade.online.pointer` (off unless named; `/config` card Mouse and touch): a held finger,
+  or a hovering or pressed mouse, steers the own player towards the point (mapped through the
+  camera and the isometric projection each step); a tap presses the character's tap button with
+  the point as `aim`. `engine-mechanics` `pointerControl.js`; the device turns it into the inputs
+  the keys make, so the game server, its schema and every replay are untouched. Offline arcade
+  pointer input (P10.11) is unchanged. Salmons ships it on, as its original client did. Detail in
+  [status/salmons](salmons.md).
 - 2026-11-09 — **Card C5: the mixed turn order switch, the `allFriendly` target and the
   `gainResource` verb**, end to end (rules, AI, validator, rules text, Card Library form, `/config`,
   runtime). Strict games play byte for byte as before. Detail above.
