@@ -1,0 +1,2 @@
+# Same narrow rules as the services (F, E9, BLE); CI runs `ruff check services/ tools/blender/`.
+extend = "../../services/ruff.toml"

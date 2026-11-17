@@ -1,7 +1,7 @@
 # Python lint for the pipeline services. CI runs it in the `python tests` job
 # (.github/workflows/checks.yml), from the repo root:
 #
-#     ruff check services/
+#     ruff check services/ tools/blender/   (tools/blender/ruff.toml extends this file)
 #
 # Deliberately narrow — what a plain-script suite cannot catch for itself:
 #   F    pyflakes: undefined names, unused imports/variables, redefinitions
