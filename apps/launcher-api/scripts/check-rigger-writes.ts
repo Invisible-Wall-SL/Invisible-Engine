@@ -1172,6 +1172,88 @@ for (const hold of ['before', 'after'] as const) {
 	);
 }
 
+// Rig templates (docs/design/rig-templates.md, T1): a create from a template writes the template's
+// skeleton over the art's regions, remembers it in `template.json`, and reports the missing parts.
+{
+	const art = ['body', 'head', 'mouth_rest', 'mouth_A'].map((name, i) => ({
+		name,
+		x: i * 10,
+		y: 0,
+		w: 10,
+		h: 12,
+	}));
+	seedProject();
+	const tpl = await call(upload.POST, {
+		name: 'Bust',
+		page: PAGE,
+		pageWidth: 40,
+		pageHeight: 12,
+		regions: art,
+		templateId: 'bust-face',
+	});
+	const t = tpl.body.template as { id: string; missingRequired: string[]; missing: string[] };
+	const doc = JSON.parse(text(`${RIGS}/Bust/Bust.irig`) ?? '{}') as {
+		skins: { attachments: Record<string, Record<string, { width: number }>> }[];
+	};
+	check(
+		'template upload: created, remembered, required gaps reported',
+		[tpl.status, t.id, t.missingRequired, JSON.parse(text(`${RIGS}/Bust/template.json`) ?? '{}')],
+		[
+			200,
+			'bust-face',
+			['eyelid_l_closed', 'eyelid_r_closed', 'brow_l_neutral', 'brow_r_neutral', 'mouth_O'],
+			{ id: 'bust-face', version: 1 },
+		],
+	);
+	check(
+		'template upload: the art attaches by name, a missing shape is left out',
+		[Object.keys(doc.skins[0].attachments.mouth), doc.skins[0].attachments.mouth.mouth_A.width],
+		[['mouth_rest', 'mouth_A'], 10],
+	);
+	check(
+		'template upload: an existing-rig skeleton never gets a template.json',
+		text(`${RIGS}/A/template.json`),
+		null,
+	);
+
+	seedProject();
+	const both = await call(upload.POST, {
+		name: 'Both',
+		page: PAGE,
+		pageWidth: 40,
+		pageHeight: 12,
+		regions: art,
+		templateId: 'bust-face',
+		rigId: 'lib',
+	});
+	const unknown = await call(newRig.POST, { noAtlas: true, name: 'U', templateId: 'nope' });
+	check(
+		'template: a saved rig AND a template, or an unknown template, create nothing',
+		[both.status, unknown.status, text(`${RIGS}/Both/Both.irig`), text(`${RIGS}/U/U.irig`)],
+		[400, 404, null, null],
+	);
+
+	seedProject();
+	const bare = await call(newRig.POST, { noAtlas: true, name: 'Blank', templateId: 'bust-face' });
+	const bareT = bare.body.template as { missingRequired: string[] };
+	check(
+		'template new without art: listed, remembered, every required part reported',
+		[
+			bare.status,
+			listed(),
+			text(`${RIGS}/Blank/template.json`) !== null,
+			bareT.missingRequired.length,
+		],
+		[200, ['A', 'B', 'Blank'], true, 9],
+	);
+	const gone = await call(del.POST, { dir: b64('Blank'), skeleton_file: 'Blank.irig' });
+	check(
+		'template: deleting the rig takes its template.json with it',
+		[gone.status, text(`${RIGS}/Blank/template.json`)],
+		[200, null],
+	);
+}
+
 console.log();
 if (failures) {
 	console.error(`${failures} of ${checks} rigger-write checks FAILED`);

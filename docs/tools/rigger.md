@@ -809,6 +809,25 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
    weights, and animate. (If you applied a saved rig, the bones + animations are
    already present — re-attach this object's art and weight it to those bones.)
 
+### Create a character from a template
+
+A **template** is a fixed skeleton that expects its images by name. Pick it in **＋ New rig →
+Apply saved rig or template** (the **Templates** group), then choose the art: a project atlas or
+**upload images**. Every image whose name matches a part attaches itself to its slot at its real
+size; hover the template in the list to see every part name (`*` = needed). Uploaded files are
+named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
+
+- **Bust with face** (`bust-face`): `body`*, `head`*, `neck`, `hair_back`, `hair_front`,
+  `ear_l` / `ear_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `eyelid_l_half` / `_closed`*
+  (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`), `nose`, `mouth_rest`*,
+  `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`,
+  `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+- **A missing part is left out, never named.** The game cannot load a rig naming an image its
+  atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
+  have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
+- A template can't be combined with a saved rig: both are a whole skeleton.
+- The rig remembers its template in a `template.json` beside it in the bundle.
+
 ### Save / export
 
 - **💾 Save** writes the current rig to the project in R2 as a re-openable

@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
-import { loadRegionSet } from '$lib/server/editorRegions';
+import { loadRegionSet, type EditorRegion } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
+import { resolveNewRigBody } from '$lib/server/riggerNewRig';
+import { RIG_TEMPLATE_SIDECAR, templateReport } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToRigAtlas, reorientRotatedRegionsForRig } from '$lib/server/rig';
@@ -25,7 +26,9 @@ const basename = (k: string): string => {
  * library rig's skeleton (bones + animations + constraints come over intact; its
  * attachment region names intentionally won't resolve against the new atlas until the
  * user re-attaches this object's art). Otherwise it is a blank skeleton (root bone +
- * default skin). Then reindex so it appears in the skeleton list. This is the
+ * default skin). With `templateId` it is a rig template (docs/design/rig-templates.md) over this
+ * atlas's regions, remembered in the bundle's `template.json`; the answer lists the parts the art
+ * lacks. Then reindex so it appears in the skeleton list. This is the
  * Atlas-Maker→Rigger bridge — a fresh project has manifests (post-compose) but no rig
  * bundles yet. `rigger`-gated.
  *
@@ -35,7 +38,8 @@ const basename = (k: string): string => {
  * dropdown. The client's tolerant loader is what lets such a rig (and a saved rig whose
  * region names don't resolve) build without throwing.
  *
- * Body: `{ manifestKey, name, rigId? }` or `{ noAtlas: true, name, rigId? }`.
+ * Body: `{ manifestKey, name, rigId?, templateId? }` or `{ noAtlas: true, name, rigId?,
+ * templateId? }`.
  */
 /**
  * A 1×1 fully-transparent PNG — the placeholder page for atlas-less rigs.
@@ -80,7 +84,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
 	const rigId = body && typeof body.rigId === 'string' ? body.rigId : '';
-	const skeleton = await resolveRigSkeletonBody(rigId);
+	const templateId = body && typeof body.templateId === 'string' ? body.templateId : '';
 
 	// Resolve the page image + `.atlas` text + region count for either path.
 	let pageName: string;
@@ -89,6 +93,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	let atlasText: string;
 	let regionCount = 0;
 	let sidecar: string | null = null;
+	let regions: EditorRegion[] = [];
 
 	if (noAtlas) {
 		// Atlas-less rig: 1×1 transparent placeholder page + a page-only `.atlas`. No
@@ -108,6 +113,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		pageName = basename(rs.pageKey);
 		pageContentType = page.contentType;
 		regionCount = rs.regions.length;
+		regions = rs.regions;
 		atlasText = regionsToRigAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
 		// Re-orient CW-packed rotated regions to rig's CCW `rotate:90` convention so they
 		// don't render upside down in the Rigger (no-op when no region is rotated).
@@ -125,6 +131,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		});
 	}
 
+	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions);
+
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
 	// loser gets a 409 before it has written a page or an atlas over the winner's. A claim on a
@@ -137,6 +145,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	await putObjectBytes(`${bundle}/${pageName}`, pageBody, pageContentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 	if (sidecar) await putObjectText(`${bundle}/source.json`, sidecar, 'application/json');
+	if (template)
+		await putObjectText(
+			`${bundle}/${RIG_TEMPLATE_SIDECAR}`,
+			JSON.stringify(template.ref),
+			'application/json',
+		);
 
 	await writeSkeletonsIndex(
 		rigsPrefix,
@@ -149,5 +163,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		stem: name,
 		atlas_file: `${name}.atlas`,
 		regions: regionCount,
+		...(template ? { template: templateReport(template) } : {}),
 	});
 };

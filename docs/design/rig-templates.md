@@ -25,19 +25,21 @@ current game looks. No video-model animation of the art: the art is rigged, moti
 
 ## 2. What a template is
 
-Two things the Rigger already half has, plus one new file:
-
-1. **The template rig** — a rig-library entry (`_shared/rigs/`) holding the bones, slots, draw
-   order, constraints, the face mesh and the starter animations. Already supported: **Use in new
-   rig** creates a character from it.
-2. **The template contract** (new) — `_shared/rig-templates/<id>.json`, versioned:
-   - `parts[]` — every image the template expects, by name, with its slot, whether it is
-     required, and its variant set (§3.2);
-   - `channels[]` — the face controls (§4) and the timelines each one writes;
-   - `animations[]` — the starter set's names (the clips themselves live on the template rig).
-3. **A rig remembers its template** — `template: { id, version }` as a typed irig v1 field
-   (irig-format goal 2, one place for what a rig means to us). The runtime ignores it; the Rigger
-   uses it to offer the Face panel and the contract's checks.
+1. **The template** — versioned, in code (`apps/launcher-api/src/lib/server/rigTemplates.ts`), so
+   a change is reviewed and gated like any other:
+   - `bones[]` and `slots[]` (draw order) — the skeleton;
+   - `parts[]` — every image the template expects, by name, with its slot and whether it is
+     needed (§3.2);
+   - `channels[]` — the face controls (§4) and the timelines each one writes (T2);
+   - the starter animations (T3). Until then the skeleton is built from the template; T3 may move
+     the authored clips into a rig-library entry the template names.
+2. **The rig made from it** — ＋ New rig builds it over the art's regions: a part whose image
+   exists attaches at its untrimmed size; a missing one is **left out and reported**, because the
+   runtime's loader throws on an attachment its atlas lacks.
+3. **A rig remembers its template** — `template.json` (`{ id, version }`) beside the `.irig` in its
+   bundle, like `source.json`. Not an irig field: `readIrig` refuses any field it does not know, so
+   every game booting a published runtime from before the field would refuse a template rig. The
+   Rigger reads it to offer the Face panel and the template's checks.
 
 **Why a contract and not just the rig.** Today, applying a library rig to new art leaves every
 slot blank because region names don't match (`tools/rigger.md` "by-name / re-skin caveat"). The
@@ -60,7 +62,7 @@ root
          │  │  └─ pupil_l / pupil_r  (gaze: translate)
          │  ├─ nose
          │  └─ jaw      (mouth sits on it; opens down)
-         └─ hair_front / hair_back  (physics constraints)
+         └─ hair_front / hair_back  (physics constraints, added with T3's clips)
 ```
 
 ### 3.2 Parts and variants
@@ -71,9 +73,12 @@ Draw order back → front: `hair_back`, `body`, `neck`, `head`, `ear_l`, `ear_r`
 | Slot         | Variants (attachment names)                                                                                    | Required                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `mouth`      | `mouth_rest`, `mouth_A`, `mouth_E`, `mouth_O`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`, `mouth_wide` | `mouth_rest` + `mouth_A` + `mouth_O` |
-| `eyelid_l/r` | `eyelid_open` (empty), `eyelid_half`, `eyelid_closed`                                                          | `eyelid_closed`                      |
-| `brow_l/r`   | `brow_neutral`, `brow_up`, `brow_angry`                                                                        | `brow_neutral`                       |
+| `eyelid_l/r` | `eyelid_l_half`, `eyelid_l_closed` (and `_r`); the slot starts empty = open                                    | `eyelid_l_closed`, `eyelid_r_closed` |
+| `brow_l/r`   | `brow_l_neutral`, `brow_l_up`, `brow_l_angry` (and `_r`)                                                       | `brow_l_neutral`, `brow_r_neutral`   |
 | others       | one image each                                                                                                 | `body`, `head`                       |
+
+Left and right parts carry the side in their name: an atlas region name is unique, and a
+character's two eyes are rarely drawn as mirror copies.
 
 Mouth shapes are image swaps, not deforms: they read clearly at slot-game sizes and cost nothing
 at runtime. The set is the common animation mouth chart, so audio lip-sync (§5.2) maps onto it
@@ -81,9 +86,11 @@ directly.
 
 ### 3.3 The face mesh
 
-`head` is a mesh weighted to `head` and `face`. Turning `face` a few degrees with its children
+`head` becomes a mesh weighted to `head` and `face`. Turning `face` a few degrees with its children
 moving further than the mesh edge gives a small head turn (parallax) without new drawings. Larger
-turns are not a goal of this template.
+turns are not a goal of this template. The mesh follows each character's own drawing, so the
+template ships `head` as a region and the artist converts it per character with the existing
+region→mesh and auto-weight tools; a one-click "face mesh" helper can follow in T2.
 
 ## 4. Face channels
 
@@ -108,7 +115,7 @@ afterwards, and nothing downstream needs to know channels exist.
 
 ### 5.1 By hand — the Face panel
 
-A Rigger panel, shown when the rig's `template` is `bust-face`: a slider/picker per channel that
+A Rigger panel, shown when the rig's `template.json` names `bust-face`: a slider/picker per channel that
 keys at the playhead, plus one-click helpers (blink at time t, idle blink pattern, "talk" loop of
 random mouth shapes).
 
@@ -141,15 +148,15 @@ Step 3 is the uncertain one and gets its own spike (T6).
 
 ## 7. Build plan
 
-| Step                                           | Delivers                                                                                                                                                                                                   | Proves                                                          |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| **T1 — Contract + template rig + auto-attach** | `rig-templates` contract type and validator; the `bust-face` template rig in the library; `template` field in irig v1; **Use in new rig** attaches parts by contract name and lists missing required parts | two different arts made into rigs from one template, same pose  |
-| **T2 — Face panel**                            | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                                                    | an idle with blinks and a talk loop authored in minutes         |
-| **T3 — Starter animations**                    | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                                                  | one clip plays unchanged on two characters                      |
-| **T4 — Lip-sync from audio**                   | voice clip → `mouth` + `jaw` keys                                                                                                                                                                          | a line of speech in sync by eye                                 |
-| **T5 — Face from video / flipbook**            | DWPose pod job → channels → keys                                                                                                                                                                           | a filmed face drives the rig                                    |
-| **T6 — Art blueprint**                         | Qwen variants → named part crops → atlas                                                                                                                                                                   | a new bust character with no hand cutting beyond the base split |
-| **T7 — Full body**                             | `full-body` template on the same contract; body points → bone rotations                                                                                                                                    | a walk from a filmed actor on a cartoon rig                     |
+| Step                                                         | Delivers                                                                                                                                                                         | Proves                                                          |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **T1 — Contract + template rig + auto-attach** ✅ 2026-11-17 | the template type and validator; `bust-face` in ＋ New rig (atlas or uploaded images); parts attach by name, missing ones are left out and listed; `template.json` in the bundle | two different arts made into rigs from one template, same pose  |
+| **T2 — Face panel**                                          | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                          | an idle with blinks and a talk loop authored in minutes         |
+| **T3 — Starter animations**                                  | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
+| **T4 — Lip-sync from audio**                                 | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
+| **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
+| **T6 — Art blueprint**                                       | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
+| **T7 — Full body**                                           | `full-body` template on the same contract; body points → bone rotations                                                                                                          | a walk from a filmed actor on a cartoon rig                     |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
