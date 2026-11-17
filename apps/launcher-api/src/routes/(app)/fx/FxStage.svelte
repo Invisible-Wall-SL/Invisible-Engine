@@ -1203,8 +1203,8 @@
 		moved: boolean;
 	} | null = null;
 	type BehaviorArrays = { initBehaviors: unknown[]; updateBehaviors: unknown[] };
-	/** The live emitter's own path behaviour while a preview stands in for it. */
-	let pathPreview: { arrays: BehaviorArrays; original: unknown } | null = null;
+	/** The preview standing in on the live emitter (`current`), and the behaviour it replaced. */
+	let pathPreview: { arrays: BehaviorArrays; original: unknown; current: unknown } | null = null;
 
 	// By type, not `instanceof`, as the runtime's tick hook does (an HMR re-run or a duplicate module
 	// registers a second class).
@@ -1219,8 +1219,9 @@
 	}
 
 	/**
-	 * End the drag: the live emitter gets its own behaviour back, and on a commit the doc gets the
-	 * points (its rebuild then carries them). A cancel, a layer switch or an unmount writes nothing.
+	 * End the drag. A commit writes the points to the doc and leaves the preview (it shows those
+	 * points) until the rebuild replaces it. A cancel, a layer switch or an unmount writes nothing
+	 * and puts the emitter's own behaviour back — unless a rebuild already replaced the preview.
 	 */
 	function endPathDrag(commit: boolean): void {
 		const drag = pathDrag;
@@ -1229,12 +1230,11 @@
 		pathDrag = null;
 		dragPoints = null;
 		pathPreview = null;
-		if (preview) {
-			const shown = preview.arrays.initBehaviors.find(isPathBehavior);
-			if (shown && shown !== preview.original)
-				swapBehavior(preview.arrays, shown, preview.original);
-		}
-		if (commit && drag?.moved && points && drag.layer === pathLayer) onPathPoints?.(points);
+		const write =
+			commit && drag?.moved && points && drag.layer === pathLayer ? onPathPoints : undefined;
+		if (preview && !write && preview.arrays.initBehaviors.includes(preview.current))
+			swapBehavior(preview.arrays, preview.current, preview.original);
+		if (write && points) write(points);
 	}
 
 	// A layer switch, the path going away (an undo mid-drag) or the stage unmounting ends any drag.
@@ -1267,12 +1267,11 @@
 		const arrays = entry.emitter as unknown as BehaviorArrays;
 		const old = arrays.initBehaviors.find(isPathBehavior);
 		if (!old) return;
-		if (pathPreview?.arrays !== arrays) pathPreview = { arrays, original: old };
-		swapBehavior(
-			arrays,
-			old,
-			new FxPathBehavior({ ...editPath, curve: { ...editPath.curve, points } }),
-		);
+		const fresh = new FxPathBehavior({ ...editPath, curve: { ...editPath.curve, points } });
+		// A rebuild mid-drag refills the same arrays: what it put there is the original now.
+		const original = pathPreview?.current === old ? pathPreview.original : old;
+		pathPreview = { arrays, original, current: fresh };
+		swapBehavior(arrays, old, fresh);
 	}
 
 	function onHandleDown(e: PointerEvent, index: number, part: PathPart): void {

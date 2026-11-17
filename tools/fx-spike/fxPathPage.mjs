@@ -106,7 +106,10 @@ const DRIVER = `(() => {
 			const key = 'invisible-fx.layer-clipboard';
 			const layer = JSON.parse(localStorage.getItem(key));
 			const b = layer.config.behaviors.find((x) => x.type === 'fxPath');
-			b.config.curve.points = Array.from({ length: n }, (_, i) => ({ x: -300 + (600 * i) / (n - 1), y: (i % 2) * 20 }));
+			// All but the last packed into 128 px, the last 470 px past them: the long last segment
+			// has no anchor over it, so a double-click there reaches the curve.
+			b.config.curve.points = Array.from({ length: n }, (_, i) =>
+				({ x: i === n - 1 ? 300 : -300 + i * 0.5, y: 0 }));
 			localStorage.setItem(key, JSON.stringify(layer));
 			[...document.querySelectorAll('.layers .clip button')].find((x) => x.textContent.includes('Paste')).click();
 		},
@@ -402,7 +405,7 @@ try {
 		full.length === 256 && plus.length === 256 && plus.every(Boolean),
 		`${full.length} rows`,
 	);
-	const onFull = await ev(`pathDrive.curvePoint(0.5)`);
+	const onFull = await ev(`pathDrive.curvePoint(0.6)`);
 	await mouse('mouseMoved', onFull.x, onFull.y, { buttons: 0 });
 	await mouse('mousePressed', onFull.x, onFull.y);
 	await mouse('mouseReleased', onFull.x, onFull.y);
