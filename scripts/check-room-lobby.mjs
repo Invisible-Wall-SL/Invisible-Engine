@@ -134,6 +134,34 @@ check('a lobby everyone left starts over, with a fresh wait', () => {
 	assert.equal(sim.rules.phase, 'waiting');
 });
 
+check('people who drop and rejoin keep the lobby going (no lobby stuck waiting)', () => {
+	const sim = roomOf(LOBBY);
+	const hz = sim.game.online.tickHz;
+	sim.join('a', { character: 'salmon' });
+	run(sim, 2);
+	sim.drop('a');
+	run(sim, 2);
+	sim.rejoin('a');
+	run(sim, LOBBY.maxWaitSeconds * hz);
+	const solo = run(sim, (LOBBY.countdownSeconds + 1) * hz);
+	assert.ok(types(solo).includes('roundStart'), 'a lone rejoined person still gets round 1');
+
+	const pair = roomOf({ ...LOBBY, minPlayers: 2 });
+	for (const id of ['a', 'b']) pair.join(id, { character: 'salmon' });
+	assert.ok(types(run(pair, 1)).includes('countdown'));
+	for (const id of ['a', 'b']) pair.drop(id);
+	run(pair, 1);
+	for (const id of ['a', 'b']) pair.rejoin(id);
+	const resumed = run(pair, (LOBBY.countdownSeconds + 1) * hz);
+	assert.ok(types(resumed).includes('roundStart'), 'the countdown carries on through a blip');
+});
+
+check('a longest wait of 0 starts the countdown at once, even on the first step', () => {
+	const sim = roomOf({ ...LOBBY, maxWaitSeconds: 0 });
+	sim.join('a', { character: 'salmon' });
+	assert.ok(types(run(sim, 1)).includes('countdown'));
+});
+
 check('rounds after the first follow on as before', () => {
 	const sim = roomOf({ ...LOBBY, minPlayers: 1, countdownSeconds: 0 });
 	sim.join('a', { character: 'salmon' });

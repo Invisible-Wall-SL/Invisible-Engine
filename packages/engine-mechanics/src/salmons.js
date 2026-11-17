@@ -277,11 +277,6 @@ export function salmonsGeometry(river) {
 	};
 }
 
-/**
- * The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room from the
- * generator that made it (`salmonsMap`'s rivers name theirs; P10.16's band river is `salmonsRiver`).
- * With `lobby` ({@link SALMONS_LOBBY}, what the export ships) a room waits before its first round.
- */
 /** Salmons' lobby (owner, 2026-11-17): 4 people, or 60 s after the first, then a 10 s countdown. */
 export const SALMONS_LOBBY = Object.freeze({
 	minPlayers: 4,
@@ -289,6 +284,11 @@ export const SALMONS_LOBBY = Object.freeze({
 	countdownSeconds: 10,
 });
 
+/**
+ * The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room from the
+ * generator that made it (`salmonsMap`'s rivers name theirs; P10.16's band river is `salmonsRiver`).
+ * With `lobby` ({@link SALMONS_LOBBY}, what the export ships) a room waits before its first round.
+ */
 export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 	const C = SALMONS_COMPONENTS;
 	const geometry = salmonsGeometry(river);

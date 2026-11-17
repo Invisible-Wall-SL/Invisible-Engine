@@ -22,7 +22,8 @@
  * LOBBY (`rules.lobby`) the room waits before its first round: each person who joins is told
  * (`lobby`), and once `minPlayers` people are in or `maxWaitSeconds` have passed since the first,
  * a `countdown` of `countdownSeconds` runs (`endsAt` its end) and round 1 starts; a lobby every
- * person left starts over. Without one, the first join starts round 1.
+ * person left starts over (one whose place is held after a drop still counts as there; it counts
+ * towards the start again once it rejoins). Without one, the first join starts round 1.
  *
  * A bot (`player.bot`, P10.16) plays by the same rules, but it neither reaches the goal nor tops a
  * round's scores unless the game's `bots.canWin` says it may.
@@ -142,10 +143,14 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 	let winner = '';
 	/** The lobby (`rules.lobby`): when it gives up waiting for players, and when round 1 starts. */
 	const lobby = rules.lobby;
+	/** Whether the lobby has its first person (its wait runs from then). */
+	let lobbyOpen = false;
 	let lobbyEndsAt = 0;
 	let startsAt = 0;
-	/** People (not bots) in the room, as the lobby counts them. */
+	/** People (not bots) the lobby counts towards its start: those connected now. */
 	const people = (players) => players.filter((p) => !p.bot && p.connected).length;
+	/** Whether the room still holds any person, connected or holding a dropped place. */
+	const anyone = (players) => players.some((p) => !p.bot);
 
 	const emit = (event) => events.push(event);
 	const worldOf = (every, stamp) => ({ players: [...every], stamp, tickHz, round, seed, emit });
@@ -241,7 +246,10 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			if (phase === 'waiting' && !lobby) startRound([...every], stamp);
 			emit({ type: 'joined', id: player.id });
 			if (phase === 'waiting' && lobby && !player.bot) {
-				if (!lobbyEndsAt) lobbyEndsAt = stamp + Math.round(lobby.maxWaitSeconds * tickHz);
+				if (!lobbyOpen) {
+					lobbyOpen = true;
+					lobbyEndsAt = stamp + Math.round(lobby.maxWaitSeconds * tickHz);
+				}
 				emit({ type: 'lobby', id: player.id });
 			}
 		},
@@ -299,8 +307,9 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
 			} else if (phase === 'ended' && stamp >= endsAt) startRound(players, stamp);
-			else if (phase === 'waiting' && lobby && lobbyEndsAt) {
-				if (!people(players)) {
+			else if (phase === 'waiting' && lobby && lobbyOpen) {
+				if (!anyone(players)) {
+					lobbyOpen = false;
 					lobbyEndsAt = 0;
 					startsAt = 0;
 					endsAt = 0;
