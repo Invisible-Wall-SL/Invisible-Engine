@@ -182,11 +182,12 @@ const salmonJump = {
 		const pull = JUMP.gravity * CELL;
 		return {
 			input(player, input, world) {
+				if (player.character.id !== SALMON) return;
 				const tap = tapped(player, input, 'leap');
 				const before = player.memo.leapTap;
 				player.memo.leapTap = 0;
-				if (!tap || before === TAP.climbed || player.character.id !== SALMON) return;
-				if (player.status !== api.STATUS.free || (player.z ?? 0) > 0) return;
+				if (!tap || before === TAP.climbed || player.status !== api.STATUS.free) return;
+				if ((player.z ?? 0) > 0 || player.memo.vz) return;
 				player.memo.vz = launch;
 				if (before !== TAP.released) world.emit({ type: 'jumped', id: player.id });
 			},

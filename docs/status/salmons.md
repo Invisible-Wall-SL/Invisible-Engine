@@ -380,6 +380,14 @@ the runbook follows them.
       engine draws it above the tint always (Original art, known limits).
     The tap target (`targetX/Y`) belongs in the tap/touch controller (#1722): a tap there sends jump
     with the aim in the input's `aimX/aimY`.
+  - **Known limits:**
+    - Other salmon's height comes from the newest room state while their place is interpolated
+      (the shared `Interpolator` carries x / y only), so their lift leads their drawn motion by the
+      interpolation delay. The own leap starts a round trip after the press: the device does not
+      predict `z`.
+    - A hook takes the nearest salmon in reach (`abilities.js`). If that salmon is in the air, the
+      hook misses, the cast's cooldown is spent and no farther salmon is tried.
+    - A round's end puts every leaping salmon back on the water at once.
   - Proof: `check:salmons-jump` (the height step for step against the old formula at 30 and 60 Hz,
     the one-leap, held, climb, sandbank and catch cases, and every pose number and curve).
     `salmons-traces.json` re-recorded: it only gains `jumped` events, and no position changes.

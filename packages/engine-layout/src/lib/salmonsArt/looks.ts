@@ -10,9 +10,9 @@ import type { SalmonsTextures } from './load';
  * (`GuiltyForever/Salmon-` `client/game.js`) animated them, each at its body's width and standing
  * on its place (the bottom of its look at its feet):
  * - the salmon: a 12-point rope through its texture, facing and tilting with its projected
- *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up at a waterfall's foot with a pulse
- *   each tap, a white glint flashing along its spine in open water; the golden one drawn with its
- *   own texture;
+ *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up at a
+ *   waterfall's foot with a pulse each tap, a white glint flashing along its spine in open water;
+ *   the golden one drawn with its own texture;
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
  */

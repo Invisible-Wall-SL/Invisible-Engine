@@ -163,7 +163,7 @@ type PlayerState = {
 	status: number;
 	score: number;
 	mark: boolean;
-	/** How high a rules module has lifted it, px (a salmon's leap); absent from an older server. */
+	/** How high a rules module has lifted it, px (a salmon's leap); unset until the room writes it. */
 	z?: number;
 };
 type RoomState = {

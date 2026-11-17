@@ -151,6 +151,16 @@ check('one leap is announced and a tap in the air does not leap again', () => {
 	assert.deepEqual(r.events, [{ type: 'jumped', id: 'a' }]);
 });
 
+check('two taps in one step leap once', () => {
+	const r = room(SALMONS_RULES.salmonJump);
+	r.press(true);
+	r.press(false);
+	r.press(true);
+	r.step();
+	assert.equal(r.events.length, 1);
+	near(r.salmon.z / CELL, original(30)[0], 1e-9, 'one launch');
+});
+
 check('a held press leaps once', () => {
 	const r = room(SALMONS_RULES.salmonJump);
 	r.press(true);

@@ -11,10 +11,10 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * moving, the character, the name, whether it is connected, and `ack` (the `seq` of the newest
  * input the room applied, which a predicting device replays from), and what the rules own (P10.15):
  * the score, the status (`engine-mechanics` `STATUS`: free, stunned, out, or a rules module's
- * grounded, hooked), the module's `mark` and lift `z`, and whether it is a bot the server plays (P10.16). Per
- * room the phase, the step every state is stamped with, the round, the step its phase ends at
- * (0 = never) and the last round's winner, and the room's seed, from which a device makes a
- * generated field. The level is never in the state.
+ * grounded, hooked), the module's `mark`, whether it is a bot the server plays (P10.16) and how
+ * high a module lifted it (`z`). Per room the phase, the step every state is stamped with, the
+ * round, the step its phase ends at (0 = never) and the last round's winner, and the room's seed,
+ * from which a device makes a generated field. The level is never in the state.
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
  * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
@@ -49,10 +49,10 @@ const playerFields = {
 	score: t.int32(),
 	status: t.uint8(),
 	mark: t.boolean(),
-	/** How high a rules module has lifted it off the ground, px (a salmon's leap). */
-	z: t.float32(),
 	/** A bot the server plays (P10.16). */
 	bot: t.boolean(),
+	/** How high a rules module has lifted it off the ground, px (a salmon's leap). */
+	z: t.float32(),
 };
 
 export const Player = schema(playerFields);
