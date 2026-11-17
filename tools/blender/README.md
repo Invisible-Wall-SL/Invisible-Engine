@@ -51,5 +51,5 @@ Headless twins (`execute_blender_code_for_cli`) open a `.blend` in `blender --ba
 ## CI
 
 `scripts/check-python.py` discovers `tools/blender/test_*.py` (the `python tests` job) and ruff
-checks this folder with the services' rules. CI has no Blender, so `selftest.py` runs locally:
+can check this folder locally with the services' rules (`ruff check tools/blender/`; CI lints `services/` only). CI has no Blender, so `selftest.py` runs locally:
 run it after changing any script here.

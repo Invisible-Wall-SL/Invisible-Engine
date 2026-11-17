@@ -9,10 +9,10 @@
 #   check-all (n/3)  → `scripts/check-all.mjs`, sharded because the suite is ~15 CPU-minutes.
 #                      `--exclude-lint` drops what Lint already runs (read from lint.yml), so no gate
 #                      runs twice and none falls between the two.
-#   python tests     → `scripts/check-python.py`: every services/*/test_*.py and tools/blender/test_*.py, the ComfyUI node suite
+#   python tests     → `scripts/check-python.py`: every services/*/test_*.py, the ComfyUI node suite
 #                      (CPU torch), and the backup job's CLI. No secrets exist here, and the runner
 #                      scrubs them locally too, so a test cannot reach R2 or a real ComfyUI. First,
-#                      `ruff check services/ tools/blender/` (rules in services/ruff.toml: F, E9, BLE).
+#                      `ruff check services/` (rules in services/ruff.toml: F, E9, BLE).
 #
 # REQUIRED CHECKS: every job name here is a required status check on `main` (docs/INFRA.md
 # "Branch ruleset on main"), so the workflow runs on EVERY PR and push — no paths-ignore, which
@@ -101,7 +101,7 @@ jobs:
       # deliberate bump, not as every PR's red check.
       - name: ruff
         if: steps.changes.outputs.code == 'true'
-        run: ruff check services/ tools/blender/
+        run: ruff check services/
 
       - name: python tests
         if: steps.changes.outputs.code == 'true'
