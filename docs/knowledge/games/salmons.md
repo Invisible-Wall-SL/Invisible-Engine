@@ -27,7 +27,12 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 
 - Content: `invisible_wall/salmons/` in R2; snapshots under `…/published/` (`docs/INFRA.md`).
   Leftovers: a test background (`Background_Test_1`) and the old Book-of flow under
-  `editor/flow-v2-backups/`. None of the Salmon repo's sheets are in it.
+  `editor/flow-v2-backups/`.
+- **Art:** the original art is built into the engine (`engine-layout` `salmonsArt/`) and, once
+  `scripts/salmons/upload-art.py --apply` has run, also the project's sheets `salmons_terrain`,
+  `salmons_props`, `salmons_characters`, `salmons_waterfall_face` (locked, region names unchanged).
+  A published project sheet wins region by region; the built-in copy is the fallback. Never rename
+  a region: the drawing code names them.
 - Online: published to the test server 2026-10-26. Online rooms (`services/game-server`, P10.14)
   are built but not deployed and not used by this project.
 
