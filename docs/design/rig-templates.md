@@ -139,14 +139,22 @@ check owed on the node pack and the DWPose weights before shipping anything made
 
 From the [Qwen character blueprint](../guides/qwen-cartoon-character-blueprint.md):
 
-1. Qwen-Image: the neutral bust, plain background.
-2. Qwen-Image-Edit, same character: one image per mouth shape, eyes closed / half, brows up /
-   angry.
-3. Cut parts: each variant differs from the neutral only around its feature, so the changed area
-   is the part's crop; the rest (body, head, hair) is split once, by hand or a segmentation pass.
-4. Name every crop per the contract → Atlas Maker sheet → **Use in new rig** attaches it.
+1. Qwen-Image: the neutral bust, plain background, square 1024 (blueprint `qwen_bust_face`).
+2. Qwen-Image-Edit-2509, the neutral as reference: one image per mouth shape, both eyes half /
+   closed, both brows up / angry (blueprint `qwen_bust_face_variant`; twelve passes, one seed).
+   A pair changes in one pass and is split per side when cut — the model is unreliable at "the
+   left eye only".
+3. Cut parts (`services/atlas-tool/rig_parts.py`): each variant differs from the neutral only
+   around its feature, so the changed area is the part. All variants of a feature share one
+   footprint, and a part is a **patch** (feature plus surrounding skin) that covers the head
+   beneath. `head` / `body` split at the neck's narrowest row; ears, hair, nose, eye whites and
+   pupils stay in the head.
+4. Every part is named per the contract and written on a canvas centred on its bone (the template
+   places an image centred on its bone with no offset), scaled so the eyes sit on the eye bones →
+   upload the folder through ＋ New rig → Bust with face, or pack it in the Atlas Maker first.
 
-Step 3 is the uncertain one and gets its own spike (T6).
+Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is owed
+([status](../status/rigger.md) open item 19).
 
 ## 7. Build plan
 
@@ -157,7 +165,7 @@ Step 3 is the uncertain one and gets its own spike (T6).
 | **T3 — Starter animations** ✅ 2026-11-17                    | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
 | **T4 — Lip-sync from audio**                                 | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
 | **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
-| **T6 — Art blueprint**                                       | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
+| **T6 — Art blueprint** 🟡 tools 2026-11-17, real run owed    | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
 | **T7 — Full body**                                           | `full-body` template on the same contract; body points → bone rotations                                                                                                          | a walk from a filmed actor on a cartoon rig                     |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands

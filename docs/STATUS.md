@@ -212,6 +212,9 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/engine](status/engine.md))
 - **Re-publish the imported video blueprint with a pod running** — ＋ Blueprint on the same API
   export bakes in the bounds and lists it lacks. ([status/flipbook](status/flipbook.md))
+- **Top up RunPod** — on 2026-11-17 it refused to start any pod ("account balance is too low") and
+  refused a 20.4 GB model write to the volume ("storage quota exceeded"). Blocks the rig-template
+  art run (T6). ([status/rigger](status/rigger.md) open item 19)
 - **Particle materials phone check** — run the playbook in
   [playtest/particle-material](playtest/particle-material.md) on a phone or two and send back the
   `?fxdebug=1` readouts; they set the §10 caps of the particle-materials design.

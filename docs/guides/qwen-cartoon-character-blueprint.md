@@ -66,6 +66,33 @@ crops) — pure Apache-safe, no face-recognition model.
 The plain-background turnaround/expression sheets → **rig / the Invisible Rigger**
 (bones, mesh, weights, animation) → drops into the game slots.
 
+## Bust with face: parts for the Rigger template
+For a talking/reacting bust beside the reels, the parts the Rigger's **Bust with face** template
+expects come out of two bundled Atlas Maker blueprints and a cutting script — all Apache-2.0
+([rig-templates §6](../design/rig-templates.md)).
+
+1. **Neutral** — a region on `qwen_bust_face`, prompt = just the character ("a grumpy pirate
+   parrot with an eye patch"). The graph adds the framing: front view, neutral face, mouth closed,
+   eyes open, plain white, 1024×1024. Keep background removal **off**. Re-roll until the face is
+   square-on and nothing covers the eyes.
+2. **Variants** — twelve regions on `qwen_bust_face_variant`, each with the neutral as its
+   reference image, the same seed, and one edit prompt from
+   `py services/atlas-tool/rig_parts.py --prompts` (`mouth_A` … `mouth_wide`, `eyes_half`,
+   `eyes_closed`, `brows_up`, `brows_angry`).
+3. **Cut** — download the thirteen images, then:
+   ```
+   py services/atlas-tool/rig_parts.py --neutral neutral.png --variant mouth_A=a.png … --out parts --sheet
+   ```
+   Look at `parts/sheet.png`: each row is the model's edit beside the neutral with only the cut
+   patches pasted in — they should match. A warning names an edit that changed too much elsewhere;
+   re-roll that one with another seed. `parts.json` lists what is missing.
+4. **Rig** — Rigger → ＋ New rig → Bust with face → upload the `parts/*.png`. Each part is already on
+   a canvas centred on its bone, so the character assembles where it was drawn.
+
+What the cut does not give you: ears, hair, nose, eye whites and pupils stay painted into `head`
+(gaze has nothing to move), and the scale fits the eyes to the template, so a 1024 picture comes
+out around a third of its size.
+
 ## Making it a reusable blueprint
 Once a graph works, export it in ComfyUI (**Settings → Save (API Format)**) and upload it
 as a shared **Atlas Maker blueprint** (Atlas Maker → ＋ New blueprint → bind the roles) so

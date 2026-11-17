@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "id": "qwen_bust_face_variant",
+  "name": "Qwen-Image-Edit — Bust with face variant",
+  "description": "Step 2 of the Rigger's Bust-with-face art (rig templates T6): one edit of the neutral bust (the region's reference image) per mouth shape, eye state or brow state, which rig_parts.py then cuts into the template's named parts. Qwen-Image-Edit-2509 (Apache-2.0), wired as ComfyUI's own Image Edit (Qwen 2509) template without its 4-step LoRA: 20 steps, CFG 2.5, CFGNorm 1, shift 3. FluxKontextImageScale keeps a 1024x1024 neutral at its own size, so the edit lines up with it. The region prompt is the edit instruction, one per variant: `py rig_parts.py --prompts` prints all twelve. Use one seed for all twelve; change it only to retry one that drifted.",
+  "author": "iw-builtin",
+  "base": "qwen-image-edit",
+  "kind": "image",
+  "bindings": {
+    "positive": {
+      "node": "6",
+      "field": "prompt"
+    },
+    "seed": {
+      "node": "11",
+      "field": "seed"
+    },
+    "style_ref": {
+      "node": "4",
+      "field": "image"
+    },
+    "output": {
+      "node": "13"
+    }
+  },
+  "params": [
+    {
+      "key": "steps",
+      "label": "Steps",
+      "type": "int",
+      "default": 20,
+      "min": 4,
+      "max": 50,
+      "step": 1,
+      "node": "11",
+      "field": "steps",
+      "group": "Sampler"
+    },
+    {
+      "key": "cfg",
+      "label": "CFG",
+      "type": "float",
+      "default": 2.5,
+      "min": 1,
+      "max": 6,
+      "step": 0.5,
+      "node": "11",
+      "field": "cfg",
+      "group": "Sampler"
+    }
+  ],
+  "models": [
+    {
+      "field": "unet_name",
+      "filename": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "save_path": "diffusion_models",
+      "base": "qwen-image-edit",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "size": 20430698424
+    },
+    {
+      "field": "clip_name",
+      "filename": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "save_path": "text_encoders",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "size": 9380000000
+    },
+    {
+      "field": "vae_name",
+      "filename": "qwen_image_vae.safetensors",
+      "save_path": "vae",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "size": 250000000
+    }
+  ],
+  "custom_nodes": []
+}
