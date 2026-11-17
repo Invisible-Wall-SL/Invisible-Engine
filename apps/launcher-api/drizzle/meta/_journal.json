@@ -316,6 +316,13 @@
       "when": 1794931164931,
       "tag": "0044_perf_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794991326085,
+      "tag": "0045_perf_reports_lab",
+      "breakpoints": true
     }
   ]
 }

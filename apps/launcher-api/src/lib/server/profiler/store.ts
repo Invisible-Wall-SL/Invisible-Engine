@@ -4,7 +4,9 @@ import {
 	PERF_REPORT_MAX_BYTES,
 	PERF_RETENTION_MS,
 	summarizePerfReport,
+	PERF_REPORT_SOURCES,
 	type PerfPhaseSummary,
+	type PerfReportSource,
 	type PerfReportListItem,
 	type PerfReportSummary,
 } from '$lib/profiler';
@@ -36,7 +38,7 @@ import {
 export interface ReportOrigin {
 	clientKey: string;
 	projectKey: string;
-	source: 'capture' | 'paste';
+	source: PerfReportSource;
 	session: string | null;
 	label: string | null;
 	/** The game card the reading was taken on: the capture token's, or Paste's picker; else null. */
@@ -142,6 +144,7 @@ async function insertRow(
 			r2Key: key,
 			bytes,
 			source: origin.source,
+			counts: s.counts,
 			session: origin.session,
 			label: origin.label,
 			gameKey: origin.gameKey,
@@ -331,7 +334,7 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 	return {
 		id: r.id,
 		capturedAt: r.capturedAt.toISOString(),
-		source: r.source === 'paste' ? 'paste' : 'capture',
+		source: PERF_REPORT_SOURCES.find((s) => s === r.source) ?? 'capture',
 		label: r.label,
 		gameKey: r.gameKey,
 		deviceClass: r.deviceClass,
@@ -348,6 +351,7 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		round: phaseOf(r.roundFrames, r.roundFps, r.roundP50, r.roundP95, r.roundHitches),
 		drawsMean: r.drawsMean,
 		textureMb: r.textureMb,
+		counts: r.counts,
 		keep: r.keep,
 		expiresAt: r.keep ? null : new Date(r.capturedAt.getTime() + PERF_RETENTION_MS).toISOString(),
 	};

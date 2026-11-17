@@ -19,6 +19,7 @@
 		type PerfBuildListItem,
 	} from '$lib/profilerBuilds';
 	import { BUDGET_DEVICE_CLASSES, evaluateBuild, VERDICT_TEXT } from '$lib/profilerBudgets';
+	import ProfilerLabRuns from '$lib/ProfilerLabRuns.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { untrack } from 'svelte';
@@ -477,6 +478,8 @@
 					{#if pasteError}<p class="error">{pasteError}</p>{/if}
 				</SectionCard>
 
+				<ProfilerLabRuns readings={data.readings} />
+
 				<SectionCard scope="profiler" id="readings" title="Readings ({data.readings.length})">
 					{#snippet info()}
 						<p>
@@ -517,7 +520,12 @@
 										<tr>
 											<td class="nowrap" title={r.capturedAt}>
 												{when(r.capturedAt)}
-												<span class="tag">{r.source === 'paste' ? 'paste' : 'sent'}</span>
+												<span
+													class="tag"
+													title={r.source === 'lab'
+														? 'A headless lab run: its fps is not comparable, compare its counts in Lab runs'
+														: undefined}>{r.source === 'capture' ? 'sent' : r.source}</span
+												>
 											</td>
 											<td>
 												<strong>{r.deviceClass ?? '?'}</strong>
