@@ -57,6 +57,7 @@ const { values: opt } = parseArgs({
 		chrome: { type: 'string' },
 		serve: { type: 'boolean', default: false },
 		online: { type: 'boolean', default: false },
+		'first-person': { type: 'boolean', default: false },
 		models: { type: 'string' },
 	},
 });
@@ -68,19 +69,40 @@ const ANIM_DOC = JSON.parse(
 	readFileSync(join(ROOT, 'packages/engine-3d/fixtures/ie-humanoid.anim.json'), 'utf8'),
 );
 /** `arcade.world3d.looks` for the shipped models: the hero, its clip libraries and its weapon. */
+/** The viewmodel's animation doc (`--first-person`). */
+const VM_DOC = JSON.parse(
+	readFileSync(join(ROOT, 'packages/engine-3d/fixtures/ie-humanoid-viewmodel.anim.json'), 'utf8'),
+);
 const looks = () => {
 	const of = (cls) => modelIndex.models.filter((m) => m.class === cls).map((m) => m.id);
-	const [hero] = of('hero');
+	const isVm = (id) => id.endsWith('_vm');
+	const hero = of('hero').find((id) => !isVm(id));
+	const arms = of('hero').find(isVm);
 	const [weapon] = of('weapon');
+	const attach = weapon ? [{ socket: 'hand_r', modelId: weapon }] : [];
+	const vmClips = (id) => id === VM_DOC.modelIds[0];
 	return {
 		default: {
 			modelId: hero,
-			modelIds: of('anim'),
-			attach: weapon ? [{ socket: 'hand_r', modelId: weapon }] : [],
+			modelIds: of('anim').filter((id) => !vmClips(id)),
+			attach,
 			anim: ANIM_DOC.id,
+			...(arms
+				? {
+						viewmodel: {
+							modelId: arms,
+							modelIds: of('anim').filter(vmClips),
+							attach,
+							anim: VM_DOC.id,
+						},
+					}
+				: {}),
 		},
 	};
 };
+/** The camera of the character scenarios: the director's default rigs (first person is their
+ *  default live rig), with the follow rig live for the third-person run. */
+const characterCamera = () => ({ active: opt['first-person'] ? 'firstPerson' : 'follow' });
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'arcade-sample';
@@ -123,7 +145,8 @@ const withLooks = (cfg) =>
 					world3d: {
 						...(cfg.arcade?.world3d ?? arenaWorld3d()),
 						looks: looks(),
-						anim: { [ANIM_DOC.id]: ANIM_DOC },
+						anim: { [ANIM_DOC.id]: ANIM_DOC, [VM_DOC.id]: VM_DOC },
+						camera: characterCamera(),
 					},
 				},
 			}
@@ -333,7 +356,10 @@ try {
 			cast = await page.evaluate('window.__IE_WORLD3D__?.characters() ?? []');
 			if (!cast.length) await new Promise((r) => setTimeout(r, 100));
 		}
-		const wanted = modelIndex.models.filter((m) => m.class === 'anim').flatMap((m) => m.clips);
+		const libraries = looks().default.modelIds;
+		const wanted = modelIndex.models
+			.filter((m) => libraries.includes(m.id))
+			.flatMap((m) => m.clips);
 		const [hero] = cast;
 		verdict(
 			'the player is drawn as the hero model, with every clip of its libraries and its sockets',
@@ -380,7 +406,60 @@ try {
 		{ peak, landed },
 	);
 
-	if (modelIndex) {
+	if (modelIndex && opt['first-person']) {
+		const world3d = () => page.evaluate('window.__IE_WORLD3D__');
+		const vm = () => page.evaluate('window.__IE_WORLD3D__.viewmodel()');
+		let v;
+		for (let i = 0; i < 100 && !v?.ready; i++) {
+			await play([{ op: 'step', frames: 6 }]);
+			v = await vm();
+			if (!v?.ready) await new Promise((r) => setTimeout(r, 100));
+		}
+		const own = (await page.evaluate('window.__IE_WORLD3D__.characters()')).find(
+			(c) => c.id === 'player',
+		);
+		verdict(
+			'first person: the own body is not drawn by the camera, the viewmodel is',
+			own?.drawn === false && v?.ready === true && v.states?.base === 'hold',
+			{ own, v },
+		);
+		await world3d();
+		await shot('fp-idle');
+		const lead = (w) =>
+			Object.entries(w ?? {})
+				.sort((a, b) => b[1] - a[1])[0]?.[0]
+				?.split('@')[0];
+		await key('KeyW', 'down');
+		await play([{ op: 'step', frames: 40 }]);
+		v = await vm();
+		verdict('walking, the viewmodel bobs', lead(v?.weights) === 'viewmodel.walk_bob', v);
+		await shot('fp-walk');
+		await key('KeyF', 'down');
+		await play([{ op: 'step', frames: 8 }]);
+		await key('KeyF', 'up');
+		v = await vm();
+		verdict(
+			"F swings the viewmodel's sword arm while the other arm keeps bobbing",
+			v?.states?.swing === 'attack' &&
+				Object.keys(v.weights).some((k) => k.startsWith('viewmodel.attack@')) &&
+				Object.keys(v.weights).some((k) => k.startsWith('viewmodel.walk_bob@')),
+			v,
+		);
+		await shot('fp-attack');
+		await key('KeyW', 'up');
+		await play([{ op: 'step', frames: 40 }]);
+		await page.evaluate(`window.__IE_WORLD3D__.trigger('player', 'hit')`);
+		await play([{ op: 'step', frames: 4 }]);
+		v = await vm();
+		verdict(
+			'a hit flinches the viewmodel (additive)',
+			v?.states?.flinch === 'hit' &&
+				Object.keys(v.weights).some((k) => k.startsWith('viewmodel.hit@')),
+			v,
+		);
+		await shot('fp-flinch');
+	}
+	if (modelIndex && !opt['first-person']) {
 		const hero = async () =>
 			(await page.evaluate('window.__IE_WORLD3D__.characters()')).find((c) => c.id === 'player');
 		/** A clip's weight on the body, summed over its regions' shares as the probe reports them. */

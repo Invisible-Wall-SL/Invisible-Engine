@@ -111,8 +111,9 @@ eye in a pass of its own, so they never clip into a wall. Everyone else still se
 |---|---|
 | Rig | **The IE Humanoid itself**, not a separate arms rig: the arms, sockets and hand poses are the ones the full body uses, so a weapon socket and a carried prop sit the same way in both views, and no second skeleton or retarget exists |
 | Asset | A second hero asset **`CH_<hero>_vm`**: the arms only (clavicles to hands, sleeves included), skinned to the arm chains of `RIG_ie_humanoid`, one LOD (it is always close). It floats at arm height, so the bottom-centre origin rule does not apply to it; the rig's origin stays at the feet |
-| Eye | An **`SK_eye`** socket on `head`, where the camera sits (between the eyes, a few cm ahead of the face). The runtime puts `SK_eye` on the camera; the validator refuses a viewmodel without one (`VIEWMODEL_NO_EYE`) |
+| Eye | An **`SK_eye`** socket on `head`, where the camera sits (between the eyes, a few cm ahead of the face). The runtime puts `SK_eye` on the camera; the validator refuses a viewmodel without one (`VIEWMODEL_NO_EYE`). Mind the next rule: on the IE Humanoid the eye is about 12 cm *below* `head`'s tail |
 | Weapon | `SK_hand_r`, as on the full body |
+| Bone-parented sockets | An Empty parented to a bone sits relative to the bone's **tail**, not its head, in the bone's axes (y along the bone). The test character's first `SK_eye`, placed as if from the head, exported 24 cm above the eye and the arms fell out of the view |
 | Clips | The **`viewmodel`** set, `anim/<skeleton>/viewmodel.glb`: `viewmodel.idle`, `viewmodel.walk_bob`, `viewmodel.attack`, `viewmodel.hit`, `viewmodel.carry`; keyed on the arm chains (and `spine_03` at most), every other bone at rest. The camera, not the clip, moves the view (head bob is the camera's) |
 
 ## Clips

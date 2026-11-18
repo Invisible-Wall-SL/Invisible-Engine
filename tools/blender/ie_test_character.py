@@ -341,11 +341,11 @@ def build_clips(rig) -> dict[str, list[str]]:
     return sets
 
 
-# The viewmodel's hold: both arms forward and a little down from the shoulders, elbows bent in,
-# so the hands sit low in front of the eye (SK_eye), the sword hand to the right.
+# The viewmodel's hold: both arms forward from the shoulders and a little up, elbows bent in, so
+# the hands sit in the lower part of the view in front of the eye (SK_eye), the sword hand right.
 VM_HOLD = {
-    'upperarm_l': [(Z, -80), (X, 25)], 'lowerarm_l': [(Z, -25)],
-    'upperarm_r': [(Z, 80), (X, 25)], 'lowerarm_r': [(Z, 25)],
+    'upperarm_l': [(Z, -78), (X, -12)], 'lowerarm_l': [(Z, -30), (X, -10)],
+    'upperarm_r': [(Z, 78), (X, -12)], 'lowerarm_r': [(Z, 30), (X, -10)],
 }
 
 
@@ -401,7 +401,7 @@ def main() -> int:
     rig = ie_humanoid.create_armature()
     body_mesh(rig)
     socket('SK_hand_r', rig, 'hand_r', (0.0, 0.05, 0.0))
-    socket('SK_head_top', rig, 'head', (0.0, 0.25, 0.0))
+    socket('SK_head_top', rig, 'head', (0.0, 0.0, 0.0))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, 'testhero.blend'))
     report = ie_validate.validate()
     if not report['ok']:
@@ -414,8 +414,9 @@ def main() -> int:
     rig = ie_humanoid.create_armature()
     body_mesh(rig, f'{HERO}_vm', ARM_PARTS)
     socket('SK_hand_r', rig, 'hand_r', (0.0, 0.05, 0.0))
-    # The eye: in the head's bone space (y along the bone, z toward the character's front).
-    socket('SK_eye', rig, 'head', (0.0, 0.12, 0.09))
+    # The eye, 12 cm below the head bone's tail (a bone child sits at the TAIL; y runs along the
+    # bone) and 9 cm toward the face (z): 1.68 m up.
+    socket('SK_eye', rig, 'head', (0.0, -0.12, 0.09))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, 'testhero_vm.blend'))
     report = ie_validate.validate()
     if not report['ok']:

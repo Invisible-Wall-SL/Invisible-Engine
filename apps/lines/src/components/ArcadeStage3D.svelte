@@ -352,9 +352,17 @@
 						lods: c.lodLevels(),
 						clips: [...c.clips.keys()],
 						sockets: ['hand_r', 'head_top'].filter((n) => !!c.socket(n)),
+						drawn: c.root.layers.test(world.camera.layers),
 						states: cast?.animators.get(id)?.states(),
 						weights: cast?.animators.get(id)?.weights(),
 					})),
+				/** The first-person viewmodel, while one shows. */
+				viewmodel: () => {
+					const vm = cast?.viewmodel;
+					return vm
+						? { ready: vm.ready, states: vm.animator?.states(), weights: vm.animator?.weights() }
+						: undefined;
+				},
 				/** Fire a trigger on a body's graph (the playtests' flinch, until combat raises `hit`). */
 				trigger: (id: string, trigger: string) => cast?.trigger(id, trigger),
 			};
