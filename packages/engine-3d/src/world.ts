@@ -3,6 +3,7 @@ import {
 	BoxGeometry,
 	BufferGeometry,
 	CapsuleGeometry,
+	CircleGeometry,
 	Color,
 	DataTexture,
 	DirectionalLight,
@@ -10,6 +11,7 @@ import {
 	Group,
 	HemisphereLight,
 	Mesh,
+	MeshBasicMaterial,
 	MeshToonMaterial,
 	NearestFilter,
 	PCFShadowMap,
@@ -28,6 +30,7 @@ import type { Collider3dSpec } from 'engine-mechanics/src/motion3d.js';
 
 import type { BodyView3d } from './pure/play';
 import { rigPosition, yawRadians, type Rig3d, type Vec3 } from './pure/rig';
+import { CAPS_3D, type Caps3d } from './pure/tier';
 
 export type World3dOptions = {
 	/** The canvas to draw in: the seam reserves it before the Pixi context is created, so the page
@@ -36,8 +39,9 @@ export type World3dOptions = {
 	canvas: HTMLCanvasElement;
 	/** The clear colour behind the world (the Pixi canvas above is transparent). */
 	background?: number;
-	/** Shadow map size; 0 draws no shadow map. */
-	shadowMapSize?: number;
+	/** What the tier may spend (`pure/tier.ts` `CAPS_3D`): MSAA, shadow map or blob shadows,
+	 *  who casts. The `half` column when absent. */
+	caps?: Pick<Caps3d, 'antialias' | 'shadows' | 'shadowMapSize' | 'shadowCasters'>;
 };
 
 /** Where the camera looks this frame. */
@@ -136,13 +140,14 @@ const PALETTE = {
  */
 export function mountWorld3d(opts: World3dOptions): World3d {
 	const { canvas } = opts;
+	const caps = opts.caps ?? CAPS_3D.half;
 	const renderer = new WebGLRenderer({
 		canvas,
-		antialias: true,
+		antialias: caps.antialias,
 		powerPreference: 'high-performance',
 	});
 	renderer.setClearColor(new Color(opts.background ?? 0x1b2433));
-	const shadowSize = opts.shadowMapSize ?? 1024;
+	const shadowSize = caps.shadows === 'map' ? caps.shadowMapSize : 0;
 	renderer.shadowMap.enabled = shadowSize > 0;
 	renderer.shadowMap.type = PCFShadowMap;
 
@@ -200,6 +205,15 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		levelGroup.clear();
 	};
 
+	// A blob shadow: a soft dark disc at the feet, for tiers with no shadow map (§5.3 `quarter`).
+	const blobGeometry = new CircleGeometry(1, 20);
+	const blobMaterial = new MeshBasicMaterial({
+		color: 0x000000,
+		transparent: true,
+		opacity: 0.35,
+		depthWrite: false,
+	});
+
 	const capsule = (body: BodyView3d): Group => {
 		const key = `${body.radius}:${body.height}`;
 		let geometry = capsuleGeometries.get(key);
@@ -221,6 +235,13 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		tip.position.set(0, body.height * 0.72, -body.radius);
 		const group = new Group();
 		group.add(shape, tip);
+		if (caps.shadows === 'blob') {
+			const blob = new Mesh(blobGeometry, blobMaterial);
+			blob.rotation.x = -Math.PI / 2;
+			blob.position.y = 0.02;
+			blob.scale.setScalar(body.radius * 1.4);
+			group.add(blob);
+		}
 		return group;
 	};
 
@@ -247,7 +268,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 					mesh.position.set((c.minX + c.maxX) / 2, (c.minY + c.maxY) / 2, (c.minZ + c.maxZ) / 2);
 				}
 				mesh.receiveShadow = true;
-				mesh.castShadow = c.maxY > 0;
+				mesh.castShadow = caps.shadowCasters === 'all' && c.maxY > 0;
 				levelGroup.add(mesh);
 			}
 		},
@@ -316,6 +337,8 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			disposeLevel();
 			for (const geometry of capsuleGeometries.values()) geometry.dispose();
 			nose.dispose();
+			blobGeometry.dispose();
+			blobMaterial.dispose();
 			aim.geometry.dispose();
 			for (const m of materials.values()) m.dispose();
 			ramp.dispose();

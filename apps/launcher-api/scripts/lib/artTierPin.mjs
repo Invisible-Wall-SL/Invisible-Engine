@@ -13,11 +13,18 @@
  */
 
 // By relative path: inside a game repo the engine submodule's node_modules is never installed.
-import { PINNABLE_TIERS } from '../../../../packages/config-vite/artTierPin.js';
+import {
+	artTierOf2d,
+	parseArtTierPin as parsePin,
+	PINNABLE_TIERS_2D,
+} from '../../../../packages/config-vite/artTierPin.js';
 
-export { parseArtTierPin } from '../../../../packages/config-vite/artTierPin.js';
+/** The pull takes every tier a build may pin; a 3D-only one is refused by a 2D game's own build. */
+export const parseArtTierPin = (value) => parsePin(value, { view3d: true });
 
-const TIER_MARK = new RegExp(`@(${PINNABLE_TIERS.filter((t) => t !== 'full').join('|')})(?=[.])`);
+const TIER_MARK = new RegExp(
+	`@(${PINNABLE_TIERS_2D.filter((t) => t !== 'full').join('|')})(?=[.])`,
+);
 
 /** The full file a tier file copies (`a/b@half.webp` → `a/b.webp`), or `null` for a full file. */
 export function fullSiblingOf(rel) {
@@ -35,7 +42,7 @@ const baseName = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
 export const isDescriptor = (rel) => /\.(json|atlas)$/i.test(rel) && baseName(rel) !== 'index.json';
 
 /**
- * Which of `rels` a build pinned to `tier` does not load.
+ * Which of `rels` (2D art) a build pinned to `pin` does not load.
  *
  * - `full`: every tier copy.
  * - `half`: every full file that has a half copy beside it.
@@ -43,7 +50,9 @@ export const isDescriptor = (rel) => /\.(json|atlas)$/i.test(rel) && baseName(re
  * `textOf(rel)` reads a descriptor; a dropped name that a kept descriptor contains is kept instead
  * (and reported), whatever the names said.
  */
-export async function artTierDrop(rels, tier, textOf) {
+export async function artTierDrop(rels, pin, textOf) {
+	// The 2D art a 3D pin stands for (`quarter` → `half`, `ultra` → `full`); model files are not 2D art.
+	const tier = artTierOf2d(pin);
 	const present = new Set(rels);
 	const drop = new Set();
 	for (const rel of rels) {

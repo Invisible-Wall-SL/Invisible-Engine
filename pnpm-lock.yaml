@@ -1329,6 +1329,9 @@ importers:
 
   packages/engine-3d:
     dependencies:
+      constants-shared:
+        specifier: workspace:*
+        version: link:../constants-shared
       engine-mechanics:
         specifier: workspace:*
         version: link:../engine-mechanics
