@@ -2,8 +2,9 @@
 // Phase 1, docs/design/3d/gameplay-evaluation.md §2–§3): the room's fold of `stepPlayer3d` equals the
 // device's prediction BIT FOR BIT over a seeded input script through a jittery, stalling link (a
 // 3D player waits for its inputs, so latency cannot change its fold), falls into the void
-// included, so a device never takes a correction; a player silent past CREDIT_SECONDS, or dropped,
-// is stepped at rest (it falls and lands, its ack kept) and its device finds those steps exactly;
+// included, so a device never takes a correction; a player whose body falls CREDIT_SECONDS behind
+// the room (silent, or trickling inputs to hover), or dropped, is stepped at rest (it falls and
+// lands, its ack kept) and its device finds those steps exactly;
 // world3dOf refuses a level that would freeze the room; two rooms of a world share its level;
 // the input clamp is exact; bots fill seats and move; the interpolator
 // and the camera helpers do what the view relies on. Then a real Colyseus 0.18 server with two
@@ -483,6 +484,24 @@ await check(
 		send();
 		step();
 		assert.equal(player.ack, ack + 1);
+	},
+);
+
+await check(
+	'a device sending one input per CREDIT_SECONDS cannot hover: its body is never more than CREDIT_SECONDS behind the room, so it falls and lands',
+	() => {
+		const { player, send, step } = midAir();
+		const top = player.body.y;
+		let landedAt = -1;
+		for (let t = 1; t <= 300; t++) {
+			if (t % (CREDIT_STEPS + 1) === 0) send();
+			step();
+			assert.ok(player.credit <= CREDIT_STEPS, `credit ${player.credit} at ${t}`);
+			if (landedAt < 0 && player.body.grounded) landedAt = t;
+		}
+		assert.ok(landedAt > 0 && landedAt <= CREDIT_STEPS + 45, `still in the air (top ${top})`);
+		assert.ok(player.body.grounded && player.body.y === 0, `at ${player.body.y}`);
+		console.log(`   landed ${landedAt} steps into the trickle (a hover kept it in the air)`);
 	},
 );
 

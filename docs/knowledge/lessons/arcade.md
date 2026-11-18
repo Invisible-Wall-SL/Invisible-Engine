@@ -6,6 +6,19 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A 3D player hovered by sending one input per gap
+
+- **Symptom:** after the fix below, a hand-made client sending one input every `CREDIT_SECONDS`
+  kept its body mid-air over a gap for as long as it liked (10 s at 60 Hz in the review's repro).
+- **Cause:** the rest rule counted a SILENCE in a row, which any single input reset; the body's
+  real lag behind the room's clock grew without bound while `credit` sat at its cap.
+- **Fix:** rest whenever the body is `CREDIT_SECONDS` behind the room (`credit` at its bound): an
+  exact lag, never reset by one input — a rule on what a client sends must survive a client
+  that sends just enough.
+- **Guard:** `check:room-sim-3d` "cannot hover" (fails on the silence counter).
+- **PR:** 3D review B finding 4 (2026-11-18, branch `claude/3d-room-no-hover`) · source:
+  `docs/status/3d.md`
+
 ### A 3D level from a config could freeze the game server, and an idle player hung mid-air
 
 - **Symptom:** #1717 merged with its review blocking: a large `arcade.world3d` level (or a tiny
