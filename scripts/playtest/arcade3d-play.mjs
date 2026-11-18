@@ -341,12 +341,18 @@ try {
 } catch (error) {
 	const errors = await page?.evaluate('window.__AR_ERRORS__').catch(() => undefined);
 	verdict('the playtest ran', false, { error: String(error?.stack ?? error), errors });
-	if (page) writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
+	if (page)
+		writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
 } finally {
 	await page?.close?.();
 	await server.close?.();
 	await snap.close?.();
-	rmSync(work, { recursive: true, force: true });
+	// The browser may still hold its profile for a moment (Windows); a leftover temp folder is harmless.
+	try {
+		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+	} catch (error) {
+		console.warn(`left ${work} behind: ${error.code ?? error}`);
+	}
 }
 
 writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));

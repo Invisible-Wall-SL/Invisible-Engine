@@ -80,7 +80,13 @@
 			rigYaw: number,
 			aim: Aim,
 			face: number | undefined,
+			pitch: number,
 		): void;
+		/** The own player's deaths so far and where the last one happened (offline: a fall past the
+		 *  death plane; online: none until the room says a player died, Phase 3). */
+		deaths(): { count: number; at: { x: number; y: number; z: number } | undefined };
+		/** The own player stands on something (offline; online the room does not say). */
+		grounded(): boolean | undefined;
 		/** The raw `arcade.world3d` block: its `camera` is the director's. */
 		world3d: unknown;
 		bodies(): readonly import('engine-3d').BodyView3d[];
@@ -126,6 +132,8 @@
 			},
 			bodies: () => play.bodies(),
 			steps: () => play.steps,
+			deaths: () => ({ count: play.falls, at: play.fellAt }),
+			grounded: () => play.player.grounded,
 			resync: () => play.resync(),
 			release: () => {},
 		};
@@ -162,13 +170,15 @@
 		return {
 			colliders: world.level.colliders,
 			world3d: session.world3d,
-			advance(dtMs, stick, rigYaw, aim, face) {
+			advance(dtMs, stick, rigYaw, aim, face, pitch) {
 				const me = view.me?.body;
 				const toward = aim && me ? three.yawToward(aim.x - me.x, aim.z - me.z) : undefined;
-				view.frame(dtMs, performance.now(), stick, rigYaw, face ?? toward);
+				view.frame(dtMs, performance.now(), stick, rigYaw, face ?? toward, pitch);
 			},
 			bodies: () => view.bodies(),
 			steps: () => view.seq,
+			deaths: () => ({ count: 0, at: undefined }),
+			grounded: () => undefined,
 			// The room went on while the tab was hidden; the next states bring the device up to it.
 			resync: () => {},
 			release: () => {
@@ -243,7 +253,7 @@
 			yaw: () => director.view?.yaw ?? 0,
 			pitch: () => director.view?.pitch ?? 0,
 		};
-		return { director, flow };
+		return { director, flow, death: config.death };
 	};
 
 	$effect(() => {
@@ -290,6 +300,9 @@
 						vx: b.vx,
 						vy: 0,
 						tags: b.kind === 'hero' ? ['player'] : [],
+						...(b.kind === 'hero' && field.grounded() !== undefined
+							? { grounded: field.grounded() }
+							: {}),
 					})),
 				}),
 			});
@@ -311,9 +324,21 @@
 			let view: import('engine-3d').CameraView3d | undefined;
 			let bodies: readonly import('engine-3d').BodyView3d[] = field.bodies();
 			/** A followed body: `player` is the own player (online its id is the session's). */
-			const targetOf = (id: string) =>
+			const bodyOf = (id: string) =>
 				id === 'player' ? bodies.find((b) => b.kind === 'hero') : bodies.find((b) => b.id === id);
+			// The followed body as the camera reads it: grounded (no bob in the air) where known.
+			const targetOf = (id: string) => {
+				if (id === 'corpse') return corpse && { ...corpse, vx: 0, vz: 0, yaw: 0 };
+				const body = bodyOf(id);
+				const grounded = body?.kind === 'hero' ? field.grounded() : undefined;
+				return body && grounded !== undefined ? { ...body, grounded } : body;
+			};
 			const look = { x: 0, y: 0, zoom: 0, aiming: false };
+			let clockMs = 0;
+			let deaths = field.deaths().count;
+			/** Where the own player last died: the ghost looks there (the body id `corpse`). */
+			let corpse: { x: number; y: number; z: number } | undefined;
+			let respawnAt: number | undefined;
 			const tick = () => {
 				if (document.visibilityState !== 'visible') return;
 				if (!hidden || hidden.destroyed) hidden = codedBackground(pixi.stage);
@@ -321,8 +346,29 @@
 				world.setPixelRatio(pixelRatio());
 				const dt = pixi.ticker.deltaMS;
 				const face = view?.aims ? three.yawUnitsOf(view.yaw) : undefined;
-				field.advance(dt, keys.read(), view?.yaw ?? rig.yaw, view?.aims ? undefined : aim, face);
+				field.advance(
+					dt,
+					keys.read(),
+					view?.yaw ?? rig.yaw,
+					view?.aims ? undefined : aim,
+					face,
+					view?.aims ? view.pitch : 0,
+				);
 				bodies = field.bodies();
+				clockMs += dt;
+				const died = field.deaths();
+				if (died.count !== deaths) {
+					deaths = died.count;
+					if (camera.death && died.at) {
+						corpse = died.at;
+						director.activate(camera.death.rig, { ease: 'cut' });
+						respawnAt = clockMs + camera.death.ms;
+					}
+				}
+				if (respawnAt !== undefined && clockMs >= respawnAt && camera.death) {
+					director.deactivate(camera.death.rig, { blendMs: camera.death.blendBackMs });
+					respawnAt = undefined;
+				}
 				view = director.frame(dt, targetOf, {
 					lookX: look.x,
 					lookY: look.y,
@@ -330,7 +376,7 @@
 					aiming: look.aiming,
 				});
 				look.x = look.y = look.zoom = 0;
-				const followed = targetOf(director.followed ?? 'player');
+				const followed = bodyOf(director.followed ?? 'player');
 				const eye = view.pose.position;
 				// The camera inside the followed body (first person, a shoulder pressed to a wall)
 				// would draw its inside: it is not drawn.

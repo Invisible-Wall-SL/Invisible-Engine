@@ -1,7 +1,12 @@
 import { RIG3D_DEFAULTS, type Rig3d } from '../rig';
 import { CAMERA_BLEND_DEFAULT } from './director';
 import { CAMERA_EASES, clamp, type CameraEase3d } from './math';
-import { defaultCameraRigs3d, resolveCameraRig3d, type CameraRigSpec3d } from './rigs';
+import {
+	defaultCameraRigs3d,
+	GHOST_RIG_ID,
+	resolveCameraRig3d,
+	type CameraRigSpec3d,
+} from './rigs';
 import { SHAKE3D_DEFAULTS, type ShakeSpec3d } from './shake';
 
 /** A game's 3D camera as data: `arcade.world3d.camera` (local only; the room never reads it). */
@@ -14,6 +19,9 @@ export type Camera3dConfig = {
 	/** The game's camera moves: a GLB of camera clips (`anim/cameras/<arena>.glb`), relative to the
 	 *  game's asset base or absolute. */
 	moves?: string;
+	/** On the own player's death: this rig (the ghost by default) for `ms`, then back over
+	 *  `blendBackMs`. Absent when the game has no such rig. */
+	death?: { rig: string; ms: number; blendBackMs: number };
 	/** A move to play when the field mounts, then hand back to `active`. */
 	intro?: { move: string; blendInMs: number; blendOutMs: number; ease: CameraEase3d };
 };
@@ -30,9 +38,9 @@ const easeOf = (value: unknown, fallback: CameraEase3d): CameraEase3d =>
 	CAMERA_EASES.includes(value as CameraEase3d) ? (value as CameraEase3d) : fallback;
 
 /**
- * The camera block as authored (any field may be absent) → a whole camera. No `rigs` ⇒ every kind
- * but `rail` with its defaults, `follow` being the play-field screen's `camera.rig3d` view (Phase
- * 1a), so a game that authors nothing looks as it did. A bad rig throws, naming its path.
+ * The camera block as authored (any field may be absent) → a whole camera. No `rigs` ⇒
+ * `defaultCameraRigs3d`: first person live, the ghost for a death, and every other kind but `rail`
+ * (`follow` being the play-field screen's `camera.rig3d` view). A bad rig throws, naming its path.
  */
 export function camera3dOf(raw: unknown, rig: Rig3d = RIG3D_DEFAULTS): Camera3dConfig {
 	const r = obj(raw);
@@ -52,6 +60,8 @@ export function camera3dOf(raw: unknown, rig: Rig3d = RIG3D_DEFAULTS): Camera3dC
 		ease: easeOf(r.ease, CAMERA_BLEND_DEFAULT.ease),
 	};
 	const intro = obj(r.intro);
+	const death = obj(r.death);
+	const deathRig = typeof death.rig === 'string' ? death.rig : GHOST_RIG_ID;
 	return {
 		rigs,
 		active,
@@ -64,6 +74,15 @@ export function camera3dOf(raw: unknown, rig: Rig3d = RIG3D_DEFAULTS): Camera3dC
 			frequency: num(shake.frequency, SHAKE3D_DEFAULTS.frequency, 0.1, 120),
 		},
 		...(typeof r.moves === 'string' && r.moves ? { moves: r.moves } : {}),
+		...(ids.has(deathRig)
+			? {
+					death: {
+						rig: deathRig,
+						ms: num(death.ms, 2000, 0, 60_000),
+						blendBackMs: num(death.blendBackMs, 400, 0, 20_000),
+					},
+				}
+			: {}),
 		...(typeof intro.move === 'string' && intro.move
 			? {
 					intro: {

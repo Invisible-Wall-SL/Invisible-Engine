@@ -183,6 +183,11 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 		play.last?.fell === true && near(play.player.y, 1) && near(play.player.x, 8),
 		JSON.stringify(play.player),
 	);
+	check(
+		'…and counts the fall where it happened (the death cam looks there)',
+		play.falls === 1 && near(play.fellAt.x, 8) && play.fellAt.y < -12,
+		JSON.stringify(play.fellAt),
+	);
 }
 {
 	// The south ramp (x −1.5..1.5, z 11 → 5) climbs onto the 2.5 m tier.

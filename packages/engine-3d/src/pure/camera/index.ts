@@ -26,6 +26,7 @@ export {
 export {
 	CAMERA_RIG_KINDS,
 	defaultCameraRigs3d,
+	GHOST_RIG_ID,
 	followFromRig3d,
 	NO_CAMERA_INPUT,
 	resolveCameraRig3d,

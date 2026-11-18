@@ -13,6 +13,7 @@ import { loadCameraMoves3d } from '../packages/engine-3d/src/cameraMoves.ts';
 import {
 	CAMERA_EASES,
 	camera3dOf,
+	GHOST_RIG_ID,
 	createCameraCollider3d,
 	createCameraDirector3d,
 	createShake3d,
@@ -59,11 +60,17 @@ const arena = sampleArena3d();
 {
 	const config = camera3dOf(undefined, RIG3D_DEFAULTS);
 	check(
-		'no camera block ⇒ every kind but rail, follow first',
-		config.rigs.map((r) => r.kind).join() === 'follow,orbit,shoulder,firstPerson,fixed' &&
-			config.active === 'follow',
+		'no camera block ⇒ first person live (the owner, 2026-11-18), the rest beside it, ghost on top',
+		config.rigs.map((r) => r.kind).join() === 'firstPerson,follow,orbit,shoulder,fixed,ghost' &&
+			config.active === 'firstPerson' &&
+			config.rigs.find((r) => r.id === GHOST_RIG_ID)?.priority === 10,
 	);
-	const follow = config.rigs[0].params;
+	const fp = config.rigs[0].params;
+	check(
+		"first person bobs as BattleOTtheYear's HandleHeadBob (0.05 m, 10 rad/s) and clamps the look near ±90°",
+		fp.bob.amplitude === 0.05 && fp.bob.frequency === 10 && fp.bob.sway === 0 && fp.maxPitch === 89,
+	);
+	const follow = config.rigs.find((r) => r.id === 'follow').params;
 	check(
 		"the default follow is Phase 1a's view",
 		follow.pitch === RIG3D_DEFAULTS.pitch &&
@@ -106,6 +113,7 @@ const director = (over = {}) =>
 		rigs,
 		seed: 'gate',
 		follow: 'me',
+		active: 'follow',
 		blend: { blendMs: 600, ease: 'linear' },
 		...over,
 	});
@@ -129,7 +137,7 @@ const director = (over = {}) =>
 	const deadRigs = defaultCameraRigs3d(
 		resolveRig3d({ smoothing: 0, lookAhead: 0, deadZone: { w: 2, h: 2 } }),
 	);
-	const dz = createCameraDirector3d({ rigs: deadRigs, seed: 's', follow: 'me' });
+	const dz = createCameraDirector3d({ rigs: deadRigs, seed: 's', follow: 'me', active: 'follow' });
 	dz.frame(16, () => body());
 	const still = dz.frame(16, () => body({ x: 0.8 }));
 	const first = rigPosition({ x: 0, y: 1, z: 0 }, RIG3D_DEFAULTS);
@@ -146,7 +154,12 @@ const director = (over = {}) =>
 	const smoothRigs = defaultCameraRigs3d(
 		resolveRig3d({ smoothing: 0.5, deadZone: { w: 0, h: 0 }, lookAhead: 0 }),
 	);
-	const sm = createCameraDirector3d({ rigs: smoothRigs, seed: 's', follow: 'me' });
+	const sm = createCameraDirector3d({
+		rigs: smoothRigs,
+		seed: 's',
+		follow: 'me',
+		active: 'follow',
+	});
 	sm.frame(16, () => body());
 	const eased = sm.frame(16, () => body({ x: 10 }));
 	check(
@@ -274,6 +287,84 @@ const director = (over = {}) =>
 	);
 }
 
+// --- First person: the default, level on entry, BOTY's bob, the near plane kept out of walls.
+{
+	const d = createCameraDirector3d({ rigs, seed: 's', follow: 'me' });
+	const v0 = d.frame(16, () => body({ yaw: 16384 }));
+	check('with no rig named, first person is live', v0.live === 'firstPerson' && v0.aims);
+	check(
+		'…at eye height, facing the body',
+		near(v0.pose.position.y, 1.6, 1e-9) && near(v0.yaw, 90, 0.01),
+	);
+	d.activate('follow', { ease: 'cut' });
+	d.frame(16, () => body());
+	d.activate('firstPerson', { ease: 'cut' });
+	const level = d.frame(16, () => body());
+	check(
+		'entered from follow (looking down 38°) the eyes come up level, the heading kept',
+		near(level.pitch, 0, 1e-6) && near(level.yaw, 0, 1e-6),
+	);
+	const ys = [];
+	for (let k = 0; k < 240; k++)
+		ys.push(d.frame(16, () => body({ vz: -4, z: -k * 0.064 })).pose.position.y);
+	const steady = ys.slice(120);
+	let rises = 0;
+	for (let k = 1; k < steady.length; k++) if (steady[k - 1] < 1.6 && steady[k] >= 1.6) rises += 1;
+	check('the bob runs at 10 rad/s (3 cycles in 1.92 s)', rises === 3, String(rises));
+	check(
+		'…0.05 m up and down',
+		near(Math.max(...steady) - 1.6, 0.05, 2e-3) && near(1.6 - Math.min(...steady), 0.05, 2e-3),
+	);
+	const wall = [{ kind: 'box', minX: -2, minY: 0, minZ: -1, maxX: 2, maxY: 3, maxZ: -0.3 }];
+	const n = createCameraDirector3d({ rigs, seed: 's', follow: 'me', colliders: wall });
+	const ahead = n.frame(16, () => body({ head: { x: 0, y: 1.6, z: -0.5 } }));
+	check(
+		'a head socket inside a wall: the eye stops a near radius short of it',
+		near(ahead.pose.position.z, -0.15, 1e-9),
+		String(ahead.pose.position.z),
+	);
+}
+
+// --- The death camera: detach, drift up and back, keep looking at the body; then back.
+{
+	// The stage points the ghost at where the body fell (`corpse`), the eyes still at the player.
+	const ghostRigs = rigs.map((r) => (r.id === GHOST_RIG_ID ? { ...r, target: 'corpse' } : r));
+	const d = createCameraDirector3d({
+		rigs: ghostRigs,
+		seed: 's',
+		follow: 'me',
+		colliders: arena.colliders,
+	});
+	const me = () => body({ x: -3, z: 12 });
+	const alive = d.frame(16, me);
+	const corpse = body({ x: -3, z: 12 });
+	const targets = (id) => (id === 'corpse' ? corpse : me());
+	d.activate(GHOST_RIG_ID, { ease: 'cut' });
+	const first = d.frame(16, targets);
+	check(
+		'dying cuts to the ghost where the eyes were',
+		first.live === GHOST_RIG_ID &&
+			dist(first.pose.position, alive.pose.position) < 0.05 &&
+			!first.aims,
+	);
+	let v = first;
+	for (let k = 0; k < 100; k++) v = d.frame(16, targets);
+	const look = yawPitchOf(lookAt(v.pose.position, { x: -3, y: 0.6, z: 12 }));
+	check(
+		'…it rises and backs away, looking at the body',
+		v.pose.position.y > alive.pose.position.y + 2 &&
+			v.pose.position.z > alive.pose.position.z + 2 &&
+			near(v.yaw, look.yaw, 0.01) &&
+			near(v.pitch, look.pitch, 0.01),
+		JSON.stringify(v.pose.position),
+	);
+	d.deactivate(GHOST_RIG_ID, { blendMs: 400 });
+	let back = d.frame(16, me);
+	check('respawned, the eyes come back', back.live === 'firstPerson' && back.blending);
+	for (let k = 0; k < 30; k++) back = d.frame(16, me);
+	check('…to eye height', near(back.pose.position.y, 1.6, 1e-6) && !back.blending);
+}
+
 // --- Collision: the sweep, the pull-in fast, the ease out slow.
 {
 	const c = createCameraCollider3d([
@@ -301,7 +392,13 @@ const director = (over = {}) =>
 	);
 
 	// The arena's 2.5 m tier: standing just north of it, the follow camera behind (+z) hangs over it.
-	const d = createCameraDirector3d({ rigs, seed: 's', follow: 'me', colliders: arena.colliders });
+	const d = createCameraDirector3d({
+		rigs,
+		seed: 's',
+		follow: 'me',
+		active: 'follow',
+		colliders: arena.colliders,
+	});
 	const open = d.frame(16, () => body({ z: 0 }));
 	const pivotOpen = { x: 0, y: 1, z: 0 };
 	const byWall = d.frame(16, () => body({ z: -7 }));
@@ -484,7 +581,7 @@ const director = (over = {}) =>
 		dist(round.sample(0).position, { x: 0, y: 3.5, z: 6 }) < 1e-4,
 		JSON.stringify(round.sample(0).position),
 	);
-	const d = createCameraDirector3d({ rigs, seed: 's', follow: 'me' });
+	const d = createCameraDirector3d({ rigs, seed: 's', follow: 'me', active: 'follow' });
 	const spawn = () => body({ x: -3, z: 12 });
 	d.frame(16, spawn);
 	let finished = false;

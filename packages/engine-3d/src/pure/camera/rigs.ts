@@ -4,6 +4,7 @@ import { RIG3D_DEFAULTS, rigPosition, type Rig3d, type Vec3 } from '../rig';
 import type { CameraCollider3d } from './collision';
 import {
 	clamp,
+	RAD,
 	damp,
 	fromYawPitchRoll,
 	lerp,
@@ -117,9 +118,29 @@ export type FirstPersonParams = {
 	minPitch: number;
 	maxPitch: number;
 	sensitivity: number;
-	/** Head bob while walking (BattleOTtheYear's): metres up and down, metres side to side, metres
-	 *  walked per stride. */
-	bob: { amplitude: number; sway: number; stride: number };
+	/**
+	 * Head bob while walking, as BattleOTtheYear's `PlayerController.HandleHeadBob`: the eye rises
+	 * and falls by `sin(phase) × amplitude` m, the phase running at `frequency` rad/s while the body
+	 * walks on the ground; `sway` m side to side (0 in BOTY). It fades out at rest rather than
+	 * snapping back.
+	 */
+	bob: { amplitude: number; frequency: number; sway: number };
+	/**
+	 * The near plane must not cut into a wall: the eye is swept from the body's axis to where it
+	 * wants to be with a sphere of this radius (m), so a head socket ahead of the body or a sway never
+	 * puts the near plane inside a collider. No pull-in beyond that: first person has no boom.
+	 */
+	nearRadius: number;
+};
+
+export type GhostParams = {
+	/** Metres the camera rises and backs away from where it detached, over `ms`. */
+	rise: number;
+	back: number;
+	ms: number;
+	fov: number;
+	/** The camera looks at the target this high above its feet. */
+	aimHeight: number;
 };
 
 export type FixedParams = { position: Vec3; lookAt?: Vec3; fov: number; aimHeight: number };
@@ -145,6 +166,7 @@ export type CameraRigSpec3d =
 			params: FirstPersonParams;
 	  }
 	| { id: string; kind: 'fixed'; target?: string; priority: number; params: FixedParams }
+	| { id: string; kind: 'ghost'; target?: string; priority: number; params: GhostParams }
 	| { id: string; kind: 'rail'; target?: string; priority: number; params: RailParams };
 
 export type CameraRigKind3d = CameraRigSpec3d['kind'];
@@ -155,6 +177,7 @@ export const CAMERA_RIG_KINDS: readonly CameraRigKind3d[] = [
 	'shoulder',
 	'fixed',
 	'rail',
+	'ghost',
 ];
 
 /** A rig as it runs: entered from the pose on screen, then stepped each frame it is live. */
@@ -372,7 +395,10 @@ function shoulderRig(
 	};
 }
 
-function firstPersonRig(spec: CameraRigSpec3d & { kind: 'firstPerson' }): RigRuntime3d {
+function firstPersonRig(
+	spec: CameraRigSpec3d & { kind: 'firstPerson' },
+	collider: CameraCollider3d | undefined,
+): RigRuntime3d {
 	const p = spec.params;
 	let yaw = 0;
 	let pitch = 0;
@@ -383,13 +409,11 @@ function firstPersonRig(spec: CameraRigSpec3d & { kind: 'firstPerson' }): RigRun
 		spec,
 		aims: true,
 		enter(screen, frame) {
-			phase = 0;
 			amount = 0;
-			if (screen) {
-				const view = yawPitchOf(screen.rotation);
-				yaw = view.yaw;
-				pitch = clamp(view.pitch, p.minPitch, p.maxPitch);
-			} else if (frame.target) yaw = yawDeg(frame.target.yaw);
+			// The heading on screen is kept (no spin); the eyes come up level.
+			if (screen) yaw = yawPitchOf(screen.rotation).yaw;
+			else if (frame.target) yaw = yawDeg(frame.target.yaw);
+			pitch = clamp(0, p.minPitch, p.maxPitch);
 		},
 		step({ dtMs, target, input }) {
 			const dt = dtMs / 1000;
@@ -398,27 +422,82 @@ function firstPersonRig(spec: CameraRigSpec3d & { kind: 'firstPerson' }): RigRun
 			const rotation = fromYawPitchRoll(yaw, pitch);
 			if (!target)
 				return last ?? { position: { x: 0, y: p.eyeHeight, z: 0 }, rotation, fov: p.fov };
-			const speed = Math.hypot(target.vx, target.vz);
-			const walking = target.grounded !== false && speed > 0.1;
-			// The bob follows the distance walked, and fades in and out instead of snapping.
-			if (walking && p.bob.stride > 0) phase += ((speed * dt) / p.bob.stride) * 2 * Math.PI;
-			amount = lerp(amount, walking ? Math.min(1, speed / 5) : 0, damp(0.12, dt));
-			const eye = target.head ?? { x: target.x, y: target.y + p.eyeHeight, z: target.z };
+			const walking = target.grounded !== false && Math.hypot(target.vx, target.vz) > 0.1;
+			if (walking) phase += dt * p.bob.frequency;
+			amount = lerp(amount, walking ? 1 : 0, damp(0.08, dt));
+			const axis = { x: target.x, y: target.y + p.eyeHeight, z: target.z };
+			const eye = target.head ?? axis;
 			const side = rotate(fromYawPitchRoll(yaw, 0), {
-				x: Math.sin(phase) * p.bob.sway * amount,
+				x: Math.sin(phase / 2) * p.bob.sway * amount,
 				y: 0,
 				z: 0,
 			});
+			const wanted = {
+				x: eye.x + side.x,
+				y: eye.y + Math.sin(phase) * p.bob.amplitude * amount,
+				z: eye.z + side.z,
+			};
+			const k = collider && p.nearRadius > 0 ? collider.cast(axis, wanted, p.nearRadius) : 1;
 			last = {
 				position: {
-					x: eye.x + side.x,
-					y: eye.y + Math.sin(2 * phase) * p.bob.amplitude * amount,
-					z: eye.z + side.z,
+					x: axis.x + (wanted.x - axis.x) * k,
+					y: axis.y + (wanted.y - axis.y) * k,
+					z: axis.z + (wanted.z - axis.z) * k,
 				},
 				rotation,
 				fov: p.fov,
 			};
 			return last;
+		},
+	};
+}
+
+/**
+ * The death camera (BattleOTtheYear's `Health.cs` ghost follow): the camera leaves the body where
+ * it was on screen, drifts up and back, and keeps looking at the target — the body where it fell.
+ */
+function ghostRig(
+	spec: CameraRigSpec3d & { kind: 'ghost' },
+	collider: CameraCollider3d | undefined,
+): RigRuntime3d {
+	const p = spec.params;
+	let from: Vec3 = { x: 0, y: 2, z: 0 };
+	let away: Vec3 = { x: 0, y: 0, z: 1 };
+	let t = 0;
+	let fov = p.fov;
+	let look: Vec3 | undefined;
+	return {
+		spec,
+		aims: false,
+		enter(screen, { target }) {
+			t = 0;
+			from = screen
+				? { ...screen.position }
+				: target
+					? { x: target.x, y: target.y + 1.6, z: target.z }
+					: from;
+			fov = screen?.fov ?? p.fov;
+			const view = screen ? yawPitchOf(screen.rotation) : { yaw: 0, pitch: 0 };
+			// "Back" is away from where the camera was looking, on the plane.
+			away = { x: Math.sin(view.yaw * RAD), y: 0, z: Math.cos(view.yaw * RAD) };
+		},
+		step({ dtMs, target }) {
+			t = Math.min(1, t + dtMs / Math.max(1, p.ms));
+			const k = t * t * (3 - 2 * t);
+			const wanted = {
+				x: from.x + away.x * p.back * k,
+				y: from.y + p.rise * k,
+				z: from.z + away.z * p.back * k,
+			};
+			const clear = collider ? collider.cast(from, wanted, 0.2) : 1;
+			const position = {
+				x: from.x + (wanted.x - from.x) * clear,
+				y: from.y + (wanted.y - from.y) * clear,
+				z: from.z + (wanted.z - from.z) * clear,
+			};
+			if (target) look = { x: target.x, y: target.y + p.aimHeight, z: target.z };
+			const at = look ?? { x: position.x - away.x, y: position.y - 1, z: position.z - away.z };
+			return { position, rotation: lookAt(position, at), fov: lerp(fov, p.fov, k) };
 		},
 	};
 }
@@ -517,11 +596,13 @@ export function createRig3d(
 		case 'shoulder':
 			return shoulderRig(spec, collider);
 		case 'firstPerson':
-			return firstPersonRig(spec);
+			return firstPersonRig(spec, collider);
 		case 'fixed':
 			return fixedRig(spec);
 		case 'rail':
 			return railRig(spec);
+		case 'ghost':
+			return ghostRig(spec, collider);
 	}
 }
 
@@ -621,16 +702,26 @@ function paramsOf(kind: CameraRigKind3d, raw: unknown, rig: Rig3d): CameraRigSpe
 			return {
 				eyeHeight: num(r.eyeHeight, 1.6, 0, 10),
 				fov: num(r.fov, 70, 10, 120),
-				minPitch: num(r.minPitch, -85, -89, 0),
-				maxPitch: num(r.maxPitch, 85, 0, 89),
+				// BOTY clamps the look at ±90°; 89 keeps the heading defined.
+				minPitch: num(r.minPitch, -89, -89, 0),
+				maxPitch: num(r.maxPitch, 89, 0, 89),
 				sensitivity: num(r.sensitivity, 0.2, 0, 10),
 				bob: {
 					amplitude: num(b.amplitude, 0.05, 0, 1),
-					sway: num(b.sway, 0.03, 0, 1),
-					stride: num(b.stride, 1.6, 0, 20),
+					frequency: num(b.frequency, 10, 0, 100),
+					sway: num(b.sway, 0, 0, 1),
 				},
+				nearRadius: num(r.nearRadius, 0.15, 0, 1),
 			};
 		}
+		case 'ghost':
+			return {
+				rise: num(r.rise, 2.5, -10, 50),
+				back: num(r.back, 3, -50, 50),
+				ms: num(r.ms, 1500, 0, 20_000),
+				fov: num(r.fov, 60, 10, 120),
+				aimHeight: num(r.aimHeight, 0.6, -10, 10),
+			};
 		case 'fixed':
 			return {
 				position: vec(r.position, { x: 0, y: 24, z: 24 }),
@@ -651,30 +742,27 @@ function paramsOf(kind: CameraRigKind3d, raw: unknown, rig: Rig3d): CameraRigSpe
 	}
 }
 
-/** The rigs a game has when it authors none: every kind but `rail`, all at one priority, so the last
- *  one activated wins; `follow` is the play-field screen's Phase 1a view. */
+/** The id of the default death camera: the stage activates it when the own player dies, aimed at
+ *  the body id `corpse` (where it died). */
+export const GHOST_RIG_ID = 'ghost';
+
+/**
+ * The rigs a game has when it authors none. `firstPerson` is live (the owner's choice, 2026-11-18:
+ * the brawler is first person, as BattleOTtheYear); `ghost` (priority 10) takes over on death;
+ * `follow` (the play-field screen's Phase 1a view), `orbit`, `shoulder` and `overview` are for
+ * spectating, intros, round ends and debugging — all at one priority, so the last activated wins.
+ */
 export function defaultCameraRigs3d(rig: Rig3d = RIG3D_DEFAULTS): CameraRigSpec3d[] {
+	const of = <K extends CameraRigKind3d>(id: string, kind: K, priority = 0) =>
+		({ id, kind, priority, params: paramsOf(kind, {}, rig) }) as CameraRigSpec3d;
 	return [
-		{ id: 'follow', kind: 'follow', priority: 0, params: followFromRig3d(rig) },
-		{ id: 'orbit', kind: 'orbit', priority: 0, params: paramsOf('orbit', {}, rig) as OrbitParams },
-		{
-			id: 'shoulder',
-			kind: 'shoulder',
-			priority: 0,
-			params: paramsOf('shoulder', {}, rig) as ShoulderParams,
-		},
-		{
-			id: 'firstPerson',
-			kind: 'firstPerson',
-			priority: 0,
-			params: paramsOf('firstPerson', {}, rig) as FirstPersonParams,
-		},
-		{
-			id: 'overview',
-			kind: 'fixed',
-			priority: 0,
-			params: paramsOf('fixed', {}, rig) as FixedParams,
-		},
+		of('firstPerson', 'firstPerson'),
+		of('follow', 'follow'),
+		of('orbit', 'orbit'),
+		of('shoulder', 'shoulder'),
+		of('overview', 'fixed'),
+		// `corpse` is where the own player died (the stage keeps it).
+		{ ...of(GHOST_RIG_ID, 'ghost', 10), target: 'corpse' },
 	];
 }
 

@@ -4,10 +4,13 @@
 // (`cameraPlayMove`, awaited, then `cameraMoveFinished`), keys 1–4 switch rigs (`cameraActivate`)
 // and K shakes (`cameraShake`, standing in for a hit until 3D combat exists).
 //
-// It checks: the intro plays, raises `cameraMoveFinished` and hands back to follow without a pop;
-// each switch follow → orbit → shoulder → first person → follow blends with no frame-to-frame jump;
+// It checks: the intro plays, raises `cameraMoveFinished` and hands back to first person (the
+// default rig: the owner's choice) without a pop; each switch first person → follow → orbit →
+// shoulder → first person blends with no frame-to-frame jump;
 // after a drag turns the orbit, W walks the way the camera looks; the shoulder camera pulls in
-// against the south wall and eases back out; K shakes the view and it settles; no page error.
+// against the south wall and eases back out; K shakes the first-person view and it settles; walking
+// into the pit, the ghost camera detaches, rises and watches where the body fell, then hands back to
+// the eyes; no page error.
 // Screenshots go to --out (read them).
 //
 //   PUBLIC_IE_FAMILIES=arcade PUBLIC_IE_3D=1 PUBLIC_RGS_TRANSPORT=play4fun \
@@ -255,7 +258,7 @@ try {
 	await play([{ op: 'tapToStart' }, { op: 'waitFor', until: { playerIn: true } }]);
 	for (let i = 0; i < 60 && !(await read()); i++) await play([{ op: 'step', frames: 5 }]);
 
-	// --- The intro move (Blender → glTF → cameraPlayMove), then the hand-back to follow.
+	// --- The intro move (Blender → glTF → cameraPlayMove), then the hand-back to first person.
 	const start = await read();
 	verdict(
 		'the tap plays the intro move',
@@ -266,12 +269,12 @@ try {
 	await shot('intro');
 	const introRest = await track(250);
 	const all = [...intro, ...introRest];
-	const back = all.findIndex((v) => v.live === 'follow');
+	const back = all.findIndex((v) => v.live === 'firstPerson');
 	const flowSaw = await page.evaluate(`window.__IE_FLOW_V2__?.state?.read('introDone')`);
 	verdict('the intro raised cameraMoveFinished in Flow', flowSaw === 'yes', flowSaw);
 	result.measured.introJumps = jumps(all);
 	verdict(
-		'the intro hands back to follow without a pop',
+		'the intro hands back to first person without a pop',
 		back > 200 &&
 			back < 260 &&
 			result.measured.introJumps.move < 1.2 &&
@@ -279,14 +282,14 @@ try {
 		{ handBackFrame: back, ...result.measured.introJumps },
 	);
 	await play([{ op: 'step', frames: 60 }]);
-	await shot('follow');
+	await shot('first-person');
 
-	// --- Switch follow → orbit → shoulder → first person → follow, each blended.
+	// --- Switch first person → follow → orbit → shoulder → first person, each blended.
 	for (const [code, rig] of [
+		['Digit1', 'follow'],
 		['Digit2', 'orbit'],
 		['Digit3', 'shoulder'],
 		['Digit4', 'firstPerson'],
-		['Digit1', 'follow'],
 	]) {
 		const before = await read();
 		await press(code);
@@ -379,7 +382,7 @@ try {
 	);
 
 	// --- A shake (K stands in for a hit): the view trembles, the aim does not, then it settles.
-	await press('Digit1');
+	await press('Digit4');
 	await play([{ op: 'step', frames: 60 }]);
 	await press('KeyK');
 	const shaking = await track(12);
@@ -397,6 +400,91 @@ try {
 		peak > 0.5 && settled < 0.05,
 		result.measured.shake,
 	);
+
+	// --- Death: steer the first-person player into the pit (x 6..10, z −10..−6) by looking and W.
+	/** Turn the first-person view toward a point (a drag: yaw −= px × 0.2°) and walk a little. */
+	const walkToward = async (x, z, frames) => {
+		const v = await read();
+		const want = (Math.atan2(-(x - v.me.x), -(z - v.me.z)) * 180) / Math.PI;
+		const turn = ((((v.yaw - want) % 360) + 540) % 360) - 180;
+		const px = Math.max(-300, Math.min(300, turn / 0.2));
+		if (Math.abs(px) >= 1) {
+			const moves = [
+				{ type: 'mousePressed', x: 640, y: 420, buttons: 1 },
+				{ type: 'mouseMoved', x: 640 + px / 2, y: 420, buttons: 1 },
+				{ type: 'mouseMoved', x: 640 + px, y: 420, buttons: 1 },
+				{ type: 'mouseReleased', x: 640 + px, y: 420, buttons: 0 },
+			];
+			for (const e of moves) {
+				await page.page('Input.dispatchMouseEvent', { ...e, button: 'left', clickCount: 1 });
+				await play([{ op: 'step', frames: 1 }]);
+			}
+		}
+		await key('KeyW', 'down');
+		const seen = await track(frames);
+		await key('KeyW', 'up');
+		return seen;
+	};
+	let ghost;
+	/** The frames from the ghost's first one on. */
+	let ghostRun = [];
+	// Round the east ramp's side face (x 5..11, z ±1.5) and the trampoline (x 11..14, z 2..5).
+	for (const [x, z] of [
+		[15, 8],
+		[15, -4],
+		[8, -8],
+	])
+		for (let leg = 0; leg < 12 && !ghost; leg++) {
+			const seen = await walkToward(x, z, 15);
+			ghostRun = seen.slice(
+				Math.max(
+					0,
+					seen.findIndex((v) => v.live === 'ghost'),
+				),
+			);
+			ghost = seen.find((v) => v.live === 'ghost');
+			const at = seen.at(-1).me;
+			(result.measured.deathWalk ??= []).push({
+				to: [x, z],
+				at: [+at.x.toFixed(2), +at.y.toFixed(2), +at.z.toFixed(2)],
+				yaw: +seen.at(-1).yaw.toFixed(1),
+				live: seen.at(-1).live,
+			});
+			if (Math.hypot(at.x - x, at.z - z) < 0.8) break;
+		}
+	// Over the pit the body still falls ~1.6 s to the death plane.
+	if (!ghost) {
+		const seen = await track(150);
+		ghost = seen.find((v) => v.live === 'ghost');
+		if (ghost) ghostRun = seen.slice(seen.indexOf(ghost));
+	}
+	verdict('falling into the pit hands the camera to the ghost', !!ghost, result.measured.deathWalk);
+	if (ghost) {
+		// 60 frames into the ghost (the run so far, topped up).
+		const dying = [...ghostRun, ...(await track(Math.max(0, 61 - ghostRun.length)))];
+		await shot('ghost');
+		const risen = dying[60];
+		result.measured.ghost = {
+			from: ghost.pose.position,
+			to: risen.pose.position,
+			pitch: risen.pitch,
+		};
+		verdict(
+			'the ghost rises and looks down at where the body fell',
+			risen.live === 'ghost' &&
+				risen.pose.position.y > ghost.pose.position.y + 1 &&
+				risen.pitch < -20,
+			result.measured.ghost,
+		);
+		const after = await track(110);
+		const home = after.findIndex((v) => v.live === 'firstPerson');
+		verdict(
+			'after the death cam the eyes come back (respawned)',
+			home >= 0 && after.at(-1).live === 'firstPerson' && !after.at(-1).blending,
+			{ frame: home },
+		);
+		await shot('respawned');
+	}
 
 	const errors = await page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error', errors.length === 0, errors);
