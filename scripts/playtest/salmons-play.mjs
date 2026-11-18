@@ -445,7 +445,7 @@ function isometricAt(png, arcade, me) {
 	// Swimming in open water it is drawn under the water's tint (2026-11-18): its colour is read
 	// back through each of the river's tints.
 	const under = arcade.online.art?.looks?.[me]?.underwater === true;
-	const salmon = ({ x, y }, glow = true) => {
+	const salmon = ({ x, y }) => {
 		if (x < 0 || y < 0 || x >= png.width || y >= png.height) return false;
 		const i = (y * png.width + x) * 4;
 		const seen = [...png.data.subarray(i, i + 3)];
@@ -453,22 +453,11 @@ function isometricAt(png, arcade, me) {
 		const pinkOrGold = ([r, g, b]) =>
 			(Math.abs(r - 0xfa) < 12 && Math.abs(g - 0x80) < 12 && Math.abs(b - 0x72) < 12) ||
 			isGold([r, g, b]);
-		if (pinkOrGold(seen) || (under && throughWater(seen).some(pinkOrGold))) return true;
-		if (!glow) return false;
-		// A golden salmon in open water shows its gold glow at its feet, over the water and, since
-		// a swimming salmon is drawn under the players' layer (#1747), over the fish itself (only
-		// where it is looked for: grass beside the flat place reads the same).
-		for (let dy = 0; dy <= Math.round(50 * k); dy++) {
-			if (y + dy >= png.height) break;
-			const j = ((y + dy) * png.width + x) * 4;
-			const [r, g, b] = png.data.subarray(j, j + 3);
-			if (r > 150 && g > 150 && b < 140 && (r + g) / 2 - b > 40) return true;
-		}
-		return false;
+		return under ? throughWater(seen).some(pinkOrGold) : pinkOrGold(seen);
 	};
 	const apart = Math.hypot(projected.x - flat.x, projected.y - flat.y) > 60;
 	return {
-		ok: salmon(projected) && (!apart || !salmon(flat, false)),
+		ok: salmon(projected) && (!apart || !salmon(flat)),
 		projected,
 		flat,
 		apart,
@@ -509,7 +498,7 @@ function png(w, h, paint) {
 	]);
 }
 /** The salmon's pink through `SpawnLayer`'s gold ramp. */
-const isGold = ([r, g, b]) => r > 180 && g > 130 && g < 225 && b < 110 && r > g;
+const isGold = ([r, g, b]) => r > 190 && g > 150 && g < 225 && b < 110;
 /** The river's water tints (`engine-layout` `salmonsArt/river.ts`: water, rapids, source) and how
  *  strongly they cover what swims under them. */
 const WATER_TINTS = [0x0ea5e9, 0x38bdf8, 0x7dd3fc];
@@ -851,9 +840,12 @@ try {
 		{ regionsA, rocks: made?.rocks?.length, pools: made?.whirlpools.length },
 	);
 	verdict(
-		'…and its salmon (the room’s only one, golden) as a rope through the golden salmon texture',
-		artA?.looks?.[me]?.kind === 'rope' && artA.looks[me].region === 'salmon_golden',
-		artA?.looks?.[me],
+		'…and its salmon (golden) as a rope through the golden salmon texture, with no glow (the original’s look)',
+		artA?.looks?.[me]?.kind === 'rope' &&
+			artA.looks[me].region === 'salmon_golden' &&
+			(await drawnOf(a)).marked?.includes(me) &&
+			!(await drawnOf(a)).glowed?.includes(me),
+		{ look: artA?.looks?.[me], glowed: (await drawnOf(a)).glowed },
 	);
 	// The leap (the original's, 2026-11-17): Space in open water lifts the salmon off the river,
 	// curling, about 1.1 s, and it lands again.
@@ -1238,7 +1230,12 @@ try {
 	);
 	verdict(
 		'page G’s salmon (its pass: the last game’s winner) is golden, and pages G and H both draw it gold',
-		markedG.includes(meG) && markedH.includes(meG) && goldG.ok && goldH.ok,
+		markedG.includes(meG) &&
+			markedH.includes(meG) &&
+			goldG.ok &&
+			goldH.ok &&
+			!(await drawnOf(g)).glowed?.includes(meG) &&
+			!(await drawnOf(h)).glowed?.includes(meG),
 		{ markedG, markedH, goldG, goldH },
 	);
 	verdict(
@@ -1602,6 +1599,9 @@ try {
 		!!jumpedS && hopAt >= 0 && logS.slice(hopAt + 1).includes(`${meS}:salmon_pink_swim_ne`),
 		{ jumpedS, logS },
 	);
+	// Page T was stepped only 400 ms after its start, so its canvas still holds a frame of the
+	// loading screen fading out over the river (its frames run only when stepped): step it on.
+	await settle(tPage, 1000);
 	const bearShot = await shotOf(tPage, '16-bear-code-look.png');
 	const arcadeT = (await tPage.state()).arcade;
 	const atT = arcadeT?.online?.drawn.find((d) => d.id === meT);
