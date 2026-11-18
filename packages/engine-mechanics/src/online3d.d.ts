@@ -171,6 +171,29 @@ export type World3d = Readonly<{
 	motion: Readonly<Motion3dSpec>;
 	characters: Readonly<Record<string, Readonly<Motion3dSpec>>>;
 	spawns: readonly Readonly<{ x: number; y: number; z: number; yaw: number }>[];
+	bots?: World3dBots;
+}>;
+
+/** A Crash brain's numbers and weights (`crashBots3d.js` `CRASH_BOT_DEFAULTS`). */
+export type CrashBotPart = {
+	sight?: number;
+	attackRange?: number;
+	eye?: number;
+	repathSteps?: number;
+	wanderRadius?: number;
+	pickupRange?: number;
+	escortDistance?: number;
+	weights?: Readonly<
+		Partial<Record<'fight' | 'carry' | 'escort' | 'intercept' | 'wander', number>>
+	>;
+};
+
+/** `arcade.world3d.bots`. */
+export type World3dBots = Readonly<{
+	nav?: Readonly<{ cell?: number; maxDrop?: number }>;
+	crash?: Readonly<
+		CrashBotPart & { carry?: boolean; heroes?: Readonly<Record<string, Readonly<CrashBotPart>>> }
+	>;
 }>;
 
 export declare function world3dOf(raw: unknown): World3d | undefined;
