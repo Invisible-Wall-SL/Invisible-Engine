@@ -8,6 +8,7 @@ import { messagesPerSecond } from './arcadeRoom.ts';
 import { RoomRefusal, inputsThisStep } from './roomSim.ts';
 import { createRoomSim3d, type Online3dEvent, type RoomSim3d } from './roomSim3d.ts';
 import {
+	Entity3D,
 	Input3D,
 	Player3D,
 	RoomState3D,
@@ -66,7 +67,7 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			const seed = roomLevelSeed(loaded.online.levels, turn, () =>
 				Math.floor(Math.random() * 0x7fffffff),
 			);
-			const sim = createRoomSim3d(loaded, loaded.world3d, { seed });
+			const sim = createRoomSim3d(loaded, loaded.world3d, { seed, rules: loaded.rules3d });
 			if (loaded.online.bots.fillTo > 0)
 				console.log(`[game-server] 3D room ${this.roomId} of "${game}": seed ${seed}`);
 			this.sim = sim;
@@ -136,6 +137,7 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.state.step = sim.steps;
 			this.state.phase = sim.phase;
 			for (const id of sim.players.keys()) this.write(id);
+			this.writeRules();
 		}
 
 		onDispose() {
@@ -180,6 +182,42 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			to.status = from.status;
 			to.anim = from.anim;
 			to.ack = from.ack;
+			if (!this.sim?.rules) return;
+			to.hp = from.hp;
+			to.shield = from.shield;
+			to.hero = from.hero;
+			to.weapon = from.weapon;
+			to.carrying = from.carrying;
+		}
+
+		/** The rules' round, scores, pit and entities (a room without rules has none). */
+		private writeRules() {
+			const rules = this.sim?.rules;
+			if (!rules) return;
+			const state = this.state;
+			state.round = rules.round;
+			state.endsAt = rules.endsAt;
+			state.winner = rules.winner;
+			state.pitLevel = rules.pitLevel;
+			while (state.scores.length < 2) state.scores.push(0);
+			for (let i = 0; i < 2; i++)
+				if (state.scores[i] !== rules.scores[i]) state.scores[i] = rules.scores[i];
+			for (const id of [...state.entities.keys()])
+				if (!rules.entities.has(id)) state.entities.delete(id);
+			for (const [id, from] of rules.entities) {
+				let to = state.entities.get(id);
+				if (!to) {
+					to = new Entity3D();
+					to.kind = from.kind;
+					to.owner = from.owner;
+					state.entities.set(id, to);
+				}
+				to.x = from.body.x;
+				to.y = from.body.y;
+				to.z = from.body.z;
+				to.carriedBy = from.carriedBy;
+				to.state = from.state;
+			}
 		}
 
 		/** Every device is told what happened, in one message, after the patch that shows it. */

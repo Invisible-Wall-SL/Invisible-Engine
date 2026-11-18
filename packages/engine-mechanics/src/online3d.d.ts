@@ -34,6 +34,9 @@ export type Input3d = {
 	view: number;
 };
 
+/** A 3D player's status: free, or dead (held still by the room until it respawns). */
+export declare const STATUS3D: Readonly<{ free: 0; dead: 5 }>;
+
 export declare const BUTTONS3D: Readonly<{
 	jump: 1;
 	sprint: 2;
@@ -109,6 +112,8 @@ export type Predictor3d = {
 	readonly snaps: number;
 	input(input: Input3d): Step3dResult | undefined;
 	reconcile(truth: Truth3d): 'stale' | 'match' | 'corrected';
+	/** The room pushed the player right after applying its input `seq` (a `knockback` event). */
+	impulse(seq: number, kick: { vx: number; vy: number; vz: number }): void;
 	frame(dtMs: number): void;
 	drawn(alpha?: number): Drawn3d;
 };
@@ -123,6 +128,8 @@ export declare function createPredictor3d(options: {
 	home?: { x: number; y: number; z: number; yaw: number };
 	smoothMs?: number;
 	snapM?: number;
+	/** Whether a fall puts the body home (default); false for rules that kill a fall (Crash). */
+	fallRespawns?: boolean;
 }): Predictor3d;
 
 export type Interpolator3d = {

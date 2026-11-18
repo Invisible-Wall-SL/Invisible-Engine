@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { crashRulesOf, type CrashRulesSpec } from 'engine-mechanics/src/crashRules.js';
 import { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
@@ -33,8 +34,9 @@ const MAX_CACHED = 1000;
 
 /** A game as the server plays it: its online game, and its 3D world when its config has an
  *  `arcade.world3d` block (`engine-mechanics` `world3dOf`, read from the raw doc: `game-config`
- *  does not know the block). A 3D game plays only in the 3D room, a 2D one only in the 2D room. */
-export type ServedGame = OnlineGame & { world3d?: World3d };
+ *  does not know the block), and the 3D rules its `rules` block names (`crashRulesOf`). A 3D game
+ *  plays only in the 3D room, a 2D one only in the 2D room. */
+export type ServedGame = OnlineGame & { world3d?: World3d; rules3d?: Readonly<CrashRulesSpec> };
 
 export type LoadGame = (game: string) => Promise<ServedGame>;
 
@@ -60,15 +62,19 @@ const parse = (text: string, game: string): ServedGame => {
 	if ('refused' in resolved)
 		throw new Error(`"${game}" cannot be played online: ${resolved.refused}`);
 	const arcade = (docRaw as { arcade?: unknown }).arcade;
+	const world3dRaw = (arcade as { world3d?: unknown } | undefined)?.world3d;
 	let world3d: World3d | undefined;
+	let rules3d: Readonly<CrashRulesSpec> | undefined;
 	try {
-		world3d = world3dOf((arcade as { world3d?: unknown } | undefined)?.world3d);
+		world3d = world3dOf(world3dRaw);
+		if (world3d) rules3d = crashRulesOf((world3dRaw as { rules?: unknown }).rules);
 	} catch (error) {
 		throw new Error(`"${game}" cannot be played online: ${(error as Error).message}`, {
 			cause: error,
 		});
 	}
-	return world3d ? { ...resolved, world3d } : resolved;
+	if (!world3d) return resolved;
+	return rules3d ? { ...resolved, world3d, rules3d } : { ...resolved, world3d };
 };
 
 export function createConfigSource(options: ConfigSourceOptions): LoadGame {

@@ -10,6 +10,13 @@ import {
 	type Tracker3d,
 } from 'engine-mechanics/src/motion3d.js';
 import {
+	ONLINE_RULES3D_MODULES,
+	type CrashEvent,
+	type CrashRules,
+	type CrashRulesSpec,
+} from 'engine-mechanics/src/crashRules.js';
+import {
+	ANIM3D,
 	BOT_PREFIX,
 	animBits3d,
 	botInput3d,
@@ -41,9 +48,13 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * Each applied step raises its signals (`motion3d` `trackStep3d`: jumped, landed, bounced, zone
  * edges, fell) as events naming the player. A body below the death plane is back at its home at
  * rest on that step (`respawnOnFall3d`, a `respawned` event) — part of the fold, so a device
- * predicts it too. Crash
- * rules, combat and the lobby are later steps; until then a room is `waiting` with nobody in it and
- * `running` with anybody.
+ * predicts it too. Without rules a room is `waiting` with nobody in it and `running` with anybody.
+ *
+ * With RULES (`options.rules`, Crash: `engine-mechanics` `crashRules.js`) the module owns the
+ * round (`waiting` → `running` → `ended` → `running`), the teams' scores, the pit, the entities,
+ * health and combat. A player the rules hold (`dead`) has its inputs acknowledged but is not
+ * stepped; a fall is a death, not a trip home; every other rules move (a knockback, a respawn) is
+ * outside the fold, and the device reconciles it (a knockback through its `impulse`).
  *
  * Bots fill the room to `online.bots.fillTo` while a person is in it, exactly as in 2D: a bot is a
  * player (`bot:<n>`) whose input comes from its brain (`engine-mechanics` `botInput3d`, the brain
@@ -69,6 +80,12 @@ export type SimPlayer3d = {
 	team: number;
 	/** `ANIM3D` bits after its last applied input. */
 	anim: number;
+	/** The rules' (Crash): health, shield, hero and weapon ids, the entity it carries (''). */
+	hp: number;
+	shield: number;
+	hero: string;
+	weapon: string;
+	carrying: string;
 	tracker: Tracker3d;
 	bot?: true;
 };
@@ -76,7 +93,8 @@ export type SimPlayer3d = {
 export type Online3dEvent =
 	| { type: 'joined' | 'left' | 'respawned'; id: string }
 	| { type: 'jumped' | 'doubleJumped' | 'landed' | 'bounced' | 'fell'; id: string }
-	| { type: 'enterZone' | 'leaveZone'; id: string; zone: number; kind: string };
+	| { type: 'enterZone' | 'leaveZone'; id: string; zone: number; kind: string }
+	| CrashEvent;
 
 export type RoomSim3d = {
 	readonly game: OnlineGame;
@@ -85,9 +103,11 @@ export type RoomSim3d = {
 	readonly seed: number;
 	readonly ctx: StepContext;
 	readonly players: ReadonlyMap<string, SimPlayer3d>;
+	/** The room's rules, when its world names some. */
+	readonly rules: CrashRules | undefined;
 	readonly steps: number;
-	/** `waiting` with no person in the room, else `running`. */
-	readonly phase: 'waiting' | 'running';
+	/** `waiting` with no person in the room, else `running` — or, with rules, theirs. */
+	readonly phase: 'waiting' | 'running' | 'ended';
 	/** Add a player, or throw {@link RoomRefusal} (as `roomSim.ts`). */
 	join(id: string, options: { name?: unknown; character?: unknown }): SimPlayer3d;
 	drop(id: string): void;
@@ -102,7 +122,7 @@ export type RoomSim3d = {
 export function createRoomSim3d(
 	game: OnlineGame,
 	world: World3d,
-	options: { seed?: number } = {},
+	options: { seed?: number; rules?: Readonly<CrashRulesSpec> } = {},
 ): RoomSim3d {
 	const seed = options.seed ?? Math.floor(Math.random() * 0x7fffffff);
 	const { online } = game;
@@ -115,6 +135,14 @@ export function createRoomSim3d(
 	let placed = 0;
 	let steps = 0;
 	let pending: Online3dEvent[] = [];
+	const rules = options.rules
+		? ONLINE_RULES3D_MODULES[options.rules.module].create({
+				level,
+				rules: options.rules,
+				tickHz: online.tickHz,
+			})
+		: undefined;
+	rules?.bind(players);
 
 	const countOf = (characterId: string) =>
 		[...players.values()].filter((p) => p.character.id === characterId).length;
@@ -125,9 +153,16 @@ export function createRoomSim3d(
 			.find((id) => !characterId || players.get(id)?.character.id === characterId);
 	const humans = () => players.size - bots.size;
 
+	const forget = (id: string) => {
+		if (!players.has(id)) return;
+		rules?.left(id);
+		players.delete(id);
+		pending.push({ type: 'left', id });
+	};
+
 	const removeBot = (id: string) => {
 		bots.delete(id);
-		if (players.delete(id)) pending.push({ type: 'left', id });
+		forget(id);
 	};
 
 	/** `roomSim.ts`'s plan: the character a joining person gets and the bot it replaces, if any. */
@@ -188,11 +223,20 @@ export function createRoomSim3d(
 			status: 0,
 			team: nextTeam(),
 			anim: 0,
+			hp: 0,
+			shield: 0,
+			hero: '',
+			weapon: '',
+			carrying: '',
 			tracker: createTracker3d(),
 			...(bot ? { bot: true as const } : {}),
 		};
 		players.set(id, player);
 		pending.push({ type: 'joined', id });
+		if (rules) {
+			rules.joined(player, [...players.values()], humans(), steps + 1);
+			pending.push(...rules.take());
+		}
 		return player;
 	};
 
@@ -221,7 +265,31 @@ export function createRoomSim3d(
 		}
 	};
 
+	const applyRuled = (
+		player: SimPlayer3d,
+		rules: CrashRules,
+		input: Input3d,
+		events: Online3dEvent[],
+	) => {
+		player.ack = input.seq;
+		const every = [...players.values()];
+		if (rules.holds(player)) {
+			rules.applied(player, input, undefined, every, steps + 1);
+			return;
+		}
+		const result = stepPlayer3d(player.body, input, level, player.spec, ctx.dt);
+		const bot = bots.get(player.id);
+		if (bot) bot.blocked = result.onWall;
+		for (const signal of trackStep3d(player.tracker, player.body, result, level, player.spec))
+			events.push({ ...signal, id: player.id });
+		const took = rules.applied(player, input, result, every, steps + 1);
+		if (!took && respawnOnFall3d(player.body, result, player.home))
+			events.push({ type: 'respawned', id: player.id });
+		player.anim = animBits3d(player.body, input, player.carrying ? ANIM3D.carrying : 0);
+	};
+
 	const apply = (player: SimPlayer3d, input: Input3d, events: Online3dEvent[]) => {
+		if (rules) return applyRuled(player, rules, input, events);
 		player.ack = input.seq;
 		const result = stepPlayer3d(player.body, input, level, player.spec, ctx.dt);
 		player.anim = animBits3d(player.body, input, player.anim);
@@ -240,11 +308,13 @@ export function createRoomSim3d(
 		seed,
 		ctx,
 		players,
+		rules,
 		get steps() {
 			return steps;
 		},
 		get phase() {
-			return humans() > 0 ? 'running' : 'waiting';
+			if (humans() === 0) return 'waiting';
+			return rules ? rules.phase : 'running';
 		},
 		join(id, options) {
 			if (players.has(id)) throw new RoomRefusal('already in the room');
@@ -264,8 +334,12 @@ export function createRoomSim3d(
 		},
 		leave(id) {
 			if (bots.has(id)) return;
-			if (players.delete(id)) pending.push({ type: 'left', id });
+			forget(id);
 			fill();
+			if (rules) {
+				if (!humans()) rules.empty();
+				pending.push(...rules.take());
+			}
 		},
 		events() {
 			const out = pending;
@@ -294,6 +368,10 @@ export function createRoomSim3d(
 				for (const input of inputs) apply(player, input, events);
 			}
 			steps += 1;
+			if (rules) {
+				if (humans()) rules.afterStep([...players.values()], steps);
+				for (const event of rules.take()) events.push(event);
+			}
 			return events;
 		},
 	};
