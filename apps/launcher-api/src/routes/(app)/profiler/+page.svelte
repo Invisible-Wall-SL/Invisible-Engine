@@ -25,7 +25,9 @@
 	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
 	import BudgetsTab from './BudgetsTab.svelte';
+	import CompareTab from './CompareTab.svelte';
 	import DevicesTab from './DevicesTab.svelte';
+	import FindingsTab from './FindingsTab.svelte';
 	import VerdictBadge from './VerdictBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -35,6 +37,8 @@
 		{ id: 'readings', label: 'Readings' },
 		{ id: 'devices', label: 'Devices' },
 		{ id: 'builds', label: 'Builds' },
+		{ id: 'findings', label: 'Findings' },
+		{ id: 'compare', label: 'Compare' },
 		{ id: 'budgets', label: 'Budgets' },
 	] as const;
 	const tabCount = (id: TabId): string =>
@@ -42,15 +46,34 @@
 			? ` (${data.readings.length})`
 			: id === 'builds'
 				? ` (${data.builds.length})`
-				: '';
+				: id === 'findings'
+					? ` (${data.findings?.length ?? '?'})`
+					: '';
 	type TabId = (typeof TABS)[number]['id'];
 	let tab = $state<TabId>(untrack(() => data.tab));
+
+	// ── Compare (any two readings; `?a=&b=`) ──
+	let compareA = $state<string | null>(untrack(() => page.url.searchParams.get('a')));
+	let compareB = $state<string | null>(untrack(() => page.url.searchParams.get('b')));
+
+	function compare(a: string | null, b: string | null): void {
+		compareA = a;
+		compareB = b;
+		showTab('compare');
+	}
 
 	function showTab(id: TabId): void {
 		tab = id;
 		const url = new URL(page.url);
 		if (id === 'readings') url.searchParams.delete('tab');
 		else url.searchParams.set('tab', id);
+		for (const [key, value] of [
+			['a', id === 'compare' ? compareA : null],
+			['b', id === 'compare' ? compareB : null],
+		] as const) {
+			if (value) url.searchParams.set(key, value);
+			else url.searchParams.delete(key);
+		}
 		// The same route with a query: `resolve()` cannot carry one.
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		replaceState(url, {});
@@ -247,6 +270,12 @@
 
 	// ── Builds ──
 	let selectedBuildId = $state<string | null>(null);
+
+	/** A finding's build evidence: its detail card on the Builds tab. */
+	function openBuild(id: string): void {
+		selectedBuildId = id;
+		showTab('builds');
+	}
 	let buildKeepError = $state('');
 	let buildKeeping = $state<string | null>(null);
 
@@ -585,6 +614,14 @@
 		{:else if tab === 'devices'}
 			<div id="panel-devices" role="tabpanel" aria-labelledby="tab-devices">
 				<DevicesTab readings={data.readings} builds={data.builds} budgets={data.budgets} />
+			</div>
+		{:else if tab === 'findings'}
+			<div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
+				<FindingsTab findings={data.findings} onOpenBuild={openBuild} onCompare={compare} />
+			</div>
+		{:else if tab === 'compare'}
+			<div id="panel-compare" role="tabpanel" aria-labelledby="tab-compare">
+				<CompareTab readings={data.readings} a={compareA} b={compareB} onPick={compare} />
 			</div>
 		{:else if tab === 'budgets'}
 			<div id="panel-budgets" role="tabpanel" aria-labelledby="tab-budgets">
