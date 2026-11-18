@@ -200,7 +200,9 @@ place and size, each page byte-identical to the built-in one, locked). **Still t
    `.webp` (sheet name blank, lock on). For the cliff, only `salmons_cliff.plist` +
    `salmons_cliff.webp`. `scripts/salmons/upload-art.py` does the same straight to R2 for someone
    holding an R2 write key (dry run first; it skips what is already there and stops on anything
-   that differs).
+   that differs). Nobody needs the key locally: the **Salmons art upload** workflow
+   (`.github/workflows/salmons-art-upload.yml`, dispatch on main) runs it with the release's R2 key;
+   `sheets: salmons_cliff` limits it to one sheet, `apply` writes.
 2. **See it in the tools:** the Sheet Maker's rail on `salmons` lists the sheets (🔒). In the Atlas
    Maker, **↻ Refresh from R2**, then pick one in the atlas list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
