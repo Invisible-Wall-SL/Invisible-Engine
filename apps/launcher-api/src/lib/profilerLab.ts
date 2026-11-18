@@ -28,7 +28,8 @@ type Band = { rel: number; abs: number };
  * How far a count may move between two lab runs of the same build before it reads as a change
  * (relative, plus an absolute floor so a near-zero count does not flag on noise). Measured on three
  * runs of one build (`docs/status/profiler.md`, "Lab runs"): spinning counts agreed within 2%, but
- * idle includes the win cycle of whatever the RNG dealt, and its draws spread 25%. JS ms is wall
+ * idle includes the win cycle of whatever the RNG dealt, and its draws spread 25%; on the CI runner
+ * a run with two big-win holds had 27% more idle passes than one without. JS ms is wall
  * time on a shared runner and gets the widest band.
  */
 export const LAB_TOLERANCE: Record<LabPhase, Record<LabCountKey, Band>> & { textureMb: Band } = {
@@ -41,7 +42,7 @@ export const LAB_TOLERANCE: Record<LabPhase, Record<LabCountKey, Band>> & { text
 	},
 	idle: {
 		draws: { rel: 0.35, abs: 2 },
-		passes: { rel: 0.25, abs: 0.5 },
+		passes: { rel: 0.35, abs: 0.5 },
 		textureUploads: { rel: 0.5, abs: 0.2 },
 		calls: { rel: 0.2, abs: 20 },
 		jsMs: { rel: 0.5, abs: 1 },

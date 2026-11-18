@@ -200,8 +200,8 @@ counts, never fps. P4, P5 and P7 are planned.
   Readings) shows each game's newest lab reading beside the previous lab reading of the same game
   and switches (`previousLabReading`), with Δ, a change past `LAB_TOLERANCE` in orange, and "fps:
   not comparable". The Readings table tags it `lab`.
-- **Workflow** (#1739, its own PR — any `.github/workflows/`
-  edit fails `current-games` by design and merges after the owner's review).
+- **Workflow** (#1739, admin-merged on the owner's word 2026-11-18 — any `.github/workflows/`
+  edit fails `current-games` by design).
   `.github/workflows/profiler-lab.yml` ("Profiler lab run"): 03:17 UTC nightly over
   every live online game (`/api/pipeline/games`: a project, no own bundle), or Run workflow with a
   `game` key; one matrix job per game (4 at a time), the headless shell installed as current-games
@@ -212,13 +212,19 @@ counts, never fps. P4, P5 and P7 are planned.
   37–47, GL calls 197–217) because idle carries the win cycle of whatever the RNG dealt; JS ms
   1.3–1.6 idle, 2.4–3.0 spinning; fps 43→60 between runs on the same machine. Hence
   `LAB_TOLERANCE`: spinning draws and GL calls ±5%, idle draws ±35% and GL calls ±20%, passes
-  ±10% / ±25%, uploads ±50%, JS ms ±50%, texture MB ±2% (each with an absolute floor). Re-measure on
-  the CI runner from the first nightly runs (open item 1).
+  ±10% spinning / ±35% idle, uploads ±50%, JS ms ±50%, texture MB ±2% (each with an absolute floor).
+- **On the CI runner (2026-11-18, verified).** Two `workflow_dispatch` runs of `bookofborutremake`
+  (runs 44280229817, 44281849356; SwiftShader, fps 3.2–3.6) each left a `lab` reading the page lists
+  and the Lab runs card compares. Spinning per frame: draws 20.5 / 20.8, passes 4.5 / 4.6, GL calls
+  150.5 / 153.5, uploads 0.1 / 0.1, JS ms 6.3 / 6.1; texture MB 484.8 / 485.4. Idle: draws 22.3 / 21,
+  GL calls 171.4 / 153.2, passes 6.2 / 4.5 — the first run hit two big-win holds, whose idle
+  presentation adds passes, so the idle passes band went from ±25% to ±35%. The artifact carried no
+  read token. A run takes about 10 minutes per game.
 
 ## Open items / next
 
-1. **P6 on the CI runner.** The tolerance above is from local Windows GPU runs; read the first two
-   nightly runs of each game (SwiftShader, about 5 fps) and narrow or widen `LAB_TOLERANCE`. The
+1. **P6 tolerance across games.** Measured on one game on CI (above); widen or narrow
+   `LAB_TOLERANCE` as the first nightlies of the other games come in. The
    forced-feature step is skipped online: a published game's player mock refuses `/force` (an
    authoring tool), so it only runs where a mock accepts it; whether a feature ran is in the
    artifact, not on the reading. The lab runs nightly, not after each Publish (the design's "per

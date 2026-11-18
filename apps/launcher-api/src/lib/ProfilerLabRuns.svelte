@@ -36,7 +36,11 @@
 		rows.find((x) => x.phase === phase && x.key === key);
 </script>
 
-<SectionCard scope="profiler" id="lab" title="Lab runs ({newest.length} games)">
+<SectionCard
+	scope="profiler"
+	id="lab"
+	title="Lab runs ({newest.length} {newest.length === 1 ? 'game' : 'games'})"
+>
 	{#snippet info()}
 		<p>
 			A scripted headless run of each live game, nightly and on demand (GitHub Actions "Profiler lab
