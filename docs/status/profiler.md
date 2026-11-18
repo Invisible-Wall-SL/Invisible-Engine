@@ -10,7 +10,7 @@ published games, keeps every `?perf=1` reading the game sends (or that is pasted
 Postgres, and lists them per project; readings go after 15 days unless kept. Step **P2 "Builds"
 built 2026-11-17** (merged, #1697): every desktop ☁ Publish / 📦 Deliver (launcher v1.0.68+) registers its
 build breakdown, listed on a **Builds** tab with the previous-build diff and the readings taken on
-each build. Step **P3 "Devices and budgets" built 2026-11-17** (PR to be opened): per-project
+each build. Step **P3 "Devices and budgets" built 2026-11-17** (#1738): per-project
 budget overrides on top of the studio defaults in code, a **Devices** tab judging readings per
 device class and GPU, a **Budgets** tab to edit the lines, and pass / warn / fail on every build.
 P4–P7 are planned.
@@ -186,7 +186,7 @@ P4–P7 are planned.
    but the per-texture list and spike records of a reading over 480 KB. To keep them, add
    `https://games.invisiblewall.org` (PUT, header `content-type`) to the bucket's CORS rule in the
    Cloudflare dashboard.
-5. **P3 is unverified on production** (PR to be opened). Verified locally only (PGlite + a seeded
+5. **P3 is unverified on production** (#1738). Verified locally only (PGlite + a seeded
    project: 3 builds, 10 readings): all three tabs, edit + reset in the UI, the PUT race cases.
    Left open: a duplicated project does not copy its budget overrides (`projectDuplicate.ts`); no
    reading is judged as a tablet until the probe tells one apart. The Devices headline takes the
@@ -200,7 +200,7 @@ P4–P7 are planned.
 
 ## Recent changes
 
-- 2026-11-17 — **P3 "Devices and budgets" built** (PR to be opened): `perf_budgets` + migration
+- 2026-11-17 — **P3 "Devices and budgets" built** (#1738): `perf_budgets` + migration
   0044 (per-project overrides; studio defaults `STUDIO_BUDGETS` in code), the pure evaluation in
   `profilerBudgets.ts` (pass / warn / fail, not enough data under 120 frames, median per device
   group, build verdicts), `PUT /api/profiler/budgets` with conditional writes on `rev` (409 on a
