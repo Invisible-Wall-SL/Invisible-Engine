@@ -18,6 +18,33 @@ export { createLevel3d, type Level3d } from 'engine-mechanics/src/motion3d.js';
 export { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 export { createFollow3d } from './src/pure/follow';
 export {
+	createAnimGraph3d,
+	gradientBand,
+	maskBones,
+	type AnimFrame3d,
+	type AnimGraph3d,
+	type CharacterAnim3D,
+	type ClipMeta3d,
+	type Contribution,
+	type Mask3d,
+	type SmBlend2D,
+	type SmBlend2DPoint,
+	type SmLayer3d,
+	type SmLayerMode3d,
+	type SmState3d,
+} from './src/pure/animGraph';
+export { animDocsOf3d, validateCharacterAnim3d, type AnimIssue3d } from './src/pure/animDoc';
+export {
+	createCharacterInputs3d,
+	DOUBLE_JUMP_MS,
+	JUMP_CLIMB_MS,
+	ROOM_TRIGGERS3D,
+	VELOCITY_TC_MS,
+	type CharacterInputs3d,
+	type CharacterSample3d,
+} from './src/pure/characterInputs';
+export { BUTTONS3D, motionFor3d } from 'engine-mechanics/src/online3d.js';
+export {
 	DEFAULT_LOOK,
 	LOOK_MODEL_ID,
 	lookFor3d,

@@ -1,0 +1,149 @@
+{
+	"id": "humanoid",
+	"skeleton": "ie_humanoid",
+	"modelIds": ["anim_locomotion", "anim_combat", "anim_reactions"],
+	"clips": {
+		"locomotion.idle": { "loop": true },
+		"locomotion.walk_fwd": {
+			"loop": true,
+			"cues": [
+				{ "at": 0.25, "cue": "sfx:step" },
+				{ "at": 0.75, "cue": "sfx:step" }
+			]
+		},
+		"locomotion.walk_bwd": { "loop": true },
+		"locomotion.run_fwd": {
+			"loop": true,
+			"cues": [
+				{ "at": 0.15, "cue": "sfx:step" },
+				{ "at": 0.45, "cue": "sfx:step" }
+			]
+		},
+		"locomotion.strafe_l": { "loop": true },
+		"locomotion.strafe_r": { "loop": true },
+		"locomotion.fall": { "loop": true },
+		"locomotion.jump": { "loop": false },
+		"combat.attack": {
+			"loop": false,
+			"cues": [
+				{ "at": 0.2, "cue": "fx:trail_on" },
+				{ "at": 0.36, "cue": "fx:trail_off" }
+			]
+		},
+		"reactions.hit": { "loop": false }
+	},
+	"masks": { "upperBody": { "include": ["spine_02"] } },
+	"inputs": [
+		{ "id": "speed", "kind": "number", "source": "character:speed" },
+		{ "id": "moveX", "kind": "number", "source": "character:localMoveX" },
+		{ "id": "moveY", "kind": "number", "source": "character:localMoveY" },
+		{ "id": "grounded", "kind": "bool", "default": true, "source": "character:grounded" },
+		{ "id": "carrying", "kind": "bool", "source": "character:carrying" },
+		{ "id": "aimPitch", "kind": "number", "source": "character:aimPitch" },
+		{ "id": "upperWeight", "kind": "number", "default": 1 },
+		{ "id": "jump", "kind": "trigger" },
+		{ "id": "attack", "kind": "trigger" },
+		{ "id": "hit", "kind": "trigger" }
+	],
+	"machine": {
+		"layers": [
+			{
+				"id": "base",
+				"entry": "move",
+				"states": [
+					{
+						"id": "move",
+						"timeline": "locomotion.idle",
+						"loop": true,
+						"blend2d": {
+							"x": "moveX",
+							"y": "moveY",
+							"points": [
+								{ "timeline": "locomotion.idle", "at": [0, 0] },
+								{ "timeline": "locomotion.walk_fwd", "at": [0, 0.6] },
+								{ "timeline": "locomotion.run_fwd", "at": [0, 1] },
+								{ "timeline": "locomotion.walk_bwd", "at": [0, -0.6] },
+								{ "timeline": "locomotion.strafe_l", "at": [-0.6, 0] },
+								{ "timeline": "locomotion.strafe_r", "at": [0.6, 0] }
+							]
+						}
+					},
+					{ "id": "jump", "timeline": "locomotion.jump" },
+					{ "id": "air", "timeline": "locomotion.fall", "loop": true }
+				],
+				"transitions": [
+					{
+						"id": "takeoff",
+						"from": "any",
+						"to": "jump",
+						"conditions": [{ "input": "jump", "op": "fired" }],
+						"blend": 80
+					},
+					{ "id": "rise", "from": "jump", "to": "air", "exitTime": 0.95, "blend": 150 },
+					{
+						"id": "falloff",
+						"from": "move",
+						"to": "air",
+						"conditions": [{ "input": "grounded", "op": "==", "value": false }],
+						"blend": 200
+					},
+					{
+						"id": "land",
+						"from": "air",
+						"to": "move",
+						"conditions": [{ "input": "grounded", "op": "==", "value": true }],
+						"blend": 120
+					},
+					{
+						"id": "landEarly",
+						"from": "jump",
+						"to": "move",
+						"exitTime": 0.6,
+						"conditions": [{ "input": "grounded", "op": "==", "value": true }],
+						"blend": 120
+					}
+				]
+			},
+			{
+				"id": "upper",
+				"mask": "upperBody",
+				"mode": "override",
+				"weightInput": "upperWeight",
+				"entry": "none",
+				"states": [
+					{ "id": "none", "timeline": "" },
+					{ "id": "attack", "timeline": "combat.attack" }
+				],
+				"transitions": [
+					{
+						"id": "swing",
+						"from": "any",
+						"to": "attack",
+						"conditions": [{ "input": "attack", "op": "fired" }],
+						"blend": 60
+					},
+					{ "id": "recover", "from": "attack", "to": "none", "exitTime": 0.9, "blend": 150 }
+				]
+			},
+			{
+				"id": "flinch",
+				"mode": "additive",
+				"entry": "none",
+				"states": [
+					{ "id": "none", "timeline": "" },
+					{ "id": "hit", "timeline": "reactions.hit" }
+				],
+				"transitions": [
+					{
+						"id": "struck",
+						"from": "any",
+						"to": "hit",
+						"conditions": [{ "input": "hit", "op": "fired" }],
+						"blend": 30
+					},
+					{ "id": "settle", "from": "hit", "to": "none", "exitTime": 0.95, "blend": 80 }
+				]
+			}
+		]
+	}
+}

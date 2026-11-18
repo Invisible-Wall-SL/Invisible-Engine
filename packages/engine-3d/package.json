@@ -23,6 +23,7 @@
 	},
 	"dependencies": {
 		"constants-shared": "workspace:*",
+		"engine-layout": "workspace:*",
 		"engine-mechanics": "workspace:*",
 		"three": "0.187.0"
 	},

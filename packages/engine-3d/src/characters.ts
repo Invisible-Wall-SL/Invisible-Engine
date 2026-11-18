@@ -48,6 +48,8 @@ export type Character3d = {
 	socket(name: string): Object3D | undefined;
 	/** The LOD level drawn after the last render (0 = the richest shipped), per mesh group. */
 	lodLevels(): number[];
+	/** Every LOD group is below its smallest screen size (nothing drawn): no need to pose it. */
+	culled(): boolean;
 	dispose(): void;
 };
 
@@ -65,6 +67,28 @@ export type CharacterModels3d = {
 	setFov(fovDeg: number): void;
 	dispose(): void;
 };
+
+/** The only bone whose translation a clip keys (`docs/conventions/blender-3d-assets.md`). */
+export const HIPS_BONE = 'pelvis';
+
+/**
+ * A clip for a hero whose hips stand at `hero` metres when the library's skeleton has them at
+ * `library`: the hips translation track scaled by `hero / library` (heroes of other heights share
+ * one library, since clips key rotations only, plus the hips). The same clip when the heights match.
+ */
+export function scaleHips(
+	clip: AnimationClip,
+	hero: number | undefined,
+	library: number | undefined,
+): AnimationClip {
+	if (!hero || !library || Math.abs(hero / library - 1) < 1e-4) return clip;
+	const k = hero / library;
+	const scaled = clip.clone();
+	for (const track of scaled.tracks)
+		if (track.name === `${HIPS_BONE}.position`)
+			for (let i = 0; i < track.values.length; i++) track.values[i] *= k;
+	return scaled;
+}
 
 /** Three bands of light: the toon look, used when a model ships no ramp of its own. */
 export const defaultToonRamp = (): DataTexture => {
@@ -181,7 +205,8 @@ export function createCharacterModels3d({
 	const anisotropy = Math.min(caps.anisotropy, renderer.capabilities.getMaxAnisotropy());
 	const ramp = defaultToonRamp();
 	const templates = new Map<string, Template>();
-	const libraries = new Map<string, AnimationClip[]>();
+	/** Per clip library: its clips and the rest height of its hips bone (local to `root`). */
+	const libraries = new Map<string, { clips: AnimationClip[]; hips: number | undefined }>();
 	const pending = new Map<string, Promise<void>>();
 	/** Ids whose load finished without a result (not in the index, or the fetch failed). */
 	const failed = new Set<string>();
@@ -225,7 +250,10 @@ export function createCharacterModels3d({
 		});
 	const loadLibrary = (id: string) =>
 		load(id, (gltf) => {
-			libraries.set(id, gltf.animations);
+			libraries.set(id, {
+				clips: gltf.animations,
+				hips: gltf.scene.getObjectByName(HIPS_BONE)?.position.y,
+			});
 		});
 
 	const place = (lods: readonly Placed[], at: ModelAt3d) => {
@@ -306,7 +334,12 @@ export function createCharacterModels3d({
 		live.add(tracked);
 
 		const clips = new Map<string, AnimationClip>();
-		for (const n of names) for (const clip of libraries.get(n) ?? []) clips.set(clip.name, clip);
+		const heroHips = model.getObjectByName(HIPS_BONE)?.position.y;
+		for (const n of names) {
+			const library = libraries.get(n);
+			for (const clip of library?.clips ?? [])
+				clips.set(clip.name, scaleHips(clip, heroHips, library?.hips));
+		}
 		const mixer = new AnimationMixer(model);
 		return {
 			root,
@@ -314,6 +347,8 @@ export function createCharacterModels3d({
 			clips,
 			socket: (name) => sockets.get(name),
 			lodLevels: () => lods.map(({ lod }) => lod.getCurrentLevel()),
+			culled: () =>
+				lods.length > 0 && lods.every(({ lod }) => lod.getCurrentLevel() === lod.levels.length - 1),
 			dispose() {
 				live.delete(tracked);
 				mixer.stopAllAction();
