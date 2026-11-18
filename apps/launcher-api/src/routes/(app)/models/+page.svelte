@@ -12,6 +12,7 @@
 	import { page } from '$app/state';
 	import {
 		MODEL_CLASSES,
+		isModelClass,
 		type ModelClass,
 		type ModelLodScreenSize,
 		type ModelTierId,
@@ -21,6 +22,7 @@
 	import {
 		canonicalOverrides,
 		effectiveProfile,
+		fitScreenSize,
 		type TierOverrides,
 	} from '$lib/models/modelProfile';
 	import { buildModelReport, reportCounts } from '$lib/models/modelReport';
@@ -110,7 +112,13 @@
 		save: async ({ baseEtag }) => {
 			const current = detail;
 			const opened = shown;
-			if (!current?.doc || !baseEtag) return { ok: true, etag: baseEtag };
+			if (!current?.doc) return { ok: true, etag: baseEtag };
+			if (!baseEtag)
+				return {
+					ok: false,
+					reason: 'error',
+					message: 'This model has no stored version to save over. Reload the page.',
+				};
 			const sent = settingsKey(cls, overrides, screenSize);
 			saveIssues = [];
 			const answer = await postSave(projectKey, {
@@ -253,6 +261,14 @@
 			return;
 		syncUrl(id);
 		await load(id);
+	}
+
+	/** A model's own screen sizes follow its class: one per level the new class has. */
+	function changeClass(next: string): void {
+		if (!isModelClass(next)) return;
+		cls = next;
+		const sizes = context?.inherited[next].lodScreenSize;
+		if (screenSize && sizes) screenSize = fitScreenSize(screenSize, next, sizes);
 	}
 
 	async function derive(): Promise<void> {
@@ -502,7 +518,11 @@
 										ships. Changing it checks the master again when you save.
 									</InfoTip>
 								</span>
-								<select bind:value={cls} disabled={readOnly}>
+								<select
+									value={cls}
+									disabled={readOnly}
+									onchange={(e) => changeClass(e.currentTarget.value)}
+								>
 									{#each MODEL_CLASSES as option (option)}
 										<option value={option}>{option}</option>
 									{/each}

@@ -112,7 +112,9 @@ date** until you derive again.
   errors**, **N warnings**.
 - **Class** — `hero`, `weapon`, `prop`, `tile` or `fx`. It decides the triangle budgets, the largest
   map and which LOD levels each tier ships. Change it and the report follows at once; when you
-  save, the master is checked again as the new class.
+  save, the master is checked again as the new class. If the model has LOD screen sizes of its own,
+  they are refitted to the new class: one size per level it has, the inherited size for a level the
+  model had none for.
 - **Master** — the master's size (hover it for the file's SHA-256). **Updated** — when the model was
   last written, by an upload or a save.
 - **Replace master**.
@@ -140,14 +142,18 @@ compresses the rest.
 - **How long:** a few seconds for a small prop; about half a minute for a hero with 2048² maps the
   texture cache has not seen. Encoding the maps is the slow part. Each encoded map is cached, so
   the next derive with the same maps is quick, and a publish after it does not encode them again.
-- **What it writes:** the Viewer's own copy of the tiers, nothing else. It does not change the
-  model's settings, and it does not change what the game loads: a publish writes that.
+- **What it writes:** what each tier comes to (the numbers in this table), nothing else. It keeps
+  no tier file, it does not change the model's settings, and it does not change what the game
+  loads: a publish writes that.
 - **Every tier is derived**, also one this project does not publish, so you can see what it would
   cost.
 - Two derives of one model never run at once: the second waits for the first. Across the launcher
-  two derives run at a time; a third waits its turn.
-- A derive that fails shows its reason under the status line, and the table goes back to **Not
-  derived yet**: it never shows an older derive's numbers over half-written files.
+  two masters are worked on at a time, so a third derive waits its turn, and so does a save that
+  changes a model's class (it reads the master to check it).
+- A derive that fails shows its reason under the status line, and the table keeps the last
+  derive's numbers.
+- A derive runs inside the launcher, and encoding large maps keeps it busy: a first derive of a hero
+  can slow the launcher for everyone for some seconds. Derives move to a worker soon.
 
 The line above the table says where the numbers stand:
 
@@ -316,7 +322,7 @@ Everything is in the project's storage, under `<client>/<project>/models/`:
 | -------------------------------- | -------------------------------------------------------------------------------- |
 | `models/<id>/model.json`         | the model's record: class, overrides, LOD screen sizes, the validator's findings |
 | `models/<id>/source.<sha12>.glb` | the master, named by the first 12 characters of its content hash                 |
-| `models/<id>/derived/`           | the Viewer's derive: each tier's GLB, its textures (`_tex/`) and an `index.json` |
+| `models/<id>/viewer-tiers.json`  | what the Viewer's last derive came to, tier by tier: the numbers, no tier file   |
 | `models/_cache/`                 | encoded maps, shared by the Viewer's derive and a publish                        |
 
 - **A new master is a new file.** `model.json` names the one in use; a replaced master is not
@@ -324,9 +330,8 @@ Everything is in the project's storage, under `<client>/<project>/models/`:
 - **`model.json` is only written against the version you loaded** (a compare-and-swap), by a save
   and by a master upload alike. That is why a save over a model that changed under you is refused
   until you have loaded the newer version.
-- **`derived/` is the Viewer's own copy**, replaced whole by each derive. A game never loads it:
-  what a game loads is written under `deploy/models/` by a publish, for the models the game names
-  and the tiers the project publishes.
+- **The Viewer keeps numbers, not tiers.** What a game loads is written under `deploy/models/` by a
+  publish, for the models the game names and the tiers the project publishes.
 
 ## Traps
 

@@ -68,6 +68,12 @@
 		onchange(setLodsOverride(overrides, tier, next));
 	}
 
+	/** The sizes offered, with the one in use when the Game Config sets a size off the list. */
+	const sizesWith = (size: number | 'drop'): readonly number[] =>
+		size === 'drop' || MODEL_MAP_SIZES.includes(size)
+			? MODEL_MAP_SIZES
+			: [...MODEL_MAP_SIZES, size].sort((a, b) => b - a);
+
 	function changeSize(tier: ModelTierId, map: ModelTieredMap, value: string) {
 		onchange(setMapOverride(overrides, tier, map, value === 'drop' ? 'drop' : Number(value)));
 	}
@@ -141,7 +147,7 @@
 									disabled={readOnly}
 									onchange={(e) => changeSize(tier, map, e.currentTarget.value)}
 								>
-									{#each MODEL_MAP_SIZES as side (side)}
+									{#each sizesWith(size) as side (side)}
 										<option value={String(side)}>{side}²</option>
 									{/each}
 									<option value="drop">Dropped</option>

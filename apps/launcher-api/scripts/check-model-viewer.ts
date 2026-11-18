@@ -18,27 +18,27 @@
  *  5. SAVE is a compare-and-swap on the ETag the author loaded: a stale one is a 409 that changes
  *     nothing, and so is a doc someone else writes between this save's read and its write; a save
  *     keeps the master, the facts and the report; a class change re-runs the validator on the
- *     master.
- *  6. THE VIEWER'S DERIVE writes every tier of one model under `models/<id>/derived/` (a tier equal
- *     to `full` is listed, not written), names only files that exist, leaves `deploy/` and
- *     `model.json` alone, says which `model.json` it read, goes stale when the settings change,
- *     replaces the folder whole on the next derive, and warms the export's texture cache. One
- *     derive of a model at a time and two at most at once; one that fails part-way reads as "not
- *     derived", and neither a failed nor a throwing one holds up the next.
- *  7. THE ROUTES, called as SvelteKit calls them: `baseEtag` is required and never empty on save
- *     and register; a lost save answers 409 `{ error: 'conflict', message }`; a derive answers with
- *     the index and the doc version it read.
+ *     master, and the model's own screen sizes are refitted to the new class's levels.
+ *  6. THE VIEWER'S DERIVE derives every tier of one model and keeps what each comes to in
+ *     `models/<id>/viewer-tiers.json`: the numbers only, no tier file (a tier equal to `full` is
+ *     listed as such). It leaves `deploy/`, `model.json` and the export's own
+ *     `models/<id>/derived/` cache alone, says which `model.json` it read, goes stale when the
+ *     settings, the master, the class or the Game Config's block for its class change (and for
+ *     nothing else), and warms the export's texture cache, whose bytes its numbers equal. One
+ *     derive of a model at a time; a failed one keeps the last numbers, and neither a failed nor a
+ *     throwing one holds up the next. Two masters in memory at most: a third derive waits, and so
+ *     do the other two readers of a master (a model stored before facts were kept being opened, a
+ *     class change being checked).
+ *  7. THE ROUTES, called as SvelteKit calls them, every one of them: refused without the tool and
+ *     outside the project BEFORE anything is read or written, and so is an id that is no model id;
+ *     `baseEtag` is required and never empty on save and register; a lost save answers 409
+ *     `{ error: 'conflict', message }`; a derive answers with the index and the doc version it read.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import {
-	MODEL_CLASSES,
-	MODEL_CLASS_DEFAULTS,
-	MODEL_TIERS,
-	type ModelTierId,
-} from 'constants-shared/modelTiers';
+import { MODEL_CLASSES, MODEL_CLASS_DEFAULTS, type ModelTierId } from 'constants-shared/modelTiers';
 import { GAME_FAMILIES } from 'constants-shared/gameKinds';
 import {
 	FAMILY_TOOLS,
@@ -53,6 +53,7 @@ import { leaseEntitlingTool } from '../src/lib/accessRules.ts';
 import {
 	effectiveProfile,
 	encodingSource,
+	fitScreenSize,
 	lodsSource,
 	mapSource,
 	overrideCount,
@@ -85,16 +86,29 @@ const same = (label: string, actual: unknown, expected: unknown): void =>
 const R2 = new Map<string, Uint8Array>();
 const etagOf = (b: Uint8Array) => `"${createHash('md5').update(b).digest('hex')}"`;
 const enc = (t: string) => new TextEncoder().encode(t);
-/** While set, every binary write whose key matches waits for `gate`; `parked` counts them. */
+/** While set, every binary READ whose key matches waits for `gate`; `parked` counts them. */
 let hold: { match: (key: string) => boolean; gate: Promise<void>; parked: number } | null = null;
 /** How often each key was read with its ETag: a model.json read is a save or a derive starting. */
 const reads = new Map<string, number>();
 /** One shot: runs right after the next read of that key (someone writing between a read and a write). */
 const afterRead = new Map<string, () => void>();
-/** One shot: the next binary write under this prefix fails. */
-let failWriteUnder: string | null = null;
+/** One shot: the next binary read of this key answers bytes that are no GLB. */
+let garbleReadOf: string | null = null;
 /** One shot: the next read of this key throws. */
 let failReadOf: string | null = null;
+/** How often each key was asked for as bytes: a master read is something holding it in memory. */
+const byteReads = new Map<string, number>();
+/** Every call into the fake R2, read or write: a request refused at a route's gate makes none. */
+let r2Calls = 0;
+const counted = <T extends Record<string, (...args: never[]) => unknown>>(fakes: T): T => {
+	const out: Record<string, unknown> = {};
+	for (const [name, fake] of Object.entries(fakes))
+		out[name] = (...args: never[]) => {
+			r2Calls += 1;
+			return fake(...args);
+		};
+	return out as T;
+};
 const r2Url = new URL('../src/lib/server/r2.ts', import.meta.url).href;
 const r2 = await import(r2Url);
 const write = (
@@ -111,50 +125,53 @@ const write = (
 mock.module(r2Url, {
 	namedExports: {
 		...r2,
-		getObjectBytes: async (key: string) => {
-			const b = R2.get(key);
-			return b ? { body: b, etag: etagOf(b), contentType: '' } : null;
-		},
-		getObjectText: async (key: string) => {
-			const b = R2.get(key);
-			return b ? new TextDecoder().decode(b) : null;
-		},
-		getObjectTextWithEtag: async (key: string) => {
-			if (failReadOf === key) {
-				failReadOf = null;
-				throw new Error('fixture: R2 is down');
-			}
-			reads.set(key, (reads.get(key) ?? 0) + 1);
-			const b = R2.get(key);
-			const out = b ? { text: new TextDecoder().decode(b), etag: etagOf(b) } : null;
-			const then = afterRead.get(key);
-			afterRead.delete(key);
-			then?.();
-			return out;
-		},
-		putObjectText: async (key: string, text: string, _ct?: string, cond?: object) =>
-			write(key, enc(text), cond),
-		putObjectBytes: async (key: string, body: Uint8Array, _ct?: string, cond?: object) => {
-			if (failWriteUnder && key.startsWith(failWriteUnder)) {
-				failWriteUnder = null;
-				throw new Error('fixture: R2 refused the write');
-			}
-			const held = hold;
-			if (held?.match(key)) {
-				held.parked += 1;
-				await held.gate;
-			}
-			return write(key, body, cond);
-		},
-		headObject: async (key: string) => {
-			const b = R2.get(key);
-			return b ? { etag: etagOf(b), size: b.byteLength, lastModified: 0 } : null;
-		},
-		listAllKeys: async (prefix: string) =>
-			[...R2.keys()].filter((k) => k.startsWith(prefix)).sort(),
-		deleteObjects: async (keys: string[]) => keys.forEach((k) => R2.delete(k)),
-		deleteObject: async (key: string) => void R2.delete(key),
-		presignPut: async (key: string) => `https://r2.invalid/${key}?sig`,
+		...counted({
+			getObjectBytes: async (key: string) => {
+				byteReads.set(key, (byteReads.get(key) ?? 0) + 1);
+				const held = hold;
+				if (held?.match(key)) {
+					held.parked += 1;
+					await held.gate;
+				}
+				if (garbleReadOf === key) {
+					garbleReadOf = null;
+					return { body: new Uint8Array([1, 2, 3]), etag: '"garbled"', contentType: '' };
+				}
+				const b = R2.get(key);
+				return b ? { body: b, etag: etagOf(b), contentType: '' } : null;
+			},
+			getObjectText: async (key: string) => {
+				const b = R2.get(key);
+				return b ? new TextDecoder().decode(b) : null;
+			},
+			getObjectTextWithEtag: async (key: string) => {
+				if (failReadOf === key) {
+					failReadOf = null;
+					throw new Error('fixture: R2 is down');
+				}
+				reads.set(key, (reads.get(key) ?? 0) + 1);
+				const b = R2.get(key);
+				const out = b ? { text: new TextDecoder().decode(b), etag: etagOf(b) } : null;
+				const then = afterRead.get(key);
+				afterRead.delete(key);
+				then?.();
+				return out;
+			},
+			putObjectText: async (key: string, text: string, _ct?: string, cond?: object) =>
+				write(key, enc(text), cond),
+			putObjectBytes: async (key: string, body: Uint8Array, _ct?: string, cond?: object) => {
+				return write(key, body, cond);
+			},
+			headObject: async (key: string) => {
+				const b = R2.get(key);
+				return b ? { etag: etagOf(b), size: b.byteLength, lastModified: 0 } : null;
+			},
+			listAllKeys: async (prefix: string) =>
+				[...R2.keys()].filter((k) => k.startsWith(prefix)).sort(),
+			deleteObjects: async (keys: string[]) => keys.forEach((k) => R2.delete(k)),
+			deleteObject: async (key: string) => void R2.delete(key),
+			presignPut: async (key: string) => `https://r2.invalid/${key}?sig`,
+		}),
 	},
 });
 
@@ -463,6 +480,25 @@ check('the config has a 3D world', context.world3d);
 	same('every override reset leaves none', edited, undefined);
 }
 
+same(
+	"a hero's own screen sizes on a tile: one per tile level, and no LODU size",
+	fitScreenSize(
+		{ levels: [0.4, 0.2, 0.1, 0.05], ultra: 0.6, cullBelow: 0.02 },
+		'tile',
+		MODEL_CLASS_DEFAULTS.tile.lodScreenSize,
+	),
+	{ levels: [0.4, 0.2], cullBelow: 0.02 },
+);
+same(
+	"a tile's own screen sizes on a hero: the levels it lacks and LODU are the inherited ones",
+	fitScreenSize({ levels: [0.4, 0.2], cullBelow: 0.02 }, 'hero', {
+		levels: [0.3, 0.12, 0.05, 0.02],
+		ultra: 0.55,
+		cullBelow: 0.01,
+	}),
+	{ levels: [0.4, 0.2, 0.05, 0.02], ultra: 0.55, cullBelow: 0.02 },
+);
+
 // ── 4. The report ───────────────────────────────────────────────────────────────────────────────
 console.log('4. the report');
 {
@@ -715,53 +751,57 @@ let etag = etagOf(R2.get(docKey)!);
 // ── 6. The Viewer's derive ──────────────────────────────────────────────────────────────────────
 console.log('6. the derive');
 {
-	const derivedPrefix = paths.modelDerivedPrefix(C, P, 'orb');
+	const tiersKey = paths.modelViewerTiersKey(C, P, 'orb');
+	const cachePrefix = `${paths.SUB.models(C, P)}/_cache/`;
+	// The export's derived-tier cache of this model: another writer's folder.
+	const exportCache = `${paths.SUB.models(C, P)}/orb/derived/`;
+	const theirs = `${exportCache}0123456789abcdef/tier.json`;
+	R2.set(theirs, enc('{}'));
 	const deployPrefix = `${paths.SUB.deploy(C, P)}/`;
 	const before = await viewer.loadModelDetail(C, P, 'orb');
-	check('never derived: no index', before?.derived === null && !!before.deriveInputs);
+	check('never derived: no numbers', before?.derived === null && !!before.deriveInputs);
 
 	const docBefore = text(docKey);
+	const keysBefore = new Set(R2.keys());
 	const first = await viewer.deriveModelForViewer(C, P, 'orb');
 	check('the derive answers', first.ok, JSON.stringify(first));
 	if (!first.ok) throw new Error('the derive failed; the rest of the fixture needs it');
-	const filesOf = () => under(derivedPrefix).map((k) => k.slice(derivedPrefix.length));
-	const tiersWritten = Object.keys(first.derived.tiers).sort();
 	same(
 		'every tier is derived, published or not; ultra equals full on a 256² master with no LODU',
-		[tiersWritten, first.derived.sameAsFull],
+		[Object.keys(first.derived.tiers).sort(), first.derived.sameAsFull],
 		[['full', 'half', 'quarter'], ['ultra']],
 	);
-	check(
-		'it writes the GLBs, index.json and _tex/ under models/orb/derived/',
-		['orb.glb', 'orb@half.glb', 'orb@quarter.glb', 'index.json'].every((f) =>
-			filesOf().includes(f),
-		) &&
-			filesOf().some((f) => f.startsWith('_tex/')) &&
-			!filesOf().some((f) => f.includes('@ultra')),
-		filesOf().join(' '),
+	same(
+		'a tier is named as a publish names its file',
+		(['full', 'half', 'quarter'] as ModelTierId[]).map((t) => first.derived.tiers[t]?.glb),
+		['orb.glb', 'orb@half.glb', 'orb@quarter.glb'],
 	);
-	const allNamed = (index: typeof first.derived) =>
-		Object.values(index.tiers).every(
-			(t) =>
-				R2.has(derivedPrefix + t.glb) &&
-				Object.values(t.maps).every((m) => m === 'dropped' || R2.has(derivedPrefix + m.file)),
-		);
-	check('every file the index names exists', allNamed(first.derived));
 	check(
 		'every tier carries tris, bytes and VRAM',
 		Object.values(first.derived.tiers).every(
 			(t) => t.bytes > 0 && t.vramBytes > 0 && t.lods.length > 0 && t.lods.every((l) => l.tris > 0),
 		),
 	);
+	const wrote = [...R2.keys()].filter((k) => !keysBefore.has(k));
+	check(
+		'it keeps the numbers and no tier file: one JSON, and textures in the shared cache',
+		wrote.includes(tiersKey) && wrote.every((k) => k === tiersKey || k.startsWith(cachePrefix)),
+		wrote.join(' '),
+	);
+	same(
+		"the export's derived-tier cache of the model is left exactly as it was",
+		under(exportCache),
+		[theirs],
+	);
 	check('deploy/ is untouched', under(deployPrefix).length === 0, under(deployPrefix).join(' '));
 	check('model.json is untouched', text(docKey) === docBefore);
 	const opened = await viewer.loadModelDetail(C, P, 'orb');
 	check(
-		'opened again: the derive is current',
+		'opened again: the numbers are there and current',
 		!!opened?.derived && opened.derived.inputs === opened.deriveInputs,
 	);
 
-	// The export after it encodes nothing these tiers share.
+	// The export after it encodes nothing these tiers share, and ships the bytes the Viewer showed.
 	R2.set(
 		paths.editorDocKey(C, P),
 		enc(
@@ -771,7 +811,6 @@ console.log('6. the derive');
 			}),
 		),
 	);
-	const cachePrefix = `${paths.SUB.models(C, P)}/_cache/`;
 	const cached = under(cachePrefix).length;
 	const index = await exporter.exportModels(C, P, { warn: () => undefined });
 	check('the export after it encodes nothing new', under(cachePrefix).length === cached);
@@ -783,7 +822,7 @@ console.log('6. the derive');
 	);
 	same('the game now reaches it', (await viewer.loadModelProjectContext(C, P)).reached, ['orb']);
 
-	// Settings change → stale → the next derive replaces the folder.
+	// Settings change → stale → the next derive replaces the numbers.
 	const tuned = await viewer.saveModelSettings(
 		C,
 		P,
@@ -794,37 +833,77 @@ console.log('6. the derive');
 	check('an override is saved', tuned.ok, JSON.stringify(tuned));
 	const stale = await viewer.loadModelDetail(C, P, 'orb');
 	check(
-		'the stored derive is now out of date',
+		'the stored numbers are now out of date',
 		!!stale?.derived && stale.derived.inputs !== stale.deriveInputs,
 	);
 	check('…and the save said so', tuned.ok && tuned.deriveInputs === stale?.deriveInputs);
-	const oldFiles = filesOf();
 	const deployed = under(deployPrefix).length;
 	const second = await viewer.deriveModelForViewer(C, P, 'orb');
 	check('the next derive answers', second.ok, JSON.stringify(second));
-	if (second.ok) {
-		check('half now drops its normal map', second.derived.tiers.half?.maps.normal === 'dropped');
-		const now = await viewer.loadModelDetail(C, P, 'orb');
+	if (!second.ok) throw new Error('the second derive failed; the rest of the fixture needs it');
+	check('half now drops its normal map', second.derived.tiers.half?.maps.normal === 'dropped');
+	const now = await viewer.loadModelDetail(C, P, 'orb');
+	check(
+		'it is current for the stored model, and says which model.json it read',
+		second.derived.inputs === now?.deriveInputs && second.docEtag === now?.etag,
+		JSON.stringify([second.derived.inputs, now?.deriveInputs, second.docEtag, now?.etag]),
+	);
+	same('the numbers kept are the ones it answered', now?.derived, second.derived);
+	check('deploy/ is still untouched by a derive', under(deployPrefix).length === deployed);
+	same("…and so is the export's derived-tier cache", under(exportCache), [theirs]);
+
+	// Out of date for everything a publish would derive differently, and for nothing else.
+	{
+		const configKey = paths.gameConfigDocKey(C, P);
+		const configBefore = text(configKey);
+		const withProfiles = (profiles: Record<string, unknown>) =>
+			R2.set(
+				configKey,
+				enc(
+					JSON.stringify({
+						...(JSON.parse(configBefore) as Record<string, unknown>),
+						models: { ...configModels, profiles: { ...configModels.profiles, ...profiles } },
+					}),
+				),
+			);
+		const isCurrent = async () => {
+			const d = await viewer.loadModelDetail(C, P, 'orb');
+			return !!d?.derived && d.derived.inputs === d.deriveInputs;
+		};
+		withProfiles({ hero: { half: { lods: [1, 2] } } });
+		check("another class's Game Config block leaves it current", await isCurrent());
+		withProfiles({ prop: { half: { maps: { baseColor: 64 } } } });
+		check("its own class's Game Config block makes it out of date", !(await isCurrent()));
+		R2.set(configKey, enc(configBefore));
+		check('…and current again once the block is put back', await isCurrent());
+
+		const stored = (await storage.loadModelDoc(C, P, 'orb'))?.doc;
+		if (!stored) throw new Error('the fixture lost its model.json');
+		const key = viewer.deriveInputsOf(stored, configModels);
 		check(
-			'it is current for the stored model, and says which model.json it read',
-			second.derived.inputs === now?.deriveInputs && second.docEtag === now?.etag,
-			JSON.stringify([second.derived.inputs, now?.deriveInputs, second.docEtag, now?.etag]),
+			'a new master makes it out of date',
+			viewer.deriveInputsOf(
+				{ ...stored, source: { ...stored.source, sha256: 'f'.repeat(64) } },
+				configModels,
+			) !== key,
 		);
-		const named = new Set<string>(['index.json']);
-		for (const t of Object.values(second.derived.tiers)) {
-			named.add(t.glb);
-			for (const m of Object.values(t.maps)) if (m !== 'dropped') named.add(m.file);
-		}
-		same('the folder holds exactly what the index names', filesOf(), [...named].sort());
 		check(
-			'a file only the old derive used is gone',
-			oldFiles.some((f) => !filesOf().includes(f)),
+			'a new class makes it out of date',
+			viewer.deriveInputsOf({ ...stored, class: 'tile' }, configModels) !== key,
 		);
-		check('deploy/ is still untouched by a derive', under(deployPrefix).length === deployed);
+		check(
+			'its screen sizes do not: they change no derived byte',
+			viewer.deriveInputsOf(
+				{ ...stored, lodScreenSize: { levels: [0.9, 0.5], cullBelow: 0.2 } },
+				configModels,
+			) === key,
+		);
 	}
 
-	// The queue. A derive's first act is to read its model.json, so that read is "it started".
+	// The queue. A derive's first act is to read its model.json, so that read is "it started"; it
+	// is held at its next one, the master.
 	const docOf = (id: string) => paths.modelDocKey(C, P, id);
+	const sourceOf = (id: string) => paths.modelSourceKey(C, P, id, orbDoc!.source.file);
 	const turn = () => new Promise((r) => setTimeout(r, 0));
 	const turns = async (n: number) => {
 		for (let i = 0; i < n; i += 1) await turn();
@@ -847,16 +926,16 @@ console.log('6. the derive');
 		check(`${id} registers`, made.ok);
 	}
 
-	// One at a time per model: the first is held at its first write.
+	// One at a time per model.
 	let open!: () => void;
 	hold = {
-		match: (key) => key.startsWith(derivedPrefix),
+		match: (key) => key === sourceOf('orb'),
 		gate: new Promise<void>((r) => (open = r)),
 		parked: 0,
 	};
 	reads.clear();
 	const a = viewer.deriveModelForViewer(C, P, 'orb');
-	check('a derive is held at its first write', await parkedAt(1));
+	check('a derive is held at its master', await parkedAt(1));
 	const b = viewer.deriveModelForViewer(C, P, 'orb');
 	await turns(5);
 	same('a second derive of the same model has not started', reads.get(docOf('orb')), 1);
@@ -868,13 +947,10 @@ console.log('6. the derive');
 	const [first2, second2] = await Promise.all([a, b]);
 	check('…then both answer', first2.ok && second2.ok);
 	same('…the second having run after the first', reads.get(docOf('orb')), 2);
-	check('…and the folder is whole', second2.ok && allNamed(second2.derived));
 
 	// Two at once at most: with two held, a third model's derive does not start.
-	const modelsPrefix = `${paths.SUB.models(C, P)}/`;
 	hold = {
-		match: (key) =>
-			key.startsWith(modelsPrefix) && key.includes('/derived/') && !key.includes('/third/'),
+		match: (key) => key === sourceOf('orb') || key === sourceOf('spare'),
 		gate: new Promise<void>((r) => (open = r)),
 		parked: 0,
 	};
@@ -883,7 +959,7 @@ console.log('6. the derive');
 		viewer.deriveModelForViewer(C, P, 'orb'),
 		viewer.deriveModelForViewer(C, P, 'spare'),
 	];
-	check('two derives are held at their first write', await parkedAt(2));
+	check('two derives are held at their masters', await parkedAt(2));
 	const third = viewer.deriveModelForViewer(C, P, 'third');
 	await turns(5);
 	same('a third derive waits for a slot', reads.get(docOf('third')), undefined);
@@ -895,19 +971,69 @@ console.log('6. the derive');
 		all.every((r) => r.ok),
 	);
 
-	// Failures. Part-way: the answer is a 422 and the model reads as not derived.
-	failWriteUnder = derivedPrefix;
+	// Every master read takes a slot, not only a derive's: with both taken, a model stored before
+	// facts were kept does not read its master to open, nor a class change to check it.
+	{
+		const thirdKey = docOf('third');
+		const legacyDoc = JSON.parse(text(thirdKey)) as Record<string, unknown>;
+		delete legacyDoc.facts;
+		R2.set(thirdKey, enc(JSON.stringify(legacyDoc)));
+		hold = {
+			match: (key) => key === sourceOf('orb') || key === sourceOf('spare'),
+			gate: new Promise<void>((r) => (open = r)),
+			parked: 0,
+		};
+		const holders = [
+			viewer.deriveModelForViewer(C, P, 'orb'),
+			viewer.deriveModelForViewer(C, P, 'spare'),
+		];
+		check('two derives hold both slots', await parkedAt(2));
+		byteReads.clear();
+		const legacy = viewer.loadModelDetail(C, P, 'third');
+		await turns(5);
+		same(
+			'opening a model stored before facts were kept waits for a slot to read its master',
+			byteReads.get(sourceOf('third')),
+			undefined,
+		);
+		const reclassed = viewer.saveModelSettings(
+			C,
+			P,
+			'third',
+			{ class: 'tile', overrides: null, lodScreenSize: null },
+			etagOf(R2.get(thirdKey)!),
+		);
+		await turns(5);
+		same(
+			'…and so does a class change, to check the master against the class',
+			byteReads.get(sourceOf('third')),
+			undefined,
+		);
+		open();
+		hold = null;
+		const [openedLegacy, savedClass] = await Promise.all([legacy, reclassed]);
+		await Promise.all(holders);
+		check(
+			'…then the model opens with its facts',
+			(openedLegacy?.doc?.facts?.levels.length ?? 0) > 0,
+		);
+		check(
+			'…and the class change is saved',
+			savedClass.ok && savedClass.doc.class === 'tile',
+			JSON.stringify(savedClass).slice(0, 300),
+		);
+	}
+
+	// Failures. A master that will not read: a 422, and the last numbers stay.
+	const kept = text(tiersKey);
+	garbleReadOf = sourceOf('orb');
 	const failed = await viewer.deriveModelForViewer(C, P, 'orb');
 	check(
-		'a derive that fails part-way answers 422',
+		'a derive that cannot read its master answers 422',
 		!failed.ok && failed.status === 422,
 		JSON.stringify(failed),
 	);
-	same(
-		'…and reads as not derived, never as the last derive over other files',
-		(await viewer.loadModelDetail(C, P, 'orb'))?.derived,
-		null,
-	);
+	check('…and the last numbers are kept as they were', text(tiersKey) === kept);
 	failReadOf = docOf('orb');
 	same(
 		'a derive that throws rejects',
@@ -918,11 +1044,11 @@ console.log('6. the derive');
 		'threw',
 	);
 	const after = await viewer.deriveModelForViewer(C, P, 'orb');
-	check('…and the next derive of that model still runs', after.ok && allNamed(after.derived));
+	check('…and the next derive of that model still runs', after.ok);
 
 	const missing = await viewer.deriveModelForViewer(C, P, 'ghost');
 	check('an unknown model is a 404', !missing.ok && missing.status === 404);
-	R2.delete(paths.modelSourceKey(C, P, 'spare', orbDoc!.source.file));
+	R2.delete(sourceOf('spare'));
 	const noMaster = await viewer.deriveModelForViewer(C, P, 'spare');
 	check('a model whose master is gone is a 404', !noMaster.ok && noMaster.status === 404);
 }
@@ -930,43 +1056,138 @@ console.log('6. the derive');
 // ── 7. The routes ───────────────────────────────────────────────────────────────────────────────
 console.log('7. the routes');
 {
+	/** What the mocked gates answer; a refusal is thrown as SvelteKit's `error()` throws it. */
+	const gate = { access: true, scope: true };
+	const refuse = (message: string) =>
+		Object.assign(new Error(message), { status: 403, body: { message } });
 	mock.module(src('modelAccess.ts'), {
 		namedExports: {
 			MODELS_TOOL: 'models',
-			requireModelAccess: async () => ({ id: 'u', role: 'artist' }),
+			requireModelAccess: async () => {
+				if (!gate.access) throw refuse('fixture: not your tool');
+				return { id: 'u', role: 'artist' };
+			},
 		},
 	});
 	mock.module(src('toolScope.ts'), {
-		namedExports: { requireProjectScope: async () => ({ clientKey: C, projectKey: P }) },
+		namedExports: {
+			requireProjectScope: async () => {
+				if (!gate.scope) throw refuse('fixture: not your project');
+				return { clientKey: C, projectKey: P };
+			},
+		},
 	});
-	/** POST a JSON body to a route's real handler; a thrown `error()` is its status and body. */
-	const post = async (
+	type Input = Record<string, unknown>;
+	const routesRoot = new URL('../src/routes/api/models/', import.meta.url);
+	/** Call a route's real handler: a GET's input is its query, a POST's its JSON body. A thrown
+	 *  `error()` is its status and body. */
+	const call = async (
 		name: string,
-		body: unknown,
-	): Promise<{ status: number; body: Record<string, unknown> }> => {
-		const { POST } = (await import(
-			new URL(`../src/routes/api/models/${name}/+server.ts`, import.meta.url).href
-		)) as { POST: (event: unknown) => Promise<Response> };
+		method: 'GET' | 'POST',
+		input: Input,
+	): Promise<{ status: number; body: Input }> => {
+		const handlers = (await import(
+			new URL(`${name ? `${name}/` : ''}+server.ts`, routesRoot).href
+		)) as Record<string, (event: unknown) => Promise<Response>>;
+		const url = new URL(`https://app.invalid/api/models/${name}?project=${P}`);
+		if (method === 'GET')
+			for (const [key, value] of Object.entries(input)) url.searchParams.set(key, String(value));
 		try {
-			const res = await POST({
-				request: new Request('https://app.invalid/', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(body),
-				}),
-				url: new URL(`https://app.invalid/api/models/${name}?project=${P}`),
+			const res = await handlers[method]({
+				request: new Request(
+					url,
+					method === 'GET'
+						? {}
+						: {
+								method,
+								headers: { 'content-type': 'application/json' },
+								body: JSON.stringify(input),
+							},
+				),
+				url,
 				locals: {},
 			});
-			return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+			return { status: res.status, body: (await res.json()) as Input };
 		} catch (e) {
-			const thrown = e as { status?: unknown; body?: Record<string, unknown> };
+			const thrown = e as { status?: unknown; body?: Input };
 			if (typeof thrown.status !== 'number') throw e;
 			return { status: thrown.status, body: thrown.body ?? {} };
 		}
 	};
+	const post = (name: string, body: Input) => call(name, 'POST', body);
 	const settings = { id: 'orb', class: 'prop', overrides: null, lodScreenSize: null };
+	const upload = { id: 'orb', upload: '00000000-0000-4000-8000-000000000000', class: 'prop' };
 	const live = etagOf(R2.get(docKey)!);
 	const before = text(docKey);
+
+	/** Every route, with a request nothing is wrong with. */
+	const ROUTES: { name: string; method: 'GET' | 'POST'; input: Input; takesId: boolean }[] = [
+		{ name: '', method: 'GET', input: {}, takesId: false },
+		{ name: 'detail', method: 'GET', input: { id: 'orb' }, takesId: true },
+		{ name: 'save', method: 'POST', input: { ...settings, baseEtag: live }, takesId: true },
+		{ name: 'derive', method: 'POST', input: { id: 'orb' }, takesId: true },
+		{ name: 'register', method: 'POST', input: { ...upload, baseEtag: live }, takesId: true },
+		{ name: 'upload', method: 'POST', input: { id: 'orb', bytes: 1024 }, takesId: true },
+	];
+	same(
+		'this fixture calls every route there is',
+		ROUTES.length,
+		readdirSync(fileURLToPath(routesRoot), { recursive: true }).filter((file) =>
+			String(file).endsWith('+server.ts'),
+		).length,
+	);
+	for (const denied of ['access', 'scope'] as const) {
+		gate[denied] = false;
+		for (const route of ROUTES) {
+			const calls = r2Calls;
+			const answer = await call(route.name, route.method, route.input);
+			check(
+				`${route.name || 'list'}: ${denied === 'access' ? 'without the tool' : 'outside the project'} it is refused before anything is read or written`,
+				answer.status === 403 && r2Calls === calls,
+				`${answer.status}, ${r2Calls - calls} R2 call(s)`,
+			);
+		}
+		gate[denied] = true;
+	}
+	for (const route of ROUTES.filter((r) => r.takesId))
+		for (const id of ['../orb', 'orb/x', '']) {
+			const calls = r2Calls;
+			const answer = await call(route.name, route.method, { ...route.input, id });
+			check(
+				`${route.name}: the id ${JSON.stringify(id)} is a 400 before anything is read or written`,
+				answer.status === 400 && r2Calls === calls,
+				`${answer.status}, ${r2Calls - calls} R2 call(s)`,
+			);
+		}
+	check('none of them wrote', text(docKey) === before);
+
+	const listed = await call('', 'GET', {});
+	check(
+		'the list answers every model with the ETag a write must match',
+		listed.status === 200 &&
+			Array.isArray(listed.body.models) &&
+			(listed.body.models as { id: string; etag: string }[]).some(
+				(m) => m.id === 'orb' && m.etag === live,
+			),
+		JSON.stringify(listed).slice(0, 300),
+	);
+	const opened = await call('detail', 'GET', { id: 'orb' });
+	same(
+		'detail answers the doc, its ETag, the last derive and the key a current one carries',
+		[
+			opened.status,
+			typeof opened.body.doc,
+			opened.body.etag,
+			typeof opened.body.derived,
+			typeof opened.body.deriveInputs,
+		],
+		[200, 'object', live, 'object', 'string'],
+	);
+	same(
+		'detail of a model the project lacks is a 404',
+		(await call('detail', 'GET', { id: 'ghost' })).status,
+		404,
+	);
 
 	same('save without a baseEtag is a 400', (await post('save', settings)).status, 400);
 	same(
@@ -980,7 +1201,7 @@ console.log('7. the routes');
 		[lost.status, lost.body.error, typeof lost.body.message],
 		[409, 'conflict', 'string'],
 	);
-	check('none of them wrote', text(docKey) === before);
+	check('none of those wrote either', text(docKey) === before);
 	const saved = await post('save', { ...settings, baseEtag: live });
 	same(
 		'a save against the live ETag answers the doc, its ETag and the derive key',
@@ -988,7 +1209,6 @@ console.log('7. the routes');
 		[200, 'object', etagOf(R2.get(docKey)!), 'string'],
 	);
 
-	const upload = { id: 'orb', upload: '00000000-0000-4000-8000-000000000000', class: 'prop' };
 	same('register without a baseEtag is a 400', (await post('register', upload)).status, 400);
 	same(
 		'register with an empty baseEtag is a 400 (it would reach R2 as no precondition)',
@@ -1008,12 +1228,6 @@ console.log('7. the routes');
 		[200, 'object', 'string', etagOf(R2.get(docKey)!)],
 	);
 }
-
-same(
-	'the tier list the page shows is the model tiers',
-	MODEL_TIERS,
-	Object.keys(MODEL_CLASS_DEFAULTS.prop.tiers),
-);
 
 console.log(`check:model-viewer — ${passes}/${passes + failures} passed`);
 if (failures) process.exit(1);

@@ -382,18 +382,15 @@ export function buildModelReport(input: ModelReportInput): ReportSection[] {
 		tiers: [],
 		other: [],
 	};
-	const meshClass = MODEL_CLASS_DEFAULTS[cls].lodGenerate.tris.length > 0;
 	if (facts) {
-		if (meshClass) {
-			rows.budgets = budgetRows(cls, facts);
-			rows.lods = lodRows(cls, facts);
-			rows.textures = textureRows(cls, facts);
-			rows.tiers = tierRows(input, facts);
-		}
+		rows.budgets = budgetRows(cls, facts);
+		rows.lods = lodRows(cls, facts);
+		rows.textures = textureRows(cls, facts);
+		rows.tiers = tierRows(input, facts);
 		rows.names = nameRows(cls, facts);
 	}
 	for (const issue of input.issues) {
-		if (facts && meshClass && RECOMPUTED.has(issue.code)) continue;
+		if (facts && RECOMPUTED.has(issue.code)) continue;
 		rows[facts ? sectionOfCode(issue.code) : 'other'].push({
 			label: issue.code,
 			value: issue.message,

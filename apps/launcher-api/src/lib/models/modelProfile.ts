@@ -122,6 +122,24 @@ export function screenSizeSource(
 	return inheritedSource(inherited.lodScreenSize, MODEL_CLASS_DEFAULTS[cls].lodScreenSize);
 }
 
+/**
+ * A model's own screen sizes after its class changes: one size per level the new class has, its
+ * own where it had one and the inherited one elsewhere, and a LODU size only for a class with one.
+ */
+export function fitScreenSize(
+	own: ModelLodScreenSize,
+	cls: ModelClass,
+	inherited: ModelLodScreenSize,
+): ModelLodScreenSize {
+	const base = MODEL_CLASS_DEFAULTS[cls].lodScreenSize;
+	const ultra = base.ultra === undefined ? undefined : (own.ultra ?? inherited.ultra ?? base.ultra);
+	return {
+		levels: base.levels.map((size, i) => own.levels[i] ?? inherited.levels[i] ?? size),
+		...(ultra === undefined ? {} : { ultra }),
+		cullBelow: own.cullBelow,
+	};
+}
+
 /** `record`'s set keys in the maps' own order, or `undefined` when none is set. */
 function inMapOrder<V>(
 	record: Partial<Record<ModelTieredMap, V>> | undefined,

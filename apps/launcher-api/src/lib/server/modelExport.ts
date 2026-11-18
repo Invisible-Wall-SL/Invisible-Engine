@@ -117,7 +117,7 @@ const contentType = (file: string) =>
 	file.endsWith('.glb') ? 'model/gltf-binary' : file.endsWith('.png') ? 'image/png' : 'image/ktx2';
 
 /** Write one derived tier: its GLB and the textures it names (a texture already there is kept). */
-export async function writeTier(
+async function writeTier(
 	mirror: DeployMirror,
 	prefix: string,
 	glbFile: string,
@@ -136,7 +136,7 @@ export async function writeTier(
 	}
 }
 
-export const tierEntry = (glb: string, d: DerivedModelTier): ModelExportTier => ({
+const tierEntry = (glb: string, d: DerivedModelTier): ModelExportTier => ({
 	glb,
 	bytes: d.glb.byteLength + d.textures.reduce((n, t) => n + t.bytes.byteLength, 0),
 	vramBytes: d.vramBytes,

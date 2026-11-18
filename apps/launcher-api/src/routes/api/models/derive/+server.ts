@@ -9,8 +9,9 @@ import type { RequestHandler } from './$types';
 /**
  * Derive every quality tier of one model from its STORED master and settings, for the Invisible
  * Model Viewer's tier table. Body: `{ id }`. It writes only the Viewer's own
- * `models/<id>/derived/` (never `deploy/`, never `model.json`) and can take a minute on a master
- * with large maps the texture cache has not seen.
+ * `models/<id>/viewer-tiers.json` (never `deploy/`, never `model.json`, never the export's
+ * `derived/` cache) and can take a minute on a master with large maps the texture cache has not
+ * seen.
  *
  * 200 `{ derived, deriveInputs, docEtag }` (`docEtag`: the `model.json` version it derived); 404
  * when the model or its master is gone; 422 `{ error }` when the master cannot be derived.

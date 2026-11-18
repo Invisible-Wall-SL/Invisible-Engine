@@ -9,12 +9,15 @@
  * Writes:
  *  - `model.json` only by compare-and-swap on the ETag the author loaded ({@link saveModelSettings};
  *    the master upload is `modelStorage.ts` `registerModelUpload`, the same rule).
- *  - `models/<id>/derived/` by {@link deriveModelForViewer}: every tier of ONE model, whether or not
- *    the game reaches it or publishes that tier, so an artist sees a model before it is placed. It
- *    is a cache of that derive and nothing a game ships: last writer wins and each derive replaces
- *    the whole folder. Derives of one model run one at a time and at most
- *    {@link MAX_CONCURRENT_DERIVES} run at once, in THIS process: a second launcher instance would
- *    not be held back, and its `commit()` could delete files the other derive just wrote.
+ *  - `models/<id>/viewer-tiers.json` by {@link deriveModelForViewer}: what every tier of ONE model
+ *    comes to (levels, triangles, bytes, GPU memory, maps), whether or not the game reaches it or
+ *    publishes that tier, so an artist sees a model before it is placed. Only the numbers: the
+ *    tier files themselves are a publish's to write, and `models/<id>/derived/` is the export's
+ *    derived-tier cache, never touched here. One small JSON, last writer wins. Derives of one
+ *    model run one at a time, in THIS process.
+ *
+ * Whatever reads a master into memory takes one of {@link MAX_MASTERS_IN_MEMORY} slots: a derive,
+ * the check of a master against a new class, and the facts of a model stored before facts were kept.
  */
 import { createHash } from 'node:crypto';
 import {
@@ -30,14 +33,14 @@ import type { ModelExportTier } from 'constants-shared/models';
 import type { ModelMasterFacts } from '$lib/models/modelFacts';
 import type { InheritedModelSettings } from '$lib/models/modelProfile';
 import { createKeyedMutex, createLimiter } from './concurrency';
-import { DeployMirror } from './deployMirror';
 import { KTX2_ENCODER_REVISION } from './ktx2Dimensions';
-import { exportInputs, r2TextureCache, tierEntry, writeTier } from './modelExport';
+import { exportInputs, r2TextureCache } from './modelExport';
 import {
 	deriveModelTier,
 	MODEL_OPTIMIZER_REVISION,
 	modelLimitIssues,
 	tierCopyEqualsFull,
+	type DerivedModelTier,
 } from './modelOptimize';
 import {
 	listModelIds,
@@ -50,11 +53,19 @@ import {
 	type ModelDoc,
 	type ModelValidatorIssue,
 } from './modelStorage';
-import { modelDerivedPrefix, modelDocKey } from './projectPaths';
-import { ConflictError, deleteObject, getObjectText, putObjectText } from './r2';
+import { modelDocKey, modelViewerTiersKey } from './projectPaths';
+import { ConflictError, getObjectText, putObjectText } from './r2';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * Cap on masters held in memory at once, across every project and in THIS process. Each is up to
+ * 256 MB and is parsed whole, and the launcher has run out of memory mid-bake before
+ * (`runtimeBundleCache.ts`).
+ */
+const MAX_MASTERS_IN_MEMORY = 2;
+const masterSlot = createLimiter(MAX_MASTERS_IN_MEMORY);
 
 /** What every model of a project is shown against. */
 export interface ModelProjectContext {
@@ -106,16 +117,16 @@ export async function listModels(clientKey: string, projectKey: string): Promise
 	);
 }
 
-/** One Viewer derive of one model: `models/<id>/derived/index.json`. */
+/** One Viewer derive of one model: `models/<id>/viewer-tiers.json`. */
 export interface ModelDerivedIndex {
 	/** {@link deriveInputsOf} of what it was derived from; another value means it is out of date. */
 	inputs: string;
 	derivedAt: string;
 	/** The master it was derived from (`model.json` `source.file`). */
 	source: string;
-	/** Every tier with its own files, `glb` relative to the derived folder. */
+	/** Every tier with files of its own, `glb` as a publish names it (`<id>[@<tier>].glb`). */
 	tiers: Partial<Record<ModelTierId, ModelExportTier>> & { full: ModelExportTier };
-	/** Tiers whose derive equals `full` byte for byte: no copy is written, the game loads `full`. */
+	/** Tiers whose derive equals `full` byte for byte: a publish writes no copy, the game loads `full`. */
 	sameAsFull: ModelTierId[];
 }
 
@@ -168,17 +179,21 @@ export async function loadModelDetail(
 ): Promise<ModelDetail | null> {
 	const [loaded, indexText, inputs] = await Promise.all([
 		loadModelDoc(clientKey, projectKey, id),
-		getObjectText(`${modelDerivedPrefix(clientKey, projectKey, id)}index.json`),
+		getObjectText(modelViewerTiersKey(clientKey, projectKey, id)),
 		exportInputs(clientKey, projectKey),
 	]);
 	if (!loaded) return null;
 	let doc = loaded.doc;
 	if (doc && !doc.facts) {
 		// A model registered before facts were kept: read them off its master for this answer.
-		const master = await loadModelSource(clientKey, projectKey, id, doc);
-		const seen: { facts?: ModelMasterFacts } = {};
-		if (master) await validateModelMaster(master, doc.class, seen);
-		if (seen.facts) doc = { ...doc, facts: seen.facts };
+		const stored = doc;
+		const facts = await masterSlot(async () => {
+			const master = await loadModelSource(clientKey, projectKey, id, stored);
+			const seen: { facts?: ModelMasterFacts } = {};
+			if (master) await validateModelMaster(master, stored.class, seen);
+			return seen.facts;
+		});
+		if (facts) doc = { ...doc, facts };
 	}
 	return {
 		id,
@@ -228,15 +243,19 @@ export async function saveModelSettings(
 
 	let { validator, facts } = stored;
 	if (input.class !== stored.class) {
-		const master = await loadModelSource(clientKey, projectKey, id, stored);
-		if (!master)
+		const checked = await masterSlot(async () => {
+			const master = await loadModelSource(clientKey, projectKey, id, stored);
+			if (!master) return null;
+			const seen: { facts?: ModelMasterFacts } = {};
+			return { issues: await validateModelMaster(master, input.class, seen), facts: seen.facts };
+		});
+		if (!checked)
 			return {
 				ok: false,
 				status: 404,
 				error: `The master ${stored.source.file} is missing. Upload it again.`,
 			};
-		const seen: { facts?: ModelMasterFacts } = {};
-		const issues = await validateModelMaster(master, input.class, seen);
+		const { issues } = checked;
 		if (issues.some((i) => i.level === 'error'))
 			return {
 				ok: false,
@@ -245,7 +264,7 @@ export async function saveModelSettings(
 				issues,
 			};
 		validator = { errors: 0, warnings: issues.length, issues };
-		facts = seen.facts ?? facts;
+		facts = checked.facts ?? facts;
 	}
 	const next = normalizeModelDoc({
 		...stored,
@@ -284,16 +303,17 @@ export type DeriveResult =
 	  }
 	| { ok: false; status: 404 | 422; error: string };
 
-/**
- * Cap on derives running at once across every project. Each holds a master (up to 256 MB) in
- * memory and encodes its maps, and the launcher has run out of memory mid-bake before
- * (`runtimeBundleCache.ts`).
- */
-const MAX_CONCURRENT_DERIVES = 2;
-
-const deriveSlot = createLimiter(MAX_CONCURRENT_DERIVES);
 /** One derive of a model at a time: a second one waits, then derives what is stored then. */
 const modelDeriveLock = createKeyedMutex();
+
+/** What a derived tier comes to, as the export's index records it: its GLB with its textures. */
+const tierNumbers = (glb: string, d: DerivedModelTier): ModelExportTier => ({
+	glb,
+	bytes: d.glb.byteLength + d.textures.reduce((n, t) => n + t.bytes.byteLength, 0),
+	vramBytes: d.vramBytes,
+	lods: d.lods,
+	maps: d.maps,
+});
 
 async function deriveNow(clientKey: string, projectKey: string, id: string): Promise<DeriveResult> {
 	const loaded = await loadModelDoc(clientKey, projectKey, id);
@@ -318,14 +338,9 @@ async function deriveNow(clientKey: string, projectKey: string, id: string): Pro
 	const profile = resolveModelProfile(doc.class, doc, configModels);
 	const lodGenerate = MODEL_CLASS_DEFAULTS[doc.class].lodGenerate;
 	const cache = r2TextureCache(clientKey, projectKey);
-	const prefix = modelDerivedPrefix(clientKey, projectKey, id);
-	const mirror = new DeployMirror(prefix);
 	const fullFile = `${id}.glb`;
 	const sameAsFull: ModelTierId[] = [];
 	let tiers: ModelDerivedIndex['tiers'];
-	// The index goes first: a derive that fails part-way must read as "not derived", never as the
-	// last derive's numbers over files this one has already replaced.
-	await deleteObject(`${prefix}index.json`);
 	try {
 		const full = await deriveModelTier(master, {
 			tier: MODEL_FALLBACK_TIER,
@@ -333,18 +348,12 @@ async function deriveNow(clientKey: string, projectKey: string, id: string): Pro
 			lodGenerate,
 			cache,
 		});
-		await writeTier(mirror, prefix, fullFile, full);
-		tiers = { full: tierEntry(fullFile, full) };
+		tiers = { full: tierNumbers(fullFile, full) };
 		for (const tier of MODEL_TIERS) {
 			if (tier === MODEL_FALLBACK_TIER) continue;
 			const derived = await deriveModelTier(master, { tier, profile, lodGenerate, cache });
-			if (tierCopyEqualsFull(tier, derived, full)) {
-				sameAsFull.push(tier);
-				continue;
-			}
-			const file = modelTierFile(fullFile, tier);
-			await writeTier(mirror, prefix, file, derived);
-			tiers[tier] = tierEntry(file, derived);
+			if (tierCopyEqualsFull(tier, derived, full)) sameAsFull.push(tier);
+			else tiers[tier] = tierNumbers(modelTierFile(fullFile, tier), derived);
 		}
 	} catch (e) {
 		return { ok: false, status: 422, error: `The derive failed: ${(e as Error).message}` };
@@ -357,15 +366,21 @@ async function deriveNow(clientKey: string, projectKey: string, id: string): Pro
 		tiers,
 		sameAsFull,
 	};
-	await mirror.put(`${prefix}index.json`, JSON.stringify(index, null, '\t'));
-	await mirror.commit();
+	// After every tier derived: a derive that fails leaves the last one's numbers, which still name
+	// the inputs they are for.
+	await putObjectText(
+		modelViewerTiersKey(clientKey, projectKey, id),
+		JSON.stringify(index, null, '\t'),
+		'application/json',
+	);
 	return { ok: true, derived: index, deriveInputs: inputs, docEtag: loaded?.etag ?? null };
 }
 
 /**
- * Derive every tier of one model from its stored master and settings into `models/<id>/derived/`,
- * and answer with the index. Textures come from (and warm) the export's own cache, so a publish
- * after it re-encodes nothing these tiers share.
+ * Derive every tier of one model from its stored master and settings, keep what each comes to
+ * (`models/<id>/viewer-tiers.json`) and answer with it. The tier files are not kept. Textures come
+ * from (and warm) the export's own cache, so a publish after it re-encodes nothing these tiers
+ * share.
  */
 export function deriveModelForViewer(
 	clientKey: string,
@@ -374,6 +389,6 @@ export function deriveModelForViewer(
 ): Promise<DeriveResult> {
 	// The model's lock before the slot, so a model queued behind itself never holds a slot idle.
 	return modelDeriveLock(`${clientKey}/${projectKey}/${id}`, () =>
-		deriveSlot(() => deriveNow(clientKey, projectKey, id)),
+		masterSlot(() => deriveNow(clientKey, projectKey, id)),
 	);
 }
