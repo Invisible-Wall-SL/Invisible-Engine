@@ -6,6 +6,21 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A salmon at a waterfall's foot on sand could not climb it
+
+- **Symptom:** `salmons-levels-play.mjs`'s height-8 cliff (an overlay waterfall in the delta) was
+  never climbed: each tap leapt the salmon off the sand and it landed back on it.
+- **Cause:** on an original level a salmon is grounded each time it comes down on sand (the
+  original's rule, since 2026-11-18), and a tap that frees it leaps rather than climbs; only a
+  second tap in the air climbs. The original's waterfalls never stand in sand (they end at gx 240,
+  sand starts at 280), so only an authored overlay can put one there.
+- **Fix:** none in the rules (they are the original's). Do not author a waterfall onto or next to
+  sand in `levels.overlays`; the playbook's overlay removes the sand from its cliff to the sea.
+- **Guard:** none in Game Config's validation (it would need the level per pinned seed);
+  `salmons-levels-play.mjs` (the cliff climbed and crossed).
+- **PR:** not recorded (2026-11-18, branch `claude/salmons-ws-a-movement`) · source:
+  `docs/status/salmons.md`
+
 ### The rebuilt Salmons played a river the original game never made
 
 - **Symptom:** the owner found the Scene Editor's level unlike the original's, only one of it, and

@@ -24,10 +24,11 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   2400 × 1800 of its own; mouse and touch on as the original (`arcade.online.pointer`: the cursor
   or a held finger steers, stopping within 72 px; a tap or click jumps a salmon and swipes or casts
   with a bear or a fisherman).
-- **On the original's levels** (`salmonsMapRiver`, what the export ships; since 2026-11-18): the
-  original's speeds (`salmon` 288, `bear` 216, `fisherman` 240 px/s); a bank is a wall that stops
+- **On the original's levels** (`salmonsMapRiver`, what the export ships; since 2026-11-18; the
+  band river plays as before): the original's speeds (`salmon` 288, `bear` 216, `fisherman` 240 px/s); a bank is a wall that stops
   a salmon's centre at the middle of the edge cells (no push); the whirlpool pulls
-  `d·14·(1 − d/4)` cells/s; bears walk in the water, stopped 1.5 cells from a waterfall either
+  `d·14·(1 − d/4)` cells/s; a salmon is grounded each time it comes down on sand, and passes a
+  topped waterfall only while it is as high (it taps on at the top); bears walk in the water, stopped 1.5 cells from a waterfall either
   way, 12 cells past the water's edge and 5 columns from the source and the sea (fishermen too);
   fishermen keep out of the water but walk across a bridge, put on its deck's row and as high as
   it (`z`), ramped up its 2-cell slopes; salmon start at one of 39 places across column 390
@@ -127,15 +128,14 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     just below the river's first waterfall): ArrowUp held, the salmon stops at the waterfall's
     foot; tapping Space climbs it (the room's `climbed` event: the band river's waterfalls have no
     height, so they are the original's lowest and one tap tops them) and, let go at the top, it
-    swims on over the waterfall (no lift over it since 2026-11-17). Since 2026-11-18 it passes a
-    waterfall only while it is as high as it (the original's rule), so the page keeps tapping at
-    the top, ArrowUp held, until it is over, as the original's player does.
+    swims on over the waterfall (no lift over it since 2026-11-17). The band river keeps the pass
+    over a topped waterfall until the salmon is back on the water; the original's levels pass it
+    only while the salmon is as high (2026-11-18), which `salmons-levels-play.mjs` plays.
 13. Mouse and touch ([design](../design/arcade-pointer-controller.md)): page P joins
     `salmons-falls` with touch emulation on. A finger held on the screen upstream of its salmon
     swims it to the waterfall's foot; dragged, then lifted, it stops steering (the current carries
     it down, and the lift is no tap); with ArrowUp held, taps on the screen are the salmon's jump and
-    climb the waterfall (`climbed`) and, tapped on at the top, take it over
-    (`08b-touch-over-the-waterfall.png`); with touch off, a mouse
+    climb the waterfall (`climbed`; `08b-touch-over-the-waterfall.png`); with touch off, a mouse
     moved upstream of it, no button pressed, swims it there (the original's hover-to-move). Before
     the hover, a quick tap four cells across the river from the salmon (no key, the finger lifted
     at once) leaps it towards the tap: it carries the leap across, more than 120 px, where without

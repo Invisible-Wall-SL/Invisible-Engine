@@ -3,8 +3,8 @@
 	"PUBLIC_IE_FAMILIES": "slot",
 	"files": {
 		"index.html": {
-			"sha256": "8f5dc17487c08860feede2ff41ac0becd08bc453185c0d02a3201cff59c210f6",
-			"gzip": 3948
+			"sha256": "4a60d4a80fb05965e3afba5b67529e068efb87f88861445f1595fa54f566e1a9",
+			"gzip": 3950
 		},
 		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
 			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
@@ -22,33 +22,33 @@
 			"sha256": "9640022d3dac1f8e958d516b08548062d6f4e16ea23be2f2c8ba613ced4b3716",
 			"gzip": 48529
 		},
-		"_app/immutable/bundle.DoYliy6D.js": {
-			"sha256": "0444b74a2a37a74e04df1176b704d6198f111860049bd6f4042635dc9ce7c721",
-			"gzip": 726706
+		"_app/immutable/bundle.BYqL5hFh.js": {
+			"sha256": "d89551d7558f39f5ece939c0bc87e55237e898b43cc8b37f4020048365889ba3",
+			"gzip": 726732
 		},
 		"_app/immutable/chunks/B2caXNOu.js": {
 			"sha256": "ed3b773e21a0f5775b344773e6270272b01df2d93fd667d7bd64641ecbbd0b75",
 			"gzip": 117
 		},
-		"_app/immutable/chunks/B_UAkjNL.js": {
-			"sha256": "a8c1c96bfc3061001fe13eb491bff5cdceccec721d287644fc887be49083d5b8",
-			"gzip": 5938
-		},
-		"_app/immutable/chunks/BefSFEAO.js": {
-			"sha256": "60f5d1c4c6ef99a870b56a8a087bac00572bffd8e2d7e695dc63e14f4d876b3a",
-			"gzip": 693
-		},
 		"_app/immutable/chunks/C-6FHlig.js": {
 			"sha256": "210e8549887e093675f807e50c3f280960d197ae0d2487587a6c50830731403e",
 			"gzip": 30836
 		},
-		"_app/immutable/chunks/D1h1LPTG.js": {
-			"sha256": "b367f6729a2d7047ba1846c50f2b6c4966409efa2d63a492a58cbb458a0537a4",
+		"_app/immutable/chunks/CjeurH03.js": {
+			"sha256": "88d4d15b6bc45400c4285254866bde8375bfad21ce88ec7f3a84cee8b5c1b215",
+			"gzip": 691
+		},
+		"_app/immutable/chunks/DP4hgvKa.js": {
+			"sha256": "124010f59c2a2182b29f86c626e6ebe4f3434db2acb466a52a114c1e5fdbae88",
+			"gzip": 5940
+		},
+		"_app/immutable/chunks/pfGlNsGZ.js": {
+			"sha256": "6a8fce75e3b7449d2392d0b1ca3f23e87906fa183c66c767a1f3a606e482d5e2",
 			"gzip": 10773
 		}
 	},
 	"total": {
 		"files": 11,
-		"gzip": 1151587
+		"gzip": 1151615
 	}
 }

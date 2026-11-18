@@ -14,14 +14,16 @@
  *   still and slides back {@link CLIMB}`.slidePerSecond`; at the top it is let go at that height
  *   (`climbed`), on the downstream side still, and falls under the leap's gravity; out of reach it
  *   is let go; at the bottom it is let go on the water. A salmon at least as high as a waterfall
- *   passes over it: the room steps it without that solid (`level`). Let go at the top, it is that
- *   high only for a step or two, so, as in the original, it keeps tapping at the top (each tap
- *   climbs it back there) while it steers upstream. There is no teleport.
+ *   passes over it: the room steps it without that solid (`level`). Let go at the top, it passes
+ *   that waterfall until it is back on the water; an original level's waterfall (`aloft` on its
+ *   rule) only while it is still as high, so, as in the original, it keeps tapping at the top
+ *   (each tap climbs it back there) while it steers upstream. There is no teleport.
  * - `sandbanks`: a free salmon on the water on a sandbank (`kind: 'sandbank'`: its centre in the
  *   zone, or, for a run of cells, within {@link SAND_REACH} cells of one of their centres) is
  *   `grounded`, held still and still catchable, until it taps jump (`grounded`, `jumped`); it is
- *   grounded again every time it comes down on sand, as the original's (not while its leap off the
- *   sand rises, nor in the step its tap let it go).
+ *   not grounded again before its centre has left the sand. Inside `salmons`, on an original
+ *   level's sand (a rule with `cell`), it is grounded again every time it comes down on it, as the
+ *   original's (not while its leap off the sand rises, nor in the step its tap let it go).
  * - `bridges`: a fisherman walks across a bridge on its deck, as high as it ({@link bridges}).
  * - `salmonJump` (in `salmons` only): the original's leap (`GuiltyForever/Salmon-` 41811c2
  *   `server/index.js` `onMessage('jump')` and `update`). A tap of jump by a free salmon on the
@@ -183,7 +185,17 @@ const zonesOfKind = (game, kind) => {
 		.filter((rule) => rule.kind === kind && byId.has(rule.zone))
 		.map((rule) => {
 			const { id, x, y, w, h, height } = byId.get(rule.zone);
-			return { id, x, y, w, h, height, characters: rule.characters, cell: rule.cell };
+			return {
+				id,
+				x,
+				y,
+				w,
+				h,
+				height,
+				characters: rule.characters,
+				cell: rule.cell,
+				aloft: rule.aloft === true,
+			};
 		});
 };
 
@@ -252,8 +264,12 @@ const waterfallClimbing = {
 		if (!falls.length) return {};
 		const heights = [...new Set(falls.map((f) => f.height))].sort((a, b) => a - b);
 		/** A level → the same level without the waterfalls a player passes, by how many heights it
-		 *  clears. */
+		 *  clears and the waterfall it topped. */
 		const cleared = new WeakMap();
+		// A salmon let go at a waterfall's top passes it until it is back on the water, unless the
+		// waterfall is an original level's (`aloft`): the original lets it pass only while it is
+		// still as high, and it taps on at the top. P10.16's band river keeps the pass, as its traces
+		// were recorded with it.
 		const inReach = (fall, player) =>
 			appliesTo(fall, player) && fallReachSq(fall, player.body) < CLIMB.radiusSq;
 		return {
@@ -267,6 +283,7 @@ const waterfallClimbing = {
 				if (!fall) return;
 				climbTo(player, Math.min(fall.top, z + CLIMB.step));
 				player.memo.climbFall = falls.indexOf(fall);
+				player.memo.over = 0;
 				player.memo.vz = 0;
 				player.memo.climbing = 1;
 				player.memo.leapTap = TAP.climbed;
@@ -289,6 +306,7 @@ const waterfallClimbing = {
 						climbTo(p, fall.top);
 						p.memo.climbing = 0;
 						p.memo.letGo = 1;
+						p.memo.over = fall.aloft ? 0 : falls.indexOf(fall) + 1;
 						world.emit({ type: 'climbed', id: p.id, zone: fall.id });
 						continue;
 					}
@@ -304,12 +322,18 @@ const waterfallClimbing = {
 				if (!(z > 0) || !level?.solids) return level;
 				let n = 0;
 				while (n < heights.length && heights[n] <= z) n += 1;
-				if (!n) return level;
+				const topped = player.memo.over ?? 0;
+				if (!n && !topped) return level;
 				let byKey = cleared.get(level);
 				if (!byKey) cleared.set(level, (byKey = new Map()));
-				let passable = byKey.get(n);
+				const key = `${n}:${topped}`;
+				let passable = byKey.get(key);
 				if (!passable) {
-					const gone = new Set(falls.filter((f) => f.height <= heights[n - 1]).map((f) => f.id));
+					const gone = new Set(
+						falls
+							.filter((f, i) => (n && f.height <= heights[n - 1]) || i === topped - 1)
+							.map((f) => f.id),
+					);
 					passable = {
 						...level,
 						solids: createStaticIndex(
@@ -317,7 +341,7 @@ const waterfallClimbing = {
 							level.solids.cellSize,
 						),
 					};
-					byKey.set(n, passable);
+					byKey.set(key, passable);
 				}
 				return passable;
 			},
@@ -340,7 +364,13 @@ const onSand = (body, zone) => {
 	return dx * dx + dy * dy < (SAND_REACH * cell) ** 2;
 };
 
-const sandbanks = {
+/**
+ * The sandbanks: `regrounds` (inside `salmons`, which also plays the leap off the sand) grounds a
+ * salmon on an original level's sand (a zone with `cell`) every time it comes down on it, as the
+ * original; anywhere else, once a visit (the latch: not again before its centre has left the sand),
+ * so a salmon a tap frees without a leap is never held there for good.
+ */
+const sandbanksOf = (regrounds) => ({
 	create(game, api) {
 		const banks = zonesOfKind(game, 'sandbank');
 		if (!banks.length) return {};
@@ -355,11 +385,20 @@ const sandbanks = {
 			},
 			step(world) {
 				for (const p of world.players) {
-					if (!p.connected || p.status !== api.STATUS.free || above(p, CLEAR.sand)) continue;
-					// Not the step a tap let it go, nor while its leap off the sand rises.
-					if (p.memo.sandFree === world.stamp || p.memo.vz > 0) continue;
+					if (!p.connected) continue;
 					const sand = banks.find((z) => appliesTo(z, p) && onSand(p.body, z));
-					if (!sand) continue;
+					if (!sand) {
+						p.memo.onSand = 0;
+						continue;
+					}
+					if (p.status !== api.STATUS.free || above(p, CLEAR.sand)) continue;
+					if (regrounds && sand.cell) {
+						// Not the step a tap let it go, nor while its leap off the sand rises.
+						if (p.memo.sandFree === world.stamp || p.memo.vz > 0) continue;
+					} else {
+						if (p.memo.onSand) continue;
+						p.memo.onSand = 1;
+					}
 					p.status = api.STATUS.grounded;
 					p.until = 0;
 					world.emit({ type: 'grounded', id: p.id, zone: sand.id });
@@ -367,7 +406,9 @@ const sandbanks = {
 			},
 		};
 	},
-};
+});
+
+const sandbanks = sandbanksOf(false);
 
 /** Whether a move is a direction: longer than {@link LEAP_AIM}`.minMove` of a full one. */
 const isDirection = (input) => Math.hypot(input.moveX, input.moveY) > LEAP_AIM.minMove * MOVE_SCALE;
@@ -528,6 +569,7 @@ const fall = {
 					if (p.status !== api.STATUS.free) {
 						p.z = 0;
 						p.memo.vz = 0;
+						p.memo.over = 0;
 						continue;
 					}
 					const z = (p.z ?? 0) + vz * dt;
@@ -536,6 +578,7 @@ const fall = {
 					else {
 						p.z = 0;
 						p.memo.vz = 0;
+						p.memo.over = 0;
 					}
 				}
 			},
@@ -732,7 +775,7 @@ const waterfallClimb = {
 const salmons = {
 	create: (game, api) =>
 		together(game, api, [
-			sandbanks,
+			sandbanksOf(true),
 			fall,
 			waterfallClimbing,
 			leap,

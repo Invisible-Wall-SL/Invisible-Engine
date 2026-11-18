@@ -202,8 +202,8 @@ const api = {
 };
 
 /** A salmon a cell below a waterfall of height `H` in a room of Salmons' rules, and its events. */
-function atFoot(H, tickHz) {
-	return atFalls([{ id: 'fall', line: 20, height: H }], tickHz);
+function atFoot(H, tickHz, aloft) {
+	return atFalls([{ id: 'fall', line: 20, height: H, aloft }], tickHz);
 }
 
 /** The same, below waterfalls `{ id, line, height }` (in their order), the salmon a cell below
@@ -213,7 +213,14 @@ function atFalls(falls, tickHz = 30) {
 		zones: falls.map((f) => ({ id: f.id, x: 0, y: f.line - 20, w: 2000, h: 40, height: f.height })),
 		online: {
 			tickHz,
-			rules: { zones: falls.map((f) => ({ kind: 'waterfall', zone: f.id, solid: 'below' })) },
+			rules: {
+				zones: falls.map((f) => ({
+					kind: 'waterfall',
+					zone: f.id,
+					solid: 'below',
+					...(f.aloft ? { aloft: true } : {}),
+				})),
+			},
 		},
 	};
 	const rules = SALMONS_RULES.salmons.create(game, api);
@@ -356,18 +363,34 @@ check('a climber is held; one at least as high as a waterfall passes over it', (
 		topped.events.some((e) => e.type === 'climbed'),
 		'topped out',
 	);
-	assert.deepEqual(
-		topped.rules.level(topped.salmon, level).solids.shapes.map((s) => s.id),
-		['rock'],
-		'let go at its top: it passes the waterfall while it is that high',
-	);
 	topped.step(false);
 	topped.step(false);
 	assert.ok(topped.salmon.z > 0 && topped.salmon.z < 3 * CELL, 'falling, below the top');
+	assert.deepEqual(
+		topped.rules.level(topped.salmon, level).solids.shapes.map((s) => s.id),
+		['rock'],
+		'let go at its top, it passes the waterfall until it is back on the water',
+	);
+	topped.salmon.z = 0;
+	assert.equal(topped.rules.level(topped.salmon, level), level, 'on the water: blocked again');
+	// An original level's waterfall (`aloft`): passed only while the salmon is still as high.
+	const aloft = atFoot(3, 30, true);
+	aloft.step(true);
+	aloft.step(false);
+	aloft.step(true);
+	assert.ok(aloft.events.some((e) => e.type === 'climbed'));
+	assert.deepEqual(
+		aloft.rules.level(aloft.salmon, level).solids.shapes.map((s) => s.id),
+		['rock'],
+		'aloft, let go at its top: it passes the waterfall while it is that high',
+	);
+	aloft.step(false);
+	aloft.step(false);
+	assert.ok(aloft.salmon.z > 0 && aloft.salmon.z < 3 * CELL, 'aloft: falling, below the top');
 	assert.equal(
-		topped.rules.level(topped.salmon, level),
+		aloft.rules.level(aloft.salmon, level),
 		level,
-		"below the top it is blocked again, as the original's (a tap there climbs back to the top)",
+		"aloft, below the top it is blocked again, as the original's (a tap there climbs back up)",
 	);
 });
 
@@ -571,11 +594,38 @@ check('two waterfalls in reach: the first listed below its top is climbed, then 
 	assert.equal(r.salmon.memo.climbing, 1);
 });
 
-check('`level` drops the waterfalls a height clears, and no other', () => {
+check('`level` drops the waterfalls a height clears and the one it topped, and no other', () => {
 	const r = atFalls([
 		{ id: 'a', line: 20, height: 3 },
 		{ id: 'b', line: 400, height: 1 },
 		{ id: 'c', line: 800, height: 5 },
+	]);
+	const shapes = ['a', 'b', 'c', 'rock'].map((id, i) => ({ id, x: 0, y: i * 400, w: 2000, h: 40 }));
+	const level = { currents: { shapes: [] }, solids: { shapes, cellSize: 128, cells: new Map() } };
+	const ids = () => r.rules.level(r.salmon, level).solids.shapes.map((x) => x.id);
+	r.step(true);
+	r.step(false);
+	r.step(true);
+	assert.ok(
+		r.events.some((e) => e.type === 'climbed' && e.zone === 'a'),
+		'topped a',
+	);
+	r.salmon.z = 1.5 * CELL;
+	assert.deepEqual(ids(), ['c', 'rock'], 'b by its height, a as topped');
+	r.salmon.z = 0.5 * CELL;
+	assert.deepEqual(ids(), ['b', 'c', 'rock'], 'below b: a only');
+	r.salmon.memo.vz = -CELL;
+	for (let i = 0; i < 30 && r.salmon.z > 0; i++) r.step(false);
+	assert.equal(r.salmon.z, 0);
+	assert.equal(r.salmon.memo.over, 0, 'landed: the topped one is cleared by the fall');
+	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock']);
+});
+
+check("an original level's waterfalls (`aloft`): `level` drops only what a height clears", () => {
+	const r = atFalls([
+		{ id: 'a', line: 20, height: 3, aloft: true },
+		{ id: 'b', line: 400, height: 1, aloft: true },
+		{ id: 'c', line: 800, height: 5, aloft: true },
 	]);
 	const shapes = ['a', 'b', 'c', 'rock'].map((id, i) => ({ id, x: 0, y: i * 400, w: 2000, h: 40 }));
 	const level = { currents: { shapes: [] }, solids: { shapes, cellSize: 128, cells: new Map() } };

@@ -339,11 +339,14 @@ function originalBounds(river, zones, rules) {
 		const line = fall.y + fall.h / 2;
 		const band = river.bands.find((b) => b.y === line);
 		if (!band) return;
+		// Around the original's waterfall cells, whose centres are half a cell below the line the
+		// salmon's one-way solid stands on.
+		const row = line + CELL / 2;
 		const x = band.left + CELL / 2 - reach + bear.x;
-		const y = line - reach + bear.y;
+		const y = row - reach + bear.y;
 		solid(
 			`waterfall${i}Bear`,
-			{ x, y, w: band.right - CELL / 2 + reach - bear.x - x, h: line + reach - bear.y - y },
+			{ x, y, w: band.right - CELL / 2 + reach - bear.x - x, h: row + reach - bear.y - y },
 			['bear'],
 		);
 	});
@@ -414,6 +417,7 @@ export function salmonsGeometry(river) {
 			solid: 'below',
 			kind: 'waterfall',
 			characters: ['salmon'],
+			...(original ? { aloft: true } : {}),
 		});
 	});
 	(river.bridges ?? []).forEach((bridge, i) => {

@@ -57,6 +57,8 @@ export type SalmonsGeometry = {
 		pull?: { strength: number; radius: number; unit?: number };
 		/** A sandbank that is a run of cells this size, px (an original level's). */
 		cell?: number;
+		/** A waterfall passed only while a salmon is as high as it (an original level's). */
+		aloft?: boolean;
 	}[];
 	spawn: { x: number; y: number };
 	/** By online character id. */

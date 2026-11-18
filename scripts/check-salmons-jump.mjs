@@ -255,6 +255,57 @@ check('a tap off a sandbank leaps, announced once', () => {
 	);
 });
 
+check('sand re-grounds only inside `salmons` on an original level; else once a visit', () => {
+	const cellSand = { id: 'sand', x: 0, y: 0, w: 4 * CELL, h: CELL };
+	const visit = (module, rule) => {
+		const r = room(module, {
+			zones: [cellSand],
+			rules: [{ kind: 'sandbank', zone: 'sand', ...rule }],
+		});
+		Object.assign(r.salmon.body, { x: 1.5 * CELL, y: CELL / 2 });
+		r.step();
+		assert.equal(r.salmon.status, STATUS.grounded, 'on the sand: grounded');
+		r.press(true);
+		r.press(false);
+		for (let i = 0; i < 60; i++) {
+			r.step();
+			Object.assign(r.salmon.body, { x: 1.5 * CELL, y: CELL / 2 });
+		}
+		return r.salmon.status;
+	};
+	assert.equal(
+		visit(SALMONS_RULES.salmons, { cell: CELL }),
+		STATUS.grounded,
+		'down again: grounded',
+	);
+	assert.equal(
+		visit(SALMONS_RULES.salmons, {}),
+		STATUS.free,
+		'a band river sandbank: once a visit',
+	);
+	assert.equal(
+		visit(SALMONS_RULES.sandbanks, { cell: CELL }),
+		STATUS.free,
+		'`sandbanks` alone (no leap): freed by a tap, not held there for good',
+	);
+});
+
+check('a pull without `unit` is as before: strength · (1 − d/r), never past its centre', () => {
+	const zones = [{ id: 'pool', x: 0, y: 0, w: 400, h: 400 }];
+	const forces = zoneForces(zones, [{ zone: 'pool', pull: { strength: 300, radius: 200 } }], {});
+	for (const d of [10, 50, 100, 150, 199]) {
+		const body = { x: 200 + d, y: 200, w: 10, h: 10, vx: 0, vy: 0 };
+		addZoneForces(body, forces);
+		near(body.vx, -300 * (1 - d / 200), 1e-9, `at ${d} px`);
+	}
+	const close = { x: 203, y: 200, w: 10, h: 10, vx: 0, vy: 0 };
+	addZoneForces(close, forces, undefined, 1 / 30);
+	near(close.vx, -3 * 30, 1e-9, 'clamped to d / dt: onto the centre');
+	const out = { x: 200, y: 401, w: 10, h: 10, vx: 0, vy: 0 };
+	addZoneForces(out, forces);
+	assert.deepEqual([out.vx, out.vy], [0, 0], 'beyond the radius: none');
+});
+
 check('in the air it is neither grounded on sand nor hooked', () => {
 	const sand = { id: 'sand', x: 0, y: 0, w: 400, h: 400 };
 	const r = room(SALMONS_RULES.salmons, {

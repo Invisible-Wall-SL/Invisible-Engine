@@ -478,12 +478,12 @@ check('bears walk into the water; a waterfall, the bank limit and the ends stop 
 	const line = fall.y + fall.h / 2;
 	const water = river.bands.find((b) => b.y === line);
 	const x = (water.left + water.right) / 2;
-	Object.assign(p.body, { x, y: line + 5 * CELL });
+	Object.assign(p.body, { x, y: line + 6 * CELL });
 	run(90, { moveX: 0, moveY: -M });
-	near(p.body.y, line + 1.5 * CELL, 1e-6, 'from below: 1.5 cells from the waterfall');
+	near(p.body.y, line + 2 * CELL, 1e-6, 'from below: 1.5 cells from the waterfall cells');
 	Object.assign(p.body, { x, y: line - 5 * CELL });
 	run(90, { moveX: 0, moveY: M });
-	near(p.body.y, line - 1.5 * CELL, 1e-6, 'from above too');
+	near(p.body.y, line - CELL, 1e-6, 'from above too');
 	const top = river.bands[0];
 	Object.assign(p.body, { x: (top.left + top.right) / 2, y: (5 + 15) * CELL + CELL / 2 });
 	run(90, { moveX: 0, moveY: -M });
