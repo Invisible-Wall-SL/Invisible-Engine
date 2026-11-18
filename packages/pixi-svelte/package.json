@@ -27,7 +27,7 @@
 		"eslint": "10.15.0",
 		"eslint-config-custom": "workspace:*",
 		"prettier": "3.10.1",
-		"prettier-plugin-svelte": "3.3.3",
+		"prettier-plugin-svelte": "4.1.1",
 		"eventemitter3": "5.0.4",
 		"svelte-check": "4.7.8"
 	},
