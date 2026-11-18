@@ -16,9 +16,11 @@
  *
  * The body is its upright bounding box against the level: `radius` out from the centre on x and z,
  * `height` up from the feet. `x` / `z` is the centre on the plane and `y` the feet. A sub-step
- * moves x, then z, then y; a horizontal move climbs anything no higher than `stepUp` (a ramp is
- * climbed this way, a sliver at a time), and a grounded body that walks off a surface sticks to
- * one up to `snapDown` below it.
+ * moves x, then z, then y. A horizontal move walks up a ramp no steeper than `maxSlope` (rise over
+ * run) along its slope, jumping or not; it steps up a ledge — a box, or a walkable ramp's lip above
+ * its slope — out of a budget of `stepUp` a STEP, however many sub-steps the step takes; and a
+ * steeper ramp is a wall. A grounded body that walks off a surface sticks to one up to `snapDown`
+ * below it.
  */
 
 /** Steps per second the 3D sim is pinned at. */
@@ -88,6 +90,7 @@ export const MOTION3D_LIMITS = Object.freeze({
 	stepUp: [0, 5],
 	snapDown: [0, 5],
 	subMove: [0.01, 1],
+	maxSlope: [0, 20],
 });
 
 /** The tallest trampoline, m. */
@@ -102,7 +105,10 @@ export const sweepFits3d = (spec, cellSize) =>
 /** The direction a ramp's surface rises toward. */
 export const RAMP_FACINGS = ['+x', '-x', '+z', '-z'];
 
-/** BOTY's numbers (gameplay evaluation §1): gravity −9.81, jump 1.5 m, double jump while |vy| < 5. */
+/**
+ * BOTY's numbers (gameplay evaluation §1): gravity −9.81, jump 1.5 m, double jump while |vy| < 5;
+ * the steepest ramp walked is 45° (`maxSlope` 1; CrashArena's are 0.7).
+ */
 export const MOTION3D_DEFAULTS = Object.freeze({
 	radius: 0.4,
 	height: 1.8,
@@ -120,6 +126,7 @@ export const MOTION3D_DEFAULTS = Object.freeze({
 	stepUp: 0.35,
 	snapDown: 0.35,
 	subMove: 0.1,
+	maxSlope: 1,
 });
 
 /**
@@ -382,6 +389,7 @@ export function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 
 		Math.max(body.x, body.x + dx) + r,
 		Math.max(body.z, body.z + dz) + r,
 	);
+	climbLeft = spec.stepUp;
 	for (let i = 0; i < n; i++) {
 		if (sx !== 0 && !moveFlat(body, 0, sx, near, spec, out)) sx = 0;
 		if (sz !== 0 && !moveFlat(body, 1, sz, near, spec, out)) sz = 0;
@@ -404,7 +412,19 @@ export function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 
 	return out;
 }
 
-/** Move on x (`axis` 0) or z (1) by `d`, climbing up to `stepUp`; false when a wall stopped it. */
+/** The step-up a step has left, m: {@link stepBody3d} sets it to `stepUp`, a step-up spends it. */
+let climbLeft = 0;
+
+/** What a sub-move along a walkable ramp may rise past its slope times the run, m: rounding. */
+const SLOPE_SLACK = 1e-9;
+
+/**
+ * Move on x (`axis` 0) or z (1) by `d`; false when it was stopped. Rising along a ramp no steeper
+ * than `maxSlope`, in its facing's axis, is walking — at a jump too; any rise past that (a box's
+ * ledge, a ramp's lip) is a step-up, taken out of the step's `climbLeft` by a body not rising; a
+ * steeper ramp is a wall. A ledge the step has no budget left for holds the body, its velocity
+ * kept, until the next step; a wall stops it.
+ */
 function moveFlat(body, axis, d, near, spec, out) {
 	const r = spec.radius;
 	const h = spec.height;
@@ -415,21 +435,35 @@ function moveFlat(body, axis, d, near, spec, out) {
 	const x1 = body.x + r;
 	const z0 = body.z - r;
 	const z1 = body.z + r;
+	const run = d < 0 ? -d : d;
 	const canStep = body.vy <= 0;
 	let floor = body.y;
+	let spend = 0;
 	let ramp = false;
 	let blocked = false;
+	let held = false;
 	for (const c of near) {
 		if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
 		const top = topUnder(c, x0, z0, x1, z1);
 		if (!(body.y < top && body.y + h > c.minY)) continue;
-		if (canStep && top - body.y <= spec.stepUp) {
+		const steep = c.rise >= 0 && c.slope > spec.maxSlope;
+		const along = c.rise >= 0 && !steep && (c.rise < 2 ? 0 : 1) === axis;
+		const ledge = top - body.y - (along ? c.slope * run + SLOPE_SLACK : 0);
+		if (ledge <= 0 || (canStep && !steep && ledge <= climbLeft)) {
 			if (top > floor) floor = top;
+			if (ledge > spend) spend = ledge;
 			if (c.rise >= 0) ramp = true;
+		} else if (canStep && !steep && ledge <= spec.stepUp) {
+			held = true;
 		} else {
 			blocked = true;
 			break;
 		}
+	}
+	if (held && !blocked) {
+		if (axis === 0) body.x = prev;
+		else body.z = prev;
+		return false;
 	}
 	if (!blocked && floor > body.y) {
 		for (const c of near) {
@@ -442,10 +476,13 @@ function moveFlat(body, axis, d, near, spec, out) {
 		}
 		if (!blocked) {
 			body.y = floor;
-			if (body.vy < 0) body.vy = 0;
-			body.grounded = true;
-			if (ramp) out.onRamp = true;
-			else out.steppedUp = true;
+			climbLeft -= spend;
+			if (body.vy <= 0) {
+				body.vy = 0;
+				body.grounded = true;
+				if (ramp) out.onRamp = true;
+				else out.steppedUp = true;
+			}
 		}
 	}
 	if (blocked) {

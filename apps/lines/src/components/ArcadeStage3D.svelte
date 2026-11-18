@@ -6,7 +6,7 @@
 	import { bakedGameConfig } from '../editor-scenes';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
-	import { online3dSession } from '../game/online3d';
+	import { online3dSession, refuseOtherWorld } from '../game/online3d';
 	import { world3dCanvas } from '../game/world3dCanvas';
 
 	/**
@@ -134,7 +134,11 @@
 		});
 		let live = true;
 		const received = (state: unknown) => {
-			if (live) view.received(state as import('engine-3d').RoomState3d, performance.now());
+			if (!live) return;
+			view.received(state as import('engine-3d').RoomState3d, performance.now());
+			if (!view.mismatch) return;
+			live = false;
+			refuseOtherWorld();
 		};
 		room.onStateChange(received);
 		received(room.state);

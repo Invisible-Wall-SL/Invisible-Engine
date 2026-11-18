@@ -1,6 +1,8 @@
 // Arcade 3D motion (packages/engine-mechanics/src/motion3d.js; docs/design/3d-games.md Phase 0b,
 // docs/design/3d/gameplay-evaluation.md §2): a jump reaches its height, the double jump only near
-// the apex, a trampoline launches to its height, ramps are climbed and walked down, a 0.3 m step
+// the apex, a trampoline launches to its height, ramps are climbed and walked down, a ramp up to
+// maxSlope is walked at any tick rate and a steeper one is a wall, a step spends at most stepUp on
+// step-ups however many sub-steps it takes, a jump up a ramp keeps its run, a 0.3 m step
 // climbs and a 0.5 m one blocks, walls stop one axis and the other slides, ceilings stop a jump, a
 // fall at maxFall never passes through a thin slab, a full stick is no faster on a diagonal, and the
 // step uses no implementation-defined Math function (the cross-engine rule). Then the six-body,
@@ -18,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
 	BUTTON_JUMP,
+	BUTTON_SPRINT,
 	collidersNear,
 	createBody3d,
 	createLevel3d,
@@ -201,6 +204,82 @@ check('a 0.3 m step climbs, a 0.5 m step blocks', () => {
 	assert.ok(results.some((r) => r.steppedUp));
 	assert.ok(body.x <= 4 - 0.4 && body.x > 3.4, `stopped at ${body.x}`);
 	assert.equal(body.y, 0.3);
+});
+/** Sprint up a +x ramp `rise` m over `length` m at `hz` steps a second for up to 5 s: the highest
+ *  feet, and whether it met a wall. */
+const climb = (rise, length, hz) => {
+	const level = createLevel3d({
+		colliders: [
+			FLOOR,
+			{ kind: 'ramp', facing: '+x', minX: 0, minY: 0, minZ: -3, maxX: length, maxY: rise, maxZ: 3 },
+		],
+	});
+	const body = createBody3d({ x: -1 });
+	let y = 0;
+	let onWall = false;
+	for (let i = 0; i < hz * 5 && y < rise; i++) {
+		const input = { ...idle, mx: MOVE_SCALE, buttons: BUTTON_SPRINT };
+		onWall ||= stepBody3d(body, input, level, undefined, 1 / hz).onWall;
+		y = Math.max(y, body.y);
+	}
+	return { y, onWall };
+};
+check('a ramp up to maxSlope is walked at any tick rate; a steeper one is a wall', () => {
+	assert.equal(MOTION3D_DEFAULTS.maxSlope, 1);
+	for (const hz of [60, 30, 10]) {
+		for (const [rise, length] of [
+			[3.5, 5],
+			[2, 2],
+		]) {
+			const { y, onWall } = climb(rise, length, hz);
+			assert.ok(y === rise && !onWall, `${rise}/${length} at ${hz} Hz: up to ${y}`);
+		}
+		for (const [rise, length] of [
+			[4, 1],
+			[4.5, 1],
+			[2.2, 2],
+		]) {
+			const { y, onWall } = climb(rise, length, hz);
+			assert.ok(y === 0 && onWall, `${rise}/${length} at ${hz} Hz: climbed to ${y}`);
+		}
+	}
+});
+check('a step spends at most stepUp on step-ups, however many sub-steps it takes', () => {
+	const stairs = Array.from({ length: 40 }, (_, i) => box(i * 0.15, 0, -3, 20, (i + 1) * 0.3, 3));
+	const level = createLevel3d({ colliders: [FLOOR, ...stairs], cellSize: 4 });
+	const body = createBody3d({ x: -0.5 });
+	settle(body, level);
+	let highest = 0;
+	for (let i = 0; i < 20; i++) {
+		const before = body.y;
+		const r = stepBody3d(
+			body,
+			{ ...idle, mx: MOVE_SCALE, buttons: BUTTON_SPRINT },
+			level,
+			undefined,
+			0.1,
+		);
+		assert.ok(!r.onWall, `step ${i}: a stair is no wall`);
+		highest = Math.max(highest, body.y - before);
+	}
+	assert.ok(body.y >= 3, `it climbs (${body.y} m)`);
+	assert.ok(highest <= MOTION3D_DEFAULTS.stepUp + 1e-12, `${highest} m in one 0.1 s step`);
+	assert.equal(body.vx, MOTION3D_DEFAULTS.speed * MOTION3D_DEFAULTS.sprint, 'held, not stopped');
+});
+check('a jump while running up a ramp keeps its run', () => {
+	const level = createLevel3d({
+		colliders: [
+			FLOOR,
+			{ kind: 'ramp', facing: '+x', minX: 0, minY: 0, minZ: -3, maxX: 6, maxY: 3, maxZ: 3 },
+		],
+	});
+	const body = createBody3d({ x: -1 });
+	run(body, level, 40, { ...idle, mx: MOVE_SCALE });
+	assert.ok(body.grounded && body.y > 0.5, 'on the ramp');
+	const r = stepBody3d(body, { ...idle, mx: MOVE_SCALE, buttons: BUTTON_JUMP }, level);
+	assert.ok(r.jumped && !r.onWall, 'not stopped by the ramp');
+	assert.equal(body.vx, MOTION3D_DEFAULTS.speed);
+	assert.ok(!body.grounded && body.vy > 0);
 });
 check('a wall stops one axis and the other slides', () => {
 	const level = createLevel3d({ colliders: [FLOOR, box(2, 0, -50, 3, 4, 50)] });

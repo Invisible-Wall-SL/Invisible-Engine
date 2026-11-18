@@ -6,6 +6,21 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A corrected 3D player sank into a ramp and corrected forever
+
+- **Symptom:** after any correction (a reconnect, a dropped input) a player standing on a ramp sank
+  to the floor below on its own device and every later state corrected again (20/20 in review B's
+  repro); a spawn on a 0.7 m box fell to the floor.
+- **Cause:** the room simulates in float64 but sent the place as float32. Half the time the rounded
+  place is a hair UNDER a sloped or non-float32 top, the landing test (`top <= y`) fails, and the
+  body snaps down. The device had only the place, so velocities never reconciled either.
+- **Fix:** the own device is sent the whole body exactly (float64, own-only view fields) and takes
+  it in one correction; spawns keep their authored height. A rounding fix in the sim (frounding
+  tops and places) could not hold a sloped top, whose height at a rounded `x` is not a float32.
+- **Guard:** `check:room-sim-3d` "corrected while standing on a ramp" and "a spawn on a platform".
+- **PR:** 3D review B findings 1, 2, 7 (2026-11-18, branch `claude/3d-sim-review-fixes`) · source:
+  `docs/status/3d.md`
+
 ### A 3D player hovered by sending one input per gap
 
 - **Symptom:** after the fix below, a hand-made client sending one input every `CREDIT_SECONDS`

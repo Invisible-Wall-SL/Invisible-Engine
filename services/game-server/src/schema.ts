@@ -111,8 +111,13 @@ export const NearbyRoomState = schema({ ...roomFields, players: t.map(NearbyPlay
  *
  * {@link Player3D} is a 3D player as devices draw it: the place (`x y z`, metres, y up, `y` the
  * feet) and yaw, `status` and `team` (the rules'), `anim` (`ANIM3D` bits: grounded, sprinting,
- * carrying, aiming, double-jumped) and `ack`. One-shots (a jump, a landing, a bounce, a zone, a fall
- * and its respawn) arrive as `ONLINE_EVENT` messages, not state.
+ * carrying, aiming, double-jumped). Its OWN device (`VIEW_TAG.own`) is sent more: `ack`, the whole
+ * body to the bit (`bx by bz`, `vx vy vz` float64, `coyote`, `buffer`, `flags` — `engine-mechanics`
+ * `bodyOfWire3d`), which its prediction is reconciled with, and the inputs the room holds for it
+ * (`waiting`) and the steps its body owes (`credit`), which keep the device's clock on the room's
+ * (`createClockSync3d`). One-shots (a jump, a landing, a bounce, a zone, a fall and its respawn)
+ * arrive as `ONLINE_EVENT` messages, not state. {@link RoomState3D}'s `world` is the room's
+ * `worldHash3d`: a device whose own world differs refuses the room.
  */
 export const Input3D = schema({
 	seq: t.uint32(),
@@ -137,7 +142,18 @@ export const Player3D = schema({
 	anim: t.uint8(),
 	connected: t.boolean(),
 	bot: t.boolean(),
-	ack: t.uint32(),
+	ack: t.uint32().view(VIEW_TAG.own),
+	bx: t.float64().view(VIEW_TAG.own),
+	by: t.float64().view(VIEW_TAG.own),
+	bz: t.float64().view(VIEW_TAG.own),
+	vx: t.float64().view(VIEW_TAG.own),
+	vy: t.float64().view(VIEW_TAG.own),
+	vz: t.float64().view(VIEW_TAG.own),
+	coyote: t.uint16().view(VIEW_TAG.own),
+	buffer: t.uint16().view(VIEW_TAG.own),
+	flags: t.uint8().view(VIEW_TAG.own),
+	waiting: t.uint8().view(VIEW_TAG.own),
+	credit: t.uint8().view(VIEW_TAG.own),
 });
 
 export const RoomState3D = schema({
@@ -145,6 +161,7 @@ export const RoomState3D = schema({
 	phase: t.string(),
 	step: t.uint32(),
 	seed: t.uint32(),
+	world: t.uint32(),
 	players: t.map(Player3D),
 });
 export type RoomState3DData = SchemaType<typeof RoomState3D>;

@@ -41,9 +41,10 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * few inputs to keep up (a slow clock, a hand-made client hovering in slow motion), so it — and a
  * dropped one, every step — is stepped by a resting input (no move, no buttons, its own yaw) that
  * leaves its `ack` alone: it falls and lands for everyone else, and no body is ever more than
- * `CREDIT_SECONDS` behind the room. Its device (`createPredictor3d`) finds those resting steps when
- * it is next told where the player is. A player that has never sent an input (still loading) waits
- * at its home, which is where its device's predictor starts.
+ * `CREDIT_SECONDS` behind the room. Its device (`createPredictor3d`) takes those resting steps in
+ * one correction from the whole body the room sends it (`arcadeRoom3d.ts`). A player that has
+ * never sent an input (still loading) waits at its home, which is where its device's predictor
+ * starts.
  *
  * Each applied step raises its signals (`motion3d` `trackStep3d`: jumped, landed, bounced, zone
  * edges, fell) as events naming the player. A body below the death plane is back at its home at

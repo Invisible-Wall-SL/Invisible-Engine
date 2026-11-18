@@ -35,6 +35,22 @@ let session: Online3d | undefined;
 /** The joined 3D room, or `undefined` (an offline game, a 2D room, or not joined yet). */
 export const online3dSession = (): Online3d | undefined => session;
 
+/**
+ * Leave a room that plays another world than this device's (`engine-3d` `RoomView3d.mismatch`) and
+ * stop on the error screen: predicting there would correct the own player on every step. The game
+ * server reads the published config through a cache and the device its own bundle, so the two
+ * differ for a while after a republish.
+ */
+export function refuseOtherWorld(): void {
+	const joined = session?.room;
+	session = undefined;
+	joined?.leave().catch(() => {});
+	void refuseOnlineBoot(
+		'the game server plays another version of this game — try again in a minute',
+		true,
+	);
+}
+
 /** The raw config's `arcade.world3d`, or `undefined`. */
 const rawWorld3d = (): unknown =>
 	(bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined)?.arcade?.world3d;

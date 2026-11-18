@@ -84,6 +84,8 @@ export type Motion3dSpec = {
 	snapDown: number;
 	/** The longest sub-step move, m. */
 	subMove: number;
+	/** The steepest ramp walked, rise over run; a steeper one is a wall. */
+	maxSlope: number;
 };
 
 export declare const MOTION3D_DEFAULTS: Readonly<Motion3dSpec>;

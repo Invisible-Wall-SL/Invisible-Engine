@@ -1,7 +1,9 @@
 import { createFixedStep } from 'engine-mechanics/src/motion.js';
 import { createBody3d, type Motion3dSpec } from 'engine-mechanics/src/motion3d.js';
 import {
+	bodyOfWire3d,
 	clampInput3d,
+	createClockSync3d,
 	createInterpolator3d,
 	createPredictor3d,
 	createSnapshotClock,
@@ -9,7 +11,9 @@ import {
 	motionFor3d,
 	moveFromStick,
 	snapFor3d,
+	worldHash3d,
 	yawFromRadians,
+	type BodyWire3d,
 	type Input3d,
 	type Predictor3d,
 	type World3d,
@@ -18,20 +22,25 @@ import {
 import type { BodyView3d } from './play';
 import { yawToward } from './rig';
 
-/** One player as the 3D room's state carries it (`services/game-server` `Player3D`). */
-export type RoomPlayer3d = {
+/** One player as the 3D room's state carries it (`services/game-server` `Player3D`); the own
+ *  player also carries its `ack`, its whole body ({@link BodyWire3d}) and its clock. */
+export type RoomPlayer3d = Partial<BodyWire3d> & {
 	x: number;
 	y: number;
 	z: number;
 	yaw: number;
 	anim: number;
-	ack: number;
 	character: string;
+	ack?: number;
+	waiting?: number;
+	credit?: number;
 };
 
-/** The 3D room's state as the device reads it: the room's step and its players by session id. */
+/** The 3D room's state as the device reads it: the room's step, its world's fingerprint and its
+ *  players by session id. */
 export type RoomState3d = {
 	step?: number;
+	world?: number;
 	players?: { forEach(each: (player: RoomPlayer3d, id: string) => void): void };
 };
 
@@ -52,16 +61,21 @@ export type RoomView3d = {
 	readonly me: Predictor3d | undefined;
 	/** Inputs sent so far. */
 	readonly seq: number;
+	/** The room plays another world than this device's (`worldHash3d`): it predicts nothing, and
+	 *  the game must not go on in this room. */
+	readonly mismatch: boolean;
 };
 
 /**
  * The device's side of a 3D room (runtime step 4), with no transport: `send` is how an input leaves
  * (the seam hands it the Colyseus `room.input()`), `received` is fed the room's state. The own
  * player is predicted by `online3d` `createPredictor3d` from the first state that shows it — a
- * player is stepped only by an input, so that state is its home, exactly — at the room's `tickHz`;
- * everyone else is interpolated by `createInterpolator3d` about 100 ms behind
- * (`createSnapshotClock`). Pure, so `scripts/check-engine-3d-room.mjs` plays it against the room's
- * own simulation.
+ * player is stepped only by an input, so that state is its home, exactly — at the room's `tickHz`,
+ * and reconciled with the whole body the room sends its own device; the input clock follows the
+ * room's (`createClockSync3d`: now and then an input skipped or added). Everyone else is
+ * interpolated by `createInterpolator3d` about 100 ms behind (`createSnapshotClock`). A room whose
+ * world is not this device's (`RoomState3D.world`) is not played: {@link RoomView3d.mismatch}.
+ * Pure, so `scripts/check-engine-3d-room.mjs` plays it against the room's own simulation.
  */
 export function createRoomView3d({
 	meId,
@@ -83,11 +97,16 @@ export function createRoomView3d({
 		b.speed * b.sprint > a.speed * a.sprint ? b : a,
 	);
 	const others = createInterpolator3d({ snapM: snapFor3d(fastest, patchHz) });
+	const sync = createClockSync3d({ states: patchHz });
+	const fingerprint = worldHash3d(world);
 	const specs = new Map<string, Motion3dSpec>();
 	let me: Predictor3d | undefined;
 	let seq = 0;
 	let viewStep = 0;
 	let ids: string[] = [];
+	let mismatch = false;
+	/** Inputs to skip (below 0: the device runs ahead) or to add (above 0: it runs behind). */
+	let nudge = 0;
 
 	const specOf = (id: string, character: string) => {
 		let spec = specs.get(id);
@@ -101,7 +120,8 @@ export function createRoomView3d({
 	return {
 		received(state, nowMs) {
 			const { players, step } = state;
-			if (!players || step === undefined) return;
+			if (state.world !== undefined && state.world !== fingerprint) mismatch = true;
+			if (mismatch || !players || step === undefined) return;
 			view.observe(step, nowMs);
 			const seen = new Set<string>();
 			players.forEach((player, id) => {
@@ -117,8 +137,9 @@ export function createRoomView3d({
 					});
 					return;
 				}
+				if (player.bx === undefined || player.by === undefined || player.bz === undefined) return;
 				if (!me) {
-					const home = { x: player.x, y: player.y, z: player.z, yaw: player.yaw };
+					const home = { x: player.bx, y: player.by, z: player.bz, yaw: player.yaw };
 					me = createPredictor3d({
 						body: createBody3d(home),
 						level,
@@ -128,8 +149,9 @@ export function createRoomView3d({
 						snapM: snapFor3d(spec, patchHz),
 					});
 				}
-				if (player.ack > 0)
-					me.reconcile({ x: player.x, y: player.y, z: player.z, ack: player.ack, step });
+				const ack = player.ack ?? 0;
+				if (ack > 0) me.reconcile({ ack, step, body: bodyOfWire3d(player as BodyWire3d) });
+				nudge += sync.observe(player.waiting ?? 0, player.credit ?? 0);
 			});
 			others.retain(seen);
 			for (const id of specs.keys()) if (!seen.has(id)) specs.delete(id);
@@ -138,9 +160,9 @@ export function createRoomView3d({
 		frame(dtMs, nowMs, stick, cameraYawDeg, faceYaw) {
 			viewStep = view.advance(nowMs) ?? viewStep;
 			const own = me;
-			if (!own) return;
+			if (!own || mismatch) return;
 			const cameraYaw = yawFromRadians((cameraYawDeg * Math.PI) / 180);
-			clock.advance(dtMs, () => {
+			const step = () => {
 				seq += 1;
 				const { moveX, moveZ } = moveFromStick(stick.right, stick.forward, cameraYaw);
 				const facing = faceYaw ?? (moveX || moveZ ? yawToward(moveX, moveZ) : own.body.yaw);
@@ -155,6 +177,17 @@ export function createRoomView3d({
 				});
 				send(input);
 				own.input(input);
+			};
+			clock.advance(dtMs, () => {
+				if (nudge < 0) {
+					nudge += 1;
+					return;
+				}
+				step();
+				if (nudge > 0) {
+					nudge -= 1;
+					step();
+				}
 			});
 			own.frame(dtMs);
 		},
@@ -199,6 +232,9 @@ export function createRoomView3d({
 		},
 		get seq() {
 			return seq;
+		},
+		get mismatch() {
+			return mismatch;
 		},
 	};
 }
