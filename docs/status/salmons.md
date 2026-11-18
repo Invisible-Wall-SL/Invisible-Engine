@@ -457,8 +457,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 ## Recent changes
 
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
-  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.2 KB gzip, of which
-  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.1 KB; lines, match3 and card unchanged).
+  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.4 KB gzip, of which
+  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.3 KB; lines, match3 and card unchanged).
   - **Mirror** (`engine-layout` `projection.ts`): `Scene.mirrored` beside `projection:
     'isometric'`; `ISO_PROJECTOR` / `ISO_PROJECTOR_MIRRORED` (`project`, `unproject`, `mirrored`,
     the ground turn), `sceneProjector(scene)`, `isoProjectMirrored` / `isoUnprojectMirrored`,
