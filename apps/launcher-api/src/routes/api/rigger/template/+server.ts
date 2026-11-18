@@ -1,14 +1,16 @@
 import { json } from '@sveltejs/kit';
 import { riggerBundlePrefix } from '$lib/server/riggerBundle';
 import { getObjectText } from '$lib/server/r2';
-import { RIG_TEMPLATE_SIDECAR, rigTemplateFromSidecar } from '$lib/server/rigTemplates';
+import { RIG_TEMPLATE_SIDECAR } from '$lib/server/rigTemplates';
+import { rigTemplateForSidecar } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
- * The template an open rig was made from, with its face channels, for the Rigger's Face panel.
- * GET `?dir=<b64 bundle dir>` → `{ template }`, null when the bundle has no `template.json`.
- * Gated by `rigger`.
+ * The template an open rig was made from, with its controls, for the Rigger's Controls section: a
+ * built-in, or a template made in the Rigger at the version the rig was made from.
+ * GET `?dir=<b64 bundle dir>` → `{ template }`, null when the bundle has no `template.json` or the
+ * template was deleted. Gated by `rigger`.
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -17,5 +19,5 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	});
 	const bundle = riggerBundlePrefix(clientKey, projectKey, url.searchParams.get('dir') ?? '');
 	const text = await getObjectText(`${bundle}/${RIG_TEMPLATE_SIDECAR}`);
-	return json({ template: rigTemplateFromSidecar(text) });
+	return json({ template: await rigTemplateForSidecar(text) });
 };

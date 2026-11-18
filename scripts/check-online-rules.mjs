@@ -852,6 +852,7 @@ function playTrace(trace, each = () => {}) {
 					thousandths(p.body.x),
 					thousandths(p.body.y),
 					p.status,
+					thousandths(p.z ?? 0),
 				]),
 			]);
 	}
@@ -884,9 +885,14 @@ const clearX = (river, band) => {
 	return rock.x - band.left > band.right - rock.x - rock.w ? rock.x - 70 : rock.x + rock.w + 70;
 };
 
+/** The waterfall the climb trace climbs. */
+const CLIMB_FALL = 0;
+
 const TRACES = (() => {
 	const river = salmonsRiver(3);
-	const fall = river.waterfalls[0];
+	// The first waterfall, between two bands of rapids: a band's current carries a salmon by its
+	// centre, so on the line it is pushed by one (140 px/s), not both (280, more than its 240).
+	const fall = river.waterfalls[CLIMB_FALL];
 	const below = river.bands.find((b) => b.y === fall.y + fall.h / 2);
 	const sand = river.sandbanks[0];
 	const lineBand = river.bands[6];
@@ -984,16 +990,20 @@ await check('Salmons: every recorded trace replays exactly, and twice the same',
 });
 
 await check(
-	'Salmons: a waterfall stops a salmon from below; tapping climbs it; down it passes',
+	'Salmons: a waterfall stops a salmon from below; a tap climbs it, as high as it is; it passes over',
 	() => {
 		const { trace, result } = played.climb;
-		const fall = salmonsRiver(trace.seed).waterfalls[0];
+		const fall = salmonsRiver(trace.seed).waterfalls[CLIMB_FALL];
 		const foot = fall.y + fall.h + 22;
 		assert.ok(Math.abs(at(result, 's', 40).y - foot) < 1e-3, 'held up at the foot');
-		const climbed = result.events.filter((e) => e.type === 'climbed');
-		assert.equal(climbed.length, 1);
-		assert.ok(climbed[0].step > 41 && climbed[0].step <= 60, `climbed at ${climbed[0].step}`);
-		assert.equal(climbed[0].zone, 'waterfall0');
+		const climbed = result.events.filter((e) => e.type === 'climbed' && e.step <= 80);
+		// A waterfall with no height is the original's lowest (1 cell): one tap of 2.4 tops it. Each
+		// tap while it is still below the line and has sunk under the top climbs it again.
+		assert.deepEqual(
+			[climbed[0].step, climbed[0].zone],
+			[42, `waterfall${CLIMB_FALL}`],
+			'the first tap (step 42) climbs it',
+		);
 		assert.ok(at(result, 's', 80).y < fall.y, 'above the waterfall');
 		assert.ok(result.end.s.y > fall.y + fall.h, 'swimming down, it passes back through');
 	},
@@ -1044,8 +1054,10 @@ await check("Salmons: its rules' events reach Flow as online events, for each de
 	const signalsOf = (name, me) => flowSignalsOf(played[name].result.events, me);
 	const one = (name, me, event) => signalsOf(name, me).filter((s) => s.name === event);
 	assert.deepEqual(
-		one('climb', 's', 'climbed').map((s) => s.payload),
-		[{ player: 's', zone: 'waterfall0', x: 0, y: 0, me: true }],
+		one('climb', 's', 'climbed')
+			.map((s) => s.payload)
+			.slice(0, 1),
+		[{ player: 's', zone: `waterfall${CLIMB_FALL}`, x: 0, y: 0, me: true }],
 	);
 	assert.deepEqual(
 		one('sandbank', 's', 'grounded').map((s) => s.payload),
@@ -1233,7 +1245,7 @@ await check(
 		assert.match(source, /endStatuses\(players, stamp, grace, respawn\)/);
 		assert.doesNotMatch(source, /target\.status = ability\.effect/, 'no second copy of the hit');
 		const online = readFileSync(join(ROOT, 'packages/engine-mechanics/src/online.js'), 'utf8');
-		assert.match(online, /addZoneForces\(body, currents\)/);
+		assert.match(online, /addZoneForces\(body, currents[,)]/);
 		const loop = readFileSync(
 			join(ROOT, 'packages/engine-game/src/game/arcadeAbilities.ts'),
 			'utf8',

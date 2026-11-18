@@ -101,6 +101,45 @@ export type ArcadeOnlineCharacter = {
 	spawns?: { x: number; y: number }[];
 };
 
+/** The buttons a tap or a click can press (`engine-mechanics` `online.js` `BUTTONS`). */
+export const ARCADE_POINTER_TAP_BUTTONS = Object.freeze(['jump', 'ability1', 'ability2'] as const);
+
+export type ArcadePointerTapButton = (typeof ARCADE_POINTER_TAP_BUTTONS)[number];
+
+/** How a mouse steers: by hovering (no button, the original Salmons) or only while pressed. */
+export const ARCADE_POINTER_MOUSE_MODES = Object.freeze(['hover', 'press'] as const);
+
+/**
+ * Mouse and touch control of the own player (`docs/design/arcade-pointer-controller.md`): its
+ * presence turns it on. A finger (or the mouse) steers the player towards the point under it; a
+ * tap or a click presses the character's button there. SPARSE: an absent field is its default
+ * ({@link ARCADE_POINTER_DEFAULTS}).
+ */
+export type ArcadeOnlinePointer = {
+	/** `hover`: the player follows the cursor; `press`: only while the button is held. */
+	mouse?: (typeof ARCADE_POINTER_MOUSE_MODES)[number];
+	/** The player stops within this distance of the pointer, field px. */
+	deadZone?: number;
+	/** How far a press may move, canvas px, and still be a tap. */
+	tapPx?: number;
+	/** The button a tap presses, by online character id. A character not named: a tap only
+	 *  steers. */
+	taps?: Record<string, ArcadePointerTapButton>;
+};
+
+/** What a pointer block names when it names nothing (`engine-mechanics` `POINTER_DEFAULTS`). */
+export const ARCADE_POINTER_DEFAULTS = Object.freeze({
+	mouse: 'press' as (typeof ARCADE_POINTER_MOUSE_MODES)[number],
+	deadZone: 24,
+	tapPx: 12,
+});
+
+/** The bounds a pointer block is held to. */
+export const ARCADE_POINTER_LIMITS = Object.freeze({
+	deadZone: { min: 0, max: 1000 },
+	tapPx: { min: 0, max: 100 },
+} as const);
+
 /** The sides a one-way solid zone stops a player coming from; `true` = every side. */
 export type ArcadeOnlineSolid = true | 'below' | 'above' | 'left' | 'right';
 
@@ -310,6 +349,8 @@ export type ArcadeOnline = {
 	/** The generator's levels: pinned seeds and authored overlays (`docs/design/salmons-levels.md`).
 	 *  Absent ⇒ a new random level per room, as generated. */
 	levels?: ArcadeOnlineLevels;
+	/** Mouse and touch control of the own player. Absent ⇒ the keyboard only. */
+	pointer?: ArcadeOnlinePointer;
 };
 
 /** The netcodes an online arcade game can be played with. */
@@ -477,8 +518,10 @@ export type ResolvedArcadeOnlineBots = {
 };
 
 export type ResolvedArcadeOnline = Required<
-	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels'>
+	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer'>
 > & {
+	/** Absent ⇒ the keyboard only. */
+	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };
 	/** Absent ⇒ the field as authored. */
 	generator?: string;
@@ -549,6 +592,17 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 const within = (v: number, range: { min: number; max: number }) =>
 	Math.min(range.max, Math.max(range.min, v));
 
+const resolvePointer = (pointer: ArcadeOnlinePointer): Required<ArcadeOnlinePointer> => {
+	const d = ARCADE_POINTER_DEFAULTS;
+	const L = ARCADE_POINTER_LIMITS;
+	return {
+		mouse: pointer.mouse ?? d.mouse,
+		deadZone: within(pointer.deadZone ?? d.deadZone, L.deadZone),
+		tapPx: within(pointer.tapPx ?? d.tapPx, L.tapPx),
+		taps: { ...pointer.taps },
+	};
+};
+
 /**
  * An online arcade game's room settings with the defaults applied and every number held to
  * {@link ARCADE_ONLINE_LIMITS} (the state rate to no more than the step rate), or `undefined` for a
@@ -585,6 +639,7 @@ export const resolveArcadeOnline = (
 		bots: resolveBots(online.bots, maxPlayers),
 		...(online.generator ? { generator: online.generator } : {}),
 		...(online.levels ? { levels: online.levels } : {}),
+		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
 		...(online.nearby
 			? {
 					nearby: {
@@ -811,7 +866,33 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	if (generator) block.generator = generator;
 	const levels = normalizeLevels(raw.levels);
 	if (levels) block.levels = levels;
+	const pointer = normalizeOnlinePointer(raw.pointer);
+	if (pointer) block.pointer = pointer;
 	return block;
+}
+
+/** Normalize `arcade.online.pointer`: any object turns it on; its defaults are dropped, and a tap
+ *  naming no known button is dropped. */
+export function normalizeOnlinePointer(raw: unknown): ArcadeOnlinePointer | undefined {
+	if (!isObject(raw)) return undefined;
+	const d = ARCADE_POINTER_DEFAULTS;
+	const pointer: ArcadeOnlinePointer = {};
+	const mouse = ARCADE_POINTER_MOUSE_MODES.find((m) => m === raw.mouse);
+	if (mouse && mouse !== d.mouse) pointer.mouse = mouse;
+	const deadZone = num(raw.deadZone);
+	if (deadZone !== undefined && deadZone >= 0 && deadZone !== d.deadZone)
+		pointer.deadZone = deadZone;
+	const tapPx = num(raw.tapPx);
+	if (tapPx !== undefined && tapPx >= 0 && tapPx !== d.tapPx) pointer.tapPx = tapPx;
+	if (isObject(raw.taps)) {
+		const taps: Record<string, ArcadePointerTapButton> = {};
+		for (const [id, button] of Object.entries(raw.taps)) {
+			const known = ARCADE_POINTER_TAP_BUTTONS.find((b) => b === button);
+			if (tagOf(id) && known) taps[id] = known;
+		}
+		if (Object.keys(taps).length) pointer.taps = taps;
+	}
+	return pointer;
 }
 
 const cellOf = (raw: unknown): LevelCell | undefined =>

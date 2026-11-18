@@ -23,8 +23,46 @@ export const SALMONS_REGIONS = {
 
 export type SalmonsSheet = keyof typeof SALMONS_REGIONS;
 
-/** The tiles drawn by a TilingSprite, kept out of the sheets (`sheets/<name>.webp`). */
-export const SALMONS_TILES = ['waterfall_face'] as const;
+/** The tiles built beside the sheets (`sheets/<name>.webp`), drawn or not yet. */
+export const SALMONS_TILES = ['waterfall_face', 'cliff'] as const;
+
+/**
+ * The tiles the drawing code draws (a TilingSprite each), so `load.ts` loads and a project sheet may
+ * replace them: the waterfall's face and the cliff under it (`river.ts`). A tile built but not yet
+ * drawn joins only when something draws it: every name here must resolve, or the whole art fails to
+ * load.
+ */
+export const SALMONS_DRAWN_TILES = ['waterfall_face', 'cliff'] as const;
+
+/** Every name the drawing code draws: the sheets' regions and the drawn tiles. */
+export const SALMONS_DRAWN: readonly string[] = [
+	...Object.values(SALMONS_REGIONS).flat(),
+	...SALMONS_DRAWN_TILES,
+];
+
+/** The built-in sheets a draw still needs: those with a region the project's art does not ship. */
+export function builtinSheetsNeeded(project: Readonly<Record<string, unknown>>): SalmonsSheet[] {
+	return (Object.keys(SALMONS_REGIONS) as SalmonsSheet[]).filter((sheet) =>
+		SALMONS_REGIONS[sheet].some((name) => !project[name]),
+	);
+}
+
+/**
+ * Each drawn name's art: the project's (its published sheets) when it ships the name, else the
+ * built-in copy's. Throws for a name neither has, so a broken load keeps the placeholders.
+ */
+export function pickSalmonsRegions<T>(
+	project: Readonly<Record<string, T | undefined>>,
+	builtin: Readonly<Record<string, T | undefined>>,
+): Record<string, T> {
+	const out: Record<string, T> = {};
+	for (const name of SALMONS_DRAWN) {
+		const art = project[name] ?? builtin[name];
+		if (!art) throw new Error(`[salmons-art] no art for the region "${name}"`);
+		out[name] = art;
+	}
+	return out;
+}
 
 /**
  * The compass tile an autotile cell draws, from which of its four neighbours are the same ground

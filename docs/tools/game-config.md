@@ -163,7 +163,7 @@ has no family control at all. Three more families exist
   | Free spins, Expanding symbol, Coins, Coin board, Coin overlay, Bonus modes, Game modes, Reel behaviour, Paylines | ✓    | —                             | —                                    | —      | —    |
   | Match-3                                                                                                          | —    | ✓                             | ✓                                    | —      | —    |
   | Arcade                                                                                                           | —    | —                             | —                                    | ✓      | —    |
-  | Online room, Online rules, Bots                                                                                  | —    | —                             | —                                    | ✓ (an online game only) | —    |
+  | Online room, Mouse and touch, Online rules, Bots                                                                                  | —    | —                             | —                                    | ✓ (an online game only) | —    |
   | Card game                                                                                                        | —    | —                             | —                                    | —      | ✓    |
 
 - **Match-3** — the board's rules. The board itself is the **Grid**: its reels are the columns,
@@ -217,6 +217,22 @@ has no family control at all. Three more families exist
     **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
     (`x, y; x, y`, taken in turn; empty for the room's spawn). **Add character** needs a body
     first. Renaming a character renames it in every ability, zone rule and bot.
+- **Mouse and touch** (an online game only) — lets a player steer with the mouse or a finger as
+  well as the keys (hover the header for what it does). Tick **Mouse and touch control** to turn it
+  on; unticked (the default) the game reads the keyboard only.
+  - The player heads for the point under the finger, or the cursor, at full speed and stops within
+    **Stop within (px)** (24) of it; lifting the finger stops it. Held arrow keys win over the
+    pointer.
+  - **Mouse**: **Follows the cursor (no button)** — the original Salmons' hover-to-move, where a
+    click is the tap — or **Only while the button is held** (the default), where a mouse is a
+    finger.
+  - A press that moves no more than **Tap within (px)** (12) on the screen before it lifts is a
+    **tap**. The table picks what a tap presses for each online character: **Jump (Space)**,
+    **Ability 1 (J)**, **Ability 2 (K)**, or **Nothing** (it only steers). A tap naming a button
+    the character has no ability on warns.
+  - The device turns the pointer into the same inputs the keys send, so the server still decides
+    every move. Salmons ships it on: hover, 72 px, a tap jumps a salmon and swipes or casts with
+    a bear or a fisherman.
 - **Online rules** (an online game only) — what the server runs:
   - **Round seconds** (empty: until someone reaches the goal), **Pause between rounds** (15),
     **Goal score** (1) and a **Rules module** (a named module, e.g. `tag`, for what the data

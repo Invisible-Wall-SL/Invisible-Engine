@@ -39,7 +39,13 @@
 import sharp from 'sharp';
 import { encodeToKTX2 } from 'ktx2-encoder';
 import { premultiplyRgba } from './ktx2Alpha';
-import { DEFAULT_MAX_DIMENSION, MIN_ENCODE_PIXELS, paddedSize, targetSize } from './ktx2Dimensions';
+import {
+	DEFAULT_MAX_DIMENSION,
+	MAX_ENCODE_PIXELS,
+	MIN_ENCODE_PIXELS,
+	paddedSize,
+	targetSize,
+} from './ktx2Dimensions';
 
 // The sizing rules live in `ktx2Dimensions.ts` (no `sharp`, no wasm) so a guard can drive them
 // directly. Re-exported here so every existing importer of this module keeps working.
@@ -92,6 +98,62 @@ async function withSilencedStdout<T>(fn: () => Promise<T>): Promise<T> {
 	} finally {
 		process.stdout.write = originalWrite;
 	}
+}
+
+/**
+ * A 3D model texture (`docs/design/3d/assets-evaluation.md` §5.2), the mode a tier profile picks:
+ * `etc1s` (smallest download) or `uastc` (→ BC7/ASTC), sRGB or linear, normal-map tuning, and a mip
+ * chain (3D minification shimmers without one). Never premultiplied: glTF textures are straight
+ * alpha. `encodePageToKtx2` is untouched, so every 2D page encodes exactly as before.
+ */
+export interface ModelTextureEncode {
+	mode: 'uastc' | 'etc1s';
+	colorSpace: 'srgb' | 'linear';
+	normalMap?: boolean;
+	mipmaps: boolean;
+}
+
+/** ETC1S quality (1–255): 128 is basisu's default trade-off, visibly fine on toon albedo. */
+const ETC1S_QUALITY = 128;
+
+/**
+ * Encode an image whose dimensions the caller already chose (power of two, ÷4) to KTX2. Same
+ * sequential, synchronous-wasm rules as {@link encodePageToKtx2}; throws instead of returning null,
+ * because a model texture has no WebP twin to fall back to.
+ */
+export async function encodeModelTextureToKtx2(
+	rgba: { width: number; height: number; data: Uint8Array },
+	opts: ModelTextureEncode,
+): Promise<Uint8Array> {
+	if (rgba.width % 4 || rgba.height % 4)
+		throw new Error(
+			`model texture ${rgba.width}×${rgba.height} is not a whole number of 4×4 blocks`,
+		);
+	if (rgba.width * rgba.height > MAX_ENCODE_PIXELS)
+		throw new Error(`model texture ${rgba.width}×${rgba.height} exceeds the encoder's pixel cap`);
+	const srgb = opts.colorSpace === 'srgb' && !opts.normalMap;
+	const placeholder = await sharp({
+		create: { width: 4, height: 4, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+	})
+		.png()
+		.toBuffer();
+	const ktx2 = await withSilencedStdout(() =>
+		encodeToKTX2(new Uint8Array(placeholder), {
+			isUASTC: opts.mode === 'uastc',
+			uastcLDRQualityLevel: 1,
+			qualityLevel: ETC1S_QUALITY,
+			compressionLevel: 2,
+			needSupercompression: true,
+			isKTX2File: true,
+			isPerceptual: srgb,
+			isSetKTX2SRGBTransferFunc: srgb,
+			isNormalMap: !!opts.normalMap,
+			generateMipmap: opts.mipmaps,
+			imageDecoder: async () => rgba,
+		}),
+	);
+	if (ktx2.byteLength === 0) throw new Error('the KTX2 encoder returned nothing');
+	return ktx2;
 }
 
 /** The encoded KTX2 twin + the dimensions it was encoded at (≤ source, if it was downscaled).

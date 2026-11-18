@@ -1,4 +1,4 @@
-var invisibleRig = function(exports) {
+var invisibleRig = (function(exports) {
   "use strict";
   const PI = 3.1415927;
   const PI2 = PI * 2;
@@ -8528,4 +8528,4 @@ void main() { gl_FragColor = vColor; }`;
   exports.writeIrig = writeIrig;
   Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
   return exports;
-}({});
+})({});

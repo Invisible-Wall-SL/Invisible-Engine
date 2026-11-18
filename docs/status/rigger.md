@@ -96,9 +96,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     the mouth from a voice line, with atlas-tool running Rhubarb Lip Sync. T7's template half is
     built: the **Full body** template, 15 body controls and five starter clips (`idle`, `celebrate`,
     `win_small`, `win_big`, `walk`). ⏳ None tried in the authed Rigger against real art; T4 also
-    owes its first atlas-tool deploy with the Rhubarb layer and one real line keyed live. Left: T5
-    (face from video), T6 (art blueprint, real run owed) and T7b (body motion from a filmed actor:
-    DWPose body points → bone rotations).
+    owes its first atlas-tool deploy with the Rhubarb layer and one real line keyed live. T5 + T7b
+    are built: **🎥 Motion** keys the face or the body from a Flipbook clip or a video, tracked by
+    MediaPipe in the browser. ⏳ Owed: an import in the authed Rigger on a real template rig, and a
+    real cartoon flipbook with drawn blinks and talking (only stills and painted stand-ins tried).
+    Left: T6 (art blueprint, real run owed).
     T6's tools are built (2026-11-17): two Qwen blueprints and the part cutter `rig_parts.py`.
     ⏳ **No real run yet:** RunPod refused to start a pod ("account balance is too low") and refused
     to store the Qwen-Image-Edit-2509 weights on the volume ("storage quota exceeded", after the
@@ -106,6 +108,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `/comfyui` → What's installed → transfer the edit model again (the URL is in the variant
     blueprint's `models`), run both blueprints and the cutter, and judge the cut by eye in
     `sheet.png` (model output beside neutral + cut patches).
+    T8 is built (2026-11-18): **📐 Save as template** turns any rig into a shared, versioned template
+    with no code change ([§7](../design/rig-templates.md)). ⏳ Owed: a save in the authed Rigger
+    against real R2, then a ＋ New rig from it on new art.
 
 ## Blocked (owner / external)
 
@@ -114,6 +119,97 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-18 — **📐 Save as template (rig templates T8).** Any open rig becomes a shared rig
+  template that then works like `bust-face` and `full-body`: ＋ New rig (parts attach by name,
+  missing ones listed), the Controls section, 🎬 starter animations, 🎤 lip-sync when it has a
+  mouth-shapes control with a lip-sync map, 🎥 motion when it carries a tracking map. Design in
+  [rig-templates §7](../design/rig-templates.md). **Store:** R2,
+  `_shared/rig-templates/<id>/v<n>.json` (create-only, never rewritten) + `<id>/head.json`, moved
+  under the caller's precondition; no index object (`rigTemplateStore.ts`). A rig keeps the version
+  it was made from (`template.json` `{id, version}`); a deleted template's rigs keep their keys and
+  lose only the Controls section. **Derivation is server-side** (`rigTemplateFromRig.ts`): bones
+  with setup rotation / length / scale, slots with blend and colour, default-skin images as parts
+  with their placement on the bone; a mesh becomes an image part, a clipping / path / point / box is
+  left out, and the author is told what was not carried. **Starter clips are the rig's own
+  animations as timelines** (`clip.animation`), checked to name only the template's bones, slots
+  and parts; deform, constraint and event timelines are refused. **Every save** runs a strict zod
+  parse (`rigTemplateSchema.ts`), `rigTemplateProblem`, and `rigTemplateSaveProblem`
+  (`rigTemplateCheck.ts`): a rig made from it, with every part and with only the needed ones, saves
+  as an irig and poses every control at min / rest / max and every clip at start / middle / end
+  under engine-rig. Routes: `POST /api/rigger/templates/save`, `POST /api/rigger/templates/delete`;
+  `GET /api/rigger/templates` and `/api/rigger/template` serve both kinds through one summary
+  (`origin`, `saved`). Page: the 📐 modal (Parts, Controls editor with live preview, Starter
+  animations, Shared templates); a carried motion map keeps only the controls still there, and body
+  motion on a bone turned in the setup pose is refused (the solve reads unturned directions). Gates:
+  `check:rig-templates` 148 (was 74), `check:rigger-writes` 127 (was 101: create, taken name,
+  version, stale confirm, refusals, list, a New rig from a saved template, the version a rig
+  remembers, two racing creates, an orphan stepped over, delete, a half-done delete),
+  `face-channels.mjs` 399 (a saved template's controls and own clip pose under engine-rig) and the
+  new `template-save-browser.mjs` 20/20; all 31 planted mutants caught (the first run missed 7,
+  each closed with a check). Not built: authoring a NEW motion map in the page (carried
+  only), and other skins / constraints / events in a template.
+- 2026-11-17 — **Motion import: the review's remaining nits.** One import at a time
+  (`faceMotionBusy` in `view.html`): a panel re-rendered mid-import keeps 🎥 Key at playhead off and
+  a second click starts nothing, where two `track()` loops used to interleave on one VIDEO-mode
+  tracker. Frame sources have `close()`, which `track()` always calls and which runs when a source
+  fails to build, so a video's object URL and a clip's sheet `ImageBitmap`s are freed whatever the
+  outcome. `faceKeyMotion` keeps the curve of an axis no imported channel writes on a shared
+  translate / scale timeline (gaze y under a gaze-x-only import), where it used to clear it. The solve
+  groups channels sharing key times through every timeline they reach, so three or more chained
+  channels key together (it was one pairwise pass). Gates: `motion-solve.mjs` 53/53 and
+  `face-motion-browser.mjs` 32/32, each new check red on the code before.
+- 2026-11-17 — **Body motion: a child is solved against its parent's held value.** `bodySeries`
+  (`src/lib/rigMotion.ts`) solved frame by frame and carried only the parents solved on that frame,
+  so where a parent was a gap (hips or a shoulder under `minVisibility`) the child was solved as if
+  the parent were at rest, while `fillGaps` then held the parent: the posed arm jumped by the lean,
+  or the forearm by the whole upper-arm angle. It now solves entry by entry, parents first, against
+  each parent's gap-filled series. Guarded by two `motion-solve.mjs` checks (50/50), red before the
+  fix: a 15° lean with the hips out of sight for four frames (arm −164.7° → −152.0°), and a raised
+  arm with the shoulder out of sight (forearm 178.7° → 100.3°).
+- 2026-11-17 — **The motion import sends nothing off-site, and MediaPipe's licence ships with it.**
+  `@mediapipe/tasks-vision` 1.2.0 builds a usage logger into every landmarker that POSTs usage stats
+  to `odml.pa.googleapis.com` every 60 s, with no option to turn it off. `vite.rigger-motion.config.ts`
+  now swaps that class at build time for one that starts failed (its callers queue nothing; it has
+  no timer and no sender). The swap matches the pinned 1.2.0 source and fails the build if it stops
+  matching, so an upgrade cannot quietly bring the logger back. `check:vendored-bundles` also fails
+  if `rigger-motion.js` names any `http(s)://` address (red on the previous bundle, which named only
+  the logger's). Apache-2.0 §4: `static/rigger/vendor/mediapipe/LICENSE` (verbatim) and `NOTICE`
+  (what is redistributed, and that the bundle is modified), plus a banner in the bundle.
+- 2026-11-17 — **Rig templates T5 + T7b: motion from a Flipbook clip or a video.** The Controls
+  section's **🎥 Motion** keys the face (bust-face) or the body (full-body) from a performance at the
+  playhead, one undo step. Tracker: **MediaPipe** Face Landmarker + Pose Landmarker, in the browser
+  on the CPU (`src/rigger-motion/main.ts` → committed `static/rigger/vendor/rigger-motion.js`,
+  `build:rigger-motion`, in `check:vendored-bundles`); a video is read from the picked file, never
+  uploaded. Licences: every MediaPipe model card says Apache-2.0 (BlazeFace, Face Mesh V2,
+  Blendshape V2, BlazePose GHUM 3D) and so does `@mediapipe/tasks-vision` (pinned 1.2.0, dev dep).
+  DWPose was refused: its `dw-ll_ucoco` weights are trained on UBody, non-commercial research only
+  (RTMW too). Hosting: the two `.task` models are committed in `static/rigger/vendor/mediapipe/`
+  (13 MB); the 14 MB SIMD WASM is copied there from the pinned package by
+  `scripts/copy-mediapipe-wasm.mjs` in `predev` / `prebuild` (gitignored), so no CDN at run time and
+  no binary churn in git. Solve: `src/lib/rigMotion.ts` (pure) turns the track into channel keys;
+  the mapping is template data (`motion` on `BUST_FACE` / `FULL_BODY`, `RigMotionMap`), checked by
+  `rigTemplateProblem` (channels, blendshape names, point indices, parents before children, a
+  rotate the channel really drives, the root axis). Face: blendshapes → mouth shape (nearest, held
+  80 ms) + jaw + blinks + brows (against the performer's median) + gaze; eye corners → tilt, nose →
+  turn. Body: each bone along its two points less its parents' carried turn; hips → root, scaled by
+  the torso; ears closer than 12% of the torso are a gap. Clamped to each channel's range (the share
+  past it is reported), Gaussian-smoothed, RDP-reduced to 2% of the range plus every swap frame;
+  channels sharing a bone timeline are keyed at the same times. New `move` control (root x) on Full
+  body. The page writes through `faceKeyMotion` (replaces the imported channels' keys under the
+  performance; a mouth keys only its image when the jaw is imported too) and lists what did not carry
+  over (untracked frames, past-range controls, the template's `motion.cannot`). Face **strength**
+  1× / 1.5× / 2× for drawn sources. Gates: `tools/rigger-spike/motion-solve.mjs` 48 (fixed face and
+  pose tracks → keys → engine-rig poses: blink, wink side, mouth + video jaw, one-frame flicker,
+  brow swap on its crossing, tilt, turn, gaze x/y, arm raise with a straight elbow, step, move + hop,
+  side-on ears, low-visibility gap, past-range arm, key reduction, keys replaced under the import);
+  `face-motion-browser.mjs` 27 (the real MediaPipe load on blank frames, clip frames from two sheets
+  at their untrimmed size and the clip's rate, a recorded video at the chosen rate, one undo, the
+  report, the strength option, no button on a rig without a motion map); `check:rig-templates` 73
+  (+15 motion-map refusals); `face-channels.mjs` 361. Mutation-checked: 23 solve / validator / keying
+  mutations and 4 page / bundle mutations each turn a gate red. **Real footage, by hand** (not a
+  gate; numbers in the design §5.3): filmed face 271/288 frames, filmed walk 384/384, Sintel's
+  stylised 3D face 69/144 and 36/192, Pepper (2D cartoon) 25/25 front, ¾ and line art, 0/25 in
+  profile, tilt within ~2–4°; drawn closed eyes / open mouth score ~40% of a filmed face's.
 - 2026-11-17 — **Rig templates T4: lip-sync from audio.** The Controls section's **🎤 Lip-sync** (bust-face) keys
   the mouth and jaw from a voice line at the playhead. Voice lines are uploaded with a presigned PUT
   to `<client>/<project>/voices/` (`SUB.voices`, `riggerVoice.ts`, `GET|POST /api/rigger/voice`).

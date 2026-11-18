@@ -12,9 +12,11 @@ import {
 } from 'pixi.js';
 
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
 import { seededRandom } from './random';
+import { CELL, K } from './scale';
 
 /**
  * SALMONS' RIVER IN ITS ORIGINAL ART: the river a room's seed made (`engine-mechanics`
@@ -23,22 +25,23 @@ import { seededRandom } from './random';
  * diamond grid; here a CELL of 48 world px is drawn as a 96 × 48 diamond, so every size of the old
  * client is scaled by {@link K}.
  *
- * Ground (painted diamonds: the grass and sand autotiles, the riverbed, the tint, the sea, the
- * waterfalls' faces) is drawn in the flat world under the same 2:1 turn `<IsoWorld>` gives a ground
- * node; upright things (rocks, whirlpools, trees, the waterfalls' lips and splashes) are drawn at
- * their projected places. Animated parts tick on the app's ticker. Only what the view holds is
- * drawn (each piece is culled by its box).
+ * Ground (painted diamonds: the grass and sand autotiles, the riverbed, the tint, the sea) is
+ * drawn in the flat world under the same 2:1 turn `<IsoWorld>` gives a ground node; upright things
+ * (rocks, whirlpools, trees, the waterfalls' lips and splashes) are drawn at their projected places.
+ * Everything upstream of a waterfall is raised by its step (`referenceLayouts/salmonsElevation.ts`):
+ * a raised piece of ground is drawn at its world place less its lift on both axes, which the turn
+ * makes straight up, and an upright thing that much higher. Under each waterfall's lip a cliff of
+ * `cliff.png` (one texture high, tiled across the world, as the old client's `createCliffFace`) and
+ * the falling water stand on its line, behind the ground at its foot. Animated parts tick on the
+ * app's ticker. Only what the view holds is drawn (each piece is culled by its box).
  */
-
-export const CELL = 48;
-/** The old client's sizes to the engine's: a 64 × 32 tile is a 96 × 48 one. */
-export const K = CELL / 32;
 
 const FOREST_FLOOR = 0x28591e;
 const WATER_TINT = 0x0ea5e9;
 const RAPIDS_TINT = 0x38bdf8;
 const SOURCE_TINT = 0x7dd3fc;
-const TINT_ALPHA = 0.75;
+/** How strongly the water's tint covers the riverbed and what swims under it. */
+export const TINT_ALPHA = 0.75;
 const RIVERBED = [
 	0xb89968, 0xc4a576, 0xa88858, 0xd0b487, 0xb09060, 0xc8a878, 0xa07050, 0xb88f5d, 0xc59f70,
 ];
@@ -178,6 +181,31 @@ function displacementTexture(): Texture {
 	return texture;
 }
 
+const tintOf = (wet: Wet) =>
+	wet === 'rapids' ? RAPIDS_TINT : wet === 'source' ? SOURCE_TINT : WATER_TINT;
+
+/**
+ * The water a body at world (x, y) swims in, as the art draws it: on open water (its cell's water,
+ * not the sea, a sandbank or a rock), with the tint drawn over that cell (none for the sea, which
+ * has none); `undefined` off the water.
+ */
+export function waterUnder(
+	river: SalmonsRiverDrawing,
+	x: number,
+	y: number,
+): { tint: number | undefined } | undefined {
+	const wet = wetAt(
+		river,
+		(Math.floor(x / CELL) + 0.5) * CELL,
+		(Math.floor(y / CELL) + 0.5) * CELL,
+	);
+	if (!wet) return undefined;
+	const inside = (b: { x: number; y: number; w: number; h: number }) =>
+		x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h;
+	if ((river.sandbanks ?? []).some(inside) || (river.rocks ?? []).some(inside)) return undefined;
+	return { tint: wet === 'sea' ? undefined : tintOf(wet) };
+}
+
 /** What the river holds at a world point: its kind of water, or `undefined` for a bank. */
 function wetAt(river: SalmonsRiverDrawing, x: number, y: number): Wet | undefined {
 	if (y >= river.sea.y) return 'sea';
@@ -234,6 +262,7 @@ export function mountSalmonsRiver(
 				: undefined
 			: wetAt(river, (c + 0.5) * CELL, (r + 0.5) * CELL);
 
+	const elevation = riverElevation(river.waterfalls);
 	const floor = new Graphics();
 	const corners = [
 		project(-SEA_MARGIN * CELL, -SEA_MARGIN * CELL),
@@ -242,7 +271,7 @@ export function mountSalmonsRiver(
 		project(-SEA_MARGIN * CELL, river.world.h + SEA_MARGIN * CELL),
 	];
 	const fx0 = Math.min(...corners.map((p) => p.x));
-	const fy0 = Math.min(...corners.map((p) => p.y));
+	const fy0 = Math.min(...corners.map((p) => p.y)) - elevation.total;
 	floor
 		.rect(
 			fx0,
@@ -263,15 +292,15 @@ export function mountSalmonsRiver(
 	const tint = new Container();
 	const grass = new Container();
 	const sand = new Container();
-	const falls = new Container();
-	flat.addChild(bed, seaLayer, tint, grass, sand, falls);
+	flat.addChild(bed, seaLayer, tint, grass, sand);
+	const cliffs = new Container();
 	const upright = new Container();
 	const trees: { sprite: Sprite; y: number }[] = [];
 	const displacement = new Sprite(noise);
 	displacement.alpha = 0;
 	const filter = new DisplacementFilter({ sprite: displacement, scale: { x: 6, y: 4 } });
 	bed.filters = [filter];
-	into.addChild(floor, displacement, turn, upright);
+	into.addChild(floor, displacement, cliffs, turn, upright);
 
 	const flatCulled: Culled[] = [];
 	const uprightCulled: Culled[] = [];
@@ -281,9 +310,33 @@ export function mountSalmonsRiver(
 		x1: (c + 1) * CELL,
 		y1: (r + 1) * CELL,
 	});
+	/** Each ground layer's raised parts, by lift: a container moved back by it on both axes. */
+	const raised = new Map<Container, Map<number, Container>>();
+	const liftedIn = (layer: Container, lift: number) => {
+		if (!lift) return layer;
+		let byLift = raised.get(layer);
+		if (!byLift) raised.set(layer, (byLift = new Map()));
+		let part = byLift.get(lift);
+		if (!part) {
+			part = new Container();
+			part.position.set(-lift, -lift);
+			layer.addChild(part);
+			byLift.set(lift, part);
+		}
+		return part;
+	};
 	const onGround = (layer: Container, view: Container, box: Box) => {
-		layer.addChild(view);
-		flatCulled.push({ view, box });
+		const lift = elevation.at(box.y0);
+		liftedIn(layer, lift).addChild(view);
+		flatCulled.push({
+			view,
+			box: { x0: box.x0 - lift, y0: box.y0 - lift, x1: box.x1 - lift, y1: box.y1 - lift },
+		});
+	};
+	/** A world point's projected place, raised with the ground under it. */
+	const placed = (x: number, y: number) => {
+		const at = project(x, y);
+		return { x: at.x, y: at.y - elevation.at(y) };
 	};
 	const bedTile = (c: number, r: number) =>
 		beds[((Math.imul(c, 73856093) ^ Math.imul(r, 19349663)) >>> 0) % beds.length];
@@ -296,16 +349,14 @@ export function mountSalmonsRiver(
 		square.alpha = TINT_ALPHA;
 		onGround(tint, square, cellBox(c, r));
 	};
-	const tintOf = (wet: Wet) =>
-		wet === 'rapids' ? RAPIDS_TINT : wet === 'source' ? SOURCE_TINT : WATER_TINT;
 	const tree = (c: number, r: number, variant: number) => {
 		const texture = region(`tree_${variant}`);
 		const sprite = new Sprite(texture);
 		const at = project((c + 0.5) * CELL, (r + 0.5) * CELL);
 		sprite.anchor.set(0.5, 1);
 		sprite.scale.set(TREE_W / texture.width);
-		sprite.position.set(at.x, at.y + CELL / 4);
-		trees.push({ sprite, y: sprite.y });
+		sprite.position.set(at.x, at.y + CELL / 4 - elevation.at(r * CELL));
+		trees.push({ sprite, y: at.y });
 	};
 	const biomeTree = (r: number) => {
 		const pair = BIOME_TREE_PAIRS[((Math.floor(r / BIOME_ROWS) % 6) + 6) % 6];
@@ -414,34 +465,59 @@ export function mountSalmonsRiver(
 	};
 
 	const faces: TilingSprite[] = [];
+	const sheared = (x: number, line: number, top: number) => {
+		const at = project(x, line);
+		const view = new Container();
+		view.setFromMatrix(new Matrix(1, 0.5, 0, 1, at.x, at.y - top));
+		return view;
+	};
+	const shearedBox = (x0: number, x1: number, line: number, top: number, h: number): Box => {
+		const a = project(x0, line);
+		const b = project(x1, line);
+		return { x0: a.x, y0: a.y - top, x1: b.x, y1: b.y - top + h };
+	};
+	const behind = (view: Container, box: Box) => {
+		cliffs.addChild(view);
+		uprightCulled.push({ view, box });
+	};
+	const edgeL = -FOREST_DEPTH * CELL;
+	const edgeR = (cols + FOREST_DEPTH) * CELL;
 	(river.waterfalls ?? []).forEach((fall) => {
-		const band = river.bands.find((b) => b.y === fall.y + fall.h / 2) ?? river.bands[0];
+		const line = fall.y + fall.h / 2;
+		const step = elevation.steps.find((s) => s.line === line);
+		if (!step) return;
+		const cliff = sheared(edgeL, line, step.top);
+		const rock = new TilingSprite({ texture: art.cliff, width: edgeR - edgeL, height: step.cliff });
+		rock.tileScale.set(step.cliff / art.cliff.height);
+		cliff.addChild(rock);
+		used.set('cliff', (used.get('cliff') ?? 0) + 1);
+		behind(cliff, shearedBox(edgeL, edgeR, line, step.top, step.cliff));
+
+		const band = river.bands.find((b) => b.y === line) ?? river.bands[0];
 		const x0 = band.left;
 		const x1 = band.right;
-		const face = new TilingSprite({ texture: art.face, width: x1 - x0, height: fall.h });
-		face.position.set(x0, fall.y);
-		face.tileScale.set(0.5, fall.h / art.face.height);
-		face.alpha = 0.9;
-		const mirrored = new TilingSprite({ texture: art.face, width: x1 - x0, height: fall.h });
-		mirrored.position.set(x0, fall.y);
-		mirrored.tileScale.set(-0.5, fall.h / art.face.height);
+		const water = sheared(x0, line, step.top);
+		const sheet = new TilingSprite({ texture: art.face, width: x1 - x0, height: step.cliff });
+		sheet.tileScale.set(0.5, step.cliff / art.face.height);
+		sheet.alpha = 0.9;
+		const mirrored = new TilingSprite({ texture: art.face, width: x1 - x0, height: step.cliff });
+		mirrored.tileScale.set(-0.5, step.cliff / art.face.height);
 		mirrored.tilePosition.x = art.face.width / 2;
 		mirrored.alpha = 0.45;
-		const box = { x0, y0: fall.y, x1, y1: fall.y + fall.h };
-		onGround(falls, face, box);
-		onGround(falls, mirrored, box);
-		faces.push(face, mirrored);
+		water.addChild(sheet, mirrored);
+		behind(water, shearedBox(x0, x1, line, step.top, step.cliff));
+		faces.push(sheet, mirrored);
 		used.set('waterfall_face', (used.get('waterfall_face') ?? 0) + 2);
 		let i = 0;
 		for (let x = x0 + CELL / 2; x < x1; x += CELL, i++) {
 			const lip = clip('waterfall_lip', LIP_FPS, i);
-			const top = project(x, fall.y);
+			const top = placed(x, fall.y);
 			lip.anchor.set(0.5, 0.5);
 			lip.scale.set(-K, K);
 			lip.position.set(top.x, top.y);
 			standUp(lip, boxOf(lip));
 			const splash = clip('waterfall_splash', SPLASH_FPS, i);
-			const foot = project(x, fall.y + fall.h);
+			const foot = placed(x, fall.y + fall.h);
 			splash.anchor.set(0.5, 0.5);
 			splash.scale.set(-K, K);
 			splash.position.set(foot.x, foot.y);
@@ -451,7 +527,7 @@ export function mountSalmonsRiver(
 
 	river.whirlpools.forEach((pool, i) => {
 		const sprite = clip('whirlpool', WHIRLPOOL_FPS, i);
-		const at = project(pool.x, pool.y);
+		const at = placed(pool.x, pool.y);
 		const width = (WHIRLPOOL_W * pool.r) / 90;
 		const scale = width / sprite.texture.width;
 		sprite.anchor.set(0.5);
@@ -463,7 +539,7 @@ export function mountSalmonsRiver(
 	for (const rock of river.rocks ?? []) {
 		const texture = region(`rock_${Math.floor(random() * 9)}`);
 		const sprite = new Sprite(texture);
-		const at = project(rock.x + rock.w / 2, rock.y + rock.h / 2);
+		const at = placed(rock.x + rock.w / 2, rock.y + rock.h / 2);
 		const scale = ((rock.w + rock.h) * 0.9) / texture.width;
 		sprite.anchor.set(0.5);
 		sprite.scale.set(random() < 0.5 ? -scale : scale, scale);
@@ -525,7 +601,7 @@ export function mountSalmonsRiver(
 	app.ticker.add(tick);
 	cull();
 
-	const roots = [floor, displacement, turn, upright];
+	const roots = [floor, displacement, cliffs, turn, upright];
 	return {
 		teardown: () => {
 			app.ticker.remove(tick);

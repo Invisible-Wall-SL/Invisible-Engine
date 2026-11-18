@@ -55,12 +55,13 @@
 
 	$effect(() => {
 		const pixi = app.stateApp.pixiApplication;
-		if (online || !pixi) return;
-		return useArcadeInput(pixi.canvas, (x, y) => {
+		if (!pixi) return online ? listenOnline() : undefined;
+		const toGlobal = (x: number, y: number) => {
 			const at = { x: 0, y: 0 };
 			pixi.renderer.events.mapPositionToPoint(at, x, y);
 			return at;
-		});
+		};
+		return online ? listenOnline(pixi.canvas, toGlobal) : useArcadeInput(pixi.canvas, toGlobal);
 	});
 
 	$effect(() => {
@@ -72,8 +73,6 @@
 			ticker.remove(tick);
 		};
 	});
-
-	$effect(() => (online ? listenOnline() : undefined));
 
 	const unregisterProbe = registerDeterminismArcade({
 		read: () => {

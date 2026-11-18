@@ -69,7 +69,9 @@ export type AbilityUse<T extends AbilityActor, S extends AbilitySpec> = AbilityR
 	used(ability: S): void;
 	players(): T[];
 	hit(target: T, ability: S): void;
-	hook(target: T, ability: S, players: T[]): void;
+	/** `'pass'`: it passes over this target and the next nearest is offered; anything else ends
+	 *  the cast. */
+	hook(target: T, ability: S, players: T[]): boolean | 'pass' | void;
 };
 
 export function useAbilities<T extends AbilityActor, S extends AbilitySpec>(
@@ -91,6 +93,11 @@ export type ZoneForceRule = {
 	zone: string;
 	force?: { x: number; y: number };
 	characters?: readonly string[];
+	/** Pushes only a body whose centre is in the zone. */
+	centre?: boolean;
+	/** Draws a body towards the zone's centre by `strength · (1 − d / radius)` (px/s) while its
+	 *  centre is less than `radius` (px) from it (Salmons' whirlpools). */
+	pull?: { strength: number; radius: number };
 };
 
 export type ZoneForce = {
@@ -102,6 +109,9 @@ export type ZoneForce = {
 	fx: number;
 	fy: number;
 	characters?: readonly string[];
+	centre?: boolean;
+	/** A pull's centre (px), strength (px/s) and radius (px). */
+	pull?: { x: number; y: number; strength: number; radius: number };
 };
 
 export function zoneForces(
@@ -120,4 +130,9 @@ export function zoneForces(
 	},
 ): StaticIndex<ZoneForce>;
 
-export function addZoneForces(body: Body, forces: StaticIndex<ZoneForce>, character?: string): void;
+export function addZoneForces(
+	body: Body,
+	forces: StaticIndex<ZoneForce>,
+	character?: string,
+	dt?: number,
+): void;

@@ -5,6 +5,8 @@
  * `perf_reports` row. Pure: the fixture gate (`scripts/check-profiler.ts`) runs it on plain JSON.
  */
 
+import { perfCounts, type PerfCounts } from './profilerLab';
+
 /** Owner decision 2026-11-16: a reading is deleted this long after capture unless it is kept. */
 export const PERF_RETENTION_DAYS = 15;
 export const PERF_RETENTION_MS = PERF_RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -37,6 +39,9 @@ export const CAPTURE_SWITCHES: readonly { id: string; label: string; params: str
 	{ id: 'aa', label: 'Antialias off', params: 'aa=0' },
 ];
 
+export const PERF_REPORT_SOURCES = ['capture', 'paste', 'lab'] as const;
+export type PerfReportSource = (typeof PERF_REPORT_SOURCES)[number];
+
 export const PERF_PHASES = ['idle', 'spinning', 'round'] as const;
 export type PerfPhase = (typeof PERF_PHASES)[number];
 
@@ -67,6 +72,8 @@ export interface PerfReportSummary {
 	drawsMean: number | null;
 	jsMs: number | null;
 	textureMb: number | null;
+	/** Per-phase per-frame counts — what lab readings are compared on (`profilerLab.ts`). */
+	counts: PerfCounts;
 }
 
 export type SummaryResult = { ok: true; summary: PerfReportSummary } | { ok: false; error: string };
@@ -178,6 +185,7 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 			drawsMean: workMean(report, busy, 'draws'),
 			jsMs: workMean(report, busy, 'jsMs'),
 			textureMb: textureMb === null ? null : Math.round(textureMb * 10) / 10,
+			counts: perfCounts(report),
 		},
 	};
 }
@@ -186,8 +194,10 @@ export function summarizePerfReport(report: unknown): SummaryResult {
 export interface PerfReportListItem {
 	id: string;
 	capturedAt: string;
-	source: 'capture' | 'paste';
+	/** `lab`: a scripted headless run (P6) — compare its counts, never its fps. */
+	source: PerfReportSource;
 	label: string | null;
+	gameKey: string | null;
 	deviceClass: string | null;
 	gpu: string | null;
 	uaFamily: string | null;
@@ -195,12 +205,15 @@ export interface PerfReportListItem {
 	canvas: string | null;
 	buildVersion: string | null;
 	buildSha: string | null;
+	/** The online runtime release it ran on (stamped at receipt); null for a desktop build. */
+	runtimeRelease: string | null;
 	flags: Record<string, string>;
 	idle: PerfPhaseSummary | null;
 	spinning: PerfPhaseSummary | null;
 	round: PerfPhaseSummary | null;
 	drawsMean: number | null;
 	textureMb: number | null;
+	counts: PerfCounts | null;
 	keep: boolean;
 	/** When the purge removes it (ISO), null while kept. */
 	expiresAt: string | null;

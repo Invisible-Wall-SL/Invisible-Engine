@@ -9,6 +9,10 @@
 		".": {
 			"types": "./index.ts",
 			"default": "./index.ts"
+		},
+		"./pure": {
+			"types": "./pure.ts",
+			"default": "./pure.ts"
 		}
 	},
 	"type": "module",
@@ -18,11 +22,13 @@
 		"lint": "eslint \"src\""
 	},
 	"dependencies": {
-		"three": "0.181.2"
+		"constants-shared": "workspace:*",
+		"engine-mechanics": "workspace:*",
+		"three": "0.187.0"
 	},
 	"devDependencies": {
-		"@types/three": "0.181.0",
-		"eslint": "10.14.0",
+		"@types/three": "0.187.0",
+		"eslint": "10.15.0",
 		"eslint-config-custom": "workspace:*",
 		"typescript": "6.0.3"
 	}

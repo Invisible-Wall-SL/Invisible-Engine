@@ -458,6 +458,10 @@ async function main() {
 	// without it, as for the cinematics. A project with no graphs leaves `shaderEffects` undefined
 	// (parity). A graph that does not compile is left out, and named here: its entries play nothing.
 	let shaderEffects;
+	// The 3D models the game reaches (`modelExport.ts`): the GLBs and their textures are in R2
+	// `deploy/models/`, mirrored by the pull; the index rides the bundle. A project with no model
+	// leaves it undefined (parity).
+	let models;
 
 	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
 	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
@@ -924,6 +928,9 @@ async function main() {
 				);
 			}
 		},
+		models: (m) => {
+			if (Array.isArray(m?.models) && m.models.length) models = m;
+		},
 		clips: (cl) => {
 			const list = Array.isArray(cl?.clips) ? cl.clips : [];
 			// Only embed when the project authored at least one clip, keeping the bundle
@@ -1305,6 +1312,7 @@ async function main() {
 		// omit-when-empty rule: `bakedRigFlipbooks()` returns {} when absent, so
 		// `resolveRigFlipbooks()` yields [] and nothing new mounts (parity).
 		...(rigFlipbooks ? { rigFlipbooks } : {}),
+		...(models ? { models } : {}),
 	};
 
 	// Ship only the shader effects the game names (an entry's kind, a Flow parameter), as Publish

@@ -21,9 +21,10 @@ export interface CaptureSession {
 }
 
 /**
- * A New capture: one session token for the project, and for each of the project's own published
- * games its capture links (`captureLinks`) with a QR code of each as inline SVG. A project with no
- * game yet gets a session with no links — the page says to publish first.
+ * A New capture: one session for the project, and for each of the project's own published games
+ * its own token (naming the game) and capture links (`captureLinks`), with a QR code of each as
+ * inline SVG. A project with no game yet gets a session with no links — the page says to publish
+ * first.
  */
 export async function openCaptureSession(input: {
 	clientKey: string;
@@ -34,11 +35,7 @@ export async function openCaptureSession(input: {
 }): Promise<CaptureSession> {
 	const now = input.now ?? Date.now();
 	const sid = newCaptureSessionId();
-	const token = mintCaptureToken(
-		captureSigningKey(),
-		{ sid, client: input.clientKey, project: input.projectKey, uid: input.uid, label: input.label },
-		now,
-	);
+	const key = captureSigningKey();
 	const games = await Promise.all(
 		(await listGamesOwnedByProject(input.projectKey))
 			.filter((g) => isCapturableGameUrl(g.url))
@@ -46,7 +43,22 @@ export async function openCaptureSession(input: {
 				key: g.key,
 				name: g.name,
 				links: await Promise.all(
-					captureLinks(g.url, token).map(async (link) => ({
+					captureLinks(
+						g.url,
+						// One token per game: the reading then names the game it was taken on.
+						mintCaptureToken(
+							key,
+							{
+								sid,
+								client: input.clientKey,
+								project: input.projectKey,
+								game: g.key,
+								uid: input.uid,
+								label: input.label,
+							},
+							now,
+						),
+					).map(async (link) => ({
 						...link,
 						qr: await QRCode.toString(link.url, {
 							type: 'svg',

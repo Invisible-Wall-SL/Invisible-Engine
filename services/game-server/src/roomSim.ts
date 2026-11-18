@@ -38,7 +38,10 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * input and each step the rules decide hits, statuses, the goal and the round. A player the rules
  * hold (stunned, out; a module's grounded, hooked) still has its inputs taken and acknowledged —
  * and passed to the rules, so a grounded salmon can jump — but stands still for them, as a device
- * told it is held predicts. A respawn moves a body with no input: the device reconciles it.
+ * told it is held predicts. A respawn moves a body with no input: the device reconciles it. A
+ * module may STEER a free player's input (a leaping salmon carries its leap's move while the stick
+ * rests: `engine-mechanics` `carriedInput`); the room sends what it carries (`air`, `carryX`,
+ * `carryY`), so a predicting device steps the same input.
  *
  * BOTS (P10.16, §7) fill the room to `online.bots.fillTo` while anyone is in it. A bot is a player
  * (id `bot:<n>`, `bot: true`) whose input each step comes from its brain (`engine-mechanics`
@@ -63,7 +66,7 @@ export const inputsThisStep = (waiting: number, credit: number): number =>
 
 /** The most catch-up a player can bank, in seconds: a stall that long drains; spending it is a dash
  *  of at most {@link MOST_PER_STEP}× speed for as long. */
-const CREDIT_SECONDS = 0.5;
+export const CREDIT_SECONDS = 0.5;
 
 export type SimPlayer = RulesPlayer & {
 	name: string;
@@ -326,10 +329,11 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 						rules.applied(player, input, players.values(), stamp);
 						continue;
 					}
-					const level = levels.get(player.character.id);
-					stepPlayer(player.body, input, player.character.speed, ctx, field, level);
-					player.facing = facingOf(input, player.facing);
-					player.moving = input.moveX !== 0 || input.moveY !== 0;
+					const level = rules.level(player, levels.get(player.character.id));
+					const moved = rules.steer(player, input);
+					stepPlayer(player.body, moved, player.character.speed, ctx, field, level);
+					player.facing = facingOf(moved, player.facing);
+					player.moving = moved.moveX !== 0 || moved.moveY !== 0;
 					rules.applied(player, input, players.values(), stamp);
 				}
 			}

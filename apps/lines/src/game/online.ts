@@ -18,11 +18,13 @@ import {
 	type AbilityPredictor,
 	type OnlineFlowSignal,
 	createInterpolator,
+	createPointerTracker,
 	createPredictor,
 	createRng,
 	createSnapshotClock,
 	generatedOnlineGame,
 	onlineLevel,
+	pointerMove,
 	reconcilerOptions,
 	snapFor,
 	stepCamera,
@@ -34,6 +36,7 @@ import {
 	type HookLines,
 	type Interpolator,
 	type OnlineEvent,
+	type PointerTracker,
 	type Predictor,
 	type SnapshotClock,
 } from 'engine-mechanics';
@@ -69,6 +72,7 @@ import {
 	setMarks,
 	startMarks,
 	setWorldCameraView,
+	spawnLayerPoint,
 	spawnStore,
 	type ArtMount,
 	type InstanceClip,
@@ -76,11 +80,17 @@ import {
 	type InstanceMark,
 } from 'engine-layout/svelte';
 import type { CodeLook, SalmonsArt } from 'engine-layout/salmons-art';
-import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	salmonsProjectSheetOf,
+	type OnlineGame,
+} from 'game-config';
 
 import {
 	bakedFlowV2Doc,
 	bakedGameConfig,
+	editorArtSheetsWhere,
 	preparedEditorDoc,
 	refuseOnlineBoot,
 	setRoomDocChange,
@@ -138,14 +148,24 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * loads it.
  */
 
+/**
+ * Salmons' art, loaded only for its generators: each region from the project's own sheets when the
+ * published editor art ships them (`game-config` `SALMONS_PROJECT_SHEETS`, by manifest key), else
+ * from the built-in copy. A snapshot published before the project held them draws the built-in.
+ */
+const salmonsArt = async (made: SalmonsRiverDrawing, seed: number) =>
+	(await import('engine-layout/salmons-art')).loadSalmonsArt(
+		made,
+		seed,
+		editorArtSheetsWhere((key) => salmonsProjectSheetOf(key) !== undefined),
+	);
+
 /** The built-in art a generator's field and characters are drawn with, loaded only for it. */
 const FIELD_ART: Readonly<
 	Record<string, (made: SalmonsRiverDrawing, seed: number) => Promise<SalmonsArt>>
 > = {
-	salmonsRiver: async (made, seed) =>
-		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
-	salmonsMap: async (made, seed) =>
-		(await import('engine-layout/salmons-art')).loadSalmonsArt(made, seed),
+	salmonsRiver: salmonsArt,
+	salmonsMap: salmonsArt,
 };
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */
@@ -163,6 +183,14 @@ type PlayerState = {
 	status: number;
 	score: number;
 	mark: boolean;
+	/** How high a rules module has lifted it, px (a salmon's leap); unset until the room writes it. */
+	z?: number;
+	/** Free but held still by a rules module (a salmon climbing); unset from an older server. */
+	held?: boolean;
+	/** Inputs left for which the room carries the move `carryX` / `carryY` (a salmon's leap). */
+	air?: number;
+	carryX?: number;
+	carryY?: number;
 };
 type RoomState = {
 	step: number;
@@ -232,6 +260,9 @@ type Session = {
 	casts: Map<string, number>;
 	/** The buttons of the last input sent (a tap is a press). */
 	buttons: number;
+	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
+	 *  screen px, eased, and where it was drawn. */
+	lifts: Map<string, { lift: number; x: number; y: number }>;
 };
 
 let session: Session | undefined;
@@ -424,6 +455,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		codeLooks: new Map(),
 		casts: new Map(),
 		buttons: 0,
+		lifts: new Map(),
 	};
 	if (left) return;
 	session = current;
@@ -452,7 +484,15 @@ export async function joinOnlineRoom(): Promise<void> {
 			current.room.sessionId,
 			(id) => {
 				const player = players?.get(id);
-				return player && { ...placeOf(current, id, player), character: player.character };
+				return (
+					player && {
+						...(() => {
+							const at = placeOf(current, id, player);
+							return raisedPlace(at, liftOf(current, id, at));
+						})(),
+						character: player.character,
+					}
+				);
 			},
 			current.abilities,
 		))
@@ -632,23 +672,136 @@ function received(current: Session, nowMs: number) {
 			x: player.x,
 			y: player.y,
 			ack: player.ack,
-			still: player.status !== STATUS.free,
+			still: player.status !== STATUS.free || player.held === true,
 			step: state.step,
+			air: player.air,
+			carryX: player.carryX,
+			carryY: player.carryY,
 		});
 	});
 }
 
-/** Start reading the keyboard; returns the stop. */
-export function listenOnline(): () => void {
+type Point = { x: number; y: number };
+
+/** The mouse and touch control (`arcade.online.pointer`), while the play field is mounted: its
+ *  tracker, in client px, and how a client point becomes the canvas's global one. */
+let pointerIo: { tracker: PointerTracker; toGlobal: (x: number, y: number) => Point } | undefined;
+
+/** A tap waiting for a step whose last input did not press its button already. */
+let pendingTap: Point | undefined;
+
+/** Follow the mouse and the fingers on the canvas; returns the detach. */
+function listenPointer(
+	canvas: HTMLElement,
+	toGlobal: (x: number, y: number) => Point,
+	options: { mouse: 'hover' | 'press'; tapPx: number },
+): () => void {
+	const tracker = createPointerTracker(options);
+	pointerIo = { tracker, toGlobal };
+	const forward = (type: 'down' | 'move' | 'up' | 'cancel') => (e: PointerEvent) => {
+		// A mouse hovers only over the canvas; a press and a finger are followed off it.
+		if (type === 'move' && e.pointerType === 'mouse' && e.target !== canvas && !e.buttons) return;
+		tracker.event({
+			type,
+			id: e.pointerId,
+			kind: e.pointerType,
+			x: e.clientX,
+			y: e.clientY,
+			button: e.button,
+		});
+	};
+	const down = forward('down');
+	const move = forward('move');
+	const up = forward('up');
+	const cancel = forward('cancel');
+	const release = () => tracker.release();
+	canvas.addEventListener('pointerdown', down);
+	window.addEventListener('pointermove', move);
+	window.addEventListener('pointerup', up);
+	window.addEventListener('pointercancel', cancel);
+	window.addEventListener('blur', release);
+	return () => {
+		canvas.removeEventListener('pointerdown', down);
+		window.removeEventListener('pointermove', move);
+		window.removeEventListener('pointerup', up);
+		window.removeEventListener('pointercancel', cancel);
+		window.removeEventListener('blur', release);
+		pointerIo = undefined;
+		pendingTap = undefined;
+	};
+}
+
+/**
+ * Start reading the keyboard, and, for a game with `arcade.online.pointer`, the mouse and the
+ * fingers on `canvas`; returns the stop.
+ */
+export function listenOnline(
+	canvas?: HTMLElement,
+	toGlobal?: (x: number, y: number) => Point,
+): () => void {
 	window.addEventListener('keydown', onKey);
 	window.addEventListener('keyup', onKey);
 	window.addEventListener('blur', releaseAll);
+	const game = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+	const pointer = game && 'online' in game ? game.online.pointer : undefined;
+	const unpoint =
+		canvas && toGlobal && pointer ? listenPointer(canvas, toGlobal, pointer) : undefined;
 	return () => {
 		window.removeEventListener('keydown', onKey);
 		window.removeEventListener('keyup', onKey);
 		window.removeEventListener('blur', releaseAll);
 		releaseAll();
+		unpoint?.();
 	};
+}
+
+/**
+ * A client point on the field, through the camera and the projection of the players' layer. On
+ * raised ground (Salmons' waterfalls) the point is taken on the own player's ground: a place there
+ * is drawn back by its lift on both axes, so the layer's point is moved forward by it.
+ */
+const fieldPoint = (current: Session, at: Point | undefined): Point | undefined => {
+	if (!at || !pointerIo) return undefined;
+	const global = pointerIo.toGlobal(at.x, at.y);
+	const point = spawnLayerPoint(current.game.online.layer, global.x, global.y);
+	const lift = current.lifts.get(current.room.sessionId)?.lift ?? 0;
+	return point && lift ? { x: point.x + lift, y: point.y + lift } : point;
+};
+
+/**
+ * The input with the pointer's part (`docs/design/arcade-pointer-controller.md`): with no movement
+ * key held, the move heads for the pointer; a tap presses the own character's tap button for one
+ * step, aimed at the tapped point. No pointer control, the input as it was.
+ */
+function withPointer(current: Session, input: ReturnType<typeof keyInput>) {
+	const pointer = current.game.online.pointer;
+	if (!pointerIo || !pointer) return input;
+	const keysMove = [...held].some((code) => code in MOVE_KEYS);
+	const own = ownPlace(current);
+	if (!keysMove) {
+		const target = fieldPoint(current, pointerIo.tracker.target());
+		Object.assign(input, pointerMove(own, target, pointer.deadZone));
+	}
+	pendingTap ??= pointerIo.tracker.takeTap();
+	const me = stateOf(current.room).players?.get(current.room.sessionId);
+	const name =
+		me && Object.hasOwn(pointer.taps, me.character) ? pointer.taps[me.character] : undefined;
+	if (!pendingTap) return input;
+	if (!name) {
+		pendingTap = undefined;
+		return input;
+	}
+	const bit = BUTTONS[name];
+	// A tap is a press: a step that already pressed the button waits a step for its release.
+	if (current.buttons & bit) return input;
+	const aim = fieldPoint(current, pendingTap);
+	pendingTap = undefined;
+	input.buttons |= bit;
+	if (aim) {
+		input.aimX = aim.x;
+		input.aimY = aim.y;
+	}
+	return input;
 }
 
 /** The room's synced state, in the shape `services/game-server/src/schema.ts` declares. */
@@ -668,6 +821,37 @@ function placeOf(current: Session, id: string, player: PlayerState) {
 	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
 }
 
+/** How fast a drawn player's lift follows the ground under it, per second: a waterfall's step
+ *  (up to 216 px) is climbed onto over a few frames, not in one. */
+const LIFT_FOLLOW = 10;
+/** A move this far in one frame is a respawn or a correction: the lift is taken at once. */
+const LIFT_SNAP_PX = 192;
+
+/** Player `id`'s lift this frame, drawn at `at`, eased towards the ground's under it. */
+function easeLift(current: Session, id: string, at: { x: number; y: number }, dtMs: number) {
+	const target = current.art?.ground(at.x, at.y) ?? 0;
+	const was = current.lifts.get(id);
+	let lift = target;
+	if (was && Math.hypot(at.x - was.x, at.y - was.y) <= LIFT_SNAP_PX) {
+		lift = was.lift + (target - was.lift) * Math.min(1, (dtMs / 1000) * LIFT_FOLLOW);
+		if (Math.abs(target - lift) < 0.01) lift = target;
+	}
+	current.lifts.set(id, { lift, x: at.x, y: at.y });
+	return lift;
+}
+
+/** Player `id`'s lift as last drawn, else the ground's under `at`. */
+const liftOf = (current: Session, id: string, at: { x: number; y: number }) =>
+	current.lifts.get(id)?.lift ?? current.art?.ground(at.x, at.y) ?? 0;
+
+/**
+ * Where a world place is drawn raised by `lift` (Salmons' waterfalls, once the art is loaded).
+ * Drawn isometric, moving back by the lift on both axes is moving straight up the screen by it, so
+ * the look, its glow and its line all follow.
+ */
+const raisedPlace = (at: { x: number; y: number }, lift: number) =>
+	lift ? { x: at.x - lift, y: at.y - lift } : at;
+
 /** Put every player of the room where it is drawn. */
 function draw(current: Session, dtMs: number) {
 	const live = spawnStore();
@@ -676,6 +860,7 @@ function draw(current: Session, dtMs: number) {
 	if (!players) return;
 	current.clipClock += dtMs;
 	for (const id of current.looks.keys()) if (!players.has(id)) current.looks.delete(id);
+	for (const id of current.lifts.keys()) if (!players.has(id)) current.lifts.delete(id);
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		if (player && (shownInRoom(player) || keptForCatch(current, id, player))) continue;
@@ -690,9 +875,10 @@ function draw(current: Session, dtMs: number) {
 		if (!shownInRoom(player)) return;
 		const at = placeOf(current, id, player);
 		places.set(id, at);
+		const shown = raisedPlace(at, easeLift(current, id, at, dtMs));
 		const instance = current.drawn.get(id);
 		if (instance) {
-			moves.push({ id: instance, x: at.x, y: at.y });
+			moves.push({ id: instance, x: shown.x, y: shown.y });
 			// Held for its catch and shown again (it respawned): its clips start afresh.
 			const look = current.looks.get(id);
 			if (look?.leaving) restart(look);
@@ -700,7 +886,7 @@ function draw(current: Session, dtMs: number) {
 		}
 		const character = current.game.online.characters.find((c) => c.id === player.character);
 		if (!character) return;
-		const spawned = live.spawn(layer, character.body, at);
+		const spawned = live.spawn(layer, character.body, shown);
 		if (spawned.ok) current.drawn.set(id, spawned.instance.id);
 		else if (!current.refused.has(character.body)) {
 			current.refused.add(character.body);
@@ -747,6 +933,8 @@ function drawCodeLooks(
 			y: at.y,
 			status: player.status,
 			marked: player.mark,
+			z: player.z ?? 0,
+			held: player.held === true,
 		});
 		mounts.set(instance, look.mount);
 	}
@@ -925,7 +1113,11 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
 	worldCamera = { camera, world: sceneWorld(scene), view };
 }
 
-/** Move the camera after a frame, towards the own player as drawn. */
+/**
+ * Move the camera after a frame, towards the own player as drawn. On raised ground the whole
+ * drawing is moved down by the own player's drawn lift, which keeps the camera's world place, and
+ * its hold inside the world, as it was.
+ */
 function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
 	if (!worldCamera || !at) return;
@@ -936,7 +1128,7 @@ function follow(current: Session, dtMs: number) {
 		x: camera.x,
 		y: camera.y,
 		shakeX: camera.offsetX,
-		shakeY: camera.offsetY,
+		shakeY: camera.offsetY + (current.lifts.get(current.room.sessionId)?.lift ?? 0),
 		view: size,
 	});
 }
@@ -947,7 +1139,8 @@ function predictAbilities(current: Session, buttons: number, seq: number) {
 	const me = state.players?.get(current.room.sessionId);
 	if (!current.abilities || !me) return;
 	const free = state.phase === 'running' && me.status === STATUS.free;
-	const at = ownPlace(current);
+	const own = ownPlace(current);
+	const at = own && raisedPlace(own, liftOf(current, current.room.sessionId, own));
 	for (const button of current.abilities.step(buttons, free, seq))
 		raise(
 			current,
@@ -971,7 +1164,10 @@ export function tickOnline(dtMs: number) {
 	current.sdk?.predict.tick(now);
 	current.clock.advance(dtMs, () => {
 		current.seq += 1;
-		const raw = keyInput(current.seq, Math.max(0, Math.floor(current.viewStep)));
+		const raw = withPointer(
+			current,
+			keyInput(current.seq, Math.max(0, Math.floor(current.viewStep))),
+		);
 		const input = clampInput(raw, current.game.field);
 		const handle = current.room.input();
 		Object.assign(handle.data, input);
@@ -993,12 +1189,16 @@ export function onlineProbe() {
 	const current = session;
 	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
-	const drawn: { id: string; x: number; y: number }[] = [];
+	const drawn: { id: string; x: number; y: number; ground?: number }[] = [];
 	const hidden: string[] = [];
 	state?.players?.forEach((p, id) => {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
-		else if (current) drawn.push({ id, ...placeOf(current, id, p) });
+		else if (current) {
+			const at = placeOf(current, id, p);
+			const ground = current.art ? liftOf(current, id, at) : 0;
+			drawn.push({ id, ...at, ...(ground ? { ground } : {}) });
+		}
 	});
 	const camera = worldCamera?.camera;
 	return {
@@ -1012,6 +1212,7 @@ export function onlineProbe() {
 						y: camera.y,
 						shakeX: camera.offsetX,
 						shakeY: camera.offsetY,
+						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
 						view: worldCamera.view(),
 					},
 				}

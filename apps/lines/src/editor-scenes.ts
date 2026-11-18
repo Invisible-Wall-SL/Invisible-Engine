@@ -1,6 +1,7 @@
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
 import type { CustomElementFx } from 'constants-shared/elementFx';
+import type { ModelExportIndex } from 'constants-shared/models';
 import type { GameConfigDoc } from 'game-config';
 import type {
 	CoinLabelConfig,
@@ -229,6 +230,10 @@ type BakedBundle = {
 	 * game registers them at boot with `setCustomElementFx(bakedShaderEffects())`, so an entry naming
 	 * `custom:<id>` plays. Absent ⇒ none registered, and such an entry plays nothing (parity). */
 	shaderEffects?: CustomElementFx[];
+	/** The 3D models the game reaches (`modelExport.ts`), every published tier. Stored on the bundle
+	 * only: the `arcade3d` view reads it through `bakedBundleData()` and loads `deploy/models/` files,
+	 * so no 2D runtime carries code for it. Absent ⇒ no models. */
+	models?: ModelExportIndex;
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
 	 * of any sprite sheets / images / rig bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
@@ -808,6 +813,22 @@ function warnMissingAssets(source: BakedBundle): void {
 				`be missing: ${symRig.join(', ')}. Re-bind the symbol, or promote the rig to the shared library.`,
 		);
 	}
+}
+
+/**
+ * The shipped editor-art sheets whose manifest key `match` accepts, as the loader would load them
+ * (the tier's src, a KTX2 page's fallback), without the boot's missing-art warnings. For a caller
+ * that draws a project sheet's frames itself (Salmons' art, `game/online.ts`).
+ */
+export function editorArtSheetsWhere(
+	match: (manifestKey: string) => boolean,
+): { src: string; fallback?: string }[] {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	const base = srcBase();
+	const useKtx2 = preferCompressedTextures();
+	return (source?.editorArt?.sheets ?? [])
+		.filter((sheet) => match(sheet.key))
+		.map((sheet) => sheetSrc(base, sheet, useKtx2));
 }
 
 export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {

@@ -14,7 +14,8 @@
  * geometry ({@link salmonsGeometry}) into the game on the server and, from the seed the room
  * state carries, on every device, which also draws that river.
  *
- * Salmons' rules (§4's table): the current and the whirlpools are zone forces; a bank is a force
+ * Salmons' rules (§4's table): the current and the whirlpools are zone forces (on the original's
+ * levels a whirlpool pulls towards its centre, {@link WHIRLPOOL_PULL}); a bank is a force
  * that pushes a salmon back into the water; rocks are solids, and waterfalls one-way solids that
  * stop a salmon from below; the water, the sea and the source are solid to bears and fishermen, so
  * they stay on the banks. The bear's swipe is a `catch` ability, the fisherman's cast a `hook`. The
@@ -29,6 +30,7 @@
  */
 
 import { createRng } from './board.js';
+import { CELL } from './salmonsMap.js';
 
 /** The river the authored config and layout are made from (a room plays its own). */
 export const SALMONS_SEED = 'salmons-1';
@@ -51,6 +53,14 @@ const RAPIDS = 140;
 
 /** A bank's push back into the water, px/s: more than a salmon's speed. */
 const BANK_PUSH = 420;
+
+/**
+ * The original's whirlpool (`GuiltyForever/Salmon-` 41811c2 `server/index.js` `update`), on its own
+ * levels (`salmonsMap`): it pulls a salmon towards its centre within 4 cells (radius² 16) by
+ * `14 · (1 − d / 4)` cells/s, here in px and px/s. The room lets a salmon 0.5 cells up pass over it
+ * (`salmonsRules.js`). P10.16's band river keeps its spinning current.
+ */
+export const WHIRLPOOL_PULL = Object.freeze({ radius: 4 * CELL, strength: 14 * CELL });
 
 /** The characters that stay out of the water: to them the river, the sea and the source are solid. */
 const LAND = ['bear', 'fisherman'];
@@ -227,7 +237,14 @@ export function salmonsGeometry(river) {
 	river.bands.forEach((band, i) => {
 		const id = `band${i}`;
 		zones.push({ id: `${id}Water`, x: band.left, y: band.y, w: band.right - band.left, h: band.h });
-		rules.push({ zone: `${id}Water`, force: { x: 0, y: band.current }, characters: ['salmon'] });
+		// By the salmon's centre: on the line between two bands only one current carries it, as the
+		// original's one current a tile (two rapids, 280 px/s, would hold it there against its 240).
+		rules.push({
+			zone: `${id}Water`,
+			force: { x: 0, y: band.current },
+			characters: ['salmon'],
+			centre: true,
+		});
 		zones.push({ id: `${id}Left`, x: 0, y: band.y, w: band.left, h: band.h });
 		rules.push({ zone: `${id}Left`, force: { x: BANK_PUSH, y: 0 }, characters: ['salmon'] });
 		zones.push({
@@ -242,6 +259,12 @@ export function salmonsGeometry(river) {
 	});
 	river.whirlpools.forEach((pool, i) => {
 		const id = `whirlpool${i}`;
+		if (river.generator === 'salmonsMap') {
+			const { radius, strength } = WHIRLPOOL_PULL;
+			zones.push({ id, x: pool.x - radius, y: pool.y - radius, w: radius * 2, h: radius * 2 });
+			rules.push({ zone: id, pull: { radius, strength }, characters: ['salmon'] });
+			return;
+		}
 		zones.push({ id, x: pool.x - pool.r, y: pool.y - pool.r, w: pool.r * 2, h: pool.r * 2 });
 		rules.push({ zone: id, force: { x: pool.spin * 180, y: 120 }, characters: ['salmon'] });
 	});
@@ -345,6 +368,14 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
 				nearby: { w: 2400, h: 1800 },
+				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
+				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
+				// jumps a salmon, swipes a bear and casts a fisherman's line.
+				pointer: {
+					mouse: 'hover',
+					deadZone: 1.5 * CELL,
+					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
+				},
 				rules: {
 					zones: geometry.zoneRules,
 					abilities: [

@@ -130,13 +130,36 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 	for (let i = 0; i < ctx.subSteps; i++) {
 		body.vx = vx;
 		body.vy = vy;
-		if (currents) addZoneForces(body, currents);
+		if (currents) addZoneForces(body, currents, undefined, ctx.subDt);
 		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field);
 		else stepBody(body, ctx.subDt, field);
 	}
 	body.vx = vx;
 	body.vy = vy;
 	return body;
+}
+
+/**
+ * The input a player CARRYING A MOVE is stepped with (Salmons' leap: the original keeps a leaping
+ * salmon's velocity until it steers). `carry` is `{ air, carryX, carryY }`, mutated: while `air`
+ * (inputs left to carry for) is above 0, each input spends one; a move of 0 is replaced by the
+ * carried one, any other move is stepped as it is and carried from then on; the carry is 0 once
+ * `air` is. With no `air`, or no input, the input itself. Integers only: the room and a predicting
+ * device fold it alike.
+ */
+export function carriedInput(carry, input) {
+	if (!input || !(carry.air > 0)) return input;
+	carry.air -= 1;
+	let stepped = input;
+	if (input.moveX !== 0 || input.moveY !== 0) {
+		carry.carryX = input.moveX;
+		carry.carryY = input.moveY;
+	} else stepped = { ...input, moveX: carry.carryX ?? 0, moveY: carry.carryY ?? 0 };
+	if (carry.air === 0) {
+		carry.carryX = 0;
+		carry.carryY = 0;
+	}
+	return stepped;
 }
 
 /** A body this close to a one-way solid's side, px, is on that side. */

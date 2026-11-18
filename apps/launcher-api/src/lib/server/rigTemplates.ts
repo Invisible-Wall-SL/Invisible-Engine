@@ -1,4 +1,13 @@
 import { IRIG_VERSION } from 'engine-rig';
+import {
+	FACE_BLENDSHAPES,
+	FACE_LANDMARK_COUNT,
+	POSE_LANDMARK_COUNT,
+	boneRestDirection,
+	worldTurnPer,
+	type LandmarkRef,
+	type RigMotionMap,
+} from '../rigMotion';
 
 /**
  * Rig templates (docs/design/rig-templates.md): a fixed skeleton plus the named images it expects,
@@ -10,6 +19,11 @@ export interface RigTemplateBone {
 	parent?: string;
 	x: number;
 	y: number;
+	/** Setup values a template saved from a rig carries (the built-ins use x and y only). */
+	rotation?: number;
+	length?: number;
+	scaleX?: number;
+	scaleY?: number;
 }
 
 export interface RigTemplateSlot {
@@ -17,6 +31,18 @@ export interface RigTemplateSlot {
 	bone: string;
 	/** The part shown in the setup pose; none = the slot starts empty (an eyelid, open). */
 	setup?: string;
+	blend?: 'normal' | 'additive' | 'multiply' | 'screen';
+	/** `rrggbbaa`, as the rig format writes it. */
+	color?: string;
+}
+
+/** Where a part sits on its bone; none = centred on the bone, unturned. */
+export interface RigTemplatePlacement {
+	x?: number;
+	y?: number;
+	rotation?: number;
+	scaleX?: number;
+	scaleY?: number;
 }
 
 export interface RigTemplatePart {
@@ -25,6 +51,7 @@ export interface RigTemplatePart {
 	required: boolean;
 	/** Placeholder size, used only until art is attached. */
 	size: [number, number];
+	at?: RigTemplatePlacement;
 }
 
 /** A channel moving a bone: the key is `value × per` from setup (scaleY: `1 + value × per`). */
@@ -79,21 +106,54 @@ export interface RigTemplate {
 	parts: RigTemplatePart[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
+	/** Which tracked face / body points drive which channels (T5 / T7b, §5.3). */
+	motion?: RigMotionMap;
 }
 
 /** One channel key of a starter clip: time, channel id, value (a part name for a shapes channel). */
 export type RigTemplateClipKey = [number, string, number | string];
 
 /**
- * A starter animation, as face-channel keys: the Rigger writes it through the same channel code the
- * Face section uses, so it plays on every rig of the template. Every channel it touches starts and
- * ends at rest, so a clip loops or hands over cleanly.
+ * A starter animation. A built-in's is face-channel keys: the Rigger writes it through the same
+ * channel code the Controls section uses, so it plays on every rig of the template, and every channel
+ * it touches starts and ends at rest. A template saved from a rig keeps the rig's own animation as
+ * timelines instead (`animation`, `keys` empty; docs/design/rig-templates.md §7.4).
  */
 export interface RigTemplateClip {
 	name: string;
 	length: number;
 	keys: RigTemplateClipKey[];
+	animation?: RigTemplateTimelines;
 }
+
+/** An irig animation limited to what a template rig can play (§7.4). */
+export interface RigTemplateTimelines {
+	bones?: Record<string, Record<string, { time?: number }[]>>;
+	slots?: Record<string, Record<string, { time?: number; name?: string | null }[]>>;
+	drawOrder?: { time?: number; offsets?: { slot: string; offset: number }[] }[];
+}
+
+/** The bone and slot timelines a template clip may hold; others name what a template lacks. */
+export const TEMPLATE_BONE_TIMELINES = [
+	'rotate',
+	'translate',
+	'translatex',
+	'translatey',
+	'scale',
+	'scalex',
+	'scaley',
+	'shear',
+	'shearx',
+	'sheary',
+] as const;
+export const TEMPLATE_SLOT_TIMELINES = [
+	'attachment',
+	'rgba',
+	'rgb',
+	'alpha',
+	'rgba2',
+	'rgb2',
+] as const;
 
 /** What a rig created from a template remembers, in its bundle's `template.json`. */
 export interface RigTemplateRef {
@@ -317,7 +377,80 @@ export const BUST_FACE: RigTemplate = {
 		},
 	],
 	clips: [],
+	// MediaPipe names blendshapes and points from the PERFORMER's side; the template's `_l` is the
+	// left of the picture, which is the performer's right in an unmirrored video.
+	motion: {
+		face: {
+			smooth: 0.03,
+			entries: [
+				{
+					kind: 'shape',
+					channel: 'mouth',
+					hold: 0.08,
+					features: {
+						open: ['jawOpen'],
+						round: ['mouthFunnel', 'mouthPucker'],
+						smile: ['mouthSmileLeft', 'mouthSmileRight'],
+						wide: ['mouthStretchLeft', 'mouthStretchRight'],
+						press: ['mouthPressLeft', 'mouthPressRight', 'mouthClose'],
+						roll: ['mouthRollLower'],
+					},
+					shapes: {
+						mouth_rest: {},
+						mouth_A: { open: 0.6 },
+						mouth_E: { open: 0.25, wide: 0.3 },
+						mouth_O: { open: 0.35, round: 0.5 },
+						mouth_U: { round: 0.6 },
+						mouth_MBP: { press: 0.4 },
+						mouth_FV: { roll: 0.5 },
+						mouth_smile: { smile: 0.6 },
+						mouth_wide: { open: 0.4, smile: 0.5 },
+					},
+				},
+				{ kind: 'blend', channel: 'jaw', plus: ['jawOpen'], gain: 1.4 },
+				{ kind: 'blend', channel: 'blink_l', plus: ['eyeBlinkRight'], gain: 1.2 },
+				{ kind: 'blend', channel: 'blink_r', plus: ['eyeBlinkLeft'], gain: 1.2 },
+				...sides<FaceMotionEntryOf>((s) => {
+					const side = s === 'l' ? 'Right' : 'Left';
+					return [
+						{
+							kind: 'blend',
+							channel: `brow_${s}`,
+							plus: [`browOuterUp${side}`, 'browInnerUp'],
+							minus: [`browDown${side}`],
+							gain: 1.6,
+							rest: 'median',
+						},
+					];
+				}),
+				{
+					kind: 'blend',
+					channel: 'gaze_x',
+					plus: ['eyeLookOutLeft', 'eyeLookInRight'],
+					minus: ['eyeLookInLeft', 'eyeLookOutRight'],
+					gain: 1.5,
+				},
+				{
+					kind: 'blend',
+					channel: 'gaze_y',
+					plus: ['eyeLookUpLeft', 'eyeLookUpRight'],
+					minus: ['eyeLookDownLeft', 'eyeLookDownRight'],
+					gain: 1.5,
+				},
+				// The outer eye corners (33 = the performer's right, 263 = left) and the nose tip (1).
+				{ kind: 'angle', channel: 'head_tilt', from: 33, to: 263, gain: 1, rest: 'level' },
+				{ kind: 'offset', channel: 'head_turn', point: 1, between: [33, 263], axis: 'x', gain: 3 },
+			],
+		},
+		cannot: [
+			'Nods (up and down): the template turns the head in the picture, not toward the camera.',
+			'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
+			'Breathing, and anything the face does not show (shoulders, body).',
+		],
+	},
 };
+
+type FaceMotionEntryOf = NonNullable<RigMotionMap['face']>['entries'][number];
 
 /** The same value on both sides' channel (`brow` → `brow_l`, `brow_r`). */
 const both = (t: number, ch: string, v: number | string): RigTemplateClipKey[] => [
@@ -525,6 +658,15 @@ export const FULL_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'root', prop: 'y', per: 80 }],
 		},
+		{
+			id: 'move',
+			label: 'Move sideways',
+			tip: 'Slide the whole character left (−) or right (+); 1 = 100 rig units.',
+			min: -3,
+			max: 3,
+			rest: 0,
+			drives: [{ bone: 'root', prop: 'x', per: 100 }],
+		},
 		...sides<RigTemplateChannel>((s, k) => [
 			{
 				id: `arm_${s}`,
@@ -608,7 +750,46 @@ export const FULL_BODY: RigTemplate = {
 		},
 	],
 	clips: [],
+	motion: {
+		body: {
+			smooth: 0.05,
+			minVisibility: 0.5,
+			scale: { from: [23, 24], to: [11, 12], rig: 190 },
+			entries: [
+				{ kind: 'bone', channel: 'lean', bone: 'chest', from: [23, 24], to: [11, 12] },
+				{
+					kind: 'bone',
+					channel: 'head_tilt',
+					bone: 'head',
+					from: 8,
+					to: 7,
+					rest: [1, 0],
+					minSpan: 0.12,
+				},
+				...sides<BodyMotionEntryOf>((s) => {
+					const [sh, el, wr, hip, kn, an] =
+						s === 'l' ? [12, 14, 16, 24, 26, 28] : [11, 13, 15, 23, 25, 27];
+					return [
+						{ kind: 'bone', channel: `arm_${s}`, bone: `upper_arm_${s}`, from: sh, to: el },
+						{ kind: 'bone', channel: `elbow_${s}`, bone: `lower_arm_${s}`, from: el, to: wr },
+						{ kind: 'bone', channel: `step_${s}`, bone: `thigh_${s}`, from: hip, to: kn },
+						{ kind: 'bone', channel: `knee_${s}`, bone: `shin_${s}`, from: kn, to: an },
+					];
+				}),
+				{ kind: 'root', channel: 'hop', point: [23, 24], axis: 'y' },
+				{ kind: 'root', channel: 'move', point: [23, 24], axis: 'x' },
+			],
+		},
+		cannot: [
+			'Depth: a limb pointing at or away from the camera reads as short, not as turned.',
+			'Turning toward or away from the camera, or walking into the picture.',
+			'A knee bending forward, or a crouch with the feet planted (the template has no IK).',
+			'Hand poses, head nods and breathing.',
+		],
+	},
 };
+
+type BodyMotionEntryOf = NonNullable<RigMotionMap['body']>['entries'][number];
 
 FULL_BODY.clips = [
 	clip(FULL_BODY, 'idle', 4, [
@@ -770,11 +951,18 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 	for (const c of t.channels)
 		if (c.shapes && !t.channels.some((j) => j.id === c.shapes?.jaw && j.drives?.length))
 			return `channel "${c.id}" opens a missing jaw channel "${c.shapes.jaw}"`;
+	const motion = t.motion ? rigMotionProblem(t, parts) : null;
+	if (motion) return motion;
 	const clips = new Set<string>();
 	for (const k of t.clips) {
 		if (clips.has(k.name)) return `clip "${k.name}" is listed twice`;
 		clips.add(k.name);
 		if (!(k.length > 0)) return `clip "${k.name}" needs a length`;
+		if (k.animation) {
+			if (k.keys.length) return `clip "${k.name}" has both channel keys and timelines`;
+			const bad = timelinesProblem(k.animation, k.length, bones, slots, parts);
+			if (bad) return `clip "${k.name}" ${bad}`;
+		}
 		for (const [time, id, v] of k.keys) {
 			const c = t.channels.find((x) => x.id === id);
 			if (!c) return `clip "${k.name}" keys a missing channel "${id}"`;
@@ -785,6 +973,141 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				: typeof v === 'number' && v >= c.min && v <= c.max;
 			if (!fits)
 				return `clip "${k.name}" keys "${id}" to ${JSON.stringify(v)}, not one of its values`;
+		}
+	}
+	return null;
+}
+
+/** Why a timeline clip names something a template rig does not have, or null (§7.4). */
+function timelinesProblem(
+	a: RigTemplateTimelines,
+	length: number,
+	bones: Set<string>,
+	slots: Set<string>,
+	parts: Map<string, string>,
+): string | null {
+	const extra = Object.keys(a).find((k) => !['bones', 'slots', 'drawOrder'].includes(k));
+	if (extra) return `holds "${extra}" timelines, which a template rig cannot play`;
+	const timed = (keys: unknown, what: string): string | null => {
+		if (!Array.isArray(keys) || !keys.length) return `has an empty ${what} timeline`;
+		for (const k of keys) {
+			const time = (k as { time?: unknown } | null)?.time ?? 0;
+			if (typeof time !== 'number' || !(time >= 0 && time <= length + 1e-9))
+				return `keys ${what} outside 0…${length}`;
+		}
+		return null;
+	};
+	for (const [bone, tls] of Object.entries(a.bones ?? {})) {
+		if (!bones.has(bone)) return `moves a bone "${bone}" the template does not have`;
+		for (const [name, keys] of Object.entries(tls)) {
+			if (!(TEMPLATE_BONE_TIMELINES as readonly string[]).includes(name))
+				return `holds a "${name}" timeline on bone "${bone}"`;
+			const bad = timed(keys, `${bone}.${name}`);
+			if (bad) return bad;
+		}
+	}
+	for (const [slot, tls] of Object.entries(a.slots ?? {})) {
+		if (!slots.has(slot)) return `keys a slot "${slot}" the template does not have`;
+		for (const [name, keys] of Object.entries(tls)) {
+			if (!(TEMPLATE_SLOT_TIMELINES as readonly string[]).includes(name))
+				return `holds a "${name}" timeline on slot "${slot}"`;
+			const bad = timed(keys, `${slot}.${name}`);
+			if (bad) return bad;
+			if (name !== 'attachment') continue;
+			for (const k of keys) {
+				const part = k.name ?? null;
+				if (part !== null && parts.get(part) !== slot)
+					return `shows "${part}" in slot "${slot}", not one of its parts`;
+			}
+		}
+	}
+	if (a.drawOrder !== undefined) {
+		const bad = timed(a.drawOrder, 'draw order');
+		if (bad) return bad;
+		for (const k of a.drawOrder)
+			for (const o of k.offsets ?? [])
+				if (!slots.has(o.slot)) return `reorders a slot "${o.slot}" the template does not have`;
+	}
+	return null;
+}
+
+const refOk = (r: LandmarkRef, count: number) =>
+	(typeof r === 'number' ? [r] : r).every((i) => Number.isInteger(i) && i >= 0 && i < count);
+
+/** Why a template's motion map could not drive its channels, or null. */
+function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | null {
+	const m = t.motion!;
+	const chan = new Map(t.channels.map((c) => [c.id, c]));
+	const blend = new Set<string>(FACE_BLENDSHAPES);
+	const seen = new Set<string>();
+	const claim = (id: string): string | null => {
+		if (!chan.has(id)) return `motion drives a missing channel "${id}"`;
+		if (seen.has(id)) return `motion drives channel "${id}" twice`;
+		seen.add(id);
+		return null;
+	};
+	for (const e of m.face?.entries ?? []) {
+		const bad = claim(e.channel);
+		if (bad) return bad;
+		const c = chan.get(e.channel)!;
+		if (e.kind === 'blend' || e.kind === 'shape') {
+			const names =
+				e.kind === 'blend' ? [...e.plus, ...(e.minus ?? [])] : Object.values(e.features).flat();
+			const unknown = names.find((n) => !blend.has(n));
+			if (unknown) return `motion "${e.channel}" reads an unknown blendshape "${unknown}"`;
+			if (!names.length) return `motion "${e.channel}" reads no blendshape`;
+		}
+		if (e.kind === 'shape') {
+			if (!c.shapes) return `motion "${e.channel}" picks shapes, but the channel has none`;
+			for (const p of Object.keys(e.shapes))
+				if (parts.get(p) !== c.shapes.slot)
+					return `motion "${e.channel}" names "${p}", not a part of "${c.shapes.slot}"`;
+		} else if (c.shapes) return `motion "${e.channel}" sets a number on a shapes channel`;
+		const refs =
+			e.kind === 'angle' ? [e.from, e.to] : e.kind === 'offset' ? [e.point, ...e.between] : [];
+		if (!refs.every((r) => refOk(r, FACE_LANDMARK_COUNT)))
+			return `motion "${e.channel}" names a face point outside 0…${FACE_LANDMARK_COUNT - 1}`;
+	}
+	const body = m.body;
+	if (body) {
+		if (!(body.scale.rig > 0)) return 'motion body scale needs a rig length';
+		if (![body.scale.from, body.scale.to].every((r) => refOk(r, POSE_LANDMARK_COUNT)))
+			return `motion body scale names a pose point outside 0…${POSE_LANDMARK_COUNT - 1}`;
+		const chain = new Map<string, string[]>();
+		for (const b of t.bones)
+			chain.set(b.name, b.parent === undefined ? [] : [b.parent, ...(chain.get(b.parent) ?? [])]);
+		const root = t.bones[0]?.name;
+		const done: string[] = [];
+		for (const e of body.entries) {
+			const bad = claim(e.channel);
+			if (bad) return bad;
+			const c = chan.get(e.channel)!;
+			const refs = e.kind === 'bone' ? [e.from, e.to] : [e.point];
+			if (!refs.every((r) => refOk(r, POSE_LANDMARK_COUNT)))
+				return `motion "${e.channel}" names a pose point outside 0…${POSE_LANDMARK_COUNT - 1}`;
+			if (e.kind === 'root') {
+				if (!c.drives?.some((d) => d.bone === root && d.prop === e.axis))
+					return `motion "${e.channel}" moves the root on ${e.axis}, which the channel does not drive`;
+				continue;
+			}
+			if (!chain.has(e.bone)) return `motion "${e.channel}" turns a missing bone "${e.bone}"`;
+			if (worldTurnPer(c, e.bone, chain) === 0)
+				return `motion "${e.channel}" turns "${e.bone}", which the channel does not rotate`;
+			if (e.minSpan !== undefined && !(e.minSpan >= 0 && e.minSpan < 1))
+				return `motion "${e.channel}" needs a minimum span between 0 and 1`;
+			if (!boneRestDirection(t.bones, e.bone, e.rest))
+				return `motion "${e.channel}" needs a rest direction for "${e.bone}"`;
+			// The solve reads a child's offset as a picture direction, which holds only while the bone
+			// and its parents are unturned in the setup pose (true of the built-ins).
+			const turned = [e.bone, ...(chain.get(e.bone) ?? [])].find(
+				(n) => (t.bones.find((b) => b.name === n)?.rotation ?? 0) !== 0,
+			);
+			if (turned && !e.rest)
+				return `motion "${e.channel}" needs a rest direction: "${turned}" is turned in the setup pose`;
+			// A bone is solved after its parents, so it can take off the turn they already carry.
+			const late = done.find((b) => chain.get(b)?.includes(e.bone));
+			if (late) return `motion "${e.channel}" turns "${e.bone}" after its child "${late}"`;
+			done.push(e.bone);
 		}
 	}
 	return null;
@@ -828,6 +1151,7 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 			continue;
 		}
 		(attachments[p.slot] ??= {})[p.name] = {
+			...nonDefault(p.at ?? {}, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 			width: r.origW ?? r.w,
 			height: r.origH ?? r.h,
 		};
@@ -838,18 +1162,32 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 		bones: t.bones.map((b) => ({
 			name: b.name,
 			...(b.parent === undefined ? {} : { parent: b.parent }),
-			...(b.x ? { x: b.x } : {}),
-			...(b.y ? { y: b.y } : {}),
+			...nonDefault(b, { length: 0, x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 		})),
 		slots: t.slots.map((s) => ({
 			name: s.name,
 			bone: s.bone,
+			...(s.color !== undefined && s.color !== 'ffffffff' ? { color: s.color } : {}),
 			...(s.setup !== undefined && attachments[s.name]?.[s.setup] ? { attachment: s.setup } : {}),
+			...(s.blend !== undefined && s.blend !== 'normal' ? { blend: s.blend } : {}),
 		})),
 		skins: [{ name: 'default', attachments }],
 		animations: {},
 	};
 	return { skeleton, ref: { id: t.id, version: t.version }, missing, missingRequired };
+}
+
+/** The fields of `from` named in `defaults` whose value differs from the default there. */
+function nonDefault<K extends string>(
+	from: object,
+	defaults: Record<K, number>,
+): Partial<Record<K, number>> {
+	const out: Partial<Record<K, number>> = {};
+	for (const k of Object.keys(defaults) as K[]) {
+		const v = (from as Partial<Record<K, unknown>>)[k];
+		if (typeof v === 'number' && v !== defaults[k]) out[k] = v;
+	}
+	return out;
 }
 
 /** What a create answers about a template rig. */
@@ -860,6 +1198,15 @@ export function templateReport(fit: TemplateRig): RigTemplateRef & {
 	return { ...fit.ref, missing: fit.missing, missingRequired: fit.missingRequired };
 }
 
+/** Who saved a template made in the Rigger, and the head the author was shown. */
+export interface RigTemplateSaved {
+	savedAt: string;
+	savedBy: { uid: string; name: string };
+	project: string;
+	/** The head's etag: the precondition for a new version or a delete. */
+	etag: string | null;
+}
+
 /** What the Rigger page is told about a template. */
 export interface RigTemplateSummary {
 	id: string;
@@ -868,9 +1215,15 @@ export interface RigTemplateSummary {
 	parts: { name: string; required: boolean }[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
+	/** The skeleton and the motion map, for the motion import's solve. */
+	bones: RigTemplateBone[];
+	motion: RigMotionMap | null;
+	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
+	origin: 'builtin' | 'user';
+	saved?: RigTemplateSaved;
 }
 
-function summary(t: RigTemplate): RigTemplateSummary {
+export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): RigTemplateSummary {
 	return {
 		id: t.id,
 		version: t.version,
@@ -878,16 +1231,20 @@ function summary(t: RigTemplate): RigTemplateSummary {
 		parts: t.parts.map((p) => ({ name: p.name, required: p.required })),
 		channels: t.channels,
 		clips: t.clips,
+		bones: t.bones,
+		motion: t.motion ?? null,
+		origin: saved ? 'user' : 'builtin',
+		...(saved ? { saved } : {}),
 	};
 }
 
-/** The templates the New-rig panel offers. */
+/** The built-in templates. */
 export function rigTemplateList(): RigTemplateSummary[] {
-	return RIG_TEMPLATES.map(summary);
+	return RIG_TEMPLATES.map((t) => rigTemplateSummary(t));
 }
 
-/** The template a bundle's `template.json` names, or null for none or one we no longer have. */
-export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+/** A bundle's `template.json`, or null for none or one that is not `{ id, version }`. */
+export function parseTemplateRef(text: string | null): RigTemplateRef | null {
 	if (!text) return null;
 	let ref: unknown;
 	try {
@@ -895,7 +1252,15 @@ export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary 
 	} catch {
 		return null;
 	}
-	const id = ref && typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
-	const t = typeof id === 'string' ? rigTemplateById(id) : undefined;
-	return t ? summary(t) : null;
+	if (!ref || typeof ref !== 'object') return null;
+	const { id, version } = ref as { id?: unknown; version?: unknown };
+	if (typeof id !== 'string' || !id) return null;
+	return { id, version: typeof version === 'number' && Number.isInteger(version) ? version : 1 };
+}
+
+/** The BUILT-IN template a `template.json` names, or null (`rigTemplateStore` resolves user ones). */
+export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+	const ref = parseTemplateRef(text);
+	const t = ref ? rigTemplateById(ref.id) : undefined;
+	return t ? rigTemplateSummary(t) : null;
 }
