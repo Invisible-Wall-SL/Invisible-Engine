@@ -811,6 +811,15 @@ await check(
 			[{ motion: { groundAccel: 1e20 } }, /motion\.groundAccel/],
 			[{ motion: { maxFall: 0 } }, /motion\.maxFall: from 1/],
 			[{ motion: { subMove: 1e-4 } }, /motion\.subMove/],
+			// Review B finding 5's repros: 11.5 s / +1.1 GB and 20 s / +606 MB before #1749.
+			[
+				{ level: { cellSize: 4, colliders: [box(-6000, -1, -6000, 6000, 0, 6000)] } },
+				/collider 0 takes the level past 262144 cells/,
+			],
+			[
+				{ level: { cellSize: 0.01, colliders: [box(-20, -1, -20, 20, 0, 20)] } },
+				/level: motion3d: cellSize must be at least 0\.25/,
+			],
 			[{ motion: { subMove: 0.9 } }, /motion\.subMove: at most twice the radius/],
 			[
 				{ level: { cellSize: 16 }, motion: { radius: 0.02, subMove: 0.04, speed: 50, sprint: 4 } },
