@@ -5,6 +5,20 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### An editor save dropped a 3D project's model tiers
+
+- **Symptom:** a 3D project's `resolutionTiers: ['half', 'quarter', 'ultra']` exported `@quarter` /
+  `@ultra` models until someone saved in the Scene Editor; after that only `full` and `half` shipped.
+- **Cause:** two readers kept only `RESOLUTION_TIERS` ids: the doc normaliser (`editorStorage.ts`,
+  on every save AND every `loadDoc`) and the editor page's own tier state, which it saved back.
+  The model export read the raw doc, so it worked only on a never-saved one.
+- **Fix:** the stored doc keeps the 2D ids plus the model-only tiers (`$lib/resolutionTierIds`
+  `storedResolutionTiers`; the page saves back the ids it shows no box for). Every 2D reader still
+  re-normalises to `half`; `RESOLUTION_TIERS` unchanged.
+- **Guard:** `check:model-export` §8 (the real `saveDoc` → `loadDoc` → export keeps `quarter`, the 2D
+  readers still get `["half"]`; fails with the old normaliser), `check:doc-readers-unknown-fields` §4.
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
 ### Publish lets out draft sounds the build ships
 - **Symptom:** 27 draft sounds on 7 projects shipped with no publish block: picked on `/sound`, or
   played only by a cinematic cue (measured 2026-11-12).
