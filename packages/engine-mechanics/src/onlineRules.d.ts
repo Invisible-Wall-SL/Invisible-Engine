@@ -101,6 +101,15 @@ export type RulesHooks = {
 	level?(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
 	/** The input the room steps a free player it does not hold with, in place of `input`. */
 	steer?(player: RulesPlayer, input: OnlineInput): OnlineInput;
+	/** The marks it left on the field (Salmons' bloodstains). */
+	stains?(): RoomStains;
+};
+
+/** Marks a rules module left on the field (field px), the newest last, and how many it ever left:
+ *  a room sends a device only the ones it has not sent yet. */
+export type RoomStains = {
+	readonly list: readonly { readonly x: number; readonly y: number }[];
+	readonly made: number;
 };
 
 export type RulesModule = RulesHooks | { create(game: RulesGame, api: ModuleApi): RulesHooks };
@@ -113,6 +122,8 @@ export type OnlineRules = {
 	/** The stamp the phase ends at; 0 = never. */
 	readonly endsAt: number;
 	readonly winner: string;
+	/** The marks the rules module left on the field; none without one that leaves them. */
+	readonly stains: RoomStains;
 	joined(player: RulesPlayer, players: Iterable<RulesPlayer>, stamp: number): void;
 	left(id: string): void;
 	holds(player: RulesPlayer): boolean;

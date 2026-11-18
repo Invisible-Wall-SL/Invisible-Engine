@@ -23,7 +23,12 @@ import {
 	type ModelTierProfile,
 } from 'constants-shared/modelTiers';
 import { normalizeOverride, normalizeScreenSize, type ModelTierOverride } from './modelConfig';
-import { inspectModelMaster } from './modelOptimize';
+import {
+	inspectModelMaster,
+	modelLimitIssues,
+	NOT_A_GLB,
+	textureSideIssues,
+} from './modelOptimize';
 import { modelDocKey, modelSourceKey, modelUploadKey, SUB } from './projectPaths';
 import {
 	ConflictError,
@@ -208,6 +213,13 @@ export async function validateModelMaster(
 	bytes: Uint8Array,
 	cls: ModelClass,
 ): Promise<ModelValidatorIssue[]> {
+	const limits = modelLimitIssues(bytes);
+	if (limits.length)
+		return limits.map((message) => ({
+			level: 'error',
+			code: message.startsWith(NOT_A_GLB) ? 'GLB_UNREADABLE' : 'MODEL_OVER_LIMIT',
+			message,
+		}));
 	const issues: ModelValidatorIssue[] = [];
 	let facts: Awaited<ReturnType<typeof inspectModelMaster>>;
 	try {
@@ -221,6 +233,8 @@ export async function validateModelMaster(
 			},
 		];
 	}
+	for (const message of textureSideIssues(facts.textures))
+		issues.push({ level: 'error', code: 'TEXTURE_TOO_LARGE', message });
 	const gen: ModelLodGenerate = MODEL_CLASS_DEFAULTS[cls].lodGenerate;
 	if (!facts.levels.some((l) => l.level === 0))
 		issues.push({ level: 'error', code: 'NO_LOD0', message: 'the master has no mesh (no LOD0)' });
