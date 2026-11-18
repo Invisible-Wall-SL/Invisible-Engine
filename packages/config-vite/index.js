@@ -21,6 +21,7 @@ import { assertSvelteVersions } from './svelteVersions.js';
 const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
 /** three's Basis transcoder (`engine-3d`'s KTX2Loader): only the `arcade3d` runtime fetches it. */
 const BASIS_TRANSCODER_RE = /[\\/]basis_transcoder\.(js|wasm)$/;
+const isTranscoder = (file) => KTX_TRANSCODER_RE.test(file) || BASIS_TRANSCODER_RE.test(file);
 /** Salmons' built-in art (`engine-layout` `salmonsArt/sheets/`): fetched only by a Salmons room. */
 const SALMONS_ART_RE = /[\\/]salmonsArt[\\/]sheets[\\/][^\\/]+\.webp$/;
 
@@ -291,10 +292,7 @@ export default () => {
 		// likewise: only a Salmons room fetches it (`engine-layout/salmons-art`), and three's Basis
 		// transcoder: only a 3D model with a KTX2 texture does.
 		build: {
-			assetsInlineLimit: (file) =>
-				!KTX_TRANSCODER_RE.test(file) &&
-				!BASIS_TRANSCODER_RE.test(file) &&
-				!SALMONS_ART_RE.test(file),
+			assetsInlineLimit: (file) => !isTranscoder(file) && !SALMONS_ART_RE.test(file),
 			sourcemap: sourcemap(),
 			output: {
 				sourcemap: sourcemap(),
