@@ -343,7 +343,11 @@ try {
 		inp.value = "1"; inp.dispatchEvent(new Event("input", { bubbles: true }));
 		return true;
 	})()`);
-	await wait(150);
+	// The stage applies a preview on its next frame, which a slow headless runner draws late.
+	await waitFor(
+		'(() => { const b = skeleton.findBone("jaw"); return Math.abs(b.y - (b.data.y - 14)) < 1e-6; })()',
+		10000,
+	).catch(() => {});
 	const jaw = await evaluate(
 		'(() => { const b = skeleton.findBone("jaw"); return [b.y, b.data.y]; })()',
 	);
@@ -357,7 +361,9 @@ try {
 		s.value = "mouth_O"; s.dispatchEvent(new Event("change", { bubbles: true }));
 		return true;
 	})()`);
-	await wait(150);
+	await waitFor('skeleton.findSlot("mouth").getAttachment()?.name === "mouth_O"', 10000).catch(
+		() => {},
+	);
 	const mouth = await evaluate(
 		'(() => { const s = skeleton.findSlot("mouth"), b = skeleton.findBone("jaw"); return [s.getAttachment() && s.getAttachment().name, b.y - b.data.y]; })()',
 	);
