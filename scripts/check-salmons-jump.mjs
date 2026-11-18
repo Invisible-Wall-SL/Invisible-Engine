@@ -28,13 +28,7 @@ import {
 	stepContext,
 	stepPlayer,
 } from '../packages/engine-mechanics/src/online.js';
-import {
-	STATUS,
-	abilitySpecs,
-	addZoneForces,
-	useAbilities,
-	zoneForces,
-} from '../packages/engine-mechanics/src/abilities.js';
+import { STATUS, addZoneForces, zoneForces } from '../packages/engine-mechanics/src/abilities.js';
 import { createPredictor, reconcilerStep } from '../packages/engine-mechanics/src/netcode.js';
 import { CELL, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { WHIRLPOOL_PULL, salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
