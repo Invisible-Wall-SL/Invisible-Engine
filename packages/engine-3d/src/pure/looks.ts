@@ -7,13 +7,23 @@
  *     "modelId": "testhero",                                  // a `hero` model of the models index
  *     "modelIds": ["anim_locomotion", "anim_combat"],         // its clip libraries (`anim` models)
  *     "attach": [{ "socket": "hand_r", "modelId": "testsword" }],
- *     "anim": "humanoid"                                     // its CharacterAnim3D doc, by id
+ *     "anim": "humanoid",                                    // its CharacterAnim3D doc, by id
+ *     "viewmodel": { "modelId": "testhero_vm", "anim": "viewmodel",   // first person, own player
+ *                    "attach": [{ "socket": "hand_r", "modelId": "testsword" }] }
  *   } }
  *
  * The field names are the models export's (`modelId` / `modelIds`, walked raw), so naming a model
  * here is what makes a publish ship it (CLAUDE.md rule 8).
  */
 export type Attach3d = { socket: string; modelId: string };
+
+/** The own player's first-person arms (`CH_<hero>_vm`, the `viewmodel.*` clips). */
+export type ViewmodelLook3d = {
+	modelId: string;
+	modelIds: string[];
+	attach: Attach3d[];
+	anim?: string;
+};
 
 export type Look3d = {
 	modelId: string;
@@ -22,6 +32,7 @@ export type Look3d = {
 	attach: Attach3d[];
 	/** The `arcade.world3d.anim` doc this look plays, by id. */
 	anim?: string;
+	viewmodel?: ViewmodelLook3d;
 };
 
 export const DEFAULT_LOOK = 'default';
@@ -31,6 +42,7 @@ const MAX_LIST = 16;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v.slice(0, MAX_LIST) : []);
 /** A model id, exactly as the launcher's rule takes it (`apps/launcher-api/src/lib/models/modelId.ts`
  *  `MODEL_ID`; `check:engine-3d` compares the two). */
 export const LOOK_MODEL_ID = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
@@ -49,19 +61,29 @@ export function looksOf3d(raw: unknown): { looks: Record<string, Look3d>; proble
 			problems.push(`${path}.modelId: a model id`);
 			continue;
 		}
-		const list = (v: unknown) => (Array.isArray(v) ? v.slice(0, MAX_LIST) : []);
-		const modelIds = list(entry.modelIds)
-			.map(name)
-			.filter((v): v is string => !!v);
-		const attach = list(entry.attach).flatMap((a, i) => {
-			const socket = isObject(a) ? name(a.socket) : undefined;
-			const model = isObject(a) ? name(a.modelId) : undefined;
-			if (socket && model) return [{ socket, modelId: model }];
-			problems.push(`${path}.attach.${i}: { socket, modelId }`);
-			return [];
-		});
-		const anim = name(entry.anim);
-		looks[id] = { modelId, modelIds, attach, ...(anim ? { anim } : {}) };
+		const parts = (raw: Record<string, unknown>, at: string) => {
+			const modelIds = list(raw.modelIds)
+				.map(name)
+				.filter((v): v is string => !!v);
+			const attach = list(raw.attach).flatMap((a, i) => {
+				const socket = isObject(a) ? name(a.socket) : undefined;
+				const model = isObject(a) ? name(a.modelId) : undefined;
+				if (socket && model) return [{ socket, modelId: model }];
+				problems.push(`${at}.attach.${i}: { socket, modelId }`);
+				return [];
+			});
+			const anim = name(raw.anim);
+			return { modelIds, attach, ...(anim ? { anim } : {}) };
+		};
+		const look: Look3d = { modelId, ...parts(entry, path) };
+		if (entry.viewmodel !== undefined) {
+			const vm = entry.viewmodel;
+			const vmModel = isObject(vm) ? name(vm.modelId) : undefined;
+			if (isObject(vm) && vmModel)
+				look.viewmodel = { modelId: vmModel, ...parts(vm, `${path}.viewmodel`) };
+			else problems.push(`${path}.viewmodel.modelId: a model id`);
+		}
+		looks[id] = look;
 	}
 	return { looks, problems };
 }

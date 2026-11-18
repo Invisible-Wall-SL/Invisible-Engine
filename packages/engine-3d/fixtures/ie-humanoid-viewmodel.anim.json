@@ -1,0 +1,103 @@
+{
+	"id": "viewmodel",
+	"skeleton": "ie_humanoid",
+	"modelIds": ["anim_viewmodel"],
+	"clips": {
+		"viewmodel.idle": { "loop": true },
+		"viewmodel.walk_bob": { "loop": true },
+		"viewmodel.carry": { "loop": true },
+		"viewmodel.attack": {
+			"loop": false,
+			"cues": [
+				{ "at": 0.18, "cue": "fx:trail_on" },
+				{ "at": 0.32, "cue": "fx:trail_off" }
+			]
+		},
+		"viewmodel.hit": { "loop": false }
+	},
+	"masks": { "rightArm": { "include": ["clavicle_r"] } },
+	"inputs": [
+		{ "id": "speed", "kind": "number", "source": "character:speed" },
+		{ "id": "grounded", "kind": "bool", "default": true, "source": "character:grounded" },
+		{ "id": "carrying", "kind": "bool", "source": "character:carrying" },
+		{ "id": "attack", "kind": "trigger" },
+		{ "id": "hit", "kind": "trigger" }
+	],
+	"machine": {
+		"layers": [
+			{
+				"id": "base",
+				"entry": "hold",
+				"states": [
+					{
+						"id": "hold",
+						"timeline": "viewmodel.idle",
+						"loop": true,
+						"blend": {
+							"input": "speed",
+							"points": [
+								{ "timeline": "viewmodel.idle", "at": 0 },
+								{ "timeline": "viewmodel.walk_bob", "at": 4 }
+							]
+						}
+					},
+					{ "id": "carry", "timeline": "viewmodel.carry", "loop": true }
+				],
+				"transitions": [
+					{
+						"id": "pickUp",
+						"from": "hold",
+						"to": "carry",
+						"conditions": [{ "input": "carrying", "op": "==", "value": true }],
+						"blend": 200
+					},
+					{
+						"id": "drop",
+						"from": "carry",
+						"to": "hold",
+						"conditions": [{ "input": "carrying", "op": "==", "value": false }],
+						"blend": 200
+					}
+				]
+			},
+			{
+				"id": "swing",
+				"mask": "rightArm",
+				"entry": "none",
+				"states": [
+					{ "id": "none", "timeline": "" },
+					{ "id": "attack", "timeline": "viewmodel.attack" }
+				],
+				"transitions": [
+					{
+						"id": "swing",
+						"from": "any",
+						"to": "attack",
+						"conditions": [{ "input": "attack", "op": "fired" }],
+						"blend": 50
+					},
+					{ "id": "recover", "from": "attack", "to": "none", "exitTime": 0.9, "blend": 120 }
+				]
+			},
+			{
+				"id": "flinch",
+				"mode": "additive",
+				"entry": "none",
+				"states": [
+					{ "id": "none", "timeline": "" },
+					{ "id": "hit", "timeline": "viewmodel.hit" }
+				],
+				"transitions": [
+					{
+						"id": "struck",
+						"from": "any",
+						"to": "hit",
+						"conditions": [{ "input": "hit", "op": "fired" }],
+						"blend": 30
+					},
+					{ "id": "settle", "from": "hit", "to": "none", "exitTime": 0.95, "blend": 80 }
+				]
+			}
+		]
+	}
+}

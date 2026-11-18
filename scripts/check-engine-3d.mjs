@@ -619,6 +619,27 @@ check(
 			'arcade.world3d.looks.default.attach.1: { socket, modelId }|arcade.world3d.looks.broken.modelId: a model id',
 	JSON.stringify({ looks, problems }),
 );
+const fp = looksOf3d({
+	default: {
+		modelId: 'testhero',
+		viewmodel: {
+			modelId: 'testhero_vm',
+			modelIds: ['anim_viewmodel'],
+			anim: 'viewmodel',
+			attach: [{ socket: 'hand_r', modelId: 'testsword' }],
+		},
+	},
+	bad: { modelId: 'x', viewmodel: {} },
+});
+check(
+	'looks: a first-person viewmodel with its own clips, doc and weapon; a bad one reported',
+	fp.looks.default.viewmodel?.modelId === 'testhero_vm' &&
+		fp.looks.default.viewmodel.anim === 'viewmodel' &&
+		fp.looks.default.viewmodel.attach.length === 1 &&
+		!fp.looks.bad.viewmodel &&
+		fp.problems.join() === 'arcade.world3d.looks.bad.viewmodel.modelId: a model id',
+	JSON.stringify(fp),
+);
 check(
 	"looks take the launcher's model id rule exactly (CH_testhero, case kept)",
 	LOOK_MODEL_ID.source === MODEL_ID.source &&
