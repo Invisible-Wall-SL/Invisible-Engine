@@ -200,7 +200,9 @@ counts, never fps. P4, P5 and P7 are planned.
   Readings) shows each game's newest lab reading beside the previous lab reading of the same game
   and switches (`previousLabReading`), with Δ, a change past `LAB_TOLERANCE` in orange, and "fps:
   not comparable". The Readings table tags it `lab`.
-- **Workflow.** `.github/workflows/profiler-lab.yml` ("Profiler lab run"): 03:17 UTC nightly over
+- **Workflow** (its own PR, `launcher(profiler): P6 lab-run workflow` — any `.github/workflows/`
+  edit fails `current-games` by design and merges after the owner's review).
+  `.github/workflows/profiler-lab.yml` ("Profiler lab run"): 03:17 UTC nightly over
   every live online game (`/api/pipeline/games`: a project, no own bundle), or Run workflow with a
   `game` key; one matrix job per game (4 at a time), the headless shell installed as current-games
   does, the run's files (`<game>.json`, `<game>.report.json`) uploaded for 7 days. No new secret.
