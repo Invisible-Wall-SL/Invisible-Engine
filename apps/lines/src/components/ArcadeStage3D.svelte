@@ -78,6 +78,10 @@
 		/** The tab is shown again: drop the time it was hidden. */
 		resync(): void;
 		release(): void;
+		/** A body's top speed (m/s): what 1 is on its animation's local move axes. */
+		topSpeed(body: import('engine-3d').BodyView3d): number;
+		/** The room's one-shots, for the characters (online only). */
+		onEvents?(listener: (events: readonly { type: string; id: string }[]) => void): () => void;
 	};
 
 	/** The offline field: one `motion3d` player on the config's `arcade.world3d` level, or the
@@ -115,6 +119,7 @@
 			steps: () => play.steps,
 			resync: () => play.resync(),
 			release: () => {},
+			topSpeed: () => field.motion.speed * field.motion.sprint,
 		};
 	};
 
@@ -157,6 +162,11 @@
 			steps: () => view.seq,
 			// The room went on while the tab was hidden; the next states bring the device up to it.
 			resync: () => {},
+			topSpeed: (body) => {
+				const spec = three.motionFor3d(world, body.character ?? '');
+				return spec.speed * spec.sprint;
+			},
+			onEvents: session.onEvents,
 			release: () => {
 				live = false;
 			},
@@ -197,9 +207,16 @@
 			world.setLevel(field.colliders);
 			const bundle = bakedBundleData() as
 				{ models?: ModelExportIndex; assetBase?: string } | undefined;
-			const raw = bakedGameConfig() as { arcade?: { world3d?: { looks?: unknown } } } | undefined;
+			const raw = bakedGameConfig() as
+				{ arcade?: { world3d?: { looks?: unknown; anim?: unknown } } } | undefined;
 			const { looks, problems } = three.looksOf3d(raw?.arcade?.world3d?.looks);
-			for (const problem of problems) console.error(`[engine-3d] ${problem}`);
+			const anims = three.animDocsOf3d(raw?.arcade?.world3d?.anim);
+			for (const problem of [...problems, ...anims.problems])
+				console.error(`[engine-3d] ${problem}`);
+			for (const doc of Object.values(anims.docs))
+				for (const issue of three.validateCharacterAnim3d(doc))
+					if (issue.level === 'error')
+						console.error(`[engine-3d] ${doc.id}.${issue.path}: ${issue.message}`);
 			const models = bundle?.models?.models.length
 				? three.createCharacterModels3d({
 						renderer: world.renderer,
@@ -210,8 +227,20 @@
 						fovDeg: rig.fov,
 					})
 				: undefined;
-			const cast = models ? three.createCast3d({ models, looks }) : undefined;
+			const cast = models
+				? three.createCast3d({ models, looks, anims: anims.docs, topSpeed: field.topSpeed })
+				: undefined;
 			world.setLooks(cast);
+			let ownId: string | undefined;
+			// Another player's attack (and, with combat, a hit) arrives as the room's one-shot; the
+			// own attack was predicted on the press.
+			const unlisten = field.onEvents?.((events) => {
+				for (const event of events) {
+					const trigger = three.ROOM_TRIGGERS3D[event.type];
+					if (trigger && !(trigger === 'attack' && event.id === ownId))
+						cast?.trigger(event.id, trigger);
+				}
+			});
 			const probe = globalThis as { __IE_WORLD3D__?: unknown };
 			probe.__IE_WORLD3D__ = {
 				tier: choice.tier,
@@ -222,7 +251,11 @@
 						lods: c.lodLevels(),
 						clips: [...c.clips.keys()],
 						sockets: ['hand_r', 'head_top'].filter((n) => !!c.socket(n)),
+						states: cast?.animators.get(id)?.states(),
+						weights: cast?.animators.get(id)?.weights(),
 					})),
+				/** Fire a trigger on a body's graph (the playtests' flinch, until combat raises `hit`). */
+				trigger: (id: string, trigger: string) => cast?.trigger(id, trigger),
 			};
 			const keys = three.listenKeys3d(window);
 			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
@@ -255,16 +288,22 @@
 			fit();
 
 			let target: { x: number; y: number; z: number } | undefined;
+			let attackHeld = false;
 			const tick = () => {
 				if (document.visibilityState !== 'visible') return;
 				if (!hidden || hidden.destroyed) hidden = codedBackground(pixi.stage);
 				if (hidden) hidden.renderable = false;
 				world.setPixelRatio(pixelRatio());
-				field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
+				const stick = keys.read();
+				field.advance(pixi.ticker.deltaMS, stick, rig.yaw, aim);
 				models?.setFov(rig.fov);
-				cast?.frame(pixi.ticker.deltaMS);
 				const bodies = field.bodies();
 				const own = bodies.find((b) => b.kind === 'hero');
+				ownId = own?.id;
+				const attack = (stick.buttons & three.BUTTONS3D.attack) !== 0;
+				if (attack && !attackHeld && own) cast?.trigger(own.id, 'attack');
+				attackHeld = attack;
+				cast?.animate(bodies, pixi.ticker.deltaMS, world.camera);
 				if (own) target = follow.step(pixi.ticker.deltaMS, own);
 				if (target) world.sync(bodies, { target, rig });
 			};
@@ -304,6 +343,7 @@
 				keys.release();
 				unregisterProbe();
 				field.release();
+				unlisten?.();
 				cast?.dispose();
 				models?.dispose();
 				delete probe.__IE_WORLD3D__;
