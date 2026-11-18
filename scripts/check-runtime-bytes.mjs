@@ -100,7 +100,7 @@ function* walk(dir, rel = '') {
 const CODE = (path) => path === 'index.html' || path.startsWith('_app/immutable/');
 
 /** `files`: `{ path: { sha256, gzip } }` for the code (`index.html`, `_app/immutable/**`); `other`:
- *  `{ path: sha256 }` for every other file. Source maps are left out of both; paths sorted. */
+ *  `{ path: { sha256 } }` for every other file (no gzip: art, audio and fonts). Source maps are left out of both; paths sorted. */
 export function manifestOf(buildDir) {
 	const paths = [...walk(buildDir)].filter((p) => !p.endsWith('.map')).sort();
 	const files = {};
@@ -109,7 +109,7 @@ export function manifestOf(buildDir) {
 	for (const path of paths) {
 		const body = readFileSync(join(buildDir, path));
 		if (!CODE(path)) {
-			other[path] = sha256(body);
+			other[path] = { sha256: sha256(body) };
 			continue;
 		}
 		const size = gzipSync(body, { level: 6 }).length;
@@ -156,7 +156,7 @@ export function diffManifests(recorded, built) {
 	const nowOther = built.other ?? {};
 	for (const path of Object.keys(nowOther))
 		if (!(path in wasOther)) lines.push(`added   ${path}`);
-		else if (wasOther[path] !== nowOther[path]) lines.push(`changed ${path}`);
+		else if (wasOther[path].sha256 !== nowOther[path].sha256) lines.push(`changed ${path}`);
 	for (const path of Object.keys(wasOther)) if (!(path in nowOther)) lines.push(`removed ${path}`);
 	return lines;
 }
