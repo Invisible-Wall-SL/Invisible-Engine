@@ -26,7 +26,14 @@
 		type FlipbookClipEntry,
 	} from './registerFlipbooks';
 	import { linksOf, markOf, marksOn, type InstanceLink } from './arcadeMarks.svelte';
-	import { codeLookOf } from './arcadeArt.svelte';
+	import {
+		SURFACE_Z,
+		UNDER_SURFACE,
+		WAKE_Z,
+		codeLookOf,
+		layerArtOf,
+		underSurface,
+	} from './arcadeArt.svelte';
 	import MountedArt from './MountedArt.svelte';
 	import { hidingOn, inWorldCamera, isCulled, worldProjection } from './worldCameraView.svelte';
 
@@ -86,6 +93,11 @@
 	// `hidingOn` is read reactively: the arcade runtime may turn it on after this layer mounted.
 	const inWorld = inWorldCamera();
 	const culling = $derived(inWorld || hidingOn());
+
+	// Art an online room draws among a projected layer's instances (`arcadeArt.svelte.ts`
+	// `LayerArt`: Salmons' bloodstains and their trail). Nothing publishes it elsewhere, and an
+	// instance nobody puts under the surface keeps its depth order: every other layer is as before.
+	const layerArt = $derived(projection ? layerArtOf(node.id) : undefined);
 
 	// A hopping character (P10.13) is drawn raised by its height over a shadow on the ground. Only a
 	// game whose loop publishes lifts takes this branch; elsewhere the markup is as before.
@@ -263,14 +275,16 @@
 {#each instances as instance, seq (instance.id)}
 	{#if projection}
 		<!-- A projected screen (P11.4): drawn upright at the projected place, in ground-depth order
-		     (the zIndex; spawn order breaks a tie), culled by the loop's projected view. -->
+		     (the zIndex; spawn order breaks a tie), culled by the loop's projected view; one its art
+		     draws under the surface, in the band below it. -->
 		{@const place = places[instance.id] ?? instance}
 		{@const at = projection.project(place.x, place.y)}
 		{@const lift = liftsOn() ? liftOf(instance.id) : undefined}
 		<Container
 			x={at.x}
 			y={at.y}
-			zIndex={projection.depth(place.x, place.y, seq)}
+			zIndex={projection.depth(place.x, place.y, seq) -
+				(underSurface(instance.id) ? UNDER_SURFACE : 0)}
 			visible={!culling || !isCulled(instance.id)}
 		>
 			{#if lift}
@@ -308,6 +322,16 @@
 		</Container>
 	{/if}
 {/each}
+{#if layerArt?.wake}
+	{#key layerArt.wake}
+		<MountedArt mount={layerArt.wake} zIndex={WAKE_Z} />
+	{/key}
+{/if}
+{#if layerArt?.surface}
+	{#key layerArt.surface}
+		<MountedArt mount={layerArt.surface} zIndex={SURFACE_Z} />
+	{/key}
+{/if}
 {#if marksOn() && linksOf(node.id).length}
 	<!-- Above every instance: a projected layer's instances are ordered by depth (zIndex). -->
 	<Graphics zIndex={Number.MAX_SAFE_INTEGER} draw={drawLinks} />

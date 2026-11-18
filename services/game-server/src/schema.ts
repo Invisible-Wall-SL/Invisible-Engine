@@ -14,8 +14,9 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * grounded, hooked), the module's `mark`, whether it is a bot the server plays (P10.16) and how
  * high a module lifted it (`z`), whether a module holds it still (`held`) and the move it carries
  * (`air`, `carryX`, `carryY`). Per room the phase, the step every state is stamped with, the
- * round, the step its phase ends at (0 = never) and the last round's winner, and the room's seed,
- * from which a device makes a generated field. The level is never in the state.
+ * round, the step its phase ends at (0 = never) and the last round's winner, the room's seed,
+ * from which a device makes a generated field, and the stains its rules module left on the field
+ * (Salmons' bloodstains, the newest last). The level is never in the state.
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
  * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
@@ -74,6 +75,9 @@ export const VIEW_TAG = Object.freeze({ near: 1, own: 2 });
  *  goes only there — a hundred players' acks would otherwise be a quarter of every patch. */
 export const NearbyPlayer = schema({ ...playerFields, ack: t.uint32().view(VIEW_TAG.own) });
 
+/** A mark a rules module left on the field, field px (Salmons' bloodstain where a salmon died). */
+export const Stain = schema({ x: t.float32(), y: t.float32() });
+
 const roomFields = {
 	/** `waiting` until the first player joins; then `running` a round and `ended` between rounds. */
 	phase: t.string(),
@@ -84,6 +88,9 @@ const roomFields = {
 	/** The room's seed (P11.2 (e)): a device makes the room's own field from it with the same
 	 *  generator the server ran (`engine-mechanics` `generatedOnlineGame`). */
 	seed: t.uint32(),
+	/** The rules module's stains, the newest last, at most its own cap: every device draws them,
+	 *  in a nearby room too (`engine-mechanics` `OnlineRules.stains`). */
+	stains: t.array(Stain),
 };
 
 export const RoomState = schema({ ...roomFields, players: t.map(Player) });

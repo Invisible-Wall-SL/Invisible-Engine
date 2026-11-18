@@ -13,6 +13,7 @@ import {
 	underTint,
 	underwater,
 } from './leap';
+import { BLOOD, createRedness, type Blood } from './blood';
 import type { SalmonsTextures } from './load';
 
 /**
@@ -24,7 +25,7 @@ import type { SalmonsTextures } from './load';
  *   climbs a waterfall (the room holds it) with a pulse each tap; swimming in open water it is
  *   drawn under the water's tint with a white glint flashing along its spine, and breaks the surface
  *   (crisp, no glint) in the air, climbing or on sand or a rock; the golden one drawn with its own
- *   texture;
+ *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`);
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
  */
@@ -54,6 +55,9 @@ export type CodeLook = {
 	hand: { dx: number; lift: number } | undefined;
 	/** How far up from its place a line on it ends (its middle). */
 	middle: number;
+	/** Whether it is drawn under the water's surface now (a swimming salmon): its layer draws it
+	 *  under the surface art (`arcadeArt.svelte.ts` `LayerArt`). */
+	under: () => boolean;
 	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows, and
 	 *  a salmon's lift (screen px), curl (0..1), whether it has the climb's pose and whether it is
 	 *  drawn under the water. */
@@ -65,6 +69,7 @@ export type CodeLook = {
 		curl?: number;
 		climbing?: boolean;
 		underwater?: boolean;
+		red?: boolean;
 	};
 	destroy: () => void;
 };
@@ -150,6 +155,7 @@ function salmonLook(
 	bodyW: number,
 	waterAt: WaterAt,
 	tintAlpha: number,
+	blood: Blood,
 ): CodeLook {
 	const pink = art.region('salmon_pink');
 	const golden = art.region('salmon_golden');
@@ -194,6 +200,8 @@ function salmonLook(
 	let under = false;
 	let tintFilter: ColorMatrixFilter | undefined;
 	let tinted: number | undefined;
+	const redness = createRedness();
+	let red = false;
 	/** Draw the body under `tint` (the water's), or crisp with none. */
 	const tintUnder = (tint: number | undefined) => {
 		if (tint === tinted) return;
@@ -211,6 +219,7 @@ function salmonLook(
 		mount: mountOf(view),
 		hand: undefined,
 		middle: drawnH / 2,
+		under: () => under,
 		drawn: () => ({
 			kind: 'rope',
 			region: marked ? 'salmon_golden' : 'salmon_pink',
@@ -218,6 +227,7 @@ function salmonLook(
 			curl,
 			climbing: climbPose,
 			underwater: under,
+			red,
 		}),
 		event: (event, atMs) => {
 			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
@@ -273,6 +283,12 @@ function salmonLook(
 			under = underwater(cells, water !== undefined, climbing);
 			tintUnder(under ? water?.tint : undefined);
 			const open = free && under;
+			const blooded = redness(open, open && blood.touches(f.x, f.y), now);
+			if (blooded.red !== red) {
+				red = blooded.red;
+				rope.tint = red ? BLOOD.red : 0xffffff;
+			}
+			if (blooded.shed) blood.shed(f.x, f.y, now);
 			highlight.visible = open;
 			if (open) {
 				glintPoints.forEach((p, i) => {
@@ -320,6 +336,7 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 		mount: mountOf(view),
 		hand: undefined,
 		middle: drawnH / 2,
+		under: () => false,
 		drawn: () => ({ kind: 'sprite', region: 'bear', swiping: claw.visible }),
 		event: (event, atMs) => {
 			if (event === 'ability') swipe = { at: atMs, side: -swipe.side, aim: heading };
@@ -353,6 +370,7 @@ function fishermanLook(bodyW: number): CodeLook {
 		mount: mountOf(view),
 		hand: { dx: OLD_HAND.x * s, lift: r - OLD_HAND.y * s },
 		middle: r,
+		under: () => false,
 		drawn: () => ({ kind: 'circle', region: '' }),
 		event: () => {},
 		frame: () => {},
@@ -361,13 +379,18 @@ function fishermanLook(bodyW: number): CodeLook {
 }
 
 /** The looks of Salmons' three characters (by character id), or none for another; a salmon is
- *  drawn under the water `waterAt` finds, at `tintAlpha`. */
-export function createLookFactory(art: SalmonsTextures, waterAt: WaterAt, tintAlpha: number) {
+ *  drawn under the water `waterAt` finds, at `tintAlpha`, and reddened by `blood`'s stains. */
+export function createLookFactory(
+	art: SalmonsTextures,
+	waterAt: WaterAt,
+	tintAlpha: number,
+	blood: Blood,
+) {
 	const glint = highlightTexture();
 	return {
 		look: (character: string, body: { w: number; h: number }): CodeLook | undefined =>
 			character === 'salmon'
-				? salmonLook(art, glint, body.w, waterAt, tintAlpha)
+				? salmonLook(art, glint, body.w, waterAt, tintAlpha, blood)
 				: character === 'bear'
 					? bearLook(art, body.w)
 					: character === 'fisherman'

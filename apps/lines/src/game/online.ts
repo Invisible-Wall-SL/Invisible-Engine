@@ -68,9 +68,11 @@ import {
 	setClips,
 	setCodeLooks,
 	setFieldArt,
+	setLayerArt,
 	setLinks,
 	setMarks,
 	startMarks,
+	setUnderSurface,
 	setWorldCameraView,
 	spawnLayerPoint,
 	spawnStore,
@@ -79,7 +81,7 @@ import {
 	type InstanceLink,
 	type InstanceMark,
 } from 'engine-layout/svelte';
-import type { CodeLook, SalmonsArt } from 'engine-layout/salmons-art';
+import type { CodeLook, SalmonsArt, StainList } from 'engine-layout/salmons-art';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
@@ -201,6 +203,8 @@ type RoomState = {
 	/** The room's seed, from which a generated field is made (P11.2 (e)). */
 	seed: number;
 	players: Map<string, PlayerState>;
+	/** What its rules module left on the field (Salmons' bloodstains); unset from an older server. */
+	stains?: StainList;
 };
 
 /** How long a join waits for the room's first state, which carries the seed of its field. */
@@ -467,6 +471,7 @@ export async function joinOnlineRoom(): Promise<void> {
 				current.art = art;
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
+				setLayerArt(current.game.online.layer, art.layer);
 			},
 			(error: unknown) => console.warn('[online] the field art did not load', error),
 		);
@@ -910,12 +915,14 @@ function drawCodeLooks(
 ) {
 	const { art } = current;
 	if (!art) return;
+	art.stains(stateOf(current.room).stains, current.clipClock);
 	for (const [id, look] of current.codeLooks)
 		if (!current.drawn.has(id)) {
 			look.destroy();
 			current.codeLooks.delete(id);
 		}
 	const mounts = new Map<string, ArtMount>();
+	const under = new Set<string>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		// A published clip wins over the code look (`<SpawnLayer>` would hide it anyway).
@@ -937,8 +944,10 @@ function drawCodeLooks(
 			held: player.held === true,
 		});
 		mounts.set(instance, look.mount);
+		if (look.under()) under.add(instance);
 	}
 	setCodeLooks(mounts);
+	setUnderSurface(under);
 }
 
 /** The registered clips, as a character's animator reads them. */
@@ -1245,6 +1254,10 @@ export function onlineProbe() {
 							.filter(([id, p]) => p.mark && current.drawn.has(id))
 							.map(([id]) => id),
 						lines: current.drawnLines.map((line) => ({ ...line })),
+						stains: Array.from({ length: state.stains?.length ?? 0 }, (_, i) => {
+							const stain = state.stains?.at(i);
+							return stain ? [stain.x, stain.y] : [];
+						}),
 						clips: Object.fromEntries(
 							[...current.looks].flatMap(([id, { shown }]) =>
 								shown && current.drawn.has(id)
@@ -1266,6 +1279,7 @@ export function onlineProbe() {
 										const hand = current.codeLooks.get(line.by)?.hand;
 										return hand && current.art?.line(Infinity, 0, hand.dx).color;
 									}),
+									blood: current.art.blood(),
 								}
 							: null,
 						signals: current.signals.map((s) => ({ ...s })),

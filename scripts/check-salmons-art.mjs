@@ -6,13 +6,18 @@
 // - only a Salmons room reaches them: `engine-layout/salmons-art` is imported in one place, lazily
 //   (`apps/lines` `game/online.ts` `FIELD_ART`, under the `salmonsRiver` generator), and neither
 //   engine-layout entry exports it.
+// - the bloodstains (`blood.ts`, `GuiltyForever/Salmon-` PR #8) are the old client's: its numbers,
+//   each stain at its place raised with the ground, the same on every device, its colours under the
+//   water's tint as the old client's tint over it; a salmon swimming in one is red for 3 s and
+//   sheds a puff every 70 ms that fades over 3 s.
 //
 // Run: pnpm check:salmons-art
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { SALMONS_SHEETS } from '../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 import {
@@ -32,8 +37,24 @@ import {
 } from '../packages/game-config/src/salmonsProjectArt.ts';
 import { ONLINE_GENERATOR_IDS } from '../packages/game-config/src/family.ts';
 import { salmonsProjectArtPlan } from './salmons/project-art.mjs';
+import {
+	BLOOD,
+	createBlood,
+	createRedness,
+	underTintColour,
+} from '../packages/engine-layout/src/lib/salmonsArt/blood.ts';
+import { underTint } from '../packages/engine-layout/src/lib/salmonsArt/leap.ts';
+import { CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// The Pixi engine-layout draws with: its ESM entry, beside the CommonJS one `require` finds, so
+// the very copy `blood.ts` imports.
+const PIXI_CJS = createRequire(join(ROOT, 'packages/engine-layout/package.json')).resolve(
+	'pixi.js',
+);
+const { Container, Texture } = await import(
+	pathToFileURL(PIXI_CJS.replace(/index\.js$/, 'index.mjs')).href
+);
 const ART = join(ROOT, 'packages/engine-layout/src/lib/salmonsArt');
 const SHEETS = join(ART, 'sheets');
 
@@ -273,5 +294,124 @@ check(
 		assert.doesNotThrow(() => pickSalmonsRegions({}, builtin));
 	},
 );
+
+check('bloodstains: the old client’s numbers', () => {
+	assert.deepEqual(
+		[BLOOD.alpha, BLOOD.contactCells, BLOOD.redMs, BLOOD.red, BLOOD.trailMs, BLOOD.trailEveryMs],
+		[0.35, 0.8, 3000, 0xff3a3a, 3000, 70],
+	);
+	assert.deepEqual([BLOOD.trailAlpha, BLOOD.trailScale, BLOOD.turn], [0.5, 0.35, 0.4]);
+	assert.deepEqual(BLOOD.scale, { min: 0.8, spread: 0.5 });
+	assert.deepEqual(BLOOD.colours, { blood: 0x8a0f12, core: 0x5e0a0d });
+});
+
+check(
+	'bloodstains: a stain’s colour under the water is the old picture’s, the tint over it',
+	() => {
+		const tint = 0x0ea5e9;
+		const m = underTint(tint, 0.75);
+		const c = BLOOD.colours.blood;
+		const channel = (v, i) =>
+			Math.round(255 * (m[i * 6] * (((v >> (16 - 8 * i)) & 0xff) / 255) + m[i * 5 + 4]));
+		const mixed = underTintColour(c, tint, 0.75);
+		for (let i = 0; i < 3; i++)
+			assert.ok(Math.abs(((mixed >> (16 - 8 * i)) & 0xff) - channel(c, i)) <= 1, `channel ${i}`);
+		assert.equal(underTintColour(c, undefined, 0.75), c, 'off the water, its own colour');
+	},
+);
+
+/** A blood kit over a river that is water (tint `tint`) left of x = 1000 and raised 30 px past
+ *  y = 500, drawn into a container through an app whose renderer makes plain textures. */
+const bloodKit = () => {
+	const made = [];
+	const blood = createBlood(
+		(x) => (x < 1000 ? { tint: 0x0ea5e9 } : undefined),
+		(_x, y) => (y < 500 ? 30 : 0),
+		0.75,
+	);
+	const app = {
+		renderer: {
+			generateTexture: () => {
+				const texture = new Texture();
+				made.push(texture);
+				return texture;
+			},
+		},
+	};
+	const surface = new Container();
+	const wake = new Container();
+	blood.surface(surface, app);
+	blood.wake(wake, app);
+	return { blood, surface, wake, made };
+};
+const stainsOf = (list) => ({ length: list.length, at: (i) => list[i] });
+
+check(
+	'bloodstains: each stain at its place, raised with the ground, the same on every device',
+	() => {
+		const one = bloodKit();
+		const two = bloodKit();
+		const stains = [
+			{ x: 300, y: 700 },
+			{ x: 400, y: 200 },
+			{ x: 1200, y: 800 },
+		];
+		one.blood.frame(stainsOf(stains), 0);
+		two.blood.frame(stainsOf(stains), 0);
+		const drawn = (kit) => kit.surface.children[0].children;
+		assert.equal(drawn(one).length, 3);
+		const [low, high, dry] = drawn(one);
+		assert.deepEqual([low.x, low.y], [300 - 700, (300 + 700) / 2], 'projected');
+		assert.deepEqual([high.x, high.y], [400 - 200, (400 + 200) / 2 - 30], 'raised by the ground');
+		assert.equal(low.alpha, BLOOD.alpha);
+		assert.ok(low.scale.x >= K * 0.8 && low.scale.x <= K * 1.3);
+		assert.ok(Math.abs(low.rotation) <= 0.2);
+		drawn(two).forEach((s, i) => {
+			assert.equal(s.rotation, drawn(one)[i].rotation, 'the same turn on every device');
+			assert.equal(s.scale.x, drawn(one)[i].scale.x, 'the same size on every device');
+		});
+		assert.equal(one.made.length, 2, 'one texture for the water’s tint, one for dry ground');
+		assert.ok(low.texture === high.texture && low.texture !== dry.texture);
+		one.blood.frame(stainsOf(stains), 16);
+		assert.equal(drawn(one)[0], low, 'unchanged stains are not redrawn');
+		one.blood.frame(stainsOf([...stains.slice(1), { x: 500, y: 600 }]), 32);
+		assert.equal(drawn(one).length, 3, 'the oldest let go, the newest drawn');
+		assert.deepEqual(one.blood.drawn(), { stains: 3, trail: 0 });
+	},
+);
+
+check('bloodstains: within 0.8 cells a salmon is in one; past it, not', () => {
+	const { blood } = bloodKit();
+	blood.frame(stainsOf([{ x: 300, y: 700 }]), 0);
+	const reach = 0.8 * CELL;
+	assert.equal(blood.touches(300 + reach - 1, 700), true);
+	assert.equal(blood.touches(300 + reach + 1, 700), false);
+	assert.equal(blood.touches(300 + reach * 0.7, 700 - reach * 0.7), true);
+});
+
+check('bloodstains: swimming through one, red for 3 s, shedding a puff every 70 ms', () => {
+	const redness = createRedness();
+	assert.deepEqual(redness(true, false, 0), { red: false, shed: false });
+	assert.deepEqual(redness(false, true, 10), { red: false, shed: false }, 'only a swimming one');
+	assert.deepEqual(redness(true, true, 100), { red: true, shed: true });
+	assert.deepEqual(redness(true, false, 150), { red: true, shed: false }, 'a puff per 70 ms');
+	assert.deepEqual(redness(true, false, 170), { red: true, shed: true });
+	assert.deepEqual(redness(false, false, 2000), { red: true, shed: false }, 'red in the air too');
+	assert.deepEqual(redness(true, false, 3099), { red: true, shed: true });
+	assert.deepEqual(redness(true, false, 3100), { red: false, shed: false }, '3 s after it left');
+});
+
+check('bloodstains: the trail fades from 0.5 over 3 s, under the swimming salmon', () => {
+	const { blood, wake } = bloodKit();
+	blood.shed(300, 700, 1000);
+	const puff = wake.children[0].children[0];
+	assert.equal(puff.alpha, BLOOD.trailAlpha);
+	assert.equal(puff.scale.x, K * BLOOD.trailScale);
+	blood.frame(undefined, 2500);
+	assert.ok(Math.abs(puff.alpha - 0.25) < 1e-9, 'half gone at 1.5 s');
+	blood.frame(undefined, 4000);
+	assert.equal(wake.children[0].children.length, 0, 'gone at 3 s');
+	assert.deepEqual(blood.drawn(), { stains: 0, trail: 0 });
+});
 
 console.log(`check:salmons-art: ${passed} passed`);

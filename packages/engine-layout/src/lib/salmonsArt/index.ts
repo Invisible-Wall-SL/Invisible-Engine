@@ -1,7 +1,8 @@
-import type { ArtMount } from '../arcadeArt.svelte';
+import type { ArtMount, LayerArt } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { BLOOD, createBlood, type StainList } from './blood';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
@@ -13,7 +14,8 @@ import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './rive
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
  */
 
-export type { CodeLook, LookEvent, LookFrame, ProjectSheet };
+export type { CodeLook, LookEvent, LookFrame, ProjectSheet, StainList };
+export { BLOOD };
 
 /** How long a cast's line wiggles, ms, and its look (the old client's fishing line). */
 const CAST_MS = 450;
@@ -27,12 +29,18 @@ export type SalmonsArt = {
 	/** How far the ground at a world place is drawn raised by the waterfalls below it, screen px:
 	 *  a character there is drawn as high (`referenceLayouts/salmonsElevation.ts`). */
 	ground: (x: number, y: number) => number;
+	/** The bloodstains and their trail, drawn among the players' spawn layer's instances. */
+	layer: LayerArt;
+	/** This frame's bloodstains (the room's `stains`), and the trail's fade, at `nowMs`. */
+	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
 	/** How many rivers are drawn now, and whether the last one drawn is destroyed (the probe's). */
 	rivers: () => { live: number; destroyed: boolean };
+	/** How many stains and trail puffs are drawn (the probe's). */
+	blood: () => { stains: number; trail: number };
 	destroy: () => void;
 };
 
@@ -46,8 +54,10 @@ export async function loadSalmonsArt(
 	sheets: readonly ProjectSheet[] = [],
 ): Promise<SalmonsArt> {
 	const textures = await loadSalmonsTextures(sheets);
-	const looks = createLookFactory(textures, (x, y) => waterUnder(river, x, y), TINT_ALPHA);
+	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
 	const elevation = riverElevation(river.waterfalls);
+	const blood = createBlood(waterAt, (_x, y) => elevation.at(y), TINT_ALPHA);
+	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
@@ -62,6 +72,8 @@ export async function loadSalmonsArt(
 		},
 		look: looks.look,
 		ground: (_x, y) => elevation.at(y),
+		layer: { surface: blood.surface, wake: blood.wake },
+		stains: blood.frame,
 		line: (sinceCastMs, nowMs, fromDx) => {
 			const k = Math.min(1, Math.max(0, sinceCastMs / CAST_MS));
 			return {
@@ -72,6 +84,10 @@ export async function loadSalmonsArt(
 		},
 		regions: () => drawn?.regions() ?? {},
 		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false }),
-		destroy: looks.destroy,
+		blood: blood.drawn,
+		destroy: () => {
+			looks.destroy();
+			blood.destroy();
+		},
 	};
 }
