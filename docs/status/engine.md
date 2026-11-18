@@ -610,6 +610,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-18 — **`arcade3d` plays online 3D rooms** (3D runtime step 4; detail in [3d](3d.md)).
+  Only the `arcade3d` seam changes (`game/online3d.ts`, `ArcadeStage3D.svelte`, `engine-3d`
+  `createRoomView3d`); the 2D online client and the four 2D runtimes are untouched.
 - 2026-11-17 — **The `arcade3d` play field plays in 3D** (3D Phase 1a; detail in
   [3d](3d.md)). Only the `arcade3d` runtime changes: its seam reserves the world canvas before the
   Pixi context (auto-opaque stays transparent over the world), hides the coded background band while
