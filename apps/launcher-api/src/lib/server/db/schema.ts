@@ -19,6 +19,7 @@ import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRu
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
+import type { PerfCounts } from '$lib/profilerLab';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -1278,7 +1279,8 @@ export type BugFixRun = typeof bugFixRuns.$inferSelect;
  * Invisible Profiler readings (`docs/design/invisible-profiler.md` §3): one row per `?perf=1`
  * report, its summary for listing and comparing; the full JSON lives in R2 at `r2_key`
  * (`<client>/<project>/perf/reports/<id>.json`). `source` is `capture` (a phone sent it with a
- * capture session's token) or `paste` (a signed-in user pasted a delivery's Copy).
+ * capture session's token), `paste` (a signed-in user pasted a delivery's Copy) or `lab` (a scripted
+ * headless run with CI's lab session, P6).
  *
  * Retention (owner, 2026-11-16): the daily purge (`profiler/purge.ts`) deletes a reading older than
  * 15 days unless `keep`. It claims a row first (`purging_at`), then deletes the R2 file, then the
@@ -1334,6 +1336,8 @@ export const perfReports = pgTable(
 		drawsMean: doublePrecision('draws_mean'),
 		jsMs: doublePrecision('js_ms'),
 		textureMb: doublePrecision('texture_mb'),
+		/** Per-phase per-frame counts (`profilerLab.ts`); null on a reading kept before P6. */
+		counts: jsonb('counts').$type<PerfCounts>(),
 		keep: boolean('keep').notNull().default(false),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
@@ -1341,7 +1345,7 @@ export const perfReports = pgTable(
 		index('perf_reports_project_idx').on(table.projectKey, table.capturedAt),
 		index('perf_reports_purge_idx').on(table.keep, table.capturedAt),
 		index('perf_reports_session_idx').on(table.session),
-		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste')`),
+		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste', 'lab')`),
 	],
 );
 

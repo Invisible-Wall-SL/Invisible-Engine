@@ -8,8 +8,15 @@ import { requireLauncherPublisher } from '../launcherAuth';
 import { clientKeyOf } from '../projectLookup';
 import { canAccessProject, projectExists } from '../projects';
 import { requireProjectScope } from '../toolScope';
-import { captureSigningKey, PERF_SESSION_HEADER, verifyCaptureToken } from './captureToken';
+import { ENV } from '../env';
+import {
+	captureSigningKey,
+	PERF_SESSION_HEADER,
+	verifyCaptureToken,
+	type CaptureClaims,
+} from './captureToken';
 import type { BuildOrigin } from './builds';
+import { ciFingerprint } from './labSession';
 import type { ReportOrigin } from './store';
 
 export const PROFILER_TOOL = 'profiler';
@@ -22,6 +29,7 @@ const LABEL = 'Invisible Profiler';
  *   whole authority. It is checked again against the person who opened the session as they are NOW
  *   — still active, still holding the Profiler and the project — so revoking someone ends their open
  *   sessions too.
+ * - **A lab run** (a capture token with `lab`): CI's, see `labOrigin`.
  * - **A signed-in user** (Paste, no token): the Profiler grant and access to `?project=`, as any
  *   project tool. Only as JSON, which a page on another site can only send after a CORS preflight,
  *   and these routes never allow credentials.
@@ -37,6 +45,7 @@ export async function reportOrigin(
 		if (!claims) {
 			throw error(401, 'This capture link has expired or is not valid — open a new one.');
 		}
+		if (claims.lab) return labOrigin(claims);
 		const [opener] = await getDb()
 			.select({ role: users.role, active: users.active, expiresAt: users.expiresAt })
 			.from(users)
@@ -85,6 +94,28 @@ export async function reportOrigin(
 		label,
 		gameKey,
 		createdBy: user.id,
+	};
+}
+
+/**
+ * A lab run's reading (`labSession.ts`): no person stands behind it, so the authority is CI's
+ * `PIPELINE_CI_TOKEN`, checked as it is NOW — rotating or unsetting it ends every lab session.
+ */
+async function labOrigin(claims: CaptureClaims & { sid: string }): Promise<ReportOrigin> {
+	if (!ENV.PIPELINE_CI_TOKEN || claims.lab !== ciFingerprint(ENV.PIPELINE_CI_TOKEN)) {
+		throw error(403, 'This lab session was opened with a CI token the launcher no longer holds.');
+	}
+	if (!(await projectExists(claims.project))) {
+		throw error(410, 'This project has been deleted.');
+	}
+	return {
+		clientKey: await clientKeyOf(claims.project),
+		projectKey: claims.project,
+		source: 'lab',
+		session: claims.sid,
+		label: claims.label,
+		gameKey: claims.game,
+		createdBy: null,
 	};
 }
 

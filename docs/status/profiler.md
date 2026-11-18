@@ -13,7 +13,9 @@ build breakdown, listed on a **Builds** tab with the previous-build diff and the
 each build. Step **P3 "Devices and budgets" built 2026-11-17** (#1738): per-project
 budget overrides on top of the studio defaults in code, a **Devices** tab judging readings per
 device class and GPU, a **Budgets** tab to edit the lines, and pass / warn / fail on every build.
-P4–P7 are planned.
+Step **P6 "Lab runs" built 2026-11-17**: a nightly / on-demand GitHub Actions run plays every live
+online game headless and keeps a `lab` reading, compared with the game's previous one on per-frame
+counts, never fps. P4, P5 and P7 are planned.
 
 ## Current state
 
@@ -170,35 +172,89 @@ P4–P7 are planned.
   GPU). `check:launcher-gates` accepts `buildOrigin(` as a project check only because it
   asserts `buildOrigin` calls `canAccessProject`.
 
+- **Lab runs (P6).** `scripts/playtest/lab-sequence.mjs` is the sequence, written against a subset
+  of Playwright's `Page` (`evaluate(string)`, `keyboard.press`) so P7 can hand it a BrowserStack
+  page: wait for the probe (stop on `__IE_RUNTIME_STALE__`), a warm-up round (Space until a round
+  starts, wait for idle — boot compiles and uploads stay out), `__IE_PERF__('reset')`, idle 20 s,
+  10 spins (Space; idle = two 1 s polls of `__IE_PERF__()` where only idle frames grew; Space again
+  after 25 s of a round with no idle frame — a big-win hold or a feature intro), a forced feature,
+  `__IE_PERF__('take')`. Free-play kinds (`familyOfKind` ≠ slot) idle only.
+  `scripts/playtest/lab-run.mjs` drives it on the current-games harness's headless shell
+  (`current-games/lib/browser.mjs` `openPage`, 1280×720, real clock — never `?ie_determinism`, whose
+  virtual clock reads JS ms as 0), opens the card URL with `perf=1` and its own `sessionID=lab-…`
+  (no `perfsession`: the script posts the reading itself through the probe's own wire,
+  `perfSendCore.ts`, so a page hidden on close cannot send a second one). `--local <fixture>
+  --runtime <build>` plays a current-games stand-in on the real test server without a launcher.
+  Failure lines are scrubbed of the card's read token (`k=`) before they reach the artifact; a page
+  that stops answering CDP fails its game after 30 s.
+- **Lab sessions.** `POST /api/pipeline/profiler-lab { game }` (bearer `PIPELINE_CI_TOKEN`, as
+  `/api/pipeline/games`): only an online runtime game with no built bundle of its own; answers a
+  2-hour capture token for that game (`labSession.ts`, `uid: 'lab'`, claim `lab` = a fingerprint of
+  the CI token) and the card URL. `reportOrigin` keeps its readings as `source: 'lab'`,
+  `createdBy: null`, and refuses them once the launcher's CI token is unset or rotated. The token
+  verifies as lab only with `uid: 'lab'`, and a person's token never does.
+- **Counts.** `perf_reports.counts` (jsonb, migration `0045_perf_reports_lab.sql`, which also adds
+  `lab` to the source check): per phase (idle, spinning) the per-frame means of draws, passes,
+  texture uploads, GL calls and JS ms, plus texture MB (`profilerLab.ts` `perfCounts`, filled for
+  every reading). The **Lab runs** card (`ProfilerLabRuns.svelte`, on the Readings tab above
+  Readings) shows each game's newest lab reading beside the previous lab reading of the same game
+  and switches (`previousLabReading`), with Δ, a change past `LAB_TOLERANCE` in orange, and "fps:
+  not comparable". The Readings table tags it `lab`.
+- **Workflow** (#1739, its own PR — any `.github/workflows/`
+  edit fails `current-games` by design and merges after the owner's review).
+  `.github/workflows/profiler-lab.yml` ("Profiler lab run"): 03:17 UTC nightly over
+  every live online game (`/api/pipeline/games`: a project, no own bundle), or Run workflow with a
+  `game` key; one matrix job per game (4 at a time), the headless shell installed as current-games
+  does, the run's files (`<game>.json`, `<game>.report.json`) uploaded for 7 days. No new secret.
+- **Run-to-run tolerance (measured 2026-11-17).** Three local runs of one build (`cg-lines`
+  stand-in, unseeded mock, Windows GPU): spinning counts agreed within 2% (draws 36.3–37.0, GL calls
+  191–194, passes 2, uploads 0.1 per frame), texture MB identical (119.6); idle spread wider (draws
+  37–47, GL calls 197–217) because idle carries the win cycle of whatever the RNG dealt; JS ms
+  1.3–1.6 idle, 2.4–3.0 spinning; fps 43→60 between runs on the same machine. Hence
+  `LAB_TOLERANCE`: spinning draws and GL calls ±5%, idle draws ±35% and GL calls ±20%, passes
+  ±10% / ±25%, uploads ±50%, JS ms ±50%, texture MB ±2% (each with an absolute floor). Re-measure on
+  the CI runner from the first nightly runs (open item 1).
+
 ## Open items / next
 
-1. **Verify P1 live** (merged, #1691) — the design's done-when: a phone scanning the QR leaves a
+1. **P6 on the CI runner.** The tolerance above is from local Windows GPU runs; read the first two
+   nightly runs of each game (SwiftShader, about 5 fps) and narrow or widen `LAB_TOLERANCE`. The
+   forced-feature step is skipped online: a published game's player mock refuses `/force` (an
+   authoring tool), so it only runs where a mock accepts it; whether a feature ran is in the
+   artifact, not on the reading. The lab runs nightly, not after each Publish (the design's "per
+   Publish") — a Publish hook can dispatch the workflow later.
+2. **Verify P1 live** (merged, #1691) — the design's done-when: a phone scanning the QR leaves a
    reading the page lists, and a player URL without `perfsession` makes no request.
-2. **P2 is unverified on production.** Verified locally only (PGlite + fake R2). Live needs desktop
+3. **P2 is unverified on production.** Verified locally only (PGlite + fake R2). Live needs desktop
    launcher **v1.0.68** merged (invisible-launcher#33) and released (`build_and_publish.py`) —
    older launchers send nothing. R2 bucket CORS is irrelevant here (the PUT comes from Python).
-3. **Auto-send on page hide is unverified on real phones.** iOS may suspend the page before the
+4. **Auto-send on page hide is unverified on real phones.** iOS may suspend the page before the
    `keepalive` request (which needs a CORS preflight) leaves; check on an iPhone and an Android
    phone. P1 was verified in the desktop app's browser pane only.
-4. **R2 CORS refuses a phone's large reading upload (owner, infra).** Probed 2026-11-17: the
+5. **R2 CORS refuses a phone's large reading upload (owner, infra).** Probed 2026-11-17: the
    `invisibleassets` bucket answers a PUT preflight from `app.invisiblewall.org` but 403s
    `games.invisiblewall.org`. The probe now falls back to the trimmed reading, so nothing is lost
    but the per-texture list and spike records of a reading over 480 KB. To keep them, add
    `https://games.invisiblewall.org` (PUT, header `content-type`) to the bucket's CORS rule in the
    Cloudflare dashboard.
-5. **P3 is unverified on production** (#1738). Verified locally only (PGlite + a seeded
+6. **P3 is unverified on production** (#1738). Verified locally only (PGlite + a seeded
    project: 3 builds, 10 readings): all three tabs, edit + reset in the UI, the PUT race cases.
    Left open: a duplicated project does not copy its budget overrides (`projectDuplicate.ts`); no
    reading is judged as a tablet until the probe tells one apart. The Devices headline takes the
    median over every kept reading of a device, across builds, so an old slow build can colour it
    after a fix ships (open the row for the build-by-build view).
-6. **P4 — Findings:** the rules as pure functions with fixtures in `check:profiler`; Findings tab;
+7. **P4 — Findings:** the rules as pure functions with fixtures in `check:profiler`; Findings tab;
    Compare.
-7. **P5 — File as bug:** prefilled Bug Reports from a finding, with the evidence links.
-8. **P6 — Lab runs:** a scripted headless run per Publish, compared on counts.
+8. **P5 — File as bug:** prefilled Bug Reports from a finding, with the evidence links.
 9. **P7 — Cloud phones:** the lab script on an online real-device service, calibrated first.
 
 ## Recent changes
+
+- 2026-11-17 — **P6 "Lab runs" built**: `lab-sequence.mjs` (Playwright `Page` subset) +
+  `lab-run.mjs`, `POST /api/pipeline/profiler-lab` (CI bearer → a 2-hour lab capture token),
+  `source: 'lab'`, `perf_reports.counts` + migration 0045, the Lab runs card, the "Profiler lab run"
+  workflow (nightly + dispatch, #1739), `check:profiler` tests 13, tolerance measured on four local runs.
+  Docs: guide, INFRA (the CI token now also opens lab sessions; the workflow).
 
 - 2026-11-17 — **P3 "Devices and budgets" built** (#1738): `perf_budgets` + migration
   0044 (per-project overrides; studio defaults `STUDIO_BUDGETS` in code), the pure evaluation in

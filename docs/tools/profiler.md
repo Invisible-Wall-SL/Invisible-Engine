@@ -33,9 +33,9 @@ the readout gets a **Send** button and the reading goes straight to the project'
 
 1. Sign in to the launcher (`app.invisiblewall.org`), open the **Invisible Profiler** card and pick
    the project in the **Project** picker. The page has four tabs: **Readings** (with its count;
-   three foldable sections: **New capture**, **Paste a reading** and **Readings**), **Devices**,
-   **Builds** (with its count) and **Budgets**. A link with `?tab=devices`, `?tab=builds` or
-   `?tab=budgets` opens that tab. Hover a section's title for what it does.
+   four foldable sections: **New capture**, **Paste a reading**, **Lab runs** and **Readings**),
+   **Devices**, **Builds** (with its count) and **Budgets**. A link with `?tab=devices`,
+   `?tab=builds` or `?tab=budgets` opens that tab. Hover a section's title for what it does.
 
 ### Capture on a phone
 
@@ -76,10 +76,31 @@ Players never load the readout at all.
    A paste that is not a reading is refused with the reason (for example "Not JSON — paste the text
    ?perf=1 Copy gives." or "The report holds no frames yet — play a little, then send it.").
 
+### Lab runs
+
+A **lab run** plays each live online game in headless Chrome with `?perf=1` and sends its reading
+here, marked `lab`, with the device label `lab · CI`. It runs nightly (03:17 UTC) over every live
+online game, from the GitHub Actions workflow **Profiler lab run**; to run one game now, open that
+workflow, click **Run workflow** and type its game key (empty runs them all). Each run plays a
+warm-up round, resets the reading, idles 20 s, then spins 10 times. Free-play kinds only idle. A
+forced feature round is tried where the game's mock accepts one; the player mock of an online game
+refuses forcing today, so that step is skipped.
+
+- **Lab runs (`<n>` games)** shows, for each game, its newest lab reading: game key, build, when, what it
+  is compared with ("vs `<date>`", or "first lab run of this game") and **JSON**.
+- Under it a table of what a frame does, for **idle** and **spinning**: **draws**, **passes**,
+  **uploads**, **GL calls** and **JS ms**, plus **texture MB**. Each has three figures: this run, the
+  previous lab run of the same game with the same test switches, and the change (`±0` for none).
+- A change bigger than run-to-run noise is shown in bold orange. That is the thing to look at: a
+  build that suddenly draws more, uploads more or holds more textures.
+- Fps is never compared ("fps: not comparable"): the runner draws without a real graphics chip and
+  its fps swings about 2× from run to run, while the counts stay steady. Judge fps on a phone.
+
 ### Read the list
 
 8. **Readings (`<n>`)** lists every reading of the project, newest first. The columns:
-   - **Captured**: date and time, with a tag: `sent` (from a capture) or `paste`.
+   - **Captured**: date and time, with a tag: `sent` (from a capture), `paste` or `lab` (a lab run;
+     compare it in **Lab runs**, not on its fps).
    - **Device**: the device class the game detected and the device label, then the browser and
      system (for example `Chrome 131 · Android`), the pixel ratio and the canvas size. A reading
      taken with a variant link shows its switch underneath in orange (for example `particles=off`).
@@ -207,12 +228,12 @@ Players never load the readout at all.
 
 ## Known limitations / TODOs
 
-The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds") and P3 ("Devices and
-budgets") are done. Planned in [the design](../design/invisible-profiler.md), not built yet:
+The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Devices and
+budgets") and P6 ("Lab runs") are done. Planned in [the design](../design/invisible-profiler.md),
+not built yet:
 
 - **Findings** (P4): a ranked list of what to cut, and **Compare** for two readings side by side.
-- **File as bug** (P5), **lab runs** in headless Chrome after each Publish (P6), and **cloud
-  phones** from an online device service (P7).
+- **File as bug** (P5) and **cloud phones** from an online device service (P7).
 
 Today:
 
@@ -238,3 +259,6 @@ Today:
 - The build list shows the newest 200 builds.
 - The game tells phones and desktops apart only, so no reading is judged as a tablet yet; the
   **Tablet** budgets wait for it.
+- Lab runs are nightly and on demand, not yet after each Publish. They cover only the idle and
+  spinning phases (no forced feature on an online game's player mock), and a game that ships its own
+  built bundle (not the shared runtime) is not run.

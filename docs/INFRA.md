@@ -748,7 +748,15 @@ code default, so the dashboard need not set it):
 - **Pipeline CI:** `PIPELINE_CI_TOKEN` (secret, no default) — the bearer token the current-games
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
-  GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
+  GitHub Actions secret of the same name. Since Invisible Profiler P6 it also opens a **lab
+  session** (`POST /api/pipeline/profiler-lab`: a 2-hour capture token for one game, so the
+  `Profiler lab run` workflow can post a `lab` reading; the answer includes the game's launch URL,
+  read token and all). Unset → both endpoints answer 503; unset or rotated, every open lab
+  session's readings are refused; nothing else uses it.
+- **Profiler lab run (`.github/workflows/profiler-lab.yml`):** nightly (03:17 UTC) and on demand,
+  plays each live online game headless (`scripts/playtest/lab-run.mjs`) and posts its reading. No
+  secret of its own: the current-games harness's `PIPELINE_GAMES_URL` (the launcher is its origin)
+  and `PIPELINE_CI_TOKEN`.
 - **Game server config:** `GAME_SERVER_CONFIG_SECRET` (secret, no default) — the bearer the
   Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
   only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing
@@ -1630,7 +1638,7 @@ apply staged vars.
 | **Tool signing secrets** (`ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`) | Railway Shared Variables → launcher + the one tool each. | New random value (see "Tool launch tokens"); set the tool side, then the launcher. | Both services. Everyone is signed out of that tool and reopens it from the launcher. |
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
-| **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
+| **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants the read-only game list `GET /api/pipeline/games` and opening Invisible Profiler lab sessions (`POST /api/pipeline/profiler-lab`: a token that can only add `lab` readings, plus the online game's launch URL, which carries its project's read token). Rotating it also ends every open lab session. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
 | **`GAME_SERVER_CONFIG_SECRET`** (launcher) = **`GAME_SERVER_CONFIG_TOKEN`** (game-server) | The **launcher** and the **game-server** service, one value. Grants only the read-only published-config read `GET /api/game-server/config`. | New random value (e.g. `openssl rand -hex 32`), set in both places at once. | Launcher + game-server → Apply changes / Deploy. Between the two updates config reads get a 401: running rooms keep the config they started with, a game that has loaded once keeps its last good config, and a game with none fails to open. |
 | **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
 | **`ANTHROPIC_BUG_FIX_API_KEY`** (fix runs, ADR-0013) | GitHub → Settings → Environments → `bug-fix` → Environment secrets (not a repository secret). Read only by `bug-fix.yml` step 4 ("Run Claude Code"). | Create a new key in the same Anthropic workspace, replace the environment secret, then revoke the old key. | Nothing to redeploy. Verify with the next fix run, or for the workflow side alone, Actions → **Bug fix proof** → Run workflow (it needs no key). |

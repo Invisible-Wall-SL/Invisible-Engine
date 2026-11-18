@@ -23,6 +23,9 @@
  *     enough data", never pass; a device group is judged on its median, as-shipped readings only.
  * 12. A build's verdicts: shipped size and the GPU estimate from its breakdown, each device class
  *     from the as-shipped readings taken on it.
+ * 13. Lab runs (P6): a reading's per-phase counts; a lab token is minted only for the lab opener and
+ *    verifies as lab; a lab reading is compared with the previous lab reading of the same game and
+ *    switches, and a count moves only past its tolerance.
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -35,7 +38,18 @@ import {
 	uaFamily,
 	type PerfReportListItem,
 } from '../src/lib/profiler.ts';
-import { mintCaptureToken, verifyCaptureToken } from '../src/lib/server/profiler/captureToken.ts';
+import {
+	LAB_OPENER,
+	mintCaptureToken,
+	verifyCaptureToken,
+} from '../src/lib/server/profiler/captureToken.ts';
+import {
+	labComparison,
+	perfCounts,
+	previousLabReading,
+	withinLabTolerance,
+	type LabReadingLike,
+} from '../src/lib/profilerLab.ts';
 import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
 import {
 	purgeExpired,
@@ -943,4 +957,114 @@ test('11. a device row opens into its readings build by build, newest first', ()
 		],
 		'v12: the median of 56 and 40 spinning fps is 48, under the 50 fail line',
 	);
+});
+
+test('13. a reading carries its per-phase counts', () => {
+	const report = {
+		...REPORT,
+		work: {
+			idle: {
+				frames: 600,
+				perFrame: { draws: { mean: 30, max: 40 }, calls: { mean: 210, max: 300 } },
+			},
+			spinning: {
+				frames: 300,
+				perFrame: {
+					draws: { mean: 88, max: 120 },
+					passes: { mean: 2, max: 3 },
+					textureUploads: { mean: 0.4, max: 6 },
+					calls: { mean: 640, max: 900 },
+					jsMs: { mean: 6.1, max: 14 },
+				},
+			},
+			round: { frames: 0, perFrame: {} },
+		},
+	};
+	const r = summarizePerfReport(report);
+	assert.ok(r.ok);
+	assert.deepEqual(r.summary.counts, {
+		idle: { frames: 600, draws: 30, passes: null, textureUploads: null, calls: 210, jsMs: null },
+		spinning: { frames: 300, draws: 88, passes: 2, textureUploads: 0.4, calls: 640, jsMs: 6.1 },
+		textureMb: 46.8,
+	});
+	assert.deepEqual(perfCounts('junk'), { idle: null, spinning: null, textureMb: null });
+});
+
+test('13. a lab token is the lab opener’s only, and verifies as lab', () => {
+	const lab = { ...CLAIMS, uid: LAB_OPENER, lab: 'ci-fingerprint' };
+	const token = mintCaptureToken(SECRET, lab, NOW, 7200);
+	const claims = verifyCaptureToken(SECRET, token, NOW + 1000);
+	assert.equal(claims?.lab, 'ci-fingerprint');
+	assert.equal(claims?.exp, NOW / 1000 + 7200);
+	assert.equal(verifyCaptureToken(SECRET, token, NOW + 7200 * 1000), null, 'two hours only');
+	assert.equal(
+		verifyCaptureToken(SECRET, mintCaptureToken(SECRET, CLAIMS, NOW), NOW)?.lab,
+		undefined,
+	);
+	// A person's id never verifies as lab, and the lab opener never verifies as a person.
+	assert.equal(
+		verifyCaptureToken(
+			SECRET,
+			mintCaptureToken(SECRET, { ...CLAIMS, lab: 'ci-fingerprint' }, NOW),
+			NOW,
+		),
+		null,
+	);
+	assert.equal(
+		verifyCaptureToken(SECRET, mintCaptureToken(SECRET, { ...CLAIMS, uid: LAB_OPENER }, NOW), NOW),
+		null,
+	);
+	assert.equal(
+		verifyCaptureToken(
+			SECRET,
+			mintCaptureToken(SECRET, lab, NOW, 10 * CAPTURE_SESSION_TTL_SECONDS),
+			NOW,
+		)?.exp,
+		NOW / 1000 + CAPTURE_SESSION_TTL_SECONDS,
+		'never longer than a capture',
+	);
+});
+
+test('13. a lab reading compares with the previous lab reading of its game and switches', () => {
+	const counts = (draws: number, jsMs = 5) => ({
+		idle: null,
+		spinning: { frames: 300, draws, passes: 2, textureUploads: 0.2, calls: 600, jsMs },
+		textureMb: 40,
+	});
+	const at = (h: number) => new Date(Date.UTC(2026, 10, 17, h)).toISOString();
+	const r = (id: string, h: number, extra: Partial<LabReadingLike> = {}): LabReadingLike => ({
+		id,
+		capturedAt: at(h),
+		source: 'lab',
+		gameKey: 'slots',
+		flags: {},
+		counts: counts(80),
+		...extra,
+	});
+	const items = [
+		r('now', 5),
+		r('phone', 4, { source: 'capture' }),
+		r('other-game', 4, { gameKey: 'other' }),
+		r('switched', 4, { flags: { particles: 'off' } }),
+		r('before', 3),
+		r('older', 1),
+	];
+	assert.equal(previousLabReading(items, items[0])?.id, 'before');
+	assert.equal(previousLabReading(items, items[5]), null, 'the first has none');
+	assert.equal(previousLabReading(items, items[1]), null, 'a phone reading is not compared');
+	const rows = labComparison(counts(95, 7), counts(80, 5));
+	const draws = rows.find((x) => x.phase === 'spinning' && x.key === 'draws');
+	assert.deepEqual([draws?.delta, draws?.changed], [15, true]);
+	const js = rows.find((x) => x.key === 'jsMs');
+	assert.equal(js?.changed, false, 'JS ms within its wide band');
+	assert.ok(rows.some((x) => x.phase === 'all' && x.key === 'textureMb' && !x.changed));
+	assert.ok(labComparison(counts(80), null).every((x) => x.delta === null && !x.changed));
+	assert.ok(
+		withinLabTolerance('spinning', 'draws', 0.5, 0),
+		'a near-zero count has an absolute floor',
+	);
+	// Three runs of one build (status, "Lab runs"): within their phase's band, never flagged.
+	assert.ok(withinLabTolerance('idle', 'draws', 46.5, 37.4), 'idle draws follow the deal');
+	assert.ok(withinLabTolerance('spinning', 'calls', 193.6, 191.1));
+	assert.ok(!withinLabTolerance('spinning', 'draws', 40, 36.4), 'a 10% spinning draw change shows');
 });
