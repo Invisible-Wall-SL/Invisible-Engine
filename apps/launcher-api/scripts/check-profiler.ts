@@ -28,6 +28,8 @@
  *    switches, and a count moves only past its tolerance.
  * 14–16. Findings (P4): the facts, each rule against its fixture and a planted mutant, the ranking
  *    and Compare — `check-profiler-findings.ts`, imported at the end.
+ * 17–18. File as bug (P5): a finding's list, area and text; once per finding, its evidence kept —
+ *    `check-profiler-bugs.ts`, imported at the end.
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -1074,3 +1076,4 @@ test('13. a lab reading compares with the previous lab reading of its game and s
 	assert.ok(!withinLabTolerance('spinning', 'draws', 40, 36.4), 'a 10% spinning draw change shows');
 });
 import './check-profiler-findings.ts';
+import './check-profiler-bugs.ts';

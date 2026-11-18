@@ -186,10 +186,11 @@ soon as 0c lands**: the art is the longest pole, and it proves the asset chain e
 
 ## 8. Owner decisions needed
 
-1. **Go / no-go on Phase 0** (three parallel spikes, each S).
-2. **First or third person?** BOTY is first person (arms + weapon viewmodel for yourself, full bodies
-   for others). Third person shows one body to everyone. It changes the clip list and default camera,
-   not the sim.
+1. ~~Go / no-go on Phase 0~~ — **go**, 2026-11-17; Phase 0 and Phase 1 are built (`docs/status/3d.md`).
+2. ~~First or third person?~~ — **first person** (owner, 2026-11-18), as BOTY: the own player sees
+   viewmodel arms + the held weapon (its own clip set, drawn so it never clips walls), everyone else
+   sees full bodies; `firstPerson` is the default camera rig, the other rigs serve spectating, intros
+   and round ends. Built in Phase 2 (characters: the viewmodel; camera: the default rig).
 3. **Provenance of BOTY's FBX files and their PBR maps** (which generator, which terms; Hunyuan3D
    cannot ship from the EU), and licences for the stock JPGs in `Assets/_Project/Textures/`.
 4. **Mixamo:** OK to prototype locomotion with it; shipping a Mixamo-derived clip needs a sign-off.

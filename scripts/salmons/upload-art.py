@@ -103,6 +103,8 @@ def main() -> int:
     ap.add_argument('--client', default='invisible_wall')
     ap.add_argument('--project', default='salmons')
     ap.add_argument('--apply', action='store_true', help='write (default: a dry run)')
+    ap.add_argument('--sheet', action='append', default=[],
+                    help='only this sheet (repeatable; default: every sheet in the plan)')
     args = ap.parse_args()
     if not storage.configured():
         print('R2 is not configured: set R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET')
@@ -113,7 +115,13 @@ def main() -> int:
         rf'|sheets/(salmons_[a-z_]+)/\2\.(webp|json))$')
 
     todo, conflicts = [], []
-    for entry in load_plan():
+    plan = load_plan()
+    unknown = set(args.sheet) - {e['sheet'] for e in plan}
+    if unknown:
+        raise SystemExit(f"refused: {', '.join(sorted(unknown))} is not in the plan")
+    for entry in plan:
+        if args.sheet and entry['sheet'] not in args.sheet:
+            continue
         sheet = []
         for key, body, kind in objects(entry, prefix):
             if not allowed.match(key):

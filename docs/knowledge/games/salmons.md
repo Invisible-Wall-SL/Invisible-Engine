@@ -58,6 +58,11 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   direction (to the tap beyond 0.5 cells, else the last move), its carried move, the rock and
   whirlpool cut-off at 0.5 cells, the line passing over a salmon in the air and the swimming
   salmon under the water's tint are the original's too (since 2026-11-18, same gate).
+- **Bloodstains are the original's** (since 2026-11-18; `GuiltyForever/Salmon-` PR #8): the rule
+  and the cap (300) in `salmonsRules` `bloodstains`, the look and the red contact (0.35, 0.8 cells,
+  3 s red, 3 s trail) in `salmonsArt/blood.ts`; pinned by `check:online-rules`. A swimming salmon
+  is drawn under the stains (a `RenderLayer` in the river art), below every character above the
+  water; none of it is in `<SpawnLayer>`, so no other runtime's bytes move.
 - **Waterfalls are as high as the original's, and so is the climb** (since 2026-11-17): the
   climb (`salmonsRules` `waterfallClimb`: 2.4 cells a tap, 0.8 cells/s back, no teleport) and the
   raised river (`engine-layout` `referenceLayouts/salmonsElevation.ts`, `salmonsArt/river.ts`,

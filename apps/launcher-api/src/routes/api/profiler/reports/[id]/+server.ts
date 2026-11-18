@@ -1,5 +1,7 @@
 import { error, json } from '@sveltejs/kit';
+import { bugRef } from '$lib/bugReports';
 import { jsonBody, requireTool } from '$lib/server/http';
+import { citingBug } from '$lib/server/profiler/findingBugLink';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
 import { reportFile, reportProject, setKeep } from '$lib/server/profiler/store';
 import { requireProjectScope } from '$lib/server/toolScope';
@@ -34,6 +36,11 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 	const project = await reportProject(params.id);
 	if (!project) throw error(404, 'No such reading.');
 	await requireProjectScope(user, project);
+	if (!body.keep) {
+		const bug = await citingBug(project, 'reading', params.id);
+		if (bug)
+			throw error(409, `${bugRef(bug)} cites this reading: it stays kept while the bug exists.`);
+	}
 	if (!(await setKeep(project, params.id, body.keep))) {
 		throw error(404, 'This reading has just been deleted by the 15-day purge.');
 	}
