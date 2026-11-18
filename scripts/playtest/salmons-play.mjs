@@ -852,9 +852,15 @@ try {
 		await tap(e);
 		climbed = (await eventsOf(e)).find((ev) => ev.type === 'climbed' && ev.id === meE);
 	}
-	// Let go at the top (no lift over it, since 2026-11-17), it swims on over the waterfall.
-	await settle(e, 1500);
-	const above = await ownOf(e);
+	// Let go at the top (no lift over it, since 2026-11-17), it passes the waterfall only while it
+	// is that high (the original's rule, since 2026-11-18), so it keeps tapping at the top, ArrowUp
+	// held, as the original's player does, until it is over.
+	let above;
+	for (let i = 0; i < 20 && !(above && above.y < FALL.y); i++) {
+		await tap(e);
+		await settle(e, 150);
+		above = await ownOf(e);
+	}
 	await e.key('ArrowUp', 'up');
 	verdict(
 		'…tapping Space climbs it: the room tells of the climb, and the salmon swims on over it',
@@ -921,19 +927,22 @@ try {
 	);
 	await p.key('ArrowUp', 'down');
 	await settle(p, 1500);
-	let climbedP;
-	for (let i = 0; i < 40 && !climbedP; i++) {
+	const tapP = async () => {
 		const at = await screenOfP((await ownOf(p)) ?? footP);
 		await touchP('touchStart', [at]);
 		await p.play([{ op: 'step', frames: 4 }]);
 		await touchP('touchEnd', []);
 		await p.play([{ op: 'step', frames: 4 }]);
+	};
+	let climbedP;
+	for (let i = 0; i < 40 && !climbedP; i++) {
+		await tapP();
 		climbedP = (await eventsOf(p)).find((ev) => ev.type === 'climbed' && ev.id === meTouch);
 	}
-	// Let go at the top it swims on over (as page E's, up to 1.5 s: a one-tap fall may be climbed
-	// again by the taps still on their way).
+	// Let go at the top it taps on, as page E's, until it is over.
 	let overP;
-	for (let i = 0; i < 10 && !(overP && overP.y < FALL.y); i++) {
+	for (let i = 0; i < 20 && !(overP && overP.y < FALL.y); i++) {
+		await tapP();
 		await settle(p, 150);
 		overP = await ownOf(p);
 	}

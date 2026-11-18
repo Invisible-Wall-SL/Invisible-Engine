@@ -122,7 +122,7 @@ check("each seed's waterfalls are the original's heights, rising towards the sou
 			gxs.map((gx) => [yOf(river, gx), want.get(gx)]),
 			`seed ${seed}: the engine's river carries them on their lines`,
 		);
-		const zones = salmonsGeometry(river).zones.filter((z) => z.id.startsWith('waterfall'));
+		const zones = salmonsGeometry(river).zones.filter((z) => /^waterfall\d+$/.test(z.id));
 		assert.deepEqual(
 			zones.map((z) => fallHeight(z)),
 			gxs.map((gx) => want.get(gx)),
@@ -356,16 +356,19 @@ check('a climber is held; one at least as high as a waterfall passes over it', (
 		topped.events.some((e) => e.type === 'climbed'),
 		'topped out',
 	);
-	topped.step(false);
-	topped.step(false);
-	assert.ok(topped.salmon.z > 0 && topped.salmon.z < 3 * CELL, 'falling, below the top');
 	assert.deepEqual(
 		topped.rules.level(topped.salmon, level).solids.shapes.map((s) => s.id),
 		['rock'],
-		'let go at its top, it passes the waterfall until it is back on the water',
+		'let go at its top: it passes the waterfall while it is that high',
 	);
-	topped.salmon.z = 0;
-	assert.equal(topped.rules.level(topped.salmon, level), level, 'on the water: blocked again');
+	topped.step(false);
+	topped.step(false);
+	assert.ok(topped.salmon.z > 0 && topped.salmon.z < 3 * CELL, 'falling, below the top');
+	assert.equal(
+		topped.rules.level(topped.salmon, level),
+		level,
+		"below the top it is blocked again, as the original's (a tap there climbs back to the top)",
+	);
 });
 
 /** A room of Salmons on `seed`'s level, no bots, with the overlay's heights. */
@@ -568,7 +571,7 @@ check('two waterfalls in reach: the first listed below its top is climbed, then 
 	assert.equal(r.salmon.memo.climbing, 1);
 });
 
-check('`level` drops the waterfalls a height clears and the one it topped, and no other', () => {
+check('`level` drops the waterfalls a height clears, and no other', () => {
 	const r = atFalls([
 		{ id: 'a', line: 20, height: 3 },
 		{ id: 'b', line: 400, height: 1 },
@@ -584,14 +587,14 @@ check('`level` drops the waterfalls a height clears and the one it topped, and n
 		r.events.some((e) => e.type === 'climbed' && e.zone === 'a'),
 		'topped a',
 	);
+	assert.deepEqual(ids(), ['c', 'rock'], 'at the top of a: a and b by their heights');
 	r.salmon.z = 1.5 * CELL;
-	assert.deepEqual(ids(), ['c', 'rock'], 'b by its height, a as topped');
+	assert.deepEqual(ids(), ['a', 'c', 'rock'], 'below a: b only, the topped one blocks again');
 	r.salmon.z = 0.5 * CELL;
-	assert.deepEqual(ids(), ['b', 'c', 'rock'], 'below b: a only');
+	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock'], 'below b: every one');
 	r.salmon.memo.vz = -CELL;
 	for (let i = 0; i < 30 && r.salmon.z > 0; i++) r.step(false);
 	assert.equal(r.salmon.z, 0);
-	assert.equal(r.salmon.memo.over, 0, 'landed: the topped one is cleared by the fall');
 	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock']);
 });
 
@@ -633,7 +636,11 @@ function climbsOver(game, seed, i, river) {
 	const fall = waterfallsOf(sim.game)[i];
 	const band = river.bands.find((b) => b.y === fall.line);
 	const rocks = (river.rocks ?? []).filter((r) => r.y < fall.line + 300 && r.y + r.h > fall.line);
-	const clear = (x) => rocks.every((r) => x < r.x - 70 || x > r.x + r.w + 70);
+	// Clear of the rocks, and on the water upstream too: an original level's bank stops a salmon.
+	const upstream = river.bands.filter((b) => b.y < fall.line && b.y >= fall.line - 2 * CELL);
+	const clear = (x) =>
+		rocks.every((r) => x < r.x - 70 || x > r.x + r.w + 70) &&
+		upstream.every((b) => x > b.left + 60 && x < b.right - 60);
 	let x = (band.left + band.right) / 2;
 	for (let k = 0; !clear(x) && k < 40; k++)
 		x = band.left + 60 + ((k * 37) % (band.right - band.left - 120));

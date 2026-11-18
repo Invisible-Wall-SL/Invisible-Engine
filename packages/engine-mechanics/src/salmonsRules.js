@@ -13,12 +13,16 @@
  *   the top) and holds it there: it climbs, and the tap does not leap. While it climbs it is held
  *   still and slides back {@link CLIMB}`.slidePerSecond`; at the top it is let go at that height
  *   (`climbed`), on the downstream side still, and falls under the leap's gravity; out of reach it
- *   is let go; at the bottom it is let go on the water. A salmon at least as high as a waterfall,
- *   or let go at its top and not yet back on the water, passes over it: the room steps it without
- *   that solid (`level`). There is no teleport.
- * - `sandbanks`: a free salmon whose centre comes onto a sandbank (`kind: 'sandbank'`) is
- *   `grounded`, held still and still catchable, until it taps jump (`grounded`, `jumped`); it is not
- *   grounded again before its centre has left the sand.
+ *   is let go; at the bottom it is let go on the water. A salmon at least as high as a waterfall
+ *   passes over it: the room steps it without that solid (`level`). Let go at the top, it is that
+ *   high only for a step or two, so, as in the original, it keeps tapping at the top (each tap
+ *   climbs it back there) while it steers upstream. There is no teleport.
+ * - `sandbanks`: a free salmon on the water on a sandbank (`kind: 'sandbank'`: its centre in the
+ *   zone, or, for a run of cells, within {@link SAND_REACH} cells of one of their centres) is
+ *   `grounded`, held still and still catchable, until it taps jump (`grounded`, `jumped`); it is
+ *   grounded again every time it comes down on sand, as the original's (not while its leap off the
+ *   sand rises, nor in the step its tap let it go).
+ * - `bridges`: a fisherman walks across a bridge on its deck, as high as it ({@link bridges}).
  * - `salmonJump` (in `salmons` only): the original's leap (`GuiltyForever/Salmon-` 41811c2
  *   `server/index.js` `onMessage('jump')` and `update`). A tap of jump by a free salmon on the
  *   water (its height `z` 0) launches it up at {@link JUMP}`.launch` cells/s, and it falls back
@@ -65,6 +69,13 @@ export const JUMP = Object.freeze({ launch: 11, gravity: 20 });
  *  it is not grounded on a sandbank above `sand`, nor hooked above `hook`; above `steer` a move of
  *  0 does not stop it (it carries its leap's move). */
 export const CLEAR = Object.freeze({ sand: 0.05, hook: 0.1, steer: 0.05 });
+
+/** How near a sand cell's centre a salmon is on it, cells (the original's `onSandbank`, < 0.64
+ *  cells²). */
+export const SAND_REACH = 0.8;
+
+/** How far a bridge's slopes run onto the banks, cells (the original's `slopeLen`). */
+export const BRIDGE_SLOPE = 2;
 
 /** Heights (cells) at which a salmon passes over a low piece, as the old server's: a rock blocks
  *  it, and a whirlpool pulls it, only while it is lower (`obstacleHeight` 0.5; the whirlpool's
@@ -171,8 +182,8 @@ const zonesOfKind = (game, kind) => {
 	return (game.online.rules.zones ?? [])
 		.filter((rule) => rule.kind === kind && byId.has(rule.zone))
 		.map((rule) => {
-			const { id, x, y, w, h } = byId.get(rule.zone);
-			return { id, x, y, w, h, characters: rule.characters };
+			const { id, x, y, w, h, height } = byId.get(rule.zone);
+			return { id, x, y, w, h, height, characters: rule.characters, cell: rule.cell };
 		});
 };
 
@@ -241,11 +252,8 @@ const waterfallClimbing = {
 		if (!falls.length) return {};
 		const heights = [...new Set(falls.map((f) => f.height))].sort((a, b) => a - b);
 		/** A level → the same level without the waterfalls a player passes, by how many heights it
-		 *  clears and the waterfall it topped. */
+		 *  clears. */
 		const cleared = new WeakMap();
-		// A salmon let go at a waterfall's top passes it until it is back on the water. The original
-		// lets it pass only while it is still as high (the step it is let go and the next); here a
-		// step with no input rests and a device's inputs come in bursts, so that window is missed.
 		const inReach = (fall, player) =>
 			appliesTo(fall, player) && fallReachSq(fall, player.body) < CLIMB.radiusSq;
 		return {
@@ -259,7 +267,6 @@ const waterfallClimbing = {
 				if (!fall) return;
 				climbTo(player, Math.min(fall.top, z + CLIMB.step));
 				player.memo.climbFall = falls.indexOf(fall);
-				player.memo.over = 0;
 				player.memo.vz = 0;
 				player.memo.climbing = 1;
 				player.memo.leapTap = TAP.climbed;
@@ -282,7 +289,6 @@ const waterfallClimbing = {
 						climbTo(p, fall.top);
 						p.memo.climbing = 0;
 						p.memo.letGo = 1;
-						p.memo.over = falls.indexOf(fall) + 1;
 						world.emit({ type: 'climbed', id: p.id, zone: fall.id });
 						continue;
 					}
@@ -298,18 +304,12 @@ const waterfallClimbing = {
 				if (!(z > 0) || !level?.solids) return level;
 				let n = 0;
 				while (n < heights.length && heights[n] <= z) n += 1;
-				const topped = player.memo.over ?? 0;
-				if (!n && !topped) return level;
+				if (!n) return level;
 				let byKey = cleared.get(level);
 				if (!byKey) cleared.set(level, (byKey = new Map()));
-				const key = `${n}:${topped}`;
-				let passable = byKey.get(key);
+				let passable = byKey.get(n);
 				if (!passable) {
-					const gone = new Set(
-						falls
-							.filter((f, i) => (n && f.height <= heights[n - 1]) || i === topped - 1)
-							.map((f) => f.id),
-					);
+					const gone = new Set(falls.filter((f) => f.height <= heights[n - 1]).map((f) => f.id));
 					passable = {
 						...level,
 						solids: createStaticIndex(
@@ -317,12 +317,27 @@ const waterfallClimbing = {
 							level.solids.cellSize,
 						),
 					};
-					byKey.set(key, passable);
+					byKey.set(n, passable);
 				}
 				return passable;
 			},
 		};
 	},
+};
+
+/** Whether a body is on a sandbank: within {@link SAND_REACH} cells of one of its cells' centres
+ *  when it is a run of cells (`cell` px a side, as the original's `onSandbank`), else its centre in
+ *  the zone. */
+const onSand = (body, zone) => {
+	const { cell } = zone;
+	if (!cell) return centreIn(body, zone);
+	const nearest = (v, from, size) =>
+		from +
+		(Math.min(Math.round(size / cell) - 1, Math.max(0, Math.floor((v - from) / cell))) + 0.5) *
+			cell;
+	const dx = body.x - nearest(body.x, zone.x, zone.w);
+	const dy = body.y - nearest(body.y, zone.y, zone.h);
+	return dx * dx + dy * dy < (SAND_REACH * cell) ** 2;
 };
 
 const sandbanks = {
@@ -335,18 +350,16 @@ const sandbanks = {
 				if (player.status !== api.STATUS.grounded || !tap) return;
 				api.release(player);
 				player.memo.leapTap = TAP.released;
+				player.memo.sandFree = world.stamp;
 				world.emit({ type: 'jumped', id: player.id });
 			},
 			step(world) {
 				for (const p of world.players) {
-					if (!p.connected) continue;
-					const sand = banks.find((z) => appliesTo(z, p) && centreIn(p.body, z));
-					if (!sand) {
-						p.memo.onSand = 0;
-						continue;
-					}
-					if (p.status !== api.STATUS.free || p.memo.onSand || above(p, CLEAR.sand)) continue;
-					p.memo.onSand = 1;
+					if (!p.connected || p.status !== api.STATUS.free || above(p, CLEAR.sand)) continue;
+					// Not the step a tap let it go, nor while its leap off the sand rises.
+					if (p.memo.sandFree === world.stamp || p.memo.vz > 0) continue;
+					const sand = banks.find((z) => appliesTo(z, p) && onSand(p.body, z));
+					if (!sand) continue;
 					p.status = api.STATUS.grounded;
 					p.until = 0;
 					world.emit({ type: 'grounded', id: p.id, zone: sand.id });
@@ -501,7 +514,8 @@ const lowPieces = {
 };
 
 /** The fall back to the water under the leap's gravity, for anything aloft that is not climbing
- *  (the original's `update`: the climb or the gravity, one a step). Held, it is on the water. */
+ *  nor on a bridge (the original's `update`: the climb or the gravity, one a step). Held, it is on
+ *  the water. */
 const fall = {
 	create(game, api) {
 		const pull = JUMP.gravity * CELL;
@@ -510,11 +524,10 @@ const fall = {
 				const dt = 1 / world.tickHz;
 				for (const p of world.players) {
 					const vz = p.memo.vz ?? 0;
-					if ((!vz && !p.z) || p.memo.climbing === 1) continue;
+					if ((!vz && !p.z) || p.memo.climbing === 1 || p.memo.bridge === 1) continue;
 					if (p.status !== api.STATUS.free) {
 						p.z = 0;
 						p.memo.vz = 0;
-						p.memo.over = 0;
 						continue;
 					}
 					const z = (p.z ?? 0) + vz * dt;
@@ -523,7 +536,6 @@ const fall = {
 					else {
 						p.z = 0;
 						p.memo.vz = 0;
-						p.memo.over = 0;
 					}
 				}
 			},
@@ -630,6 +642,49 @@ const goldenSalmon = {
 	},
 };
 
+/**
+ * A fisherman on a bridge (a zone of `kind: 'bridge'`: a row of cells across the water, as high
+ * as its `height`, cells), as the original's `update`: with its centre within half a cell of the
+ * deck's row, over the deck or a slope {@link BRIDGE_SLOPE} cells onto either bank, it is put on the
+ * deck's row and as high as the deck (`z`), ramped down the slopes; off it, back on the ground. The
+ * water is open to it under a bridge (`salmons.js` `salmonsGeometry`); a salmon and a bear pass
+ * under.
+ */
+const bridges = {
+	create(game, api) {
+		const decks = zonesOfKind(game, 'bridge');
+		if (!decks.length) return {};
+		const deckOf = (p) => {
+			const { x, y } = p.body;
+			for (const d of decks) {
+				if (!appliesTo(d, p) || Math.abs(y - (d.y + CELL / 2)) > CELL / 2) continue;
+				const from = d.x + CELL / 2;
+				const to = d.x + d.w - CELL / 2;
+				const off = Math.max(0, from - x, x - to) / CELL;
+				if (off <= BRIDGE_SLOPE)
+					return { deck: d, lift: (d.height ?? 0) * (1 - off / BRIDGE_SLOPE) };
+			}
+			return undefined;
+		};
+		return {
+			step(world) {
+				for (const p of world.players) {
+					if (!decks.some((d) => appliesTo(d, p))) continue;
+					const on = p.status === api.STATUS.free ? deckOf(p) : undefined;
+					if (on) {
+						p.body.y = on.deck.y + CELL / 2;
+						p.z = on.lift * CELL;
+						p.memo.bridge = 1;
+					} else if (p.memo.bridge === 1) {
+						p.z = 0;
+						p.memo.bridge = 0;
+					}
+				}
+			},
+		};
+	},
+};
+
 /** Several modules' hooks as one module's: each hook runs every part's, in order. */
 const together = (game, api, parts) => {
 	const made = parts.map((part) => part.create(game, api));
@@ -685,6 +740,7 @@ const salmons = {
 			goldenSalmon,
 			carry,
 			lowPieces,
+			bridges,
 		]),
 };
 

@@ -8,7 +8,8 @@
 // how long the art took and the page's JS heap, since the original's river is about 2.7× longer and
 // 3.8× wider than P10.16's. A second config pins one seed, and its room must play it.
 // A pinned level with a waterfall of height 8 added by an overlay near the sea: a cliff stands under
-// every waterfall, Space climbs it in place and the salmon swims over, drawn raised past it.
+// every waterfall, Space climbs it in place and, tapped on at the top, the salmon swims over, drawn
+// raised past it.
 // Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
 // whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
 // the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
@@ -34,6 +35,7 @@ import {
 	SALMONS_MAP,
 	SALMONS_MAP_SEED,
 	buildMeanderTable,
+	generateSalmonsMap,
 	meanderAt,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
@@ -111,9 +113,14 @@ mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
 writeFileSync(join(configs, 'salmons-pinned.json'), JSON.stringify(pinned));
 // Waterfall heights (2026-11-17): the pinned level with a waterfall of height 8 added four cells
-// upstream of where salmon start, so a page meets it at once.
+// upstream of where salmon start, so a page meets it at once. That is in the delta's sand, which
+// the original's waterfalls never are, and a salmon is grounded each time it comes down on sand
+// (2026-11-18), so the overlay takes the sand away from the cliff down to the sea.
 const CLIFF_GX = SALMONS_MAP.RIVER_LENGTH - 14;
 const cliffCell = [CLIFF_GX, Math.round(meanderAt(buildMeanderTable(String(PINNED)), CLIFF_GX))];
+const cliffSand = generateSalmonsMap(PINNED)
+	.obstacles.filter((o) => o.type === 'sandbank' && o.x >= CLIFF_GX)
+	.map((o) => [o.x, o.y]);
 const cliffConfig = normalizeGameConfigDoc({
 	...authored,
 	arcade: {
@@ -122,7 +129,12 @@ const cliffConfig = normalizeGameConfigDoc({
 			...authored.arcade.online,
 			levels: {
 				seeds: [PINNED],
-				overlays: { [PINNED]: { add: [{ cell: cliffCell, kind: 'waterfall', height: 8 }] } },
+				overlays: {
+					[PINNED]: {
+						remove: cliffSand,
+						add: [{ cell: cliffCell, kind: 'waterfall', height: 8 }],
+					},
+				},
 			},
 		},
 	},
@@ -473,8 +485,18 @@ try {
 		if (atFoot && !climbed && taps % 4 === 0)
 			writeFileSync(join(out, 'cliff.png'), await c.page.screenshot());
 	}
+	// Let go at the top it passes only while that high (the original's rule, since 2026-11-18):
+	// as the original's player, it keeps tapping at the top, ArrowUp held, until it is over.
+	let over = await ownC();
+	for (let i = 0; i < 20 && !(over.body && over.body.y < line); i++) {
+		await c.key('Space', 'down');
+		await c.settle(150);
+		await c.key('Space', 'up');
+		await c.settle(350);
+		over = await ownC();
+	}
 	await c.settle(2000);
-	const over = await ownC();
+	over = await ownC();
 	await c.key('ArrowUp', 'up');
 	writeFileSync(join(out, 'over-the-cliff.png'), await c.page.screenshot());
 	const step = 24 + 24 * 8;

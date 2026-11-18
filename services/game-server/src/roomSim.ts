@@ -4,6 +4,7 @@ import {
 	characterBody,
 	cleanName,
 	createBot,
+	createRng,
 	createOnlineRules,
 	facingOf,
 	generatedOnlineGame,
@@ -78,7 +79,7 @@ export type SimPlayer = RulesPlayer & {
 	ack: number;
 	/** Steps it stood still for want of an input, not yet made up ({@link inputsThisStep}). */
 	credit: number;
-	/** Where it (re)spawns. */
+	/** Where it (re)spawns, unless its character spawns at random (`randomSpawn`). */
 	home: { x: number; y: number };
 };
 
@@ -129,10 +130,16 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		online.characters.map((c) => [c.id, onlineLevel(game.zones, online.rules.zones, c.id, field)]),
 	);
 	const atRest = { ...ctx, subSteps: 1, subDt: 0 };
+	/** The room's draws of a place for a character that spawns at random (`randomSpawn`). */
+	const spawnRng = createRng(`${seed}:spawns`);
 	const spawn = (player: RulesPlayer) => {
-		const home = (player as SimPlayer).home ?? online.spawn;
-		player.body.x = home.x;
-		player.body.y = home.y;
+		const { character, home } = player as SimPlayer;
+		const homes = character.randomSpawn ? character.spawns : undefined;
+		const at = homes?.length
+			? homes[Math.floor(spawnRng() * homes.length)]
+			: (home ?? online.spawn);
+		player.body.x = at.x;
+		player.body.y = at.y;
 		// A spawn outside the field is pulled inside at once, as every later step would.
 		stepPlayer(player.body, undefined, 0, atRest, field);
 	};

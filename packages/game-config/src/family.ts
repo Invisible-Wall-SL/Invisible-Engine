@@ -99,6 +99,9 @@ export type ArcadeOnlineCharacter = {
 	/** Where its players start and respawn (field px), taken in turn (P10.16). Absent ⇒
 	 *  `online.spawn`. */
 	spawns?: { x: number; y: number }[];
+	/** The room picks one of `spawns` at random (from its seed) at each start and respawn, for its
+	 *  bots too (Salmons, as the original). Absent ⇒ taken in turn. */
+	randomSpawn?: boolean;
 };
 
 /** The buttons a tap or a click can press (`engine-mechanics` `online.js` `BUTTONS`). */
@@ -144,7 +147,11 @@ export const ARCADE_POINTER_LIMITS = Object.freeze({
 export type ArcadeOnlineSolid = true | 'below' | 'above' | 'left' | 'right';
 
 /** Zone kinds a rules module acts on ({@link ONLINE_RULES_MODULE_IDS}; Salmons: P11.3). */
-export const ONLINE_ZONE_KINDS: readonly string[] = Object.freeze(['sandbank', 'waterfall']);
+export const ONLINE_ZONE_KINDS: readonly string[] = Object.freeze([
+	'sandbank',
+	'waterfall',
+	'bridge',
+]);
 
 /** A zone's part in an online game's rules (P10.15, P11.3): a current that pushes, a solid that
  *  stops, the round's goal, or a zone a rules module acts on. */
@@ -824,6 +831,7 @@ const normalizeCharacters = (raw: unknown): ArcadeOnlineCharacter[] => {
 		if (max) character.max = max;
 		const spawns = points(entry.spawns);
 		if (spawns.length) character.spawns = spawns;
+		if (spawns.length && entry.randomSpawn === true) character.randomSpawn = true;
 		characters.push(character);
 	}
 	return characters;
