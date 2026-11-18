@@ -19,6 +19,11 @@ export interface RigTemplateBone {
 	parent?: string;
 	x: number;
 	y: number;
+	/** Setup values a template saved from a rig carries (the built-ins use x and y only). */
+	rotation?: number;
+	length?: number;
+	scaleX?: number;
+	scaleY?: number;
 }
 
 export interface RigTemplateSlot {
@@ -26,6 +31,18 @@ export interface RigTemplateSlot {
 	bone: string;
 	/** The part shown in the setup pose; none = the slot starts empty (an eyelid, open). */
 	setup?: string;
+	blend?: 'normal' | 'additive' | 'multiply' | 'screen';
+	/** `rrggbbaa`, as the rig format writes it. */
+	color?: string;
+}
+
+/** Where a part sits on its bone; none = centred on the bone, unturned. */
+export interface RigTemplatePlacement {
+	x?: number;
+	y?: number;
+	rotation?: number;
+	scaleX?: number;
+	scaleY?: number;
 }
 
 export interface RigTemplatePart {
@@ -34,6 +51,7 @@ export interface RigTemplatePart {
 	required: boolean;
 	/** Placeholder size, used only until art is attached. */
 	size: [number, number];
+	at?: RigTemplatePlacement;
 }
 
 /** A channel moving a bone: the key is `value × per` from setup (scaleY: `1 + value × per`). */
@@ -96,15 +114,46 @@ export interface RigTemplate {
 export type RigTemplateClipKey = [number, string, number | string];
 
 /**
- * A starter animation, as face-channel keys: the Rigger writes it through the same channel code the
- * Face section uses, so it plays on every rig of the template. Every channel it touches starts and
- * ends at rest, so a clip loops or hands over cleanly.
+ * A starter animation. A built-in's is face-channel keys: the Rigger writes it through the same
+ * channel code the Controls section uses, so it plays on every rig of the template, and every channel
+ * it touches starts and ends at rest. A template saved from a rig keeps the rig's own animation as
+ * timelines instead (`animation`, `keys` empty; docs/design/rig-templates.md §7.4).
  */
 export interface RigTemplateClip {
 	name: string;
 	length: number;
 	keys: RigTemplateClipKey[];
+	animation?: RigTemplateTimelines;
 }
+
+/** An irig animation limited to what a template rig can play (§7.4). */
+export interface RigTemplateTimelines {
+	bones?: Record<string, Record<string, { time?: number }[]>>;
+	slots?: Record<string, Record<string, { time?: number; name?: string | null }[]>>;
+	drawOrder?: { time?: number; offsets?: { slot: string; offset: number }[] }[];
+}
+
+/** The bone and slot timelines a template clip may hold; others name what a template lacks. */
+export const TEMPLATE_BONE_TIMELINES = [
+	'rotate',
+	'translate',
+	'translatex',
+	'translatey',
+	'scale',
+	'scalex',
+	'scaley',
+	'shear',
+	'shearx',
+	'sheary',
+] as const;
+export const TEMPLATE_SLOT_TIMELINES = [
+	'attachment',
+	'rgba',
+	'rgb',
+	'alpha',
+	'rgba2',
+	'rgb2',
+] as const;
 
 /** What a rig created from a template remembers, in its bundle's `template.json`. */
 export interface RigTemplateRef {
@@ -909,6 +958,11 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 		if (clips.has(k.name)) return `clip "${k.name}" is listed twice`;
 		clips.add(k.name);
 		if (!(k.length > 0)) return `clip "${k.name}" needs a length`;
+		if (k.animation) {
+			if (k.keys.length) return `clip "${k.name}" has both channel keys and timelines`;
+			const bad = timelinesProblem(k.animation, k.length, bones, slots, parts);
+			if (bad) return `clip "${k.name}" ${bad}`;
+		}
 		for (const [time, id, v] of k.keys) {
 			const c = t.channels.find((x) => x.id === id);
 			if (!c) return `clip "${k.name}" keys a missing channel "${id}"`;
@@ -920,6 +974,59 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			if (!fits)
 				return `clip "${k.name}" keys "${id}" to ${JSON.stringify(v)}, not one of its values`;
 		}
+	}
+	return null;
+}
+
+/** Why a timeline clip names something a template rig does not have, or null (§7.4). */
+function timelinesProblem(
+	a: RigTemplateTimelines,
+	length: number,
+	bones: Set<string>,
+	slots: Set<string>,
+	parts: Map<string, string>,
+): string | null {
+	const extra = Object.keys(a).find((k) => !['bones', 'slots', 'drawOrder'].includes(k));
+	if (extra) return `holds "${extra}" timelines, which a template rig cannot play`;
+	const timed = (keys: unknown, what: string): string | null => {
+		if (!Array.isArray(keys) || !keys.length) return `has an empty ${what} timeline`;
+		for (const k of keys) {
+			const time = (k as { time?: unknown } | null)?.time ?? 0;
+			if (typeof time !== 'number' || !(time >= 0 && time <= length + 1e-9))
+				return `keys ${what} outside 0…${length}`;
+		}
+		return null;
+	};
+	for (const [bone, tls] of Object.entries(a.bones ?? {})) {
+		if (!bones.has(bone)) return `moves a bone "${bone}" the template does not have`;
+		for (const [name, keys] of Object.entries(tls)) {
+			if (!(TEMPLATE_BONE_TIMELINES as readonly string[]).includes(name))
+				return `holds a "${name}" timeline on bone "${bone}"`;
+			const bad = timed(keys, `${bone}.${name}`);
+			if (bad) return bad;
+		}
+	}
+	for (const [slot, tls] of Object.entries(a.slots ?? {})) {
+		if (!slots.has(slot)) return `keys a slot "${slot}" the template does not have`;
+		for (const [name, keys] of Object.entries(tls)) {
+			if (!(TEMPLATE_SLOT_TIMELINES as readonly string[]).includes(name))
+				return `holds a "${name}" timeline on slot "${slot}"`;
+			const bad = timed(keys, `${slot}.${name}`);
+			if (bad) return bad;
+			if (name !== 'attachment') continue;
+			for (const k of keys) {
+				const part = k.name ?? null;
+				if (part !== null && parts.get(part) !== slot)
+					return `shows "${part}" in slot "${slot}", not one of its parts`;
+			}
+		}
+	}
+	if (a.drawOrder !== undefined) {
+		const bad = timed(a.drawOrder, 'draw order');
+		if (bad) return bad;
+		for (const k of a.drawOrder)
+			for (const o of k.offsets ?? [])
+				if (!slots.has(o.slot)) return `reorders a slot "${o.slot}" the template does not have`;
 	}
 	return null;
 }
@@ -990,6 +1097,13 @@ function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | 
 				return `motion "${e.channel}" needs a minimum span between 0 and 1`;
 			if (!boneRestDirection(t.bones, e.bone, e.rest))
 				return `motion "${e.channel}" needs a rest direction for "${e.bone}"`;
+			// The solve reads a child's offset as a picture direction, which holds only while the bone
+			// and its parents are unturned in the setup pose (true of the built-ins).
+			const turned = [e.bone, ...(chain.get(e.bone) ?? [])].find(
+				(n) => (t.bones.find((b) => b.name === n)?.rotation ?? 0) !== 0,
+			);
+			if (turned && !e.rest)
+				return `motion "${e.channel}" needs a rest direction: "${turned}" is turned in the setup pose`;
 			// A bone is solved after its parents, so it can take off the turn they already carry.
 			const late = done.find((b) => chain.get(b)?.includes(e.bone));
 			if (late) return `motion "${e.channel}" turns "${e.bone}" after its child "${late}"`;
@@ -1037,6 +1151,7 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 			continue;
 		}
 		(attachments[p.slot] ??= {})[p.name] = {
+			...nonDefault(p.at ?? {}, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 			width: r.origW ?? r.w,
 			height: r.origH ?? r.h,
 		};
@@ -1047,18 +1162,32 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 		bones: t.bones.map((b) => ({
 			name: b.name,
 			...(b.parent === undefined ? {} : { parent: b.parent }),
-			...(b.x ? { x: b.x } : {}),
-			...(b.y ? { y: b.y } : {}),
+			...nonDefault(b, { length: 0, x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 		})),
 		slots: t.slots.map((s) => ({
 			name: s.name,
 			bone: s.bone,
+			...(s.color !== undefined && s.color !== 'ffffffff' ? { color: s.color } : {}),
 			...(s.setup !== undefined && attachments[s.name]?.[s.setup] ? { attachment: s.setup } : {}),
+			...(s.blend !== undefined && s.blend !== 'normal' ? { blend: s.blend } : {}),
 		})),
 		skins: [{ name: 'default', attachments }],
 		animations: {},
 	};
 	return { skeleton, ref: { id: t.id, version: t.version }, missing, missingRequired };
+}
+
+/** The fields of `from` named in `defaults` whose value differs from the default there. */
+function nonDefault<K extends string>(
+	from: object,
+	defaults: Record<K, number>,
+): Partial<Record<K, number>> {
+	const out: Partial<Record<K, number>> = {};
+	for (const k of Object.keys(defaults) as K[]) {
+		const v = (from as Partial<Record<K, unknown>>)[k];
+		if (typeof v === 'number' && v !== defaults[k]) out[k] = v;
+	}
+	return out;
 }
 
 /** What a create answers about a template rig. */
@@ -1067,6 +1196,15 @@ export function templateReport(fit: TemplateRig): RigTemplateRef & {
 	missingRequired: string[];
 } {
 	return { ...fit.ref, missing: fit.missing, missingRequired: fit.missingRequired };
+}
+
+/** Who saved a template made in the Rigger, and the head the author was shown. */
+export interface RigTemplateSaved {
+	savedAt: string;
+	savedBy: { uid: string; name: string };
+	project: string;
+	/** The head's etag: the precondition for a new version or a delete. */
+	etag: string | null;
 }
 
 /** What the Rigger page is told about a template. */
@@ -1080,9 +1218,12 @@ export interface RigTemplateSummary {
 	/** The skeleton and the motion map, for the motion import's solve. */
 	bones: RigTemplateBone[];
 	motion: RigMotionMap | null;
+	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
+	origin: 'builtin' | 'user';
+	saved?: RigTemplateSaved;
 }
 
-function summary(t: RigTemplate): RigTemplateSummary {
+export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): RigTemplateSummary {
 	return {
 		id: t.id,
 		version: t.version,
@@ -1092,16 +1233,18 @@ function summary(t: RigTemplate): RigTemplateSummary {
 		clips: t.clips,
 		bones: t.bones,
 		motion: t.motion ?? null,
+		origin: saved ? 'user' : 'builtin',
+		...(saved ? { saved } : {}),
 	};
 }
 
-/** The templates the New-rig panel offers. */
+/** The built-in templates. */
 export function rigTemplateList(): RigTemplateSummary[] {
-	return RIG_TEMPLATES.map(summary);
+	return RIG_TEMPLATES.map((t) => rigTemplateSummary(t));
 }
 
-/** The template a bundle's `template.json` names, or null for none or one we no longer have. */
-export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+/** A bundle's `template.json`, or null for none or one that is not `{ id, version }`. */
+export function parseTemplateRef(text: string | null): RigTemplateRef | null {
 	if (!text) return null;
 	let ref: unknown;
 	try {
@@ -1109,7 +1252,15 @@ export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary 
 	} catch {
 		return null;
 	}
-	const id = ref && typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
-	const t = typeof id === 'string' ? rigTemplateById(id) : undefined;
-	return t ? summary(t) : null;
+	if (!ref || typeof ref !== 'object') return null;
+	const { id, version } = ref as { id?: unknown; version?: unknown };
+	if (typeof id !== 'string' || !id) return null;
+	return { id, version: typeof version === 'number' && Number.isInteger(version) ? version : 1 };
+}
+
+/** The BUILT-IN template a `template.json` names, or null (`rigTemplateStore` resolves user ones). */
+export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+	const ref = parseTemplateRef(text);
+	const t = ref ? rigTemplateById(ref.id) : undefined;
+	return t ? rigTemplateSummary(t) : null;
 }

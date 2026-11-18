@@ -25,8 +25,9 @@ current game looks. No video-model animation of the art: the art is rigged, moti
 
 ## 2. What a template is
 
-1. **The template** — versioned, in code (`apps/launcher-api/src/lib/server/rigTemplates.ts`), so
-   a change is reviewed and gated like any other:
+1. **The template** — versioned. Built-ins are in code
+   (`apps/launcher-api/src/lib/server/rigTemplates.ts`), reviewed and gated like any other change;
+   templates made in the Rigger are in R2 (§7). Either holds:
    - `bones[]` and `slots[]` (draw order) — the skeleton;
    - `parts[]` — every image the template expects, by name, with its slot and whether it is
      needed (§3.2);
@@ -251,7 +252,114 @@ From the [Qwen character blueprint](../guides/qwen-cartoon-character-blueprint.m
 Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is owed
 ([status](../status/rigger.md) open item 19).
 
-## 7. Build plan
+## 7. Templates made in the Rigger — 📐 Save as template (T8)
+
+The owner's ask (2026-11-18): an artist turns any rig into a shared template with no code change,
+and it then works like `bust-face` and `full-body` everywhere a template works (＋ New rig, the
+Controls section, 🎬 starter animations, 🎤 lip-sync when it has a mouth-shapes control, 🎥 motion
+import when it has a tracking map). Built-ins stay in code; a game never sees any of it (a template
+only shapes what the Rigger writes into an ordinary irig).
+
+### 7.1 Store
+
+- **R2, one folder per template:** `_shared/rig-templates/<id>/v<n>.json` holds one published
+  version (the whole `RigTemplate`), written **create-only** and never rewritten;
+  `_shared/rig-templates/<id>/head.json` names the current version and who saved it
+  (`{ id, version, label, savedAt, savedBy: { uid, name }, project }`).
+- **No index blob.** The list is a prefix listing of `head.json` keys, so two saves of different
+  templates touch different keys and cannot drop each other's rows — the race that moved the rig
+  library's catalog to Postgres (`riggerLibrary.ts`) has no shared object here to happen on, and
+  there is no migration. Templates are few; reading every head on a list is cheap.
+- **A save is a new version.** The next number is one past the highest `v<n>.json` in the folder (not
+  past the head), so a save that died after its version blob and before its head leaves an
+  invisible orphan that the next save steps over, never a number that can no longer be written.
+  The head moves under the caller's precondition: `baseEtag: null` creates (a taken name answers
+  **409 `exists`** with the head's etag, who saved it, from which project, and its version), a
+  string is `If-Match` on the head the author was shown (a stale one is **409 `conflict`**,
+  nothing written). Same contract as the rig library (`putLibraryEntry`).
+- **Ids.** `r2Slug(name)` — lower case, `_` for anything else — so a user id can never equal a
+  built-in's (`bust-face` has a hyphen r2Slug never produces). `template.json` keeps naming
+  `{ id, version }`.
+- **Reading.** A built-in resolves by id (its version is code). A user template resolves by
+  `{ id, version }` to that exact `v<n>.json`, so a rig made from v1 keeps v1's controls after v2 is
+  saved; ＋ New rig takes the head's version. A template whose `head.json` is gone (deleted) is no
+  template: the Controls section disappears and the rig's keys, ordinary timelines, keep playing.
+- `GET /api/rigger/templates` and `/api/rigger/template` serve both through the one
+  `RigTemplateSummary`, plus `{ origin: 'builtin' | 'user', savedBy?, savedAt?, etag? }`.
+
+### 7.2 From a rig to a template
+
+The page sends the open document and the author's choices; the **server derives** the template
+(`rigTemplateFromRig`, pure), so what is stored is always what the rig really has:
+
+- **Bones** in parent-first order with their setup `x`, `y`, `rotation`, `length`, `scaleX`,
+  `scaleY` (the built-ins only use `x`/`y`; `templateRig` writes the rest when present).
+- **Slots** in draw order, each with its bone, setup image, `blend` and `color`.
+- **Parts** from the default skin: every attachment becomes a part of its slot (a slot with several
+  is a swappable variant set) at its drawn size, with its offset from the bone (`at`: x, y,
+  rotation, scaleX, scaleY), so new art lands where this art sits. A mesh becomes a region part
+  (its weights belong to this art; re-run region→mesh on the new art); a clipping, path, point or
+  bounding box attachment is left out. Everything left out is listed back to the author.
+- **Needed / optional** is the author's tick per part; at least one part must be needed.
+- **Not carried, and said so:** other skins, constraints (IK would override the rotation keys the
+  controls write, §3.4), events.
+
+### 7.3 Controls editor
+
+In the 📐 modal, one foldable row per control (header tooltip = the control's tip; 🗑 removes):
+**drive** (bone, x / y / rotate / scaleY, per unit, min / max / rest; a control may hold several
+drives), **swaps** (slot, then value steps each showing a part or nothing), **mouth shapes**
+(slot, rest shape, the jaw control, openness per shape, talk order, and a lip-sync map from the nine
+Rhubarb letters). A rig made from a template starts the editor with that template's controls; a
+slot with several images gets a suggested swaps control. Each control has a live preview slider
+that poses the stage (bones from setup, the slot's image) without keying anything; closing the
+editor puts the pose back.
+
+**Motion tracking** is carried, not authored: when the rig was made from a template with a map, its
+entries are kept for every control that still exists with the same id, and `rigTemplateProblem`
+re-checks them against the new controls. Authoring a new map in the page is not built (a follow-up
+if user templates need it; the built-in maps took measurement against real footage, §5.3).
+
+### 7.4 Starter clips: the rig's own animations, stored as timelines
+
+The author ticks animations of the rig; each is stored **as raw timelines** (`clip.animation`), not
+as channel keys. Why:
+
+- An animation can do things no control expresses (a bone no control drives, an eased curve, a
+  draw-order change); turning it into channel keys would be lossy or impossible.
+- What was authored is what plays: the clip is the author's work, unchanged, on every rig of the
+  template, and stays editable in the dopesheet.
+- Channel-key clips stay for the built-ins (written in code, where the channel keys are the source).
+
+The validator checks a timeline clip names only the template's bones, slots and parts, and carries
+only what a template rig can play: bone timelines, slot attachment / colour timelines and draw
+order. Deform and sequence timelines name a mesh and an attachment's frames, which a template part
+is not, and constraint, physics and event timelines name things the template does not carry: such a
+clip is refused with the reason. Added by 🎬 Starter animations like any clip; an image key naming a
+part the new art lacks becomes an empty key (the runtime only shows what the atlas has).
+
+### 7.5 Validation — a broken template never reaches the store
+
+Every save runs, server-side, before anything is written:
+
+1. a strict parse of the posted choices (`zod`), so the stored JSON has exactly the template shape;
+2. `rigTemplateProblem` (refused with the reason, 422);
+3. **the pose check** (`rigTemplatePoseProblem`): a rig made from the template over placeholder art
+   with every part loads under engine-rig with the same atlas loader the game uses, and so does one
+   over only the needed parts; each control at its min, rest and max, and each starter clip at its
+   start, middle and end, poses to finite world transforms.
+
+A template that fails any of these is refused with the reason and nothing is written, because a
+stored template would break every ＋ New rig made from it.
+
+### 7.6 Who can do it
+
+The `rigger` role saves and deletes (the same gate as the rig library). The page always asks before
+a new version replaces a head, naming who saved it last; deleting asks too and is conditional on the
+head's etag the author was shown. A delete removes the head first (the template leaves the list and
+every rig's Controls section at once), then the version blobs.
+
+## 8. Build plan
 
 | Step                                                         | Delivers                                                                                                                                                                         | Proves                                                          |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -263,12 +371,13 @@ Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is
 | **T6 — Art blueprint** 🟡 tools 2026-11-17, real run owed    | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
 | **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
 | **T7b — Body from video** ✅ 2026-11-17                      | MediaPipe pose points → bone rotations → channel keys (the same import, body half)                                                                                               | a walk from a filmed actor on a cartoon rig                     |
+| **T8 — 📐 Save as template** 🟡 2026-11-18                   | any rig → a shared, versioned template in R2 (§7): parts, controls editor, starter clips as timelines, server-side validation and pose check                                     | a New rig from a saved template keys and plays like a built-in  |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
 section it adds.
 
-## 8. Open questions
+## 9. Open questions
 
 1. **Mouth set size** — nine shapes (above) or a minimal four (`rest`, `A`, `O`, `smile`) for
    faster art? The contract allows both; the starter clips need to pick.
@@ -276,5 +385,5 @@ section it adds.
    drawing swapped in?
 3. **Licences** — settled: Rhubarb for T4 (§5.2), MediaPipe for T5 / T7b (§5.3). DWPose was
    refused (trained on non-commercial UBody).
-4. **Where the contract is edited** — JSON by an admin at first; a Rigger UI only if templates
-   multiply.
+4. **Where the contract is edited** — settled: built-ins in code, user templates in the Rigger
+   (📐 Save as template, §7).

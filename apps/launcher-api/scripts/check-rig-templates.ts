@@ -10,6 +10,9 @@
  */
 import * as rig from 'engine-rig';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
+import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
+import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
+import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
 import {
 	RIG_TEMPLATES,
 	rigTemplateFromSidecar,
@@ -17,6 +20,7 @@ import {
 	templateRig,
 	type RigTemplate,
 	type RigTemplateChannel,
+	type RigTemplateTimelines,
 	type TemplateRegion,
 } from '../src/lib/server/rigTemplates.ts';
 
@@ -470,6 +474,14 @@ check(
 for (const [label, t, want] of refused) {
 	const problem = rigTemplateProblem(t);
 	check(`a template with ${label} is refused`, !!problem && want.test(problem), String(problem));
+	// What a save runs: the same reason, answered (never thrown by the rig it would make).
+	let saved: string | null;
+	try {
+		saved = rigTemplateSaveProblem(t);
+	} catch (e) {
+		saved = `threw: ${e instanceof Error ? e.message : e}`;
+	}
+	check(`…and a save of it is refused for the same reason`, saved === problem, String(saved));
 }
 
 check(
@@ -483,6 +495,361 @@ check(
 		(t) => rigTemplateFromSidecar(t) === null,
 	),
 );
+
+// ── 📐 Save as template (T8, §7): a template derived from a rig ─────────────────────────────────
+// A bust-face rig, plus a starter clip of its own, saved as a template: the derived skeleton, parts
+// and controls are the original's, it passes the save check, and the rig it makes is the original's.
+const bustArt = artFor(base, false);
+const bustRig = templateRig(base, bustArt).skeleton;
+const wave = {
+	bones: { head: { rotate: [{ value: 0 }, { time: 0.5, value: 8 }, { time: 1, value: 0 }] } },
+	slots: {
+		mouth: {
+			attachment: [
+				{ time: 0.2, name: 'mouth_O' },
+				{ time: 0.8, name: 'mouth_rest' },
+			],
+		},
+	},
+};
+const specOf = (t: RigTemplate, clips: string[] = []): RigTemplateSpec => ({
+	label: `My ${t.label}`,
+	required: t.parts.filter((p) => p.required).map((p) => p.name),
+	channels: t.channels,
+	clips,
+	motion: t.motion ?? null,
+});
+const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
+	const d = rigTemplateFromRig(doc, spec, 'my_bust', 1);
+	if (typeof d === 'string') throw new Error(`derive refused: ${d}`);
+	return d;
+};
+{
+	const d = derive({ ...bustRig, animations: { wave } }, specOf(base, ['wave']));
+	const t = d.template;
+	check(
+		'derived: bones in order, with their setup places',
+		JSON.stringify(t.bones) === JSON.stringify(base.bones),
+		JSON.stringify(t.bones.slice(0, 3)),
+	);
+	check(
+		'derived: slots in draw order with their setup images',
+		JSON.stringify(t.slots) === JSON.stringify(base.slots),
+	);
+	check(
+		'derived: every image is a part of its slot, needed as marked, at its drawn size',
+		JSON.stringify(t.parts.map((p) => [p.name, p.slot, p.required]).sort()) ===
+			JSON.stringify(base.parts.map((p) => [p.name, p.slot, p.required]).sort()),
+	);
+	check('derived: no notes for a plain template rig', d.notes.length === 0, d.notes.join(' | '));
+	check(
+		'derived: the clip is kept as its timelines, with its length',
+		t.clips.length === 1 &&
+			t.clips[0].length === 1 &&
+			JSON.stringify(t.clips[0].animation) === JSON.stringify(wave) &&
+			t.clips[0].keys.length === 0,
+	);
+	check(
+		'derived: passes the save check (contract + pose)',
+		rigTemplateSaveProblem(t) === null,
+		String(rigTemplateSaveProblem(t)),
+	);
+	const again = templateRig(t, bustArt).skeleton;
+	check(
+		'a rig made from the saved template is the rig the original makes',
+		JSON.stringify({ ...again, animations: {} }) === JSON.stringify(bustRig),
+	);
+	check(
+		'a full-body rig saved as a template passes too',
+		rigTemplateSaveProblem(
+			derive(templateRig(fullBody, artFor(fullBody, false)).skeleton, specOf(fullBody)).template,
+		) === null,
+	);
+}
+const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
+// Placement, meshes and what is left out.
+{
+	const doc = {
+		irig: 1,
+		skeleton: {},
+		bones: [
+			{ name: 'root' },
+			{ name: 'arm', parent: 'root', x: 10, y: 20, rotation: -90, length: 50, scaleX: 1.5 },
+		],
+		slots: [
+			{ name: 'arm', bone: 'arm', attachment: 'arm', blend: 'additive', color: 'ff0000ff' },
+			{ name: 'cape', bone: 'root', attachment: 'cape' },
+			{ name: 'clip', bone: 'root', attachment: 'clipper' },
+			{ name: 'arm2', bone: 'arm' },
+		],
+		skins: [
+			{
+				name: 'default',
+				attachments: {
+					arm: { arm: { x: 25, y: -4, rotation: 90, width: 40, height: 100 } },
+					cape: {
+						cape: {
+							type: 'mesh',
+							uvs: [0, 0, 1, 0, 1, 1, 0, 1],
+							vertices: [-10, 0, 30, 0, 30, 60, -10, 60],
+							triangles: [0, 1, 2, 2, 3, 0],
+							hull: 4,
+						},
+					},
+					clip: {
+						clipper: { type: 'clipping', end: 'arm', vertexCount: 3, vertices: [0, 0, 1, 0, 0, 1] },
+					},
+					arm2: { arm: { width: 10, height: 10 } },
+				},
+			},
+			{ name: 'winter', attachments: {} },
+		],
+		ik: [{ name: 'reach', bones: ['arm'], target: 'root' }],
+		animations: {},
+	};
+	const d = derive(doc, { label: 'Arm', required: ['arm'], channels: [], clips: [], motion: null });
+	const t = d.template;
+	check(
+		'a turned, sized bone keeps its setup rotation, length and scale',
+		JSON.stringify(t.bones[1]) ===
+			JSON.stringify({
+				name: 'arm',
+				parent: 'root',
+				x: 10,
+				y: 20,
+				rotation: -90,
+				length: 50,
+				scaleX: 1.5,
+			}),
+		JSON.stringify(t.bones[1]),
+	);
+	check(
+		'a slot keeps its blend and colour',
+		t.slots[0].blend === 'additive' && t.slots[0].color === 'ff0000ff',
+	);
+	const arm = t.parts.find((p) => p.name === 'arm');
+	check(
+		'an image keeps where it sits on its bone',
+		JSON.stringify(arm?.at) === JSON.stringify({ x: 25, y: -4, rotation: 90 }) &&
+			JSON.stringify(arm?.size) === '[40,100]',
+		JSON.stringify(arm),
+	);
+	const cape = t.parts.find((p) => p.name === 'cape');
+	check(
+		'a mesh becomes an image part over its vertices’ box',
+		JSON.stringify(cape?.size) === '[40,60]' && JSON.stringify(cape?.at) === '{"x":10,"y":30}',
+		JSON.stringify(cape),
+	);
+	check('a clipping attachment is left out', !t.parts.some((p) => p.name === 'clipper'));
+	check(
+		'an image in two slots is one part (the first)',
+		t.parts.filter((p) => p.name === 'arm').length === 1 && arm?.slot === 'arm',
+	);
+	check(
+		'the author is told about the mesh, the clipping, the duplicate, the skin and the IK',
+		['mesh', 'not an image', 'in slots', 'winter', 'ik constraints'].every((w) =>
+			d.notes.some((n) => n.includes(w)),
+		),
+		d.notes.join(' | '),
+	);
+	const made = templateRig(t, [
+		{ name: 'arm', w: 40, h: 100 },
+		{ name: 'cape', w: 40, h: 60 },
+	]).skeleton as {
+		bones: Record<string, unknown>[];
+		slots: Record<string, unknown>[];
+		skins: { attachments: Record<string, Record<string, Record<string, unknown>>> }[];
+	};
+	check(
+		'a rig made from it puts the bone, the slot and the image where the original had them',
+		sorted(made.bones[1]) === sorted(doc.bones[1]) &&
+			made.slots[0].blend === 'additive' &&
+			made.slots[0].color === 'ff0000ff' &&
+			JSON.stringify(made.skins[0].attachments.arm.arm) ===
+				JSON.stringify({ x: 25, y: -4, rotation: 90, width: 40, height: 100 }),
+		JSON.stringify(made.skins[0].attachments.arm),
+	);
+	check(
+		'…and it passes the save check',
+		rigTemplateSaveProblem(t) === null,
+		String(rigTemplateSaveProblem(t)),
+	);
+	check(
+		'an unknown needed part is refused by name',
+		rigTemplateFromRig(
+			doc,
+			{ label: 'A', required: ['leg'], channels: [], clips: [], motion: null },
+			'a',
+			1,
+		) === '"leg" is marked needed but is not an image of this rig',
+	);
+	check(
+		'a template with no needed part is refused',
+		/at least one part/.test(
+			String(
+				rigTemplateFromRig(
+					doc,
+					{ label: 'A', required: [], channels: [], clips: [], motion: null },
+					'a',
+					1,
+				),
+			),
+		),
+	);
+	check(
+		'a starter clip the rig does not have is refused',
+		/no animation "jump"/.test(
+			String(
+				rigTemplateFromRig(
+					doc,
+					{ label: 'A', required: ['arm'], channels: [], clips: ['jump'], motion: null },
+					'a',
+					1,
+				),
+			),
+		),
+	);
+}
+// A timeline clip may only play what a template rig has.
+{
+	const withClip = (animation: Record<string, unknown>): RigTemplate => ({
+		...base,
+		clips: [{ name: 'own', length: 1, keys: [], animation: animation as RigTemplateTimelines }],
+	});
+	const clipRefused: [string, Record<string, unknown>, RegExp][] = [
+		['a deform (mesh) timeline', { attachments: { default: {} } }, /"attachments" timelines/],
+		['an IK timeline', { ik: { reach: [{ time: 0 }] } }, /"ik" timelines/],
+		['an event timeline', { events: [{ time: 0, name: 'x' }] }, /"events" timelines/],
+		['a bone the template lacks', { bones: { tail: { rotate: [{ value: 1 }] } } }, /bone "tail"/],
+		['a slot the template lacks', { slots: { hat: { alpha: [{ value: 1 }] } } }, /slot "hat"/],
+		[
+			'a part of another slot',
+			{ slots: { mouth: { attachment: [{ name: 'nose' }] } } },
+			/"nose" in slot "mouth"/,
+		],
+		[
+			'an inherit timeline',
+			{ bones: { head: { inherit: [{ inherit: 'noScale' }] } } },
+			/"inherit" timeline/,
+		],
+		['a key past its end', { bones: { head: { rotate: [{ time: 3, value: 1 }] } } }, /outside 0/],
+		['an empty timeline', { bones: { head: { rotate: [] } } }, /empty/],
+		[
+			'a reorder of a missing slot',
+			{ drawOrder: [{ time: 0, offsets: [{ slot: 'hat', offset: 1 }] }] },
+			/reorders a slot "hat"/,
+		],
+	];
+	for (const [label, a, want] of clipRefused) {
+		const p = rigTemplateProblem(withClip(a));
+		check(`a timeline clip with ${label} is refused`, !!p && want.test(p), String(p));
+	}
+	const both: RigTemplate = {
+		...base,
+		clips: [{ name: 'own', length: 1, keys: [[0, 'breath', 0]], animation: {} }],
+	};
+	check(
+		'a clip with keys and timelines is refused',
+		/both channel keys and timelines/.test(String(rigTemplateProblem(both))),
+	);
+	const bad = withClip({ bones: { head: { rotate: [{ time: 0, value: 'lots' }] } } });
+	check(
+		'a clip whose values would not load passes the contract but fails the save check',
+		rigTemplateProblem(bad) === null && /would not save/.test(String(rigTemplateSaveProblem(bad))),
+		String(rigTemplateSaveProblem(bad)),
+	);
+	const missingSetup: RigTemplate = {
+		...base,
+		parts: base.parts.map((p) =>
+			p.name === 'head' ? { ...p, size: [0, 0] as [number, number] } : p,
+		),
+	};
+	check(
+		'the save check passes a zero-size part (it draws nothing)',
+		rigTemplateSaveProblem(missingSetup) === null,
+		String(rigTemplateSaveProblem(missingSetup)),
+	);
+}
+// A carried body map on a bone turned in the setup pose has no picture direction to read.
+{
+	const turned: RigTemplate = {
+		...fullBody,
+		bones: fullBody.bones.map((b) => (b.name === 'thigh_l' ? { ...b, rotation: 10 } : b)),
+	};
+	check(
+		'body motion on a bone turned in the setup pose is refused unless it says its rest',
+		/"thigh_l" is turned/.test(String(rigTemplateProblem(turned))),
+		String(rigTemplateProblem(turned)),
+	);
+}
+// The strict shape of what the page posts.
+{
+	const ok = specOf(base);
+	check(
+		'the posted spec of bust-face parses',
+		typeof parseTemplateSpec(ok) === 'object',
+		String(parseTemplateSpec(ok)),
+	);
+	const bad: [string, unknown, RegExp][] = [
+		['an unknown field', { ...ok, extra: 1 }, /Unrecognized key/],
+		[
+			'a control field the Rigger does not read',
+			{ ...ok, channels: [{ ...ok.channels[1], colour: 'red' }] },
+			/Unrecognized key/,
+		],
+		[
+			'a control id with a space',
+			{ ...ok, channels: [{ ...ok.channels[1], id: 'jaw open' }] },
+			/lower-case/,
+		],
+		[
+			'a drive on an unknown property',
+			{ ...ok, channels: [{ ...ok.channels[1], drives: [{ bone: 'jaw', prop: 'z', per: 1 }] }] },
+			/prop/,
+		],
+		[
+			'a range that is not a number',
+			{ ...ok, channels: [{ ...ok.channels[1], max: 'high' }] },
+			/max/,
+		],
+		['a blank label', { ...ok, label: '  ' }, /label/],
+		[
+			'a motion entry of an unknown kind',
+			{
+				...ok,
+				motion: { cannot: [], face: { smooth: 0, entries: [{ kind: 'wiggle', channel: 'jaw' }] } },
+			},
+			/kind/,
+		],
+		[
+			'a motion map with a field it does not have',
+			{ ...ok, motion: { ...ok.motion, hands: {} } },
+			/Unrecognized key/,
+		],
+		[
+			'a motion entry with a field it does not have',
+			{
+				...ok,
+				motion: {
+					...ok.motion,
+					face: {
+						smooth: 0,
+						entries: [{ kind: 'blend', channel: 'jaw', plus: ['jawOpen'], gain: 1, wobble: 2 }],
+					},
+				},
+			},
+			/Unrecognized key/,
+		],
+	];
+	for (const [label, v, want] of bad) {
+		const r = parseTemplateSpec(v);
+		check(
+			`a posted spec with ${label} is refused`,
+			typeof r === 'string' && want.test(r),
+			String(r),
+		);
+	}
+}
 
 if (failures) {
 	console.error(`rig templates: ${failures} of ${checks} checks failed`);
