@@ -4,6 +4,7 @@
 
 	import ArcadeStage, { type Props } from './ArcadeStage.svelte';
 	import { bakedGameConfig } from '../editor-scenes';
+	import { attachCamera3dFlow, type Camera3dFlowHost } from '../game/camera3dFlow';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
 	import { online3dSession } from '../game/online3d';
@@ -24,6 +25,14 @@
 	 * `createRoomView3d` sends an input each of the room's fixed steps, predicts the own player and
 	 * interpolates everyone else (runtime step 4). An online game in the 2D room keeps the stock
 	 * arcade stage.
+	 *
+	 * The camera is `engine-3d`'s director (Phase 2, animation evaluation §4): the rigs of the
+	 * config's `arcade.world3d.camera` block (or the defaults, `follow` being the screen's
+	 * `camera.rig3d` view), switched and shaken by Flow (`game/camera3dFlow.ts`), pulled in against
+	 * the level's colliders, and authored moves played from a camera-moves GLB. It is local: only
+	 * the aim leaves the device. The keys map through the heading on screen, so "forward" stays
+	 * "into the screen" whichever rig shows it. A drag on empty HUD looks (orbit, shoulder, first
+	 * person), the wheel zooms the orbit, the right button aims the shoulder.
 	 *
 	 * The tier is chosen once, at mount (`engine-3d` `chooseTier3d`: the build's pin, `?tier=`, the
 	 * player's Graphics setting, then the device), and its caps decide MSAA, the shadows and the 3D
@@ -63,8 +72,17 @@
 	/** What the world draws, offline or in a room. */
 	type Field3d = {
 		colliders: readonly import('engine-3d').LevelSpec3d['colliders'][number][];
-		/** One frame: the keys (camera-relative) and the aimed point, if any. */
-		advance(dtMs: number, stick: import('engine-3d').Stick3d, rigYaw: number, aim: Aim): void;
+		/** One frame: the keys (camera-relative, through the heading on screen `rigYaw`, degrees),
+		 *  then the facing: the camera's (`face`, uint16) while the rig aims, else the aimed point. */
+		advance(
+			dtMs: number,
+			stick: import('engine-3d').Stick3d,
+			rigYaw: number,
+			aim: Aim,
+			face: number | undefined,
+		): void;
+		/** The raw `arcade.world3d` block: its `camera` is the director's. */
+		world3d: unknown;
 		bodies(): readonly import('engine-3d').BodyView3d[];
 		steps(): number;
 		/** The tab is shown again: drop the time it was hidden. */
@@ -76,8 +94,8 @@
 	 *  placeholder arena without one. */
 	const offline = (three: Engine3d): Field3d => {
 		let field = three.playField3d(undefined);
+		const raw = bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined;
 		try {
-			const raw = bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined;
 			field = three.playField3d(raw?.arcade?.world3d);
 		} catch (error) {
 			console.error(
@@ -93,14 +111,17 @@
 		});
 		return {
 			colliders: arena.colliders,
-			advance(dtMs, stick, rigYaw, aim) {
+			world3d: field.source === 'config' ? raw?.arcade?.world3d : undefined,
+			advance(dtMs, stick, rigYaw, aim, face) {
 				const body = play.player;
 				const move = three.moveAxes(stick.right, stick.forward, rigYaw);
-				const yaw = aim
-					? three.yawToward(aim.x - body.x, aim.z - body.z)
-					: move.mx || move.mz
-						? three.yawToward(move.mx, move.mz)
-						: body.yaw;
+				const yaw =
+					face ??
+					(aim
+						? three.yawToward(aim.x - body.x, aim.z - body.z)
+						: move.mx || move.mz
+							? three.yawToward(move.mx, move.mz)
+							: body.yaw);
 				play.advance(dtMs, { ...move, yaw, buttons: stick.buttons });
 			},
 			bodies: () => play.bodies(),
@@ -140,10 +161,11 @@
 		received(room.state);
 		return {
 			colliders: world.level.colliders,
-			advance(dtMs, stick, rigYaw, aim) {
+			world3d: session.world3d,
+			advance(dtMs, stick, rigYaw, aim, face) {
 				const me = view.me?.body;
-				const face = aim && me ? three.yawToward(aim.x - me.x, aim.z - me.z) : undefined;
-				view.frame(dtMs, performance.now(), stick, rigYaw, face);
+				const toward = aim && me ? three.yawToward(aim.x - me.x, aim.z - me.z) : undefined;
+				view.frame(dtMs, performance.now(), stick, rigYaw, face ?? toward);
 			},
 			bodies: () => view.bodies(),
 			steps: () => view.seq,
@@ -153,6 +175,75 @@
 				live = false;
 			},
 		};
+	};
+
+	/** The shake's stream is `<seed>:camera` (`engine-3d` `createShake3d`): the arcade seed when the
+	 *  URL pins one (`?arseed=`), else a fresh one (seeded under `?ie_determinism=`). */
+	const cameraSeed = () =>
+		new URLSearchParams(window.location.search).get('arseed') ||
+		String(Math.floor(Math.random() * 2 ** 32));
+
+	/** The camera director for a field, the Flow's handle on it, and its moves (loaded in the
+	 *  background: a move asked for before they land waits for them). */
+	const cameraOf = (three: Engine3d, rig: import('engine-3d').Rig3d, field: Field3d) => {
+		let config = three.camera3dOf(undefined, rig);
+		try {
+			config = three.camera3dOf((field.world3d as { camera?: unknown } | undefined)?.camera, rig);
+		} catch (error) {
+			console.error(
+				'[engine-3d] arcade.world3d.camera is not usable; the default rigs show',
+				error,
+			);
+		}
+		const director = three.createCameraDirector3d({
+			rigs: config.rigs,
+			active: config.active,
+			follow: 'player',
+			seed: cameraSeed(),
+			colliders: field.colliders,
+			shake: config.shake,
+			blend: config.blend,
+		});
+		const url = config.moves
+			? new URL(config.moves, document.baseURI).href
+			: three.SAMPLE_CAMERA_MOVES_URL;
+		const moves = three.loadCameraMoves3d(url).catch((error) => {
+			console.error(`[engine-3d] the camera moves at ${url} did not load`, error);
+			return new Map<string, import('engine-3d').CameraMove3d>();
+		});
+		const playMove = async (clip: string, opts: import('engine-3d').PlayMove3d): Promise<void> => {
+			const move = (await moves).get(clip);
+			if (!move) {
+				console.warn(`[engine-3d] no camera move "${clip}" in ${url}`);
+				return;
+			}
+			await director.playMove(move, opts);
+		};
+		if (config.intro) {
+			const { move, ...opts } = config.intro;
+			void playMove(move, opts);
+		}
+		const flow: Camera3dFlowHost = {
+			activate: (id, blendMs, ease) => {
+				const known = (three.CAMERA_EASES as readonly string[]).includes(ease ?? '');
+				const blend = {
+					blendMs,
+					...(known ? { ease: ease as import('engine-3d').CameraEase3d } : {}),
+				};
+				if (!director.activate(id, blend)) console.warn(`[engine-3d] no camera rig "${id}"`);
+			},
+			shake: (strength, durationMs) => director.shake(strength, durationMs),
+			follow: (target) => director.follow(target || 'player'),
+			playMove: (clip, blendInMs, blendOutMs, relative) =>
+				playMove(clip, {
+					...(blendInMs !== undefined ? { blendInMs } : {}),
+					...(blendOutMs !== undefined ? { blendOutMs } : {}),
+					...(relative ? { space: 'target' as const } : {}),
+				}),
+			yaw: () => director.view?.yaw ?? 0,
+			pitch: () => director.view?.pitch ?? 0,
+		};
+		return { director, flow };
 	};
 
 	$effect(() => {
@@ -172,7 +263,6 @@
 			const rig = three.resolveRig3d((scene?.camera as { rig3d?: unknown } | undefined)?.rig3d);
 			const field = room3d ? online(three, room3d) : offline(three);
 			if (!field) return;
-			const follow = three.createFollow3d(rig);
 			const choice = three.chooseTier3d({
 				pin: typeof __IE_MODEL_TIER__ === 'string' ? __IE_MODEL_TIER__ : null,
 				forced: new URLSearchParams(window.location.search).get('tier'),
@@ -216,30 +306,75 @@
 			};
 			fit();
 
-			let target: { x: number; y: number; z: number } | undefined;
+			const camera = cameraOf(three, rig, field);
+			const { director } = camera;
+			let view: import('engine-3d').CameraView3d | undefined;
+			let bodies: readonly import('engine-3d').BodyView3d[] = field.bodies();
+			/** A followed body: `player` is the own player (online its id is the session's). */
+			const targetOf = (id: string) =>
+				id === 'player' ? bodies.find((b) => b.kind === 'hero') : bodies.find((b) => b.id === id);
+			const look = { x: 0, y: 0, zoom: 0, aiming: false };
 			const tick = () => {
 				if (document.visibilityState !== 'visible') return;
 				if (!hidden || hidden.destroyed) hidden = codedBackground(pixi.stage);
 				if (hidden) hidden.renderable = false;
 				world.setPixelRatio(pixelRatio());
-				field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
-				const bodies = field.bodies();
-				const own = bodies.find((b) => b.kind === 'hero');
-				if (own) target = follow.step(pixi.ticker.deltaMS, own);
-				if (target) world.sync(bodies, { target, rig });
+				const dt = pixi.ticker.deltaMS;
+				const face = view?.aims ? three.yawUnitsOf(view.yaw) : undefined;
+				field.advance(dt, keys.read(), view?.yaw ?? rig.yaw, view?.aims ? undefined : aim, face);
+				bodies = field.bodies();
+				view = director.frame(dt, targetOf, {
+					lookX: look.x,
+					lookY: look.y,
+					zoom: look.zoom,
+					aiming: look.aiming,
+				});
+				look.x = look.y = look.zoom = 0;
+				const followed = targetOf(director.followed ?? 'player');
+				const eye = view.pose.position;
+				// The camera inside the followed body (first person, a shoulder pressed to a wall)
+				// would draw its inside: it is not drawn.
+				const inside =
+					!!followed &&
+					Math.hypot(eye.x - followed.x, eye.z - followed.z) < followed.radius + 0.35 &&
+					eye.y > followed.y - 0.1 &&
+					eye.y < followed.y + followed.height + 0.2;
+				world.sync(bodies, {
+					pose: view.pose,
+					focus: followed ?? eye,
+					...(inside && followed ? { hide: followed.id } : {}),
+				});
 			};
 
 			// A pointer the HUD does not take (no interactive Pixi object under it) aims in the world.
 			const point = { x: 0, y: 0 };
+			/** A press that began on the world (not the HUD): its drag looks. */
+			let dragging = false;
 			const forward = (event: PointerEvent) => {
+				if (event.type === 'pointermove' && dragging && event.buttons !== 0) {
+					look.x += event.movementX;
+					look.y += event.movementY;
+				}
 				pixi.renderer.events.mapPositionToPoint(point, event.clientX, event.clientY);
 				const taken = pixi.renderer.events.rootBoundary.hitTest(point.x, point.y);
 				if (taken && taken !== pixi.stage) return;
+				if (event.type === 'pointerdown') {
+					dragging = true;
+					if (event.button === 2) look.aiming = true;
+				}
 				if (event.type === 'pointermove' && event.buttons === 0 && event.pointerType !== 'mouse')
 					return;
 				aim = world.pick(event.clientX, event.clientY);
-				world.setAim(aim);
+				world.setAim(view?.aims ? undefined : aim);
 			};
+			const letGo = (event: PointerEvent) => {
+				dragging = false;
+				if (event.button === 2) look.aiming = false;
+			};
+			const wheel = (event: WheelEvent) => {
+				look.zoom += Math.sign(event.deltaY);
+			};
+			const menu = (event: Event) => event.preventDefault();
 			const leave = () => {
 				aim = undefined;
 				world.setAim(undefined);
@@ -253,14 +388,26 @@
 			pixi.canvas.addEventListener('pointerdown', forward);
 			pixi.canvas.addEventListener('pointermove', forward);
 			pixi.canvas.addEventListener('pointerleave', leave);
+			window.addEventListener('pointerup', letGo);
+			pixi.canvas.addEventListener('wheel', wheel, { passive: true });
+			pixi.canvas.addEventListener('contextmenu', menu);
 			document.addEventListener('visibilitychange', visibility);
+			const detachFlow = attachCamera3dFlow(camera.flow);
+			// For the playtest and the console: the director, and what it showed last frame.
+			const debug = window as { __IE_CAMERA3D__?: unknown };
+			debug.__IE_CAMERA3D__ = { director, view: () => view };
 			release = () => {
 				pixi.ticker.remove(tick);
 				window.removeEventListener('resize', fit);
 				pixi.canvas.removeEventListener('pointerdown', forward);
 				pixi.canvas.removeEventListener('pointermove', forward);
 				pixi.canvas.removeEventListener('pointerleave', leave);
+				window.removeEventListener('pointerup', letGo);
+				pixi.canvas.removeEventListener('wheel', wheel);
+				pixi.canvas.removeEventListener('contextmenu', menu);
 				document.removeEventListener('visibilitychange', visibility);
+				detachFlow();
+				delete debug.__IE_CAMERA3D__;
 				keys.release();
 				unregisterProbe();
 				field.release();
