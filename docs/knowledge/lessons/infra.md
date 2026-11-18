@@ -6,6 +6,16 @@ Covers Railway deploys, Cloudflare (DNS, tunnel), R2, CI workflows, GHCR, git wo
 launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/INFRA.md` and the
 `/deploy` skill. ComfyUI and RunPod traps live in [comfyui.md](comfyui.md).
 
+### Every room join failed with "seat reservation expired" on a Dependabot PR
+- **Symptom:** `check-room-bots`, `check-online-rules` and `check-room-sim` failed in every
+  `check-all` shard (`MatchMakeError: seat reservation expired.`); locally they passed.
+- **Cause:** Dependabot's own lockfile held two `@colyseus/core@0.18.28` copies (peer variants on
+  `@colyseus/schema` 5.0.48 vs 5.0.49), so the WebSocket transport asked a second MatchMaker for
+  the room the HTTP matchmake had made.
+- **Fix:** re-land with `pnpm install` regenerating the lockfile: one copy.
+- **Guard:** the three room gates; on a re-land check `pnpm-lock.yaml` has one `@colyseus/core@` key.
+- **PR:** #1716 re-landed (2026-11-17) · session 01E6qhvE5eMDW8hVstjKUkai
+
 ### Sentry got no source maps and nothing went red
 - **Symptom:** every runtime release printed "No bundle source map in the build — nothing to
   upload" (a notice); game stack traces in Sentry stayed minified.
