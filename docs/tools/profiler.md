@@ -6,6 +6,8 @@ sends lands in the project's list, kept 15 days unless you keep it longer. Every
 and 📦 Deliver also lands here as a build record, so you can see what each build shipped, how it
 changed from the one before, and the readings taken on it. Each project has budgets (frame rate,
 frame time, memory, size) and every device and build is marked pass, warn or fail against them.
+**Findings** turns all of that into a ranked list of what to cut, and **Compare** puts any two
+readings side by side.
 
 ## What it is
 
@@ -32,10 +34,12 @@ the readout gets a **Send** button and the reading goes straight to the project'
 ## How to use it
 
 1. Sign in to the launcher (`app.invisiblewall.org`), open the **Invisible Profiler** card and pick
-   the project in the **Project** picker. The page has four tabs: **Readings** (with its count;
+   the project in the **Project** picker. The page has six tabs: **Readings** (with its count;
    four foldable sections: **New capture**, **Paste a reading**, **Lab runs** and **Readings**),
-   **Devices**, **Builds** (with its count) and **Budgets**. A link with `?tab=devices`,
-   `?tab=builds` or `?tab=budgets` opens that tab. Hover a section's title for what it does.
+   **Devices**, **Builds** (with its count), **Findings** (with its count), **Compare** and
+   **Budgets**. A link with `?tab=devices`, `?tab=builds`, `?tab=findings`, `?tab=compare` or
+   `?tab=budgets` opens that tab; Compare also takes `&a=<reading id>&b=<reading id>`. Hover a
+   section's title for what it does.
 
 ### Capture on a phone
 
@@ -48,7 +52,8 @@ the readout gets a **Send** button and the reading goes straight to the project'
    - **As shipped** (the large one): the game exactly as players get it.
    - **Particles off**, **Element FX off**, **Antialias off**: the same game with one cost turned
      off (`particles=off`, `fx=0`, `aa=0`). A reading from one of these beside an **As shipped**
-     reading on the same phone shows what that feature costs there.
+     reading on the same phone shows what that feature costs there, and becomes a **Feature
+     cost** finding (see **Findings** below).
 4. Scan a QR code with the phone's camera (or send yourself the copied link). The game opens with
    the readout at the top. Tap the readout to open it: under the figures are **Copy**, **Send** and
    **Reset**.
@@ -185,22 +190,96 @@ refuses forcing today, so that step is skipped.
       play). With none, the cell says "not enough data" — never pass. Play each phase a little
       longer and send again.
     - Readings taken with a test switch (**Particles off** and the others) are left out: they
-      measure what a feature costs, not the game players get. So are readings whose device class
-      the game did not name. A line under the table says how many were left out.
+      measure what a feature costs, not the game players get. So are lab runs (their fps is a
+      shared runner's, not a device's) and readings whose device class the game did not name. A
+      line under the table says how many were left out.
 17. Click a device's name to open its readings **build by build**, newest first, in a card under
     the table: each build (or the build number the game stamped, when no build record matches)
     with its readings judged the same way. Click the name again to close it.
 
+### Findings
+
+18. The **Findings** tab reads the project's readings and build records and lists what to cut,
+    ranked. With nothing to read yet it says "Nothing to cut yet — the rules need readings
+    (Readings tab) or build records (Builds tab)." The columns:
+    - **Severity**: `high` (a budget fails, or fps fell from one build to the next), `medium` (a
+      warn, or a cost worth cutting) or `low` (worth knowing).
+    - **Finding**: what it is, with the rule and the game under it, and the facts it was read from,
+      one per line.
+    - **Saving**: what fixing it would save (fps, draws, MB, GPU MB or spikes) and what that number
+      is. Every number is a measurement — a test switch's difference, a file's bytes, a breakdown
+      figure. Where there is none it says `unmeasured`, never a guess.
+    - **Owner**: who fixes it — an agent (for example `engine-pixi-svelte`, `invisible-fx`,
+      `atlas-python-tools`, or the game kind's build agent) or a person ("Project author (Invisible
+      FTP Browser)", "Publisher", "Whoever changed the build").
+    - **Evidence**: the readings and builds it was read from. Click a reading to open it in
+      **Compare** with the finding's other reading beside it; click a build to open its detail card
+      on the **Builds** tab.
+19. The list is ranked by severity first, then by the saving as a share of a typical budget (fps
+    out of 60, MB out of 25, GPU MB out of 150, draws out of 100, spikes out of 10), so 5 fps and
+    3 MB rank against each other; `unmeasured` comes last. The **Owner** and **Device** filters in
+    the card header narrow it (Device `(build files)` is the findings about a build's files, not a
+    device). "No finding matches these filters." means the filters hide them all.
+20. The rules, one per kind of finding:
+    - **Fps below budget**: a device (class and GPU) whose fps or p95 frame time on the current
+      build is past its budget line, judged exactly as the **Devices** tab judges it.
+    - **GPU- or CPU-bound**: for a device missing its fps budget, which side of the frame to cut —
+      our JS (CPU-bound) or not our JS (the GPU or the browser). It names the side, not a saving.
+    - **Feature cost**: what Particles, Element FX passes or Antialiasing cost on a device, in fps
+      and draws a frame, shown when switching it off buys at least 2 fps or 10 % of the draws.
+    - **Spikes by cause**: the frames over the spike line while a round plays (spinning, or wins
+      with the reels at rest), counted by their likely cause (first use, particles, rigs, page JS,
+      garbage collection, outside the game…). Spikes at idle are left out.
+    - **Textures**: a device's texture memory over its GPU budget (the saving is what its five
+      largest textures hold); KTX2 art a device fell back to WebP/PNG for; and pages over 4096 px on
+      a side in a game's newest build, which many phones cannot load (those two say `unmeasured`:
+      nothing measures what fixing them saves).
+    - **Unused bytes**: files in a game's newest build that nothing loads, and files shipped twice.
+    - **Optimize off**: a game's newest build was made without 🗜 Optimize; the saving is only what
+      the breakdown measures Optimize would drop from files the game loads (a twin nothing loads is
+      already counted under Unused bytes).
+    - **Regression**: a game's newest build against the one before — shipped size or GPU estimate
+      up; median fps down on a device; or a lab run's counts (draws, uploads…) up.
+21. Fps findings speak for each game's **current build** — the newest build (by its build record,
+    else its number), not the newest reading — so a finding a fix already replaced drops out once
+    you take readings on the new build, and re-measuring an old build later does not bring it back.
+    Lab runs count only for the rules that read counts — **Textures**, **Unused bytes** and the
+    count part of **Regression** — never for fps.
+
+To get a **Feature cost** finding, open a capture and take two readings on the same phone and the
+same build: one from the **As shipped** QR code and one from **Particles off**, **Element FX off**
+or **Antialias off**. Play each one the same way (idle, spin, wins) long enough for every phase to
+have its frames, and send both. The rule pairs each test reading with the as-shipped reading
+nearest in time on the same game, build, device and browser.
+
+Readings kept before Findings shipped fill in over a few page loads: each load reads up to 12 of
+them, so a project with many old readings shows its full list after a few visits.
+
+### Compare
+
+22. The **Compare** tab puts two readings side by side. Pick them in **A** and **B** (each reading
+    is described by its time, device class and GPU, label, game, build, `lab` and test switches),
+    or open one from a finding's evidence. Until both are picked it reads "Pick two readings — or
+    open one from a finding's evidence."
+23. The table shows, per phase, **fps**, **p95 ms**, **> 33 ms** and **frames**; then, for idle and
+    spinning, what a frame did — draws, passes, uploads, GL calls and JS ms; then **texture MB**.
+    Each row has A, B and **B − A**: green when B is better, red when it is worse (frames is not
+    coloured). `—` means a reading has no figure there.
+24. It is a difference, not a verdict: two devices differ for reasons no build caused. With a lab
+    run on one side and a device on the other, it warns "A lab run beside a device: compare the
+    counts, not the fps." The page link keeps both picks (`?tab=compare&a=…&b=…`), so you can send
+    it to someone.
+
 ### Budgets
 
-18. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
+25. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
     **Phone**, **Tablet**, **Desktop** and **Every device** (shipped size). Each row is one metric
     (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Shipped size**.
     - **Warn** and **Fail** are the project's lines, filled in with the line in force. For fps,
       below the line is bad (`<`); for the others, above it (`>`). A blank line is not checked.
     - **Studio default** shows the studio's line beside it, and a `project` tag when this project
       has its own.
-19. The studio defaults:
+26. The studio defaults:
 
     | Device        | Metric                 | Warn     | Fail     |
     | ------------- | ---------------------- | -------- | -------- |
@@ -215,12 +294,12 @@ refuses forcing today, so that step is skipped.
     "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
     Draws a frame and desktop GPU memory have no default; set one if your project wants it.
 
-20. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
+27. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
     you typed. A value out of range, or a warn line on the wrong side of the fail line, is refused
     with the reason beside it (for example "The warn line must be at or above the fail line (more
     fps is better)."). The reset icon at the end of a row with its own line ("Reset to the studio
     default") brings back the studio default.
-21. Everyone with the Profiler and the project can edit its budgets. A budget belongs to one
+28. Everyone with the Profiler and the project can edit its budgets. A budget belongs to one
     project; the studio defaults are not editable here. If someone else saved the same line first,
     yours is not saved: the row shows theirs, with "Someone else changed this budget line first —
     it now shows their value." and the warn and fail you had typed. Type yours again to save it
@@ -229,11 +308,11 @@ refuses forcing today, so that step is skipped.
 ## Known limitations / TODOs
 
 The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Devices and
-budgets") and P6 ("Lab runs") are done. Planned in [the design](../design/invisible-profiler.md),
-not built yet:
+budgets"), P4 ("Findings" and "Compare") and P6 ("Lab runs") are done. Planned in
+[the design](../design/invisible-profiler.md), not built yet:
 
-- **Findings** (P4): a ranked list of what to cut, and **Compare** for two readings side by side.
-- **File as bug** (P5) and **cloud phones** from an online device service (P7).
+- **File as bug** (P5): a finding filed as a bug from its row.
+- **Cloud phones** from an online device service (P7).
 
 Today:
 
@@ -257,6 +336,11 @@ Today:
 - A reading from an online game is tagged with the engine release live when it arrived, not when
   the phone loaded the game; a release in between would tag the newer one.
 - The build list shows the newest 200 builds.
+- **Findings** and **Compare** read only what the page holds: the newest 500 readings and 200
+  builds. A reading that arrived trimmed has no per-texture list or spike records, so the
+  **Textures** and **Spikes by cause** findings it feeds may say `unmeasured` or miss it.
+- Findings for readings kept before P4 shipped fill in over a few page loads (up to 12 a load);
+  until then the list can be incomplete.
 - The game tells phones and desktops apart only, so no reading is judged as a tablet yet; the
   **Tablet** budgets wait for it.
 - Lab runs are nightly and on demand, not yet after each Publish. They cover only the idle and

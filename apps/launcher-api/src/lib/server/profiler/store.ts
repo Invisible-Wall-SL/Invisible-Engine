@@ -10,6 +10,7 @@ import {
 	type PerfReportListItem,
 	type PerfReportSummary,
 } from '$lib/profiler';
+import { reportFacts, type ReportFacts } from '$lib/profilerFindings/facts';
 import { getDb } from '../db';
 import { getGame, isOnlineRuntimeGameUrl } from '../games';
 import { currentPointer } from '../publishedRuntime';
@@ -85,7 +86,9 @@ export const PENDING_UPLOADS_MAX = 20;
 export const UPLOAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const UPLOAD_TTL_SECONDS = 10 * 60;
 
-function parseReport(text: string): PerfReportSummary {
+type ParsedReport = PerfReportSummary & { facts: ReportFacts };
+
+function parseReport(text: string): ParsedReport {
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
@@ -94,7 +97,7 @@ function parseReport(text: string): PerfReportSummary {
 	}
 	const result = summarizePerfReport(json);
 	if (!result.ok) throw new ReportRefused(422, result.error);
-	return result.summary;
+	return { ...result.summary, facts: reportFacts(json) };
 }
 
 /**
@@ -129,7 +132,7 @@ async function insertRow(
 	origin: ReportOrigin,
 	key: string,
 	bytes: number,
-	s: PerfReportSummary,
+	s: ParsedReport,
 	runtimeRelease: string | null,
 ): Promise<boolean> {
 	const idle = phaseCols(s.phases.idle);
@@ -145,6 +148,7 @@ async function insertRow(
 			bytes,
 			source: origin.source,
 			counts: s.counts,
+			facts: s.facts,
 			session: origin.session,
 			label: origin.label,
 			gameKey: origin.gameKey,
@@ -288,7 +292,7 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 	if (text === 'changed') {
 		throw new ReportRefused(409, 'The upload changed while it was read — send it again.');
 	}
-	let summary: PerfReportSummary;
+	let summary: ParsedReport;
 	try {
 		summary = parseReport(text);
 	} catch (e) {

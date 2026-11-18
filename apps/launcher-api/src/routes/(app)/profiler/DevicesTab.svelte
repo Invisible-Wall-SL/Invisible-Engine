@@ -98,8 +98,8 @@
 			median over the group's readings — a phase counts only from readings with at least
 			{MIN_PHASE_FRAMES} frames in it, otherwise it says "not enough data", never pass. A cell is coloured
 			by this project's budget (Budgets tab); hover it for the lines. Readings taken with a test switch
-			(particles off, …) measure a feature's cost, so they are left out here. Click a device to see its
-			readings build by build.
+			(particles off, …) measure a feature's cost, and lab runs' fps is a shared runner's, so both are
+			left out here. Click a device to see its readings build by build.
 		</p>
 	{/snippet}
 	{#if !groups.length}
@@ -134,8 +134,8 @@
 	{/if}
 	{#if leftOut > 0}
 		<p class="sub">
-			{leftOut} reading{leftOut === 1 ? '' : 's'} left out: taken with a test switch, or from a device
-			class the probe did not name.
+			{leftOut} reading{leftOut === 1 ? '' : 's'} left out: taken with a test switch, lab runs (their
+			fps is a shared runner's), or from a device class the probe did not name.
 		</p>
 	{/if}
 </SectionCard>
