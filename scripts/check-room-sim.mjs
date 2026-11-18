@@ -547,7 +547,8 @@ await check('the runtime: the SDK is reached only through the online branch, and
 	};
 	walk(src);
 	// The SDK is reached only through `engine-rooms` (a game repo cannot install a third-party
-	// package `apps/lines` declares: `scripts/check-game-app-deps.mjs`), and only from online.ts.
+	// package `apps/lines` declares: `scripts/check-game-app-deps.mjs`), and only from online.ts and
+	// the 3D seam's online3d.ts (the `arcade3d` runtime alone), each lazily.
 	const importing = (spec) => {
 		const re = new RegExp(`(?:\\bfrom|\\bimport\\()\\s*['"\`]${spec}`);
 		return files
@@ -555,7 +556,11 @@ await check('the runtime: the SDK is reached only through the online branch, and
 			.map((f) => f.slice(src.length + 1));
 	};
 	assert.deepEqual(importing('@colyseus/'), []);
-	assert.deepEqual(importing(`engine-rooms['"\`]`), ['game/online.ts']);
+	assert.deepEqual(importing(`engine-rooms['"\`]`), ['game/online.ts', 'game/online3d.ts']);
+	const online3d = readFileSync(join(src, 'game/online3d.ts'), 'utf8');
+	assert.match(online3d, /import type \{[^}]*\bRoom\b[^}]*\} from 'engine-rooms'/);
+	assert.match(online3d, /await import\('engine-rooms'\)/);
+	assert.doesNotMatch(online3d.replace(/import type[^;]+;/g, ''), /^import [^;]*'engine-rooms'/m);
 	const online = readFileSync(join(src, 'game/online.ts'), 'utf8');
 	assert.match(online, /import type \{[^}]*\bRoom\b[^}]*\} from 'engine-rooms'/);
 	assert.match(online, /await import\('engine-rooms'\)/);

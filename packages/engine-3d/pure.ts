@@ -15,7 +15,15 @@ export {
 } from './src/pure/rig';
 export { MODEL_TIERS, type ModelTierId } from 'constants-shared/modelTiers';
 export { createLevel3d, type Level3d } from 'engine-mechanics/src/motion3d.js';
+export { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 export { createFollow3d } from './src/pure/follow';
+export {
+	createRoomView3d,
+	type RoomPlayer3d,
+	type RoomState3d,
+	type RoomView3d,
+	type Stick3d,
+} from './src/pure/roomView';
 export { createPlay3d, MAX_CATCH_UP_MS, type BodyView3d, type Play3d } from './src/pure/play';
 export {
 	playField3d,

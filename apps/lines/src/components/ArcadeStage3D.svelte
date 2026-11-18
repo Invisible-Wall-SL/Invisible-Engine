@@ -6,6 +6,7 @@
 	import { bakedGameConfig } from '../editor-scenes';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
+	import { online3dSession } from '../game/online3d';
 	import { world3dCanvas } from '../game/world3dCanvas';
 
 	/**
@@ -19,7 +20,10 @@
 	 * Offline, the field is `motion3d`'s: one player on the config's `arcade.world3d` level (the
 	 * block the 3D room reads; the placeholder arena without one), moved by the keys (`engine-3d`
 	 * `createPlay3d`), stepped by the game's ticker so a paused ticker or a hidden tab pauses it.
-	 * Online, the stock arcade stage runs the room until the 3D room lands (runtime step 4).
+	 * Online in a 3D room (`game/online3d.ts`), the same world draws the room: `engine-3d`
+	 * `createRoomView3d` sends an input each of the room's fixed steps, predicts the own player and
+	 * interpolates everyone else (runtime step 4). An online game in the 2D room keeps the stock
+	 * arcade stage.
 	 *
 	 * The tier is chosen once, at mount (`engine-3d` `chooseTier3d`: the build's pin, `?tier=`, the
 	 * player's Graphics setting, then the device), and its caps decide MSAA, the shadows and the 3D
@@ -30,7 +34,9 @@
 
 	const props: Props = $props();
 	const app = getContextApp();
-	const online = gameMechanic().room;
+	const room3d = online3dSession();
+	// An online game in the 2D room: the stock stage plays it.
+	const room2d = gameMechanic().room && !room3d;
 
 	/** The lowest share of the cap the 2D controller may push the world to. */
 	const MIN_QUALITY_SCALE = 0.5;
@@ -51,10 +57,108 @@
 		return undefined;
 	};
 
+	type Engine3d = typeof import('engine-3d');
+	type Aim = { x: number; y: number; z: number } | undefined;
+
+	/** What the world draws, offline or in a room. */
+	type Field3d = {
+		colliders: readonly import('engine-3d').LevelSpec3d['colliders'][number][];
+		/** One frame: the keys (camera-relative) and the aimed point, if any. */
+		advance(dtMs: number, stick: import('engine-3d').Stick3d, rigYaw: number, aim: Aim): void;
+		bodies(): readonly import('engine-3d').BodyView3d[];
+		steps(): number;
+		/** The tab is shown again: drop the time it was hidden. */
+		resync(): void;
+		release(): void;
+	};
+
+	/** The offline field: one `motion3d` player on the config's `arcade.world3d` level, or the
+	 *  placeholder arena without one. */
+	const offline = (three: Engine3d): Field3d => {
+		let field = three.playField3d(undefined);
+		try {
+			const raw = bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined;
+			field = three.playField3d(raw?.arcade?.world3d);
+		} catch (error) {
+			console.error(
+				'[engine-3d] arcade.world3d is not playable; the placeholder arena shows',
+				error,
+			);
+		}
+		const arena = field.level;
+		const play = three.createPlay3d({
+			level: three.createLevel3d(arena),
+			spawn: arena.spawn,
+			spec: field.motion,
+		});
+		return {
+			colliders: arena.colliders,
+			advance(dtMs, stick, rigYaw, aim) {
+				const body = play.player;
+				const move = three.moveAxes(stick.right, stick.forward, rigYaw);
+				const yaw = aim
+					? three.yawToward(aim.x - body.x, aim.z - body.z)
+					: move.mx || move.mz
+						? three.yawToward(move.mx, move.mz)
+						: body.yaw;
+				play.advance(dtMs, { ...move, yaw, buttons: stick.buttons });
+			},
+			bodies: () => play.bodies(),
+			steps: () => play.steps,
+			resync: () => play.resync(),
+			release: () => {},
+		};
+	};
+
+	/** The 3D room: an input each of its fixed steps, the own player predicted, the rest
+	 *  interpolated; the level is the room's own `arcade.world3d`. */
+	const online = (three: Engine3d, session: NonNullable<typeof room3d>): Field3d | undefined => {
+		let world;
+		try {
+			world = three.world3dOf(session.world3d);
+		} catch (error) {
+			console.error('[engine-3d] the room plays an arcade.world3d this device cannot read', error);
+		}
+		if (!world) return undefined;
+		const { room } = session;
+		const view = three.createRoomView3d({
+			meId: room.sessionId,
+			world,
+			tickHz: session.tickHz,
+			patchHz: session.patchHz,
+			send: (input) => {
+				const handle = room.input();
+				Object.assign(handle.data, input);
+				handle.send();
+			},
+		});
+		let live = true;
+		const received = (state: unknown) => {
+			if (live) view.received(state as import('engine-3d').RoomState3d, performance.now());
+		};
+		room.onStateChange(received);
+		received(room.state);
+		return {
+			colliders: world.level.colliders,
+			advance(dtMs, stick, rigYaw, aim) {
+				const me = view.me?.body;
+				const face = aim && me ? three.yawToward(aim.x - me.x, aim.z - me.z) : undefined;
+				view.frame(dtMs, performance.now(), stick, rigYaw, face);
+			},
+			bodies: () => view.bodies(),
+			steps: () => view.seq,
+			// The room went on while the tab was hidden; the next states bring the device up to it.
+			resync: () => {},
+			release: () => {
+				live = false;
+			},
+		};
+	};
+
 	$effect(() => {
 		const pixi = app.stateApp.pixiApplication;
 		const canvas = world3dCanvas();
-		if (online || !pixi || !canvas) return;
+		if (room2d || !pixi || !canvas) return;
 		const background = pixi.renderer.background;
 		const alpha = background.alpha;
 		background.alpha = 0;
@@ -66,20 +170,8 @@
 			if (gone) return;
 			const scene = props.scenes.find((s) => s.camera);
 			const rig = three.resolveRig3d((scene?.camera as { rig3d?: unknown } | undefined)?.rig3d);
-			// The raw config's `arcade.world3d` (`game-config` drops it); none ⇒ the placeholder arena.
-			let field = three.playField3d(undefined);
-			try {
-				const raw = bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined;
-				field = three.playField3d(raw?.arcade?.world3d);
-			} catch (error) {
-				console.error(
-					'[engine-3d] arcade.world3d is not playable; the placeholder arena shows',
-					error,
-				);
-			}
-			const arena = field.level;
-			const level = three.createLevel3d(arena);
-			const play = three.createPlay3d({ level, spawn: arena.spawn, spec: field.motion });
+			const field = room3d ? online(three, room3d) : offline(three);
+			if (!field) return;
 			const follow = three.createFollow3d(rig);
 			const choice = three.chooseTier3d({
 				pin: typeof __IE_MODEL_TIER__ === 'string' ? __IE_MODEL_TIER__ : null,
@@ -94,21 +186,20 @@
 			const caps = three.CAPS_3D[choice.tier];
 			console.info(`[engine-3d] tier ${choice.tier} (${choice.why})`);
 			const world = three.mountWorld3d({ canvas, caps });
-			world.setLevel(arena.colliders);
+			world.setLevel(field.colliders);
 			const keys = three.listenKeys3d(window);
 			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
 			const unregisterProbe = registerDeterminismArcade({
 				read: () => ({
-					steps: play.steps,
-					bodies: play.bodies().map((b) => ({
+					steps: field.steps(),
+					bodies: field.bodies().map((b) => ({
 						id: b.id,
 						x: b.x,
 						y: b.y,
 						z: b.z,
 						vx: b.vx,
-						vy: play.player.vy,
+						vy: 0,
 						tags: b.kind === 'hero' ? ['player'] : [],
-						grounded: play.player.grounded,
 					})),
 				}),
 			});
@@ -125,23 +216,17 @@
 			};
 			fit();
 
+			let target: { x: number; y: number; z: number } | undefined;
 			const tick = () => {
 				if (document.visibilityState !== 'visible') return;
 				if (!hidden || hidden.destroyed) hidden = codedBackground(pixi.stage);
 				if (hidden) hidden.renderable = false;
 				world.setPixelRatio(pixelRatio());
-				const stick = keys.read();
-				const body = play.player;
-				const move = three.moveAxes(stick.right, stick.forward, rig.yaw);
-				const yaw = aim
-					? three.yawToward(aim.x - body.x, aim.z - body.z)
-					: move.mx || move.mz
-						? three.yawToward(move.mx, move.mz)
-						: body.yaw;
-				play.advance(pixi.ticker.deltaMS, { ...move, yaw, buttons: stick.buttons });
-				const bodies = play.bodies();
-				const target = follow.step(pixi.ticker.deltaMS, bodies[0]);
-				world.sync(bodies, { target, rig });
+				field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
+				const bodies = field.bodies();
+				const own = bodies.find((b) => b.kind === 'hero');
+				if (own) target = follow.step(pixi.ticker.deltaMS, own);
+				if (target) world.sync(bodies, { target, rig });
 			};
 
 			// A pointer the HUD does not take (no interactive Pixi object under it) aims in the world.
@@ -160,7 +245,7 @@
 				world.setAim(undefined);
 			};
 			const visibility = () => {
-				if (document.visibilityState === 'visible') play.resync();
+				if (document.visibilityState === 'visible') field.resync();
 			};
 
 			pixi.ticker.add(tick);
@@ -178,6 +263,7 @@
 				document.removeEventListener('visibilitychange', visibility);
 				keys.release();
 				unregisterProbe();
+				field.release();
 				if (hidden && !hidden.destroyed) hidden.renderable = true;
 				world.destroy();
 			};
@@ -190,6 +276,6 @@
 	});
 </script>
 
-{#if online}
+{#if room2d}
 	<ArcadeStage {...props} />
 {/if}
