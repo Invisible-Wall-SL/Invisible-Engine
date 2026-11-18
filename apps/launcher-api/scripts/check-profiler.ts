@@ -957,6 +957,8 @@ test('11. a device row opens into its readings build by build, newest first', ()
 		],
 		'v12: the median of 56 and 40 spinning fps is 48, under the 50 fail line',
 	);
+});
+
 test('13. a reading carries its per-phase counts', () => {
 	const report = {
 		...REPORT,
