@@ -5,6 +5,18 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### The model export froze the launcher on every runtime assemble
+
+- **Symptom:** every authoring boot of a 3D project stalled the whole launcher for seconds; nobody
+  else was served while it ran.
+- **Cause:** each assemble re-derived every tier of every model on the main thread; the KTX2 encode
+  is synchronous wasm (seconds per texture) and nothing cached the derived geometry.
+- **Fix:** derives on one worker thread (timeout, own heap); each finished tier cached under
+  `models/<id>/derived/<key>/`, so a warm export only claims or copies files.
+- **Guard:** `check:model-derive-worker` (event-loop gap < 250 ms vs 2.7 s in-process),
+  `check:model-export` "warm export".
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
 ### One bad model broke the whole project's assemble, and the bake shipped no models
 
 - **Symptom:** a master that passed upload failed its derive; the runtime assemble and Publish

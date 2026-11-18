@@ -441,10 +441,12 @@ export async function deleteObjects(keys: string[]): Promise<void> {
  * REPLACE) — e.g. shipping a Rigger `.irig` skeleton under a `.json` name; omit it to
  * preserve the source's metadata.
  */
+/** R2-side copy; false when the source is absent or, with `sourceEtag`, no longer those bytes. */
 export async function copyObject(
 	srcKey: string,
 	destKey: string,
 	contentType?: string,
+	sourceEtag?: string,
 ): Promise<boolean> {
 	try {
 		await s3().send(
@@ -452,12 +454,14 @@ export async function copyObject(
 				Bucket: ENV.R2_BUCKET,
 				CopySource: encodeURIComponent(`${ENV.R2_BUCKET}/${srcKey}`),
 				Key: destKey,
+				...(sourceEtag ? { CopySourceIfMatch: sourceEtag } : {}),
 				...(contentType ? { ContentType: contentType, MetadataDirective: 'REPLACE' } : {}),
 			}),
 		);
 		return true;
 	} catch (e) {
 		if (isNotFound(e)) return false;
+		if (sourceEtag && isPreconditionFailed(e)) return false;
 		throw e;
 	}
 }

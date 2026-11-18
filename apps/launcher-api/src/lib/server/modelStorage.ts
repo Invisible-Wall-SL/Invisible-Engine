@@ -37,7 +37,8 @@ import {
 	getObjectBytes,
 	getObjectTextWithEtag,
 	headObject,
-	listAllKeys,
+	listFolder,
+	objectExists,
 	precondition,
 	presignPut,
 	putObjectBytes,
@@ -204,15 +205,24 @@ export function resolveLodScreenSize(
 	return doc?.lodScreenSize ?? project ?? MODEL_CLASS_DEFAULTS[cls].lodScreenSize;
 }
 
-/** Every model id with a `model.json`. */
+/**
+ * Every model id with a `model.json`. Listed one folder level deep (`models/<id>/`), then each
+ * `model.json` checked: a full listing would walk every derived tier and cached texture under
+ * `models/` on every export.
+ */
 export async function listModelIds(clientKey: string, projectKey: string): Promise<string[]> {
 	const prefix = `${SUB.models(clientKey, projectKey)}/`;
-	const ids = new Set<string>();
-	for (const key of await listAllKeys(prefix)) {
-		const m = /^([^/]+)\/model\.json$/.exec(key.slice(prefix.length));
-		if (m && isModelId(m[1])) ids.add(m[1]);
+	const folders: string[] = [];
+	for (let token: string | undefined, first = true; first || token; first = false) {
+		const page = await listFolder(prefix, token);
+		folders.push(...page.folders);
+		token = page.nextToken;
 	}
-	return [...ids].sort();
+	const ids = folders.map((f) => f.slice(prefix.length).replace(/\/$/, '')).filter(isModelId);
+	const present = await Promise.all(
+		ids.map((id) => objectExists(modelDocKey(clientKey, projectKey, id))),
+	);
+	return ids.filter((_, i) => present[i]).sort();
 }
 
 export async function loadModelDoc(

@@ -40,6 +40,7 @@ const R2 = new Map<string, Uint8Array>();
 const etagOf = (b: Uint8Array) => `"${createHash('md5').update(b).digest('hex')}"`;
 const enc = (t: string) => new TextEncoder().encode(t);
 let puts: string[] = [];
+let gets: string[] = [];
 const r2Url = new URL('../src/lib/server/r2.ts', import.meta.url).href;
 const r2 = await import(r2Url);
 const write = (
@@ -58,6 +59,7 @@ mock.module(r2Url, {
 	namedExports: {
 		...r2,
 		getObjectBytes: async (key: string) => {
+			gets.push(key);
 			const b = R2.get(key);
 			return b ? { body: b, etag: etagOf(b), contentType: '' } : null;
 		},
@@ -81,11 +83,25 @@ mock.module(r2Url, {
 			[...R2.keys()].filter((k) => k.startsWith(prefix)).sort(),
 		deleteObjects: async (keys: string[]) => keys.forEach((k) => R2.delete(k)),
 		deleteObject: async (key: string) => void R2.delete(key),
-		copyObject: async (from: string, to: string) => {
+		copyObject: async (from: string, to: string, _ct?: string, sourceEtag?: string) => {
 			const b = R2.get(from);
 			if (!b) return false;
+			if (sourceEtag && etagOf(b) !== sourceEtag) return false;
 			R2.set(to, b);
 			return true;
+		},
+		objectExists: async (key: string) => R2.has(key),
+		listFolder: async (prefix: string) => {
+			const folders = new Set<string>();
+			const files: { key: string; size: number; lastModified: null }[] = [];
+			for (const [k, b] of R2) {
+				if (!k.startsWith(prefix)) continue;
+				const rest = k.slice(prefix.length);
+				const slash = rest.indexOf('/');
+				if (slash >= 0) folders.add(prefix + rest.slice(0, slash + 1));
+				else files.push({ key: k, size: b.byteLength, lastModified: null });
+			}
+			return { files, folders: [...folders].sort() };
 		},
 		presignPut: async (key: string) => `https://r2.invalid/${key}?sig`,
 	},
@@ -503,6 +519,83 @@ check(
 	!under(deployPrefix).some((k) => k.slice(deployPrefix.length).startsWith('broken')),
 	JSON.stringify(under(deployPrefix)),
 );
+
+// ── The derived-tier cache (asset review #4) ─────────────────────────────────────────────────────
+console.log('a warm export: every tier already derived');
+const sourceKeyOf = (id: string) =>
+	paths.modelSourceKey(
+		C,
+		P,
+		id,
+		storage.normalizeModelDoc(
+			JSON.parse(new TextDecoder().decode(R2.get(paths.modelDocKey(C, P, id))!)),
+		)!.source.file,
+	);
+await exporter.exportModels(C, P, { warn: () => undefined });
+puts = [];
+gets = [];
+const warm = await exporter.exportModels(C, P, { warn: () => undefined });
+check(
+	'it still ships the model',
+	warm.models.some((m) => m.id === 'orb'),
+);
+check(
+	'it never downloads the master',
+	!gets.includes(sourceKeyOf('orb')),
+	gets.filter((k) => k.includes('/source.')).join(', '),
+);
+check(
+	'it derives and encodes nothing (no derived-tier or texture-cache write)',
+	!puts.some((k) => k.includes('/derived/') || k.includes('/_cache/')),
+	puts.join(', '),
+);
+
+console.log('a cached file gone missing');
+const derivedGlbs = [...R2.keys()].filter(
+	(k) => k.includes('/orb/derived/') && k.endsWith('model.glb'),
+);
+for (const k of derivedGlbs) R2.delete(k);
+for (const k of [...R2.keys()]) if (k.startsWith(`${deployPrefix}orb`)) R2.delete(k);
+puts = [];
+const healed = await exporter.exportModels(C, P, { warn: () => undefined });
+check(
+	'the tier is derived again and the model still ships',
+	healed.models.some((m) => m.id === 'orb') &&
+		R2.has(`${deployPrefix}orb.glb`) &&
+		puts.some((k) => k.includes('/orb/derived/') && k.endsWith('model.glb')),
+	puts.join(', '),
+);
+
+console.log('a cached file that no longer holds its record’s bytes');
+for (const k of [...R2.keys()])
+	if (k.includes('/orb/derived/') && k.endsWith('model.glb'))
+		R2.set(k, enc('not the recorded GLB'));
+for (const k of [...R2.keys()]) if (k.startsWith(`${deployPrefix}orb`)) R2.delete(k);
+await exporter.exportModels(C, P, { warn: () => undefined });
+const shipped = R2.get(`${deployPrefix}orb.glb`);
+check(
+	'it is never copied: the tier is derived again and the shipped GLB is a real GLB',
+	!!shipped && new TextDecoder().decode(shipped.subarray(0, 4)) === 'glTF',
+	shipped ? new TextDecoder().decode(shipped.subarray(0, 24)) : 'missing',
+);
+
+console.log('a profile change');
+const configWith = (baseColor: number) =>
+	R2.set(
+		paths.gameConfigDocKey(C, P),
+		enc(JSON.stringify({ models: { profiles: { prop: { half: { maps: { baseColor } } } } } })),
+	);
+configWith(256);
+puts = [];
+const reprofiled = await exporter.exportModels(C, P, { warn: () => undefined });
+const halfMap = reprofiled.models.find((m) => m.id === 'orb')?.tiers.half?.maps.baseColor;
+const newRecords = puts.filter((k) => k.includes('/orb/derived/') && k.endsWith('tier.json'));
+check(
+	'a Game Config change to the half profile re-derives half alone (one new tier record)',
+	typeof halfMap === 'object' && halfMap.w === 256 && newRecords.length === 1,
+	`${JSON.stringify(halfMap)} — ${newRecords.length} new tier record(s)`,
+);
+R2.delete(paths.gameConfigDocKey(C, P));
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');
 process.exit(failures ? 1 : 0);
