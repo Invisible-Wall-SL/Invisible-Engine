@@ -160,7 +160,8 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
 19b. Bloodstains (`GuiltyForever/Salmon-` PR #8): pages K (a bear on the bank) and Q (a salmon
     in open water just upstream, carried past him by the current) join `salmons-blood` (the
     authored river). K holds J and catches Q's salmon: both pages are sent one stain (the probe's `online.stains`) within 1 px of
-    where the salmon was held out, and draw it (`online.art.blood.stains` 1; `14b-bloodstain.png`).
+    where the salmon was held out, and draw it (`online.art.blood.stains` 1; `14b-bloodstain.png`:
+    at its place on the mirrored screen, under rocks, lips and bridges, since 2026-11-18).
     The red salmon and its trail are pinned by `check:salmons-art`, not here: these pages draw a
     river of the room's seed while the room plays the authored one.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a

@@ -276,6 +276,9 @@ export type RiverArt = {
 	/** How many pieces stand among the players now (forest trees and decks), and whether they
 	 *  found the spawn layer they stand in (the probe's). */
 	among: () => { drawn: number; layer: boolean };
+	/** Move what stands on the water (the bridges' reflections, the upright pieces) over whatever
+	 *  was added to the river's container since (what is under the surface: the bloodstains). */
+	aboveWater: () => void;
 };
 
 /** How far past the view a piece is still drawn, px: a tree's height, so nothing pops in at the
@@ -1003,6 +1006,9 @@ export function mountSalmonsRiver(
 		regions: () => Object.fromEntries(used),
 		destroyed: () => roots.every((root) => root.destroyed),
 		among: () => ({ drawn: amongDrawn, layer: !!layer }),
+		aboveWater: () => {
+			into.addChild(reflections, upright);
+		},
 	};
 }
 

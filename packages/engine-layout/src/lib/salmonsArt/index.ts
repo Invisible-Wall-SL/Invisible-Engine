@@ -61,7 +61,12 @@ export async function loadSalmonsArt(
 	const textures = await loadSalmonsTextures(sheets);
 	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
 	const elevation = riverElevation(river.waterfalls);
-	const blood = createBlood(waterAt, (_x, y) => elevation.at(y), TINT_ALPHA);
+	const blood = createBlood(
+		waterAt,
+		(_x, y) => elevation.at(y),
+		TINT_ALPHA,
+		() => worldDrawing().projector,
+	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	let drawn: RiverArt | undefined;
 	let live = 0;
@@ -69,6 +74,9 @@ export async function loadSalmonsArt(
 		river: (into, app) => {
 			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
 			const stains = blood.mount(into, app);
+			// The stains, the trail and the swimming salmon are under the water's surface: over the
+			// tinted ground, under the bridges' reflections and every upright piece of the river.
+			art.aboveWater();
 			drawn = art;
 			live += 1;
 			return () => {

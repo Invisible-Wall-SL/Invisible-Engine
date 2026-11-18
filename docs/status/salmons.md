@@ -37,7 +37,12 @@ upload.
   well as the waterfalls' lift (owner decision 6). P10.16's band river keeps its grass world.
   **Owner step:** re-run `scripts/salmons/export.mjs` and upload the layout (it carries
   `mirrored` and the camera) once this merges; until then the live project draws unmirrored.
-  **Not yet:** bloodstains (§9.7, after WS-B's schema); the keys are still world-axis (WS-E uses
+  The bloodstains (#1747, below) are drawn by the same projector: each stain and trail puff at
+  its mirrored place, raised straight up by the waterfalls' lift as the river's ground, and drawn
+  under the water's surface (over the tinted ground, under the bridges' reflections, the rocks,
+  lips and every upright piece; the forest and decks stand in the players' layer above). #1747's
+  own choices are kept: no displacement wobble on the stains, a hashed turn and size.
+  **Not yet:** the keys are still world-axis (WS-E uses
   `projection.ts` `screenToWorldDirection`); bot spawns 6 cells off the bank stand in the forest's
   first row (WS-A, §5.5). Proof: `check:arcade-platformer` (mirror), `check:arcade-camera` (zoom),
   `check:arcade-pointer`, `salmons-play.mjs` 76 / 76 in each netcode, `salmons-levels-play.mjs`
@@ -488,6 +493,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     (the layout's box scale is divided out; measured 0.74 design px a world px on a 1280 × 720
     page). `follow` adds the own code look's drawn leap lift to the shake, beside the ground lift.
     The probe's `camera` carries `zoom` and `leap`; its `view` is the world view.
+  - **Bloodstains aligned** (after merging #1747): `blood.ts` `createBlood` takes the screen's
+    projector (`worldDrawing().projector`; isometric by default), so stains and the trail sit at
+    their mirrored places; `river.ts` `aboveWater()` lifts the reflections and upright art over the
+    stains, the trail and the sunk salmon. Pinned in `check:salmons-art`.
   - **River** (`river.ts`): per row from the bands (`spanOf`), the grass band, forest walls, caps
     and beaches above; trees and decks stand in the spawn layer's container (`spawnLayerIn`, z by
     `isoDepthOrder` plus the original's offset), made when first in view; the rest of the upright
