@@ -16,6 +16,18 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **Guard:** `check:model-export` §10 (fails 5 checks under the old rule).
 - **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
 
+### A prop named `derived` or `state` breaks the component at mount
+
+- **Symptom:** `Uncaught TypeError: $derived(...) is not a function` the first time a new Svelte
+  component renders; the page stays on its loading line. Build, ESLint and `check:undefined-names`
+  are all green.
+- **Cause:** a variable named like a rune without its `$` (`derived`, `state`, `effect`, `props`)
+  makes `$derived` a store read of that variable. `/models`' tier card took its derive as a prop
+  called `derived`.
+- **Fix:** never name a prop or a top-level variable after a rune (`index`, `status` there).
+- **Guard:** none in CI; a browser run shows it on mount.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
+
 ### An editor save dropped a 3D project's model tiers
 
 - **Symptom:** a 3D project's `resolutionTiers: ['half', 'quarter', 'ultra']` exported `@quarter` /

@@ -43,6 +43,7 @@ import {
 	putObjectBytes,
 	putObjectText,
 } from './r2';
+import { normalizeModelFacts, type ModelMasterFacts } from '$lib/models/modelFacts';
 
 /**
  * A model id, kept EXACTLY as given (case included): the Blender export's own asset id, the name it
@@ -92,6 +93,8 @@ export interface ModelDoc {
 	overrides?: Partial<Record<ModelTierId, ModelTierOverride>>;
 	lodScreenSize?: ModelLodScreenSize;
 	validator: { errors: number; warnings: number; issues: ModelValidatorIssue[] };
+	/** What the master holds, read when it was registered (absent on a model from before that). */
+	facts?: ModelMasterFacts;
 	updatedAt: string;
 }
 
@@ -161,6 +164,7 @@ export function normalizeModelDoc(raw: unknown): ModelDoc | null {
 			)
 		: [];
 	const screen = normalizeScreenSize(raw.lodScreenSize);
+	const facts = normalizeModelFacts(raw.facts);
 	return {
 		class: raw.class,
 		source: { file, sha256: typeof sha256 === 'string' ? sha256 : '', bytes: Number(bytes) || 0 },
@@ -171,6 +175,7 @@ export function normalizeModelDoc(raw: unknown): ModelDoc | null {
 			warnings: issues.filter((i) => i.level === 'warning').length,
 			issues,
 		},
+		...(facts ? { facts } : {}),
 		updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
 	};
 }
@@ -278,10 +283,14 @@ export async function presignModelUpload(
 	return { upload, url, contentType: MODEL_CONTENT_TYPE };
 }
 
-/** The validator's launcher half: the rules a GLB alone can answer (assets §5.3). */
+/**
+ * The validator's launcher half: the rules a GLB alone can answer (assets §5.3). `seen.facts` is set
+ * to what the master holds once it has been read.
+ */
 export async function validateModelMaster(
 	bytes: Uint8Array,
 	cls: ModelClass,
+	seen: { facts?: ModelMasterFacts } = {},
 ): Promise<ModelValidatorIssue[]> {
 	const limits = modelLimitIssues(bytes);
 	if (limits.length)
@@ -303,6 +312,7 @@ export async function validateModelMaster(
 			},
 		];
 	}
+	seen.facts = normalizeModelFacts(facts);
 	for (const message of textureSideIssues(facts.textures))
 		issues.push({ level: 'error', code: 'TEXTURE_TOO_LARGE', message });
 	const gen: ModelLodGenerate = MODEL_CLASS_DEFAULTS[cls].lodGenerate;
@@ -374,7 +384,8 @@ export async function registerModelUpload(
 		if (!staged || staged.body.byteLength > MAX_MODEL_BYTES)
 			return { ok: false, status: 404, error: 'The upload changed or expired; upload it again.' };
 		const bytes = staged.body;
-		const issues = await validateModelMaster(bytes, cls);
+		const seen: { facts?: ModelMasterFacts } = {};
+		const issues = await validateModelMaster(bytes, cls, seen);
 		if (issues.some((i) => i.level === 'error'))
 			return { ok: false, status: 422, error: 'The model failed validation.', issues };
 
@@ -402,6 +413,7 @@ export async function registerModelUpload(
 				warnings: issues.length,
 				issues,
 			},
+			...(seen.facts ? { facts: seen.facts } : {}),
 			updatedAt: new Date().toISOString(),
 		};
 		try {

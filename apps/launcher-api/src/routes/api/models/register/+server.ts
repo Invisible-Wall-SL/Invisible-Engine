@@ -26,7 +26,8 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		throw error(400, 'Expected the `upload` id the upload endpoint returned.');
 	if (!isModelClass(body.class))
 		throw error(400, 'Expected a `class`: hero, weapon, prop, tile or fx.');
-	if (body.baseEtag !== null && typeof body.baseEtag !== 'string')
+	// An empty string is refused too: it would reach R2 as no precondition at all.
+	if (body.baseEtag !== null && (typeof body.baseEtag !== 'string' || !body.baseEtag))
 		throw error(
 			400,
 			'Expected `baseEtag`: the model.json ETag you loaded, or null for a new model.',

@@ -168,6 +168,15 @@ export function modelUploadKey(
 	return `${SUB.models(client, project)}/${id}/uploads/${upload}.glb`;
 }
 
+/**
+ * Where the Invisible Model Viewer keeps one model's derived tiers (`modelViewer.ts`): its GLBs,
+ * `_tex/` and `index.json`, with a trailing slash. A cache of the derive the Viewer shows, never
+ * what a game ships (that is `deploy/models/`), and replaced whole by each derive.
+ */
+export function modelDerivedPrefix(client: string, project: string, id: string): string {
+	return `${SUB.models(client, project)}/${id}/derived/`;
+}
+
 /** The derived-texture cache: one encoded texture per key (`modelOptimize.ts` `ModelTextureCache`). */
 export function modelTextureCacheKey(client: string, project: string, key: string): string {
 	return `${SUB.models(client, project)}/_cache/${key}`;
