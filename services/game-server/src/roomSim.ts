@@ -63,7 +63,7 @@ export const inputsThisStep = (waiting: number, credit: number): number =>
 
 /** The most catch-up a player can bank, in seconds: a stall that long drains; spending it is a dash
  *  of at most {@link MOST_PER_STEP}× speed for as long. */
-const CREDIT_SECONDS = 0.5;
+export const CREDIT_SECONDS = 0.5;
 
 export type SimPlayer = RulesPlayer & {
 	name: string;

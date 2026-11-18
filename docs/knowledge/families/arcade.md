@@ -115,7 +115,7 @@ A seed and the same keys replay the same game.
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
-| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs`                                                          |
+| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, 3D: `arcadeRoom3d.ts`, `roomSim3d.ts`; `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs` (`--3d`); 3D mechanics `packages/engine-mechanics/src/{motion3d,online3d}.js` |
 
 ## Known failure modes
 
@@ -170,8 +170,8 @@ A seed and the same keys replay the same game.
 
 - **Root gates:** `pnpm check:arcade-motion`, `pnpm check:arcade-characters`,
   `pnpm check:arcade-platformer`, `pnpm check:character-clips`, `pnpm check:room-sim` (starts a
-  real Colyseus server, ~30 s), `pnpm check:game-app-deps`. Each mechanics gate compares a
-  committed replay (`--update` rewrites it; only when the change is meant to move it).
+  real Colyseus server, ~30 s), `check:arcade-3d`, `check:room-sim-3d`, `check:game-app-deps`. Each
+  mechanics gate compares a committed replay (`--update` rewrites it; only when the change is meant to move it).
 - **Launcher gates** (`pnpm --filter launcher-api <name>`): `check:arcade-rules`,
   `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
   `check:arcade-platformer`, `check:characters-tool`, `check:editor-tilemap`,

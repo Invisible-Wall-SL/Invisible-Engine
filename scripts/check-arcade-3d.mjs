@@ -20,10 +20,13 @@ import {
 	BUTTON_JUMP,
 	createBody3d,
 	createLevel3d,
+	createTracker3d,
 	hashBodies3d,
 	MOTION3D_DEFAULTS,
 	MOVE_SCALE,
 	stepBody3d,
+	trackStep3d,
+	zonesAt3d,
 } from '../packages/engine-mechanics/src/motion3d.js';
 import { ARCADE3D_PAGE, buildArcade3dPage } from './arcade-3d-page.mjs';
 import { runScenario3d, SCENARIO3D } from './arcade-3d-scenario.mjs';
@@ -227,6 +230,42 @@ check('the death plane is reported, not handled', () => {
 	const body = createBody3d();
 	const results = run(body, level, 120);
 	assert.ok(results.some((r) => r.fell));
+});
+check('zones and the death plane raise edge signals, once each way', () => {
+	const pit = { kind: 'pit', minX: 4, minY: -1, minZ: -2, maxX: 6, maxY: 1, maxZ: 2 };
+	const level = createLevel3d({ colliders: [FLOOR], zones: [pit], killY: -5 });
+	const body = createBody3d();
+	const tracker = createTracker3d();
+	const signals = [];
+	const step = (input) => {
+		const result = stepBody3d(body, input, level);
+		for (const s of trackStep3d(tracker, body, result, level))
+			signals.push(s.type + (s.kind ?? ''));
+	};
+	for (let i = 0; i < 3; i++) step(idle);
+	assert.deepEqual(signals, ['landed']);
+	for (let i = 0; i < 150; i++) step({ ...idle, mx: MOVE_SCALE });
+	assert.deepEqual(signals, ['landed', 'enterZonepit', 'leaveZonepit']);
+	assert.deepEqual(zonesAt3d(createBody3d({ x: 5 }), level), [0]);
+	assert.deepEqual(zonesAt3d(createBody3d({ x: 5, y: 1.01 }), level), []);
+	assert.deepEqual(zonesAt3d(createBody3d({ x: 5, y: -2.8 }), level), [0], 'the head is in it');
+	signals.length = 0;
+	const faller = createBody3d({ x: 200 });
+	const fallTracker = createTracker3d();
+	let fell = 0;
+	for (let i = 0; i < 200; i++) {
+		const result = stepBody3d(faller, idle, level);
+		for (const s of trackStep3d(fallTracker, faller, result, level))
+			if (s.type === 'fell') fell += 1;
+	}
+	assert.equal(fell, 1, 'fell is an edge');
+	Object.assign(faller, createBody3d({ x: 200 }));
+	for (let i = 0; i < 200; i++) {
+		const result = stepBody3d(faller, idle, level);
+		for (const s of trackStep3d(fallTracker, faller, result, level))
+			if (s.type === 'fell') fell += 1;
+	}
+	assert.equal(fell, 2, 'again after a respawn above the plane');
 });
 check('the hash sees one bit of one field', () => {
 	const a = createBody3d({ x: 1 });

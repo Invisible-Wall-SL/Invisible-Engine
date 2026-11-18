@@ -467,6 +467,71 @@ function trampolineAt(body, level) {
 	return null;
 }
 
+/**
+ * The zones a body is in, by id: its centre on the plane inside the zone's footprint (edges
+ * included) and its upright span `[y, y + height]` touching the zone's. A trampoline counts like
+ * any other zone here; only {@link stepBody3d} launches from one.
+ */
+function zonesAt3d(body, level, spec = MOTION3D_DEFAULTS) {
+	const ids = [];
+	for (const z of level.zones) {
+		if (
+			body.x >= z.minX &&
+			body.x <= z.maxX &&
+			body.z >= z.minZ &&
+			body.z <= z.maxZ &&
+			body.y <= z.maxY &&
+			body.y + spec.height >= z.minY
+		)
+			ids.push(z.id);
+	}
+	return ids;
+}
+
+/** What {@link trackStep3d} raises: the arcade family's zone edges plus the step's own. */
+const SIGNALS3D = Object.freeze({
+	jumped: 'jumped',
+	doubleJumped: 'doubleJumped',
+	landed: 'landed',
+	bounced: 'bounced',
+	leaveZone: 'leaveZone',
+	enterZone: 'enterZone',
+	fell: 'fell',
+});
+
+/** What {@link trackStep3d} remembers of a body between steps: its zones and whether it had fallen. */
+function createTracker3d() {
+	return { zones: [], fell: false };
+}
+
+/**
+ * The signals one step raised, in this order: `jumped`, `doubleJumped`, `landed`, `bounced`, each
+ * `leaveZone` then each `enterZone` (`{ zone, kind }`, by zone id), and `fell` — every one an EDGE,
+ * as the 2D loop's are: a zone on the step the body enters or leaves it, `fell` on the step it first
+ * drops below the death plane (again only after it is back above it, which a respawn does). `result`
+ * is that step's {@link stepBody3d} answer; `tracker` ({@link createTracker3d}) is updated.
+ */
+function trackStep3d(tracker, body, result, level, spec = MOTION3D_DEFAULTS) {
+	const out = [];
+	if (result.jumped) out.push({ type: SIGNALS3D.jumped });
+	if (result.doubleJumped) out.push({ type: SIGNALS3D.doubleJumped });
+	if (result.landed) out.push({ type: SIGNALS3D.landed });
+	if (result.bounced) out.push({ type: SIGNALS3D.bounced });
+	const was = tracker.zones;
+	const is = zonesAt3d(body, level, spec);
+	for (const id of was)
+		if (!is.includes(id))
+			out.push({ type: SIGNALS3D.leaveZone, zone: id, kind: level.zones[id].kind });
+	for (const id of is)
+		if (!was.includes(id))
+			out.push({ type: SIGNALS3D.enterZone, zone: id, kind: level.zones[id].kind });
+	tracker.zones = is;
+	const fell = body.y < level.killY;
+	if (fell && !tracker.fell) out.push({ type: SIGNALS3D.fell });
+	tracker.fell = fell;
+	return out;
+}
+
 const HASH_VIEW = new DataView(new ArrayBuffer(8));
 
 const mix = (h, byte) => Math.imul(h ^ byte, 0x01000193) >>> 0;
