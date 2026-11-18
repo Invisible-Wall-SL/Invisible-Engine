@@ -6,7 +6,7 @@
 	import { bakedGameConfig } from '../editor-scenes';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
-	import { online3dSession, refuseOtherWorld } from '../game/online3d';
+	import { OTHER_WORLD, online3dSession, refuseRoomWorld } from '../game/online3d';
 	import { world3dCanvas } from '../game/world3dCanvas';
 
 	/**
@@ -117,7 +117,9 @@
 		try {
 			world = three.world3dOf(session.world3d);
 		} catch (error) {
-			console.error('[engine-3d] the room plays an arcade.world3d this device cannot read', error);
+			const why = error instanceof Error ? error.message : String(error);
+			refuseRoomWorld(`this device cannot read the game's 3D world (${why})`);
+			return undefined;
 		}
 		if (!world) return undefined;
 		const { room } = session;
@@ -138,7 +140,7 @@
 			view.received(state as import('engine-3d').RoomState3d, performance.now());
 			if (!view.mismatch) return;
 			live = false;
-			refuseOtherWorld();
+			refuseRoomWorld(OTHER_WORLD);
 		};
 		room.onStateChange(received);
 		received(room.state);

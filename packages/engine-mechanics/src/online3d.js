@@ -49,6 +49,7 @@ import {
 	MOTION3D_DEFAULTS,
 	MOTION3D_LIMITS,
 	MOTION3D_HZ,
+	MOTION3D_VERSION,
 	MOVE_SCALE,
 	RAMP_FACINGS,
 	YAW_UNITS,
@@ -250,7 +251,7 @@ export const bodyFlags3d = (body) =>
 
 /**
  * The whole body a room player's own device is sent (`services/game-server` `Player3D`'s own-only
- * fields: `bx by bz` and `vx vy vz` as float64, `yaw`, `coyote`, `buffer`, `flags`) — the room's
+ * fields: `bx by bz`, `vx vy vz` and `climb` as float64, `yaw`, `coyote`, `buffer`, `flags`) — the room's
  * body to the bit, which {@link createPredictor3d} takes as `Truth3d.body`.
  */
 export const bodyOfWire3d = (p) => ({
@@ -263,12 +264,13 @@ export const bodyOfWire3d = (p) => ({
 	yaw: p.yaw,
 	coyote: p.coyote,
 	buffer: p.buffer,
+	climb: p.climb,
 	grounded: (p.flags & BODY3D_FLAGS.grounded) !== 0,
 	held: (p.flags & BODY3D_FLAGS.held) !== 0,
 	doubleUsed: (p.flags & BODY3D_FLAGS.doubleUsed) !== 0,
 });
 
-const BODY_NUMBERS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'coyote', 'buffer'];
+const BODY_NUMBERS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'coyote', 'buffer', 'climb'];
 
 /**
  * Predict one player from its inputs and reconcile it with the room — `netcode.js`
@@ -341,11 +343,17 @@ export function createPredictor3d({
 		get snaps() {
 			return snaps;
 		},
-		/** Step a clamped input the moment it is sent; returns the step's result (none while held). */
-		input(input) {
-			prev.x = body.x;
-			prev.y = body.y;
-			prev.z = body.z;
+		/**
+		 * Step a clamped input the moment it is sent; returns the step's result (none while held).
+		 * `extra`: a second input in the same step of the device's clock (`createClockSync3d`), drawn
+		 * from where the first one started rather than skipping its motion.
+		 */
+		input(input, extra = false) {
+			if (!extra) {
+				prev.x = body.x;
+				prev.y = body.y;
+				prev.z = body.z;
+			}
 			const result = stepOne(input);
 			pending.push(input);
 			if (pending.length > HISTORY) pending.shift();
@@ -420,11 +428,15 @@ export function createPredictor3d({
 	};
 }
 
+/**
+ * The most of its clock a device steps in one frame, s: `roomSim.ts` `CREDIT_SECONDS`, what the
+ * room waits for a late body before resting it. A longer frame (a hitch) still sends every step
+ * the room is waiting for; a longer gap (a hidden tab) the room has rested through.
+ */
+export const CATCH_UP_SECONDS_3D = 0.5;
+
 /** States a {@link createClockSync3d} judges the device's clock over, at the least. */
 const SYNC_STATES = 8;
-
-/** The most inputs one nudge adds: each is a step of motion drawn at once. */
-const MOST_ADDED = 2;
 
 /**
  * Keep a device's input clock on the room's. A device sends one input per step of its own fixed
@@ -434,9 +446,12 @@ const MOST_ADDED = 2;
  * state, the inputs it holds for it (`waiting`) and the steps its body owes (`credit`); the device's
  * lead is `waiting − credit` (a device on the room's clock leads by 0 or 1). Judged over `states`
  * states at a time (about a second): a lead that never fell under 2 skips enough inputs to bring it
- * back to 1, and one that never rose over −2 adds up to {@link MOST_ADDED}. After a nudge the next
+ * back to 1, and one that never rose over −2 adds enough to bring it back to −1 (sent one extra a
+ * step: the catch-up the room's credit is for). After a nudge the next
  * span is not judged, so the room's answer to it arrives first. `observe` returns the nudge: the
- * inputs to skip (negative) or to add now (positive), else 0.
+ * inputs to skip (negative) or to add now (positive), else 0. Observe only states that arrived while
+ * the device was stepping, and `reset` after a gap (a hidden tab): the room's view of a device that
+ * sent nothing says nothing about its clock.
  */
 export function createClockSync3d({ states = SYNC_STATES } = {}) {
 	const span = Math.max(SYNC_STATES, Math.floor(states));
@@ -444,6 +459,11 @@ export function createClockSync3d({ states = SYNC_STATES } = {}) {
 	let hi = -Infinity;
 	let seen = 0;
 	return {
+		reset() {
+			lo = Infinity;
+			hi = -Infinity;
+			seen = 0;
+		},
 		observe(waiting, credit) {
 			const lead = finite(waiting) - finite(credit);
 			if (seen >= 0) {
@@ -451,7 +471,7 @@ export function createClockSync3d({ states = SYNC_STATES } = {}) {
 				if (lead > hi) hi = lead;
 			}
 			if (++seen < span) return 0;
-			const nudge = lo >= 2 ? 1 - lo : hi <= -2 ? Math.min(MOST_ADDED, -1 - hi) : 0;
+			const nudge = lo >= 2 ? 1 - lo : hi <= -2 ? -1 - hi : 0;
 			lo = Infinity;
 			hi = -Infinity;
 			seen = nudge === 0 ? 0 : -span;
@@ -750,7 +770,7 @@ export function levelOf3d(world) {
 	return level;
 }
 
-const WORLD_HASHES = new WeakMap();
+const WORLD_TEXTS = new WeakMap();
 
 const canonical = (v) => {
 	if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
@@ -763,19 +783,22 @@ const canonical = (v) => {
 };
 
 /**
- * A uint32 fingerprint (FNV-1a over its canonical JSON) of a {@link world3dOf} world: its level,
- * motion, characters and spawns. The room puts it in its state (`RoomState3D.world`): a device
- * whose own config made another world — a republish the game server has not fetched yet, a stale
- * bundle — would mispredict its player on every step, so it compares and refuses instead.
+ * A uint32 fingerprint (FNV-1a) of everything a device's prediction of a room rests on: the step's
+ * code (`motion3d` `MOTION3D_VERSION`), the room's tick rate and a {@link world3dOf} world's level,
+ * motion, characters and spawns (as canonical JSON). The room puts it in its state
+ * (`RoomState3D.world`): a device that would step its player otherwise — a republish the game
+ * server has not fetched yet, a runtime released before or after the game server, a stale bundle —
+ * would mispredict on every step, so it compares and refuses instead.
  */
-export function worldHash3d(world) {
-	let h = WORLD_HASHES.get(world);
-	if (h === undefined) {
-		const text = canonical(world);
-		h = HASH3D_SEED;
-		for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
-		WORLD_HASHES.set(world, h);
+export function worldHash3d(world, tickHz) {
+	let text = WORLD_TEXTS.get(world);
+	if (text === undefined) {
+		text = canonical(world);
+		WORLD_TEXTS.set(world, text);
 	}
+	const all = `${MOTION3D_VERSION}|${tickHz}|${text}`;
+	let h = HASH3D_SEED;
+	for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 0x01000193) >>> 0;
 	return h;
 }
 

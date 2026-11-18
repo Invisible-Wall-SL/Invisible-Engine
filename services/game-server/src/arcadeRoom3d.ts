@@ -84,7 +84,7 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.maxMessagesPerSecond = messagesPerSecond(online.tickHz);
 			this.state.phase = sim.phase;
 			this.state.seed = seed;
-			this.state.world = worldHash3d(loaded.world3d);
+			this.state.world = worldHash3d(loaded.world3d, online.tickHz);
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);
@@ -210,6 +210,7 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			to.vz = body.vz;
 			to.coyote = body.coyote;
 			to.buffer = body.buffer;
+			to.climb = body.climb;
 			to.flags = bodyFlags3d(body);
 			to.credit = from.credit;
 			to.waiting = this.inputs.get(id).size;

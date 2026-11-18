@@ -17,6 +17,7 @@ import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { hashBodies3d } from '../packages/engine-mechanics/src/motion3d.js';
 import {
 	BUTTONS3D,
+	CATCH_UP_SECONDS_3D,
 	bodyFlags3d,
 	sanitizeInput3d,
 	world3dOf,
@@ -170,12 +171,13 @@ const stateOf = (sim, buffers = new Map()) => {
 			vz: body.vz,
 			coyote: body.coyote,
 			buffer: body.buffer,
+			climb: body.climb,
 			flags: bodyFlags3d(body),
 			waiting: buffers.get(id)?.size ?? 0,
 			credit: p.credit,
 		});
 	}
-	return { step: sim.steps, world: worldHash3d(sim.world), players };
+	return { step: sim.steps, world: worldHash3d(sim.world, sim.game.online.tickHz), players };
 };
 
 const FRAME_MS = 1000 / 60;
@@ -327,39 +329,71 @@ check('a player who leaves is no longer drawn', () => {
 	);
 });
 
+const CREDIT_STEPS = Math.ceil(tickHz * CREDIT_SECONDS);
+
+/** The config at another tick rate. */
+const atRate = (hz) => ({
+	...config,
+	arcade: { ...config.arcade, online: { ...config.arcade.online, tickHz: hz } },
+});
+
 /**
  * One device alone in a room for `seconds`, its clock `scale` × the room's (its frames claim that
  * much time). `told` false hides the room's clock from it (`waiting` and `credit` read 0), as before
- * the room sent them. Reports the room's input buffer at its longest over the last 20 s, the body's
- * credit at its highest, and the device's corrections.
+ * the room sent them; `hz` plays the game at another tick rate. `hitch` (`{ every, ms }`, ms)
+ * freezes the page now and then, its next frame
+ * claiming the time it lost; `hide` (`{ from, ms }`) hides the tab once — no frame runs, and the
+ * first after it claims one frame's time, as a ticker capping its delta does. Reports the room's
+ * input buffer at its longest over the last 20 s, the body's credit at its highest, the room's
+ * resting steps and the device's corrections (each also counted from 2 s after the tab came back),
+ * and the inputs it sent in the 2 s after it came back.
  */
-const drift = (scale, seconds, told = true) => {
-	const room = createRoomSim3d(game, world, { seed: 3 });
+const drift = (scale, seconds, { told = true, hitch, hide, hz = tickHz } = {}) => {
+	const played = hz === tickHz ? game : onlineGameOf(normalizeGameConfigDoc(atRate(hz)));
+	const most = Math.ceil(hz * CREDIT_SECONDS);
+	const room = createRoomSim3d(played, world, { seed: 3 });
 	room.join('dee', { name: 'dee', character: 'hero' });
 	const rx = receiver();
 	const up = linkOf('drift-up');
 	const down = linkOf('drift-down');
 	let now = 0;
+	let sent = 0;
 	const view = createRoomView3d({
 		meId: 'dee',
 		world,
-		tickHz,
+		tickHz: hz,
 		patchHz,
-		send: (input) => up.send(now, input),
+		send: (input) => {
+			sent += 1;
+			up.send(now, input);
+		},
 	});
 	const stick = stickOf('drift', Infinity);
 	let nextStep = 0;
 	let nextPatch = 0;
 	let waiting = 0;
 	let credit = 0;
+	let rests = 0;
+	let owed = 0;
+	let sentAtReturn = -1;
+	let sentAfterReturn = 0;
+	let restsSettled = 0;
+	let correctionsSettled = -1;
 	for (let frame = 0; frame * FRAME_MS < seconds * 1000; frame++) {
 		now = frame * FRAME_MS;
 		while (nextStep <= now) {
 			for (const raw of up.deliver(nextStep)) rx.receive(raw);
+			const player = room.players.get('dee');
+			const ack = player.ack;
+			const atMost = player.credit === most;
 			room.step((id, c) => (id === 'dee' ? rx.take(c) : []));
-			nextStep += 1000 / tickHz;
+			if (ack > 0 && atMost && player.ack === ack) {
+				rests += 1;
+				if (correctionsSettled >= 0) restsSettled += 1;
+			}
+			nextStep += 1000 / hz;
 			if (now > (seconds - 20) * 1000) waiting = Math.max(waiting, rx.size);
-			credit = Math.max(credit, room.players.get('dee').credit);
+			credit = Math.max(credit, player.credit);
 		}
 		if (now >= nextPatch) {
 			const state = stateOf(room, new Map([['dee', rx]]));
@@ -372,17 +406,33 @@ const drift = (scale, seconds, told = true) => {
 			nextPatch += 1000 / patchHz;
 		}
 		for (const state of down.deliver(now)) view.received(state, now);
-		view.frame(FRAME_MS * scale, now, stick(frame), 0);
+		if (hide && now >= hide.from && now < hide.from + hide.ms) continue;
+		if (hide && now >= hide.from + hide.ms) {
+			if (sentAtReturn < 0) sentAtReturn = sent;
+			else if (now < hide.from + hide.ms + 2000) sentAfterReturn = sent - sentAtReturn;
+			else if (correctionsSettled < 0) correctionsSettled = view.me.corrections;
+		}
+		owed += FRAME_MS * scale;
+		if (hitch && now % hitch.every < hitch.ms) continue;
+		view.frame(owed, now, stick(frame), 0);
+		owed = 0;
 	}
-	return { waiting, credit, corrections: view.me.corrections };
+	return {
+		waiting,
+		credit,
+		rests,
+		corrections: view.me.corrections,
+		sentAfterReturn,
+		restsSettled,
+		correctionsSettled: correctionsSettled < 0 ? 0 : view.me.corrections - correctionsSettled,
+	};
 };
-const CREDIT_STEPS = Math.ceil(tickHz * CREDIT_SECONDS);
 
 check(
 	"a device clock 2 % fast keeps the room's input buffer short (it used to grow for good)",
 	() => {
 		const synced = drift(1.02, 90);
-		const unsynced = drift(1.02, 90, false);
+		const unsynced = drift(1.02, 90, { told: false });
 		assert.ok(unsynced.waiting > 20, `without the room's clock: ${unsynced.waiting} waiting`);
 		assert.ok(synced.waiting <= 6, `${synced.waiting} inputs waiting`);
 		assert.equal(synced.corrections, 0);
@@ -396,7 +446,7 @@ check(
 	'a device clock 2 % slow never lets its body fall CREDIT_SECONDS behind: no rest, no correction',
 	() => {
 		const synced = drift(0.98, 90);
-		const unsynced = drift(0.98, 90, false);
+		const unsynced = drift(0.98, 90, { told: false });
 		assert.equal(unsynced.credit, CREDIT_STEPS, 'without the room’s clock it is rested');
 		assert.ok(unsynced.corrections > 0, 'and corrected');
 		assert.ok(synced.credit < CREDIT_STEPS, `credit ${synced.credit}`);
@@ -404,6 +454,37 @@ check(
 		console.log(
 			`   slow: credit ${synced.credit} at most (${unsynced.credit} and ${unsynced.corrections} corrections without the sync)`,
 		);
+	},
+);
+
+check('a frame sends every step the room waits for: CATCH_UP_SECONDS_3D is CREDIT_SECONDS', () => {
+	assert.equal(CATCH_UP_SECONDS_3D, CREDIT_SECONDS);
+});
+
+check('a page that hitches keeps its room fed at 60 Hz: no rest, no correction', () => {
+	for (const hitch of [
+		{ every: 1000, ms: 300 },
+		{ every: 1500, ms: 150 },
+		{ every: 3000, ms: 200 },
+	]) {
+		const run = drift(1, 60, { hz: 60, hitch });
+		assert.equal(run.rests, 0, `${hitch.ms} ms every ${hitch.every} ms: ${run.rests} rests`);
+		assert.equal(run.corrections, 0);
+	}
+});
+
+check(
+	'a tab hidden for a minute catches up a bounded few, then takes no rest and no correction',
+	() => {
+		const run = drift(1, 90, { hide: { from: 10000, ms: 60000 } });
+		assert.ok(run.rests > 0, 'the room rested it while hidden');
+		assert.ok(
+			run.sentAfterReturn <= 2 * tickHz + CREDIT_STEPS,
+			`${run.sentAfterReturn} sent in 2 s`,
+		);
+		assert.equal(run.restsSettled, 0);
+		assert.equal(run.correctionsSettled, 0);
+		assert.ok(run.waiting <= 6, `${run.waiting} waiting`);
 	},
 );
 
@@ -422,12 +503,13 @@ const reversed = (value) =>
 check('a room that plays another world is refused: nothing predicted, nothing sent', () => {
 	const raw = config.arcade.world3d;
 	assert.equal(
-		worldHash3d(world3dOf(reversed(raw))),
-		worldHash3d(world),
+		worldHash3d(world3dOf(reversed(raw)), tickHz),
+		worldHash3d(world, tickHz),
 		'key order is not a world',
 	);
 	const faster = world3dOf({ ...raw, motion: { speed: 6 } });
-	assert.notEqual(worldHash3d(faster), worldHash3d(world), 'another motion is another world');
+	assert.notEqual(worldHash3d(faster, tickHz), worldHash3d(world, tickHz), 'another motion');
+	assert.notEqual(worldHash3d(world, tickHz * 2), worldHash3d(world, tickHz), 'another tick rate');
 	const solo = createRoomSim3d(game, faster, { seed: 5 });
 	solo.join('eve', { name: 'eve', character: 'hero' });
 	let sent = 0;

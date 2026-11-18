@@ -247,6 +247,7 @@ const wireOf = (body) => ({
 	yaw: body.yaw,
 	coyote: body.coyote,
 	buffer: body.buffer,
+	climb: body.climb,
 	flags: bodyFlags3d(body),
 });
 /** The room's word on a player, as its own device reads it off the wire. */
@@ -585,7 +586,7 @@ await check('a spawn on a platform whose top is not a float32 stands on it', () 
 	assert.ok(body.grounded && body.y === 0.7, `stands at ${body.y}`);
 });
 
-await check('a player that has never sent an input waits at its home', () => {
+await check('a player that has never sent an input waits at its home, banking no credit', () => {
 	const sim = roomOf(configOf());
 	const player = sim.join('ann', { character: 'hero' });
 	sim.drop(sim.join('bob', { character: 'hero' }).id);
@@ -593,6 +594,7 @@ await check('a player that has never sent an input waits at its home', () => {
 	for (const p of sim.players.values())
 		assert.equal(hashBodies3d([p.body]), hashBodies3d([createBody3d(p.home)]), p.id);
 	assert.equal(player.ack, 0);
+	assert.equal(player.credit, 0, 'loading is not lag: it would start every player at the cap');
 });
 
 await check('two rooms of one world share its one level', () => {
@@ -973,7 +975,11 @@ try {
 				);
 			}
 			const [da, db] = devices;
-			assert.equal(a.state.world, worldHash3d(sim.world), "the room's world fingerprint");
+			assert.equal(
+				a.state.world,
+				worldHash3d(sim.world, sim.game.online.tickHz),
+				"the room's world fingerprint",
+			);
 			for (const [room, other] of [
 				[a, b],
 				[b, a],

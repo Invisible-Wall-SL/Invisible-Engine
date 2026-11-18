@@ -314,6 +314,7 @@ export function createRoomSim3d(
 						]
 					: take(player.id, player.credit);
 				if (!inputs.length) {
+					if (player.ack === 0) continue;
 					if (player.credit < creditMax) player.credit += 1;
 					else idle(player, events);
 					continue;

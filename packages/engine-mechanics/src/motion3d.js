@@ -26,6 +26,13 @@
 /** Steps per second the 3D sim is pinned at. */
 export const MOTION3D_HZ = 60;
 
+/**
+ * What the step does: the committed replay's code (`fixtures/arcade-3d-replay.json`, which
+ * `check:arcade-3d` holds this to). A room's fingerprint includes it (`online3d` `worldHash3d`), so
+ * a device whose step is not its room's refuses the room; re-recording the replay updates it.
+ */
+export const MOTION3D_VERSION = 'b3e57570';
+
 /** Sub-steps one step may take: a fall at `maxFall` crosses no slab thinner than `subMove`. */
 export const MAX_SUB_STEPS_3D = 64;
 
@@ -282,7 +289,11 @@ export function topUnder(c, x0, z0, x1, z1) {
 	}
 }
 
-/** A body at rest at a place. Position in metres (feet), yaw as uint16. */
+/**
+ * A body at rest at a place. Position in metres (feet), yaw as uint16. `climb` is the step-up it
+ * has in hand, m: a full `stepUp` (it starts unbounded, which the first step holds to `stepUp`),
+ * refilled as it moves at `maxSlope` times its speed on the plane.
+ */
 export function createBody3d({ x = 0, y = 0, z = 0, yaw = 0 } = {}) {
 	return {
 		x,
@@ -297,6 +308,7 @@ export function createBody3d({ x = 0, y = 0, z = 0, yaw = 0 } = {}) {
 		coyote: 0,
 		buffer: 0,
 		doubleUsed: false,
+		climb: Infinity,
 	};
 }
 
@@ -389,7 +401,8 @@ export function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 
 		Math.max(body.x, body.x + dx) + r,
 		Math.max(body.z, body.z + dz) + r,
 	);
-	climbLeft = spec.stepUp;
+	const flat = Math.sqrt(body.vx * body.vx + body.vz * body.vz);
+	climbLeft = Math.min(spec.stepUp, body.climb + spec.maxSlope * flat * dt);
 	for (let i = 0; i < n; i++) {
 		if (sx !== 0 && !moveFlat(body, 0, sx, near, spec, out)) sx = 0;
 		if (sz !== 0 && !moveFlat(body, 1, sz, near, spec, out)) sz = 0;
@@ -408,22 +421,31 @@ export function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 
 		}
 	}
 	out.grounded = body.grounded;
+	body.climb = climbLeft;
 	out.fell = body.y < level.killY || !within(body.x) || !within(body.z);
 	return out;
 }
 
-/** The step-up a step has left, m: {@link stepBody3d} sets it to `stepUp`, a step-up spends it. */
+/**
+ * The step-up the body being stepped has in hand, m: {@link stepBody3d} sets it from the body's
+ * `climb` plus what the step's motion refills (`maxSlope` × its speed on the plane × `dt`, to at
+ * most `stepUp`) and stores what is left back. So a flight of stairs is climbed no faster than a
+ * ramp of `maxSlope` at the same speed, whatever the tick rate, and a curb from rest still is.
+ */
 let climbLeft = 0;
 
 /** What a sub-move along a walkable ramp may rise past its slope times the run, m: rounding. */
 const SLOPE_SLACK = 1e-9;
 
+/** Whether a sub-move by `d` on `axis` goes up ramp `c` (toward the edge its `facing` names). */
+const uphill = (c, axis, d) => (c.rise < 2 ? 0 : 1) === axis && (c.rise % 2 === 0 ? d > 0 : d < 0);
+
 /**
- * Move on x (`axis` 0) or z (1) by `d`; false when it was stopped. Rising along a ramp no steeper
- * than `maxSlope`, in its facing's axis, is walking — at a jump too; any rise past that (a box's
- * ledge, a ramp's lip) is a step-up, taken out of the step's `climbLeft` by a body not rising; a
- * steeper ramp is a wall. A ledge the step has no budget left for holds the body, its velocity
- * kept, until the next step; a wall stops it.
+ * Move on x (`axis` 0) or z (1) by `d`; false when it was stopped. Going up a ramp no steeper than
+ * `maxSlope` is walking — at a jump too; any rise past that (a box's ledge, a ramp's back face or
+ * lip) is a step-up, taken out of `climbLeft` by a body not rising. A steeper ramp is a wall unless
+ * its whole top is within `stepUp` of the feet (a chamfered curb), when it is a ledge. A ledge the
+ * body has no `climbLeft` for holds it, its velocity kept, until a later step; a wall stops it.
  */
 function moveFlat(body, axis, d, near, spec, out) {
 	const r = spec.radius;
@@ -446,8 +468,9 @@ function moveFlat(body, axis, d, near, spec, out) {
 		if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
 		const top = topUnder(c, x0, z0, x1, z1);
 		if (!(body.y < top && body.y + h > c.minY)) continue;
-		const steep = c.rise >= 0 && c.slope > spec.maxSlope;
-		const along = c.rise >= 0 && !steep && (c.rise < 2 ? 0 : 1) === axis;
+		const walkable = c.rise >= 0 && c.slope <= spec.maxSlope;
+		const steep = c.rise >= 0 && !walkable && c.maxY - body.y > spec.stepUp;
+		const along = walkable && uphill(c, axis, d);
 		const ledge = top - body.y - (along ? c.slope * run + SLOPE_SLACK : 0);
 		if (ledge <= 0 || (canStep && !steep && ledge <= climbLeft)) {
 			if (top > floor) floor = top;
@@ -678,6 +701,7 @@ export function hashBodies3d(bodies, h = HASH3D_SEED) {
 		h = mixFloat(h, b.yaw);
 		h = mixFloat(h, b.coyote);
 		h = mixFloat(h, b.buffer);
+		h = mixFloat(h, b.climb);
 		h = mix(h, (b.grounded ? 1 : 0) | (b.held ? 2 : 0) | (b.doubleUsed ? 4 : 0));
 	}
 	return h;

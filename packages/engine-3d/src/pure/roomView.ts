@@ -1,6 +1,7 @@
 import { createFixedStep } from 'engine-mechanics/src/motion.js';
 import { createBody3d, type Motion3dSpec } from 'engine-mechanics/src/motion3d.js';
 import {
+	CATCH_UP_SECONDS_3D,
 	bodyOfWire3d,
 	clampInput3d,
 	createClockSync3d,
@@ -72,7 +73,8 @@ export type RoomView3d = {
  * player is predicted by `online3d` `createPredictor3d` from the first state that shows it — a
  * player is stepped only by an input, so that state is its home, exactly — at the room's `tickHz`,
  * and reconciled with the whole body the room sends its own device; the input clock follows the
- * room's (`createClockSync3d`: now and then an input skipped or added). Everyone else is
+ * room's (`createClockSync3d`: now and then an input skipped or added, judged only while the device
+ * steps), and a long frame sends every step up to `CATCH_UP_SECONDS_3D` at once. Everyone else is
  * interpolated by `createInterpolator3d` about 100 ms behind (`createSnapshotClock`). A room whose
  * world is not this device's (`RoomState3D.world`) is not played: {@link RoomView3d.mismatch}.
  * Pure, so `scripts/check-engine-3d-room.mjs` plays it against the room's own simulation.
@@ -91,14 +93,16 @@ export function createRoomView3d({
 	send: (input: Input3d) => void;
 }): RoomView3d {
 	const level = levelOf3d(world);
-	const clock = createFixedStep({ hz: tickHz });
+	/** The most inputs one frame sends: what the room waits for (a longer hitch it rests through). */
+	const catchUp = Math.ceil(tickHz * CATCH_UP_SECONDS_3D);
+	const clock = createFixedStep({ hz: tickHz, maxSteps: catchUp });
 	const view = createSnapshotClock({ stepMs: 1000 / tickHz });
 	const fastest = [world.motion, ...Object.values(world.characters)].reduce((a, b) =>
 		b.speed * b.sprint > a.speed * a.sprint ? b : a,
 	);
 	const others = createInterpolator3d({ snapM: snapFor3d(fastest, patchHz) });
 	const sync = createClockSync3d({ states: patchHz });
-	const fingerprint = worldHash3d(world);
+	const fingerprint = worldHash3d(world, tickHz);
 	const specs = new Map<string, Motion3dSpec>();
 	let me: Predictor3d | undefined;
 	let seq = 0;
@@ -107,6 +111,9 @@ export function createRoomView3d({
 	let mismatch = false;
 	/** Inputs to skip (below 0: the device runs ahead) or to add (above 0: it runs behind). */
 	let nudge = 0;
+	/** When the device last sent an input, ms: a state after a longer gap (a hidden tab) says
+	 *  nothing about its clock. */
+	let sentAt = -Infinity;
 
 	const specOf = (id: string, character: string) => {
 		let spec = specs.get(id);
@@ -151,7 +158,11 @@ export function createRoomView3d({
 				}
 				const ack = player.ack ?? 0;
 				if (ack > 0) me.reconcile({ ack, step, body: bodyOfWire3d(player as BodyWire3d) });
-				nudge += sync.observe(player.waiting ?? 0, player.credit ?? 0);
+				if (nowMs - sentAt > 1000 * CATCH_UP_SECONDS_3D) sync.reset();
+				else {
+					const more = nudge + sync.observe(player.waiting ?? 0, player.credit ?? 0);
+					nudge = Math.max(-catchUp, Math.min(catchUp, more));
+				}
 			});
 			others.retain(seen);
 			for (const id of specs.keys()) if (!seen.has(id)) specs.delete(id);
@@ -162,8 +173,9 @@ export function createRoomView3d({
 			const own = me;
 			if (!own || mismatch) return;
 			const cameraYaw = yawFromRadians((cameraYawDeg * Math.PI) / 180);
-			const step = () => {
+			const step = (extra: boolean) => {
 				seq += 1;
+				sentAt = nowMs;
 				const { moveX, moveZ } = moveFromStick(stick.right, stick.forward, cameraYaw);
 				const facing = faceYaw ?? (moveX || moveZ ? yawToward(moveX, moveZ) : own.body.yaw);
 				const input = clampInput3d({
@@ -176,17 +188,17 @@ export function createRoomView3d({
 					view: Math.max(0, Math.floor(viewStep)),
 				});
 				send(input);
-				own.input(input);
+				own.input(input, extra);
 			};
 			clock.advance(dtMs, () => {
 				if (nudge < 0) {
 					nudge += 1;
 					return;
 				}
-				step();
+				step(false);
 				if (nudge > 0) {
 					nudge -= 1;
-					step();
+					step(true);
 				}
 			});
 			own.frame(dtMs);

@@ -1,8 +1,10 @@
 // Arcade 3D motion (packages/engine-mechanics/src/motion3d.js; docs/design/3d-games.md Phase 0b,
 // docs/design/3d/gameplay-evaluation.md §2): a jump reaches its height, the double jump only near
 // the apex, a trampoline launches to its height, ramps are climbed and walked down, a ramp up to
-// maxSlope is walked at any tick rate and a steeper one is a wall, a step spends at most stepUp on
-// step-ups however many sub-steps it takes, a jump up a ramp keeps its run, a 0.3 m step
+// maxSlope is walked at any tick rate and a steeper one is a wall (a chamfered curb steps), a step
+// spends at most stepUp on step-ups however many sub-steps it takes, stairs climb no faster than a
+// maxSlope ramp at any tick rate, a ramp's back face is a ledge, a jump up a ramp keeps its run, a
+// 0.3 m step
 // climbs and a 0.5 m one blocks, walls stop one axis and the other slides, ceilings stop a jump, a
 // fall at maxFall never passes through a thin slab, a full stick is no faster on a diagonal, and the
 // step uses no implementation-defined Math function (the cross-engine rule). Then the six-body,
@@ -33,6 +35,7 @@ import {
 	MAX_ZONES_3D,
 	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
+	MOTION3D_VERSION,
 	MOVE_SCALE,
 	stepBody3d,
 	sweepFits3d,
@@ -265,6 +268,75 @@ check('a step spends at most stepUp on step-ups, however many sub-steps it takes
 	assert.ok(body.y >= 3, `it climbs (${body.y} m)`);
 	assert.ok(highest <= MOTION3D_DEFAULTS.stepUp + 1e-12, `${highest} m in one 0.1 s step`);
 	assert.equal(body.vx, MOTION3D_DEFAULTS.speed * MOTION3D_DEFAULTS.sprint, 'held, not stopped');
+});
+/** Walk at `mx` from `x` for 2 s past `colliders` on the floor: the highest feet, a wall met. */
+const walkPast = (colliders, x, mx) => {
+	const level = createLevel3d({ colliders: [FLOOR, ...colliders] });
+	const body = createBody3d({ x });
+	let top = 0;
+	let wall = false;
+	for (let i = 0; i < 120; i++) {
+		wall ||= stepBody3d(body, { ...idle, mx }, level).onWall;
+		top = Math.max(top, body.y);
+	}
+	return { top, wall };
+};
+check("a ramp's back face is a ledge like a box's side: over stepUp it is a wall", () => {
+	const ramp = (h) => ({
+		kind: 'ramp',
+		facing: '+x',
+		minX: 0,
+		minY: 0,
+		minZ: -3,
+		maxX: h,
+		maxY: h,
+		maxZ: 3,
+	});
+	for (const h of [0.36, 0.42, 0.6]) {
+		const { top, wall } = walkPast([ramp(h)], 3, -MOVE_SCALE);
+		assert.ok(top === 0 && wall, `a ${h} m back face climbed to ${top}`);
+	}
+	assert.equal(walkPast([ramp(0.34)], 3, -MOVE_SCALE).top, 0.34, 'one under stepUp is stepped');
+});
+check('a chamfered curb steeper than maxSlope is stepped, as a box of its height is', () => {
+	for (const [rise, run] of [
+		[0.1, 0.05],
+		[0.3, 0.2],
+	]) {
+		const curb = {
+			kind: 'ramp',
+			facing: '+x',
+			minX: 0,
+			minY: 0,
+			minZ: -3,
+			maxX: run,
+			maxY: rise,
+			maxZ: 3,
+		};
+		const { top, wall } = walkPast([curb], -2, MOVE_SCALE);
+		assert.ok(top === rise && !wall, `${rise}/${run}: up to ${top}`);
+	}
+});
+check('stairs climb no faster than a maxSlope ramp at the same speed, at any tick rate', () => {
+	const speed = MOTION3D_DEFAULTS.speed;
+	for (const [hz, tread] of [
+		[60, 0.08],
+		[60, 0.04],
+		[30, 0.16],
+		[10, 0.3],
+	]) {
+		const stairs = Array.from({ length: 30 }, (_, i) =>
+			box(i * tread, 0, -3, 40, (i + 1) * 0.34, 3),
+		);
+		const level = createLevel3d({ colliders: [FLOOR, ...stairs] });
+		const body = createBody3d({ x: -0.5 });
+		let steps = 0;
+		for (; steps < hz * 10 && body.y < 30 * 0.34 - 1e-9; steps++)
+			stepBody3d(body, { ...idle, mx: MOVE_SCALE }, level, undefined, 1 / hz);
+		const rate = (30 * 0.34) / (steps / hz);
+		assert.ok(body.y >= 30 * 0.34 - 1e-9, `${hz} Hz, tread ${tread}: stuck at ${body.y}`);
+		assert.ok(rate <= MOTION3D_DEFAULTS.maxSlope * speed * 1.05, `${hz} Hz: ${rate} m/s up`);
+	}
 });
 check('a jump while running up a ramp keeps its run', () => {
 	const level = createLevel3d({
@@ -523,6 +595,11 @@ check('it matches the committed replay, and covers every case', () => {
 	if (UPDATE) writeFileSync(REPLAY_FIXTURE, JSON.stringify(result, null, '\t') + '\n');
 	const fixture = JSON.parse(readFileSync(REPLAY_FIXTURE, 'utf8'));
 	assert.deepEqual(result, fixture);
+	assert.equal(
+		MOTION3D_VERSION,
+		fixture.code,
+		'motion3d.js MOTION3D_VERSION must be the replay code (it is in every room fingerprint)',
+	);
 	for (const [name, count] of Object.entries(result.coverage))
 		assert.ok(count > 0, `never: ${name}`);
 });

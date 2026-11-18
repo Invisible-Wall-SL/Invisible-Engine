@@ -112,7 +112,7 @@ export const NearbyRoomState = schema({ ...roomFields, players: t.map(NearbyPlay
  * {@link Player3D} is a 3D player as devices draw it: the place (`x y z`, metres, y up, `y` the
  * feet) and yaw, `status` and `team` (the rules'), `anim` (`ANIM3D` bits: grounded, sprinting,
  * carrying, aiming, double-jumped). Its OWN device (`VIEW_TAG.own`) is sent more: `ack`, the whole
- * body to the bit (`bx by bz`, `vx vy vz` float64, `coyote`, `buffer`, `flags` — `engine-mechanics`
+ * body to the bit (`bx by bz`, `vx vy vz`, `climb` float64, `coyote`, `buffer`, `flags` — `engine-mechanics`
  * `bodyOfWire3d`), which its prediction is reconciled with, and the inputs the room holds for it
  * (`waiting`) and the steps its body owes (`credit`), which keep the device's clock on the room's
  * (`createClockSync3d`). One-shots (a jump, a landing, a bounce, a zone, a fall and its respawn)
@@ -151,6 +151,7 @@ export const Player3D = schema({
 	vz: t.float64().view(VIEW_TAG.own),
 	coyote: t.uint16().view(VIEW_TAG.own),
 	buffer: t.uint16().view(VIEW_TAG.own),
+	climb: t.float64().view(VIEW_TAG.own),
 	flags: t.uint8().view(VIEW_TAG.own),
 	waiting: t.uint8().view(VIEW_TAG.own),
 	credit: t.uint8().view(VIEW_TAG.own),
