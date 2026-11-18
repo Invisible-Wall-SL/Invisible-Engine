@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { BUG_STATUS_LABELS, BUG_TOOL, bugPath, isBugStatus, type BugKind } from '$lib/bugReports';
 	import type { Verdict } from '$lib/profilerBudgets';
+	import { fileFindingHref, filedLabel, type FiledFinding } from '$lib/profilerFindings/bug';
 	import { RULE_TITLES, type Finding, type Severity } from '$lib/profilerFindings/finding';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import VerdictBadge from './VerdictBadge.svelte';
@@ -7,11 +9,19 @@
 	interface Props {
 		/** Null when they could not be computed this load. */
 		findings: Finding[] | null;
+		/** The bug each filed finding has (P5); null when it could not be read this load. */
+		filed: Record<string, FiledFinding> | null;
+		/** Which list each finding is filed in. */
+		fileAs: Record<string, BugKind>;
+		projectKey: string;
+		/** The viewer's tools: File as bug needs the list's own. */
+		bugTools: ReadonlySet<string>;
 		onOpenBuild: (id: string) => void;
 		onCompare: (a: string, b: string | null) => void;
 	}
 	const props: Props = $props();
 	const { onOpenBuild, onCompare } = props;
+	const filed = $derived(props.filed ?? {});
 	const findings = $derived(props.findings ?? []);
 
 	const SEVERITY_BADGE: Record<Severity, Verdict> = { high: 'fail', medium: 'warn', low: 'nodata' };
@@ -57,7 +67,9 @@
 			measurement — a test switch's delta, a file's bytes, a breakdown figure — or it says
 			"unmeasured". Each finding names the agent (or person) who owns the fix and links the readings
 			and builds it was read from: a reading opens Compare, a build its detail on the Builds tab.
-			Lab runs count only where the rule reads counts, never fps.
+			Lab runs count only where the rule reads counts, never fps. File as bug opens Bug Reports
+			filled in — a game bug for the game's own content, a pipeline bug for the engine or a tool —
+			and keeps the readings and builds it cites for as long as the bug exists.
 		</p>
 	{/snippet}
 	{#snippet actions()}
@@ -94,6 +106,7 @@
 						<th class="num" title="What fixing it would save, from a measurement">Saving</th>
 						<th>Owner</th>
 						<th>Evidence</th>
+						<th>Bug</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -138,6 +151,38 @@
 										{/if}
 									{/each}
 								</div>
+							</td>
+							<td class="nowrap">
+								{#if filed[f.id]}
+									{@const bug = filed[f.id]}
+									<!-- A query on another route: `resolve()` cannot carry one. -->
+									<!-- eslint-disable svelte/no-navigation-without-resolve -->
+									<a
+										href={bugPath({
+											number: bug.number,
+											kind: bug.kind,
+											projectKey: props.projectKey,
+										})}>{filedLabel(bug)}</a
+									>
+									<!-- eslint-enable svelte/no-navigation-without-resolve -->
+									<div class="sub">
+										{isBugStatus(bug.status) ? BUG_STATUS_LABELS[bug.status] : bug.status}
+									</div>
+								{:else if !props.filed}
+									<span class="muted" title="The filed bugs could not be read this load">?</span>
+								{:else if props.bugTools.has(BUG_TOOL[props.fileAs[f.id]])}
+									<!-- A query on another route: `resolve()` cannot carry one. -->
+									<!-- eslint-disable svelte/no-navigation-without-resolve -->
+									<a
+										class="file"
+										href={fileFindingHref(f, props.projectKey, props.fileAs[f.id])}
+										title={`Opens the ${props.fileAs[f.id]} bug form, filled in from this finding`}
+										>File as bug</a
+									>
+									<!-- eslint-enable svelte/no-navigation-without-resolve -->
+								{:else}
+									<span class="muted" title="Your role does not have this bug list">—</span>
+								{/if}
 							</td>
 						</tr>
 					{/each}
@@ -189,6 +234,16 @@
 		flex-direction: column;
 		gap: 2px;
 		align-items: flex-start;
+	}
+	a {
+		color: #8ab4ff;
+	}
+	.file {
+		display: inline-block;
+		border: 1px solid #2c2c38;
+		border-radius: 6px;
+		padding: 2px 8px;
+		text-decoration: none;
 	}
 	.linkish {
 		background: none;

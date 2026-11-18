@@ -1,7 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { bugAreas, isBugArea } from '$lib/bugReports';
+import { findingDraftOf } from '$lib/server/profiler/findingBugLink';
 import type { PageServerLoad } from './$types';
-import { askedBug, askedReport } from './view';
+import { askedBug, askedReport, withFindingDraft } from './view';
 
 /**
  * Invisible Pipeline Bug Reports (`/bugs`): the tool gate, as every tool page has it, plus what the
@@ -21,6 +22,10 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 		canTriage: bugTriage.pipeline,
 		selected: askedBug(url),
 		areas: bugAreas('pipeline'),
-		report: askedReport(url, (area) => isBugArea('pipeline', area)),
+		report: withFindingDraft(
+			askedReport(url, (area) => isBugArea('pipeline', area)),
+			await findingDraftOf(locals.user, url),
+			'pipeline',
+		),
 	};
 };

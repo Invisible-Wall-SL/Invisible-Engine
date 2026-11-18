@@ -13,6 +13,7 @@ import {
 	underTint,
 	underwater,
 } from './leap';
+import { BLOOD, createRedness, type Blood } from './blood';
 import type { SalmonsTextures } from './load';
 
 /**
@@ -24,7 +25,7 @@ import type { SalmonsTextures } from './load';
  *   climbs a waterfall (the room holds it) with a pulse each tap; swimming in open water it is
  *   drawn under the water's tint with a white glint flashing along its spine, and breaks the surface
  *   (crisp, no glint) in the air, climbing or on sand or a rock; the golden one drawn with its own
- *   texture;
+ *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`);
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
  */
@@ -68,6 +69,7 @@ export type CodeLook = {
 		curl?: number;
 		climbing?: boolean;
 		underwater?: boolean;
+		red?: boolean;
 	};
 	destroy: () => void;
 };
@@ -154,6 +156,7 @@ function salmonLook(
 	bodyW: number,
 	waterAt: WaterAt,
 	tintAlpha: number,
+	blood: Blood,
 ): CodeLook {
 	const pink = art.region('salmon_pink');
 	const golden = art.region('salmon_golden');
@@ -198,6 +201,8 @@ function salmonLook(
 	let under = false;
 	let tintFilter: ColorMatrixFilter | undefined;
 	let tinted: number | undefined;
+	const redness = createRedness();
+	let red = false;
 	/** Draw the body under `tint` (the water's), or crisp with none. */
 	const tintUnder = (tint: number | undefined) => {
 		if (tint === tinted) return;
@@ -222,6 +227,7 @@ function salmonLook(
 			curl,
 			climbing: climbPose,
 			underwater: under,
+			red,
 		}),
 		event: (event, atMs) => {
 			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
@@ -276,7 +282,14 @@ function salmonLook(
 			const water = waterAt(f.x, f.y);
 			under = underwater(cells, water !== undefined, climbing);
 			tintUnder(under ? water?.tint : undefined);
+			blood.sink(view, under);
 			const open = free && under;
+			const blooded = redness(open, open && blood.touches(f.x, f.y), now);
+			if (blooded.red !== red) {
+				red = blooded.red;
+				rope.tint = red ? BLOOD.red : 0xffffff;
+			}
+			if (blooded.shed) blood.shed(f.x, f.y, now);
 			highlight.visible = open;
 			if (open) {
 				glintPoints.forEach((p, i) => {
@@ -365,13 +378,18 @@ function fishermanLook(bodyW: number): CodeLook {
 }
 
 /** The looks of Salmons' three characters (by character id), or none for another; a salmon is
- *  drawn under the water `waterAt` finds, at `tintAlpha`. */
-export function createLookFactory(art: SalmonsTextures, waterAt: WaterAt, tintAlpha: number) {
+ *  drawn under the water `waterAt` finds, at `tintAlpha`, and reddened by `blood`'s stains. */
+export function createLookFactory(
+	art: SalmonsTextures,
+	waterAt: WaterAt,
+	tintAlpha: number,
+	blood: Blood,
+) {
 	const glint = highlightTexture();
 	return {
 		look: (character: string, body: { w: number; h: number }): CodeLook | undefined =>
 			character === 'salmon'
-				? salmonLook(art, glint, body.w, waterAt, tintAlpha)
+				? salmonLook(art, glint, body.w, waterAt, tintAlpha, blood)
 				: character === 'bear'
 					? bearLook(art, body.w)
 					: character === 'fisherman'

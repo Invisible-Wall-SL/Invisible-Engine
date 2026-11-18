@@ -1,7 +1,7 @@
-import { and, eq, exists, gt, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { and, eq, exists, gt, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { getDb } from '../db';
-import { perfBuilds, perfReports, projects } from '../db/schema';
+import { perfBuilds, perfFindingBugs, perfReports, projects } from '../db/schema';
 import {
 	perfBuildsPrefix,
 	perfReportsPrefix,
@@ -23,10 +23,26 @@ const EVERY_MS = 24 * 60 * 60 * 1000;
 
 let started = false;
 
-const claimableReport = (cutoff: Date) =>
+/**
+ * A row a filed bug cites (P5, `findingBugs.ts`) is never claimed, whatever its Keep says: Keep is
+ * the mark the page shows, this is the guarantee.
+ */
+const uncited = (projectKey: AnyPgColumn, id: AnyPgColumn, list: AnyPgColumn) =>
+	notExists(
+		getDb()
+			.select({ one: sql`1` })
+			.from(perfFindingBugs)
+			.where(and(eq(perfFindingBugs.projectKey, projectKey), sql`${id} = any(${list})`)),
+	);
+
+export const claimableReport = (cutoff: Date) =>
 	or(
 		isNotNull(perfReports.purgingAt),
-		and(eq(perfReports.keep, false), lt(perfReports.capturedAt, cutoff)),
+		and(
+			eq(perfReports.keep, false),
+			lt(perfReports.capturedAt, cutoff),
+			uncited(perfReports.projectKey, perfReports.id, perfFindingBugs.readingIds),
+		),
 	);
 
 export const sqlPurgeStore: PurgeStore = {
@@ -65,12 +81,13 @@ const newer = alias(perfBuilds, 'newer_build');
  * game key and kind exists in the project — so the newest of each line is never claimed. Ties on
  * the time break on the id, as `buildPurgeable` does. A row already claimed is picked up again.
  */
-const claimableBuild = (cutoff: Date) =>
+export const claimableBuild = (cutoff: Date) =>
 	or(
 		isNotNull(perfBuilds.purgingAt),
 		and(
 			eq(perfBuilds.keep, false),
 			lt(perfBuilds.registeredAt, cutoff),
+			uncited(perfBuilds.projectKey, perfBuilds.id, perfFindingBugs.buildIds),
 			exists(
 				getDb()
 					.select({ one: sql`1` })

@@ -64,7 +64,6 @@ A seed and the same keys replay the same game.
   button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
-- **Character clips (S0)**: `characterClips.ts`, online rooms only, shipped by prefix.
 - **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
@@ -83,7 +82,8 @@ A seed and the same keys replay the same game.
   for Salmons; S0 art may restyle it, never rename or delete it): without it `joinOnlineRoom`
   leaves the room and refuses the boot before the game mounts.
 - **Built-in art only for its generator:** `salmonsArt/` via `online.ts` `FIELD_ART`'s lazy import,
-  never inlined; clip > code look > placeholder (`arcadeArt.svelte.ts`, `check:salmons-art`).
+  never inlined; clip > code look > placeholder (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
+  clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).

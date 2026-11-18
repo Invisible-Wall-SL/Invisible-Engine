@@ -20,6 +20,7 @@ import {
 	Player,
 	VIEW_TAG,
 	RoomState,
+	Stain,
 	type InputFrame,
 	type RoomStateData,
 } from './schema.ts';
@@ -86,6 +87,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		sim: RoomSim | undefined;
 		game = '';
 		counted = false;
+		/** How many of the rules' stains the state has been given (`OnlineRules.stains.made`). */
+		stainsWritten = 0;
 		inputs = this.defineInput(Input, {
 			seqField: 'seq',
 			bufferMaxSize: INPUT_BUFFER,
@@ -316,6 +319,25 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.state.round = sim.rules.round;
 			this.state.endsAt = sim.rules.endsAt;
 			this.state.winner = sim.rules.winner;
+			this.writeStains();
+		}
+
+		/** The rules' new stains pushed onto the state's, and the ones the rules let go shifted off,
+		 *  so a patch carries only what changed. */
+		private writeStains() {
+			const sim = this.sim;
+			if (!sim) return;
+			const { list, made } = sim.rules.stains;
+			const fresh = Math.min(list.length, made - this.stainsWritten);
+			if (fresh <= 0) return;
+			for (const { x, y } of list.slice(list.length - fresh)) {
+				const stain = new Stain();
+				stain.x = x;
+				stain.y = y;
+				this.state.stains.push(stain);
+			}
+			while (this.state.stains.length > list.length) this.state.stains.shift();
+			this.stainsWritten = made;
 		}
 
 		/**

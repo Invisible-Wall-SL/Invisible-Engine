@@ -1,6 +1,8 @@
 import { error, json } from '@sveltejs/kit';
+import { bugRef } from '$lib/bugReports';
 import { jsonBody, requireTool } from '$lib/server/http';
 import { buildFile, buildProject, setBuildKeep } from '$lib/server/profiler/builds';
+import { citingBug } from '$lib/server/profiler/findingBugLink';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -30,6 +32,11 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 	const project = await buildProject(params.id);
 	if (!project) throw error(404, 'No such build.');
 	await requireProjectScope(user, project);
+	if (!body.keep) {
+		const bug = await citingBug(project, 'build', params.id);
+		if (bug)
+			throw error(409, `${bugRef(bug)} cites this build: it stays kept while the bug exists.`);
+	}
 	if (!(await setBuildKeep(project, params.id, body.keep))) {
 		throw error(404, 'This build record has just been deleted by the 15-day purge.');
 	}

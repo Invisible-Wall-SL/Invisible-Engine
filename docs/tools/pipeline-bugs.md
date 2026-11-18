@@ -92,6 +92,12 @@ A link can open the form already filled in: `/bugs?new=1&for=<tool id>&page=<add
 the **Description** (this is how **File it** on a fix run's proposed second bug opens the form). An
 unknown tool id leaves the area blank.
 
+**File as bug** on a finding in [Invisible Profiler](profiler.md#file-a-finding-as-a-bug) opens the
+form filled in from it (`/bugs?new=1&project=<key>&finding=<id>`), with a line saying it files an
+Invisible Profiler finding. Its **Project** is the finding's and cannot be changed. If the finding
+is already filed, the form says so and links the bug ("This finding is already filed as
+BUG-`<n>`." with **Open BUG-`<n>`**).
+
 ### Find a bug
 
 5. The list opens on the bugs that are still to do (**Open** and **Working on**), newest first, and

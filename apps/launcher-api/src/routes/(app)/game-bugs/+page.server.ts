@@ -1,9 +1,10 @@
 import { error, redirect } from '@sveltejs/kit';
 import { bugAreas, isBugArea } from '$lib/bugReports';
+import { findingDraftOf } from '$lib/server/profiler/findingBugLink';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { liveRunOnProject } from '$lib/server/director/store';
 import { resolveToolScope } from '$lib/server/toolScope';
-import { askedBug, askedReport } from '../bugs/view';
+import { askedBug, askedReport, withFindingDraft } from '../bugs/view';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -40,6 +41,10 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies }) => 
 		pipelineAreas: bugAreas('pipeline'),
 		selected: askedBug(url),
 		areas: bugAreas('game'),
-		report: askedReport(url, (area) => isBugArea('game', area)),
+		report: withFindingDraft(
+			askedReport(url, (area) => isBugArea('game', area)),
+			await findingDraftOf(locals.user, url),
+			'game',
+		),
 	};
 };
