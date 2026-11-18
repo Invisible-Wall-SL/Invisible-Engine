@@ -7,8 +7,10 @@
 // pins it: `config-vite` compiles the tier into the game, the pull leaves the other copy out.
 // Claims:
 //
-//   1. The tier list the pin accepts is `engine-layout` `RESOLUTION_TIERS` plus `full`, and a bad
-//      value throws; `config-vite` compiles the pin (or `''`) as `__IE_ART_TIER__`.
+//   1. The 2D tier list is `engine-layout` `RESOLUTION_TIERS` plus `full`, and a bad value throws;
+//      `config-vite` compiles the pin (or `''`) as `__IE_ART_TIER__`. The 3D-only tiers (`quarter`,
+//      `ultra`) throw in a 2D build; a 3D build compiles them as `__IE_MODEL_TIER__` and the 2D
+//      tier they stand for as `__IE_ART_TIER__`, and the pull drops 2D art by that 2D tier.
 //   2. The drop rule, on names: `full` drops every `@half` copy; `half` drops each full file that
 //      has a half copy, and nothing else. A file a kept sheet or atlas names stays; an export's
 //      `index.json`, which names every tier and is never loaded, does not count.
@@ -24,7 +26,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RESOLUTION_TIERS } from '../../../packages/engine-layout/src/lib/resolutionTiers.ts';
-import { artTierDefine, PINNABLE_TIERS } from '../../../packages/config-vite/artTierPin.js';
+import {
+	artTierDefine,
+	PINNABLE_TIERS,
+	PINNABLE_TIERS_2D,
+} from '../../../packages/config-vite/artTierPin.js';
 import { artTierDrop, fullSiblingOf, parseArtTierPin } from './lib/artTierPin.mjs';
 
 const PULL = join(dirname(fileURLToPath(import.meta.url)), 'pull-project-assets.mjs');
@@ -50,10 +56,10 @@ const throws = (fn) => {
 console.log('1. the tier list and the compiled pin');
 {
 	ok(
-		'the pinnable tiers are RESOLUTION_TIERS plus full',
-		JSON.stringify([...PINNABLE_TIERS].sort()) ===
+		'the 2D pinnable tiers are RESOLUTION_TIERS plus full',
+		JSON.stringify([...PINNABLE_TIERS_2D].sort()) ===
 			JSON.stringify(['full', ...Object.keys(RESOLUTION_TIERS)].sort()),
-		JSON.stringify(PINNABLE_TIERS),
+		JSON.stringify(PINNABLE_TIERS_2D),
 	);
 	ok('unset is no pin', parseArtTierPin(undefined) === null && parseArtTierPin(' ') === null);
 	ok(
@@ -64,12 +70,12 @@ console.log('1. the tier list and the compiled pin');
 		'a typo throws',
 		throws(() => parseArtTierPin('hlaf')),
 	);
-	const define = (value) => {
+	const define = (value, view3d = false, key = '__IE_ART_TIER__') => {
 		const saved = process.env.IE_ART_TIER;
 		if (value === undefined) delete process.env.IE_ART_TIER;
 		else process.env.IE_ART_TIER = value;
 		try {
-			return artTierDefine().__IE_ART_TIER__;
+			return artTierDefine({ view3d })[key];
 		} finally {
 			if (saved === undefined) delete process.env.IE_ART_TIER;
 			else process.env.IE_ART_TIER = saved;
@@ -79,8 +85,30 @@ console.log('1. the tier list and the compiled pin');
 	ok('a pinned build compiles its tier', define('half') === '"half"');
 	ok(
 		'a build with a bad pin does not compile',
-		throws(() => define('quarter')),
+		throws(() => define('hlaf', true)),
 	);
+	ok(
+		'a 2D build refuses the 3D-only tiers',
+		throws(() => define('quarter')) && throws(() => define('ultra')),
+	);
+	ok(
+		'every 2D tier is pinnable in a 3D build too',
+		PINNABLE_TIERS_2D.every((t) => PINNABLE_TIERS.includes(t)),
+	);
+	ok(
+		'a 3D build pinned quarter: the models quarter, the 2D art half',
+		define('quarter', true, '__IE_MODEL_TIER__') === '"quarter"' &&
+			define('quarter', true) === '"half"',
+	);
+	ok(
+		'a 3D build pinned ultra: the 2D art full',
+		define('ultra', true, '__IE_MODEL_TIER__') === '"ultra"' && define('ultra', true) === '"full"',
+	);
+	ok(
+		'an unpinned build compiles no model pin',
+		define(undefined, true, '__IE_MODEL_TIER__') === '""',
+	);
+	ok('the pull takes a 3D tier', parseArtTierPin('quarter') === 'quarter');
 }
 
 console.log('2. the drop rule');
@@ -117,6 +145,12 @@ console.log('2. the drop rule');
 	);
 	ok('  and keeps a page with no half copy', !half.drop.includes('_pages/b.webp'));
 	ok('  and the index.json naming them all did not keep them', half.named.length === 0);
+	const quarter = await artTierDrop(rels, 'quarter', textOf);
+	ok(
+		'a quarter pin drops 2D art as half does',
+		JSON.stringify(quarter.drop) === JSON.stringify(half.drop),
+		JSON.stringify(quarter.drop),
+	);
 	const full = await artTierDrop(rels, 'full', textOf);
 	ok(
 		'full drops every half copy',
@@ -265,7 +299,7 @@ console.log('3. end to end');
 		ok('  the full copies are there', has('_pages/full.webp') && has('editor-art/s/s.1.json'));
 
 		const before = fetched;
-		const bad = await run('quarter');
+		const bad = await run('hlaf');
 		ok('a bad pin refuses', bad.code !== 0 && /IE_ART_TIER must be one of/.test(bad.out), bad.out);
 		ok('  before fetching anything', fetched === before);
 	} finally {

@@ -1410,3 +1410,42 @@ export const perfBuilds = pgTable(
 );
 
 export type PerfBuild = typeof perfBuilds.$inferSelect;
+
+/**
+ * Invisible Profiler budgets (`docs/design/invisible-profiler.md` §3, step P3): a project's
+ * override of one studio default line (`STUDIO_BUDGETS` in `$lib/profilerBudgets` — the owner's
+ * numbers live in code, reviewed, not in a row any role could edit for every project). No row = the
+ * studio default. `device_class` is `all` for what does not depend on the device (shipped size);
+ * `phase` is `''` for a metric that is not per phase, so the key never holds a null.
+ *
+ * Every role may edit (owner decision 2026-11-16), so two people can save the same line at once:
+ * each write names the `rev` it was made against and only lands while it is still current
+ * (`profiler/budgets.ts`), so a stale save is refused with the line as it now stands, never silently
+ * overwriting someone else's.
+ */
+export const perfBudgets = pgTable(
+	'perf_budgets',
+	{
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		deviceClass: text('device_class').notNull(),
+		metric: text('metric').notNull(),
+		phase: text('phase').notNull().default(''),
+		warn: doublePrecision('warn'),
+		fail: doublePrecision('fail'),
+		rev: integer('rev').notNull(),
+		updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.projectKey, table.deviceClass, table.metric, table.phase] }),
+		check(
+			'perf_budgets_device_class_check',
+			sql`${table.deviceClass} in ('phone', 'tablet', 'desktop', 'all')`,
+		),
+		check('perf_budgets_line_check', sql`${table.warn} is not null or ${table.fail} is not null`),
+	],
+);
+
+export type PerfBudget = typeof perfBudgets.$inferSelect;

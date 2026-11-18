@@ -7,16 +7,16 @@ runtime, as separate hashed files that only a room whose config names a Salmons 
 
 **Project art first, this copy as the fallback.** The same sheets are also stored in the Salmons
 project as ordinary sheets (`salmons_terrain`, `salmons_props`, `salmons_characters`,
-`salmons_waterfall_face`; `game-config` `SALMONS_PROJECT_SHEETS`), so the Sheet Maker and the Atlas
+`salmons_waterfall_face`, `salmons_cliff`; `game-config` `SALMONS_PROJECT_SHEETS`), so the Sheet Maker and the Atlas
 Maker show and edit them. A publish ships them as editor art (`editorArtExport.ts` seeds them for a
 Salmons generator), and the room draws each region from the project's sheet when the published
 snapshot ships it, from this copy otherwise (`load.ts`, `regions.ts` `pickSalmonsRegions`). A
 built-in page is fetched only when a region still needs it. Region names never change: the drawing
 code (`looks.ts`, `river.ts`, `regions.ts`) looks them up by name. Keep an edited region the size it
 is here: the drawing code sizes some art from its texture (the waterfall face's tile scale). The
-project sheets were put there once by `scripts/salmons/upload-art.py` (from
-`scripts/salmons/project-art.mjs`); re-running it after a rebuild here does not overwrite an edited
-project sheet, it stops and reports it.
+project sheets are imported through the Sheet Maker from `scripts/salmons/plist-export.py`'s
+`.plist` + `.webp` pairs (both it and the R2 script `upload-art.py` read the plan in
+`scripts/salmons/project-art.mjs`). A rebuild here does not touch an edited project sheet.
 
 **Source.** `GuiltyForever/Salmon-` at `41811c2`, `art/source/legacy/` (the untouched originals):
 `grass.png`, `sand.png`, `rocks.jpg`, `whirlpool.jpg`, `trees.png`, `waterfall_splash.png`,

@@ -188,25 +188,26 @@ looks still draw up and left of it.
 5. **Moving the players over** from the Salmon repository's own server: when the art (and,
    if wanted, the isometric view, P11.4) is in and you are happy with a playtest on the live server.
 
-**Put the original art into the project (2026-11-17; after the `salmons-art-project` branch
-merges).** Needs an R2 key that may write the Salmons project (the session that built this had
-read-only R2 only; its dry run on 2026-11-17 found the first 12 keys free; the cliff's 3 came
-with the waterfall heights):
+**The original art in the project.** Done 2026-11-17 for the first four sheets: imported by the
+owner through the Sheet Maker's `.plist` import (no R2 key needed), from the pairs
+`scripts/salmons/plist-export.py` writes, and checked in R2 the same day (`salmons_terrain`,
+`salmons_props`, `salmons_characters`, `salmons_waterfall_face`: every region at its built-in name,
+place and size, each page byte-identical to the built-in one, locked). **Still to import:
+`salmons_cliff`**, added to the plan with the waterfall heights.
 
-1. From the repo root, with `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
-   `R2_BUCKET` set and `boto3` installed, run `python3 scripts/salmons/upload-art.py`: a dry run
-   that lists the 15 keys it would write (5 manifests, 5 pages, 5 JSONs) and any key already holding
-   other content. Then run it again with `--apply`. A second `--apply` writes nothing (all "same").
-2. **See it in the tools:** open the Sheet Maker on the `salmons` project: the rail lists
-   `salmons_terrain`, `salmons_props`, `salmons_characters`, `salmons_waterfall_face` and
-   `salmons_cliff` (🔒 locked,
-   like a verbatim import). In the Atlas Maker, **↻ Refresh from R2**, then pick one in the atlas
-   list.
+1. **To import (or redo) a sheet:** `python3 scripts/salmons/plist-export.py --out <dir>` writes a
+   `.plist` + `.webp` pair per sheet; in the Sheet Maker's **Import** tab drop a `.plist` with its
+   `.webp` (sheet name blank, lock on). For the cliff, only `salmons_cliff.plist` +
+   `salmons_cliff.webp`. `scripts/salmons/upload-art.py` does the same straight to R2 for someone
+   holding an R2 write key (dry run first; it skips what is already there and stops on anything
+   that differs).
+2. **See it in the tools:** the Sheet Maker's rail on `salmons` lists the sheets (🔒). In the Atlas
+   Maker, **↻ Refresh from R2**, then pick one in the atlas list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
    To re-pack a sheet in the Sheet Maker, unlock it first (its frames may move; the game reads them
    by name, so that is safe).
-4. **Republish** `salmons` from Game Maker. The art export ships the five sheets, and the room
-   draws them. Until then the game draws the built-in copy, and looks exactly as today.
+4. **Republish** `salmons` from Game Maker. The art export ships every Salmons sheet the project
+   holds, and the room draws them; one it lacks is drawn from the built-in copy.
 
 ## Open items / next (S0)
 
@@ -535,6 +536,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     E's. `salmons-levels-play.mjs` 18 / 18. Bundle: `arcade` +568 B gzip in the main bundle and
     +297 B in the lazy Salmons art chunk; `lines`, `match3` and `card` build byte-identical to
     this branch's base.
+- 2026-11-17 — **The original art imported into the project** through the Sheet Maker's `.plist`
+  import, no R2 key: `scripts/salmons/plist-export.py` writes the four `.plist` + `.webp` pairs and
+  reads each back through the tool's own `plist_import.parse_plist` / `validate`. Verified in R2:
+  all regions match, pages byte-identical, locked. Next: the owner republishes `salmons`.
 
 - 2026-11-17 — **Waterfall heights, the original's climb and the raised river** (branch
   `arcade/salmons-waterfall-heights`; in review; runtime change). Source: the original at 41811c2
@@ -680,7 +685,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 - 2026-11-17 — **The original art becomes project art** (branch `salmons-art-project`; in review;
   plan in "Original art as project art" above). Built: the conversion (`scripts/salmons/project-art.mjs`)
   and its upload (`scripts/salmons/upload-art.py`, dry run by default, create-only writes, stops on
-  any key holding other content; not run with `--apply`, owner step above); `game-config`
+  any key holding other content; not run: the owner imported the sheets through the Sheet Maker
+  instead, owner step above); `game-config`
   `salmonsProjectArt.ts` (sheet names, generators, the manifest-key test); the `art` exporter's
   Salmons seed; the online runtime drawing each region from the shipped project sheet, else the
   built-in (`load.ts`, `regions.ts` `pickSalmonsRegions`; `editor-scenes.ts` `editorArtSheetsWhere`).

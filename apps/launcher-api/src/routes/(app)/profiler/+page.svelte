@@ -18,18 +18,30 @@
 		readingOnBuild,
 		type PerfBuildListItem,
 	} from '$lib/profilerBuilds';
+	import { BUDGET_DEVICE_CLASSES, evaluateBuild, VERDICT_TEXT } from '$lib/profilerBudgets';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
+	import BudgetsTab from './BudgetsTab.svelte';
+	import DevicesTab from './DevicesTab.svelte';
+	import VerdictBadge from './VerdictBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
 
 	// ── Tabs ──
 	const TABS = [
 		{ id: 'readings', label: 'Readings' },
+		{ id: 'devices', label: 'Devices' },
 		{ id: 'builds', label: 'Builds' },
+		{ id: 'budgets', label: 'Budgets' },
 	] as const;
+	const tabCount = (id: TabId): string =>
+		id === 'readings'
+			? ` (${data.readings.length})`
+			: id === 'builds'
+				? ` (${data.builds.length})`
+				: '';
 	type TabId = (typeof TABS)[number]['id'];
 	let tab = $state<TabId>(untrack(() => data.tab));
 
@@ -249,6 +261,16 @@
 	const selectedReadings = $derived(
 		selectedBuild ? data.readings.filter((r) => readingOnBuild(r, selectedBuild)) : [],
 	);
+	const verdicts = $derived(
+		new Map(data.builds.map((b) => [b.id, evaluateBuild(b, data.readings, data.budgets)])),
+	);
+	const sizeTitle = (b: PerfBuildListItem, metric: 'shippedMb' | 'gpuMb') =>
+		(verdicts.get(b.id)?.size ?? [])
+			.filter((m) => m.metric === metric && m.verdict !== 'none')
+			.map(
+				(m) => `${m.deviceClass === 'all' ? 'budget' : m.deviceClass}: ${VERDICT_TEXT[m.verdict]}`,
+			)
+			.join(' · ') || 'no budget';
 	const readingsOn = (b: PerfBuildListItem) =>
 		data.readings.filter((r) => readingOnBuild(r, b)).length;
 	const shippedDelta = (b: PerfBuildListItem) => {
@@ -345,7 +367,7 @@
 					tabindex={tab === t.id ? 0 : -1}
 					onclick={() => showTab(t.id)}
 				>
-					{t.label} ({t.id === 'builds' ? data.builds.length : data.readings.length})
+					{t.label}{tabCount(t.id)}
 				</button>
 			{/each}
 		</div>
@@ -552,6 +574,14 @@
 					{/if}
 				</SectionCard>
 			</div>
+		{:else if tab === 'devices'}
+			<div id="panel-devices" role="tabpanel" aria-labelledby="tab-devices">
+				<DevicesTab readings={data.readings} builds={data.builds} budgets={data.budgets} />
+			</div>
+		{:else if tab === 'budgets'}
+			<div id="panel-budgets" role="tabpanel" aria-labelledby="tab-budgets">
+				<BudgetsTab projectKey={data.projectKey} budgets={data.budgets} />
+			</div>
 		{:else}
 			<div id="panel-builds" role="tabpanel" aria-labelledby="tab-builds">
 				<SectionCard scope="profiler" id="builds" title="Builds ({data.builds.length})">
@@ -563,7 +593,9 @@
 							kind. The desktop launcher sends each one after the build. Click a build number for
 							its detail and the readings taken on it. A build record is deleted {PERF_RETENTION_DAYS}
 							days after it was made unless Keep is ticked — except the newest of each game and kind,
-							which always stays.
+							which always stays. Shipped MB and GPU MB are coloured by this project's budgets, and Devices
+							says pass, warn or fail per device class from the as-shipped readings taken on the build
+							(hover for the detail; set the lines on the Budgets tab).
 						</p>
 					{/snippet}
 					{#if buildKeepError}<p class="error">{buildKeepError}</p>{/if}
@@ -582,6 +614,11 @@
 										<th class="num">Shipped MB</th>
 										<th class="num">Δ MB</th>
 										<th class="num">GPU MB</th>
+										<th
+											title="Against this project's budgets: each device class from its as-shipped readings on the build"
+										>
+											Devices
+										</th>
 										<th class="num">Issues</th>
 										<th class="num">Readings</th>
 										<th>Keep</th>
@@ -621,9 +658,33 @@
 													{/each}
 												</div>
 											</td>
-											<td class="num">{mb(b.shippedBytes)}</td>
+											<td
+												class="num v-{verdicts.get(b.id)?.shipped}"
+												title={sizeTitle(b, 'shippedMb')}
+											>
+												{mb(b.shippedBytes)}
+											</td>
 											<td class="num">{shippedDelta(b)}</td>
-											<td class="num">{mb(b.gpuBytes)}</td>
+											<td class="num v-{verdicts.get(b.id)?.gpu}" title={sizeTitle(b, 'gpuMb')}>
+												{mb(b.gpuBytes)}
+											</td>
+											<td class="nowrap">
+												{#each BUDGET_DEVICE_CLASSES as c (c)}
+													{@const d = verdicts.get(b.id)?.devices[c]}
+													{#if d}
+														<VerdictBadge
+															verdict={d.verdict}
+															label={c}
+															title={`${c}: ${VERDICT_TEXT[d.verdict]} — ${d.readings} as-shipped reading(s)`}
+														/>
+													{/if}
+												{/each}
+												{#if !BUDGET_DEVICE_CLASSES.some((c) => verdicts.get(b.id)?.devices[c])}
+													<span class="muted" title="No as-shipped reading on this build yet"
+														>—</span
+													>
+												{/if}
+											</td>
 											<td class="num">
 												{#if b.issues.error}<span class="error">{b.issues.error} err</span>{/if}
 												{#if b.issues.warn}<span class="warn">{b.issues.warn} warn</span>{/if}
@@ -935,6 +996,17 @@
 	}
 	.ok {
 		color: #7ee787;
+	}
+	.v-pass {
+		color: #7ee787;
+	}
+	.v-warn {
+		color: #ffb347;
+		background: rgba(255, 179, 71, 0.08);
+	}
+	.v-fail {
+		color: #ff7b7b;
+		background: rgba(255, 123, 123, 0.1);
 	}
 	.table-wrap {
 		overflow-x: auto;
