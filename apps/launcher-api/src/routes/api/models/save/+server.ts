@@ -3,7 +3,7 @@ import { isModelClass } from 'constants-shared/modelTiers';
 import { conflictJson } from '$lib/server/conflict';
 import { objectOrNull, readJson } from '$lib/server/http';
 import { requireModelAccess } from '$lib/server/modelAccess';
-import { isModelId } from '$lib/server/modelStorage';
+import { isModelId, MODEL_ID_RULE } from '$lib/server/modelStorage';
 import { saveModelSettings } from '$lib/server/modelViewer';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		url.searchParams.get('project'),
 	);
 	const body = objectOrNull(await readJson(request)) ?? {};
-	if (!isModelId(body.id)) throw error(400, 'Expected an `id` in lower snake case.');
+	if (!isModelId(body.id)) throw error(400, `Expected an \`id\`: ${MODEL_ID_RULE}.`);
 	if (!isModelClass(body.class)) throw error(400, 'Expected a model `class`.');
 	if (typeof body.baseEtag !== 'string' || !body.baseEtag)
 		throw error(400, 'Expected `baseEtag`: the model.json ETag you loaded.');

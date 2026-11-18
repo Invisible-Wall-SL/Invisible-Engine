@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { objectOrNull, readJson } from '$lib/server/http';
 import { requireModelAccess } from '$lib/server/modelAccess';
-import { isModelId } from '$lib/server/modelStorage';
+import { isModelId, MODEL_ID_RULE } from '$lib/server/modelStorage';
 import { deriveModelForViewer } from '$lib/server/modelViewer';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -22,7 +22,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		url.searchParams.get('project'),
 	);
 	const body = objectOrNull(await readJson(request)) ?? {};
-	if (!isModelId(body.id)) throw error(400, 'Expected an `id` in lower snake case.');
+	if (!isModelId(body.id)) throw error(400, `Expected an \`id\`: ${MODEL_ID_RULE}.`);
 	const result = await deriveModelForViewer(clientKey, projectKey, body.id);
 	if (!result.ok) return json({ error: result.error }, { status: result.status });
 	return json({

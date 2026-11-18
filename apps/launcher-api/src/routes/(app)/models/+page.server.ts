@@ -2,7 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { MODELS_TOOL } from '$lib/server/modelAccess';
-import { MAX_MODEL_BYTES, MODEL_ID } from '$lib/server/modelStorage';
+import { MAX_MODEL_BYTES } from '$lib/server/modelStorage';
 import { listModels, loadModelProjectContext } from '$lib/server/modelViewer';
 import { projectFamily, projectGameType } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -40,7 +40,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		projectKey,
 		tools,
 		maxModelBytes: MAX_MODEL_BYTES,
-		modelIdPattern: MODEL_ID.source,
 	};
 	if (projectFamily(projectKey, await projectGameType(projectKey)) !== 'arcade') {
 		return { ...base, models: [], context: null };

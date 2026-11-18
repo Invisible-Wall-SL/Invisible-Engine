@@ -596,7 +596,6 @@
 		? { id: detail.id, cls: doc?.class ?? null, etag: detail.etag }
 		: null}
 	taken={models.map((m) => m.id)}
-	idPattern={data.modelIdPattern}
 	maxBytes={data.maxModelBytes}
 	onclose={() => (uploadOpen = false)}
 	ondone={(id, uploadedDoc, etag) => void uploaded(id, uploadedDoc, etag)}

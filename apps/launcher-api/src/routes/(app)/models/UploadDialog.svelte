@@ -8,6 +8,7 @@
 	import { untrack } from 'svelte';
 	import { MODEL_CLASSES, type ModelClass } from 'constants-shared/modelTiers';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import { MODEL_ID_RULE, modelIdRefusal } from '$lib/models/modelId';
 	import type { ModelDoc, ModelValidatorIssue } from '$lib/server/modelStorage';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { formatBytes, modelIdFromFile, uploadMaster, type UploadPhase } from './models.client';
@@ -20,12 +21,11 @@
 		replace: { id: string; cls: ModelClass | null; etag: string | null } | null;
 		/** Ids the project already has: a new model may not take one. */
 		taken: readonly string[];
-		idPattern: string;
 		maxBytes: number;
 		onclose: () => void;
 		ondone: (id: string, doc: ModelDoc, etag: string | null) => void;
 	}
-	const { open, project, replace, taken, idPattern, maxBytes, onclose, ondone }: Props = $props();
+	const { open, project, replace, taken, maxBytes, onclose, ondone }: Props = $props();
 
 	let file = $state<File | null>(null);
 	let id = $state('');
@@ -53,17 +53,16 @@
 		});
 	});
 
-	const idRule = $derived(new RegExp(idPattern));
 	const problem = $derived.by(() => {
 		if (!file) return '';
 		if (!/\.glb$/i.test(file.name)) return 'A master is a .glb file.';
 		if (file.size > maxBytes) return `That file is over ${formatBytes(maxBytes)}.`;
 		if (file.size === 0) return 'That file is empty.';
 		if (replace) return '';
-		if (!idRule.test(id)) return 'An id is lower snake case and starts with a letter.';
 		if (taken.includes(id))
 			return `This project already has "${id}". Open it and use Replace master.`;
-		return '';
+		// The register step's own refusal: not an id, or one that differs from a model's only in case.
+		return modelIdRefusal(id, taken) ?? '';
 	});
 	const busyLabel = $derived(
 		phase === 'uploading'
@@ -155,8 +154,9 @@
 				{#if !replace}<label>
 						<span
 							>Id <InfoTip
-								>The name the game uses for this model, in lower snake case (crate_small). It cannot
-								be changed later.</InfoTip
+								>The name the game uses for this model: the master's own asset id, as the Blender
+								export names the file, kept exactly (case included). It is {MODEL_ID_RULE}. It
+								cannot be changed later.</InfoTip
 							></span
 						>
 						<input type="text" bind:value={id} disabled={busy} spellcheck="false" />

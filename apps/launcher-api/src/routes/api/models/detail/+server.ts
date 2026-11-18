@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { requireModelAccess } from '$lib/server/modelAccess';
-import { isModelId } from '$lib/server/modelStorage';
+import { isModelId, MODEL_ID_RULE } from '$lib/server/modelStorage';
 import { loadModelDetail } from '$lib/server/modelViewer';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -17,7 +17,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		url.searchParams.get('project'),
 	);
 	const id = url.searchParams.get('id');
-	if (!isModelId(id)) throw error(400, 'Expected an `id` in lower snake case.');
+	if (!isModelId(id)) throw error(400, `Expected an \`id\`: ${MODEL_ID_RULE}.`);
 	const detail = await loadModelDetail(clientKey, projectKey, id);
 	if (!detail) throw error(404, 'This project has no such model.');
 	return json(detail, { headers: { 'cache-control': 'no-store' } });

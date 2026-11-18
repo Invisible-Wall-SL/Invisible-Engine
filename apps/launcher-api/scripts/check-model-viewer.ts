@@ -8,6 +8,8 @@
  *     arcade project is offered it; every `/api/models` route gates on the tool itself.
  *  2. FACTS. A registered master keeps what it holds (levels, textures, sockets) in `model.json`,
  *     and a model from before facts were kept gets them read off its master when it is opened.
+ *     THE ID is the master's file name, exactly (prefix and case kept), and the upload dialog
+ *     refuses one with the function the register step refuses it with.
  *  3. THE PROFILE THE PAGE SHOWS IS THE EXPORT'S. `effectiveProfile` over the inherited layer equals
  *     `resolveModelProfile` for every class; each value names its source (this model, Game Config,
  *     default); every override edit leaves exactly what a save stores.
@@ -60,7 +62,9 @@ import {
 	setMapOverride,
 	type TierOverrides,
 } from '../src/lib/models/modelProfile.ts';
+import * as modelId from '../src/lib/models/modelId.ts';
 import { buildModelReport, reportCounts } from '../src/lib/models/modelReport.ts';
+import { modelIdFromFile } from '../src/routes/(app)/models/models.client.ts';
 import { buildMasterGlb } from './lib/modelFixtures';
 
 let failures = 0;
@@ -313,6 +317,54 @@ same('…and its sockets', orbDoc?.facts?.sockets, ['top']);
 	same('an unknown model opens as null', await viewer.loadModelDetail(C, P, 'nope'), null);
 	R2.delete(paths.modelDocKey(C, P, 'old'));
 	R2.delete(paths.modelSourceKey(C, P, 'old', orbDoc!.source.file));
+}
+{
+	same(
+		'the id is the file name, exactly: prefix and case kept',
+		modelIdFromFile('PR_crate_small.glb'),
+		{ id: 'PR_crate_small', cls: 'prop' },
+	);
+	same(
+		'…for every class prefix',
+		['CH_Brawler.GLB', 'wp_sword.glb', 'TL_floor.glb', 'FX_ring.glb'].map((name) => {
+			const read = modelIdFromFile(name);
+			return [read.id, read.cls];
+		}),
+		[
+			['CH_Brawler', 'hero'],
+			['wp_sword', 'weapon'],
+			['TL_floor', 'tile'],
+			['FX_ring', 'fx'],
+		],
+	);
+	same('a name with no class prefix reads no class', modelIdFromFile('sword.glb'), {
+		id: 'sword',
+		cls: null,
+	});
+	same(
+		'a name that is no id is left as it is, for the rule to refuse',
+		[modelIdFromFile('My Model (2).glb').id, modelId.modelIdRefusal('My Model (2)', []) !== null],
+		['My Model (2)', true],
+	);
+	check(
+		'the page and the server share one id rule',
+		storage.modelIdRefusal === modelId.modelIdRefusal &&
+			storage.isModelId === modelId.isModelId &&
+			storage.MODEL_ID === modelId.MODEL_ID &&
+			storage.MODEL_ID_RULE === modelId.MODEL_ID_RULE,
+	);
+	check(
+		'a case-only twin of a model is refused before anything uploads',
+		!!modelId.modelIdRefusal('ORB', ['orb']) && modelId.modelIdRefusal('orb2', ['orb']) === null,
+	);
+	const dialog = readFileSync(
+		fileURLToPath(new URL('../src/routes/(app)/models/UploadDialog.svelte', import.meta.url)),
+		'utf8',
+	);
+	check(
+		'the upload dialog refuses an id with that function',
+		dialog.includes("from '$lib/models/modelId'") && dialog.includes('modelIdRefusal(id, taken)'),
+	);
 }
 
 // ── 3. The profile ──────────────────────────────────────────────────────────────────────────────
