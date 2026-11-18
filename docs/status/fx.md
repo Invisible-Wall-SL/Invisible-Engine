@@ -180,6 +180,19 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-18 — **Version history** (branch `launcher/doc-history-fx-l10n-wintext`). Every effect
+  save now goes through `putDocWithBackup` (`docBackups.ts`): the EffectDoc it replaces is copied
+  to `<client>/<project>/fx-backups/<id>/fx-*.json` (coalesced to one per 5 min, newest 20 per
+  effect; an overwrite and a Delete always copy). The `.fx.meta.json` sidecar is view state and is
+  not backed up. The ETag CAS is unchanged — a stale save still 409s, now before any copy.
+  `/api/fx/backups?effect=<id>` lists and restores (session-scoped like `/api/fx/save`, stale-tab
+  `projectKey` guard); `restoreEffect` keeps the live sidecar and drops a bake whose sheet is gone
+  (every save prunes all bakes but the current one), so the effect re-bakes rather than ship a
+  pointer to nothing. A project duplicate skips `fx-backups/`. UI: a clock `IconButton` (new
+  `history` glyph) beside the effect picker opens `DocHistoryModal`; the overwrite and delete
+  confirms no longer say effects have no history. Gates: `check:doc-backups` (stem `fx`, the route,
+  delete-then-history, bake drop, sidecar kept), `check:launcher-gates` (`fx/backups` stale-tab
+  guard), `check:fx-bake`.
 - 2026-11-17 — **Path editor fixes after review** (branch `fix/fx-path-editor`, follow-up of
   #1695). `FxStage`: a drag now ends through one `endPathDrag` on `pointerup`, `pointercancel`,
   `lostpointercapture`, a layer switch, the path going away (an undo mid-drag) and unmount; it

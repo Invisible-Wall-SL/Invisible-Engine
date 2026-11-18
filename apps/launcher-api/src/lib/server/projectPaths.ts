@@ -355,7 +355,15 @@ export function editorDocKey(client: string, project: string): string {
  * dump and un-rewriting its rig keys).
  */
 export type DocBackupStem =
-	'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults' | 'shader';
+	| 'scenes'
+	| 'flow-v2'
+	| 'symbols'
+	| 'config'
+	| 'component-defaults'
+	| 'shader'
+	| 'fx'
+	| 'strings'
+	| 'win-text';
 
 /**
  * One doc's backup layout. Always built here from the caller's OWN `(client, project)` — never
@@ -412,6 +420,49 @@ export function gameConfigDocBackupTarget(client: string, project: string): DocB
 		docKey: gameConfigDocKey(client, project),
 		prefix: `${SUB.config(client, project)}/backups/`,
 		stem: 'config',
+	};
+}
+
+/**
+ * Localization `strings.json` → `<client>/<project>/localization/backups/strings-*.json`. Nothing
+ * lists `localization/`: the doc is read by its key, so the sub-folder is invisible to every reader.
+ */
+export function localizationDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: localizationDocKey(client, project),
+		prefix: `${SUB.localization(client, project)}/backups/`,
+		stem: 'strings',
+	};
+}
+
+/** Win Text `win-text.json` → `<client>/<project>/win-text/backups/win-text-*.json`. */
+export function winTextDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: winTextDocKey(client, project),
+		prefix: `${SUB.winText(client, project)}/backups/`,
+		stem: 'win-text',
+	};
+}
+
+/**
+ * A project's FX effect backups: `<client>/<project>/fx-backups/`, a SIBLING of the loose
+ * `<id>.fx.json` files and of `fx-bakes/`. `listEffects` lists the project root with a delimiter,
+ * so a sub-folder never surfaces as an effect.
+ */
+export function fxBackupsPrefix(client: string, project: string): string {
+	return `${projectPrefix(client, project)}/fx-backups/`;
+}
+
+/**
+ * One effect → `…/fx-backups/<id>/fx-*.json`: each effect keeps its own newest 20. Only the
+ * EffectDoc is preserved — the `.fx.meta.json` sidecar is view state (camera, selection) — and the
+ * id is slugged like the effect's own key, so the backups follow the doc they preserve.
+ */
+export function fxDocBackupTarget(client: string, project: string, id: string): DocBackupTarget {
+	return {
+		docKey: fxDocKey(client, project, id),
+		prefix: `${fxBackupsPrefix(client, project)}${r2Slug(id)}/`,
+		stem: 'fx',
 	};
 }
 

@@ -1063,7 +1063,7 @@ async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 	}
 	const added = [...(cleared ? [`cleared modes.${stale}`] : []), ...merged.added];
 	if (!added.length) return part('present');
-	await saveWinTextDoc(ctx.client, ctx.project, merged.doc, target.etag);
+	await saveWinTextDoc(ctx.client, ctx.project, merged.doc, target.etag, undefined, 'always');
 	return part('added', added);
 }
 
