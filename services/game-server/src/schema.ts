@@ -12,7 +12,8 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * input the room applied, which a predicting device replays from), and what the rules own (P10.15):
  * the score, the status (`engine-mechanics` `STATUS`: free, stunned, out, or a rules module's
  * grounded, hooked), the module's `mark`, whether it is a bot the server plays (P10.16) and how
- * high a module lifted it (`z`) and whether a module holds it still (`held`). Per room the phase, the step every state is stamped with, the
+ * high a module lifted it (`z`), whether a module holds it still (`held`) and the move it carries
+ * (`air`, `carryX`, `carryY`). Per room the phase, the step every state is stamped with, the
  * round, the step its phase ends at (0 = never) and the last round's winner, and the room's seed,
  * from which a device makes a generated field. The level is never in the state.
  *
@@ -56,6 +57,12 @@ const playerFields = {
 	/** Free but held still by a rules module (a salmon climbing a waterfall): a predicting device
 	 *  steps it with no input, as the room does. */
 	held: t.boolean().default(false),
+	/** Inputs left for which the room carries a move (`carryX`, `carryY`: a leaping salmon keeps
+	 *  its leap's move while the stick rests; `engine-mechanics` `carriedInput`): a predicting
+	 *  device steps the same input. */
+	air: t.uint8().default(0),
+	carryX: t.int8().default(0),
+	carryY: t.int8().default(0),
 };
 
 export const Player = schema(playerFields);

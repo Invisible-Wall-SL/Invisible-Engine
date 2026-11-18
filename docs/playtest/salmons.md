@@ -124,7 +124,10 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     swims it to the waterfall's foot; dragged, then lifted, it stops steering (the current carries
     it down, and the lift is no tap); with ArrowUp held, taps on the screen are the salmon's jump and
     climb the waterfall (`climbed`; `08b-touch-over-the-waterfall.png`); with touch off, a mouse
-    moved upstream of it, no button pressed, swims it there (the original's hover-to-move).
+    moved upstream of it, no button pressed, swims it there (the original's hover-to-move). Before
+    the hover, a quick tap four cells across the river from the salmon (no key, the finger lifted
+    at once) leaps it towards the tap: it carries the leap across, more than 120 px, where without
+    the carry it would only drift down (2026-11-18).
 14. Page F joins `salmons-sand` (its salmon starting just below the first sandbank): swimming up,
     it is grounded on the sand (`grounded`) and stays put with ArrowUp held; Space jumps it off
     (`jumped`) and it swims on upstream.
@@ -171,7 +174,10 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
 
 The bots are bears with a brain that stands still: each room places them on its own river's
 banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
-so it is golden and check 6 takes its colour as pink or gold. 75 verdicts.
+so it is golden and check 6 takes its colour as pink or gold. A salmon swimming in open water is
+drawn under the water's tint (2026-11-18): check 6 reads its colour back through each of the
+river's tints, and the golden checks (16, 19) take a swimming salmon's look as the golden texture
+(the probe's `underwater`), since only a quarter of its gold shows. 76 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
 and the pages of the authored-river rooms (E, F, G, H, P, S, T) draw a river of the room's seed while
@@ -197,13 +203,16 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
 
 ## Known gaps
 
-- The swipe, cast and splash are placeholder looks (drawn over their user). The salmon is drawn
-  above the water's tint, not under it with the displacement as the old client did. The clip path is played with stub clips only: the bear's and fisherman's one-shots,
+- The swipe, cast and splash are placeholder looks (drawn over their user). The swimming salmon is
+  drawn under the water's tint by a colour matrix, without the old client's displacement wobble
+  (no verdict reads it; `check:salmons-jump` pins the threshold and the tint). The clip path is
+  played with stub clips only: the bear's and fisherman's one-shots,
   the reel and the `caught` hold are pinned by `pnpm check:character-clips`, not in a browser.
 - A device that joins, or comes near, after a hook does not draw that line (it knows of a line
   only from the room's `hooked`).
 - A climb and a reel move a body on the server only: the own device sees them as a correction.
-  So does passing over a waterfall once the salmon is as high as it.
+  So does passing over a waterfall once the salmon is as high as it, over a rock at half a cell, or
+  out of a whirlpool's pull, and a leap's launch (its carried move is predicted after it).
 - `salmons-play.mjs` checks only the band river's one-tap waterfalls; the height-8 climb and its
   pose are in `salmons-levels-play.mjs`. Next verdict idea: at a waterfall of height 3 or more,
   `online.art.looks[me].lift` steps up by 2.4 × 24 px a tap.

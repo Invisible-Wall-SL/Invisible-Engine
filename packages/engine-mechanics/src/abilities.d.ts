@@ -69,7 +69,8 @@ export type AbilityUse<T extends AbilityActor, S extends AbilitySpec> = AbilityR
 	used(ability: S): void;
 	players(): T[];
 	hit(target: T, ability: S): void;
-	hook(target: T, ability: S, players: T[]): void;
+	/** `false`: it cannot take this target; the next nearest is offered. */
+	hook(target: T, ability: S, players: T[]): boolean | void;
 };
 
 export function useAbilities<T extends AbilityActor, S extends AbilitySpec>(
@@ -93,6 +94,9 @@ export type ZoneForceRule = {
 	characters?: readonly string[];
 	/** Pushes only a body whose centre is in the zone. */
 	centre?: boolean;
+	/** Draws a body towards the zone's centre by `strength · (1 − d / radius)` (px/s) while its
+	 *  centre is less than `radius` (px) from it (Salmons' whirlpools). */
+	pull?: { strength: number; radius: number };
 };
 
 export type ZoneForce = {
@@ -105,6 +109,8 @@ export type ZoneForce = {
 	fy: number;
 	characters?: readonly string[];
 	centre?: boolean;
+	/** A pull's centre (px), strength (px/s) and radius (px). */
+	pull?: { x: number; y: number; strength: number; radius: number };
 };
 
 export function zoneForces(

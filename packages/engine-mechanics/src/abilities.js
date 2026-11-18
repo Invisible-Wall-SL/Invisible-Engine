@@ -7,14 +7,16 @@
  * AN ABILITY is a button of a character that, off its cooldown, hits every actor of its target
  * characters within `reach` of its user's centre: `stun` holds the target still, `catch` puts it
  * out until it is back (online it respawns), each for the ability's `ms`; `hook` hands the nearest
- * target to the caller (online, a rules module's line). An actor whose status ends cannot be hit
- * for {@link GRACE_MS}. Times are whole steps: `stamp` is the step that is running, counted from 1.
+ * target the caller takes to it (online, a rules module's line). An actor whose status ends cannot
+ * be hit for {@link GRACE_MS}. Times are whole steps: `stamp` is the step that is running, counted from 1.
  *
  * An actor is `{ id, character: { id }, body, status, until, safeUntil, cooldowns }`, mutated in
  * place: an online room's player, or the offline loop's record of a character.
  *
  * A ZONE FORCE is a zone that adds a velocity to a body in it, while the body moves: a river's
- * current, wind. It is added for the move, not kept.
+ * current, wind. It is added for the move, not kept. A PULL (a rule's `pull: { strength, radius }`,
+ * px/s and px; Salmons' whirlpools) draws a body towards its zone's centre instead, by
+ * `strength · (1 − d / radius)` while the body's centre is less than `radius` from it.
  *
  * Plain, dependency-free ESM beside `motion.js`.
  */
@@ -74,8 +76,9 @@ export function abilityTargets(user, ability, players, stamp, { present, placeOf
  * Use `user`'s abilities ({@link abilitySpecs}) at `stamp`: each of its character's that
  * `pressed(ability)` and is off cooldown starts its cooldown, calls `used(ability)` and acts on its
  * targets ({@link abilityTargets}, over `players()`, asked once): a `stun` or `catch` sets each
- * one's status and `until`, then `hit(target, ability)`; a `hook` calls `hook(nearest, ability,
- * players)` with the nearest (the first of equals).
+ * one's status and `until`, then `hit(target, ability)`; a `hook` calls `hook(target, ability,
+ * players)` with the nearest (the first of equals), and, while that answers `false` (it cannot take
+ * that one: Salmons' line skips a salmon in the air), with the next nearest.
  */
 export function useAbilities(user, stamp, specs, ctx) {
 	let players;
@@ -85,18 +88,19 @@ export function useAbilities(user, stamp, specs, ctx) {
 		user.cooldowns[ability.key] = stamp + ability.cooldown;
 		ctx.used(ability);
 		players ??= ctx.players();
-		let nearest;
-		let nearestAt = Infinity;
-		for (const { target, d } of abilityTargets(user, ability, players, stamp, ctx)) {
+		const hooks = [];
+		for (const found of abilityTargets(user, ability, players, stamp, ctx)) {
 			if (ability.effect === 'hook') {
-				if (d < nearestAt) [nearest, nearestAt] = [target, d];
+				hooks.push(found);
 				continue;
 			}
+			const { target } = found;
 			target.status = ability.effect === 'catch' ? STATUS.out : STATUS.stunned;
 			target.until = stamp + ability.hold;
 			ctx.hit(target, ability);
 		}
-		if (nearest) ctx.hook(nearest, ability, players);
+		hooks.sort((a, b) => a.d - b.d);
+		for (const { target } of hooks) if (ctx.hook(target, ability, players) !== false) break;
 	}
 }
 
@@ -112,12 +116,12 @@ export function endStatuses(actors, stamp, grace, back) {
 }
 
 /**
- * The zone forces of a level, indexed once: each rule (`{ zone, force, characters?, centre? }`)
- * with a force whose zone is in `zones`. A `centre` rule pushes only a body whose centre is in its
- * zone (`[x, x + w) × [y, y + h)`), so a body on the line between two such zones (a river's bands)
- * is pushed by one, not both; any other pushes a body that touches it. With `character`, only the
- * rules that apply to it (every one when a rule names none) and none keeps its list; without, each
- * keeps its `characters` for
+ * The zone forces of a level, indexed once: each rule (`{ zone, force, pull?, characters?,
+ * centre? }`) with a force or a pull whose zone is in `zones`. A `centre` rule pushes only a body
+ * whose centre is in its zone (`[x, x + w) × [y, y + h)`), so a body on the line between two such
+ * zones (a river's bands) is pushed by one, not both; any other pushes a body that touches it.
+ * With `character`, only the rules that apply to it (every one when a rule names none) and none
+ * keeps its list; without, each keeps its `characters` for
  * {@link addZoneForces} to read. `clip(zone)` may hold a zone to the field (`undefined`: drop it).
  */
 export function zoneForces(zones, rules, { character, clip = (zone) => zone, cell } = {}) {
@@ -125,13 +129,22 @@ export function zoneForces(zones, rules, { character, clip = (zone) => zone, cel
 	const forces = [];
 	for (const rule of rules ?? []) {
 		const zone = byId.get(rule.zone);
-		if (!zone || !rule.force) continue;
+		if (!zone || (!rule.force && !rule.pull)) continue;
 		if (character !== undefined && rule.characters && !rule.characters.includes(character))
 			continue;
 		const clipped = clip(zone);
 		if (!clipped) continue;
 		const { id, x, y, w, h } = clipped;
-		const force = { id, x, y, w, h, fx: rule.force.x, fy: rule.force.y };
+		const force = rule.force
+			? { id, x, y, w, h, fx: rule.force.x, fy: rule.force.y }
+			: { id, x, y, w, h, fx: 0, fy: 0 };
+		if (rule.pull)
+			force.pull = {
+				x: zone.x + zone.w / 2,
+				y: zone.y + zone.h / 2,
+				strength: rule.pull.strength,
+				radius: rule.pull.radius,
+			};
 		if (rule.centre) force.centre = true;
 		if (character === undefined && rule.characters) force.characters = rule.characters;
 		forces.push(force);
@@ -147,8 +160,23 @@ const centreIn = (body, zone) =>
 export function addZoneForces(body, forces, character) {
 	for (const zone of queryStatic(forces, aabbOf(body))) {
 		if (zone.characters && !zone.characters.includes(character)) continue;
+		if (zone.pull) {
+			pullTowards(body, zone.pull);
+			continue;
+		}
 		if (zone.centre ? !centreIn(body, zone) : !inZone(body, zone)) continue;
 		body.vx += zone.fx;
 		body.vy += zone.fy;
 	}
+}
+
+/** A pull's velocity on a body: towards its centre, `strength · (1 − d / radius)` inside `radius`. */
+function pullTowards(body, pull) {
+	const dx = pull.x - body.x;
+	const dy = pull.y - body.y;
+	const d = Math.sqrt(dx * dx + dy * dy);
+	if (!(d > 0) || d >= pull.radius) return;
+	const s = (pull.strength * (1 - d / pull.radius)) / d;
+	body.vx += dx * s;
+	body.vy += dy * s;
 }

@@ -7,7 +7,7 @@ import type { Body, Field, StaticShape } from './motion';
 import type { OnlineInput, OnlineLevel, StepContext, characterBody } from './online';
 
 /** A zone rule as `strongestForce` reads it. */
-type ForceRule = { force?: { x: number; y: number } };
+type ForceRule = { force?: { x: number; y: number }; pull?: { strength: number } };
 
 export const MATCH_PX: number;
 export const SMOOTH_MS: 100;
@@ -18,7 +18,17 @@ export const MAX_RATE: 0.25;
 export const MAX_SLOW: 0.1;
 
 /** The room's word on the predicted player. */
-export type PredictorTruth = { x: number; y: number; ack: number; still?: boolean; step?: number };
+export type PredictorTruth = {
+	x: number;
+	y: number;
+	ack: number;
+	still?: boolean;
+	step?: number;
+	/** The move the room carries for it after `ack` (`online.js` `carriedInput`); absent ⇒ none. */
+	air?: number;
+	carryX?: number;
+	carryY?: number;
+};
 
 export type Predictor = {
 	readonly body: Body;
@@ -67,10 +77,18 @@ export type Interpolator = {
 
 export function createInterpolator(options?: { snapPx?: number; keep?: number }): Interpolator;
 
-export const RECONCILED_FIELDS: readonly ['x', 'y', 'status', 'held'];
+export const RECONCILED_FIELDS: readonly ['x', 'y', 'status', 'held', 'air', 'carryX', 'carryY'];
 
 /** The state the Colyseus SDK's `Reconciler` hands {@link reconcilerStep}: {@link RECONCILED_FIELDS}. */
-export type ReconciledState = { x: number; y: number; status: number; held?: boolean };
+export type ReconciledState = {
+	x: number;
+	y: number;
+	status: number;
+	held?: boolean;
+	air?: number;
+	carryX?: number;
+	carryY?: number;
+};
 
 export function reconcilerStep(options: {
 	body: Body;

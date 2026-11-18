@@ -60,6 +60,11 @@ export function stepPlayer<B extends Body>(
 	field?: Field,
 	level?: OnlineLevel,
 ): B;
+/** What a player carries (Salmons' leap): `air` inputs left to carry `carryX` / `carryY` for. */
+export type MoveCarry = { air?: number; carryX?: number; carryY?: number };
+
+/** The input a player carrying a move is stepped with; spends one of `carry.air` (mutated). */
+export function carriedInput<I extends OnlineInput | undefined>(carry: MoveCarry, input: I): I;
 export function moveAgainstSolids<B extends Body>(
 	body: B,
 	dt: number,

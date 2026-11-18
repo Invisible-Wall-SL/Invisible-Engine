@@ -24,24 +24,28 @@
  *   water (its height `z` 0) launches it up at {@link JUMP}`.launch` cells/s, and it falls back
  *   under `JUMP.gravity` cells/s²: about 1.1 s in the air, its top about 3 cells up (`jumped`). A
  *   tap that climbs a waterfall does not leap; a tap that leaves a sandbank does, as the old
- *   server's did. In the air it is not grounded on sand nor hooked. The leap only lifts: the body
- *   keeps moving on the river as the player steers.
- * - `fishingLine`: a `hook` ability hooks the nearest target in reach (`hooked`): the target is held
- *   and reeled towards its fisherman at {@link LINE}`.reelPxPerSecond`, and landed within
+ *   server's did. In the air it is not grounded on sand nor hooked. It leaps towards the tapped
+ *   point (the input's `aim`), else along its last move ({@link leapMove}), and carries that move
+ *   while the stick rests until it is back on the water or steers (`carry`, which the room sends
+ *   so a device predicts it). Half a cell up it passes over rocks and whirlpools (`lowPieces`).
+ * - `fishingLine`: a `hook` ability hooks the nearest target in reach that is on the water
+ *   (`hooked`; one in the air is passed over for the next nearest, as the original's travelling
+ *   line skips it): the target is held and reeled towards its fisherman at
+ *   {@link LINE}`.reelPxPerSecond`, and landed within
  *   `landPx` of it, which is the catch (`caught`, effect `hook`: out for the ability's `ms`, the
  *   ability's score to the fisherman). One line per fisherman. The salmon escapes with `escapeTaps`
  *   taps of jump; the line also breaks when the fisherman drops or is held (`escaped`).
  * - `goldenSalmon`: one salmon of the room is golden (its `mark`), chosen from the room's seed and
  *   the round at each round's start, and again whenever no salmon in the room is golden (`golden`).
  *   A catch of it, and its goal, score {@link GOLDEN_WORTH} times as much.
- * - `salmons`: all five, the module Salmons' config names.
+ * - `salmons`: all of them, the module Salmons' config names.
  *
  * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`; a choice is a hash of
  * the room's seed. It reaches the rules' status codes and helpers through the `api`
  * `createOnlineRules` passes, so it does not import `onlineRules.js` back.
  */
 
-import { BUTTONS } from './online.js';
+import { BUTTONS, MOVE_SCALE, carriedInput, clampInput } from './online.js';
 import { createStaticIndex } from './motion.js';
 import { CELL, SALMONS_MAP } from './salmonsMap.js';
 
@@ -58,8 +62,90 @@ export const CLIMB = Object.freeze({ radiusSq: 4, step: 2.4, slidePerSecond: 0.8
 export const JUMP = Object.freeze({ launch: 11, gravity: 20 });
 
 /** Heights (cells) above which a leaping salmon is clear of the water's rules, as the old server's:
- *  it is not grounded on a sandbank above `sand`, nor hooked above `hook`. */
-const CLEAR = Object.freeze({ sand: 0.05, hook: 0.1 });
+ *  it is not grounded on a sandbank above `sand`, nor hooked above `hook`; above `steer` a move of
+ *  0 does not stop it (it carries its leap's move). */
+export const CLEAR = Object.freeze({ sand: 0.05, hook: 0.1, steer: 0.05 });
+
+/** Heights (cells) at which a salmon passes over a low piece, as the old server's: a rock blocks
+ *  it, and a whirlpool pulls it, only while it is lower (`obstacleHeight` 0.5; the whirlpool's
+ *  `z < 0.5`). */
+export const OVER = Object.freeze({ rock: 0.5, whirlpool: 0.5 });
+
+/**
+ * The leap's direction, as the original's jump handler (its grid cells: `vx` along the river, `vy`
+ * across it; here `y` is along and `x` across, `salmonsMap.js`): to the tapped point when it is more
+ * than `deadZone` cells away, else the last move (`fallback` before any), as a unit vector, then
+ * `along` × the speed along the river and `across` × across it.
+ */
+export const LEAP_AIM = Object.freeze({
+	deadZone: 0.5,
+	along: 1,
+	across: 0.9,
+	/** The original's `{ vx: 0.7, vy: -0.7 }`: `vx` along (here y), `vy` across (here x). */
+	fallback: Object.freeze({ x: -0.7, y: 0.7 }),
+	/** A move shorter than this (of a full one) is not a direction (`|v| > 0.01`). */
+	minMove: 0.01,
+});
+
+/** The most inputs a leap is carried for: a uint8 on the wire. */
+const AIR_MAX = 254;
+
+/** A launch's carry before the step tells how long it is up. */
+const AIR_LAUNCHED = 255;
+
+/**
+ * The leap's move (whole input units, {@link MOVE_SCALE} a full one) for a tap of `input` by a body
+ * at `body` whose last move was `last` (`{ x, y }`, input units, or none): {@link LEAP_AIM}. A tap
+ * with no aim (`aimX` and `aimY` 0, as a key's) uses the last move.
+ */
+export function leapMove(body, input, last) {
+	let x;
+	let y;
+	const aimX = input.aimX ?? 0;
+	const aimY = input.aimY ?? 0;
+	if (aimX !== 0 || aimY !== 0) {
+		const tx = (aimX - body.x) / CELL;
+		const ty = (aimY - body.y) / CELL;
+		const d = Math.hypot(tx, ty);
+		if (d > LEAP_AIM.deadZone) {
+			x = tx / d;
+			y = ty / d;
+		}
+	}
+	if (x === undefined) {
+		const lx = last ? last.x : LEAP_AIM.fallback.x;
+		const ly = last ? last.y : LEAP_AIM.fallback.y;
+		const d = Math.hypot(lx, ly);
+		x = lx / d;
+		y = ly / d;
+	}
+	const { moveX, moveY } = clampInput({
+		moveX: x * LEAP_AIM.across * MOVE_SCALE,
+		moveY: y * LEAP_AIM.along * MOVE_SCALE,
+	});
+	return { moveX, moveY };
+}
+
+/**
+ * How many of a salmon's next inputs find it above {@link CLEAR}`.steer`, one a step, from its
+ * height `z` and climb `vz` (px, px/s) after a step: the fall's own stepping (`fall` below), at most
+ * {@link AIR_MAX}.
+ */
+export function stepsAloft(z, vz, tickHz) {
+	const dt = 1 / tickHz;
+	const pull = JUMP.gravity * CELL;
+	const floor = CLEAR.steer * CELL;
+	let n = 0;
+	let h = z;
+	let v = vz;
+	while (h > floor && n < AIR_MAX) {
+		n += 1;
+		const next = h + v * dt;
+		v -= pull * dt;
+		h = next > 0 ? next : 0;
+	}
+	return n;
+}
 
 const above = (player, cells) => (player.z ?? 0) > cells * CELL;
 
@@ -191,12 +277,14 @@ const waterfallClimbing = {
 					const fall = p.status === api.STATUS.free && inReach(climbed, p) && climbed;
 					if (!fall) {
 						p.memo.climbing = 0;
+						p.memo.letGo = 1;
 						continue;
 					}
 					p.memo.vz = 0;
 					if (p.memo.climbZ >= fall.top) {
 						climbTo(p, fall.top);
 						p.memo.climbing = 0;
+						p.memo.letGo = 1;
 						p.memo.over = falls.indexOf(fall) + 1;
 						world.emit({ type: 'climbed', id: p.id, zone: fall.id });
 						continue;
@@ -271,7 +359,12 @@ const sandbanks = {
 	},
 };
 
-/** The leap's launch: a tap of jump by a free salmon on the water. */
+/** Whether a move is a direction: longer than {@link LEAP_AIM}`.minMove` of a full one. */
+const isDirection = (input) => Math.hypot(input.moveX, input.moveY) > LEAP_AIM.minMove * MOVE_SCALE;
+
+/** The leap's launch: a tap of jump by a free salmon on the water, in its direction
+ *  ({@link leapMove}), carried until it steers (`carry`). A free salmon's moves are its last
+ *  direction (the original's `playerLastDir`), but not one's that only left a sandbank. */
 const leap = {
 	create(game, api) {
 		const launch = JUMP.launch * CELL;
@@ -281,10 +374,129 @@ const leap = {
 				const tap = tapped(player, input, 'leap');
 				const before = player.memo.leapTap;
 				player.memo.leapTap = 0;
-				if (!tap || before === TAP.climbed || player.status !== api.STATUS.free) return;
+				if (player.status !== api.STATUS.free) return;
+				if (before !== TAP.released && isDirection(input)) {
+					player.memo.dirX = input.moveX;
+					player.memo.dirY = input.moveY;
+					player.memo.dir = 1;
+				}
+				if (!tap || before === TAP.climbed) return;
 				if ((player.z ?? 0) > 0 || player.memo.vz) return;
 				player.memo.vz = launch;
+				const last = player.memo.dir === 1 ? { x: player.memo.dirX, y: player.memo.dirY } : null;
+				const move = leapMove(player.body, input, last);
+				player.air = AIR_LAUNCHED;
+				player.carryX = move.moveX;
+				player.carryY = move.moveY;
+				player.memo.moveX = move.moveX;
+				player.memo.moveY = move.moveY;
 				if (before !== TAP.released) world.emit({ type: 'jumped', id: player.id });
+			},
+		};
+	},
+};
+
+/**
+ * The leap's carried move (the original's `move` handler: above {@link CLEAR}`.steer` a move of 0
+ * leaves a salmon's velocity as it was): the room steps a free salmon with `online.js`
+ * `carriedInput`. As it goes up (a launch, or let go at a waterfall's top) it is given as many
+ * inputs to carry for as the steps it will be that high ({@link stepsAloft}: `air`, with the move
+ * `carryX` / `carryY`), spent one an input, which the room sends so a device folds the same. Counted
+ * by inputs, not steps, a stall (steps with no input, when no body moves) pauses the carry with the
+ * body, so the leap still covers the original's ground and the device's fold stays exact. Its
+ * velocity (`moveX` / `moveY` in its notes) is the last move it was stepped with, or steered with
+ * while it climbs. Grounded, 0; caught, hooked, grounded or climbing, it carries nothing.
+ */
+const carry = {
+	create(game, api) {
+		const clear = (p) => {
+			if (p.air || p.carryX || p.carryY) {
+				p.air = 0;
+				p.carryX = 0;
+				p.carryY = 0;
+			}
+		};
+		return {
+			steer(player, input) {
+				if (player.character.id !== SALMON) return input;
+				const moved = carriedInput(player, input);
+				player.memo.moveX = moved.moveX;
+				player.memo.moveY = moved.moveY;
+				return moved;
+			},
+			input(player, input) {
+				if (player.memo.climbing !== 1 || (input.moveX === 0 && input.moveY === 0)) return;
+				player.memo.moveX = input.moveX;
+				player.memo.moveY = input.moveY;
+			},
+			step(world) {
+				for (const p of world.players) {
+					if (p.character.id !== SALMON) continue;
+					const climbing = p.memo.climbing === 1;
+					// Let go from a climb this step (at the top, or out of reach): it falls from there,
+					// carrying the move it last had.
+					const letGo = p.memo.letGo === 1;
+					p.memo.letGo = 0;
+					const z = p.z ?? 0;
+					if (p.status !== api.STATUS.free || climbing) {
+						if (p.status === api.STATUS.grounded) {
+							p.memo.moveX = 0;
+							p.memo.moveY = 0;
+						}
+						clear(p);
+						continue;
+					}
+					const aloft = stepsAloft(z, p.memo.vz ?? 0, world.tickHz);
+					if (p.air === AIR_LAUNCHED) p.air = aloft;
+					else if (letGo && aloft) {
+						p.air = aloft;
+						p.carryX = p.memo.moveX ?? 0;
+						p.carryY = p.memo.moveY ?? 0;
+					}
+					if (!p.air) clear(p);
+				}
+			},
+		};
+	},
+};
+
+/**
+ * A salmon high enough passes over the low pieces of the river (the original's `update`): a rock
+ * stops it only below {@link OVER}`.rock`, and a whirlpool pulls it only below `OVER.whirlpool`.
+ * The room steps it on the level without them (`level`). The pieces are the river's `rock<n>` and
+ * `whirlpool<n>` zones (`salmons.js` `salmonsGeometry`).
+ */
+const lowPieces = {
+	create(game) {
+		const ids = (pattern) => new Set(game.zones.filter((z) => pattern.test(z.id)).map((z) => z.id));
+		const rocks = ids(/^rock\d+$/);
+		const pools = ids(/^whirlpool\d+$/);
+		if (!rocks.size && !pools.size) return {};
+		const cleared = new WeakMap();
+		const without = (index, gone) =>
+			createStaticIndex(
+				index.shapes.filter((s) => !gone.has(s.id)),
+				index.cellSize,
+			);
+		return {
+			level(player, level) {
+				const z = player.z ?? 0;
+				const overRocks = rocks.size > 0 && z >= OVER.rock * CELL;
+				const overPools = pools.size > 0 && z >= OVER.whirlpool * CELL;
+				if (!level || (!overRocks && !overPools)) return level;
+				let byKey = cleared.get(level);
+				if (!byKey) cleared.set(level, (byKey = new Map()));
+				const key = (overRocks ? 1 : 0) + (overPools ? 2 : 0);
+				let passable = byKey.get(key);
+				if (!passable) {
+					passable = {
+						...level,
+						currents: overPools ? without(level.currents, pools) : level.currents,
+						solids: overRocks && level.solids ? without(level.solids, rocks) : level.solids,
+					};
+					byKey.set(key, passable);
+				}
+				return passable;
 			},
 		};
 	},
@@ -439,12 +651,15 @@ const together = (game, api, parts) => {
 		worth: (player, points) => made.reduce((p, m) => (m.worth ? m.worth(player, p) : p), points),
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),
+		steer: (player, input) => made.reduce((i, m) => (m.steer ? m.steer(player, i) : i), input),
 	};
 };
 
-/** The leap and its fall, run inside `salmons` only: a rules id would reach every runtime's
- *  game-config. */
-export const salmonJump = { create: (game, api) => together(game, api, [leap, fall]) };
+/** The leap, its fall, its carried move and the low pieces it passes over, run inside `salmons`
+ *  only: a rules id would reach every runtime's game-config. */
+export const salmonJump = {
+	create: (game, api) => together(game, api, [leap, fall, carry, lowPieces]),
+};
 
 /** The climb, with the fall that brings a salmon down from the top. */
 const waterfallClimb = {
@@ -452,10 +667,19 @@ const waterfallClimb = {
 };
 
 /** The fall steps before the climb, so a step either climbs or falls, as the original's `update`;
- *  the climb's tap is read before the leap's. */
+ *  the climb's tap is read before the leap's; the carry counts after both. */
 const salmons = {
 	create: (game, api) =>
-		together(game, api, [sandbanks, fall, waterfallClimbing, leap, fishingLine, goldenSalmon]),
+		together(game, api, [
+			sandbanks,
+			fall,
+			waterfallClimbing,
+			leap,
+			fishingLine,
+			goldenSalmon,
+			carry,
+			lowPieces,
+		]),
 };
 
 /** Salmons' entries of `ONLINE_RULES_MODULES`. Object literals only, so a runtime that never runs a
