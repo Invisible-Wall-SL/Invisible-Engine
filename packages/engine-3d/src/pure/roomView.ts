@@ -8,6 +8,7 @@ import {
 	motionFor3d,
 	moveFromStick,
 	snapFor3d,
+	STATUS3D,
 	yawFromRadians,
 	type Input3d,
 	type Predictor3d,
@@ -26,6 +27,18 @@ export type RoomPlayer3d = {
 	anim: number;
 	ack: number;
 	character: string;
+	/** `STATUS3D`: a dead player (Crash) is held still by the room and not drawn. */
+	status?: number;
+};
+
+/** A room event as the view reads it: only a `knockback` of the own player matters to it. */
+export type RoomEvent3d = {
+	type: string;
+	id?: string;
+	seq?: number;
+	vx?: number;
+	vy?: number;
+	vz?: number;
 };
 
 /** The 3D room's state as the device reads it: the room's step and its players by session id. */
@@ -40,6 +53,8 @@ export type Stick3d = { right: number; forward: number; buttons: number };
 export type RoomView3d = {
 	/** A state from the room: the own player reconciled, everyone else recorded at its step. */
 	received(state: RoomState3d, nowMs: number): void;
+	/** The room's events (`ONLINE_EVENT`): a knockback of the own player is applied at its input. */
+	events(events: readonly RoomEvent3d[]): void;
 	/**
 	 * One frame of the game's clock: an input each fixed step the frame holds, predicted as it is
 	 * sent (the camera turns the stick into world axes; `faceYaw`, uint16, overrides the facing).
@@ -60,7 +75,8 @@ export type RoomView3d = {
  * player is stepped only by an input, so that state is its home, exactly — at the room's `tickHz`;
  * everyone else is interpolated by `createInterpolator3d` about 100 ms behind
  * (`createSnapshotClock`). Pure, so `scripts/check-engine-3d-room.mjs` plays it against the room's
- * own simulation.
+ * own simulation. With rules that kill a fall (Crash, `fallRespawns: false`) the prediction does not
+ * take the fold's trip home; a dead player is reconciled as `still` and not drawn.
  */
 export function createRoomView3d({
 	meId,
@@ -68,12 +84,14 @@ export function createRoomView3d({
 	tickHz,
 	patchHz,
 	send,
+	fallRespawns = true,
 }: {
 	meId: string;
 	world: World3d;
 	tickHz: number;
 	patchHz: number;
 	send: (input: Input3d) => void;
+	fallRespawns?: boolean;
 }): RoomView3d {
 	const level = createLevel3d(world.level);
 	const clock = createFixedStep({ hz: tickHz });
@@ -87,6 +105,7 @@ export function createRoomView3d({
 	let seq = 0;
 	let viewStep = 0;
 	let ids: string[] = [];
+	const dead = new Set<string>();
 
 	const specOf = (id: string, character: string) => {
 		let spec = specs.get(id);
@@ -103,8 +122,10 @@ export function createRoomView3d({
 			if (!players || step === undefined) return;
 			view.observe(step, nowMs);
 			const seen = new Set<string>();
+			dead.clear();
 			players.forEach((player, id) => {
 				seen.add(id);
+				if (player.status === STATUS3D.dead) dead.add(id);
 				const spec = specOf(id, player.character);
 				if (id !== meId) {
 					others.push(id, step, {
@@ -125,14 +146,27 @@ export function createRoomView3d({
 						dt: clock.dt,
 						home,
 						snapM: snapFor3d(spec, patchHz),
+						fallRespawns,
 					});
 				}
 				if (player.ack > 0)
-					me.reconcile({ x: player.x, y: player.y, z: player.z, ack: player.ack, step });
+					me.reconcile({
+						x: player.x,
+						y: player.y,
+						z: player.z,
+						ack: player.ack,
+						step,
+						still: player.status === STATUS3D.dead,
+					});
 			});
 			others.retain(seen);
 			for (const id of specs.keys()) if (!seen.has(id)) specs.delete(id);
 			ids = [...seen];
+		},
+		events(events) {
+			for (const event of events)
+				if (event.type === 'knockback' && event.id === meId && me && event.seq !== undefined)
+					me.impulse(event.seq, { vx: event.vx ?? 0, vy: event.vy ?? 0, vz: event.vz ?? 0 });
 		},
 		frame(dtMs, nowMs, stick, cameraYawDeg, faceYaw) {
 			viewStep = view.advance(nowMs) ?? viewStep;
@@ -161,7 +195,7 @@ export function createRoomView3d({
 			const out: BodyView3d[] = [];
 			for (const id of ids) {
 				const spec = specs.get(id);
-				if (!spec) continue;
+				if (!spec || dead.has(id)) continue;
 				if (id === meId) {
 					if (!me) continue;
 					const at = me.drawn(clock.alpha);
