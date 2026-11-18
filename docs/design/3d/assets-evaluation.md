@@ -130,7 +130,7 @@ Not used for 3D: the Atlas Maker's sprite-atlas packing (meshes carry their own 
 It follows "Adding an asset class — one registry entry" in `live-assets.md`.
 
 ```
-source  <C>/<P>/models/<id>/source.glb        ← upload (presigned PUT; the launcher body cap is 512 KB)
+source  <C>/<P>/models/<id>/source.<sha12>.glb ← upload (presigned PUT to uploads/, then registered; built: content-addressed)
         <C>/<P>/models/<id>/model.json        ← class, per-tier overrides, LOD thresholds, validator report
 deploy  <C>/<P>/deploy/models/<id>.glb        ← the full tier: meshopt + quantised, texture URIs → _tex/
         <C>/<P>/deploy/models/<id>@half.glb   ← one GLB per published tier (§5.3)
@@ -145,7 +145,7 @@ index   ModelExportIndex { prefix: 'models', models: [{ id, clips[], sockets[], 
 | Registry | `apps/launcher-api/src/lib/server/exporters.ts` | `{ id: 'models', label: 'models', run: exportModels, emptyResult: { prefix: 'models', models: [] } }` |
 | Online bundle | `apps/launcher-api/src/lib/server/runtimeBundle.ts` | `RuntimeBundle.models?`, set only when non-empty |
 | Bake | `apps/launcher-api/scripts/lib/bakeExports.mjs` (`{ asset: 'models', label: 'model export', policy: 'additive' }`) + a reader in `scripts/bake-editor-doc.mjs` | Embeds nothing for an empty answer |
-| Pull | `scripts/pull-project-assets.mjs`, `scripts/lib/assetReachability.mjs` | **No change**: `models/` is an export-generated subtree and is already mirrored |
+| Pull | `scripts/pull-project-assets.mjs`, `scripts/lib/assetReachability.mjs` | `models` added to `GENERATED_SUBTREES` (built 2026-11-17: without it the pull skipped every model file) |
 | Shared type | **new** `packages/constants-shared/src/models.ts` | `ModelExportIndex` (types only, so no runtime bytes) |
 | Register | `apps/lines/src/editor-scenes.ts` | Stores the index on the bundle only. The **3D view mode dynamically imports** three.js and its loaders the first time an arcade game with `view: '3d'` resolves a model, so 2D games never fetch them |
 | Gates | `check:exporter-registry` (passes once the two lists agree) + **new** `check:model-export` | (a) an empty project gives a byte-identical bundle; (b) a fixture GLB comes out meshopt + KTX2, under budget, with ÷4 textures; (c) no `three` import is reachable from the 2D entry (or the bundle-size check the runtime session proposes) |

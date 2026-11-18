@@ -63,14 +63,15 @@ paths walk that one list, so rule 8 holds by construction:
 
 An exporter writes its own `deploy/<subtree>/` through a `DeployMirror` (`deployMirror.ts`):
 `put` / `putAll` / `copy` / `claim` record what the pass shipped, `commit` deletes everything else
-under the prefix. `pull-project-assets.mjs` mirrors all of `deploy/`, so a new subtree needs no
-puller change.
+under the prefix. `pull-project-assets.mjs` lists all of `deploy/` but keeps a file only when the game
+source names it or its subtree is in `GENERATED_SUBTREES` (`scripts/lib/assetReachability.mjs`), so a
+new subtree MUST be added there or the pull silently skips it (found adding `models`, 2026-11-17).
 
 **To add a class:** (1) write the exporter (`<thing>Export.ts`, writing through a `DeployMirror`);
 (2) add its registry entry — `emptyResult` is what it returns for a project that authored none;
 (3) add `{ asset, label, policy }` to `bakeExports.mjs` and a reader in the bake that embeds
 nothing for an empty answer; (4) embed it in `RuntimeBundle` and register it in the game
-(`editor-scenes.ts`). `check:exporter-registry` fails until (2) and (3) agree, `buildRuntimeBundle`
+(`editor-scenes.ts`); (5) add the subtree to `GENERATED_SUBTREES`. `check:exporter-registry` fails until (2) and (3) agree, `buildRuntimeBundle`
 runs it, an un-authored project yields `emptyResult` from both the pass and the route, and the bake
 of that empty answer adds no bundle section.
 
