@@ -588,6 +588,27 @@ await check('Salmons: a bear bot sees and catches a salmon grounded on a sandban
 	assert.equal(me.status, STATUS.out);
 });
 
+await check('Salmons: a bot fisherman casts at a salmon at any distance, at its place', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
+	const me = sim.join('me', { character: 'salmon' });
+	const fisher = bots(sim).find((b) => b.character.id === 'fisherman');
+	for (const bot of bots(sim)) if (bot !== fisher) sim.players.delete(bot.id);
+	const band = river.bands.find((b) => Math.abs(b.y + b.h / 2 - fisher.body.y) > 600);
+	me.body.x = (band.left + band.right) / 2;
+	me.body.y = band.y + band.h / 2;
+	let at;
+	for (let i = 0; i < 60 && !fisher.lineActive; i++) {
+		at = { x: me.body.x, y: me.body.y };
+		sim.step(() => [clampInput({ seq: i + 1 })]);
+	}
+	assert.equal(fisher.lineActive, 1, 'it cast');
+	const far = Math.hypot(at.x - fisher.body.x, at.y - fisher.body.y);
+	assert.ok(far > 288, `far past the old 288 px gate (${Math.round(far)} px)`);
+	const reeled = Math.hypot(fisher.lineX - at.x, fisher.lineY - at.y);
+	assert.ok(reeled < 144, 'the bobber landed at the salmon, and reels home from there');
+});
+
 // --- 4. live: a real server ------------------------------------------------------------------------
 
 const freePort = () =>
