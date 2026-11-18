@@ -1066,5 +1066,8 @@ test('13. a lab reading compares with the previous lab reading of its game and s
 	// Three runs of one build (status, "Lab runs"): within their phase's band, never flagged.
 	assert.ok(withinLabTolerance('idle', 'draws', 46.5, 37.4), 'idle draws follow the deal');
 	assert.ok(withinLabTolerance('spinning', 'calls', 193.6, 191.1));
+	// Two CI runs of bookofborutremake (2026-11-18): the first hit two big-win holds.
+	assert.ok(withinLabTolerance('idle', 'passes', 4.5, 6.2), 'idle passes follow the holds');
+	assert.ok(withinLabTolerance('idle', 'calls', 153.2, 171.4));
 	assert.ok(!withinLabTolerance('spinning', 'draws', 40, 36.4), 'a 10% spinning draw change shows');
 });
