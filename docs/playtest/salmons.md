@@ -133,6 +133,16 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     (`jumped`) and it swims on upstream.
 15. The rules' events are Flow events: page E's flow heard its `climbed`, page F's its `grounded`
     and `jumped` (each with `me`).
+> **Since WS-B (2026-11-18)** the rooms play the original's catchers and one game a room (see
+> [status/salmons](../status/salmons.md)): steps 16–19 below describe the old auto-hook, escape taps
+> and random golden salmon and are re-recorded with WS-D's device changes. What to check instead:
+> a fisherman's tap on the water (not J alone) casts the line there and the bobber (`lineX/lineY`)
+> travels home, hooking the first salmon it passes and dragging it in (no escape); a caught player
+> stays out until it presses Respawn and comes back as the class it picked; a bear's swipe catches
+> a fisherman or a bear too; a salmon reaching the source ends the game for everyone (`gameWon`
+> with the winner's name), the room takes no one new, and the winner rejoining a new room with its
+> pass is golden there (cosmetic only). Bloodstains (`state.bloodstains`) mark where salmon died.
+
 16. Pages H (a fisherman) and G (a salmon) join `salmons-line` (the authored river, no bots; the
     salmon starts on a sandbank, held there, and the fisherman on the bank nearest it, within his
     cast's reach). G's salmon, the room's only one, is golden: both pages list it as marked and

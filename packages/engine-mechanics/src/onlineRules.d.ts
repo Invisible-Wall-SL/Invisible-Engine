@@ -11,12 +11,15 @@ import type { STATUS } from './abilities';
 export { GRACE_MS, STATUS } from './abilities';
 export const REWIND_MS: 250;
 export const ONLINE_EVENT: 'event';
+export const MAX_BLOODSTAINS: 300;
 
 export type OnlinePhase = 'waiting' | 'running' | 'ended';
 
 /** A player as the rules see it: the room's own record, mutated in place. */
 export type RulesPlayer = {
 	id: string;
+	/** Its name, for a `gameWon`'s `winnerName`. */
+	name?: string;
 	character: { id: string };
 	body: Body;
 	connected: boolean;
@@ -41,6 +44,14 @@ export type RulesPlayer = {
 	cooldowns: Record<string, number>;
 	/** A bot the server plays (P10.16). */
 	bot?: boolean;
+	/** It won the last game it played (only the server says so: Salmons' golden salmon). */
+	wonLast?: boolean;
+	/** Ability key → whether its button was down when last asked (`abilities.js`). */
+	down?: Record<string, boolean>;
+	/** Its line (Salmons' fisherman): out while `lineActive` is 1, the bobber at `lineX`, `lineY`. */
+	lineX?: number;
+	lineY?: number;
+	lineActive?: number;
 };
 
 export type OnlineEvent =
@@ -49,6 +60,9 @@ export type OnlineEvent =
 	| { type: 'hit' | 'caught'; by: string; target: string; effect: string }
 	| { type: 'roundStart'; round: number }
 	| { type: 'roundEnd'; round: number; winner: string }
+	| { type: 'gameWon'; winner: string; winnerName: string }
+	| { type: 'respawned'; id: string; character: string }
+	| { type: 'respawnRefused'; id: string }
 	| { type: 'lobby'; id: string }
 	| { type: 'countdown'; seconds: number }
 	| { type: 'climbed' | 'grounded'; id: string; zone: string }
@@ -66,8 +80,14 @@ export type RulesWorld = {
 	emit(event: OnlineEvent): void;
 };
 
-/** An ability as a module's `hook` gets it: `hold` is its `ms` in steps. */
-export type RulesAbility = { score: number; hold: number; reach: number; button: string };
+/** An ability as a module's `cast` gets it: `hold` is its `ms` in steps. */
+export type RulesAbility = {
+	score: number;
+	hold: number;
+	reach: number;
+	button: string;
+	targets: readonly string[];
+};
 
 /** What a rules module's hooks may do to the room (P11.3). */
 export type ModuleApi = {
@@ -78,6 +98,10 @@ export type ModuleApi = {
 	release(player: RulesPlayer): void;
 	score(player: RulesPlayer, points: number): void;
 	worth(player: RulesPlayer, points: number): number;
+	/** Put a player out, caught: until it presses Respawn (`respawn: 'manual'`), else for `hold`. */
+	out(player: RulesPlayer, stamp: number, hold: number): void;
+	/** Lay a bloodstain at a world point. */
+	stain(x: number, y: number): void;
 };
 
 /** A rules module's hooks, every one optional (`ONLINE_RULES_MODULES`). */
@@ -85,13 +109,15 @@ export type RulesHooks = {
 	step?(world: RulesWorld): void;
 	/** Its world has no players: an input is the player's own. */
 	input?(player: RulesPlayer, input: OnlineInput, world: Omit<RulesWorld, 'players'>): void;
-	/** true: it took the target; `'pass'`: it passes over it for the next nearest; false: a whiff. */
-	hook?(
+	/** A `hook` ability cast at `aim`; true: it took the cast (its cooldown starts). */
+	cast?(
 		user: RulesPlayer,
-		target: RulesPlayer,
 		ability: RulesAbility,
+		aim: { x: number; y: number },
 		world: RulesWorld,
-	): boolean | 'pass';
+	): boolean;
+	/** After an ability caught `target`. */
+	caught?(by: RulesPlayer, target: RulesPlayer, world: RulesWorld): void;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
@@ -113,6 +139,17 @@ export type OnlineRules = {
 	/** The stamp the phase ends at; 0 = never. */
 	readonly endsAt: number;
 	readonly winner: string;
+	readonly winnerName: string;
+	/** Where players were caught, oldest first, at most {@link MAX_BLOODSTAINS}. */
+	readonly bloodstains: readonly { x: number; y: number }[];
+	/** How many bloodstains were ever laid. */
+	readonly bloodstainsMade: number;
+	/** Whether a caught player waits for its Respawn (`respawn: 'manual'`). */
+	awaitsRespawn(player: RulesPlayer): boolean;
+	/** Back at its spawn, free, as the character the room gave it (`respawned`). */
+	respawned(player: RulesPlayer, stamp: number): void;
+	/** Tell its device the Respawn was refused (`respawnRefused`). */
+	refused(player: RulesPlayer): void;
 	joined(player: RulesPlayer, players: Iterable<RulesPlayer>, stamp: number): void;
 	left(id: string): void;
 	holds(player: RulesPlayer): boolean;
@@ -151,8 +188,11 @@ export type RulesGame = {
 				ms: number;
 				score: number;
 				cooldownMs: number;
+				ahead?: number;
+				onPress?: boolean;
 			}[];
-			round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
+			round: { seconds?: number; nextRoundSeconds: number; goalScore: number; endsGame?: true };
+			respawn?: 'auto' | 'manual';
 			module?: string;
 		};
 	};

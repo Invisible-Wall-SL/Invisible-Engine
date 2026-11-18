@@ -19,6 +19,35 @@ upload.
 
 ## Current state
 
+- **Catchers, scoring and round flow as the original (WS-B, 2026-11-18; in review; branch
+  `claude/salmons-ws-b-catchers`)**: from the gap report
+  [reference/salmons-original.md](../reference/salmons-original.md) §5.1, §5.3, §6.3, §7, §9.7 and
+  its owner decisions 1–4. This replaces the bullets below where they say otherwise (110 px swipe,
+  280 px auto-hook, +2, escape taps, 300 s rounds, random 3× golden salmon, auto-respawn).
+  - **Bear**: the swipe is tested 1.5 tiles (72 px) around the point 1 tile ahead of the bear's
+    last move (ability `ahead: 48`), once a press (`onPress`; the cooldown is the 100 ms floor),
+    and catches any live player, salmon, fisherman or bear. +1.
+  - **Fisherman**: the line is cast at the aimed point (the input's `aimX/aimY`), only into the
+    river's water, any range, one line at a time, 250 ms between casts. The bobber is reeled home at
+    8 tiles/s after the fisherman moved; until it hooks one, the first salmon in player order on
+    the water within 1.5 tiles of it is hooked and dragged with it; at 0.3 tiles from the
+    fisherman it is landed (+1). No escape. The line is synced (`Player.lineX/lineY/lineActive`).
+    A key-only press aims at 0, 0, so it casts nothing (the original's Space did not cast either).
+  - **Caught**: out until Respawn (`rules.respawn: 'manual'`). The input's `respawn` is `1 +` the
+    index in `arcade.online.characters` of the class picked (salmon 1, bear 2, fisherman 3); the
+    room respawns the player as it, at its spawn, if the caps allow (taking a bot's place if only
+    bots fill it), else `respawnRefused`. A bot is back after 3 s.
+  - **One game a room** (`round.endsGame`): the first salmon to the source wins; the room locks;
+    `gameWon` `{ winner, winnerName }` goes to every device (and the state's `winner`,
+    `winnerName`); no next round. The winner's device alone gets a `winnerPass` event; joining a
+    NEW room with `{ pass }` makes it the last game's winner (`wonLast`), and a salmon with it is
+    golden (`mark`, cosmetic only: no 3×). The lobby is the new room's. The device's win screen,
+    death screen, rejoin button and line drawing are WS-D's.
+  - **Bloodstains**: a salmon caught by a bear leaves a stain where it was, one landed where it was
+    hooked: the room's `bloodstains` (x, y; newest 300), sent to every device. Drawing them is WS-C.
+  - Bots press only for people, not for other bots (no bot-on-bot churn now that bears catch
+    anyone). Proof: `check:online-rules` (re-recorded `line`/`golden` traces), `check:salmons-jump`,
+    `check:room-bots`, `check:room-lobby`.
 - **Mouse and touch, as the original (2026-11-17; in review;
   [design/arcade-pointer-controller](../design/arcade-pointer-controller.md))**: an online game's
   Game Config `arcade.online.pointer` (off unless named) lets a player steer with the mouse or a
@@ -432,6 +461,16 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-18 — **WS-B: catchers, scoring and round flow, as the original** (branch
+  `claude/salmons-ws-b-catchers`; in review). See the first bullet of Current state. Engine:
+  `abilities.js` (`ahead`, `onPress`, a `hook` cast through the caller's `cast`), `onlineRules.js`
+  (`respawn: 'manual'`, `round.endsGame`, `gameWon`, `MAX_BLOODSTAINS`, module hooks `cast` and
+  `caught`, api `out` and `stain`), `salmonsRules.js` (`fishingLine` rewritten, `goldenSalmon`
+  from `wonLast`, `bloodstains`; `GOLDEN_WORTH` and the escape gone), `onlineBots.js`; Game Config
+  `ahead`, `onPress`, `round.endsGame`, `rules.respawn`; game server schema fields `Input.respawn`,
+  `Player.lineX/lineY/lineActive`, room `winnerName` and `bloodstains`, the room lock and the
+  winner's pass. Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
+  key (WS-E).
 - 2026-11-18 — **The whole leap, as the original's** (branch `arcade/salmons-full-jump`; in review;
   runtime change). Closes the leap's "Not yet ported" list (entry of 2026-11-17 below). Source: the
   original at 41811c2 (`server/index.js` jump and move handlers and `update`, `client/game.js`

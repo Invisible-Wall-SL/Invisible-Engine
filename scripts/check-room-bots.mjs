@@ -18,7 +18,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
-import { GOLDEN_WORTH } from '../packages/engine-mechanics/src/salmonsRules.js';
 import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
@@ -499,7 +498,7 @@ await check('Salmons: each room plays a river of its own seed, and replays it', 
 	);
 });
 
-await check('Salmons: a salmon that swims the river reaches the source and wins the round', () => {
+await check('Salmons: a salmon that swims the river reaches the source and wins the game', () => {
 	const sim = createRoomSim(salmons, { seed: 1 });
 	const river = salmonsRiver(sim.seed);
 	const me = sim.join('me', { character: 'salmon' });
@@ -515,9 +514,12 @@ await check('Salmons: a salmon that swims the river reaches the source and wins 
 	}
 	assert.ok(end, `the salmon reached the source (it got to y = ${Math.round(me.body.y)})`);
 	assert.equal(end.winner, 'me');
-	// The only salmon in the room is its golden one: its goal is worth GOLDEN_WORTH times as much.
-	assert.equal(me.mark, true);
-	assert.equal(me.score, salmons.online.rules.round.goalScore * GOLDEN_WORTH);
+	// The original's: the first salmon to the source wins the game; there is no next round.
+	assert.equal(sim.rules.phase, 'ended');
+	assert.equal(sim.rules.winnerName, me.name);
+	assert.equal(me.mark, false, 'golden only as the last game’s winner');
+	for (let i = 0; i < 20 * salmons.online.tickHz; i++) sim.step(() => []);
+	assert.equal(sim.rules.phase, 'ended', 'the room’s game is over');
 });
 
 await check(

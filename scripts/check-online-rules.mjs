@@ -35,7 +35,7 @@ import {
 } from '../packages/engine-mechanics/src/online.js';
 import { createPredictor } from '../packages/engine-mechanics/src/netcode.js';
 import { salmonsConfig, salmonsRiver } from '../packages/engine-mechanics/src/salmons.js';
-import { GOLDEN_WORTH, LINE } from '../packages/engine-mechanics/src/salmonsRules.js';
+import { LINE } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	GRACE_MS,
 	ONLINE_EVENT,
@@ -803,8 +803,9 @@ await check('a predicted ability is raised on the press, at every step the room 
 
 // --- 5. Salmons' rules, on recorded traces (P11.3) -------------------------------------------------
 //
-// Each trace is a room of Salmons (no bots) on one seed's river: who joins, where the test puts
-// them, and the inputs each sends, step by step. The room's events, a track of every player every
+// Each trace is a room of Salmons (no bots) on one seed's river: who joins (and whether it won the
+// last game), where the test puts them, and the inputs each sends, step by step (a run is
+// `[id, from, to, moveX, moveY, buttons, every, aimX, aimY, respawn]`). The room's events, a track of every player every
 // ten steps and the end are recorded in packages/engine-mechanics/fixtures/salmons-traces.json; a
 // replay must give exactly them. `--record` writes the file again after a deliberate change.
 
@@ -824,7 +825,7 @@ const thousandths = (v) => Math.round(v * 1000) / 1000;
  *  is told of every step and the events it raised. */
 function playTrace(trace, each = () => {}) {
 	const sim = createRoomSim(salmonsGame, { seed: trace.seed });
-	for (const [id, character] of trace.joins) sim.join(id, { character });
+	for (const [id, character, wonLast] of trace.joins) sim.join(id, { character, wonLast });
 	for (const [id, x, y] of trace.place) Object.assign(sim.players.get(id).body, { x, y });
 	const events = sim
 		.events()
@@ -836,11 +837,12 @@ function playTrace(trace, each = () => {}) {
 		for (const [at, id] of trace.leaves ?? []) if (at === step) sim.leave(id);
 		const got = sim.step((id) => {
 			const run = trace.runs.find((r) => r[0] === id && step >= r[1] && step <= r[2]);
-			const [, , , moveX = 0, moveY = 0, buttons = 0, every = 0] = run ?? [];
+			const [, , , moveX = 0, moveY = 0, buttons = 0, every = 0, aimX, aimY, respawn] = run ?? [];
 			const seq = (seqs.get(id) ?? 0) + 1;
 			seqs.set(id, seq);
 			const press = !every || step % every === 0 ? buttons : 0;
-			return [clampInput({ seq, view: sim.steps, moveX, moveY, buttons: press }, sim.game.field)];
+			const raw = { seq, view: sim.steps, moveX, moveY, buttons: press, aimX, aimY, respawn };
+			return [clampInput(raw, sim.game.field)];
 		});
 		for (const e of got) events.push({ step, ...e });
 		each(sim, got);
@@ -865,10 +867,13 @@ function playTrace(trace, each = () => {}) {
 				status: p.status,
 				score: p.score,
 				golden: p.mark,
+				character: p.character.id,
+				line: p.lineActive ? [thousandths(p.lineX), thousandths(p.lineY)] : null,
 			},
 		]),
 	);
-	return { events, track, end };
+	const stains = sim.rules.bloodstains.map((b) => [thousandths(b.x), thousandths(b.y)]);
+	return { events, track, end, stains };
 }
 
 const at = (result, id, step) => {
@@ -937,11 +942,17 @@ const TRACES = (() => {
 				['b', lineBand.left + 180, mid],
 			],
 			runs: [
-				['f', 31, 31, 0, 0, BUTTONS.ability1],
-				['f', 140, 140, 0, 0, BUTTONS.ability1],
-				['a', 1, 30, 0, HOVER],
-				['b', 1, 140, 0, HOVER],
-				['b', 141, 170, 0, 0, JUMP, 2],
+				// A cast onto the bank is refused; then one at the water past b hooks b (the first
+				// salmon near the bobber), drags it in and lands it; b taps jump all the while.
+				['f', 21, 21, 0, 0, BUTTONS.ability1, 0, lineBand.left - 120, mid],
+				['f', 31, 31, 0, 0, BUTTONS.ability1, 0, lineBand.left + 260, mid],
+				['f', 32, 32, 0, 0, BUTTONS.ability1, 0, lineBand.left + 120, mid],
+				['f', 140, 140, 0, 0, BUTTONS.ability1, 0, lineBand.left + 120, mid],
+				['a', 1, 200, 0, HOVER],
+				['b', 1, 30, 0, HOVER],
+				['b', 31, 80, 0, 0, JUMP, 2],
+				// Caught, b presses Respawn as a fisherman (character 3).
+				['b', 150, 151, 0, 0, 0, 0, null, null, 3],
 			],
 			steps: 200,
 		},
@@ -949,7 +960,7 @@ const TRACES = (() => {
 			seed: 4,
 			joins: [
 				['k', 'bear'],
-				['a', 'salmon'],
+				['a', 'salmon', true],
 				['b', 'salmon'],
 				['c', 'salmon'],
 			],
@@ -963,16 +974,18 @@ const TRACES = (() => {
 				['a', 1, 34, 0, HOVER],
 				['b', 1, 34, 0, HOVER],
 				['c', 1, 34, 0, HOVER],
-				['k', 35, 35, 0, 0, BUTTONS.ability1],
+				// The bear steps towards the water, then swipes the tile ahead of that move.
+				['k', 28, 34, 127, 0],
+				['k', 35, 36, 0, 0, BUTTONS.ability1],
+				// Held, the swipe is not used again; a fresh press is.
+				['k', 37, 37, 0, 0, 0],
+				// The golden salmon comes back as a bear: golden no more.
+				['a', 60, 60, 0, 0, 0, 0, null, null, 2],
 			],
 			steps: 80,
 		},
 	};
 })();
-// The golden salmon leaves at step 60: which one it is, the seed decides.
-TRACES.golden.leaves = [
-	[60, playTrace({ ...TRACES.golden, steps: 1 }).events.find((e) => e.type === 'golden').id],
-];
 
 const played = Object.fromEntries(
 	Object.entries(TRACES).map(([name, trace]) => [name, { trace, result: playTrace(trace) }]),
@@ -1026,29 +1039,40 @@ await check('Salmons: a sandbank grounds a salmon until it jumps, and not again 
 });
 
 await check(
-	'Salmons: the line hooks the nearest salmon, reels it in and lands it; one escapes',
+	'Salmons: the line is cast at the water, hooks the first salmon by its bobber, drags it in and lands it',
 	() => {
 		const { result } = played.line;
 		const kinds = result.events
-			.filter((e) => ['hooked', 'caught', 'escaped'].includes(e.type))
-			.map((e) => [e.type, e.by, e.target, e.effect ?? '']);
+			.filter((e) => ['hooked', 'caught', 'escaped', 'respawned'].includes(e.type))
+			.map((e) => [e.type, e.by ?? e.id, e.target ?? e.character, e.effect ?? '']);
 		assert.deepEqual(kinds, [
-			['hooked', 'f', 'a', ''],
-			['caught', 'f', 'a', 'hook'],
 			['hooked', 'f', 'b', ''],
-			['escaped', 'f', 'b', ''],
+			['caught', 'f', 'b', 'hook'],
+			['hooked', 'f', 'a', ''],
+			['respawned', 'b', 'fisherman', ''],
+			['caught', 'f', 'a', 'hook'],
 		]);
-		const hooked = result.events.find((e) => e.type === 'hooked');
-		assert.equal(hooked.step, 31);
-		assert.equal(at(result, 'a', 40).status, STATUS.hooked);
-		assert.ok(at(result, 'a', 40).x < at(result, 'a', 30).x, 'reeled towards the bank');
-		const golden = result.events.filter((e) => e.type === 'golden').map((e) => e.id);
-		const worth = golden[0] === 'a' ? GOLDEN_WORTH : 1;
-		assert.equal(result.end.f.score, 2 * worth, 'the cast’s score, at the landing');
+		const casts = result.events.filter((e) => e.type === 'ability' && e.by === 'f');
+		assert.deepEqual(
+			casts.map((e) => e.step),
+			[31, 140],
+			'a cast onto the bank, or while the line is out, is refused',
+		);
+		assert.equal(result.events.find((e) => e.type === 'hooked').step, 31);
+		assert.equal(at(result, 'b', 40).status, STATUS.hooked, 'no taps shake the hook');
+		assert.ok(at(result, 'b', 40).x < at(result, 'b', 30).x, 'dragged towards the bank');
+		assert.equal(result.end.f.score, 2, '+1 a landing');
+		assert.equal(result.end.b.character, 'fisherman', 'b came back as the class it picked');
 		assert.equal(result.end.b.status, STATUS.free);
-		assert.ok(LINE.escapeTaps === 5);
+		assert.equal(result.end.a.status, STATUS.out, 'caught, a waits for its Respawn');
+		assert.equal(result.end.f.line, null, 'the line is home');
+		assert.equal(result.stains.length, 2, 'a stain where each was hooked');
 	},
 );
+
+await check('Salmons: the reel is the original’s, in px', () => {
+	assert.deepEqual(LINE, { reelCellsPerSecond: 8, landCells: 0.3, minCastCells: 0.1 });
+});
 
 await check("Salmons: its rules' events reach Flow as online events, for each device", () => {
 	const signalsOf = (name, me) => flowSignalsOf(played[name].result.events, me);
@@ -1070,13 +1094,9 @@ await check("Salmons: its rules' events reach Flow as online events, for each de
 	assert.deepEqual(
 		one('line', 'f', 'hooked').map((s) => s.payload),
 		[
-			{ by: 'f', target: 'a', x: 0, y: 0, mine: true, me: false },
 			{ by: 'f', target: 'b', x: 0, y: 0, mine: true, me: false },
+			{ by: 'f', target: 'a', x: 0, y: 0, mine: true, me: false },
 		],
-	);
-	assert.deepEqual(
-		one('line', 'b', 'escaped').map((s) => s.payload),
-		[{ by: 'f', target: 'b', x: 0, y: 0, mine: false, me: true }],
 	);
 	const golden = played.golden.result.events.filter((e) => e.type === 'golden');
 	assert.deepEqual(
@@ -1085,7 +1105,7 @@ await check("Salmons: its rules' events reach Flow as online events, for each de
 	);
 	const where = (id) => ({ x: id === 'b' ? 11 : 0, y: 22, character: 'salmon' });
 	const placedB = flowSignalsOf(played.line.result.events, 'f', where).filter(
-		(s) => s.name === 'escaped',
+		(s) => s.name === 'hooked' && s.payload.target === 'b',
 	);
 	assert.deepEqual(
 		placedB.map((s) => [s.payload.x, s.payload.y]),
@@ -1112,7 +1132,7 @@ await check('Salmons: a device draws the line exactly while its salmon is hooked
 		const now = drawn.map((l) => `${l.by}>${l.target}`).join() || '-';
 		if (seen.at(-1) !== now) seen.push(now);
 	});
-	assert.deepEqual(seen, ['-', 'f>a', '-', 'f>b', '-'], 'hooked, landed, hooked, escaped');
+	assert.deepEqual(seen, ['-', 'f>b', '-', 'f>a', '-'], 'hooked, landed, hooked, landed');
 	const left = createHookLines();
 	left.events([{ type: 'hooked', by: 'f', target: 'a' }]);
 	const room = new Map([
@@ -1129,20 +1149,34 @@ await check('Salmons: a device draws the line exactly while its salmon is hooked
 	assert.deepEqual(left.drawn(room), [], 'gone at the next round');
 });
 
-await check('Salmons: one golden salmon, worth more; it passes on when it leaves', () => {
-	const { trace, result } = played.golden;
-	const golden = result.events.filter((e) => e.type === 'golden');
-	assert.equal(golden[0].step, 1);
-	const first = golden[0].id;
-	assert.equal(trace.leaves[0][1], first);
-	const caught = result.events.filter((e) => e.type === 'caught' && e.by === 'k');
-	assert.deepEqual(caught.map((e) => e.target).sort(), ['a', 'b', 'c']);
-	assert.equal(result.end.k.score, GOLDEN_WORTH + 1 + 1);
-	assert.equal(golden.length, 2);
-	assert.ok(golden[1].step >= 60 && golden[1].id !== first, 'another salmon is golden');
-	assert.equal(result.end[golden[1].id].golden, true);
-	assert.equal(Object.values(result.end).filter((p) => p.golden).length, 1);
-});
+await check(
+	'Salmons: the bear swipes the tile ahead, once a press; the last winner is golden',
+	() => {
+		const { result } = played.golden;
+		const golden = result.events.filter((e) => e.type === 'golden');
+		assert.deepEqual(
+			golden.map((e) => [e.step, e.id]),
+			[[1, 'a']],
+			'golden: the last game’s winner, from the start',
+		);
+		const caught = result.events.filter((e) => e.type === 'caught' && e.by === 'k');
+		assert.deepEqual(caught.map((e) => e.target).sort(), ['a', 'b', 'c']);
+		assert.deepEqual(
+			[...new Set(caught.map((e) => e.step))],
+			[35],
+			'one swipe, on the press; held, not again',
+		);
+		assert.equal(result.end.k.score, 3, '+1 a catch, golden or not');
+		assert.equal(result.stains.length, 3, 'a stain where each salmon was caught');
+		assert.equal(result.end.a.character, 'bear');
+		assert.equal(
+			result.end.a.golden,
+			false,
+			'a golden salmon that comes back a bear is not golden',
+		);
+		assert.equal(result.end.b.status, STATUS.out, 'caught, it waits for its Respawn');
+	},
+);
 
 await check(
 	'Salmons: rocks and the river are solids a device predicts as the room moves them',
