@@ -1,5 +1,5 @@
 /**
- * Invisible Profiler contracts (P1 readings, P2 builds), run over the REAL modules:
+ * Invisible Profiler contracts (P1 readings … P6 lab runs, P4 findings), run over the REAL modules:
  *   pnpm --filter launcher-api check:profiler
  *
  * 1. A probe report (`perf: 7`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is read
@@ -26,6 +26,8 @@
  * 13. Lab runs (P6): a reading's per-phase counts; a lab token is minted only for the lab opener and
  *    verifies as lab; a lab reading is compared with the previous lab reading of the same game and
  *    switches, and a count moves only past its tolerance.
+ * 14–16. Findings (P4): the facts, each rule against its fixture and a planted mutant, the ranking
+ *    and Compare — `check-profiler-findings.ts`, imported at the end.
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -1071,3 +1073,4 @@ test('13. a lab reading compares with the previous lab reading of its game and s
 	assert.ok(withinLabTolerance('idle', 'calls', 153.2, 171.4));
 	assert.ok(!withinLabTolerance('spinning', 'draws', 40, 36.4), 'a 10% spinning draw change shows');
 });
+import './check-profiler-findings.ts';

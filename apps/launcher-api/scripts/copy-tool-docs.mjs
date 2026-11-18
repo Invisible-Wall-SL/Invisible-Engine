@@ -11,6 +11,7 @@
 // It also writes `agents.json` — each tool's owning agents (`docs/knowledge/owners.json`) with
 // the `description` from their `.claude/agents/<name>.md` frontmatter — so the "Ask the AI"
 // chat can answer as the tool's agent (`$lib/server/askAi.ts`).
+// And `owners.json` — the tools and game kinds maps alone — for the Profiler's Findings owners.
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,4 +65,18 @@ try {
 } catch (err) {
 	console.warn(`[copy-tool-docs] no tool agents written: ${err.message}`);
 	await writeFile(join(destDir, 'agents.json'), '{}');
+}
+
+// The Profiler's Findings name each finding's owner from the same file (`profilerFindings`).
+try {
+	const owners = JSON.parse(
+		await readFile(join(repoRoot, 'docs', 'knowledge', 'owners.json'), 'utf8'),
+	);
+	await writeFile(
+		join(destDir, 'owners.json'),
+		JSON.stringify({ tools: owners.tools ?? {}, kinds: owners.kinds ?? {} }),
+	);
+} catch (err) {
+	console.warn(`[copy-tool-docs] no owners written: ${err.message}`);
+	await writeFile(join(destDir, 'owners.json'), '{"tools":{},"kinds":{}}');
 }
