@@ -81,7 +81,7 @@ import {
 	type InstanceLink,
 	type InstanceMark,
 } from 'engine-layout/svelte';
-import type { CodeLook, SalmonsArt, SalmonsScreenHost } from 'engine-layout/salmons-art';
+import type { CodeLook, SalmonsArt, SalmonsScreenHost, StainList } from 'engine-layout/salmons-art';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
@@ -213,6 +213,8 @@ type RoomState = {
 	/** The room's seed, from which a generated field is made (P11.2 (e)). */
 	seed: number;
 	players: Map<string, PlayerState>;
+	/** What its rules module left on the field (Salmons' bloodstains); unset from an older server. */
+	stains?: StainList;
 };
 
 /** How long a join waits for the room's first state, which carries the seed of its field. */
@@ -1074,6 +1076,7 @@ function drawCodeLooks(
 ) {
 	const { art } = current;
 	if (!art) return;
+	art.stains(stateOf(current.room).stains, current.clipClock);
 	for (const [id, look] of current.codeLooks)
 		if (!current.drawn.has(id)) {
 			look.destroy();
@@ -1645,6 +1648,10 @@ export function onlineProbe() {
 							.map(([id]) => id),
 						lines: current.drawnLines.map((line) => ({ ...line })),
 						lineLog: [...current.lineLog],
+						stains: Array.from({ length: state.stains?.length ?? 0 }, (_, i) => {
+							const stain = state.stains?.at(i);
+							return stain ? [stain.x, stain.y] : [];
+						}),
 						clips: Object.fromEntries(
 							[...current.looks].flatMap(([id, { shown }]) =>
 								shown && current.drawn.has(id)
@@ -1667,6 +1674,7 @@ export function onlineProbe() {
 										const hand = current.codeLooks.get(line.by)?.hand;
 										return hand && current.art?.line(Infinity, 0, hand.dx).color;
 									}),
+									blood: current.art.blood(),
 								}
 							: null,
 						signals: current.signals.map((s) => ({ ...s })),

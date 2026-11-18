@@ -54,6 +54,8 @@ export const LINE: Readonly<{
 	landCells: number;
 	minCastCells: number;
 }>;
+/** The most bloodstains a room keeps; the oldest goes past it. */
+export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{
 	waterfallClimb: RulesModule;
 	sandbanks: RulesModule;

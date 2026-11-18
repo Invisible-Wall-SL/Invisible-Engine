@@ -186,6 +186,12 @@ the catcher's name; the menu shows in the lobby while the room waits.
     for W (`winnerName` "Wyn"), the flow shows `salmonsWon`, the screen says "You Won!" and lays
     eggs (`14b-you-won.png`), and the room sends W a `winnerPass`. Its "Join New Game" leaves and
     reloads into a new room (another seed), where W's salmon is golden.
+19c. Bloodstains (`GuiltyForever/Salmon-` PR #8): pages K (a bear on the bank) and Q (a salmon
+    in open water just upstream, carried past him by the current) join `salmons-blood` (the
+    authored river). K steps towards the water (its swipe lands a tile ahead of its last move) and taps J until it catches Q's salmon: both pages are sent one stain (the probe's `online.stains`) within 1 px of
+    where the salmon was held out, and draw it (`online.art.blood.stains` 1; `14b-bloodstain.png`).
+    The red salmon and its trail are pinned by `check:salmons-art`, not here: these pages draw a
+    river of the room's seed while the room plays the authored one.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
     snapshot that registers three stub clips (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
     `salmon_pink_hop_se`, green 32 × 64 frames with their box, on a sheet in `editorArt`). The probe's
@@ -215,17 +221,17 @@ banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its ro
 so it is golden and check 6 takes its colour as pink or gold. A salmon swimming in open water is
 drawn under the water's tint (2026-11-18): check 6 reads its colour back through each of the
 river's tints, and the golden checks (16, 19) take a swimming salmon's look as the golden texture
-(the probe's `underwater`), since only a quarter of its gold shows. 76 verdicts.
+(the probe's `underwater`), since only a quarter of its gold shows. 77 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
-and the pages of the authored-river rooms (E, F, G, H, P, S, T) draw a river of the room's seed while
+and the pages of the authored-river rooms (E, F, G, H, K, P, Q, S, T) draw a river of the room's seed while
 the server plays the authored one: their verdicts read the room's state, not the drawn river.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,
 `08-over-the-waterfall.png`, `08b-touch-over-the-waterfall.png`, `09-grounded.png`, `10-golden-salmon.png`,
 `11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`,
-`15-salmon-clip.png`, `16-bear-code-look.png`.
+`14b-bloodstain.png`, `15-salmon-clip.png`, `16-bear-code-look.png`.
 
 ## What the gates already prove (not replayed here)
 
@@ -235,8 +241,10 @@ down and a bank pushes it back; a bear bot on its bank catches a salmon near the
 steps into the water; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
 room replays exactly; nearby-only state over a real server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
-climb, the sandbank, the line with a landing and an escape, the golden salmon) and holds a device's
-prediction against a rock and the river to the room's. `scripts/room-load.mjs` fills a Salmons
+climb, the sandbank, the line with a landing and an escape, the golden salmon), places each
+bloodstain (a catch's, a landing's at the hook), keeps them through a round and to their cap, sends
+them to every device and a late joiner over a real server, and holds a device's prediction against
+a rock and the river to the room's. `scripts/room-load.mjs` fills a Salmons
 room with 100 devices (status P10.16 and P11.3 have the numbers).
 
 ## Known gaps
