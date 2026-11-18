@@ -2,8 +2,9 @@
 // waits before its first round until `minPlayers` people are in, or `maxWaitSeconds` after the first
 // joined, whichever is first; a `countdown` of `countdownSeconds` then runs and round 1 starts.
 // Bots never count. A lobby every person left starts over. Without a lobby the first join starts
-// round 1 as before. Rounds after the first follow on as before (Salmons plays one game a room). Also: the device's Flow signals,
-// Game Config's lobby block, and Salmons' export, layout and flow carrying the lobby screen.
+// round 1 as before. Rounds after the first follow on as before (Salmons plays one game a room).
+// Also: the device's Flow signals, Game Config's lobby block, and Salmons' export, layout and flow
+// carrying the lobby screen.
 //
 //   pnpm check:room-lobby
 

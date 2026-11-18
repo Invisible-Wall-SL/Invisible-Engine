@@ -4,7 +4,8 @@
  *
  * A bot does not move itself. Each step its brain looks at the room's free players and decides a
  * velocity; {@link botInput} turns that into an ordinary clamped input — a move, and an ability's
- * button while one of its targets that is not a bot is within reach (and `ahead`; a line's cast: within
+ * button while one of its targets is within reach (and `ahead`; never for another bot when the
+ * ability hits the bot's own class; a line's cast: within
  * {@link CAST_REACH} × its hook's reach, aimed at it; an `onPress` button let go every other input
  * so it is pressed again) — and the room applies it exactly as it applies
  * a device's (`online.js` `stepPlayer`, then the rules). So a bot is held to its character's speed,
@@ -38,7 +39,6 @@ export function createBot({ brain, seed, at, abilities = [], character }) {
 		brain: createBrain(brain, { rng: createRng(seed), at }),
 		abilities: abilities.filter((a) => a.character === character),
 		seq: 0,
-		/** The buttons of its last input. */
 		buttons: 0,
 	};
 }
@@ -70,7 +70,9 @@ export function botInput(bot, self, players, { dt, speed, field, view }) {
 			ability.effect === 'hook' ? ability.reach * CAST_REACH : ability.reach + (ability.ahead ?? 0);
 		let nearest;
 		for (const target of visible) {
-			if (target.bot || !ability.targets.includes(target.character.id)) continue;
+			if (!ability.targets.includes(target.character.id)) continue;
+			// An ability that hits its own class (Salmons' bear) is not pressed for another bot.
+			if (target.bot && ability.targets.includes(self.character.id)) continue;
 			const distance = Math.hypot(target.body.x - self.body.x, target.body.y - self.body.y);
 			if (distance <= reach && (!nearest || distance < nearest.distance))
 				nearest = { target, distance };

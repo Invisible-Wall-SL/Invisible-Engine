@@ -56,7 +56,8 @@ const uint32 = (v) => {
  * Clamp an input in place: `seq` and `view` to whole uint32s, the move to whole steps no longer than
  * {@link MOVE_SCALE}, `buttons` to the known bits, `aim` onto the field. Anything that is not a
  * finite number reads as 0; `respawn`, when the input has one, to 0..{@link RESPAWN_MAX}. Returns the
- * input.
+ * input. {@link clampInput} always gives `respawn` (0 for none), so an input written over a kept one
+ * clears it.
  */
 export function sanitizeInput(input, field) {
 	input.seq = uint32(input.seq);
@@ -101,7 +102,7 @@ export function clampInput(raw, field) {
 			aimX: src.aimX,
 			aimY: src.aimY,
 			view: src.view,
-			...(src.respawn !== undefined ? { respawn: src.respawn } : {}),
+			respawn: src.respawn,
 		},
 		field,
 	);

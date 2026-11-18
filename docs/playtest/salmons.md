@@ -133,6 +133,7 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     (`jumped`) and it swims on upstream.
 15. The rules' events are Flow events: page E's flow heard its `climbed`, page F's its `grounded`
     and `jumped` (each with `me`).
+
 > **Since WS-B (2026-11-18)** the rooms play the original's catchers and one game a room (see
 > [status/salmons](../status/salmons.md)): steps 16–19 below describe the old auto-hook, escape taps
 > and random golden salmon and are re-recorded with WS-D's device changes. What to check instead:
@@ -177,7 +178,7 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     with a hand, and the line's colour 0xddddaa; page G2 its own salmon `salmon_pink` and G's
     `salmon_golden`. Last, the server shuts down: page A's river art is torn down (the probe's
     `fieldArt`: none drawn, and every container it made destroyed).
-22. The leap (the original's, checked on page A right after its art): Space in open water lifts
+23. The leap (the original's, checked on page A right after its art): Space in open water lifts
     its salmon off the river and it curls (the probe's `online.art.looks[me]`: `lift` above 30 px,
     `curl` above 0.3; the top of a leap is 72 px), then it lands again (`lift` 0). The heights and
     the pose are pinned against the old game's numbers by `pnpm check:salmons-jump`.

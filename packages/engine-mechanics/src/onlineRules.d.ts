@@ -57,12 +57,16 @@ export type RulesPlayer = {
 export type OnlineEvent =
 	| { type: 'joined' | 'left'; id: string }
 	| { type: 'ability'; by: string; button: string }
-	| { type: 'hit' | 'caught'; by: string; target: string; effect: string }
+	| { type: 'hit'; by: string; target: string; effect: string }
+	/** `byName`: the catcher's name (a far catcher is not in a nearby device's view). */
+	| { type: 'caught'; by: string; target: string; effect: string; byName: string }
 	| { type: 'roundStart'; round: number }
 	| { type: 'roundEnd'; round: number; winner: string }
 	| { type: 'gameWon'; winner: string; winnerName: string }
 	| { type: 'respawned'; id: string; character: string }
 	| { type: 'respawnRefused'; id: string }
+	/** Sent by the game server to the winner's device alone (`arcadeRoom.ts`): its winner's pass. */
+	| { type: 'winnerPass'; pass: string }
 	| { type: 'lobby'; id: string }
 	| { type: 'countdown'; seconds: number }
 	| { type: 'climbed' | 'grounded'; id: string; zone: string }

@@ -46,7 +46,8 @@ import {
  * joins it — and the winner's device alone is sent a WINNER'S PASS (an online event `winnerPass`
  * with `pass`). A device that joins a new room of the same game with `{ pass }` within
  * {@link PASS_SECONDS} comes in as the last game's winner (`wonLast`: Salmons' golden salmon); a
- * pass works once, and nothing a device claims otherwise makes it a winner.
+ * pass works once (spent only by a join that is let in), and nothing a device claims otherwise
+ * makes it a winner. A won room closes {@link WON_ROOM_SECONDS} after the win.
  *
  * LIMITS (§11): a room holds `maxPlayers` (≤ 100) and each character's `max`; a device sending
  * more than {@link messagesPerSecond} messages a second is disconnected; the transport caps a
@@ -65,6 +66,9 @@ const NEARBY_MARGIN = 0.25;
 
 /** How long a winner's pass lets its device in as the last game's winner, s. */
 const PASS_SECONDS = 600;
+
+/** How long a won room stays open for its devices' win screens, s; then it closes. */
+const WON_ROOM_SECONDS = 600;
 
 /** The most passes held at once: past it the oldest goes. */
 const PASS_LIMIT = 10_000;
@@ -189,11 +193,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			const sim = this.requireSim();
 			const before = this.seenNow();
 			const { name, character, pass } = options ?? {};
-			sim.join(client.sessionId, {
-				name,
-				character,
-				wonLast: redeemPass(pass, this.game),
-			});
+			const player = sim.join(client.sessionId, { name, character });
+			// Spent only by a join that was let in.
+			if (redeemPass(pass, this.game)) player.wonLast = true;
 			this.syncPlayers();
 			this.writeRoom();
 			if (sim.game.online.nearby) {
@@ -249,8 +251,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		onBeforePatch() {
 			const sim = this.sim;
 			if (!sim) return;
-			// A respawn may take a bot's place: the state's players follow the room's.
-			if (this.state.players.size !== sim.players.size) this.syncPlayers();
+			// A respawn may take a bot's place and a bot fill it again: the state follows the room.
+			this.syncPlayers();
 			this.writeRoom();
 			for (const id of sim.players.keys()) this.write(id);
 			if (sim.game.online.nearby) this.nearby();
@@ -264,6 +266,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		/** The game is won: nobody new joins, and the winner's device is given its pass. */
 		private won(sim: RoomSim) {
 			void this.lock();
+			this.clock.setTimeout(() => void this.disconnect(), WON_ROOM_SECONDS * 1000);
 			const winner = this.clients.find((c) => c.sessionId === sim.rules.winner);
 			if (winner)
 				winner.send(ONLINE_EVENT, [{ type: 'winnerPass', pass: issuePass(this.game) }], {

@@ -197,6 +197,9 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 
 	const humans = () => players.size - bots.size;
 
+	/** A respawn took a bot's place this step: the room is filled again after it. */
+	let refill = false;
+
 	/** The next of a character's spawns for a person (its join or its respawn). */
 	const homeOf = (character: ArcadeOnlineCharacter) => {
 		const homes = character.spawns;
@@ -215,6 +218,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				return;
 			}
 			removeBot(evict);
+			refill = true;
 		}
 		if (character.id !== player.character.id) {
 			player.character = character;
@@ -359,8 +363,13 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				} else player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) {
 					player.ack = input.seq;
-					if (input.respawn && !player.bot && rules.awaitsRespawn(player))
+					// The Respawn is this input: it comes back standing, and moves from the next.
+					if (input.respawn && !player.bot && rules.awaitsRespawn(player)) {
 						respawnAs(player, input.respawn, stamp);
+						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
+						player.moving = false;
+						continue;
+					}
 					if (rules.holds(player)) {
 						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 						player.moving = false;
@@ -377,6 +386,10 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				}
 			}
 			steps = stamp;
+			if (refill) {
+				refill = false;
+				fill();
+			}
 			return rules.afterStep(players.values(), stamp);
 		},
 	};

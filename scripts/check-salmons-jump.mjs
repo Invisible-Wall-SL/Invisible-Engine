@@ -919,6 +919,21 @@ check(
 			events.map((e) => e.type),
 			['hooked', 'caught'],
 		);
+		// A hooked salmon that leaves before it is landed: the line comes home empty.
+		events.length = 0;
+		const left = SALMONS_RULES.fishingLine.create(game, api);
+		const g = player('g', 'fisherman', 1100);
+		const gone = player('gone', 'salmon', 400);
+		assert.equal(left.cast(g, ability, { x: 400, y: 100 }), true);
+		left.step(worldOf([g, gone], 1));
+		assert.equal(gone.status, STATUS.hooked);
+		for (let t = 2; g.lineActive && t < 200; t++) left.step(worldOf([g], t));
+		assert.equal(g.lineActive, 0, 'home');
+		assert.deepEqual(
+			events.map((e) => e.type),
+			['hooked'],
+			'nothing landed',
+		);
 	},
 );
 

@@ -579,7 +579,8 @@ const fishingLine = {
 				for (const [by, line] of [...lines]) {
 					const fisher = byId.get(by);
 					const fish = line.hooked === undefined ? undefined : byId.get(line.hooked);
-					if (fish && fish.status !== api.STATUS.hooked) line.hooked = undefined;
+					// Left the room, or let go by another rule: the line is empty again.
+					if (!fish || fish.status !== api.STATUS.hooked) line.hooked = undefined;
 					if (!fisher || !fisher.connected || fisher.status !== api.STATUS.free) {
 						cut(fisher, by);
 						if (fish && fish.status === api.STATUS.hooked) {
@@ -597,7 +598,13 @@ const fishingLine = {
 						api.out(fish, world.stamp, line.hold);
 						api.stain(line.hookX, line.hookY);
 						api.score(fisher, api.worth(fish, line.score));
-						world.emit({ type: 'caught', by, target: fish.id, effect: 'hook' });
+						world.emit({
+							type: 'caught',
+							by,
+							target: fish.id,
+							effect: 'hook',
+							byName: fisher.name ?? '',
+						});
 						continue;
 					}
 					const step = Math.min(d, reel);

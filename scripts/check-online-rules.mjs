@@ -342,7 +342,7 @@ await check(
 		assert.equal(c.status, STATUS.free, 'a bear does not catch a bear');
 		assert.equal(b.score, 2);
 		assert.deepEqual(room.of('caught'), [
-			{ type: 'caught', by: 'b', target: 'a', effect: 'catch' },
+			{ type: 'caught', by: 'b', target: 'a', effect: 'catch', byName: 'Player' },
 		]);
 		// Out: its inputs are acknowledged, but it goes nowhere.
 		const ack = a.ack;
@@ -805,8 +805,8 @@ await check('a predicted ability is raised on the press, at every step the room 
 //
 // Each trace is a room of Salmons (no bots) on one seed's river: who joins (and whether it won the
 // last game), where the test puts them, and the inputs each sends, step by step (a run is
-// `[id, from, to, moveX, moveY, buttons, every, aimX, aimY, respawn]`). The room's events, a track of every player every
-// ten steps and the end are recorded in packages/engine-mechanics/fixtures/salmons-traces.json; a
+// `[id, from, to, moveX, moveY, buttons, every, aimX, aimY, respawn]`). The room's events, a track
+// of every player every ten steps and the end are recorded in packages/engine-mechanics/fixtures/salmons-traces.json; a
 // replay must give exactly them. `--record` writes the file again after a deliberate change.
 
 const TRACES_FILE = join(ROOT, 'packages/engine-mechanics/fixtures/salmons-traces.json');
@@ -1550,7 +1550,13 @@ try {
 		assert.equal(shownInRoom(bear.state.players.get(salmon.sessionId)), false);
 		assert.deepEqual(
 			heard.bear.find((e) => e.type === 'caught'),
-			{ type: 'caught', by: bear.sessionId, target: salmon.sessionId, effect: 'catch' },
+			{
+				type: 'caught',
+				by: bear.sessionId,
+				target: salmon.sessionId,
+				effect: 'catch',
+				byName: 'Player',
+			},
 		);
 		await until(
 			'the respawn',

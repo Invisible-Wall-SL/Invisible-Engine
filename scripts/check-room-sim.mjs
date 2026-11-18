@@ -289,6 +289,7 @@ await check('the clamp is exact and idempotent: a clamped input clamps to itself
 		'buttons',
 		'moveX',
 		'moveY',
+		'respawn',
 		'seq',
 		'view',
 	]);

@@ -23,9 +23,9 @@
  * its clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every
  * score at 0 — unless `round.endsGame`: then the first round's end is the game's (`gameWon`, with
  * the winner's name), and no round follows. A module may lay a BLOODSTAIN where a player was caught
- * (`api.stain`); the room keeps the newest {@link MAX_BLOODSTAINS}. Players move in every phase, so a device's prediction holds through the pause. With a
- * LOBBY (`rules.lobby`) the room waits before its first round: each person who joins is told
- * (`lobby`), and once `minPlayers` people are in or `maxWaitSeconds` have passed since the first,
+ * (`api.stain`); the room keeps the newest {@link MAX_BLOODSTAINS}. Players move in every phase,
+ * so a device's prediction holds through the pause. With a LOBBY (`rules.lobby`) the room waits
+ * before its first round: each person who joins is told (`lobby`), and once `minPlayers` people are in or `maxWaitSeconds` have passed since the first,
  * a `countdown` of `countdownSeconds` runs (`endsAt` its end) and round 1 starts; a lobby every
  * person left starts over (one whose place is held after a drop still counts as there; it counts
  * towards the start again once it rejoins). Without one, the first join starts round 1.
@@ -38,7 +38,7 @@
  * step, players act in the order they joined.
  */
 
-import { BUTTONS, clipToField, levelCell } from './online.js';
+import { BUTTONS, MOVE_SCALE, clipToField, levelCell } from './online.js';
 import {
 	GRACE_MS,
 	STATUS,
@@ -67,10 +67,11 @@ export const MAX_BLOODSTAINS = 300;
 
 /** A move longer than this (input units) is a direction an `ahead` ability faces (the original's
  *  `|v| > 0.01` of a full one). */
-const AHEAD_MIN_MOVE = 0.01 * 127;
+const AHEAD_MIN_MOVE = 0.01 * MOVE_SCALE;
 
-/** An `ahead` ability's direction before its user has moved: down the field. */
-const AHEAD_FALLBACK = Object.freeze({ x: 0, y: 1 });
+/** An `ahead` ability's direction before its user has moved: the original Salmons' `{ vx: 1,
+ *  vy: -1 }` (its `vx` along the river is `y` here, its `vy` across it `x`), as a unit vector. */
+const AHEAD_FALLBACK = Object.freeze({ x: -Math.SQRT1_2, y: Math.SQRT1_2 });
 
 /** A running score stays well inside the wire's int32, however long a round lasts. */
 const SCORE_LIMIT = 1e9;
@@ -241,6 +242,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		phase = 'running';
 		round += 1;
 		winner = '';
+		winnerName = '';
 		endsAt = rules.round.seconds ? stamp + Math.round(rules.round.seconds * tickHz) : 0;
 		for (const player of players) {
 			player.score = 0;
@@ -299,8 +301,9 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		get bloodstainsMade() {
 			return stainsMade;
 		},
-		/** Whether a caught player waits for its Respawn (`respawn: 'manual'`). */
-		awaitsRespawn: (player) => player.status === STATUS.out && player.until === Infinity,
+		/** Whether a caught player waits for its Respawn (`respawn: 'manual'`) in a running round. */
+		awaitsRespawn: (player) =>
+			phase === 'running' && player.status === STATUS.out && player.until === Infinity,
 		/** A player that pressed Respawn, back at its spawn as the character the room gave it. */
 		respawned(player, stamp) {
 			player.mark = false;
@@ -312,8 +315,11 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			respawn(player);
 			emit({ type: 'respawned', id: player.id, character: player.character.id });
 		},
-		/** A Respawn the room refused: the character it picked has no place left. */
+		/** A Respawn the room refused: the character it picked has no place left. Told once a catch
+		 *  (a device may send its Respawn on every input). */
 		refused(player) {
+			if (player.memo.refused === 1) return;
+			player.memo.refused = 1;
 			emit({ type: 'respawnRefused', id: player.id });
 		},
 		/** A player the room just let in: a new player's first join starts the first round. */
@@ -381,6 +387,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 						by: player.id,
 						target: target.id,
 						effect: ability.effect,
+						...(ability.effect === 'catch' ? { byName: player.name ?? '' } : {}),
 					});
 					if (ability.effect === 'catch') module?.caught?.(player, target, worldOf(all(), stamp));
 				},
@@ -414,12 +421,18 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				}
 				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
-				// A module's lift (a leap, a climb), its carry and its notes last only while a round
-				// runs: back on the ground, and its notes gone, as it ends.
+				// A module's lift (a leap, a climb), its carry, its notes and its lines last only while a
+				// round runs: back on the ground, off any hook, and its notes gone, as it ends.
 				if (phase !== 'running')
 					for (const player of players) {
 						settle(player);
 						player.memo = {};
+						if (player.status === STATUS.hooked) free(player, stamp);
+						if (player.lineActive) {
+							player.lineActive = 0;
+							player.lineX = 0;
+							player.lineY = 0;
+						}
 					}
 			} else if (phase === 'ended' && !endsGame && stamp >= endsAt) startRound(players, stamp);
 			else if (phase === 'waiting' && lobby && lobbyOpen) {
