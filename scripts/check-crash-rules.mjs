@@ -302,6 +302,40 @@ await check(
 		assert.ok(!(ann.anim & ANIM3D.carrying));
 	},
 );
+await check(
+	'a carrier whose device stalls or drops lets go; a server stall’s catch-up does not',
+	() => {
+		for (const how of ['stall', 'drop', 'catchUp']) {
+			const room = roomOf(configOf(crashOnly()));
+			const t = tableOf(room);
+			const ann = t.join('ann', 'Warrior');
+			t.step(5);
+			t.inputs.set('ann', { buttons: BUTTONS3D.interact, yaw: YAW['+x'] });
+			t.step(1);
+			const piece = room.rules.entities.get(ann.carrying);
+			assert.ok(piece, how);
+			if (how === 'catchUp') {
+				for (let i = 0; i < 45; i++) room.step(() => [], { catchUp: true });
+				assert.equal(piece.carriedBy, 'ann', 'no input could have arrived: no one is stalled');
+				continue;
+			}
+			if (how === 'stall') t.inputs.delete('ann');
+			else room.drop('ann');
+			t.step(20);
+			assert.equal(
+				piece.carriedBy,
+				how === 'stall' ? 'ann' : '',
+				`${how}: held while it may still send`,
+			);
+			t.step(20);
+			assert.equal(piece.carriedBy, '', `${how}: let go`);
+			assert.equal(ann.carrying, '');
+			assert.ok(t.of('dropped').length === 1, how);
+			t.step(60);
+			assert.ok(piece.body.y < 0.01, `${how}: it fell back into play`);
+		}
+	},
+);
 await check('the pit rises at most to pitMax', () => {
 	const room = roomOf(
 		configOf({ ...crashOnly(), rules: { pitRise: 3, pitMax: 5, pieceRespawnSeconds: 0.1 } }),
@@ -489,6 +523,24 @@ await check(`melee is judged where the attacker saw its target, held to ${REWIND
 		t.inputs.set('blue', { buttons: BUTTONS3D.attack, yaw: YAW['+z'], view: near });
 		t.step(1);
 		assert.equal(t.of('hit').length, 0, 'a view older than the rewind is held to it');
+	}
+	for (const spoof of [0xffffffff, 1e6]) {
+		const { room, t } = fresh();
+		t.place('red', 0, 0, 6);
+		t.step(1);
+		t.inputs.set('blue', { buttons: BUTTONS3D.attack, yaw: YAW['+z'], view: room.steps + spoof });
+		t.step(1);
+		assert.equal(
+			t.of('hit').length,
+			0,
+			`a view in the future (+${spoof}) is the present: no rewind`,
+		);
+	}
+	{
+		const { t } = fresh();
+		t.inputs.set('blue', { buttons: BUTTONS3D.attack, yaw: YAW['+z'], view: 0xffffffff });
+		t.step(1);
+		assert.equal(t.of('hit').length, 1, 'and a target there now is still hit');
 	}
 	{
 		const { t } = fresh();
