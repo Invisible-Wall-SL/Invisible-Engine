@@ -15,6 +15,32 @@ with a new one. Use this format:
 
 ---
 
+## 2026-11-18 · Phase 10 · regression-guardian (current-games: stop rendering superseded heads)
+- Did: `current-games.yml`'s concurrency group no longer holds the commit for PR and push runs, so a
+  new push cancels the run of the head it replaced; manual runs keep the commit.
+  `current-games-verdict.yml` skips its job for a push run (`checkRun` posts nothing for one).
+  `retry.mjs` no longer re-runs a superseded head's run: under the new group that re-run would
+  cancel the current head's run, and the verdict would post the cancellation as a failure (found by
+  `code-reviewer`). Cancelled 30 stale or standing-down queued runs by hand.
+- Files: `.github/workflows/current-games.yml`, `.github/workflows/current-games-verdict.yml`,
+  `scripts/current-games/triggers.fixture.mjs`, `scripts/current-games/lib/retry.mjs`,
+  `scripts/current-games/retry.fixture.mjs`, `docs/playtest/current-games.md`,
+  `docs/status/infra.md`.
+- Branch / PR: `ci/current-games-queue-load`.
+- Tests: the triggers, verdict, retry and touched fixtures all pass (on LF copies; on a CRLF Windows
+  checkout the verdict and retry fixtures fail on main as well). The triggers fixture has a new
+  group section: a PR's or branch's new head shares its old run's group, while two PRs, two
+  branches,
+  a push and a PR, `ready_for_review`, and manual runs with other commits or inputs never share
+  one. The retry fixture holds the superseded-head case.
+- Decisions: the verdict already treats a run for a head the PR has left as "posts nothing", so
+  cancelling that run changes no status. The verdict-workflow change takes effect only once merged,
+  because `workflow_run` runs main's copy.
+- Next: watch the queue. If PRs still wait, buy capacity (the Team plan's 60 concurrent jobs, or
+  another runner provider) and don't trim the harness further.
+
+---
+
 ## 2026-11-10 · Phase 10 · launcher-studio (13D follow-up: the launcher code a run may not change)
 - Did: closed open item 4's protected-path gap. `bugFixRunsChange.ts` now also refuses:
   - `src/lib/server/bugFix*.ts`, which adds `bugFixWorkflow.ts`;
