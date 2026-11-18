@@ -45,6 +45,8 @@ upload.
     death screen, rejoin button and line drawing are WS-D's.
   - **Bloodstains** are PR #1747's (`rules.stains`, `state.stains`: the server half and the
     drawing); WS-B lays none of its own and aligns with it once it merges.
+  - A bot fisherman casts at its nearest salmon at any distance (owner, 2026-11-18), through the
+    same aimed cast as a person; the line-out rule and the cooldown hold it back.
   - A bot never presses an ability that hits its own class for another bot (no bear-bot churn now
     that bears catch bears); abilities that only hit other classes are as before. A `caught` event
     carries `byName` (the death screen's "by NAME"; a far catcher is not in a nearby view).

@@ -5,9 +5,9 @@
  * A bot does not move itself. Each step its brain looks at the room's free players and decides a
  * velocity; {@link botInput} turns that into an ordinary clamped input — a move, and an ability's
  * button while one of its targets is within reach (and `ahead`; never for another bot when the
- * ability hits the bot's own class; a line's cast: within
- * {@link CAST_REACH} × its hook's reach, aimed at it; an `onPress` button let go every other input
- * so it is pressed again) — and the room applies it exactly as it applies
+ * ability hits the bot's own class; a line's cast at its nearest target at any distance, as a
+ * person casts, the room's line-out and cooldown rules holding it back; an `onPress` button let go
+ * every other input so it is pressed again) — and the room applies it exactly as it applies
  * a device's (`online.js` `stepPlayer`, then the rules). So a bot is held to its character's speed,
  * its cooldowns and the rules like anyone, and a device draws it like any other player.
  *
@@ -23,9 +23,6 @@ import { STATUS } from './onlineRules.js';
 /** The id every bot's player has, `bot:<n>`: a Colyseus session id (nanoid: letters, digits, `_`
  *  and `-`) never contains a `:`. */
 export const BOT_PREFIX = 'bot:';
-
-/** How far a bot casts a `hook` ability's line, as a multiple of the line's reach around its bobber. */
-const CAST_REACH = 4;
 
 /** Whether a room player id is a bot's. */
 export const isBotId = (id) => typeof id === 'string' && id.startsWith(BOT_PREFIX);
@@ -66,8 +63,8 @@ export function botInput(bot, self, players, { dt, speed, field, view }) {
 	let aimX = self.body.x;
 	let aimY = self.body.y;
 	for (const ability of bot.abilities) {
-		const reach =
-			ability.effect === 'hook' ? ability.reach * CAST_REACH : ability.reach + (ability.ahead ?? 0);
+		// A line is cast at its target wherever it is, as a person casts (the bobber's reach is the hook's).
+		const reach = ability.effect === 'hook' ? Infinity : ability.reach + (ability.ahead ?? 0);
 		let nearest;
 		for (const target of visible) {
 			if (!ability.targets.includes(target.character.id)) continue;
