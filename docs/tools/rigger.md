@@ -815,7 +815,9 @@ A **template** is a fixed skeleton that expects its images by name. Pick it in *
 Apply saved rig or template** (the **Templates** group), then choose the art: a project atlas or
 **upload images**. Every image whose name matches a part attaches itself to its slot at its real
 size; hover the template in the list to see every part name (`*` = needed). Uploaded files are
-named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
+named from their file names, so `mouth_A.png` becomes the part `mouth_A`. Two templates come built
+in (below); any rig can become one more with **📐 Save as template** (see **Make your own
+template** below), listed as `<name> (template v<n>)`.
 
 - **Bust with face** (`bust-face`): `body`*, `head`*, `neck`, `hair_back`, `hair_front`,
   `ear_l` / `ear_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `eyelid_l_half` / `_closed`*
@@ -834,7 +836,8 @@ named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
 #### Animate with the Controls section
 
 A rig made from a template gets a **Controls** section in the outline (the face of **Bust with
-face**, the body of **Full body**). In **Animate** mode each
+face**, the body of **Full body**, the controls its author gave a template saved in the Rigger).
+In **Animate** mode each
 control keys the current animation at the playhead (it starts one if there is none); outside
 Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
 so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes them.
@@ -886,6 +889,48 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   add over the legs overrides the leg keys.
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
+
+### Make your own template — 📐 Save as template
+
+Use it when one rig (a creature, a prop, a character style) should be the starting skeleton for
+more art: save it once, and **＋ New rig** offers it to every project like **Bust with face**, with
+its own Controls and starter animations. Anyone who can open the Rigger can save and delete templates. The plan is in
+[rig-templates.md](../design/rig-templates.md) §7.
+
+1. Open the rig and click **📐 Save as template** (left rail, under the rig-library buttons).
+2. **Name** it. If the open rig was made from a template, the window starts from that template's
+   name, needed parts, controls and starter clips.
+3. **Parts** — every image of the rig's default skin, by slot. Tick the ones new art **needs**
+   (at least one); the rest are optional and simply left out when the art lacks them.
+4. **Controls** — the sliders the Controls section will show. A rig with no template gets a
+   suggested image-swap control for every slot with several images. **＋ Control** adds one that
+   moves bones (x, y, rotate or scale Y, by value × per unit) and can swap a slot's image at value
+   steps; **＋ Mouth shapes** adds a mouth picker that opens a jaw control. Fold a control open
+   (▸) to edit it, 🗑 to remove it. Drag a control's slider to see it on the stage — nothing is
+   keyed, and closing the window puts the pose back.
+5. **Starter animations** — tick the rig's animations that **🎬 Starter animations** should add.
+6. **📐 Save**.
+
+- **A taken name** asks whether to save this rig as its next version. Rigs made from an earlier
+  version keep theirs; **＋ New rig** uses the newest.
+- **What is carried:** bones, slots and the default skin's images, at their size and place. A mesh
+  becomes a plain image part (convert it to a mesh again on the new art); clipping, path, point and
+  bounding-box attachments are left out. Other skins, constraints and events are not carried. After
+  a save, a popup lists everything this rig had that the template does not.
+- **Starter clips are the rig's own animations, kept as they are** (not turned into control keys),
+  so eases and bones no control moves still play. A clip with mesh deforms, constraint keys or
+  events is refused. On a new rig, an image key for a part its art lacks shows nothing.
+- **🎤 Lip-sync** works on rigs from your template only when it has a mouth-shapes control with
+  **🎤 lip-sync** ticked and each of the nine letters mapped to an image.
+- **🎥 Motion** works only when the rig you save was made from a template with motion tracking:
+  leave **keep 🎥 motion tracking** ticked and it keeps working for every control you kept under
+  the same id. A new tracking map can't be made here.
+- **Every save is checked on the server first** — a rig made from the template must load and pose
+  at every control's ends and through every starter clip. A refusal shows its reason above the
+  sections and nothing is saved.
+- **Shared templates** lists the templates made in the Rigger. **🗑** deletes one for every
+  project, after asking; rigs made from it keep their bones, images and animations and only lose
+  their Controls section.
 
 ### Save / export
 

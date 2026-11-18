@@ -15,6 +15,8 @@
 //    bone at setup, every swap and shape slot on its rest image), on full and needed-only art;
 //  - lip-sync (T4): a fixed Rhubarb answer keyed at the playhead shows the template's image for each
 //    cue letter with its jaw, replaces only the mouth and jaw keys under the line, and ends on rest.
+//  - a template saved from a rig (📐, T8): its controls key and pose, its own clip (timelines) plays
+//    as authored, and on needed-only art an image key for a missing part shows nothing.
 //   node tools/rigger-spike/face-channels.mjs
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -48,6 +50,16 @@ await esbuild.build({
 	logLevel: 'error',
 });
 const { BUST_FACE, FULL_BODY, templateRig } = await import(pathToFileURL(out).href);
+const outDerive = join(mkdtempSync(join(tmpdir(), 'face-derive-')), 'derive.mjs');
+await esbuild.build({
+	entryPoints: [join(APP, 'src/lib/server/rigTemplateFromRig.ts')],
+	bundle: true,
+	format: 'esm',
+	platform: 'node',
+	outfile: outDerive,
+	logLevel: 'error',
+});
+const { rigTemplateFromRig } = await import(pathToFileURL(outDerive).href);
 
 const html = readFileSync(join(APP, 'static/rigger/view.html'), 'utf8');
 const src = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
@@ -94,6 +106,7 @@ const F = new Function(
 			'faceKeyIdleBlinks',
 			'faceKeyTalk',
 			'faceKeyLipSync',
+			'faceTimelineClip',
 			'faceAddStarterClips',
 		].map(grabFn),
 		'return { faceChannelValue, faceKeyChannel, faceKeyShape, faceKeyBlink, faceKeyIdleBlinks, faceKeyTalk, faceKeyLipSync, faceAddStarterClips };',
@@ -593,6 +606,105 @@ for (const tpl of [BUST_FACE, FULL_BODY])
 		shown(play(lean, sparse, 0.62 + EDGE), 'mouth') === 'mouth_rest',
 	);
 	ok('an empty answer keys nothing', F.faceKeyLipSync({}, mouth, [], 0, channels, rig.has) === 0);
+}
+
+// 6. A template saved from a rig (📐 Save as template, T8): rebuilt over art, its controls key and
+//    pose through the same page code, and its own clip (kept as timelines) plays as authored; an
+//    image key whose part the art lacks shows nothing rather than naming a missing attachment.
+{
+	const src = templateRig(BUST_FACE, regionsFor([], BUST_FACE)).skeleton;
+	const nod = {
+		bones: { neck: { rotate: [{ value: 0 }, { time: 0.4, value: 6 }, { time: 0.8, value: 0 }] } },
+		slots: {
+			mouth: {
+				attachment: [
+					{ time: 0.1, name: 'mouth_O' },
+					{ time: 0.3, name: 'mouth_wide' },
+					{ time: 0.6, name: 'mouth_rest' },
+				],
+			},
+		},
+	};
+	const derived = rigTemplateFromRig(
+		{ ...src, animations: { nod } },
+		{
+			label: 'Mine',
+			required: BUST_FACE.parts.filter((p) => p.required).map((p) => p.name),
+			channels: BUST_FACE.channels,
+			clips: ['nod'],
+			motion: null,
+		},
+		'mine',
+		1,
+	);
+	ok('saved: the bust-face rig derives a template', typeof derived === 'object', String(derived));
+	const saved = derived.template;
+	const rig = rigWith([], saved);
+	let posed = 0;
+	for (const ch of saved.channels.filter((c) => !c.shapes)) {
+		const anim = {};
+		F.faceKeyChannel(anim, ch, ch.min, 0, rig.has);
+		F.faceKeyChannel(anim, ch, ch.max, 1, rig.has);
+		for (const [t, v] of [
+			[0, ch.min],
+			[1, ch.max],
+		]) {
+			const p = play(rig, anim, t);
+			for (const d of ch.drives ?? []) {
+				const want = d.prop === 'scaleY' ? 1 + v * d.per : v * d.per;
+				posed++;
+				ok(
+					`saved ${ch.id} poses ${d.bone}.${d.prop} = ${want.toFixed(3)} at ${t}s (runtime)`,
+					near(boneOff(p, d.bone, d.prop), want, 0.02),
+					String(boneOff(p, d.bone, d.prop)),
+				);
+			}
+			if (ch.swaps) {
+				const want = [...ch.swaps].reverse().find((w) => w.at <= v + 1e-9).part;
+				ok(`saved ${ch.id} shows ${want} at ${t}s (runtime)`, shown(p, ch.slot) === want);
+			}
+		}
+	}
+	ok('saved: every drive of every control was posed', posed > 20, String(posed));
+	const mouthCh = saved.channels.find((c) => c.shapes);
+	const shapeAnim = {};
+	F.faceKeyShape(shapeAnim, mouthCh, 'mouth_A', 0, saved.channels, rig.has);
+	const sp = play(rig, shapeAnim, EDGE);
+	ok(
+		'saved mouth shape shows mouth_A and opens the jaw (runtime)',
+		shown(sp, 'mouth') === 'mouth_A' && near(boneOff(sp, 'jaw', 'y'), -14),
+		`${shown(sp, 'mouth')} ${boneOff(sp, 'jaw', 'y')}`,
+	);
+	const anims = {};
+	const added = F.faceAddStarterClips(anims, saved, rig.has);
+	ok('saved: 🎬 adds the template’s own clip', added.added.join() === 'nod', added.added.join());
+	ok(
+		'saved clip turns the neck as authored (runtime)',
+		near(boneOff(play(rig, anims.nod, 0.4), 'neck', 'rotate'), 6, 0.01),
+		String(boneOff(play(rig, anims.nod, 0.4), 'neck', 'rotate')),
+	);
+	const mouths = (r, a) => [0.1, 0.3, 0.6].map((t) => shown(play(r, a, t + EDGE), 'mouth')).join();
+	ok(
+		'saved clip swaps the mouth as authored (runtime)',
+		mouths(rig, anims.nod) === 'mouth_O,mouth_wide,mouth_rest',
+		mouths(rig, anims.nod),
+	);
+	const lean = rigWith(
+		saved.parts.filter((p) => !p.required).map((p) => p.name),
+		saved,
+	);
+	const leanAnims = {};
+	F.faceAddStarterClips(leanAnims, saved, lean.has);
+	ok(
+		'on needed-only art the clip names no missing image: it shows nothing there',
+		mouths(lean, leanAnims.nod) === 'mouth_O,,mouth_rest' &&
+			leanAnims.nod.slots.mouth.attachment.every((k) => !k.name || lean.has('mouth', k.name)),
+		JSON.stringify(leanAnims.nod.slots.mouth.attachment),
+	);
+	ok(
+		'the template’s own clip is never changed by adding it',
+		saved.clips[0].animation.slots.mouth.attachment[1].name === 'mouth_wide',
+	);
 }
 
 if (fails) {

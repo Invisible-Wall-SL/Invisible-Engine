@@ -3,12 +3,8 @@ import { IRIG_VERSION } from 'engine-rig';
 import { r2Slug, sharedRigKey } from './projectPaths';
 import { getObjectText } from './r2';
 import { asIrigDocument, irigDocProblem } from './riggerIrig';
-import {
-	rigTemplateById,
-	templateRig,
-	type TemplateRegion,
-	type TemplateRig,
-} from './rigTemplates';
+import { rigTemplateForNewRig } from './rigTemplateStore';
+import { templateRig, type TemplateRegion, type TemplateRig } from './rigTemplates';
 
 /** The minimal blank rig both `new` and `upload` write when no rig is applied, as irig v1. */
 function blankSkeleton(): Record<string, unknown> {
@@ -79,7 +75,8 @@ export interface NewRigBody {
 }
 
 /**
- * What `new` and `upload` write: a template rig over `regions` when `templateId` is set, else
+ * What `new` and `upload` write: a template rig over `regions` when `templateId` is set (a built-in,
+ * or a template made in the Rigger at its current version), else
  * `resolveRigSkeletonBody(rigId)`. A template and a saved rig together are refused (400): both
  * are a whole skeleton.
  */
@@ -90,7 +87,7 @@ export async function resolveNewRigBody(
 ): Promise<NewRigBody> {
 	if (!templateId) return { skeleton: await resolveRigSkeletonBody(rigId), template: null };
 	if (rigId) throw error(400, 'pick a saved rig or a template, not both');
-	const t = rigTemplateById(templateId);
+	const t = await rigTemplateForNewRig(templateId);
 	if (!t) throw error(404, `no rig template "${templateId}"`);
 	const fit = templateRig(t, regions);
 	const problem = irigDocProblem(fit.skeleton);
