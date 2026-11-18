@@ -10,7 +10,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { classifyJob, decideRetry, JOBS, jobKind, needsOf, WORKFLOW } from './lib/retry.mjs';
+import {
+	classifyJob,
+	decideRetry,
+	headMoved,
+	JOBS,
+	jobKind,
+	needsOf,
+	WORKFLOW,
+} from './lib/retry.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
@@ -301,6 +309,25 @@ assert.equal(decideRetry({ conclusion: 'success', runAttempt: 1, jobs: greenRun(
 	const d = decideRetry(failedRun([...all.slice(1), neverAcquired('prepare')]));
 	assert.equal(d.retry, true, d.reason);
 	assert.deepEqual(names(d, 'infrastructure'), ['prepare']);
+}
+
+// A head its branch has left is never retried: the re-run would join the group of the new head's
+// run and cancel it. A manual run is about its commit, so its branch moving changes nothing.
+{
+	const A = 'a'.repeat(40);
+	const B = 'b'.repeat(40);
+	for (const event of ['pull_request', 'push']) {
+		assert.equal(headMoved({ event, headSha: A, tip: A }), undefined, `${event}: at its tip`);
+		assert.match(headMoved({ event, headSha: A, tip: B }), /at bbbbbbb now/, event);
+		assert.match(headMoved({ event, headSha: A, tip: null }), /gone/, event);
+	}
+	assert.equal(headMoved({ event: 'workflow_dispatch', headSha: A, tip: undefined }), undefined);
+	const lost = failedRun([neverAcquired('prepare')]);
+	const moved = headMoved({ event: 'pull_request', headSha: A, tip: B });
+	const d = decideRetry({ ...lost, moved });
+	assert.equal(d.retry, false, d.reason);
+	assert.match(d.reason, /superseded/);
+	assert.equal(decideRetry({ ...lost, moved: undefined }).retry, true);
 }
 
 // ---- 3. the table matches current-games.yml ----
