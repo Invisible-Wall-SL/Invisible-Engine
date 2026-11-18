@@ -9,4 +9,16 @@
 export * from './pure';
 export { GRAPHICS_SETTING_KEY, readGpu3d, readGraphicsSetting } from './src/device';
 export { listenKeys3d, type Keys3d } from './src/input';
-export { mountWorld3d, type View3d, type World3d, type World3dOptions } from './src/world';
+export {
+	mountWorld3d,
+	type BodyLooks3d,
+	type View3d,
+	type World3d,
+	type World3dOptions,
+} from './src/world';
+export {
+	createCharacterModels3d,
+	type Character3d,
+	type CharacterModels3d,
+} from './src/characters';
+export { createCast3d, type Cast3d } from './src/cast';

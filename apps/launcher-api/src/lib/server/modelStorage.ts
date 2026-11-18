@@ -14,6 +14,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
 	isModelClass,
+	isUntieredModelClass,
 	isModelTierId,
 	MODEL_CLASS_DEFAULTS,
 	MODEL_TIERED_MAPS,
@@ -296,6 +297,18 @@ export async function validateModelMaster(
 	seen.facts = normalizeModelFacts(facts);
 	for (const message of textureSideIssues(facts.textures))
 		issues.push({ level: 'error', code: 'TEXTURE_TOO_LARGE', message });
+	if (isUntieredModelClass(cls)) {
+		if (!facts.clips.length)
+			issues.push({ level: 'error', code: 'NO_CLIPS', message: 'a clip library has no animation' });
+		if (facts.levels.length || facts.textures.length)
+			issues.push({
+				level: 'warning',
+				code: 'CLIP_LIBRARY_HAS_MESH',
+				message:
+					'a clip library ships its armature and clips only; its meshes and maps are dropped',
+			});
+		return issues;
+	}
 	const gen: ModelLodGenerate = MODEL_CLASS_DEFAULTS[cls].lodGenerate;
 	if (!facts.levels.some((l) => l.level === 0))
 		issues.push({ level: 'error', code: 'NO_LOD0', message: 'the master has no mesh (no LOD0)' });

@@ -3,7 +3,10 @@
 	import { deviceClass, deviceScreenPixelRatio, getContextApp } from 'pixi-svelte';
 
 	import ArcadeStage, { type Props } from './ArcadeStage.svelte';
-	import { bakedGameConfig } from '../editor-scenes';
+	import type { ModelExportIndex } from 'constants-shared/models';
+
+	import { bakedBundleData, bakedGameConfig } from '../editor-scenes';
+	import { gameAssetsBase } from '../game/assets';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
 	import { online3dSession } from '../game/online3d';
@@ -30,6 +33,11 @@
 	 * canvas's pixel-ratio cap. That ratio may sit below the HUD's, and follows the 2D
 	 * render-quality controller down: when `renderQuality.ts` lowers the Pixi resolution, the world
 	 * drops by the same factor.
+	 *
+	 * Characters (Phase 2): a body whose character has a look (`arcade.world3d.looks`) is drawn as
+	 * that model from the bundle's models index at the chosen tier, cloned per body, with its clip
+	 * libraries on its own mixer (`engine-3d` `createCast3d`); the capsule stands in until it loads.
+	 * `window.__IE_WORLD3D__` reports them to the playtests.
 	 */
 
 	const props: Props = $props();
@@ -187,6 +195,35 @@
 			console.info(`[engine-3d] tier ${choice.tier} (${choice.why})`);
 			const world = three.mountWorld3d({ canvas, caps });
 			world.setLevel(field.colliders);
+			const bundle = bakedBundleData() as
+				{ models?: ModelExportIndex; assetBase?: string } | undefined;
+			const raw = bakedGameConfig() as { arcade?: { world3d?: { looks?: unknown } } } | undefined;
+			const { looks, problems } = three.looksOf3d(raw?.arcade?.world3d?.looks);
+			for (const problem of problems) console.error(`[engine-3d] ${problem}`);
+			const models = bundle?.models?.models.length
+				? three.createCharacterModels3d({
+						renderer: world.renderer,
+						index: bundle.models,
+						tier: choice.tier,
+						base: bundle.assetBase ?? gameAssetsBase(),
+						caps,
+						fovDeg: rig.fov,
+					})
+				: undefined;
+			const cast = models ? three.createCast3d({ models, looks }) : undefined;
+			world.setLooks(cast);
+			const probe = globalThis as { __IE_WORLD3D__?: unknown };
+			probe.__IE_WORLD3D__ = {
+				tier: choice.tier,
+				characters: () =>
+					[...(cast?.characters ?? [])].map(([id, c]) => ({
+						id,
+						model: c.root.name,
+						lods: c.lodLevels(),
+						clips: [...c.clips.keys()],
+						sockets: ['hand_r', 'head_top'].filter((n) => !!c.socket(n)),
+					})),
+			};
 			const keys = three.listenKeys3d(window);
 			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
 			const unregisterProbe = registerDeterminismArcade({
@@ -199,6 +236,7 @@
 						z: b.z,
 						vx: b.vx,
 						vy: 0,
+						grounded: b.grounded,
 						tags: b.kind === 'hero' ? ['player'] : [],
 					})),
 				}),
@@ -223,6 +261,8 @@
 				if (hidden) hidden.renderable = false;
 				world.setPixelRatio(pixelRatio());
 				field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
+				models?.setFov(rig.fov);
+				cast?.frame(pixi.ticker.deltaMS);
 				const bodies = field.bodies();
 				const own = bodies.find((b) => b.kind === 'hero');
 				if (own) target = follow.step(pixi.ticker.deltaMS, own);
@@ -264,6 +304,9 @@
 				keys.release();
 				unregisterProbe();
 				field.release();
+				cast?.dispose();
+				models?.dispose();
+				delete probe.__IE_WORLD3D__;
 				if (hidden && !hidden.destroyed) hidden.renderable = true;
 				world.destroy();
 			};

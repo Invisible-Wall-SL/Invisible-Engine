@@ -19,6 +19,8 @@ import { stockTwinShip, stockTwinsDefine } from './stockTwins.js';
 import { assertSvelteVersions } from './svelteVersions.js';
 
 const KTX_TRANSCODER_RE = /[\\/]libktx\.(js|wasm)$/;
+/** three's Basis transcoder (`engine-3d`'s KTX2Loader): only the `arcade3d` runtime fetches it. */
+const BASIS_TRANSCODER_RE = /[\\/]basis_transcoder\.(js|wasm)$/;
 /** Salmons' built-in art (`engine-layout` `salmonsArt/sheets/`): fetched only by a Salmons room. */
 const SALMONS_ART_RE = /[\\/]salmonsArt[\\/]sheets[\\/][^\\/]+\.webp$/;
 
@@ -286,9 +288,13 @@ export default () => {
 		// of a base64 copy every desktop downloads. The bundle is an ES module, so its URL is
 		// `new URL(…, import.meta.url)`: beside the bundle, wherever the build is served from.
 		// `pixi-svelte/ktx2Transcoder.ts` fetches it on the first `.ktx2` load. Salmons' built-in art
-		// likewise: only a Salmons room fetches it (`engine-layout/salmons-art`).
+		// likewise: only a Salmons room fetches it (`engine-layout/salmons-art`), and three's Basis
+		// transcoder: only a 3D model with a KTX2 texture does.
 		build: {
-			assetsInlineLimit: (file) => !KTX_TRANSCODER_RE.test(file) && !SALMONS_ART_RE.test(file),
+			assetsInlineLimit: (file) =>
+				!KTX_TRANSCODER_RE.test(file) &&
+				!BASIS_TRANSCODER_RE.test(file) &&
+				!SALMONS_ART_RE.test(file),
 			sourcemap: sourcemap(),
 			output: {
 				sourcemap: sourcemap(),

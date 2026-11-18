@@ -1,7 +1,9 @@
 // The 3D view's pure parts (`packages/engine-3d/pure.ts`, `docs/design/3d-games.md` Phase 1): the
 // camera rig, the stick → int8 move axes, the camera follow, the offline play loop over
-// `motion3d`, and the tier chooser with its caps (runtime eval §5.1, §5.3, step T1). No three.js,
-// no DOM: what the `arcade3d` play field computes before it draws.
+// `motion3d`, the tier chooser with its caps (runtime eval §5.1, §5.3, step T1), and the characters'
+// pure half (runtime step 3, T2): screen-size LOD distances, the toon `extras`, the looks and the
+// tier fallback of the models index. No three.js, no DOM: what the `arcade3d` play field computes
+// before it draws.
 //
 // Run: pnpm check:engine-3d
 
@@ -25,7 +27,17 @@ import {
 	sampleArena3d,
 	yawRadians,
 	yawToward,
+	lodDistances,
+	lodNameOf,
+	LOOK_MODEL_ID,
+	lookFor3d,
+	looksOf3d,
+	MAX_OUTLINE_M,
+	modelAt3d,
+	toonOf,
 } from '../packages/engine-3d/pure.ts';
+import { MODEL_CLASS_DEFAULTS } from '../packages/constants-shared/modelTiers.ts';
+import { MODEL_ID } from '../apps/launcher-api/src/lib/models/modelId.ts';
 import { BUTTON_JUMP, MOVE_SCALE } from '../packages/engine-mechanics/src/motion3d.js';
 import { PINNABLE_TIERS } from '../packages/config-vite/artTierPin.js';
 import { MODEL_SCENE_BUDGETS, MODEL_TIERS } from '../packages/constants-shared/modelTiers.ts';
@@ -511,6 +523,137 @@ check(
 check(
 	"the scene budget is the export's",
 	MODEL_TIERS.every((t) => CAPS_3D[t].budget === MODEL_SCENE_BUDGETS[t]),
+);
+
+// ── Characters: LOD by screen size (T2) ─────────────────────────────────────────────────────────
+const heroSizes = MODEL_CLASS_DEFAULTS.hero.lodScreenSize;
+const screenAt = (r, d, fov) => r / (d * Math.tan((fov / 2) * (Math.PI / 180)));
+for (const fov of [45, 70]) {
+	const d = lodDistances(0.95, fov, [0, 1, 2], heroSizes);
+	check(`LOD at FOV ${fov}: the first level draws from 0 m`, d[0] === 0, d.join());
+	check(
+		`LOD at FOV ${fov}: each level starts where the previous level's screen size runs out`,
+		near(screenAt(0.95, d[1], fov), heroSizes.levels[0], 1e-9) &&
+			near(screenAt(0.95, d[2], fov), heroSizes.levels[1], 1e-9),
+		d.join(),
+	);
+	check(
+		`LOD at FOV ${fov}: culled below cullBelow`,
+		near(screenAt(0.95, d[3], fov), heroSizes.cullBelow, 1e-9),
+	);
+}
+const narrow = lodDistances(0.95, 45, [0, 1, 2], heroSizes);
+const wide = lodDistances(0.95, 70, [0, 1, 2], heroSizes);
+check('a wider FOV switches nearer (the same screen size is reached sooner)', wide[1] < narrow[1]);
+const halfTier = lodDistances(0.95, 45, [1, 2, 3], heroSizes);
+check(
+	'a tier shipping levels 1–3 shows its level 1 down to level 1’s own threshold',
+	halfTier[0] === 0 && near(screenAt(0.95, halfTier[1], 45), heroSizes.levels[1], 1e-9),
+);
+const biased = lodDistances(0.95, 45, [0, 1, 2], heroSizes, 1.25);
+check(
+	'a LOD bias above 1 switches down sooner',
+	biased[1] < narrow[1] && near(biased[1], narrow[1] / 1.25),
+);
+check(
+	'an ultra level (−1) switches at the ultra size',
+	near(screenAt(0.95, lodDistances(0.95, 45, [-1, 0], heroSizes)[1], 45), heroSizes.ultra, 1e-9),
+);
+check(
+	'rising (hand-edited) sizes never make distances fall',
+	lodDistances(1, 45, [0, 1], { levels: [0.01, 0.5], cullBelow: 0 }).every(
+		(v, i, a) => i === 0 || v >= a[i - 1],
+	),
+);
+check(
+	'no cullBelow draws to any distance',
+	lodDistances(1, 45, [0], { levels: [0.2], cullBelow: 0 }).at(-1) === Infinity,
+);
+check(
+	'LOD names: _LOD2 and _LODU',
+	JSON.stringify(lodNameOf('CH_testhero_LOD2')) === '{"base":"CH_testhero","level":2}' &&
+		lodNameOf('CH_testhero_LODU')?.level === -1 &&
+		lodNameOf('CH_testhero') === null,
+);
+
+// ── Characters: the toon extras ─────────────────────────────────────────────────────────────────
+const toon = toonOf({ toon: { outline: 0.012, outline_color: [0.06, 0.05, 0.08], rim: 0.35 } });
+check(
+	'toon extras read: outline, its colour, rim; the rim colour defaults to white',
+	toon.outline === 0.012 &&
+		toon.outlineColor[2] === 0.08 &&
+		toon.rim === 0.35 &&
+		toon.rimColor.join() === '1,1,1',
+	JSON.stringify(toon),
+);
+const wild = toonOf({ toon: { outline: 5, rim: -1, outline_color: ['x', 2], ramp: 7 } });
+check(
+	'toon extras are clamped and a bad value falls back',
+	wild.outline === MAX_OUTLINE_M &&
+		wild.rim === 0 &&
+		wild.outlineColor.join() === '0,1,0' &&
+		!('ramp' in wild),
+	JSON.stringify(wild),
+);
+check(
+	'no toon extras = no outline, no rim',
+	toonOf(undefined).outline === 0 && toonOf({}).rim === 0,
+);
+
+// ── Characters: looks and the models index ──────────────────────────────────────────────────────
+const { looks, problems } = looksOf3d({
+	default: {
+		modelId: 'testhero',
+		modelIds: ['anim_locomotion', 'BAD ID'],
+		attach: [{ socket: 'hand_r', modelId: 'testsword' }, { socket: 3 }],
+	},
+	knight: { modelId: 'knight', anim: 'humanoid' },
+	broken: { modelIds: [] },
+});
+check(
+	'looks: ids validated, a bad attachment and a look with no model reported by path',
+	looks.default.modelIds.join() === 'anim_locomotion' &&
+		looks.default.attach.length === 1 &&
+		!looks.broken &&
+		problems.join('|') ===
+			'arcade.world3d.looks.default.attach.1: { socket, modelId }|arcade.world3d.looks.broken.modelId: a model id',
+	JSON.stringify({ looks, problems }),
+);
+check(
+	"looks take the launcher's model id rule exactly (CH_testhero, case kept)",
+	LOOK_MODEL_ID.source === MODEL_ID.source &&
+		looksOf3d({ default: { modelId: 'CH_testhero' } }).looks.default?.modelId === 'CH_testhero',
+	`${LOOK_MODEL_ID.source} vs ${MODEL_ID.source}`,
+);
+check(
+	"a character's own look, else the default",
+	lookFor3d(looks, 'knight')?.modelId === 'knight' &&
+		lookFor3d(looks, 'rogue')?.modelId === 'testhero' &&
+		lookFor3d(looks)?.modelId === 'testhero',
+);
+const tierIndex = {
+	prefix: 'models',
+	models: [
+		{
+			id: 'testhero',
+			class: 'hero',
+			clips: [],
+			sockets: [],
+			lodScreenSize: heroSizes,
+			tiers: {
+				full: { glb: 'testhero.glb', bytes: 1, vramBytes: 0, lods: [], maps: {} },
+				half: { glb: 'testhero@half.glb', bytes: 1, vramBytes: 0, lods: [], maps: {} },
+			},
+		},
+	],
+};
+check(
+	'models index: the chosen tier, else full; URLs under the asset base',
+	modelAt3d(tierIndex, 'testhero', 'half', 'https://cdn.test/g/assets/')?.url ===
+		'https://cdn.test/g/assets/models/testhero@half.glb' &&
+		modelAt3d(tierIndex, 'testhero', 'quarter', 'https://cdn.test/g/assets/')?.url ===
+			'https://cdn.test/g/assets/models/testhero.glb' &&
+		modelAt3d(tierIndex, 'nobody', 'full', 'https://cdn.test/') === undefined,
 );
 
 if (failures.length) {

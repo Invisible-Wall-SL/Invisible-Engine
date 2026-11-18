@@ -41,8 +41,16 @@ export function publishedModelTiers(resolutionTiers: unknown): ModelTierId[] {
 	return MODEL_TIERS.filter((id) => id === MODEL_FALLBACK_TIER || asked.includes(id));
 }
 
-export const MODEL_CLASSES = ['hero', 'weapon', 'prop', 'tile', 'fx'] as const;
+/**
+ * `anim` is a CLIP LIBRARY (`anim/<skeleton>/<set>.glb`: an armature and its `<set>.<clip>`
+ * animations, no mesh, no texture): untiered, only `full` is written, and the derive only
+ * resamples and compresses it.
+ */
+export const MODEL_CLASSES = ['hero', 'weapon', 'prop', 'tile', 'fx', 'anim'] as const;
 export type ModelClass = (typeof MODEL_CLASSES)[number];
+
+/** Classes that ship one copy for every tier (no LOD, no texture to derive). */
+export const isUntieredModelClass = (cls: ModelClass): boolean => cls === 'anim';
 
 export const isModelClass = (value: unknown): value is ModelClass =>
 	typeof value === 'string' && (MODEL_CLASSES as readonly string[]).includes(value);
@@ -224,6 +232,12 @@ export const MODEL_CLASS_DEFAULTS = {
 		masterMaxTexture: 512,
 		lodGenerate: { tris: [500], targetError: 0.02, lockBorder: false, sloppyLastLevel: false },
 		lodScreenSize: { levels: [0], cullBelow: 0.002 },
+		tiers: withLods({ ultra: [0, 0], full: [0, 0], half: [0, 0], quarter: [0, 0] }),
+	},
+	anim: {
+		masterMaxTexture: 0,
+		lodGenerate: { tris: [], targetError: 0, lockBorder: false, sloppyLastLevel: false },
+		lodScreenSize: { levels: [], cullBelow: 0 },
 		tiers: withLods({ ultra: [0, 0], full: [0, 0], half: [0, 0], quarter: [0, 0] }),
 	},
 } as const satisfies Record<ModelClass, ModelClassDefaults>;
