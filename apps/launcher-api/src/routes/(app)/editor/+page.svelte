@@ -56,7 +56,9 @@
 		normalizeResolutionTiers,
 		type LayoutProfile,
 		type ResolutionTierId,
+		type StoredResolutionTierId,
 	} from 'engine-layout';
+	import { modelOnlyResolutionTiers } from '$lib/resolutionTierIds';
 	import ColorField from '$lib/ColorField.svelte';
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
@@ -198,6 +200,9 @@
 	let resolutionTiers = $state<ResolutionTierId[]>(
 		normalizeResolutionTiers(data.doc.resolutionTiers) ?? [],
 	);
+	/** A 3D project's model tiers (`ultra`, `quarter`) this page shows no box for: saved back as
+	 *  loaded, so an editor save never drops them (`$lib/resolutionTierIds`). */
+	const modelOnlyTiers = modelOnlyResolutionTiers(data.doc.resolutionTiers);
 	function setResolutionTier(tier: ResolutionTierId, on: boolean): void {
 		resolutionTiers = on
 			? [...new Set([...resolutionTiers, tier])]
@@ -2836,7 +2841,7 @@
 			scenes: Scene[];
 			settings?: GameSettings;
 			layoutProfile?: LayoutProfile;
-			resolutionTiers?: ResolutionTierId[];
+			resolutionTiers?: StoredResolutionTierId[];
 			updatedAt: string;
 		} = {
 			version: data.doc.version,
@@ -2855,7 +2860,8 @@
 		) {
 			payload.layoutProfile = $state.snapshot(docLayoutProfile) as LayoutProfile;
 		}
-		if (resolutionTiers.length > 0) payload.resolutionTiers = [...resolutionTiers];
+		const tiers = [...resolutionTiers, ...modelOnlyTiers];
+		if (tiers.length > 0) payload.resolutionTiers = tiers;
 		return payload;
 	}
 
