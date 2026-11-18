@@ -58,6 +58,7 @@
 		"check:deploy-read": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-read.ts",
 		"check:deploy-token-gate": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-token-gate.ts",
 		"check:exporter-registry": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-exporter-registry.ts",
+		"check:game-config-3d": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-game-config-3d.ts",
 		"check:model-export": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-model-export.ts",
 		"check:model-optimize": "tsx --tsconfig tsconfig.scripts.json scripts/check-model-optimize.ts",
 		"check:deploy-mirror": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-mirror.ts",
