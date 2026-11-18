@@ -1,4 +1,4 @@
-import type { ArtMount, LayerArt } from '../arcadeArt.svelte';
+import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
@@ -22,15 +22,14 @@ const CAST_MS = 450;
 const LINE = { width: 2, color: 0xddddaa, alpha: 0.9, dot: { r: 4, color: 0xffee88 } };
 
 export type SalmonsArt = {
-	/** The river drawn in art, as `<IsoWorld>` mounts it in place of the `river` node. */
+	/** The river drawn in art, as `<IsoWorld>` mounts it in place of the `river` node, with the
+	 *  bloodstains over it (`blood.ts`). */
 	river: ArtMount;
 	/** A character's look by its character id, at its body's size; none for another. */
 	look: (character: string, body: { w: number; h: number }) => CodeLook | undefined;
 	/** How far the ground at a world place is drawn raised by the waterfalls below it, screen px:
 	 *  a character there is drawn as high (`referenceLayouts/salmonsElevation.ts`). */
 	ground: (x: number, y: number) => number;
-	/** The bloodstains and their trail, drawn among the players' spawn layer's instances. */
-	layer: LayerArt;
 	/** This frame's bloodstains (the room's `stains`), and the trail's fade, at `nowMs`. */
 	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
@@ -63,16 +62,17 @@ export async function loadSalmonsArt(
 	return {
 		river: (into, app) => {
 			const art = mountSalmonsRiver(into, app, textures, river, seed);
+			const stains = blood.mount(into, app);
 			drawn = art;
 			live += 1;
 			return () => {
+				stains();
 				art.teardown();
 				live -= 1;
 			};
 		},
 		look: looks.look,
 		ground: (_x, y) => elevation.at(y),
-		layer: { surface: blood.surface, wake: blood.wake },
 		stains: blood.frame,
 		line: (sinceCastMs, nowMs, fromDx) => {
 			const k = Math.min(1, Math.max(0, sinceCastMs / CAST_MS));

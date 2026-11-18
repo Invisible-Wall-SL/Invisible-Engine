@@ -468,17 +468,18 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     fading over 3 s, under the swimming salmon. Under the 0.75 tint a stain reads as a dark
     shadow with a little red, as the old client's maths give it; brighter is an owner call
     (`BLOOD`), not a port.
-  - **The layers** (`arcadeArt.svelte.ts` `LayerArt`, `setUnderSurface`; `<SpawnLayer>`): a
-    projected spawn layer can draw art among its instances, a `surface` over the ones its art puts
-    under it and a `wake` below them. Salmons puts each salmon its code look draws under the water
-    there (`CodeLook.under`), so a swimming salmon is now drawn below every character above the
-    water (a bear on the bank, a leaping salmon), as the old client's two layers; nothing changes
-    for a layer nobody publishes to.
+  - **The layers** (`salmonsArt/blood.ts` `mount`, `sink`): the stains are drawn with the river
+    art, over it, after the trail and a Pixi `RenderLayer` that each salmon its code look draws
+    under the water is drawn in (sorted by its instance's depth). The players' layer is drawn after
+    the river, so a swimming salmon is under the stains and below every character above the water
+    (a bear on the bank, a leaping salmon), as the old client's two layers. All of it is in the
+    Salmons art kit: `<SpawnLayer>` and `arcadeArt.svelte.ts` are unchanged, so the slot, match3 and
+    card runtimes keep their bytes (`check:runtime-bytes`; only arcade and arcade3d re-recorded).
   - **Proof**: `check:online-rules` (38: a stain at each catch's place and at the hook's for a
     landing, none for an escape; outlasts the round, capped; live, both devices and a late joiner
-    are sent it), `check:salmons-art` (21: the numbers, the tinted colour against `underTint`, each
+    are sent it), `check:salmons-art` (22: the numbers, the tinted colour against `underTint`, each
     stain's place, lift, turn and size alike on two kits, the 0.8-cell contact, 3 s of red and a
-    puff per 70 ms, the trail's fade), `salmons-play.mjs` pages K (bear) and Q (salmon) in
+    puff per 70 ms, the trail's fade, the layer order and the sinking), `salmons-play.mjs` pages K (bear) and Q (salmon) in
     `salmons-blood`: one stain where the salmon was held out, sent to and drawn on both pages. The
     red is not played in the browser: those pages draw the seed's river over the authored room.
 - 2026-11-18 — **The whole leap, as the original's** (branch `arcade/salmons-full-jump`; in review;

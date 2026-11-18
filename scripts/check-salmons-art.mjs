@@ -338,11 +338,10 @@ const bloodKit = () => {
 			},
 		},
 	};
-	const surface = new Container();
-	const wake = new Container();
-	blood.surface(surface, app);
-	blood.wake(wake, app);
-	return { blood, surface, wake, made };
+	const river = new Container();
+	const unmount = blood.mount(river, app);
+	const [wake, sunk, surface] = river.children;
+	return { blood, river, unmount, surface, wake, sunk, made };
 };
 const stainsOf = (list) => ({ length: list.length, at: (i) => list[i] });
 
@@ -358,7 +357,7 @@ check(
 		];
 		one.blood.frame(stainsOf(stains), 0);
 		two.blood.frame(stainsOf(stains), 0);
-		const drawn = (kit) => kit.surface.children[0].children;
+		const drawn = (kit) => kit.surface.children;
 		assert.equal(drawn(one).length, 3);
 		const [low, high, dry] = drawn(one);
 		assert.deepEqual([low.x, low.y], [300 - 700, (300 + 700) / 2], 'projected');
@@ -404,14 +403,46 @@ check('bloodstains: swimming through one, red for 3 s, shedding a puff every 70 
 check('bloodstains: the trail fades from 0.5 over 3 s, under the swimming salmon', () => {
 	const { blood, wake } = bloodKit();
 	blood.shed(300, 700, 1000);
-	const puff = wake.children[0].children[0];
+	const puff = wake.children[0];
 	assert.equal(puff.alpha, BLOOD.trailAlpha);
 	assert.equal(puff.scale.x, K * BLOOD.trailScale);
 	blood.frame(undefined, 2500);
 	assert.ok(Math.abs(puff.alpha - 0.25) < 1e-9, 'half gone at 1.5 s');
 	blood.frame(undefined, 4000);
-	assert.equal(wake.children[0].children.length, 0, 'gone at 3 s');
+	assert.equal(wake.children.length, 0, 'gone at 3 s');
 	assert.deepEqual(blood.drawn(), { stains: 0, trail: 0 });
 });
+
+check(
+	'bloodstains: drawn over the river, trail < swimming salmon < stains, in the players’ depth order',
+	() => {
+		const { blood, river, unmount, wake, sunk, surface } = bloodKit();
+		assert.deepEqual(river.children, [wake, sunk, surface], 'wake, what swims, then the stains');
+		const players = new Container();
+		const [deep, near] = [5, 2].map((zIndex) => {
+			const instance = new Container();
+			instance.zIndex = zIndex;
+			const view = new Container();
+			instance.addChild(new Container()).addChild(view);
+			players.addChild(instance);
+			return view;
+		});
+		blood.sink(deep, true);
+		blood.sink(near, true);
+		blood.sink(near, true);
+		assert.deepEqual(sunk.renderLayerChildren, [deep, near], 'each once');
+		sunk.sortRenderLayerChildren();
+		assert.deepEqual(sunk.renderLayerChildren, [near, deep], 'by its instance’s depth');
+		blood.sink(deep, false);
+		assert.equal(deep.parentRenderLayer, null, 'surfaced: drawn in its own place');
+		unmount();
+		assert.equal(near.parentRenderLayer, null, 'the river gone: drawn in its own place');
+		blood.sink(near, true);
+		assert.equal(near.parentRenderLayer, null, 'not sunk into a layer that is not drawn');
+		const orphan = new Container();
+		blood.sink(orphan, true);
+		assert.equal(orphan.parentRenderLayer, null, 'nor a look not mounted');
+	},
+);
 
 console.log(`check:salmons-art: ${passed} passed`);

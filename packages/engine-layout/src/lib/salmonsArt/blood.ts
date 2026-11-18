@@ -1,4 +1,4 @@
-import { Container, Graphics, Sprite, type Application, type Texture } from 'pixi.js';
+import { Container, Graphics, RenderLayer, Sprite, type Application, type Texture } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { WaterAt } from './looks';
@@ -13,7 +13,7 @@ import { CELL, K } from './scale';
  *   underwater layer, over the swimming salmon and under the water's tint; here the river's tint is
  *   drawn before the players, so the stain is drawn in the tint's colour mixed in (as a swimming
  *   salmon is, `leap.ts` `underTint`), which is exactly the old picture, over the salmon drawn under
- *   the surface (`arcadeArt.svelte.ts` `LayerArt`) and under everything above it;
+ *   the surface ({@link Blood}`.sink`) and under everything above it;
  * - a salmon swimming (free, under the water) within `contactCells` of a stain turns red
  *   (`red`, a tint) for `redMs`, and while red and swimming it sheds a puff every `trailEveryMs`,
  *   under the swimming salmon, that fades from `trailAlpha` over `trailMs`.
@@ -43,10 +43,15 @@ export type StainList = {
 };
 
 export type Blood = {
-	/** Drawn over what swims under the surface, and under the rest. */
-	surface: ArtMount;
-	/** Drawn under what swims. */
-	wake: ArtMount;
+	/**
+	 * Drawn with the river, over it: the trail, then what swims under the surface, then the stains.
+	 * The players' layer is drawn after the river, so a stain is over a salmon {@link Blood.sink}s
+	 * and under every other instance, as the old client's underwater layer; nothing outside this kit
+	 * orders it, so no other game's runtime carries a byte of it.
+	 */
+	mount: ArtMount;
+	/** Draw `view` (a salmon's look) under the surface while `under`, else in its own place. */
+	sink: (view: Container, under: boolean) => void;
 	/** This frame: the room's stains (redrawn only when they changed) and the trail's fade. */
 	frame: (stains: StainList | undefined, nowMs: number) => void;
 	/** Whether a body at world (x, y) touches a stain. */
@@ -98,6 +103,17 @@ export function createBlood(
 	const reachSq = reach * reach;
 	const surface = new Container();
 	const wake = new Container();
+	// What swims under the surface is drawn here, out of the players' layer, in that layer's depth
+	// order: the zIndex `<SpawnLayer>` gives the instance holding it.
+	const depthOf = (view: Container) => {
+		let at: Container | null = view;
+		while (at && at.zIndex === 0) at = at.parent;
+		return at?.zIndex ?? 0;
+	};
+	const sunk = new RenderLayer({
+		sortableChildren: true,
+		sortFunction: (a, b) => depthOf(a) - depthOf(b),
+	});
 	let app: Application | undefined;
 	const textures = new Map<number | 'dry', Texture>();
 	let stains: Stain[] = [];
@@ -157,20 +173,22 @@ export function createBlood(
 		}
 	};
 
-	const mountOf =
-		(view: Container): ArtMount =>
-		(into, pixi) => {
+	return {
+		mount: (into, pixi) => {
 			app = pixi;
-			into.addChild(view);
+			into.addChild(wake, sunk, surface);
 			redraw();
 			return () => {
-				into.removeChild(view);
+				sunk.detachAll();
+				into.removeChild(wake, sunk, surface);
 			};
-		};
-
-	return {
-		surface: mountOf(surface),
-		wake: mountOf(wake),
+		},
+		sink: (view, under) => {
+			// Only while the river is drawn: a view in a layer that is not is not drawn at all.
+			const sinking = under && sunk.parent !== null && view.parent !== null;
+			if (sinking && view.parentRenderLayer !== sunk) sunk.attach(view);
+			else if (!sinking && view.parentRenderLayer === sunk) sunk.detach(view);
+		},
 		frame: (list, nowMs) => {
 			// The room only adds at the end and lets go at the start: its length and ends say it all.
 			const n = list?.length ?? 0;
@@ -212,6 +230,8 @@ export function createBlood(
 		},
 		drawn: () => ({ stains: surface.children.length, trail: trail.length }),
 		destroy: () => {
+			sunk.detachAll();
+			sunk.destroy();
 			surface.destroy({ children: true });
 			wake.destroy({ children: true });
 			trail.length = 0;

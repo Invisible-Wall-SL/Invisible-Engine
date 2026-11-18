@@ -55,9 +55,6 @@ export type CodeLook = {
 	hand: { dx: number; lift: number } | undefined;
 	/** How far up from its place a line on it ends (its middle). */
 	middle: number;
-	/** Whether it is drawn under the water's surface now (a swimming salmon): its layer draws it
-	 *  under the surface art (`arcadeArt.svelte.ts` `LayerArt`). */
-	under: () => boolean;
 	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows, and
 	 *  a salmon's lift (screen px), curl (0..1), whether it has the climb's pose and whether it is
 	 *  drawn under the water. */
@@ -219,7 +216,6 @@ function salmonLook(
 		mount: mountOf(view),
 		hand: undefined,
 		middle: drawnH / 2,
-		under: () => under,
 		drawn: () => ({
 			kind: 'rope',
 			region: marked ? 'salmon_golden' : 'salmon_pink',
@@ -282,6 +278,7 @@ function salmonLook(
 			const water = waterAt(f.x, f.y);
 			under = underwater(cells, water !== undefined, climbing);
 			tintUnder(under ? water?.tint : undefined);
+			blood.sink(view, under);
 			const open = free && under;
 			const blooded = redness(open, open && blood.touches(f.x, f.y), now);
 			if (blooded.red !== red) {
@@ -336,7 +333,6 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 		mount: mountOf(view),
 		hand: undefined,
 		middle: drawnH / 2,
-		under: () => false,
 		drawn: () => ({ kind: 'sprite', region: 'bear', swiping: claw.visible }),
 		event: (event, atMs) => {
 			if (event === 'ability') swipe = { at: atMs, side: -swipe.side, aim: heading };
@@ -370,7 +366,6 @@ function fishermanLook(bodyW: number): CodeLook {
 		mount: mountOf(view),
 		hand: { dx: OLD_HAND.x * s, lift: r - OLD_HAND.y * s },
 		middle: r,
-		under: () => false,
 		drawn: () => ({ kind: 'circle', region: '' }),
 		event: () => {},
 		frame: () => {},

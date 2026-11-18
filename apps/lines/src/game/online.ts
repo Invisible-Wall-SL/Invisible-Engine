@@ -68,11 +68,9 @@ import {
 	setClips,
 	setCodeLooks,
 	setFieldArt,
-	setLayerArt,
 	setLinks,
 	setMarks,
 	startMarks,
-	setUnderSurface,
 	setWorldCameraView,
 	spawnLayerPoint,
 	spawnStore,
@@ -471,7 +469,6 @@ export async function joinOnlineRoom(): Promise<void> {
 				current.art = art;
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
-				setLayerArt(current.game.online.layer, art.layer);
 			},
 			(error: unknown) => console.warn('[online] the field art did not load', error),
 		);
@@ -922,7 +919,6 @@ function drawCodeLooks(
 			current.codeLooks.delete(id);
 		}
 	const mounts = new Map<string, ArtMount>();
-	const under = new Set<string>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		// A published clip wins over the code look (`<SpawnLayer>` would hide it anyway).
@@ -944,10 +940,8 @@ function drawCodeLooks(
 			held: player.held === true,
 		});
 		mounts.set(instance, look.mount);
-		if (look.under()) under.add(instance);
 	}
 	setCodeLooks(mounts);
-	setUnderSurface(under);
 }
 
 /** The registered clips, as a character's animator reads them. */
