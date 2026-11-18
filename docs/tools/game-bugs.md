@@ -78,6 +78,11 @@ A link can open the form already filled in:
 `/game-bugs?project=<key>&new=1&for=<part>&page=<address>`, where `<part>` is one of `gameplay`,
 `wins`, `features`, `art`, `ui`, `text`, `sound`, `loading` or `other`.
 
+**File as bug** on a finding in [Invisible Profiler](profiler.md#file-a-finding-as-a-bug) opens the
+form filled in from it (`/game-bugs?new=1&project=<key>&finding=<id>`), with a line saying it
+files an Invisible Profiler finding. If the finding is already filed, the form says so and links
+the bug ("This finding is already filed as BUG-`<n>`." with **Open BUG-`<n>`**).
+
 ### Find a bug
 
 5. The list opens on the bugs still to do (**Open** and **Working on**), newest first. The filters

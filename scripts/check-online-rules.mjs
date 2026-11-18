@@ -8,7 +8,9 @@
 //
 // Salmons' own rules (P11.3: engine-mechanics salmonsRules.js and the river's solids) replay its
 // recorded traces exactly — the waterfall climb, the sandbank, the line, the golden salmon — and
-// rocks and the river stop a player on the device as in the room.
+// rocks and the river stop a player on the device as in the room. A caught salmon leaves a
+// bloodstain where it died (where it was hooked, when landed), kept for the room's life up to its
+// cap, and every device is sent the room's stains, one that joins later too.
 //
 // Abilities and zone forces are ONE module (P11.5: engine-mechanics abilities.js): the offline
 // arcade loop (engine-game arcadeLoop.ts) and a room, given the same trace, raise the same uses,
@@ -35,7 +37,7 @@ import {
 } from '../packages/engine-mechanics/src/online.js';
 import { createPredictor } from '../packages/engine-mechanics/src/netcode.js';
 import { salmonsConfig, salmonsRiver } from '../packages/engine-mechanics/src/salmons.js';
-import { LINE } from '../packages/engine-mechanics/src/salmonsRules.js';
+import { LINE, STAINS } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	GRACE_MS,
 	ONLINE_EVENT,
@@ -1176,6 +1178,87 @@ await check(
 );
 
 await check(
+	'Salmons: a caught salmon leaves a bloodstain where it died; a landed one where it was hooked',
+	() => {
+		const stainsOf = (trace) => {
+			let before = new Map();
+			const expected = [];
+			const landings = [];
+			let room;
+			playTrace(trace, (sim, got) => {
+				room = sim;
+				for (const e of got) {
+					// A bear's catch: where the salmon is (it is held from then on). A line's: where it
+					// was when the cast hooked it, before the reel's first pull.
+					if (e.type === 'caught' && e.effect !== 'hook') {
+						const { x, y } = sim.players.get(e.target).body;
+						expected.push({ x, y });
+					}
+					if (e.type === 'hooked') expected.push(before.get(e.target));
+					if (e.type === 'caught' && e.effect === 'hook') {
+						const { x, y } = sim.players.get(e.target).body;
+						landings.push({ x, y });
+					}
+				}
+				before = new Map([...sim.players].map(([id, p]) => [id, { x: p.body.x, y: p.body.y }]));
+			});
+			return { room, expected, landings };
+		};
+		const golden = stainsOf(TRACES.golden);
+		assert.equal(golden.expected.length, 3, 'the bear catches three');
+		assert.deepEqual(golden.room.rules.stains.list, golden.expected, 'one where each was caught');
+		assert.equal(golden.room.rules.stains.made, 3);
+		const line = stainsOf(TRACES.line);
+		assert.equal(line.landings.length, 2, 'two landed');
+		const stains = line.room.rules.stains.list;
+		assert.equal(stains.length, 2, 'one stain a landing');
+		stains.forEach((stain, i) => {
+			// Where the bobber hooked it: within a step's move of where it was the step before.
+			const was = line.expected[i];
+			assert.ok(
+				Math.hypot(stain.x - was.x, stain.y - was.y) < 20,
+				`stain ${i} where it was hooked`,
+			);
+			assert.ok(
+				stain.x > line.landings[i].x + LINE.landCells * 48,
+				'not on the bank it was reeled onto',
+			);
+		});
+		for (const name of ['climb', 'sandbank'])
+			assert.equal(stainsOf(TRACES[name]).room.rules.stains.made, 0, `${name}: no catch, no stain`);
+	},
+);
+
+await check('Salmons: stains stay for the room’s game, and past their cap the oldest goes', () => {
+	const sim = createRoomSim(salmonsGame, { seed: 3 });
+	const fish = sim.join('s', { character: 'salmon' });
+	const rest = () => [];
+	const total = STAINS.max + 5;
+	for (let n = 0; n < total; n++) {
+		fish.body.x = 100 + n;
+		fish.status = STATUS.out;
+		fish.until = sim.steps + 1000;
+		sim.step(rest);
+		sim.step(rest);
+		fish.status = STATUS.free;
+		sim.step(rest);
+	}
+	const { list, made } = sim.rules.stains;
+	assert.equal(made, total, 'one stain a catch, and only one');
+	assert.equal(list.length, STAINS.max);
+	assert.equal(list[0].x, 105, 'the five oldest went');
+	assert.equal(list.at(-1).x, 100 + total - 1, 'the newest last');
+	assert.equal(STAINS.max, 300, 'the original’s cap');
+	for (let i = 0; i < 1000; i++) sim.step(rest);
+	assert.equal(sim.rules.stains.list.length, STAINS.max, 'the stains are still there');
+	const { module, ...plain } = salmonsGame.online.rules;
+	assert.equal(module, 'salmons');
+	const unruled = { ...salmonsGame, online: { ...salmonsGame.online, rules: plain } };
+	const none = onlineRulesModule.createOnlineRules(unruled, { spawn: () => {} }).stains;
+	assert.deepEqual([none.list.length, none.made], [0, 0], 'a room with no module has none');
+});
+
+await check(
 	'Salmons: rocks and the river are solids a device predicts as the room moves them',
 	() => {
 		const river = salmonsRiver(3);
@@ -1504,10 +1587,14 @@ writeFileSync(
 		}),
 	),
 );
+writeFileSync(
+	join(dir, 'stained.json'),
+	JSON.stringify(configOf({ abilities: [{ ...CATCH, reach: 400 }], module: 'salmons' })),
+);
 const port = await freePort();
 const server = createGameServer({
 	loadGame: createConfigSource({ dir }),
-	maxRooms: 2,
+	maxRooms: 3,
 	commit: 'onlinerules0',
 	gracefullyShutdown: false,
 	trustProxy: true,
@@ -1609,6 +1696,37 @@ try {
 		);
 	});
 	await salmon.leave();
+
+	await check('live: a bloodstain reaches every device, and one who joins later', async () => {
+		const fish = await client().joinOrCreate(ROOM_NAME, { game: 'stained', character: 'salmon' });
+		const hunter = await client().joinById(fish.roomId, { character: 'bear' });
+		for (const device of [fish, hunter]) device.onMessage(ONLINE_EVENT, () => {});
+		try {
+			await until('both in the state', () => fish.state.players?.size === 2);
+			assert.equal(fish.state.stains.length, 0, 'no stain before a catch');
+			await wait(GRACE_MS + 100);
+			const place = fish.state.players.get(fish.sessionId);
+			const at = { x: place.x, y: place.y };
+			const input = hunter.input();
+			Object.assign(input.data, { seq: 1, buttons: BUTTONS.ability1, view: fish.state.step });
+			input.send();
+			await until('the stain', () => fish.state.stains.length === 1 && hunter.state.stains.length);
+			const stain = fish.state.stains.at(0);
+			assert.deepEqual([stain.x, stain.y], [at.x, at.y], 'where the salmon was caught');
+			const late = await client().joinById(fish.roomId, { character: 'salmon' });
+			late.onMessage(ONLINE_EVENT, () => {});
+			await until('the late state', () => late.state.players?.size === 3);
+			assert.deepEqual(
+				[late.state.stains.length, late.state.stains.at(0).x, late.state.stains.at(0).y],
+				[1, at.x, at.y],
+				'a device that joins later is sent the stains already there',
+			);
+			await late.leave();
+		} finally {
+			await hunter.leave();
+			await fish.leave();
+		}
+	});
 } finally {
 	await server.close();
 	rmSync(dir, { recursive: true, force: true });

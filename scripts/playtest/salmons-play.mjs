@@ -176,6 +176,32 @@ const FISHER_AT = {
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
 	writeFileSync(join(configs, 'salmons-line.json'), JSON.stringify(normalizeGameConfigDoc(game)));
 }
+// The bloodstain: a salmon in open water by a bank (no rock, sandbank or whirlpool near, no
+// rapids), and a bear on that bank a little downstream: the current carries the salmon past him,
+// within his swipe.
+const BLOOD_BAND = river.bands.find((band) => {
+	const x = band.left + 60;
+	const y = band.y + band.h / 2;
+	const near = (b) => x + 100 > b.x && x - 100 < b.x + b.w && y + 100 > b.y && y - 100 < b.y + b.h;
+	const pools = river.whirlpools.map((w) => ({
+		x: w.x - w.r,
+		y: w.y - w.r,
+		w: 2 * w.r,
+		h: 2 * w.r,
+	}));
+	return band.current <= 100 && ![...river.rocks, ...river.sandbanks, ...pools].some(near);
+});
+const BLOOD_AT = { x: BLOOD_BAND.left + 30, y: BLOOD_BAND.y + BLOOD_BAND.h / 2 };
+{
+	const game = structuredClone(short);
+	delete game.arcade.online.generator;
+	game.arcade.online.spawn = BLOOD_AT;
+	for (const character of game.arcade.online.characters)
+		if (character.id === 'bear')
+			character.spawns = [{ x: BLOOD_BAND.left - 40, y: BLOOD_AT.y + 60 }];
+	game.arcade.online.rules.round = authored.arcade.online.rules.round;
+	writeFileSync(join(configs, 'salmons-blood.json'), JSON.stringify(normalizeGameConfigDoc(game)));
+}
 
 const HOOK = `(() => {
 	const wire = (window.__AR_WIRE__ = []);
@@ -1219,6 +1245,51 @@ try {
 		if (!(await shown(g2)).includes('salmonsGolden')) bannerGone = true;
 	}
 	verdict('…and the banner goes again', !!bannerGone);
+
+	// The bloodstain (GuiltyForever/Salmon- PR #8): page K's bear catches page Q's salmon in open
+	// water; both pages are sent the stain and draw it. (The red and the trail are pinned by
+	// check:salmons-art: these pages draw a river of the room's seed while the room plays the
+	// authored one, so the water a page draws under a stain is not the room's.)
+	const BLOOD_GAME = 'salmons-blood';
+	const k = await ready(
+		await boot('k', { rooms_name: 'Kit', rooms_character: 'bear', rooms_game: BLOOD_GAME }),
+	);
+	const q = await ready(
+		await boot('q', { rooms_name: 'Quill', rooms_character: 'salmon', rooms_game: BLOOD_GAME }),
+	);
+	await settle(q, 300);
+	const { me: meQ } = await drawnOf(q);
+	// J held swipes as soon as the salmon is out of its join's grace and in reach.
+	await k.key('KeyJ', 'down');
+	let stainK;
+	for (let i = 0; i < 40 && !stainK?.stains?.length; i++) {
+		await settle(k, 150);
+		stainK = await drawnOf(k);
+	}
+	await k.key('KeyJ', 'up');
+	// The stain may be read from a patch the page has not drawn yet, and `caught` comes after it.
+	await settle(k, 300);
+	stainK = await drawnOf(k);
+	const caught = stainK.events?.find((ev) => ev.type === 'caught' && ev.target === meQ);
+	// Out for 3 s, the salmon is held where it was caught.
+	const outAt = (await players(k)).find((body) => body.id === meQ);
+	await settle(q, 300);
+	const stainQ = await drawnOf(q);
+	const [sx, sy] = stainK?.stains?.[0] ?? [];
+	verdict(
+		'a bear’s catch leaves a bloodstain where the salmon was: both pages are sent it and draw it',
+		!!caught &&
+			stainK?.stains?.length === 1 &&
+			stainQ.stains?.length === 1 &&
+			!!outAt &&
+			Math.hypot(sx - outAt.x, sy - outAt.y) < 1 &&
+			stainK.art?.blood?.stains === 1 &&
+			stainQ.art?.blood?.stains === 1,
+		{ caught, outAt, stainsK: stainK?.stains, stainsQ: stainQ.stains, blood: stainK?.art?.blood },
+	);
+	await shotOf(k, '14b-bloodstain.png');
+	await k.page.close();
+	await q.page.close();
 
 	// S0: page S's salmon plays the stub clips the snapshot registers (`characterClips`), and page
 	// T's bear, which has none, keeps its placeholder. S is the room's only salmon, so golden: no

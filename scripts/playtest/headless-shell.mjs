@@ -80,6 +80,9 @@ export function spawnHeadlessShell(path, { profile, width, height }) {
 			'--no-first-run',
 			'--no-default-browser-check',
 			'--autoplay-policy=no-user-gesture-required',
+			// Silence the speakers: audio still plays inside the page (AudioContext, music state), so
+			// Flow's music logic runs as in a game, but a playtest no longer blares on the desk.
+			'--mute-audio',
 			...GPU_FLAGS,
 			// Chromium will not start its sandbox as root, a cloud container's default user.
 			...(process.getuid?.() === 0 ? ['--no-sandbox'] : []),

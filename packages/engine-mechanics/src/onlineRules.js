@@ -68,6 +68,9 @@ const AHEAD_MIN_MOVE = 0.01 * MOVE_SCALE;
  *  vy: -1 }` (its `vx` along the river is `y` here, its `vy` across it `x`), as a unit vector. */
 const AHEAD_FALLBACK = Object.freeze({ x: -Math.SQRT1_2, y: Math.SQRT1_2 });
 
+/** The stains of a room whose rules leave none. */
+const NO_STAINS = Object.freeze({ list: Object.freeze([]), made: 0 });
+
 /** A running score stays well inside the wire's int32, however long a round lasts. */
 const SCORE_LIMIT = 1e9;
 
@@ -117,7 +120,9 @@ const tag = {
  * (a move it carries: `online.js` `carriedInput`); `cast(user, ability, aim, world)` for a `hook`
  * ability pressed off cooldown, at the input's aim (true: it took the cast, and the cooldown
  * starts); `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
- * round's start. `api` is {@link ModuleApi}.
+ * round's start; `stains()` the marks it left on the field (`{ list, made }`: Salmons'
+ * bloodstains, kept for the room's life, the newest last; `made` counts every one ever left, so a
+ * room syncs only the new). `api` is {@link ModuleApi}.
  */
 export const ONLINE_RULES_MODULES = Object.freeze({ tag, ...SALMONS_RULES });
 
@@ -266,6 +271,10 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 	return {
 		get phase() {
 			return phase;
+		},
+		/** The marks the module left on the field ({@link NO_STAINS} when it leaves none). */
+		get stains() {
+			return module?.stains?.() ?? NO_STAINS;
 		},
 		get round() {
 			return round;
