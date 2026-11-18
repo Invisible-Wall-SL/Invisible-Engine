@@ -22,7 +22,7 @@ upload.
 - **Catchers, scoring and round flow as the original (WS-B, 2026-11-18; in review; branch
   `claude/salmons-ws-b-catchers`)**: from the gap report
   [reference/salmons-original.md](../reference/salmons-original.md) §5.1, §5.3, §6.3, §7, §9.7 and
-  its owner decisions 1–4. This replaces the bullets below where they say otherwise (110 px swipe,
+  its owner decisions 1–4 (§9.7's bloodstains are #1747's). This replaces the bullets below where they say otherwise (110 px swipe,
   280 px auto-hook, +2, escape taps, 300 s rounds, random 3× golden salmon, auto-respawn).
   - **Bear**: the swipe is tested 1.5 tiles (72 px) around the point 1 tile ahead of the bear's
     last move (ability `ahead: 48`), once a press (`onPress`; the cooldown is the 100 ms floor),
@@ -43,8 +43,8 @@ upload.
     NEW room with `{ pass }` makes it the last game's winner (`wonLast`), and a salmon with it is
     golden (`mark`, cosmetic only: no 3×). The lobby is the new room's. The device's win screen,
     death screen, rejoin button and line drawing are WS-D's.
-  - **Bloodstains**: a salmon caught by a bear leaves a stain where it was, one landed where it was
-    hooked: the room's `bloodstains` (x, y; newest 300), sent to every device. Drawing them is WS-C.
+  - **Bloodstains** are PR #1747's (`rules.stains`, `state.stains`: the server half and the
+    drawing); WS-B lays none of its own and aligns with it once it merges.
   - A bot never presses an ability that hits its own class for another bot (no bear-bot churn now
     that bears catch bears); abilities that only hit other classes are as before. A `caught` event
     carries `byName` (the death screen's "by NAME"; a far catcher is not in a nearby view).
@@ -476,12 +476,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 - 2026-11-18 — **WS-B: catchers, scoring and round flow, as the original** (branch
   `claude/salmons-ws-b-catchers`; in review). See the first bullet of Current state. Engine:
   `abilities.js` (`ahead`, `onPress`, a `hook` cast through the caller's `cast`), `onlineRules.js`
-  (`respawn: 'manual'`, `round.endsGame`, `gameWon`, `MAX_BLOODSTAINS`, module hooks `cast` and
-  `caught`, api `out` and `stain`), `salmonsRules.js` (`fishingLine` rewritten, `goldenSalmon`
-  from `wonLast`, `bloodstains`; `GOLDEN_WORTH` and the escape gone), `onlineBots.js`; Game Config
-  `ahead`, `onPress`, `round.endsGame`, `rules.respawn`; game server schema fields `Input.respawn`,
-  `Player.lineX/lineY/lineActive`, room `winnerName` and `bloodstains`, the room lock and the
-  winner's pass. Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
+  (`respawn: 'manual'`, `round.endsGame`, `gameWon`, the module hook `cast`, api `out`),
+  `salmonsRules.js` (`fishingLine` rewritten, `goldenSalmon` from `wonLast`; `GOLDEN_WORTH` and
+  the escape gone), `onlineBots.js`; Game Config `ahead`, `onPress`, `round.endsGame`,
+  `rules.respawn`; game server schema fields `Input.respawn`, `Player.lineX/lineY/lineActive`,
+  room `winnerName`, the room lock and the winner's pass (bloodstains: #1747). Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
   key (WS-E).
 - 2026-11-18 — **The whole leap, as the original's** (branch `arcade/salmons-full-jump`; in review;
   runtime change). Closes the leap's "Not yet ported" list (entry of 2026-11-17 below). Source: the
