@@ -3,7 +3,6 @@ import {
 	normalizeEditorGuides,
 	normalizeHudScenes,
 	normalizeLayoutProfile,
-	normalizeResolutionTiers,
 	LAYOUT_NODE_KINDS,
 	isSceneRole,
 	normalizePathNode,
@@ -20,6 +19,7 @@ import {
 	sceneWorld,
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
+import { storedResolutionTiers } from '$lib/resolutionTierIds';
 import { readScreenTransition } from 'constants-shared/screenTransition';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
 import { putDocWithBackup, type BackupMode } from './docBackups';
@@ -230,7 +230,8 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	// project inherits the admin global default / coded DEFAULT_LAYOUT_PROFILE at read time.
 	const layoutProfile = normalizeLayoutProfile(obj.layoutProfile);
 	if (layoutProfile) doc.layoutProfile = layoutProfile;
-	const resolutionTiers = normalizeResolutionTiers(obj.resolutionTiers);
+	// The 2D ids and a 3D project's model tiers (`$lib/resolutionTierIds`); 2D readers re-normalize.
+	const resolutionTiers = storedResolutionTiers(obj.resolutionTiers);
 	if (resolutionTiers) doc.resolutionTiers = resolutionTiers;
 	// Default-HUD persist (§ default-HUD Phase 2b): rewrite a legacy coded `hudBar` (the seeded
 	// `UiLabel*`/`UiButton*` `bind` nodes) into the parametric `componentInstance` HUD. Same
