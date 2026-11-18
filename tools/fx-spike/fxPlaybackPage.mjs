@@ -174,14 +174,21 @@ try {
 	await sleep(150);
 	const before = bursts(await census()).map((r) => r.oldest);
 	await ev(`playDrive.slide('Max particles', 150)`);
-	await sleep(100);
-	const after = bursts(await census());
+	// The rebuild lands a frame or more after the input, later on a loaded runner, so poll for it.
+	// Within 500 ms the bursts cannot re-fire on their own: every particle (0.4–0.8 s) must die, then
+	// FxStage's 600 ms BURST_GAP_MS must pass, so a re-fire seen here is the edit's.
+	const refired = (rows) =>
+		rows.length === 3 && rows.every((r, i) => r.showing > 0 && r.oldest < before[i]);
+	let after = [];
+	for (const until = Date.now() + 500; ;) {
+		after = bursts(await census());
+		if (refired(after) || Date.now() >= until) break;
+		await sleep(25);
+	}
 	const edited = await ev(`fxPage.emitters.filter((e) => e.parent).map((e) => e.maxParticles)`);
 	check(
 		'an edit to one burst re-fires every burst with it',
-		edited.includes(150) &&
-			after.length === 3 &&
-			after.every((r, i) => r.showing > 0 && r.oldest < before[i]),
+		edited.includes(150) && refired(after),
 		`oldest before ${before.map((a) => a.toFixed(2)).join('/')} s, after ${after
 			.map((r) => r.oldest.toFixed(2))
 			.join('/')} s`,

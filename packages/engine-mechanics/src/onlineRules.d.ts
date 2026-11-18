@@ -4,7 +4,7 @@
  */
 
 import type { Body } from './motion';
-import type { OnlineInput } from './online';
+import type { OnlineInput, OnlineLevel } from './online';
 
 import type { STATUS } from './abilities';
 
@@ -28,6 +28,8 @@ export type RulesPlayer = {
 	safeUntil: number;
 	/** A rules module's flag (`tag`: "it"). */
 	mark: boolean;
+	/** How high a rules module has lifted it off the ground, px (a salmon's leap); absent ⇒ 0. */
+	z?: number;
 	/** A rules module's own notes on the player. */
 	memo: Record<string, number>;
 	/** Button → the stamp it can be used again at. */
@@ -81,6 +83,11 @@ export type RulesHooks = {
 	hook?(user: RulesPlayer, target: RulesPlayer, ability: RulesAbility, world: RulesWorld): boolean;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
+	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
+	 *  like `level`, only while a round runs. */
+	holds?(player: RulesPlayer): boolean;
+	/** The level the room steps `player` on, in place of its character's. */
+	level?(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
 };
 
 export type RulesModule = RulesHooks | { create(game: RulesGame, api: ModuleApi): RulesHooks };
@@ -96,6 +103,7 @@ export type OnlineRules = {
 	joined(player: RulesPlayer, players: Iterable<RulesPlayer>, stamp: number): void;
 	left(id: string): void;
 	holds(player: RulesPlayer): boolean;
+	level(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
 	applied(
 		player: RulesPlayer,
 		input: OnlineInput,

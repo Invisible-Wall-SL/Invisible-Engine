@@ -13,15 +13,16 @@ import type { GameConfigDoc } from './types';
 export const SALMONS_ART_GENERATORS: readonly string[] = ['salmonsRiver', 'salmonsMap'];
 
 /**
- * Each built-in sheet's project sheet; `waterfall_face` is the one-region sheet of the tile. Plain
- * literals, no top-level calls: a runtime that never draws Salmons must tree-shake this module away
- * (`check:runtime-bytes`).
+ * Each built-in sheet's project sheet; `waterfall_face` and `cliff` are the one-region sheets of the
+ * tiles. Plain literals, no top-level calls: a runtime that never draws Salmons must tree-shake this
+ * module away (`check:runtime-bytes`).
  */
 export const SALMONS_PROJECT_SHEETS = {
 	terrain: 'salmons_terrain',
 	props: 'salmons_props',
 	characters: 'salmons_characters',
 	waterfall_face: 'salmons_waterfall_face',
+	cliff: 'salmons_cliff',
 } as const;
 
 export type SalmonsProjectSheet =

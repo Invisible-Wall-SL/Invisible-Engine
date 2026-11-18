@@ -1,3 +1,4 @@
+import { riverElevation } from './salmonsElevation';
 import type { LayoutNode } from '../types';
 
 /**
@@ -5,6 +6,8 @@ import type { LayoutNode } from '../types';
  * is drawn as. `salmonsReferenceLayout` places it for the authored river; a device in a room
  * whose config names the `salmonsRiver` generator draws the room's own river with it
  * ({@link FIELD_DRAWINGS}) in place of the authored one. Placeholder rectangles until the S0 art.
+ * The stage is flat, so the ground the waterfalls raise (`salmonsElevation.ts`) is shown as
+ * each waterfall's cliff: a strip upstream of it, as many px deep as its step.
  */
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -21,7 +24,8 @@ export type SalmonsRiverDrawing = {
 	/** P11.3; absent in a river made before it. */
 	rocks?: readonly Rect[];
 	sandbanks?: readonly Rect[];
-	waterfalls?: readonly Rect[];
+	/** `height`: grid cells (`salmonsMap`'s; none ⇒ the original's lowest). */
+	waterfalls?: readonly (Rect & { height?: number })[];
 	source: Rect;
 	sea: Rect;
 };
@@ -36,9 +40,13 @@ const COLOR = {
 	rock: 0x6b6b6b,
 	sandbank: 0xd9c38a,
 	waterfall: 0xe8f4fb,
+	/** The old client's cliff where it had no cliff texture. */
+	cliff: 0x4a4a3a,
 };
 
-const rect = (id: string, r: Rect, color: number, round = false): LayoutNode =>
+const CLIFF_ALPHA = 0.6;
+
+const rect = (id: string, r: Rect, color: number, round = false, alpha?: number): LayoutNode =>
 	({
 		id,
 		kind: 'rect',
@@ -49,6 +57,7 @@ const rect = (id: string, r: Rect, color: number, round = false): LayoutNode =>
 		color,
 		anchor: { x: 0, y: 0 },
 		...(round ? { borderRadius: Math.min(r.w, r.h) / 2 } : {}),
+		...(alpha === undefined ? {} : { alpha }),
 	}) as LayoutNode;
 
 /** The river, bank to bank, sea to source: the world scene's `river` node. */
@@ -86,9 +95,21 @@ export function salmonsRiverNode(river: SalmonsRiverDrawing): LayoutNode {
 		children.push(rect(`river-sandbank-${i}`, r, COLOR.sandbank, !river.grid)),
 	);
 	river.rocks?.forEach((r, i) => children.push(rect(`river-rock-${i}`, r, COLOR.rock, true)));
-	river.waterfalls?.forEach((r, i) =>
-		children.push(rect(`river-waterfall-${i}`, r, COLOR.waterfall)),
-	);
+	const { steps } = riverElevation(river.waterfalls);
+	river.waterfalls?.forEach((r, i) => {
+		const step = steps.find((s) => s.line === r.y + r.h / 2);
+		const deep = step ? step.top - step.foot : 0;
+		children.push(
+			rect(
+				`river-cliff-${i}`,
+				{ x: 0, y: r.y - deep, w: river.world.w, h: deep },
+				COLOR.cliff,
+				false,
+				CLIFF_ALPHA,
+			),
+			rect(`river-waterfall-${i}`, r, COLOR.waterfall),
+		);
+	});
 	const generated =
 		river.generator && typeof river.seed === 'number'
 			? { generator: river.generator, seed: river.seed }

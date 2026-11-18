@@ -85,6 +85,7 @@ const F = new Function(
 			'upsertKey',
 			'faceSwapPart',
 			'faceAttachmentAt',
+			'faceShapePart',
 			'faceKeyAttachment',
 			'faceChannelValue',
 			'faceKeyChannel',

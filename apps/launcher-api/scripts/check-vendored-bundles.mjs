@@ -19,11 +19,23 @@ const LAUNCHER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BUNDLES = [
 	{ name: 'rigger-fx', committed: 'static/rigger/vendor/rigger-fx.js' },
 	{ name: 'rigger-text', committed: 'static/rigger/vendor/rigger-text.js' },
+	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js' },
 	{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },
 ];
 
+/**
+ * Bundles that may name no `http(s)://` address: `rigger-motion` runs MediaPipe, whose usage logger
+ * its build removes (`vite.rigger-motion.config.ts`), and nothing in it may reach off-site.
+ */
+const NO_URLS = new Set(['static/rigger/vendor/rigger-motion.js']);
+
 const stale = [];
+const offSite = [];
 for (const { name, committed } of BUNDLES) {
+	if (NO_URLS.has(committed)) {
+		const urls = readFileSync(join(LAUNCHER, committed), 'utf8').match(/https?:\/\/[^\s"'`)]+/g);
+		if (urls) offSite.push(`  ✗ ${committed} names ${[...new Set(urls)].join(', ')}`);
+	}
 	const out = mkdtempSync(join(tmpdir(), `${name}-`));
 	try {
 		const build = spawnSync(
@@ -53,6 +65,12 @@ for (const { name, committed } of BUNDLES) {
 	}
 }
 
+if (offSite.length > 0) {
+	console.error(
+		`vendored bundles: a bundle that must stay on-site names a URL\n${offSite.join('\n')}`,
+	);
+	process.exit(1);
+}
 if (stale.length > 0) {
 	for (const { name, committed } of stale)
 		console.error(

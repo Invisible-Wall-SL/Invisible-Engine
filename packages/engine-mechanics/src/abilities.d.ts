@@ -91,6 +91,8 @@ export type ZoneForceRule = {
 	zone: string;
 	force?: { x: number; y: number };
 	characters?: readonly string[];
+	/** Pushes only a body whose centre is in the zone. */
+	centre?: boolean;
 };
 
 export type ZoneForce = {
@@ -102,6 +104,7 @@ export type ZoneForce = {
 	fx: number;
 	fy: number;
 	characters?: readonly string[];
+	centre?: boolean;
 };
 
 export function zoneForces(

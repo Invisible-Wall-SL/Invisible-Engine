@@ -1,4 +1,13 @@
 import { IRIG_VERSION } from 'engine-rig';
+import {
+	FACE_BLENDSHAPES,
+	FACE_LANDMARK_COUNT,
+	POSE_LANDMARK_COUNT,
+	boneRestDirection,
+	worldTurnPer,
+	type LandmarkRef,
+	type RigMotionMap,
+} from '../rigMotion';
 
 /**
  * Rig templates (docs/design/rig-templates.md): a fixed skeleton plus the named images it expects,
@@ -79,6 +88,8 @@ export interface RigTemplate {
 	parts: RigTemplatePart[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
+	/** Which tracked face / body points drive which channels (T5 / T7b, §5.3). */
+	motion?: RigMotionMap;
 }
 
 /** One channel key of a starter clip: time, channel id, value (a part name for a shapes channel). */
@@ -317,7 +328,80 @@ export const BUST_FACE: RigTemplate = {
 		},
 	],
 	clips: [],
+	// MediaPipe names blendshapes and points from the PERFORMER's side; the template's `_l` is the
+	// left of the picture, which is the performer's right in an unmirrored video.
+	motion: {
+		face: {
+			smooth: 0.03,
+			entries: [
+				{
+					kind: 'shape',
+					channel: 'mouth',
+					hold: 0.08,
+					features: {
+						open: ['jawOpen'],
+						round: ['mouthFunnel', 'mouthPucker'],
+						smile: ['mouthSmileLeft', 'mouthSmileRight'],
+						wide: ['mouthStretchLeft', 'mouthStretchRight'],
+						press: ['mouthPressLeft', 'mouthPressRight', 'mouthClose'],
+						roll: ['mouthRollLower'],
+					},
+					shapes: {
+						mouth_rest: {},
+						mouth_A: { open: 0.6 },
+						mouth_E: { open: 0.25, wide: 0.3 },
+						mouth_O: { open: 0.35, round: 0.5 },
+						mouth_U: { round: 0.6 },
+						mouth_MBP: { press: 0.4 },
+						mouth_FV: { roll: 0.5 },
+						mouth_smile: { smile: 0.6 },
+						mouth_wide: { open: 0.4, smile: 0.5 },
+					},
+				},
+				{ kind: 'blend', channel: 'jaw', plus: ['jawOpen'], gain: 1.4 },
+				{ kind: 'blend', channel: 'blink_l', plus: ['eyeBlinkRight'], gain: 1.2 },
+				{ kind: 'blend', channel: 'blink_r', plus: ['eyeBlinkLeft'], gain: 1.2 },
+				...sides<FaceMotionEntryOf>((s) => {
+					const side = s === 'l' ? 'Right' : 'Left';
+					return [
+						{
+							kind: 'blend',
+							channel: `brow_${s}`,
+							plus: [`browOuterUp${side}`, 'browInnerUp'],
+							minus: [`browDown${side}`],
+							gain: 1.6,
+							rest: 'median',
+						},
+					];
+				}),
+				{
+					kind: 'blend',
+					channel: 'gaze_x',
+					plus: ['eyeLookOutLeft', 'eyeLookInRight'],
+					minus: ['eyeLookInLeft', 'eyeLookOutRight'],
+					gain: 1.5,
+				},
+				{
+					kind: 'blend',
+					channel: 'gaze_y',
+					plus: ['eyeLookUpLeft', 'eyeLookUpRight'],
+					minus: ['eyeLookDownLeft', 'eyeLookDownRight'],
+					gain: 1.5,
+				},
+				// The outer eye corners (33 = the performer's right, 263 = left) and the nose tip (1).
+				{ kind: 'angle', channel: 'head_tilt', from: 33, to: 263, gain: 1, rest: 'level' },
+				{ kind: 'offset', channel: 'head_turn', point: 1, between: [33, 263], axis: 'x', gain: 3 },
+			],
+		},
+		cannot: [
+			'Nods (up and down): the template turns the head in the picture, not toward the camera.',
+			'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
+			'Breathing, and anything the face does not show (shoulders, body).',
+		],
+	},
 };
+
+type FaceMotionEntryOf = NonNullable<RigMotionMap['face']>['entries'][number];
 
 /** The same value on both sides' channel (`brow` → `brow_l`, `brow_r`). */
 const both = (t: number, ch: string, v: number | string): RigTemplateClipKey[] => [
@@ -525,6 +609,15 @@ export const FULL_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'root', prop: 'y', per: 80 }],
 		},
+		{
+			id: 'move',
+			label: 'Move sideways',
+			tip: 'Slide the whole character left (−) or right (+); 1 = 100 rig units.',
+			min: -3,
+			max: 3,
+			rest: 0,
+			drives: [{ bone: 'root', prop: 'x', per: 100 }],
+		},
 		...sides<RigTemplateChannel>((s, k) => [
 			{
 				id: `arm_${s}`,
@@ -608,7 +701,46 @@ export const FULL_BODY: RigTemplate = {
 		},
 	],
 	clips: [],
+	motion: {
+		body: {
+			smooth: 0.05,
+			minVisibility: 0.5,
+			scale: { from: [23, 24], to: [11, 12], rig: 190 },
+			entries: [
+				{ kind: 'bone', channel: 'lean', bone: 'chest', from: [23, 24], to: [11, 12] },
+				{
+					kind: 'bone',
+					channel: 'head_tilt',
+					bone: 'head',
+					from: 8,
+					to: 7,
+					rest: [1, 0],
+					minSpan: 0.12,
+				},
+				...sides<BodyMotionEntryOf>((s) => {
+					const [sh, el, wr, hip, kn, an] =
+						s === 'l' ? [12, 14, 16, 24, 26, 28] : [11, 13, 15, 23, 25, 27];
+					return [
+						{ kind: 'bone', channel: `arm_${s}`, bone: `upper_arm_${s}`, from: sh, to: el },
+						{ kind: 'bone', channel: `elbow_${s}`, bone: `lower_arm_${s}`, from: el, to: wr },
+						{ kind: 'bone', channel: `step_${s}`, bone: `thigh_${s}`, from: hip, to: kn },
+						{ kind: 'bone', channel: `knee_${s}`, bone: `shin_${s}`, from: kn, to: an },
+					];
+				}),
+				{ kind: 'root', channel: 'hop', point: [23, 24], axis: 'y' },
+				{ kind: 'root', channel: 'move', point: [23, 24], axis: 'x' },
+			],
+		},
+		cannot: [
+			'Depth: a limb pointing at or away from the camera reads as short, not as turned.',
+			'Turning toward or away from the camera, or walking into the picture.',
+			'A knee bending forward, or a crouch with the feet planted (the template has no IK).',
+			'Hand poses, head nods and breathing.',
+		],
+	},
 };
+
+type BodyMotionEntryOf = NonNullable<RigMotionMap['body']>['entries'][number];
 
 FULL_BODY.clips = [
 	clip(FULL_BODY, 'idle', 4, [
@@ -770,6 +902,8 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 	for (const c of t.channels)
 		if (c.shapes && !t.channels.some((j) => j.id === c.shapes?.jaw && j.drives?.length))
 			return `channel "${c.id}" opens a missing jaw channel "${c.shapes.jaw}"`;
+	const motion = t.motion ? rigMotionProblem(t, parts) : null;
+	if (motion) return motion;
 	const clips = new Set<string>();
 	for (const k of t.clips) {
 		if (clips.has(k.name)) return `clip "${k.name}" is listed twice`;
@@ -785,6 +919,81 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				: typeof v === 'number' && v >= c.min && v <= c.max;
 			if (!fits)
 				return `clip "${k.name}" keys "${id}" to ${JSON.stringify(v)}, not one of its values`;
+		}
+	}
+	return null;
+}
+
+const refOk = (r: LandmarkRef, count: number) =>
+	(typeof r === 'number' ? [r] : r).every((i) => Number.isInteger(i) && i >= 0 && i < count);
+
+/** Why a template's motion map could not drive its channels, or null. */
+function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | null {
+	const m = t.motion!;
+	const chan = new Map(t.channels.map((c) => [c.id, c]));
+	const blend = new Set<string>(FACE_BLENDSHAPES);
+	const seen = new Set<string>();
+	const claim = (id: string): string | null => {
+		if (!chan.has(id)) return `motion drives a missing channel "${id}"`;
+		if (seen.has(id)) return `motion drives channel "${id}" twice`;
+		seen.add(id);
+		return null;
+	};
+	for (const e of m.face?.entries ?? []) {
+		const bad = claim(e.channel);
+		if (bad) return bad;
+		const c = chan.get(e.channel)!;
+		if (e.kind === 'blend' || e.kind === 'shape') {
+			const names =
+				e.kind === 'blend' ? [...e.plus, ...(e.minus ?? [])] : Object.values(e.features).flat();
+			const unknown = names.find((n) => !blend.has(n));
+			if (unknown) return `motion "${e.channel}" reads an unknown blendshape "${unknown}"`;
+			if (!names.length) return `motion "${e.channel}" reads no blendshape`;
+		}
+		if (e.kind === 'shape') {
+			if (!c.shapes) return `motion "${e.channel}" picks shapes, but the channel has none`;
+			for (const p of Object.keys(e.shapes))
+				if (parts.get(p) !== c.shapes.slot)
+					return `motion "${e.channel}" names "${p}", not a part of "${c.shapes.slot}"`;
+		} else if (c.shapes) return `motion "${e.channel}" sets a number on a shapes channel`;
+		const refs =
+			e.kind === 'angle' ? [e.from, e.to] : e.kind === 'offset' ? [e.point, ...e.between] : [];
+		if (!refs.every((r) => refOk(r, FACE_LANDMARK_COUNT)))
+			return `motion "${e.channel}" names a face point outside 0…${FACE_LANDMARK_COUNT - 1}`;
+	}
+	const body = m.body;
+	if (body) {
+		if (!(body.scale.rig > 0)) return 'motion body scale needs a rig length';
+		if (![body.scale.from, body.scale.to].every((r) => refOk(r, POSE_LANDMARK_COUNT)))
+			return `motion body scale names a pose point outside 0…${POSE_LANDMARK_COUNT - 1}`;
+		const chain = new Map<string, string[]>();
+		for (const b of t.bones)
+			chain.set(b.name, b.parent === undefined ? [] : [b.parent, ...(chain.get(b.parent) ?? [])]);
+		const root = t.bones[0]?.name;
+		const done: string[] = [];
+		for (const e of body.entries) {
+			const bad = claim(e.channel);
+			if (bad) return bad;
+			const c = chan.get(e.channel)!;
+			const refs = e.kind === 'bone' ? [e.from, e.to] : [e.point];
+			if (!refs.every((r) => refOk(r, POSE_LANDMARK_COUNT)))
+				return `motion "${e.channel}" names a pose point outside 0…${POSE_LANDMARK_COUNT - 1}`;
+			if (e.kind === 'root') {
+				if (!c.drives?.some((d) => d.bone === root && d.prop === e.axis))
+					return `motion "${e.channel}" moves the root on ${e.axis}, which the channel does not drive`;
+				continue;
+			}
+			if (!chain.has(e.bone)) return `motion "${e.channel}" turns a missing bone "${e.bone}"`;
+			if (worldTurnPer(c, e.bone, chain) === 0)
+				return `motion "${e.channel}" turns "${e.bone}", which the channel does not rotate`;
+			if (e.minSpan !== undefined && !(e.minSpan >= 0 && e.minSpan < 1))
+				return `motion "${e.channel}" needs a minimum span between 0 and 1`;
+			if (!boneRestDirection(t.bones, e.bone, e.rest))
+				return `motion "${e.channel}" needs a rest direction for "${e.bone}"`;
+			// A bone is solved after its parents, so it can take off the turn they already carry.
+			const late = done.find((b) => chain.get(b)?.includes(e.bone));
+			if (late) return `motion "${e.channel}" turns "${e.bone}" after its child "${late}"`;
+			done.push(e.bone);
 		}
 	}
 	return null;
@@ -868,6 +1077,9 @@ export interface RigTemplateSummary {
 	parts: { name: string; required: boolean }[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
+	/** The skeleton and the motion map, for the motion import's solve. */
+	bones: RigTemplateBone[];
+	motion: RigMotionMap | null;
 }
 
 function summary(t: RigTemplate): RigTemplateSummary {
@@ -878,6 +1090,8 @@ function summary(t: RigTemplate): RigTemplateSummary {
 		parts: t.parts.map((p) => ({ name: p.name, required: p.required })),
 		channels: t.channels,
 		clips: t.clips,
+		bones: t.bones,
+		motion: t.motion ?? null,
 	};
 }
 
