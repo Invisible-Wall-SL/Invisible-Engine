@@ -18,10 +18,14 @@ import { fileURLToPath } from 'node:url';
 
 import {
 	BUTTON_JUMP,
+	collidersNear,
 	createBody3d,
 	createLevel3d,
 	createTracker3d,
 	hashBodies3d,
+	MAX_LEVEL_CELLS_3D,
+	MAX_ZONES_3D,
+	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
 	MOVE_SCALE,
 	stepBody3d,
@@ -275,7 +279,84 @@ check('the hash sees one bit of one field', () => {
 	assert.notEqual(hashBodies3d([a]), hashBodies3d([b]));
 });
 
-console.log('4. the scenario replays');
+console.log('4. a level that would freeze the room is refused');
+const fast = (fn) => {
+	const started = performance.now();
+	fn();
+	assert.ok(performance.now() - started < 100, `took ${performance.now() - started} ms`);
+};
+check('a collider spanning too many columns throws before anything is bucketed', () => {
+	fast(() =>
+		assert.throws(
+			() => createLevel3d({ colliders: [box(-1e9, -1, -1e9, 1e9, 0, 1e9)] }),
+			/collider 0 takes the level past/,
+		),
+	);
+	fast(() =>
+		assert.throws(
+			() => createLevel3d({ colliders: [box(0, 0, 0, Infinity, 1, 1)] }),
+			/collider 0 takes the level past/,
+		),
+	);
+	const side = Math.floor(Math.sqrt(MAX_LEVEL_CELLS_3D)) - 1;
+	const level = createLevel3d({ colliders: [box(0, -1, 0, side * 4 - 0.5, 0, side * 4 - 0.5)] });
+	assert.equal(level.cells.size, side * side, 'just under the cap is built');
+});
+check('a cellSize under the floor, or not a number, throws', () => {
+	for (const cellSize of [1e-6, 0, -4, MIN_CELL_SIZE_3D / 2, Number.NaN, Infinity])
+		fast(() =>
+			assert.throws(
+				() => createLevel3d({ colliders: [FLOOR], cellSize }),
+				/cellSize/,
+				`${cellSize}`,
+			),
+		);
+	assert.equal(createLevel3d({ cellSize: MIN_CELL_SIZE_3D }).cellSize, MIN_CELL_SIZE_3D);
+});
+check('more than MAX_ZONES_3D zones throws', () => {
+	const pad = (i) => ({ kind: 'pad', minX: i, minY: 0, minZ: 0, maxX: i + 1, maxY: 1, maxZ: 1 });
+	assert.equal(MAX_ZONES_3D, 256);
+	assert.equal(
+		createLevel3d({ zones: Array.from({ length: 256 }, (_, i) => pad(i)) }).zones.length,
+		256,
+	);
+	assert.throws(
+		() => createLevel3d({ zones: Array.from({ length: 257 }, (_, i) => pad(i)) }),
+		/more than 256 zones/,
+	);
+});
+check('a trampoline with no height above 0 does not launch, and never makes a NaN', () => {
+	for (const height of [-5, 0, Number.NaN, undefined, -Infinity, Infinity]) {
+		const level = createLevel3d({
+			colliders: [FLOOR],
+			zones: [
+				{ kind: 'trampoline', minX: -1, minY: -0.1, minZ: -1, maxX: 1, maxY: 0.1, maxZ: 1, height },
+			],
+		});
+		assert.equal(level.zones[0].height, 0, `${height}`);
+		const body = createBody3d({ y: 0.5 });
+		const results = run(body, level, 60);
+		assert.ok(
+			results.every((r) => !r.bounced),
+			`${height} bounced`,
+		);
+		for (const key of ['x', 'y', 'z', 'vx', 'vy', 'vz'])
+			assert.ok(Number.isFinite(body[key]), `${height}: ${key} ${body[key]}`);
+		assert.equal(body.y, 0);
+	}
+});
+check('a level shared for days keeps its query stamps apart', () => {
+	const level = createLevel3d({ colliders: [FLOOR, box(2, 0, -1, 3, 1, 1)] });
+	level.query = 0x7fffffff - 1;
+	for (let i = 0; i < 4; i++)
+		assert.deepEqual(
+			collidersNear(level, 1, -1, 4, 1).map((c) => c.id),
+			[0, 1],
+		);
+	assert.ok(level.query > 0 && level.query < 8, `stamp ${level.query}`);
+});
+
+console.log('5. the scenario replays');
 check('the same script twice gives the same hashes', () => {
 	assert.deepEqual(runScenario3d(), runScenario3d());
 });

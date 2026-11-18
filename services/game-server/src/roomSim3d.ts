@@ -1,7 +1,6 @@
 import { cleanName, stepContext, type StepContext } from 'engine-mechanics';
 import {
 	createBody3d,
-	createLevel3d,
 	createTracker3d,
 	trackStep3d,
 	type Body3d,
@@ -14,6 +13,7 @@ import {
 	animBits3d,
 	botInput3d,
 	createBot3d,
+	levelOf3d,
 	motionFor3d,
 	respawnOnFall3d,
 	stepPlayer3d,
@@ -33,10 +33,15 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * The room owns every body. A step takes each connected player's next inputs in `seq` order (one,
  * or two while a backlog drains and the player has credit — `roomSim.ts` `inputsThisStep`) and steps
  * its `motion3d` body once per input with `engine-mechanics` `stepPlayer3d`, the function a
- * predicting device runs. A 3D body has momentum, so a player with no input this step, or one that
- * dropped, is NOT stepped: its body waits where it is, and is always exactly the fold of
- * `stepPlayer3d` over the inputs applied — whatever the latency, which is what lets a device predict
- * it to the bit.
+ * predicting device runs. A 3D body has momentum, so a player with no input this step is NOT
+ * stepped while its silence is shorter than `CREDIT_SECONDS`: its body waits where it is, and is
+ * exactly the fold of `stepPlayer3d` over the inputs applied — whatever the jitter, which is what
+ * lets a device predict it to the bit. A player silent for longer has stopped sending (a
+ * backgrounded tab, a stalled link), so it — and a dropped one, every step — is stepped by a
+ * resting input (no move, no buttons, its own yaw) that leaves its `ack` alone: it falls and lands
+ * for everyone else rather than hanging in the air, and its device (`createPredictor3d`) finds
+ * those resting steps when it is next told where the player is. A player that has never sent an
+ * input (still loading) waits at its home, which is where its device's predictor starts.
  *
  * Each applied step raises its signals (`motion3d` `trackStep3d`: jumped, landed, bounced, zone
  * edges, fell) as events naming the player. A body below the death plane is back at its home at
@@ -63,6 +68,8 @@ export type SimPlayer3d = {
 	ack: number;
 	/** Steps it waited for want of an input, not yet made up. */
 	credit: number;
+	/** Steps in a row it has had no input; past `CREDIT_SECONDS` of them it is stepped at rest. */
+	silent: number;
 	home: { x: number; y: number; z: number; yaw: number };
 	/** `engine-mechanics` `STATUS`; always free until the rules hold anyone. */
 	status: number;
@@ -108,7 +115,7 @@ export function createRoomSim3d(
 	const { online } = game;
 	const ctx = stepContext(online.tickHz, online.subSteps);
 	const creditMax = Math.ceil(online.tickHz * CREDIT_SECONDS);
-	const level = createLevel3d(world.level);
+	const level = levelOf3d(world);
 	const players = new Map<string, SimPlayer3d>();
 	const bots = new Map<string, Bot3d>();
 	let botsMade = 0;
@@ -184,6 +191,7 @@ export function createRoomSim3d(
 			connected: true,
 			ack: 0,
 			credit: 0,
+			silent: 0,
 			home,
 			status: 0,
 			team: nextTeam(),
@@ -221,8 +229,8 @@ export function createRoomSim3d(
 		}
 	};
 
-	const apply = (player: SimPlayer3d, input: Input3d, events: Online3dEvent[]) => {
-		player.ack = input.seq;
+	/** One step of a player's body by `input`, its signals and a fall's respawn raised. */
+	const advance = (player: SimPlayer3d, input: Input3d, events: Online3dEvent[]) => {
 		const result = stepPlayer3d(player.body, input, level, player.spec, ctx.dt);
 		player.anim = animBits3d(player.body, input, player.anim);
 		const bot = bots.get(player.id);
@@ -231,6 +239,21 @@ export function createRoomSim3d(
 			events.push({ ...signal, id: player.id });
 		if (respawnOnFall3d(player.body, result, player.home))
 			events.push({ type: 'respawned', id: player.id });
+	};
+
+	const apply = (player: SimPlayer3d, input: Input3d, events: Online3dEvent[]) => {
+		player.ack = input.seq;
+		advance(player, input, events);
+	};
+
+	const resting: Input3d = { seq: 0, moveX: 0, moveZ: 0, buttons: 0, yaw: 0, pitch: 0, view: 0 };
+	/** A step for a player that stopped sending or dropped: at rest, facing its way, `ack` kept. */
+	const idle = (player: SimPlayer3d, events: Online3dEvent[]) => {
+		if (player.ack === 0) return;
+		resting.seq = player.ack;
+		resting.yaw = player.body.yaw;
+		resting.view = steps;
+		advance(player, resting, events);
 	};
 
 	return {
@@ -275,7 +298,11 @@ export function createRoomSim3d(
 		step(take) {
 			const events: Online3dEvent[] = [];
 			for (const player of players.values()) {
-				if (!player.connected) continue;
+				if (!player.connected) {
+					player.silent += 1;
+					idle(player, events);
+					continue;
+				}
 				const bot = bots.get(player.id);
 				const inputs = bot
 					? [
@@ -288,8 +315,10 @@ export function createRoomSim3d(
 					: take(player.id, player.credit);
 				if (!inputs.length) {
 					player.credit = Math.min(creditMax, player.credit + 1);
+					if (++player.silent > creditMax) idle(player, events);
 					continue;
 				}
+				player.silent = 0;
 				player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) apply(player, input, events);
 			}

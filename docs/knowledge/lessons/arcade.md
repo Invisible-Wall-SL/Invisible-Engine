@@ -6,6 +6,22 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A 3D level from a config could freeze the game server, and an idle player hung mid-air
+
+- **Symptom:** #1717 merged with its review blocking: a large `arcade.world3d` level (or a tiny
+  `cellSize`) made `createLevel3d` bucket unbounded cells; a negative trampoline height gave NaN;
+  a player whose device stopped sending, or dropped, froze in mid-air for everyone.
+- **Cause:** config numbers went into loops and `Math.sqrt` unchecked, and the fold rule
+  ("no input = no step") had no exit for a device that never sends again.
+- **Fix:** caps counted before bucketing (`MAX_LEVEL_CELLS_3D`, `cellSize` ≥ 0.25, 256 zones,
+  body span), trampoline height > 0 (clamped in `createLevel3d`), the level built once per world
+  (`levelOf3d`), and a resting step after `CREDIT_SECONDS` of silence or while dropped, found by
+  `createPredictor3d` on resume.
+- **Guard:** root `check:arcade-3d` (caps, clamp) and `check:room-sim-3d` (refusals under 100 ms,
+  shared level, silent / dropped players, 0 corrections on resume).
+- **PR:** fix for #1717 (2026-11-18, branch `fix/1717-game-server-freeze`) · source:
+  `docs/status/3d.md`
+
 ### The rebuilt Salmons played a river the original game never made
 
 - **Symptom:** the owner found the Scene Editor's level unlike the original's, only one of it, and

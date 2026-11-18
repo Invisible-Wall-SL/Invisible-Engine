@@ -1,8 +1,11 @@
 // Online 3D arcade rooms (services/game-server roomSim3d.ts / arcadeRoom3d.ts; docs/design/3d-games.md
 // Phase 1, docs/design/3d/gameplay-evaluation.md §2–§3): the room's fold of `stepPlayer3d` equals the
 // device's prediction BIT FOR BIT over a seeded input script through a jittery, stalling link (a
-// 3D player is stepped only by an input, so latency cannot change its fold), falls into the void
-// included, so a device never takes a correction; the input clamp is exact; bots fill seats and move; the interpolator
+// 3D player waits for its inputs, so latency cannot change its fold), falls into the void
+// included, so a device never takes a correction; a player silent past CREDIT_SECONDS, or dropped,
+// is stepped at rest (it falls and lands, its ack kept) and its device finds those steps exactly;
+// world3dOf refuses a level that would freeze the room; two rooms of a world share its level;
+// the input clamp is exact; bots fill seats and move; the interpolator
 // and the camera helpers do what the view relies on. Then a real Colyseus 0.18 server with two
 // `@colyseus/sdk` clients: each predicts its own player with zero corrections, sees the other and
 // the bot move and is told of their jumps and landings, and the 2D and 3D rooms refuse each other's
@@ -23,6 +26,7 @@ import {
 	createBody3d,
 	createLevel3d,
 	hashBodies3d,
+	MAX_ZONES_3D,
 	YAW_UNITS,
 } from '../packages/engine-mechanics/src/motion3d.js';
 import {
@@ -33,6 +37,7 @@ import {
 	clampInput3d,
 	createInterpolator3d,
 	createPredictor3d,
+	levelOf3d,
 	moveFromStick,
 	radiansOfYaw,
 	respawnOnFall3d,
@@ -43,7 +48,7 @@ import {
 } from '../packages/engine-mechanics/src/online3d.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
-import { inputsThisStep } from '../services/game-server/src/roomSim.ts';
+import { CREDIT_SECONDS, inputsThisStep } from '../services/game-server/src/roomSim.ts';
 import { createRoomSim3d } from '../services/game-server/src/roomSim3d.ts';
 import { ROOM_NAME, ROOM_NAME_3D, createGameServer } from '../services/game-server/src/server.ts';
 
@@ -200,8 +205,9 @@ const receiver = () => {
 };
 
 /** An in-order link (TCP): each message is late by 0–`spread` steps, and every `stallEvery` steps
- *  nothing arrives for `stallFor`. */
-const linkOf = (seed, { spread = 3, stallEvery = 400, stallFor = 20 } = {}) => {
+ *  nothing arrives for `stallFor` — with the spread, under `CREDIT_SECONDS` (15 steps at 30 Hz): a
+ *  longer silence is a device that stopped, which the room steps at rest (checked below). */
+const linkOf = (seed, { spread = 3, stallEvery = 400, stallFor = 12 } = {}) => {
 	const rng = createRng(seed);
 	let last = 0;
 	const inFlight = [];
@@ -323,6 +329,7 @@ await check(
 					d.refHash.set(input.seq, hashBodies3d([d.ref]));
 				}
 			}
+			if (t > STEPS && devices.every((d) => sim.players.get(d.id).ack === STEPS)) break;
 		}
 		for (const d of devices) {
 			const player = sim.players.get(d.id);
@@ -337,25 +344,145 @@ await check(
 	},
 );
 
-await check('a dropped player waits where it is, mid-air included, until it rejoins', () => {
+/** Ann alone in the arena, jumped and still rising, with her device's predictor fed every state. */
+const midAir = () => {
 	const sim = roomOf(configOf());
 	const player = sim.join('ann', { character: 'hero' });
 	const rx = receiver();
+	const predictor = createPredictor3d({
+		body: createBody3d(player.home),
+		level: sim.level,
+		dt: sim.ctx.dt,
+	});
+	const verdicts = { match: 0, corrected: 0, stale: 0 };
 	let seq = 0;
-	const send = (buttons = 0) => rx.receive({ seq: ++seq, moveX: 127, moveZ: 0, buttons, yaw: 0 });
+	const held = [];
+	const send = (buttons = 0, hold = false) => {
+		const input = clampInput3d({ seq: ++seq, moveX: 127, moveZ: 0, buttons, yaw: 900 });
+		if (hold) held.push(input);
+		else rx.receive(input);
+		predictor.input(input);
+	};
+	const release = () => held.splice(0).forEach((input) => rx.receive(input));
+	const step = (events = []) => {
+		events.push(...sim.step((id, credit) => (id === 'ann' ? rx.take(credit) : [])));
+		const { x, y, z } = player.body;
+		verdicts[predictor.reconcile({ x, y, z, ack: player.ack, step: sim.steps })] += 1;
+		return events;
+	};
 	for (let i = 0; i < 10; i++) {
 		send(i === 5 ? BUTTONS3D.jump : 0);
-		sim.step((id, credit) => (id === 'ann' ? rx.take(credit) : []));
+		step();
 	}
-	assert.ok(player.body.y > 0, 'in the air');
-	sim.drop('ann');
-	const before = hashBodies3d([player.body]);
-	for (let i = 0; i < 30; i++) sim.step(() => []);
-	assert.equal(hashBodies3d([player.body]), before);
-	sim.rejoin('ann');
-	send();
-	sim.step((id, credit) => (id === 'ann' ? rx.take(credit) : []));
-	assert.notEqual(hashBodies3d([player.body]), before);
+	assert.ok(player.body.y > 0.3 && player.body.vy > 0, 'rising');
+	assert.equal(verdicts.corrected, 0);
+	return { sim, player, send, release, step, verdicts, predictor };
+};
+const CREDIT_STEPS = Math.ceil(30 * CREDIT_SECONDS);
+
+await check(
+	'a player that stops sending waits CREDIT_SECONDS, then falls and lands for everyone, its ack kept; its device finds those resting steps exactly',
+	() => {
+		const { player, send, step, verdicts, predictor } = midAir();
+		const ack = player.ack;
+		const held = hashBodies3d([player.body]);
+		for (let i = 0; i < CREDIT_STEPS; i++) step();
+		assert.equal(hashBodies3d([player.body]), held, 'ordinary jitter: the fold waits');
+		const events = [];
+		const started = performance.now();
+		for (let i = 0; i < 90; i++) step(events);
+		assert.ok(performance.now() - started < 200);
+		assert.equal(player.ack, ack, 'no input was applied');
+		assert.ok(player.body.grounded && player.body.y === 0, `landed at ${player.body.y}`);
+		assert.ok(
+			events.some((e) => e.type === 'landed' && e.id === 'ann'),
+			'the landing is told',
+		);
+		assert.equal(player.body.yaw, 900, 'it keeps facing its way');
+		const before = verdicts.corrected;
+		assert.ok(before >= 1, 'the device was told where it fell');
+		const motion = ({ x, y, z, vx, vy, vz, grounded }) => ({ x, y, z, vx, vy, vz, grounded });
+		assert.deepEqual(motion(predictor.body), motion(player.body), 'found exactly');
+		for (let i = 0; i < 60; i++) {
+			send();
+			step();
+		}
+		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([player.body]), 'back in step');
+		const since = verdicts.corrected - before;
+		assert.equal(since, 0, `${since} corrections after it resumed`);
+		const settled = verdicts.match;
+		for (let i = 0; i < 30; i++) {
+			send();
+			step();
+		}
+		assert.equal(verdicts.match - settled, 30, 'then every state matches');
+		console.log(`   ${verdicts.corrected} corrections while idle, ${since} after resuming`);
+	},
+);
+
+await check(
+	'a link that stalls past CREDIT_SECONDS: the room rests the player, then plays the burst from there, and the device follows exactly',
+	() => {
+		const { player, send, release, step, verdicts, predictor } = midAir();
+		const ack = player.ack;
+		for (let i = 0; i < CREDIT_STEPS + 30; i++) {
+			send(0, true);
+			step();
+		}
+		assert.equal(player.ack, ack);
+		assert.ok(player.body.grounded, 'rested to the floor');
+		release();
+		const before = verdicts.corrected;
+		for (let i = 0; i < 60; i++) {
+			send();
+			step();
+		}
+		assert.equal(player.ack, ack + 60 + CREDIT_STEPS, 'the credit spent on the burst');
+		for (let i = 0; i < CREDIT_STEPS * 2 + 10; i++) step();
+		assert.equal(player.ack, ack + CREDIT_STEPS + 90, 'the burst drained');
+		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([player.body]));
+		assert.equal(verdicts.corrected, before, 'no correction once the burst arrives');
+	},
+);
+
+await check(
+	'a dropped player falls and lands at once, ack kept, and plays on when it rejoins',
+	() => {
+		const { sim, player, send, step } = midAir();
+		const ack = player.ack;
+		sim.drop('ann');
+		const before = hashBodies3d([player.body]);
+		step();
+		assert.notEqual(hashBodies3d([player.body]), before, 'stepped on the first step it is gone');
+		for (let i = 0; i < 90; i++) step();
+		assert.equal(player.ack, ack);
+		assert.ok(player.body.grounded && player.body.y === 0);
+		sim.rejoin('ann');
+		send();
+		step();
+		assert.equal(player.ack, ack + 1);
+	},
+);
+
+await check('a player that has never sent an input waits at its home', () => {
+	const sim = roomOf(configOf());
+	const player = sim.join('ann', { character: 'hero' });
+	sim.drop(sim.join('bob', { character: 'hero' }).id);
+	for (let i = 0; i < CREDIT_STEPS * 4; i++) sim.step(() => []);
+	for (const p of sim.players.values())
+		assert.equal(hashBodies3d([p.body]), hashBodies3d([createBody3d(p.home)]), p.id);
+	assert.equal(player.ack, 0);
+});
+
+await check('two rooms of one world share its one level', () => {
+	const config = configOf();
+	const world = world3dOf(config.arcade.world3d);
+	const game = gameOf(config);
+	const a = createRoomSim3d(game, world, { seed: 1 });
+	const b = createRoomSim3d(game, world, { seed: 2 });
+	assert.equal(a.level, b.level);
+	assert.equal(a.level, levelOf3d(world));
+	assert.notEqual(a.level, levelOf3d(world3dOf(config.arcade.world3d)), 'one per world');
 });
 
 await check('teams balance, characters keep their max, the room its size', () => {
@@ -497,6 +624,7 @@ await check(
 		const arena = await load('arena');
 		assert.equal(arena.world3d.level.colliders.length, 2);
 		assert.equal(arena.world3d.spawns[1].x, 3);
+		assert.equal((await load('arena')).world3d, arena.world3d, 'one world per doc');
 		assert.equal((await load('flat')).world3d, undefined);
 		await assert.rejects(load('broken'), /arcade\.world3d\.level\.colliders\.0\.facing/);
 		assert.equal(
@@ -507,6 +635,52 @@ await check(
 		assert.throws(() => world3dOf({ motion: { gravity: 9.81 } }), /gravity/);
 		assert.throws(() => world3dOf({ spawns: [] }), /spawns/);
 		assert.equal(world3dOf({ characters: { hero: { speed: 7 } } }).characters.hero.speed, 7);
+	},
+);
+await check(
+	'world3dOf refuses, by path and at once, a level too big to index, a fine grid, a wide body, a flat trampoline and too many zones',
+	() => {
+		const zone = (i, extra = {}) => ({
+			kind: 'pad',
+			minX: i,
+			minY: 0,
+			minZ: 0,
+			maxX: i + 1,
+			maxY: 1,
+			maxZ: 1,
+			...extra,
+		});
+		const refused = [
+			[{ level: { colliders: [box(-1e9, -1, -1e9, 1e9, 0, 1e9)] } }, /level: .*collider 0 .*cells/],
+			[
+				{
+					level: {
+						colliders: [box(0, 0, 0, 1, 1, 1), box(-100, -1, -100, 100, 0, 100)],
+						cellSize: 0.25,
+					},
+				},
+				/collider 1 takes the level past/,
+			],
+			[{ level: { colliders: [box(0, 0, 0, 1, 1, 1)], cellSize: 1e-6 } }, /level\.cellSize/],
+			[{ level: { cellSize: 0 } }, /level\.cellSize/],
+			[{ level: { cellSize: 0.5 }, motion: { radius: 5 } }, /world3d\.motion\.radius/],
+			[{ characters: { hero: { radius: 40 } } }, /world3d\.characters\.hero\.radius/],
+			[{ level: { zones: [zone(0, { kind: 'trampoline', height: -3 })] } }, /zones\.0\.height/],
+			[{ level: { zones: [zone(0), zone(1, { kind: 'trampoline' })] } }, /zones\.1\.height/],
+			[{ level: { zones: [zone(0, { kind: 'trampoline', height: 0 })] } }, /zones\.0\.height/],
+			[
+				{ level: { zones: Array.from({ length: MAX_ZONES_3D + 1 }, (_, i) => zone(i)) } },
+				/level\.zones: a list of at most 256/,
+			],
+		];
+		for (const [raw, error] of refused) {
+			const started = performance.now();
+			assert.throws(() => world3dOf(raw), error);
+			assert.ok(performance.now() - started < 100, `${error} took long`);
+		}
+		const zones = Array.from({ length: MAX_ZONES_3D }, (_, i) => zone(i));
+		assert.equal(world3dOf({ level: { zones, cellSize: 0.25 } }).level.zones.length, 256);
+		assert.equal(world3dOf({ level: { cellSize: 0.5 }, motion: { radius: 4 } }).motion.radius, 4);
 	},
 );
 

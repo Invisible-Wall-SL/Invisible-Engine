@@ -37,6 +37,21 @@ export const YAW_UNITS = 65536;
 export const BUTTON_JUMP = 1;
 export const BUTTON_SPRINT = 2;
 
+/** The smallest column a level is bucketed into, m: a finer grid only makes every query wider. */
+export const MIN_CELL_SIZE_3D = 0.25;
+
+/** Collider-in-column entries a level may hold; a larger one is refused before it is built. */
+export const MAX_LEVEL_CELLS_3D = 1 << 18;
+
+/** Colliders a level may have. */
+export const MAX_COLLIDERS_3D = 20000;
+
+/** Zones a level may have: every body scans them all on every step. */
+export const MAX_ZONES_3D = 256;
+
+/** Columns a body may span on one axis (`2 * radius / cellSize`), which bounds a step's queries. */
+export const MAX_BODY_CELLS_3D = 16;
+
 /** The direction a ramp's surface rises toward. */
 export const RAMP_FACINGS = ['+x', '-x', '+z', '-z'];
 
@@ -64,11 +79,19 @@ export const MOTION3D_DEFAULTS = Object.freeze({
  * A level from its colliders and zones. A collider is `{ kind: 'box' | 'ramp', minX, minY, minZ,
  * maxX, maxY, maxZ, facing? }`; a ramp's surface rises from `minY` on its low edge to `maxY` on the
  * edge `facing` names. A zone is `{ kind, minX, minY, minZ, maxX, maxY, maxZ, height? }`; a
- * `trampoline` launches a body standing in it to `height` m. Colliders are bucketed into square
- * `cellSize` columns on the plane; `killY` is the death plane.
+ * `trampoline` launches a body standing in it to `height` m (one without a height above 0 does
+ * not launch). Colliders are bucketed into square `cellSize` columns on the plane; `killY` is the
+ * death plane. A level past {@link MAX_COLLIDERS_3D}, {@link MAX_ZONES_3D} or
+ * {@link MAX_LEVEL_CELLS_3D} column entries, or with a `cellSize` under
+ * {@link MIN_CELL_SIZE_3D}, is refused before anything is bucketed.
  */
 export function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 } = {}) {
-	if (!(cellSize > 0)) throw new Error(`motion3d: cellSize must be > 0 (${cellSize})`);
+	if (!(cellSize >= MIN_CELL_SIZE_3D && cellSize < Infinity))
+		throw new Error(`motion3d: cellSize must be at least ${MIN_CELL_SIZE_3D} (${cellSize})`);
+	if (colliders.length > MAX_COLLIDERS_3D)
+		throw new Error(`motion3d: more than ${MAX_COLLIDERS_3D} colliders (${colliders.length})`);
+	if (zones.length > MAX_ZONES_3D)
+		throw new Error(`motion3d: more than ${MAX_ZONES_3D} zones (${zones.length})`);
 	const list = colliders.map((c, id) => {
 		if (!(c.maxX > c.minX && c.maxY > c.minY && c.maxZ > c.minZ))
 			throw new Error(`motion3d: collider ${id} has no volume`);
@@ -91,12 +114,23 @@ export function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY 
 			slope: rise < 0 ? 0 : (c.maxY - c.minY) / run,
 		};
 	});
+	const spans = list.map((c) => [
+		Math.floor(c.minX / cellSize),
+		Math.floor(c.maxX / cellSize),
+		Math.floor(c.minZ / cellSize),
+		Math.floor(c.maxZ / cellSize),
+	]);
+	let entries = 0;
+	spans.forEach(([x0, x1, z0, z1], id) => {
+		entries += (x1 - x0 + 1) * (z1 - z0 + 1);
+		if (!(entries <= MAX_LEVEL_CELLS_3D))
+			throw new Error(
+				`motion3d: collider ${id} takes the level past ${MAX_LEVEL_CELLS_3D} cells of ${cellSize} m`,
+			);
+	});
 	const cells = new Map();
 	for (const c of list) {
-		const x0 = Math.floor(c.minX / cellSize);
-		const x1 = Math.floor(c.maxX / cellSize);
-		const z0 = Math.floor(c.minZ / cellSize);
-		const z1 = Math.floor(c.maxZ / cellSize);
+		const [x0, x1, z0, z1] = spans[c.id];
 		for (let cx = x0; cx <= x1; cx++)
 			for (let cz = z0; cz <= z1; cz++) {
 				const key = `${cx},${cz}`;
@@ -114,7 +148,7 @@ export function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY 
 		maxX: z.maxX,
 		maxY: z.maxY,
 		maxZ: z.maxZ,
-		height: z.height ?? 0,
+		height: z.height > 0 && z.height < Infinity ? z.height : 0,
 	}));
 	return {
 		colliders: list,
@@ -134,6 +168,11 @@ export function collidersNear(level, x0, z0, x1, z1) {
 	const cx1 = Math.floor(x1 / size);
 	const cz0 = Math.floor(z0 / size);
 	const cz1 = Math.floor(z1 / size);
+	// `seen` is an Int32Array, and one level may serve every room of a game for days.
+	if (level.query >= 0x7fffffff) {
+		level.seen.fill(0);
+		level.query = 0;
+	}
 	level.query += 1;
 	const stamp = level.query;
 	const ids = [];
@@ -421,7 +460,7 @@ function snapDown(body, level, spec, out) {
 /** The trampoline zone a standing body's centre is in, if any. */
 function trampolineAt(body, level) {
 	for (const z of level.zones) {
-		if (z.kind !== 'trampoline') continue;
+		if (z.kind !== 'trampoline' || !(z.height > 0)) continue;
 		if (
 			body.x >= z.minX &&
 			body.x <= z.maxX &&

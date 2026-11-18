@@ -10,6 +10,11 @@ export declare const YAW_UNITS: number;
 export declare const BUTTON_JUMP: number;
 export declare const BUTTON_SPRINT: number;
 export declare const HASH3D_SEED: number;
+export declare const MIN_CELL_SIZE_3D: number;
+export declare const MAX_LEVEL_CELLS_3D: number;
+export declare const MAX_COLLIDERS_3D: number;
+export declare const MAX_ZONES_3D: number;
+export declare const MAX_BODY_CELLS_3D: number;
 
 export type RampFacing = '+x' | '-x' | '+z' | '-z';
 export declare const RAMP_FACINGS: readonly RampFacing[];
@@ -26,7 +31,8 @@ export type Box3 = {
 /** A ramp's surface rises from `minY` on its low edge to `maxY` on the edge `facing` names. */
 export type Collider3dSpec = Box3 & ({ kind: 'box' } | { kind: 'ramp'; facing: RampFacing });
 
-/** A `trampoline` launches a body standing in it to `height` m; other kinds are for the rules. */
+/** A `trampoline` launches a body standing in it to `height` m (> 0); other kinds are for the
+ *  rules. */
 export type Zone3dSpec = Box3 & { kind: string; height?: number };
 
 export type Collider3d = Box3 & {
@@ -111,6 +117,7 @@ export type Step3dResult = {
 	fell: boolean;
 };
 
+/** Throws past the `MAX_*_3D` caps or under {@link MIN_CELL_SIZE_3D}, before bucketing. */
 export declare function createLevel3d(level?: {
 	colliders?: readonly Collider3dSpec[];
 	zones?: readonly Zone3dSpec[];
