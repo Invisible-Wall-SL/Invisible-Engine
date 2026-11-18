@@ -371,14 +371,16 @@ function normalizeScene(input: unknown): Scene | null {
 	// all-default camera is dropped, so it never turns a screen's world camera on by itself).
 	const world = sceneWorld({ ...scene, world: input.world as Scene['world'] });
 	if (world) scene.world = world;
-	const camera = sceneCamera({ ...scene, camera: input.camera as Scene['camera'] });
-	const zoom = sceneCameraZoom({ ...scene, camera: input.camera as Scene['camera'] });
-	if ((camera && Object.keys(camera).length) || zoom) scene.camera = { ...camera, ...zoom };
+	const withCamera = { ...scene, camera: input.camera as Scene['camera'] };
+	const camera = sceneCamera(withCamera);
 	// Its projection (`Scene.projection`, P11.4): stored only when it is not flat, on a `game` screen.
 	const projection = sceneProjection({
-		...scene,
+		...withCamera,
 		projection: input.projection as Scene['projection'],
 	});
+	// The camera's zoom (`SceneCamera.zoom`): read only on a projected screen, so kept only there.
+	const zoom = projection ? sceneCameraZoom(withCamera) : undefined;
+	if ((camera && Object.keys(camera).length) || zoom) scene.camera = { ...camera, ...zoom };
 	if (projection) scene.projection = projection;
 	// Drawn mirrored left to right (`Scene.mirrored`): kept only on a projected screen.
 	if (projection && input.mirrored === true) scene.mirrored = true;

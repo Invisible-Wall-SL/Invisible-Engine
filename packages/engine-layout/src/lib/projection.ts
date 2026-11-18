@@ -162,12 +162,19 @@ export function isoViewRect(
 /**
  * What an isometric screen's tilemap does not draw as it collides, for the editor to say: tiles
  * that are not square (a cell is then a parallelogram the diamond art does not cover), a rotation,
- * a scale that is not uniform and positive, a parallax factor. Empty when it draws true.
+ * a scale that is not uniform and positive, a parallax factor, and a `mirrored` screen (not
+ * supported: the autotile sides and the editor's painting follow the unmirrored diamonds). Empty
+ * when it draws true.
  */
 export function isoTilemapIssues(
 	node: Pick<TilemapNode, 'tileWidth' | 'tileHeight' | 'rotation' | 'scale' | 'parallax'>,
+	mirrored = false,
 ): string[] {
 	const out: string[] = [];
+	if (mirrored)
+		out.push(
+			'the screen is mirrored: a tilemap is not supported there (drawn and painted unmirrored)',
+		);
 	if (node.tileWidth !== node.tileHeight)
 		out.push('tiles are not square: an isometric tile is a square of world, tile w = tile h');
 	if (node.rotation) out.push('it is rotated: the game ignores a tilemap’s rotation');

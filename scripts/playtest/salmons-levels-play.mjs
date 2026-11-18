@@ -366,6 +366,12 @@ try {
 			pools: [sum('whirlpool_'), level?.whirlpools.length],
 		},
 	);
+	const among = (await a.state()).arcade?.fieldArt?.among;
+	verdict(
+		'the forest and the bridges stand among the players, in their spawn layer',
+		among?.layer === true && among.drawn > 0,
+		among,
+	);
 	result.measures.artMs = a.artMs;
 	result.measures.heapMB = await heapOf(a.page);
 	const me = (await a.state()).arcade?.online?.me;

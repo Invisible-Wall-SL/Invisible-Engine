@@ -275,13 +275,22 @@ export const useArcadeInput = (
 export const useWorldCamera = (scenes: readonly Scene[]) => {
 	if (!loop || loop.camera()) return;
 	const scene = worldCameraScene(scenes);
-	if (!scene) return;
+	if (!scene) {
+		// No world screen: nothing is drawn projected or zoomed (a page's earlier state is dropped).
+		setWorldProjector(undefined);
+		setWorldZoom(1);
+		zoomSpec = undefined;
+		zoom = 1;
+		return;
+	}
 	world = sceneWorld(scene);
 	// An isometric screen (P11.4) shows a turned region: the loop judges the view by its world box,
 	// drawn by its projector, zoomed as its camera says (the view is then the design box over it).
 	const projector = sceneProjector(scene);
 	setWorldProjector(projector);
 	zoomSpec = projector ? sceneCameraZoom(scene) : undefined;
+	zoom = 1;
+	setWorldZoom(1);
 	const visible = projector ? isoViewRect : undefined;
 	const camView = zoomSpec ? () => zoomedView(view(), zoom) : view;
 	loop.attachCamera({

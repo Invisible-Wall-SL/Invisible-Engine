@@ -1136,13 +1136,15 @@ const playLedges = (seed: string) => {
 		sceneProjection({ id: 's', name: 'S', nodes: [], projection: 'isometric' }) === undefined,
 	);
 	check(
-		'6. an isometric tilemap that would not draw as it collides is flagged; a square, plain one is not',
+		'6. an isometric tilemap that would not draw as it collides is flagged (and any on a mirrored screen); a square, plain one is not',
 		isoTilemapIssues({ tileWidth: 64, tileHeight: 64 }).length === 0 &&
 			isoTilemapIssues({ tileWidth: 64, tileHeight: 32 }).some((i) => i.includes('square')) &&
 			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, rotation: 0.3 }).length === 1 &&
 			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, scale: { x: 2, y: 1 } }).length === 1 &&
 			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, scale: { x: -1, y: -1 } }).length === 1 &&
-			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, parallax: { x: 0.5, y: 1 } }).length === 1,
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 64, parallax: { x: 0.5, y: 1 } }).length ===
+				1 &&
+			isoTilemapIssues({ tileWidth: 64, tileHeight: 64 }, true).some((i) => i.includes('mirrored')),
 	);
 	const level: Scene = {
 		id: 'lvl',

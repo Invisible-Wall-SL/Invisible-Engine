@@ -9,9 +9,11 @@
 	// A tilemap on an isometric screen (P11.4): one sprite per painted tile, filling its cell's 2:1
 	// diamond box, the region its neighbours pick (`autotile`), drawn back to front (by `col + row`,
 	// then by column), so a tile's art taller than its diamond overlaps the ones behind it. A tile's
-	// region resolves as `<Tilemap>`'s does. On a mirrored screen each box is mirrored (the art is not).
+	// region resolves as `<Tilemap>`'s does. On a mirrored screen each box is mirrored (the art is
+	// not); its autotile sides are not (`isoTilemapIssues` says so in the editor).
 	const { node }: { node: TilemapNode } = $props();
 	const scope = worldProjection();
+	const mirrored = scope?.projector.mirrored === true;
 
 	const keyOf = (region: string) => {
 		const scoped = parseScopedFrameRef(region);
@@ -28,10 +30,12 @@
 			if (!ref) return;
 			const col = i % node.cols;
 			const row = Math.floor(i / node.cols);
-			const box = isoCellBox(node, col, row, scope?.projector.mirrored === true);
+			const box = isoCellBox(node, col, row, mirrored);
 			out.push({ i, depth: col + row, col, ...box, ...ref });
 		});
-		return out.sort((a, b) => a.depth - b.depth || a.col - b.col);
+		// A tie on one diagonal is drawn left to right on screen: by column, the other way mirrored.
+		const side = mirrored ? -1 : 1;
+		return out.sort((a, b) => a.depth - b.depth || side * (a.col - b.col));
 	});
 </script>
 

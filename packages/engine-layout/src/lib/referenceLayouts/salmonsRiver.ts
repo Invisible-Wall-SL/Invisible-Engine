@@ -10,6 +10,10 @@ import type { LayoutNode } from '../types';
  * each waterfall's cliff: a strip upstream of it, as many px deep as its step.
  */
 
+/** The spawn layer the room's players are drawn in (`referenceLayouts/salmons.ts` `SALMONS_FIELD`);
+ *  the river's art stands its forest trees and bridge decks among them there. */
+export const SALMONS_FIELD_LAYER = 'field';
+
 type Rect = { x: number; y: number; w: number; h: number };
 export type SalmonsRiverDrawing = {
 	world: { w: number; h: number };

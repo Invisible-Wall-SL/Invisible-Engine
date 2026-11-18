@@ -4,6 +4,7 @@
 
 	import IsoTilemap from './IsoTilemap.svelte';
 	import MountedArt from './MountedArt.svelte';
+	import ProjectedLayer from './ProjectedLayer.svelte';
 	import { fieldArtOf } from './arcadeArt.svelte';
 	import { isoDepthOrder } from './projection';
 	import type { LayoutNode } from './types';
@@ -16,7 +17,8 @@
 	 * loop has given the view its size. Each top-level node is drawn by its kind, every one through
 	 * `<LayoutNodeView>` (so bindings, FX and visibility work as flat):
 	 * - a `spawnLayer` upright, its instances at their projected places in ground-depth order
-	 *   (`<SpawnLayer>` reads the scope this sets, by its id);
+	 *   (`<SpawnLayer>` reads the scope this sets, by its id), in a container registered by its id
+	 *   (`<ProjectedLayer>`) for art that stands among them;
 	 * - a `tilemap` as 2:1 diamonds (`<LayoutNodeView>` draws it with `<IsoTilemap>`, by its id);
 	 * - both drawn at their projected place (`<LayoutNodeView>` projects their bound position), so a
 	 *   world point inside them is their place plus the point, projected;
@@ -66,7 +68,11 @@
 		<Container x={origin.x} y={origin.y} scale={drawing.zoom}>
 			{#each nodes as n (n.id)}
 				{@const art = fieldArtOf(n.id)}
-				{#if n.kind === 'spawnLayer' || n.kind === 'tilemap'}
+				{#if n.kind === 'spawnLayer'}
+					<ProjectedLayer id={n.id} zIndex={n.zIndex}>
+						{@render render(n)}
+					</ProjectedLayer>
+				{:else if n.kind === 'tilemap'}
 					{@render render(n)}
 				{:else if art}
 					{#key art}

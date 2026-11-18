@@ -64,7 +64,7 @@
 	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
 	import { newPathNode } from '$lib/editor/pathNodeEdit';
 	import { newTilemapAt } from '$lib/editor/tilemapEdit';
-	import { sceneProjection } from 'engine-layout';
+	import { sceneMirrored, sceneProjection } from 'engine-layout';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -4289,6 +4289,7 @@
 						activeScene.nodes.some((n) => n.id === selectedNode.id)
 							? sceneProjection(activeScene)
 							: undefined}
+						mirrored={!!activeScene && sceneMirrored(activeScene)}
 						{templateMode}
 						{slotMeta}
 						sceneSlots={activeSceneSlots}

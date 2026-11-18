@@ -7,6 +7,8 @@
  * runtime without the arcade family carries none of it. Default: isometric, zoom 1.
  */
 
+import type { Container } from 'pixi.js';
+
 import { ISO_PROJECTOR, type IsoProjector } from './projection';
 
 class WorldDrawing {
@@ -34,3 +36,17 @@ export const setWorldZoom = (zoom: number): void => {
 	const next = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 	if (live().zoom !== next) live().zoom = next;
 };
+
+const layers: Record<string, Container | undefined> = {};
+
+/** `<IsoWorld>` registers each top-level spawn layer's own container by the node's id while it is
+ *  drawn (returns the unregister), for art that stands pieces among its instances. */
+export const registerProjectedLayer = (id: string, container: Container): (() => void) => {
+	layers[id] = container;
+	return () => {
+		if (layers[id] === container) delete layers[id];
+	};
+};
+
+/** A projected world's spawn layer container by its node's id, while it is drawn. */
+export const projectedLayer = (id: string): Container | undefined => layers[id];

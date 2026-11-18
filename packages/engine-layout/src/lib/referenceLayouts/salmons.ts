@@ -1,6 +1,6 @@
 import type { CharacterClips, ComponentDef, LayoutDoc, LayoutNode, Scene } from '../types';
 import { arcadeReferenceLayout, textBox } from './arcade';
-import { salmonsRiverNode, type SalmonsRiverDrawing } from './salmonsRiver';
+import { SALMONS_FIELD_LAYER, salmonsRiverNode, type SalmonsRiverDrawing } from './salmonsRiver';
 
 export type { SalmonsRiverDrawing } from './salmonsRiver';
 
@@ -22,7 +22,7 @@ export type { SalmonsRiverDrawing } from './salmonsRiver';
  */
 
 /** The spawn layer the room's players are drawn in (`arcade.online.layer`'s default). */
-export const SALMONS_FIELD = { id: 'field', cap: 120 } as const;
+export const SALMONS_FIELD = { id: SALMONS_FIELD_LAYER, cap: 120 } as const;
 
 /**
  * How the camera follows the device's own player (`online.ts` gives it the target), as the original

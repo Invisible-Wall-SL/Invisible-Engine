@@ -868,7 +868,10 @@ function scene4(): Scene {
 		'6. the runtime publishes the camera only when the loop has one (the culled set alone when abilities hide)',
 		/const camera = loop\.camera\(\);\s*if \(!camera\) \{\s*if \(hides\) setCulled\(loop\.culled\(\)\);\s*return;\s*\}\s*setWorldCameraView\(camera\);\s*setCulled/.test(
 			arcade,
-		) && /if \(!scene\) return;/.test(arcade),
+		) &&
+			/if \(!scene\) \{\s*\/\/[^\n]*\n\s*setWorldProjector\(undefined\);\s*setWorldZoom\(1\);/.test(
+				arcade,
+			),
 	);
 	check(
 		'6. the river sample stays off the package entries',
@@ -978,6 +981,8 @@ function scene4(): Scene {
 		'7. the online camera zooms only a projected screen, and follows the own leap as the ground lift',
 		/const zoom = projector \? sceneCameraZoom\(scene\) : undefined;/.test(online) &&
 			/setWorldProjector\(projector\);/.test(online) &&
+			/if \(!scene\) \{[^}]*setWorldProjector\(undefined\);\s*setWorldZoom\(1\);/.test(online) &&
+			/const zoom = worldCamera\.zoom\s*\?\s*cameraZoom\(/.test(online) &&
 			/const leap = current\.codeLooks\.get\(me\)\?\.drawn\(\)\.lift \?\? 0;/.test(online) &&
 			/shakeY: camera\.offsetY \+ \(current\.lifts\.get\(me\)\?\.lift \?\? 0\) \+ leap,/.test(
 				online,

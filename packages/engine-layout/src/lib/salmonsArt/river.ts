@@ -11,8 +11,9 @@ import {
 	type Ticker,
 } from 'pixi.js';
 
+import { projectedLayer } from '../worldDrawing.svelte';
 import { ISO_DEPTH_SPREAD, ISO_PROJECTOR, isoDepth, type IsoProjector } from '../projection';
-import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { SALMONS_FIELD_LAYER, type SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsTextures } from './load';
 import { compassTile } from './regions';
@@ -291,20 +292,20 @@ type Among = {
 };
 
 /**
- * The container a projected world's spawn layer draws its instances in, under `root` (the
- * projected world's own container): the shallowest one holding a child in ground-depth order
- * (`isoDepthOrder`, at least {@link ISO_DEPTH_SPREAD}). `skip` (the river's own container) is not
- * searched. `undefined` until the layer has an instance.
+ * The container the players' spawn layer draws its instances in: under the layer's own container
+ * `<IsoWorld>` registers by its id (`worldDrawing.svelte.ts` `projectedLayer`, Salmons'
+ * {@link SALMONS_FIELD_LAYER}), down `<LayoutNodeView>`'s wrappers (each a lone child placed by the
+ * node, below ground depth) to the one whose children are the instances (zIndex in ground-depth
+ * order, `isoDepthOrder`, from {@link ISO_DEPTH_SPREAD}) or that has none yet.
  */
-function spawnLayerIn(root: Container, skip: Container): Container | undefined {
-	let level: Container[] = root.children.filter((c) => c !== skip);
-	for (let depth = 0; depth < 8 && level.length; depth++) {
-		for (const c of level)
-			if (c.children.some((child) => child.label !== AMONG && child.zIndex >= ISO_DEPTH_SPREAD))
-				return c;
-		level = level.flatMap((c) => c.children);
+function spawnLayerOf(id: string): Container | undefined {
+	let at = projectedLayer(id);
+	while (at && at.children.length === 1) {
+		const only = at.children[0];
+		if (only.label === AMONG || only.zIndex >= ISO_DEPTH_SPREAD) break;
+		at = only;
 	}
-	return undefined;
+	return at;
 }
 
 const AMONG = 'salmons-art:among';
@@ -424,7 +425,6 @@ export function mountSalmonsRiver(
 	const cliffs = new Container();
 	const reflections = new Container();
 	const upright = new Container();
-	upright.sortableChildren = true;
 	const displacement = new Sprite(noise);
 	displacement.alpha = 0;
 	const filter = new DisplacementFilter({ sprite: displacement, scale: { x: 6, y: 4 } });
@@ -892,17 +892,19 @@ export function mountSalmonsRiver(
 		slope(n + 1, n - 1);
 	}
 
+	// Sorted once by the old client's z; nothing in it moves (a zIndex turns sorting on per frame).
+	upright.sortChildren();
+	upright.sortableChildren = false;
+
 	let layer: Container | undefined;
 	let layerShift = { x: 0, y: 0 };
 	let amongDrawn = 0;
 	const findLayer = () => {
-		const root = into.parent;
-		if (layer && !layer.destroyed && root && hasAncestor(layer, root)) return layer;
-		layer = undefined;
+		const now = spawnLayerOf(SALMONS_FIELD_LAYER);
+		if (now === layer && (!now || !now.destroyed)) return layer;
 		amongDrawn = 0;
 		for (const piece of among) if (piece.view?.parent) piece.view.removeFromParent();
-		if (!root) return undefined;
-		layer = spawnLayerIn(root, into);
+		layer = now && !now.destroyed ? now : undefined;
 		if (layer) layerShift = layer.toLocal({ x: 0, y: 0 }, into);
 		return layer;
 	};
@@ -1005,8 +1007,3 @@ export function mountSalmonsRiver(
 }
 
 const meets = (a: Box, b: Box) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
-
-function hasAncestor(view: Container, root: Container): boolean {
-	for (let at = view.parent; at; at = at.parent) if (at === root) return true;
-	return false;
-}

@@ -56,11 +56,11 @@ import {
 	sceneProjector,
 	sceneWorld,
 	worldCameraScene,
-	type IsoProjector,
 	type CharacterAnimator,
 	type CharacterClipEvent,
 	type CharacterClipFrame,
 	type CharacterClips,
+	type IsoProjector,
 	type LayoutDoc,
 	type LayoutNode,
 	type SalmonsRiverDrawing,
@@ -309,8 +309,7 @@ const VELOCITY_WINDOW_MS = 150;
 type OnlineCamera = {
 	camera: Camera;
 	world: { w: number; h: number } | undefined;
-	/** The design box, and how many window px a design px is drawn (`scale`). */
-	view: () => Size & { scale?: number };
+	view: () => ScreenSize;
 	/** The screen's projector (none for a flat screen) and, projected, its camera's zoom fields. */
 	projector: IsoProjector | undefined;
 	zoom: ReturnType<typeof sceneCameraZoom>;
@@ -319,6 +318,9 @@ type OnlineCamera = {
 	drawnZoom: number;
 };
 type Size = { w: number; h: number };
+/** The design box, and how many window px a design px is drawn (the layout's main box `scale`;
+ *  a `window` zoom divides it out, and takes 1 without it). */
+type ScreenSize = Size & { scale?: number };
 let worldCamera: OnlineCamera | undefined;
 
 const MOVE_KEYS: Record<string, [number, number]> = {
@@ -1121,15 +1123,21 @@ function drawMarks(
  * `useWorldCamera`); the first world screen seen is kept for the page. `view` reads the current
  * design size, so a rotated device moves the view with it.
  */
-export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
+export function useOnlineCamera(scenes: readonly Scene[], view: () => ScreenSize) {
 	if (worldCamera) return;
 	const scene = worldCameraScene(scenes);
-	if (!scene) return;
+	if (!scene) {
+		// No world screen: nothing is drawn projected or zoomed (a page's earlier state is dropped).
+		setWorldProjector(undefined);
+		setWorldZoom(1);
+		return;
+	}
 	const camera = createCamera(sceneCamera(scene), createRng('online:camera'));
 	camera.snapNext = true;
 	const projector = sceneProjector(scene);
 	setWorldProjector(projector);
 	const zoom = projector ? sceneCameraZoom(scene) : undefined;
+	setWorldZoom(1);
 	worldCamera = {
 		camera,
 		world: sceneWorld(scene),
@@ -1152,14 +1160,17 @@ function follow(current: Session, dtMs: number) {
 	if (!worldCamera || !at) return;
 	const { camera, world, view } = worldCamera;
 	const screen = view();
-	const zoom = cameraZoom(worldCamera.zoom, {
-		mobile: mobileDevice({
-			userAgent: navigator.userAgent,
-			maxTouchPoints: navigator.maxTouchPoints,
-			innerWidth: window.innerWidth,
-		}),
-		windowScale: screen.scale,
-	});
+	// A screen whose camera names no zoom draws at 1 (no device test, every frame).
+	const zoom = worldCamera.zoom
+		? cameraZoom(worldCamera.zoom, {
+				mobile: mobileDevice({
+					userAgent: navigator.userAgent,
+					maxTouchPoints: navigator.maxTouchPoints,
+					innerWidth: window.innerWidth,
+				}),
+				windowScale: screen.scale,
+			})
+		: 1;
 	const size = zoomedView({ w: screen.w, h: screen.h }, zoom);
 	worldCamera.size = size;
 	worldCamera.drawnZoom = zoom;
@@ -1258,7 +1269,7 @@ export function onlineProbe() {
 						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
 						view: worldCamera.size ?? worldCamera.view(),
 						zoom: worldCamera.drawnZoom,
-						leap: (current && current.codeLooks.get(current.room.sessionId)?.drawn().lift) || 0,
+						leap: current?.codeLooks.get(current.room.sessionId)?.drawn().lift ?? 0,
 					},
 				}
 			: {}),

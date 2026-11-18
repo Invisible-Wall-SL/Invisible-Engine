@@ -13,6 +13,7 @@ import {
 	nodeParallax,
 	sceneCamera,
 	sceneCameraZoom,
+	sceneProjection,
 	sceneWorld,
 	type LayoutNode,
 	type Scene,
@@ -44,6 +45,7 @@ export function setSceneWorldOn(scene: Scene, on: boolean, main: Size): void {
 	delete scene.world;
 	delete scene.camera;
 	delete scene.projection;
+	delete scene.mirrored;
 }
 
 /** Set the screen's projection (P11.4), sparse: `flat` deletes it. Only a `game` screen with a
@@ -51,6 +53,11 @@ export function setSceneWorldOn(scene: Scene, on: boolean, main: Size): void {
 export function setSceneProjection(scene: Scene, projection: 'flat' | SceneProjection): boolean {
 	if (projection === 'flat') {
 		delete scene.projection;
+		// Mirroring and the zoom are read only on a projected screen.
+		delete scene.mirrored;
+		const camera = sceneCamera(scene);
+		if (camera && Object.keys(camera).length) scene.camera = camera;
+		else delete scene.camera;
 		return true;
 	}
 	if ((scene.space ?? 'game') !== 'game' || !hasWorldCamera(scene)) return false;
@@ -70,8 +77,12 @@ export function setSceneWorldSize(scene: Scene, side: 'w' | 'h', v: number): boo
  *  removed. */
 export function setSceneCamera(scene: Scene, patch: Partial<SceneCamera>): void {
 	const merged = { ...scene, camera: { ...scene.camera, ...patch } };
-	// The zoom is kept apart from the camera's motion (`sceneCameraZoom`): an edit keeps it.
-	const next = { ...sceneCamera(merged), ...sceneCameraZoom(merged) };
+	// The zoom is kept apart from the camera's motion (`sceneCameraZoom`): an edit keeps it, on a
+	// projected screen (the only one that reads it).
+	const next = {
+		...sceneCamera(merged),
+		...(sceneProjection(merged) ? sceneCameraZoom(merged) : undefined),
+	};
 	if (Object.keys(next).length) scene.camera = next;
 	else delete scene.camera;
 }
