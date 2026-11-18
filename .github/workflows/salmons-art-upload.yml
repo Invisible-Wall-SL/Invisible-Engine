@@ -1,0 +1,61 @@
+# Put Salmons' built-in art into the Salmons project as ordinary sheets, from CI, so nobody has to
+# hold an R2 key on their own machine (docs/status/salmons.md "Original art as project art"). It runs
+# `scripts/salmons/upload-art.py`: create-only writes under `invisible_wall/salmons/` (the manifest,
+# page and TexturePacker JSON of each `salmons_*` sheet; any other key is refused), skipping what is
+# already there and stopping, with nothing written, if a key holds other content.
+#
+# Dry run by default: it lists what it would write and what is already there. `apply` writes.
+#
+# WRITES to R2 with the release's read-write key (`R2_*`, the runtime-release secrets), as
+# typekit-mirror.yml does. It runs MAIN's code only: a dispatch on any other ref ends at the job's
+# `if`, so a branch cannot run its own code with the write key.
+
+name: Salmons art upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Write to R2 (off = dry run, writes nothing)
+        type: boolean
+        default: false
+      sheets:
+        description: Only these sheets, space-separated (empty = every sheet in the plan)
+        type: string
+        default: ''
+
+concurrency:
+  group: salmons-art-upload
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Install the sheet tool's Python deps
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r services/sheet-tool/requirements.txt
+
+      - name: Upload the Salmons sheets
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          APPLY: ${{ inputs.apply }}
+          SHEETS: ${{ inputs.sheets }}
+        run: |
+          args=()
+          for sheet in $SHEETS; do args+=(--sheet "$sheet"); done
+          [ "$APPLY" = true ] && args+=(--apply)
+          exec .venv/bin/python scripts/salmons/upload-art.py "${args[@]}"

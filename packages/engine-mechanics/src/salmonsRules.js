@@ -44,6 +44,11 @@
  * - `goldenSalmon`: one salmon of the room is golden (its `mark`), chosen from the room's seed and
  *   the round at each round's start, and again whenever no salmon in the room is golden (`golden`).
  *   A catch of it, and its goal, score {@link GOLDEN_WORTH} times as much.
+ * - `bloodstains` (in `salmons` only): the original's bloodstains (`GuiltyForever/Salmon-` PR #8,
+ *   `addBloodstain`). A salmon caught leaves a stain where it died: a bear's catch where it is, a
+ *   line's landing where it was hooked (it is reeled onto the bank before it is landed). Stains stay
+ *   for the room's life, through every round; past {@link STAINS}`.max` the oldest goes. The room
+ *   sends them to every device (`stains`), which draws them and reddens a salmon swimming through.
  * - `salmons`: all of them, the module Salmons' config names.
  *
  * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`; a choice is a hash of
@@ -659,6 +664,51 @@ const fishingLine = {
 	},
 };
 
+/** The most stains a room keeps (the original's `MAX_BLOODSTAINS`): the oldest goes past it. */
+export const STAINS = Object.freeze({ max: 300 });
+
+/**
+ * A stain where each salmon is caught (the status `out`), once a catch: at its place, or, landed by
+ * a line, at the place it was hooked (noted while it is `hooked`, before the line reels it in). Runs
+ * before `fishingLine`, so the place noted is the hook's, not the first reel's.
+ */
+const bloodstains = {
+	create(game, api) {
+		const stains = { list: [], made: 0 };
+		return {
+			stains: () => stains,
+			step(world) {
+				for (const p of world.players) {
+					if (p.character.id !== SALMON) continue;
+					if (p.status === api.STATUS.hooked) {
+						if (p.memo.hookAt !== 1) {
+							p.memo.hookAt = 1;
+							p.memo.hookX = p.body.x;
+							p.memo.hookY = p.body.y;
+						}
+						continue;
+					}
+					if (p.status !== api.STATUS.out) {
+						p.memo.hookAt = 0;
+						p.memo.stained = 0;
+						continue;
+					}
+					if (p.memo.stained === 1) continue;
+					const hooked = p.memo.hookAt === 1;
+					stains.list.push({
+						x: hooked ? p.memo.hookX : p.body.x,
+						y: hooked ? p.memo.hookY : p.body.y,
+					});
+					if (stains.list.length > STAINS.max) stains.list.shift();
+					stains.made += 1;
+					p.memo.stained = 1;
+					p.memo.hookAt = 0;
+				}
+			},
+		};
+	},
+};
+
 const goldenSalmon = {
 	create() {
 		const pick = (world) => {
@@ -743,6 +793,7 @@ const together = (game, api, parts) => {
 		step: each('step'),
 		input: each('input'),
 		reset: each('reset'),
+		stains: made.find((m) => m.stains)?.stains,
 		hook: (...args) => {
 			let answer = false;
 			for (const m of made) {
@@ -771,7 +822,8 @@ const waterfallClimb = {
 };
 
 /** The fall steps before the climb, so a step either climbs or falls, as the original's `update`;
- *  the climb's tap is read before the leap's; the carry counts after both. */
+ *  the climb's tap is read before the leap's; the carry counts after both; a hooked salmon's place
+ *  is noted for its stain before the line reels it. */
 const salmons = {
 	create: (game, api) =>
 		together(game, api, [
@@ -779,6 +831,7 @@ const salmons = {
 			fall,
 			waterfallClimbing,
 			leap,
+			bloodstains,
 			fishingLine,
 			goldenSalmon,
 			carry,

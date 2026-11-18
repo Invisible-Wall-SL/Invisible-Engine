@@ -17,6 +17,7 @@ import {
 	type PipelineWait,
 } from '$lib/bugReports';
 import type { BugEventView, BugSummary, LinkSync } from '$lib/server/bugReports';
+import type { FindingDraft } from '$lib/server/profiler/findingBugs';
 import type { PillTone } from '../pipeline/view';
 
 /**
@@ -475,6 +476,12 @@ export interface AskedReport {
 	pageUrl: string;
 	title: string;
 	description: string;
+	/** A pipeline bug's project, preset (an Invisible Profiler finding's). */
+	project?: string;
+	/** An Invisible Profiler finding this report files (`?finding=`), prefilled server-side. */
+	finding?: { id: string; project: string };
+	/** Why the finding the link named cannot be filed; `filed` is the bug it already has. */
+	findingRefused?: { message: string; filed: number | null };
 }
 
 export const NO_REPORT: AskedReport = { area: '', pageUrl: '', title: '', description: '' };
@@ -492,5 +499,37 @@ export function askedReport(url: URL, known: (area: string) => boolean): AskedRe
 		pageUrl: url.searchParams.get('page') ?? '',
 		title: (url.searchParams.get('title') ?? '').slice(0, MAX_TITLE),
 		description: (url.searchParams.get('details') ?? '').slice(0, MAX_DESCRIPTION),
+	};
+}
+
+/**
+ * The report form an Invisible Profiler finding opens (`?new=1&project=&finding=`): the server's
+ * prefill on top of what the link asked for, or the reason it cannot be filed from this list.
+ */
+export function withFindingDraft(
+	report: AskedReport | null,
+	draft: FindingDraft | null,
+	kind: BugKind,
+): AskedReport | null {
+	if (!report || !draft) return report;
+	if ('refused' in draft) {
+		return { ...report, findingRefused: { message: draft.refused, filed: draft.filed ?? null } };
+	}
+	if (draft.kind !== kind) {
+		return {
+			...report,
+			findingRefused: {
+				message: `This finding is a ${draft.kind} bug: file it from ${draft.kind === 'game' ? 'Invisible Game Bug Reports' : 'Invisible Pipeline Bug Reports'}.`,
+				filed: null,
+			},
+		};
+	}
+	return {
+		area: draft.area,
+		pageUrl: draft.pageUrl,
+		title: draft.title,
+		description: draft.description,
+		project: draft.finding.project,
+		finding: draft.finding,
 	};
 }

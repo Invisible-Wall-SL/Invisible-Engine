@@ -7,6 +7,8 @@
 		MAX_DESCRIPTION,
 		MAX_SCREENSHOTS,
 		MAX_TITLE,
+		bugPath,
+		bugRef,
 		type BugKind,
 	} from '$lib/bugReports';
 	import type { BugDetail } from '$lib/server/bugReports';
@@ -45,7 +47,9 @@
 	let title = $state(start.title);
 	let area = $state(start.area);
 	const game = untrack(() => kind === 'game');
-	let project = $state(untrack(() => fixedProject) ?? '');
+	let project = $state(untrack(() => fixedProject) ?? start.project ?? '');
+	// A Profiler finding names its project: the server files the bug against it.
+	const finding = start.finding ?? null;
 	const projectName = (key: string): string => {
 		const p = projects.find((x) => x.key === key);
 		return p ? (p.clientName ? `${p.clientName} · ${p.name}` : p.name) : key;
@@ -88,6 +92,7 @@
 					project: project || null,
 					pageUrl: pageUrl.trim() || null,
 					priority: priority || null,
+					...(finding ? { finding } : {}),
 				}),
 			});
 			const body: unknown = await res.json().catch(() => null);
@@ -137,6 +142,27 @@
 		{/if}
 	</InfoTip>
 
+	{#if finding}
+		<p
+			class="finding"
+			role="status"
+			title="The readings and builds it cites stay kept while the bug exists."
+		>
+			Files an Invisible Profiler finding.
+		</p>
+	{:else if start.findingRefused}
+		<div class="error" role="alert">
+			{start.findingRefused.message}
+			{#if start.findingRefused.filed}
+				<!-- A query on this route: `resolve()` cannot carry one. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a href={bugPath({ number: start.findingRefused.filed, kind, projectKey: fixedProject })}
+					>Open {bugRef(start.findingRefused.filed)}</a
+				>
+			{/if}
+		</div>
+	{/if}
+
 	<label class="field">
 		<span>Title</span>
 		<input
@@ -161,7 +187,7 @@
 		{#if !game}
 			<label class="field">
 				<span>Project <em>(optional)</em></span>
-				<select bind:value={project}>
+				<select bind:value={project} disabled={finding !== null}>
 					<option value="">Not about one project</option>
 					{#each projects as p (p.key)}
 						<option value={p.key}>{projectName(p.key)}</option>
@@ -272,6 +298,11 @@
 	.thumb-meta {
 		font-size: 11px;
 		color: #9a9aa6;
+	}
+	.finding {
+		margin: 0;
+		font-size: 12px;
+		color: #9fc3ff;
 	}
 	.actions {
 		display: flex;

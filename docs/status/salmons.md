@@ -31,6 +31,16 @@ upload.
   (its speeds, bank push, spawns, the sandbank latch and the pass over a topped waterfall). Detail
   in Recent changes (2026-11-18, WS-A); proof `check:salmons-levels`. **Live only after the export
   is re-run and the config re-published** (Owner steps).
+- **Bloodstains, as the original (2026-11-18; in review; runtime and game-server change)**: a
+  salmon caught leaves a permanent stain where it died, as `GuiltyForever/Salmon-` PR #8 does: a
+  bear's catch where it is, a line's landing where it was hooked; kept for the room's life (every
+  round), at most 300, the oldest dropped. The rule is the `salmons` module's (`salmonsRules.js`
+  `bloodstains`, `STAINS`), the room sends the list to every device (`schema.ts` `stains`, nearby
+  rooms too, a late joiner included), and the device draws each stain at 0.35 over the swimming
+  salmon and under everything above the water; a salmon swimming within 0.8 cells of one turns red
+  for 3 s and sheds a red trail fading over 3 s (`engine-layout` `salmonsArt/blood.ts`). Proof:
+  `check:online-rules` (3 checks), `check:salmons-art` (6), `salmons-play.mjs` pages K and Q. No config or upload: it arrives
+  with the runtime release and the game server's deploy.
 - **Mouse and touch, as the original (2026-11-17; in review;
   [design/arcade-pointer-controller](../design/arcade-pointer-controller.md))**: an online game's
   Game Config `arcade.online.pointer` (off unless named) lets a player steer with the mouse or a
@@ -162,6 +172,10 @@ config a live room plays the new banks, bridges, sandbank and lip rules, but the
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
 
+**Bloodstains** (after the 2026-11-18 bloodstain branch merges): deploy the game server (INFRA
+"Invisible Game Server") with its runtime release. Nothing to upload: an older game server sends no
+stains and the runtime draws none; an older runtime ignores them.
+
 **Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
 runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
 **Follows the cursor (no button)**, Stop within **72**, and tap buttons salmon **Jump**, bear and
@@ -219,7 +233,9 @@ place and size, each page byte-identical to the built-in one, locked). **Still t
    `.webp` (sheet name blank, lock on). For the cliff, only `salmons_cliff.plist` +
    `salmons_cliff.webp`. `scripts/salmons/upload-art.py` does the same straight to R2 for someone
    holding an R2 write key (dry run first; it skips what is already there and stops on anything
-   that differs).
+   that differs). Nobody needs the key locally: the **Salmons art upload** workflow
+   (`.github/workflows/salmons-art-upload.yml`, dispatch on main) runs it with the release's R2 key;
+   `sheets: salmons_cliff` limits it to one sheet, `apply` writes.
 2. **See it in the tools:** the Sheet Maker's rail on `salmons` lists the sheets (🔒). In the Atlas
    Maker, **↻ Refresh from R2**, then pick one in the atlas list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
@@ -545,6 +561,42 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     here. `scripts/runtime-bytes/{lines,match3,card,arcade,arcade3d}.json` re-recorded at the CI
     path on this branch's base and verified (`runtime bytes ok`).
 
+- 2026-11-18 — **Bloodstains, as the original's** (branch `claude/task-t-bloodstain-engine`; in
+  review; runtime and game-server change). Source: `GuiltyForever/Salmon-` PR #8 (merged; read
+  through the GitHub API this session).
+  - **The rule** (`salmonsRules.js` `bloodstains`, inside `salmons` only, before `fishingLine`): a
+    salmon whose status turns `out` leaves one stain, at its place (a bear's catch), or at the
+    place it was first seen `hooked` (a line's landing: it is reeled onto the bank first, as the
+    original's `hookX/hookY`). Kept in the module for the room's life, through every round;
+    `STAINS.max` 300, the oldest shifted off. Deterministic, server only.
+  - **The wire**: the rules' new `stains` (`{ list, made }`; `onlineRules.js`, a module's new
+    `stains()` hook, `NO_STAINS` without one) and a room field `stains: Stain[]` (`x`, `y` float32;
+    `schema.ts`). `arcadeRoom.ts` `writeStains` pushes only the stains made since the last patch
+    and shifts off the ones the cap let go. A room field, so a nearby room sends it to everyone.
+  - **The drawing** (`engine-layout` `salmonsArt/blood.ts`, `BLOOD`): each stain the original's
+    four-ellipse blob at alpha 0.35, turned ±0.2 rad and scaled 0.8–1.3 by a hash of its place (the
+    same on every device), raised with the ground. The old client drew stains in its underwater
+    layer, under the water's tint; here the tint is in the river art below the players, so the
+    blob's colours are mixed with the tint under it (`(1 − 0.75)·c + 0.75·tint`, the same picture
+    exactly, as the swimming salmon's own filter). A salmon free and under the water within 0.8
+    cells of a stain is tinted 0xff3a3a for 3 s and sheds a 0.35-size puff every 70 ms at 0.5,
+    fading over 3 s, under the swimming salmon. Under the 0.75 tint a stain reads as a dark
+    shadow with a little red, as the old client's maths give it; brighter is an owner call
+    (`BLOOD`), not a port.
+  - **The layers** (`salmonsArt/blood.ts` `mount`, `sink`): the stains are drawn with the river
+    art, over it, after the trail and a Pixi `RenderLayer` that each salmon its code look draws
+    under the water is drawn in (sorted by its instance's depth). The players' layer is drawn after
+    the river, so a swimming salmon is under the stains and below every character above the water
+    (a bear on the bank, a leaping salmon), as the old client's two layers. All of it is in the
+    Salmons art kit: `<SpawnLayer>` and `arcadeArt.svelte.ts` are unchanged, so the slot, match3 and
+    card runtimes keep their bytes (`check:runtime-bytes`; only arcade and arcade3d re-recorded).
+  - **Proof**: `check:online-rules` (38: a stain at each catch's place and at the hook's for a
+    landing, none for an escape; outlasts the round, capped; live, both devices and a late joiner
+    are sent it), `check:salmons-art` (22: the numbers, the tinted colour against `underTint`, each
+    stain's place, lift, turn and size alike on two kits, the 0.8-cell contact, 3 s of red and a
+    puff per 70 ms, the trail's fade, the layer order and the sinking), `salmons-play.mjs` pages K (bear) and Q (salmon) in
+    `salmons-blood`: one stain where the salmon was held out, sent to and drawn on both pages. The
+    red is not played in the browser: those pages draw the seed's river over the authored room.
 - 2026-11-18 — **The whole leap, as the original's** (branch `arcade/salmons-full-jump`; in review;
   runtime change). Closes the leap's "Not yet ported" list (entry of 2026-11-17 below). Source: the
   original at 41811c2 (`server/index.js` jump and move handlers and `update`, `client/game.js`
