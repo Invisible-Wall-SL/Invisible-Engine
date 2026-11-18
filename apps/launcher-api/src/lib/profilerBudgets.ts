@@ -456,7 +456,8 @@ export interface DeviceGroup {
 
 /**
  * The Devices tab: as-shipped readings grouped by device class and GPU, each group judged by
- * `evaluateReadings`, the worst first. A reading whose class this tool does not budget is left out.
+ * `evaluateReadings`, the worst first. A reading whose class this tool does not budget is left out,
+ * and so is a lab run.
  */
 export function deviceGroups(
 	readings: readonly PerfReportListItem[],
@@ -468,7 +469,8 @@ export function deviceGroups(
 	>();
 	for (const r of readings) {
 		const c = readingDeviceClass(r);
-		if (!c || !asShipped(r)) continue;
+		// A lab run's fps is a shared runner's (P6: it swings ~2×), never a device's.
+		if (!c || !asShipped(r) || r.source === 'lab') continue;
 		const gpu = r.gpu ?? 'Unknown GPU';
 		const id = `${c}|${gpu}`;
 		const g = groups.get(id) ?? { deviceClass: c, gpu, readings: [] };

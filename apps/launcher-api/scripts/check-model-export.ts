@@ -15,7 +15,9 @@
  *   6. a `quarter` pull (the pull's `artTierDrop`) keeps no normal / ORM texture, no full-tier file
  *      with a quarter copy, and no `@half` / `@ultra` file;
  *   7. a Game Config `models.profiles` override and a `model.json` override both reach the derive,
- *      the model's winning.
+ *      the model's winning;
+ *   8. through the Scene Editor's own save: the stored doc keeps `quarter` (2D readers still see only
+ *      `half`), and the export after the save still writes the quarter copy.
  *
  *   pnpm --filter launcher-api check:model-export
  */
@@ -273,7 +275,13 @@ R2.set(
 	enc(
 		JSON.stringify({
 			resolutionTiers: ['half', 'quarter'],
-			scenes: [{ nodes: [{ modelId: 'orb' }] }],
+			scenes: [
+				{
+					id: 'arena',
+					name: 'Arena',
+					nodes: [{ id: 'orb1', kind: 'container', children: [], modelId: 'orb' }],
+				},
+			],
 		}),
 	),
 );
@@ -332,6 +340,38 @@ check(
 		both.half.encoding.baseColor === 'uastc' &&
 		both.half.maps.normal === 1024,
 	JSON.stringify(both.half),
+);
+
+// ── 8. Through the Scene Editor's save ──────────────────────────────────────────────────────────
+console.log('8. save → load → export');
+const editor = (await import(
+	src('editorStorage.ts')
+)) as typeof import('../src/lib/server/editorStorage');
+const { normalizeResolutionTiers } = await import('engine-layout');
+const stored = JSON.parse(new TextDecoder().decode(R2.get(paths.editorDocKey(C, P))!));
+R2.delete(paths.editorDocKey(C, P));
+await editor.saveDoc(
+	C,
+	P,
+	{ ...stored, version: 2, projectKey: P, mainSizesMap: {}, updatedAt: '' },
+	null,
+);
+const reloaded = await editor.loadDoc(C, P);
+check(
+	'an editor save keeps the model tiers in the stored doc',
+	JSON.stringify(reloaded.resolutionTiers) === '["half","quarter"]',
+	JSON.stringify(reloaded.resolutionTiers),
+);
+check(
+	'…while every 2D reader (the page store, the art export) still gets only half',
+	JSON.stringify(normalizeResolutionTiers(reloaded.resolutionTiers)) === '["half"]',
+	JSON.stringify(normalizeResolutionTiers(reloaded.resolutionTiers)),
+);
+const afterSave = await exporter.exportModels(C, P, { warn: (m) => console.log('   warn:', m) });
+check(
+	'the export after the save still writes the quarter copy',
+	!!afterSave.models[0]?.tiers.quarter && R2.has(`${deployPrefix}orb@quarter.glb`),
+	JSON.stringify(afterSave.models.map((m) => [m.id, Object.keys(m.tiers)])),
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');

@@ -6,6 +6,7 @@ import { SESSION_COOKIE } from '$lib/server/auth';
 import { listGamesOwnedByProject } from '$lib/server/games';
 import { listBudgetOverrides } from '$lib/server/profiler/budgets';
 import { listBuilds } from '$lib/server/profiler/builds';
+import { projectFindings } from '$lib/server/profiler/findings';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
 import { listReports } from '$lib/server/profiler/store';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -15,7 +16,8 @@ import type { PageServerLoad } from './$types';
  * Invisible Profiler (`/profiler`, `docs/design/invisible-profiler.md`): one project's `?perf=1`
  * readings, a New capture for its published games, Paste for a delivery's Copy, the readings per
  * device judged by the project's budgets (Devices), the desktop builds' breakdowns with the readings
- * taken on each and their verdicts (Builds), and the budgets themselves (Budgets). Every role has
+ * taken on each and their verdicts (Builds), the rules' ranked list of what to cut (Findings), two
+ * readings side by side (Compare), and the budgets themselves (Budgets). Every role has
  * it (owner decision 2026-11-16). The project is the page's scope like any project tool's.
  */
 export const load: PageServerLoad = async ({ locals, parent, url, cookies, depends }) => {
@@ -36,15 +38,23 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		listGamesOwnedByProject(projectKey),
 		listBudgetOverrides(projectKey),
 	]);
+	const budgets = effectiveBudgets(overrides);
+	// The other tabs never wait on a failure here: the Findings tab says it could not be read.
+	const findings = await projectFindings(projectKey, readings, builds, budgets).catch((e) => {
+		console.error('[profiler] findings failed', e);
+		return null;
+	});
 	const tab = url.searchParams.get('tab');
 	return {
 		clientKey,
 		projectKey,
 		readings,
 		builds,
-		budgets: effectiveBudgets(overrides),
+		budgets,
+		findings,
 		tab:
-			(['devices', 'builds', 'budgets'] as const).find((t) => t === tab) ?? ('readings' as const),
+			(['devices', 'builds', 'findings', 'compare', 'budgets'] as const).find((t) => t === tab) ??
+			('readings' as const),
 		games: games
 			.filter((g) => isCapturableGameUrl(g.url))
 			.map((g) => ({ key: g.key, name: g.name })),

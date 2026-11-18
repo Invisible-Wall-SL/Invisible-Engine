@@ -15,7 +15,7 @@ import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
 import type { KindCapabilities } from './kindCapabilities';
 import type { EditorGuideSet } from './editorGuides';
-import type { ResolutionTierId } from './resolutionTiers';
+import type { StoredResolutionTierId } from './resolutionTiers';
 import type { SliceMode } from './nineSlice';
 
 /**
@@ -1725,9 +1725,10 @@ export interface LayoutDoc {
 	/**
 	 * Lower-resolution copies of the art to write at publish (`RESOLUTION_TIERS`): a 4K game
 	 * asks for `['half']` to ship its art at full size for a cabinet and half size for desktops and
-	 * phones. Absent ⇒ nothing extra is written (parity). Read through `normalizeResolutionTiers`.
+	 * phones. Absent ⇒ nothing extra is written (parity). Read through `normalizeResolutionTiers`
+	 * (2D art) or `publishedModelTiers` (3D models); a 3D project may also store `ultra` / `quarter`.
 	 */
-	resolutionTiers?: ResolutionTierId[];
+	resolutionTiers?: StoredResolutionTierId[];
 	updatedAt: string;
 }
 
