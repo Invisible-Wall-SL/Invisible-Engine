@@ -173,8 +173,8 @@ export type World3d = Readonly<{
 	spawns: readonly Readonly<{ x: number; y: number; z: number; yaw: number }>[];
 }>;
 
-/** Throws naming the first bad path; caps from `motion3d` (`MAX_ZONES_3D`, `MIN_CELL_SIZE_3D`,
- *  `MAX_BODY_CELLS_3D`, …), a trampoline needs a height above 0. */
+/** Throws naming the first bad path: `motion3d`'s caps (`MAX_ZONES_3D`, `MAX_COORD_3D`,
+ *  `MOTION3D_LIMITS`, `sweepFits3d`, …); a trampoline needs a height in (0, `MAX_TRAMPOLINE_M`]. */
 export declare function world3dOf(raw: unknown): World3d | undefined;
 /** The world's one level, built once by {@link world3dOf} and shared by every room of it. */
 export declare function levelOf3d(world: World3d): Level3d;

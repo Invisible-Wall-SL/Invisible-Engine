@@ -364,8 +364,9 @@ const midAir = () => {
 		predictor.input(input);
 	};
 	const release = () => held.splice(0).forEach((input) => rx.receive(input));
-	const step = (events = []) => {
+	const step = (events = [], told = true) => {
 		events.push(...sim.step((id, credit) => (id === 'ann' ? rx.take(credit) : [])));
+		if (!told) return events;
 		const { x, y, z } = player.body;
 		verdicts[predictor.reconcile({ x, y, z, ack: player.ack, step: sim.steps })] += 1;
 		return events;
@@ -417,6 +418,27 @@ await check(
 		}
 		assert.equal(verdicts.match - settled, 30, 'then every state matches');
 		console.log(`   ${verdicts.corrected} corrections while idle, ${since} after resuming`);
+	},
+);
+
+await check(
+	'a device asleep for two minutes is told once where its player landed, and takes it in one correction',
+	() => {
+		const { player, send, step, verdicts, predictor } = midAir();
+		for (let i = 0; i < 30 * 120; i++) step([], false);
+		const started = performance.now();
+		step();
+		assert.ok(performance.now() - started < 20, 'the search stops once the body has settled');
+		assert.equal(verdicts.corrected, 1);
+		assert.ok(player.body.grounded);
+		const motion = ({ x, y, z, vx, vy, vz, grounded }) => ({ x, y, z, vx, vy, vz, grounded });
+		assert.deepEqual(motion(predictor.body), motion(player.body));
+		for (let i = 0; i < 30; i++) {
+			send();
+			step();
+		}
+		assert.equal(verdicts.corrected, 1, 'none after it resumes');
+		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([player.body]));
 	},
 );
 
@@ -638,7 +660,7 @@ await check(
 	},
 );
 await check(
-	'world3dOf refuses, by path and at once, a level too big to index, a fine grid, a wide body, a flat trampoline and too many zones',
+	'world3dOf refuses, by path and at once, a level too big to index or too far out, a crowded cell, a fine grid, a body sweeping too wide, motion past its limits, a flat or towering trampoline and too many zones',
 	() => {
 		const zone = (i, extra = {}) => ({
 			kind: 'pad',
@@ -651,7 +673,7 @@ await check(
 			...extra,
 		});
 		const refused = [
-			[{ level: { colliders: [box(-1e9, -1, -1e9, 1e9, 0, 1e9)] } }, /level: .*collider 0 .*cells/],
+			[{ level: { colliders: [box(-2e5, -1, -2e5, 2e5, 0, 2e5)] } }, /level: .*collider 0 .*cells/],
 			[
 				{
 					level: {
@@ -661,13 +683,35 @@ await check(
 				},
 				/collider 1 takes the level past/,
 			],
-			[{ level: { colliders: [box(0, 0, 0, 1, 1, 1)], cellSize: 1e-6 } }, /level\.cellSize/],
-			[{ level: { cellSize: 0 } }, /level\.cellSize/],
-			[{ level: { cellSize: 0.5 }, motion: { radius: 5 } }, /world3d\.motion\.radius/],
-			[{ characters: { hero: { radius: 40 } } }, /world3d\.characters\.hero\.radius/],
+			[
+				{ level: { colliders: [box(2 ** 56, 0, 0, 2 ** 56 + 64, 1, 1)] } },
+				/colliders\.0\.minX: within 1000000 m/,
+			],
+			[{ level: { zones: [zone(1e7)] } }, /zones\.0\.minX: within/],
+			[{ level: { killY: -1e9 } }, /level\.killY: within/],
+			[{ spawns: [{ x: 1e7 }] }, /spawns\.0\.x: within/],
+			[
+				{ level: { colliders: Array.from({ length: 65 }, (_, i) => box(0, i, 0, 1, i + 0.5, 1)) } },
+				/more than 64 colliders in one cell/,
+			],
+			[
+				{ level: { colliders: [box(0, 0, 0, 1, 1, 1)], cellSize: 1e-6 } },
+				/level: motion3d: cellSize/,
+			],
+			[{ level: { cellSize: 0 } }, /level: motion3d: cellSize/],
+			[{ level: { cellSize: 0.25 } }, /world3d\.motion: radius 0\.4 m .*sweeps more than 2 cells/],
+			[{ level: { cellSize: 0.5 }, motion: { radius: 5 } }, /world3d\.motion: radius 5 m/],
+			[{ characters: { hero: { speed: 50, sprint: 4 } } }, /world3d\.characters\.hero: radius/],
+			[{ characters: { hero: { radius: 40 } } }, /world3d\.characters\.hero\.radius: from/],
+			[{ motion: { speed: 1e18 } }, /motion\.speed: from 0\.01 to 50/],
+			[{ motion: { groundAccel: 1e20 } }, /motion\.groundAccel/],
+			[{ motion: { maxFall: 0 } }, /motion\.maxFall: from 1/],
+			[{ motion: { subMove: 1e-4 } }, /motion\.subMove/],
+			[{ motion: { gravity: -1e6 } }, /motion\.gravity/],
 			[{ level: { zones: [zone(0, { kind: 'trampoline', height: -3 })] } }, /zones\.0\.height/],
 			[{ level: { zones: [zone(0), zone(1, { kind: 'trampoline' })] } }, /zones\.1\.height/],
 			[{ level: { zones: [zone(0, { kind: 'trampoline', height: 0 })] } }, /zones\.0\.height/],
+			[{ level: { zones: [zone(0, { kind: 'trampoline', height: 1e6 })] } }, /zones\.0\.height/],
 			[
 				{ level: { zones: Array.from({ length: MAX_ZONES_3D + 1 }, (_, i) => zone(i)) } },
 				/level\.zones: a list of at most 256/,
@@ -679,8 +723,10 @@ await check(
 			assert.ok(performance.now() - started < 100, `${error} took long`);
 		}
 		const zones = Array.from({ length: MAX_ZONES_3D }, (_, i) => zone(i));
-		assert.equal(world3dOf({ level: { zones, cellSize: 0.25 } }).level.zones.length, 256);
-		assert.equal(world3dOf({ level: { cellSize: 0.5 }, motion: { radius: 4 } }).motion.radius, 4);
+		assert.equal(world3dOf({ level: { zones } }).level.zones.length, 256);
+		assert.equal(world3dOf({ level: { cellSize: 1 } }).motion.radius, 0.4, 'the defaults fit 1 m');
+		const small = { radius: 0.1, speed: 1, sprint: 1 };
+		assert.equal(world3dOf({ level: { cellSize: 0.25 }, motion: small }).motion.radius, 0.1);
 	},
 );
 

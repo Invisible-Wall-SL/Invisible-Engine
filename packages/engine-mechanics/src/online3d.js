@@ -37,11 +37,14 @@ import { createRng } from './board.js';
 import {
 	BUTTON_JUMP,
 	BUTTON_SPRINT,
-	MAX_BODY_CELLS_3D,
 	MAX_COLLIDERS_3D,
+	MAX_COORD_3D,
+	MAX_STEP_DT_3D,
+	MAX_SWEEP_CELLS_3D,
+	MAX_TRAMPOLINE_M,
 	MAX_ZONES_3D,
-	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
+	MOTION3D_LIMITS,
 	MOTION3D_HZ,
 	MOVE_SCALE,
 	RAMP_FACINGS,
@@ -49,6 +52,7 @@ import {
 	createBody3d,
 	createLevel3d,
 	stepBody3d,
+	sweepFits3d,
 } from './motion3d.js';
 import { SMOOTH_MS } from './netcode.js';
 
@@ -231,7 +235,7 @@ const HISTORY = 256;
 const SETTLED_M = 1e-4;
 
 /** The most steps one reconcile spends looking for the room's resting steps. */
-const REST_SEARCH_STEPS = 8192;
+const REST_SEARCH_STEPS = 2048;
 
 /**
  * Predict one player from its inputs and reconcile it with the room — `netcode.js`
@@ -241,10 +245,14 @@ const REST_SEARCH_STEPS = 8192;
  * at rest. A player the room stepped at rest because it went silent (`roomSim3d.ts`) is found
  * exactly: from the last state taken, the predictor tries each count of resting steps the room's
  * step count allows, then the inputs the room applied since, and keeps the one that lands on the
- * room's place — so the device is back on the fold in that one correction. `body` is the player's
- * `motion3d` body after the input `ack`; `level`, `spec` and `dt` are the room's; `home` is where a
- * fall puts it back ({@link respawnOnFall3d}) — by default where `body` is, so make the predictor
- * from the player's first state (ack 0), which shows its home.
+ * room's place — so the device is back on the fold in that one correction. The search stops once
+ * the resting body has settled on the ground (any longer rest is the same), so a long silence costs
+ * no more than its fall, and spends at most {@link REST_SEARCH_STEPS} steps. It models resting
+ * steps THEN inputs only: a state that shows inputs, rests and inputs again (patches lost across
+ * two silences) is taken as an ordinary correction, which the next states settle. `body` is the
+ * player's `motion3d` body after the input `ack`; `level`, `spec` and `dt` are the room's; `home` is
+ * where a fall puts it back ({@link respawnOnFall3d}) — by default where `body` is, so make the
+ * predictor from the player's first state (ack 0), which shows its home.
  */
 export function createPredictor3d({
 	body,
@@ -311,6 +319,19 @@ export function createPredictor3d({
 	};
 	const resting = { seq: 0, moveX: 0, moveZ: 0, buttons: 0, yaw: 0, pitch: 0, view: 0 };
 	const rested = {};
+	const last = {};
+	const same = (a, b) =>
+		a.x === b.x &&
+		a.y === b.y &&
+		a.z === b.z &&
+		a.vx === b.vx &&
+		a.vy === b.vy &&
+		a.vz === b.vz &&
+		a.coyote === b.coyote &&
+		a.buffer === b.buffer &&
+		a.grounded === b.grounded &&
+		a.held === b.held &&
+		a.doubleUsed === b.doubleUsed;
 	const near = (truth) =>
 		Math.abs(body.x - truth.x) <= MATCH_M &&
 		Math.abs(body.y - truth.y) <= MATCH_M &&
@@ -329,11 +350,14 @@ export function createPredictor3d({
 		body.z = numbers[at + 2];
 		resting.yaw = saved.yaw;
 		for (let n = 1; n <= tries; n++) {
+			Object.assign(last, body);
 			stepOne(resting);
+			const settled = body.grounded && same(last, body);
 			Object.assign(rested, body);
 			for (const input of applied) stepOne(input);
 			if (near(truth)) return true;
 			Object.assign(body, rested);
+			if (settled) break;
 		}
 		Object.assign(body, saved);
 		return false;
@@ -570,30 +594,41 @@ const number = (v, path) => {
 	return v;
 };
 
+const place = (v, path) => {
+	if (Math.abs(number(v, path)) > MAX_COORD_3D)
+		throw new Error(`${path}: within ${MAX_COORD_3D} m of the origin`);
+	return v;
+};
+
 const boxOf = (raw, path) => {
 	if (!isObject(raw)) throw new Error(`${path}: not an object`);
 	const box = {};
-	for (const key of BOX_KEYS) box[key] = number(raw[key], `${path}.${key}`);
+	for (const key of BOX_KEYS) box[key] = place(raw[key], `${path}.${key}`);
 	return box;
 };
 
-const motionOf = (base, raw, path, cellSize) => {
+const motionOf = (base, raw, path) => {
 	if (raw === undefined) return base;
 	if (!isObject(raw)) throw new Error(`${path}: not an object`);
 	const spec = { ...base };
 	for (const key of MOTION_KEYS)
 		if (raw[key] !== undefined) spec[key] = number(raw[key], `${path}.${key}`);
-	if (!(spec.gravity < 0)) throw new Error(`${path}.gravity: must be negative`);
-	for (const key of ['radius', 'height', 'subMove', 'speed', 'sprint'])
-		if (!(spec[key] > 0)) throw new Error(`${path}.${key}: must be positive`);
-	for (const key of MOTION_KEYS)
-		if (key !== 'gravity' && !(spec[key] >= 0))
-			throw new Error(`${path}.${key}: must not be negative`);
-	if ((2 * spec.radius) / cellSize > MAX_BODY_CELLS_3D)
-		throw new Error(
-			`${path}.radius: a body spans at most ${MAX_BODY_CELLS_3D} cells of ${cellSize} m`,
-		);
+	for (const key of MOTION_KEYS) {
+		const [min, max] = MOTION3D_LIMITS[key];
+		if (!(spec[key] >= min && spec[key] <= max))
+			throw new Error(`${path}.${key}: from ${min} to ${max} (${spec[key]})`);
+	}
 	return Object.freeze(spec);
+};
+
+/** `spec`, if a step of it sweeps no more than `MAX_SWEEP_CELLS_3D` columns (`sweepFits3d`). */
+const sweptBy = (spec, path, cellSize) => {
+	if (!sweepFits3d(spec, cellSize))
+		throw new Error(
+			`${path}: radius ${spec.radius} m at ${spec.speed * spec.sprint} m/s sweeps more than ` +
+				`${MAX_SWEEP_CELLS_3D} cells of ${cellSize} m in a ${MAX_STEP_DT_3D} s step`,
+		);
+	return spec;
 };
 
 /**
@@ -622,8 +657,6 @@ export function world3dOf(raw) {
 		levelRaw.cellSize === undefined
 			? DEFAULT_CELL_SIZE
 			: number(levelRaw.cellSize, 'arcade.world3d.level.cellSize');
-	if (!(cellSize >= MIN_CELL_SIZE_3D))
-		throw new Error(`arcade.world3d.level.cellSize: at least ${MIN_CELL_SIZE_3D} m`);
 	const colliders = collidersRaw.map((c, i) => {
 		const path = `arcade.world3d.level.colliders.${i}`;
 		const box = boxOf(c, path);
@@ -640,14 +673,16 @@ export function world3dOf(raw) {
 		if (typeof z.kind !== 'string' || !z.kind) throw new Error(`${path}.kind: a name`);
 		const zone = { kind: z.kind, ...box };
 		if (z.height !== undefined) zone.height = number(z.height, `${path}.height`);
-		if (zone.kind === 'trampoline' && !(zone.height > 0))
-			throw new Error(`${path}.height: a trampoline needs a height above 0`);
+		if (zone.kind === 'trampoline' && !(zone.height > 0 && zone.height <= MAX_TRAMPOLINE_M))
+			throw new Error(
+				`${path}.height: a trampoline needs a height above 0, at most ${MAX_TRAMPOLINE_M}`,
+			);
 		return zone;
 	});
 	const level = { colliders, zones };
 	if (levelRaw.cellSize !== undefined) level.cellSize = cellSize;
 	if (levelRaw.killY !== undefined)
-		level.killY = number(levelRaw.killY, 'arcade.world3d.level.killY');
+		level.killY = place(levelRaw.killY, 'arcade.world3d.level.killY');
 	let built;
 	try {
 		built = createLevel3d(level);
@@ -656,12 +691,18 @@ export function world3dOf(raw) {
 			cause: error,
 		});
 	}
-	const motion = motionOf(MOTION3D_DEFAULTS, raw.motion, 'arcade.world3d.motion', cellSize);
+	const motion = sweptBy(
+		motionOf(MOTION3D_DEFAULTS, raw.motion, 'arcade.world3d.motion'),
+		'arcade.world3d.motion',
+		cellSize,
+	);
 	const characters = {};
 	if (raw.characters !== undefined) {
 		if (!isObject(raw.characters)) throw new Error('arcade.world3d.characters: not an object');
-		for (const [id, entry] of Object.entries(raw.characters))
-			characters[id] = motionOf(motion, entry, `arcade.world3d.characters.${id}`, cellSize);
+		for (const [id, entry] of Object.entries(raw.characters)) {
+			const path = `arcade.world3d.characters.${id}`;
+			characters[id] = sweptBy(motionOf(motion, entry, path), path, cellSize);
+		}
 	}
 	const spawnsRaw = raw.spawns ?? [{ x: 0, y: 0, z: 0 }];
 	if (!Array.isArray(spawnsRaw) || !spawnsRaw.length)
@@ -671,9 +712,9 @@ export function world3dOf(raw) {
 		if (!isObject(s)) throw new Error(`${path}: not an object`);
 		// Held to float32, so the wire shows a home exactly and a device predicts a respawn to it.
 		return Object.freeze({
-			x: Math.fround(number(s.x ?? 0, `${path}.x`)),
-			y: Math.fround(number(s.y ?? 0, `${path}.y`)),
-			z: Math.fround(number(s.z ?? 0, `${path}.z`)),
+			x: Math.fround(place(s.x ?? 0, `${path}.x`)),
+			y: Math.fround(place(s.y ?? 0, `${path}.y`)),
+			z: Math.fround(place(s.z ?? 0, `${path}.z`)),
 			yaw: Math.floor(number(s.yaw ?? 0, `${path}.yaw`)) & 0xffff,
 		});
 	});

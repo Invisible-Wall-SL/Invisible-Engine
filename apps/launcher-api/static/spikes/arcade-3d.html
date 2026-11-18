@@ -81,8 +81,52 @@ const MAX_COLLIDERS_3D = 20000;
 /** Zones a level may have: every body scans them all on every step. */
 const MAX_ZONES_3D = 256;
 
-/** Columns a body may span on one axis (`2 * radius / cellSize`), which bounds a step's queries. */
-const MAX_BODY_CELLS_3D = 16;
+/** Colliders one column may hold: a step looks at every collider of the columns it sweeps. */
+const MAX_CELL_COLLIDERS_3D = 64;
+
+/** How far from the origin, m, any place of a level may be (a float stays exact well past it). */
+const MAX_COORD_3D = 1e6;
+
+/** The longest step a room takes, s: its slowest tick rate is 10 Hz. */
+const MAX_STEP_DT_3D = 0.1;
+
+/** Columns one step's swept footprint (`2 * radius` plus a step at full sprint) may be wide. */
+const MAX_SWEEP_CELLS_3D = 2;
+
+/** The margin, m, a step's one query adds around its swept footprint for rounding. */
+const SWEEP_PAD = 1e-3;
+
+/**
+ * `[min, max]` of every motion value a config may set: past them a step does unbounded work or a
+ * body never comes back to the level. `maxFall` is above 0, so a body off the level always falls.
+ */
+const MOTION3D_LIMITS = Object.freeze({
+	radius: [0.01, 5],
+	height: [0.01, 20],
+	speed: [0.01, 50],
+	sprint: [0.01, 4],
+	groundAccel: [0, 1000],
+	airAccel: [0, 1000],
+	gravity: [-100, -0.01],
+	maxFall: [1, 100],
+	jumpHeight: [0, 50],
+	doubleJumpHeight: [0, 50],
+	apexWindow: [0, 100],
+	coyoteSteps: [0, 600],
+	bufferSteps: [0, 600],
+	stepUp: [0, 5],
+	snapDown: [0, 5],
+	subMove: [0.01, 1],
+});
+
+/** The tallest trampoline, m. */
+const MAX_TRAMPOLINE_M = 100;
+
+/** Whether a body of `spec` sweeps at most {@link MAX_SWEEP_CELLS_3D} columns of `cellSize` in a
+ *  step of {@link MAX_STEP_DT_3D}: what bounds one step's work. */
+const sweepFits3d = (spec, cellSize) =>
+	2 * spec.radius + spec.speed * spec.sprint * MAX_STEP_DT_3D + 2 * SWEEP_PAD <=
+	MAX_SWEEP_CELLS_3D * cellSize;
 
 /** The direction a ramp's surface rises toward. */
 const RAMP_FACINGS = ['+x', '-x', '+z', '-z'];
@@ -114,8 +158,9 @@ const MOTION3D_DEFAULTS = Object.freeze({
  * `trampoline` launches a body standing in it to `height` m (one without a height above 0 does
  * not launch). Colliders are bucketed into square `cellSize` columns on the plane; `killY` is the
  * death plane. A level past {@link MAX_COLLIDERS_3D}, {@link MAX_ZONES_3D} or
- * {@link MAX_LEVEL_CELLS_3D} column entries, or with a `cellSize` under
- * {@link MIN_CELL_SIZE_3D}, is refused before anything is bucketed.
+ * {@link MAX_LEVEL_CELLS_3D} column entries, with a `cellSize` under {@link MIN_CELL_SIZE_3D} or a
+ * place past {@link MAX_COORD_3D}, is refused before anything is bucketed; one with more than
+ * {@link MAX_CELL_COLLIDERS_3D} colliders in a column, once bucketed.
  */
 function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 } = {}) {
 	if (!(cellSize >= MIN_CELL_SIZE_3D && cellSize < Infinity))
@@ -124,6 +169,13 @@ function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 }
 		throw new Error(`motion3d: more than ${MAX_COLLIDERS_3D} colliders (${colliders.length})`);
 	if (zones.length > MAX_ZONES_3D)
 		throw new Error(`motion3d: more than ${MAX_ZONES_3D} zones (${zones.length})`);
+	if (!within(killY)) throw new Error(`motion3d: killY past ${MAX_COORD_3D} m (${killY})`);
+	colliders.forEach((c, id) => {
+		if (!boxWithin(c)) throw new Error(`motion3d: collider ${id} lies past ${MAX_COORD_3D} m`);
+	});
+	zones.forEach((z, id) => {
+		if (!boxWithin(z)) throw new Error(`motion3d: zone ${id} lies past ${MAX_COORD_3D} m`);
+	});
 	const list = colliders.map((c, id) => {
 		if (!(c.maxX > c.minX && c.maxY > c.minY && c.maxZ > c.minZ))
 			throw new Error(`motion3d: collider ${id} has no volume`);
@@ -167,8 +219,12 @@ function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 }
 			for (let cz = z0; cz <= z1; cz++) {
 				const key = `${cx},${cz}`;
 				const bucket = cells.get(key);
-				if (bucket) bucket.push(c.id);
-				else cells.set(key, [c.id]);
+				if (!bucket) cells.set(key, [c.id]);
+				else if (bucket.push(c.id) > MAX_CELL_COLLIDERS_3D)
+					throw new Error(
+						`motion3d: collider ${c.id} puts more than ${MAX_CELL_COLLIDERS_3D} colliders in one ` +
+							`cell of ${cellSize} m`,
+					);
 			}
 	}
 	const zoneList = zones.map((z, id) => ({
@@ -180,7 +236,7 @@ function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 }
 		maxX: z.maxX,
 		maxY: z.maxY,
 		maxZ: z.maxZ,
-		height: z.height > 0 && z.height < Infinity ? z.height : 0,
+		height: z.height > 0 && z.height <= MAX_TRAMPOLINE_M ? z.height : 0,
 	}));
 	return {
 		colliders: list,
@@ -192,6 +248,16 @@ function createLevel3d({ colliders = [], zones = [], cellSize = 4, killY = -50 }
 		query: 0,
 	};
 }
+
+const within = (v) => Math.abs(v) <= MAX_COORD_3D;
+
+const boxWithin = (b) =>
+	within(b.minX) &&
+	within(b.minY) &&
+	within(b.minZ) &&
+	within(b.maxX) &&
+	within(b.maxY) &&
+	within(b.maxZ);
 
 /** The colliders whose columns a plane box touches, in id order. */
 function collidersNear(level, x0, z0, x1, z1) {
@@ -337,14 +403,21 @@ function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 / MOTIO
 	let sx = dx / n;
 	let sy = dy / n;
 	let sz = dz / n;
+	const r = spec.radius + SWEEP_PAD;
+	const near = collidersNear(
+		level,
+		Math.min(body.x, body.x + dx) - r,
+		Math.min(body.z, body.z + dz) - r,
+		Math.max(body.x, body.x + dx) + r,
+		Math.max(body.z, body.z + dz) + r,
+	);
 	for (let i = 0; i < n; i++) {
-		if (sx !== 0 && !moveFlat(body, 0, sx, level, spec, out)) sx = 0;
-		if (sz !== 0 && !moveFlat(body, 1, sz, level, spec, out)) sz = 0;
-		if (sy !== 0 && !moveUp(body, sy, level, spec, out)) sy = 0;
+		if (sx !== 0 && !moveFlat(body, 0, sx, near, spec, out)) sx = 0;
+		if (sz !== 0 && !moveFlat(body, 1, sz, near, spec, out)) sz = 0;
+		if (sy !== 0 && !moveUp(body, sy, near, spec, out)) sy = 0;
 	}
 
-	if (!body.grounded && wasGrounded && !out.jumped && body.vy <= 0)
-		snapDown(body, level, spec, out);
+	if (!body.grounded && wasGrounded && !out.jumped && body.vy <= 0) snapDown(body, near, spec, out);
 	if (body.grounded) {
 		out.landed = !wasGrounded;
 		const zone = trampolineAt(body, level);
@@ -361,7 +434,7 @@ function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 / MOTIO
 }
 
 /** Move on x (`axis` 0) or z (1) by `d`, climbing up to `stepUp`; false when a wall stopped it. */
-function moveFlat(body, axis, d, level, spec, out) {
+function moveFlat(body, axis, d, near, spec, out) {
 	const r = spec.radius;
 	const h = spec.height;
 	const prev = axis === 0 ? body.x : body.z;
@@ -371,7 +444,6 @@ function moveFlat(body, axis, d, level, spec, out) {
 	const x1 = body.x + r;
 	const z0 = body.z - r;
 	const z1 = body.z + r;
-	const near = collidersNear(level, x0, z0, x1, z1);
 	const canStep = body.vy <= 0;
 	let floor = body.y;
 	let ramp = false;
@@ -420,7 +492,7 @@ function moveFlat(body, axis, d, level, spec, out) {
 }
 
 /** Move on y by `d`: land on the highest top crossed, or stop under a ceiling; false when stopped. */
-function moveUp(body, d, level, spec, out) {
+function moveUp(body, d, near, spec, out) {
 	const r = spec.radius;
 	const h = spec.height;
 	const prev = body.y;
@@ -429,7 +501,6 @@ function moveUp(body, d, level, spec, out) {
 	const x1 = body.x + r;
 	const z0 = body.z - r;
 	const z1 = body.z + r;
-	const near = collidersNear(level, x0, z0, x1, z1);
 	if (d < 0) {
 		let best = -Infinity;
 		let ramp = false;
@@ -466,7 +537,7 @@ function moveUp(body, d, level, spec, out) {
 }
 
 /** Stick a body that walked off a surface onto one within `snapDown` below its feet. */
-function snapDown(body, level, spec, out) {
+function snapDown(body, near, spec, out) {
 	const r = spec.radius;
 	const x0 = body.x - r;
 	const x1 = body.x + r;
@@ -474,7 +545,7 @@ function snapDown(body, level, spec, out) {
 	const z1 = body.z + r;
 	let best = -Infinity;
 	let ramp = false;
-	for (const c of collidersNear(level, x0, z0, x1, z1)) {
+	for (const c of near) {
 		if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
 		const top = topUnder(c, x0, z0, x1, z1);
 		if (top <= body.y && top >= body.y - spec.snapDown && top > best) {

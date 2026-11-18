@@ -14,7 +14,11 @@ export declare const MIN_CELL_SIZE_3D: number;
 export declare const MAX_LEVEL_CELLS_3D: number;
 export declare const MAX_COLLIDERS_3D: number;
 export declare const MAX_ZONES_3D: number;
-export declare const MAX_BODY_CELLS_3D: number;
+export declare const MAX_CELL_COLLIDERS_3D: number;
+export declare const MAX_COORD_3D: number;
+export declare const MAX_STEP_DT_3D: number;
+export declare const MAX_SWEEP_CELLS_3D: number;
+export declare const MAX_TRAMPOLINE_M: number;
 
 export type RampFacing = '+x' | '-x' | '+z' | '-z';
 export declare const RAMP_FACINGS: readonly RampFacing[];
@@ -117,13 +121,20 @@ export type Step3dResult = {
 	fell: boolean;
 };
 
-/** Throws past the `MAX_*_3D` caps or under {@link MIN_CELL_SIZE_3D}, before bucketing. */
+/** Throws past the `MAX_*_3D` caps, under {@link MIN_CELL_SIZE_3D} or past {@link MAX_COORD_3D}. */
 export declare function createLevel3d(level?: {
 	colliders?: readonly Collider3dSpec[];
 	zones?: readonly Zone3dSpec[];
 	cellSize?: number;
 	killY?: number;
 }): Level3d;
+
+/** `[min, max]` of every motion value a config may set. */
+export declare const MOTION3D_LIMITS: Readonly<
+	Record<keyof Motion3dSpec, readonly [number, number]>
+>;
+/** Whether one step of `spec` sweeps at most `MAX_SWEEP_CELLS_3D` columns of `cellSize`. */
+export declare function sweepFits3d(spec: Motion3dSpec, cellSize: number): boolean;
 
 export declare function collidersNear(
 	level: Level3d,

@@ -13,11 +13,12 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   a player whose device stopped sending, or dropped, froze in mid-air for everyone.
 - **Cause:** config numbers went into loops and `Math.sqrt` unchecked, and the fold rule
   ("no input = no step") had no exit for a device that never sends again.
-- **Fix:** caps counted before bucketing (`MAX_LEVEL_CELLS_3D`, `cellSize` ≥ 0.25, 256 zones,
-  body span), trampoline height > 0 (clamped in `createLevel3d`), the level built once per world
+- **Fix:** every config number bounded (coordinates ≤ 1e6 m — past 2^53 a `cx++` loop never
+  ends — `MOTION3D_LIMITS`, cells counted before bucketing, 64 colliders a cell, 256 zones, a
+  body's sweep ≤ 2 cells), one collider query a step, trampoline height > 0 (clamped in `createLevel3d`), the level built once per world
   (`levelOf3d`), and a resting step after `CREDIT_SECONDS` of silence or while dropped, found by
   `createPredictor3d` on resume.
-- **Guard:** root `check:arcade-3d` (caps, clamp) and `check:room-sim-3d` (refusals under 100 ms,
+- **Guard:** root `check:arcade-3d` (caps, clamp, worst-level step time) and `check:room-sim-3d` (refusals under 100 ms,
   shared level, silent / dropped players, 0 corrections on resume).
 - **PR:** fix for #1717 (2026-11-18, branch `fix/1717-game-server-freeze`) · source:
   `docs/status/3d.md`

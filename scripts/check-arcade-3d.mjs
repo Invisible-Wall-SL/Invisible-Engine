@@ -23,12 +23,15 @@ import {
 	createLevel3d,
 	createTracker3d,
 	hashBodies3d,
+	MAX_CELL_COLLIDERS_3D,
 	MAX_LEVEL_CELLS_3D,
+	MAX_STEP_DT_3D,
 	MAX_ZONES_3D,
 	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
 	MOVE_SCALE,
 	stepBody3d,
+	sweepFits3d,
 	trackStep3d,
 	zonesAt3d,
 } from '../packages/engine-mechanics/src/motion3d.js';
@@ -285,22 +288,86 @@ const fast = (fn) => {
 	fn();
 	assert.ok(performance.now() - started < 100, `took ${performance.now() - started} ms`);
 };
-check('a collider spanning too many columns throws before anything is bucketed', () => {
+check('a collider spanning too many columns, or lying too far out, throws at once', () => {
 	fast(() =>
 		assert.throws(
-			() => createLevel3d({ colliders: [box(-1e9, -1, -1e9, 1e9, 0, 1e9)] }),
+			() => createLevel3d({ colliders: [box(-2e5, -1, -2e5, 2e5, 0, 2e5)] }),
 			/collider 0 takes the level past/,
 		),
 	);
+	for (const far of [
+		box(-1e9, -1, -1e9, 1e9, 0, 1e9),
+		box(0, 0, 0, Infinity, 1, 1),
+		box(2 ** 56, 0, 0, 2 ** 56 + 64, 1, 1),
+	])
+		fast(() =>
+			assert.throws(() => createLevel3d({ colliders: [far] }), /collider 0 lies past 1000000 m/),
+		);
 	fast(() =>
 		assert.throws(
-			() => createLevel3d({ colliders: [box(0, 0, 0, Infinity, 1, 1)] }),
-			/collider 0 takes the level past/,
+			() => createLevel3d({ zones: [{ kind: 'pad', ...box(2 ** 56, 0, 0, 2 ** 57, 1, 1) }] }),
+			/zone 0 lies past/,
 		),
 	);
+	for (const killY of [-1e9, Number.NaN, -Infinity])
+		assert.throws(() => createLevel3d({ killY }), /killY/, `${killY}`);
 	const side = Math.floor(Math.sqrt(MAX_LEVEL_CELLS_3D)) - 1;
 	const level = createLevel3d({ colliders: [box(0, -1, 0, side * 4 - 0.5, 0, side * 4 - 0.5)] });
 	assert.equal(level.cells.size, side * side, 'just under the cap is built');
+});
+check('a column holds at most MAX_CELL_COLLIDERS_3D colliders', () => {
+	const stack = (n) => Array.from({ length: n }, (_, i) => box(0, i, 0, 1, i + 0.5, 1));
+	assert.equal(MAX_CELL_COLLIDERS_3D, 64);
+	assert.equal(createLevel3d({ colliders: stack(64) }).cells.get('0,0').length, 64);
+	assert.throws(
+		() => createLevel3d({ colliders: stack(65) }),
+		/collider 64 puts more than 64 colliders in one cell/,
+	);
+});
+check('one step in the worst level the caps allow stays well under a millisecond', () => {
+	const size = 4;
+	const colliders = [];
+	for (let cx = -1; cx <= 1; cx++)
+		for (let cz = -1; cz <= 1; cz++)
+			for (let i = 0; i < MAX_CELL_COLLIDERS_3D; i++)
+				colliders.push({
+					kind: i % 2 ? 'box' : 'ramp',
+					facing: '+x',
+					minX: cx * size + 0.001,
+					minY: 10 + i,
+					minZ: cz * size + 0.001,
+					maxX: (cx + 1) * size - 0.001,
+					maxY: 10.5 + i,
+					maxZ: (cz + 1) * size - 0.001,
+				});
+	const level = createLevel3d({ colliders, cellSize: size });
+	const spec = {
+		...MOTION3D_DEFAULTS,
+		speed: 17.4,
+		sprint: 4,
+		maxFall: 100,
+		subMove: 0.01,
+		groundAccel: 1000,
+		airAccel: 1000,
+	};
+	assert.ok(sweepFits3d(spec, size), 'the fastest body the sweep allows at this cell size');
+	assert.equal(collidersNear(level, -4, -4, 4, 4).length, 9 * MAX_CELL_COLLIDERS_3D);
+	const input = { mx: MOVE_SCALE, mz: MOVE_SCALE, yaw: 0, buttons: 2 };
+	const N = 2000;
+	let total = 0;
+	for (let k = 0; k < N; k++) {
+		const body = createBody3d({ x: -3.5, y: 5, z: -3.5 });
+		body.vx = 12;
+		body.vz = 12;
+		body.vy = -100;
+		const started = performance.now();
+		stepBody3d(body, input, level, spec, MAX_STEP_DT_3D);
+		total += performance.now() - started;
+	}
+	assert.ok(total / N < 1, `${(total / N).toFixed(3)} ms per body-step`);
+	console.log(
+		`   worst level: ${(total / N).toFixed(3)} ms per body-step (64 sub-steps, 576 colliders)`,
+	);
 });
 check('a cellSize under the floor, or not a number, throws', () => {
 	for (const cellSize of [1e-6, 0, -4, MIN_CELL_SIZE_3D / 2, Number.NaN, Infinity])
@@ -326,7 +393,7 @@ check('more than MAX_ZONES_3D zones throws', () => {
 	);
 });
 check('a trampoline with no height above 0 does not launch, and never makes a NaN', () => {
-	for (const height of [-5, 0, Number.NaN, undefined, -Infinity, Infinity]) {
+	for (const height of [-5, 0, Number.NaN, undefined, -Infinity, Infinity, 1000]) {
 		const level = createLevel3d({
 			colliders: [FLOOR],
 			zones: [
