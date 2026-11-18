@@ -3,13 +3,16 @@ import type { Collider3dSpec } from 'engine-mechanics/src/motion3d.js';
 import type { Vec3 } from '../rig';
 import { createCameraCollider3d } from './collision';
 import {
+	CAMERA_LENS_DEFAULT,
 	ease as easeOf,
 	fromYawPitchRoll,
+	lensFov,
 	mixPose,
 	mul,
 	rotate,
 	yawPitchOf,
 	type CameraEase3d,
+	type CameraLens3d,
 	type Pose3d,
 	type Quat,
 } from './math';
@@ -50,7 +53,7 @@ export type PlayMove3d = {
 
 /** What the director shows this frame. */
 export type CameraView3d = {
-	/** The pose on screen, shake included. */
+	/** The pose on screen, shake included, its FOV fitted to the screen (`CameraLens3d`). */
 	pose: Pose3d;
 	/** Heading and tilt of the pose before the shake, degrees (the room's yaw convention; pitch up
 	 *  positive): the stick maps through `yaw`, and Flow reads both (`cameraYaw` / `cameraPitch`). */
@@ -76,11 +79,13 @@ export type CameraDirector3d = {
 	 *  camera starts back to the rig underneath (or when another move or `stopMove` replaces it). */
 	playMove(move: CameraMove3d, opts?: PlayMove3d): Promise<void>;
 	stopMove(blend?: CameraBlend3d): void;
-	/** One frame: the followed bodies by id, the player's look. */
+	/** One frame: the followed bodies by id, the player's look, the screen's width / height (the
+	 *  lens widens the FOV on a narrow one). */
 	frame(
 		dtMs: number,
 		targets: (id: string) => CameraTarget3d | undefined,
 		input?: CameraInput3d,
+		aspect?: number,
 	): CameraView3d;
 	readonly rigs: readonly CameraRigSpec3d[];
 	readonly live: string | undefined;
@@ -102,6 +107,7 @@ export type DirectorOptions3d = {
 	shake?: ShakeSpec3d;
 	/** A switch with no blend of its own. */
 	blend?: Required<CameraBlend3d>;
+	lens?: CameraLens3d;
 };
 
 export const CAMERA_BLEND_DEFAULT: Readonly<Required<CameraBlend3d>> = Object.freeze({
@@ -132,6 +138,7 @@ export function createCameraDirector3d(opts: DirectorOptions3d): CameraDirector3
 		runtimes.set(spec.id, createRig3d(spec, collider));
 	}
 	const fallback = opts.blend ?? CAMERA_BLEND_DEFAULT;
+	const lens = opts.lens ?? CAMERA_LENS_DEFAULT;
 	const shake = createShake3d(opts.seed, opts.shake ?? SHAKE3D_DEFAULTS);
 	/** Active rig ids → activation stamp (later wins among equal priorities). */
 	const active = new Map<string, number>();
@@ -227,7 +234,7 @@ export function createCameraDirector3d(opts: DirectorOptions3d): CameraDirector3
 			endMove();
 			want(b);
 		},
-		frame(dtMs, targets, input = NO_CAMERA_INPUT) {
+		frame(dtMs, targets, input = NO_CAMERA_INPUT, aspect) {
 			const dt = Math.max(0, dtMs);
 			if (playing && originPending) {
 				originPending = false;
@@ -293,7 +300,8 @@ export function createCameraDirector3d(opts: DirectorOptions3d): CameraDirector3
 						z: pose.position.z + nudge.z,
 					},
 					rotation,
-					fov: pose.fov,
+					// After the blend, so the pose a switch starts from stays the rig's own.
+					fov: aspect === undefined ? pose.fov : lensFov(pose.fov, aspect, lens),
 				},
 				yaw,
 				pitch,

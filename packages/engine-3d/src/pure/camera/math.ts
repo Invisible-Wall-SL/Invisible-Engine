@@ -120,6 +120,30 @@ export const mixPose = (a: Pose3d, b: Pose3d, t: number): Pose3d => ({
 	fov: lerp(a.fov, b.fov, t),
 });
 
+/**
+ * How a rig's FOV meets a narrow screen. A FOV is vertical, so a portrait phone would see a sliver
+ * across (45° on 390×844 is ~22° across, ~73° on 16:9). Below `minAspect` (width / height) the
+ * horizontal FOV is held at what the rig shows at `minAspect`, the vertical widening to keep it, up
+ * to `maxFov`. Every rig widens by the same factor, so an aim zoom stays a zoom.
+ */
+export type CameraLens3d = { minAspect: number; maxFov: number };
+
+export const CAMERA_LENS_DEFAULT: Readonly<CameraLens3d> = Object.freeze({
+	minAspect: 1,
+	maxFov: 100,
+});
+
+/** The horizontal FOV, degrees, a vertical `fov` shows at `aspect` (width / height). */
+export const horizontalFov = (fov: number, aspect: number) =>
+	(2 * Math.atan(Math.tan((fov * RAD) / 2) * aspect)) / RAD;
+
+/** The vertical FOV to show for a rig's `fov` on a screen of `aspect` (`CameraLens3d`). */
+export function lensFov(fov: number, aspect: number, lens: CameraLens3d = CAMERA_LENS_DEFAULT) {
+	if (!(aspect > 0) || aspect >= lens.minAspect) return fov;
+	const held = (2 * Math.atan((Math.tan((fov * RAD) / 2) * lens.minAspect) / aspect)) / RAD;
+	return Math.max(fov, Math.min(held, lens.maxFov));
+}
+
 /** The share of the way an exponential ease with time constant `seconds` covers in `dt` seconds. */
 export const damp = (seconds: number, dt: number) =>
 	seconds <= 0 ? 1 : 1 - Math.exp(-dt / seconds);

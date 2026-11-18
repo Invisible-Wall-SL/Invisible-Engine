@@ -486,6 +486,39 @@ try {
 		await shot('respawned');
 	}
 
+	// --- A portrait phone: the lens holds the FOV across (a rig's FOV is vertical).
+	const landscape = (await track(2)).at(-1);
+	await page.page('Emulation.setDeviceMetricsOverride', {
+		width: 390,
+		height: 844,
+		deviceScaleFactor: 1,
+		mobile: false,
+	});
+	const portrait = (await track(10)).at(-1);
+	const aspect = 390 / 844;
+	const across = (fov, a) => (2 * Math.atan(Math.tan((fov * Math.PI) / 360) * a) * 180) / Math.PI;
+	result.measured.portrait = {
+		rig: portrait.live,
+		landscapeFov: landscape.pose.fov,
+		portraitFov: +portrait.pose.fov.toFixed(2),
+		acrossWithout: +across(landscape.pose.fov, aspect).toFixed(1),
+		across: +across(portrait.pose.fov, aspect).toFixed(1),
+	};
+	verdict(
+		'on a portrait phone the lens widens the view across',
+		portrait.live === landscape.live &&
+			portrait.pose.fov > landscape.pose.fov &&
+			result.measured.portrait.across > result.measured.portrait.acrossWithout + 15,
+		result.measured.portrait,
+	);
+	await shot('portrait');
+	await page.page('Emulation.setDeviceMetricsOverride', {
+		width: 1280,
+		height: 720,
+		deviceScaleFactor: 1,
+		mobile: false,
+	});
+
 	const errors = await page.evaluate('window.__AR_ERRORS__');
 	verdict('no page error', errors.length === 0, errors);
 } catch (error) {

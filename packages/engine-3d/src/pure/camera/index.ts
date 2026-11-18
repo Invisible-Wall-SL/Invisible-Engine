@@ -12,14 +12,18 @@ export {
 } from './director';
 export {
 	CAMERA_EASES,
+	CAMERA_LENS_DEFAULT,
 	ease,
 	fromYawPitchRoll,
+	horizontalFov,
+	lensFov,
 	lookAt,
 	rotate,
 	slerp,
 	yawPitchOf,
 	yawUnitsOf,
 	type CameraEase3d,
+	type CameraLens3d,
 	type Pose3d,
 	type Quat,
 } from './math';

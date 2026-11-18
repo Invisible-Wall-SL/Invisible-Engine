@@ -1,6 +1,12 @@
 import { RIG3D_DEFAULTS, type Rig3d } from '../rig';
 import { CAMERA_BLEND_DEFAULT } from './director';
-import { CAMERA_EASES, clamp, type CameraEase3d } from './math';
+import {
+	CAMERA_EASES,
+	CAMERA_LENS_DEFAULT,
+	clamp,
+	type CameraEase3d,
+	type CameraLens3d,
+} from './math';
 import {
 	defaultCameraRigs3d,
 	GHOST_RIG_ID,
@@ -16,6 +22,8 @@ export type Camera3dConfig = {
 	active: string;
 	blend: { blendMs: number; ease: CameraEase3d };
 	shake: ShakeSpec3d;
+	/** The FOV on a narrow (portrait) screen. */
+	lens: CameraLens3d;
 	/** The game's camera moves: a GLB of camera clips (`anim/cameras/<arena>.glb`), relative to the
 	 *  game's asset base or absolute. */
 	moves?: string;
@@ -55,6 +63,7 @@ export function camera3dOf(raw: unknown, rig: Rig3d = RIG3D_DEFAULTS): Camera3dC
 	}
 	const active = typeof r.active === 'string' && ids.has(r.active) ? r.active : rigs[0].id;
 	const shake = obj(r.shake);
+	const lens = obj(r.lens);
 	const blend = {
 		blendMs: num(r.blendMs, CAMERA_BLEND_DEFAULT.blendMs, 0, 20_000),
 		ease: easeOf(r.ease, CAMERA_BLEND_DEFAULT.ease),
@@ -72,6 +81,10 @@ export function camera3dOf(raw: unknown, rig: Rig3d = RIG3D_DEFAULTS): Camera3dC
 			roll: num(shake.roll, SHAKE3D_DEFAULTS.roll, 0, 45),
 			offset: num(shake.offset, SHAKE3D_DEFAULTS.offset, 0, 5),
 			frequency: num(shake.frequency, SHAKE3D_DEFAULTS.frequency, 0.1, 120),
+		},
+		lens: {
+			minAspect: num(lens.minAspect, CAMERA_LENS_DEFAULT.minAspect, 0, 4),
+			maxFov: num(lens.maxFov, CAMERA_LENS_DEFAULT.maxFov, 10, 150),
 		},
 		...(typeof r.moves === 'string' && r.moves ? { moves: r.moves } : {}),
 		...(ids.has(deathRig)

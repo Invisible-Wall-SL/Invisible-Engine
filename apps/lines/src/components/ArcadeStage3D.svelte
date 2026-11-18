@@ -213,6 +213,7 @@
 			colliders: field.colliders,
 			shake: config.shake,
 			blend: config.blend,
+			lens: config.lens,
 		});
 		const url = config.moves
 			? new URL(config.moves, document.baseURI).href
@@ -369,12 +370,12 @@
 					director.deactivate(camera.death.rig, { blendMs: camera.death.blendBackMs });
 					respawnAt = undefined;
 				}
-				view = director.frame(dt, targetOf, {
-					lookX: look.x,
-					lookY: look.y,
-					zoom: look.zoom,
-					aiming: look.aiming,
-				});
+				view = director.frame(
+					dt,
+					targetOf,
+					{ lookX: look.x, lookY: look.y, zoom: look.zoom, aiming: look.aiming },
+					window.innerWidth / Math.max(window.innerHeight, 1),
+				);
 				look.x = look.y = look.zoom = 0;
 				const followed = bodyOf(director.followed ?? 'player');
 				const eye = view.pose.position;

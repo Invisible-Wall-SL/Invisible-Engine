@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { loadCameraMoves3d } from '../packages/engine-3d/src/cameraMoves.ts';
 import {
 	CAMERA_EASES,
+	CAMERA_LENS_DEFAULT,
 	camera3dOf,
 	GHOST_RIG_ID,
 	createCameraCollider3d,
@@ -19,6 +20,8 @@ import {
 	createShake3d,
 	defaultCameraRigs3d,
 	fromYawPitchRoll,
+	horizontalFov,
+	lensFov,
 	lookAt,
 	moveAxes,
 	resolveCameraRig3d,
@@ -598,6 +601,81 @@ const director = (over = {}) =>
 		'the intro plays and hands back to follow without a pop',
 		finished && prev.live === 'follow' && worst < 1,
 		String(worst),
+	);
+}
+
+// --- The lens: a FOV is vertical, so a portrait phone keeps a usable view across.
+{
+	const portrait = 390 / 844;
+	const wide = 16 / 9;
+	const bare = horizontalFov(45, portrait);
+	check(
+		'45° on a 390×844 phone is ~22° across without the lens',
+		near(bare, 21.7, 0.1),
+		String(bare),
+	);
+	check(
+		'landscape and square screens keep the rig FOV',
+		[35, 45, 55, 70, 90].every(
+			(f) => lensFov(f, wide) === f && lensFov(f, 4 / 3) === f && lensFov(f, 1) === f,
+		),
+	);
+	const held = lensFov(45, portrait);
+	check(
+		'portrait holds the FOV across the rig shows on a square screen',
+		near(horizontalFov(held, portrait), 45, 1e-9) && held < CAMERA_LENS_DEFAULT.maxFov,
+		String(held),
+	);
+	check(
+		'…widening the vertical no further than maxFov',
+		lensFov(70, portrait) === CAMERA_LENS_DEFAULT.maxFov &&
+			horizontalFov(lensFov(70, portrait), portrait) > horizontalFov(70, portrait) + 20,
+		String(lensFov(70, portrait)),
+	);
+	check(
+		'an aim zoom stays a zoom in portrait',
+		lensFov(35, portrait) < lensFov(55, portrait) - 10,
+		`${lensFov(35, portrait)} vs ${lensFov(55, portrait)}`,
+	);
+	check('no jump at minAspect', near(lensFov(45, 0.999), 45, 0.1), String(lensFov(45, 0.999)));
+	check('a rig wider than maxFov is never narrowed', lensFov(110, portrait) === 110);
+	check(
+		'minAspect 0 turns the lens off',
+		lensFov(45, portrait, { minAspect: 0, maxFov: 100 }) === 45,
+	);
+	check(
+		'the lens is authored (arcade.world3d.camera.lens), the default when absent',
+		JSON.stringify(camera3dOf({}).lens) === JSON.stringify(CAMERA_LENS_DEFAULT) &&
+			JSON.stringify(camera3dOf({ lens: { minAspect: 4 / 3, maxFov: 90 } }).lens) ===
+				JSON.stringify({ minAspect: 4 / 3, maxFov: 90 }),
+	);
+	const d = createCameraDirector3d({
+		rigs: defaultCameraRigs3d(RIG3D_DEFAULTS),
+		active: 'follow',
+		seed: 'lens',
+	});
+	const me = () => body();
+	const land = d.frame(16, me, undefined, wide);
+	const port = d.frame(16, me, undefined, portrait);
+	check(
+		'the director fits the FOV on screen to the screen',
+		land.pose.fov === RIG3D_DEFAULTS.fov &&
+			near(port.pose.fov, lensFov(RIG3D_DEFAULTS.fov, portrait)),
+		`${land.pose.fov} / ${port.pose.fov}`,
+	);
+	d.activate('firstPerson', { blendMs: 600 });
+	let prev = port.pose.fov;
+	let step = 0;
+	let last = port;
+	for (let k = 0; k < 50; k++) {
+		last = d.frame(16, me, undefined, portrait);
+		step = Math.max(step, Math.abs(last.pose.fov - prev));
+		prev = last.pose.fov;
+	}
+	check(
+		'a portrait switch blends the FOV without a pop and lands on the fitted rig FOV',
+		step < 2 && last.live === 'firstPerson' && near(last.pose.fov, lensFov(70, portrait)),
+		`step ${step}, ${last.pose.fov}`,
 	);
 }
 
