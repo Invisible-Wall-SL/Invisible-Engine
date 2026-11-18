@@ -382,13 +382,18 @@ function isometricAt(png, arcade, me) {
 	const screen = (x, y) => ({ x: Math.round(x * k), y: Math.round((y - 22) * k) });
 	const projected = screen(centre.x + dx - dy, centre.y + (dx + dy) / 2);
 	const flat = screen(centre.x + dx, centre.y + dy);
+	// Swimming in open water it is drawn under the water's tint (2026-11-18): its colour is read
+	// back through each of the river's tints.
+	const under = arcade.online.art?.looks?.[me]?.underwater === true;
 	const salmon = ({ x, y }) => {
 		if (x < 0 || y < 0 || x >= png.width || y >= png.height) return false;
 		const i = (y * png.width + x) * 4;
-		const [r, g, b] = png.data.subarray(i, i + 3);
+		const seen = [...png.data.subarray(i, i + 3)];
 		// Pink, or gold: page A's is the only salmon in its room, so the golden one.
-		const pink = Math.abs(r - 0xfa) < 12 && Math.abs(g - 0x80) < 12 && Math.abs(b - 0x72) < 12;
-		return pink || isGold([r, g, b]);
+		const pinkOrGold = ([r, g, b]) =>
+			(Math.abs(r - 0xfa) < 12 && Math.abs(g - 0x80) < 12 && Math.abs(b - 0x72) < 12) ||
+			isGold([r, g, b]);
+		return under ? throughWater(seen).some(pinkOrGold) : pinkOrGold(seen);
 	};
 	const apart = Math.hypot(projected.x - flat.x, projected.y - flat.y) > 60;
 	return {
@@ -434,6 +439,17 @@ function png(w, h, paint) {
 }
 /** The salmon's pink through `SpawnLayer`'s gold ramp. */
 const isGold = ([r, g, b]) => r > 190 && g > 150 && g < 225 && b < 110;
+/** The river's water tints (`engine-layout` `salmonsArt/river.ts`: water, rapids, source) and how
+ *  strongly they cover what swims under them. */
+const WATER_TINTS = [0x0ea5e9, 0x38bdf8, 0x7dd3fc];
+const TINT_ALPHA = 0.75;
+/** What a pixel drawn under each water tint was before it: `(seen − a·T) / (1 − a)`. */
+const throughWater = (seen) =>
+	WATER_TINTS.map((t) =>
+		[(t >> 16) & 0xff, (t >> 8) & 0xff, t & 0xff].map((c, i) =>
+			Math.round((seen[i] - TINT_ALPHA * c) / (1 - TINT_ALPHA)),
+		),
+	);
 /** A screenshot's pixel at (x, y), design px through `toScreen`; undefined off the image. */
 const rgbAt = (png, { x, y }) => {
 	if (x < 0 || y < 0 || x >= png.width || y >= png.height) return undefined;
@@ -459,8 +475,13 @@ function goldAt(png, arcade, id) {
 	const at = arcade?.online?.drawn.find((d) => d.id === id);
 	if (!cam || !at) return { ok: false, cam, at };
 	const rgb = rgbAt(png, isoScreen(png, cam, at, 22));
-	const ok = !!rgb && isGold(rgb);
-	return { ok, rgb };
+	// A salmon swimming in open water is drawn under the water's tint (the original's
+	// `underwaterEntityLayer`, 2026-11-18): only a quarter of its gold shows through, so there its
+	// look must be the golden texture instead.
+	const look = arcade.online.art?.looks?.[id];
+	const under = look?.underwater === true;
+	const ok = under ? look.region === 'salmon_golden' : !!rgb && isGold(rgb);
+	return { ok, rgb, under };
 }
 /** Whether a screenshot shows a white line from `by` (raised to his hand) to `target` (its
  *  middle): near-white pixels near points along the way. */
@@ -909,9 +930,13 @@ try {
 		await p.play([{ op: 'step', frames: 4 }]);
 		climbedP = (await eventsOf(p)).find((ev) => ev.type === 'climbed' && ev.id === meTouch);
 	}
-	await settle(p, 400);
-	const overP = await ownOf(p);
-	await p.key('ArrowUp', 'up');
+	// Let go at the top it swims on over (as page E's, up to 1.5 s: a one-tap fall may be climbed
+	// again by the taps still on their way).
+	let overP;
+	for (let i = 0; i < 10 && !(overP && overP.y < FALL.y); i++) {
+		await settle(p, 150);
+		overP = await ownOf(p);
+	}
 	verdict(
 		'…taps on the screen are its jump: with ArrowUp held, they climb the waterfall',
 		!!climbedP && !!overP && overP.y < FALL.y,
@@ -919,6 +944,26 @@ try {
 	);
 	writeFileSync(join(out, '08b-touch-over-the-waterfall.png'), await p.page.screenshot());
 	result.shots.push('08b-touch-over-the-waterfall.png');
+	// The leap heads for the tap (the original's `targetX/Y`, 2026-11-18): upstream of the waterfall
+	// (out of its climb's reach), a quick tap four cells across the river from the salmon, the
+	// finger lifted at once and no key held, leaps it there, and it carries the leap across until it
+	// lands (without the carry it would only drift down with the current).
+	await settle(p, 600);
+	await p.key('ArrowUp', 'up');
+	const leapFrom = await ownOf(p);
+	const leapBand = river.bands.find((b) => leapFrom && leapFrom.y >= b.y && leapFrom.y < b.y + b.h);
+	const across = leapBand && leapFrom.x - leapBand.left < leapBand.right - leapFrom.x ? 1 : -1;
+	const tapAt = await screenOfP({ x: leapFrom.x + across * 4 * 48, y: leapFrom.y });
+	await touchP('touchStart', [tapAt]);
+	await p.play([{ op: 'step', frames: 2 }]);
+	await touchP('touchEnd', []);
+	await settle(p, 1800);
+	const leapTo = await ownOf(p);
+	verdict(
+		'…a tap across the river leaps it towards the tap, carried across with the finger lifted',
+		!!leapTo && across * (leapTo.x - leapFrom.x) > 120,
+		{ leapFrom, leapTo, across, tapAt },
+	);
 	await p.page.page('Emulation.setTouchEmulationEnabled', { enabled: false });
 	const hoverFrom = await ownOf(p);
 	const cursor = await screenOfP({ x: hoverFrom.x, y: hoverFrom.y - 400 });

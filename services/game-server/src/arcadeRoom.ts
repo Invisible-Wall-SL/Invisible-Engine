@@ -299,7 +299,12 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			to.score = from.score;
 			to.status = from.status;
 			to.mark = from.mark;
-			to.z = from.z ?? 0;
+			if (from.z !== undefined) to.z = from.z;
+			if (from.air !== undefined) {
+				to.air = from.air;
+				to.carryX = from.carryX ?? 0;
+				to.carryY = from.carryY ?? 0;
+			}
 			to.held = from.status === STATUS.free && (this.sim?.rules.holds(from) ?? false);
 		}
 

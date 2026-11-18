@@ -1245,7 +1245,7 @@ await check(
 		assert.match(source, /endStatuses\(players, stamp, grace, respawn\)/);
 		assert.doesNotMatch(source, /target\.status = ability\.effect/, 'no second copy of the hit');
 		const online = readFileSync(join(ROOT, 'packages/engine-mechanics/src/online.js'), 'utf8');
-		assert.match(online, /addZoneForces\(body, currents\)/);
+		assert.match(online, /addZoneForces\(body, currents[,)]/);
 		const loop = readFileSync(
 			join(ROOT, 'packages/engine-game/src/game/arcadeAbilities.ts'),
 			'utf8',

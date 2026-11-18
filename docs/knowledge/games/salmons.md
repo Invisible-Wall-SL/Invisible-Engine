@@ -54,7 +54,10 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   never in the scene's river node, which `/editor` regenerates.
 - **The salmon's leap is the original's** (`salmonsRules` `salmonJump` + `salmonsArt/leap.ts`, since
   2026-11-17): its heights and pose are the old game's numbers, pinned by `check:salmons-jump`.
-  Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel.
+  Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel. Its
+  direction (to the tap beyond 0.5 cells, else the last move), its carried move, the rock and
+  whirlpool cut-off at 0.5 cells, the line passing over a salmon in the air and the swimming
+  salmon under the water's tint are the original's too (since 2026-11-18, same gate).
 - **Waterfalls are as high as the original's, and so is the climb** (since 2026-11-17): the
   climb (`salmonsRules` `waterfallClimb`: 2.4 cells a tap, 0.8 cells/s back, no teleport) and the
   raised river (`engine-layout` `referenceLayouts/salmonsElevation.ts`, `salmonsArt/river.ts`,

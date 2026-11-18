@@ -187,6 +187,10 @@ type PlayerState = {
 	z?: number;
 	/** Free but held still by a rules module (a salmon climbing); unset from an older server. */
 	held?: boolean;
+	/** Inputs left for which the room carries the move `carryX` / `carryY` (a salmon's leap). */
+	air?: number;
+	carryX?: number;
+	carryY?: number;
 };
 type RoomState = {
 	step: number;
@@ -670,6 +674,9 @@ function received(current: Session, nowMs: number) {
 			ack: player.ack,
 			still: player.status !== STATUS.free || player.held === true,
 			step: state.step,
+			air: player.air,
+			carryX: player.carryX,
+			carryY: player.carryY,
 		});
 	});
 }
@@ -748,11 +755,17 @@ export function listenOnline(
 	};
 }
 
-/** A client point on the field, through the camera and the projection of the players' layer. */
+/**
+ * A client point on the field, through the camera and the projection of the players' layer. On
+ * raised ground (Salmons' waterfalls) the point is taken on the own player's ground: a place there
+ * is drawn back by its lift on both axes, so the layer's point is moved forward by it.
+ */
 const fieldPoint = (current: Session, at: Point | undefined): Point | undefined => {
 	if (!at || !pointerIo) return undefined;
 	const global = pointerIo.toGlobal(at.x, at.y);
-	return spawnLayerPoint(current.game.online.layer, global.x, global.y);
+	const point = spawnLayerPoint(current.game.online.layer, global.x, global.y);
+	const lift = current.lifts.get(current.room.sessionId)?.lift ?? 0;
+	return point && lift ? { x: point.x + lift, y: point.y + lift } : point;
 };
 
 /**

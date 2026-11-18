@@ -30,6 +30,11 @@ export type RulesPlayer = {
 	mark: boolean;
 	/** How high a rules module has lifted it off the ground, px (a salmon's leap); absent ⇒ 0. */
 	z?: number;
+	/** Inputs left for which it carries `carryX` / `carryY` (`online.js` `carriedInput`: a
+	 *  salmon's leap); absent ⇒ none. */
+	air?: number;
+	carryX?: number;
+	carryY?: number;
 	/** A rules module's own notes on the player. */
 	memo: Record<string, number>;
 	/** Button → the stamp it can be used again at. */
@@ -80,7 +85,13 @@ export type RulesHooks = {
 	step?(world: RulesWorld): void;
 	/** Its world has no players: an input is the player's own. */
 	input?(player: RulesPlayer, input: OnlineInput, world: Omit<RulesWorld, 'players'>): void;
-	hook?(user: RulesPlayer, target: RulesPlayer, ability: RulesAbility, world: RulesWorld): boolean;
+	/** true: it took the target; `'pass'`: it passes over it for the next nearest; false: a whiff. */
+	hook?(
+		user: RulesPlayer,
+		target: RulesPlayer,
+		ability: RulesAbility,
+		world: RulesWorld,
+	): boolean | 'pass';
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
@@ -88,6 +99,8 @@ export type RulesHooks = {
 	holds?(player: RulesPlayer): boolean;
 	/** The level the room steps `player` on, in place of its character's. */
 	level?(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
+	/** The input the room steps a free player it does not hold with, in place of `input`. */
+	steer?(player: RulesPlayer, input: OnlineInput): OnlineInput;
 };
 
 export type RulesModule = RulesHooks | { create(game: RulesGame, api: ModuleApi): RulesHooks };
@@ -104,6 +117,7 @@ export type OnlineRules = {
 	left(id: string): void;
 	holds(player: RulesPlayer): boolean;
 	level(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
+	steer(player: RulesPlayer, input: OnlineInput): OnlineInput;
 	applied(
 		player: RulesPlayer,
 		input: OnlineInput,
