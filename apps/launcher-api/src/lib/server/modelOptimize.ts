@@ -36,6 +36,7 @@ import {
 	compactPrimitive,
 	dedup,
 	dequantize,
+	getBounds,
 	getPrimitiveVertexCount,
 	meshopt,
 	prune,
@@ -284,17 +285,135 @@ function nodeTris(node: Node): number {
 	return Math.round(tris);
 }
 
+/** A collision box mesh (`<asset>_COL`): data for the gameplay, never shipped geometry. */
+const COLLISION_NAME = /_COL$/;
+
 /** The master's LOD chains, grouped by base name. A mesh node with no `_LOD<n>` suffix is LOD0. */
 function lodGroups(doc: Document): Map<string, Map<ModelLodLevel, Node>> {
 	const groups = new Map<string, Map<ModelLodLevel, Node>>();
 	for (const node of doc.getRoot().listNodes()) {
-		if (!node.getMesh()) continue;
+		if (!node.getMesh() || COLLISION_NAME.test(node.getName())) continue;
 		const parsed = parseLodName(node.getName()) ?? { base: node.getName(), level: 0 };
 		const group = groups.get(parsed.base) ?? new Map<ModelLodLevel, Node>();
 		group.set(parsed.level, node);
 		groups.set(parsed.base, group);
 	}
 	return groups;
+}
+
+type Mat4 = [
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+];
+
+/** `a × b`, column-major (glTF's order). */
+function mul(a: Mat4, b: Mat4): Mat4 {
+	const out = new Array<number>(16).fill(0) as Mat4;
+	for (let c = 0; c < 4; c++)
+		for (let r = 0; r < 4; r++)
+			for (let k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+	return out;
+}
+
+/** Move `node`'s children up to its own parent (or its scenes), composing transforms so nothing
+ *  moves in the world. */
+function hoistChildren(doc: Document, node: Node): void {
+	const parent = node.getParentNode();
+	const scenes = parent
+		? []
+		: doc
+				.getRoot()
+				.listScenes()
+				.filter((scene) => scene.listChildren().includes(node));
+	const local = node.getMatrix() as Mat4;
+	for (const child of node.listChildren()) {
+		child.setMatrix(mul(local, child.getMatrix() as Mat4));
+		node.removeChild(child);
+		if (parent) parent.addChild(child);
+		else for (const scene of scenes) scene.addChild(child);
+	}
+}
+
+/**
+ * No mesh node keeps children. Artists parent a lower level or a socket to LOD0 (Ctrl+P); a tier
+ * that drops LOD0 then dropped its whole subtree (the web tiers came out empty), and meshopt's
+ * quantize split a mesh with children onto an unnamed child node. Hoisting keeps every child where
+ * it was in the world, so a tier can drop any level alone.
+ */
+function flattenMeshNodes(doc: Document): void {
+	for (let changed = true; changed;) {
+		changed = false;
+		for (const node of doc.getRoot().listNodes()) {
+			if (!node.getMesh() || node.listChildren().length === 0) continue;
+			hoistChildren(doc, node);
+			changed = true;
+		}
+	}
+}
+
+interface CollisionBox {
+	name: string;
+	min: number[];
+	max: number[];
+}
+
+/**
+ * A `_COL` mesh leaves the geometry: `ie_export` writes collision as scene `extras.ie.collision`
+ * already, but a master from the File → Export preset or another tool carries the box as a mesh,
+ * which became an LOD chain of its own. Its world AABB joins the extras (unless already there).
+ */
+function stripCollisionMeshes(doc: Document): void {
+	const scene = doc.getRoot().getDefaultScene() ?? doc.getRoot().listScenes()[0];
+	for (const node of doc.getRoot().listNodes()) {
+		if (!node.getMesh() || !COLLISION_NAME.test(node.getName())) continue;
+		if (scene) {
+			const extras = (scene.getExtras() ?? {}) as { ie?: { collision?: CollisionBox[] } };
+			const ie = { ...(extras.ie ?? {}) };
+			const boxes = [...(ie.collision ?? [])];
+			if (!boxes.some((b) => b.name === node.getName())) {
+				const { min, max } = getBounds(node);
+				boxes.push({ name: node.getName(), min: [...min], max: [...max] });
+			}
+			scene.setExtras({ ...extras, ie: { ...ie, collision: boxes } });
+		}
+		hoistChildren(doc, node);
+		node.detach();
+		node.dispose();
+	}
+}
+
+/** Scene `extras.ie.lods` (written by `ie_export` for the master) says what THIS file ships. */
+function rewriteLodExtras(doc: Document, shipped: ModelExportLod[]): void {
+	for (const scene of doc.getRoot().listScenes()) {
+		const extras = (scene.getExtras() ?? {}) as { ie?: Record<string, unknown> };
+		if (!extras.ie || !('lods' in extras.ie)) continue;
+		scene.setExtras({
+			...extras,
+			ie: {
+				...extras.ie,
+				lods: shipped.map((l) => ({
+					level: l.level === MODEL_LOD_ULTRA ? 'LODU' : `LOD${l.level}`,
+					node: l.node,
+					tris: l.tris,
+					source: l.source,
+				})),
+			},
+		});
+	}
 }
 
 /** A deep copy of `prim` whose index buffer `simplify` may rewrite without touching the source. */
@@ -490,7 +609,12 @@ function applyLodWindow(doc: Document, opts: ModelDeriveOptions): ModelExportLod
 			node.setName(lodName(base, level));
 			const generated =
 				(node.getExtras() as { ie_lod_source?: string }).ie_lod_source === 'generated';
-			shipped.push({ level, tris: nodeTris(node), source: generated ? 'generated' : 'authored' });
+			shipped.push({
+				level,
+				node: node.getName(),
+				tris: nodeTris(node),
+				source: generated ? 'generated' : 'authored',
+			});
 		}
 	}
 	return shipped;
@@ -734,7 +858,10 @@ export async function deriveModelTier(
 	if (sides.length) throw new Error(`the master is over the model limits: ${sides.join('; ')}`);
 	if (isQuantised(doc)) await doc.transform(dequantize({ pattern: QUANTISED_ATTRIBUTE }));
 	await doc.transform(weld());
+	stripCollisionMeshes(doc);
+	flattenMeshNodes(doc);
 	const lods = applyLodWindow(doc, opts);
+	rewriteLodExtras(doc, lods);
 	if (opts.profile[opts.tier].bakeAoIntoBaseColor) splitBaseColorByAo(doc);
 
 	const textures: DerivedTexture[] = [];
@@ -763,7 +890,8 @@ export async function deriveModelTier(
 
 	await doc.transform(
 		dedup(),
-		prune({ keepExtras: true }),
+		// `keepLeaves`: a socket (`SK_<name>`) is a leaf empty, and prune's default deletes leaves.
+		prune({ keepExtras: true, keepLeaves: true }),
 		resample(),
 		meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
 	);

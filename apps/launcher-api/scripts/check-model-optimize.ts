@@ -26,7 +26,7 @@
  */
 import { Logger, NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dequantize, quantize } from '@gltf-transform/functions';
+import { dequantize, getBounds, quantize } from '@gltf-transform/functions';
 import { MeshoptDecoder } from 'meshoptimizer';
 import sharp from 'sharp';
 import {
@@ -515,6 +515,64 @@ check(
 	refused.includes('over the model limits'),
 	refused || 'it derived',
 );
+
+// ── LOD tree: sockets, nested levels, collision meshes ───────────────────────────────────────────
+console.log('LOD tree: a socket and LOD1 parented to LOD0 (at x = 2), plus a _COL mesh');
+const nested = await buildMasterGlb({
+	id: 'PR_nest',
+	textureSide: 0,
+	nested: true,
+	collision: true,
+	levels: [
+		{ level: 0, segments: 76 },
+		{ level: 1, segments: 30 },
+	],
+});
+for (const tier of MODEL_TIERS) {
+	const out = await derive(nested, 'prop', tier);
+	const doc = await io.readBinary(out.glb);
+	const nodes = doc.getRoot().listNodes();
+	const socket = nodes.find((n) => n.getName() === 'SK_top');
+	const at = socket?.getWorldMatrix().slice(12, 15) ?? [];
+	check(
+		`${tier}: the socket ships, where the master had it (0, 1, 0)`,
+		!!socket && Math.hypot(at[0], at[1] - 1, at[2]) < 1e-3,
+		JSON.stringify(at),
+	);
+	const lodNodes = nodes.filter((n) => /_LOD(\d+|U)$/.test(n.getName()));
+	check(
+		`${tier}: every shipped level is a node with its mesh, as the index names it`,
+		lodNodes.length === out.lods.length &&
+			lodNodes.every((n) => !!n.getMesh()) &&
+			out.lods.every((l) => lodNodes.some((n) => n.getName() === l.node)),
+		JSON.stringify({ nodes: lodNodes.map((n) => n.getName()), lods: out.lods }),
+	);
+	const lod1 = lodNodes.find((n) => n.getName() === 'PR_nest_LOD1');
+	if (lod1) {
+		const { min, max } = getBounds(lod1);
+		check(
+			`${tier}: LOD1 stays where it was in the world (centred on x = 0)`,
+			Math.abs((min[0] + max[0]) / 2) < 0.02,
+			`x ${((min[0] + max[0]) / 2).toFixed(3)}`,
+		);
+	}
+	check(
+		`${tier}: the _COL mesh is not geometry, and its box is in extras.ie.collision`,
+		!nodes.some((n) => n.getName().endsWith('_COL')) &&
+			JSON.stringify(doc.getRoot().listScenes()[0]?.getExtras()).includes('"PR_nest_COL"') &&
+			!out.lods.some((l) => l.node?.includes('_COL')),
+		JSON.stringify(out.lods),
+	);
+	const ieLods = (
+		doc.getRoot().listScenes()[0]?.getExtras() as { ie?: { lods?: { level: string }[] } }
+	).ie?.lods;
+	check(
+		`${tier}: extras.ie.lods names the levels this file ships`,
+		JSON.stringify(ieLods?.map((l) => l.level)) ===
+			JSON.stringify(out.lods.map((l) => `LOD${l.level}`)),
+		JSON.stringify(ieLods),
+	);
+}
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-optimiser checks passed');
 process.exit(failures ? 1 : 0);

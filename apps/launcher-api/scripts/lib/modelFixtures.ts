@@ -114,6 +114,11 @@ export interface FixtureOptions {
 	orm?: boolean;
 	ramp?: boolean;
 	tile?: boolean;
+	/** Blender's Ctrl+P habit: the first level sits at x = 2 and every other level and the socket
+	 *  are its children (a tier that drops it must not drop them). */
+	nested?: boolean;
+	/** A collision box carried as a mesh (`<id>_COL`), as a non-`ie_export` master does. */
+	collision?: boolean;
 }
 
 export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> {
@@ -138,15 +143,35 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 		}
 	}
 	if (opts.ramp) material.setEmissiveTexture(await tex(`${opts.id}_ramp`, 'ramp'));
+	let first: ReturnType<Document['createNode']> | undefined;
 	for (const { level, segments } of opts.levels) {
 		const name = `${opts.id}_LOD${level}`;
 		const mesh = opts.tile
 			? tileGrid(doc, name, segments)
 			: sphere(doc, name, segments, segments / 2);
 		for (const p of mesh.listPrimitives()) p.setMaterial(material);
-		scene.addChild(doc.createNode(name).setMesh(mesh));
+		const node = doc.createNode(name).setMesh(mesh);
+		if (opts.nested && first) {
+			// Parented to the first level, which sits at x = 2: undo that so it stays at the origin.
+			first.addChild(node.setTranslation([-2, 0, 0]));
+		} else {
+			if (opts.nested) node.setTranslation([2, 0, 0]);
+			scene.addChild(node);
+			first ??= node;
+		}
 	}
-	scene.addChild(doc.createNode('SK_top').setTranslation([0, 1, 0]));
+	const socket = doc.createNode('SK_top');
+	if (opts.nested && first) first.addChild(socket.setTranslation([-2, 1, 0]));
+	else scene.addChild(socket.setTranslation([0, 1, 0]));
+	// What `ie_export` writes for the master; a tier must say what IT ships instead.
+	if (opts.nested)
+		scene.setExtras({
+			ie: { id: opts.id, lods: opts.levels.map((l) => ({ level: `LOD${l.level}` })) },
+		});
+	if (opts.collision) {
+		const name = `${opts.id}_COL`;
+		scene.addChild(doc.createNode(name).setMesh(sphere(doc, name, 8, 4)));
+	}
 	return new NodeIO().writeBinary(doc);
 }
 
