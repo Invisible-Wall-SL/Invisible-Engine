@@ -12,7 +12,7 @@ import {
 	Mesh,
 	MeshToonMaterial,
 	NearestFilter,
-	PCFSoftShadowMap,
+	PCFShadowMap,
 	PerspectiveCamera,
 	Plane,
 	Raycaster,
@@ -144,7 +144,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	renderer.setClearColor(new Color(opts.background ?? 0x1b2433));
 	const shadowSize = opts.shadowMapSize ?? 1024;
 	renderer.shadowMap.enabled = shadowSize > 0;
-	renderer.shadowMap.type = PCFSoftShadowMap;
+	renderer.shadowMap.type = PCFShadowMap;
 
 	const scene = new Scene();
 	const camera = new PerspectiveCamera(45, 1, 0.1, 400);
