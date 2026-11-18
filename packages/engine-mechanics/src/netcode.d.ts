@@ -7,7 +7,7 @@ import type { Body, Field, StaticShape } from './motion';
 import type { OnlineInput, OnlineLevel, StepContext, characterBody } from './online';
 
 /** A zone rule as `strongestForce` reads it. */
-type ForceRule = { force?: { x: number; y: number }; pull?: { strength: number } };
+type ForceRule = { force?: { x: number; y: number } };
 
 export const MATCH_PX: number;
 export const SMOOTH_MS: 100;

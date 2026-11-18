@@ -85,7 +85,13 @@ export type RulesHooks = {
 	step?(world: RulesWorld): void;
 	/** Its world has no players: an input is the player's own. */
 	input?(player: RulesPlayer, input: OnlineInput, world: Omit<RulesWorld, 'players'>): void;
-	hook?(user: RulesPlayer, target: RulesPlayer, ability: RulesAbility, world: RulesWorld): boolean;
+	/** true: it took the target; `'pass'`: it passes over it for the next nearest; false: a whiff. */
+	hook?(
+		user: RulesPlayer,
+		target: RulesPlayer,
+		ability: RulesAbility,
+		world: RulesWorld,
+	): boolean | 'pass';
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,

@@ -293,15 +293,10 @@ export function createInterpolator({ snapPx = SNAP_PX, keep = 32 } = {}) {
 	};
 }
 
-/** The most a current (or a pull, at its strongest) of these zone rules adds to a body's speed,
- *  px/s. */
+/** The most a current of these zone rules adds to a body's speed, px/s. A pull is left out: it
+ *  carries a body at most to its centre, inside its radius, so it is no push between states. */
 export const strongestForce = (zoneRules) =>
-	Math.max(
-		0,
-		...zoneRules.map((z) =>
-			z.force ? Math.hypot(z.force.x, z.force.y) : z.pull ? Math.abs(z.pull.strength) : 0,
-		),
-	);
+	Math.max(0, ...zoneRules.map((z) => (z.force ? Math.hypot(z.force.x, z.force.y) : 0)));
 
 /** The own player's fields the Colyseus SDK's `Reconciler` mirrors from the room: its place, the
  *  status and the module's hold that hold it still, and the move the room carries for it (a change

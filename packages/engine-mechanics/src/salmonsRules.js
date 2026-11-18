@@ -90,9 +90,6 @@ export const LEAP_AIM = Object.freeze({
 /** The most inputs a leap is carried for: a uint8 on the wire. */
 const AIR_MAX = 254;
 
-/** A launch's carry before the step tells how long it is up. */
-const AIR_LAUNCHED = 255;
-
 /**
  * The leap's move (whole input units, {@link MOVE_SCALE} a full one) for a tap of `input` by a body
  * at `body` whose last move was `last` (`{ x, y }`, input units, or none): {@link LEAP_AIM}. A tap
@@ -368,6 +365,10 @@ const isDirection = (input) => Math.hypot(input.moveX, input.moveY) > LEAP_AIM.m
 const leap = {
 	create(game, api) {
 		const launch = JUMP.launch * CELL;
+		const hz = game.online.tickHz;
+		/** Inputs a leap is carried for: the steps after its first that find it above
+		 *  `CLEAR.steer` (the fall steps it from the ground the step it launches). */
+		const leapAir = stepsAloft(launch / hz, launch - (JUMP.gravity * CELL) / hz, hz);
 		return {
 			input(player, input, world) {
 				if (player.character.id !== SALMON) return;
@@ -385,7 +386,7 @@ const leap = {
 				player.memo.vz = launch;
 				const last = player.memo.dir === 1 ? { x: player.memo.dirX, y: player.memo.dirY } : null;
 				const move = leapMove(player.body, input, last);
-				player.air = AIR_LAUNCHED;
+				player.air = leapAir;
 				player.carryX = move.moveX;
 				player.carryY = move.moveY;
 				player.memo.moveX = move.moveX;
@@ -437,7 +438,6 @@ const carry = {
 					// carrying the move it last had.
 					const letGo = p.memo.letGo === 1;
 					p.memo.letGo = 0;
-					const z = p.z ?? 0;
 					if (p.status !== api.STATUS.free || climbing) {
 						if (p.status === api.STATUS.grounded) {
 							p.memo.moveX = 0;
@@ -446,10 +446,8 @@ const carry = {
 						clear(p);
 						continue;
 					}
-					const aloft = stepsAloft(z, p.memo.vz ?? 0, world.tickHz);
-					if (p.air === AIR_LAUNCHED) p.air = aloft;
-					else if (letGo && aloft) {
-						p.air = aloft;
+					if (letGo) {
+						p.air = stepsAloft(p.z ?? 0, p.memo.vz ?? 0, world.tickHz);
 						p.carryX = p.memo.moveX ?? 0;
 						p.carryY = p.memo.moveY ?? 0;
 					}
@@ -551,8 +549,8 @@ const fishingLine = {
 				hookedBy.clear();
 			},
 			hook(user, target, ability, world) {
-				if (lines.has(user.id) || hookedBy.has(target.id) || above(target, CLEAR.hook))
-					return false;
+				if (lines.has(user.id) || hookedBy.has(target.id)) return false;
+				if (above(target, CLEAR.hook)) return 'pass';
 				target.status = api.STATUS.hooked;
 				target.until = 0;
 				target.memo.escape = 0;
@@ -647,7 +645,15 @@ const together = (game, api, parts) => {
 		step: each('step'),
 		input: each('input'),
 		reset: each('reset'),
-		hook: (...args) => made.some((m) => m.hook?.(...args) === true),
+		hook: (...args) => {
+			let answer = false;
+			for (const m of made) {
+				const took = m.hook?.(...args);
+				if (took === true) return true;
+				if (took === 'pass') answer = 'pass';
+			}
+			return answer;
+		},
 		worth: (player, points) => made.reduce((p, m) => (m.worth ? m.worth(player, p) : p), points),
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),

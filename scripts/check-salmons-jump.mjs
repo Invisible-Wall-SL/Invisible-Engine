@@ -268,7 +268,11 @@ check('in the air it is neither grounded on sand nor hooked', () => {
 	const line = room(SALMONS_RULES.fishingLine);
 	const fisher = { id: 'f', memo: {} };
 	line.salmon.z = 0.11 * CELL;
-	assert.equal(line.hook(fisher, line.salmon, { score: 1, hold: 1 }), false, 'above 0.1 cells');
+	assert.equal(
+		line.hook(fisher, line.salmon, { score: 1, hold: 1 }),
+		'pass',
+		'above 0.1 cells: passed over',
+	);
 	line.salmon.z = 0;
 	assert.equal(line.hook(fisher, line.salmon, { score: 1, hold: 1 }), true, 'on the water');
 });
@@ -704,6 +708,54 @@ check(
 	},
 );
 
+check('a tap mid-batch (two inputs a step) carries exactly the leap’s inputs, then none', () => {
+	const seed = 2024;
+	const river = salmonsMapRiver(seed);
+	const doc = salmonsConfig(river);
+	doc.arcade.online.bots.fillTo = 0;
+	const room = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
+	const me = room.join('s', { character: 'salmon' });
+	Object.assign(me.body, openWater(river));
+	const hz = room.game.online.tickHz;
+	const launch = JUMP.launch * CELL;
+	const leapAir = stepsAloft(launch / hz, launch - (JUMP.gravity * CELL) / hz, hz);
+	const tap = aimFrom(me.body, 6, 0);
+	const queue = [];
+	for (let seq = 1; seq <= 120; seq++)
+		queue.push(
+			clampInput(
+				{
+					seq,
+					view: seq - 1,
+					moveX: 0,
+					moveY: 0,
+					buttons: seq === 3 ? BUTTONS.jump : 0,
+					...(seq === 3 ? tap : {}),
+				},
+				room.game.field,
+			),
+		);
+	let most = 0;
+	let carried = 0;
+	let landedX;
+	while (queue.length) {
+		const before = me.air ?? 0;
+		const x = me.body.x;
+		room.step(() => queue.splice(0, 2));
+		most = Math.max(most, me.air ?? 0);
+		if (before) carried += before - (me.air ?? 0);
+		if (most && !me.air && !(me.z > 0)) {
+			landedX ??= me.body.x;
+			assert.equal(me.body.x, x, `landed, no carry left (step ${room.steps})`);
+		}
+	}
+	assert.ok(most <= leapAir, `at most the leap's inputs (${most})`);
+	// The tap's own step spends one: the tap was first of its two.
+	assert.equal(carried + (leapAir - most), leapAir, 'carried for exactly the leap’s inputs');
+	assert.equal(me.air ?? 0, 0);
+	assert.ok(landedX !== undefined, 'it landed');
+});
+
 // --- Over the low pieces ------------------------------------------------------------------------
 
 check('a rock stops a salmon below half a cell and lets one at half a cell over it', () => {
@@ -753,6 +805,15 @@ check(
 		addZoneForces(diagonal, forces, 'salmon');
 		const d = 2 * Math.SQRT2;
 		near(Math.hypot(diagonal.vx, diagonal.vy), 14 * (1 - d / 4) * CELL, 1e-9, 'diagonal');
+		// Held at the centre: a step of `dt` ends on it, never past (no jitter about it).
+		for (const px of [0.5, 2, 6]) {
+			const near0 = { x: pool.x + px, y: pool.y, w: 10, h: 10, vx: 0, vy: 0 };
+			addZoneForces(near0, forces, 'salmon', 1 / 30);
+			near(near0.vx / 30, -px, 1e-9, `${px} px from the centre: onto it`);
+		}
+		const off = { x: pool.x + 2 * CELL, y: pool.y, w: 10, h: 10, vx: 0, vy: 0 };
+		addZoneForces(off, forces, 'salmon', 1 / 30);
+		near(off.vx, -7 * CELL, 1e-9, 'farther out the clamp does not bite');
 		for (const d of [4, 5]) {
 			const body = { x: pool.x, y: pool.y + d * CELL, w: 10, h: 10, vx: 0, vy: 0 };
 			addZoneForces(body, forces, 'salmon');
@@ -774,13 +835,28 @@ check(
 		assert.equal(has(0.5 * CELL), false, 'half a cell up: no pull');
 		const band = salmonsConfig().arcade.online.rules.zones.find((r) => r.zone === 'whirlpool0');
 		assert.ok(band?.force && !band.pull, "P10.16's band river keeps its spinning current");
+		// …on the water: a leap clears it, as the original's whirlpool does not act in the air.
+		const bandGame = onlineGameOf(normalizeGameConfigDoc(salmonsConfig()));
+		const bandHooks = SALMONS_RULES.salmons.create(bandGame, api);
+		const bandLevel = onlineLevel(
+			bandGame.zones,
+			bandGame.online.rules.zones,
+			'salmon',
+			bandGame.field,
+		);
+		const spins = (z) =>
+			bandHooks
+				.level({ character: { id: 'salmon' }, z, memo: {} }, bandLevel)
+				.currents.shapes.some((s) => s.id === 'whirlpool0');
+		assert.equal(spins(0), true, 'the band river: spinning on the water');
+		assert.equal(spins(0.5 * CELL), false, 'the band river: a leap clears its current');
 	},
 );
 
 // --- The line passes over a salmon in the air -------------------------------------------------
 
 check(
-	'the line skips a salmon in the air and hooks the next nearest; none on the water, a miss',
+	'the line skips only a salmon in the air for the next nearest; anything else is a whiff',
 	() => {
 		const game = { zones: [], online: { tickHz: 30, rules: { zones: [] } } };
 		const salmon = (id, x, z) => ({
@@ -795,9 +871,12 @@ check(
 			memo: {},
 			cooldowns: {},
 		});
-		const cast = (players) => {
-			const line = SALMONS_RULES.fishingLine.create(game, api);
-			const fisher = { ...salmon('f', 0, 0), character: { id: 'fisherman' } };
+		const fisherman = (id) => ({ ...salmon(id, 0, 0), character: { id: 'fisherman' } });
+		const cast = (
+			players,
+			line = SALMONS_RULES.fishingLine.create(game, api),
+			fisher = fisherman('f'),
+		) => {
 			const [spec] = abilitySpecs(
 				[
 					{
@@ -814,6 +893,7 @@ check(
 				30,
 			);
 			const hooked = [];
+			const offered = [];
 			const world = {
 				players,
 				stamp: 10,
@@ -829,9 +909,16 @@ check(
 				present: () => true,
 				placeOf: (t) => t.body,
 				hit: () => {},
-				hook: (target, ability) => line.hook(fisher, target, ability, world),
+				hook: (target, ability) => {
+					offered.push(target.id);
+					return line.hook(fisher, target, ability, world);
+				},
 			});
-			return { hooked: hooked.map((e) => e.target), cooldown: fisher.cooldowns[spec.key] };
+			return {
+				hooked: hooked.map((e) => e.target),
+				offered,
+				cooldown: fisher.cooldowns[spec.key],
+			};
 		};
 		const aloft = (CLEAR.hook + 0.01) * CELL;
 		const r = cast([salmon('near', 100, aloft), salmon('mid', 150, 0), salmon('far', 200, 0)]);
@@ -841,6 +928,21 @@ check(
 		const miss = cast([salmon('near', 100, aloft), salmon('far', 200, 3 * CELL)]);
 		assert.deepEqual(miss.hooked, [], 'all in the air: a miss');
 		assert.ok(miss.cooldown > 10, 'a miss still spends the cast');
+		// A fisherman with a line already whiffs on the nearest, as before: no walking on.
+		const line = SALMONS_RULES.fishingLine.create(game, api);
+		const f = fisherman('f');
+		assert.deepEqual(cast([salmon('a', 100, 0)], line, f).hooked, ['a']);
+		f.cooldowns = {};
+		const second = cast([salmon('b', 120, 0), salmon('c', 200, 0)], line, f);
+		assert.deepEqual(second, { hooked: [], offered: ['b'], cooldown: second.cooldown });
+		// A nearest already on another's line (the module's answer, as a status lag could leave it):
+		// a whiff there, the next not offered.
+		const taken = salmon('t', 100, 0);
+		const other = SALMONS_RULES.fishingLine.create(game, api);
+		cast([taken], other, fisherman('g'));
+		taken.status = STATUS.free;
+		const whiff = cast([taken, salmon('d', 200, 0)], other, fisherman('h'));
+		assert.deepEqual([whiff.hooked, whiff.offered], [[], ['t']]);
 	},
 );
 

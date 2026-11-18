@@ -8,7 +8,8 @@
  * characters within `reach` of its user's centre: `stun` holds the target still, `catch` puts it
  * out until it is back (online it respawns), each for the ability's `ms`; `hook` hands the nearest
  * target the caller takes to it (online, a rules module's line). An actor whose status ends cannot
- * be hit for {@link GRACE_MS}. Times are whole steps: `stamp` is the step that is running, counted from 1.
+ * be hit for {@link GRACE_MS}. Times are whole steps: `stamp` is the step that is running, counted
+ * from 1.
  *
  * An actor is `{ id, character: { id }, body, status, until, safeUntil, cooldowns }`, mutated in
  * place: an online room's player, or the offline loop's record of a character.
@@ -77,8 +78,9 @@ export function abilityTargets(user, ability, players, stamp, { present, placeOf
  * `pressed(ability)` and is off cooldown starts its cooldown, calls `used(ability)` and acts on its
  * targets ({@link abilityTargets}, over `players()`, asked once): a `stun` or `catch` sets each
  * one's status and `until`, then `hit(target, ability)`; a `hook` calls `hook(target, ability,
- * players)` with the nearest (the first of equals), and, while that answers `false` (it cannot take
- * that one: Salmons' line skips a salmon in the air), with the next nearest.
+ * players)` with the nearest (the first of equals), and, while that answers `'pass'` (it passes
+ * over that one: Salmons' line over a salmon in the air), with the next nearest. Any other answer
+ * ends the cast (taken, or a whiff).
  */
 export function useAbilities(user, stamp, specs, ctx) {
 	let players;
@@ -100,7 +102,7 @@ export function useAbilities(user, stamp, specs, ctx) {
 			ctx.hit(target, ability);
 		}
 		hooks.sort((a, b) => a.d - b.d);
-		for (const { target } of hooks) if (ctx.hook(target, ability, players) !== false) break;
+		for (const { target } of hooks) if (ctx.hook(target, ability, players) !== 'pass') break;
 	}
 }
 
@@ -156,12 +158,13 @@ const centreIn = (body, zone) =>
 	body.x >= zone.x && body.x < zone.x + zone.w && body.y >= zone.y && body.y < zone.y + zone.h;
 
 /** Add to `body`'s velocity the force of every zone of `forces` it is in, in the level's order; a
- *  zone that names characters pushes only a body of one of them (`character`). */
-export function addZoneForces(body, forces, character) {
+ *  zone that names characters pushes only a body of one of them (`character`). With `dt` (the
+ *  motion step it is for), a pull never carries the body past its centre in that step. */
+export function addZoneForces(body, forces, character, dt) {
 	for (const zone of queryStatic(forces, aabbOf(body))) {
 		if (zone.characters && !zone.characters.includes(character)) continue;
 		if (zone.pull) {
-			pullTowards(body, zone.pull);
+			pullTowards(body, zone.pull, dt);
 			continue;
 		}
 		if (zone.centre ? !centreIn(body, zone) : !inZone(body, zone)) continue;
@@ -170,13 +173,17 @@ export function addZoneForces(body, forces, character) {
 	}
 }
 
-/** A pull's velocity on a body: towards its centre, `strength · (1 − d / radius)` inside `radius`. */
-function pullTowards(body, pull) {
+/** A pull's velocity on a body: towards its centre, `strength · (1 − d / radius)` inside `radius`
+ *  (a velocity added like a current's, not integrated), at most `d / dt` so that a step of `dt`
+ *  ends on the centre rather than past it. */
+function pullTowards(body, pull, dt) {
 	const dx = pull.x - body.x;
 	const dy = pull.y - body.y;
 	const d = Math.sqrt(dx * dx + dy * dy);
 	if (!(d > 0) || d >= pull.radius) return;
-	const s = (pull.strength * (1 - d / pull.radius)) / d;
+	let v = pull.strength * (1 - d / pull.radius);
+	if (dt > 0) v = Math.min(v, d / dt);
+	const s = v / d;
 	body.vx += dx * s;
 	body.vy += dy * s;
 }

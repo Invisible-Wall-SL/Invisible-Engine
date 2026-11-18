@@ -69,8 +69,9 @@ export type AbilityUse<T extends AbilityActor, S extends AbilitySpec> = AbilityR
 	used(ability: S): void;
 	players(): T[];
 	hit(target: T, ability: S): void;
-	/** `false`: it cannot take this target; the next nearest is offered. */
-	hook(target: T, ability: S, players: T[]): boolean | void;
+	/** `'pass'`: it passes over this target and the next nearest is offered; anything else ends
+	 *  the cast. */
+	hook(target: T, ability: S, players: T[]): boolean | 'pass' | void;
 };
 
 export function useAbilities<T extends AbilityActor, S extends AbilitySpec>(
@@ -129,4 +130,9 @@ export function zoneForces(
 	},
 ): StaticIndex<ZoneForce>;
 
-export function addZoneForces(body: Body, forces: StaticIndex<ZoneForce>, character?: string): void;
+export function addZoneForces(
+	body: Body,
+	forces: StaticIndex<ZoneForce>,
+	character?: string,
+	dt?: number,
+): void;

@@ -458,18 +458,25 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     carried move (240 px/s × the round trip), faded over 100 ms; after it the device matches the
     room step for step (pinned with 0 and 4 steps of lag, and through a stall and its catch-up).
   - **Over the low pieces** (`lowPieces`, the `level` hook #1734 added): at 0.5 cells or higher a
-    salmon is stepped without the rocks' solids and without the whirlpools' pull. The device does
+    salmon is stepped without the rocks' solids and without the whirlpools' pull or current (on
+    both kinds of river: the band river's spinning current acts on the water only, and a leap
+    clears it, as the original's whirlpool does not act on a leaping salmon). The device does
     not know `z` per input, so a leap over a rock or out of a whirlpool is a correction, as passing
     over a waterfall already was.
   - **Whirlpools** (`salmons.js` `WHIRLPOOL_PULL`), on the original's levels (`salmonsMap`) only:
     a pull towards the centre within 4 cells (radius² 16) of `14 · (1 − d/4)` cells/s, an opt-in
-    `pull` on a zone rule (`abilities.js`, predicted by the device like any current). P10.16's band
-    river keeps its spinning current, so its recorded traces keep it. Game Config's normaliser does
+    `pull` on a zone rule (`abilities.js`, predicted by the device like any current), a velocity
+    added for each motion step like the current's (not integrated), held so that a step never
+    carries the salmon past the centre. It does not raise the snap distance (`strongestForce`
+    counts pushes only: a pull moves a body at most to its centre). P10.16's band river keeps its
+    spinning current on the water, so its recorded traces keep it. Game Config's normaliser does
     not carry `pull` (game-config is in every runtime), so only a generated level's whirlpools pull.
-  - **The line** (`abilities.js` `useAbilities`): a `hook` offers its targets nearest first until
-    one is taken, so a cast passes over a salmon in the air for the next in reach; with none on the
-    water it misses and the cooldown is spent. The offline loop's hook answers nothing and keeps
-    the nearest.
+  - **The line** (`abilities.js` `useAbilities`): a `hook` offers its targets nearest first while
+    the module answers `'pass'`, which Salmons' line does only for a salmon above 0.1 cells, so a
+    cast passes over a salmon in the air for the next in reach; with none on the water it misses
+    and the cooldown is spent. A fisherman who already has a line, or a nearest target already
+    hooked, whiffs there as before (`false` ends the cast). The offline loop's hook answers nothing
+    and keeps the nearest.
   - **Under the water** (`salmonsArt/leap.ts` `underwater`, `underTint`; `river.ts`
     `waterUnder`): a salmon on open water (not the sea, a sandbank or a rock), at most 0.1 cells up
     and not climbing is drawn under the water's tint, with its spine glint; in the air, climbing or
@@ -491,11 +498,15 @@ Maker, because it is built into the engine and not stored in the project. Plan:
       water a move of 0 stops it, as every engine body;
     - a tap that leaves a sandbank does not make that input's move the last direction (the
       original's grounded move handler returns first);
-    - the whirlpool's pull is towards its centre and in cells/s, added like the current;
+    - the whirlpool's pull is towards its centre and in cells/s, a velocity added for the step
+      like the current's, not integrated into the salmon's own velocity;
     - "a solid obstacle tile" for the look is a sandbank or a rock; the sea is open water but has
       no tint in the engine's drawing, so a salmon there keeps its glint and gets no tint;
     - the hook, which travels and tests every tick in the original, stays one-shot here and takes
       the nearest salmon on the water in reach.
+  - **Deploy:** release the game server and the runtime together. An old runtime against the new
+    server does not fold the carry, so most inputs of a leap are a correction; a new runtime
+    against an old server simply never carries.
   - **Known limits:** a step with no input still moves nobody, so a stall pauses a leap's travel
     while its height keeps falling (the original's would fly on); counted by inputs, the carry
     then goes on after it lands for the stalled steps, so the leap still covers its ground. Found
@@ -505,12 +516,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     colour under the 0.75 tint (the golden one reads cyan-gold): the owner should look at it in
     play; the tint's strength is one constant (`river.ts` `TINT_ALPHA`, shared with the
     riverbed).
-  - Proof: `check:salmons-jump` 31 (14 new: the direction to a tap, the dead zone, the last move,
+  - Proof: `check:salmons-jump` 32 (15 new: the direction to a tap, the dead zone, the last move,
     the default, the scaling, the carry until a steer or the water, the carry after a waterfall's
     let-go, `|v| > 0.01`, the statuses that end it, the room and both predictors folding it
-    exactly with 0 and 4 steps of lag, a stall that pauses it with the device still exact, a rock
-    cleared at 0.5 and not at 0.49 cells, the whirlpool's formula and its cut-off, the line passing
-    over a salmon in the air, the look's surface and tint). `salmons-traces.json` re-recorded: only
+    exactly with 0 and 4 steps of lag, a stall that pauses it with the device still exact, a tap
+    mid-batch (two inputs a step) carried exactly the leap's inputs and no further, a rock
+    cleared at 0.5 and not at 0.49 cells, the whirlpool's formula, its cut-off and its clamp at the
+    centre, the line passing over a salmon in the air but whiffing on a fisherman's second line or
+    a hooked nearest, the look's surface and tint). `salmons-traces.json` re-recorded: only
     the `line` trace's salmon `b` moves, after its escape, when its taps leap it upstream along its
     last move (it hovered upstream before it was hooked): steps 160–200 and its end place (6
     lines). `check:netcode` prints exactly what it printed before. Playbooks on an arcade build:

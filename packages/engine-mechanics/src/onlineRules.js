@@ -104,7 +104,8 @@ const tag = {
  * a free player still; `level(player, level)` the level the room steps the player on (a solid it
  * may pass); `steer(player, input)` the input the room steps a free player it does not hold with
  * (a move it carries: `online.js` `carriedInput`); `hook(user, target, ability, world)` for a
- * `hook` ability's targets, nearest first, until one answers true (it took it);
+ * `hook` ability's targets, nearest first, while it answers `'pass'` (true: it took it; false: a
+ * whiff);
  * `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
  * round's start. `api` is {@link ModuleApi}.
  */

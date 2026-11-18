@@ -130,7 +130,7 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 	for (let i = 0; i < ctx.subSteps; i++) {
 		body.vx = vx;
 		body.vy = vy;
-		if (currents) addZoneForces(body, currents);
+		if (currents) addZoneForces(body, currents, undefined, ctx.subDt);
 		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field);
 		else stepBody(body, ctx.subDt, field);
 	}
