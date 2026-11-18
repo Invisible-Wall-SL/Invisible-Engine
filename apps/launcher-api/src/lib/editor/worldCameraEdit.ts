@@ -12,6 +12,7 @@ import {
 	hasWorldCamera,
 	nodeParallax,
 	sceneCamera,
+	sceneCameraZoom,
 	sceneWorld,
 	type LayoutNode,
 	type Scene,
@@ -68,14 +69,19 @@ export function setSceneWorldSize(scene: Scene, side: 'w' | 'h', v: number): boo
 /** Merge `patch` into the camera and store what the game would read; an all-default camera is
  *  removed. */
 export function setSceneCamera(scene: Scene, patch: Partial<SceneCamera>): void {
-	const next = sceneCamera({ ...scene, camera: { ...scene.camera, ...patch } });
-	if (next && Object.keys(next).length) scene.camera = next;
+	const merged = { ...scene, camera: { ...scene.camera, ...patch } };
+	// The zoom is kept apart from the camera's motion (`sceneCameraZoom`): an edit keeps it.
+	const next = { ...sceneCamera(merged), ...sceneCameraZoom(merged) };
+	if (Object.keys(next).length) scene.camera = next;
 	else delete scene.camera;
 }
 
 /** The camera as the Properties fields show it: every field filled, defaults included. */
-export function cameraFields(scene: Scene): Required<SceneCamera> {
+export function cameraFields(
+	scene: Scene,
+): Required<Omit<SceneCamera, 'zoomIn'>> & Pick<SceneCamera, 'zoomIn'> {
 	const c = sceneCamera(scene) ?? {};
+	const z = sceneCameraZoom(scene) ?? {};
 	return {
 		follow: c.follow ?? '',
 		deadZone: c.deadZone ?? { w: 0, h: 0 },
@@ -83,6 +89,9 @@ export function cameraFields(scene: Scene): Required<SceneCamera> {
 		lookAhead: c.lookAhead ?? 0,
 		clampToWorld: c.clampToWorld ?? true,
 		autoScroll: c.autoScroll ?? { x: 0, y: 0 },
+		zoom: z.zoom ?? 1,
+		mobileZoom: z.mobileZoom ?? z.zoom ?? 1,
+		...(z.zoomIn ? { zoomIn: z.zoomIn } : {}),
 	};
 }
 

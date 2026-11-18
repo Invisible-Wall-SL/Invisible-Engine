@@ -2,6 +2,7 @@ import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { worldDrawing } from '../worldDrawing.svelte';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
@@ -31,8 +32,13 @@ export type SalmonsArt = {
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
-	/** How many rivers are drawn now, and whether the last one drawn is destroyed (the probe's). */
-	rivers: () => { live: number; destroyed: boolean };
+	/** How many rivers are drawn now, whether the last one drawn is destroyed, and how many of its
+	 *  pieces stand among the players (the probe's). */
+	rivers: () => {
+		live: number;
+		destroyed: boolean;
+		among: { drawn: number; layer: boolean } | undefined;
+	};
 	destroy: () => void;
 };
 
@@ -52,7 +58,7 @@ export async function loadSalmonsArt(
 	let live = 0;
 	return {
 		river: (into, app) => {
-			const art = mountSalmonsRiver(into, app, textures, river, seed);
+			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
 			drawn = art;
 			live += 1;
 			return () => {
@@ -71,7 +77,7 @@ export async function loadSalmonsArt(
 			};
 		},
 		regions: () => drawn?.regions() ?? {},
-		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false }),
+		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		destroy: looks.destroy,
 	};
 }

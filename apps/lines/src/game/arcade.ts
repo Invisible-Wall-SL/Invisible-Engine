@@ -7,7 +7,8 @@ import {
 import {
 	isoViewRect,
 	sceneCamera,
-	sceneProjection,
+	sceneCameraZoom,
+	sceneProjector,
 	scenePaths,
 	sceneTilemaps,
 	sceneWorld,
@@ -24,9 +25,12 @@ import {
 	setHiding,
 	setLifts,
 	setWorldCameraView,
+	setWorldProjector,
+	setWorldZoom,
 	spawnLayerPoint,
 	spawnStore,
 } from 'engine-layout/svelte';
+import { cameraZoom, mobileDevice, zoomedView } from 'engine-mechanics';
 import { normalizeGameConfigDoc, resolveArcade, type ArcadeCharacter } from 'game-config';
 
 import { bakedGameConfig } from '../editor-scenes';
@@ -78,6 +82,11 @@ let shadowOf: (componentId: string) => { shadow: number; foot: number } = () => 
 });
 let world: { w: number; h: number } | undefined;
 let view = () => ({ w: 0, h: 0 });
+/** How many window px a design px is drawn (the layout's main box scale). */
+let windowScale = () => 1;
+/** A projected world screen's camera zoom fields, and this frame's zoom (`cameraZoom`). */
+let zoomSpec: ReturnType<typeof sceneCameraZoom>;
+let zoom = 1;
 
 const seedOf = (): string => {
 	const pinned =
@@ -205,7 +214,9 @@ function createCharacterRuntime(characters: readonly ArcadeCharacter[]): Charact
  * `designSize` reads the current layout's design size: the field when the config names none and
  * no screen has a world, and the camera's view, so a rotated device moves both with it.
  */
-export const startArcade = (designSize: () => { width: number; height: number }): ArcadeLoop => {
+export const startArcade = (
+	designSize: () => { width: number; height: number; scale?: number },
+): ArcadeLoop => {
 	if (loop) return loop;
 	const rules = resolveArcade(normalizeGameConfigDoc(bakedGameConfig()));
 	const live = spawnStore();
@@ -225,6 +236,7 @@ export const startArcade = (designSize: () => { width: number; height: number })
 		const { width, height } = designSize();
 		return { w: width, h: height };
 	};
+	windowScale = () => designSize().scale ?? 1;
 	loop = createArcadeLoop({
 		rules,
 		field: () => rules.field ?? world ?? view(),
@@ -265,14 +277,35 @@ export const useWorldCamera = (scenes: readonly Scene[]) => {
 	const scene = worldCameraScene(scenes);
 	if (!scene) return;
 	world = sceneWorld(scene);
-	// An isometric screen (P11.4) shows a turned region: the loop judges the view by its world box.
-	const visible = sceneProjection(scene) ? isoViewRect : undefined;
-	loop.attachCamera({ spec: sceneCamera(scene), world, view, ...(visible ? { visible } : {}) });
+	// An isometric screen (P11.4) shows a turned region: the loop judges the view by its world box,
+	// drawn by its projector, zoomed as its camera says (the view is then the design box over it).
+	const projector = sceneProjector(scene);
+	setWorldProjector(projector);
+	zoomSpec = projector ? sceneCameraZoom(scene) : undefined;
+	const visible = projector ? isoViewRect : undefined;
+	const camView = zoomSpec ? () => zoomedView(view(), zoom) : view;
+	loop.attachCamera({
+		spec: sceneCamera(scene),
+		world,
+		view: camView,
+		...(visible ? { visible } : {}),
+	});
 };
 
 /** One frame of the play field. */
 export const tickArcade = (dtMs: number) => {
 	if (!loop) return;
+	if (zoomSpec) {
+		zoom = cameraZoom(zoomSpec, {
+			mobile: mobileDevice({
+				userAgent: navigator.userAgent,
+				maxTouchPoints: navigator.maxTouchPoints,
+				innerWidth: window.innerWidth,
+			}),
+			windowScale: windowScale(),
+		});
+		setWorldZoom(zoom);
+	}
 	loop.frame(dtMs);
 	if (hops) {
 		const live = spawnStore();

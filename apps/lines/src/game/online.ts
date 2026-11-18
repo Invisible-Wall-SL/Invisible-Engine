@@ -9,6 +9,7 @@ import {
 	characterBody,
 	clampInput,
 	createAbilityPredictor,
+	cameraZoom,
 	createCamera,
 	createFixedStep,
 	createHookLines,
@@ -23,6 +24,7 @@ import {
 	createRng,
 	createSnapshotClock,
 	generatedOnlineGame,
+	mobileDevice,
 	onlineLevel,
 	pointerMove,
 	reconcilerOptions,
@@ -30,6 +32,7 @@ import {
 	stepCamera,
 	stepContext,
 	strongestForce,
+	zoomedView,
 	type Camera,
 	type FixedStep,
 	type HookLine,
@@ -49,8 +52,11 @@ import {
 	getComponent,
 	resolveFlipbook,
 	sceneCamera,
+	sceneCameraZoom,
+	sceneProjector,
 	sceneWorld,
 	worldCameraScene,
+	type IsoProjector,
 	type CharacterAnimator,
 	type CharacterClipEvent,
 	type CharacterClipFrame,
@@ -72,6 +78,8 @@ import {
 	setMarks,
 	startMarks,
 	setWorldCameraView,
+	setWorldProjector,
+	setWorldZoom,
 	spawnLayerPoint,
 	spawnStore,
 	type ArtMount,
@@ -301,7 +309,14 @@ const VELOCITY_WINDOW_MS = 150;
 type OnlineCamera = {
 	camera: Camera;
 	world: { w: number; h: number } | undefined;
-	view: () => Size;
+	/** The design box, and how many window px a design px is drawn (`scale`). */
+	view: () => Size & { scale?: number };
+	/** The screen's projector (none for a flat screen) and, projected, its camera's zoom fields. */
+	projector: IsoProjector | undefined;
+	zoom: ReturnType<typeof sceneCameraZoom>;
+	/** The view this frame, world px (the design box over the zoom), and the zoom. */
+	size: Size | undefined;
+	drawnZoom: number;
 };
 type Size = { w: number; h: number };
 let worldCamera: OnlineCamera | undefined;
@@ -935,6 +950,7 @@ function drawCodeLooks(
 			marked: player.mark,
 			z: player.z ?? 0,
 			held: player.held === true,
+			project: worldCamera?.projector?.project,
 		});
 		mounts.set(instance, look.mount);
 	}
@@ -1021,6 +1037,7 @@ function drawClips(
 			vy,
 			holding: holders.has(id),
 			marked: player.mark,
+			project: worldCamera?.projector?.project,
 		});
 		if (frame?.clipId !== look.shown?.clipId) {
 			current.clipLog.push(`${id}:${frame?.clipId ?? ''}`);
@@ -1110,25 +1127,51 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
 	if (!scene) return;
 	const camera = createCamera(sceneCamera(scene), createRng('online:camera'));
 	camera.snapNext = true;
-	worldCamera = { camera, world: sceneWorld(scene), view };
+	const projector = sceneProjector(scene);
+	setWorldProjector(projector);
+	const zoom = projector ? sceneCameraZoom(scene) : undefined;
+	worldCamera = {
+		camera,
+		world: sceneWorld(scene),
+		view,
+		projector,
+		zoom,
+		size: undefined,
+		drawnZoom: 1,
+	};
 }
 
 /**
- * Move the camera after a frame, towards the own player as drawn. On raised ground the whole
- * drawing is moved down by the own player's drawn lift, which keeps the camera's world place, and
- * its hold inside the world, as it was.
+ * Move the camera after a frame, towards the own player as drawn. On raised ground, and in a leap
+ * (its code look's drawn lift), the whole drawing is moved down by the own player's drawn lift,
+ * which keeps the camera's world place, and its hold inside the world, as it was. A projected
+ * screen's zoom (`SceneCamera.zoom`) makes the view the design box over it.
  */
 function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
 	if (!worldCamera || !at) return;
 	const { camera, world, view } = worldCamera;
-	const size = view();
+	const screen = view();
+	const zoom = cameraZoom(worldCamera.zoom, {
+		mobile: mobileDevice({
+			userAgent: navigator.userAgent,
+			maxTouchPoints: navigator.maxTouchPoints,
+			innerWidth: window.innerWidth,
+		}),
+		windowScale: screen.scale,
+	});
+	const size = zoomedView({ w: screen.w, h: screen.h }, zoom);
+	worldCamera.size = size;
+	worldCamera.drawnZoom = zoom;
+	setWorldZoom(zoom);
 	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
+	const me = current.room.sessionId;
+	const leap = current.codeLooks.get(me)?.drawn().lift ?? 0;
 	setWorldCameraView({
 		x: camera.x,
 		y: camera.y,
 		shakeX: camera.offsetX,
-		shakeY: camera.offsetY + (current.lifts.get(current.room.sessionId)?.lift ?? 0),
+		shakeY: camera.offsetY + (current.lifts.get(me)?.lift ?? 0) + leap,
 		view: size,
 	});
 }
@@ -1213,7 +1256,9 @@ export function onlineProbe() {
 						shakeX: camera.offsetX,
 						shakeY: camera.offsetY,
 						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
-						view: worldCamera.view(),
+						view: worldCamera.size ?? worldCamera.view(),
+						zoom: worldCamera.drawnZoom,
+						leap: (current && current.codeLooks.get(current.room.sessionId)?.drawn().lift) || 0,
 					},
 				}
 			: {}),

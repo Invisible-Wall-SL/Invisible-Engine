@@ -1626,6 +1626,12 @@ export interface Scene {
 	 * the loop and the room keep flat world px. Absent ⇒ flat, as before; stored only when set.
 	 */
 	projection?: SceneProjection;
+	/**
+	 * A projected screen drawn MIRRORED left to right (`projection.ts` `sceneProjector`): a world
+	 * point (x, y) at (y − x, (x + y) / 2), so the world's x runs down-left and its y down-right
+	 * (Salmons, as the original drew its grid). Read only with a `projection`; stored only when true.
+	 */
+	mirrored?: boolean;
 	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
 	guides?: EditorGuideSet;
 }
@@ -1647,6 +1653,14 @@ export interface SceneCamera {
 	clampToWorld?: boolean;
 	/** px/s per axis (a runner, a shooter); an axis that scrolls does not follow. */
 	autoScroll?: { x: number; y: number };
+	/** How many px a world px is drawn (> 0): below 1 shows more of the world. Absent ⇒ 1. */
+	zoom?: number;
+	/** The zoom on a phone or tablet (`engine-mechanics` `camera.js` `mobileDevice`). Absent ⇒
+	 *  `zoom`. */
+	mobileZoom?: number;
+	/** What `zoom` counts: absent, px of the layout's design box; `window`, the window's own CSS
+	 *  px, so a world px is drawn the same size whatever the window (Salmons' 64 × 32 tiles). */
+	zoomIn?: 'window';
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed

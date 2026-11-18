@@ -15,7 +15,8 @@ export type { SalmonsRiverDrawing } from './salmonsRiver';
  *
  * The river is passed in, not imported: this package does not depend on `engine-mechanics`; the
  * river itself is drawn by `./salmonsRiver` (which a room's device also draws its own river
- * with). The river screen is isometric (P11.4): the ground drawn 2:1, the players upright.
+ * with). The river screen is isometric (P11.4): the ground drawn 2:1, the players upright, mirrored
+ * as the original drew it (the source top-left, the sea bottom-right).
  * Played by `scripts/playtest/salmons-play.mjs`; written into a project by
  * `scripts/salmons/export.mjs`. Not exported from the package entry, so no game bundles it.
  */
@@ -23,8 +24,20 @@ export type { SalmonsRiverDrawing } from './salmonsRiver';
 /** The spawn layer the room's players are drawn in (`arcade.online.layer`'s default). */
 export const SALMONS_FIELD = { id: 'field', cap: 120 } as const;
 
-/** How the camera follows the device's own player (`online.ts` gives it the target). */
-export const SALMONS_CAMERA = { deadZone: { w: 320, h: 200 }, smoothing: 0.1 } as const;
+/**
+ * How the camera follows the device's own player (`online.ts` gives it the target), as the original
+ * client's (`client/game.js`): no dead zone, eased (its 0.15 a frame at 60 fps is a time constant
+ * of about 0.1 s), never held inside the world, and a cell drawn 64 × 32 window px (the old tile:
+ * a 96 × 48 cell at 2/3), half that on a phone or tablet.
+ */
+export const SALMONS_CAMERA = {
+	deadZone: { w: 0, h: 0 },
+	smoothing: 0.1,
+	clampToWorld: false,
+	zoom: 2 / 3,
+	mobileZoom: 1 / 3,
+	zoomIn: 'window',
+} as const;
 
 /** How a placeholder sits on its place: a character stands on it (its feet there, as the S0 art's
  *  bottom-centre anchor), an ability's reach is centred on it. A `rect` is drawn about its centre
@@ -269,6 +282,8 @@ export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 				world: { ...river.world },
 				camera: { ...SALMONS_CAMERA, deadZone: { ...SALMONS_CAMERA.deadZone } },
 				projection: 'isometric',
+				// The original's orientation: the source top-left, the sea bottom-right.
+				mirrored: true,
 				nodes: [
 					salmonsRiverNode(river),
 					{

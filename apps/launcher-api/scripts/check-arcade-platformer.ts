@@ -69,6 +69,14 @@ import {
 	isoTilemapIssues,
 	isoUnproject,
 	isoViewRect,
+	ISO_PROJECTOR,
+	ISO_PROJECTOR_MIRRORED,
+	isoProjectMirrored,
+	isoUnprojectMirrored,
+	sceneMirrored,
+	sceneProjector,
+	screenToWorldDirection,
+	type IsoProjector,
 	normalizeTilemapNode,
 	sceneProjection,
 	tilemapAutotileMask,
@@ -1151,8 +1159,132 @@ const playLedges = (seed: string) => {
 		await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
 	const river = salmonsReferenceLayout(salmonsRiver()).scenes.find((s) => s.id === 'basegame');
 	check(
-		'6. Salmons’ river screen is isometric',
-		!!river && sceneProjection(river) === 'isometric' && !!sceneWorld(river),
+		'6. Salmons’ river screen is isometric, mirrored as the original',
+		!!river &&
+			sceneProjection(river) === 'isometric' &&
+			!!sceneWorld(river) &&
+			sceneMirrored(river) &&
+			sceneProjector(river) === ISO_PROJECTOR_MIRRORED,
+	);
+
+	// The mirrored projection (`Scene.mirrored`, Salmons §9.1).
+	const m = ISO_PROJECTOR_MIRRORED;
+	check(
+		'6. mirrored: ground → screen → ground is the same point, and it is the isometric one mirrored',
+		points.every(([x, y]) => {
+			const s = m.project(x, y);
+			const back = m.unproject(s.x, s.y);
+			const iso = isoProject(x, y);
+			return (
+				Math.abs(back.x - x) < 1e-9 &&
+				Math.abs(back.y - y) < 1e-9 &&
+				Math.abs(s.x + iso.x) < 1e-9 &&
+				s.y === iso.y &&
+				json(isoProjectMirrored(x, y)) === json(s) &&
+				json(isoUnprojectMirrored(s.x, s.y)) === json(back)
+			);
+		}),
+	);
+	check(
+		'6. mirrored: world +x draws LEFT-down, +y right-down (the source top-left, the sea bottom-right)',
+		json(m.project(100, 0)) === json({ x: -100, y: 50 }) &&
+			json(m.project(0, 100)) === json({ x: 100, y: 50 }),
+	);
+	check(
+		'6. only a projected screen is mirrored; unmirrored and flat screens keep their projector',
+		sceneProjector({ ...river!, mirrored: undefined }) === ISO_PROJECTOR &&
+			sceneProjector({ ...river!, projection: undefined }) === undefined &&
+			!sceneMirrored({ ...river!, projection: undefined }) &&
+			ISO_PROJECTOR.project === isoProject &&
+			ISO_PROJECTOR.unproject === isoUnproject,
+	);
+	// The ground turn: inside scale(1, 0.5), rotation then the x flip makes the projection.
+	const turned = (p: IsoProjector, x: number, y: number) => {
+		const fx = p.ground.flip * Math.SQRT2 * x;
+		const fy = Math.SQRT2 * y;
+		const c = Math.cos(p.ground.rotation);
+		const s = Math.sin(p.ground.rotation);
+		return { x: fx * c - fy * s, y: (fx * s + fy * c) / 2 };
+	};
+	check(
+		'6. each projector’s ground turn draws a flat point where the projection puts it',
+		[ISO_PROJECTOR, m].every((p) =>
+			points.every(([x, y]) => {
+				const a = turned(p, x, y);
+				const b = p.project(x, y);
+				return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
+			}),
+		),
+	);
+	const mirroredCorners = [
+		[0, 0],
+		[viewSize.w, 0],
+		[0, viewSize.h],
+		[viewSize.w, viewSize.h],
+	].map(([sx, sy]) => {
+		const off = m.unproject(sx - viewSize.w / 2, sy - viewSize.h / 2);
+		return { x: cam.x + viewSize.w / 2 + off.x, y: cam.y + viewSize.h / 2 + off.y };
+	});
+	check(
+		'6. mirrored: the loop’s isometric view still holds the screen’s four corners',
+		mirroredCorners.every(
+			(c) =>
+				c.x >= box.x0 - 1e-9 &&
+				c.x <= box.x1 + 1e-9 &&
+				c.y >= box.y0 - 1e-9 &&
+				c.y <= box.y1 + 1e-9,
+		),
+	);
+	check(
+		'6. mirrored: a cell’s box is the isometric one mirrored about x = 0',
+		[
+			[0, 0],
+			[3, 1],
+			[2, 5],
+		].every(([col, row]) => {
+			const a = isoCellBox(cell, col, row);
+			const b = isoCellBox(cell, col, row, true);
+			return b.w === a.w && b.h === a.h && b.y === a.y && b.x === -(a.x + a.w);
+		}),
+	);
+	// The original's keys (`client/input.js`): Left (gx −1, gy +1), Right (+1, −1), Up (−1, −1),
+	// Down (+1, +1), summed and normalised; world x is the original's gy, world y its gx.
+	const original = (left: boolean, right: boolean, up: boolean, down: boolean) => {
+		const n = (on: boolean) => (on ? 1 : 0);
+		const gx = -n(left) + n(right) - n(up) + n(down);
+		const gy = n(left) - n(right) - n(up) + n(down);
+		const len = Math.hypot(gx, gy);
+		return len ? { x: gy / len, y: gx / len } : { x: 0, y: 0 };
+	};
+	const keys = [
+		[true, false, false, false],
+		[false, true, false, false],
+		[false, false, true, false],
+		[false, false, false, true],
+		[true, false, true, false],
+		[false, true, true, false],
+		[true, false, false, true],
+		[false, true, false, true],
+		[true, true, false, false],
+		[false, false, false, false],
+	] as const;
+	check(
+		'6. a screen direction turns into the world as the original’s keys did (mirrored), and flat is the world',
+		keys.every(([l, r, u, d]) => {
+			const w = screenToWorldDirection(m, (r ? 1 : 0) - (l ? 1 : 0), (d ? 1 : 0) - (u ? 1 : 0));
+			const o = original(l, r, u, d);
+			return Math.abs(w.x - o.x) < 1e-9 && Math.abs(w.y - o.y) < 1e-9;
+		}) &&
+			Math.abs(screenToWorldDirection(undefined, 1, 1).x - Math.SQRT1_2) < 1e-12 &&
+			screenToWorldDirection(undefined, 0, 0).x === 0 &&
+			(() => {
+				// Up is straight up the screen whichever the projector.
+				return [ISO_PROJECTOR, m].every((p) => {
+					const w = screenToWorldDirection(p, 0, -1);
+					const s = p.project(w.x, w.y);
+					return Math.abs(s.x) < 1e-9 && s.y < 0;
+				});
+			})(),
 	);
 }
 

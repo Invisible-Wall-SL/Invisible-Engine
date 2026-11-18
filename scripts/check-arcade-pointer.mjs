@@ -28,7 +28,11 @@ import {
 	onlineGameOf,
 } from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
-import { isoProject, isoUnproject } from '../packages/engine-layout/src/lib/projection.ts';
+import {
+	ISO_PROJECTOR_MIRRORED,
+	isoProject,
+	isoUnproject,
+} from '../packages/engine-layout/src/lib/projection.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
@@ -265,8 +269,43 @@ check('an isometric world: a ground point drawn on the canvas maps back onto its
 		read('packages/engine-layout/src/lib/SpawnLayer.svelte'),
 		/const local = parent\.parent\.toLocal\(\{ x, y \}\);\s*return projection \? projection\.unproject\(local\.x, local\.y\)/,
 	);
-	assert.match(read('packages/engine-layout/src/lib/IsoWorld.svelte'), /unproject: isoUnproject,/);
+	assert.match(
+		read('packages/engine-layout/src/lib/IsoWorld.svelte'),
+		/unproject: \(x, y\) => drawing\.projector\.unproject\(x, y\),/,
+	);
 });
+
+check(
+	'a mirrored, zoomed isometric world (Salmons): the view centre is the box centre, and a point maps back',
+	() => {
+		const m = ISO_PROJECTOR_MIRRORED;
+		const box = { w: 1422, h: 800 };
+		for (const zoom of [1, 2 / 3, 1 / 3]) {
+			const view = { x: 1300, y: 9000, w: box.w / zoom, h: box.h / zoom, shakeX: 0, shakeY: 24 };
+			const centre = m.project(view.x + view.w / 2, view.y + view.h / 2);
+			const main = new Container();
+			main.scale.set(0.75);
+			const world = new Container();
+			world.scale.set(zoom);
+			world.position.set(
+				zoom * (view.shakeX + view.w / 2 - centre.x),
+				zoom * (view.shakeY + view.h / 2 - centre.y),
+			);
+			main.addChild(world);
+			const mid = world.toGlobal(m.project(view.x + view.w / 2, view.y + view.h / 2));
+			assert.ok(near(mid.x, 0.75 * (box.w / 2)), `${zoom}: ${mid.x}`);
+			assert.ok(near(mid.y, 0.75 * (box.h / 2 + zoom * view.shakeY)), `${zoom}: ${mid.y}`);
+			for (const ground of [
+				{ x: 900, y: 6800 },
+				{ x: 1500, y: 9100 },
+			]) {
+				const local = world.toLocal(world.toGlobal(m.project(ground.x, ground.y)));
+				const back = m.unproject(local.x, local.y);
+				assert.ok(near(back.x, ground.x, 1e-6) && near(back.y, ground.y, 1e-6));
+			}
+		}
+	},
+);
 
 check(
 	"the device maps each step's pointer through the players' layer (re-mapped as the camera follows)",

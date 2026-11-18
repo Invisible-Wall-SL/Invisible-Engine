@@ -380,7 +380,7 @@ function isometricAt(png, arcade, me) {
 	};
 	// The placeholder look stands on its place, 44 px tall: its middle is where its colour is sure.
 	const screen = (x, y) => ({ x: Math.round(x * k), y: Math.round((y - 22) * k) });
-	const projected = screen(centre.x + dx - dy, centre.y + (dx + dy) / 2);
+	const projected = screen(centre.x + dy - dx, centre.y + (dx + dy) / 2);
 	const flat = screen(centre.x + dx, centre.y + dy);
 	// Swimming in open water it is drawn under the water's tint (2026-11-18): its colour is read
 	// back through each of the river's tints.
@@ -464,7 +464,7 @@ const isoScreen = (png, cam, at, lift = 0) => {
 	const dy = at.y - (cam.y + cam.view.h / 2);
 	const raised = lift + (at.ground ?? 0) - (cam.lift ?? 0);
 	return {
-		x: Math.round((cam.view.w / 2 + cam.shakeX + dx - dy) * k),
+		x: Math.round((cam.view.w / 2 + cam.shakeX + dy - dx) * k),
 		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - raised) * k),
 	};
 };
@@ -620,11 +620,12 @@ try {
 		ownA,
 		upA,
 	});
-	// The camera holds the salmon in its dead zone: it moves by what the salmon moved past it.
+	// The camera holds the salmon in its dead zone (none since 2026-11-18, the original's: it centres
+	// on it, eased, so a little behind the room's place by the easing and the netcode's lag).
 	const inDeadZone =
 		!!cam1 &&
 		!!upA &&
-		Math.abs(upA.y - (cam1.y + cam1.view.h / 2)) <= SALMONS_CAMERA.deadZone.h / 2 + 4;
+		Math.abs(upA.y - (cam1.y + cam1.view.h / 2)) <= SALMONS_CAMERA.deadZone.h / 2 + 24;
 	verdict(
 		'…and the camera follows it, holding it in its dead zone',
 		!!cam0 && cam1.y < cam0.y - 100 && inDeadZone,
@@ -656,7 +657,8 @@ try {
 	writeFileSync(join(out, '03-salmon-upstream.png'), shot);
 	result.shots.push('03-salmon-upstream.png');
 	// P11.4: the river screen is isometric. The own salmon is drawn upright where the projection
-	// puts it, (x − y, (x + y) / 2) from the camera's centre, not where the flat world would.
+	// puts it, (y − x, (x + y) / 2) from the camera's centre (mirrored, as the original), not where
+	// the flat world would.
 	const iso = isometricAt(PNG.sync.read(shot), (await a.state()).arcade, me);
 	verdict(
 		'isometric: page A draws its salmon at its projected place, not its flat one',
@@ -885,7 +887,7 @@ try {
 		const dx = at.x - (cam.x + cam.view.w / 2);
 		const dy = at.y - (cam.y + cam.view.h / 2);
 		return {
-			x: Math.round(rect.left + (cam.view.w / 2 + cam.shakeX + dx - dy) * k),
+			x: Math.round(rect.left + (cam.view.w / 2 + cam.shakeX + dy - dx) * k),
 			y: Math.round(rect.top + (cam.view.h / 2 + cam.shakeY + (dx + dy) / 2) * k),
 		};
 	};
@@ -1253,14 +1255,14 @@ try {
 	for (let i = 0; i < 10; i++) {
 		await settle(sPage, 100);
 		down = await clipOfS();
-		if (down?.flipX) break;
+		if (down?.clipId === 'salmon_pink_swim_se' && !down.flipX) break;
 	}
 	// Further down, so the swim back up to the sandbank is long enough to turn on the way.
 	await settle(sPage, 500);
 	await sPage.key('ArrowDown', 'up');
 	verdict(
-		'page S: swimming downstream (screen south-west) plays swim_se mirrored',
-		down?.clipId === 'salmon_pink_swim_se' && down.flipX === true,
+		'page S: swimming downstream (screen south-east: the mirrored screen) plays swim_se as drawn',
+		down?.clipId === 'salmon_pink_swim_se' && down.flipX === false,
 		down,
 	);
 	await sPage.key('ArrowUp', 'down');
@@ -1273,8 +1275,8 @@ try {
 		groundedS = (await eventsOf(sPage)).find((ev) => ev.type === 'grounded' && ev.id === meS);
 	}
 	verdict(
-		'…swimming upstream (world −y, screen north-east) plays swim_ne as drawn',
-		up?.clipId === 'salmon_pink_swim_ne' && up.flipX === false,
+		'…swimming upstream (world −y, screen north-west) plays swim_ne mirrored',
+		up?.clipId === 'salmon_pink_swim_ne' && up.flipX === true,
 		up,
 	);
 	await settle(sPage, 400);

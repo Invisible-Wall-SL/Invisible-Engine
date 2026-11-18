@@ -16,6 +16,7 @@ import {
 	type LayoutType,
 	type Scene,
 	sceneCamera,
+	sceneCameraZoom,
 	sceneProjection,
 	sceneWorld,
 } from 'engine-layout';
@@ -371,13 +372,16 @@ function normalizeScene(input: unknown): Scene | null {
 	const world = sceneWorld({ ...scene, world: input.world as Scene['world'] });
 	if (world) scene.world = world;
 	const camera = sceneCamera({ ...scene, camera: input.camera as Scene['camera'] });
-	if (camera && Object.keys(camera).length) scene.camera = camera;
+	const zoom = sceneCameraZoom({ ...scene, camera: input.camera as Scene['camera'] });
+	if ((camera && Object.keys(camera).length) || zoom) scene.camera = { ...camera, ...zoom };
 	// Its projection (`Scene.projection`, P11.4): stored only when it is not flat, on a `game` screen.
 	const projection = sceneProjection({
 		...scene,
 		projection: input.projection as Scene['projection'],
 	});
 	if (projection) scene.projection = projection;
+	// Drawn mirrored left to right (`Scene.mirrored`): kept only on a projected screen.
+	if (projection && input.mirrored === true) scene.mirrored = true;
 	// The screen's ruler guides (editor-only; `loadDoc` strips them before any game reads the doc).
 	const guides = normalizeEditorGuides(input.guides);
 	if (guides) scene.guides = guides;

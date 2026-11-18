@@ -6,6 +6,8 @@
  *
  * The 2:1 projection: a world point (x, y) is drawn at (x − y, (x + y) / 2), so a square world cell
  * of side s is a diamond 2s wide and s high, its top corner at the cell's top-left.
+ * A screen that is also `mirrored` draws the same diamonds mirrored left to right, (y − x, (x + y) / 2)
+ * ({@link IsoProjector}: one object per projection, so a caller never picks a pair by hand).
  */
 
 import { TILE_EMPTY, tilemapTiles, tilemapTileset } from './tilemapNodes';
@@ -25,11 +27,95 @@ export const sceneProjection = (scene: Scene | undefined): SceneProjection | und
 		? 'isometric'
 		: undefined;
 
+/** Whether a projected screen is drawn mirrored left to right (`Scene.mirrored`); a flat one never
+ *  is. */
+export const sceneMirrored = (scene: Scene | undefined): boolean =>
+	!!sceneProjection(scene) && scene?.mirrored === true;
+
 /** Where a flat world point is drawn. */
 export const isoProject = (x: number, y: number): Point2D => ({ x: x - y, y: (x + y) / 2 });
 
 /** The world point drawn at a projected point (the inverse of {@link isoProject}). */
 export const isoUnproject = (x: number, y: number): Point2D => ({ x: y + x / 2, y: y - x / 2 });
+
+/**
+ * Where a flat world point is drawn on a `mirrored` screen: {@link isoProject} mirrored left to
+ * right, so the world's x runs down-LEFT and its y down-RIGHT (Salmons: the original's grid, the
+ * source top-left and the sea bottom-right). The depth and the view's world box are the same.
+ */
+export const isoProjectMirrored = (x: number, y: number): Point2D => ({
+	x: y - x,
+	y: (x + y) / 2,
+});
+
+/** The world point drawn at a projected point (the inverse of {@link isoProjectMirrored}). */
+export const isoUnprojectMirrored = (x: number, y: number): Point2D => ({
+	x: y - x / 2,
+	y: y + x / 2,
+});
+
+/**
+ * ONE PROJECTION, WHOLE: what draws, reads back and turns by it. `project` / `unproject` are
+ * linear (the origin maps to the origin), so they turn a velocity or a direction too. `ground` is
+ * the turn a flat-drawn ground plane is given (inside a `scale(1, 0.5)`): its rotation and its x
+ * scale's sign (−1 for a mirrored projection, which no rotation makes). A texture drawn inside the
+ * ground keeps its own orientation on screen when its x scale is multiplied by `ground.flip`.
+ */
+export type IsoProjector = {
+	mirrored: boolean;
+	project: (x: number, y: number) => Point2D;
+	unproject: (x: number, y: number) => Point2D;
+	ground: { rotation: number; flip: 1 | -1 };
+};
+
+/** The isometric projection, and the same mirrored left to right (`Scene.mirrored`). */
+export const ISO_PROJECTOR: IsoProjector = {
+	mirrored: false,
+	project: isoProject,
+	unproject: isoUnproject,
+	ground: { rotation: Math.PI / 4, flip: 1 },
+};
+export const ISO_PROJECTOR_MIRRORED: IsoProjector = {
+	mirrored: true,
+	project: isoProjectMirrored,
+	unproject: isoUnprojectMirrored,
+	ground: { rotation: -Math.PI / 4, flip: -1 },
+};
+
+/** The projector a screen draws its world by: `undefined` for a flat screen, else the isometric
+ *  one, mirrored when the screen says so. THE one answer the game, its keys and its art read. */
+export const sceneProjector = (scene: Scene | undefined): IsoProjector | undefined =>
+	sceneProjection(scene)
+		? sceneMirrored(scene)
+			? ISO_PROJECTOR_MIRRORED
+			: ISO_PROJECTOR
+		: undefined;
+
+/**
+ * A screen-relative direction in the world (the keyboard on a projected screen, as the original
+ * Salmons' client turned its keys): `dx` / `dy` say how much the input points right and down the
+ * screen (−1..1 each, so Up is `(0, −1)`). Each screen axis is turned into the world direction
+ * drawn along it, the two are added and the sum is normalised: a length of 1, or `(0, 0)` for no
+ * direction. Flat (`projector` undefined) the screen's axes are the world's.
+ */
+export function screenToWorldDirection(
+	projector: IsoProjector | undefined,
+	dx: number,
+	dy: number,
+): Point2D {
+	let x = dx;
+	let y = dy;
+	if (projector) {
+		const right = projector.unproject(1, 0);
+		const down = projector.unproject(0, 1);
+		const r = Math.hypot(right.x, right.y);
+		const d = Math.hypot(down.x, down.y);
+		x = (dx * right.x) / r + (dy * down.x) / d;
+		y = (dx * right.y) / r + (dy * down.y) / d;
+	}
+	const len = Math.hypot(x, y);
+	return len > 0 ? { x: x / len, y: y / len } : { x: 0, y: 0 };
+}
 
 /**
  * A body's ground depth: drawn later (in front) the larger it is. Twice the projected y of its
@@ -95,16 +181,19 @@ export function isoTilemapIssues(
 
 /**
  * The box a tilemap cell's art fills, in the tilemap's own space (its top-left world corner at 0,
- * 0): the cell's diamond, `tileWidth + tileHeight` wide and half that high.
+ * 0): the cell's diamond, `tileWidth + tileHeight` wide and half that high; `mirrored` for a
+ * mirrored screen (the same box mirrored about x = 0; the art itself is not flipped).
  */
 export function isoCellBox(
 	node: Pick<TilemapNode, 'tileWidth' | 'tileHeight'>,
 	col: number,
 	row: number,
+	mirrored = false,
 ): { x: number; y: number; w: number; h: number } {
 	const { tileWidth: tw, tileHeight: th } = node;
+	const x = col * tw - (row + 1) * th;
 	return {
-		x: col * tw - (row + 1) * th,
+		x: mirrored ? -x - (tw + th) : x,
 		y: (col * tw + row * th) / 2,
 		w: tw + th,
 		h: (tw + th) / 2,

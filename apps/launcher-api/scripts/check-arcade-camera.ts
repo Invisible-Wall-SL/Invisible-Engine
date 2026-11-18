@@ -26,6 +26,10 @@
  *     the same seed replays the same framing; the flow validates clean.
  *  5. THE DATA: `sceneWorld` / `sceneCamera` keep only whole fields on a `game` screen; the save
  *     keeps them; a spawn layer's margin reaches the live set's spec.
+ *  7. THE ZOOM (`camera.js` `cameraZoom`): none is 1 on any device; `zoom`, `mobileZoom` on the
+ *     original Salmons' mobile test, a `window` zoom over the layout's box scale; the data and the
+ *     save keep it apart from the camera; Salmons' camera is the original's; the online camera
+ *     zooms only a projected screen and follows the own leap.
  *  6. PARITY (source-scanned): `<LayoutScene>` adds the world container only on a world screen
  *     (and draws it projected only when it names `isometric` and the arcade seam registered one),
  *     `<SpawnLayer>` culls only under one, the runtime publishes only with a camera, and the river
@@ -72,6 +76,7 @@ import {
 	nodeParallax,
 	parallaxShift,
 	sceneCamera,
+	sceneCameraZoom,
 	sceneSpawnLayers,
 	sceneWorld,
 	spawnLayerSpec,
@@ -86,16 +91,22 @@ import {
 	arcadeRiverReferenceLayout,
 } from '../../../packages/engine-layout/src/lib/referenceLayouts/arcadeRiver.ts';
 import {
+	cameraZoom,
 	createCamera,
 	createRng,
 	followWith,
+	mobileDevice,
 	moveCameraTo,
 	parallaxOffset,
 	shakeCamera,
 	stepCamera,
+	resolveCameraZoom,
 	viewRect,
+	zoomedView,
 	type Camera,
 } from 'engine-mechanics';
+import { salmonsRiver } from '../../../packages/engine-mechanics/src/salmons.js';
+import { salmonsReferenceLayout } from '../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { normalizeGameConfigDoc, resolveArcade, type GameConfigDoc } from 'game-config';
 
 import { projectSpawnLayers } from '../src/lib/flowV2Projection.ts';
@@ -826,7 +837,8 @@ function scene4(): Scene {
 		'6. the loop judges the view by `visible` only when given one (an isometric screen); else `viewRect`',
 		(loopSrc.match(/\(\w+\.visible \?\? viewRect\)\(/g) ?? []).length === 2 &&
 			!/[^.]viewRect\(cam/.test(loopSrc) &&
-			/const visible = sceneProjection\(scene\) \? isoViewRect : undefined;/.test(arcadeSrc) &&
+			/const visible = projector \? isoViewRect : undefined;/.test(arcadeSrc) &&
+			/const projector = sceneProjector\(scene\);/.test(arcadeSrc) &&
 			/\.\.\.\(visible \? \{ visible \} : \{\}\)/.test(arcadeSrc),
 	);
 	const nodeView = read('packages/engine-layout/src/lib/LayoutNodeView.svelte');
@@ -869,6 +881,114 @@ function scene4(): Scene {
 		['cameraX', 'cameraY', 'viewWidth', 'viewHeight'].every((v) =>
 			Object.values(ARCADE_VALUES).includes(v as never),
 		) && ['enterView', 'leaveView'].every((e) => ARCADE_VOCAB.events.some((d) => d.name === e)),
+	);
+}
+
+// ── 7. the view's zoom ───────────────────────────────────────────────────────────────────────
+{
+	check(
+		'7. a camera naming no zoom draws at 1 on any device, and its view is the design box itself',
+		cameraZoom(undefined) === 1 &&
+			cameraZoom({}, { mobile: true, windowScale: 2.5 }) === 1 &&
+			(() => {
+				const box = { w: 1422, h: 800 };
+				return zoomedView(box, 1) === box;
+			})() &&
+			JSON.stringify(resolveCameraZoom({})) ===
+				JSON.stringify({ zoom: 1, mobileZoom: 1, zoomIn: 'design' }),
+	);
+	check(
+		'7. zoom shows the design box over it; a phone takes mobileZoom; a window zoom divides out the box scale',
+		cameraZoom({ zoom: 0.5 }) === 0.5 &&
+			cameraZoom({ zoom: 0.5, mobileZoom: 0.25 }, { mobile: true }) === 0.25 &&
+			cameraZoom({ zoom: 0.5 }, { mobile: true }) === 0.5 &&
+			near(cameraZoom({ zoom: 2 / 3, zoomIn: 'window' }, { windowScale: 1.35 }), 2 / 3 / 1.35) &&
+			cameraZoom({ zoom: 2 / 3, zoomIn: 'window' }, { windowScale: 0 }) === 2 / 3 &&
+			JSON.stringify(zoomedView({ w: 1422, h: 800 }, 0.5)) ===
+				JSON.stringify({ w: 2844, h: 1600 }) &&
+			cameraZoom({ zoom: -1, mobileZoom: Number.NaN }) === 1,
+	);
+	check(
+		"7. the original Salmons' mobile test: a mobile user agent, or touch on a window under 1024 px",
+		mobileDevice({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)' }) &&
+			mobileDevice({ userAgent: 'Mozilla/5.0 (Linux; Android 14)' }) &&
+			mobileDevice({ userAgent: 'X11 Linux', maxTouchPoints: 5, innerWidth: 900 }) &&
+			!mobileDevice({ userAgent: 'X11 Linux', maxTouchPoints: 5, innerWidth: 1280 }) &&
+			!mobileDevice({ userAgent: 'Windows NT 10.0', maxTouchPoints: 1, innerWidth: 800 }) &&
+			!mobileDevice(),
+	);
+	const at = (camera: Record<string, unknown>) =>
+		sceneCameraZoom({ id: 's', name: 'S', nodes: [], world: { w: 10, h: 10 }, camera } as Scene);
+	check(
+		'7. the data keeps only a whole zoom, apart from the camera (which never carries it)',
+		at({ zoom: 1 }) === undefined &&
+			JSON.stringify(at({ zoom: 0.5, mobileZoom: 0.5, zoomIn: 'window' })) ===
+				JSON.stringify({ zoom: 0.5, zoomIn: 'window' }) &&
+			JSON.stringify(at({ zoom: 0, mobileZoom: 0.25, zoomIn: 'design' })) ===
+				JSON.stringify({ mobileZoom: 0.25 }) &&
+			!(
+				'zoom' in
+				(sceneCamera({
+					id: 's',
+					name: 'S',
+					nodes: [],
+					camera: { zoom: 0.5, smoothing: 1 },
+				} as Scene) ?? {})
+			),
+	);
+	const saved = normalizeDoc({
+		scenes: [
+			{
+				id: 'w',
+				name: 'W',
+				nodes: [],
+				world: { w: 100, h: 100 },
+				camera: { smoothing: 0.1, zoom: 0.5, zoomIn: 'window', junk: 1 },
+				projection: 'isometric',
+				mirrored: true,
+			},
+			{ id: 'f', name: 'F', nodes: [], world: { w: 100, h: 100 }, mirrored: true },
+		],
+	} as never);
+	const [w, f] = saved.scenes;
+	check(
+		'7. the save keeps a zoom beside the camera, and `mirrored` only on a projected screen',
+		JSON.stringify(w?.camera) === JSON.stringify({ smoothing: 0.1, zoom: 0.5, zoomIn: 'window' }) &&
+			w?.mirrored === true &&
+			f?.mirrored === undefined,
+		JSON.stringify(saved.scenes),
+	);
+	const salmons = salmonsReferenceLayout(salmonsRiver()).scenes.find((sc) => sc.id === 'basegame');
+	const z = cameraZoom(sceneCameraZoom(salmons), { windowScale: 1 });
+	check(
+		"7. Salmons' camera is the original's: no dead zone, ~0.1 s, never clamped, a cell 64 × 32 window px (half on a phone)",
+		!!salmons &&
+			JSON.stringify(sceneCamera(salmons)) ===
+				JSON.stringify({ smoothing: 0.1, clampToWorld: false }) &&
+			near(96 * z, 64) &&
+			near(96 * cameraZoom(sceneCameraZoom(salmons), { windowScale: 1.35 }) * 1.35, 64) &&
+			near(
+				96 * cameraZoom(sceneCameraZoom(salmons), { mobile: true, windowScale: 0.4875 }) * 0.4875,
+				32,
+			),
+		JSON.stringify(salmons?.camera),
+	);
+	const online = read('apps/lines/src/game/online.ts');
+	check(
+		'7. the online camera zooms only a projected screen, and follows the own leap as the ground lift',
+		/const zoom = projector \? sceneCameraZoom\(scene\) : undefined;/.test(online) &&
+			/setWorldProjector\(projector\);/.test(online) &&
+			/const leap = current\.codeLooks\.get\(me\)\?\.drawn\(\)\.lift \?\? 0;/.test(online) &&
+			/shakeY: camera\.offsetY \+ \(current\.lifts\.get\(me\)\?\.lift \?\? 0\) \+ leap,/.test(
+				online,
+			),
+	);
+	const isoWorld = read('packages/engine-layout/src/lib/IsoWorld.svelte');
+	check(
+		'7. <IsoWorld> scales the world by the zoom about the view centre (1 draws as before); <LayoutScene> never zooms',
+		/x: z \* \(view\.shakeX \+ view\.w \/ 2 - centre\.x\)/.test(isoWorld) &&
+			/scale=\{drawing\.zoom\}/.test(isoWorld) &&
+			!/worldDrawing|cameraZoom/.test(read('packages/engine-layout/src/lib/LayoutScene.svelte')),
 	);
 }
 

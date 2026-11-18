@@ -16,8 +16,10 @@ export type SalmonsRiverDrawing = {
 	/** The seed and generator that made it, when a generator did (`engine-mechanics`). */
 	seed?: string | number;
 	generator?: string;
-	/** Present when its pieces sit on a cell grid (`salmonsMap`): sand runs then join into islands. */
-	grid?: { cell: number };
+	/** Present when its pieces sit on a cell grid (`salmonsMap`): sand runs then join into islands.
+	 *  `gyMin` is the original's grid column at world x 0, `sourceRows` the rows above its first
+	 *  column (the source), when the generator says. */
+	grid?: { cell: number; gyMin?: number; sourceRows?: number };
 	bands: readonly { y: number; h: number; left: number; right: number; current: number }[];
 	/** `spin`: the way it turns, 1 or −1. */
 	whirlpools: readonly { x: number; y: number; r: number; spin?: number }[];
@@ -28,6 +30,9 @@ export type SalmonsRiverDrawing = {
 	waterfalls?: readonly (Rect & { height?: number })[];
 	source: Rect;
 	sea: Rect;
+	/** The original's plank bridges (`salmonsMap`), one row each across the water; `height`: the
+	 *  deck's height, grid cells. Drawn only (by the art). */
+	bridges?: readonly (Rect & { height?: number })[];
 };
 
 const COLOR = {
