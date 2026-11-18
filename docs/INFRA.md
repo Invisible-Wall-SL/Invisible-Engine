@@ -1363,7 +1363,7 @@ owner only; agents never change repository settings.
 | Block force pushes | **on** |
 | Require a pull request before merging | **on** — required approvals **0**, no code-owner review, allowed methods merge/squash/rebase (the repo itself only enables squash) |
 | Require status checks to pass | **on** — "Require branches to be up to date" **off**; source **GitHub Actions** for each check |
-| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `rig parity` (`.github/workflows/rig-parity.yml`, `node tools/rig-parity/parity.mjs`, `engine-rig` vs the 4.2.120 reference runtime on every repo rig), which runs on PRs touching `packages/engine-rig`, `tools/rig-parity`, any `spines/` or `rigs/` folder, any `.atlas` / `.skel`, the lockfile or its own file |
+| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` · `runtime-bytes` (since 2026-11-18) — `rig parity` (`.github/workflows/rig-parity.yml`, `node tools/rig-parity/parity.mjs`, `engine-rig` vs the 4.2.120 reference runtime on every repo rig), which runs on PRs touching `packages/engine-rig`, `tools/rig-parity`, any `spines/` or `rigs/` folder, any `.atlas` / `.skel`, the lockfile or its own file |
 
 Approvals stay at 0 because the owner and agents open and merge their own PRs; the checks are the
 gate. "Up to date" stays off because it would re-run ~15 CPU-minutes of `check-all` on every PR each
@@ -1371,8 +1371,11 @@ time `main` moves.
 
 **Where the names come from:** `check-all (n/3)` and `python tests` are the jobs in
 `.github/workflows/checks.yml`, `eslint` is `.github/workflows/lint.yml`, `check-secrets` is
-`.github/workflows/secrets.yml`. Renaming a job or the `check-all` matrix renames the check — change
-the ruleset in the same PR, or every PR waits on a check that no longer exists.
+`.github/workflows/secrets.yml`, `runtime-bytes` is `.github/workflows/runtime-bytes.yml` (every
+released runtime is the bytes its manifest records; a PR that changes them commits its new manifests,
+taken from the failing run's `runtime-bytes` artifact). Renaming a job or the `check-all` matrix
+renames the check — change the ruleset in the same PR, or every PR waits on a check that no longer
+exists.
 
 **Why a docs-only PR is not blocked:** none of these workflows uses `paths-ignore` (a required check
 skipped that way never reports and the PR waits forever). Checks and Lint always run; their first
@@ -1387,7 +1390,7 @@ optional `install-args`), called after checkout and gated with the same `if:` as
 replaced. `agent-eval.yml`, `bug-fix.yml` and `bug-fix-proof.yml` keep their own steps: they pin
 every action by SHA and `scripts/bug-fix/workflow.fixture.mjs` asserts them as written.
 
-**State (2026-09-30):** applied — the live ruleset requires all six checks, plus deletions, force
+**State (2026-09-30; `runtime-bytes` added 2026-11-18):** applied — the live ruleset requires these checks, plus deletions, force
 pushes and PR-required (0 approvals). To recreate or repair it from a terminal with an admin token,
 the whole ruleset in one call:
 
@@ -1408,14 +1411,15 @@ gh api -X PUT repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --input
     {"context":"check-all (3/3)","integration_id":15368},
     {"context":"python tests","integration_id":15368},
     {"context":"eslint","integration_id":15368},
-    {"context":"check-secrets","integration_id":15368}]}}]}
+    {"context":"check-secrets","integration_id":15368},
+    {"context":"runtime-bytes","integration_id":15368}]}}]}
 EOF
 ```
 
 `15368` is the GitHub Actions app, so a status of the same name posted by anything else does not
 satisfy the check. Verify afterwards with
 `gh api repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`
-— six names. With no bypass, a direct `git push origin main` is refused: every change lands through
+— the seven names above, plus `current-games` (below). With no bypass, a direct `git push origin main` is refused: every change lands through
 a PR.
 
 ### Who may post `current-games` (owner step after the trusted-verdict PR merges)

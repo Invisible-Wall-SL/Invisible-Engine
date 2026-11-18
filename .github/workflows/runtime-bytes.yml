@@ -15,9 +15,9 @@
 # path that cannot legitimately reach a 2D runtime (packages/engine-3d, the family seams, the build
 # config, the lockfile) failing here is a leak.
 #
-# It runs only when the change set touches the engine, the lockfile or this gate; otherwise it passes in
-# seconds, so it can be a required check (it always reports). Required or not is the owner's ruleset
-# (docs/INFRA.md "Branch ruleset on main").
+# It builds only when the change reaches a runtime (`check-runtime-bytes.mjs --reaches`); otherwise it
+# passes in seconds, so it always reports. A REQUIRED check on main since 2026-11-18 (docs/INFRA.md
+# "Branch ruleset on main"): renaming the job renames the check.
 
 name: runtime-bytes
 
