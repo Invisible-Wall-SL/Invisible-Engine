@@ -105,3 +105,39 @@ export async function sweepStaleUploads({
 	}
 	return swept;
 }
+
+/**
+ * The files the row-driven purge cannot see: a reading or build file whose row never landed (a
+ * crash, or an insert that failed with an unsure answer, between the file write and the row). A
+ * file under a project's `perf/reports/` or `perf/builds/` older than a day that no row — claimed
+ * ones included — points at is deleted. The day keeps a file whose row is being inserted right now.
+ */
+export async function sweepOrphanFiles({
+	prefixes,
+	listObjects,
+	registered,
+	deleteObject,
+	now = new Date(),
+}: {
+	prefixes: string[];
+	listObjects: (prefix: string) => Promise<{ key: string; size: number; lastModified: number }[]>;
+	/** Of these keys, the ones a `perf_reports` or `perf_builds` row names. */
+	registered: (keys: string[]) => Promise<Set<string>>;
+	deleteObject: (key: string) => Promise<void>;
+	now?: Date;
+}): Promise<number> {
+	let swept = 0;
+	for (const prefix of prefixes) {
+		const old = (await listObjects(prefix)).filter(
+			(o) => o.key.startsWith(prefix) && now.getTime() - o.lastModified >= STALE_UPLOAD_MS,
+		);
+		if (!old.length) continue;
+		const known = await registered(old.map((o) => o.key));
+		for (const o of old) {
+			if (known.has(o.key)) continue;
+			await deleteObject(o.key);
+			swept++;
+		}
+	}
+	return swept;
+}

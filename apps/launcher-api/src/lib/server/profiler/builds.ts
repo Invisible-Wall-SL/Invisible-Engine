@@ -1,11 +1,13 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { PERF_REPORT_MAX_BYTES, PERF_RETENTION_MS } from '$lib/profiler';
 import {
+	gameKeyRefusal,
 	summarizeBuildBreakdown,
 	type PerfBuildListItem,
 	type PerfBuildSummary,
 } from '$lib/profilerBuilds';
 import { getDb } from '../db';
+import { getGame } from '../games';
 import { perfBuilds, type PerfBuild } from '../db/schema';
 import { perfBuildKey, perfUploadKey } from '../projectPaths';
 import {
@@ -140,6 +142,12 @@ export async function registerBuild(
 	let summary: PerfBuildSummary;
 	try {
 		summary = parseBreakdown(text);
+		const refusal = gameKeyRefusal(
+			summary.kind,
+			(await getGame(gameKey))?.projectKey,
+			origin.projectKey,
+		);
+		if (refusal) throw new ReportRefused(403, refusal);
 	} catch (e) {
 		await deleteObject(staged).catch(() => undefined);
 		throw e;
