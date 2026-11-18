@@ -9,23 +9,28 @@
 
 import { ISO_PROJECTOR, type IsoProjector } from './projection';
 
-const drawing = $state<{ projector: IsoProjector; zoom: number }>({
-	projector: ISO_PROJECTOR,
-	zoom: 1,
-});
+class WorldDrawing {
+	projector = $state<IsoProjector>(ISO_PROJECTOR);
+	zoom = $state(1);
+}
+
+// Made on first use, so a runtime that imports the barrel but never draws a projected world
+// carries no module-level state call (its bundle keeps its bytes).
+let drawing: WorldDrawing | undefined;
+const live = (): WorldDrawing => (drawing ??= new WorldDrawing());
 
 /** The projected world's projector and zoom (reactive). */
 export const worldDrawing = (): { readonly projector: IsoProjector; readonly zoom: number } =>
-	drawing;
+	live();
 
 /** Set the projector the projected world is drawn by (the world screen's `sceneProjector`). */
 export const setWorldProjector = (projector: IsoProjector | undefined): void => {
 	const next = projector ?? ISO_PROJECTOR;
-	if (drawing.projector !== next) drawing.projector = next;
+	if (live().projector !== next) live().projector = next;
 };
 
 /** Set the camera's zoom (`engine-mechanics` `cameraZoom`; > 0, 1 draws as before). */
 export const setWorldZoom = (zoom: number): void => {
 	const next = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-	if (drawing.zoom !== next) drawing.zoom = next;
+	if (live().zoom !== next) live().zoom = next;
 };
