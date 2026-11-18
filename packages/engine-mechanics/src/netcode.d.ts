@@ -67,10 +67,10 @@ export type Interpolator = {
 
 export function createInterpolator(options?: { snapPx?: number; keep?: number }): Interpolator;
 
-export const RECONCILED_FIELDS: readonly ['x', 'y', 'status'];
+export const RECONCILED_FIELDS: readonly ['x', 'y', 'status', 'held'];
 
 /** The state the Colyseus SDK's `Reconciler` hands {@link reconcilerStep}: {@link RECONCILED_FIELDS}. */
-export type ReconciledState = { x: number; y: number; status: number };
+export type ReconciledState = { x: number; y: number; status: number; held?: boolean };
 
 export function reconcilerStep(options: {
 	body: Body;

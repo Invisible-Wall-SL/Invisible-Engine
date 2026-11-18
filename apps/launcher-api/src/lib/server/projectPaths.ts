@@ -112,6 +112,15 @@ export function perfUploadKey(client: string, project: string, id: string): stri
 	return `${perfUploadsPrefix(client, project)}${id}.json`;
 }
 
+/** Where a project's reading files and build files live — what the orphan sweep lists. */
+export function perfReportsPrefix(client: string, project: string): string {
+	return `${SUB.perf(client, project)}/reports/`;
+}
+
+export function perfBuildsPrefix(client: string, project: string): string {
+	return `${SUB.perf(client, project)}/builds/`;
+}
+
 /** One Invisible Profiler reading's full JSON: `<client>/<project>/perf/reports/<id>.json`. */
 export function perfReportKey(client: string, project: string, id: string): string {
 	return `${SUB.perf(client, project)}/reports/${id}.json`;

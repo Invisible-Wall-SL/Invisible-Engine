@@ -125,6 +125,24 @@ export function summarizeBuildBreakdown(json: unknown): BuildSummaryResult {
 	};
 }
 
+/**
+ * Why a build may not be recorded under this game key, or null when it may. A ☁ Publish registers
+ * its game card in the project BEFORE it sends the record, so its key must be one of the project's
+ * games. A 📦 Deliver registers no card, so its key may also be one no game holds yet (a game only
+ * ever delivered) — never another project's. Without this, any key would open a new line whose
+ * newest build the purge never takes.
+ */
+export function gameKeyRefusal(
+	kind: PerfBuildKind,
+	ownerProject: string | null | undefined,
+	projectKey: string,
+): string | null {
+	if (ownerProject === projectKey) return null;
+	if (ownerProject) return 'This game belongs to another project.';
+	if (kind === 'delivery' && ownerProject === undefined) return null;
+	return 'No game of this project has this key — publish registers it first.';
+}
+
 /** The row the Builds tab lists. */
 export interface PerfBuildListItem extends PerfBuildSummary {
 	id: string;
@@ -228,18 +246,17 @@ export function buildDiff(after: PerfBuildSummary, before: PerfBuildSummary): Bu
 }
 
 /**
- * Whether a reading was taken on this build, by the `__IE_BUILD__` stamp the probe reports: the
- * same build number, and — when both name one — the same commit (a desktop build's stamp `sha` is
- * its engine commit; a short sha matches its full form). A reading names no game key, so two game
- * keys of one project that share a build number AND an engine commit both claim it: the join is
- * by stamp, not by game. Rare (the launcher counts each key separately), and said in the tab's
- * tooltip.
+ * Whether a reading was taken on this build: the same game (the capture link's token names it, or
+ * Paste's picker — a reading without one is matched on the stamp alone), the same build number from
+ * the `__IE_BUILD__` stamp the probe reports, and — when both name one — the same commit (a desktop
+ * build's stamp `sha` is its engine commit; a short sha matches its full form).
  */
 export function readingOnBuild(
-	reading: Pick<PerfReportListItem, 'buildVersion' | 'buildSha'>,
-	build: Pick<PerfBuildSummary, 'build' | 'engineSha'>,
+	reading: Pick<PerfReportListItem, 'buildVersion' | 'buildSha'> & { gameKey?: string | null },
+	build: Pick<PerfBuildSummary, 'build' | 'engineSha'> & { gameKey?: string },
 ): boolean {
 	if (!reading.buildVersion || reading.buildVersion !== build.build) return false;
+	if (reading.gameKey && build.gameKey && reading.gameKey !== build.gameKey) return false;
 	const a = reading.buildSha?.toLowerCase();
 	const b = build.engineSha?.toLowerCase();
 	if (!a || !b) return true;

@@ -1,5 +1,6 @@
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
+import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
@@ -23,6 +24,9 @@ export type SalmonsArt = {
 	river: ArtMount;
 	/** A character's look by its character id, at its body's size; none for another. */
 	look: (character: string, body: { w: number; h: number }) => CodeLook | undefined;
+	/** How far the ground at a world place is drawn raised by the waterfalls below it, screen px:
+	 *  a character there is drawn as high (`referenceLayouts/salmonsElevation.ts`). */
+	ground: (x: number, y: number) => number;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
@@ -42,7 +46,8 @@ export async function loadSalmonsArt(
 	sheets: readonly ProjectSheet[] = [],
 ): Promise<SalmonsArt> {
 	const textures = await loadSalmonsTextures(sheets);
-	const looks = createLookFactory(textures, river);
+	const looks = createLookFactory(textures);
+	const elevation = riverElevation(river.waterfalls);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
@@ -56,6 +61,7 @@ export async function loadSalmonsArt(
 			};
 		},
 		look: looks.look,
+		ground: (_x, y) => elevation.at(y),
 		line: (sinceCastMs, nowMs, fromDx) => {
 			const k = Math.min(1, Math.max(0, sinceCastMs / CAST_MS));
 			return {

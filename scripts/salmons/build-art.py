@@ -13,10 +13,11 @@ drawn size. Reads the old game's untouched images and writes, into
                                 (a module, not a .json: the workspace compiles without
                                 `resolveJsonModule`), formatted with the repo's Prettier
   waterfall_face.webp           the tile the waterfalls scroll (a TilingSprite, kept out of sheets)
+  cliff.webp                    the rock face under a waterfall and its banks (a TilingSprite)
 
-The bridges are not built: the engine's river has none. The cliff is not built: the engine draws
-the waterfalls flat, with no elevation. Needs Pillow (with WebP) and numpy. The output is
-deterministic for one Pillow / libwebp: re-running it on the same sources rewrites the same bytes.
+The bridges are not built: the engine's river has none. Needs Pillow (with WebP) and numpy. The
+output is deterministic for one Pillow / libwebp: re-running it on the same sources rewrites the
+same bytes.
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ SHEETS: dict[str, list[dict]] = {
         {'source': 'bear_sprite.png', 'trim': True, 'size': [256], 'names': ['bear']},
     ],
 }
-TILES = ['waterfall_face.png']
+TILES = ['waterfall_face.png', 'cliff.png']
 
 
 def edge_connected(mask: np.ndarray) -> np.ndarray:

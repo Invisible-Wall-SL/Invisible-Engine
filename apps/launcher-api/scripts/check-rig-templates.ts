@@ -286,7 +286,158 @@ const refused: [string, RigTemplate, RegExp][] = [
 		{ ...base, clips: [...base.clips, base.clips[0]] },
 		/clip "idle" is listed twice/,
 	],
+	...(
+		[
+			[
+				'motion on a missing channel',
+				{ kind: 'blend', channel: 'wink', plus: ['jawOpen'], gain: 1 },
+				/missing channel "wink"/,
+			],
+			[
+				'motion reading an unknown blendshape',
+				{ kind: 'blend', channel: 'breath', plus: ['jawOpne'], gain: 1 },
+				/unknown blendshape "jawOpne"/,
+			],
+			[
+				'motion keying the jaw twice',
+				{ kind: 'blend', channel: 'jaw', plus: ['jawOpen'], gain: 1 },
+				/channel "jaw" twice/,
+			],
+			[
+				'motion setting a number on the mouth',
+				{ kind: 'blend', channel: 'mouth', plus: ['jawOpen'], gain: 1 },
+				/number on a shapes channel/,
+			],
+			[
+				'motion naming a face point past 477',
+				{ kind: 'angle', channel: 'breath', from: 33, to: 478, gain: 1, rest: 'level' },
+				/face point outside/,
+			],
+			[
+				'motion picking shapes on a number channel',
+				{
+					kind: 'shape',
+					channel: 'breath',
+					hold: 0.1,
+					features: { open: ['jawOpen'] },
+					shapes: {},
+				},
+				/channel has none/,
+			],
+		] as const
+	).map(([label, entry, want]): [string, RigTemplate, RegExp] => [
+		label,
+		{
+			...base,
+			motion: {
+				...base.motion!,
+				face: {
+					...base.motion!.face!,
+					// The entry replaces the channel's own one, except where the case is the duplicate.
+					entries: [
+						...base.motion!.face!.entries.filter(
+							(e) => /twice/.test(label) || e.channel !== entry.channel,
+						),
+						entry as FaceEntry,
+					],
+				},
+			},
+		},
+		want,
+	]),
+	[
+		'motion choosing a mouth image of another slot',
+		{
+			...base,
+			motion: {
+				...base.motion!,
+				face: {
+					...base.motion!.face!,
+					entries: base.motion!.face!.entries.map((e) =>
+						e.kind === 'shape' ? { ...e, shapes: { ...e.shapes, nose: {} } } : e,
+					),
+				},
+			},
+		},
+		/names "nose", not a part of "mouth"/,
+	],
 ];
+type FaceEntry = NonNullable<NonNullable<RigTemplate['motion']>['face']>['entries'][number];
+type BodyEntry = NonNullable<NonNullable<RigTemplate['motion']>['body']>['entries'][number];
+const fullBody = RIG_TEMPLATES.find((t) => t.id === 'full-body')!;
+const withBody = (f: (e: BodyEntry[]) => BodyEntry[]): RigTemplate => ({
+	...fullBody,
+	motion: {
+		...fullBody.motion!,
+		body: { ...fullBody.motion!.body!, entries: f(fullBody.motion!.body!.entries) },
+	},
+});
+refused.push(
+	[
+		'a forearm solved before its upper arm',
+		withBody((es) => {
+			const i = es.findIndex((e) => e.channel === 'arm_l');
+			const j = es.findIndex((e) => e.channel === 'elbow_l');
+			const out = [...es];
+			[out[i], out[j]] = [out[j], out[i]];
+			return out;
+		}),
+		/turns "upper_arm_l" after its child "lower_arm_l"/,
+	],
+	[
+		'motion turning a bone its channel does not rotate',
+		withBody((es) => es.map((e) => (e.channel === 'knee_l' ? { ...e, bone: 'thigh_r' } : e))),
+		/turns "thigh_r", which the channel does not rotate/,
+	],
+	[
+		'motion turning a missing bone',
+		withBody((es) => es.map((e) => (e.channel === 'knee_l' ? { ...e, bone: 'toe_l' } : e))),
+		/missing bone "toe_l"/,
+	],
+	[
+		'motion moving the root on an axis its channel does not drive',
+		withBody((es) =>
+			es.map((e) => (e.channel === 'hop' && e.kind === 'root' ? { ...e, axis: 'x' as const } : e)),
+		),
+		/moves the root on x/,
+	],
+	[
+		'motion naming a pose point past 32',
+		withBody((es) =>
+			es.map((e) => (e.channel === 'arm_l' && e.kind === 'bone' ? { ...e, to: 33 } : e)),
+		),
+		/pose point outside/,
+	],
+	[
+		'a minimum span past the whole body',
+		withBody((es) =>
+			es.map((e) => (e.channel === 'head_tilt' && e.kind === 'bone' ? { ...e, minSpan: 1.5 } : e)),
+		),
+		/minimum span between 0 and 1/,
+	],
+	[
+		'a body scale with no rig length',
+		{
+			...fullBody,
+			motion: {
+				...fullBody.motion!,
+				body: { ...fullBody.motion!.body!, scale: { ...fullBody.motion!.body!.scale, rig: 0 } },
+			},
+		},
+		/rig length/,
+	],
+);
+check(
+	'bust-face maps the face, full-body the body',
+	!!base.motion?.face && !base.motion?.body && !!fullBody.motion?.body && !fullBody.motion?.face,
+);
+check(
+	'every face channel of bust-face but the nod and breath is driven by motion',
+	base.channels
+		.map((c) => c.id)
+		.filter((id) => !base.motion!.face!.entries.some((e) => e.channel === id))
+		.join() === 'head_nod,breath',
+);
 check(
 	'bust-face has the seven starter clips',
 	base.clips.map((c) => c.name).join() === 'idle,blink,talk,happy,surprised,win_small,win_big',

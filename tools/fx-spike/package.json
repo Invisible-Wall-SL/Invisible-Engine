@@ -52,7 +52,7 @@
 		"utils-event-emitter": "workspace:*",
 		"@barvynkoa/particle-emitter": "0.0.1",
 		"engine-rig": "workspace:*",
-		"pixi.js": "8.22.0",
+		"pixi.js": "8.23.0",
 		"esbuild": "0.28.2"
 	}
 }

@@ -17,6 +17,7 @@ export * from './src/jumps.js';
 export * from './src/abilities.js';
 export * from './src/online.js';
 export * from './src/netcode.js';
+export * from './src/pointerControl.js';
 export * from './src/onlineRules.js';
 export * from './src/onlineFlow.js';
 export * from './src/onlineBots.js';

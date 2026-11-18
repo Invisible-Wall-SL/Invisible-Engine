@@ -29,6 +29,7 @@
  */
 
 import { createRng } from './board.js';
+import { CELL } from './salmonsMap.js';
 
 /** The river the authored config and layout are made from (a room plays its own). */
 export const SALMONS_SEED = 'salmons-1';
@@ -227,7 +228,14 @@ export function salmonsGeometry(river) {
 	river.bands.forEach((band, i) => {
 		const id = `band${i}`;
 		zones.push({ id: `${id}Water`, x: band.left, y: band.y, w: band.right - band.left, h: band.h });
-		rules.push({ zone: `${id}Water`, force: { x: 0, y: band.current }, characters: ['salmon'] });
+		// By the salmon's centre: on the line between two bands only one current carries it, as the
+		// original's one current a tile (two rapids, 280 px/s, would hold it there against its 240).
+		rules.push({
+			zone: `${id}Water`,
+			force: { x: 0, y: band.current },
+			characters: ['salmon'],
+			centre: true,
+		});
 		zones.push({ id: `${id}Left`, x: 0, y: band.y, w: band.left, h: band.h });
 		rules.push({ zone: `${id}Left`, force: { x: BANK_PUSH, y: 0 }, characters: ['salmon'] });
 		zones.push({
@@ -345,6 +353,14 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
 				nearby: { w: 2400, h: 1800 },
+				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
+				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
+				// jumps a salmon, swipes a bear and casts a fisherman's line.
+				pointer: {
+					mouse: 'hover',
+					deadZone: 1.5 * CELL,
+					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
+				},
 				rules: {
 					zones: geometry.zoneRules,
 					abilities: [

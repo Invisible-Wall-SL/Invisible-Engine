@@ -49,14 +49,14 @@ A seed and the same keys replay the same game.
   change. A level with no tiles and no falling character still steps with `stepSolid`.
 - **`engine-mechanics` is dependency-free plain ESM** with `.d.ts` beside it. The game server and
   the device import the same file (`packages/engine-mechanics/src/online.js`).
-- **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}`. The server
-  owns every place. The room's body equals the device's `stepPlayer` fold bit for bit
-  (`services/game-server/src/roomSim.ts`; `check:room-sim`).
+- **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (touch and
+  mouse too: `arcade.online.pointer`, `check:arcade-pointer`). The server owns every place. The
+  room's body is the device's `stepPlayer` fold bit for bit (`roomSim.ts`; `check:room-sim`).
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents and solids
   (`solid: true`, or one-way `'below'` etc., per character) live in `onlineLevel` / `stepPlayer`,
   which the device runs too. A rules module (`ONLINE_RULES_MODULES`) runs on the server only; a body
-  it moves (a climb, a reel) reaches the device as a correction. Its choices hash the room's seed.
-  Change Salmons' rules or river, re-record `fixtures/salmons-traces.json` (`check:online-rules`).
+  it moves (a climb, a reel), holds (`holds`) or lets through (`level`) is a device's correction;
+  its choices hash the seed. A change to Salmons' rules re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
   (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
   `server` variables `online.ts` writes from each state (`variable-server-owned`). The own
@@ -107,7 +107,7 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,pointerControl,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `arcadeClips.svelte.ts`, `arcadeArt.svelte.ts`, `MountedArt.svelte`, `characterClips.ts`, `salmonsArt/` (lazy), `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
@@ -115,7 +115,7 @@ A seed and the same keys replay the same game.
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
-| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs`                                                          |
+| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, 3D: `arcadeRoom3d.ts`, `roomSim3d.ts`; `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs` (`--3d`); 3D mechanics `packages/engine-mechanics/src/{motion3d,online3d}.js` |
 
 ## Known failure modes
 
@@ -170,8 +170,8 @@ A seed and the same keys replay the same game.
 
 - **Root gates:** `pnpm check:arcade-motion`, `pnpm check:arcade-characters`,
   `pnpm check:arcade-platformer`, `pnpm check:character-clips`, `pnpm check:room-sim` (starts a
-  real Colyseus server, ~30 s), `pnpm check:game-app-deps`. Each mechanics gate compares a
-  committed replay (`--update` rewrites it; only when the change is meant to move it).
+  real Colyseus server, ~30 s), `check:arcade-3d`, `check:room-sim-3d`, `check:game-app-deps`. Each
+  mechanics gate compares a committed replay (`--update` rewrites it; only when the change is meant to move it).
 - **Launcher gates** (`pnpm --filter launcher-api <name>`): `check:arcade-rules`,
   `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
   `check:arcade-platformer`, `check:characters-tool`, `check:editor-tilemap`,

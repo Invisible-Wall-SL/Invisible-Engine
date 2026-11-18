@@ -63,7 +63,7 @@ export const inputsThisStep = (waiting: number, credit: number): number =>
 
 /** The most catch-up a player can bank, in seconds: a stall that long drains; spending it is a dash
  *  of at most {@link MOST_PER_STEP}× speed for as long. */
-const CREDIT_SECONDS = 0.5;
+export const CREDIT_SECONDS = 0.5;
 
 export type SimPlayer = RulesPlayer & {
 	name: string;
@@ -326,7 +326,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 						rules.applied(player, input, players.values(), stamp);
 						continue;
 					}
-					const level = levels.get(player.character.id);
+					const level = rules.level(player, levels.get(player.character.id));
 					stepPlayer(player.body, input, player.character.speed, ctx, field, level);
 					player.facing = facingOf(input, player.facing);
 					player.moving = input.moveX !== 0 || input.moveY !== 0;

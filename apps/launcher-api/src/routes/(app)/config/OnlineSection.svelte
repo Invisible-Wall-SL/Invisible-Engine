@@ -7,6 +7,10 @@
 		ARCADE_ONLINE_DEFAULTS,
 		ARCADE_ONLINE_LIMITS,
 		ARCADE_ONLINE_RULE_DEFAULTS,
+		ARCADE_POINTER_DEFAULTS,
+		ARCADE_POINTER_LIMITS,
+		ARCADE_POINTER_MOUSE_MODES,
+		ARCADE_POINTER_TAP_BUTTONS,
 		ONLINE_GENERATOR_IDS,
 		ONLINE_RULES_MODULE_IDS,
 		type ArcadeNetcode,
@@ -30,6 +34,9 @@
 		setBotsField,
 		setNearby,
 		setOnlineCharacterField,
+		setPointerField,
+		setPointerOn,
+		setPointerTap,
 		setRoomInt,
 		setRoomLayer,
 		setRoomSpawn,
@@ -61,6 +68,15 @@
 		engine: 'Engine — our own prediction (default)',
 		colyseus: "Colyseus — the SDK's own prediction",
 	};
+	const MOUSE_LABELS: Record<(typeof ARCADE_POINTER_MOUSE_MODES)[number], string> = {
+		hover: 'Follows the cursor (no button)',
+		press: 'Only while the button is held',
+	};
+	const TAP_LABELS: Record<(typeof ARCADE_POINTER_TAP_BUTTONS)[number], string> = {
+		jump: 'Jump (Space)',
+		ability1: 'Ability 1 (J)',
+		ability2: 'Ability 2 (K)',
+	};
 	const ROOM_INTS = [
 		['maxPlayers', 'Players a room holds', ARCADE_ONLINE_LIMITS.maxPlayers],
 		['tickHz', 'Steps per second', ARCADE_ONLINE_LIMITS.tickHz],
@@ -74,6 +90,7 @@
 	const characters = $derived(online.characters.map((c) => c.id));
 	const brains = $derived((doc.arcade?.characters ?? []).map((c) => c.id));
 	const rules = $derived(online.rules);
+	const pointer = $derived(online.pointer);
 	const bots = $derived(online.bots);
 	/** A generator the room knows (the validator flags any other). */
 	const generator = $derived(
@@ -269,6 +286,92 @@
 	{@render issueList('arcade.online.patchHz')}
 	{@render issueList('arcade.online.spawn')}
 	{@render issueList('arcade.online.nearby')}
+</SectionCard>
+
+<SectionCard scope="config" id="onlinePointer" title="Mouse and touch">
+	{#snippet info()}
+		<p>
+			Lets a player steer with the mouse or a finger, as well as the keys: the player heads for the
+			point under the finger (or the cursor) at full speed and stops near it. A
+			<strong>tap</strong> (or a click) presses the character's button there. The device turns the pointer
+			into the same inputs as the keys, so the server still decides every move. Off, the game reads the
+			keyboard only. Held keys win over the pointer.
+		</p>
+	{/snippet}
+	<fieldset class="panel" disabled={readOnly}>
+		<div class="row">
+			<label class="check"
+				><input
+					type="checkbox"
+					checked={!!pointer}
+					onchange={(e) => setPointerOn(doc, e.currentTarget.checked)}
+				/>Mouse and touch control</label
+			>
+			{#if pointer}
+				<label
+					>Mouse<select
+						value={pointer.mouse ?? ARCADE_POINTER_DEFAULTS.mouse}
+						onchange={(e) => setPointerField(doc, 'mouse', e.currentTarget.value)}
+					>
+						{#each ARCADE_POINTER_MOUSE_MODES as mode (mode)}
+							<option value={mode}>{MOUSE_LABELS[mode]}</option>
+						{/each}
+					</select></label
+				>
+				<label
+					>Stop within (px)<InfoTip
+						>The player stops when it is this close to the pointer, so it does not jitter on it.</InfoTip
+					><input
+						type="number"
+						min={ARCADE_POINTER_LIMITS.deadZone.min}
+						max={ARCADE_POINTER_LIMITS.deadZone.max}
+						value={pointer.deadZone ?? ''}
+						placeholder={String(ARCADE_POINTER_DEFAULTS.deadZone)}
+						onchange={(e) => setPointerField(doc, 'deadZone', e.currentTarget.value)}
+					/></label
+				>
+				<label
+					>Tap within (px)<InfoTip
+						>A press that moves no further than this on the screen before it lifts is a tap;
+						further, it only steered.</InfoTip
+					><input
+						type="number"
+						min={ARCADE_POINTER_LIMITS.tapPx.min}
+						max={ARCADE_POINTER_LIMITS.tapPx.max}
+						value={pointer.tapPx ?? ''}
+						placeholder={String(ARCADE_POINTER_DEFAULTS.tapPx)}
+						onchange={(e) => setPointerField(doc, 'tapPx', e.currentTarget.value)}
+					/></label
+				>
+			{/if}
+		</div>
+		{#if pointer && characters.length}
+			<table class="tbl">
+				<thead>
+					<tr><th>Character</th><th>A tap presses</th></tr>
+				</thead>
+				<tbody>
+					{#each characters as id (id)}
+						<tr>
+							<td>{id}</td>
+							<td
+								><select
+									value={pointer.taps?.[id] ?? ''}
+									onchange={(e) => setPointerTap(doc, id, e.currentTarget.value)}
+								>
+									<option value="">Nothing (it only steers)</option>
+									{#each ARCADE_POINTER_TAP_BUTTONS as button (button)}
+										<option value={button}>{TAP_LABELS[button]}</option>
+									{/each}
+								</select></td
+							>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
+	</fieldset>
+	{@render issueList('arcade.online.pointer')}
 </SectionCard>
 
 <SectionCard scope="config" id="onlineRules" title="Online rules">

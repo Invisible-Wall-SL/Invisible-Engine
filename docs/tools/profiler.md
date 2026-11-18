@@ -68,7 +68,8 @@ Players never load the readout at all.
 
 7. A delivery runs on a partner's page, and nothing can be sent from there. Open it with `?perf=1`,
    open the readout and tap **Copy**. In **Paste a reading**, paste the text into the box, add a
-   **Device label** if you like and click **Keep reading**. It is kept like a sent reading, marked
+   **Device label** if you like, pick the **Game** it was taken on (so it joins that game's builds;
+   **Not sure** joins on the build number alone) and click **Keep reading**. It is kept like a sent reading, marked
    `paste`, and the section says "Kept." The same works for any reading you were sent by hand.
    A paste that is not a reading is refused with the reason (for example "Not JSON — paste the text
    ?perf=1 Copy gives." or "The report holds no frames yet — play a little, then send it.").
@@ -128,8 +129,9 @@ Players never load the readout at all.
     of the same game and kind (shipped, GPU, files, errors, warnings); a table of each category with
     the previous build's size and the change; and **Readings on this build**, with their fps and
     texture memory.
-13. A reading belongs to a build when it reports the same build number and, when both name one,
-    the same engine commit. So a reading pasted from a delivery joins its delivery build by itself.
+13. A reading belongs to a build when it was taken on the same game (a capture link names its game;
+    a pasted reading names the one you picked), reports the same build number and, when both name
+    one, the same engine commit. Each reading shows its game under the device.
 14. A build record is deleted **15 days** after it was sent unless you tick **Keep**, like a
     reading, except the newest build of each game and kind (one publish and one delivery per game),
     which always stays so there is something to compare with: its Keep column reads `newest`.
@@ -159,6 +161,10 @@ Today:
   with none.
 - Only desktop builds are recorded (Invisible Launcher v1.0.68 or later); an older launcher sends
   nothing, and an online Publish from Game Maker makes no build record.
-- A reading does not say which game it came from, so two games of one project with the same build
-  number and engine commit both list it under **Readings on this build**.
+- A pasted reading left on **Not sure** is matched on its build number and commit alone, so two
+  games of one project with the same number and commit both list it.
+- A reading over 480 KB sent from a phone arrives without its per-texture list and spike records
+  ("sent — trimmed" in the readout), until the storage accepts uploads from the games site.
+- A reading from an online game is tagged with the engine release live when it arrived, not when
+  the phone loaded the game; a release in between would tag the newer one.
 - The build list shows the newest 200 builds.

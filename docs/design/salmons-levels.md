@@ -88,7 +88,8 @@ level is about 730 zones (P10.16's river: 71); a room step with 80 players takes
   often). A levels hash in the room state, refused or reloaded on a mismatch, would close it.
 - Bridges: generated, not drawn (no bridge art is built) and not in the rules (a bear blocked, a
   fisherman on the deck).
-- Waterfall `height` is carried, but the climb still takes the engine's 4 taps.
+- Waterfall `height`: closed 2026-11-17 (the original's climb and the raised river;
+  [status/salmons](../status/salmons.md)).
 - The editor stage shows placeholders, not the original art; picking a cell is by typed gx / gy,
   not by clicking the stage.
 - The original's speeds and current (6 and 1.5 tiles/s) are not taken: the config keeps the

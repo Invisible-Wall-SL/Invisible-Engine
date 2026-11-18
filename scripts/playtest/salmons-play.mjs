@@ -373,7 +373,11 @@ function isometricAt(png, arcade, me) {
 		return { ok: false, cam, at, size: [png.width, png.height] };
 	const dx = at.x - (cam.x + cam.view.w / 2);
 	const dy = at.y - (cam.y + cam.view.h / 2);
-	const centre = { x: cam.view.w / 2 + cam.shakeX, y: cam.view.h / 2 + cam.shakeY };
+	// Raised with the ground under it, the camera raised with the own player's (the waterfalls).
+	const centre = {
+		x: cam.view.w / 2 + cam.shakeX,
+		y: cam.view.h / 2 + cam.shakeY + (cam.lift ?? 0) - (at.ground ?? 0),
+	};
 	// The placeholder look stands on its place, 44 px tall: its middle is where its colour is sure.
 	const screen = (x, y) => ({ x: Math.round(x * k), y: Math.round((y - 22) * k) });
 	const projected = screen(centre.x + dx - dy, centre.y + (dx + dy) / 2);
@@ -437,14 +441,15 @@ const rgbAt = (png, { x, y }) => {
 	return [...png.data.subarray(i, i + 3)];
 };
 /** Where a world point is drawn on a page's isometric screen (as `isometricAt`), in image px,
- *  raised by `lift` design px. */
+ *  raised by `lift` design px and by the ground under it (`at.ground`, the waterfalls'). */
 const isoScreen = (png, cam, at, lift = 0) => {
 	const k = png.width / cam.view.w;
 	const dx = at.x - (cam.x + cam.view.w / 2);
 	const dy = at.y - (cam.y + cam.view.h / 2);
+	const raised = lift + (at.ground ?? 0) - (cam.lift ?? 0);
 	return {
 		x: Math.round((cam.view.w / 2 + cam.shakeX + dx - dy) * k),
-		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - lift) * k),
+		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - raised) * k),
 	};
 };
 /** Whether a screenshot shows `id` drawn gold (`engine-layout` `SpawnLayer`'s gold ramp over the
@@ -663,6 +668,25 @@ try {
 		artA?.looks?.[me]?.kind === 'rope' && artA.looks[me].region === 'salmon_golden',
 		artA?.looks?.[me],
 	);
+	// The leap (the original's, 2026-11-17): Space in open water lifts the salmon off the river,
+	// curling, about 1.1 s, and it lands again.
+	await a.key('Space', 'down');
+	let leapTop = { lift: 0, curl: 0 };
+	for (let i = 0; i < 12; i++) {
+		await a.play([{ op: 'step', frames: 6 }]);
+		await wait(50);
+		const look = (await a.state()).arcade?.online?.art?.looks?.[me];
+		if ((look?.lift ?? 0) > leapTop.lift) leapTop = { lift: look.lift, curl: look.curl };
+	}
+	await a.key('Space', 'up');
+	await settle(a, 1500);
+	const landedA = (await a.state()).arcade?.online?.art?.looks?.[me];
+	verdict(
+		'Space in open water: page A’s salmon leaps off the river and curls',
+		leapTop.lift > 30 && leapTop.curl > 0.3,
+		leapTop,
+	);
+	verdict('…and lands on the water again', landedA?.lift === 0, landedA);
 	const lookB = (await b.state()).arcade?.online?.art?.looks?.[meB];
 	verdict(
 		'page B draws its bear as the bear sprite',
@@ -807,16 +831,106 @@ try {
 		await tap(e);
 		climbed = (await eventsOf(e)).find((ev) => ev.type === 'climbed' && ev.id === meE);
 	}
-	await settle(e, 400);
+	// Let go at the top (no lift over it, since 2026-11-17), it swims on over the waterfall.
+	await settle(e, 1500);
 	const above = await ownOf(e);
 	await e.key('ArrowUp', 'up');
 	verdict(
-		'…tapping Space climbs it: the room tells of the climb and the salmon is above the waterfall',
+		'…tapping Space climbs it: the room tells of the climb, and the salmon swims on over it',
 		!!climbed && !!above && above.y < FALL.y,
 		{ climbed, above, fall: FALL },
 	);
 	writeFileSync(join(out, '08-over-the-waterfall.png'), await e.page.screenshot());
 	result.shots.push('08-over-the-waterfall.png');
+
+	// Mouse and touch (docs/design/arcade-pointer-controller.md), page P, in page E's river: a finger
+	// held upstream swims the salmon there; lifted, it stops steering; a tap at the waterfall's
+	// foot is a jump, so taps climb it as Space did; a hovering mouse steers with no button.
+	const p = await ready(
+		await boot('p', { rooms_name: 'Pi', rooms_character: 'salmon', rooms_game: 'salmons-falls' }),
+	);
+	await p.page.page('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+	await settle(p, 600);
+	const { me: meTouch } = await drawnOf(p);
+	/** Where world point `at` is on page P's canvas, in CSS px (the isometric screen). */
+	const screenOfP = async (at) => {
+		const cam = (await p.state()).arcade?.camera;
+		const rect = JSON.parse(
+			await p.page.evaluate(
+				'JSON.stringify(document.querySelector("canvas").getBoundingClientRect())',
+			),
+		);
+		const k = rect.width / cam.view.w;
+		const dx = at.x - (cam.x + cam.view.w / 2);
+		const dy = at.y - (cam.y + cam.view.h / 2);
+		return {
+			x: Math.round(rect.left + (cam.view.w / 2 + cam.shakeX + dx - dy) * k),
+			y: Math.round(rect.top + (cam.view.h / 2 + cam.shakeY + (dx + dy) / 2) * k),
+		};
+	};
+	const touchP = (type, points) =>
+		p.page.page('Input.dispatchTouchEvent', {
+			type,
+			touchPoints: points.map((point, id) => ({ ...point, id })),
+		});
+	const startP = await ownOf(p);
+	const fingerAt = await screenOfP({ x: startP.x, y: startP.y - 300 });
+	await touchP('touchStart', [fingerAt]);
+	let footP;
+	for (let i = 0; i < 30; i++) {
+		await settle(p, 300);
+		footP = await ownOf(p);
+		if (footP && Math.abs(footP.y - foot) < 3) break;
+	}
+	verdict(
+		'page P: a finger held upstream swims its salmon there, to the foot of the waterfall',
+		!!footP && !!startP && footP.y < startP.y - 40 && Math.abs(footP.y - foot) < 3,
+		{ startP, footP, foot, fingerAt },
+	);
+	await touchP('touchMove', [{ x: fingerAt.x + 30, y: fingerAt.y }]);
+	await touchP('touchEnd', []);
+	await settle(p, 1200);
+	const liftedP = await ownOf(p);
+	verdict(
+		'…lifted (after a drag, so no tap), it stops steering and the current carries it down',
+		!!liftedP &&
+			liftedP.y > footP.y + 5 &&
+			!(await eventsOf(p)).some((ev) => ev.type === 'climbed' && ev.id === meTouch),
+		{ footP, liftedP },
+	);
+	await p.key('ArrowUp', 'down');
+	await settle(p, 1500);
+	let climbedP;
+	for (let i = 0; i < 40 && !climbedP; i++) {
+		const at = await screenOfP((await ownOf(p)) ?? footP);
+		await touchP('touchStart', [at]);
+		await p.play([{ op: 'step', frames: 4 }]);
+		await touchP('touchEnd', []);
+		await p.play([{ op: 'step', frames: 4 }]);
+		climbedP = (await eventsOf(p)).find((ev) => ev.type === 'climbed' && ev.id === meTouch);
+	}
+	await settle(p, 400);
+	const overP = await ownOf(p);
+	await p.key('ArrowUp', 'up');
+	verdict(
+		'…taps on the screen are its jump: with ArrowUp held, they climb the waterfall',
+		!!climbedP && !!overP && overP.y < FALL.y,
+		{ climbedP, overP, fall: FALL },
+	);
+	writeFileSync(join(out, '08b-touch-over-the-waterfall.png'), await p.page.screenshot());
+	result.shots.push('08b-touch-over-the-waterfall.png');
+	await p.page.page('Emulation.setTouchEmulationEnabled', { enabled: false });
+	const hoverFrom = await ownOf(p);
+	const cursor = await screenOfP({ x: hoverFrom.x, y: hoverFrom.y - 400 });
+	await p.page.page('Input.dispatchMouseEvent', { type: 'mouseMoved', x: cursor.x, y: cursor.y });
+	await settle(p, 1500);
+	const hoverTo = await ownOf(p);
+	verdict(
+		"…and a mouse hovering upstream, no button pressed, swims it there (the original's hover)",
+		!!hoverTo && !!hoverFrom && hoverTo.y < hoverFrom.y - 100,
+		{ hoverFrom, hoverTo, cursor },
+	);
+	await p.page.close();
 
 	// P11.3, page F: a sandbank grounds the salmon until it jumps.
 	const f = await ready(
