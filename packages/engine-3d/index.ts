@@ -6,4 +6,6 @@
  * `apps/lines/src/components/ArcadeStage3D.svelte`, so three.js is one lazy chunk of that runtime and
  * absent from every other (`pnpm check:runtime-bytes`). It declares `three`; nothing else may.
  */
-export { mountWorld3d, type World3d, type World3dFrame, type World3dOptions } from './src/world';
+export * from './pure';
+export { listenKeys3d, type Keys3d } from './src/input';
+export { mountWorld3d, type View3d, type World3d, type World3dOptions } from './src/world';

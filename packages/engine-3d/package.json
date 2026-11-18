@@ -9,6 +9,10 @@
 		".": {
 			"types": "./index.ts",
 			"default": "./index.ts"
+		},
+		"./pure": {
+			"types": "./pure.ts",
+			"default": "./pure.ts"
 		}
 	},
 	"type": "module",
@@ -18,6 +22,7 @@
 		"lint": "eslint \"src\""
 	},
 	"dependencies": {
+		"engine-mechanics": "workspace:*",
 		"three": "0.187.0"
 	},
 	"devDependencies": {

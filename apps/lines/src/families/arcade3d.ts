@@ -4,5 +4,10 @@
  * module only in a build with `PUBLIC_IE_3D=1`, so no other runtime compiles it or anything it
  * imports.
  */
+import { reserveWorld3dCanvas } from '../game/world3dCanvas';
+
+// Before the Pixi context exists, so its auto-opaque check sees a world under it (`world3dCanvas.ts`).
+reserveWorld3dCanvas();
+
 export * from './arcade';
 export { default as ArcadeStage } from '../components/ArcadeStage3D.svelte';
