@@ -17,8 +17,9 @@ import type { RequestHandler } from './$types';
  *        — filtering is the page's; the answer says whether linked pull requests could be read, as
  *        the last sync found (a new one runs in the background, at most once a minute)
  *   POST /api/bugs   (JSON) report one: { kind, title, description, area, project?, pageUrl?,
- *                    priority? } — a game bug must name its project; answers the bug in full, with no
- *                    screenshots yet (they upload one by one)
+ *                    priority?, finding? } — a game bug must name its project; `finding`
+ *                    ({ project, id }) files an Invisible Profiler finding, once (409 the second
+ *                    time); answers the bug in full, with no screenshots yet (they upload one by one)
  */
 const NO_STORE = { 'cache-control': 'no-store' };
 

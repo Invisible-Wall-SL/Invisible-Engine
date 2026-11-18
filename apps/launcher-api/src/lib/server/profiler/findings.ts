@@ -22,7 +22,7 @@ const ownerFiles = import.meta.glob<OwnerMap>('$lib/tool-docs/owners.json', {
 	import: 'default',
 	eager: true,
 });
-const OWNERS: OwnerMap = Object.values(ownerFiles)[0] ?? { tools: {}, kinds: {} };
+export const OWNERS: OwnerMap = Object.values(ownerFiles)[0] ?? { tools: {}, kinds: {} };
 
 /**
  * Rows kept before P4 (or filled by an older `FACTS_VERSION`) are read from R2 by the page load and
