@@ -51,6 +51,13 @@ It is not a published project: the playtest builds its own snapshot and config a
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
 project (owner steps in [status/salmons](../status/salmons.md)).
 
+**What it looks like (2026-11-18):** the original's orientation, the source top-left and the sea
+bottom-right, waterfalls running up-right; a cell 64 × 32 CSS px (32 × 16 on a phone). On the
+original's levels a narrow band of grass, then a dense forest wall on both banks that follows the
+river (a character inside it is hidden behind the trees in front of it), dark forest floor beyond;
+sandy beaches near the sea; wooden placeholder bridges with pillars and reflections. The band
+river (`salmons-play.mjs`) keeps its grass world.
+
 ## Launch
 
 ```
@@ -96,11 +103,13 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
 3. Nearby-only: the bear on its bank far upstream is not sent to the salmon at the sea, nor the
    salmon to the bear.
 4. Page A's salmon starts at the sea, and page A's camera frames it.
-5. ArrowUp held on page A swims its salmon upstream (against the current), and the camera follows.
+5. ArrowUp held on page A swims its salmon upstream (against the current), and the camera follows
+   (no dead zone since 2026-11-18: centred on it within 24 px, its easing and the netcode's lag).
 6. Resting in the water, page A's salmon drifts downstream with the current, and page A draws
    it within 20 px of the room's place (its prediction of the drift, a little ahead). The river
-   screen is isometric (P11.4): in `03-salmon-upstream.png` the salmon's colour is at its
-   projected place (x − y, (x + y) / 2 from the camera's centre) and not at its flat one.
+   screen is isometric (P11.4) and mirrored as the original (2026-11-18): in
+   `03-salmon-upstream.png` the salmon's colour is at its projected place (y − x, (x + y) / 2
+   from the camera's centre) and not at its flat one.
 7. Page A shows the HUD (SCORE, ROUND, TIME) over the river, with the room's round and its own
    score (variables the room owns).
 8. Page B's J draws the bear's swipe on the press, before the room tells of it; the room then
@@ -152,8 +161,8 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     snapshot that registers three stub clips (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
     `salmon_pink_hop_se`, green 32 × 64 frames with their box, on a sheet in `editorArt`). The probe's
     `online.clips` (room id → `{ clipId, flipX }`) and `online.clipLog` (each change) say what is
-    played: swimming downstream (screen south-west) is `swim_se` mirrored; swimming upstream is
-    `swim_ne`; grounded on the sand, `15-salmon-clip.png` has the clip standing on its feet, gold
+    played (the mirrored screen, 2026-11-18): swimming downstream (screen south-east) is `swim_se`
+    as drawn; swimming upstream (screen north-west) is `swim_ne` mirrored; grounded on the sand, `15-salmon-clip.png` has the clip standing on its feet, gold
     (the room's only salmon is golden) from the feet to 180 px up and not above (90 wide, the
     body's width); Space jumps it off: `hop_se` (the vertical twin, no `hop_ne`) once, then
     `swim_ne`. T's bear has no clips: no clip in its probe, and its code look (the bear sprite,

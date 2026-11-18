@@ -65,14 +65,6 @@ A seed and the same keys replay the same game.
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
 - **Character clips (S0)**: `characterClips.ts`, online rooms only, shipped by prefix.
-- **Mirror and zoom are arcade-only drawing (2026-11-18).** `Scene.mirrored` (with `projection`)
-  and the camera's `zoom` / `mobileZoom` / `zoomIn` are read by the arcade runtime alone
-  (`projection.ts` `sceneProjector`, `worldCamera.ts` `sceneCameraZoom`, `camera.js`
-  `cameraZoom`), which publishes them in `worldDrawing.svelte.ts` before the view has a size;
-  `IsoWorld` draws by them. `LayoutScene`, `sceneCamera`, `SpawnLayer` and `MountedArt` (in every
-  runtime) do not know them, so the slot, match-3 and card runtimes keep their bytes. Zoom is read
-  on a projected screen only; a flat world screen ignores it. Anything that turns a world vector
-  to the screen (keys, facings, autotile sides) asks the projector, never `x − y`.
 - **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
@@ -98,8 +90,8 @@ A seed and the same keys replay the same game.
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
-- **Isometric is drawing only (P11.4).** `Scene.projection` moves no place or level: `IsoWorld` (registered by
-  `families/arcade.ts`) projects top-level layers and tilemaps only; the loop's view is `isoViewRect`.
+- **Isometric is drawing only (P11.4).** No place moves; `IsoWorld` projects top-level layers and
+  tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`).
 - **Sparse config.** Every arcade field is optional and defaults are dropped
   (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`;
   `check:game-config-family`).
@@ -126,12 +118,6 @@ A seed and the same keys replay the same game.
 | Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, 3D: `arcadeRoom3d.ts`, `roomSim3d.ts`; `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs` (`--3d`); 3D mechanics `packages/engine-mechanics/src/{motion3d,online3d}.js` |
 
 ## Known failure modes
-
-- **Symptom:** a character standing in Salmons' forest wall cannot be seen. **Cause:** none: the
-  forest trees stand among the players in depth order (the original's `+1001` over a player's
-  `+1000`), so one inside the wall is behind the trees in front of it. Bots spawning 6 cells off
-  the bank stand in its first row. **Guard:** `river.ts` puts trees and bridge decks in the spawn
-  layer's container (`spawnLayerIn`); the probe's `fieldArt.among`.
 
 - **Symptom:** after switching `salmons` to arcade and re-scaffolding, the published game was an
   arcade runtime driven by a slot flow and was broken. **Cause:** re-scaffold only creates missing
