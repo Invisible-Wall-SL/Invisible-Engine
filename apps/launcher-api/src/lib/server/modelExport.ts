@@ -39,6 +39,9 @@ import {
 import {
 	deriveModelTier,
 	inspectModelMaster,
+	modelLimitIssues,
+	NOT_A_GLB,
+	textureSideIssues,
 	tierCopyEqualsFull,
 	type DerivedModelTier,
 	type ModelTextureCache,
@@ -121,8 +124,8 @@ async function writeTier(
 	for (const tex of derived.textures) {
 		const key = `${prefix}${tex.uri}`;
 		if (mirror.written.has(key)) continue;
-		// A name is stable across profile changes (its master and role), so compare the CONTENT: R2's
-		// ETag of a single-part PUT is the MD5 of its bytes.
+		// A name hashes what decides its bytes, but a key from an older export may hold other bytes,
+		// so compare the CONTENT: R2's ETag of a single-part PUT is the MD5 of its bytes.
 		const head = await headObject(key);
 		const md5 = createHash('md5').update(tex.bytes).digest('hex');
 		if (head?.etag?.replaceAll('"', '') === md5) mirror.claim([key]);
@@ -139,7 +142,8 @@ const tierEntry = (glb: string, d: DerivedModelTier): ModelExportTier => ({
 });
 
 export interface ModelExportOptions {
-	/** Per-model warnings (a reached id with no model, a master that will not read). */
+	/** Per-model warnings (a reached id with no model, a master that will not read or is over the
+	 *  model limits — such a model is skipped). */
 	warn?: (message: string) => void;
 }
 
@@ -176,6 +180,16 @@ export async function exportModels(
 			warn(`"${id}": its master ${doc.source.file} is missing.`);
 			continue;
 		}
+		const limits = modelLimitIssues(master);
+		const facts = limits.length ? null : await inspectModelMaster(master);
+		const over = facts ? textureSideIssues(facts.textures) : limits;
+		if (!facts || over.length) {
+			const why = over.some((m) => m.startsWith(NOT_A_GLB))
+				? 'its master is not a readable GLB'
+				: 'its master is over the model limits';
+			warn(`"${id}": skipped, ${why}: ${over.join('; ')}.`);
+			continue;
+		}
 		const profile = resolveModelProfile(doc.class, doc, configModels);
 		const lodGenerate = MODEL_CLASS_DEFAULTS[doc.class].lodGenerate;
 		const derive = (tier: ModelTierId) =>
@@ -193,7 +207,6 @@ export async function exportModels(
 			await writeTier(mirror, prefix, file, derived);
 			tierEntries[tier] = tierEntry(file, derived);
 		}
-		const facts = await inspectModelMaster(master);
 		entries.push({
 			id,
 			class: doc.class,
