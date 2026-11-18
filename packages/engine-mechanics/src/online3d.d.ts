@@ -170,7 +170,24 @@ export type World3d = Readonly<{
 	level: World3dLevel;
 	motion: Readonly<Motion3dSpec>;
 	characters: Readonly<Record<string, Readonly<Motion3dSpec>>>;
-	spawns: readonly Readonly<{ x: number; y: number; z: number; yaw: number }>[];
+	/** `team` 0 is red, 1 blue (a generated arena's spawns carry it). */
+	spawns: readonly Readonly<{ x: number; y: number; z: number; yaw: number; team?: 0 | 1 }>[];
+	/** A generator id (`onlineGenerators3d.js`): the level is made per room from its seed. */
+	generator?: string;
+	/** What a generator placed for the rules (`crashArena.js` markers); none in an authored level. */
+	markers?: readonly Marker3d[];
+}>;
+
+/** A thing a level places for the rules, standing on a floor top: `chest`, `prop`, `pieceSpawner`,
+ *  `pickupSpawner`; a prop also carries `hp`, `drops` and `yaw`. */
+export type Marker3d = Readonly<{
+	kind: string;
+	x: number;
+	y: number;
+	z: number;
+	hp?: number;
+	drops?: number;
+	yaw?: number;
 }>;
 
 export declare function world3dOf(raw: unknown): World3d | undefined;

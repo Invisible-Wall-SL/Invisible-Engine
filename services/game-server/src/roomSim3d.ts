@@ -21,6 +21,7 @@ import {
 	type Input3d,
 	type World3d,
 } from 'engine-mechanics/src/online3d.js';
+import { generatedWorld3d } from 'engine-mechanics/src/onlineGenerators3d.js';
 import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
 
 import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
@@ -44,6 +45,10 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * predicts it too. Crash
  * rules, combat and the lobby are later steps; until then a room is `waiting` with nobody in it and
  * `running` with anybody.
+ *
+ * A world that names a generator (`arcade.world3d.generator`) plays the level the room's seed
+ * makes (`engine-mechanics` `generatedWorld3d`); the seed is in the room's state, so each device
+ * makes the same one.
  *
  * Bots fill the room to `online.bots.fillTo` while a person is in it, exactly as in 2D: a bot is a
  * player (`bot:<n>`) whose input comes from its brain (`engine-mechanics` `botInput3d`, the brain
@@ -101,10 +106,12 @@ export type RoomSim3d = {
 
 export function createRoomSim3d(
 	game: OnlineGame,
-	world: World3d,
+	authored: World3d,
 	options: { seed?: number } = {},
 ): RoomSim3d {
 	const seed = options.seed ?? Math.floor(Math.random() * 0x7fffffff);
+	// A world naming a generator plays the level its seed makes, as every device makes it.
+	const { world } = generatedWorld3d(authored, seed);
 	const { online } = game;
 	const ctx = stepContext(online.tickHz, online.subSteps);
 	const creditMax = Math.ceil(online.tickHz * CREDIT_SECONDS);

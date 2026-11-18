@@ -78,7 +78,9 @@
 		let field = three.playField3d(undefined);
 		try {
 			const raw = bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined;
-			field = three.playField3d(raw?.arcade?.world3d);
+			// A generated level offline: the seed `?level_seed=` names, else 1.
+			const seed = Number(new URLSearchParams(window.location.search).get('level_seed') ?? 1);
+			field = three.playField3d(raw?.arcade?.world3d, Number.isFinite(seed) ? seed : 1);
 		} catch (error) {
 			console.error(
 				'[engine-3d] arcade.world3d is not playable; the placeholder arena shows',
@@ -111,11 +113,13 @@
 	};
 
 	/** The 3D room: an input each of its fixed steps, the own player predicted, the rest
-	 *  interpolated; the level is the room's own `arcade.world3d`. */
+	 *  interpolated; the level is the room's own `arcade.world3d`, made from its seed when it
+	 *  names a generator. */
 	const online = (three: Engine3d, session: NonNullable<typeof room3d>): Field3d | undefined => {
 		let world;
 		try {
-			world = three.world3dOf(session.world3d);
+			const authored = three.world3dOf(session.world3d);
+			world = authored && three.generatedWorld3d(authored, session.seed ?? 0).world;
 		} catch (error) {
 			console.error('[engine-3d] the room plays an arcade.world3d this device cannot read', error);
 		}

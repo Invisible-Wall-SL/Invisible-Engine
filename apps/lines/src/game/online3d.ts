@@ -26,6 +26,8 @@ export type Online3d = {
 	room: Room;
 	/** The raw `arcade.world3d` block (`game-config` drops it; `engine-3d` `world3dOf` reads it). */
 	world3d: unknown;
+	/** The room's seed, from which a generated level is made (`engine-3d` `generatedWorld3d`). */
+	seed: number | undefined;
 	tickHz: number;
 	patchHz: number;
 };
@@ -34,6 +36,9 @@ let session: Online3d | undefined;
 
 /** The joined 3D room, or `undefined` (an offline game, a 2D room, or not joined yet). */
 export const online3dSession = (): Online3d | undefined => session;
+
+/** How long a join waits for the room's first state, which carries the seed of its level. */
+const SEED_WAIT_MS = 10_000;
 
 /** The raw config's `arcade.world3d`, or `undefined`. */
 const rawWorld3d = (): unknown =>
@@ -69,6 +74,12 @@ export async function joinOnlineRoom(): Promise<void> {
 		);
 	}
 	const joined = room;
+	const generated =
+		typeof (world3d as { generator?: unknown }).generator === 'string' ? await roomSeed(joined) : 0;
+	if (generated === undefined) {
+		joined.leave().catch(() => {});
+		return refuseOnlineBoot('the room did not say which level it plays');
+	}
 	// The room's one-shots (`jumped`, `landed`, `enterZone`, …) reach Flow in a later step; until
 	// then they are received and set aside, so the SDK has a handler for them.
 	joined.onMessage(ONLINE_EVENT, () => {});
@@ -79,7 +90,25 @@ export async function joinOnlineRoom(): Promise<void> {
 	session = {
 		room: joined,
 		world3d,
+		seed: generated,
 		tickHz: resolved.online.tickHz,
 		patchHz: resolved.online.patchHz,
 	};
+}
+
+/** The seed the room's first state carries, or `undefined` if none comes in time. */
+function roomSeed(room: Room): Promise<number | undefined> {
+	const now = (room.state as { seed?: unknown } | undefined)?.seed;
+	if (typeof now === 'number') return Promise.resolve(now);
+	return new Promise((resolve) => {
+		const first = (state: { seed?: unknown }) => {
+			clearTimeout(timer);
+			resolve(typeof state.seed === 'number' ? state.seed : undefined);
+		};
+		const timer = setTimeout(() => {
+			room.onStateChange.remove(first);
+			resolve(undefined);
+		}, SEED_WAIT_MS);
+		room.onStateChange.once(first);
+	});
 }

@@ -16,6 +16,7 @@ export {
 export { MODEL_TIERS, type ModelTierId } from 'constants-shared/modelTiers';
 export { createLevel3d, type Level3d } from 'engine-mechanics/src/motion3d.js';
 export { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
+export { generatedWorld3d } from 'engine-mechanics/src/onlineGenerators3d.js';
 export { createFollow3d } from './src/pure/follow';
 export {
 	createRoomView3d,
