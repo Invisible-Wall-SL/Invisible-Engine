@@ -197,7 +197,9 @@ const families = () => {
 	if (view3d) console.info('[config-vite] compiling the arcade play field in 3D (PUBLIC_IE_3D=1)');
 	return {
 		plugin: familySeams(list, { view3d }),
-		define: { __IE_FAMILIES__: JSON.stringify(list) },
+		// The art-tier pin is parsed here, where the build knows whether it is 3D: a 3D build takes
+		// the model-only tiers (`quarter`, `ultra`), a 2D build refuses them (`artTierPin.js`).
+		define: { __IE_FAMILIES__: JSON.stringify(list), ...artTierDefine({ view3d }) },
 	};
 };
 
@@ -272,7 +274,6 @@ export default () => {
 			...deliveryProfileDefine(),
 			...deliveryProfilesDefine(),
 			...familySet.define,
-			...artTierDefine(),
 			...stockPrunedDefine({ dev }),
 			...stockTwinsDefine(),
 		},
