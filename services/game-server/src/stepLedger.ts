@@ -3,7 +3,7 @@
  * steps a timer tick and then throws the rest of the elapsed time away, so an event-loop stall
  * longer than five steps (~83 ms at 60 Hz) loses room time while every device keeps sending at
  * real time: those inputs then wait in the room's buffer for good, as latency (3D review B finding
- * 10). A room that runs `due()` steps on each of Colyseus' calls follows the wall clock instead:
+ * 10; the 2D and 3D rooms alike). A room that runs `due()` steps on each of Colyseus' calls follows the wall clock instead:
  * it runs every step it owes, up to `catchUp` at once (a longer stall loses only the rest), and
  * none when the timer fired early.
  */
