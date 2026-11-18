@@ -551,6 +551,22 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   `rules.respawn`; game server schema fields `Input.respawn`, `Player.lineX/lineY/lineActive`,
   room `winnerName`, the room lock and the winner's pass (bloodstains: #1747). Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
   key (WS-E).
+- 2026-11-18 — **No glow under the golden salmon's art; page T's flake traced** (branch
+  `claude/salmons-ws-de`; in review; runtime change). The original draws the golden salmon only
+  with its `salmon_golden` texture (report §6.3, §9.4), no glow; since #1747 sinks a swimming
+  salmon below the players' layer, the glow `<SpawnLayer>` draws for a marked player covered the
+  fish. `online.ts` `drawMarks` now marks (glow and gold filter) only a player no code look draws:
+  placeholders and clips keep theirs, the art's salmon its texture alone. The probe's
+  `online.glowed` lists the glowing ones; `salmons-play.mjs` checks the golden salmons (A, G) are
+  marked, golden-textured and not glowing, and the gold-colour checks are back to their old
+  thresholds. Page T's intermittent failure ("stuck on loading", the camera off the bear) was
+  the playtest's: T's frames run only when the script steps it, and it was stepped ~400 ms after
+  its start, so its screenshot held the loading screen half faded over the river and the camera
+  still easing; the faint overlay dimmed or missed the bear under the colour sample. Flow, probe
+  and room were right throughout (`loading` hidden, `loaded`, T in the room and drawn). T is now
+  stepped before its screenshot. Separately, the in-process server's 16 sockets-and-held-seats
+  per address can refuse a late page (closed pages' seats are held 60 s): that page shows the
+  standard "could not load" boot screen, not an endless loading screen.
 - 2026-11-18 — **WS-D / WS-E against WS-B's d23983f** (branch `claude/salmons-ws-de`; in review).
   WS-B's tip merged (runtime-bytes conflicts taken as ours, re-recorded). The river list matches
   WS-B's `GET /rooms` (the URL, `[{ roomId, players }]`). A key-only cast before any move aims at

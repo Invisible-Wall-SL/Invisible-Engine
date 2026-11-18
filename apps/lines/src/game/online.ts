@@ -249,6 +249,9 @@ type Session = {
 	drawnLines: { by: string; target: string }[];
 	/** Each holder whose line came into view, `<holder id>`, newest last (the probe's). */
 	lineLog: string[];
+	/** The marked players drawn gold over a glow (not those a code look draws), room ids (the
+	 *  probe's). */
+	glowed: string[];
 	/** The own player's abilities, raised on the press; made with its first place. */
 	abilities: AbilityPredictor | undefined;
 	/** The flow signals raised, newest last (the probe's). */
@@ -542,6 +545,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		lines: createHookLines(),
 		drawnLines: [],
 		lineLog: [],
+		glowed: [],
 		abilities: undefined,
 		looks: new Map(),
 		clipLooks: new Map(),
@@ -1221,7 +1225,8 @@ const bodyOf = (current: Session, player: PlayerState) =>
 	current.sizes.get(player.character) ?? { w: 0, h: 0 };
 
 /**
- * The marked players drawn gold, and the fishing lines, as drawn: a line the room syncs on its
+ * The marked players drawn gold over a glow (a code look draws its own gold), and the fishing
+ * lines, as drawn: a line the room syncs on its
  * holder (`lineActive`, `lineX`, `lineY`; Salmons' aimed cast) from the rod hand to the bobber,
  * raised with the ground under it (to the salmon on it, once one is), from the cast until it is
  * home; any other
@@ -1235,9 +1240,15 @@ function drawMarks(
 	lines: readonly HookLine[],
 ) {
 	const marks = new Map<string, InstanceMark>();
+	current.glowed = [];
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
-		if (player?.mark) marks.set(instance, { width: bodyOf(current, player).w });
+		// A code look draws its own gold (Salmons' golden salmon is its golden texture, as the
+		// original's): no glow under it, which a swimming salmon, drawn below the players' layer,
+		// would have under it on top.
+		if (!player?.mark || (current.codeLooks.has(id) && !current.looks.get(id)?.shown)) continue;
+		marks.set(instance, { width: bodyOf(current, player).w });
+		current.glowed.push(id);
 	}
 	setMarks(marks);
 	const links: InstanceLink[] = [];
@@ -1648,6 +1659,7 @@ export function onlineProbe() {
 							.map(([id]) => id),
 						lines: current.drawnLines.map((line) => ({ ...line })),
 						lineLog: [...current.lineLog],
+						glowed: [...current.glowed],
 						stains: Array.from({ length: state.stains?.length ?? 0 }, (_, i) => {
 							const stain = state.stains?.at(i);
 							return stain ? [stain.x, stain.y] : [];
