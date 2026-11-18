@@ -4,7 +4,8 @@ Invisible Profiler keeps the `?perf=1` readings of a project's published game, s
 it runs on real devices. Open a capture on a phone from a QR code, play, and every reading the game
 sends lands in the project's list, kept 15 days unless you keep it longer. Every desktop ☁ Publish
 and 📦 Deliver also lands here as a build record, so you can see what each build shipped, how it
-changed from the one before, and the readings taken on it.
+changed from the one before, and the readings taken on it. Each project has budgets (frame rate,
+frame time, memory, size) and every device and build is marked pass, warn or fail against them.
 
 ## What it is
 
@@ -31,9 +32,10 @@ the readout gets a **Send** button and the reading goes straight to the project'
 ## How to use it
 
 1. Sign in to the launcher (`app.invisiblewall.org`), open the **Invisible Profiler** card and pick
-   the project in the **Project** picker. The page has two tabs, each with its count: **Readings**
-   (three foldable sections: **New capture**, **Paste a reading** and **Readings**) and **Builds**
-   (a link with `?tab=builds` opens it). Hover a section's title for what it does.
+   the project in the **Project** picker. The page has four tabs: **Readings** (with its count;
+   three foldable sections: **New capture**, **Paste a reading** and **Readings**), **Devices**,
+   **Builds** (with its count) and **Budgets**. A link with `?tab=devices`, `?tab=builds` or
+   `?tab=budgets` opens that tab. Hover a section's title for what it does.
 
 ### Capture on a phone
 
@@ -118,6 +120,14 @@ Players never load the readout at all.
     - **Shipped MB**, and **Δ MB**: the change from the previous build of the same game and kind
       (`±0` when it is under 0.05 MB, `–` when there is none to compare with).
     - **GPU MB**: an estimate of the memory its images take on the graphics chip.
+    - **Shipped MB** and **GPU MB** are coloured by the project's budgets (see **Budgets** below):
+      green for pass, orange for warn, red for fail. Hover the cell for the verdict per device
+      class. A breakdown that names no size or no GPU estimate is not judged on it (hover: "not
+      enough data").
+    - **Devices**: a pill per device class (`phone`, `desktop`…) that has as-shipped readings on
+      this build, coloured pass / warn / fail / not enough data. A class takes the verdict of its
+      worst device (GPU), so a weak phone failing is not hidden by a strong one. Hover a pill for
+      how many readings it is from; `–` means no as-shipped reading on this build yet.
     - **Issues**: the errors and warnings its build breakdown found, or `none`.
     - **Readings**: how many readings were taken on this build.
     - **Keep**: as for readings (below).
@@ -136,13 +146,70 @@ Players never load the readout at all.
     reading, except the newest build of each game and kind (one publish and one delivery per game),
     which always stays so there is something to compare with: its Keep column reads `newest`.
 
+### Devices
+
+15. The **Devices** tab groups the project's readings by device class and graphics chip (GPU),
+    worst first. With none yet it reads "No as-shipped readings yet — open a capture on the
+    Readings tab and play the game on a phone." Each row shows:
+    - **Device**: the class (`phone`, `desktop`) and the GPU under it (hover for the full name).
+    - **Readings**: how many readings the group holds.
+    - **Verdict**: `pass`, `warn`, `fail` or `not enough data` — the worst of the row's cells.
+    - **Idle**, **Spinning**, **Round**: **fps** and **p95** (the median over the group's
+      readings) and **>33** (hitches, added up over the readings).
+    - **Draws** and **GPU MB**: the median draw calls a frame and texture memory.
+16. A cell is coloured by the project's budget: green pass, orange warn, red fail, grey when there
+    is not enough data or no budget for it. Hover a cell for its verdict and the warn and fail
+    lines.
+    - A phase only counts from readings with at least **120 frames** in it (about two seconds of
+      play). With none, the cell says "not enough data" — never pass. Play each phase a little
+      longer and send again.
+    - Readings taken with a test switch (**Particles off** and the others) are left out: they
+      measure what a feature costs, not the game players get. So are readings whose device class
+      the game did not name. A line under the table says how many were left out.
+17. Click a device's name to open its readings **build by build**, newest first, in a card under
+    the table: each build (or the build number the game stamped, when no build record matches)
+    with its readings judged the same way. Click the name again to close it.
+
+### Budgets
+
+18. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
+    **Phone**, **Tablet**, **Desktop** and **Every device** (shipped size). Each row is one metric
+    (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Shipped size**.
+    - **Warn** and **Fail** are the project's lines, filled in with the line in force. For fps,
+      below the line is bad (`<`); for the others, above it (`>`). A blank line is not checked.
+    - **Studio default** shows the studio's line beside it, and a `project` tag when this project
+      has its own.
+19. The studio defaults:
+
+    | Device        | Metric                 | Warn     | Fail     |
+    | ------------- | ---------------------- | -------- | -------- |
+    | Phone, tablet | fps idle               | < 58     | < 55     |
+    | Phone, tablet | fps spinning, round    | < 55     | < 50     |
+    | Phone, tablet | p95 frame, every phase | > 20 ms  | > 25 ms  |
+    | Phone, tablet | GPU memory             | > 120 MB | > 150 MB |
+    | Desktop       | fps, every phase       | < 58     | < 55     |
+    | Desktop       | p95 frame, every phase | > 20 ms  | > 25 ms  |
+    | Every device  | Shipped size           | > 20 MB  | > 25 MB  |
+
+    "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
+    Draws a frame and desktop GPU memory have no default; set one if your project wants it.
+
+20. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
+    you typed. A value out of range, or a warn line on the wrong side of the fail line, is refused
+    with the reason beside it (for example "The warn line must be at or above the fail line (more
+    fps is better)."). The reset icon at the end of a row with its own line ("Reset to the studio
+    default") brings back the studio default.
+21. Everyone with the Profiler and the project can edit its budgets. A budget belongs to one
+    project; the studio defaults are not editable here. If someone else saved the same line first,
+    yours is not saved: the row shows theirs, with "Someone else changed this budget line first —
+    it now shows their value." and the warn and fail you had typed. Type yours again to save it
+    over theirs.
+
 ## Known limitations / TODOs
 
-The Profiler is built in steps; P1 ("Capture and keep") and P2 ("Builds") are done. Planned in
-[the design](../design/invisible-profiler.md), not built yet:
+The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds") and P3 ("Devices and
+budgets") are done. Planned in [the design](../design/invisible-profiler.md), not built yet:
 
-- **Devices and budgets** (P3): readings grouped by device and GPU, fps and size targets per
-  project, pass / warn / fail.
 - **Findings** (P4): a ranked list of what to cut, and **Compare** for two readings side by side.
 - **File as bug** (P5), **lab runs** in headless Chrome after each Publish (P6), and **cloud
   phones** from an online device service (P7).
@@ -157,8 +224,9 @@ Today:
   15 days.
 - Only readings from a game whose readout reports `perf: 7` are read. A reading from a newer or
   older readout is refused with its version.
-- Purging a project deletes its readings and build records with it. A duplicated project starts
-  with none.
+- Purging a project deletes its readings, build records and budgets with it. A duplicated
+  project starts with no readings or builds, and on the studio budgets: its overrides are not
+  copied.
 - Only desktop builds are recorded (Invisible Launcher v1.0.68 or later); an older launcher sends
   nothing, and an online Publish from Game Maker makes no build record.
 - A pasted reading left on **Not sure** is matched on its build number and commit alone, so two
@@ -168,3 +236,5 @@ Today:
 - A reading from an online game is tagged with the engine release live when it arrived, not when
   the phone loaded the game; a release in between would tag the newer one.
 - The build list shows the newest 200 builds.
+- The game tells phones and desktops apart only, so no reading is judged as a tablet yet; the
+  **Tablet** budgets wait for it.

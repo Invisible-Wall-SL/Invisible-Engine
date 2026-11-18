@@ -309,6 +309,13 @@
       "when": 1794926248511,
       "tag": "0043_perf_reports_game",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794931164931,
+      "tag": "0044_perf_budgets",
+      "breakpoints": true
     }
   ]
 }

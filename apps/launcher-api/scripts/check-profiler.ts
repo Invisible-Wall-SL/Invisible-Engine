@@ -17,6 +17,12 @@
  * 8. A reading joins its build by the stamp: same build number, and the same commit when both name one.
  * 9. Build retention: an old unkept build goes, but never the newest of its game key and kind — not
  *    even a lone build past 15 days — and once a newer one lands the old newest goes too.
+ * 10. Budgets: the studio defaults are the owner's numbers; a project override replaces one line and
+ *     a reset falls back; a line out of range or with its warn past its fail is refused.
+ * 11. Evaluation: pass / warn / fail on both sides of a line; a phase with too few frames is "not
+ *     enough data", never pass; a device group is judged on its median, as-shipped readings only.
+ * 12. A build's verdicts: shipped size and the GPU estimate from its breakdown, each device class
+ *     from the as-shipped readings taken on it.
  */
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
@@ -27,6 +33,7 @@ import {
 	PERF_RETENTION_MS,
 	summarizePerfReport,
 	uaFamily,
+	type PerfReportListItem,
 } from '../src/lib/profiler.ts';
 import { mintCaptureToken, verifyCaptureToken } from '../src/lib/server/profiler/captureToken.ts';
 import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
@@ -49,6 +56,22 @@ import {
 	summarizeBuildBreakdown,
 	type PerfBuildListItem,
 } from '../src/lib/profilerBuilds.ts';
+import {
+	budgetKeyId,
+	budgetRefusal,
+	deviceGroups,
+	effectiveBudgets,
+	evaluateBuild,
+	evaluateReadings,
+	isBudgetKey,
+	judge,
+	MIN_PHASE_FRAMES,
+	readingsByBuild,
+	STUDIO_BUDGETS,
+	worstVerdict,
+	type BudgetOverride,
+	type MetricVerdict,
+} from '../src/lib/profilerBudgets.ts';
 import { analyzeDesktopBuild, BREAKDOWN_VERSION } from '../../../scripts/lib/build-breakdown.mjs';
 
 const bucket = (frames: number, fps: number) => ({
@@ -655,4 +678,269 @@ test('4. a reading or build file no row names is swept after a day; the rest sta
 	assert.deepEqual(deleted, [`${reports}orphan.json`, `${builds}g/v1-a.json`]);
 	assert.ok(!asked.flat().some((k) => k.includes('young')), 'a young file is never looked up');
 	assert.ok(!asked.flat().some((k) => k.includes('/uploads/')), 'only under its own prefix');
+});
+
+// ── P3: budgets ──
+
+const phaseOf = (frames: number, fps: number, p95: number) => ({
+	frames,
+	fps,
+	p50: 16.7,
+	p95,
+	hitches: 0,
+});
+
+/** A list item as the page holds it, as shipped, on build 12. */
+const reading = (over: Partial<PerfReportListItem> = {}): PerfReportListItem => ({
+	id: 'r',
+	capturedAt: '2026-11-17T10:00:00.000Z',
+	source: 'capture',
+	label: null,
+	gameKey: 'slots',
+	deviceClass: 'phone',
+	gpu: 'Mali-G52 MC2',
+	uaFamily: null,
+	dpr: 2,
+	canvas: null,
+	buildVersion: '12',
+	buildSha: 'abcdef1',
+	runtimeRelease: null,
+	flags: {},
+	idle: phaseOf(600, 59.8, 17.4),
+	spinning: phaseOf(300, 56, 19),
+	round: phaseOf(900, 57, 19.5),
+	drawsMean: 80,
+	textureMb: 90,
+	keep: false,
+	expiresAt: null,
+	...over,
+});
+
+const verdictOf = (ms: MetricVerdict[], metric: string, phase = '') =>
+	ms.find((m) => m.metric === metric && m.phase === phase)?.verdict;
+
+test('10. the studio defaults are the owner’s numbers, each warn inside its fail line', () => {
+	const eff = effectiveBudgets([]);
+	const get = (deviceClass: string, metric: string, phase = '') =>
+		eff.find((b) => b.deviceClass === deviceClass && b.metric === metric && b.phase === phase);
+	assert.deepEqual(
+		[get('phone', 'fps', 'idle')?.fail, get('phone', 'fps', 'spinning')?.fail],
+		[55, 50],
+		'phone: 60 fps idle (a 60 Hz display reads 59.x), ≥ 50 spinning',
+	);
+	assert.equal(get('phone', 'p95', 'spinning')?.fail, 25);
+	assert.deepEqual(
+		[get('desktop', 'fps', 'idle')?.fail, get('desktop', 'fps', 'spinning')?.fail],
+		[55, 55],
+		'desktop: 60 / 60',
+	);
+	assert.equal(get('all', 'shippedMb')?.fail, 25);
+	assert.equal(get('phone', 'gpuMb')?.fail, 150);
+	assert.equal(get('desktop', 'gpuMb')?.fail, null, 'no GPU line on desktop');
+	assert.equal(get('phone', 'draws')?.fail, null, 'draws has no default');
+	for (const s of STUDIO_BUDGETS) {
+		assert.equal(budgetRefusal(s.metric, s), null, `${budgetKeyId(s)} is a valid line`);
+		assert.ok(s.warn !== null && s.fail !== null && s.warn !== s.fail, 'a real warn band');
+		assert.ok(isBudgetKey(s), `${budgetKeyId(s)} is a key the page lists`);
+	}
+	assert.ok(!isBudgetKey({ deviceClass: 'all', metric: 'fps', phase: 'idle' }));
+	assert.ok(!isBudgetKey({ deviceClass: 'phone', metric: 'shippedMb', phase: '' }));
+});
+
+test('10. a project override replaces one line; reset (no row) falls back to the default', () => {
+	const override: BudgetOverride = {
+		deviceClass: 'phone',
+		metric: 'fps',
+		phase: 'spinning',
+		warn: 45,
+		fail: 40,
+		rev: 7,
+		updatedAt: '2026-11-17T10:00:00.000Z',
+		updatedBy: null,
+	};
+	const eff = effectiveBudgets([override]);
+	const line = eff.find((b) => budgetKeyId(b) === 'phone:fps:spinning');
+	assert.deepEqual([line?.warn, line?.fail, line?.studio?.fail], [45, 40, 50]);
+	assert.equal(line?.override?.rev, 7);
+	const other = eff.find((b) => budgetKeyId(b) === 'tablet:fps:spinning');
+	assert.equal(other?.fail, 50, 'another class keeps the default');
+	const reset = effectiveBudgets([]).find((b) => budgetKeyId(b) === 'phone:fps:spinning');
+	assert.deepEqual([reset?.fail, reset?.override], [50, null]);
+});
+
+test('10. a line is refused unless it is in range and its warn is on the good side', () => {
+	assert.equal(budgetRefusal('fps', { warn: 58, fail: 55 }), null);
+	assert.match(budgetRefusal('fps', { warn: 50, fail: 55 }) ?? '', /at or above/);
+	assert.match(budgetRefusal('p95', { warn: 30, fail: 25 }) ?? '', /at or below/);
+	assert.match(budgetRefusal('fps', { warn: null, fail: null }) ?? '', /warn or a fail/);
+	assert.match(budgetRefusal('fps', { warn: null, fail: 600 }) ?? '', /between/);
+	assert.match(budgetRefusal('shippedMb', { warn: Number.NaN, fail: 25 }) ?? '', /between/);
+	assert.equal(budgetRefusal('shippedMb', { warn: null, fail: 25 }), null, 'a fail line alone');
+});
+
+test('11. pass, warn and fail on both sides of a line', () => {
+	const fps = { warn: 58, fail: 55 };
+	assert.equal(judge('fps', 59.8, fps), 'pass');
+	assert.equal(judge('fps', 58, fps), 'pass', 'on the line passes');
+	assert.equal(judge('fps', 56, fps), 'warn');
+	assert.equal(judge('fps', 54.9, fps), 'fail');
+	const ms = { warn: 20, fail: 25 };
+	assert.equal(judge('p95', 19, ms), 'pass');
+	assert.equal(judge('p95', 22, ms), 'warn');
+	assert.equal(judge('p95', 25.1, ms), 'fail');
+	assert.equal(judge('p95', 30, { warn: null, fail: 25 }), 'fail', 'no warn band');
+	assert.equal(judge('p95', 22, { warn: 20, fail: null }), 'warn', 'never fails');
+	assert.equal(judge('p95', null, ms), 'nodata');
+	assert.equal(judge('draws', 999, undefined), 'none', 'no budget, not judged');
+});
+
+test('11. a phase with too few frames says "not enough data", never pass', () => {
+	const eff = effectiveBudgets([]);
+	const short = reading({
+		spinning: phaseOf(MIN_PHASE_FRAMES - 1, 60, 16),
+		round: null,
+	});
+	const ms = evaluateReadings('phone', [short], eff);
+	assert.equal(verdictOf(ms, 'fps', 'spinning'), 'nodata');
+	assert.equal(verdictOf(ms, 'p95', 'spinning'), 'nodata');
+	assert.equal(verdictOf(ms, 'fps', 'round'), 'nodata', 'no round at all');
+	assert.equal(verdictOf(ms, 'fps', 'idle'), 'pass');
+	assert.equal(worstVerdict(ms.map((m) => m.verdict)), 'nodata', 'the reading is not a pass');
+	const enough = evaluateReadings('phone', [reading()], eff);
+	assert.equal(worstVerdict(enough.map((m) => m.verdict)), 'pass');
+	assert.equal(verdictOf(enough, 'draws'), 'none', 'draws unbudgeted by default');
+});
+
+test('11. a device group is judged on the median of its readings, as shipped only', () => {
+	const eff = effectiveBudgets([]);
+	const group = [
+		reading({ id: 'a', spinning: phaseOf(300, 30, 40) }),
+		reading({ id: 'b', spinning: phaseOf(300, 56, 19) }),
+		reading({ id: 'c', spinning: phaseOf(300, 57, 19) }),
+	];
+	const ms = evaluateReadings('phone', group, eff);
+	assert.equal(
+		verdictOf(ms, 'fps', 'spinning'),
+		'pass',
+		'one bad reading does not fail the device',
+	);
+	const twoBad = [...group, reading({ id: 'd', spinning: phaseOf(300, 31, 40) })];
+	const ms2 = evaluateReadings('phone', twoBad, eff);
+	assert.equal(verdictOf(ms2, 'fps', 'spinning'), 'fail', 'half bad is bad (median 43.5)');
+	const groups = deviceGroups(
+		[
+			reading({ id: 'p1' }),
+			reading({ id: 'p2', gpu: 'Adreno 610', spinning: phaseOf(300, 40, 30) }),
+			reading({ id: 'x', flags: { particles: 'off' }, spinning: phaseOf(300, 10, 90) }),
+			reading({
+				id: 'd1',
+				deviceClass: 'desktop',
+				gpu: 'RTX 3060',
+				spinning: phaseOf(300, 59.9, 17),
+				round: phaseOf(900, 59.9, 17),
+			}),
+			reading({ id: 'u', deviceClass: 'watch' }),
+		],
+		eff,
+	);
+	assert.deepEqual(
+		groups.map((g) => [g.deviceClass, g.gpu, g.verdict, g.readings.map((r) => r.id).join()]),
+		[
+			['phone', 'Adreno 610', 'fail', 'p2'],
+			['phone', 'Mali-G52 MC2', 'pass', 'p1'],
+			['desktop', 'RTX 3060', 'pass', 'd1'],
+		],
+		'the worst first; a test-switch reading and an unknown class are left out',
+	);
+});
+
+test('12. a build: size and GPU from its breakdown, each device class from its readings', () => {
+	const MB = 1048576;
+	const build = {
+		id: 'b12',
+		gameKey: 'slots',
+		build: '12',
+		engineSha: 'abcdef1234567890',
+		kind: 'publish',
+		shippedBytes: 22 * MB,
+		gpuBytes: 160 * MB,
+	} as PerfBuildListItem;
+	const eff = effectiveBudgets([]);
+	const v = evaluateBuild(
+		build,
+		[
+			reading({ id: 'p' }),
+			reading({ id: 'd', deviceClass: 'desktop', spinning: phaseOf(300, 50, 30) }),
+			reading({ id: 'other', buildVersion: '11', deviceClass: 'tablet' }),
+			reading({ id: 'flag', deviceClass: 'tablet', flags: { fx: '0' } }),
+		],
+		eff,
+	);
+	assert.equal(v.shipped, 'warn', '22 MB: over the 20 MB warn, under the 25 MB fail');
+	assert.equal(v.gpu, 'fail', '160 MB estimate over the phone line');
+	assert.deepEqual(v.devices.phone, { verdict: 'pass', readings: 1 });
+	assert.deepEqual(v.devices.desktop, { verdict: 'fail', readings: 1 });
+	assert.equal(v.devices.tablet, null, 'another build and a test switch do not count');
+	const mixed = evaluateBuild(
+		build,
+		[
+			reading({ id: 'iphone', gpu: 'Apple GPU', spinning: phaseOf(300, 59.9, 17) }),
+			reading({ id: 'mali', spinning: phaseOf(300, 53, 22) }),
+		],
+		eff,
+	);
+	assert.deepEqual(
+		mixed.devices.phone,
+		{ verdict: 'warn', readings: 2 },
+		'a class takes its worst GPU — a strong phone does not average a weak one away',
+	);
+	const none = evaluateBuild({ ...build, gpuBytes: 0, shippedBytes: 3 * MB }, [], eff);
+	assert.equal(none.gpu, 'nodata', 'no estimate is no data, not a 0 MB pass');
+	assert.equal(none.shipped, 'pass');
+	const unsized = evaluateBuild({ ...build, shippedBytes: 0 }, [], eff);
+	assert.equal(unsized.shipped, 'nodata', 'a breakdown with no size is no data, not a 0 MB pass');
+	const relaxed = effectiveBudgets([
+		{
+			deviceClass: 'all',
+			metric: 'shippedMb',
+			phase: '',
+			warn: 30,
+			fail: 40,
+			rev: 1,
+			updatedAt: '',
+			updatedBy: null,
+		},
+	]);
+	assert.equal(evaluateBuild(build, [], relaxed).shipped, 'pass', 'the override is used');
+});
+
+test('11. a device row opens into its readings build by build, newest first', () => {
+	const eff = effectiveBudgets([]);
+	const b12 = { id: 'b12', gameKey: 'slots', build: '12', engineSha: 'abcdef1', kind: 'publish' };
+	const rows = readingsByBuild(
+		{
+			deviceClass: 'phone',
+			readings: [
+				reading({ id: 'a', capturedAt: '2026-11-17T09:00:00.000Z' }),
+				reading({ id: 'b', capturedAt: '2026-11-17T11:00:00.000Z', buildVersion: '13' }),
+				reading({ id: 'c', capturedAt: '2026-11-17T08:00:00.000Z', buildVersion: null }),
+				reading({
+					id: 'd',
+					capturedAt: '2026-11-17T10:00:00.000Z',
+					spinning: phaseOf(300, 40, 30),
+				}),
+			],
+		},
+		[b12 as PerfBuildListItem],
+		eff,
+	);
+	assert.deepEqual(
+		rows.map((r) => [r.label, r.readings.map((x) => x.id).join(), r.verdict]),
+		[
+			['v13', 'b', 'pass'],
+			['v12', 'a,d', 'fail'],
+			['No build stamp', 'c', 'pass'],
+		],
+		'v12: the median of 56 and 40 spinning fps is 48, under the 50 fail line',
+	);
 });
