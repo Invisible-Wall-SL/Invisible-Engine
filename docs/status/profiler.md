@@ -18,7 +18,9 @@ online game headless and keeps a `lab` reading, compared with the game's previou
 counts, never fps. Step **P4 "Findings" built 2026-11-18**: eight rules as pure functions over a
 project's readings and builds give a ranked list of what to cut — severity, a measured saving (or
 "unmeasured"), the owner, the evidence — on a **Findings** tab, and **Compare** puts any two
-readings side by side. P5 and P7 are planned.
+readings side by side. Step **P5 "File as bug" built 2026-11-18**: each finding opens Bug Reports'
+own form filled in — a game or a pipeline bug, its area from the owner — once per finding, and the
+readings and builds it cites are kept while the bug exists. P7 is planned.
 
 ## Current state
 
@@ -176,7 +178,11 @@ readings side by side. P5 and P7 are planned.
   from the real analyser), each rule against its fixture AND a planted mutant of it (a lab reading's
   fps read, `renderMs` read as the JS, the switch paired across GPUs, idle spikes counted, the
   whole texture MB as the estimate, every build judged, a guessed Optimize saving) that the fixture
-  must fail with an assertion, the ranking, owners against the real `owners.json`, Compare.
+  must fail with an assertion, the ranking, owners against the real `owners.json`, Compare. P5
+  adds 17–18 in `scripts/check-profiler-bugs.ts`: every rule and variant's list and area (with
+  mutants), the text and the form's prefill; once per finding over an in-memory store with the
+  table's key (two at once, after a delete, a purged citation), the schema's key and cascade, and
+  the purge claim's rendered SQL skipping cited rows (with a mutant).
   `check:launcher-gates` accepts `buildOrigin(` as a project check only because it
   asserts `buildOrigin` calls `canAccessProject`.
 
@@ -233,6 +239,25 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   detail card on Builds). **Compare tab** (`CompareTab.svelte`, `?tab=compare&a=&b=`): two reading
   pickers; per phase fps / p95 / > 33 ms / frames, the idle and spinning per-frame counts, texture
   MB, B − A coloured better / worse; a note when a lab run is beside a device.
+- **File as bug (P5).** The Findings tab's **Bug** column: **File as bug** links to the existing
+  report form — `/game-bugs` or `/bugs` with `?new=1&project=&finding=<id>` (`fileFindingHref`).
+  The page load re-reads the finding server-side (`profiler/findingBugs.ts` `findingDraft`) and fills
+  in kind, area, title and text (`profilerFindings/bug.ts`): a **game** bug for the game's content
+  (texture MB and oversize pages → art; unused bytes, Optimize off, a build that grew → loading;
+  particles / Element FX cost → art), a **pipeline** bug for the engine or a tool (fps, GPU/CPU-bound,
+  spikes, KTX2 fallback, antialiasing cost, fps or lab-count regressions), its area the tool the
+  owning agent owns first in `owners.json`, else `engine`. The text: rule, measurement, saving,
+  owner, a Compare link per reading and a `?tab=builds&build=` link per build (with their JSON),
+  the finding id. The form posts `/api/bugs` with `finding: { project, id }`; `createBug` →
+  `prepareFindingBug` (Profiler tool + project + the finding still found + its own list) files the
+  bug, a `perf_finding_bugs` row (migration `0047_perf_finding_bugs.sql`, primary key project +
+  finding id, FK to `bug_reports` on delete cascade, the cited reading / build ids) and Keep on the
+  evidence in `insertBug`'s transaction (`within`, `findingBugLink.ts`). A second filing — two at
+  once included — loses on the key, rolls back its bug and gets 409 naming the first; a cited row
+  the purge claimed meanwhile files nothing (409). Once filed the column shows **Filed as BUG-n**
+  and its status. Un-Keep of a cited row is 409 (`citingBug`), and the purge's claim skips any
+  cited row whatever its Keep (`purgeJob.ts` `uncited`) — the guarantee. Who files: whoever has the
+  Profiler and the list's own tool (`requireBugAccess` / `requireKind`).
 - **Owners** come from `docs/knowledge/owners.json`, mirrored into `src/lib/tool-docs/owners.json`
   by `scripts/copy-tool-docs.mjs` (as `agents.json` is).
 - **Lab runs (P6).** `scripts/playtest/lab-sequence.mjs` is the sequence, written against a subset
@@ -318,13 +343,21 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
    lab readings out (it counted their fps before); a finding has no "dismissed" state yet (P5 files
    it as a bug); `textureList` is missing from a trimmed reading (open item 5), so its texture
    estimates say "unmeasured".
-8. **P5 — File as bug:** prefilled Bug Reports from a finding, with the evidence links — from the
-   `Finding` shape (`profilerFindings/finding.ts`; its `id` is stable across loads, to tell one already
-   filed).
+8. **P5 is unverified on production.** Verified locally (PGlite + fake R2, the P4 seed): a game
+   bug and a pipeline bug filed from the Findings tab, their rows, links and Keep; a second filing,
+   two at once, a stale finding id and un-Keep of a cited reading / build all 409; a deleted bug frees
+   its finding. Left open: a filed bug is a snapshot (its text is not updated, and it is not resolved
+   when the finding drops out); a deleted bug leaves its evidence kept; there is still no "dismissed"
+   state for a finding nobody will fix.
 9. **P7 — Cloud phones:** the lab script on an online real-device service, calibrated first.
 
 ## Recent changes
 
+- 2026-11-18 — **P5 "File as bug" built**: `profilerFindings/bug.ts` (list, area, text),
+  `profiler/findingBugs.ts` + `findingBugLink.ts` (draft, filing, link, Keep), `perf_finding_bugs`
+  - migration 0047, `insertBug`'s `within` hook, the Bug column on Findings, the prefill on
+    `/bugs` and `/game-bugs` (`withFindingDraft`), the un-Keep 409, the purge guard, `?build=` on the
+    Builds tab, gates 17–18.
 - 2026-11-18 — **P4 "Findings" built**: `src/lib/profilerFindings/` (eight rules, one file each,
   ranking, Compare), `facts` columns + migration 0046 filled at receipt and backfilled from R2 on
   load, the **Findings** and **Compare** tabs, owners from `owners.json` (mirrored by

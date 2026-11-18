@@ -70,6 +70,7 @@
 		for (const [key, value] of [
 			['a', id === 'compare' ? compareA : null],
 			['b', id === 'compare' ? compareB : null],
+			['build', id === 'builds' ? selectedBuildId : null],
 		] as const) {
 			if (value) url.searchParams.set(key, value);
 			else url.searchParams.delete(key);
@@ -269,7 +270,8 @@
 		iso ? Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)) : null;
 
 	// ── Builds ──
-	let selectedBuildId = $state<string | null>(null);
+	// `?build=` is how a bug's evidence link opens a build's detail card.
+	let selectedBuildId = $state<string | null>(untrack(() => page.url.searchParams.get('build')));
 
 	/** A finding's build evidence: its detail card on the Builds tab. */
 	function openBuild(id: string): void {
@@ -617,7 +619,15 @@
 			</div>
 		{:else if tab === 'findings'}
 			<div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
-				<FindingsTab findings={data.findings} onOpenBuild={openBuild} onCompare={compare} />
+				<FindingsTab
+					findings={data.findings}
+					filed={data.filed}
+					fileAs={data.fileAs}
+					projectKey={data.projectKey}
+					bugTools={new Set(data.tools.map((t) => t.id))}
+					onOpenBuild={openBuild}
+					onCompare={compare}
+				/>
 			</div>
 		{:else if tab === 'compare'}
 			<div id="panel-compare" role="tabpanel" aria-labelledby="tab-compare">

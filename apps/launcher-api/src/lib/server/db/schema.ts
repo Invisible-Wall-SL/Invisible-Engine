@@ -1458,3 +1458,39 @@ export const perfBudgets = pgTable(
 );
 
 export type PerfBudget = typeof perfBudgets.$inferSelect;
+
+/**
+ * Invisible Profiler P5: a finding filed as a bug (`profiler/findingBugs.ts`). One row per finding
+ * of a project — the primary key is what refuses a second filing, two people at once included —
+ * and gone with its bug, so a finding whose bug is deleted can be filed again. The readings and
+ * builds the bug cites are kept: Keep is set when it is filed, cannot be taken off while the bug
+ * exists, and the purge never claims a cited row. Keep stays on after the bug is deleted.
+ */
+export const perfFindingBugs = pgTable(
+	'perf_finding_bugs',
+	{
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		/** P4's `Finding.id`: the rule and what it read, the build stamp included. */
+		findingId: text('finding_id').notNull(),
+		bugNumber: integer('bug_number')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		readingIds: text('reading_ids')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+		buildIds: text('build_ids')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+		filedAt: timestamp('filed_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.projectKey, table.findingId] }),
+		index('perf_finding_bugs_bug_idx').on(table.bugNumber),
+	],
+);
+
+export type PerfFindingBug = typeof perfFindingBugs.$inferSelect;
