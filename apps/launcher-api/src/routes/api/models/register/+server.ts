@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { isModelClass } from 'constants-shared/modelTiers';
 import { objectOrNull, readJson } from '$lib/server/http';
 import { requireModelAccess } from '$lib/server/modelAccess';
-import { isModelId, registerModelUpload } from '$lib/server/modelStorage';
+import { isModelId, MODEL_ID_RULE, registerModelUpload } from '$lib/server/modelStorage';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -21,7 +21,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		url.searchParams.get('project'),
 	);
 	const body = objectOrNull(await readJson(request)) ?? {};
-	if (!isModelId(body.id)) throw error(400, 'Expected an `id` in lower snake case.');
+	if (!isModelId(body.id)) throw error(400, `Expected an \`id\`: ${MODEL_ID_RULE}.`);
 	if (typeof body.upload !== 'string' || !/^[0-9a-f-]{36}$/.test(body.upload))
 		throw error(400, 'Expected the `upload` id the upload endpoint returned.');
 	if (!isModelClass(body.class))

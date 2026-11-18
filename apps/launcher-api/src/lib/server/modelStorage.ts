@@ -44,9 +44,29 @@ import {
 	putObjectText,
 } from './r2';
 
-/** A model id: lower snake case, as the Blender export names files (`sword`, `crate_small`). */
-export const MODEL_ID = /^[a-z][a-z0-9_]{0,63}$/;
+/**
+ * A model id, kept EXACTLY as given (case included): the Blender export's own asset id, the name it
+ * writes as `<id>.glb` and as `extras.ie.id` (`CH_brawler`, `WP_sword`, `PR_crate`;
+ * `docs/conventions/blender-3d-assets.md` "Names"). A letter, then letters, digits and underscores.
+ * The game names a model by this exact string (`modelId`), so it is never normalised.
+ */
+export const MODEL_ID = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 export const isModelId = (v: unknown): v is string => typeof v === 'string' && MODEL_ID.test(v);
+export const MODEL_ID_RULE =
+	'a letter, then letters, digits or underscores (64 at most), e.g. CH_brawler or WP_sword';
+
+/**
+ * Why `id` cannot be a new model beside `existing`, or null. Two ids that differ only in case are
+ * refused: their files (`deploy/models/<id>.glb`) would collide when a build pulls them onto a
+ * case-insensitive disk (Windows, macOS), and one would silently replace the other.
+ */
+export function modelIdRefusal(id: string, existing: readonly string[]): string | null {
+	if (!isModelId(id)) return `"${id}" is not a model id: ${MODEL_ID_RULE}.`;
+	const clash = existing.find((e) => e !== id && e.toLowerCase() === id.toLowerCase());
+	return clash
+		? `"${id}" differs from the existing model "${clash}" only in case; use "${clash}" or another id.`
+		: null;
+}
 
 /** A master upload's ceiling: a hero master with 4096² maps and every LOD is tens of MB. */
 export const MAX_MODEL_BYTES = 256 * 1024 * 1024;
@@ -323,7 +343,7 @@ export async function validateModelMaster(
 
 export type RegisterResult =
 	| { ok: true; doc: ModelDoc; etag: string | null }
-	| { ok: false; status: 404 | 409 | 422; error: string; issues?: ModelValidatorIssue[] };
+	| { ok: false; status: 400 | 404 | 409 | 422; error: string; issues?: ModelValidatorIssue[] };
 
 /**
  * Validate the staged upload and commit it as the model's master. `baseEtag` is the `model.json`
@@ -340,6 +360,10 @@ export async function registerModelUpload(
 ): Promise<RegisterResult> {
 	const stagedKey = modelUploadKey(clientKey, projectKey, id, upload);
 	try {
+		// The id rule is enforced HERE, not only in the route: a script registering through this
+		// function once stored an id that the export's listing then skipped without a word.
+		const refusal = modelIdRefusal(id, await listModelIds(clientKey, projectKey));
+		if (refusal) return { ok: false, status: 400, error: refusal };
 		// Weigh it BEFORE reading it: the presigned PUT signs only the content type, so the staged
 		// object can be any size R2 accepts, and reading it whole would put it all on the heap.
 		const head = await headObject(stagedKey);

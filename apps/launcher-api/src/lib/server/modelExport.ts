@@ -166,7 +166,12 @@ export async function exportModels(
 
 	for (const id of [...reached].sort()) {
 		if (!ids.includes(id)) {
-			warn(`"${id}" is named by the game but has no model; it renders nothing.`);
+			// Ids are exact: say so when the game's spelling differs from a model's only in case.
+			const near = ids.find((m) => m.toLowerCase() === id.toLowerCase());
+			warn(
+				`"${id}" is named by the game but has no model; it renders nothing.` +
+					(near ? ` Model ids are case-sensitive: did you mean "${near}"?` : ''),
+			);
 			continue;
 		}
 		const loaded = await loadModelDoc(clientKey, projectKey, id);
