@@ -33,6 +33,7 @@ import {
 	MAX_LEVEL_CELLS_3D,
 	MAX_STEP_DT_3D,
 	MAX_ZONES_3D,
+	MAX_ZONES_AT_ONCE_3D,
 	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
 	MOTION3D_VERSION,
@@ -432,6 +433,34 @@ check('zones and the death plane raise edge signals, once each way', () => {
 	}
 	assert.equal(fell, 2, 'again after a respawn above the plane');
 });
+check(
+	'a body in every zone of a level raises a bounded few edges a step, cheaply (review B N1)',
+	() => {
+		// Review B's construction at the zone cap: every zone covers the body, half end at x = 0.
+		const zones = Array.from({ length: MAX_ZONES_3D }, (_, i) => ({
+			kind: 'water',
+			minX: -20,
+			minY: -1,
+			minZ: -20,
+			maxX: i % 2 ? 0 : 20,
+			maxY: 5,
+			maxZ: 20,
+		}));
+		const level = createLevel3d({ colliders: [FLOOR], zones });
+		const tracker = createTracker3d();
+		const result = stepBody3d(createBody3d(), idle, level);
+		let most = 0;
+		const started = performance.now();
+		for (let i = 0; i < 20000; i++) {
+			const body = createBody3d({ x: i % 2 ? -0.1 : 0.1 });
+			most = Math.max(most, trackStep3d(tracker, body, result, level).length);
+		}
+		const ms = performance.now() - started;
+		assert.equal(zonesAt3d(createBody3d({ x: -1 }), level).length, MAX_ZONES_AT_ONCE_3D);
+		assert.ok(most <= 2 * MAX_ZONES_AT_ONCE_3D, `${most} edges in one step`);
+		assert.ok(ms < 400, `${ms.toFixed(0)} ms for 20 000 steps`);
+	},
+);
 check('the hash sees one bit of one field', () => {
 	const a = createBody3d({ x: 1 });
 	const b = createBody3d({ x: 1 });

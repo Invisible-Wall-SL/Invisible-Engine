@@ -56,6 +56,7 @@ import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/in
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { CREDIT_SECONDS, inputsThisStep } from '../services/game-server/src/roomSim.ts';
 import { createRoomSim3d } from '../services/game-server/src/roomSim3d.ts';
+import { createStepLedger } from '../services/game-server/src/stepLedger.ts';
 import { ROOM_NAME, ROOM_NAME_3D, createGameServer } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -385,6 +386,8 @@ const midAir = () => {
 		predictor.input(input);
 	};
 	const release = () => held.splice(0).forEach((input) => rx.receive(input));
+	/** What `@colyseus/sdk` does with inputs sent while its socket is closed: drops them. */
+	const lose = () => held.splice(0);
 	const step = (events = [], told = true) => {
 		events.push(...sim.step((id, credit) => (id === 'ann' ? rx.take(credit) : [])));
 		if (!told) return events;
@@ -397,7 +400,7 @@ const midAir = () => {
 	}
 	assert.ok(player.body.y > 0.3 && player.body.vy > 0, 'rising');
 	assert.equal(verdicts.corrected, 0);
-	return { sim, player, send, release, step, verdicts, predictor };
+	return { sim, player, send, release, lose, step, verdicts, predictor };
 };
 const CREDIT_STEPS = Math.ceil(30 * CREDIT_SECONDS);
 
@@ -484,6 +487,28 @@ await check(
 		assert.equal(player.ack, ack + CREDIT_STEPS + 90, 'the burst drained');
 		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([player.body]));
 		assert.equal(verdicts.corrected, before, 'no correction once the burst arrives');
+	},
+);
+
+await check(
+	'a reconnect that loses 30 inputs mid-jump costs its device one correction, then every state matches (review B #7)',
+	() => {
+		const { player, send, lose, step, verdicts, predictor } = midAir();
+		for (let i = 0; i < 30; i++) {
+			send(0, true);
+			step();
+		}
+		lose();
+		const before = verdicts.corrected;
+		for (let i = 0; i < 90; i++) {
+			send();
+			step();
+		}
+		assert.equal(verdicts.corrected - before, 1, JSON.stringify(verdicts));
+		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([player.body]));
+		console.log(
+			`   ${verdicts.corrected - before} correction after the gap (35 before the whole body was sent)`,
+		);
 	},
 );
 
@@ -585,6 +610,65 @@ await check('a spawn on a platform whose top is not a float32 stands on it', () 
 		respawnOnFall3d(body, stepPlayer3d(body, clampInput3d({ seq }), level, world.motion), home);
 	assert.ok(body.grounded && body.y === 0.7, `stands at ${body.y}`);
 });
+
+/**
+ * A 60 Hz room paced by Colyseus 0.18's `setFixedTimestep` (at most five calls a timer tick, the
+ * rest of the elapsed time thrown away) with the event loop stalled once for `stallMs` at 30 s,
+ * and one device sending an input every step of real time through a jittery in-order link. Each
+ * call steps the room once (`ledger` false: as before), or as many steps as the wall clock owes
+ * (`stepLedger.ts`). Returns the inputs waiting, on average, in the 5 s before the stall and from
+ * 30 s after it.
+ */
+const stalled = (stallMs, ledger) => {
+	const sim = roomOf(configOf({ online: { tickHz: 60 } }));
+	sim.join('ann', { character: 'hero' });
+	const rx = receiver();
+	const stepMs = 1000 / 60;
+	const rng = createRng('stall');
+	const arrivals = [];
+	for (let t = stepMs; t < 120000; t += stepMs) arrivals.push(t + 30 + rng() * 3 * stepMs);
+	arrivals.sort((a, b) => a - b);
+	let now = 0;
+	let next = 0;
+	const steps = createStepLedger({ hz: 60, catchUp: 30, now: () => now });
+	const take = (id, credit) => rx.take(credit);
+	let acc = 0;
+	let last = 0;
+	const before = [];
+	const after = [];
+	while (now < 120000) {
+		now += stepMs;
+		if (now >= 30000 && last < 30000) now += stallMs;
+		acc += now - last;
+		last = now;
+		while (next < arrivals.length && arrivals[next] <= now)
+			rx.receive(clampInput3d({ seq: (next += 1) }));
+		let calls = 0;
+		while (acc >= stepMs && calls < 5) {
+			acc -= stepMs;
+			calls += 1;
+			for (let n = ledger ? steps.due() : 1; n > 0; n--) sim.step(take);
+		}
+		if (calls === 5) acc = 0;
+		if (now > 25000 && now < 30000) before.push(rx.queue.length);
+		if (now > 60000) after.push(rx.queue.length);
+	}
+	const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+	return { before: mean(before), after: mean(after) };
+};
+
+await check(
+	'an event-loop stall loses the room no time: its inputs do not pile up for good (review B #10)',
+	() => {
+		const fixed = stalled(500, true);
+		const plain = stalled(500, false);
+		assert.ok(plain.after > plain.before + 20, `one step a call: ${JSON.stringify(plain)}`);
+		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
+		console.log(
+			`   500 ms stall: ${fixed.after.toFixed(1)} inputs waiting after (${plain.after.toFixed(1)} one step a call)`,
+		);
+	},
+);
 
 await check('a player that has never sent an input waits at its home, banking no credit', () => {
 	const sim = roomOf(configOf());
@@ -820,6 +904,12 @@ await check(
 				{ level: { cellSize: 0.01, colliders: [box(-20, -1, -20, 20, 0, 20)] } },
 				/level: motion3d: cellSize must be at least 0\.25/,
 			],
+			// Review B #5's ±1e6 typo (it never returned) and N2's level at 40 km.
+			[
+				{ level: { colliders: [box(-1e6, -1, -1e6, 1e6, 0, 1e6)] } },
+				/colliders\.0\.minX: within 16384 m/,
+			],
+			[{ level: { colliders: [box(40000, -1, 0, 40010, 0, 10)] } }, /colliders\.0\.minX: within/],
 			[{ motion: { subMove: 0.9 } }, /motion\.subMove: at most twice the radius/],
 			[
 				{ level: { cellSize: 16 }, motion: { radius: 0.02, subMove: 0.04, speed: 50, sprint: 4 } },

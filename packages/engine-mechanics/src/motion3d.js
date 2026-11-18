@@ -609,9 +609,16 @@ function trampolineAt(body, level) {
 }
 
 /**
- * The zones a body is in, by id: its centre on the plane inside the zone's footprint (edges
- * included) and its upright span `[y, y + height]` touching the zone's. A trampoline counts like
- * any other zone here; only {@link stepBody3d} launches from one.
+ * The most zones a body is in at once: past it, the zones with the lowest ids count. It bounds what
+ * a step costs and the edge signals one body raises in a step, whatever a level stacks up.
+ */
+export const MAX_ZONES_AT_ONCE_3D = 32;
+
+/**
+ * The zones a body is in, by id, ascending: its centre on the plane inside the zone's footprint
+ * (edges included) and its upright span `[y, y + height]` touching the zone's — at most
+ * {@link MAX_ZONES_AT_ONCE_3D}. A trampoline counts like any other zone here; only
+ * {@link stepBody3d} launches from one.
  */
 export function zonesAt3d(body, level, spec = MOTION3D_DEFAULTS) {
 	const ids = [];
@@ -622,9 +629,10 @@ export function zonesAt3d(body, level, spec = MOTION3D_DEFAULTS) {
 			body.z >= z.minZ &&
 			body.z <= z.maxZ &&
 			body.y <= z.maxY &&
-			body.y + spec.height >= z.minY
+			body.y + spec.height >= z.minY &&
+			ids.push(z.id) === MAX_ZONES_AT_ONCE_3D
 		)
-			ids.push(z.id);
+			break;
 	}
 	return ids;
 }
@@ -660,12 +668,17 @@ export function trackStep3d(tracker, body, result, level, spec = MOTION3D_DEFAUL
 	if (result.bounced) out.push({ type: SIGNALS3D.bounced });
 	const was = tracker.zones;
 	const is = zonesAt3d(body, level, spec);
-	for (const id of was)
-		if (!is.includes(id))
-			out.push({ type: SIGNALS3D.leaveZone, zone: id, kind: level.zones[id].kind });
-	for (const id of is)
-		if (!was.includes(id))
-			out.push({ type: SIGNALS3D.enterZone, zone: id, kind: level.zones[id].kind });
+	// Both lists ascend by id, so one walk finds the edges (no `includes`: O(zones), not O(zones²)).
+	for (let i = 0, j = 0; i < was.length; i++) {
+		while (j < is.length && is[j] < was[i]) j++;
+		if (is[j] !== was[i])
+			out.push({ type: SIGNALS3D.leaveZone, zone: was[i], kind: level.zones[was[i]].kind });
+	}
+	for (let i = 0, j = 0; i < is.length; i++) {
+		while (j < was.length && was[j] < is[i]) j++;
+		if (was[j] !== is[i])
+			out.push({ type: SIGNALS3D.enterZone, zone: is[i], kind: level.zones[is[i]].kind });
+	}
 	tracker.zones = is;
 	const fell = body.y < level.killY;
 	if (fell && !tracker.fell) out.push({ type: SIGNALS3D.fell });

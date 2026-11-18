@@ -173,6 +173,9 @@ export declare function stepBody3d(
 	dt?: number,
 ): Step3dResult;
 
+/** The most zones a body is in at once (the lowest ids count). */
+export declare const MAX_ZONES_AT_ONCE_3D: number;
+/** The zones a body is in, by id, ascending, at most {@link MAX_ZONES_AT_ONCE_3D}. */
 export declare function zonesAt3d(body: Body3d, level: Level3d, spec?: Motion3dSpec): number[];
 
 export declare const SIGNALS3D: Readonly<{
